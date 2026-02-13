@@ -1,0 +1,249 @@
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/url"
+	"os"
+	"os/exec"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"github.com/gorilla/websocket"
+	gologging "github.com/op/go-logging"
+	"github.com/urfave/cli/v3"
+	"github.com/ziyan/teanode/internal/logging"
+	"github.com/ziyan/teanode/internal/terminal"
+	"github.com/ziyan/teanode/internal/util/screenbuffer"
+)
+
+func TerminalCmd() *cli.Command {
+	return &cli.Command{
+		Name:      "terminal",
+		Usage:     "Launch a PTY-backed terminal and relay it to the gateway",
+		ArgsUsage: "[-- command [arguments...]]",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "gateway",
+				Aliases: []string{"g"},
+				Usage:   "gateway WebSocket URL (e.g. ws://127.0.0.1:18789)",
+				Value:   "ws://127.0.0.1:18789",
+			},
+			&cli.StringFlag{
+				Name:    "token",
+				Aliases: []string{"t"},
+				Usage:   "authentication token",
+			},
+			&cli.StringFlag{
+				Name:    "name",
+				Aliases: []string{"n"},
+				Usage:   "connection name for identifying this terminal",
+				Value:   "default",
+			},
+			&cli.StringFlag{
+				Name:    "command",
+				Aliases: []string{"c"},
+				Usage:   "command to run with arguments (e.g. \"python3 -i\")",
+			},
+		},
+		Action: func(ctx context.Context, command *cli.Command) error {
+			log := logging.Get("cmd")
+
+			// Determine child command: --command flag, positional args, $SHELL, or bash.
+			var shellArguments []string
+			if commandFlag := command.String("command"); commandFlag != "" {
+				shellArguments = strings.Fields(commandFlag)
+			} else {
+				shellArguments = command.Args().Slice()
+			}
+			if len(shellArguments) == 0 {
+				if shell := os.Getenv("SHELL"); shell != "" {
+					shellArguments = []string{shell}
+				} else {
+					shellArguments = []string{"bash"}
+				}
+			}
+
+			// Open PTY.
+			master, slave, err := terminal.OpenPTY()
+			if err != nil {
+				return fmt.Errorf("open pty: %w", err)
+			}
+			defer master.Close()
+
+			// Set PTY window size from user terminal.
+			rows, cols, err := terminal.GetWinSize(int(os.Stdin.Fd()))
+			if err == nil {
+				terminal.SetWinSize(int(master.Fd()), rows, cols)
+			} else {
+				terminal.SetWinSize(int(master.Fd()), 24, 80)
+			}
+
+			// Start child process.
+			child := exec.CommandContext(ctx, shellArguments[0], shellArguments[1:]...)
+			child.Stdin = slave
+			child.Stdout = slave
+			child.Stderr = slave
+			child.SysProcAttr = &syscall.SysProcAttr{
+				Setsid:  true,
+				Setctty: true,
+				Ctty:    0,
+			}
+			if err := child.Start(); err != nil {
+				slave.Close()
+				return fmt.Errorf("start command: %w", err)
+			}
+			slave.Close()
+
+			// Put user terminal in raw mode.
+			originalTermios, err := terminal.MakeRaw(int(os.Stdin.Fd()))
+			if err != nil {
+				return fmt.Errorf("raw mode: %w", err)
+			}
+			defer terminal.RestoreTermios(int(os.Stdin.Fd()), originalTermios)
+
+			// Screen buffer for capturing output.
+			buffer := screenbuffer.New(1000)
+
+			// Goroutine: stdin -> PTY master.
+			go func() {
+				io.Copy(master, os.Stdin)
+			}()
+
+			// Goroutine: PTY master -> stdout + screen buffer.
+			go func() {
+				chunk := make([]byte, 4096)
+				for {
+					bytesRead, err := master.Read(chunk)
+					if bytesRead > 0 {
+						os.Stdout.Write(chunk[:bytesRead])
+						buffer.Write(chunk[:bytesRead])
+					}
+					if err != nil {
+						return
+					}
+				}
+			}()
+
+			// Handle SIGWINCH.
+			sigwinch := make(chan os.Signal, 1)
+			signal.Notify(sigwinch, syscall.SIGWINCH)
+			go func() {
+				for range sigwinch {
+					if rows, cols, err := terminal.GetWinSize(int(os.Stdin.Fd())); err == nil {
+						terminal.SetWinSize(int(master.Fd()), rows, cols)
+					}
+				}
+			}()
+
+			// Connect to gateway WebSocket.
+			gatewayUrl := command.String("gateway")
+			token := command.String("token")
+			name := command.String("name")
+			go connectGateway(ctx, gatewayUrl, token, name, master, buffer, log)
+
+			// Wait for child to exit.
+			child.Wait()
+			return nil
+		},
+	}
+}
+
+func connectGateway(ctx context.Context, gatewayUrl, token, name string, master *os.File, buffer *screenbuffer.Buffer, log *gologging.Logger) {
+	parsedUrl, err := url.Parse(gatewayUrl)
+	if err != nil {
+		log.Errorf("terminal: invalid gateway URL: %v", err)
+		return
+	}
+	parsedUrl.Path = "/terminal"
+	query := parsedUrl.Query()
+	if token != "" {
+		query.Set("token", token)
+	}
+	query.Set("id", name)
+	parsedUrl.RawQuery = query.Encode()
+
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, parsedUrl.String(), nil)
+	if err != nil {
+		log.Errorf("terminal: gateway connect failed: %v", err)
+		return
+	}
+	defer connection.Close()
+
+	log.Info("terminal: connected to gateway")
+
+	// Read commands from gateway.
+	for {
+		_, data, err := connection.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		var message struct {
+			ID     *int            `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.Unmarshal(data, &message); err != nil {
+			continue
+		}
+
+		switch message.Method {
+		case "ping":
+			response, _ := json.Marshal(map[string]string{"method": "pong"})
+			connection.WriteMessage(websocket.TextMessage, response)
+
+		case "screenshot":
+			text := buffer.Screenshot(100)
+			result, _ := json.Marshal(map[string]string{"text": text})
+			response, _ := json.Marshal(map[string]interface{}{
+				"id":     message.ID,
+				"result": json.RawMessage(result),
+			})
+			connection.WriteMessage(websocket.TextMessage, response)
+
+		case "write":
+			var parameters struct {
+				Data string `json:"data"`
+			}
+			if message.Params != nil {
+				json.Unmarshal(message.Params, &parameters)
+			}
+			_, writeErr := master.Write([]byte(parameters.Data))
+			if writeErr != nil {
+				errStr := writeErr.Error()
+				response, _ := json.Marshal(map[string]interface{}{
+					"id":    message.ID,
+					"error": errStr,
+				})
+				connection.WriteMessage(websocket.TextMessage, response)
+			} else {
+				response, _ := json.Marshal(map[string]interface{}{
+					"id":     message.ID,
+					"result": json.RawMessage("{}"),
+				})
+				connection.WriteMessage(websocket.TextMessage, response)
+			}
+
+		case "resize":
+			var parameters struct {
+				Cols uint16 `json:"cols"`
+				Rows uint16 `json:"rows"`
+			}
+			if message.Params != nil {
+				json.Unmarshal(message.Params, &parameters)
+			}
+			if parameters.Rows > 0 && parameters.Cols > 0 {
+				terminal.SetWinSize(int(master.Fd()), parameters.Rows, parameters.Cols)
+			}
+			response, _ := json.Marshal(map[string]interface{}{
+				"id":     message.ID,
+				"result": json.RawMessage("{}"),
+			})
+			connection.WriteMessage(websocket.TextMessage, response)
+		}
+	}
+}

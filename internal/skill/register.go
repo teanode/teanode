@@ -1,0 +1,40 @@
+package skill
+
+import (
+	"strings"
+
+	"github.com/ziyan/teanode/internal/agent"
+)
+
+// RegisterSkills loads skills from the directory and registers their tools.
+// Returns the combined prompt text from all loaded skills (empty if none).
+func RegisterSkills(registry *agent.ToolRegistry, skillsDir string) string {
+	skills, err := LoadAll(skillsDir)
+	if err != nil {
+		log.Warningf("failed to load skills: %v", err)
+		return ""
+	}
+
+	var skillPrompts []string
+	for _, skill := range skills {
+		count := 0
+		for index := range skill.Tools {
+			tool := &skill.Tools[index]
+			switch tool.Type {
+			case "shell":
+				registry.Register(&ShellTool{definition: *tool})
+				count++
+			case "http":
+				registry.Register(&HTTPTool{definition: *tool})
+				count++
+			}
+		}
+		log.Infof("loaded %d tools from %s", count, skill.Name)
+
+		if skill.Prompt != "" {
+			skillPrompts = append(skillPrompts, skill.Prompt)
+		}
+	}
+
+	return strings.Join(skillPrompts, "\n\n")
+}

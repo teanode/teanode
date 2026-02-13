@@ -1,0 +1,9 @@
+/teanode
+
+# Frontend
+/web/node_modules/
+/web/dist/
+
+# Frontend build artifacts (webpack output into backend embed dir)
+/internal/gateway/static/bundle.*
+/internal/gateway/static/index.html

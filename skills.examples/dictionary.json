@@ -1,0 +1,27 @@
+{
+  "name": "dictionary",
+  "description": "English dictionary lookup",
+  "tools": [
+    {
+      "name": "lookup_word",
+      "description": "Look up the definition of an English word",
+      "type": "http",
+      "method": "GET",
+      "url": "https://api.dictionaryapi.dev/api/v2/entries/en/{{word}}",
+      "headers": {
+        "Accept": "application/json"
+      },
+      "timeout": 15,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "word": {
+            "type": "string",
+            "description": "The English word to look up"
+          }
+        },
+        "required": ["word"]
+      }
+    }
+  ]
+}

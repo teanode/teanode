@@ -1,0 +1,18 @@
+{
+  "gateway": {
+    "port": 18789,
+    "bind": "loopback",
+    "auth": {
+      "token": ""
+    }
+  },
+  "models": {
+    "default": "gpt-4o",
+    "provider": "openai",
+    "baseUrl": "https://api.openai.com/v1",
+    "apiKey": "",
+    "contextWindow": 128000,
+    "summaryModel": ""
+  },
+  "systemPrompt": ""
+}
