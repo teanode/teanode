@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/teanode/teanode/internal/config"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
@@ -28,14 +27,6 @@ func NewStore(directory string) *Store {
 	return &Store{directory: directory}
 }
 
-// NewStoreDefault creates a Store using the default sessions directory.
-func NewStoreDefault() (*Store, error) {
-	directory, err := config.SessionsDir()
-	if err != nil {
-		return nil, err
-	}
-	return NewStore(directory), nil
-}
 
 // Load reads all messages from a session file.
 // Returns empty slice (not error) if the session doesn't exist.

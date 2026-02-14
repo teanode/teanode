@@ -178,7 +178,7 @@ func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand s
 		case <-ctx.Done():
 			return
 		case <-time.After(2 * time.Second):
-			log.Info("terminal: reconnecting to gateway ...")
+			log.Debug("terminal: reconnecting to gateway ...")
 		}
 	}
 }
@@ -191,7 +191,7 @@ func serveGatewayConnection(ctx context.Context, url string, shellCommand string
 	}
 	defer connection.Close()
 
-	log.Info("terminal: connected to gateway")
+	log.Debug("terminal: connected to gateway")
 
 	// Send machine info so the relay can distinguish this terminal.
 	sendMachineInfo(connection, shellCommand)

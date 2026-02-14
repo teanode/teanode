@@ -1,4 +1,7 @@
 import React from 'react';
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Typography from '@mui/material/Typography';
 import { highlightJson } from '../markdown';
 
 interface ToolInvokeProps {
@@ -8,17 +11,51 @@ interface ToolInvokeProps {
 
 export default function ToolInvoke({ toolName, args }: ToolInvokeProps) {
   return (
-    <div className="self-start max-w-[75%] px-3 py-2 rounded-[8px] text-xs bg-tool-bg border border-[#3a3a20]">
-      <span className="inline-block bg-accent-dim text-white text-[10px] font-semibold px-1.5 py-px rounded-[3px] uppercase font-mono tracking-wide mr-1.5 align-middle">
-        {toolName}
-      </span>
-      <span>called</span>
-      <pre className="text-dim font-mono text-[11px] mt-1 px-2 py-1.5 bg-black/20 rounded max-h-40 overflow-y-auto overflow-x-auto">
+    <Box
+      sx={{
+        alignSelf: 'flex-start',
+        maxWidth: '75%',
+        px: 1.5,
+        py: 1,
+        borderRadius: 1,
+        fontSize: '0.75rem',
+        bgcolor: 'toolBg',
+        border: 1,
+        borderColor: (theme) => theme.palette.mode === 'dark' ? '#3a3a20' : '#d5d5a0',
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+        <Chip
+          label={toolName}
+          size="small"
+          color="primary"
+          sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+        />
+        <Typography variant="caption">called</Typography>
+      </Box>
+      <Box
+        component="pre"
+        sx={{
+          color: 'text.secondary',
+          fontFamily: 'monospace',
+          fontSize: '11px',
+          mt: 0.5,
+          px: 1,
+          py: 0.75,
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.05)',
+          borderRadius: 0.5,
+          maxHeight: 160,
+          overflowY: 'auto',
+          overflowX: 'auto',
+          m: 0,
+        }}
+      >
         <code
-          className="hljs language-json text-[11px] font-mono bg-transparent p-0"
+          className="hljs language-json"
+          style={{ fontSize: '11px', fontFamily: 'monospace', backgroundColor: 'transparent', padding: 0 }}
           dangerouslySetInnerHTML={{ __html: highlightJson(args) }}
         />
-      </pre>
-    </div>
+      </Box>
+    </Box>
   );
 }

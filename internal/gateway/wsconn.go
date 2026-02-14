@@ -72,6 +72,8 @@ func (self *webSocketConnection) dispatch(frame types.RequestFrame) {
 		self.handleConnect(frame)
 	case "health":
 		self.handleHealth(frame)
+	case "agents.list":
+		self.handleAgentsList(frame)
 	case "chat.send":
 		self.handleChatSend(frame)
 	case "chat.history":
@@ -96,6 +98,20 @@ func (self *webSocketConnection) dispatch(frame types.RequestFrame) {
 		self.handleCronsDelete(frame)
 	case "crons.trigger":
 		self.handleCronsTrigger(frame)
+	case "config.schema":
+		self.handleConfigSchema(frame)
+	case "config.get":
+		self.handleConfigGet(frame)
+	case "config.update":
+		self.handleConfigUpdate(frame)
+	case "agents.config.schema":
+		self.handleAgentsConfigSchema(frame)
+	case "agents.config.list":
+		self.handleAgentsConfigList(frame)
+	case "agents.config.save":
+		self.handleAgentsConfigSave(frame)
+	case "agents.config.delete":
+		self.handleAgentsConfigDelete(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

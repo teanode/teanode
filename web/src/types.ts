@@ -26,18 +26,27 @@ export interface RPCError {
   message: string;
 }
 
+// Agent types
+
+export interface AgentInfo {
+  id: string;
+}
+
 // RPC method payloads
 
 export interface ConnectResult {
   version: string;
   capabilities: string[];
   defaultModel: string;
+  agents: AgentInfo[];
+  defaultAgentId: string;
 }
 
 export interface ChatSendParams {
   sessionKey: string;
   message: string;
   model?: string;
+  agentId?: string;
 }
 
 export interface ChatSendResult {
@@ -47,6 +56,7 @@ export interface ChatSendResult {
 
 export interface ChatHistoryParams {
   sessionKey: string;
+  agentId?: string;
 }
 
 export interface ChatHistoryResult {
@@ -65,11 +75,13 @@ export interface SessionsListResult {
 
 export interface SessionsDeleteParams {
   sessionKey: string;
+  agentId?: string;
 }
 
 export interface SessionsRenameParams {
   sessionKey: string;
   title: string;
+  agentId?: string;
 }
 
 // Domain types
@@ -78,6 +90,7 @@ export interface Session {
   key: string;
   title?: string;
   lastActive?: number;
+  agentId?: string;
 }
 
 export interface Usage {
@@ -158,6 +171,7 @@ export interface CronJob {
   schedule: string;
   message: string;
   model?: string;
+  agentId?: string;
   enabled: boolean;
   sessionKey: string;
   lastRun?: number;
@@ -171,6 +185,7 @@ export interface CronJobCreateParams {
   schedule: string;
   message: string;
   model?: string;
+  agentId?: string;
 }
 
 export interface CronJobUpdateParams {
@@ -179,11 +194,92 @@ export interface CronJobUpdateParams {
   schedule?: string;
   message?: string;
   model?: string;
+  agentId?: string;
   enabled?: boolean;
 }
 
 export interface CronsListResult {
   jobs: CronJob[];
+}
+
+// Config schema types
+
+export interface SchemaFieldOption {
+  value: string;
+  label: string;
+}
+
+export interface SchemaFieldDef {
+  key: string;
+  label: string;
+  type: 'string' | 'number' | 'boolean' | 'select' | 'password' | 'textarea' | 'stringArray' | 'providers';
+  description?: string;
+  placeholder?: string;
+  default?: unknown;
+  options?: SchemaFieldOption[];
+  sensitive?: boolean;
+}
+
+export interface SchemaSection {
+  id: string;
+  label: string;
+  description?: string;
+  fields: SchemaFieldDef[];
+}
+
+export interface ConfigSchema {
+  sections: SchemaSection[];
+}
+
+export interface ConfigSchemaResult {
+  schema: ConfigSchema;
+}
+
+export interface ConfigGetResult {
+  config: Record<string, unknown>;
+}
+
+export interface ConfigUpdateParams {
+  config: Record<string, unknown>;
+}
+
+// Agent config types for the editor
+
+export interface AgentFilterConfig {
+  allow?: string[];
+  deny?: string[];
+}
+
+export interface AgentConfig {
+  id: string;
+  model?: string;
+  systemPrompt?: string;
+  skills?: AgentFilterConfig;
+  tools?: AgentFilterConfig;
+  canMessage?: string[];
+  maxToolRounds?: number;
+  compressionThreshold?: number;
+  minKeepMessages?: number;
+  maxToolResultChars?: number;
+  maxWorkspaceFileChars?: number;
+}
+
+// Agent config RPC types
+
+export interface AgentsConfigListResult {
+  agents: AgentConfig[];
+}
+
+export interface AgentConfigSaveParams {
+  agent: AgentConfig;
+}
+
+export interface AgentConfigDeleteParams {
+  id: string;
+}
+
+export interface AgentConfigSchemaResult {
+  schema: ConfigSchema;
 }
 
 // Display message types for the UI

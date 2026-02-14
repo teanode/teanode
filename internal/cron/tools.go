@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,26 +40,10 @@ func (self *cronListTool) Definition() provider.ToolDef {
 
 func (self *cronListTool) Execute(_ context.Context, _ string) (string, error) {
 	jobs := self.scheduler.List()
-	if len(jobs) == 0 {
-		return "No cron jobs configured.", nil
-	}
-
-	var builder strings.Builder
-	for _, job := range jobs {
-		status := "enabled"
-		if !job.Enabled {
-			status = "disabled"
-		}
-		fmt.Fprintf(&builder, "- **%s** (id: %s)\n  Schedule: %s | Status: %s\n", job.Name, job.ID, job.Schedule, status)
-		if job.LastRun > 0 {
-			lastRun := time.UnixMilli(job.LastRun).Format(time.RFC3339)
-			fmt.Fprintf(&builder, "  Last run: %s (%s)\n", lastRun, job.LastStatus)
-			if job.LastError != "" {
-				fmt.Fprintf(&builder, "  Last error: %s\n", job.LastError)
-			}
-		}
-	}
-	return builder.String(), nil
+	result, _ := json.Marshal(map[string]interface{}{
+		"jobs": jobs,
+	})
+	return string(result), nil
 }
 
 // --- cron_create ---
@@ -92,6 +75,10 @@ func (self *cronCreateTool) Definition() provider.ToolDef {
 						"type":        "string",
 						"description": "Optional model override for this job.",
 					},
+					"agentId": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional agent ID to run this job against. Defaults to 'main'.",
+					},
 				},
 				"required": []string{"name", "schedule", "message"},
 			},
@@ -105,6 +92,7 @@ func (self *cronCreateTool) Execute(_ context.Context, rawArguments string) (str
 		Schedule string `json:"schedule"`
 		Message  string `json:"message"`
 		Model    string `json:"model"`
+		AgentID  string `json:"agentId"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -123,6 +111,7 @@ func (self *cronCreateTool) Execute(_ context.Context, rawArguments string) (str
 		Schedule:   arguments.Schedule,
 		Message:    arguments.Message,
 		Model:      arguments.Model,
+		AgentID:    arguments.AgentID,
 		Enabled:    true,
 		SessionKey: GenerateSessionKey(arguments.Name),
 		CreatedAt:  time.Now().UnixMilli(),
@@ -135,7 +124,13 @@ func (self *cronCreateTool) Execute(_ context.Context, rawArguments string) (str
 		return "", fmt.Errorf("reloading scheduler: %w", err)
 	}
 
-	return fmt.Sprintf("Created cron job '%s' (id: %s) with schedule '%s'.", job.Name, job.ID, job.Schedule), nil
+	result, _ := json.Marshal(map[string]interface{}{
+		"id":       job.ID,
+		"name":     job.Name,
+		"schedule": job.Schedule,
+		"agentId":  job.AgentID,
+	})
+	return string(result), nil
 }
 
 // --- cron_update ---

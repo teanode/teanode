@@ -1,136 +1,194 @@
 import React from 'react';
-import type { Session, CronJob } from '../types';
-import SessionItem from './SessionItem';
+import { useNavigate, useRouterState } from '@tanstack/react-router';
+import Box from '@mui/material/Box';
+import Drawer from '@mui/material/Drawer';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
+import ChatIcon from '@mui/icons-material/ChatBubbleOutline';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import SettingsIcon from '@mui/icons-material/SettingsOutlined';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import CloseIcon from '@mui/icons-material/Close';
+import { useAppContext } from '../context';
 import Logo from './Logo';
+import ChatNav from './ChatNav';
+import CronNav from './CronNav';
+import SettingsNav from './SettingsNav';
 
-export type ViewMode = 'chat' | 'crons';
+const DRAWER_WIDTH = 260;
 
-function relativeTime(ms: number): string {
-  const diff = Date.now() - ms;
-  if (diff < 60_000) return 'just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
-}
+export default function Sidebar() {
+  const {
+    chat,
+    cronJobs,
+    mobileSidebarOpen,
+    setMobileSidebarOpen,
+  } = useAppContext();
 
-interface SidebarProps {
-  sessions: Session[];
-  activeSessionKey: string | null;
-  collapsed: boolean;
-  activeView: ViewMode;
-  navigate: (path: string) => void;
-  onDeleteSession: (key: string) => void;
-  cronJobs: CronJob[];
-  activeCronJobId: string | null;
-}
+  const navigate = useNavigate();
+  const routerState = useRouterState();
+  const pathname = routerState.location.pathname;
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
 
-export default function Sidebar({
-  sessions,
-  activeSessionKey,
-  collapsed,
-  activeView,
-  navigate,
-  onDeleteSession,
-  cronJobs,
-  activeCronJobId,
-}: SidebarProps) {
-  return (
-    <div
-      className={`w-[260px] bg-surface border-r border-border flex flex-col flex-shrink-0 transition-[margin-left] duration-200 max-md:fixed max-md:left-0 max-md:top-0 max-md:h-full max-md:z-10 ${
-        collapsed ? '-ml-[260px]' : ''
-      }`}
-    >
-      <div className="p-4 border-b border-border flex items-center justify-between">
-        <h1 className="text-base font-semibold text-accent">
+  const activeView: 'chat' | 'crons' | 'settings' = pathname.startsWith('/crons')
+    ? 'crons'
+    : pathname.startsWith('/settings')
+      ? 'settings'
+      : 'chat';
+
+  const pathParts = pathname.replace(/^\//, '').split('/').filter(Boolean);
+  const routeAgentId = activeView === 'chat' && pathParts[1] ? pathParts[1] : null;
+  const routeSessionKey = activeView === 'chat' && pathParts[2] ? pathParts[2] : null;
+  const routeCronJobId = activeView === 'crons' && pathParts[1] && pathParts[1] !== 'new' ? pathParts[1] : null;
+  const isNewCronPage = activeView === 'crons' && pathParts[1] === 'new';
+  const routeSettingsSection = activeView === 'settings' ? (pathParts[1] || null) : null;
+  const routeSettingsAgentId = activeView === 'settings' && pathParts[1] === 'agents' && pathParts[2] ? pathParts[2] : null;
+
+  const { agents, currentAgentId } = chat;
+  const defaultAgentId = agents.length > 0 ? agents[0].id : 'main';
+  const activeAgentId = routeAgentId || currentAgentId || defaultAgentId;
+  const activeSessionKey = routeSessionKey || chat.sessionKey;
+
+  function handleNavigate(path: string) {
+    navigate({ to: path });
+    setMobileSidebarOpen(false);
+  }
+
+  const tabValue = activeView === 'chat' ? 0 : activeView === 'crons' ? 1 : 2;
+
+  function handleTabChange(_event: React.SyntheticEvent, newValue: number) {
+    if (newValue === 0) {
+      const agentId = activeAgentId || defaultAgentId;
+      handleNavigate(activeSessionKey ? `/chat/${agentId}/${activeSessionKey}` : `/chat/${agentId}`);
+    } else if (newValue === 1) {
+      handleNavigate(routeCronJobId ? `/crons/${routeCronJobId}` : '/crons');
+    } else {
+      handleNavigate('/settings');
+    }
+  }
+
+  const drawerContent = (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Header */}
+      <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Logo />
-        </h1>
-        {activeView === 'chat' ? (
-          <button
-            className="bg-accent-dim text-white border-none rounded-[8px] px-3 py-1.5 cursor-pointer text-[13px] hover:bg-accent"
-            onClick={() => navigate('/chat')}
-          >
-            + New
-          </button>
-        ) : (
-          <button
-            className="bg-accent-dim text-white border-none rounded-[8px] px-3 py-1.5 cursor-pointer text-[13px] hover:bg-accent"
-            onClick={() => navigate('/crons/new')}
-          >
-            + New
-          </button>
+        </Box>
+        {!isDesktop && (
+          <IconButton size="small" onClick={() => setMobileSidebarOpen(false)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
         )}
-      </div>
-      <div className="flex border-b border-border">
-        <button
-          className={`flex-1 py-2 text-xs font-medium text-center transition-colors ${
-            activeView === 'chat'
-              ? 'text-accent border-b-2 border-accent'
-              : 'text-muted hover:text-fg'
-          }`}
-          onClick={() => navigate(activeSessionKey ? `/chat/${activeSessionKey}` : '/chat')}
-        >
-          Chat
-        </button>
-        <button
-          className={`flex-1 py-2 text-xs font-medium text-center transition-colors ${
-            activeView === 'crons'
-              ? 'text-accent border-b-2 border-accent'
-              : 'text-muted hover:text-fg'
-          }`}
-          onClick={() => navigate(activeCronJobId ? `/crons/${activeCronJobId}` : '/crons')}
-        >
-          Cron Jobs
-        </button>
-      </div>
-      {activeView === 'chat' ? (
-        <div className="flex-1 overflow-y-auto p-2">
-          {sessions.map((s) => (
-            <SessionItem
-              key={s.key}
-              session={s}
-              active={s.key === activeSessionKey}
-              onClick={() => navigate(`/chat/${s.key}`)}
-              onDelete={() => onDeleteSession(s.key)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto p-2">
-          {cronJobs.length === 0 && (
-            <div className="text-xs text-muted text-center py-4">No cron jobs yet</div>
-          )}
-          {cronJobs.map((job) => (
-            <div
-              key={job.id}
-              className={`px-2.5 py-2 rounded-[8px] cursor-pointer mb-0.5 text-[13px] ${
-                activeCronJobId === job.id
-                  ? 'bg-accent-dim text-white'
-                  : 'text-dim hover:bg-surface2 hover:text-gray-200'
-              }`}
-              onClick={() => navigate(`/crons/${job.id}`)}
-            >
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    job.enabled ? 'bg-green-400' : 'bg-border'
-                  }`}
-                />
-                <span className="block whitespace-nowrap overflow-hidden text-ellipsis" title={job.name}>
-                  {job.name}
-                </span>
-              </div>
-              <div className={`text-[10px] mt-px pl-3 ${activeCronJobId === job.id ? 'opacity-80' : 'opacity-70'}`}>
-                <span className="font-mono">{job.schedule}</span>
-                {job.lastRun ? (
-                  <span className="ml-1.5">{relativeTime(job.lastRun)}</span>
-                ) : (
-                  <span className="ml-1.5">never run</span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+      </Box>
+
+      {/* Tabs */}
+      <Tabs
+        value={tabValue}
+        onChange={handleTabChange}
+        variant="fullWidth"
+        indicatorColor="primary"
+        textColor="primary"
+        sx={{
+          borderBottom: 1,
+          borderColor: 'divider',
+          minHeight: 36,
+          '& .MuiTab-root': { minHeight: 36, minWidth: 0, py: 0.75 },
+        }}
+      >
+        <Tab icon={<Tooltip title="Chat"><ChatIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label="Chat" />
+        <Tab icon={<Tooltip title="Jobs"><ScheduleIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label="Jobs" />
+        <Tab icon={<Tooltip title="Settings"><SettingsIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label="Settings" />
+      </Tabs>
+
+      {/* View-specific nav */}
+      {activeView === 'chat' && (
+        <ChatNav
+          chat={chat}
+          activeAgentId={activeAgentId}
+          activeSessionKey={activeSessionKey}
+          onNavigate={handleNavigate}
+        />
       )}
-    </div>
+      {activeView === 'crons' && (
+        <CronNav
+          jobs={cronJobs.jobs}
+          activeJobId={routeCronJobId}
+          isNewPage={isNewCronPage}
+          onNavigate={handleNavigate}
+        />
+      )}
+      {activeView === 'settings' && (
+        <SettingsNav
+          chat={chat}
+          agents={agents}
+          activeSectionId={routeSettingsSection}
+          activeAgentId={routeSettingsAgentId}
+          onNavigate={handleNavigate}
+        />
+      )}
+    </Box>
+  );
+
+  return (
+    <>
+      {/* Mobile pull tab */}
+      {!isDesktop && !mobileSidebarOpen && (
+        <IconButton
+          onClick={() => setMobileSidebarOpen(true)}
+          title="Open sidebar"
+          sx={{
+            position: 'fixed',
+            top: 12,
+            left: 0,
+            zIndex: (currentTheme) => currentTheme.zIndex.drawer + 1,
+            bgcolor: 'background.paper',
+            border: 1,
+            borderLeft: 0,
+            borderColor: 'divider',
+            borderRadius: '0 8px 8px 0',
+            px: 0.75,
+            py: 1,
+            '&:hover': { bgcolor: 'action.hover' },
+          }}
+        >
+          <ChevronRightIcon sx={{ fontSize: 16 }} />
+        </IconButton>
+      )}
+
+      {/* Mobile drawer */}
+      {!isDesktop && (
+        <Drawer
+          variant="temporary"
+          open={mobileSidebarOpen}
+          onClose={() => setMobileSidebarOpen(false)}
+          ModalProps={{ keepMounted: true }}
+          sx={{
+            '& .MuiDrawer-paper': { width: DRAWER_WIDTH, bgcolor: 'background.paper' },
+          }}
+        >
+          {drawerContent}
+        </Drawer>
+      )}
+
+      {/* Desktop permanent sidebar */}
+      {isDesktop && (
+        <Box
+          sx={{
+            width: DRAWER_WIDTH,
+            flexShrink: 0,
+            bgcolor: 'background.paper',
+            borderRight: 1,
+            borderColor: 'divider',
+          }}
+        >
+          {drawerContent}
+        </Box>
+      )}
+    </>
   );
 }

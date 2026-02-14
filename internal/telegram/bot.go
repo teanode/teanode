@@ -44,12 +44,21 @@ type Bot struct {
 	ClearActiveRun func(sessionKey, runId string)
 }
 
-// New creates a new Telegram bot.
-func New(config *config.TelegramConfig, runner *agent.Runner, sessions *session.Store) *Bot {
+// New creates a new Telegram bot. It resolves the runner from the agent registry
+// using the config's AgentID (defaults to "main").
+func New(telegramConfig *config.TelegramConfig, agentRegistry *agent.AgentRegistry) *Bot {
+	agentId := telegramConfig.AgentID
+	if agentId == "" {
+		agentId = config.DefaultAgentID
+	}
+	runner := agentRegistry.Get(agentId)
+	if runner == nil {
+		runner = agentRegistry.Default()
+	}
 	return &Bot{
-		config:         config,
+		config:         telegramConfig,
 		runner:         runner,
-		sessions:       sessions,
+		sessions:       runner.Sessions,
 		active:         make(map[string]context.CancelFunc),
 		sessionKeys:    make(map[string]string),
 		modelOverrides: make(map[string]string),

@@ -1,0 +1,37 @@
+services:
+  gateway:
+    image: teanode-gateway:local
+    volumes:
+    - "/etc/localtime:/etc/localtime:ro"
+    - "./data:/data:rw"
+    environment:
+    - BRAVE_API_KEY
+    - OPENROUTER_API_KEY
+    - OPENAI_API_KEY
+    - DISCORD_BOT_TOKEN
+    - TELEGRAM_BOT_TOKEN
+    - TEANODE_GATEWAY_BIND=lan
+    - TEANODE_CDP_ENDPOINT=chrome:9222
+    command: --log-level DEBUG --dir /data gateway
+    ports:
+    - "127.0.0.1:8833:8833"
+    links:
+    - "chrome:chrome"
+    restart: always
+    logging:
+      options:
+        max-size: "50M"
+        max-file: "100"
+
+  chrome:
+    image: chromedp/headless-shell:latest
+    restart: always
+    volumes:
+    - "/etc/localtime:/etc/localtime:ro"
+    ports:
+    - 9222
+    logging:
+      options:
+        max-size: "50M"
+        max-file: "100"
+

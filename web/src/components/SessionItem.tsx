@@ -1,6 +1,10 @@
 import React from 'react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemText from '@mui/material/ListItemText';
+import IconButton from '@mui/material/IconButton';
+import CloseIcon from '@mui/icons-material/Close';
 import type { Session } from '../types';
 
 dayjs.extend(relativeTime);
@@ -12,48 +16,56 @@ interface SessionItemProps {
   onDelete: () => void;
 }
 
-function displayLabel(s: Session): string {
-  if (s.title) return s.title;
-  const k = s.key;
-  return k.length > 28 ? k.substring(0, 12) + '...' + k.substring(k.length - 8) : k;
+function displayLabel(session: Session): string {
+  if (session.title) return session.title;
+  const key = session.key;
+  return key.length > 28 ? key.substring(0, 12) + '...' + key.substring(key.length - 8) : key;
 }
 
 export default function SessionItem({ session, active, onClick, onDelete }: SessionItemProps) {
   return (
-    <div
-      className={`group flex items-center px-2.5 py-2 rounded-[8px] cursor-pointer mb-0.5 text-[13px] ${
-        active
-          ? 'bg-accent-dim text-white'
-          : 'text-dim hover:bg-surface2 hover:text-gray-200'
-      }`}
+    <ListItemButton
+      dense
       onClick={onClick}
+      sx={{
+        borderRadius: 1,
+        mb: 0.25,
+        '& .delete-btn': { display: 'none' },
+        '&:hover .delete-btn': { display: 'inline-flex' },
+        ...(active
+          ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+          : {}),
+      }}
     >
-      <div className="flex-1 min-w-0">
-        <span
-          className="block whitespace-nowrap overflow-hidden text-ellipsis"
-          title={session.title || session.key}
-        >
-          {displayLabel(session)}
-        </span>
-        {session.lastActive && (
-          <span
-            className={`block text-[10px] text-dim mt-px ${active ? 'opacity-80' : 'opacity-70'}`}
-            title={dayjs(session.lastActive).format('YYYY-MM-DD HH:mm:ss')}
-          >
-            {dayjs(session.lastActive).fromNow()}
-          </span>
-        )}
-      </div>
-      <button
-        className="hidden group-hover:block bg-transparent border-none text-dim cursor-pointer text-sm p-0 pl-1.5 leading-none flex-shrink-0 hover:text-danger"
+      <ListItemText
+        primary={displayLabel(session)}
+        secondary={session.lastActive ? dayjs(session.lastActive).fromNow() : undefined}
+        primaryTypographyProps={{
+          variant: 'caption',
+          fontSize: '13px',
+          noWrap: true,
+          title: session.title || session.key,
+          color: active ? '#fff' : 'text.secondary',
+        }}
+        secondaryTypographyProps={{
+          variant: 'caption',
+          fontSize: '10px',
+          title: session.lastActive ? dayjs(session.lastActive).format('YYYY-MM-DD HH:mm:ss') : undefined,
+          color: active ? 'rgba(255,255,255,0.7)' : 'text.disabled',
+        }}
+      />
+      <IconButton
+        className="delete-btn"
+        size="small"
         title="Delete session"
-        onClick={(e) => {
-          e.stopPropagation();
+        onClick={(event) => {
+          event.stopPropagation();
           onDelete();
         }}
+        sx={{ p: 0.25, ml: 0.5, flexShrink: 0, color: active ? 'rgba(255,255,255,0.7)' : 'text.disabled', '&:hover': { color: 'error.main' } }}
       >
-        &times;
-      </button>
-    </div>
+        <CloseIcon sx={{ fontSize: 14 }} />
+      </IconButton>
+    </ListItemButton>
   );
 }

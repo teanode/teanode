@@ -93,7 +93,13 @@ func (self *Server) handleChatCompletionsSync(writer http.ResponseWriter, reques
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	result, err := self.Agent.Run(ctx, agent.RunParams{
+	runner := self.AgentRegistry.Default()
+	if runner == nil {
+		http.Error(writer, "no default agent configured", http.StatusInternalServerError)
+		return
+	}
+
+	result, err := runner.Run(ctx, agent.RunParams{
 		SessionKey: sessionKey,
 		Message:    lastMessage.Content,
 		Model:      request.Model,
@@ -152,7 +158,15 @@ func (self *Server) handleChatCompletionsStream(writer http.ResponseWriter, http
 
 	responseId := "chatcmpl-" + uuid.New().String()
 
-	result, err := self.Agent.Run(ctx, agent.RunParams{
+	runner := self.AgentRegistry.Default()
+	if runner == nil {
+		errData, _ := json.Marshal(map[string]string{"error": "no default agent configured"})
+		fmt.Fprintf(writer, "data: %s\n\n", errData)
+		flusher.Flush()
+		return
+	}
+
+	result, err := runner.Run(ctx, agent.RunParams{
 		SessionKey: sessionKey,
 		Message:    lastMessage.Content,
 		Model:      request.Model,

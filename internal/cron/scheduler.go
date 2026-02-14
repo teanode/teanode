@@ -8,17 +8,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/config"
 	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
 // Scheduler runs cron jobs on a 1-minute tick.
 type Scheduler struct {
-	store       *Store
-	runner      *agent.Runner
-	mutex       sync.Mutex
-	jobs        []CronJob
-	expressions map[string]*CronExpr
-	stopChannel chan struct{}
+	store         *Store
+	agentRegistry *agent.AgentRegistry
+	mutex         sync.Mutex
+	jobs          []CronJob
+	expressions   map[string]*CronExpr
+	stopChannel   chan struct{}
 
 	Broadcast      func(event string, payload interface{})
 	SetActiveRun   func(sessionKey, runId string)
@@ -26,12 +27,12 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new cron scheduler.
-func NewScheduler(store *Store, runner *agent.Runner) *Scheduler {
+func NewScheduler(store *Store, agentRegistry *agent.AgentRegistry) *Scheduler {
 	return &Scheduler{
-		store:       store,
-		runner:      runner,
-		expressions: make(map[string]*CronExpr),
-		stopChannel: make(chan struct{}),
+		store:         store,
+		agentRegistry: agentRegistry,
+		expressions:   make(map[string]*CronExpr),
+		stopChannel:   make(chan struct{}),
 	}
 }
 
@@ -176,8 +177,22 @@ func (self *Scheduler) tick(when time.Time) {
 func (self *Scheduler) executeJob(job CronJob) {
 	defer deferutil.Recover()
 
+	// Resolve the runner for this job's agent.
+	agentId := job.AgentID
+	if agentId == "" {
+		agentId = config.DefaultAgentID
+	}
+	runner := self.agentRegistry.Get(agentId)
+	if runner == nil {
+		runner = self.agentRegistry.Default()
+	}
+	if runner == nil {
+		log.Errorf("cron job %s: no runner available for agent %q", job.ID, agentId)
+		return
+	}
+
 	runId := uuid.New().String()
-	log.Infof("executing cron job %s (%s) -> session %s run %s", job.ID, job.Name, job.SessionKey, runId)
+	log.Infof("executing cron job %s (%s) -> agent %s session %s run %s", job.ID, job.Name, agentId, job.SessionKey, runId)
 
 	if self.SetActiveRun != nil {
 		self.SetActiveRun(job.SessionKey, runId)
@@ -200,7 +215,7 @@ func (self *Scheduler) executeJob(job CronJob) {
 
 	// Set a human-readable session title.
 	title := fmt.Sprintf("Cron: %s", job.Name)
-	self.runner.Sessions.SetTitle(job.SessionKey, title)
+	runner.Sessions.SetTitle(job.SessionKey, title)
 	if self.Broadcast != nil {
 		self.Broadcast("sessions", nil)
 	}
@@ -246,7 +261,7 @@ func (self *Scheduler) executeJob(job CronJob) {
 		}
 	}
 
-	result, err := self.runner.Run(context.Background(), agent.RunParams{
+	result, err := runner.Run(context.Background(), agent.RunParams{
 		SessionKey: job.SessionKey,
 		Message:    job.Message,
 		Model:      job.Model,

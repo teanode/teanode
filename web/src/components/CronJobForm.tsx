@@ -1,5 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import type { CronJob, ModelInfo } from '../types';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
+import TextField from '@mui/material/TextField';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import MenuItem from '@mui/material/MenuItem';
+import ListSubheader from '@mui/material/ListSubheader';
+import Typography from '@mui/material/Typography';
+import type { CronJob, ModelInfo, AgentInfo } from '../types';
 
 const PRESETS = [
   { label: 'Every minute', value: '* * * * *' },
@@ -13,124 +21,154 @@ const PRESETS = [
 interface CronJobFormProps {
   initial?: CronJob;
   models?: ModelInfo[];
-  onSave: (data: { name: string; schedule: string; message: string; model: string }) => void;
+  agents?: AgentInfo[];
+  onSave: (data: { name: string; schedule: string; message: string; model: string; agentId: string }) => void;
   onCancel: () => void;
 }
 
-export default function CronJobForm({ initial, models = [], onSave, onCancel }: CronJobFormProps) {
+export default function CronJobForm({ initial, models = [], agents = [], onSave, onCancel }: CronJobFormProps) {
   const [name, setName] = useState(initial?.name || '');
   const [schedule, setSchedule] = useState(initial?.schedule || '0 * * * *');
   const [message, setMessage] = useState(initial?.message || '');
   const [model, setModel] = useState(initial?.model || '');
+  const [agentId, setAgentId] = useState(initial?.agentId || '');
 
   const grouped = useMemo(() => {
     const map = new Map<string, ModelInfo[]>();
-    for (const m of models) {
-      const list = map.get(m.provider) || [];
-      list.push(m);
-      map.set(m.provider, list);
+    for (const modelInfo of models) {
+      const list = map.get(modelInfo.provider) || [];
+      list.push(modelInfo);
+      map.set(modelInfo.provider, list);
     }
     return map;
   }, [models]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
     if (!name.trim() || !schedule.trim() || !message.trim()) return;
-    onSave({ name: name.trim(), schedule: schedule.trim(), message: message.trim(), model: model.trim() });
+    onSave({ name: name.trim(), schedule: schedule.trim(), message: message.trim(), model: model.trim(), agentId: agentId.trim() });
   };
 
+  // Build model select items with group headers.
+  const modelMenuItems: React.ReactNode[] = [
+    <MenuItem key="__default" value="">Default</MenuItem>,
+  ];
+  for (const [provider, providerModels] of grouped.entries()) {
+    modelMenuItems.push(<ListSubheader key={`header-${provider}`}>{provider}</ListSubheader>);
+    for (const modelInfo of providerModels) {
+      const qualified = `${modelInfo.provider}:${modelInfo.id}`;
+      modelMenuItems.push(
+        <MenuItem key={qualified} value={qualified}>{modelInfo.id}</MenuItem>
+      );
+    }
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="border border-border rounded-lg p-3 mb-3 bg-surface">
-      <div className="mb-2">
-        <label className="block text-xs text-muted mb-1">Name</label>
-        <input
-          className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-accent"
+    <Paper
+      component="form"
+      variant="outlined"
+      onSubmit={handleSubmit}
+      sx={{ p: 2, bgcolor: 'background.paper' }}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <TextField
+          label="Name"
+          size="small"
+          fullWidth
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(event) => setName(event.target.value)}
           placeholder="Morning briefing"
           autoFocus
         />
-      </div>
-      <div className="mb-2">
-        <label className="block text-xs text-muted mb-1">Schedule (cron expression)</label>
-        <input
-          className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-accent"
-          value={schedule}
-          onChange={(e) => setSchedule(e.target.value)}
-          placeholder="0 9 * * *"
-        />
-        <div className="flex gap-1 mt-1 flex-wrap">
-          {PRESETS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                schedule === p.value ? 'border-accent text-accent' : 'border-border text-muted hover:border-accent'
-              }`}
-              onClick={() => setSchedule(p.value)}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="mb-2">
-        <label className="block text-xs text-muted mb-1">Message</label>
-        <textarea
-          className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-accent resize-y min-h-[60px]"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Give me a morning briefing..."
-          rows={3}
-        />
-      </div>
-      <div className="mb-3">
-        <label className="block text-xs text-muted mb-1">Model (optional)</label>
-        {models.length > 0 ? (
-          <select
-            className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-accent"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-          >
-            <option value="">Default</option>
-            {Array.from(grouped.entries()).map(([provider, providerModels]) => (
-              <optgroup key={provider} label={provider}>
-                {providerModels.map((m) => {
-                  const qualified = `${m.provider}:${m.id}`;
-                  return (
-                    <option key={qualified} value={qualified}>
-                      {m.id}
-                    </option>
-                  );
-                })}
-              </optgroup>
+
+        <Box>
+          <TextField
+            label="Schedule (cron expression)"
+            size="small"
+            fullWidth
+            value={schedule}
+            onChange={(event) => setSchedule(event.target.value)}
+            placeholder="0 9 * * *"
+            sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
+          />
+          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75, flexWrap: 'wrap' }}>
+            {PRESETS.map((preset) => (
+              <Chip
+                key={preset.value}
+                label={preset.label}
+                size="small"
+                variant={schedule === preset.value ? 'filled' : 'outlined'}
+                color={schedule === preset.value ? 'primary' : 'default'}
+                onClick={() => setSchedule(preset.value)}
+                sx={{ fontSize: '10px' }}
+              />
             ))}
-          </select>
-        ) : (
-          <input
-            className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-accent"
+          </Box>
+        </Box>
+
+        <TextField
+          label="Message"
+          size="small"
+          fullWidth
+          multiline
+          minRows={3}
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          placeholder="Give me a morning briefing..."
+        />
+
+        {models.length > 0 ? (
+          <TextField
+            select
+            label="Model (optional)"
+            size="small"
+            fullWidth
             value={model}
-            onChange={(e) => setModel(e.target.value)}
+            onChange={(event) => setModel(event.target.value)}
+          >
+            {modelMenuItems}
+          </TextField>
+        ) : (
+          <TextField
+            label="Model (optional)"
+            size="small"
+            fullWidth
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
             placeholder="Leave blank for default"
           />
         )}
-      </div>
-      <div className="flex gap-2">
-        <button
-          type="submit"
-          className="bg-accent text-white px-3 py-1.5 rounded text-sm hover:bg-accent-dim"
-          disabled={!name.trim() || !schedule.trim() || !message.trim()}
-        >
-          {initial ? 'Save' : 'Create'}
-        </button>
-        <button
-          type="button"
-          className="px-3 py-1.5 rounded text-sm hover:bg-border"
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
+
+        {agents.length > 1 && (
+          <TextField
+            select
+            label="Agent (optional)"
+            size="small"
+            fullWidth
+            value={agentId}
+            onChange={(event) => setAgentId(event.target.value)}
+          >
+            <MenuItem value="">Default (main)</MenuItem>
+            {agents.map((agent) => (
+              <MenuItem key={agent.id} value={agent.id}>{agent.id}</MenuItem>
+            ))}
+          </TextField>
+        )}
+
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            type="submit"
+            variant="contained"
+            size="small"
+            disabled={!name.trim() || !schedule.trim() || !message.trim()}
+          >
+            {initial ? 'Save' : 'Create'}
+          </Button>
+          <Button variant="text" size="small" onClick={onCancel}>
+            Cancel
+          </Button>
+        </Box>
+      </Box>
+    </Paper>
   );
 }

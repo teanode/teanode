@@ -20,7 +20,6 @@ import (
 	"github.com/teanode/teanode/internal/cron"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/provider"
-	"github.com/teanode/teanode/internal/session"
 	tterminal "github.com/teanode/teanode/internal/terminal"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/deferutil"
@@ -36,8 +35,7 @@ var upgrader = websocket.Upgrader{
 // Server is the main HTTP + WebSocket gateway.
 type Server struct {
 	Config        *config.Config
-	Agent         *agent.Runner
-	Sessions      *session.Store
+	AgentRegistry *agent.AgentRegistry
 	BrowserRelay  *browser.Relay
 	TerminalRelay *tterminal.Relay
 	Scheduler     *cron.Scheduler
@@ -51,6 +49,18 @@ type Server struct {
 	modelsMutex sync.RWMutex
 	models      map[string][]provider.ModelInfo // provider name → models
 	modelsTime  time.Time                       // when cache was populated
+}
+
+// resolveRunner returns the runner for the given agent ID, defaulting to "main".
+func (self *Server) resolveRunner(agentId string) *agent.Runner {
+	if agentId == "" {
+		agentId = config.DefaultAgentID
+	}
+	runner := self.AgentRegistry.Get(agentId)
+	if runner == nil {
+		runner = self.AgentRegistry.Default()
+	}
+	return runner
 }
 
 // Start starts the HTTP server and blocks until ctx is cancelled.
@@ -72,9 +82,9 @@ func (self *Server) Start(ctx context.Context) error {
 		router.HandleFunc("/media/", self.handleMedia)
 	}
 
-	// Serve embedded static files at /
+	// Serve embedded static files with SPA history fallback.
 	staticSub, _ := fs.Sub(staticFiles, "static")
-	router.Handle("/", http.FileServer(http.FS(staticSub)))
+	router.Handle("/", spaHandler(http.FS(staticSub)))
 
 	if self.Scheduler != nil {
 		if err := self.Scheduler.Start(); err != nil {
@@ -111,6 +121,26 @@ func (self *Server) listenAddr() string {
 		host = "0.0.0.0"
 	}
 	return net.JoinHostPort(host, fmt.Sprintf("%d", self.Config.Gateway.Port))
+}
+
+// spaHandler serves static files from the given filesystem, falling back to
+// index.html for any path that doesn't match a real file. This supports
+// client-side (history API) routing.
+func spaHandler(fileSystem http.FileSystem) http.Handler {
+	fileServer := http.FileServer(fileSystem)
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		path := request.URL.Path
+		// Try opening the requested file.
+		file, err := fileSystem.Open(path)
+		if err != nil {
+			// File doesn't exist — serve index.html for SPA routing.
+			request.URL.Path = "/"
+			fileServer.ServeHTTP(writer, request)
+			return
+		}
+		file.Close()
+		fileServer.ServeHTTP(writer, request)
+	})
 }
 
 func (self *Server) handleHealth(writer http.ResponseWriter, request *http.Request) {
@@ -270,8 +300,12 @@ func (self *Server) loadModels(ctx context.Context) (map[string][]provider.Model
 		}
 	}
 
-	// Fetch from each provider's API.
-	_, providers, _, _, _ := self.Agent.Snapshot()
+	// Fetch from each provider's API. Use the default runner to get providers.
+	defaultRunner := self.AgentRegistry.Default()
+	if defaultRunner == nil {
+		return nil, fmt.Errorf("no default agent runner")
+	}
+	_, providers, _, _, _ := defaultRunner.Snapshot()
 	result := make(map[string][]provider.ModelInfo)
 	for _, name := range providers.ProviderNames() {
 		client, _, err := providers.Resolve(provider.QualifyModel(name, "dummy"))
@@ -313,7 +347,9 @@ func (self *Server) InvalidateModelsCache() {
 }
 
 func (self *Server) updateRunnerContextWindows(models map[string][]provider.ModelInfo) {
-	for providerName, modelList := range models {
-		self.Agent.SetModels(providerName, modelList)
-	}
+	self.AgentRegistry.ForEach(func(agentId string, runner *agent.Runner) {
+		for providerName, modelList := range models {
+			runner.SetModels(providerName, modelList)
+		}
+	})
 }

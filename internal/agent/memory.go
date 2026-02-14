@@ -19,6 +19,7 @@ func RegisterMemoryTools(registry *ToolRegistry, memoryDirectory string) {
 	registry.Register(&memoryListTool{directory: memoryDirectory})
 	registry.Register(&memoryAppendTool{directory: memoryDirectory})
 	registry.Register(&memorySearchTool{directory: memoryDirectory})
+	registry.Register(&memoryDeleteTool{directory: memoryDirectory})
 }
 
 // safePath resolves a relative path inside memoryDirectory and rejects traversal.
@@ -211,6 +212,64 @@ func (self *memoryAppendTool) Execute(_ context.Context, rawArguments string) (s
 	defer file.Close()
 	if _, err := file.WriteString(arguments.Content + "\n"); err != nil {
 		return "", fmt.Errorf("appending to file: %w", err)
+	}
+	return "ok", nil
+}
+
+// --- memory_delete ---
+
+type memoryDeleteTool struct{ directory string }
+
+func (self *memoryDeleteTool) Definition() provider.ToolDef {
+	return provider.ToolDef{
+		Type: "function",
+		Function: provider.FunctionSpec{
+			Name:        "memory_delete",
+			Description: "Delete a file from persistent memory storage. If the parent directory becomes empty after deletion, it is removed automatically.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "Relative path of the file to delete.",
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+	}
+}
+
+func (self *memoryDeleteTool) Execute(_ context.Context, rawArguments string) (string, error) {
+	var arguments struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("parsing arguments: %w", err)
+	}
+	full, err := safePath(self.directory, arguments.Path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return "", fmt.Errorf("file not found: %w", err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("cannot delete directories, only files")
+	}
+	if err := os.Remove(full); err != nil {
+		return "", fmt.Errorf("deleting file: %w", err)
+	}
+	// Remove empty parent directories up to the workspace root.
+	directory := filepath.Dir(full)
+	for directory != self.directory {
+		entries, err := os.ReadDir(directory)
+		if err != nil || len(entries) > 0 {
+			break
+		}
+		os.Remove(directory)
+		directory = filepath.Dir(directory)
 	}
 	return "ok", nil
 }

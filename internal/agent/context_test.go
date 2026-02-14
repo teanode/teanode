@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/teanode/teanode/internal/config"
 	"github.com/teanode/teanode/internal/provider"
 )
 
@@ -71,11 +72,11 @@ func TestTruncateOldToolResults(t *testing.T) {
 	messages = append(messages, provider.ChatMessage{Role: "assistant", Content: "here's what I found"})
 
 	// Add enough recent messages to fill minKeepMessages
-	for index := 0; index < minKeepMessages; index++ {
+	for index := 0; index < config.DefaultAgentLimits.MinKeepMessages; index++ {
 		messages = append(messages, provider.ChatMessage{Role: "user", Content: "recent message"})
 	}
 
-	result := truncateOldToolResults(messages)
+	result := truncateOldToolResults(messages, config.DefaultAgentLimits.MinKeepMessages, config.DefaultAgentLimits.MaxToolResultChars)
 
 	// The old tool result (index 3) should be truncated
 	if len(result[3].Content) >= 20000 {
@@ -84,7 +85,7 @@ func TestTruncateOldToolResults(t *testing.T) {
 	if !strings.HasSuffix(result[3].Content, "... (truncated)") {
 		t.Error("truncated content should end with '... (truncated)'")
 	}
-	if len(result[3].Content) > maxToolResultChars+20 {
+	if len(result[3].Content) > config.DefaultAgentLimits.MaxToolResultChars+20 {
 		t.Errorf("truncated content too long: %d", len(result[3].Content))
 	}
 
@@ -102,7 +103,7 @@ func TestTruncateOldToolResultsShortHistory(t *testing.T) {
 		{Role: "tool", Content: strings.Repeat("x", 20000), ToolCallID: "c1", Name: "test"},
 	}
 
-	result := truncateOldToolResults(messages)
+	result := truncateOldToolResults(messages, config.DefaultAgentLimits.MinKeepMessages, config.DefaultAgentLimits.MaxToolResultChars)
 
 	// With fewer than minKeepMessages, nothing should be truncated
 	if result[2].Content != messages[2].Content {

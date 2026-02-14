@@ -453,19 +453,19 @@ func TestBuildSystemPromptWithWorkspace(t *testing.T) {
 	configuration := &config.Config{}
 
 	// Write workspace files.
-	os.WriteFile(filepath.Join(workspaceDirectory, "AGENTS.md"), []byte("Be extra helpful"), 0644)
+	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte("Be extra helpful"), 0644)
 	os.WriteFile(filepath.Join(workspaceDirectory, "MEMORY.md"), []byte("User likes Go"), 0644)
 
-	prompt := BuildSystemPrompt(configuration, workspaceDirectory, "")
+	prompt := BuildSystemPrompt(configuration, "", workspaceDirectory, "", config.DefaultAgentLimits.MaxWorkspaceFileChars)
 
 	if !strings.Contains(prompt, "Be extra helpful") {
-		t.Error("prompt should contain AGENTS.md content")
+		t.Error("prompt should contain AGENT.md content")
 	}
 	if !strings.Contains(prompt, "User likes Go") {
 		t.Error("prompt should contain MEMORY.md content")
 	}
 	if !strings.Contains(prompt, "Operating Instructions") {
-		t.Error("prompt should have AGENTS.md section header")
+		t.Error("prompt should have AGENT.md section header")
 	}
 	if !strings.Contains(prompt, "Long-term Memory") {
 		t.Error("prompt should have MEMORY.md section header")
@@ -476,7 +476,7 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 	configuration := &config.Config{}
 
 	// Empty workspace dir — no files loaded.
-	prompt := BuildSystemPrompt(configuration, "", "")
+	prompt := BuildSystemPrompt(configuration, "", "", "", config.DefaultAgentLimits.MaxWorkspaceFileChars)
 	if !strings.Contains(prompt, "TeaNode") {
 		t.Error("prompt should contain TeaNode identifier")
 	}
@@ -487,11 +487,15 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 
 func TestBuildSystemPromptCustomOverride(t *testing.T) {
 	configuration := &config.Config{
-		SystemPrompt: "custom prompt",
+		SystemPrompt: "I am a custom assistant.",
 	}
-	prompt := BuildSystemPrompt(configuration, "/some/dir", "")
-	if prompt != "custom prompt" {
-		t.Errorf("prompt = %q, want 'custom prompt'", prompt)
+	prompt := BuildSystemPrompt(configuration, "", "/some/dir", "", config.DefaultAgentLimits.MaxWorkspaceFileChars)
+	if !strings.Contains(prompt, "I am a custom assistant.") {
+		t.Error("prompt should contain custom identity line")
+	}
+	// The custom SystemPrompt replaces the identity line, not the entire prompt.
+	if !strings.Contains(prompt, "Memory Tools") {
+		t.Error("prompt should still contain tool documentation sections")
 	}
 }
 
@@ -501,9 +505,9 @@ func TestBuildSystemPromptTruncation(t *testing.T) {
 
 	// Write a large file (> maxWorkspaceFileChars).
 	big := strings.Repeat("x", 10000)
-	os.WriteFile(filepath.Join(workspaceDirectory, "AGENTS.md"), []byte(big), 0644)
+	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte(big), 0644)
 
-	prompt := BuildSystemPrompt(configuration, workspaceDirectory, "")
+	prompt := BuildSystemPrompt(configuration, "", workspaceDirectory, "", config.DefaultAgentLimits.MaxWorkspaceFileChars)
 	if strings.Contains(prompt, strings.Repeat("x", 10000)) {
 		t.Error("prompt should have truncated the large file")
 	}

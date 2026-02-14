@@ -4,11 +4,19 @@ import (
 	"strings"
 
 	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/config"
 )
 
 // RegisterSkills loads skills from the directory and registers their tools.
 // Returns the combined prompt text from all loaded skills (empty if none).
 func RegisterSkills(registry *agent.ToolRegistry, skillsDir string) string {
+	return RegisterSkillsFiltered(registry, skillsDir, nil)
+}
+
+// RegisterSkillsFiltered loads skills from the directory and registers their tools,
+// filtering by the given skills filter. Returns the combined prompt text from
+// all registered skills (empty if none).
+func RegisterSkillsFiltered(registry *agent.ToolRegistry, skillsDir string, filter *config.FilterConfig) string {
 	skills, err := LoadAll(skillsDir)
 	if err != nil {
 		log.Warningf("failed to load skills: %v", err)
@@ -17,6 +25,11 @@ func RegisterSkills(registry *agent.ToolRegistry, skillsDir string) string {
 
 	var skillPrompts []string
 	for _, skill := range skills {
+		// Check if this skill is allowed by the filter.
+		if !config.IsAllowed(skill.Name, filter) {
+			continue
+		}
+
 		count := 0
 		for index := range skill.Tools {
 			tool := &skill.Tools[index]

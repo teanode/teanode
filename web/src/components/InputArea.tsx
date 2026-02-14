@@ -1,80 +1,104 @@
 import React, { useRef, useCallback } from 'react';
+import Box from '@mui/material/Box';
+import IconButton from '@mui/material/IconButton';
+import SendRounded from '@mui/icons-material/SendRounded';
+import StopRounded from '@mui/icons-material/StopRounded';
 
 interface InputAreaProps {
   isRunning: boolean;
-  status: string;
-  showToolCalls: boolean;
   onSend: (text: string) => void;
   onAbort: () => void;
-  onToggleTools: () => void;
 }
 
 export default function InputArea({
   isRunning,
-  status,
-  showToolCalls,
   onSend,
   onAbort,
-  onToggleTools,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleInput = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-  }, []);
-
   const handleSend = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    const text = el.value.trim();
+    const element = textareaRef.current;
+    if (!element) return;
+    const text = element.value.trim();
     if (!text || isRunning) return;
     onSend(text);
-    el.value = '';
-    el.style.height = 'auto';
+    element.value = '';
+    element.style.height = 'auto';
   }, [isRunning, onSend]);
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
         if (!isRunning) handleSend();
       }
     },
     [isRunning, handleSend]
   );
 
+  const handleInput = useCallback(() => {
+    const element = textareaRef.current;
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = Math.min(element.scrollHeight, 150) + 'px';
+  }, []);
+
   return (
-    <div className="px-4 py-3 border-t border-border bg-surface">
-      <div className="flex gap-2">
-        <textarea
+    <Box sx={{ px: 2, py: 1.5, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          bgcolor: 'surface2',
+          borderRadius: 1.5,
+          border: 1,
+          borderColor: 'divider',
+          px: 1.5,
+          py: 1,
+          gap: 1,
+          '&:focus-within': {
+            borderColor: 'primary.main',
+          },
+        }}
+      >
+        <Box
+          component="textarea"
           ref={textareaRef}
-          className="flex-1 bg-surface2 border border-border rounded-[8px] px-3.5 py-2.5 text-gray-200 font-sans text-sm resize-none min-h-[42px] max-h-[200px] outline-none focus:border-accent-dim"
-          rows={1}
           placeholder="Type a message..."
-          onInput={handleInput}
+          rows={1}
           onKeyDown={handleKeyDown}
+          onInput={handleInput}
+          sx={{
+            flex: 1,
+            border: 'none',
+            outline: 'none',
+            bgcolor: 'transparent',
+            color: 'text.primary',
+            fontSize: '0.875rem',
+            fontFamily: 'inherit',
+            lineHeight: 1.5,
+            resize: 'none',
+            py: 0.5,
+            '&::placeholder': {
+              color: 'text.secondary',
+              opacity: 1,
+            },
+          }}
         />
-        <button
-          className={`border-none rounded-[8px] px-5 py-2.5 cursor-pointer font-semibold text-sm self-end min-w-[70px] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed ${
-            isRunning ? 'bg-danger' : 'bg-accent'
-          }`}
+        <IconButton
+          size="small"
+          color={isRunning ? 'error' : 'primary'}
           onClick={isRunning ? onAbort : handleSend}
+          sx={{
+            flexShrink: 0,
+            width: 32,
+            height: 32,
+          }}
         >
-          {isRunning ? 'Stop' : 'Send'}
-        </button>
-      </div>
-      <div className="flex items-center justify-between pt-1">
-        <span className="text-[11px] text-dim">{status}</span>
-        <button
-          className="bg-transparent border-none text-dim text-[11px] cursor-pointer font-sans p-0 hover:text-gray-200"
-          onClick={onToggleTools}
-        >
-          {showToolCalls ? 'Hide tool calls' : 'Show tool calls'}
-        </button>
-      </div>
-    </div>
+          {isRunning ? <StopRounded fontSize="small" /> : <SendRounded fontSize="small" />}
+        </IconButton>
+      </Box>
+    </Box>
   );
 }

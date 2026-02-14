@@ -1,4 +1,5 @@
 import React from 'react';
+import Typography from '@mui/material/Typography';
 
 interface UsageIndicatorProps {
   text: string;
@@ -6,8 +7,19 @@ interface UsageIndicatorProps {
 
 export default function UsageIndicator({ text }: UsageIndicatorProps) {
   return (
-    <div className="self-start text-[11px] text-dim font-mono px-4 py-0.5 opacity-60">
+    <Typography
+      variant="caption"
+      color="text.secondary"
+      sx={{
+        alignSelf: 'flex-start',
+        fontSize: '11px',
+        fontFamily: 'monospace',
+        px: 2,
+        py: 0.25,
+        opacity: 0.6,
+      }}
+    >
       {text}
-    </div>
+    </Typography>
   );
 }

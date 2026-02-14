@@ -1,4 +1,7 @@
 import React from 'react';
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Typography from '@mui/material/Typography';
 import { highlightJson } from '../markdown';
 
 interface ToolResultProps {
@@ -38,26 +41,47 @@ function escapeHtml(str: string): string {
 export default function ToolResult({ toolName, content }: ToolResultProps) {
   const mediaInfo = detectMedia(content);
 
+  const resultBorderColor = (theme: any) => theme.palette.mode === 'dark' ? '#2a3a1a' : '#c5d5a5';
+  const resultBgColor = (theme: any) => theme.palette.mode === 'dark' ? '#161a10' : '#f0f5e5';
+
   if (mediaInfo) {
     const source = mediaInfo.base64
       ? `data:image/${mediaInfo.format};base64,${mediaInfo.base64}`
       : `/media/${mediaInfo.mediaId}`;
 
     return (
-      <div className="self-start max-w-[75%] px-3 py-2 rounded-[8px] text-xs bg-[#161a10] border border-[#2a3a1a]">
-        <span className="inline-block bg-[#2a3a1a] text-accent text-[10px] font-semibold px-1.5 py-px rounded-[3px] uppercase font-mono tracking-wide mr-1.5 align-middle">
-          {toolName}
-        </span>
-        <span>result</span>
-        <div className="mt-1 rounded overflow-hidden">
+      <Box
+        sx={{
+          alignSelf: 'flex-start',
+          maxWidth: '75%',
+          px: 1.5,
+          py: 1,
+          borderRadius: 1,
+          fontSize: '0.75rem',
+          bgcolor: resultBgColor,
+          border: 1,
+          borderColor: resultBorderColor,
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+          <Chip
+            label={toolName}
+            size="small"
+            variant="outlined"
+            color="primary"
+            sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+          />
+          <Typography variant="caption">result</Typography>
+        </Box>
+        <Box sx={{ borderRadius: 0.5, overflow: 'hidden' }}>
           <img
             src={source}
             alt={`${toolName} output`}
-            className="max-w-full max-h-[400px] rounded"
+            style={{ maxWidth: '100%', maxHeight: 400, borderRadius: 4 }}
             loading="lazy"
           />
-        </div>
-      </div>
+        </Box>
+      </Box>
     );
   }
 
@@ -72,21 +96,56 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
   const inner = isJson ? highlightJson(content) : escapeHtml(content);
 
   return (
-    <div className="self-start max-w-[75%] px-3 py-2 rounded-[8px] text-xs bg-[#161a10] border border-[#2a3a1a]">
-      <span className="inline-block bg-[#2a3a1a] text-accent text-[10px] font-semibold px-1.5 py-px rounded-[3px] uppercase font-mono tracking-wide mr-1.5 align-middle">
-        {toolName}
-      </span>
-      <span>result</span>
-      <pre className="text-dim font-mono text-[11px] mt-1 px-2 py-1.5 bg-black/20 rounded max-h-40 overflow-y-auto overflow-x-auto">
+    <Box
+      sx={{
+        alignSelf: 'flex-start',
+        maxWidth: '75%',
+        px: 1.5,
+        py: 1,
+        borderRadius: 1,
+        fontSize: '0.75rem',
+        bgcolor: resultBgColor,
+        border: 1,
+        borderColor: resultBorderColor,
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+        <Chip
+          label={toolName}
+          size="small"
+          variant="outlined"
+          color="primary"
+          sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+        />
+        <Typography variant="caption">result</Typography>
+      </Box>
+      <Box
+        component="pre"
+        sx={{
+          color: 'text.secondary',
+          fontFamily: 'monospace',
+          fontSize: '11px',
+          mt: 0.5,
+          px: 1,
+          py: 0.75,
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.05)',
+          borderRadius: 0.5,
+          maxHeight: 160,
+          overflowY: 'auto',
+          overflowX: 'auto',
+          m: 0,
+        }}
+      >
         {isJson ? (
           <code
-            className="hljs language-json text-[11px] font-mono bg-transparent p-0"
+            className="hljs language-json"
+            style={{ fontSize: '11px', fontFamily: 'monospace', backgroundColor: 'transparent', padding: 0 }}
             dangerouslySetInnerHTML={{ __html: inner }}
           />
         ) : (
           <span dangerouslySetInnerHTML={{ __html: inner }} />
         )}
-      </pre>
-    </div>
+      </Box>
+    </Box>
   );
 }

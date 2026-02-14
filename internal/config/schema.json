@@ -1,0 +1,181 @@
+{
+  "sections": [
+    {
+      "id": "models",
+      "label": "Models",
+      "description": "Configure LLM providers and default models.",
+      "fields": [
+        {
+          "key": "models.default",
+          "label": "Default Model",
+          "type": "string",
+          "description": "Qualified model name (e.g. openai:gpt-4o)",
+          "placeholder": "openai:gpt-4o"
+        },
+        {
+          "key": "models.titleModel",
+          "label": "Title Model",
+          "type": "string",
+          "description": "Model for generating session titles. Defaults to default model.",
+          "placeholder": "Same as default"
+        },
+        {
+          "key": "models.summaryModel",
+          "label": "Summary Model",
+          "type": "string",
+          "description": "Model for context summarization. Defaults to title model.",
+          "placeholder": "Same as title model"
+        },
+        {
+          "key": "models.contextWindow",
+          "label": "Context Window",
+          "type": "number",
+          "description": "Maximum tokens for context window.",
+          "placeholder": "128000",
+          "default": 128000
+        },
+        {
+          "key": "models.providers",
+          "label": "Providers",
+          "type": "providers",
+          "description": "LLM provider connections (name, base URL, API key)."
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "label": "Gateway",
+      "description": "HTTP server and authentication settings.",
+      "fields": [
+        {
+          "key": "gateway.port",
+          "label": "Port",
+          "type": "number",
+          "description": "Port the gateway listens on.",
+          "placeholder": "8833",
+          "default": 8833
+        },
+        {
+          "key": "gateway.bind",
+          "label": "Bind",
+          "type": "select",
+          "description": "Network binding: loopback (localhost only) or lan (all interfaces).",
+          "default": "loopback",
+          "options": [
+            { "value": "loopback", "label": "Loopback (localhost)" },
+            { "value": "lan", "label": "LAN (all interfaces)" }
+          ]
+        },
+        {
+          "key": "gateway.auth.token",
+          "label": "Auth Token",
+          "type": "password",
+          "description": "Bearer token for API authentication.",
+          "sensitive": true
+        },
+        {
+          "key": "gateway.auth.password",
+          "label": "Auth Password",
+          "type": "password",
+          "description": "Basic auth password.",
+          "sensitive": true
+        }
+      ]
+    },
+    {
+      "id": "tools",
+      "label": "Tools",
+      "description": "API keys for built-in tools.",
+      "fields": [
+        {
+          "key": "tools.braveApiKey",
+          "label": "Brave API Key",
+          "type": "password",
+          "description": "API key for Brave web search.",
+          "sensitive": true
+        }
+      ]
+    },
+    {
+      "id": "browser",
+      "label": "Browser",
+      "description": "Headless browser (CDP) settings.",
+      "fields": [
+        {
+          "key": "browser.cdpEndpoint",
+          "label": "CDP Endpoint",
+          "type": "string",
+          "description": "Chrome DevTools Protocol endpoint address.",
+          "placeholder": "127.0.0.1:9222"
+        }
+      ]
+    },
+    {
+      "id": "systemPrompt",
+      "label": "System Prompt",
+      "description": "Global system prompt prepended to all agents.",
+      "fields": [
+        {
+          "key": "systemPrompt",
+          "label": "System Prompt",
+          "type": "textarea",
+          "description": "Custom instructions added to the system prompt for all agents."
+        }
+      ]
+    },
+    {
+      "id": "discord",
+      "label": "Discord",
+      "description": "Discord bot integration.",
+      "fields": [
+        {
+          "key": "discord.token",
+          "label": "Bot Token",
+          "type": "password",
+          "description": "Discord bot token.",
+          "sensitive": true
+        },
+        {
+          "key": "discord.allowedUsers",
+          "label": "Allowed Users",
+          "type": "stringArray",
+          "description": "Discord user IDs allowed to interact with the bot."
+        },
+        {
+          "key": "discord.agentId",
+          "label": "Agent ID",
+          "type": "string",
+          "description": "Agent to handle Discord messages. Defaults to \"main\".",
+          "placeholder": "main"
+        }
+      ]
+    },
+    {
+      "id": "telegram",
+      "label": "Telegram",
+      "description": "Telegram bot integration.",
+      "fields": [
+        {
+          "key": "telegram.token",
+          "label": "Bot Token",
+          "type": "password",
+          "description": "Telegram bot token.",
+          "sensitive": true
+        },
+        {
+          "key": "telegram.allowedUsers",
+          "label": "Allowed Users",
+          "type": "stringArray",
+          "description": "Telegram user IDs allowed to interact with the bot."
+        },
+        {
+          "key": "telegram.agentId",
+          "label": "Agent ID",
+          "type": "string",
+          "description": "Agent to handle Telegram messages. Defaults to \"main\".",
+          "placeholder": "main"
+        }
+      ]
+    }
+  ]
+}

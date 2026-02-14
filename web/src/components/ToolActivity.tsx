@@ -1,4 +1,7 @@
 import React from 'react';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import Typography from '@mui/material/Typography';
 
 interface ToolActivityProps {
   toolName: string;
@@ -6,9 +9,11 @@ interface ToolActivityProps {
 
 export default function ToolActivity({ toolName }: ToolActivityProps) {
   return (
-    <div className="self-start px-3 py-1 text-xs text-dim italic flex items-center gap-1.5">
-      <span className="spinner" />
-      Calling {toolName}...
-    </div>
+    <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+      <CircularProgress size={12} color="primary" />
+      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+        Calling {toolName}...
+      </Typography>
+    </Box>
   );
 }

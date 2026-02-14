@@ -10,6 +10,7 @@ import type {
   SessionsListResult,
   ModelsListResult,
   ModelInfo,
+  AgentInfo,
   Message,
   ToolCall,
   Usage,
@@ -112,9 +113,14 @@ export function useChat() {
   const [streamText, setStreamText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolActivity, setToolActivity] = useState<string | null>(null);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [currentAgentId, setCurrentAgentId] = useState<string>('');
+  const [connected, setConnected] = useState(false);
+  const currentAgentIdRef = useRef(currentAgentId);
 
   const sessionKeyRef = useRef(sessionKey);
   sessionKeyRef.current = sessionKey;
+  currentAgentIdRef.current = currentAgentId;
 
   const currentRunIdRef = useRef<string | null>(null);
   const activeRunsRef = useRef<Map<string, string>>(new Map());
@@ -375,8 +381,16 @@ export function useChat() {
   const sendRpcRef = useRef<(<T = unknown>(method: string, params: unknown) => Promise<T>)>(null!);
 
   const handleConnect = useCallback((result: ConnectResult) => {
+    setConnected(true);
     if (result.defaultModel) {
       setDefaultModel(result.defaultModel);
+    }
+    if (result.agents) {
+      setAgents(result.agents);
+    }
+    if (result.defaultAgentId && !currentAgentIdRef.current) {
+      setCurrentAgentId(result.defaultAgentId);
+      currentAgentIdRef.current = result.defaultAgentId;
     }
     // Fetch available models
     sendRpcRef.current<ModelsListResult>('models.list', {})
@@ -444,7 +458,7 @@ export function useChat() {
   }, [sendRpc]);
 
   const switchSession = useCallback(
-    (key: string) => {
+    (key: string, agentId?: string) => {
       // Detach current streaming state
       currentRunIdRef.current = null;
       streamTextRef.current = '';
@@ -452,6 +466,14 @@ export function useChat() {
       setStreamText('');
       setIsStreaming(false);
       setToolActivity(null);
+
+      // Switch agent if a different one is specified.
+      if (agentId && agentId !== currentAgentIdRef.current) {
+        setCurrentAgentId(agentId);
+        currentAgentIdRef.current = agentId;
+      }
+
+      const resolvedAgentId = agentId || currentAgentIdRef.current || undefined;
 
       setSessionKey(key);
       sessionKeyRef.current = key;
@@ -464,7 +486,7 @@ export function useChat() {
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
 
-      sendRpc<ChatHistoryResult>('chat.history', { sessionKey: key })
+      sendRpc<ChatHistoryResult>('chat.history', { sessionKey: key, agentId: resolvedAgentId })
         .then((res) => {
           if (sessionKeyRef.current !== key) return;
           const displayMessages = convertHistory(res.messages || []);
@@ -509,8 +531,8 @@ export function useChat() {
   }, []);
 
   const deleteSession = useCallback(
-    (key: string) => {
-      sendRpc('sessions.delete', { sessionKey: key })
+    (key: string, agentId?: string) => {
+      sendRpc('sessions.delete', { sessionKey: key, agentId })
         .then(() => {
           setSessions((prev) => {
             const updated = prev.filter((session) => session.key !== key);
@@ -564,6 +586,7 @@ export function useChat() {
         message: text,
       };
       if (model) rpcParams.model = model;
+      if (currentAgentIdRef.current) rpcParams.agentId = currentAgentIdRef.current;
 
       sendRpc<ChatSendResult>('chat.send', rpcParams)
         .then((res) => {
@@ -619,6 +642,10 @@ export function useChat() {
     streamText,
     isStreaming,
     toolActivity,
+    agents,
+    currentAgentId,
+    connected,
+    setCurrentAgentId,
     sendMessage,
     abortRun,
     switchSession,

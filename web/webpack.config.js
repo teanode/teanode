@@ -1,7 +1,6 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
-const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = (env, argv) => {
   const isProd = argv.mode === 'production';
@@ -11,6 +10,7 @@ module.exports = (env, argv) => {
     output: {
       path: path.resolve(__dirname, '../internal/gateway/static'),
       filename: isProd ? 'bundle.[contenthash:8].js' : 'bundle.js',
+      publicPath: '/',
       clean: true,
     },
     resolve: {
@@ -28,7 +28,6 @@ module.exports = (env, argv) => {
           use: [
             isProd ? MiniCssExtractPlugin.loader : 'style-loader',
             'css-loader',
-            'postcss-loader',
           ],
         },
       ],
@@ -45,6 +44,7 @@ module.exports = (env, argv) => {
     devServer: {
       port: 3000,
       hot: true,
+      historyApiFallback: true,
       proxy: [
         {
           context: ['/ws'],

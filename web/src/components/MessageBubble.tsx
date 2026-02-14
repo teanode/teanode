@@ -1,4 +1,7 @@
 import React from 'react';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
 import { renderMarkdown } from '../markdown';
 
 interface MessageBubbleProps {
@@ -9,55 +12,95 @@ interface MessageBubbleProps {
   timestamp?: number;
 }
 
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+function formatTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 export default function MessageBubble({ role, content, isStreaming, streamText, timestamp }: MessageBubbleProps) {
-  const timeEl = timestamp ? (
-    <div className="text-[10px] text-muted mt-1 select-none">{formatTime(timestamp)}</div>
+  const isUser = role === 'user';
+
+  const timeElement = timestamp ? (
+    <Typography
+      variant="caption"
+      color="text.secondary"
+      sx={{
+        fontSize: '10px',
+        userSelect: 'none',
+        opacity: 0,
+        transition: 'opacity 0.15s',
+        whiteSpace: 'nowrap',
+        '.message-row:hover &': { opacity: 1 },
+      }}
+    >
+      {formatTime(timestamp)}
+    </Typography>
   ) : null;
 
-  if (role === 'user') {
-    return (
-      <div className="self-end max-w-[85%] max-md:max-w-[95%] px-4 py-3 rounded-[8px] leading-relaxed break-words bg-user-bg border border-[#3a4a1a] whitespace-pre-wrap">
+  let bubble: React.ReactNode;
+
+  if (isUser) {
+    bubble = (
+      <Paper
+        elevation={0}
+        sx={{
+          maxWidth: { xs: '95%', md: '85%' },
+          px: 2,
+          py: 1.5,
+          lineHeight: 1.6,
+          wordBreak: 'break-word',
+          whiteSpace: 'pre-wrap',
+          bgcolor: 'userBg',
+          border: 1,
+          borderColor: (theme) => theme.palette.mode === 'dark' ? '#3a4a1a' : '#c5d9a5',
+        }}
+      >
         {content}
-        {timeEl}
-      </div>
+      </Paper>
     );
-  }
+  } else {
+    const displayText = isStreaming ? (streamText ?? content) : content;
 
-  // Assistant message
-  const displayText = isStreaming ? (streamText ?? content) : content;
-
-  // Handle special states
-  if (displayText.startsWith('__error__:')) {
-    const errorMsg = displayText.substring('__error__:'.length);
-    return (
-      <div className="self-start max-w-[85%] max-md:max-w-[95%] px-4 py-3 rounded-[8px] leading-relaxed break-words bg-surface border border-border">
-        <em className="text-danger">Error: {errorMsg}</em>
-        {timeEl}
-      </div>
-    );
-  }
-
-  if (displayText === '__aborted__') {
-    return (
-      <div className="self-start max-w-[85%] max-md:max-w-[95%] px-4 py-3 rounded-[8px] leading-relaxed break-words bg-surface border border-border">
-        <em className="text-dim">Aborted</em>
-        {timeEl}
-      </div>
-    );
-  }
-
-  if (!displayText) {
-    return null;
+    if (displayText.startsWith('__error__:')) {
+      const errorMessage = displayText.substring('__error__:'.length);
+      bubble = (
+        <Box sx={{ maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}>
+          <Typography component="em" color="error.main">Error: {errorMessage}</Typography>
+        </Box>
+      );
+    } else if (displayText === '__aborted__') {
+      bubble = (
+        <Box sx={{ maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}>
+          <Typography component="em" color="text.secondary">Aborted</Typography>
+        </Box>
+      );
+    } else if (!displayText) {
+      return null;
+    } else {
+      bubble = (
+        <Box
+          className="markdown-content"
+          sx={{ maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}
+        >
+          <div dangerouslySetInnerHTML={{ __html: renderMarkdown(displayText) }} />
+        </Box>
+      );
+    }
   }
 
   return (
-    <div className="self-start max-w-[85%] max-md:max-w-[95%] px-4 py-3 rounded-[8px] leading-relaxed break-words bg-surface border border-border markdown-content">
-      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(displayText) }} />
-      {timeEl}
-    </div>
+    <Box
+      className="message-row"
+      sx={{
+        display: 'flex',
+        flexDirection: isUser ? 'row-reverse' : 'row',
+        alignItems: 'flex-end',
+        gap: 1,
+        alignSelf: isUser ? 'flex-end' : 'flex-start',
+        maxWidth: '100%',
+      }}
+    >
+      {bubble}
+      {timeElement}
+    </Box>
   );
 }

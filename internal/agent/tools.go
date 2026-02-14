@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"github.com/teanode/teanode/internal/config"
 	"github.com/teanode/teanode/internal/provider"
 )
 
@@ -30,6 +31,32 @@ func (self *ToolRegistry) Register(tool Tool) {
 // Get returns a tool by name, or nil.
 func (self *ToolRegistry) Get(name string) Tool {
 	return self.tools[name]
+}
+
+// Remove deletes a tool from the registry.
+func (self *ToolRegistry) Remove(name string) {
+	delete(self.tools, name)
+}
+
+// Names returns all tool names in the registry.
+func (self *ToolRegistry) Names() []string {
+	names := make([]string, 0, len(self.tools))
+	for name := range self.tools {
+		names = append(names, name)
+	}
+	return names
+}
+
+// ApplyFilter removes tools that don't pass the given filter.
+func (self *ToolRegistry) ApplyFilter(filter *config.FilterConfig) {
+	if filter == nil {
+		return
+	}
+	for name := range self.tools {
+		if !config.IsAllowed(name, filter) {
+			delete(self.tools, name)
+		}
+	}
 }
 
 // Definitions returns all tool definitions for the chat request.

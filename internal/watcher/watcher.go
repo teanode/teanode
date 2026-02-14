@@ -25,6 +25,7 @@ type Watcher struct {
 	OnConfigReload func() // called when config.json changes
 	OnSkillsReload func() // called when skills/*.json changes
 	OnCronsReload  func() // called when crons.json changes
+	OnAgentsReload func() // called when agents/*/config.json changes
 }
 
 // New creates a new Watcher for the given data directory.
@@ -53,6 +54,25 @@ func (self *Watcher) Start() error {
 	if info, err := os.Stat(skillsDir); err == nil && info.IsDir() {
 		if err := notifier.Add(skillsDir); err != nil {
 			log.Warningf("cannot watch skills dir: %v", err)
+		}
+	}
+
+	// Watch the agents directory and each agent subdirectory.
+	agentsDir := filepath.Join(self.directory, "agents")
+	if info, err := os.Stat(agentsDir); err == nil && info.IsDir() {
+		if err := notifier.Add(agentsDir); err != nil {
+			log.Warningf("cannot watch agents dir: %v", err)
+		}
+		entries, err := os.ReadDir(agentsDir)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					subdir := filepath.Join(agentsDir, entry.Name())
+					if err := notifier.Add(subdir); err != nil {
+						log.Warningf("cannot watch agent subdir %s: %v", entry.Name(), err)
+					}
+				}
+			}
 		}
 	}
 
@@ -100,12 +120,13 @@ func (self *Watcher) run(notifier *fsnotify.Watcher) {
 			if !ok {
 				return
 			}
-			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) == 0 {
+			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) == 0 {
 				continue
 			}
 
 			name := filepath.Base(event.Name)
 			eventDirectory := filepath.Dir(event.Name)
+			agentsDir := filepath.Join(self.directory, "agents")
 
 			if name == "config.json" && eventDirectory == self.directory {
 				log.Infof("config.json changed, scheduling reload")
@@ -116,6 +137,19 @@ func (self *Watcher) run(notifier *fsnotify.Watcher) {
 			} else if strings.HasSuffix(name, ".json") && eventDirectory == filepath.Join(self.directory, "skills") {
 				log.Infof("skills changed (%s), scheduling reload", name)
 				debounce("skills", self.OnSkillsReload)
+			} else if name == "config.json" && strings.HasPrefix(eventDirectory, agentsDir+string(filepath.Separator)) {
+				log.Infof("agent config changed (%s), scheduling reload", filepath.Base(eventDirectory))
+				debounce("agents", self.OnAgentsReload)
+			} else if eventDirectory == agentsDir && event.Op&fsnotify.Create != 0 {
+				// New agent subdirectory created — start watching it.
+				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+					if err := notifier.Add(event.Name); err != nil {
+						log.Warningf("cannot watch new agent subdir %s: %v", name, err)
+					}
+				}
+			} else if eventDirectory == agentsDir && event.Op&fsnotify.Remove != 0 {
+				// Agent subdirectory removed — trigger reload.
+				debounce("agents", self.OnAgentsReload)
 			}
 
 		case err, ok := <-notifier.Errors:

@@ -33,41 +33,45 @@ func GatewayCmd() *cli.Command {
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			log := logging.Get("cmd")
-			// Ensure directories exist.
+
+			// Run directory migrations before anything else.
+			if err := configpkg.MigrateToAgentDirs(); err != nil {
+				log.Errorf("migration error (non-fatal): %v", err)
+			}
+			if err := configpkg.MigrateAgentsToFiles(); err != nil {
+				log.Errorf("agent migration error (non-fatal): %v", err)
+			}
+
+			// Ensure base directories exist.
 			if err := configpkg.EnsureDirs(); err != nil {
 				return err
 			}
 
-			// Seed workspace with default files.
-			if err := configpkg.SeedWorkspace(); err != nil {
-				return err
-			}
-
 			// Load config.
-			config, err := configpkg.Load()
+			configuration, err := configpkg.Load()
 			if err != nil {
 				return err
 			}
 
 			// CLI flag overrides config.
 			if cmd.IsSet("port") {
-				config.Gateway.Port = int(cmd.Int("port"))
+				configuration.Gateway.Port = int(cmd.Int("port"))
 			}
 
 			// Build provider registry.
-			buildRegistry := func(cfg *configpkg.Config) *provider.Registry {
-				registry := provider.NewRegistry(cfg.Models.DefaultProviderName())
-				for name, pc := range cfg.Models.ResolvedProviders() {
-					registry.Register(name, provider.NewClient(pc.BaseURL, pc.APIKey))
+			buildProviderRegistry := func(configuration *configpkg.Config) *provider.Registry {
+				registry := provider.NewRegistry(configuration.Models.DefaultProviderName())
+				for name, providerConfig := range configuration.Models.ResolvedProviders() {
+					registry.Register(name, provider.NewClient(providerConfig.BaseURL, providerConfig.APIKey))
 				}
 				return registry
 			}
-			providers := buildRegistry(config)
+			providers := buildProviderRegistry(configuration)
 
 			// Validate that at least one provider has an API key.
 			hasKey := false
-			for _, pc := range config.Models.ResolvedProviders() {
-				if pc.APIKey != "" {
+			for _, providerConfig := range configuration.Models.ResolvedProviders() {
+				if providerConfig.APIKey != "" {
 					hasKey = true
 					break
 				}
@@ -76,18 +80,7 @@ func GatewayCmd() *cli.Command {
 				log.Warning("no API key configured (set OPENAI_API_KEY or models.apiKey in config)")
 			}
 
-			sessions, err := session.NewStoreDefault()
-			if err != nil {
-				return err
-			}
-
-			// Set up tool registry with memory tools.
-			tools := agent.NewToolRegistry()
-			workspaceDirectory, err := configpkg.WorkspaceDir()
-			if err != nil {
-				return err
-			}
-			agent.RegisterMemoryTools(tools, workspaceDirectory)
+			// --- Shared resources ---
 
 			// Browser: always create relay for extension connections, optionally
 			// add headless CDP backend. Both can be active simultaneously.
@@ -95,31 +88,25 @@ func GatewayCmd() *cli.Command {
 			backends := []browser.Browser{browserRelay}
 
 			var headlessBrowser *browser.Headless
-			if config.Browser != nil && config.Browser.CDPEndpoint != "" {
-				log.Infof("browser: headless CDP connecting to %s", config.Browser.CDPEndpoint)
-				headlessBrowser = browser.NewHeadless(config.Browser.CDPEndpoint)
+			if configuration.Browser != nil && configuration.Browser.CDPEndpoint != "" {
+				log.Infof("browser: headless CDP connecting to %s", configuration.Browser.CDPEndpoint)
+				headlessBrowser = browser.NewHeadless(configuration.Browser.CDPEndpoint)
 				if err := headlessBrowser.Connect(ctx); err != nil {
 					log.Errorf("headless browser failed to connect: %v", err)
 				}
+				headlessBrowser.StartReconnectLoop(ctx)
 				defer headlessBrowser.Close()
 				backends = append(backends, headlessBrowser)
 			}
 			log.Info("browser: relay accepting extension connections on /browser")
-
 			browserBackend := browser.NewCompositeBrowser(backends...)
-			browser.RegisterBrowserTools(tools, browserBackend)
 
-			termRelay := tterminal.NewRelay()
-			tterminal.RegisterTerminalTools(tools, termRelay)
+			terminalRelay := tterminal.NewRelay()
 
-			agent.RegisterSearchTools(tools, config.Tools.BraveAPIKey)
-			agent.RegisterSessionTools(tools, sessions)
-
-			skillsDir, err := configpkg.SkillsDir()
+			skillsDirectory, err := configpkg.SkillsDir()
 			if err != nil {
 				return err
 			}
-			skillPrompts := skill.RegisterSkills(tools, skillsDir)
 
 			mediaDirectory, err := configpkg.MediaDir()
 			if err != nil {
@@ -127,30 +114,81 @@ func GatewayCmd() *cli.Command {
 			}
 			mediaStore := media.NewStore(mediaDirectory)
 
-			runner := &agent.Runner{
-				Providers:    providers,
-				Sessions:     sessions,
-				Config:       config,
-				Tools:        tools,
-				MediaStore:   mediaStore,
-				WorkspaceDir: workspaceDirectory,
-				SkillPrompts: skillPrompts,
+			// --- Agent Registry: create a runner per agent ---
+
+			agentRegistry := agent.NewAgentRegistry()
+
+			// buildToolsForAgent creates a fresh tool registry for the given agent.
+			buildToolsForAgent := func(
+				configuration *configpkg.Config,
+				agentConfig configpkg.AgentConfig,
+				workspaceDirectory string,
+				sessions *session.Store,
+				scheduler *cron.Scheduler,
+			) (*agent.ToolRegistry, string) {
+				tools := agent.NewToolRegistry()
+				agent.RegisterMemoryTools(tools, workspaceDirectory)
+				browser.RegisterBrowserTools(tools, browserBackend)
+				tterminal.RegisterTerminalTools(tools, terminalRelay)
+				agent.RegisterSearchTools(tools, configuration.Tools.BraveAPIKey)
+				agent.RegisterSessionTools(tools, sessions)
+				if scheduler != nil {
+					cron.RegisterCronTools(tools, scheduler)
+				}
+				skillPrompts := skill.RegisterSkillsFiltered(tools, skillsDirectory, agentConfig.Skills)
+				agent.RegisterInterAgentTools(tools, agentConfig.ID, agentRegistry, configuration)
+				tools.ApplyFilter(agentConfig.Tools)
+				return tools, skillPrompts
 			}
 
-			// Set up cron scheduler.
+			// Set up cron scheduler (needs agent registry).
 			cronStore, err := cron.NewStore()
 			if err != nil {
 				return err
 			}
-			scheduler := cron.NewScheduler(cronStore, runner)
-			cron.RegisterCronTools(tools, scheduler)
+			scheduler := cron.NewScheduler(cronStore, agentRegistry)
+
+			// Create a runner for each configured agent.
+			for _, agentConfig := range configuration.ResolveAgents() {
+				if err := configpkg.EnsureAgentDirs(agentConfig.ID); err != nil {
+					return err
+				}
+				if err := configpkg.SeedAgentWorkspace(agentConfig.ID); err != nil {
+					return err
+				}
+
+				workspaceDirectory, err := configpkg.AgentWorkspaceDir(agentConfig.ID)
+				if err != nil {
+					return err
+				}
+				sessionsDirectory, err := configpkg.AgentSessionsDir(agentConfig.ID)
+				if err != nil {
+					return err
+				}
+				sessions := session.NewStore(sessionsDirectory)
+
+				tools, skillPrompts := buildToolsForAgent(configuration, agentConfig, workspaceDirectory, sessions, scheduler)
+
+				runner := &agent.Runner{
+					AgentID:      agentConfig.ID,
+					Providers:    providers,
+					Sessions:     sessions,
+					Config:       configuration,
+					Tools:        tools,
+					MediaStore:   mediaStore,
+					WorkspaceDir: workspaceDirectory,
+					SkillPrompts: skillPrompts,
+				}
+				agentRegistry.Register(agentConfig.ID, runner)
+			}
+
+			// --- Server ---
 
 			server := &gateway.Server{
-				Config:        config,
-				Agent:         runner,
-				Sessions:      sessions,
+				Config:        configuration,
+				AgentRegistry: agentRegistry,
 				BrowserRelay:  browserRelay,
-				TerminalRelay: termRelay,
+				TerminalRelay: terminalRelay,
 				Scheduler:     scheduler,
 				MediaStore:    mediaStore,
 			}
@@ -159,9 +197,10 @@ func GatewayCmd() *cli.Command {
 			scheduler.SetActiveRun = server.SetActiveRun
 			scheduler.ClearActiveRun = server.ClearActiveRun
 
-			// Set up Discord bot.
-			if config.Discord != nil && config.Discord.Token != "" {
-				discordBot := discord.New(config.Discord, runner, sessions)
+			// --- Discord bot ---
+
+			if configuration.Discord != nil && configuration.Discord.Token != "" {
+				discordBot := discord.New(configuration.Discord, agentRegistry)
 				discordBot.Broadcast = server.Broadcast
 				discordBot.SetActiveRun = server.SetActiveRun
 				discordBot.ClearActiveRun = server.ClearActiveRun
@@ -172,9 +211,10 @@ func GatewayCmd() *cli.Command {
 				}
 			}
 
-			// Set up Telegram bot.
-			if config.Telegram != nil && config.Telegram.Token != "" {
-				telegramBot := telegram.New(config.Telegram, runner, sessions)
+			// --- Telegram bot ---
+
+			if configuration.Telegram != nil && configuration.Telegram.Token != "" {
+				telegramBot := telegram.New(configuration.Telegram, agentRegistry)
 				telegramBot.Broadcast = server.Broadcast
 				telegramBot.SetActiveRun = server.SetActiveRun
 				telegramBot.ClearActiveRun = server.ClearActiveRun
@@ -185,50 +225,115 @@ func GatewayCmd() *cli.Command {
 				}
 			}
 
-			// Set up file watcher for hot reloading.
-			dataDir, err := configpkg.Dir()
+			// --- File watcher for hot reloading ---
+
+			dataDirectory, err := configpkg.Dir()
 			if err != nil {
 				return err
 			}
 
-			// rebuildTools creates a fresh tool registry with all tools registered.
-			rebuildTools := func(newConfig *configpkg.Config) (*agent.ToolRegistry, string) {
-				newTools := agent.NewToolRegistry()
-				agent.RegisterMemoryTools(newTools, workspaceDirectory)
-				browser.RegisterBrowserTools(newTools, browserBackend)
-				tterminal.RegisterTerminalTools(newTools, termRelay)
-				agent.RegisterSearchTools(newTools, newConfig.Tools.BraveAPIKey)
-				agent.RegisterSessionTools(newTools, sessions)
-				cron.RegisterCronTools(newTools, scheduler)
-				skillPrompts := skill.RegisterSkills(newTools, skillsDir)
-				return newTools, skillPrompts
-			}
+			fileWatcher := watcher.New(dataDirectory)
 
-			fileWatcher := watcher.New(dataDir)
+			// reloadAgents reconfigures agent runners from the current server config.
+			reloadAgents := func() {
+				currentConfiguration := server.Config
+				currentProviders := buildProviderRegistry(currentConfiguration)
+
+				for _, agentConfig := range currentConfiguration.ResolveAgents() {
+					runner := agentRegistry.Get(agentConfig.ID)
+					if runner == nil {
+						// New agent appeared — create it.
+						if err := configpkg.EnsureAgentDirs(agentConfig.ID); err != nil {
+							log.Errorf("failed to create dirs for new agent %s: %v", agentConfig.ID, err)
+							continue
+						}
+						if err := configpkg.SeedAgentWorkspace(agentConfig.ID); err != nil {
+							log.Errorf("failed to seed workspace for new agent %s: %v", agentConfig.ID, err)
+							continue
+						}
+						workspaceDirectory, err := configpkg.AgentWorkspaceDir(agentConfig.ID)
+						if err != nil {
+							continue
+						}
+						sessionsDirectory, err := configpkg.AgentSessionsDir(agentConfig.ID)
+						if err != nil {
+							continue
+						}
+						sessions := session.NewStore(sessionsDirectory)
+						tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, sessions, scheduler)
+						runner = &agent.Runner{
+							AgentID:      agentConfig.ID,
+							Providers:    currentProviders,
+							Sessions:     sessions,
+							Config:       currentConfiguration,
+							Tools:        tools,
+							MediaStore:   mediaStore,
+							WorkspaceDir: workspaceDirectory,
+							SkillPrompts: skillPrompts,
+						}
+						agentRegistry.Register(agentConfig.ID, runner)
+						continue
+					}
+
+					// Existing agent — rebuild tools and reconfigure.
+					workspaceDirectory, err := configpkg.AgentWorkspaceDir(agentConfig.ID)
+					if err != nil {
+						continue
+					}
+					tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, runner.Sessions, scheduler)
+					runner.Reconfigure(currentConfiguration, currentProviders, tools, skillPrompts)
+				}
+			}
 
 			fileWatcher.OnConfigReload = func() {
 				log.Info("hot-reloading config")
-				newConfig, err := configpkg.Load()
+				newConfiguration, err := configpkg.Load()
 				if err != nil {
 					log.Errorf("failed to reload config: %v", err)
 					return
 				}
 				// Preserve CLI port override.
 				if cmd.IsSet("port") {
-					newConfig.Gateway.Port = int(cmd.Int("port"))
+					newConfiguration.Gateway.Port = int(cmd.Int("port"))
 				}
-				newProviders := buildRegistry(newConfig)
-				newTools, newSkillPrompts := rebuildTools(newConfig)
-				runner.Reconfigure(newConfig, newProviders, newTools, newSkillPrompts)
-				server.Config = newConfig
+
+				server.Config = newConfiguration
+				server.InvalidateModelsCache()
+				reloadAgents()
 				log.Info("config reloaded successfully")
+			}
+
+			fileWatcher.OnAgentsReload = func() {
+				log.Info("hot-reloading agents")
+				newConfiguration, err := configpkg.Load()
+				if err != nil {
+					log.Errorf("failed to reload agents: %v", err)
+					return
+				}
+				// Preserve CLI port override.
+				if cmd.IsSet("port") {
+					newConfiguration.Gateway.Port = int(cmd.Int("port"))
+				}
+				server.Config = newConfiguration
+				reloadAgents()
+				log.Info("agents reloaded successfully")
 			}
 
 			fileWatcher.OnSkillsReload = func() {
 				log.Info("hot-reloading skills")
-				config, providers, _, _, _ := runner.Snapshot()
-				newTools, newSkillPrompts := rebuildTools(config)
-				runner.Reconfigure(config, providers, newTools, newSkillPrompts)
+				agentRegistry.ForEach(func(agentId string, runner *agent.Runner) {
+					currentConfig, currentProviders, _, _, _ := runner.Snapshot()
+					agentConfig := currentConfig.AgentByID(agentId)
+					if agentConfig == nil {
+						return
+					}
+					workspaceDirectory, err := configpkg.AgentWorkspaceDir(agentId)
+					if err != nil {
+						return
+					}
+					tools, skillPrompts := buildToolsForAgent(currentConfig, *agentConfig, workspaceDirectory, runner.Sessions, scheduler)
+					runner.Reconfigure(currentConfig, currentProviders, tools, skillPrompts)
+				})
 				log.Info("skills reloaded successfully")
 			}
 

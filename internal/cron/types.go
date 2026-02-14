@@ -25,6 +25,7 @@ type CronJob struct {
 	Schedule   string `json:"schedule"` // 5-field cron expr
 	Message    string `json:"message"`
 	Model      string `json:"model,omitempty"`
+	AgentID    string `json:"agentId,omitempty"` // target agent; defaults to "main"
 	Enabled    bool   `json:"enabled"`
 	SessionKey string `json:"sessionKey"`           // persistent session for this job
 	LastRun    int64  `json:"lastRun,omitempty"`    // unix ms

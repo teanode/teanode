@@ -19,11 +19,10 @@ import (
 	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
-const maxToolRounds = 100
-
 // Runner orchestrates: load session -> build prompt -> call LLM -> save response.
 type Runner struct {
 	mutex        sync.RWMutex
+	AgentID      string
 	Providers    *provider.Registry
 	Sessions     *session.Store
 	Config       *config.Config
@@ -100,7 +99,15 @@ type RunCallbacks struct {
 // and appends the assistant response. Loops when the LLM requests tool calls.
 func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
 	// Snapshot mutable fields so in-progress runs aren't affected by hot-reloads.
-	config, providers, tools, _, _ := self.Snapshot()
+	configuration, providers, tools, _, _ := self.Snapshot()
+
+	// Resolve per-agent limits (falls back to defaults for unconfigured agents).
+	var limits config.AgentLimits
+	if agentConfig := configuration.AgentByID(self.AgentID); agentConfig != nil {
+		limits = agentConfig.ResolveLimits()
+	} else {
+		limits = config.DefaultAgentLimits
+	}
 
 	runId := uuid.New().String()
 	now := time.Now().UnixMilli()
@@ -127,7 +134,7 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 	}
 
 	// 3. Choose model and resolve provider.
-	qualifiedModel := config.Models.Default
+	qualifiedModel := configuration.AgentModel(self.AgentID)
 	if params.Model != "" {
 		qualifiedModel = params.Model
 	}
@@ -143,14 +150,14 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 	var responseModel string
 	var stopReason string
 
-	for round := 0; round < maxToolRounds; round++ {
+	for round := 0; round < limits.MaxToolRounds; round++ {
 		log.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
 
 		// Build messages for the LLM.
-		llmMessages := self.buildMessages(history)
+		llmMessages := self.buildMessages(history, limits)
 
 		// Tier 1: truncate old tool results.
-		llmMessages = truncateOldToolResults(llmMessages)
+		llmMessages = truncateOldToolResults(llmMessages, limits.MinKeepMessages, limits.MaxToolResultChars)
 
 		// Build tool definitions for the request.
 		var toolDefs []provider.ToolDef
@@ -162,9 +169,9 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 		// Use per-model context window if available, otherwise fall back to config.
 		contextWindow := self.lookupContextWindow(qualifiedModel)
 		if contextWindow <= 0 {
-			contextWindow = config.Models.ContextWindow
+			contextWindow = configuration.Models.ContextWindow
 		}
-		llmMessages, err = self.compressContext(ctx, providers, config, llmMessages, toolDefs, params.SessionKey, contextWindow)
+		llmMessages, err = self.compressContext(ctx, providers, configuration, llmMessages, toolDefs, params.SessionKey, contextWindow, limits)
 		if err != nil {
 			log.Debugf("context compression error (non-fatal): %v", err)
 		}
@@ -372,9 +379,9 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 			if len(firstAssistantText) > 500 {
 				firstAssistantText = firstAssistantText[:500]
 			}
-			titleQualifiedModel := config.Models.Default
-			if config.Models.TitleModel != "" {
-				titleQualifiedModel = config.Models.TitleModel
+			titleQualifiedModel := configuration.Models.Default
+			if configuration.Models.TitleModel != "" {
+				titleQualifiedModel = configuration.Models.TitleModel
 			}
 			titleClient, titleBareModel, titleErr := providers.Resolve(titleQualifiedModel)
 			go func() {
@@ -432,8 +439,8 @@ func repairToolArgs(input string) string {
 
 // buildMessages converts session history into LLM messages.
 // It scans backward for the last context_summary message and skips everything before it.
-func (self *Runner) buildMessages(history []session.Message) []provider.ChatMessage {
-	systemPrompt := BuildSystemPrompt(self.Config, self.WorkspaceDir, self.SkillPrompts)
+func (self *Runner) buildMessages(history []session.Message, limits config.AgentLimits) []provider.ChatMessage {
+	systemPrompt := BuildSystemPrompt(self.Config, self.AgentID, self.WorkspaceDir, self.SkillPrompts, limits.MaxWorkspaceFileChars)
 	messages := make([]provider.ChatMessage, 0, len(history)+1)
 	messages = append(messages, provider.ChatMessage{
 		Role:    "system",

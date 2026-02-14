@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/util/deferutil"
@@ -17,13 +18,14 @@ import (
 // Headless connects directly to a CDP endpoint (e.g. chromedp/headless-shell
 // on 127.0.0.1:9222) and implements the Browser interface.
 type Headless struct {
-	endpoint   string // host:port of the CDP debugger
-	connection *websocket.Conn
-	targets    map[string]*ConnectedTarget // sessionID -> target
-	pending    *pending.Requests
-	mutex      sync.Mutex
-	writeMutex sync.Mutex // serializes WebSocket writes (gorilla requires this)
-	done       chan struct{}
+	endpoint      string // host:port of the CDP debugger
+	connection    *websocket.Conn
+	targets       map[string]*ConnectedTarget // sessionID -> target
+	pending       *pending.Requests
+	mutex         sync.Mutex
+	writeMutex    sync.Mutex // serializes WebSocket writes (gorilla requires this)
+	done          chan struct{}
+	stopReconnect chan struct{}
 }
 
 // NewHeadless creates a new headless browser client for the given endpoint.
@@ -143,10 +145,19 @@ func (self *Headless) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Close tears down the WebSocket connection.
+// Close tears down the WebSocket connection and stops any reconnect loop.
 func (self *Headless) Close() {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
+
+	// Stop the reconnect loop first so it doesn't restart after we close.
+	if self.stopReconnect != nil {
+		select {
+		case <-self.stopReconnect:
+		default:
+			close(self.stopReconnect)
+		}
+	}
 
 	if self.connection != nil {
 		self.connection.Close()
@@ -154,6 +165,73 @@ func (self *Headless) Close() {
 	}
 	self.targets = make(map[string]*ConnectedTarget)
 	self.pending.RejectAll("headless connection closed")
+}
+
+// StartReconnectLoop spawns a goroutine that re-establishes the CDP
+// connection whenever it drops, using exponential backoff. Call Close()
+// to stop the loop.
+func (self *Headless) StartReconnectLoop(ctx context.Context) {
+	self.mutex.Lock()
+	self.stopReconnect = make(chan struct{})
+	done := self.done
+	if done == nil {
+		// Not currently connected (initial Connect failed or was never
+		// called) — use an already-closed channel to trigger an immediate
+		// reconnect attempt.
+		done = make(chan struct{})
+		close(done)
+	}
+	self.mutex.Unlock()
+
+	go self.reconnectLoop(ctx, done)
+}
+
+func (self *Headless) reconnectLoop(ctx context.Context, done chan struct{}) {
+	defer deferutil.Recover()
+
+	for {
+		// Wait for the current connection to drop.
+		select {
+		case <-done:
+		case <-self.stopReconnect:
+			return
+		case <-ctx.Done():
+			return
+		}
+
+		delay := time.Second
+		maxDelay := 30 * time.Second
+
+		for {
+			select {
+			case <-self.stopReconnect:
+				return
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+
+			log.Infof("headless: reconnecting to %s", self.endpoint)
+			connectContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := self.Connect(connectContext)
+			cancel()
+
+			if err != nil {
+				log.Errorf("headless: reconnect failed: %v", err)
+				delay *= 2
+				if delay > maxDelay {
+					delay = maxDelay
+				}
+				continue
+			}
+
+			// Success — grab the new done channel for the next iteration.
+			self.mutex.Lock()
+			done = self.done
+			self.mutex.Unlock()
+			break
+		}
+	}
 }
 
 // Connected reports whether the headless browser connection is active.

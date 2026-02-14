@@ -12,12 +12,7 @@ import (
 	"github.com/teanode/teanode/internal/session"
 )
 
-const (
-	defaultContextWindow = 128000
-	compressionThreshold = 0.80
-	minKeepMessages      = 10
-	maxToolResultChars   = 8000
-)
+const defaultContextWindow = 128000
 
 // estimateTokens returns a rough token count using a character heuristic.
 func estimateTokens(text string) int {
@@ -49,19 +44,19 @@ func estimateToolDefsTokens(tools []provider.ToolDef) int {
 	return tokens
 }
 
-// truncateOldToolResults caps old tool-result message content at maxToolResultChars.
-// Messages in the last minKeepMessages are preserved intact.
-func truncateOldToolResults(messages []provider.ChatMessage) []provider.ChatMessage {
-	if len(messages) <= minKeepMessages {
+// truncateOldToolResults caps old tool-result message content at maxChars.
+// Messages in the last minKeep are preserved intact.
+func truncateOldToolResults(messages []provider.ChatMessage, minKeep int, maxChars int) []provider.ChatMessage {
+	if len(messages) <= minKeep {
 		return messages
 	}
-	boundary := len(messages) - minKeepMessages
+	boundary := len(messages) - minKeep
 
 	result := make([]provider.ChatMessage, len(messages))
 	copy(result, messages)
 	for index := 0; index < boundary; index++ {
-		if result[index].Role == "tool" && len(result[index].Content) > maxToolResultChars {
-			result[index].Content = result[index].Content[:maxToolResultChars] + "\n... (truncated)"
+		if result[index].Role == "tool" && len(result[index].Content) > maxChars {
+			result[index].Content = result[index].Content[:maxChars] + "\n... (truncated)"
 		}
 	}
 	return result
@@ -116,6 +111,7 @@ func (self *Runner) compressContext(
 	toolDefs []provider.ToolDef,
 	sessionKey string,
 	contextWindow int,
+	limits config.AgentLimits,
 ) ([]provider.ChatMessage, error) {
 	if contextWindow <= 0 {
 		contextWindow = defaultContextWindow
@@ -127,7 +123,7 @@ func (self *Runner) compressContext(
 		total += estimateMessageTokens(message)
 	}
 
-	threshold := int(float64(contextWindow) * compressionThreshold)
+	threshold := int(float64(contextWindow) * limits.CompressionThreshold)
 	if total <= threshold {
 		return messages, nil
 	}
@@ -136,7 +132,7 @@ func (self *Runner) compressContext(
 
 	// Find the split point: keep system prompt (index 0) + recent messages.
 	// messages[0] is always the system prompt.
-	keepIdx := findKeepBoundary(messages[1:], minKeepMessages) + 1 // +1 for system prompt offset
+	keepIdx := findKeepBoundary(messages[1:], limits.MinKeepMessages) + 1 // +1 for system prompt offset
 	if keepIdx <= 1 {
 		// Nothing to compress.
 		return messages, nil

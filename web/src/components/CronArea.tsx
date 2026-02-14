@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import type { CronJob, CronJobCreateParams, CronJobUpdateParams, ModelInfo } from '../types';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Button from '@mui/material/Button';
+import Switch from '@mui/material/Switch';
+import Chip from '@mui/material/Chip';
+import type { CronJob, CronJobCreateParams, CronJobUpdateParams, ModelInfo, AgentInfo } from '../types';
 import CronJobForm from './CronJobForm';
 
 function relativeTime(ms: number): string {
@@ -14,6 +19,7 @@ interface CronAreaProps {
   job: CronJob | null;
   creating: boolean;
   models: ModelInfo[];
+  agents: AgentInfo[];
   onLoad: () => void;
   onCreate: (params: CronJobCreateParams) => Promise<void>;
   onUpdate: (params: CronJobUpdateParams) => Promise<void>;
@@ -27,6 +33,7 @@ export default function CronArea({
   job,
   creating,
   models,
+  agents,
   onLoad,
   onCreate,
   onUpdate,
@@ -41,163 +48,158 @@ export default function CronArea({
     onLoad();
   }, [onLoad]);
 
-  // Reset editing when job changes
   useEffect(() => {
     setEditing(false);
   }, [job?.id]);
 
   if (creating) {
     return (
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-4 border-b border-border">
-          <h2 className="text-sm font-semibold">New Cron Job</h2>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4">
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>New Cron Job</Typography>
+        </Box>
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
           <CronJobForm
             models={models}
+            agents={agents}
             onSave={(data) => {
               const params: CronJobCreateParams = { name: data.name, schedule: data.schedule, message: data.message };
               if (data.model) params.model = data.model;
+              if (data.agentId) params.agentId = data.agentId;
               onCreate(params).catch(() => {});
             }}
             onCancel={onCancelCreate}
           />
-        </div>
-      </div>
+        </Box>
+      </Box>
     );
   }
 
   if (!job) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-sm text-muted">Select a cron job or create a new one</div>
-      </div>
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Typography variant="body2" color="text.secondary">Select a cron job or create a new one</Typography>
+      </Box>
     );
   }
 
   if (editing) {
     return (
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-4 border-b border-border">
-          <h2 className="text-sm font-semibold">Edit: {job.name}</h2>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4">
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Edit: {job.name}</Typography>
+        </Box>
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
           <CronJobForm
             initial={job}
             models={models}
+            agents={agents}
             onSave={(data) => {
               const params: CronJobUpdateParams = { id: job.id };
               if (data.name !== job.name) params.name = data.name;
               if (data.schedule !== job.schedule) params.schedule = data.schedule;
               if (data.message !== job.message) params.message = data.message;
               if (data.model !== (job.model || '')) params.model = data.model;
+              if (data.agentId !== (job.agentId || '')) params.agentId = data.agentId;
               onUpdate(params).then(() => setEditing(false)).catch(() => {});
             }}
             onCancel={() => setEditing(false)}
           />
-        </div>
-      </div>
+        </Box>
+      </Box>
     );
   }
 
-  // Detail view
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="p-4 border-b border-border flex items-center justify-between">
-        <h2 className="text-sm font-semibold">{job.name}</h2>
-        <div className="flex items-center gap-2">
-          <button
-            className="text-xs px-3 py-1.5 rounded bg-accent-dim text-white hover:bg-accent"
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{job.name}</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Button
+            size="small"
+            variant="contained"
             onClick={() => onTrigger(job.id).then(() => onViewSession(job.sessionKey))}
           >
             Run Now
-          </button>
-          <button
-            className="text-xs px-3 py-1.5 rounded hover:bg-border"
-            onClick={() => setEditing(true)}
-          >
+          </Button>
+          <Button size="small" variant="text" onClick={() => setEditing(true)}>
             Edit
-          </button>
-          <button
-            className="text-xs px-3 py-1.5 rounded text-red-400 hover:bg-red-900/20"
-            onClick={() => onDelete(job.id)}
-          >
+          </Button>
+          <Button size="small" color="error" variant="text" onClick={() => onDelete(job.id)}>
             Delete
-          </button>
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          </Button>
+        </Box>
+      </Box>
+      <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
         {/* Status toggle */}
-        <div className="flex items-center gap-3">
-          <button
-            className={`w-10 h-6 rounded-full relative transition-colors ${
-              job.enabled ? 'bg-accent' : 'bg-border'
-            }`}
-            onClick={() => onUpdate({ id: job.id, enabled: !job.enabled })}
-          >
-            <span
-              className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-[left] ${
-                job.enabled ? 'left-5' : 'left-1'
-              }`}
-            />
-          </button>
-          <span className="text-sm">{job.enabled ? 'Enabled' : 'Disabled'}</span>
-        </div>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+          <Switch
+            checked={job.enabled}
+            onChange={() => onUpdate({ id: job.id, enabled: !job.enabled })}
+            color="primary"
+          />
+          <Typography variant="body2">{job.enabled ? 'Enabled' : 'Disabled'}</Typography>
+        </Box>
 
         {/* Details */}
-        <div className="space-y-3">
-          <div>
-            <div className="text-xs text-muted mb-1">Schedule</div>
-            <div className="text-sm font-mono">{job.schedule}</div>
-          </div>
-          <div>
-            <div className="text-xs text-muted mb-1">Message</div>
-            <div className="text-sm whitespace-pre-wrap bg-bg border border-border rounded p-3">{job.message}</div>
-          </div>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2 }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Schedule</Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{job.schedule}</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Message</Typography>
+            <Typography
+              variant="body2"
+              sx={{ whiteSpace: 'pre-wrap', bgcolor: 'background.default', border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}
+            >
+              {job.message}
+            </Typography>
+          </Box>
           {job.model && (
-            <div>
-              <div className="text-xs text-muted mb-1">Model</div>
-              <div className="text-sm font-mono">{job.model}</div>
-            </div>
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Model</Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{job.model}</Typography>
+            </Box>
           )}
-        </div>
+          {job.agentId && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Agent</Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{job.agentId}</Typography>
+            </Box>
+          )}
+        </Box>
 
         {/* Last run info */}
-        <div className="border-t border-border pt-3">
-          <div className="text-xs text-muted mb-2">Last Run</div>
+        <Box sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5, mb: 2 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Last Run</Typography>
           {job.lastRun ? (
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-sm">
-                <span>{relativeTime(job.lastRun)}</span>
-                <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                    job.lastStatus === 'success'
-                      ? 'bg-green-900/30 text-green-400'
-                      : 'bg-red-900/30 text-red-400'
-                  }`}
-                >
-                  {job.lastStatus}
-                </span>
-              </div>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2">{relativeTime(job.lastRun)}</Typography>
+                <Chip
+                  label={job.lastStatus}
+                  size="small"
+                  color={job.lastStatus === 'success' ? 'success' : 'error'}
+                  sx={{ height: 20, fontSize: '10px' }}
+                />
+              </Box>
               {job.lastError && (
-                <div className="text-xs text-red-400">{job.lastError}</div>
+                <Typography variant="caption" color="error.main">{job.lastError}</Typography>
               )}
-            </div>
+            </Box>
           ) : (
-            <div className="text-sm text-muted">Never run</div>
+            <Typography variant="body2" color="text.secondary">Never run</Typography>
           )}
-        </div>
+        </Box>
 
         {/* View session link */}
-        <div className="border-t border-border pt-3">
-          <button
-            className="text-xs text-accent hover:underline"
-            onClick={() => onViewSession(job.sessionKey)}
-          >
+        <Box sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5 }}>
+          <Button size="small" color="primary" variant="text" onClick={() => onViewSession(job.sessionKey)}>
             View session history
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </Box>
+      </Box>
+    </Box>
   );
 }
