@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/ziyan/teanode/internal/config"
-	"github.com/ziyan/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/config"
+	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
 // Store provides JSONL-based session persistence.
@@ -133,7 +133,7 @@ func (self *Store) Append(sessionKey string, message Message) error {
 // SessionInfo contains a session key and its last activity time.
 type SessionInfo struct {
 	Key        string `json:"key"`
-	LastActive int64  `json:"lastActive"`        // ms since epoch
+	LastActive int64  `json:"lastActive"` // ms since epoch
 	Title      string `json:"title,omitempty"`
 }
 

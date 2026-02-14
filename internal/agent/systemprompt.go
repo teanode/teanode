@@ -8,7 +8,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/ziyan/teanode/internal/config"
+	"github.com/teanode/teanode/internal/config"
 )
 
 const maxWorkspaceFileChars = 8000

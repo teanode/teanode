@@ -24,6 +24,7 @@ export default function App() {
     isRunning,
     status,
     defaultModel,
+    models,
     streamText,
     isStreaming,
     toolActivity,
@@ -84,8 +85,18 @@ export default function App() {
   const [showToolCalls, setShowToolCalls] = useState(() => {
     return localStorage.getItem('teanode-show-tools') !== 'false';
   });
+  const [model, setModel] = useState(() => {
+    return localStorage.getItem('teanode-model') || '';
+  });
 
-  const modelRef = useRef<HTMLInputElement>(null);
+  const handleModelChange = useCallback((value: string) => {
+    setModel(value);
+    if (value) {
+      localStorage.setItem('teanode-model', value);
+    } else {
+      localStorage.removeItem('teanode-model');
+    }
+  }, []);
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => {
@@ -105,10 +116,9 @@ export default function App() {
 
   const handleSend = useCallback(
     (text: string) => {
-      const model = modelRef.current?.value.trim();
       sendMessage(text, model || undefined);
     },
-    [sendMessage]
+    [sendMessage, model]
   );
 
   const handleRename = useCallback(
@@ -169,9 +179,11 @@ export default function App() {
         <TopBar
           title={activeView === 'chat' ? title : (selectedCronJob?.name || 'Cron Jobs')}
           defaultModel={defaultModel}
+          models={models}
+          model={model}
+          onModelChange={handleModelChange}
           onToggleSidebar={toggleSidebar}
           onRename={activeView === 'chat' ? handleRename : undefined}
-          modelRef={modelRef}
         />
         {activeView === 'chat' ? (
           <ChatArea
@@ -190,6 +202,7 @@ export default function App() {
           <CronArea
             job={selectedCronJob}
             creating={creatingCronJob}
+            models={models}
             onLoad={cronJobs.loadJobs}
             onCreate={handleCreateCronJob}
             onUpdate={cronJobs.updateJob}

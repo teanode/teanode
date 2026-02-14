@@ -6,17 +6,17 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/ziyan/teanode/internal/types"
+	"github.com/teanode/teanode/internal/types"
 )
 
 // webSocketConnection manages a single WebSocket connection.
 type webSocketConnection struct {
-	connection    *websocket.Conn
-	server        *Server
-	writeMutex    sync.Mutex
+	connection *websocket.Conn
+	server     *Server
+	writeMutex sync.Mutex
 
 	// Active agent runs keyed by run ID.
-	runs          sync.Map // map[string]context.CancelFunc
+	runs sync.Map // map[string]context.CancelFunc
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time
@@ -84,6 +84,8 @@ func (self *webSocketConnection) dispatch(frame types.RequestFrame) {
 		self.handleSessionsRename(frame)
 	case "sessions.delete":
 		self.handleSessionsDelete(frame)
+	case "models.list":
+		self.handleModelsList(frame)
 	case "crons.list":
 		self.handleCronsList(frame)
 	case "crons.create":
@@ -113,7 +115,7 @@ func (self *webSocketConnection) sendError(id string, code int, message string) 
 		Type:  "res",
 		ID:    id,
 		OK:    false,
-		Error: &types.RPCError{Code: code, Message: message},
+		Error: &types.Error{Code: code, Message: message},
 	})
 }
 

@@ -61,6 +61,14 @@ You can manage scheduled tasks using the cron tools:
 
 When the user asks you to set up reminders, recurring tasks, or scheduled actions, use these tools. Each cron job sends a message to the AI agent on its schedule, using a persistent session for all executions of the same job.
 
+## Browser Tools
+
+You can control a connected browser session:
+- When browser tools return images (e.g. browser_screenshot), the image is displayed
+  directly to the user in the chat. You do not need to describe the image or include
+  base64 data in your response — the user can see it.
+- Tool results for images will contain a media reference instead of raw data.
+
 ## Terminal Tools
 
 You can control a connected terminal session (launched via `teanode terminal`):

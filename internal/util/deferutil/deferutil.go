@@ -1,3 +1,4 @@
+// Package deferutil provides helpers for safe deferred operations and panic recovery.
 package deferutil
 
 import (

@@ -1,3 +1,4 @@
+// Package config handles loading and watching the teanode configuration file.
 package config
 
 import (
@@ -7,8 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
-	"github.com/ziyan/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
 //go:embed default_agents.md
@@ -18,12 +20,17 @@ var defaultAgentsMD string
 var defaultMemoryMD string
 
 type Config struct {
-	Gateway      GatewayConfig  `json:"gateway"`
-	Models       ModelsConfig   `json:"models"`
-	Tools        ToolsConfig    `json:"tools,omitempty"`
-	SystemPrompt string         `json:"systemPrompt,omitempty"`
-	Discord      *DiscordConfig `json:"discord,omitempty"`
+	Gateway      GatewayConfig   `json:"gateway"`
+	Models       ModelsConfig    `json:"models"`
+	Tools        ToolsConfig     `json:"tools,omitempty"`
+	Browser      *BrowserConfig  `json:"browser,omitempty"`
+	SystemPrompt string          `json:"systemPrompt,omitempty"`
+	Discord      *DiscordConfig  `json:"discord,omitempty"`
 	Telegram     *TelegramConfig `json:"telegram,omitempty"`
+}
+
+type BrowserConfig struct {
+	CDPEndpoint string `json:"cdpEndpoint,omitempty"` // e.g. "127.0.0.1:9222"
 }
 
 type DiscordConfig struct {
@@ -41,8 +48,8 @@ type ToolsConfig struct {
 }
 
 type GatewayConfig struct {
-	Port int        `json:"port"`
-	Bind string     `json:"bind"` // "loopback" | "lan"
+	Port int         `json:"port"`
+	Bind string      `json:"bind"` // "loopback" | "lan"
 	Auth *AuthConfig `json:"auth,omitempty"`
 }
 
@@ -51,14 +58,61 @@ type AuthConfig struct {
 	Password string `json:"password,omitempty"`
 }
 
+// ProviderConfig holds connection details for a single provider.
+type ProviderConfig struct {
+	BaseURL string `json:"baseUrl"`
+	APIKey  string `json:"apiKey,omitempty"`
+}
+
 type ModelsConfig struct {
-	Default       string `json:"default"`
-	Provider      string `json:"provider"`
-	BaseURL       string `json:"baseUrl"`
-	APIKey        string `json:"apiKey,omitempty"`
-	TitleModel    string `json:"titleModel,omitempty"`    // model for title summarization; defaults to Default
-	ContextWindow int    `json:"contextWindow,omitempty"` // max tokens; default 128000
-	SummaryModel  string `json:"summaryModel,omitempty"`  // model for context summarization; defaults to TitleModel
+	Default       string                    `json:"default"`
+	TitleModel    string                    `json:"titleModel,omitempty"`    // model for title summarization; defaults to Default
+	ContextWindow int                       `json:"contextWindow,omitempty"` // max tokens; default 128000
+	SummaryModel  string                    `json:"summaryModel,omitempty"`  // model for context summarization; defaults to TitleModel
+	Providers     map[string]ProviderConfig `json:"providers,omitempty"`     // multi-provider config
+
+	// Legacy single-provider fields (used if Providers is empty)
+	Provider string `json:"provider,omitempty"`
+	BaseURL  string `json:"baseUrl,omitempty"`
+	APIKey   string `json:"apiKey,omitempty"`
+}
+
+// ResolvedProviders returns the providers map. If the new Providers field is
+// populated it is returned directly; otherwise a single-entry map is
+// synthesized from the legacy Provider/BaseURL/APIKey fields.
+func (m *ModelsConfig) ResolvedProviders() map[string]ProviderConfig {
+	if len(m.Providers) > 0 {
+		return m.Providers
+	}
+	name := m.Provider
+	if name == "" {
+		name = "openai"
+	}
+	return map[string]ProviderConfig{
+		name: {BaseURL: m.BaseURL, APIKey: m.APIKey},
+	}
+}
+
+// DefaultProviderName returns the name of the default provider.
+// If the default model is qualified ("provider:model"), the provider part is
+// returned; otherwise the first (or only) configured provider name is used.
+func (m *ModelsConfig) DefaultProviderName() string {
+	// Check if default model is qualified.
+	if idx := strings.IndexByte(m.Default, ':'); idx >= 0 {
+		return m.Default[:idx]
+	}
+	// Legacy single-provider.
+	if len(m.Providers) == 0 {
+		if m.Provider != "" {
+			return m.Provider
+		}
+		return "openai"
+	}
+	// Multi-provider: pick the first key (deterministic for single-entry maps).
+	for name := range m.Providers {
+		return name
+	}
+	return "openai"
 }
 
 var overrideDir string
@@ -120,13 +174,31 @@ func SkillsDir() (string, error) {
 	return filepath.Join(dir, "skills"), nil
 }
 
-// EnsureDirs creates the config, sessions, and workspace directories if needed.
+// ModelsFile returns the path to the models cache file (~/.teanode/models.json).
+func ModelsFile() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "models.json"), nil
+}
+
+// MediaDir returns the media directory (~/.teanode/media).
+func MediaDir() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "media"), nil
+}
+
+// EnsureDirs creates the config, sessions, workspace, and media directories if needed.
 func EnsureDirs() error {
 	dir, err := Dir()
 	if err != nil {
 		return err
 	}
-	for _, sub := range []string{"sessions", "workspace", "workspace/memory", "skills"} {
+	for _, sub := range []string{"sessions", "workspace", "workspace/memory", "skills", "media"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0755); err != nil {
 			return fmt.Errorf("creating directories: %w", err)
 		}
@@ -182,8 +254,11 @@ func Load() (*Config, error) {
 func defaults() *Config {
 	return &Config{
 		Gateway: GatewayConfig{
-			Port: 18789,
+			Port: 8833,
 			Bind: "loopback",
+		},
+		Browser: &BrowserConfig{
+			CDPEndpoint: "127.0.0.1:9222",
 		},
 		Models: ModelsConfig{
 			Default:  "gpt-5.1",
@@ -227,5 +302,11 @@ func applyEnv(configuration *Config) {
 			configuration.Telegram = &TelegramConfig{}
 		}
 		configuration.Telegram.Token = value
+	}
+	if value := os.Getenv("TEANODE_CDP_ENDPOINT"); value != "" {
+		if configuration.Browser == nil {
+			configuration.Browser = &BrowserConfig{}
+		}
+		configuration.Browser.CDPEndpoint = value
 	}
 }

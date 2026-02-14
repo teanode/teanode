@@ -1,3 +1,4 @@
+// Package watcher provides debounced filesystem change notifications.
 package watcher
 
 import (
@@ -8,8 +9,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/logging"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
 var log = logging.Get("watcher")

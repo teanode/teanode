@@ -9,10 +9,10 @@ import (
 	"syscall"
 
 	gologging "github.com/op/go-logging"
+	"github.com/teanode/teanode/cmd"
+	"github.com/teanode/teanode/internal/config"
+	"github.com/teanode/teanode/internal/logging"
 	"github.com/urfave/cli/v3"
-	"github.com/ziyan/teanode/cmd"
-	"github.com/ziyan/teanode/internal/config"
-	"github.com/ziyan/teanode/internal/logging"
 )
 
 func main() {

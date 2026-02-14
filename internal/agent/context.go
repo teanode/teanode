@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ziyan/teanode/internal/provider"
-	"github.com/ziyan/teanode/internal/session"
+	"github.com/teanode/teanode/internal/config"
+	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/session"
 )
 
 const (
@@ -109,11 +110,13 @@ func findKeepBoundary(messages []provider.ChatMessage, minKeep int) int {
 // compression threshold and, if so, summarizes older messages via an LLM call.
 func (self *Runner) compressContext(
 	ctx context.Context,
+	providers *provider.Registry,
+	cfg *config.Config,
 	messages []provider.ChatMessage,
 	toolDefs []provider.ToolDef,
 	sessionKey string,
+	contextWindow int,
 ) ([]provider.ChatMessage, error) {
-	contextWindow := self.Config.Models.ContextWindow
 	if contextWindow <= 0 {
 		contextWindow = defaultContextWindow
 	}
@@ -129,7 +132,7 @@ func (self *Runner) compressContext(
 		return messages, nil
 	}
 
-	runnerLog.Debugf("context compression triggered: estimated %d tokens, threshold %d", total, threshold)
+	log.Debugf("context compression triggered: estimated %d tokens, threshold %d", total, threshold)
 
 	// Find the split point: keep system prompt (index 0) + recent messages.
 	// messages[0] is always the system prompt.
@@ -156,16 +159,21 @@ func (self *Runner) compressContext(
 		fmt.Fprintf(&builder, "[%s]: %s\n", role, content)
 	}
 
-	// Pick summary model.
-	summaryModel := self.Config.Models.Default
-	if self.Config.Models.SummaryModel != "" {
-		summaryModel = self.Config.Models.SummaryModel
-	} else if self.Config.Models.TitleModel != "" {
-		summaryModel = self.Config.Models.TitleModel
+	// Pick summary model and resolve its provider.
+	summaryQualifiedModel := cfg.Models.Default
+	if cfg.Models.SummaryModel != "" {
+		summaryQualifiedModel = cfg.Models.SummaryModel
+	} else if cfg.Models.TitleModel != "" {
+		summaryQualifiedModel = cfg.Models.TitleModel
+	}
+
+	summaryClient, summaryBareModel, resolveErr := providers.Resolve(summaryQualifiedModel)
+	if resolveErr != nil {
+		return messages, fmt.Errorf("resolving summary model %q: %w", summaryQualifiedModel, resolveErr)
 	}
 
 	summaryRequest := provider.ChatRequest{
-		Model: summaryModel,
+		Model: summaryBareModel,
 		Messages: []provider.ChatMessage{
 			{
 				Role:    "system",
@@ -179,10 +187,10 @@ func (self *Runner) compressContext(
 	}
 
 	var summaryText string
-	response, err := self.Provider.ChatCompletion(ctx, summaryRequest)
+	response, err := summaryClient.ChatCompletion(ctx, summaryRequest)
 	if err != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.Content) == "" {
 		// Fallback: drop old messages without summary.
-		runnerLog.Debugf("context summarization failed, falling back to drop: %v", err)
+		log.Debugf("context summarization failed, falling back to drop: %v", err)
 		summaryText = fmt.Sprintf("[Earlier conversation with %d messages was dropped due to context limits]", len(toSummarize))
 	} else {
 		summaryText = strings.TrimSpace(response.Choices[0].Message.Content)
@@ -191,7 +199,7 @@ func (self *Runner) compressContext(
 	// Persist summary to session.
 	summaryMessage := session.NewSummaryMessage(summaryText, time.Now().UnixMilli())
 	if err := self.Sessions.Append(sessionKey, summaryMessage); err != nil {
-		runnerLog.Debugf("failed to persist context summary: %v", err)
+		log.Debugf("failed to persist context summary: %v", err)
 	}
 
 	// Build compressed messages: system prompt + summary + kept messages.
@@ -203,7 +211,7 @@ func (self *Runner) compressContext(
 	})
 	compressed = append(compressed, messages[keepIdx:]...)
 
-	runnerLog.Debugf("context compressed: %d messages -> %d messages (dropped %d, kept %d)",
+	log.Debugf("context compressed: %d messages -> %d messages (dropped %d, kept %d)",
 		len(messages), len(compressed), len(toSummarize), len(messages)-keepIdx)
 
 	return compressed, nil

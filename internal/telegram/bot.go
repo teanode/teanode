@@ -2,42 +2,41 @@ package telegram
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/google/uuid"
-	"github.com/ziyan/teanode/internal/agent"
-	"github.com/ziyan/teanode/internal/command"
-	"github.com/ziyan/teanode/internal/config"
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/session"
-	"github.com/ziyan/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/command"
+	"github.com/teanode/teanode/internal/config"
+	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/session"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
-
-var log = logging.Get("telegram")
 
 const maxTelegramMessageLen = 4096
 
 // Bot manages a Telegram bot that forwards messages to the agent.
 type Bot struct {
-	config   *config.TelegramConfig
-	runner   *agent.Runner
-	sessions *session.Store
-	api      *tgbotapi.BotAPI
-	stopChannel   chan struct{}
+	config      *config.TelegramConfig
+	runner      *agent.Runner
+	sessions    *session.Store
+	api         *tgbotapi.BotAPI
+	stopChannel chan struct{}
 
 	// Active runs per session key — prevents concurrent runs on same session.
 	activeMutex sync.Mutex
-	active   map[string]context.CancelFunc
+	active      map[string]context.CancelFunc
 
 	// Per-chat session key overrides (chatID string → session key).
-	sessionMutex   sync.RWMutex
-	sessionKeys map[string]string
+	sessionMutex sync.RWMutex
+	sessionKeys  map[string]string
 
 	// Per-chat model overrides (chatID string → model name).
-	modelMutex        sync.RWMutex
+	modelMutex     sync.RWMutex
 	modelOverrides map[string]string
 
 	Broadcast      func(event string, payload interface{})
@@ -54,7 +53,7 @@ func New(config *config.TelegramConfig, runner *agent.Runner, sessions *session.
 		active:         make(map[string]context.CancelFunc),
 		sessionKeys:    make(map[string]string),
 		modelOverrides: make(map[string]string),
-		stopChannel:         make(chan struct{}),
+		stopChannel:    make(chan struct{}),
 	}
 }
 
@@ -220,6 +219,9 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, s
 	action := tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)
 	self.api.Send(action)
 
+	var pendingMedia []*media.MediaContent
+	var pendingMediaMutex sync.Mutex
+
 	var callbacks *agent.RunCallbacks
 	if self.Broadcast != nil {
 		broadcast := self.Broadcast
@@ -252,6 +254,12 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, s
 					"toolName":   toolName,
 					"result":     result,
 				})
+				// Collect media for sending as photos.
+				if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+					pendingMediaMutex.Lock()
+					pendingMedia = append(pendingMedia, detected)
+					pendingMediaMutex.Unlock()
+				}
 			},
 			OnTitleUpdate: func(title string) {
 				broadcast("chat", map[string]interface{}{
@@ -302,6 +310,20 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, s
 		msg.ReplyToMessageID = replyTo
 		self.api.Send(msg)
 		return
+	}
+
+	// Send collected media as photo attachments.
+	for _, mediaContent := range pendingMedia {
+		rawData, decodeError := base64.StdEncoding.DecodeString(mediaContent.Base64)
+		if decodeError != nil {
+			continue
+		}
+		filename := fmt.Sprintf("screenshot.%s", mediaContent.Format)
+		photo := tgbotapi.NewPhoto(chatID, tgbotapi.FileBytes{Name: filename, Bytes: rawData})
+		photo.ReplyToMessageID = replyTo
+		if _, sendError := self.api.Send(photo); sendError != nil {
+			log.Errorf("telegram photo send error: %v", sendError)
+		}
 	}
 
 	self.sendChunked(chatID, replyTo, result.Response)
@@ -380,7 +402,7 @@ func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, argum
 		if running {
 			status = "running"
 		}
-		reply = fmt.Sprintf("Session: %s\nModel: %s\nProvider: %s\nStatus: %s", sessionKey, model, self.runner.Config.Models.Provider, status)
+		reply = fmt.Sprintf("Session: %s\nModel: %s\nProvider: %s\nStatus: %s", sessionKey, model, self.runner.Config.Models.DefaultProviderName(), status)
 
 	case "help":
 		reply = command.HelpText()

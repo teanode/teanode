@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ziyan/teanode/internal/agent"
-	"github.com/ziyan/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/provider"
 )
 
 // RegisterTerminalTools adds all terminal-control tools to the registry.
@@ -35,10 +35,26 @@ func (self *terminalConnectionListTool) Definition() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "terminal_connection_list",
-			Description: "List all connected terminal connections by ID.",
+			Description: "List all connected terminal connections.",
 			Parameters: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
+			},
+			Returns: map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"id":               map[string]interface{}{"type": "string", "description": "Connection identifier"},
+						"hostname":         map[string]interface{}{"type": "string", "description": "Machine hostname"},
+						"username":         map[string]interface{}{"type": "string", "description": "OS username"},
+						"os":               map[string]interface{}{"type": "string", "description": "Operating system (linux, darwin, windows)"},
+						"architecture":     map[string]interface{}{"type": "string", "description": "CPU architecture (amd64, arm64)"},
+						"shellCommand":     map[string]interface{}{"type": "string", "description": "Shell command running in the terminal"},
+						"workingDirectory": map[string]interface{}{"type": "string", "description": "Working directory of the terminal"},
+						"timezone":         map[string]interface{}{"type": "string", "description": "IANA timezone (e.g. America/New_York)"},
+					},
+				},
 			},
 		},
 	}
@@ -47,13 +63,33 @@ func (self *terminalConnectionListTool) Definition() provider.ToolDef {
 func (self *terminalConnectionListTool) Execute(_ context.Context, _ string) (string, error) {
 	connections := self.relay.Connections()
 	if len(connections) == 0 {
-		return "No connected terminals.", nil
+		return "[]", nil
 	}
-	var builder strings.Builder
-	for _, connection := range connections {
-		fmt.Fprintf(&builder, "- %s\n", connection.ID)
+	type entry struct {
+		ID               string `json:"id"`
+		Hostname         string `json:"hostname,omitempty"`
+		Username         string `json:"username,omitempty"`
+		OS               string `json:"os,omitempty"`
+		Architecture     string `json:"architecture,omitempty"`
+		ShellCommand     string `json:"shellCommand,omitempty"`
+		WorkingDirectory string `json:"workingDirectory,omitempty"`
+		Timezone         string `json:"timezone,omitempty"`
 	}
-	return strings.TrimRight(builder.String(), "\n"), nil
+	entries := make([]entry, len(connections))
+	for index, connection := range connections {
+		entries[index] = entry{
+			ID:               connection.ID,
+			Hostname:         connection.Machine.Hostname,
+			Username:         connection.Machine.Username,
+			OS:               connection.Machine.OS,
+			Architecture:     connection.Machine.Architecture,
+			ShellCommand:     connection.Machine.ShellCommand,
+			WorkingDirectory: connection.Machine.WorkingDirectory,
+			Timezone:         connection.Machine.Timezone,
+		}
+	}
+	out, _ := json.Marshal(entries)
+	return string(out), nil
 }
 
 // --- terminal_screenshot ---
@@ -73,6 +109,12 @@ func (self *terminalScreenshotTool) Definition() provider.ToolDef {
 						"type":        "string",
 						"description": "ID of the terminal connection to target. If omitted, uses the default connection.",
 					},
+				},
+			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"text": map[string]interface{}{"type": "string", "description": "Plain text content of the terminal screen"},
 				},
 			},
 		},
@@ -100,7 +142,8 @@ func (self *terminalScreenshotTool) Execute(ctx context.Context, rawArguments st
 	if err := json.Unmarshal(result, &response); err != nil {
 		return "", fmt.Errorf("parsing screenshot: %w", err)
 	}
-	return response.Text, nil
+	output, _ := json.Marshal(map[string]string{"text": response.Text})
+	return string(output), nil
 }
 
 // --- terminal_type ---
@@ -127,6 +170,12 @@ func (self *terminalTypeTool) Definition() provider.ToolDef {
 				},
 				"required": []string{"text"},
 			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"text": map[string]interface{}{"type": "string", "description": "The text that was typed"},
+				},
+			},
 		},
 	}
 }
@@ -149,7 +198,8 @@ func (self *terminalTypeTool) Execute(ctx context.Context, rawArguments string) 
 	if err != nil {
 		return "", err
 	}
-	return "ok", nil
+	output, _ := json.Marshal(map[string]string{"text": arguments.Text})
+	return string(output), nil
 }
 
 // --- terminal_press_key ---
@@ -175,6 +225,12 @@ func (self *terminalPressKeyTool) Definition() provider.ToolDef {
 					},
 				},
 				"required": []string{"key"},
+			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"key": map[string]interface{}{"type": "string", "description": "The key that was pressed"},
+				},
 			},
 		},
 	}
@@ -204,7 +260,8 @@ func (self *terminalPressKeyTool) Execute(ctx context.Context, rawArguments stri
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Pressed %s", arguments.Key), nil
+	output, _ := json.Marshal(map[string]string{"key": arguments.Key})
+	return string(output), nil
 }
 
 // termKeyMap maps key names (lowercase) to their escape sequences.

@@ -18,7 +18,7 @@
 
 ## Logging & Observability
 
-- [ ] Replace `log.Println` with structured logging (levels, fields)
+- [x] Replace `log.Println` with structured logging (go-logging with levels)
 - [ ] Add debug logging for tool execution and LLM requests
 - [ ] Add Prometheus metrics or similar observability endpoint
 
@@ -30,24 +30,30 @@
 
 ## Features
 
-- [ ] Support multiple LLM providers beyond OpenAI-compatible APIs
-- [ ] Implement graceful shutdown with in-flight request draining
+- [x] Support multiple LLM providers (provider registry with name-qualified models)
+- [x] Implement graceful shutdown (signal.NotifyContext with SIGTERM)
 - [ ] Deepen `/health` endpoint (check workspace availability, provider reachability)
-- [ ] Add configuration hot-reload without restart
+- [x] Add configuration hot-reload without restart (file watcher on config, skills, crons)
 - [ ] Optimize `memory_list` tool (caching or streaming instead of full tree walk)
 
 ## Agent Tools
 
-- [ ] Web search tool (Brave, Perplexity, or similar)
+- [x] Web search tool (Brave Search API)
 - [ ] Web fetch / URL reading tool (HTML → markdown extraction)
 - [ ] Bash / command execution tool with approval workflow
-- [ ] File read/write/edit tools (general filesystem, not just memory workspace)
+- [x] Memory read/write/edit/search tools (workspace-scoped filesystem)
+- [ ] General filesystem tools (read/write outside workspace)
 - [ ] Image understanding / vision tool (pass images to multimodal LLM)
 - [ ] TTS (text-to-speech) tool
-- [ ] Cron / scheduled tasks tool (reminders, recurring jobs)
+- [x] Cron / scheduled tasks tool (create, list, update, delete, trigger)
+- [x] Browser tools (navigate, screenshot, snapshot, click, type, evaluate, tab management)
+- [x] Headless browser support (direct CDP connection to chromedp/headless-shell)
+- [x] Terminal tools (screenshot, type, press key, connection list)
+- [x] Session tools (set title)
 
 ## Provider Support
 
+- [x] Provider registry with multi-provider support and model qualification
 - [ ] Anthropic Claude provider (native API, not just OpenAI-compatible)
 - [ ] Google Gemini provider
 - [ ] Provider failover (multiple API keys / auth profiles with fallback)
@@ -62,16 +68,17 @@
 
 ## Messaging Channels
 
-- [ ] Telegram channel integration
-- [ ] Discord channel integration
+- [x] Telegram channel integration (per-chat sessions, model overrides, slash commands)
+- [x] Discord channel integration (per-channel sessions, model overrides, slash commands)
 - [ ] Slack channel integration
 - [ ] WhatsApp channel integration
 - [ ] Channel-level routing to specific agents
 
 ## Session Management
 
-- [ ] Session state patch (per-session model override, thinking level, etc.)
+- [x] Session state patch (per-channel model overrides in Discord/Telegram)
 - [x] Session pruning / context compaction (summarize old messages)
+- [x] JSONL-based persistent session storage with titles
 - [ ] Queue modes for concurrent requests (serial, parallel, drop)
 
 ## Security & Sandboxing
@@ -82,29 +89,35 @@
 
 ## Automation
 
-- [ ] Cron job scheduler with expression support
+- [x] Cron job scheduler with 5-field expression support
+- [x] Persistent cron storage with hot-reload
+- [x] Per-job model overrides and manual triggering
 - [ ] Webhook endpoints for external event triggers
 - [ ] Background job lifecycle management
 
 ## System Prompt & Context
 
-- [ ] Modular system prompt builder (composable sections)
-- [ ] Runtime info injection (host, OS, shell, model, agent ID)
-- [ ] Memory recall with citation support
+- [x] Modular system prompt builder (template-based composable sections)
+- [x] Runtime info injection (date, time, timezone)
+- [x] Memory/workspace context loading (AGENTS.md, MEMORY.md, daily logs)
+- [x] Skill prompt injection into system prompt
 - [x] Context compaction / summarization for long conversations
+- [ ] Runtime host/OS/shell info injection
 
 ## CLI
 
+- [x] Gateway command (`teanode gateway` with port flag)
+- [x] Terminal command (`teanode terminal`)
 - [ ] Interactive onboarding wizard (`teanode onboard`)
-- [ ] CLI chat mode (`teanode chat` — talk to agent from terminal)
 - [ ] Session management commands (`teanode sessions list/delete`)
 - [ ] Configuration management commands (`teanode config`)
 - [ ] Health check / diagnostics command (`teanode doctor`)
 
 ## Plugin / Extension System
 
+- [x] Skills system (JSON-defined tools with shell and HTTP execution)
+- [x] Hot-reloadable skill loading from `~/.teanode/skills/`
 - [ ] Plugin SDK for registering custom tools, providers, and hooks
-- [ ] Skills system (installable agent capabilities with manifests)
 
 ## Documentation
 

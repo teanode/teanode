@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	"github.com/ziyan/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/provider"
 )
 
 // Tool is something the LLM can invoke during a conversation.

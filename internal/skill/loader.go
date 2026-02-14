@@ -6,11 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/ziyan/teanode/internal/logging"
 )
-
-var log = logging.Get("skill")
 
 // LoadAll reads all *.json files from skillsDir and returns parsed skills.
 // Logs warnings for malformed files and continues.

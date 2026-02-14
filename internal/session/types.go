@@ -13,9 +13,9 @@ type SessionHeader struct {
 
 // Message represents a chat message in a session.
 type Message struct {
-	Role       string          `json:"role"`                 // "user" | "assistant" | "system" | "tool"
-	Content    json.RawMessage `json:"content"`              // string or []ContentBlock
-	Timestamp  int64           `json:"timestamp"`            // ms since epoch
+	Role       string          `json:"role"`      // "user" | "assistant" | "system" | "tool"
+	Content    json.RawMessage `json:"content"`   // string or []ContentBlock
+	Timestamp  int64           `json:"timestamp"` // ms since epoch
 	StopReason string          `json:"stopReason,omitempty"`
 	Usage      *Usage          `json:"usage,omitempty"`
 	Model      string          `json:"model,omitempty"`

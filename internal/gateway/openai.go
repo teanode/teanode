@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/ziyan/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/agent"
 )
 
 // openaiRequest mirrors the OpenAI chat completions request format.
@@ -38,10 +38,10 @@ type openaiResponse struct {
 }
 
 type openaiChoice struct {
-	Index        int           `json:"index"`
+	Index        int            `json:"index"`
 	Message      *openaiMessage `json:"message,omitempty"`
 	Delta        *openaiMessage `json:"delta,omitempty"`
-	FinishReason *string       `json:"finish_reason"`
+	FinishReason *string        `json:"finish_reason"`
 }
 
 type openaiUsage struct {

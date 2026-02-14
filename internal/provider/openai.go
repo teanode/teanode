@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
-
-var log = logging.Get("provider")
 
 // Client talks to an OpenAI-compatible chat completions API.
 type Client struct {
@@ -68,6 +66,7 @@ type FunctionSpec struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
 	Parameters  interface{} `json:"parameters"`
+	Returns     interface{} `json:"returns,omitempty"`
 }
 
 // ToolCall represents a tool call made by the model.
@@ -99,9 +98,9 @@ type FunctionCallDelta struct {
 
 // ChatResponse is the non-streaming response.
 type ChatResponse struct {
-	ID      string   `json:"id"`
-	Model   string   `json:"model"`
-	Choices []Choice `json:"choices"`
+	ID      string     `json:"id"`
+	Model   string     `json:"model"`
+	Choices []Choice   `json:"choices"`
 	Usage   *UsageInfo `json:"usage,omitempty"`
 }
 
@@ -121,17 +120,17 @@ type UsageInfo struct {
 
 // StreamChunk is one piece of a streaming response.
 type StreamChunk struct {
-	ID      string        `json:"id"`
-	Model   string        `json:"model"`
+	ID      string         `json:"id"`
+	Model   string         `json:"model"`
 	Choices []StreamChoice `json:"choices"`
-	Usage   *UsageInfo    `json:"usage,omitempty"`
+	Usage   *UsageInfo     `json:"usage,omitempty"`
 }
 
 // StreamChoice is a choice delta in a stream chunk.
 type StreamChoice struct {
-	Index        int        `json:"index"`
-	Delta        ChatDelta  `json:"delta"`
-	FinishReason string     `json:"finish_reason"`
+	Index        int       `json:"index"`
+	Delta        ChatDelta `json:"delta"`
+	FinishReason string    `json:"finish_reason"`
 }
 
 // ChatDelta is the incremental content in a stream chunk.
@@ -257,6 +256,48 @@ func (self *Client) readSSE(ctx context.Context, reader io.Reader, events chan<-
 	if err := scanner.Err(); err != nil {
 		events <- StreamEvent{Err: fmt.Errorf("reading stream: %w", err)}
 	}
+}
+
+// ModelInfo describes a model returned by the /models API.
+type ModelInfo struct {
+	ID            string `json:"id"`
+	Created       int64  `json:"created,omitempty"`
+	OwnedBy       string `json:"owned_by,omitempty"`
+	ContextLength int    `json:"context_length,omitempty"`
+}
+
+// ListModels fetches available models from the provider's /models endpoint.
+func (self *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
+	httpRequest, err := http.NewRequestWithContext(ctx, "GET", self.BaseURL+"/models", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	self.setHeaders(httpRequest)
+
+	response, err := self.HTTPClient.Do(httpRequest)
+	if err != nil {
+		return nil, fmt.Errorf("fetching models: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		return nil, fmt.Errorf("models API error %d: %s", response.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data []ModelInfo `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding models response: %w", err)
+	}
+
+	// Sort by ID for stable ordering.
+	sort.Slice(result.Data, func(i, j int) bool {
+		return result.Data[i].ID < result.Data[j].ID
+	})
+
+	return result.Data, nil
 }
 
 func (self *Client) setHeaders(request *http.Request) {

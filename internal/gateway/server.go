@@ -3,24 +3,28 @@ package gateway
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/ziyan/teanode/internal/agent"
-	"github.com/ziyan/teanode/internal/browser"
-	"github.com/ziyan/teanode/internal/config"
-	tterminal "github.com/ziyan/teanode/internal/terminal"
-	"github.com/ziyan/teanode/internal/cron"
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/session"
-	"github.com/ziyan/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/browser"
+	"github.com/teanode/teanode/internal/config"
+	"github.com/teanode/teanode/internal/cron"
+	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/session"
+	tterminal "github.com/teanode/teanode/internal/terminal"
+	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
-
-var log = logging.Get("gateway")
 
 //go:embed static
 var staticFiles embed.FS
@@ -37,11 +41,16 @@ type Server struct {
 	BrowserRelay  *browser.Relay
 	TerminalRelay *tterminal.Relay
 	Scheduler     *cron.Scheduler
+	MediaStore    *media.Store
 
 	clientsMutex    sync.RWMutex
 	clients         map[*webSocketConnection]struct{}
 	activeRunsMutex sync.RWMutex
 	activeRuns      map[string]string // sessionKey → runId
+
+	modelsMutex sync.RWMutex
+	models      map[string][]provider.ModelInfo // provider name → models
+	modelsTime  time.Time                       // when cache was populated
 }
 
 // Start starts the HTTP server and blocks until ctx is cancelled.
@@ -58,6 +67,9 @@ func (self *Server) Start(ctx context.Context) error {
 	}
 	if self.TerminalRelay != nil {
 		router.HandleFunc("/terminal", self.TerminalRelay.HandleWebSocket)
+	}
+	if self.MediaStore != nil {
+		router.HandleFunc("/media/", self.handleMedia)
 	}
 
 	// Serve embedded static files at /
@@ -104,6 +116,23 @@ func (self *Server) listenAddr() string {
 func (self *Server) handleHealth(writer http.ResponseWriter, request *http.Request) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.Write([]byte(`{"status":"ok"}`))
+}
+
+func (self *Server) handleMedia(writer http.ResponseWriter, request *http.Request) {
+	// Extract media ID from path: /media/{id}
+	mediaId := strings.TrimPrefix(request.URL.Path, "/media/")
+	if mediaId == "" {
+		http.Error(writer, "missing media id", http.StatusBadRequest)
+		return
+	}
+	data, format, err := self.MediaStore.Load(mediaId)
+	if err != nil {
+		http.Error(writer, "not found", http.StatusNotFound)
+		return
+	}
+	writer.Header().Set("Content-Type", media.MimeType(format))
+	writer.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	writer.Write(data)
 }
 
 func (self *Server) handleWebSocket(writer http.ResponseWriter, request *http.Request) {
@@ -199,4 +228,92 @@ func (self *Server) GetActiveRun(sessionKey string) string {
 	self.activeRunsMutex.RLock()
 	defer self.activeRunsMutex.RUnlock()
 	return self.activeRuns[sessionKey]
+}
+
+// modelsCache is the JSON structure written to ~/.teanode/models.json.
+type modelsCache struct {
+	FetchedAt time.Time                       `json:"fetchedAt"`
+	Providers map[string][]provider.ModelInfo `json:"providers"`
+}
+
+const modelsCacheMaxAge = 24 * time.Hour
+
+// loadModels returns the cached models or fetches from each provider's API.
+func (self *Server) loadModels(ctx context.Context) (map[string][]provider.ModelInfo, error) {
+	self.modelsMutex.RLock()
+	if self.models != nil && time.Since(self.modelsTime) < modelsCacheMaxAge {
+		result := self.models
+		self.modelsMutex.RUnlock()
+		return result, nil
+	}
+	self.modelsMutex.RUnlock()
+
+	self.modelsMutex.Lock()
+	defer self.modelsMutex.Unlock()
+
+	// Double-check after acquiring write lock.
+	if self.models != nil && time.Since(self.modelsTime) < modelsCacheMaxAge {
+		return self.models, nil
+	}
+
+	// Try loading from disk cache.
+	modelsFile, err := config.ModelsFile()
+	if err == nil {
+		if data, err := os.ReadFile(modelsFile); err == nil {
+			var cache modelsCache
+			if err := json.Unmarshal(data, &cache); err == nil && time.Since(cache.FetchedAt) < modelsCacheMaxAge {
+				self.models = cache.Providers
+				self.modelsTime = cache.FetchedAt
+				self.updateRunnerContextWindows(cache.Providers)
+				return cache.Providers, nil
+			}
+		}
+	}
+
+	// Fetch from each provider's API.
+	_, providers, _, _, _ := self.Agent.Snapshot()
+	result := make(map[string][]provider.ModelInfo)
+	for _, name := range providers.ProviderNames() {
+		client, _, err := providers.Resolve(provider.QualifyModel(name, "dummy"))
+		if err != nil {
+			continue
+		}
+		models, err := client.ListModels(ctx)
+		if err != nil {
+			log.Debugf("failed to fetch models from %s: %v", name, err)
+			continue
+		}
+		result[name] = models
+	}
+
+	self.models = result
+	self.modelsTime = time.Now()
+
+	// Write to disk cache.
+	if modelsFile != "" {
+		cache := modelsCache{FetchedAt: self.modelsTime, Providers: result}
+		if data, err := json.MarshalIndent(cache, "", "  "); err == nil {
+			if err := atomicfile.WriteFile(modelsFile, data); err != nil {
+				log.Debugf("failed to write models cache: %v", err)
+			}
+		}
+	}
+
+	self.updateRunnerContextWindows(result)
+	return result, nil
+}
+
+// InvalidateModelsCache clears the in-memory models cache so the next
+// loadModels call will re-fetch from disk or API.
+func (self *Server) InvalidateModelsCache() {
+	self.modelsMutex.Lock()
+	self.models = nil
+	self.modelsTime = time.Time{}
+	self.modelsMutex.Unlock()
+}
+
+func (self *Server) updateRunnerContextWindows(models map[string][]provider.ModelInfo) {
+	for providerName, modelList := range models {
+		self.Agent.SetModels(providerName, modelList)
+	}
 }

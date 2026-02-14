@@ -1,14 +1,17 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import type { ModelInfo } from '../types';
 
 interface TopBarProps {
   title: string;
   defaultModel: string;
+  models: ModelInfo[];
+  model: string;
+  onModelChange: (model: string) => void;
   onToggleSidebar: () => void;
   onRename?: (title: string) => void;
-  modelRef: React.RefObject<HTMLInputElement | null>;
 }
 
-export default function TopBar({ title, defaultModel, onToggleSidebar, onRename, modelRef }: TopBarProps) {
+export default function TopBar({ title, defaultModel, models, model, onModelChange, onToggleSidebar, onRename }: TopBarProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -33,6 +36,17 @@ export default function TopBar({ title, defaultModel, onToggleSidebar, onRename,
       onRename(trimmed);
     }
   }
+
+  // Group models by provider.
+  const grouped = useMemo(() => {
+    const map = new Map<string, ModelInfo[]>();
+    for (const m of models) {
+      const list = map.get(m.provider) || [];
+      list.push(m);
+      map.set(m.provider, list);
+    }
+    return map;
+  }, [models]);
 
   return (
     <div className="flex items-center px-3 py-2 border-b border-border bg-surface gap-2 flex-shrink-0">
@@ -70,13 +84,28 @@ export default function TopBar({ title, defaultModel, onToggleSidebar, onRename,
         </span>
       )}
 
-      <input
-        ref={modelRef}
-        className="bg-surface2 border border-border rounded text-gray-200 text-xs font-mono px-2 py-0.5 w-[180px] outline-none focus:border-accent-dim"
-        type="text"
-        placeholder={defaultModel || 'model'}
-        title="Model override (blank = default)"
-      />
+      <select
+        className="bg-surface2 border border-border rounded text-gray-200 text-xs font-mono px-2 py-0.5 w-[220px] outline-none focus:border-accent-dim"
+        value={model}
+        onChange={(e) => onModelChange(e.target.value)}
+        title="Model selection (blank = default)"
+      >
+        <option value="">{defaultModel || 'default'}</option>
+        {models.length > 0 ? (
+          Array.from(grouped.entries()).map(([provider, providerModels]) => (
+            <optgroup key={provider} label={provider}>
+              {providerModels.map((m) => {
+                const qualified = `${m.provider}:${m.id}`;
+                return (
+                  <option key={qualified} value={qualified}>
+                    {m.id}
+                  </option>
+                );
+              })}
+            </optgroup>
+          ))
+        ) : null}
+      </select>
     </div>
   );
 }

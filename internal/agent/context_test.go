@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ziyan/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/provider"
 )
 
 func TestEstimateTokens(t *testing.T) {
@@ -133,7 +133,7 @@ func TestFindKeepBoundary(t *testing.T) {
 			{Role: "assistant", Content: "a1"},
 			{Role: "user", Content: "q2"},
 			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1"}}},
-			{Role: "tool", Content: "result1", ToolCallID: "c1"},  // target split would be here
+			{Role: "tool", Content: "result1", ToolCallID: "c1"}, // target split would be here
 			{Role: "tool", Content: "result2", ToolCallID: "c2"},
 			{Role: "assistant", Content: "final"},
 			{Role: "user", Content: "q3"},

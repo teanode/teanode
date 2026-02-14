@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ziyan/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/provider"
 )
 
 const (

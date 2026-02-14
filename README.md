@@ -14,7 +14,7 @@ export OPENAI_API_KEY=sk-...
 go run . gateway
 ```
 
-The gateway listens on `http://localhost:18789` by default.
+The gateway listens on `http://localhost:8833` by default.
 
 ## Development
 
@@ -120,7 +120,7 @@ Example `config.json`:
 ```json
 {
   "gateway": {
-    "port": 18789,
+    "port": 8833,
     "bind": "loopback"
   },
   "models": {

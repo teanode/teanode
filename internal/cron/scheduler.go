@@ -7,20 +7,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/ziyan/teanode/internal/agent"
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
-
-var log = logging.Get("cron")
 
 // Scheduler runs cron jobs on a 1-minute tick.
 type Scheduler struct {
-	store  *Store
-	runner *agent.Runner
-	mutex  sync.Mutex
-	jobs   []CronJob
-	expressions  map[string]*CronExpr
+	store       *Store
+	runner      *agent.Runner
+	mutex       sync.Mutex
+	jobs        []CronJob
+	expressions map[string]*CronExpr
 	stopChannel chan struct{}
 
 	Broadcast      func(event string, payload interface{})
@@ -31,9 +28,9 @@ type Scheduler struct {
 // NewScheduler creates a new cron scheduler.
 func NewScheduler(store *Store, runner *agent.Runner) *Scheduler {
 	return &Scheduler{
-		store:  store,
-		runner: runner,
-		expressions:  make(map[string]*CronExpr),
+		store:       store,
+		runner:      runner,
+		expressions: make(map[string]*CronExpr),
 		stopChannel: make(chan struct{}),
 	}
 }

@@ -1,3 +1,4 @@
+// Package command provides a registry and parser for slash commands.
 package command
 
 import (

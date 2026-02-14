@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ziyan/teanode/internal/provider"
-	"github.com/ziyan/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
 // RegisterMemoryTools adds memory tools to the registry.

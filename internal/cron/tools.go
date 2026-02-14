@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/ziyan/teanode/internal/agent"
-	"github.com/ziyan/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/provider"
 )
 
 // RegisterCronTools adds cron management tools to the registry.

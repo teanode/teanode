@@ -7,9 +7,9 @@ import (
 
 func TestParseAndMatch(t *testing.T) {
 	tests := []struct {
-		expr    string
-		time    string // RFC3339
-		match   bool
+		expr  string
+		time  string // RFC3339
+		match bool
 	}{
 		// Every 5 minutes
 		{"*/5 * * * *", "2025-01-15T10:00:00Z", true},

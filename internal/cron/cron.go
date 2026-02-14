@@ -1,3 +1,4 @@
+// Package cron provides a scheduler that runs cron jobs on a per-minute tick.
 package cron
 
 import (
@@ -5,7 +6,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/teanode/teanode/internal/logging"
 )
+
+var log = logging.Get("cron")
 
 // CronExpr is a parsed 5-field cron expression (minute, hour, dayOfMonth, month, dayOfWeek).
 type CronExpr struct {

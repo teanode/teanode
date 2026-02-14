@@ -10,13 +10,13 @@ type SkillDef struct {
 
 // ToolDef is one tool inside a skill.
 type ToolDef struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Type        string            `json:"type"`              // "shell" or "http"
-	Parameters  interface{}       `json:"parameters"`        // JSON schema for LLM
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Type        string      `json:"type"`       // "shell" or "http"
+	Parameters  interface{} `json:"parameters"` // JSON schema for LLM
 
 	// Shell fields
-	Command []string `json:"command,omitempty"` // command + args
+	Command          []string `json:"command,omitempty"` // command + args
 	WorkingDirectory string   `json:"workdir,omitempty"` // working directory
 
 	// HTTP fields

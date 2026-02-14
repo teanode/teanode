@@ -15,7 +15,7 @@ teanode: web
 test:
 	go test ./...
 
-fmt:
+format:
 	gofmt -w .
 
 lint:

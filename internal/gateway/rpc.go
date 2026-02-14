@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/ziyan/teanode/internal/agent"
-	"github.com/ziyan/teanode/internal/cron"
-	"github.com/ziyan/teanode/internal/types"
-	"github.com/ziyan/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/cron"
+	"github.com/teanode/teanode/internal/types"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
 // handleConnect: handshake, return capabilities.
@@ -275,6 +275,40 @@ func (self *webSocketConnection) handleSessionsList(frame types.RequestFrame) {
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"sessions": sessions,
+	})
+}
+
+// --- Models RPC handlers ---
+
+// modelsListEntry is a single model in the models.list response.
+type modelsListEntry struct {
+	Provider      string `json:"provider"`
+	ID            string `json:"id"`
+	ContextLength int    `json:"context_length,omitempty"`
+}
+
+// handleModelsList: return available models from all providers.
+func (self *webSocketConnection) handleModelsList(frame types.RequestFrame) {
+	models, err := self.server.loadModels(context.Background())
+	if err != nil {
+		self.sendError(frame.ID, 500, "loading models: "+err.Error())
+		return
+	}
+
+	var entries []modelsListEntry
+	for providerName, modelList := range models {
+		for _, m := range modelList {
+			entries = append(entries, modelsListEntry{
+				Provider:      providerName,
+				ID:            m.ID,
+				ContextLength: m.ContextLength,
+			})
+		}
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"models":       entries,
+		"defaultModel": self.server.Config.Models.Default,
 	})
 }
 

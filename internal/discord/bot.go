@@ -1,43 +1,43 @@
 package discord
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/google/uuid"
-	"github.com/ziyan/teanode/internal/agent"
-	"github.com/ziyan/teanode/internal/command"
-	"github.com/ziyan/teanode/internal/config"
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/session"
-	"github.com/ziyan/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/command"
+	"github.com/teanode/teanode/internal/config"
+	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/session"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
-
-var log = logging.Get("discord")
 
 const maxDiscordMessageLen = 2000
 
 // Bot manages a Discord bot that forwards messages to the agent.
 type Bot struct {
-	config   *config.DiscordConfig
-	runner   *agent.Runner
-	sessions *session.Store
-	discord  *discordgo.Session
+	config    *config.DiscordConfig
+	runner    *agent.Runner
+	sessions  *session.Store
+	discord   *discordgo.Session
 	botUserId string
 
 	// Active runs per session key — prevents concurrent runs on same session.
 	activeMutex sync.Mutex
-	active   map[string]context.CancelFunc
+	active      map[string]context.CancelFunc
 
 	// Per-channel session key overrides (channelID → session key).
-	sessionMutex   sync.RWMutex
-	sessionKeys map[string]string
+	sessionMutex sync.RWMutex
+	sessionKeys  map[string]string
 
 	// Per-channel model overrides (channelID → model name).
-	modelMutex        sync.RWMutex
+	modelMutex     sync.RWMutex
 	modelOverrides map[string]string
 
 	Broadcast      func(event string, payload interface{})
@@ -183,6 +183,9 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, s
 	// Send typing indicator.
 	self.discord.ChannelTyping(channelID)
 
+	var pendingMedia []*media.MediaContent
+	var pendingMediaMutex sync.Mutex
+
 	var callbacks *agent.RunCallbacks
 	if self.Broadcast != nil {
 		broadcast := self.Broadcast
@@ -214,6 +217,12 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, s
 					"toolName":   toolName,
 					"result":     result,
 				})
+				// Collect media for sending as attachments.
+				if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+					pendingMediaMutex.Lock()
+					pendingMedia = append(pendingMedia, detected)
+					pendingMediaMutex.Unlock()
+				}
 			},
 			OnTitleUpdate: func(title string) {
 				broadcast("chat", map[string]interface{}{
@@ -261,6 +270,20 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, s
 		log.Errorf("discord agent run error (session %s): %v", sessionKey, err)
 		self.discord.ChannelMessageSend(channelID, "Sorry, an error occurred while processing your request.")
 		return
+	}
+
+	// Send collected media as file attachments.
+	for index, mediaContent := range pendingMedia {
+		rawData, decodeError := base64.StdEncoding.DecodeString(mediaContent.Base64)
+		if decodeError != nil {
+			continue
+		}
+		filename := fmt.Sprintf("image_%d.%s", index+1, mediaContent.Format)
+		self.discord.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+			Files: []*discordgo.File{
+				{Name: filename, Reader: bytes.NewReader(rawData)},
+			},
+		})
 	}
 
 	self.sendChunked(channelID, result.Response)
@@ -340,7 +363,7 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 		if running {
 			status = "running"
 		}
-		reply = fmt.Sprintf("Session: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", sessionKey, model, self.runner.Config.Models.Provider, status)
+		reply = fmt.Sprintf("Session: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", sessionKey, model, self.runner.Config.Models.DefaultProviderName(), status)
 
 	case "help":
 		reply = command.HelpText()

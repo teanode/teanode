@@ -6,13 +6,13 @@ import (
 	"os"
 	"sync"
 
-	"github.com/ziyan/teanode/internal/config"
-	"github.com/ziyan/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/config"
+	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
 // Store provides thread-safe persistence for cron jobs.
 type Store struct {
-	path string
+	path  string
 	mutex sync.Mutex
 }
 

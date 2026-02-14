@@ -10,23 +10,21 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/util/deferutil"
-	"github.com/ziyan/teanode/internal/util/pending"
+	"github.com/teanode/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/util/pending"
 )
-
-var log = logging.Get("browser")
 
 var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(request *http.Request) bool { return true },
 }
 
-// ConnectedTarget describes a Chrome tab attached via the extension.
+// ConnectedTarget describes a Chrome tab attached via a backend.
 type ConnectedTarget struct {
 	SessionID string
 	TargetID  string
 	URL       string
 	Title     string
+	Source    string // "extension" or "headless"
 }
 
 // Relay manages the WebSocket connection from the Chrome extension.
@@ -226,6 +224,7 @@ func (self *Relay) handleCDPEvent(raw json.RawMessage) {
 				TargetID:  payload.TargetInfo.TargetID,
 				URL:       payload.TargetInfo.URL,
 				Title:     payload.TargetInfo.Title,
+				Source:    "extension",
 			}
 			self.mutex.Unlock()
 			log.Infof("relay: target attached session=%s url=%s", payload.SessionID, payload.TargetInfo.URL)

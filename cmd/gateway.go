@@ -3,20 +3,21 @@ package cmd
 import (
 	"context"
 
+	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/browser"
+	configpkg "github.com/teanode/teanode/internal/config"
+	"github.com/teanode/teanode/internal/cron"
+	"github.com/teanode/teanode/internal/discord"
+	"github.com/teanode/teanode/internal/gateway"
+	"github.com/teanode/teanode/internal/logging"
+	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/session"
+	"github.com/teanode/teanode/internal/skill"
+	"github.com/teanode/teanode/internal/telegram"
+	tterminal "github.com/teanode/teanode/internal/terminal"
+	"github.com/teanode/teanode/internal/watcher"
 	"github.com/urfave/cli/v3"
-	"github.com/ziyan/teanode/internal/agent"
-	"github.com/ziyan/teanode/internal/browser"
-	configpkg "github.com/ziyan/teanode/internal/config"
-	tterminal "github.com/ziyan/teanode/internal/terminal"
-	"github.com/ziyan/teanode/internal/cron"
-	"github.com/ziyan/teanode/internal/discord"
-	"github.com/ziyan/teanode/internal/gateway"
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/provider"
-	"github.com/ziyan/teanode/internal/session"
-	"github.com/ziyan/teanode/internal/skill"
-	"github.com/ziyan/teanode/internal/telegram"
-	"github.com/ziyan/teanode/internal/watcher"
 )
 
 func GatewayCmd() *cli.Command {
@@ -53,13 +54,27 @@ func GatewayCmd() *cli.Command {
 				config.Gateway.Port = int(cmd.Int("port"))
 			}
 
-			// Validate API key.
-			if config.Models.APIKey == "" {
+			// Build provider registry.
+			buildRegistry := func(cfg *configpkg.Config) *provider.Registry {
+				registry := provider.NewRegistry(cfg.Models.DefaultProviderName())
+				for name, pc := range cfg.Models.ResolvedProviders() {
+					registry.Register(name, provider.NewClient(pc.BaseURL, pc.APIKey))
+				}
+				return registry
+			}
+			providers := buildRegistry(config)
+
+			// Validate that at least one provider has an API key.
+			hasKey := false
+			for _, pc := range config.Models.ResolvedProviders() {
+				if pc.APIKey != "" {
+					hasKey = true
+					break
+				}
+			}
+			if !hasKey {
 				log.Warning("no API key configured (set OPENAI_API_KEY or models.apiKey in config)")
 			}
-
-			// Build components.
-			providerClient := provider.NewClient(config.Models.BaseURL, config.Models.APIKey)
 
 			sessions, err := session.NewStoreDefault()
 			if err != nil {
@@ -74,8 +89,25 @@ func GatewayCmd() *cli.Command {
 			}
 			agent.RegisterMemoryTools(tools, workspaceDirectory)
 
-			relay := browser.NewRelay()
-			browser.RegisterBrowserTools(tools, relay)
+			// Browser: always create relay for extension connections, optionally
+			// add headless CDP backend. Both can be active simultaneously.
+			browserRelay := browser.NewRelay()
+			backends := []browser.Browser{browserRelay}
+
+			var headlessBrowser *browser.Headless
+			if config.Browser != nil && config.Browser.CDPEndpoint != "" {
+				log.Infof("browser: headless CDP connecting to %s", config.Browser.CDPEndpoint)
+				headlessBrowser = browser.NewHeadless(config.Browser.CDPEndpoint)
+				if err := headlessBrowser.Connect(ctx); err != nil {
+					log.Errorf("headless browser failed to connect: %v", err)
+				}
+				defer headlessBrowser.Close()
+				backends = append(backends, headlessBrowser)
+			}
+			log.Info("browser: relay accepting extension connections on /browser")
+
+			browserBackend := browser.NewCompositeBrowser(backends...)
+			browser.RegisterBrowserTools(tools, browserBackend)
 
 			termRelay := tterminal.NewRelay()
 			tterminal.RegisterTerminalTools(tools, termRelay)
@@ -89,11 +121,18 @@ func GatewayCmd() *cli.Command {
 			}
 			skillPrompts := skill.RegisterSkills(tools, skillsDir)
 
+			mediaDirectory, err := configpkg.MediaDir()
+			if err != nil {
+				return err
+			}
+			mediaStore := media.NewStore(mediaDirectory)
+
 			runner := &agent.Runner{
-				Provider:     providerClient,
+				Providers:    providers,
 				Sessions:     sessions,
 				Config:       config,
 				Tools:        tools,
+				MediaStore:   mediaStore,
 				WorkspaceDir: workspaceDirectory,
 				SkillPrompts: skillPrompts,
 			}
@@ -110,9 +149,10 @@ func GatewayCmd() *cli.Command {
 				Config:        config,
 				Agent:         runner,
 				Sessions:      sessions,
-				BrowserRelay:  relay,
+				BrowserRelay:  browserRelay,
 				TerminalRelay: termRelay,
 				Scheduler:     scheduler,
+				MediaStore:    mediaStore,
 			}
 
 			scheduler.Broadcast = server.Broadcast
@@ -155,7 +195,7 @@ func GatewayCmd() *cli.Command {
 			rebuildTools := func(newConfig *configpkg.Config) (*agent.ToolRegistry, string) {
 				newTools := agent.NewToolRegistry()
 				agent.RegisterMemoryTools(newTools, workspaceDirectory)
-				browser.RegisterBrowserTools(newTools, relay)
+				browser.RegisterBrowserTools(newTools, browserBackend)
 				tterminal.RegisterTerminalTools(newTools, termRelay)
 				agent.RegisterSearchTools(newTools, newConfig.Tools.BraveAPIKey)
 				agent.RegisterSessionTools(newTools, sessions)
@@ -177,18 +217,18 @@ func GatewayCmd() *cli.Command {
 				if cmd.IsSet("port") {
 					newConfig.Gateway.Port = int(cmd.Int("port"))
 				}
-				newProvider := provider.NewClient(newConfig.Models.BaseURL, newConfig.Models.APIKey)
+				newProviders := buildRegistry(newConfig)
 				newTools, newSkillPrompts := rebuildTools(newConfig)
-				runner.Reconfigure(newConfig, newProvider, newTools, newSkillPrompts)
+				runner.Reconfigure(newConfig, newProviders, newTools, newSkillPrompts)
 				server.Config = newConfig
 				log.Info("config reloaded successfully")
 			}
 
 			fileWatcher.OnSkillsReload = func() {
 				log.Info("hot-reloading skills")
-				config, provider, _, _, _ := runner.Snapshot()
+				config, providers, _, _, _ := runner.Snapshot()
 				newTools, newSkillPrompts := rebuildTools(config)
-				runner.Reconfigure(config, provider, newTools, newSkillPrompts)
+				runner.Reconfigure(config, providers, newTools, newSkillPrompts)
 				log.Info("skills reloaded successfully")
 			}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { CronJob, CronJobCreateParams, CronJobUpdateParams } from '../types';
+import type { CronJob, CronJobCreateParams, CronJobUpdateParams, ModelInfo } from '../types';
 import CronJobForm from './CronJobForm';
 
 function relativeTime(ms: number): string {
@@ -13,6 +13,7 @@ function relativeTime(ms: number): string {
 interface CronAreaProps {
   job: CronJob | null;
   creating: boolean;
+  models: ModelInfo[];
   onLoad: () => void;
   onCreate: (params: CronJobCreateParams) => Promise<void>;
   onUpdate: (params: CronJobUpdateParams) => Promise<void>;
@@ -25,6 +26,7 @@ interface CronAreaProps {
 export default function CronArea({
   job,
   creating,
+  models,
   onLoad,
   onCreate,
   onUpdate,
@@ -52,6 +54,7 @@ export default function CronArea({
         </div>
         <div className="flex-1 overflow-y-auto p-4">
           <CronJobForm
+            models={models}
             onSave={(data) => {
               const params: CronJobCreateParams = { name: data.name, schedule: data.schedule, message: data.message };
               if (data.model) params.model = data.model;
@@ -81,6 +84,7 @@ export default function CronArea({
         <div className="flex-1 overflow-y-auto p-4">
           <CronJobForm
             initial={job}
+            models={models}
             onSave={(data) => {
               const params: CronJobUpdateParams = { id: job.id };
               if (data.name !== job.name) params.name = data.name;

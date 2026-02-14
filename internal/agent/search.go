@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/logging"
+	"github.com/teanode/teanode/internal/provider"
 )
 
 var searchLog = logging.Get("search")

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/ziyan/teanode/internal/provider"
-	"github.com/ziyan/teanode/internal/session"
+	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/session"
 )
 
 // RegisterSessionTools adds session-related tools to the registry.

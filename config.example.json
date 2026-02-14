@@ -1,18 +1,28 @@
 {
   "gateway": {
-    "port": 18789,
+    "port": 8833,
     "bind": "loopback",
     "auth": {
       "token": ""
     }
   },
   "models": {
-    "default": "gpt-4o",
-    "provider": "openai",
-    "baseUrl": "https://api.openai.com/v1",
-    "apiKey": "",
+    "default": "openai:gpt-4o",
     "contextWindow": 128000,
-    "summaryModel": ""
+    "summaryModel": "",
+    "providers": {
+      "openai": {
+        "baseUrl": "https://api.openai.com/v1",
+        "apiKey": ""
+      },
+      "openrouter": {
+        "baseUrl": "https://openrouter.ai/api/v1",
+        "apiKey": ""
+      }
+    }
+  },
+  "browser": {
+    "cdpEndpoint": "127.0.0.1:9222"
   },
   "systemPrompt": ""
 }

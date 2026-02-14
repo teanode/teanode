@@ -3,7 +3,7 @@ package skill
 import (
 	"strings"
 
-	"github.com/ziyan/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/agent"
 )
 
 // RegisterSkills loads skills from the directory and registers their tools.

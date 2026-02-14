@@ -22,7 +22,7 @@ func GenerateSessionKey(name string) string {
 type CronJob struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
-	Schedule   string `json:"schedule"`            // 5-field cron expr
+	Schedule   string `json:"schedule"` // 5-field cron expr
 	Message    string `json:"message"`
 	Model      string `json:"model,omitempty"`
 	Enabled    bool   `json:"enabled"`

@@ -10,12 +10,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/util/deferutil"
-	"github.com/ziyan/teanode/internal/util/pending"
+	"github.com/teanode/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/util/pending"
 )
-
-var log = logging.Get("terminal")
 
 var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(request *http.Request) bool { return true },
@@ -26,11 +23,24 @@ type terminalConnection struct {
 	connection *websocket.Conn
 	pending    *pending.Requests
 	done       chan struct{}
+	machine    MachineInfo
+}
+
+// MachineInfo holds metadata sent by the terminal client on attach.
+type MachineInfo struct {
+	Hostname         string `json:"hostname,omitempty"`
+	Username         string `json:"username,omitempty"`
+	OS               string `json:"os,omitempty"`
+	Architecture     string `json:"architecture,omitempty"`
+	ShellCommand     string `json:"shellCommand,omitempty"`
+	WorkingDirectory string `json:"workingDirectory,omitempty"`
+	Timezone         string `json:"timezone,omitempty"`
 }
 
 // ConnectionInfo describes a connected terminal for listing purposes.
 type ConnectionInfo struct {
-	ID string
+	ID      string
+	Machine MachineInfo
 }
 
 // Relay manages WebSocket connections from terminal CLI clients.
@@ -87,13 +97,13 @@ func (self *Relay) Connected() bool {
 	return len(self.connections) > 0
 }
 
-// Connections returns a snapshot of all connection IDs.
+// Connections returns a snapshot of all connection IDs with machine info.
 func (self *Relay) Connections() []ConnectionInfo {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	out := make([]ConnectionInfo, 0, len(self.connections))
-	for id := range self.connections {
-		out = append(out, ConnectionInfo{ID: id})
+	for id, tc := range self.connections {
+		out = append(out, ConnectionInfo{ID: id, Machine: tc.machine})
 	}
 	return out
 }
@@ -166,6 +176,7 @@ func (self *Relay) readLoop(id string, connection *websocket.Conn, done chan str
 		var frame struct {
 			ID     *int            `json:"id"`
 			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
 			Result json.RawMessage `json:"result"`
 			Error  *string         `json:"error"`
 		}
@@ -174,6 +185,20 @@ func (self *Relay) readLoop(id string, connection *websocket.Conn, done chan str
 		}
 
 		if frame.Method == "pong" {
+			continue
+		}
+
+		// Client sends machine info on connect.
+		if frame.Method == "attach" && frame.Params != nil {
+			var info MachineInfo
+			if json.Unmarshal(frame.Params, &info) == nil {
+				self.mutex.Lock()
+				if tc, ok := self.connections[id]; ok {
+					tc.machine = info
+				}
+				self.mutex.Unlock()
+				log.Infof("terminal: attach id=%s host=%s user=%s tz=%s", id, info.Hostname, info.Username, info.Timezone)
+			}
 			continue
 		}
 

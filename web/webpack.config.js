@@ -48,12 +48,12 @@ module.exports = (env, argv) => {
       proxy: [
         {
           context: ['/ws'],
-          target: 'ws://127.0.0.1:18789',
+          target: 'ws://127.0.0.1:8833',
           ws: true,
         },
         {
           context: ['/v1', '/health'],
-          target: 'http://127.0.0.1:18789',
+          target: 'http://127.0.0.1:8833',
         },
       ],
     },

@@ -12,10 +12,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ziyan/teanode/internal/config"
-	"github.com/ziyan/teanode/internal/provider"
-	"github.com/ziyan/teanode/internal/session"
+	"github.com/teanode/teanode/internal/config"
+	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/session"
 )
+
+// mockRegistry creates a single-provider registry for testing.
+func mockRegistry(client *provider.Client) *provider.Registry {
+	registry := provider.NewRegistry("mock")
+	registry.Register("mock", client)
+	return registry
+}
 
 // mockOpenAIServer returns an httptest.Server that serves a streaming chat completion.
 func mockOpenAIServer(responseText string) *httptest.Server {
@@ -58,9 +65,9 @@ func TestRunnerRun(t *testing.T) {
 	providerClient := provider.NewClient(server.URL, "")
 
 	runner := &Runner{
-		Provider: providerClient,
-		Sessions: store,
-		Config:   configuration,
+		Providers: mockRegistry(providerClient),
+		Sessions:  store,
+		Config:    configuration,
 	}
 
 	var chunks []string
@@ -135,9 +142,9 @@ func TestRunnerRunAbort(t *testing.T) {
 	providerClient := provider.NewClient(server.URL, "")
 
 	runner := &Runner{
-		Provider: providerClient,
-		Sessions: store,
-		Config:   configuration,
+		Providers: mockRegistry(providerClient),
+		Sessions:  store,
+		Config:    configuration,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -211,10 +218,10 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	RegisterMemoryTools(tools, memoryDirectory)
 
 	runner := &Runner{
-		Provider: providerClient,
-		Sessions: store,
-		Config:   configuration,
-		Tools:    tools,
+		Providers: mockRegistry(providerClient),
+		Sessions:  store,
+		Config:    configuration,
+		Tools:     tools,
 	}
 
 	var toolCalls []string

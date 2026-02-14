@@ -6,6 +6,27 @@ interface ToolResultProps {
   content: string;
 }
 
+interface MediaInfo {
+  base64?: string;
+  mediaId?: string;
+  format?: string;
+}
+
+const imageFormats = new Set(['png', 'jpeg', 'jpg', 'gif', 'webp']);
+
+function detectMedia(content: string): MediaInfo | null {
+  try {
+    const parsed = JSON.parse(content);
+    if (!parsed || typeof parsed !== 'object' || !parsed.format) return null;
+    if (!imageFormats.has(parsed.format.toLowerCase())) return null;
+    if (parsed.base64) return { base64: parsed.base64, format: parsed.format };
+    if (parsed.mediaId) return { mediaId: parsed.mediaId, format: parsed.format };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function escapeHtml(str: string): string {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -15,6 +36,31 @@ function escapeHtml(str: string): string {
 }
 
 export default function ToolResult({ toolName, content }: ToolResultProps) {
+  const mediaInfo = detectMedia(content);
+
+  if (mediaInfo) {
+    const source = mediaInfo.base64
+      ? `data:image/${mediaInfo.format};base64,${mediaInfo.base64}`
+      : `/media/${mediaInfo.mediaId}`;
+
+    return (
+      <div className="self-start max-w-[75%] px-3 py-2 rounded-[8px] text-xs bg-[#161a10] border border-[#2a3a1a]">
+        <span className="inline-block bg-[#2a3a1a] text-accent text-[10px] font-semibold px-1.5 py-px rounded-[3px] uppercase font-mono tracking-wide mr-1.5 align-middle">
+          {toolName}
+        </span>
+        <span>result</span>
+        <div className="mt-1 rounded overflow-hidden">
+          <img
+            src={source}
+            alt={`${toolName} output`}
+            className="max-w-full max-h-[400px] rounded"
+            loading="lazy"
+          />
+        </div>
+      </div>
+    );
+  }
+
   let isJson = false;
   try {
     JSON.parse(content);

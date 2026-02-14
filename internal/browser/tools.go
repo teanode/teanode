@@ -6,36 +6,36 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ziyan/teanode/internal/agent"
-	"github.com/ziyan/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/provider"
 )
 
 // RegisterBrowserTools adds all browser-control tools to the registry.
-func RegisterBrowserTools(registry *agent.ToolRegistry, relay *Relay) {
-	registry.Register(&browserNavigateTool{relay: relay})
-	registry.Register(&browserScreenshotTool{relay: relay})
-	registry.Register(&browserSnapshotTool{relay: relay})
-	registry.Register(&browserClickTool{relay: relay})
-	registry.Register(&browserTypeTool{relay: relay})
-	registry.Register(&browserPressKeyTool{relay: relay})
-	registry.Register(&browserEvaluateTool{relay: relay})
-	registry.Register(&browserTabListTool{relay: relay})
-	registry.Register(&browserTabOpenTool{relay: relay})
-	registry.Register(&browserTabCloseTool{relay: relay})
-	registry.Register(&browserTabActivateTool{relay: relay})
+func RegisterBrowserTools(registry *agent.ToolRegistry, browser Browser) {
+	registry.Register(&browserNavigateTool{browser: browser})
+	registry.Register(&browserScreenshotTool{browser: browser})
+	registry.Register(&browserSnapshotTool{browser: browser})
+	registry.Register(&browserClickTool{browser: browser})
+	registry.Register(&browserTypeTool{browser: browser})
+	registry.Register(&browserPressKeyTool{browser: browser})
+	registry.Register(&browserEvaluateTool{browser: browser})
+	registry.Register(&browserTabListTool{browser: browser})
+	registry.Register(&browserTabOpenTool{browser: browser})
+	registry.Register(&browserTabCloseTool{browser: browser})
+	registry.Register(&browserTabActivateTool{browser: browser})
 }
 
 // resolveSessionId returns the sessionId for the given connectionId,
 // or falls back to the default target's session ID.
-func resolveSessionId(relay *Relay, connectionId string) (string, error) {
+func resolveSessionId(browser Browser, connectionId string) (string, error) {
 	if connectionId != "" {
-		target, err := relay.TargetByConnectionId(connectionId)
+		target, err := browser.TargetByConnectionId(connectionId)
 		if err != nil {
 			return "", err
 		}
 		return target.SessionID, nil
 	}
-	target, err := relay.DefaultTarget()
+	target, err := browser.DefaultTarget()
 	if err != nil {
 		return "", err
 	}
@@ -44,7 +44,7 @@ func resolveSessionId(relay *Relay, connectionId string) (string, error) {
 
 // --- browser_navigate ---
 
-type browserNavigateTool struct{ relay *Relay }
+type browserNavigateTool struct{ browser Browser }
 
 func (self *browserNavigateTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
@@ -66,6 +66,12 @@ func (self *browserNavigateTool) Definition() provider.ToolDef {
 				},
 				"required": []string{"url"},
 			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"url": map[string]interface{}{"type": "string"},
+				},
+			},
 		},
 	}
 }
@@ -78,29 +84,30 @@ func (self *browserNavigateTool) Execute(ctx context.Context, input string) (str
 	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
-	sessionId, err := resolveSessionId(self.relay, arguments.ConnectionID)
+	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
 	if err != nil {
 		return "", err
 	}
-	_, err = self.relay.SendCDPCommand(ctx, "Page.navigate", map[string]interface{}{
+	_, err = self.browser.SendCDPCommand(ctx, "Page.navigate", map[string]interface{}{
 		"url": arguments.URL,
 	}, sessionId)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Navigated to %s", arguments.URL), nil
+	out, _ := json.Marshal(map[string]string{"url": arguments.URL})
+	return string(out), nil
 }
 
 // --- browser_screenshot ---
 
-type browserScreenshotTool struct{ relay *Relay }
+type browserScreenshotTool struct{ browser Browser }
 
 func (self *browserScreenshotTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_screenshot",
-			Description: "Take a screenshot of the current browser tab. Returns a base64-encoded PNG image.",
+			Description: "Take a screenshot of the current browser tab. The screenshot is displayed directly to the user in the chat.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -108,6 +115,14 @@ func (self *browserScreenshotTool) Definition() provider.ToolDef {
 						"type":        "string",
 						"description": "Session ID of the browser tab to target. If omitted, uses the default tab.",
 					},
+				},
+			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"mediaId":   map[string]interface{}{"type": "string", "description": "Unique identifier for the saved media file"},
+					"format":    map[string]interface{}{"type": "string", "description": "Image format (png)"},
+					"displayed": map[string]interface{}{"type": "boolean", "description": "Whether the image was displayed to the user"},
 				},
 			},
 		},
@@ -121,11 +136,11 @@ func (self *browserScreenshotTool) Execute(ctx context.Context, input string) (s
 	if input != "" {
 		json.Unmarshal([]byte(input), &arguments)
 	}
-	sessionId, err := resolveSessionId(self.relay, arguments.ConnectionID)
+	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
 	if err != nil {
 		return "", err
 	}
-	result, err := self.relay.SendCDPCommand(ctx, "Page.captureScreenshot", map[string]interface{}{
+	result, err := self.browser.SendCDPCommand(ctx, "Page.captureScreenshot", map[string]interface{}{
 		"format": "png",
 	}, sessionId)
 	if err != nil {
@@ -146,7 +161,7 @@ func (self *browserScreenshotTool) Execute(ctx context.Context, input string) (s
 
 // --- browser_snapshot ---
 
-type browserSnapshotTool struct{ relay *Relay }
+type browserSnapshotTool struct{ browser Browser }
 
 func (self *browserSnapshotTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
@@ -163,6 +178,12 @@ func (self *browserSnapshotTool) Definition() provider.ToolDef {
 					},
 				},
 			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"tree": map[string]interface{}{"type": "string", "description": "Indented text representation of the accessibility tree"},
+				},
+			},
 		},
 	}
 }
@@ -174,11 +195,11 @@ func (self *browserSnapshotTool) Execute(ctx context.Context, input string) (str
 	if input != "" {
 		json.Unmarshal([]byte(input), &arguments)
 	}
-	sessionId, err := resolveSessionId(self.relay, arguments.ConnectionID)
+	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
 	if err != nil {
 		return "", err
 	}
-	result, err := self.relay.SendCDPCommand(ctx, "Accessibility.getFullAXTree", nil, sessionId)
+	result, err := self.browser.SendCDPCommand(ctx, "Accessibility.getFullAXTree", nil, sessionId)
 	if err != nil {
 		return "", err
 	}
@@ -188,18 +209,19 @@ func (self *browserSnapshotTool) Execute(ctx context.Context, input string) (str
 	if err := json.Unmarshal(result, &response); err != nil {
 		return "", fmt.Errorf("parsing accessibility tree: %w", err)
 	}
-	return buildAXTree(response.Nodes), nil
+	out, _ := json.Marshal(map[string]string{"tree": buildAXTree(response.Nodes)})
+	return string(out), nil
 }
 
 type accessibilityNode struct {
-	NodeID     string      `json:"nodeId"`
-	ParentID   string      `json:"parentId"`
-	Role       accessibilityValue     `json:"role"`
-	Name       accessibilityValue     `json:"name"`
-	Value      *accessibilityValue    `json:"value"`
-	Properties []accessibilityProperty    `json:"properties"`
-	ChildIDs   []string    `json:"childIds"`
-	Ignored    bool        `json:"ignored"`
+	NodeID     string                  `json:"nodeId"`
+	ParentID   string                  `json:"parentId"`
+	Role       accessibilityValue      `json:"role"`
+	Name       accessibilityValue      `json:"name"`
+	Value      *accessibilityValue     `json:"value"`
+	Properties []accessibilityProperty `json:"properties"`
+	ChildIDs   []string                `json:"childIds"`
+	Ignored    bool                    `json:"ignored"`
 }
 
 type accessibilityValue struct {
@@ -208,7 +230,7 @@ type accessibilityValue struct {
 }
 
 type accessibilityProperty struct {
-	Name  string  `json:"name"`
+	Name  string             `json:"name"`
 	Value accessibilityValue `json:"value"`
 }
 
@@ -279,7 +301,7 @@ func buildAXTree(nodes []accessibilityNode) string {
 
 // --- browser_click ---
 
-type browserClickTool struct{ relay *Relay }
+type browserClickTool struct{ browser Browser }
 
 func (self *browserClickTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
@@ -308,6 +330,14 @@ func (self *browserClickTool) Definition() provider.ToolDef {
 					},
 				},
 			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"selector": map[string]interface{}{"type": "string", "description": "CSS selector that was clicked (if selector was used)"},
+					"x":        map[string]interface{}{"type": "number", "description": "X coordinate clicked (if coordinates were used)"},
+					"y":        map[string]interface{}{"type": "number", "description": "Y coordinate clicked (if coordinates were used)"},
+				},
+			},
 		},
 	}
 }
@@ -322,21 +352,22 @@ func (self *browserClickTool) Execute(ctx context.Context, input string) (string
 	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
-	sessionId, err := resolveSessionId(self.relay, arguments.ConnectionID)
+	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
 	if err != nil {
 		return "", err
 	}
 
 	if arguments.Selector != "" {
 		expr := fmt.Sprintf(`document.querySelector(%q)?.click()`, arguments.Selector)
-		_, err := self.relay.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
+		_, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
 			"expression":    expr,
 			"returnByValue": true,
 		}, sessionId)
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Clicked selector %q", arguments.Selector), nil
+		out, _ := json.Marshal(map[string]string{"selector": arguments.Selector})
+		return string(out), nil
 	}
 
 	if arguments.X == nil || arguments.Y == nil {
@@ -344,23 +375,24 @@ func (self *browserClickTool) Execute(ctx context.Context, input string) (string
 	}
 	x, y := *arguments.X, *arguments.Y
 	for _, evType := range []string{"mousePressed", "mouseReleased"} {
-		_, err := self.relay.SendCDPCommand(ctx, "Input.dispatchMouseEvent", map[string]interface{}{
+		_, err := self.browser.SendCDPCommand(ctx, "Input.dispatchMouseEvent", map[string]interface{}{
 			"type":       evType,
-			"x":         x,
-			"y":         y,
-			"button":    "left",
+			"x":          x,
+			"y":          y,
+			"button":     "left",
 			"clickCount": 1,
 		}, sessionId)
 		if err != nil {
 			return "", err
 		}
 	}
-	return fmt.Sprintf("Clicked at (%.0f, %.0f)", x, y), nil
+	out, _ := json.Marshal(map[string]interface{}{"x": x, "y": y})
+	return string(out), nil
 }
 
 // --- browser_type ---
 
-type browserTypeTool struct{ relay *Relay }
+type browserTypeTool struct{ browser Browser }
 
 func (self *browserTypeTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
@@ -386,6 +418,12 @@ func (self *browserTypeTool) Definition() provider.ToolDef {
 				},
 				"required": []string{"text"},
 			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"text": map[string]interface{}{"type": "string", "description": "The text that was typed"},
+				},
+			},
 		},
 	}
 }
@@ -399,14 +437,14 @@ func (self *browserTypeTool) Execute(ctx context.Context, input string) (string,
 	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
-	sessionId, err := resolveSessionId(self.relay, arguments.ConnectionID)
+	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
 	if err != nil {
 		return "", err
 	}
 
 	if arguments.Selector != "" {
 		expr := fmt.Sprintf(`document.querySelector(%q)?.focus()`, arguments.Selector)
-		_, err := self.relay.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
+		_, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
 			"expression":    expr,
 			"returnByValue": true,
 		}, sessionId)
@@ -415,18 +453,19 @@ func (self *browserTypeTool) Execute(ctx context.Context, input string) (string,
 		}
 	}
 
-	_, err = self.relay.SendCDPCommand(ctx, "Input.insertText", map[string]interface{}{
+	_, err = self.browser.SendCDPCommand(ctx, "Input.insertText", map[string]interface{}{
 		"text": arguments.Text,
 	}, sessionId)
 	if err != nil {
 		return "", err
 	}
-	return "ok", nil
+	out, _ := json.Marshal(map[string]string{"text": arguments.Text})
+	return string(out), nil
 }
 
 // --- browser_press_key ---
 
-type browserPressKeyTool struct{ relay *Relay }
+type browserPressKeyTool struct{ browser Browser }
 
 func (self *browserPressKeyTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
@@ -448,6 +487,12 @@ func (self *browserPressKeyTool) Definition() provider.ToolDef {
 				},
 				"required": []string{"key"},
 			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"key": map[string]interface{}{"type": "string", "description": "The key that was pressed"},
+				},
+			},
 		},
 	}
 }
@@ -460,7 +505,7 @@ func (self *browserPressKeyTool) Execute(ctx context.Context, input string) (str
 	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
-	sessionId, err := resolveSessionId(self.relay, arguments.ConnectionID)
+	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
 	if err != nil {
 		return "", err
 	}
@@ -482,12 +527,13 @@ func (self *browserPressKeyTool) Execute(ctx context.Context, input string) (str
 		if evType == "keyDown" && len(info.text) > 0 {
 			params["text"] = info.text
 		}
-		_, err := self.relay.SendCDPCommand(ctx, "Input.dispatchKeyEvent", params, sessionId)
+		_, err := self.browser.SendCDPCommand(ctx, "Input.dispatchKeyEvent", params, sessionId)
 		if err != nil {
 			return "", err
 		}
 	}
-	return fmt.Sprintf("Pressed %s", arguments.Key), nil
+	out, _ := json.Marshal(map[string]string{"key": arguments.Key})
+	return string(out), nil
 }
 
 type keyData struct {
@@ -534,7 +580,7 @@ func keyInfo(key string) keyData {
 
 // --- browser_evaluate ---
 
-type browserEvaluateTool struct{ relay *Relay }
+type browserEvaluateTool struct{ browser Browser }
 
 func (self *browserEvaluateTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
@@ -556,6 +602,13 @@ func (self *browserEvaluateTool) Definition() provider.ToolDef {
 				},
 				"required": []string{"expression"},
 			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"type":  map[string]interface{}{"type": "string", "description": "JavaScript type of the result (string, number, boolean, object, undefined)"},
+					"value": map[string]interface{}{"description": "The evaluated result value"},
+				},
+			},
 		},
 	}
 }
@@ -568,11 +621,11 @@ func (self *browserEvaluateTool) Execute(ctx context.Context, input string) (str
 	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
-	sessionId, err := resolveSessionId(self.relay, arguments.ConnectionID)
+	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
 	if err != nil {
 		return "", err
 	}
-	result, err := self.relay.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
+	result, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
 		"expression":    arguments.Expression,
 		"returnByValue": true,
 	}, sessionId)
@@ -594,15 +647,16 @@ func (self *browserEvaluateTool) Execute(ctx context.Context, input string) (str
 	if response.ExceptionDetails != nil {
 		return "", fmt.Errorf("evaluation error: %s", response.ExceptionDetails.Text)
 	}
-	if response.Result.Value != nil {
-		return string(response.Result.Value), nil
-	}
-	return response.Result.Type, nil
+	out, _ := json.Marshal(map[string]interface{}{
+		"type":  response.Result.Type,
+		"value": response.Result.Value,
+	})
+	return string(out), nil
 }
 
 // --- browser_tab_list ---
 
-type browserTabListTool struct{ relay *Relay }
+type browserTabListTool struct{ browser Browser }
 
 func (self *browserTabListTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
@@ -614,25 +668,49 @@ func (self *browserTabListTool) Definition() provider.ToolDef {
 				"type":       "object",
 				"properties": map[string]interface{}{},
 			},
+			Returns: map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"targetId":     map[string]interface{}{"type": "string", "description": "Unique target identifier"},
+						"title":        map[string]interface{}{"type": "string", "description": "Page title"},
+						"url":          map[string]interface{}{"type": "string", "description": "Page URL"},
+						"connectionId": map[string]interface{}{"type": "string", "description": "Session ID used as connectionId for other tools"},
+						"source":       map[string]interface{}{"type": "string", "description": "Browser backend hosting this tab (headless or extension)"},
+					},
+				},
+			},
 		},
 	}
 }
 
 func (self *browserTabListTool) Execute(_ context.Context, _ string) (string, error) {
-	targets := self.relay.Targets()
-	if len(targets) == 0 {
-		return "No attached tabs.", nil
+	targets := self.browser.Targets()
+	type entry struct {
+		TargetID     string `json:"targetId"`
+		Title        string `json:"title"`
+		URL          string `json:"url"`
+		ConnectionID string `json:"connectionId"`
+		Source       string `json:"source"`
 	}
-	var builder strings.Builder
-	for _, target := range targets {
-		fmt.Fprintf(&builder, "- [%s] %s (%s) connectionId=%s\n", target.TargetID, target.Title, target.URL, target.SessionID)
+	entries := make([]entry, len(targets))
+	for index, target := range targets {
+		entries[index] = entry{
+			TargetID:     target.TargetID,
+			Title:        target.Title,
+			URL:          target.URL,
+			ConnectionID: target.SessionID,
+			Source:       target.Source,
+		}
 	}
-	return strings.TrimRight(builder.String(), "\n"), nil
+	out, _ := json.Marshal(entries)
+	return string(out), nil
 }
 
 // --- browser_tab_open ---
 
-type browserTabOpenTool struct{ relay *Relay }
+type browserTabOpenTool struct{ browser Browser }
 
 func (self *browserTabOpenTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
@@ -647,6 +725,13 @@ func (self *browserTabOpenTool) Definition() provider.ToolDef {
 						"type":        "string",
 						"description": "URL to open in the new tab. Defaults to about:blank.",
 					},
+				},
+			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"targetId": map[string]interface{}{"type": "string", "description": "Target ID of the new tab"},
+					"url":      map[string]interface{}{"type": "string", "description": "URL opened in the new tab"},
 				},
 			},
 		},
@@ -664,11 +749,11 @@ func (self *browserTabOpenTool) Execute(ctx context.Context, input string) (stri
 		arguments.URL = "about:blank"
 	}
 
-	sessionId, err := resolveSessionId(self.relay, "")
+	sessionId, err := resolveSessionId(self.browser, "")
 	if err != nil {
 		return "", err
 	}
-	result, err := self.relay.SendCDPCommand(ctx, "Target.createTarget", map[string]interface{}{
+	result, err := self.browser.SendCDPCommand(ctx, "Target.createTarget", map[string]interface{}{
 		"url": arguments.URL,
 	}, sessionId)
 	if err != nil {
@@ -677,15 +762,17 @@ func (self *browserTabOpenTool) Execute(ctx context.Context, input string) (stri
 	var response struct {
 		TargetID string `json:"targetId"`
 	}
-	if json.Unmarshal(result, &response) == nil && response.TargetID != "" {
-		return fmt.Sprintf("Opened new tab %s at %s", response.TargetID, arguments.URL), nil
-	}
-	return fmt.Sprintf("Opened new tab at %s", arguments.URL), nil
+	json.Unmarshal(result, &response)
+	out, _ := json.Marshal(map[string]string{
+		"targetId": response.TargetID,
+		"url":      arguments.URL,
+	})
+	return string(out), nil
 }
 
 // --- browser_tab_close ---
 
-type browserTabCloseTool struct{ relay *Relay }
+type browserTabCloseTool struct{ browser Browser }
 
 func (self *browserTabCloseTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
@@ -702,6 +789,12 @@ func (self *browserTabCloseTool) Definition() provider.ToolDef {
 					},
 				},
 			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"targetId": map[string]interface{}{"type": "string", "description": "Target ID of the closed tab"},
+				},
+			},
 		},
 	}
 }
@@ -714,7 +807,7 @@ func (self *browserTabCloseTool) Execute(ctx context.Context, input string) (str
 		json.Unmarshal([]byte(input), &arguments)
 	}
 
-	sessionId, err := resolveSessionId(self.relay, "")
+	sessionId, err := resolveSessionId(self.browser, "")
 	if err != nil {
 		return "", err
 	}
@@ -722,16 +815,17 @@ func (self *browserTabCloseTool) Execute(ctx context.Context, input string) (str
 	if arguments.TargetID != "" {
 		params["targetId"] = arguments.TargetID
 	}
-	_, err = self.relay.SendCDPCommand(ctx, "Target.closeTarget", params, sessionId)
+	_, err = self.browser.SendCDPCommand(ctx, "Target.closeTarget", params, sessionId)
 	if err != nil {
 		return "", err
 	}
-	return "Tab closed.", nil
+	out, _ := json.Marshal(map[string]string{"targetId": arguments.TargetID})
+	return string(out), nil
 }
 
 // --- browser_tab_activate ---
 
-type browserTabActivateTool struct{ relay *Relay }
+type browserTabActivateTool struct{ browser Browser }
 
 func (self *browserTabActivateTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
@@ -749,6 +843,12 @@ func (self *browserTabActivateTool) Definition() provider.ToolDef {
 				},
 				"required": []string{"targetId"},
 			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"targetId": map[string]interface{}{"type": "string", "description": "Target ID of the activated tab"},
+				},
+			},
 		},
 	}
 }
@@ -761,15 +861,16 @@ func (self *browserTabActivateTool) Execute(ctx context.Context, input string) (
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
 
-	sessionId, err := resolveSessionId(self.relay, "")
+	sessionId, err := resolveSessionId(self.browser, "")
 	if err != nil {
 		return "", err
 	}
-	_, err = self.relay.SendCDPCommand(ctx, "Target.activateTarget", map[string]interface{}{
+	_, err = self.browser.SendCDPCommand(ctx, "Target.activateTarget", map[string]interface{}{
 		"targetId": arguments.TargetID,
 	}, sessionId)
 	if err != nil {
 		return "", err
 	}
-	return "Tab activated.", nil
+	out, _ := json.Marshal(map[string]string{"targetId": arguments.TargetID})
+	return string(out), nil
 }

@@ -8,6 +8,8 @@ import type {
   ChatSendResult,
   ChatHistoryResult,
   SessionsListResult,
+  ModelsListResult,
+  ModelInfo,
   Message,
   ToolCall,
   Usage,
@@ -106,6 +108,7 @@ export function useChat() {
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState('connecting...');
   const [defaultModel, setDefaultModel] = useState('');
+  const [models, setModels] = useState<ModelInfo[]>([]);
   const [streamText, setStreamText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolActivity, setToolActivity] = useState<string | null>(null);
@@ -375,6 +378,13 @@ export function useChat() {
     if (result.defaultModel) {
       setDefaultModel(result.defaultModel);
     }
+    // Fetch available models
+    sendRpcRef.current<ModelsListResult>('models.list', {})
+      .then((res) => {
+        if (res.models) setModels(res.models);
+      })
+      .catch((error: unknown) => console.error('models.list:', error));
+
     // Load sessions on every (re)connect
     sendRpcRef.current<SessionsListResult>('sessions.list', {})
       .then((res) => {
@@ -605,6 +615,7 @@ export function useChat() {
     isRunning,
     status,
     defaultModel,
+    models,
     streamText,
     isStreaming,
     toolActivity,

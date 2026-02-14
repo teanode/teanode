@@ -1,4 +1,4 @@
-module github.com/ziyan/teanode
+module github.com/teanode/teanode
 
 go 1.25
 

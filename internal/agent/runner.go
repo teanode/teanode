@@ -8,46 +8,68 @@ import (
 	"sync"
 	"time"
 
+	"encoding/base64"
+
 	"github.com/google/uuid"
 	"github.com/kaptinlin/jsonrepair"
-	"github.com/ziyan/teanode/internal/config"
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/provider"
-	"github.com/ziyan/teanode/internal/session"
-	"github.com/ziyan/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/config"
+	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/session"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
-
-var runnerLog = logging.Get("agent")
 
 const maxToolRounds = 100
 
 // Runner orchestrates: load session -> build prompt -> call LLM -> save response.
 type Runner struct {
 	mutex        sync.RWMutex
-	Provider     *provider.Client
+	Providers    *provider.Registry
 	Sessions     *session.Store
 	Config       *config.Config
 	Tools        *ToolRegistry
+	MediaStore   *media.Store
 	WorkspaceDir string
 	SkillPrompts string
+
+	// contextWindows maps "provider:model" → context window size.
+	contextWindows sync.Map
 }
 
-// Reconfigure hot-swaps the runner's configuration, provider, tools, and skill prompts.
+// Reconfigure hot-swaps the runner's configuration, providers, tools, and skill prompts.
 // In-progress runs continue with their snapshotted references; new runs use the updated values.
-func (self *Runner) Reconfigure(config *config.Config, provider *provider.Client, tools *ToolRegistry, skillPrompts string) {
+func (self *Runner) Reconfigure(config *config.Config, providers *provider.Registry, tools *ToolRegistry, skillPrompts string) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.Config = config
-	self.Provider = provider
+	self.Providers = providers
 	self.Tools = tools
 	self.SkillPrompts = skillPrompts
 }
 
 // Snapshot captures the runner's current state under the read lock.
-func (self *Runner) Snapshot() (config *config.Config, provider *provider.Client, tools *ToolRegistry, workspaceDirectory string, skillPrompts string) {
+func (self *Runner) Snapshot() (config *config.Config, providers *provider.Registry, tools *ToolRegistry, workspaceDirectory string, skillPrompts string) {
 	self.mutex.RLock()
 	defer self.mutex.RUnlock()
-	return self.Config, self.Provider, self.Tools, self.WorkspaceDir, self.SkillPrompts
+	return self.Config, self.Providers, self.Tools, self.WorkspaceDir, self.SkillPrompts
+}
+
+// SetModels populates the context window map for models from a given provider.
+func (self *Runner) SetModels(providerName string, models []provider.ModelInfo) {
+	for _, m := range models {
+		if m.ContextLength > 0 {
+			key := provider.QualifyModel(providerName, m.ID)
+			self.contextWindows.Store(key, m.ContextLength)
+		}
+	}
+}
+
+// lookupContextWindow returns the context window for a qualified model, or 0 if unknown.
+func (self *Runner) lookupContextWindow(qualifiedModel string) int {
+	if v, ok := self.contextWindows.Load(qualifiedModel); ok {
+		return v.(int)
+	}
+	return 0
 }
 
 // RunParams holds the parameters for a single agent run.
@@ -78,12 +100,12 @@ type RunCallbacks struct {
 // and appends the assistant response. Loops when the LLM requests tool calls.
 func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
 	// Snapshot mutable fields so in-progress runs aren't affected by hot-reloads.
-	config, providerClient, tools, _, _ := self.Snapshot()
+	config, providers, tools, _, _ := self.Snapshot()
 
 	runId := uuid.New().String()
 	now := time.Now().UnixMilli()
 
-	runnerLog.Debugf("run start id=%s session=%s model=%s", runId, params.SessionKey, params.Model)
+	log.Debugf("run start id=%s session=%s model=%s", runId, params.SessionKey, params.Model)
 
 	// Enrich context with session key and title callback for tools.
 	var onTitleUpdate func(string)
@@ -104,11 +126,16 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 		return nil, fmt.Errorf("loading session: %w", err)
 	}
 
-	// 3. Choose model.
-	model := config.Models.Default
+	// 3. Choose model and resolve provider.
+	qualifiedModel := config.Models.Default
 	if params.Model != "" {
-		model = params.Model
+		qualifiedModel = params.Model
 	}
+	providerClient, model, err := providers.Resolve(qualifiedModel)
+	if err != nil {
+		return nil, fmt.Errorf("resolving model %q: %w", qualifiedModel, err)
+	}
+	resolvedProvider, _ := provider.ParseQualifiedModel(qualifiedModel, providers.DefaultProvider())
 
 	// 4. Tool-call loop.
 	var totalUsage *session.Usage
@@ -117,7 +144,7 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 	var stopReason string
 
 	for round := 0; round < maxToolRounds; round++ {
-		runnerLog.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
+		log.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
 
 		// Build messages for the LLM.
 		llmMessages := self.buildMessages(history)
@@ -132,9 +159,14 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 		}
 
 		// Tier 2: compress context if approaching the context window limit.
-		llmMessages, err = self.compressContext(ctx, llmMessages, toolDefs, params.SessionKey)
+		// Use per-model context window if available, otherwise fall back to config.
+		contextWindow := self.lookupContextWindow(qualifiedModel)
+		if contextWindow <= 0 {
+			contextWindow = config.Models.ContextWindow
+		}
+		llmMessages, err = self.compressContext(ctx, providers, config, llmMessages, toolDefs, params.SessionKey, contextWindow)
 		if err != nil {
-			runnerLog.Debugf("context compression error (non-fatal): %v", err)
+			log.Debugf("context compression error (non-fatal): %v", err)
 		}
 
 		// Build request.
@@ -235,7 +267,7 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 		// Save assistant message.
 		assistantMessage := session.NewTextMessage("assistant", responseText, time.Now().UnixMilli())
 		assistantMessage.Model = responseModel
-		assistantMessage.Provider = config.Models.Provider
+		assistantMessage.Provider = resolvedProvider
 		assistantMessage.StopReason = stopReason
 		if usage != nil {
 			assistantMessage.Usage = &session.Usage{
@@ -273,20 +305,43 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 
 			arguments := repairToolArgs(toolCall.Function.Arguments)
 
-			runnerLog.Debugf("tool call id=%s name=%s", toolCall.ID, toolCall.Function.Name)
+			log.Debugf("tool call id=%s name=%s", toolCall.ID, toolCall.Function.Name)
 			result, err := tool.Execute(ctx, arguments)
 			if err != nil {
-				runnerLog.Debugf("tool error id=%s name=%s err=%v", toolCall.ID, toolCall.Function.Name, err)
+				log.Debugf("tool error id=%s name=%s err=%v", toolCall.ID, toolCall.Function.Name, err)
 				result = "error: " + err.Error()
 			} else {
-				runnerLog.Debugf("tool done id=%s name=%s result_len=%d", toolCall.ID, toolCall.Function.Name, len(result))
+				log.Debugf("tool done id=%s name=%s result_len=%d", toolCall.ID, toolCall.Function.Name, len(result))
+			}
+
+			// Detect media in tool result. If base64 media is found and we
+			// have a media store, save to disk and create a compact reference
+			// for the session file and LLM history, while sending the original
+			// (with base64) to live consumers via OnToolResult.
+			liveResult := result
+			storedResult := result
+			if self.MediaStore != nil {
+				if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+					rawData, decodeError := base64.StdEncoding.DecodeString(detected.Base64)
+					if decodeError == nil {
+						mediaId, saveError := self.MediaStore.Save(rawData, detected.Format)
+						if saveError == nil {
+							ref, _ := json.Marshal(map[string]interface{}{
+								"mediaId":   mediaId,
+								"format":    detected.Format,
+								"displayed": true,
+							})
+							storedResult = string(ref)
+						}
+					}
+				}
 			}
 
 			if callbacks != nil && callbacks.OnToolResult != nil {
-				callbacks.OnToolResult(toolCall.Function.Name, result)
+				callbacks.OnToolResult(toolCall.Function.Name, liveResult)
 			}
 
-			toolMessage := session.NewToolMessage(toolCall.ID, toolCall.Function.Name, result, time.Now().UnixMilli())
+			toolMessage := session.NewToolMessage(toolCall.ID, toolCall.Function.Name, storedResult, time.Now().UnixMilli())
 			if err := self.Sessions.Append(params.SessionKey, toolMessage); err != nil {
 				return nil, fmt.Errorf("saving tool result: %w", err)
 			}
@@ -298,7 +353,7 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 		}
 	}
 
-	runnerLog.Debugf("run done id=%s model=%s stop=%s", runId, responseModel, stopReason)
+	log.Debugf("run done id=%s model=%s stop=%s", runId, responseModel, stopReason)
 
 	// Generate title for new sessions (only 1 user message when we entered Run).
 	if responseText != "" && callbacks != nil && callbacks.OnTitleUpdate != nil {
@@ -317,30 +372,36 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 			if len(firstAssistantText) > 500 {
 				firstAssistantText = firstAssistantText[:500]
 			}
-			titleModel := config.Models.Default
+			titleQualifiedModel := config.Models.Default
 			if config.Models.TitleModel != "" {
-				titleModel = config.Models.TitleModel
+				titleQualifiedModel = config.Models.TitleModel
 			}
+			titleClient, titleBareModel, titleErr := providers.Resolve(titleQualifiedModel)
 			go func() {
 				defer deferutil.Recover()
 
-				titleRequest := provider.ChatRequest{
-					Model: titleModel,
-					Messages: []provider.ChatMessage{
-						{Role: "system", Content: "Summarize the following conversation into a short title (max 8 words). Output only the title, nothing else."},
-						{Role: "user", Content: "User: " + firstUserText + "\n\nAssistant: " + firstAssistantText},
-					},
-				}
-				titleResponse, err := providerClient.ChatCompletion(context.Background(), titleRequest)
 				var title string
-				if err != nil || len(titleResponse.Choices) == 0 || strings.TrimSpace(titleResponse.Choices[0].Message.Content) == "" {
+				if titleErr != nil {
+					log.Debugf("failed to resolve title model %q: %v", titleQualifiedModel, titleErr)
 					title = time.Now().Format("Jan 2, 2006 3:04 PM")
 				} else {
-					title = strings.TrimSpace(titleResponse.Choices[0].Message.Content)
+					titleRequest := provider.ChatRequest{
+						Model: titleBareModel,
+						Messages: []provider.ChatMessage{
+							{Role: "system", Content: "Summarize the following conversation into a short title (max 8 words). Output only the title, nothing else."},
+							{Role: "user", Content: "User: " + firstUserText + "\n\nAssistant: " + firstAssistantText},
+						},
+					}
+					titleResponse, err := titleClient.ChatCompletion(context.Background(), titleRequest)
+					if err != nil || len(titleResponse.Choices) == 0 || strings.TrimSpace(titleResponse.Choices[0].Message.Content) == "" {
+						title = time.Now().Format("Jan 2, 2006 3:04 PM")
+					} else {
+						title = strings.TrimSpace(titleResponse.Choices[0].Message.Content)
+					}
 				}
 
 				if err := self.Sessions.SetTitle(params.SessionKey, title); err != nil {
-					runnerLog.Debugf("failed to set title: %v", err)
+					log.Debugf("failed to set title: %v", err)
 				}
 				callbacks.OnTitleUpdate(title)
 			}()

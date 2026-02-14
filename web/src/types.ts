@@ -137,6 +137,19 @@ export interface ChatEvent {
   stopReason?: string;
 }
 
+// Model types
+
+export interface ModelInfo {
+  provider: string;
+  id: string;
+  context_length?: number;
+}
+
+export interface ModelsListResult {
+  models: ModelInfo[];
+  defaultModel: string;
+}
+
 // Cron job types
 
 export interface CronJob {

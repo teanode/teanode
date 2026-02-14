@@ -9,15 +9,18 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
+	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/gorilla/websocket"
 	gologging "github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/logging"
+	"github.com/teanode/teanode/internal/terminal"
+	"github.com/teanode/teanode/internal/util/screenbuffer"
 	"github.com/urfave/cli/v3"
-	"github.com/ziyan/teanode/internal/logging"
-	"github.com/ziyan/teanode/internal/terminal"
-	"github.com/ziyan/teanode/internal/util/screenbuffer"
 )
 
 func TerminalCmd() *cli.Command {
@@ -29,8 +32,8 @@ func TerminalCmd() *cli.Command {
 			&cli.StringFlag{
 				Name:    "gateway",
 				Aliases: []string{"g"},
-				Usage:   "gateway WebSocket URL (e.g. ws://127.0.0.1:18789)",
-				Value:   "ws://127.0.0.1:18789",
+				Usage:   "gateway WebSocket URL (e.g. ws://127.0.0.1:8833)",
+				Value:   "ws://127.0.0.1:8833",
 			},
 			&cli.StringFlag{
 				Name:    "token",
@@ -143,7 +146,8 @@ func TerminalCmd() *cli.Command {
 			gatewayUrl := command.String("gateway")
 			token := command.String("token")
 			name := command.String("name")
-			go connectGateway(ctx, gatewayUrl, token, name, master, buffer, log)
+			shellCommand := strings.Join(shellArguments, " ")
+			go connectGateway(ctx, gatewayUrl, token, name, shellCommand, master, buffer, log)
 
 			// Wait for child to exit.
 			child.Wait()
@@ -152,7 +156,7 @@ func TerminalCmd() *cli.Command {
 	}
 }
 
-func connectGateway(ctx context.Context, gatewayUrl, token, name string, master *os.File, buffer *screenbuffer.Buffer, log *gologging.Logger) {
+func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand string, master *os.File, buffer *screenbuffer.Buffer, log *gologging.Logger) {
 	parsedUrl, err := url.Parse(gatewayUrl)
 	if err != nil {
 		log.Errorf("terminal: invalid gateway URL: %v", err)
@@ -166,7 +170,21 @@ func connectGateway(ctx context.Context, gatewayUrl, token, name string, master 
 	query.Set("id", name)
 	parsedUrl.RawQuery = query.Encode()
 
-	connection, _, err := websocket.DefaultDialer.DialContext(ctx, parsedUrl.String(), nil)
+	for {
+		serveGatewayConnection(ctx, parsedUrl.String(), shellCommand, master, buffer, log)
+
+		// Wait before reconnecting, or exit if context is cancelled.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+			log.Info("terminal: reconnecting to gateway ...")
+		}
+	}
+}
+
+func serveGatewayConnection(ctx context.Context, url string, shellCommand string, master *os.File, buffer *screenbuffer.Buffer, log *gologging.Logger) {
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, url, nil)
 	if err != nil {
 		log.Errorf("terminal: gateway connect failed: %v", err)
 		return
@@ -175,10 +193,14 @@ func connectGateway(ctx context.Context, gatewayUrl, token, name string, master 
 
 	log.Info("terminal: connected to gateway")
 
+	// Send machine info so the relay can distinguish this terminal.
+	sendMachineInfo(connection, shellCommand)
+
 	// Read commands from gateway.
 	for {
 		_, data, err := connection.ReadMessage()
 		if err != nil {
+			log.Warningf("terminal: gateway connection lost: %v", err)
 			return
 		}
 
@@ -246,4 +268,29 @@ func connectGateway(ctx context.Context, gatewayUrl, token, name string, master 
 			connection.WriteMessage(websocket.TextMessage, response)
 		}
 	}
+}
+
+func sendMachineInfo(connection *websocket.Conn, shellCommand string) {
+	hostname, _ := os.Hostname()
+	username := ""
+	if currentUser, err := user.Current(); err == nil {
+		username = currentUser.Username
+	}
+	workingDirectory, _ := os.Getwd()
+	timezone := time.Now().Location().String()
+
+	message := map[string]interface{}{
+		"method": "attach",
+		"params": map[string]string{
+			"hostname":         hostname,
+			"username":         username,
+			"os":               runtime.GOOS,
+			"architecture":     runtime.GOARCH,
+			"shellCommand":     shellCommand,
+			"workingDirectory": workingDirectory,
+			"timezone":         timezone,
+		},
+	}
+	data, _ := json.Marshal(message)
+	connection.WriteMessage(websocket.TextMessage, data)
 }
