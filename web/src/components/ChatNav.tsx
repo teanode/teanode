@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
@@ -6,17 +7,13 @@ import ListItemText from '@mui/material/ListItemText';
 import Collapse from '@mui/material/Collapse';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
-import DialogActions from '@mui/material/DialogActions';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import type { Session, AgentInfo } from '../types';
 import type { useChat } from '../hooks/useChat';
 import SessionItem from './SessionItem';
+import ConfirmDialog from './ConfirmDialog';
 
 interface ChatNavProps {
   chat: ReturnType<typeof useChat>;
@@ -26,6 +23,7 @@ interface ChatNavProps {
 }
 
 export default function ChatNav({ chat, activeAgentId, activeSessionKey, onNavigate }: ChatNavProps) {
+  const { t } = useTranslation();
   const { sessions, agents } = chat;
   const defaultAgentId = agents.length > 0 ? agents[0].id : 'main';
 
@@ -86,6 +84,9 @@ export default function ChatNav({ chat, activeAgentId, activeSessionKey, onNavig
             const isCollapsed = collapsedAgents.has(agentId);
             const isActiveAgent = activeAgentId === agentId;
 
+            const agent = agents.find((a: AgentInfo) => a.id === agentId);
+            const displayName = agent?.name || agentId;
+
             return (
               <React.Fragment key={agentId}>
                 <ListItemButton
@@ -98,7 +99,7 @@ export default function ChatNav({ chat, activeAgentId, activeSessionKey, onNavig
                     : <ExpandMoreIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />
                   }
                   <ListItemText
-                    primary={agentId}
+                    primary={displayName}
                     primaryTypographyProps={{
                       variant: 'caption',
                       fontWeight: 500,
@@ -126,8 +127,8 @@ export default function ChatNav({ chat, activeAgentId, activeSessionKey, onNavig
                       }}
                     >
                       <ListItemText
-                        primary="New Chat"
-                        secondary={`with ${agentId}`}
+                        primary={t('chat.newChat')}
+                        secondary={t('chat.withAgent', { agentId })}
                         primaryTypographyProps={{
                           variant: 'caption',
                           fontSize: '13px',
@@ -159,18 +160,14 @@ export default function ChatNav({ chat, activeAgentId, activeSessionKey, onNavig
         </List>
       </Box>
 
-      <Dialog open={!!pendingDelete} onClose={() => setPendingDelete(null)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontSize: '0.875rem', fontWeight: 500 }}>Delete session?</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ fontSize: '0.8rem', wordBreak: 'break-word' }}>
-            This will permanently delete <strong>{pendingDelete?.title}</strong>.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPendingDelete(null)} size="small">Cancel</Button>
-          <Button onClick={handleConfirmDelete} color="error" variant="contained" size="small">Delete</Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title={t('chat.deleteSessionTitle')}
+        message={t('chat.deleteSessionMessage', { title: pendingDelete?.title })}
+        confirmLabel={t('common.delete')}
+        onConfirm={handleConfirmDelete}
+        onClose={() => setPendingDelete(null)}
+      />
     </>
   );
 }

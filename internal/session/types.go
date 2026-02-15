@@ -4,11 +4,13 @@ import "encoding/json"
 
 // SessionHeader is the first line of a JSONL session file.
 type SessionHeader struct {
-	Type      string `json:"type"`            // "session"
-	Version   int    `json:"version"`         // 1
-	ID        string `json:"id"`              // UUID
-	Timestamp string `json:"timestamp"`       // RFC3339
-	Title     string `json:"title,omitempty"` // conversation title
+	Type         string `json:"type"`                    // "session"
+	Version      int    `json:"version"`                 // 1
+	ID           string `json:"id"`                      // UUID
+	Timestamp    string `json:"timestamp"`               // RFC3339
+	Title        string `json:"title,omitempty"`         // conversation title
+	Summary      string `json:"summary,omitempty"`       // conversation summary
+	SummarizedAt int64  `json:"summarizedAt,omitempty"` // unix ms when summary was generated
 }
 
 // Message represents a chat message in a session.

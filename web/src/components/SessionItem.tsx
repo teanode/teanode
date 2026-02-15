@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import ListItemButton from '@mui/material/ListItemButton';
@@ -23,6 +24,7 @@ function displayLabel(session: Session): string {
 }
 
 export default function SessionItem({ session, active, onClick, onDelete }: SessionItemProps) {
+  const { t } = useTranslation();
   return (
     <ListItemButton
       dense
@@ -57,7 +59,7 @@ export default function SessionItem({ session, active, onClick, onDelete }: Sess
       <IconButton
         className="delete-btn"
         size="small"
-        title="Delete session"
+        title={t('chat.deleteSessionTooltip')}
         onClick={(event) => {
           event.stopPropagation();
           onDelete();

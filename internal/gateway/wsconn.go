@@ -82,8 +82,6 @@ func (self *webSocketConnection) dispatch(frame types.RequestFrame) {
 		self.handleChatAbort(frame)
 	case "sessions.list":
 		self.handleSessionsList(frame)
-	case "sessions.rename":
-		self.handleSessionsRename(frame)
 	case "sessions.delete":
 		self.handleSessionsDelete(frame)
 	case "models.list":

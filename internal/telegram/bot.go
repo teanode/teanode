@@ -45,15 +45,18 @@ type Bot struct {
 }
 
 // New creates a new Telegram bot. It resolves the runner from the agent registry
-// using the config's AgentID (defaults to "main").
-func New(telegramConfig *config.TelegramConfig, agentRegistry *agent.AgentRegistry) *Bot {
+// using the config's AgentID (defaults to the configured default agent).
+func New(telegramConfig *config.TelegramConfig, agentRegistry *agent.AgentRegistry) (*Bot, error) {
 	agentId := telegramConfig.AgentID
 	if agentId == "" {
-		agentId = config.DefaultAgentID
+		agentId = agentRegistry.DefaultID()
 	}
 	runner := agentRegistry.Get(agentId)
 	if runner == nil {
 		runner = agentRegistry.Default()
+	}
+	if runner == nil {
+		return nil, fmt.Errorf("no agent runner available for telegram (agent %q)", agentId)
 	}
 	return &Bot{
 		config:         telegramConfig,
@@ -63,7 +66,7 @@ func New(telegramConfig *config.TelegramConfig, agentRegistry *agent.AgentRegist
 		sessionKeys:    make(map[string]string),
 		modelOverrides: make(map[string]string),
 		stopChannel:    make(chan struct{}),
-	}
+	}, nil
 }
 
 // Start connects the bot to Telegram and begins polling for updates.
@@ -269,14 +272,6 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, s
 					pendingMedia = append(pendingMedia, detected)
 					pendingMediaMutex.Unlock()
 				}
-			},
-			OnTitleUpdate: func(title string) {
-				broadcast("chat", map[string]interface{}{
-					"state":      "title",
-					"sessionKey": sessionKey,
-					"title":      title,
-				})
-				broadcast("sessions", nil)
 			},
 		}
 	}

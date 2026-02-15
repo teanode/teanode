@@ -9,8 +9,9 @@ import (
 
 // AgentRegistry manages multiple named runners (one per agent).
 type AgentRegistry struct {
-	mutex   sync.RWMutex
-	runners map[string]*Runner // agentId → Runner
+	mutex          sync.RWMutex
+	runners        map[string]*Runner // agentId → Runner
+	defaultAgentID string             // resolved default agent ID
 }
 
 // NewAgentRegistry creates an empty agent registry.
@@ -34,9 +35,23 @@ func (self *AgentRegistry) Get(agentId string) *Runner {
 	return self.runners[agentId]
 }
 
-// Default returns the runner for the default "main" agent.
+// SetDefault sets the default agent ID.
+func (self *AgentRegistry) SetDefault(agentID string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.defaultAgentID = agentID
+}
+
+// DefaultID returns the configured default agent ID.
+func (self *AgentRegistry) DefaultID() string {
+	self.mutex.RLock()
+	defer self.mutex.RUnlock()
+	return self.defaultAgentID
+}
+
+// Default returns the runner for the default agent.
 func (self *AgentRegistry) Default() *Runner {
-	return self.Get(config.DefaultAgentID)
+	return self.Get(self.DefaultID())
 }
 
 // AgentIDs returns a list of all registered agent IDs.

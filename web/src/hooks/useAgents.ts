@@ -3,7 +3,7 @@ import type { AgentConfig, AgentsConfigListResult, AgentConfigSchemaResult, Conf
 
 export function useAgents(sendRpc: <T = unknown>(method: string, params: unknown) => Promise<T>) {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [schema, setSchema] = useState<ConfigSchema | null>(null);
 
   const loadAgents = useCallback(() => {

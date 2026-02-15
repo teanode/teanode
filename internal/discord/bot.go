@@ -46,15 +46,18 @@ type Bot struct {
 }
 
 // New creates a new Discord bot. It resolves the runner from the agent registry
-// using the config's AgentID (defaults to "main").
-func New(discordConfig *config.DiscordConfig, agentRegistry *agent.AgentRegistry) *Bot {
+// using the config's AgentID (defaults to the configured default agent).
+func New(discordConfig *config.DiscordConfig, agentRegistry *agent.AgentRegistry) (*Bot, error) {
 	agentId := discordConfig.AgentID
 	if agentId == "" {
-		agentId = config.DefaultAgentID
+		agentId = agentRegistry.DefaultID()
 	}
 	runner := agentRegistry.Get(agentId)
 	if runner == nil {
 		runner = agentRegistry.Default()
+	}
+	if runner == nil {
+		return nil, fmt.Errorf("no agent runner available for discord (agent %q)", agentId)
 	}
 	return &Bot{
 		config:         discordConfig,
@@ -63,7 +66,7 @@ func New(discordConfig *config.DiscordConfig, agentRegistry *agent.AgentRegistry
 		active:         make(map[string]context.CancelFunc),
 		sessionKeys:    make(map[string]string),
 		modelOverrides: make(map[string]string),
-	}
+	}, nil
 }
 
 // Start connects the bot to Discord.
@@ -232,14 +235,6 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, s
 					pendingMedia = append(pendingMedia, detected)
 					pendingMediaMutex.Unlock()
 				}
-			},
-			OnTitleUpdate: func(title string) {
-				broadcast("chat", map[string]interface{}{
-					"state":      "title",
-					"sessionKey": sessionKey,
-					"title":      title,
-				})
-				broadcast("sessions", nil)
 			},
 		}
 	}

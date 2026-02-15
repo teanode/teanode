@@ -157,10 +157,8 @@ func (self *Runner) compressContext(
 
 	// Pick summary model and resolve its provider.
 	summaryQualifiedModel := cfg.Models.Default
-	if cfg.Models.SummaryModel != "" {
-		summaryQualifiedModel = cfg.Models.SummaryModel
-	} else if cfg.Models.TitleModel != "" {
-		summaryQualifiedModel = cfg.Models.TitleModel
+	if cfg.Models.SummarizerModel != "" {
+		summaryQualifiedModel = cfg.Models.SummarizerModel
 	}
 
 	summaryClient, summaryBareModel, resolveErr := providers.Resolve(summaryQualifiedModel)

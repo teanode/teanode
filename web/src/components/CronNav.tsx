@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
@@ -15,6 +16,7 @@ interface CronNavProps {
 }
 
 export default function CronNav({ jobs, activeJobId, isNewPage, onNavigate }: CronNavProps) {
+  const { t } = useTranslation();
   return (
     <Box sx={{ flex: 1, overflowY: 'auto', p: 1 }}>
       <List disablePadding>
@@ -30,8 +32,8 @@ export default function CronNav({ jobs, activeJobId, isNewPage, onNavigate }: Cr
           }}
         >
           <ListItemText
-            primary="New Job"
-            secondary={'\u00A0'}
+            primary={t('cron.newJob')}
+            secondary={t('cron.schedulePeriodicJobs')}
             primaryTypographyProps={{
               variant: 'caption',
               fontSize: '13px',
@@ -43,12 +45,6 @@ export default function CronNav({ jobs, activeJobId, isNewPage, onNavigate }: Cr
             }}
           />
         </ListItemButton>
-
-        {jobs.length === 0 && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', py: 2 }}>
-            No cron jobs yet
-          </Typography>
-        )}
 
         {jobs.map((job) => (
           <ListItemButton
@@ -65,15 +61,6 @@ export default function CronNav({ jobs, activeJobId, isNewPage, onNavigate }: Cr
           >
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <Box
-                  sx={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    flexShrink: 0,
-                    bgcolor: job.enabled ? 'success.main' : 'divider',
-                  }}
-                />
                 <Typography
                   variant="caption"
                   noWrap
@@ -91,7 +78,6 @@ export default function CronNav({ jobs, activeJobId, isNewPage, onNavigate }: Cr
                 sx={{
                   fontSize: '10px',
                   fontFamily: 'monospace',
-                  pl: 1.75,
                   opacity: activeJobId === job.id ? 0.8 : 0.7,
                   color: activeJobId === job.id ? '#fff' : 'text.secondary',
                 }}
@@ -99,6 +85,15 @@ export default function CronNav({ jobs, activeJobId, isNewPage, onNavigate }: Cr
                 {job.schedule}
               </Typography>
             </Box>
+            <Box
+              sx={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                flexShrink: 0,
+                bgcolor: job.enabled ? 'success.main' : 'divider',
+              }}
+            />
           </ListItemButton>
         ))}
       </List>

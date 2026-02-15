@@ -260,10 +260,10 @@ func (self *Client) readSSE(ctx context.Context, reader io.Reader, events chan<-
 
 // ModelInfo describes a model returned by the /models API.
 type ModelInfo struct {
-	ID            string `json:"id"`
-	Created       int64  `json:"created,omitempty"`
-	OwnedBy       string `json:"owned_by,omitempty"`
-	ContextLength int    `json:"context_length,omitempty"`
+	ID            string `json:"id" yaml:"id"`
+	Created       int64  `json:"created,omitempty" yaml:"created,omitempty"`
+	OwnedBy       string `json:"owned_by,omitempty" yaml:"owned_by,omitempty"`
+	ContextLength int    `json:"context_length,omitempty" yaml:"context_length,omitempty"`
 }
 
 // ListModels fetches available models from the provider's /models endpoint.

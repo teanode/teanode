@@ -18,15 +18,29 @@ export default function SettingsAgentPage() {
     }
   }, [chat.connected, agentsHook.loadAgents, agentsHook.loadSchema]);
 
-  const agent = agentsHook.agents.find((item) => item.id === agentId) || null;
+  const agent = agentsHook.agents.find((item) => item.id === agentId) ?? null;
+
+  useEffect(() => {
+    if (!agentsHook.loading && !agent) {
+      navigate({ to: '/settings' });
+    }
+  }, [agentsHook.loading, agent, navigate]);
+
+  const handleSave = useCallback(
+    (agent: Parameters<typeof agentsHook.saveAgent>[0]) => {
+      return agentsHook.saveAgent(agent).then(() => chat.refreshAgents());
+    },
+    [agentsHook.saveAgent, chat.refreshAgents]
+  );
 
   const handleDelete = useCallback(
     (id: string) => {
       agentsHook.deleteAgent(id).then(() => {
+        chat.refreshAgents();
         navigate({ to: '/settings' });
       });
     },
-    [agentsHook.deleteAgent, navigate]
+    [agentsHook.deleteAgent, chat.refreshAgents, navigate]
   );
 
   return (
@@ -34,7 +48,7 @@ export default function SettingsAgentPage() {
       agent={agent}
       models={chat.models}
       schema={agentsHook.schema}
-      onSave={agentsHook.saveAgent}
+      onSave={handleSave}
       onDelete={handleDelete}
     />
   );

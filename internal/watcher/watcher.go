@@ -22,10 +22,10 @@ type Watcher struct {
 	directory   string
 	stopChannel chan struct{}
 
-	OnConfigReload func() // called when config.json changes
-	OnSkillsReload func() // called when skills/*.json changes
-	OnCronsReload  func() // called when crons.json changes
-	OnAgentsReload func() // called when agents/*/config.json changes
+	OnConfigReload func() // called when config.yaml changes
+	OnSkillsReload func() // called when skills/*.yaml changes
+	OnCronsReload  func() // called when crons.yaml changes
+	OnAgentsReload func() // called when agents/*/config.yaml changes
 }
 
 // New creates a new Watcher for the given data directory.
@@ -43,7 +43,7 @@ func (self *Watcher) Start() error {
 		return err
 	}
 
-	// Watch the root directory (for config.json, crons.json).
+	// Watch the root directory (for config.yaml, crons.yaml).
 	if err := notifier.Add(self.directory); err != nil {
 		notifier.Close()
 		return err
@@ -128,16 +128,16 @@ func (self *Watcher) run(notifier *fsnotify.Watcher) {
 			eventDirectory := filepath.Dir(event.Name)
 			agentsDir := filepath.Join(self.directory, "agents")
 
-			if name == "config.json" && eventDirectory == self.directory {
-				log.Infof("config.json changed, scheduling reload")
+			if name == "config.yaml" && eventDirectory == self.directory {
+				log.Infof("config.yaml changed, scheduling reload")
 				debounce("config", self.OnConfigReload)
-			} else if name == "crons.json" && eventDirectory == self.directory {
-				log.Infof("crons.json changed, scheduling reload")
+			} else if name == "crons.yaml" && eventDirectory == self.directory {
+				log.Infof("crons.yaml changed, scheduling reload")
 				debounce("crons", self.OnCronsReload)
-			} else if strings.HasSuffix(name, ".json") && eventDirectory == filepath.Join(self.directory, "skills") {
+			} else if strings.HasSuffix(name, ".yaml") && eventDirectory == filepath.Join(self.directory, "skills") {
 				log.Infof("skills changed (%s), scheduling reload", name)
 				debounce("skills", self.OnSkillsReload)
-			} else if name == "config.json" && strings.HasPrefix(eventDirectory, agentsDir+string(filepath.Separator)) {
+			} else if name == "config.yaml" && strings.HasPrefix(eventDirectory, agentsDir+string(filepath.Separator)) {
 				log.Infof("agent config changed (%s), scheduling reload", filepath.Base(eventDirectory))
 				debounce("agents", self.OnAgentsReload)
 			} else if eventDirectory == agentsDir && event.Op&fsnotify.Create != 0 {

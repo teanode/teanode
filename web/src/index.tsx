@@ -10,6 +10,7 @@ import { getTheme } from './theme';
 import { useAppContext, AppProvider } from './context';
 import { useChat } from './hooks/useChat';
 import { useCronJobs } from './hooks/useCronJobs';
+import './i18n/config';
 import './index.css';
 
 function markdownStyles(theme: Theme) {

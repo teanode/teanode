@@ -16,7 +16,6 @@ import (
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/provider"
 	"github.com/teanode/teanode/internal/session"
-	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
 // Runner orchestrates: load session -> build prompt -> call LLM -> save response.
@@ -89,10 +88,9 @@ type RunResult struct {
 
 // RunCallbacks receives events during an agent run.
 type RunCallbacks struct {
-	OnTextDelta   func(text string)
-	OnToolCall    func(toolName string, arguments string)
-	OnToolResult  func(toolName string, result string)
-	OnTitleUpdate func(title string)
+	OnTextDelta  func(text string)
+	OnToolCall   func(toolName string, arguments string)
+	OnToolResult func(toolName string, result string)
 }
 
 // Run executes a chat turn: appends the user message, calls the LLM (streaming),
@@ -114,12 +112,8 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 
 	log.Debugf("run start id=%s session=%s model=%s", runId, params.SessionKey, params.Model)
 
-	// Enrich context with session key and title callback for tools.
-	var onTitleUpdate func(string)
-	if callbacks != nil && callbacks.OnTitleUpdate != nil {
-		onTitleUpdate = callbacks.OnTitleUpdate
-	}
-	ctx = ContextWithRun(ctx, params.SessionKey, onTitleUpdate)
+	// Enrich context with session key for tools.
+	ctx = ContextWithRun(ctx, params.SessionKey)
 
 	// 1. Append user message to session.
 	userMessage := session.NewTextMessage("user", params.Message, now)
@@ -361,59 +355,6 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 	}
 
 	log.Debugf("run done id=%s model=%s stop=%s", runId, responseModel, stopReason)
-
-	// Generate title for new sessions (only 1 user message when we entered Run).
-	if responseText != "" && callbacks != nil && callbacks.OnTitleUpdate != nil {
-		userCount := 0
-		for _, message := range history {
-			if message.Role == "user" {
-				userCount++
-			}
-		}
-		if userCount == 1 {
-			firstUserText := params.Message
-			firstAssistantText := responseText
-			if len(firstUserText) > 500 {
-				firstUserText = firstUserText[:500]
-			}
-			if len(firstAssistantText) > 500 {
-				firstAssistantText = firstAssistantText[:500]
-			}
-			titleQualifiedModel := configuration.Models.Default
-			if configuration.Models.TitleModel != "" {
-				titleQualifiedModel = configuration.Models.TitleModel
-			}
-			titleClient, titleBareModel, titleErr := providers.Resolve(titleQualifiedModel)
-			go func() {
-				defer deferutil.Recover()
-
-				var title string
-				if titleErr != nil {
-					log.Debugf("failed to resolve title model %q: %v", titleQualifiedModel, titleErr)
-					title = time.Now().Format("Jan 2, 2006 3:04 PM")
-				} else {
-					titleRequest := provider.ChatRequest{
-						Model: titleBareModel,
-						Messages: []provider.ChatMessage{
-							{Role: "system", Content: "Summarize the following conversation into a short title (max 8 words). Output only the title, nothing else."},
-							{Role: "user", Content: "User: " + firstUserText + "\n\nAssistant: " + firstAssistantText},
-						},
-					}
-					titleResponse, err := titleClient.ChatCompletion(context.Background(), titleRequest)
-					if err != nil || len(titleResponse.Choices) == 0 || strings.TrimSpace(titleResponse.Choices[0].Message.Content) == "" {
-						title = time.Now().Format("Jan 2, 2006 3:04 PM")
-					} else {
-						title = strings.TrimSpace(titleResponse.Choices[0].Message.Content)
-					}
-				}
-
-				if err := self.Sessions.SetTitle(params.SessionKey, title); err != nil {
-					log.Debugf("failed to set title: %v", err)
-				}
-				callbacks.OnTitleUpdate(title)
-			}()
-		}
-	}
 
 	return &RunResult{
 		RunID:      runId,

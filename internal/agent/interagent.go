@@ -17,12 +17,10 @@ func RegisterInterAgentTools(registry *ToolRegistry, selfAgentId string, agentRe
 	if agentConfig == nil {
 		return
 	}
-	if len(agentConfig.CanMessage) == 0 {
-		return
-	}
 
 	registry.Register(&agentListTool{
 		agentRegistry: agentRegistry,
+		configuration: configuration,
 	})
 	registry.Register(&agentMessageTool{
 		selfAgentId:   selfAgentId,
@@ -35,6 +33,7 @@ func RegisterInterAgentTools(registry *ToolRegistry, selfAgentId string, agentRe
 
 type agentListTool struct {
 	agentRegistry *AgentRegistry
+	configuration *config.Config
 }
 
 func (self *agentListTool) Definition() provider.ToolDef {
@@ -55,7 +54,8 @@ func (self *agentListTool) Definition() provider.ToolDef {
 						"items": map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"id": map[string]interface{}{"type": "string"},
+								"id":   map[string]interface{}{"type": "string"},
+								"name": map[string]interface{}{"type": "string"},
 							},
 						},
 					},
@@ -69,9 +69,13 @@ func (self *agentListTool) Execute(_ context.Context, _ string) (string, error) 
 	agentIds := self.agentRegistry.AgentIDs()
 	agents := make([]map[string]interface{}, 0, len(agentIds))
 	for _, agentId := range agentIds {
-		agents = append(agents, map[string]interface{}{
+		entry := map[string]interface{}{
 			"id": agentId,
-		})
+		}
+		if agentConfig := self.configuration.AgentByID(agentId); agentConfig != nil && agentConfig.Name != "" {
+			entry["name"] = agentConfig.Name
+		}
+		agents = append(agents, entry)
 	}
 	result, _ := json.Marshal(map[string]interface{}{
 		"agents": agents,
@@ -98,7 +102,7 @@ func (self *agentMessageTool) Definition() provider.ToolDef {
 				"properties": map[string]interface{}{
 					"agentId": map[string]interface{}{
 						"type":        "string",
-						"description": "The ID of the target agent to message.",
+						"description": "The ID of the target agent to message. Likely the user will specify agent by name, use agent_list tool to find its ID.",
 					},
 					"message": map[string]interface{}{
 						"type":        "string",
@@ -161,7 +165,7 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 	// Generate session key if not provided.
 	sessionKey := arguments.SessionKey
 	if sessionKey == "" {
-		sessionKey = fmt.Sprintf("from-%s-%s", self.selfAgentId, uuid.New().String()[:8])
+		sessionKey = uuid.New().String()
 	}
 
 	// Prefix the message with source agent identity.

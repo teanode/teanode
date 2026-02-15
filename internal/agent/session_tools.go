@@ -11,58 +11,102 @@ import (
 
 // RegisterSessionTools adds session-related tools to the registry.
 func RegisterSessionTools(registry *ToolRegistry, sessions *session.Store) {
-	registry.Register(&setTitleTool{sessions: sessions})
+	registry.Register(&listSessionsTool{sessions: sessions})
 }
 
-// --- set_title ---
+// --- list_sessions ---
 
-type setTitleTool struct {
+type listSessionsTool struct {
 	sessions *session.Store
 }
 
-func (self *setTitleTool) Definition() provider.ToolDef {
+func (self *listSessionsTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "set_title",
-			Description: "Set the title of the current conversation session. Use this to give the session a meaningful, human-readable name.",
+			Name:        "session_list",
+			Description: "List other conversation sessions for this agent. Returns session keys, titles, summaries, and last activity times. The current session is excluded from results.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"title": map[string]interface{}{
-						"type":        "string",
-						"description": "The title to set for this session.",
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of sessions to return. Defaults to 10.",
 					},
 				},
-				"required": []string{"title"},
+			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"sessions": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"key":        map[string]interface{}{"type": "string"},
+								"title":      map[string]interface{}{"type": "string"},
+								"summary":    map[string]interface{}{"type": "string"},
+								"lastActive": map[string]interface{}{"type": "integer"},
+							},
+						},
+					},
+					"total": map[string]interface{}{
+						"type":        "integer",
+						"description": "Total number of other sessions (before limit is applied).",
+					},
+				},
 			},
 		},
 	}
 }
 
-func (self *setTitleTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+func (self *listSessionsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
-		Title string `json:"title"`
+		Limit int `json:"limit"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if rawArguments != "" {
+		json.Unmarshal([]byte(rawArguments), &arguments)
 	}
-	if arguments.Title == "" {
-		return "", fmt.Errorf("title is required")
-	}
-
-	sessionKey := SessionKeyFromContext(ctx)
-	if sessionKey == "" {
-		return "", fmt.Errorf("no active session")
+	if arguments.Limit <= 0 {
+		arguments.Limit = 10
 	}
 
-	if err := self.sessions.SetTitle(sessionKey, arguments.Title); err != nil {
-		return "", fmt.Errorf("setting title: %w", err)
+	currentSessionKey := SessionKeyFromContext(ctx)
+
+	allSessions, err := self.sessions.List()
+	if err != nil {
+		return "", fmt.Errorf("listing sessions: %w", err)
 	}
 
-	if callback := TitleCallbackFromContext(ctx); callback != nil {
-		callback(arguments.Title)
+	// Filter out the current session.
+	type sessionEntry struct {
+		Key        string `json:"key"`
+		Title      string `json:"title,omitempty"`
+		Summary    string `json:"summary,omitempty"`
+		LastActive int64  `json:"lastActive"`
 	}
 
-	return "ok", nil
+	var filtered []sessionEntry
+	for _, sessionInfo := range allSessions {
+		if sessionInfo.Key == currentSessionKey {
+			continue
+		}
+		filtered = append(filtered, sessionEntry{
+			Key:        sessionInfo.Key,
+			Title:      sessionInfo.Title,
+			Summary:    sessionInfo.Summary,
+			LastActive: sessionInfo.LastActive,
+		})
+	}
+
+	total := len(filtered)
+	if len(filtered) > arguments.Limit {
+		filtered = filtered[:arguments.Limit]
+	}
+
+	result, _ := json.Marshal(map[string]interface{}{
+		"sessions": filtered,
+		"total":    total,
+	})
+	return string(result), nil
 }

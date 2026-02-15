@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
@@ -22,6 +23,7 @@ import SettingsNav from './SettingsNav';
 const DRAWER_WIDTH = 260;
 
 export default function Sidebar() {
+  const { t } = useTranslation();
   const {
     chat,
     cronJobs,
@@ -100,9 +102,9 @@ export default function Sidebar() {
           '& .MuiTab-root': { minHeight: 36, minWidth: 0, py: 0.75 },
         }}
       >
-        <Tab icon={<Tooltip title="Chat"><ChatIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label="Chat" />
-        <Tab icon={<Tooltip title="Jobs"><ScheduleIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label="Jobs" />
-        <Tab icon={<Tooltip title="Settings"><SettingsIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label="Settings" />
+        <Tab icon={<Tooltip title={t('sidebar.chat')}><ChatIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label={t('sidebar.chat')} />
+        <Tab icon={<Tooltip title={t('sidebar.jobs')}><ScheduleIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label={t('sidebar.jobs')} />
+        <Tab icon={<Tooltip title={t('sidebar.settings')}><SettingsIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label={t('sidebar.settings')} />
       </Tabs>
 
       {/* View-specific nav */}
@@ -140,7 +142,7 @@ export default function Sidebar() {
       {!isDesktop && !mobileSidebarOpen && (
         <IconButton
           onClick={() => setMobileSidebarOpen(true)}
-          title="Open sidebar"
+          title={t('sidebar.openSidebar')}
           sx={{
             position: 'fixed',
             top: 12,

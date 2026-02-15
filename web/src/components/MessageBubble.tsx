@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -17,6 +18,7 @@ function formatTime(timestamp: number): string {
 }
 
 export default function MessageBubble({ role, content, isStreaming, streamText, timestamp }: MessageBubbleProps) {
+  const { t } = useTranslation();
   const isUser = role === 'user';
 
   const timeElement = timestamp ? (
@@ -64,13 +66,13 @@ export default function MessageBubble({ role, content, isStreaming, streamText, 
       const errorMessage = displayText.substring('__error__:'.length);
       bubble = (
         <Box sx={{ maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}>
-          <Typography component="em" color="error.main">Error: {errorMessage}</Typography>
+          <Typography component="em" color="error.main">{t('chat.error', { message: errorMessage })}</Typography>
         </Box>
       );
     } else if (displayText === '__aborted__') {
       bubble = (
         <Box sx={{ maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}>
-          <Typography component="em" color="text.secondary">Aborted</Typography>
+          <Typography component="em" color="text.secondary">{t('chat.aborted')}</Typography>
         </Box>
       );
     } else if (!displayText) {

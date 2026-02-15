@@ -48,6 +48,20 @@ func mockOpenAIServer(responseText string) *httptest.Server {
 	}))
 }
 
+// stubTool is a minimal tool for testing the runner tool-call loop.
+type stubTool struct{ name string }
+
+func (self *stubTool) Definition() provider.ToolDef {
+	return provider.ToolDef{
+		Type:     "function",
+		Function: provider.FunctionSpec{Name: self.name},
+	}
+}
+
+func (self *stubTool) Execute(_ context.Context, _ string) (string, error) {
+	return "ok", nil
+}
+
 func TestRunnerRun(t *testing.T) {
 	mockResponse := "Hello! How can I help you today?"
 	server := mockOpenAIServer(mockResponse)
@@ -199,11 +213,10 @@ func mockToolCallServer(toolCallId, toolName, toolArgs, finalText string) *httpt
 }
 
 func TestRunnerToolCallLoop(t *testing.T) {
-	server := mockToolCallServer("call-1", "memory_write", `{"path":"test.txt","content":"hello"}`, "Done! I saved that for you.")
+	server := mockToolCallServer("call-1", "workspace_write", `{"path":"test.txt","content":"hello"}`, "Done! I saved that for you.")
 	defer server.Close()
 
 	dir := t.TempDir()
-	memoryDirectory := t.TempDir()
 	store := session.NewStore(dir)
 	configuration := &config.Config{
 		Models: config.ModelsConfig{
@@ -215,7 +228,7 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	providerClient := provider.NewClient(server.URL, "")
 
 	tools := NewToolRegistry()
-	RegisterMemoryTools(tools, memoryDirectory)
+	tools.Register(&stubTool{name: "workspace_write"})
 
 	runner := &Runner{
 		Providers: mockRegistry(providerClient),
@@ -240,8 +253,8 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	if result.Response != "Done! I saved that for you." {
 		t.Errorf("response = %q", result.Response)
 	}
-	if len(toolCalls) != 1 || toolCalls[0] != "memory_write" {
-		t.Errorf("toolCalls = %v, want [memory_write]", toolCalls)
+	if len(toolCalls) != 1 || toolCalls[0] != "workspace_write" {
+		t.Errorf("toolCalls = %v, want [workspace_write]", toolCalls)
 	}
 
 	// Usage should be accumulated across rounds.
@@ -280,174 +293,6 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	}
 }
 
-func TestMemoryTools(t *testing.T) {
-	memoryDirectory := t.TempDir()
-	registry := NewToolRegistry()
-	RegisterMemoryTools(registry, memoryDirectory)
-
-	ctx := context.Background()
-
-	// Test memory_list on empty dir.
-	listTool := registry.Get("memory_list")
-	if listTool == nil {
-		t.Fatal("memory_list not registered")
-	}
-	result, err := listTool.Execute(ctx, "{}")
-	if err != nil {
-		t.Fatalf("memory_list: %v", err)
-	}
-	if result != "no files" {
-		t.Errorf("memory_list = %q, want 'no files'", result)
-	}
-
-	// Test memory_write.
-	writeTool := registry.Get("memory_write")
-	if writeTool == nil {
-		t.Fatal("memory_write not registered")
-	}
-	result, err = writeTool.Execute(ctx, `{"path":"notes/test.txt","content":"hello world"}`)
-	if err != nil {
-		t.Fatalf("memory_write: %v", err)
-	}
-	if result != "ok" {
-		t.Errorf("memory_write = %q, want 'ok'", result)
-	}
-
-	// Test memory_read.
-	readTool := registry.Get("memory_read")
-	if readTool == nil {
-		t.Fatal("memory_read not registered")
-	}
-	result, err = readTool.Execute(ctx, `{"path":"notes/test.txt"}`)
-	if err != nil {
-		t.Fatalf("memory_read: %v", err)
-	}
-	if result != "hello world" {
-		t.Errorf("memory_read = %q, want 'hello world'", result)
-	}
-
-	// Test memory_list with files.
-	result, err = listTool.Execute(ctx, "{}")
-	if err != nil {
-		t.Fatalf("memory_list: %v", err)
-	}
-	if result != "notes/test.txt" {
-		t.Errorf("memory_list = %q, want 'notes/test.txt'", result)
-	}
-
-	// Test path traversal rejection.
-	_, err = readTool.Execute(ctx, `{"path":"../../../etc/passwd"}`)
-	if err == nil {
-		t.Error("expected error for path traversal, got nil")
-	}
-}
-
-func TestMemoryAppendTool(t *testing.T) {
-	memoryDirectory := t.TempDir()
-	registry := NewToolRegistry()
-	RegisterMemoryTools(registry, memoryDirectory)
-
-	ctx := context.Background()
-	appendTool := registry.Get("memory_append")
-	if appendTool == nil {
-		t.Fatal("memory_append not registered")
-	}
-
-	// Append to a new file.
-	result, err := appendTool.Execute(ctx, `{"path":"memory/2025-01-01.md","content":"- learned something"}`)
-	if err != nil {
-		t.Fatalf("memory_append: %v", err)
-	}
-	if result != "ok" {
-		t.Errorf("memory_append = %q, want 'ok'", result)
-	}
-
-	// Append again.
-	result, err = appendTool.Execute(ctx, `{"path":"memory/2025-01-01.md","content":"- learned more"}`)
-	if err != nil {
-		t.Fatalf("memory_append: %v", err)
-	}
-
-	// Read back and verify both entries.
-	readTool := registry.Get("memory_read")
-	result, err = readTool.Execute(ctx, `{"path":"memory/2025-01-01.md"}`)
-	if err != nil {
-		t.Fatalf("memory_read: %v", err)
-	}
-	if !strings.Contains(result, "learned something") || !strings.Contains(result, "learned more") {
-		t.Errorf("appended content = %q, want both entries", result)
-	}
-
-	// Test path traversal rejection.
-	_, err = appendTool.Execute(ctx, `{"path":"../../etc/evil","content":"bad"}`)
-	if err == nil {
-		t.Error("expected error for path traversal, got nil")
-	}
-}
-
-func TestMemorySearchTool(t *testing.T) {
-	memoryDirectory := t.TempDir()
-	registry := NewToolRegistry()
-	RegisterMemoryTools(registry, memoryDirectory)
-
-	ctx := context.Background()
-	writeTool := registry.Get("memory_write")
-	searchTool := registry.Get("memory_search")
-	if searchTool == nil {
-		t.Fatal("memory_search not registered")
-	}
-
-	// Write some files.
-	writeTool.Execute(ctx, `{"path":"notes.md","content":"The user likes cats\nThe user hates spam"}`)
-	writeTool.Execute(ctx, `{"path":"memory/2025-01-01.md","content":"Discussed project alpha\nUser prefers dark mode"}`)
-
-	// Search for "cats".
-	result, err := searchTool.Execute(ctx, `{"query":"cats"}`)
-	if err != nil {
-		t.Fatalf("memory_search: %v", err)
-	}
-	if !strings.Contains(result, "notes.md:1:") || !strings.Contains(result, "cats") {
-		t.Errorf("search result = %q, want match in notes.md", result)
-	}
-
-	// Search for "dark mode".
-	result, err = searchTool.Execute(ctx, `{"query":"dark mode"}`)
-	if err != nil {
-		t.Fatalf("memory_search: %v", err)
-	}
-	if !strings.Contains(result, "2025-01-01.md") {
-		t.Errorf("search result = %q, want match in daily log", result)
-	}
-
-	// Case-insensitive search.
-	result, err = searchTool.Execute(ctx, `{"query":"CATS"}`)
-	if err != nil {
-		t.Fatalf("memory_search: %v", err)
-	}
-	if !strings.Contains(result, "cats") {
-		t.Errorf("case-insensitive search = %q, want match", result)
-	}
-
-	// No match.
-	result, err = searchTool.Execute(ctx, `{"query":"nonexistent"}`)
-	if err != nil {
-		t.Fatalf("memory_search: %v", err)
-	}
-	if result != "no matches" {
-		t.Errorf("search result = %q, want 'no matches'", result)
-	}
-
-	// Max results.
-	result, err = searchTool.Execute(ctx, `{"query":"user","max_results":1}`)
-	if err != nil {
-		t.Fatalf("memory_search: %v", err)
-	}
-	lines := strings.Split(strings.TrimSpace(result), "\n")
-	if len(lines) != 1 {
-		t.Errorf("expected 1 result, got %d: %q", len(lines), result)
-	}
-}
-
 func TestBuildSystemPromptWithWorkspace(t *testing.T) {
 	workspaceDirectory := t.TempDir()
 	configuration := &config.Config{}
@@ -480,8 +325,8 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 	if !strings.Contains(prompt, "TeaNode") {
 		t.Error("prompt should contain TeaNode identifier")
 	}
-	if !strings.Contains(prompt, "memory_append") {
-		t.Error("prompt should mention memory_append tool")
+	if !strings.Contains(prompt, "workspace_append") {
+		t.Error("prompt should mention workspace_append tool")
 	}
 }
 
@@ -494,7 +339,7 @@ func TestBuildSystemPromptCustomOverride(t *testing.T) {
 		t.Error("prompt should contain custom identity line")
 	}
 	// The custom SystemPrompt replaces the identity line, not the entire prompt.
-	if !strings.Contains(prompt, "Memory Tools") {
+	if !strings.Contains(prompt, "Workspace Tools") {
 		t.Error("prompt should still contain tool documentation sections")
 	}
 }

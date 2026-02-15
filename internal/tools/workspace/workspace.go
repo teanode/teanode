@@ -1,4 +1,4 @@
-package agent
+package workspace
 
 import (
 	"context"
@@ -8,18 +8,19 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/teanode/teanode/internal/agent"
 	"github.com/teanode/teanode/internal/provider"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
-// RegisterMemoryTools adds memory tools to the registry.
-func RegisterMemoryTools(registry *ToolRegistry, memoryDirectory string) {
-	registry.Register(&memoryReadTool{directory: memoryDirectory})
-	registry.Register(&memoryWriteTool{directory: memoryDirectory})
-	registry.Register(&memoryListTool{directory: memoryDirectory})
-	registry.Register(&memoryAppendTool{directory: memoryDirectory})
-	registry.Register(&memorySearchTool{directory: memoryDirectory})
-	registry.Register(&memoryDeleteTool{directory: memoryDirectory})
+// RegisterTools adds memory tools to the registry.
+func RegisterTools(registry *agent.ToolRegistry, memoryDirectory string) {
+	registry.Register(&readTool{directory: memoryDirectory})
+	registry.Register(&writeTool{directory: memoryDirectory})
+	registry.Register(&listTool{directory: memoryDirectory})
+	registry.Register(&appendTool{directory: memoryDirectory})
+	registry.Register(&searchTool{directory: memoryDirectory})
+	registry.Register(&deleteTool{directory: memoryDirectory})
 }
 
 // safePath resolves a relative path inside memoryDirectory and rejects traversal.
@@ -35,15 +36,15 @@ func safePath(memoryDirectory, rel string) (string, error) {
 	return full, nil
 }
 
-// --- memory_read ---
+// --- workspace_read ---
 
-type memoryReadTool struct{ directory string }
+type readTool struct{ directory string }
 
-func (self *memoryReadTool) Definition() provider.ToolDef {
+func (self *readTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "memory_read",
+			Name:        "workspace_read",
 			Description: "Read a file from persistent memory storage.",
 			Parameters: map[string]interface{}{
 				"type": "object",
@@ -59,7 +60,7 @@ func (self *memoryReadTool) Definition() provider.ToolDef {
 	}
 }
 
-func (self *memoryReadTool) Execute(_ context.Context, rawArguments string) (string, error) {
+func (self *readTool) Execute(_ context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Path string `json:"path"`
 	}
@@ -77,15 +78,15 @@ func (self *memoryReadTool) Execute(_ context.Context, rawArguments string) (str
 	return string(data), nil
 }
 
-// --- memory_write ---
+// --- workspace_write ---
 
-type memoryWriteTool struct{ directory string }
+type writeTool struct{ directory string }
 
-func (self *memoryWriteTool) Definition() provider.ToolDef {
+func (self *writeTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "memory_write",
+			Name:        "workspace_write",
 			Description: "Write a file to persistent memory storage. Creates parent directories as needed.",
 			Parameters: map[string]interface{}{
 				"type": "object",
@@ -105,7 +106,7 @@ func (self *memoryWriteTool) Definition() provider.ToolDef {
 	}
 }
 
-func (self *memoryWriteTool) Execute(_ context.Context, rawArguments string) (string, error) {
+func (self *writeTool) Execute(_ context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -123,15 +124,15 @@ func (self *memoryWriteTool) Execute(_ context.Context, rawArguments string) (st
 	return "ok", nil
 }
 
-// --- memory_list ---
+// --- workspace_list ---
 
-type memoryListTool struct{ directory string }
+type listTool struct{ directory string }
 
-func (self *memoryListTool) Definition() provider.ToolDef {
+func (self *listTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "memory_list",
+			Name:        "workspace_list",
 			Description: "List all files in persistent memory storage.",
 			Parameters: map[string]interface{}{
 				"type":       "object",
@@ -141,7 +142,7 @@ func (self *memoryListTool) Definition() provider.ToolDef {
 	}
 }
 
-func (self *memoryListTool) Execute(_ context.Context, _ string) (string, error) {
+func (self *listTool) Execute(_ context.Context, _ string) (string, error) {
 	var files []string
 	err := filepath.Walk(self.directory, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -162,15 +163,15 @@ func (self *memoryListTool) Execute(_ context.Context, _ string) (string, error)
 	return strings.Join(files, "\n"), nil
 }
 
-// --- memory_append ---
+// --- workspace_append ---
 
-type memoryAppendTool struct{ directory string }
+type appendTool struct{ directory string }
 
-func (self *memoryAppendTool) Definition() provider.ToolDef {
+func (self *appendTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "memory_append",
+			Name:        "workspace_append",
 			Description: "Append text to a file in persistent memory storage. Creates the file and parent directories if needed. Useful for daily logs.",
 			Parameters: map[string]interface{}{
 				"type": "object",
@@ -190,7 +191,7 @@ func (self *memoryAppendTool) Definition() provider.ToolDef {
 	}
 }
 
-func (self *memoryAppendTool) Execute(_ context.Context, rawArguments string) (string, error) {
+func (self *appendTool) Execute(_ context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -216,15 +217,15 @@ func (self *memoryAppendTool) Execute(_ context.Context, rawArguments string) (s
 	return "ok", nil
 }
 
-// --- memory_delete ---
+// --- workspace_delete ---
 
-type memoryDeleteTool struct{ directory string }
+type deleteTool struct{ directory string }
 
-func (self *memoryDeleteTool) Definition() provider.ToolDef {
+func (self *deleteTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "memory_delete",
+			Name:        "workspace_delete",
 			Description: "Delete a file from persistent memory storage. If the parent directory becomes empty after deletion, it is removed automatically.",
 			Parameters: map[string]interface{}{
 				"type": "object",
@@ -240,7 +241,7 @@ func (self *memoryDeleteTool) Definition() provider.ToolDef {
 	}
 }
 
-func (self *memoryDeleteTool) Execute(_ context.Context, rawArguments string) (string, error) {
+func (self *deleteTool) Execute(_ context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Path string `json:"path"`
 	}
@@ -274,15 +275,15 @@ func (self *memoryDeleteTool) Execute(_ context.Context, rawArguments string) (s
 	return "ok", nil
 }
 
-// --- memory_search ---
+// --- workspace_search ---
 
-type memorySearchTool struct{ directory string }
+type searchTool struct{ directory string }
 
-func (self *memorySearchTool) Definition() provider.ToolDef {
+func (self *searchTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "memory_search",
+			Name:        "workspace_search",
 			Description: "Search across all workspace files for a query string. Returns matching lines with file path and line number.",
 			Parameters: map[string]interface{}{
 				"type": "object",
@@ -302,7 +303,7 @@ func (self *memorySearchTool) Definition() provider.ToolDef {
 	}
 }
 
-func (self *memorySearchTool) Execute(_ context.Context, rawArguments string) (string, error) {
+func (self *searchTool) Execute(_ context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Query      string `json:"query"`
 		MaxResults int    `json:"max_results"`

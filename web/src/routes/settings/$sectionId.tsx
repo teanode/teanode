@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
@@ -11,6 +12,7 @@ import SchemaField from '../../components/SchemaField';
 
 /** /settings/$sectionId — individual config section page. */
 export default function SettingsSectionPage() {
+  const { t } = useTranslation();
   const { sectionId } = useParams({ strict: false }) as { sectionId: string };
   const settings = useSettingsContext();
   const { chat } = useAppContext();
@@ -18,7 +20,7 @@ export default function SettingsSectionPage() {
   if (settings.loading && !settings.schema) {
     return (
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Typography variant="body2" color="text.secondary">Loading settings...</Typography>
+        <Typography variant="body2" color="text.secondary">{t('settings.loadingSettings')}</Typography>
       </Box>
     );
   }
@@ -30,7 +32,7 @@ export default function SettingsSectionPage() {
   if (!section) {
     return (
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Typography variant="body2" color="text.secondary">Section not found</Typography>
+        <Typography variant="body2" color="text.secondary">{t('settings.sectionNotFound')}</Typography>
       </Box>
     );
   }
@@ -51,7 +53,7 @@ export default function SettingsSectionPage() {
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {settings.dirty && (
-              <Typography variant="caption" color="warning.main">Unsaved changes</Typography>
+              <Typography variant="caption" color="warning.main">{t('common.unsavedChanges')}</Typography>
             )}
             <Button
               variant={settings.dirty ? 'contained' : 'outlined'}
@@ -59,7 +61,7 @@ export default function SettingsSectionPage() {
               disabled={!settings.dirty || settings.saving}
               onClick={settings.save}
             >
-              {settings.saving ? 'Saving...' : 'Save'}
+              {settings.saving ? t('common.saving') : t('common.save')}
             </Button>
           </Box>
         </Box>

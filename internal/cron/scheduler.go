@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/teanode/teanode/internal/agent"
-	"github.com/teanode/teanode/internal/config"
 	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
@@ -180,7 +179,7 @@ func (self *Scheduler) executeJob(job CronJob) {
 	// Resolve the runner for this job's agent.
 	agentId := job.AgentID
 	if agentId == "" {
-		agentId = config.DefaultAgentID
+		agentId = self.agentRegistry.DefaultID()
 	}
 	runner := self.agentRegistry.Get(agentId)
 	if runner == nil {
@@ -249,14 +248,6 @@ func (self *Scheduler) executeJob(job CronJob) {
 					"toolName":   toolName,
 					"result":     result,
 				})
-			},
-			OnTitleUpdate: func(title string) {
-				broadcast("chat", map[string]interface{}{
-					"state":      "title",
-					"sessionKey": job.SessionKey,
-					"title":      title,
-				})
-				broadcast("sessions", nil)
 			},
 		}
 	}

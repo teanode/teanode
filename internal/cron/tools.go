@@ -113,7 +113,7 @@ func (self *cronCreateTool) Execute(_ context.Context, rawArguments string) (str
 		Model:      arguments.Model,
 		AgentID:    arguments.AgentID,
 		Enabled:    true,
-		SessionKey: GenerateSessionKey(arguments.Name),
+		SessionKey: GenerateSessionKey(),
 		CreatedAt:  time.Now().UnixMilli(),
 	}
 

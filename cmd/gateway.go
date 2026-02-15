@@ -16,6 +16,9 @@ import (
 	"github.com/teanode/teanode/internal/skill"
 	"github.com/teanode/teanode/internal/telegram"
 	tterminal "github.com/teanode/teanode/internal/terminal"
+	"github.com/teanode/teanode/internal/tools/fetch"
+	"github.com/teanode/teanode/internal/tools/search"
+	"github.com/teanode/teanode/internal/tools/workspace"
 	"github.com/teanode/teanode/internal/watcher"
 	"github.com/urfave/cli/v3"
 )
@@ -127,10 +130,11 @@ func GatewayCmd() *cli.Command {
 				scheduler *cron.Scheduler,
 			) (*agent.ToolRegistry, string) {
 				tools := agent.NewToolRegistry()
-				agent.RegisterMemoryTools(tools, workspaceDirectory)
+				workspace.RegisterTools(tools, workspaceDirectory)
 				browser.RegisterBrowserTools(tools, browserBackend)
 				tterminal.RegisterTerminalTools(tools, terminalRelay)
-				agent.RegisterSearchTools(tools, configuration.Tools.BraveAPIKey)
+				search.RegisterTools(tools, configuration.Tools.BraveAPIKey)
+				fetch.RegisterTools(tools)
 				agent.RegisterSessionTools(tools, sessions)
 				if scheduler != nil {
 					cron.RegisterCronTools(tools, scheduler)
@@ -182,7 +186,12 @@ func GatewayCmd() *cli.Command {
 				agentRegistry.Register(agentConfig.ID, runner)
 			}
 
+			// Set the default agent ID from config.
+			agentRegistry.SetDefault(configuration.ResolveDefaultAgent())
+
 			// --- Server ---
+
+			summarizer := agent.NewSummarizer(agentRegistry, configuration)
 
 			server := &gateway.Server{
 				Config:        configuration,
@@ -190,8 +199,14 @@ func GatewayCmd() *cli.Command {
 				BrowserRelay:  browserRelay,
 				TerminalRelay: terminalRelay,
 				Scheduler:     scheduler,
+				Summarizer:    summarizer,
 				MediaStore:    mediaStore,
 			}
+
+			summarizer.IsSessionActive = func(sessionKey string) bool {
+				return server.GetActiveRun(sessionKey) != ""
+			}
+			summarizer.Broadcast = server.Broadcast
 
 			scheduler.Broadcast = server.Broadcast
 			scheduler.SetActiveRun = server.SetActiveRun
@@ -200,28 +215,36 @@ func GatewayCmd() *cli.Command {
 			// --- Discord bot ---
 
 			if configuration.Discord != nil && configuration.Discord.Token != "" {
-				discordBot := discord.New(configuration.Discord, agentRegistry)
-				discordBot.Broadcast = server.Broadcast
-				discordBot.SetActiveRun = server.SetActiveRun
-				discordBot.ClearActiveRun = server.ClearActiveRun
-				if err := discordBot.Start(); err != nil {
-					log.Errorf("discord bot failed to start: %v", err)
+				discordBot, err := discord.New(configuration.Discord, agentRegistry)
+				if err != nil {
+					log.Errorf("discord bot: %v", err)
 				} else {
-					defer discordBot.Stop()
+					discordBot.Broadcast = server.Broadcast
+					discordBot.SetActiveRun = server.SetActiveRun
+					discordBot.ClearActiveRun = server.ClearActiveRun
+					if err := discordBot.Start(); err != nil {
+						log.Errorf("discord bot failed to start: %v", err)
+					} else {
+						defer discordBot.Stop()
+					}
 				}
 			}
 
 			// --- Telegram bot ---
 
 			if configuration.Telegram != nil && configuration.Telegram.Token != "" {
-				telegramBot := telegram.New(configuration.Telegram, agentRegistry)
-				telegramBot.Broadcast = server.Broadcast
-				telegramBot.SetActiveRun = server.SetActiveRun
-				telegramBot.ClearActiveRun = server.ClearActiveRun
-				if err := telegramBot.Start(); err != nil {
-					log.Errorf("telegram bot failed to start: %v", err)
+				telegramBot, err := telegram.New(configuration.Telegram, agentRegistry)
+				if err != nil {
+					log.Errorf("telegram bot: %v", err)
 				} else {
-					defer telegramBot.Stop()
+					telegramBot.Broadcast = server.Broadcast
+					telegramBot.SetActiveRun = server.SetActiveRun
+					telegramBot.ClearActiveRun = server.ClearActiveRun
+					if err := telegramBot.Start(); err != nil {
+						log.Errorf("telegram bot failed to start: %v", err)
+					} else {
+						defer telegramBot.Stop()
+					}
 				}
 			}
 
@@ -238,6 +261,7 @@ func GatewayCmd() *cli.Command {
 			reloadAgents := func() {
 				currentConfiguration := server.Config
 				currentProviders := buildProviderRegistry(currentConfiguration)
+				agentRegistry.SetDefault(currentConfiguration.ResolveDefaultAgent())
 
 				for _, agentConfig := range currentConfiguration.ResolveAgents() {
 					runner := agentRegistry.Get(agentConfig.ID)
@@ -298,6 +322,7 @@ func GatewayCmd() *cli.Command {
 				}
 
 				server.Config = newConfiguration
+				summarizer.SetConfig(newConfiguration)
 				server.InvalidateModelsCache()
 				reloadAgents()
 				log.Info("config reloaded successfully")
@@ -315,6 +340,7 @@ func GatewayCmd() *cli.Command {
 					newConfiguration.Gateway.Port = int(cmd.Int("port"))
 				}
 				server.Config = newConfiguration
+				summarizer.SetConfig(newConfiguration)
 				reloadAgents()
 				log.Info("agents reloaded successfully")
 			}

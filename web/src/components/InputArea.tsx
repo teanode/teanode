@@ -1,4 +1,5 @@
 import React, { useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
 import SendRounded from '@mui/icons-material/SendRounded';
@@ -15,6 +16,7 @@ export default function InputArea({
   onSend,
   onAbort,
 }: InputAreaProps) {
+  const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = useCallback(() => {
@@ -45,7 +47,7 @@ export default function InputArea({
   }, []);
 
   return (
-    <Box sx={{ px: 2, py: 1.5, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+    <Box sx={{ px: 2, py: 1.5 }}>
       <Box
         sx={{
           display: 'flex',
@@ -65,7 +67,7 @@ export default function InputArea({
         <Box
           component="textarea"
           ref={textareaRef}
-          placeholder="Type a message..."
+          placeholder={t('chat.reply')}
           rows={1}
           onKeyDown={handleKeyDown}
           onInput={handleInput}

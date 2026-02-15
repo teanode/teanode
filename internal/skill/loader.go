@@ -1,14 +1,15 @@
 package skill
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
-// LoadAll reads all *.json files from skillsDir and returns parsed skills.
+// LoadAll reads all *.yaml files from skillsDir and returns parsed skills.
 // Logs warnings for malformed files and continues.
 func LoadAll(skillsDir string) ([]SkillDef, error) {
 	entries, err := os.ReadDir(skillsDir)
@@ -21,7 +22,7 @@ func LoadAll(skillsDir string) ([]SkillDef, error) {
 
 	var skills []SkillDef
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
 
@@ -33,7 +34,7 @@ func LoadAll(skillsDir string) ([]SkillDef, error) {
 		}
 
 		var skill SkillDef
-		if err := json.Unmarshal(data, &skill); err != nil {
+		if err := yaml.Unmarshal(data, &skill); err != nil {
 			log.Warningf("failed to parse %s: %v", entry.Name(), err)
 			continue
 		}

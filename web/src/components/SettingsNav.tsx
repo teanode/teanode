@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
 import TextField from '@mui/material/TextField';
-import Autocomplete from '@mui/material/Autocomplete';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import type { AgentInfo, SchemaSection, ConfigSchemaResult } from '../types';
@@ -19,6 +19,7 @@ interface SettingsNavProps {
 }
 
 export default function SettingsNav({ chat, agents, activeSectionId, activeAgentId, onNavigate }: SettingsNavProps) {
+  const { t } = useTranslation();
   const [sections, setSections] = useState<SchemaSection[]>([]);
   const [addingAgent, setAddingAgent] = useState(false);
   const [newAgentId, setNewAgentId] = useState('');
@@ -36,7 +37,12 @@ export default function SettingsNav({ chat, agents, activeSectionId, activeAgent
     if (!trimmed) return;
     setAddingAgent(false);
     setNewAgentId('');
-    onNavigate(`/settings/agents/${trimmed}`);
+    chat.sendRpc('agents.config.save', { agent: { id: trimmed } })
+      .then(() => {
+        chat.refreshAgents();
+        onNavigate(`/settings/agents/${trimmed}`);
+      })
+      .catch((error) => console.error('agents.config.save:', error));
   }
 
   return (
@@ -55,7 +61,7 @@ export default function SettingsNav({ chat, agents, activeSectionId, activeAgent
           }}
         >
           <ListItemText
-            primary="Preferences"
+            primary={t('settings.preferences')}
             primaryTypographyProps={{
               variant: 'caption',
               fontSize: '13px',
@@ -94,7 +100,7 @@ export default function SettingsNav({ chat, agents, activeSectionId, activeAgent
 
         {/* Agents heading */}
         <Typography variant="overline" sx={{ display: 'block', px: 1.25, mt: 1.5, mb: 0.5, fontSize: '10px', color: 'text.secondary', letterSpacing: '0.08em' }}>
-          Agents
+          {t('settings.agents')}
         </Typography>
 
         {agents.map((agent) => (
@@ -111,11 +117,11 @@ export default function SettingsNav({ chat, agents, activeSectionId, activeAgent
             }}
           >
             <ListItemText
-              primary={agent.id}
+              primary={agent.name || agent.id}
               primaryTypographyProps={{
                 variant: 'caption',
                 fontSize: '13px',
-                fontFamily: 'monospace',
+                fontFamily: agent.name ? undefined : 'monospace',
                 color: activeAgentId === agent.id ? '#fff' : 'text.secondary',
               }}
             />
@@ -125,37 +131,30 @@ export default function SettingsNav({ chat, agents, activeSectionId, activeAgent
         {/* Add agent */}
         {addingAgent ? (
           <Box sx={{ px: 0.5, mt: 0.5 }}>
-            <Autocomplete
-              freeSolo
+            <TextField
               size="small"
-              options={agents.map((agent: AgentInfo) => agent.id)}
-              inputValue={newAgentId}
-              onInputChange={(_event, value) => setNewAgentId(value)}
-              onChange={(_event, value) => {
-                if (value) {
-                  setNewAgentId('');
+              fullWidth
+              placeholder={t('settings.agentIdPlaceholder')}
+              autoFocus
+              value={newAgentId}
+              onChange={(event) => setNewAgentId(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && newAgentId.trim()) {
+                  event.preventDefault();
+                  handleAddAgent();
+                }
+                if (event.key === 'Escape') {
                   setAddingAgent(false);
-                  onNavigate(`/settings/agents/${value}`);
+                  setNewAgentId('');
                 }
               }}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  placeholder="Select or type agent ID"
-                  autoFocus
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && newAgentId.trim()) {
-                      event.preventDefault();
-                      handleAddAgent();
-                    }
-                    if (event.key === 'Escape') {
-                      setAddingAgent(false);
-                      setNewAgentId('');
-                    }
-                  }}
-                  sx={{ '& .MuiInputBase-input': { fontSize: '0.75rem' } }}
-                />
-              )}
+              onBlur={() => {
+                if (!newAgentId.trim()) {
+                  setAddingAgent(false);
+                  setNewAgentId('');
+                }
+              }}
+              sx={{ '& .MuiInputBase-input': { fontSize: '0.75rem' } }}
             />
           </Box>
         ) : (
@@ -166,7 +165,7 @@ export default function SettingsNav({ chat, agents, activeSectionId, activeAgent
           >
             <AddIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />
             <ListItemText
-              primary="Add Agent"
+              primary={t('settings.addAgent')}
               primaryTypographyProps={{
                 variant: 'caption',
                 fontSize: '13px',

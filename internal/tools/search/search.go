@@ -1,4 +1,4 @@
-package agent
+package search
 
 import (
 	"context"
@@ -10,26 +10,27 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/teanode/teanode/internal/agent"
 	"github.com/teanode/teanode/internal/logging"
 	"github.com/teanode/teanode/internal/provider"
 )
 
-var searchLog = logging.Get("search")
+var log = logging.Get("search")
 
-// RegisterSearchTools adds web search tools to the registry.
+// RegisterTools adds web search tools to the registry.
 // If apiKey is empty, no tools are registered.
-func RegisterSearchTools(registry *ToolRegistry, apiKey string) {
+func RegisterTools(registry *agent.ToolRegistry, apiKey string) {
 	if apiKey == "" {
 		return
 	}
-	registry.Register(&webSearchTool{apiKey: apiKey})
+	registry.Register(&searchTool{apiKey: apiKey})
 }
 
-type webSearchTool struct {
+type searchTool struct {
 	apiKey string
 }
 
-func (self *webSearchTool) Definition() provider.ToolDef {
+func (self *searchTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionSpec{
@@ -53,7 +54,7 @@ func (self *webSearchTool) Definition() provider.ToolDef {
 	}
 }
 
-func (self *webSearchTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+func (self *searchTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Query string `json:"query"`
 		Count int    `json:"count"`
@@ -74,7 +75,7 @@ func (self *webSearchTool) Execute(ctx context.Context, rawArguments string) (st
 	searchUrl := "https://api.search.brave.com/res/v1/web/search?q=" +
 		url.QueryEscape(arguments.Query) + "&count=" + strconv.Itoa(arguments.Count)
 
-	searchLog.Debugf("GET brave search query=%q count=%d", arguments.Query, arguments.Count)
+	log.Debugf("GET brave search query=%q count=%d", arguments.Query, arguments.Count)
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, searchUrl, nil)
 	if err != nil {
@@ -89,7 +90,7 @@ func (self *webSearchTool) Execute(ctx context.Context, rawArguments string) (st
 	}
 	defer response.Body.Close()
 
-	searchLog.Debugf("GET brave search status=%d", response.StatusCode)
+	log.Debugf("GET brave search status=%d", response.StatusCode)
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -113,7 +114,7 @@ func (self *webSearchTool) Execute(ctx context.Context, rawArguments string) (st
 		return "", fmt.Errorf("parsing search results: %w", err)
 	}
 
-	searchLog.Debugf("brave search returned %d results for query=%q", len(result.Web.Results), arguments.Query)
+	log.Debugf("brave search returned %d results for query=%q", len(result.Web.Results), arguments.Query)
 
 	if len(result.Web.Results) == 0 {
 		return "no results found", nil

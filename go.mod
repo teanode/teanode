@@ -17,4 +17,5 @@ require (
 	github.com/segmentio/ksuid v1.0.4 // indirect
 	golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b // indirect
 	golang.org/x/sys v0.13.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

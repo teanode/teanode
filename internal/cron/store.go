@@ -1,13 +1,13 @@
 package cron
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
 
 	"github.com/teanode/teanode/internal/config"
 	"github.com/teanode/teanode/internal/util/atomicfile"
+	"gopkg.in/yaml.v3"
 )
 
 // Store provides thread-safe persistence for cron jobs.
@@ -16,7 +16,7 @@ type Store struct {
 	mutex sync.Mutex
 }
 
-// NewStore creates a Store that persists to ~/.teanode/crons.json.
+// NewStore creates a Store that persists to ~/.teanode/crons.yaml.
 func NewStore() (*Store, error) {
 	path, err := config.CronsFile()
 	if err != nil {
@@ -43,7 +43,7 @@ func (self *Store) loadLocked() ([]CronJob, error) {
 	}
 
 	var cronData cronFile
-	if err := json.Unmarshal(data, &cronData); err != nil {
+	if err := yaml.Unmarshal(data, &cronData); err != nil {
 		return nil, fmt.Errorf("parsing crons file: %w", err)
 	}
 	return cronData.Jobs, nil
@@ -58,7 +58,7 @@ func (self *Store) Save(jobs []CronJob) error {
 
 func (self *Store) saveLocked(jobs []CronJob) error {
 	cronData := cronFile{Version: 1, Jobs: jobs}
-	data, err := json.MarshalIndent(cronData, "", "  ")
+	data, err := yaml.Marshal(cronData)
 	if err != nil {
 		return fmt.Errorf("marshaling crons: %w", err)
 	}

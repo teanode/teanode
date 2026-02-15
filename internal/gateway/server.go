@@ -3,7 +3,6 @@ package gateway
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net"
@@ -23,6 +22,7 @@ import (
 	tterminal "github.com/teanode/teanode/internal/terminal"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/deferutil"
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed static
@@ -39,6 +39,7 @@ type Server struct {
 	BrowserRelay  *browser.Relay
 	TerminalRelay *tterminal.Relay
 	Scheduler     *cron.Scheduler
+	Summarizer    *agent.Summarizer
 	MediaStore    *media.Store
 
 	clientsMutex    sync.RWMutex
@@ -51,10 +52,10 @@ type Server struct {
 	modelsTime  time.Time                       // when cache was populated
 }
 
-// resolveRunner returns the runner for the given agent ID, defaulting to "main".
+// resolveRunner returns the runner for the given agent ID, defaulting to the configured default agent.
 func (self *Server) resolveRunner(agentId string) *agent.Runner {
 	if agentId == "" {
-		agentId = config.DefaultAgentID
+		agentId = self.AgentRegistry.DefaultID()
 	}
 	runner := self.AgentRegistry.Get(agentId)
 	if runner == nil {
@@ -92,6 +93,10 @@ func (self *Server) Start(ctx context.Context) error {
 		}
 	}
 
+	if self.Summarizer != nil {
+		self.Summarizer.Start()
+	}
+
 	address := self.listenAddr()
 	server := &http.Server{
 		Addr:    address,
@@ -101,6 +106,9 @@ func (self *Server) Start(ctx context.Context) error {
 	go func() {
 		defer deferutil.Recover()
 		<-ctx.Done()
+		if self.Summarizer != nil {
+			self.Summarizer.Stop()
+		}
 		if self.Scheduler != nil {
 			self.Scheduler.Stop()
 		}
@@ -245,12 +253,17 @@ func (self *Server) SetActiveRun(sessionKey, runId string) {
 }
 
 // ClearActiveRun removes the active run for a session if it matches the given runId.
+// Also notifies the summarizer so new/updated sessions get titled promptly.
 func (self *Server) ClearActiveRun(sessionKey, runId string) {
 	self.activeRunsMutex.Lock()
 	if self.activeRuns[sessionKey] == runId {
 		delete(self.activeRuns, sessionKey)
 	}
 	self.activeRunsMutex.Unlock()
+
+	if self.Summarizer != nil {
+		self.Summarizer.Notify()
+	}
 }
 
 // GetActiveRun returns the active run ID for a session, or empty string if none.
@@ -260,10 +273,10 @@ func (self *Server) GetActiveRun(sessionKey string) string {
 	return self.activeRuns[sessionKey]
 }
 
-// modelsCache is the JSON structure written to ~/.teanode/models.json.
+// modelsCache is the YAML structure written to ~/.teanode/models.yaml.
 type modelsCache struct {
-	FetchedAt time.Time                       `json:"fetchedAt"`
-	Providers map[string][]provider.ModelInfo `json:"providers"`
+	FetchedAt time.Time                       `json:"fetchedAt" yaml:"fetchedAt"`
+	Providers map[string][]provider.ModelInfo `json:"providers" yaml:"providers"`
 }
 
 const modelsCacheMaxAge = 24 * time.Hour
@@ -291,7 +304,7 @@ func (self *Server) loadModels(ctx context.Context) (map[string][]provider.Model
 	if err == nil {
 		if data, err := os.ReadFile(modelsFile); err == nil {
 			var cache modelsCache
-			if err := json.Unmarshal(data, &cache); err == nil && time.Since(cache.FetchedAt) < modelsCacheMaxAge {
+			if err := yaml.Unmarshal(data, &cache); err == nil && time.Since(cache.FetchedAt) < modelsCacheMaxAge {
 				self.models = cache.Providers
 				self.modelsTime = cache.FetchedAt
 				self.updateRunnerContextWindows(cache.Providers)
@@ -326,7 +339,7 @@ func (self *Server) loadModels(ctx context.Context) (map[string][]provider.Model
 	// Write to disk cache.
 	if modelsFile != "" {
 		cache := modelsCache{FetchedAt: self.modelsTime, Providers: result}
-		if data, err := json.MarshalIndent(cache, "", "  "); err == nil {
+		if data, err := yaml.Marshal(cache); err == nil {
 			if err := atomicfile.WriteFile(modelsFile, data); err != nil {
 				log.Debugf("failed to write models cache: %v", err)
 			}

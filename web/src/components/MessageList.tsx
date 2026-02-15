@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
@@ -24,7 +25,7 @@ function formatTime(timestamp: number): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function dateLabelFor(timestamp: number): string {
+function dateLabelFor(timestamp: number, t: (key: string) => string): string {
   const messageDate = new Date(timestamp);
   const now = new Date();
 
@@ -32,8 +33,8 @@ function dateLabelFor(timestamp: number): string {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const diff = today.getTime() - messageDay.getTime();
 
-  if (diff === 0) return 'Today';
-  if (diff === 86_400_000) return 'Yesterday';
+  if (diff === 0) return t('chat.today');
+  if (diff === 86_400_000) return t('chat.yesterday');
   return messageDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: messageDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
@@ -45,6 +46,7 @@ export default function MessageList({
   toolActivity,
   status,
 }: MessageListProps) {
+  const { t } = useTranslation();
   const { showToolCalls, showTokenUsage } = useAppContext();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -95,7 +97,7 @@ export default function MessageList({
 
         let dateSeparator: React.ReactNode = null;
         if (message.timestamp && (message.type === 'user' || message.type === 'assistant')) {
-          const label = dateLabelFor(message.timestamp);
+          const label = dateLabelFor(message.timestamp, t);
           if (label !== lastDateLabel) {
             lastDateLabel = label;
             dateSeparator = (
@@ -166,7 +168,7 @@ export default function MessageList({
         <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
           <CircularProgress size={12} color="primary" />
           <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-            {toolActivity ? `Calling ${toolActivity}...` : 'Thinking...'}
+            {toolActivity ? t('chat.callingTool', { toolName: toolActivity }) : t('chat.thinking')}
           </Typography>
         </Box>
       )}

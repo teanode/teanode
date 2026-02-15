@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/teanode/teanode/internal/util/atomicfile"
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed default_agent.md
@@ -18,6 +19,9 @@ var defaultAgentMD string
 
 //go:embed default_memory.md
 var defaultMemoryMD string
+
+//go:embed default_skills.md
+var defaultSkillsMD string
 
 //go:embed schema.json
 var configSchemaJSON []byte
@@ -35,22 +39,99 @@ func AgentConfigSchema() json.RawMessage {
 	return json.RawMessage(agentSchemaJSON)
 }
 
+// --- Schema-driven defaults ---
+
+// schemaField represents a single field entry in a schema JSON section.
+type schemaField struct {
+	Key     string      `json:"key"`
+	Default interface{} `json:"default"`
+}
+
+// parseSchemaDefaults extracts key→default pairs from an embedded schema JSON.
+func parseSchemaDefaults(schemaJSON []byte) map[string]interface{} {
+	var schema struct {
+		Sections []struct {
+			Fields []schemaField `json:"fields"`
+		} `json:"sections"`
+	}
+	json.Unmarshal(schemaJSON, &schema)
+	defaults := make(map[string]interface{})
+	for _, section := range schema.Sections {
+		for _, field := range section.Fields {
+			if field.Default != nil {
+				defaults[field.Key] = field.Default
+			}
+		}
+	}
+	return defaults
+}
+
+func schemaInt(defaults map[string]interface{}, key string) int {
+	if value, ok := defaults[key]; ok {
+		if number, ok := value.(float64); ok {
+			return int(number)
+		}
+	}
+	return 0
+}
+
+func schemaFloat64(defaults map[string]interface{}, key string) float64 {
+	if value, ok := defaults[key]; ok {
+		if number, ok := value.(float64); ok {
+			return number
+		}
+	}
+	return 0
+}
+
+func schemaString(defaults map[string]interface{}, key string) string {
+	if value, ok := defaults[key]; ok {
+		if text, ok := value.(string); ok {
+			return text
+		}
+	}
+	return ""
+}
+
+func init() {
+	configDefaults := parseSchemaDefaults(configSchemaJSON)
+	agentDefaults := parseSchemaDefaults(agentSchemaJSON)
+
+	DefaultAgentLimits = AgentLimits{
+		MaxToolRounds:         schemaInt(agentDefaults, "maxToolRounds"),
+		CompressionThreshold:  schemaFloat64(agentDefaults, "compressionThreshold"),
+		MinKeepMessages:       schemaInt(agentDefaults, "minKeepMessages"),
+		MaxToolResultChars:    schemaInt(agentDefaults, "maxToolResultChars"),
+		MaxWorkspaceFileChars: schemaInt(agentDefaults, "maxWorkspaceFileChars"),
+	}
+
+	DefaultSummarizerConfig = SummarizerConfig{
+		TickInterval:         schemaInt(configDefaults, "summarizer.tickInterval"),
+		StartupDelay:         schemaInt(configDefaults, "summarizer.startupDelay"),
+		InactivityTime:       schemaInt(configDefaults, "summarizer.inactivityTime"),
+		MinMessages:          schemaInt(configDefaults, "summarizer.minMessages"),
+		MaxConversationChars: schemaInt(configDefaults, "summarizer.maxConversationChars"),
+		MaxMessageChars:      schemaInt(configDefaults, "summarizer.maxMessageChars"),
+	}
+}
+
 // DefaultAgentID is the ID of the default agent when no agents are configured.
 const DefaultAgentID = "main"
 
 // AgentConfig defines a single agent in the multi-agent system.
 type AgentConfig struct {
-	ID                    string        `json:"id"`                              // unique; "main" is default
-	Model                 string        `json:"model,omitempty"`                 // qualified model override (e.g. "openai:gpt-4o")
-	SystemPrompt          string        `json:"systemPrompt,omitempty"`          // per-agent identity line override
-	Skills                *FilterConfig `json:"skills,omitempty"`                // skill allow/deny filter
-	Tools                 *FilterConfig `json:"tools,omitempty"`                 // builtin tool allow/deny filter
-	CanMessage            []string      `json:"canMessage,omitempty"`            // agent IDs this agent can talk to; "*" = all
-	MaxToolRounds         int           `json:"maxToolRounds,omitempty"`         // max tool-call loop iterations
-	CompressionThreshold  float64       `json:"compressionThreshold,omitempty"`  // context compression ratio (0-1)
-	MinKeepMessages       int           `json:"minKeepMessages,omitempty"`       // min recent messages to preserve
-	MaxToolResultChars    int           `json:"maxToolResultChars,omitempty"`    // max chars per old tool result
-	MaxWorkspaceFileChars int           `json:"maxWorkspaceFileChars,omitempty"` // max chars per workspace file in prompt
+	ID                    string        `json:"id" yaml:"id"`                                                        // unique; "main" is default
+	Name                  string        `json:"name,omitempty" yaml:"name,omitempty"`                                 // friendly display name
+	Model                 string        `json:"model,omitempty" yaml:"model,omitempty"`                               // qualified model override (e.g. "openai:gpt-4o")
+	SystemPrompt          string        `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`                 // per-agent identity line override
+	Skills                *FilterConfig `json:"skills,omitempty" yaml:"skills,omitempty"`                             // skill allow/deny filter
+	Tools                 *FilterConfig `json:"tools,omitempty" yaml:"tools,omitempty"`                               // builtin tool allow/deny filter
+	CanMessage            []string      `json:"canMessage,omitempty" yaml:"canMessage,omitempty"`                     // agent IDs this agent can talk to; "*" = all
+	MaxToolRounds         int           `json:"maxToolRounds,omitempty" yaml:"maxToolRounds,omitempty"`               // max tool-call loop iterations
+	CompressionThreshold  float64       `json:"compressionThreshold,omitempty" yaml:"compressionThreshold,omitempty"` // context compression ratio (0-1)
+	MinKeepMessages       int           `json:"minKeepMessages,omitempty" yaml:"minKeepMessages,omitempty"`           // min recent messages to preserve
+	MaxToolResultChars    int           `json:"maxToolResultChars,omitempty" yaml:"maxToolResultChars,omitempty"`      // max chars per old tool result
+	MaxWorkspaceFileChars int           `json:"maxWorkspaceFileChars,omitempty" yaml:"maxWorkspaceFileChars,omitempty"` // max chars per workspace file in prompt
 }
 
 // AgentLimits holds resolved runtime limits for an agent.
@@ -63,13 +144,8 @@ type AgentLimits struct {
 }
 
 // DefaultAgentLimits contains the default values for all agent limits.
-var DefaultAgentLimits = AgentLimits{
-	MaxToolRounds:         100,
-	CompressionThreshold:  0.80,
-	MinKeepMessages:       10,
-	MaxToolResultChars:    8000,
-	MaxWorkspaceFileChars: 8000,
-}
+// Populated from agent_schema.json at init time.
+var DefaultAgentLimits AgentLimits
 
 // ResolveLimits returns an AgentLimits with per-agent overrides applied on top
 // of the defaults. Zero-value fields fall back to DefaultAgentLimits.
@@ -96,69 +172,113 @@ func (self *AgentConfig) ResolveLimits() AgentLimits {
 // FilterConfig defines allow/deny lists for filtering tools or skills.
 // Deny wins over allow. A nil Allow list means all are allowed.
 type FilterConfig struct {
-	Allow []string `json:"allow,omitempty"` // nil = all allowed; [] = none allowed
-	Deny  []string `json:"deny,omitempty"`  // deny wins over allow
+	Allow []string `json:"allow,omitempty" yaml:"allow,omitempty"` // nil = all allowed; [] = none allowed
+	Deny  []string `json:"deny,omitempty" yaml:"deny,omitempty"`  // deny wins over allow
+}
+
+// SummarizerConfig controls the background session summarizer behavior.
+// Time fields are in minutes. Zero values fall back to defaults.
+type SummarizerConfig struct {
+	TickInterval          int `json:"tickInterval,omitempty" yaml:"tickInterval,omitempty"`                   // how often the background loop runs (minutes)
+	StartupDelay          int `json:"startupDelay,omitempty" yaml:"startupDelay,omitempty"`                   // delay before first run (minutes)
+	InactivityTime        int `json:"inactivityTime,omitempty" yaml:"inactivityTime,omitempty"`               // session inactivity threshold (minutes)
+	MinMessages           int `json:"minMessages,omitempty" yaml:"minMessages,omitempty"`                     // minimum messages required to summarize
+	MaxConversationChars  int `json:"maxConversationChars,omitempty" yaml:"maxConversationChars,omitempty"`   // max chars of conversation text sent to the LLM
+	MaxMessageChars       int `json:"maxMessageChars,omitempty" yaml:"maxMessageChars,omitempty"`             // max chars per individual message
+}
+
+// DefaultSummarizerConfig contains the default values for all summarizer settings.
+// Populated from schema.json at init time.
+var DefaultSummarizerConfig SummarizerConfig
+
+// ResolveSummarizerConfig returns a SummarizerConfig with user overrides applied
+// on top of the defaults. Zero-value fields fall back to DefaultSummarizerConfig.
+func (self *Config) ResolveSummarizerConfig() SummarizerConfig {
+	resolved := DefaultSummarizerConfig
+	if self.Summarizer == nil {
+		return resolved
+	}
+	if self.Summarizer.TickInterval > 0 {
+		resolved.TickInterval = self.Summarizer.TickInterval
+	}
+	if self.Summarizer.StartupDelay > 0 {
+		resolved.StartupDelay = self.Summarizer.StartupDelay
+	}
+	if self.Summarizer.InactivityTime > 0 {
+		resolved.InactivityTime = self.Summarizer.InactivityTime
+	}
+	if self.Summarizer.MinMessages > 0 {
+		resolved.MinMessages = self.Summarizer.MinMessages
+	}
+	if self.Summarizer.MaxConversationChars > 0 {
+		resolved.MaxConversationChars = self.Summarizer.MaxConversationChars
+	}
+	if self.Summarizer.MaxMessageChars > 0 {
+		resolved.MaxMessageChars = self.Summarizer.MaxMessageChars
+	}
+	return resolved
 }
 
 type Config struct {
-	Gateway      GatewayConfig   `json:"gateway"`
-	Models       ModelsConfig    `json:"models"`
-	Tools        ToolsConfig     `json:"tools,omitempty"`
-	Browser      *BrowserConfig  `json:"browser,omitempty"`
-	SystemPrompt string          `json:"systemPrompt,omitempty"`
-	Discord      *DiscordConfig  `json:"discord,omitempty"`
-	Telegram     *TelegramConfig `json:"telegram,omitempty"`
-	Agents       []AgentConfig   `json:"-"`
+	Gateway      GatewayConfig      `json:"gateway" yaml:"gateway"`
+	Models       ModelsConfig       `json:"models" yaml:"models"`
+	Tools        ToolsConfig        `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Browser      *BrowserConfig     `json:"browser,omitempty" yaml:"browser,omitempty"`
+	Summarizer   *SummarizerConfig  `json:"summarizer,omitempty" yaml:"summarizer,omitempty"`
+	SystemPrompt string             `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`
+	DefaultAgent string             `json:"defaultAgent,omitempty" yaml:"defaultAgent,omitempty"` // defaults to first configured agent
+	Discord      *DiscordConfig     `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Telegram     *TelegramConfig    `json:"telegram,omitempty" yaml:"telegram,omitempty"`
+	Agents       []AgentConfig      `json:"-" yaml:"-"`
 }
 
 type BrowserConfig struct {
-	CDPEndpoint string `json:"cdpEndpoint,omitempty"` // e.g. "127.0.0.1:9222"
+	CDPEndpoint string `json:"cdpEndpoint,omitempty" yaml:"cdpEndpoint,omitempty"` // e.g. "127.0.0.1:9222"
 }
 
 type DiscordConfig struct {
-	Token        string   `json:"token,omitempty"`
-	AllowedUsers []string `json:"allowedUsers,omitempty"` // Discord user IDs
-	AgentID      string   `json:"agentId,omitempty"`      // defaults to "main"
+	Token        string   `json:"token,omitempty" yaml:"token,omitempty"`
+	AllowedUsers []string `json:"allowedUsers,omitempty" yaml:"allowedUsers,omitempty"` // Discord user IDs
+	AgentID      string   `json:"agentId,omitempty" yaml:"agentId,omitempty"`           // defaults to the configured default agent
 }
 
 type TelegramConfig struct {
-	Token        string  `json:"token,omitempty"`
-	AllowedUsers []int64 `json:"allowedUsers,omitempty"` // Telegram user IDs
-	AgentID      string  `json:"agentId,omitempty"`      // defaults to "main"
+	Token        string  `json:"token,omitempty" yaml:"token,omitempty"`
+	AllowedUsers []int64 `json:"allowedUsers,omitempty" yaml:"allowedUsers,omitempty"` // Telegram user IDs
+	AgentID      string  `json:"agentId,omitempty" yaml:"agentId,omitempty"`           // defaults to the configured default agent
 }
 
 type ToolsConfig struct {
-	BraveAPIKey string `json:"braveApiKey,omitempty"`
+	BraveAPIKey string `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
 }
 
 type GatewayConfig struct {
-	Port int         `json:"port"`
-	Bind string      `json:"bind"` // "loopback" | "lan"
-	Auth *AuthConfig `json:"auth,omitempty"`
+	Port int         `json:"port" yaml:"port"`
+	Bind string      `json:"bind" yaml:"bind"` // "loopback" | "lan"
+	Auth *AuthConfig `json:"auth,omitempty" yaml:"auth,omitempty"`
 }
 
 type AuthConfig struct {
-	Token    string `json:"token,omitempty"`
-	Password string `json:"password,omitempty"`
+	Token    string `json:"token,omitempty" yaml:"token,omitempty"`
+	Password string `json:"password,omitempty" yaml:"password,omitempty"`
 }
 
 // ProviderConfig holds connection details for a single provider.
 type ProviderConfig struct {
-	BaseURL string `json:"baseUrl"`
-	APIKey  string `json:"apiKey,omitempty"`
+	BaseURL string `json:"baseUrl" yaml:"baseUrl"`
+	APIKey  string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
 }
 
 type ModelsConfig struct {
-	Default       string                    `json:"default"`
-	TitleModel    string                    `json:"titleModel,omitempty"`    // model for title summarization; defaults to Default
-	ContextWindow int                       `json:"contextWindow,omitempty"` // max tokens; default 128000
-	SummaryModel  string                    `json:"summaryModel,omitempty"`  // model for context summarization; defaults to TitleModel
-	Providers     map[string]ProviderConfig `json:"providers,omitempty"`     // multi-provider config
+	Default       string                    `json:"default" yaml:"default"`
+	SummarizerModel string                    `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
+	ContextWindow   int                       `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`   // max tokens; default 128000
+	Providers     map[string]ProviderConfig `json:"providers,omitempty" yaml:"providers,omitempty"`         // multi-provider config
 
 	// Legacy single-provider fields (used if Providers is empty)
-	Provider string `json:"provider,omitempty"`
-	BaseURL  string `json:"baseUrl,omitempty"`
-	APIKey   string `json:"apiKey,omitempty"`
+	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
+	BaseURL  string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
+	APIKey   string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
 }
 
 // ResolvedProviders returns the providers map. If the new Providers field is
@@ -229,6 +349,24 @@ func (self *Config) AgentModel(agentId string) string {
 	return self.Models.Default
 }
 
+// ResolveDefaultAgent returns the effective default agent ID.
+// If DefaultAgent is set and matches a configured agent, it is returned.
+// Otherwise, the first configured agent's ID is used.
+// If no agents are configured, DefaultAgentID is returned as a fallback.
+func (self *Config) ResolveDefaultAgent() string {
+	if self.DefaultAgent != "" {
+		for _, agentConfig := range self.Agents {
+			if agentConfig.ID == self.DefaultAgent {
+				return self.DefaultAgent
+			}
+		}
+	}
+	if len(self.Agents) > 0 {
+		return self.Agents[0].ID
+	}
+	return DefaultAgentID
+}
+
 // IsAllowed checks whether a name passes a filter. Deny wins over allow.
 // A nil filter means everything is allowed. A nil Allow list means all allowed;
 // an empty Allow list means none allowed.
@@ -280,13 +418,13 @@ func Dir() (string, error) {
 	return filepath.Join(home, ".teanode"), nil
 }
 
-// CronsFile returns the path to the crons file (~/.teanode/crons.json).
+// CronsFile returns the path to the crons file (~/.teanode/crons.yaml).
 func CronsFile() (string, error) {
 	dir, err := Dir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "crons.json"), nil
+	return filepath.Join(dir, "crons.yaml"), nil
 }
 
 // AgentsDir returns the agents config directory (~/.teanode/agents/).
@@ -325,13 +463,13 @@ func SkillsDir() (string, error) {
 	return filepath.Join(dir, "skills"), nil
 }
 
-// ModelsFile returns the path to the models cache file (~/.teanode/models.json).
+// ModelsFile returns the path to the models cache file (~/.teanode/models.yaml).
 func ModelsFile() (string, error) {
 	dir, err := Dir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "models.json"), nil
+	return filepath.Join(dir, "models.yaml"), nil
 }
 
 // MediaDir returns the media directory (~/.teanode/media).
@@ -390,6 +528,7 @@ func SeedAgentWorkspace(agentId string) error {
 	seeds := map[string]string{
 		"AGENT.md":  defaultAgentMD,
 		"MEMORY.md": defaultMemoryMD,
+		"SKILLS.md": defaultSkillsMD,
 	}
 	for name, content := range seeds {
 		path := filepath.Join(workspaceDirectory, name)
@@ -481,7 +620,7 @@ func MigrateToAgentDirs() error {
 
 // --- Per-Agent File Operations ---
 
-// LoadAgents walks agents/*/config.json and returns all agent configs.
+// LoadAgents walks agents/*/config.yaml and returns all agent configs.
 func LoadAgents() ([]AgentConfig, error) {
 	agentsDirectory, err := AgentsDir()
 	if err != nil {
@@ -501,7 +640,7 @@ func LoadAgents() ([]AgentConfig, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		configPath := filepath.Join(agentsDirectory, entry.Name(), "config.json")
+		configPath := filepath.Join(agentsDirectory, entry.Name(), "config.yaml")
 		data, err := os.ReadFile(configPath)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -510,7 +649,7 @@ func LoadAgents() ([]AgentConfig, error) {
 			return nil, fmt.Errorf("reading agent config %s: %w", entry.Name(), err)
 		}
 		var agentConfig AgentConfig
-		if err := json.Unmarshal(data, &agentConfig); err != nil {
+		if err := yaml.Unmarshal(data, &agentConfig); err != nil {
 			return nil, fmt.Errorf("parsing agent config %s: %w", entry.Name(), err)
 		}
 		// Ensure the ID matches the directory name.
@@ -520,7 +659,7 @@ func LoadAgents() ([]AgentConfig, error) {
 	return agents, nil
 }
 
-// SaveAgent writes an agent config to agents/<id>/config.json atomically.
+// SaveAgent writes an agent config to agents/<id>/config.yaml atomically.
 func SaveAgent(agentConfig AgentConfig) error {
 	agentsDirectory, err := AgentsDir()
 	if err != nil {
@@ -530,11 +669,11 @@ func SaveAgent(agentConfig AgentConfig) error {
 	if err := os.MkdirAll(agentDirectory, 0755); err != nil {
 		return fmt.Errorf("creating agent directory: %w", err)
 	}
-	data, err := json.MarshalIndent(agentConfig, "", "  ")
+	data, err := yaml.Marshal(agentConfig)
 	if err != nil {
 		return fmt.Errorf("marshalling agent config: %w", err)
 	}
-	return atomicfile.WriteFile(filepath.Join(agentDirectory, "config.json"), data)
+	return atomicfile.WriteFile(filepath.Join(agentDirectory, "config.yaml"), data)
 }
 
 // DeleteAgent removes the agents/<agentId>/ directory.
@@ -550,7 +689,7 @@ func DeleteAgent(agentId string) error {
 	return os.RemoveAll(agentDirectory)
 }
 
-// MigrateAgentsToFiles moves agents from config.json into per-agent files.
+// MigrateAgentsToFiles moves agents from config.yaml into per-agent files.
 // Safe to call multiple times (no-op if agents key is absent or empty).
 func MigrateAgentsToFiles() error {
 	dir, err := Dir()
@@ -558,7 +697,7 @@ func MigrateAgentsToFiles() error {
 		return err
 	}
 
-	configPath := filepath.Join(dir, "config.json")
+	configPath := filepath.Join(dir, "config.yaml")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -568,7 +707,7 @@ func MigrateAgentsToFiles() error {
 	}
 
 	var rawConfig map[string]interface{}
-	if err := json.Unmarshal(data, &rawConfig); err != nil {
+	if err := yaml.Unmarshal(data, &rawConfig); err != nil {
 		return fmt.Errorf("parsing config for migration: %w", err)
 	}
 
@@ -584,12 +723,12 @@ func MigrateAgentsToFiles() error {
 
 	// Parse each agent and write to its own file.
 	for _, agentRaw := range agentsSlice {
-		agentBytes, err := json.Marshal(agentRaw)
+		agentBytes, err := yaml.Marshal(agentRaw)
 		if err != nil {
 			return fmt.Errorf("marshalling agent for migration: %w", err)
 		}
 		var agentConfig AgentConfig
-		if err := json.Unmarshal(agentBytes, &agentConfig); err != nil {
+		if err := yaml.Unmarshal(agentBytes, &agentConfig); err != nil {
 			return fmt.Errorf("parsing agent for migration: %w", err)
 		}
 		if agentConfig.ID == "" {
@@ -600,16 +739,38 @@ func MigrateAgentsToFiles() error {
 		}
 	}
 
-	// Remove agents key from config.json and re-write.
+	// Remove agents key from config.yaml and re-write.
 	delete(rawConfig, "agents")
-	updatedData, err := json.MarshalIndent(rawConfig, "", "  ")
+	updatedData, err := yaml.Marshal(rawConfig)
 	if err != nil {
 		return fmt.Errorf("marshalling config after migration: %w", err)
 	}
 	return atomicfile.WriteFile(configPath, updatedData)
 }
 
-// Load reads config from ~/.teanode/config.json and applies env overrides.
+// LoadRaw reads config from ~/.teanode/config.yaml without applying defaults
+// or environment overrides. Returns only what the user explicitly set in the file.
+func LoadRaw() (*Config, error) {
+	dir, err := Dir()
+	if err != nil {
+		return nil, err
+	}
+
+	configuration := &Config{}
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("reading config: %w", err)
+	}
+	if err == nil {
+		if err := yaml.Unmarshal(data, configuration); err != nil {
+			return nil, fmt.Errorf("parsing config: %w", err)
+		}
+	}
+
+	return configuration, nil
+}
+
+// Load reads config from ~/.teanode/config.yaml and applies defaults and env overrides.
 func Load() (*Config, error) {
 	configuration := defaults()
 
@@ -618,12 +779,12 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
 	if err == nil {
-		if err := json.Unmarshal(data, configuration); err != nil {
+		if err := yaml.Unmarshal(data, configuration); err != nil {
 			return nil, fmt.Errorf("parsing config: %w", err)
 		}
 	}
@@ -648,27 +809,28 @@ func Load() (*Config, error) {
 	return configuration, nil
 }
 
-// Save writes the config to ~/.teanode/config.json atomically.
+// Save writes the config to ~/.teanode/config.yaml atomically.
 func Save(configuration *Config) error {
 	dir, err := Dir()
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(configuration, "", "  ")
+	data, err := yaml.Marshal(configuration)
 	if err != nil {
 		return fmt.Errorf("marshalling config: %w", err)
 	}
-	return atomicfile.WriteFile(filepath.Join(dir, "config.json"), data)
+	return atomicfile.WriteFile(filepath.Join(dir, "config.yaml"), data)
 }
 
 func defaults() *Config {
+	configDefaults := parseSchemaDefaults(configSchemaJSON)
 	return &Config{
 		Gateway: GatewayConfig{
-			Port: 8833,
-			Bind: "loopback",
+			Port: schemaInt(configDefaults, "gateway.port"),
+			Bind: schemaString(configDefaults, "gateway.bind"),
 		},
 		Browser: &BrowserConfig{
-			CDPEndpoint: "127.0.0.1:9222",
+			CDPEndpoint: schemaString(configDefaults, "browser.cdpEndpoint"),
 		},
 		Models: ModelsConfig{
 			Default:  "gpt-5.1",

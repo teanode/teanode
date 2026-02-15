@@ -30,6 +30,7 @@ export interface RPCError {
 
 export interface AgentInfo {
   id: string;
+  name?: string;
 }
 
 // RPC method payloads
@@ -75,12 +76,6 @@ export interface SessionsListResult {
 
 export interface SessionsDeleteParams {
   sessionKey: string;
-  agentId?: string;
-}
-
-export interface SessionsRenameParams {
-  sessionKey: string;
-  title: string;
   agentId?: string;
 }
 
@@ -252,6 +247,7 @@ export interface AgentFilterConfig {
 
 export interface AgentConfig {
   id: string;
+  name?: string;
   model?: string;
   systemPrompt?: string;
   skills?: AgentFilterConfig;

@@ -13,18 +13,11 @@
           "placeholder": "openai:gpt-4o"
         },
         {
-          "key": "models.titleModel",
-          "label": "Title Model",
+          "key": "models.summarizerModel",
+          "label": "Summarizer Model",
           "type": "string",
-          "description": "Model for generating session titles. Defaults to default model.",
+          "description": "Model for generating session titles, summaries, and context compression. Defaults to default model.",
           "placeholder": "Same as default"
-        },
-        {
-          "key": "models.summaryModel",
-          "label": "Summary Model",
-          "type": "string",
-          "description": "Model for context summarization. Defaults to title model.",
-          "placeholder": "Same as title model"
         },
         {
           "key": "models.contextWindow",
@@ -106,20 +99,83 @@
           "label": "CDP Endpoint",
           "type": "string",
           "description": "Chrome DevTools Protocol endpoint address.",
-          "placeholder": "127.0.0.1:9222"
+          "placeholder": "127.0.0.1:9222",
+          "default": "127.0.0.1:9222"
         }
       ]
     },
     {
-      "id": "systemPrompt",
-      "label": "System Prompt",
-      "description": "Global system prompt prepended to all agents.",
+      "id": "agents",
+      "label": "Agents",
+      "description": "Agent defaults and global system prompt.",
       "fields": [
+        {
+          "key": "defaultAgent",
+          "label": "Default Agent",
+          "type": "string",
+          "description": "Agent ID to use as the default. If empty, the first configured agent is used.",
+          "placeholder": "first agent"
+        },
         {
           "key": "systemPrompt",
           "label": "System Prompt",
           "type": "textarea",
           "description": "Custom instructions added to the system prompt for all agents."
+        }
+      ]
+    },
+    {
+      "id": "summarizer",
+      "label": "Summarizer",
+      "description": "Background session summarizer timing and limits.",
+      "fields": [
+        {
+          "key": "summarizer.tickInterval",
+          "label": "Tick Interval",
+          "type": "number",
+          "description": "How often the summarizer runs, in minutes.",
+          "placeholder": "1",
+          "default": 1
+        },
+        {
+          "key": "summarizer.startupDelay",
+          "label": "Startup Delay",
+          "type": "number",
+          "description": "Delay before the first summarization run, in minutes.",
+          "placeholder": "1",
+          "default": 1
+        },
+        {
+          "key": "summarizer.inactivityTime",
+          "label": "Inactivity Time",
+          "type": "number",
+          "description": "Session inactivity threshold before summarizing, in minutes.",
+          "placeholder": "3",
+          "default": 3
+        },
+        {
+          "key": "summarizer.minMessages",
+          "label": "Min Messages",
+          "type": "number",
+          "description": "Minimum number of messages required to summarize a session.",
+          "placeholder": "1",
+          "default": 1
+        },
+        {
+          "key": "summarizer.maxConversationChars",
+          "label": "Max Conversation Chars",
+          "type": "number",
+          "description": "Maximum characters of conversation text sent to the LLM.",
+          "placeholder": "8000",
+          "default": 8000
+        },
+        {
+          "key": "summarizer.maxMessageChars",
+          "label": "Max Message Chars",
+          "type": "number",
+          "description": "Maximum characters per individual message.",
+          "placeholder": "2000",
+          "default": 2000
         }
       ]
     },
@@ -145,8 +201,8 @@
           "key": "discord.agentId",
           "label": "Agent ID",
           "type": "string",
-          "description": "Agent to handle Discord messages. Defaults to \"main\".",
-          "placeholder": "main"
+          "description": "Agent to handle Discord messages. Defaults to the configured default agent.",
+          "placeholder": "default agent"
         }
       ]
     },
@@ -172,8 +228,8 @@
           "key": "telegram.agentId",
           "label": "Agent ID",
           "type": "string",
-          "description": "Agent to handle Telegram messages. Defaults to \"main\".",
-          "placeholder": "main"
+          "description": "Agent to handle Telegram messages. Defaults to the configured default agent.",
+          "placeholder": "default agent"
         }
       ]
     }

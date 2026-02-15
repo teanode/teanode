@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 import MenuItem from '@mui/material/MenuItem';
@@ -29,6 +30,7 @@ interface SchemaFieldProps {
 }
 
 export default function SchemaField({ field, value, onChange, suggestions }: SchemaFieldProps) {
+  const { t } = useTranslation();
   const [showPassword, setShowPassword] = useState(false);
 
   switch (field.type) {
@@ -67,13 +69,14 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
       );
     }
 
-    case 'number':
+    case 'number': {
+      const hasValue = value != null && value !== 0;
       return (
         <TextField
           label={field.label}
           helperText={field.description}
           type="number"
-          value={value != null ? String(value) : ''}
+          value={hasValue ? String(value) : ''}
           placeholder={field.placeholder}
           size="small"
           fullWidth
@@ -83,6 +86,7 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
           }}
         />
       );
+    }
 
     case 'boolean':
       return (
@@ -189,6 +193,7 @@ function StringArrayField({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
+  const { t } = useTranslation();
   const items: string[] = Array.isArray(value) ? (value as string[]) : [];
   const [inputValue, setInputValue] = useState('');
 
@@ -225,7 +230,7 @@ function StringArrayField({
           size="small"
           fullWidth
           value={inputValue}
-          placeholder="Add item..."
+          placeholder={t('schema.addItemPlaceholder')}
           onChange={(event) => setInputValue(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -235,7 +240,7 @@ function StringArrayField({
           }}
         />
         <Button variant="contained" size="small" onClick={addItem}>
-          Add
+          {t('common.add')}
         </Button>
       </Box>
     </Box>
@@ -251,6 +256,7 @@ function ProvidersField({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
+  const { t } = useTranslation();
   const providers: Record<string, { baseUrl: string; apiKey: string }> =
     (value as Record<string, { baseUrl: string; apiKey: string }>) ?? {};
 
@@ -300,7 +306,7 @@ function ProvidersField({
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
               <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>{entry.name}</Typography>
               <Button size="small" color="error" onClick={() => removeEntry(index)}>
-                Remove
+                {t('common.delete')}
               </Button>
             </Box>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -308,7 +314,7 @@ function ProvidersField({
                 size="small"
                 fullWidth
                 value={entry.baseUrl}
-                placeholder="Base URL (e.g. https://api.openai.com/v1)"
+                placeholder={t('schema.baseUrlPlaceholder')}
                 onChange={(event) => updateEntry(index, { baseUrl: event.target.value })}
               />
               <TextField
@@ -316,7 +322,7 @@ function ProvidersField({
                 fullWidth
                 type="password"
                 value={entry.apiKey}
-                placeholder="API Key"
+                placeholder={t('schema.apiKeyPlaceholder')}
                 onChange={(event) => updateEntry(index, { apiKey: event.target.value })}
               />
             </Box>
@@ -328,7 +334,7 @@ function ProvidersField({
           size="small"
           fullWidth
           value={newName}
-          placeholder="Provider name (e.g. openai)"
+          placeholder={t('schema.providerNamePlaceholder')}
           onChange={(event) => setNewName(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -338,7 +344,7 @@ function ProvidersField({
           }}
         />
         <Button variant="contained" size="small" onClick={addEntry}>
-          Add Provider
+          {t('schema.addProvider')}
         </Button>
       </Box>
     </Box>

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import TextField from '@mui/material/TextField';
@@ -10,12 +11,12 @@ import Typography from '@mui/material/Typography';
 import type { CronJob, ModelInfo, AgentInfo } from '../types';
 
 const PRESETS = [
-  { label: 'Every minute', value: '* * * * *' },
-  { label: 'Every 5 min', value: '*/5 * * * *' },
-  { label: 'Hourly', value: '0 * * * *' },
-  { label: 'Daily 9am', value: '0 9 * * *' },
-  { label: 'Weekdays 9am', value: '0 9 * * 1-5' },
-  { label: 'Weekly Mon 9am', value: '0 9 * * 1' },
+  { labelKey: 'cron.presetEveryMinute', value: '* * * * *' },
+  { labelKey: 'cron.presetEvery5Min', value: '*/5 * * * *' },
+  { labelKey: 'cron.presetHourly', value: '0 * * * *' },
+  { labelKey: 'cron.presetDaily9am', value: '0 9 * * *' },
+  { labelKey: 'cron.presetWeekdays9am', value: '0 9 * * 1-5' },
+  { labelKey: 'cron.presetWeeklyMon9am', value: '0 9 * * 1' },
 ];
 
 interface CronJobFormProps {
@@ -27,6 +28,7 @@ interface CronJobFormProps {
 }
 
 export default function CronJobForm({ initial, models = [], agents = [], onSave, onCancel }: CronJobFormProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState(initial?.name || '');
   const [schedule, setSchedule] = useState(initial?.schedule || '0 * * * *');
   const [message, setMessage] = useState(initial?.message || '');
@@ -51,7 +53,7 @@ export default function CronJobForm({ initial, models = [], agents = [], onSave,
 
   // Build model select items with group headers.
   const modelMenuItems: React.ReactNode[] = [
-    <MenuItem key="__default" value="">Default</MenuItem>,
+    <MenuItem key="__default" value="">{t('common.default')}</MenuItem>,
   ];
   for (const [provider, providerModels] of grouped.entries()) {
     modelMenuItems.push(<ListSubheader key={`header-${provider}`}>{provider}</ListSubheader>);
@@ -72,30 +74,30 @@ export default function CronJobForm({ initial, models = [], agents = [], onSave,
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
-          label="Name"
+          label={t('cron.name')}
           size="small"
           fullWidth
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Morning briefing"
+          placeholder={t('cron.namePlaceholder')}
           autoFocus
         />
 
         <Box>
           <TextField
-            label="Schedule (cron expression)"
+            label={t('cron.scheduleLabel')}
             size="small"
             fullWidth
             value={schedule}
             onChange={(event) => setSchedule(event.target.value)}
-            placeholder="0 9 * * *"
+            placeholder={t('cron.schedulePlaceholder')}
             sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
           />
           <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75, flexWrap: 'wrap' }}>
             {PRESETS.map((preset) => (
               <Chip
                 key={preset.value}
-                label={preset.label}
+                label={t(preset.labelKey)}
                 size="small"
                 variant={schedule === preset.value ? 'filled' : 'outlined'}
                 color={schedule === preset.value ? 'primary' : 'default'}
@@ -107,20 +109,20 @@ export default function CronJobForm({ initial, models = [], agents = [], onSave,
         </Box>
 
         <TextField
-          label="Message"
+          label={t('cron.message')}
           size="small"
           fullWidth
           multiline
           minRows={3}
           value={message}
           onChange={(event) => setMessage(event.target.value)}
-          placeholder="Give me a morning briefing..."
+          placeholder={t('cron.messagePlaceholder')}
         />
 
         {models.length > 0 ? (
           <TextField
             select
-            label="Model (optional)"
+            label={t('cron.modelOptional')}
             size="small"
             fullWidth
             value={model}
@@ -130,27 +132,27 @@ export default function CronJobForm({ initial, models = [], agents = [], onSave,
           </TextField>
         ) : (
           <TextField
-            label="Model (optional)"
+            label={t('cron.modelOptional')}
             size="small"
             fullWidth
             value={model}
             onChange={(event) => setModel(event.target.value)}
-            placeholder="Leave blank for default"
+            placeholder={t('cron.modelPlaceholder')}
           />
         )}
 
         {agents.length > 1 && (
           <TextField
             select
-            label="Agent (optional)"
+            label={t('cron.agentOptional')}
             size="small"
             fullWidth
             value={agentId}
             onChange={(event) => setAgentId(event.target.value)}
           >
-            <MenuItem value="">Default (main)</MenuItem>
+            <MenuItem value="">{t('cron.defaultAgent')}</MenuItem>
             {agents.map((agent) => (
-              <MenuItem key={agent.id} value={agent.id}>{agent.id}</MenuItem>
+              <MenuItem key={agent.id} value={agent.id}>{agent.name || agent.id}</MenuItem>
             ))}
           </TextField>
         )}
@@ -162,10 +164,10 @@ export default function CronJobForm({ initial, models = [], agents = [], onSave,
             size="small"
             disabled={!name.trim() || !schedule.trim() || !message.trim()}
           >
-            {initial ? 'Save' : 'Create'}
+            {initial ? t('common.save') : t('common.create')}
           </Button>
           <Button variant="text" size="small" onClick={onCancel}>
-            Cancel
+            {t('common.cancel')}
           </Button>
         </Box>
       </Box>

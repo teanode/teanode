@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
 import Paper from '@mui/material/Paper';
@@ -12,6 +13,7 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import { useAppContext, type ThemeMode } from '../context';
 
 export default function PreferencesArea() {
+  const { t } = useTranslation();
   const {
     themeMode,
     setThemeMode,
@@ -25,16 +27,16 @@ export default function PreferencesArea() {
     <Box sx={{ flex: 1, overflowY: 'auto' }}>
       <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 3 }}>
-          Preferences
+          {t('settings.preferences')}
         </Typography>
 
         {/* Theme */}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            Theme
+            {t('settings.theme')}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Choose between dark and light mode
+            {t('settings.themeDescription')}
           </Typography>
           <ToggleButtonGroup
             value={themeMode}
@@ -44,10 +46,10 @@ export default function PreferencesArea() {
             }}
             size="small"
           >
-            <ToggleButton value="dark" aria-label="Dark mode">
+            <ToggleButton value="dark" aria-label={t('settings.darkMode')}>
               <DarkModeIcon sx={{ fontSize: 18 }} />
             </ToggleButton>
-            <ToggleButton value="light" aria-label="Light mode">
+            <ToggleButton value="light" aria-label={t('settings.lightMode')}>
               <LightModeIcon sx={{ fontSize: 18 }} />
             </ToggleButton>
           </ToggleButtonGroup>
@@ -56,10 +58,10 @@ export default function PreferencesArea() {
         {/* Display */}
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            Display
+            {t('settings.display')}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Control what information is shown in the chat
+            {t('settings.displayDescription')}
           </Typography>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <FormControlLabel
@@ -72,9 +74,9 @@ export default function PreferencesArea() {
               }
               label={
                 <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>Show tool calls</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.showToolCalls')}</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    Display tool invocations and results in the chat
+                    {t('settings.showToolCallsDescription')}
                   </Typography>
                 </Box>
               }
@@ -90,9 +92,9 @@ export default function PreferencesArea() {
               }
               label={
                 <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>Show token usage</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.showTokenUsage')}</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    Display token counts after each response
+                    {t('settings.showTokenUsageDescription')}
                   </Typography>
                 </Box>
               }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
@@ -10,6 +11,7 @@ interface ToolInvokeProps {
 }
 
 export default function ToolInvoke({ toolName, args }: ToolInvokeProps) {
+  const { t } = useTranslation();
   return (
     <Box
       sx={{
@@ -31,7 +33,7 @@ export default function ToolInvoke({ toolName, args }: ToolInvokeProps) {
           color="primary"
           sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
         />
-        <Typography variant="caption">called</Typography>
+        <Typography variant="caption">{t('tool.called')}</Typography>
       </Box>
       <Box
         component="pre"

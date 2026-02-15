@@ -9,7 +9,7 @@
   "models": {
     "default": "openai:gpt-4o",
     "contextWindow": 128000,
-    "summaryModel": "",
+    "summarizerModel": "",
     "providers": {
       "openai": {
         "baseUrl": "https://api.openai.com/v1",

@@ -18,9 +18,13 @@ func (self *webSocketConnection) handleConnect(frame types.RequestFrame) {
 	agents := self.server.Config.ResolveAgents()
 	agentInfos := make([]map[string]interface{}, 0, len(agents))
 	for _, agentConfig := range agents {
-		agentInfos = append(agentInfos, map[string]interface{}{
+		info := map[string]interface{}{
 			"id": agentConfig.ID,
-		})
+		}
+		if agentConfig.Name != "" {
+			info["name"] = agentConfig.Name
+		}
+		agentInfos = append(agentInfos, info)
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
@@ -28,7 +32,7 @@ func (self *webSocketConnection) handleConnect(frame types.RequestFrame) {
 		"capabilities":   []string{"chat"},
 		"defaultModel":   self.server.Config.Models.Default,
 		"agents":         agentInfos,
-		"defaultAgentId": config.DefaultAgentID,
+		"defaultAgentId": self.server.AgentRegistry.DefaultID(),
 	})
 }
 
@@ -44,13 +48,17 @@ func (self *webSocketConnection) handleAgentsList(frame types.RequestFrame) {
 	agents := self.server.Config.ResolveAgents()
 	agentInfos := make([]map[string]interface{}, 0, len(agents))
 	for _, agentConfig := range agents {
-		agentInfos = append(agentInfos, map[string]interface{}{
+		info := map[string]interface{}{
 			"id": agentConfig.ID,
-		})
+		}
+		if agentConfig.Name != "" {
+			info["name"] = agentConfig.Name
+		}
+		agentInfos = append(agentInfos, info)
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"agents":         agentInfos,
-		"defaultAgentId": config.DefaultAgentID,
+		"defaultAgentId": self.server.AgentRegistry.DefaultID(),
 	})
 }
 
@@ -137,14 +145,6 @@ func (self *webSocketConnection) handleChatSend(frame types.RequestFrame) {
 					"toolName":   toolName,
 					"result":     result,
 				})
-			},
-			OnTitleUpdate: func(title string) {
-				self.server.Broadcast("chat", map[string]interface{}{
-					"state":      "title",
-					"sessionKey": parameters.SessionKey,
-					"title":      title,
-				})
-				self.server.Broadcast("sessions", nil)
 			},
 		})
 
@@ -282,43 +282,6 @@ func (self *webSocketConnection) handleSessionsDelete(frame types.RequestFrame) 
 	self.server.Broadcast("sessions", nil)
 }
 
-// sessionsRenameParameters are the parameters for sessions.rename.
-type sessionsRenameParameters struct {
-	SessionKey string `json:"sessionKey"`
-	Title      string `json:"title"`
-	AgentID    string `json:"agentId,omitempty"`
-}
-
-// handleSessionsRename: rename a session title.
-func (self *webSocketConnection) handleSessionsRename(frame types.RequestFrame) {
-	var parameters sessionsRenameParameters
-	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
-		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
-		return
-	}
-
-	if parameters.SessionKey == "" {
-		self.sendError(frame.ID, 400, "sessionKey is required")
-		return
-	}
-
-	runner := self.server.resolveRunner(parameters.AgentID)
-	if runner == nil {
-		self.sendError(frame.ID, 404, "agent not found: "+parameters.AgentID)
-		return
-	}
-
-	if err := runner.Sessions.SetTitle(parameters.SessionKey, parameters.Title); err != nil {
-		self.sendError(frame.ID, 500, "renaming session: "+err.Error())
-		return
-	}
-
-	self.sendResponse(frame.ID, map[string]interface{}{
-		"ok": true,
-	})
-	self.server.Broadcast("sessions", nil)
-}
-
 // sessionsListParameters are the parameters for sessions.list.
 type sessionsListParameters struct {
 	AgentID string `json:"agentId,omitempty"`
@@ -354,6 +317,7 @@ func (self *webSocketConnection) handleSessionsList(frame types.RequestFrame) {
 		Key        string `json:"key"`
 		LastActive int64  `json:"lastActive"`
 		Title      string `json:"title,omitempty"`
+		Summary    string `json:"summary,omitempty"`
 		AgentID    string `json:"agentId,omitempty"`
 	}
 
@@ -368,6 +332,7 @@ func (self *webSocketConnection) handleSessionsList(frame types.RequestFrame) {
 				Key:        sessionInfo.Key,
 				LastActive: sessionInfo.LastActive,
 				Title:      sessionInfo.Title,
+				Summary:    sessionInfo.Summary,
 				AgentID:    agentId,
 			})
 		}
@@ -421,10 +386,18 @@ func (self *webSocketConnection) handleConfigSchema(frame types.RequestFrame) {
 	})
 }
 
-// handleConfigGet: return the current config with sensitive fields masked.
+// handleConfigGet: return the raw on-disk config with sensitive fields masked.
+// Only returns user-specified values, not defaults or environment overrides.
 func (self *webSocketConnection) handleConfigGet(frame types.RequestFrame) {
+	// Load raw config from disk (no defaults, no env overrides).
+	rawConfig, err := config.LoadRaw()
+	if err != nil {
+		self.sendError(frame.ID, 500, "loading config: "+err.Error())
+		return
+	}
+
 	// Deep-copy via JSON round-trip so we can mask fields.
-	data, err := json.Marshal(self.server.Config)
+	data, err := json.Marshal(rawConfig)
 	if err != nil {
 		self.sendError(frame.ID, 500, "marshalling config: "+err.Error())
 		return
@@ -486,7 +459,8 @@ type configUpdateParameters struct {
 	Config json.RawMessage `json:"config"`
 }
 
-// handleConfigUpdate: merge a partial config into the current config and save.
+// handleConfigUpdate: merge a partial config into the raw on-disk config and save.
+// Only user-specified values are persisted; defaults and env overrides are not saved.
 func (self *webSocketConnection) handleConfigUpdate(frame types.RequestFrame) {
 	var parameters configUpdateParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
@@ -494,15 +468,15 @@ func (self *webSocketConnection) handleConfigUpdate(frame types.RequestFrame) {
 		return
 	}
 
-	// Load fresh config from disk to merge into.
-	currentConfig, err := config.Load()
+	// Load raw config from disk (no defaults, no env overrides).
+	rawConfig, err := config.LoadRaw()
 	if err != nil {
 		self.sendError(frame.ID, 500, "loading config: "+err.Error())
 		return
 	}
 
-	// Round-trip current config to a map for merging.
-	currentData, err := json.Marshal(currentConfig)
+	// Round-trip raw config to a map for merging.
+	currentData, err := json.Marshal(rawConfig)
 	if err != nil {
 		self.sendError(frame.ID, 500, "marshalling config: "+err.Error())
 		return
@@ -710,7 +684,7 @@ func (self *webSocketConnection) handleCronsCreate(frame types.RequestFrame) {
 		Model:      parameters.Model,
 		AgentID:    parameters.AgentID,
 		Enabled:    true,
-		SessionKey: cron.GenerateSessionKey(parameters.Name),
+		SessionKey: cron.GenerateSessionKey(),
 		CreatedAt:  time.Now().UnixMilli(),
 	}
 

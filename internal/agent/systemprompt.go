@@ -27,6 +27,7 @@ type systemPromptData struct {
 	Yesterday     string
 	AgentContent  string
 	MemoryContent string
+	SkillsContent string
 	TodayLog      string
 	YesterdayLog  string
 	SkillPrompts  string
@@ -55,6 +56,7 @@ func BuildSystemPrompt(configuration *config.Config, agentId string, workspaceDi
 	if workspaceDir != "" {
 		data.AgentContent = loadWorkspaceFile(workspaceDir, "AGENT.md", maxWorkspaceFileChars)
 		data.MemoryContent = loadWorkspaceFile(workspaceDir, "MEMORY.md", maxWorkspaceFileChars)
+		data.SkillsContent = loadWorkspaceFile(workspaceDir, "SKILLS.md", maxWorkspaceFileChars)
 		data.TodayLog = loadWorkspaceFile(workspaceDir, filepath.Join("memory", today+".md"), maxWorkspaceFileChars)
 		data.YesterdayLog = loadWorkspaceFile(workspaceDir, filepath.Join("memory", yesterday+".md"), maxWorkspaceFileChars)
 	}
@@ -69,7 +71,7 @@ func BuildSystemPrompt(configuration *config.Config, agentId string, workspaceDi
 
 // resolveIdentityLine determines the identity line for the system prompt.
 // Priority: per-agent SystemPrompt > global Config.SystemPrompt > default.
-// For non-"main" agents without a custom SystemPrompt, appends agent identity.
+// For non-default agents without a custom SystemPrompt, appends agent identity.
 func resolveIdentityLine(configuration *config.Config, agentId string) string {
 	// Check per-agent SystemPrompt.
 	if agentConfig := configuration.AgentByID(agentId); agentConfig != nil && agentConfig.SystemPrompt != "" {
@@ -78,17 +80,21 @@ func resolveIdentityLine(configuration *config.Config, agentId string) string {
 
 	// Check global SystemPrompt.
 	if configuration.SystemPrompt != "" {
-		if agentId != "" && agentId != config.DefaultAgentID {
-			return fmt.Sprintf("%s You are the '%s' agent.", configuration.SystemPrompt, agentId)
-		}
-		return configuration.SystemPrompt
+		return fmt.Sprintf("%s %s", configuration.SystemPrompt, agentIdentitySuffix(configuration, agentId))
 	}
 
 	// Default identity.
-	if agentId != "" && agentId != config.DefaultAgentID {
-		return fmt.Sprintf("%s You are the '%s' agent.", defaultIdentityLine, agentId)
+	return fmt.Sprintf("%s %s", defaultIdentityLine, agentIdentitySuffix(configuration, agentId))
+}
+
+// agentIdentitySuffix returns a sentence fragment identifying the agent by name
+// and ID (e.g. "You are 'Research Assistant' (agent: research).") or just by ID
+// when no friendly name is set.
+func agentIdentitySuffix(configuration *config.Config, agentId string) string {
+	if agentConfig := configuration.AgentByID(agentId); agentConfig != nil && agentConfig.Name != "" {
+		return fmt.Sprintf("You are '%s' (agent: %s).", agentConfig.Name, agentId)
 	}
-	return defaultIdentityLine
+	return fmt.Sprintf("You are the '%s' agent.", agentId)
 }
 
 // loadWorkspaceFile reads a file from the workspace directory, truncating if too large.

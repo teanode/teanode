@@ -6,6 +6,12 @@
       "description": "Core agent settings.",
       "fields": [
         {
+          "key": "name",
+          "label": "Name",
+          "type": "string",
+          "description": "Friendly display name for this agent."
+        },
+        {
           "key": "model",
           "label": "Model",
           "type": "string",

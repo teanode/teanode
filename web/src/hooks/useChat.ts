@@ -9,6 +9,7 @@ import type {
   ChatHistoryResult,
   SessionsListResult,
   ModelsListResult,
+  AgentsConfigListResult,
   ModelInfo,
   AgentInfo,
   Message,
@@ -133,6 +134,17 @@ export function useChat() {
   const historyLoadedRef = useRef(true);
   const pendingEventsRef = useRef<EventFrame[]>([]);
 
+  function touchSession(key: string) {
+    const now = Date.now();
+    setSessions((previous) => {
+      const updated = previous.map((session) =>
+        session.key === key ? { ...session, lastActive: now } : session
+      );
+      sessionsRef.current = updated;
+      return updated;
+    });
+  }
+
   const handleEvent = useCallback((frame: EventFrame) => {
     if (frame.event === 'sessions') {
       const now = Date.now();
@@ -150,18 +162,6 @@ export function useChat() {
     const chatEvent = frame.payload as ChatEvent;
     if (!chatEvent) return;
 
-    // Title events: update session list immediately (no message mutation)
-    if (chatEvent.state === 'title') {
-      setSessions((prev) => {
-        const updated = prev.map((session) =>
-          session.key === chatEvent.sessionKey ? { ...session, title: chatEvent.title } : session
-        );
-        sessionsRef.current = updated;
-        return updated;
-      });
-      return;
-    }
-
     // Clean up activeRuns for completed runs (no message mutation)
     if (chatEvent.state === 'final' || chatEvent.state === 'error' || chatEvent.state === 'aborted') {
       if (chatEvent.sessionKey && activeRunsRef.current.get(chatEvent.sessionKey) === chatEvent.runId) {
@@ -177,6 +177,7 @@ export function useChat() {
 
     // Handle user messages from external sources (Discord, Telegram, cron)
     if (chatEvent.state === 'user_message') {
+      if (chatEvent.sessionKey) touchSession(chatEvent.sessionKey);
       if (chatEvent.sessionKey === sessionKeyRef.current) {
         currentRunIdRef.current = chatEvent.runId || null;
         if (chatEvent.runId && chatEvent.sessionKey) {
@@ -288,6 +289,7 @@ export function useChat() {
       setToolActivity(null);
       setStatus('tool done, thinking...');
     } else if (chatEvent.state === 'final') {
+      if (chatEvent.sessionKey) touchSession(chatEvent.sessionKey);
       setToolActivity(null);
       const finalText = chatEvent.text || streamTextRef.current;
       const finalTs = Date.now();
@@ -413,7 +415,7 @@ export function useChat() {
     if (key) {
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
-      sendRpcRef.current<ChatHistoryResult>('chat.history', { sessionKey: key })
+      sendRpcRef.current<ChatHistoryResult>('chat.history', { sessionKey: key, agentId: currentAgentIdRef.current || undefined })
         .then((res) => {
           if (sessionKeyRef.current !== key) return;
           const displayMessages = convertHistory(res.messages || []);
@@ -550,20 +552,6 @@ export function useChat() {
     [sendRpc]
   );
 
-  const renameSession = useCallback(
-    (key: string, title: string) => {
-      setSessions((prev) => {
-        const updated = prev.map((session) => (session.key === key ? { ...session, title } : session));
-        sessionsRef.current = updated;
-        return updated;
-      });
-      sendRpc('sessions.rename', { sessionKey: key, title }).catch((error) =>
-        console.error('sessions.rename:', error)
-      );
-    },
-    [sendRpc]
-  );
-
   const sendMessage = useCallback(
     (text: string, model?: string) => {
       if (!text.trim() || isRunning) return;
@@ -592,6 +580,7 @@ export function useChat() {
         .then((res) => {
           currentRunIdRef.current = res.runId;
           activeRunsRef.current.set(res.sessionKey, res.runId);
+          touchSession(res.sessionKey);
           if (!sessionKeyRef.current) {
             setSessionKey(res.sessionKey);
             sessionKeyRef.current = res.sessionKey;
@@ -631,6 +620,14 @@ export function useChat() {
     sendRpc('chat.abort', { runId: currentRunIdRef.current }).catch(() => {});
   }, [sendRpc]);
 
+  const refreshAgents = useCallback(() => {
+    sendRpc<AgentsConfigListResult>('agents.config.list', {})
+      .then((result) => {
+        if (result.agents) setAgents(result.agents.map((agent) => ({ id: agent.id })));
+      })
+      .catch((error: unknown) => console.error('agents.config.list:', error));
+  }, [sendRpc]);
+
   return {
     sessions,
     sessionKey,
@@ -651,8 +648,8 @@ export function useChat() {
     switchSession,
     newSession,
     deleteSession,
-    renameSession,
     loadSessions,
+    refreshAgents,
     sendRpc,
   };
 }

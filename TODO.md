@@ -34,12 +34,12 @@
 - [x] Implement graceful shutdown (signal.NotifyContext with SIGTERM)
 - [ ] Deepen `/health` endpoint (check workspace availability, provider reachability)
 - [x] Add configuration hot-reload without restart (file watcher on config, skills, crons)
-- [ ] Optimize `memory_list` tool (caching or streaming instead of full tree walk)
+- [ ] Optimize `workspace_list` tool (caching or streaming instead of full tree walk)
 
 ## Agent Tools
 
 - [x] Web search tool (Brave Search API)
-- [ ] Web fetch / URL reading tool (HTML → markdown extraction)
+- [x] Web fetch / URL reading tool (HTML → markdown extraction)
 - [ ] Bash / command execution tool with approval workflow
 - [x] Memory read/write/edit/search tools (workspace-scoped filesystem)
 - [ ] General filesystem tools (read/write outside workspace)
@@ -62,8 +62,9 @@
 
 ## Multi-Agent & Routing
 
-- [ ] Multi-agent support (multiple agent configs with separate workspaces)
-- [ ] Agent routing (route requests to different agents based on channel/context)
+- [x] Multi-agent support (multiple agent configs with separate workspaces)
+- [x] Agent routing (route requests to different agents based on channel/context)
+- [x] Inter-agent messaging (agent_list, agent_message tools with permission control)
 - [ ] Subagent spawning (agent can spawn isolated sub-conversations)
 
 ## Messaging Channels
@@ -72,20 +73,22 @@
 - [x] Discord channel integration (per-channel sessions, model overrides, slash commands)
 - [ ] Slack channel integration
 - [ ] WhatsApp channel integration
-- [ ] Channel-level routing to specific agents
+- [x] Channel-level routing to specific agents
 
 ## Session Management
 
 - [x] Session state patch (per-channel model overrides in Discord/Telegram)
 - [x] Session pruning / context compaction (summarize old messages)
 - [x] JSONL-based persistent session storage with titles
+- [x] Background session summarizer (auto-generate titles and summaries)
+- [x] Configurable summarizer settings (timing, thresholds, char limits via schema)
 - [ ] Queue modes for concurrent requests (serial, parallel, drop)
 
 ## Security & Sandboxing
 
 - [ ] Tool approval workflows (user confirms before sensitive tool execution)
 - [ ] Docker-based sandbox for tool execution (per-session containers)
-- [ ] Tool policies (allowlist/denylist per agent or group)
+- [x] Tool policies (allowlist/denylist per agent or group)
 
 ## Automation
 
@@ -99,9 +102,10 @@
 
 - [x] Modular system prompt builder (template-based composable sections)
 - [x] Runtime info injection (date, time, timezone)
-- [x] Memory/workspace context loading (AGENTS.md, MEMORY.md, daily logs)
+- [x] Memory/workspace context loading (AGENT.md, MEMORY.md, SKILLS.md)
 - [x] Skill prompt injection into system prompt
 - [x] Context compaction / summarization for long conversations
+- [x] Schema-driven config defaults (single source of truth in JSON schemas)
 - [ ] Runtime host/OS/shell info injection
 
 ## CLI

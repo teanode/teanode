@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
-import Container from '@mui/material/Container';
 import IconButton from '@mui/material/IconButton';
 import SendRounded from '@mui/icons-material/SendRounded';
 import { useAppContext } from '../../../context';
 
 /** /chat/$agentId/ — new chat page with centered input. */
 export default function ChatNewPage() {
+  const { t } = useTranslation();
   const { agentId } = useParams({ strict: false }) as { agentId: string };
   const { chat } = useAppContext();
   const navigate = useNavigate();
@@ -65,7 +66,6 @@ export default function ChatNewPage() {
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
-        <Container maxWidth="sm">
           <Box
             sx={{
               display: 'flex',
@@ -77,6 +77,8 @@ export default function ChatNewPage() {
               px: 1.5,
               py: 1,
               gap: 1,
+              width: '100%',
+              maxWidth: 600,
               '&:focus-within': {
                 borderColor: 'primary.main',
               },
@@ -85,7 +87,7 @@ export default function ChatNewPage() {
             <Box
               component="textarea"
               ref={textareaRef}
-              placeholder="Send a message..."
+              placeholder={t('chat.startConversation')}
               rows={2}
               autoFocus
               onKeyDown={handleKeyDown}
@@ -120,7 +122,6 @@ export default function ChatNewPage() {
               <SendRounded fontSize="small" />
             </IconButton>
           </Box>
-        </Container>
       </Box>
     </Box>
   );

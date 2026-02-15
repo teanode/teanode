@@ -126,6 +126,7 @@ type SessionInfo struct {
 	Key        string `json:"key"`
 	LastActive int64  `json:"lastActive"` // ms since epoch
 	Title      string `json:"title,omitempty"`
+	Summary    string `json:"summary,omitempty"`
 }
 
 // List returns all session keys, sorted by last modification time (newest first).
@@ -151,9 +152,10 @@ func (self *Store) List() ([]SessionInfo, error) {
 			Key:        strings.TrimSuffix(entry.Name(), ".jsonl"),
 			LastActive: info.ModTime().UnixMilli(),
 		}
-		// Read the header line to extract the title.
+		// Read the header line to extract the title and summary.
 		if header, err := self.LoadHeader(sessionInfo.Key); err == nil {
 			sessionInfo.Title = header.Title
+			sessionInfo.Summary = header.Summary
 		}
 		sessions = append(sessions, sessionInfo)
 	}
@@ -219,6 +221,62 @@ func (self *Store) SetTitle(sessionKey, title string) error {
 	buffer.Write(newHeader)
 	buffer.Write(data[index:]) // includes the leading '\n' and all remaining lines
 	return atomicfile.WriteFile(path, buffer.Bytes())
+}
+
+// SetTitleAndSummary updates both the title and summary in a session's header
+// line in a single write, preserving the file's original modification time.
+func (self *Store) SetTitleAndSummary(sessionKey, title, summary string) error {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.updateHeader(sessionKey, func(header *SessionHeader) {
+		header.Title = title
+		header.Summary = summary
+		header.SummarizedAt = time.Now().UnixMilli()
+	})
+}
+
+// updateHeader reads the session file, applies mutate to the header, rewrites
+// the file, and restores the original modification time.
+func (self *Store) updateHeader(sessionKey string, mutate func(*SessionHeader)) error {
+	path := self.path(sessionKey)
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat session %s: %w", sessionKey, err)
+	}
+	originalModTime := info.ModTime()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading session %s: %w", sessionKey, err)
+	}
+
+	// Split into first line (header) and the rest.
+	index := bytes.IndexByte(data, '\n')
+	if index < 0 {
+		return fmt.Errorf("session %s: no newline in file", sessionKey)
+	}
+
+	var header SessionHeader
+	if err := json.Unmarshal(data[:index], &header); err != nil {
+		return fmt.Errorf("session %s: parsing header: %w", sessionKey, err)
+	}
+	mutate(&header)
+
+	newHeader, err := json.Marshal(header)
+	if err != nil {
+		return fmt.Errorf("session %s: marshaling header: %w", sessionKey, err)
+	}
+
+	var buffer bytes.Buffer
+	buffer.Write(newHeader)
+	buffer.Write(data[index:]) // includes the leading '\n' and all remaining lines
+	if err := atomicfile.WriteFile(path, buffer.Bytes()); err != nil {
+		return err
+	}
+
+	// Restore original modification time so LastActive isn't affected.
+	return os.Chtimes(path, originalModTime, originalModTime)
 }
 
 // Delete removes a session file.

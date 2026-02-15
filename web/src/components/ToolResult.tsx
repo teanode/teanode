@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
@@ -39,6 +40,7 @@ function escapeHtml(str: string): string {
 }
 
 export default function ToolResult({ toolName, content }: ToolResultProps) {
+  const { t } = useTranslation();
   const mediaInfo = detectMedia(content);
 
   const resultBorderColor = (theme: any) => theme.palette.mode === 'dark' ? '#2a3a1a' : '#c5d5a5';
@@ -71,12 +73,12 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
             color="primary"
             sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
           />
-          <Typography variant="caption">result</Typography>
+          <Typography variant="caption">{t('tool.result')}</Typography>
         </Box>
         <Box sx={{ borderRadius: 0.5, overflow: 'hidden' }}>
           <img
             src={source}
-            alt={`${toolName} output`}
+            alt={t('tool.outputAlt', { toolName })}
             style={{ maxWidth: '100%', maxHeight: 400, borderRadius: 4 }}
             loading="lazy"
           />
@@ -117,7 +119,7 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
           color="primary"
           sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
         />
-        <Typography variant="caption">result</Typography>
+        <Typography variant="caption">{t('tool.result')}</Typography>
       </Box>
       <Box
         component="pre"
