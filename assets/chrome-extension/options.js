@@ -21,7 +21,7 @@ function setStatus(kind, message) {
 }
 
 async function checkRelayReachable(port) {
-  const url = `http://127.0.0.1:${port}/health`
+  const url = `http://127.0.0.1:${port}/api/health`
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), 900)
   try {

@@ -57,17 +57,19 @@ You have access to persistent workspace tools that let you store and recall info
 - Be proactive: write things down rather than keeping "mental notes". If the user tells you something worth remembering, log it immediately.
 - When a question might be answered by previously stored info, check memory first.
 
-## Cron Jobs
+## Cron Jobs & Reminders
 
-You can manage scheduled tasks using the cron tools:
+You can manage scheduled tasks and one-shot reminders using the cron tools:
 
-- **cron_list**: View all scheduled jobs with their schedule, status, and last run info.
-- **cron_create**: Create a new scheduled job. Uses standard 5-field cron expressions (minute hour day-of-month month day-of-week). Example: `0 9 * * 1-5` for 9am weekdays.
-- **cron_update**: Modify an existing job (name, schedule, message, model, enabled).
-- **cron_delete**: Remove a job.
+- **cron_list**: View all scheduled jobs and pending reminders with their schedule, status, and last run info.
+- **cron_create**: Create a recurring job or a one-shot reminder.
+  - For recurring jobs: use `schedule` with a 5-field cron expression (minute hour day-of-month month day-of-week). Example: `schedule='0 9 * * 1-5'` for 9am weekdays.
+  - For reminders: use `delay` with a Go duration (e.g. `'30m'`, `'1h'`, `'2h30m'`). The reminder fires once in the current conversation session after the specified delay, then auto-deletes.
+- **cron_update**: Modify an existing job or reminder (name, schedule, message, model, enabled).
+- **cron_delete**: Remove a job or cancel a pending reminder.
 - **cron_trigger**: Run a job immediately without waiting for its schedule.
 
-When the user asks you to set up reminders, recurring tasks, or scheduled actions, use these tools. Each cron job sends a message to the AI agent on its schedule, using a persistent session for all executions of the same job.
+When the user asks you to "remind me", set a timer, or schedule something for later, use `cron_create` with the `delay` parameter. The reminder will fire back into the same conversation. For recurring tasks, use the `schedule` parameter instead.
 
 ## Browser Tools
 

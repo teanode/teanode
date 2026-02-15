@@ -69,7 +69,9 @@ export default function AgentEditor({ agent, models, schema, onSave, onDelete }:
   }
 
   const isDirty = JSON.stringify(draft) !== JSON.stringify(agent);
-  const modelSuggestions = models.map((modelInfo) => `${modelInfo.provider}:${modelInfo.id}`);
+  const suggestionMap: Record<string, string[]> = {
+    model: models.map((modelInfo) => `${modelInfo.provider}:${modelInfo.id}`),
+  };
 
   return (
     <Box sx={{ flex: 1, overflowY: 'auto' }}>
@@ -102,20 +104,15 @@ export default function AgentEditor({ agent, models, schema, onSave, onDelete }:
               {section.label}
             </Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {section.fields.map((field) => {
-                const isModelField =
-                  field.type === 'string' &&
-                  field.key.toLowerCase().includes('model');
-                return (
-                  <SchemaField
-                    key={field.key}
-                    field={field}
-                    value={getValue(field.key)}
-                    onChange={(value) => setValue(field.key, value)}
-                    suggestions={isModelField ? modelSuggestions : undefined}
-                  />
-                );
-              })}
+              {section.fields.map((field) => (
+                <SchemaField
+                  key={field.key}
+                  field={field}
+                  value={getValue(field.key)}
+                  onChange={(value) => setValue(field.key, value)}
+                  suggestions={field.suggest ? suggestionMap[field.suggest] : undefined}
+                />
+              ))}
             </Box>
           </Paper>
         ))}

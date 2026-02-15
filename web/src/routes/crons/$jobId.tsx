@@ -28,6 +28,7 @@ export default function CronDetailPage() {
       creating={false}
       models={chat.models}
       agents={chat.agents}
+      sessions={chat.sessions}
       onLoad={cronJobs.loadJobs}
       onCreate={(params) => cronJobs.createJob(params)}
       onUpdate={cronJobs.updateJob}

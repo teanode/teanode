@@ -1,15 +1,18 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
+import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
 import type { DisplayMessage } from '../types';
 import { useAppContext } from '../context';
 import MessageBubble from './MessageBubble';
 import ToolInvoke from './ToolInvoke';
 import ToolResult from './ToolResult';
 import UsageIndicator from './UsageIndicator';
+
+const SCROLL_THRESHOLD = 80;
 
 interface MessageListProps {
   messages: DisplayMessage[];
@@ -18,6 +21,7 @@ interface MessageListProps {
   streamText: string;
   toolActivity: string | null;
   status: string;
+  activeRunId: string | null;
 }
 
 function formatTime(timestamp: number): string {
@@ -38,6 +42,10 @@ function dateLabelFor(timestamp: number, t: (key: string) => string): string {
   return messageDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: messageDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
+function isNearBottom(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight < SCROLL_THRESHOLD;
+}
+
 export default function MessageList({
   messages,
   isRunning,
@@ -45,13 +53,21 @@ export default function MessageList({
   streamText,
   toolActivity,
   status,
+  activeRunId,
 }: MessageListProps) {
   const { t } = useTranslation();
   const { showToolCalls, showTokenUsage } = useAppContext();
   const containerRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
+
+  const handleScroll = useCallback(() => {
+    if (containerRef.current) {
+      userScrolledUp.current = !isNearBottom(containerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
-    if (containerRef.current) {
+    if (containerRef.current && !userScrolledUp.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [messages, streamText, toolActivity, isRunning]);
@@ -82,6 +98,7 @@ export default function MessageList({
     <Box
       ref={containerRef}
       onClick={handleClick}
+      onScroll={handleScroll}
       sx={{
         flex: 1,
         overflowY: 'auto',
@@ -92,8 +109,8 @@ export default function MessageList({
       }}
     >
       {messages.map((message, index) => {
-        const isLast = index === messages.length - 1;
-        const isStreamingMessage = isLast && message.type === 'assistant' && isStreaming;
+        const isActiveRun = message.runId === activeRunId;
+        const isStreamingMessage = isActiveRun && isStreaming;
 
         let dateSeparator: React.ReactNode = null;
         if (message.timestamp && (message.type === 'user' || message.type === 'assistant')) {
@@ -120,6 +137,38 @@ export default function MessageList({
         }
 
         if (message.type === 'assistant') {
+          // Active run, waiting for response — show thinking spinner.
+          // Also show thinking for messages not yet tagged with a runId (pre-RPC-response).
+          if (!message.content && !isStreaming && isRunning && (isActiveRun || !message.runId)) {
+            return (
+              <React.Fragment key={message.id}>
+                {dateSeparator}
+                <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CircularProgress size={12} color="primary" />
+                  <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                    {toolActivity ? t('chat.callingTool', { toolName: toolActivity }) : t('chat.thinking')}
+                  </Typography>
+                </Box>
+              </React.Fragment>
+            );
+          }
+
+          // Queued run — show queued indicator
+          if (!isActiveRun && !message.content && message.runId) {
+            return (
+              <React.Fragment key={message.id}>
+                {dateSeparator}
+                <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <HourglassEmptyRounded sx={{ fontSize: 12 }} color="disabled" />
+                  <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                    {t('chat.queued')}
+                  </Typography>
+                </Box>
+              </React.Fragment>
+            );
+          }
+
+          // Normal assistant message rendering
           return (
             <React.Fragment key={message.id}>
               {dateSeparator}
@@ -163,15 +212,6 @@ export default function MessageList({
 
         return null;
       })}
-
-      {isRunning && !isStreaming && (
-        <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <CircularProgress size={12} color="primary" />
-          <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-            {toolActivity ? t('chat.callingTool', { toolName: toolActivity }) : t('chat.thinking')}
-          </Typography>
-        </Box>
-      )}
     </Box>
   );
 }

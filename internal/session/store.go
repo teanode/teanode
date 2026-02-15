@@ -34,7 +34,10 @@ func (self *Store) Load(sessionKey string) ([]Message, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
-	path := self.path(sessionKey)
+	path, err := self.path(sessionKey)
+	if err != nil {
+		return nil, err
+	}
 	file, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -84,7 +87,10 @@ func (self *Store) Append(sessionKey string, message Message) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
-	path := self.path(sessionKey)
+	path, err := self.path(sessionKey)
+	if err != nil {
+		return err
+	}
 
 	// Create file with header if it doesn't exist.
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -169,7 +175,10 @@ func (self *Store) List() ([]SessionInfo, error) {
 
 // LoadHeader reads and parses just the first line (header) of a session JSONL file.
 func (self *Store) LoadHeader(sessionKey string) (*SessionHeader, error) {
-	path := self.path(sessionKey)
+	path, err := self.path(sessionKey)
+	if err != nil {
+		return nil, err
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open session %s: %w", sessionKey, err)
@@ -194,7 +203,10 @@ func (self *Store) SetTitle(sessionKey, title string) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
-	path := self.path(sessionKey)
+	path, err := self.path(sessionKey)
+	if err != nil {
+		return err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading session %s: %w", sessionKey, err)
@@ -238,7 +250,10 @@ func (self *Store) SetTitleAndSummary(sessionKey, title, summary string) error {
 // updateHeader reads the session file, applies mutate to the header, rewrites
 // the file, and restores the original modification time.
 func (self *Store) updateHeader(sessionKey string, mutate func(*SessionHeader)) error {
-	path := self.path(sessionKey)
+	path, err := self.path(sessionKey)
+	if err != nil {
+		return err
+	}
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -281,14 +296,22 @@ func (self *Store) updateHeader(sessionKey string, mutate func(*SessionHeader)) 
 
 // Delete removes a session file.
 func (self *Store) Delete(sessionKey string) error {
-	path := self.path(sessionKey)
-	err := os.Remove(path)
+	path, err := self.path(sessionKey)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	return err
 }
 
-func (self *Store) path(sessionKey string) string {
-	return filepath.Join(self.directory, sessionKey+".jsonl")
+var errEmptySessionKey = fmt.Errorf("session key must not be empty")
+
+func (self *Store) path(sessionKey string) (string, error) {
+	if sessionKey == "" {
+		return "", errEmptySessionKey
+	}
+	return filepath.Join(self.directory, sessionKey+".jsonl"), nil
 }

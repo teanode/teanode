@@ -62,6 +62,9 @@ func (self *Scheduler) Reload() error {
 		if !job.Enabled {
 			continue
 		}
+		if job.RunAt > 0 {
+			continue // one-shot timer jobs don't use cron expressions
+		}
 		expr, err := Parse(job.Schedule)
 		if err != nil {
 			log.Errorf("bad cron expression for job %s (%s): %v", job.ID, job.Schedule, err)
@@ -159,15 +162,22 @@ func (self *Scheduler) tick(when time.Time) {
 	expressions := self.expressions
 	self.mutex.Unlock()
 
+	nowMilliseconds := when.UnixMilli()
 	for _, job := range jobs {
 		if !job.Enabled {
 			continue
 		}
-		expr, ok := expressions[job.ID]
+		if job.RunAt > 0 {
+			if nowMilliseconds >= job.RunAt {
+				go self.executeJob(job)
+			}
+			continue
+		}
+		expression, ok := expressions[job.ID]
 		if !ok {
 			continue
 		}
-		if expr.Matches(when) {
+		if expression.Matches(when) {
 			go self.executeJob(job)
 		}
 	}
@@ -175,6 +185,20 @@ func (self *Scheduler) tick(when time.Time) {
 
 func (self *Scheduler) executeJob(job CronJob) {
 	defer deferutil.Recover()
+
+	// Immediately disable one-shot jobs to prevent duplicate execution on the next tick.
+	if job.OneShot {
+		job.Enabled = false
+		_ = self.store.Update(job)
+		self.mutex.Lock()
+		for index := range self.jobs {
+			if self.jobs[index].ID == job.ID {
+				self.jobs[index].Enabled = false
+				break
+			}
+		}
+		self.mutex.Unlock()
+	}
 
 	// Resolve the runner for this job's agent.
 	agentId := job.AgentID
@@ -212,11 +236,13 @@ func (self *Scheduler) executeJob(job CronJob) {
 		})
 	}
 
-	// Set a human-readable session title.
-	title := fmt.Sprintf("Cron: %s", job.Name)
-	runner.Sessions.SetTitle(job.SessionKey, title)
-	if self.Broadcast != nil {
-		self.Broadcast("sessions", nil)
+	// Set a human-readable session title (skip for one-shot reminders bound to existing sessions).
+	if !job.OneShot {
+		title := fmt.Sprintf("Cron: %s", job.Name)
+		runner.Sessions.SetTitle(job.SessionKey, title)
+		if self.Broadcast != nil {
+			self.Broadcast("sessions", nil)
+		}
 	}
 
 	var callbacks *agent.RunCallbacks
@@ -309,4 +335,16 @@ func (self *Scheduler) executeJob(job CronJob) {
 		}
 	}
 	self.mutex.Unlock()
+
+	// Self-destruct one-shot jobs after execution.
+	if job.OneShot {
+		if deleteError := self.store.Delete(job.ID); deleteError != nil {
+			log.Errorf("deleting one-shot job %s: %v", job.ID, deleteError)
+		} else {
+			_ = self.Reload()
+		}
+		if self.Broadcast != nil {
+			self.Broadcast("crons", nil)
+		}
+	}
 }

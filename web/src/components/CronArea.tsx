@@ -5,7 +5,7 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Switch from '@mui/material/Switch';
 import Chip from '@mui/material/Chip';
-import type { CronJob, CronJobCreateParams, CronJobUpdateParams, ModelInfo, AgentInfo } from '../types';
+import type { CronJob, CronJobCreateParams, CronJobUpdateParams, ModelInfo, AgentInfo, Session } from '../types';
 import CronJobForm from './CronJobForm';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -22,6 +22,7 @@ interface CronAreaProps {
   creating: boolean;
   models: ModelInfo[];
   agents: AgentInfo[];
+  sessions: Session[];
   onLoad: () => void;
   onCreate: (params: CronJobCreateParams) => Promise<void>;
   onUpdate: (params: CronJobUpdateParams) => Promise<void>;
@@ -36,6 +37,7 @@ export default function CronArea({
   creating,
   models,
   agents,
+  sessions,
   onLoad,
   onCreate,
   onUpdate,
@@ -120,16 +122,20 @@ export default function CronArea({
       <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{job.name}</Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Button
-            size="small"
-            variant="contained"
-            onClick={() => onTrigger(job.id).then(() => onViewSession(job.sessionKey))}
-          >
-            {t('cron.runNow')}
-          </Button>
-          <Button size="small" variant="text" onClick={() => setEditing(true)}>
-            {t('common.edit')}
-          </Button>
+          {!job.oneShot && (
+            <Button
+              size="small"
+              variant="contained"
+              onClick={() => onTrigger(job.id).then(() => onViewSession(job.sessionKey))}
+            >
+              {t('cron.runNow')}
+            </Button>
+          )}
+          {!job.oneShot && (
+            <Button size="small" variant="text" onClick={() => setEditing(true)}>
+              {t('common.edit')}
+            </Button>
+          )}
           <Button size="small" color="error" variant="text" onClick={() => setDeleteConfirm(true)}>
             {t('common.delete')}
           </Button>
@@ -146,20 +152,26 @@ export default function CronArea({
       />
       <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
         {/* Status toggle */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-          <Switch
-            checked={job.enabled}
-            onChange={() => onUpdate({ id: job.id, enabled: !job.enabled })}
-            color="primary"
-          />
-          <Typography variant="body2">{job.enabled ? t('cron.enabled') : t('cron.disabled')}</Typography>
-        </Box>
+        {!job.oneShot && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+            <Switch
+              checked={job.enabled}
+              onChange={() => onUpdate({ id: job.id, enabled: !job.enabled })}
+              color="primary"
+            />
+            <Typography variant="body2">{job.enabled ? t('cron.enabled') : t('cron.disabled')}</Typography>
+          </Box>
+        )}
 
         {/* Details */}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2 }}>
           <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{t('cron.schedule')}</Typography>
-            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{job.schedule}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+              {job.runAt ? t('cron.firesAt') : t('cron.schedule')}
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {job.runAt ? new Date(job.runAt).toLocaleString() : job.schedule}
+            </Typography>
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{t('cron.message')}</Typography>
@@ -208,11 +220,13 @@ export default function CronArea({
         </Box>
 
         {/* View session link */}
-        <Box sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5 }}>
-          <Button size="small" color="primary" variant="text" onClick={() => onViewSession(job.sessionKey)}>
-            {t('cron.viewHistory')}
-          </Button>
-        </Box>
+        {job.sessionKey && sessions.some((session) => session.key === job.sessionKey) && (
+          <Box sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5 }}>
+            <Button size="small" color="primary" variant="text" onClick={() => onViewSession(job.sessionKey)}>
+              {t('cron.viewHistory')}
+            </Button>
+          </Box>
+        )}
       </Box>
     </Box>
   );

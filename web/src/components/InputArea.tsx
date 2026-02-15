@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
@@ -18,25 +18,27 @@ export default function InputArea({
 }: InputAreaProps) {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [hasText, setHasText] = useState(false);
 
   const handleSend = useCallback(() => {
     const element = textareaRef.current;
     if (!element) return;
     const text = element.value.trim();
-    if (!text || isRunning) return;
+    if (!text) return;
     onSend(text);
     element.value = '';
     element.style.height = 'auto';
-  }, [isRunning, onSend]);
+    setHasText(false);
+  }, [onSend]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        if (!isRunning) handleSend();
+        handleSend();
       }
     },
-    [isRunning, handleSend]
+    [handleSend]
   );
 
   const handleInput = useCallback(() => {
@@ -44,7 +46,10 @@ export default function InputArea({
     if (!element) return;
     element.style.height = 'auto';
     element.style.height = Math.min(element.scrollHeight, 150) + 'px';
+    setHasText(!!element.value.trim());
   }, []);
+
+  const showStop = isRunning && !hasText;
 
   return (
     <Box sx={{ px: 2, py: 1.5 }}>
@@ -90,15 +95,16 @@ export default function InputArea({
         />
         <IconButton
           size="small"
-          color={isRunning ? 'error' : 'primary'}
-          onClick={isRunning ? onAbort : handleSend}
+          color={showStop ? 'error' : 'primary'}
+          onClick={showStop ? onAbort : handleSend}
+          disabled={!showStop && !hasText}
           sx={{
             flexShrink: 0,
             width: 32,
             height: 32,
           }}
         >
-          {isRunning ? <StopRounded fontSize="small" /> : <SendRounded fontSize="small" />}
+          {showStop ? <StopRounded fontSize="small" /> : <SendRounded fontSize="small" />}
         </IconButton>
       </Box>
     </Box>

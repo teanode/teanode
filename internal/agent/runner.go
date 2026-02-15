@@ -18,6 +18,12 @@ import (
 	"github.com/teanode/teanode/internal/session"
 )
 
+// sessionState holds per-session concurrency control channels.
+type sessionState struct {
+	lock chan struct{} // semaphore (buffered, size 1) — serializes runs
+	done chan struct{} // closed on session cancellation — wakes all waiters
+}
+
 // Runner orchestrates: load session -> build prompt -> call LLM -> save response.
 type Runner struct {
 	mutex        sync.RWMutex
@@ -32,6 +38,9 @@ type Runner struct {
 
 	// contextWindows maps "provider:model" → context window size.
 	contextWindows sync.Map
+
+	// sessionStates maps session key → *sessionState for per-session serial execution.
+	sessionStates sync.Map
 }
 
 // Reconfigure hot-swaps the runner's configuration, providers, tools, and skill prompts.
@@ -88,14 +97,75 @@ type RunResult struct {
 
 // RunCallbacks receives events during an agent run.
 type RunCallbacks struct {
+	OnQueued     func()                              // called when the run must wait for the semaphore
+	OnStart      func()                              // called after the semaphore is acquired, before execution
 	OnTextDelta  func(text string)
 	OnToolCall   func(toolName string, arguments string)
 	OnToolResult func(toolName string, result string)
 }
 
-// Run executes a chat turn: appends the user message, calls the LLM (streaming),
-// and appends the assistant response. Loops when the LLM requests tool calls.
+// getSessionState returns the sessionState for a given session key, creating one if needed.
+func (self *Runner) getSessionState(sessionKey string) *sessionState {
+	state, _ := self.sessionStates.LoadOrStore(sessionKey, &sessionState{
+		lock: make(chan struct{}, 1),
+		done: make(chan struct{}),
+	})
+	return state.(*sessionState)
+}
+
+// CancelSession closes the done channel for the given session key, waking all queued
+// goroutines so they return context.Canceled. A fresh sessionState is created on the
+// next Run call via LoadOrStore.
+func (self *Runner) CancelSession(sessionKey string) {
+	if value, loaded := self.sessionStates.LoadAndDelete(sessionKey); loaded {
+		state := value.(*sessionState)
+		close(state.done)
+	}
+}
+
+// Run acquires a per-session semaphore so that only one run executes at a time per
+// session key. Additional calls block until the current run completes. If the session
+// is cancelled via CancelSession, all waiting goroutines return context.Canceled.
 func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
+	state := self.getSessionState(params.SessionKey)
+
+	// Try to acquire the semaphore without blocking first.
+	select {
+	case state.lock <- struct{}{}:
+		// Acquired immediately.
+	default:
+		// Must wait — notify caller that this run is queued.
+		if callbacks != nil && callbacks.OnQueued != nil {
+			callbacks.OnQueued()
+		}
+		select {
+		case state.lock <- struct{}{}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-state.done:
+			return nil, context.Canceled
+		}
+	}
+	defer func() { <-state.lock }()
+
+	// Re-check session cancellation after acquiring.
+	select {
+	case <-state.done:
+		return nil, context.Canceled
+	default:
+	}
+
+	// Notify caller that the run is starting (semaphore acquired).
+	if callbacks != nil && callbacks.OnStart != nil {
+		callbacks.OnStart()
+	}
+
+	return self.executeRun(ctx, params, callbacks)
+}
+
+// executeRun performs the actual chat turn: appends the user message, calls the LLM
+// (streaming), and appends the assistant response. Loops when the LLM requests tool calls.
+func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
 	// Snapshot mutable fields so in-progress runs aren't affected by hot-reloads.
 	configuration, providers, tools, _, _ := self.Snapshot()
 
@@ -291,28 +361,65 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 			break
 		}
 
-		// Execute tool calls and save results.
-		hasToolCalls := false
+		// Phase 1 — Filter & notify: resolve tools, fire OnToolCall callbacks in order.
+		type toolWorkItem struct {
+			toolCall  provider.ToolCall
+			tool      Tool
+			arguments string
+		}
+
+		var workItems []toolWorkItem
 		for _, toolCall := range toolCalls {
 			tool := tools.Get(toolCall.Function.Name)
 			if tool == nil {
 				continue
 			}
-			hasToolCalls = true
 
 			if callbacks != nil && callbacks.OnToolCall != nil {
 				callbacks.OnToolCall(toolCall.Function.Name, toolCall.Function.Arguments)
 			}
 
 			arguments := repairToolArgs(toolCall.Function.Arguments)
+			workItems = append(workItems, toolWorkItem{
+				toolCall:  toolCall,
+				tool:      tool,
+				arguments: arguments,
+			})
+		}
 
-			log.Debugf("tool call id=%s name=%s", toolCall.ID, toolCall.Function.Name)
-			result, err := tool.Execute(ctx, arguments)
-			if err != nil {
-				log.Debugf("tool error id=%s name=%s err=%v", toolCall.ID, toolCall.Function.Name, err)
-				result = "error: " + err.Error()
+		if len(workItems) == 0 {
+			break
+		}
+
+		// Phase 2 — Parallel execute: run all tool calls concurrently.
+		// Each goroutine writes to its own index, so no mutex is needed.
+		type toolResult struct {
+			result string
+			err    error
+		}
+
+		results := make([]toolResult, len(workItems))
+		var waitGroup sync.WaitGroup
+		waitGroup.Add(len(workItems))
+		for position, item := range workItems {
+			go func(position int, item toolWorkItem) {
+				defer waitGroup.Done()
+				log.Debugf("tool call id=%s name=%s", item.toolCall.ID, item.toolCall.Function.Name)
+				result, executeError := item.tool.Execute(ctx, item.arguments)
+				results[position] = toolResult{result: result, err: executeError}
+			}(position, item)
+		}
+		waitGroup.Wait()
+
+		// Phase 3 — Sequential persist: process results in original order
+		// so session JSONL ordering and callbacks remain deterministic.
+		for position, item := range workItems {
+			result := results[position].result
+			if results[position].err != nil {
+				log.Debugf("tool error id=%s name=%s err=%v", item.toolCall.ID, item.toolCall.Function.Name, results[position].err)
+				result = "error: " + results[position].err.Error()
 			} else {
-				log.Debugf("tool done id=%s name=%s result_len=%d", toolCall.ID, toolCall.Function.Name, len(result))
+				log.Debugf("tool done id=%s name=%s result_len=%d", item.toolCall.ID, item.toolCall.Function.Name, len(result))
 			}
 
 			// Detect media in tool result. If base64 media is found and we
@@ -339,18 +446,14 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 			}
 
 			if callbacks != nil && callbacks.OnToolResult != nil {
-				callbacks.OnToolResult(toolCall.Function.Name, liveResult)
+				callbacks.OnToolResult(item.toolCall.Function.Name, liveResult)
 			}
 
-			toolMessage := session.NewToolMessage(toolCall.ID, toolCall.Function.Name, storedResult, time.Now().UnixMilli())
+			toolMessage := session.NewToolMessage(item.toolCall.ID, item.toolCall.Function.Name, storedResult, time.Now().UnixMilli())
 			if err := self.Sessions.Append(params.SessionKey, toolMessage); err != nil {
 				return nil, fmt.Errorf("saving tool result: %w", err)
 			}
 			history = append(history, toolMessage)
-		}
-
-		if !hasToolCalls {
-			break
 		}
 	}
 

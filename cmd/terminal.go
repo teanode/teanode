@@ -162,7 +162,7 @@ func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand s
 		log.Errorf("terminal: invalid gateway URL: %v", err)
 		return
 	}
-	parsedUrl.Path = "/terminal"
+	parsedUrl.Path = "/api/terminal"
 	query := parsedUrl.Query()
 	if token != "" {
 		query.Set("token", token)

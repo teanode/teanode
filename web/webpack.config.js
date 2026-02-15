@@ -47,12 +47,12 @@ module.exports = (env, argv) => {
       historyApiFallback: true,
       proxy: [
         {
-          context: ['/ws'],
+          context: ['/api/ws'],
           target: 'ws://127.0.0.1:8833',
           ws: true,
         },
         {
-          context: ['/v1', '/health'],
+          context: ['/api'],
           target: 'http://127.0.0.1:8833',
         },
       ],

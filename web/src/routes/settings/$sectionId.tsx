@@ -37,9 +37,10 @@ export default function SettingsSectionPage() {
     );
   }
 
-  const modelSuggestions = chat.models.map(
-    (modelInfo) => `${modelInfo.provider}:${modelInfo.id}`
-  );
+  const suggestionMap: Record<string, string[]> = {
+    model: chat.models.map((modelInfo) => `${modelInfo.provider}:${modelInfo.id}`),
+    agent: chat.agents.map((agent) => agent.id),
+  };
 
   return (
     <Box sx={{ flex: 1, overflowY: 'auto' }}>
@@ -68,20 +69,15 @@ export default function SettingsSectionPage() {
 
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {section.fields.map((field) => {
-              const isModelField =
-                field.type === 'string' &&
-                field.key.toLowerCase().includes('model');
-              return (
-                <SchemaField
-                  key={field.key}
-                  field={field}
-                  value={settings.getValue(field.key)}
-                  onChange={(value) => settings.setValue(field.key, value)}
-                  suggestions={isModelField ? modelSuggestions : undefined}
-                />
-              );
-            })}
+            {section.fields.map((field) => (
+              <SchemaField
+                key={field.key}
+                field={field}
+                value={settings.getValue(field.key)}
+                onChange={(value) => settings.setValue(field.key, value)}
+                suggestions={field.suggest ? suggestionMap[field.suggest] : undefined}
+              />
+            ))}
           </Box>
         </Paper>
       </Container>

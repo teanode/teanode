@@ -31,7 +31,8 @@
     "today": "Today",
     "yesterday": "Yesterday",
     "callingTool": "Calling {{toolName}}...",
-    "thinking": "Thinking..."
+    "thinking": "Thinking...",
+    "queued": "Queued"
   },
   "cron": {
     "newJob": "New Job",
@@ -69,7 +70,8 @@
     "modelPlaceholder": "Leave blank for default",
     "agentOptional": "Agent (optional)",
     "defaultAgent": "Default (main)",
-    "deleteConfirm": "Delete this cron job permanently?"
+    "deleteConfirm": "Delete this cron job permanently?",
+    "firesAt": "Fires at"
   },
   "settings": {
     "preferences": "Preferences",

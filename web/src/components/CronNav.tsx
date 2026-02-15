@@ -82,7 +82,7 @@ export default function CronNav({ jobs, activeJobId, isNewPage, onNavigate }: Cr
                   color: activeJobId === job.id ? '#fff' : 'text.secondary',
                 }}
               >
-                {job.schedule}
+                {job.runAt ? new Date(job.runAt).toLocaleString() : job.schedule}
               </Typography>
             </Box>
             <Box

@@ -39,6 +39,7 @@ export default function ChatSessionPage() {
         streamText={chat.streamText}
         toolActivity={chat.toolActivity}
         status={chat.status}
+        activeRunId={chat.currentRunId}
       />
       <InputArea
         isRunning={chat.isRunning}

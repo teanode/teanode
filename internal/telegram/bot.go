@@ -339,7 +339,7 @@ func (self *Bot) getSessionKey(chatIdStr string) string {
 	if key, ok := self.sessionKeys[chatIdStr]; ok {
 		return key
 	}
-	return fmt.Sprintf("telegram-%s", chatIdStr)
+	return uuid.New().String()
 }
 
 func (self *Bot) getModel(chatIdStr string) string {
@@ -353,11 +353,11 @@ func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, argum
 
 	switch name {
 	case "new":
-		newKey := fmt.Sprintf("telegram-%s-%s", chatIdStr, uuid.New().String()[:8])
+		sessionKey := uuid.New().String()
 		self.sessionMutex.Lock()
-		self.sessionKeys[chatIdStr] = newKey
+		self.sessionKeys[chatIdStr] = sessionKey
 		self.sessionMutex.Unlock()
-		reply = fmt.Sprintf("New session started. (%s)", newKey)
+		reply = fmt.Sprintf("New session started. (%s)", sessionKey)
 
 	case "reset":
 		sessionKey := self.getSessionKey(chatIdStr)
@@ -374,6 +374,7 @@ func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, argum
 		self.activeMutex.Unlock()
 		if found {
 			cancel()
+			self.runner.CancelSession(sessionKey)
 			reply = "Run cancelled."
 		} else {
 			reply = "No active run to cancel."

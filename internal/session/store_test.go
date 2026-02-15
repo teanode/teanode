@@ -53,7 +53,8 @@ func TestStoreAppendAndLoad(t *testing.T) {
 	}
 
 	// Verify JSONL file was created.
-	info, err := os.Stat(store.path(key))
+	sessionPath, _ := store.path(key)
+	info, err := os.Stat(sessionPath)
 	if err != nil {
 		t.Fatalf("session file: %v", err)
 	}

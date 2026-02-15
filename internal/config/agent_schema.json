@@ -15,6 +15,7 @@
           "key": "model",
           "label": "Model",
           "type": "string",
+          "suggest": "model",
           "description": "Qualified model override (e.g. openai:gpt-4o). Defaults to global model.",
           "placeholder": "Default"
         },

@@ -23,6 +23,7 @@ export default function CronsNewPage() {
       creating={true}
       models={chat.models}
       agents={chat.agents}
+      sessions={chat.sessions}
       onLoad={cronJobs.loadJobs}
       onCreate={handleCreate}
       onUpdate={cronJobs.updateJob}

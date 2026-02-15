@@ -76,7 +76,7 @@ func (self *Server) handleChatCompletions(writer http.ResponseWriter, request *h
 	// Use user field or generate ephemeral session key.
 	sessionKey := chatRequest.User
 	if sessionKey == "" {
-		sessionKey = "api:" + uuid.New().String()
+		sessionKey = uuid.New().String()
 	}
 
 	// Extract the last user message.
@@ -115,7 +115,7 @@ func (self *Server) handleChatCompletionsSync(writer http.ResponseWriter, reques
 	}
 
 	response := openaiResponse{
-		ID:      "chatcmpl-" + uuid.New().String(),
+		ID:      uuid.New().String(),
 		Object:  "chat.completion",
 		Created: time.Now().Unix(),
 		Model:   result.Model,
@@ -156,7 +156,7 @@ func (self *Server) handleChatCompletionsStream(writer http.ResponseWriter, http
 	ctx, cancel := context.WithCancel(httpRequest.Context())
 	defer cancel()
 
-	responseId := "chatcmpl-" + uuid.New().String()
+	responseId := uuid.New().String()
 
 	runner := self.AgentRegistry.Default()
 	if runner == nil {

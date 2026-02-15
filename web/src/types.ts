@@ -122,6 +122,7 @@ export interface Message {
 
 export type ChatEventState =
   | 'user_message'
+  | 'queued'
   | 'delta'
   | 'tool_call'
   | 'tool_result'
@@ -169,6 +170,8 @@ export interface CronJob {
   agentId?: string;
   enabled: boolean;
   sessionKey: string;
+  runAt?: number;
+  oneShot?: boolean;
   lastRun?: number;
   lastStatus?: string;
   lastError?: string;
@@ -213,6 +216,7 @@ export interface SchemaFieldDef {
   default?: unknown;
   options?: SchemaFieldOption[];
   sensitive?: boolean;
+  suggest?: string;
 }
 
 export interface SchemaSection {
@@ -294,4 +298,5 @@ export interface DisplayMessage {
   toolName?: string;
   usage?: Usage;
   timestamp?: number; // ms since epoch
+  runId?: string;     // associates message with a run for queuing
 }

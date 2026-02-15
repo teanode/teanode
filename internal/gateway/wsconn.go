@@ -16,7 +16,7 @@ type webSocketConnection struct {
 	writeMutex sync.Mutex
 
 	// Active agent runs keyed by run ID.
-	runs sync.Map // map[string]context.CancelFunc
+	runs sync.Map // map[string]activeRunInfo
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time

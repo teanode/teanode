@@ -101,7 +101,7 @@ func GatewayCmd() *cli.Command {
 				defer headlessBrowser.Close()
 				backends = append(backends, headlessBrowser)
 			}
-			log.Info("browser: relay accepting extension connections on /browser")
+			log.Info("browser: relay accepting extension connections on /api/browser")
 			browserBackend := browser.NewCompositeBrowser(backends...)
 
 			terminalRelay := tterminal.NewRelay()

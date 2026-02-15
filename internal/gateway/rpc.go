@@ -62,6 +62,13 @@ func (self *webSocketConnection) handleAgentsList(frame types.RequestFrame) {
 	})
 }
 
+// activeRunInfo tracks the cancel function, session key, and runner for an active agent run.
+type activeRunInfo struct {
+	cancel     context.CancelFunc
+	sessionKey string
+	runner     *agent.Runner
+}
+
 // chatSendParameters are the parameters for chat.send.
 type chatSendParameters struct {
 	SessionKey string `json:"sessionKey"`
@@ -95,16 +102,17 @@ func (self *webSocketConnection) handleChatSend(frame types.RequestFrame) {
 
 	runId := uuid.New().String()
 	ctx, cancel := context.WithCancel(context.Background())
-	self.runs.Store(runId, cancel)
+	self.runs.Store(runId, activeRunInfo{
+		cancel:     cancel,
+		sessionKey: parameters.SessionKey,
+		runner:     runner,
+	})
 
 	// Acknowledge the request immediately with the run ID.
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"runId":      runId,
 		"sessionKey": parameters.SessionKey,
 	})
-
-	// Track active run before starting the goroutine.
-	self.server.SetActiveRun(parameters.SessionKey, runId)
 
 	// Run agent in background goroutine.
 	go func() {
@@ -120,6 +128,16 @@ func (self *webSocketConnection) handleChatSend(frame types.RequestFrame) {
 			Message:    parameters.Message,
 			Model:      parameters.Model,
 		}, &agent.RunCallbacks{
+			OnQueued: func() {
+				self.server.Broadcast("chat", map[string]interface{}{
+					"state":      "queued",
+					"runId":      runId,
+					"sessionKey": parameters.SessionKey,
+				})
+			},
+			OnStart: func() {
+				self.server.SetActiveRun(parameters.SessionKey, runId)
+			},
 			OnTextDelta: func(text string) {
 				self.server.Broadcast("chat", map[string]interface{}{
 					"state":      "delta",
@@ -236,8 +254,10 @@ func (self *webSocketConnection) handleChatAbort(frame types.RequestFrame) {
 		return
 	}
 
-	if cancelFn, ok := self.runs.Load(parameters.RunID); ok {
-		cancelFn.(context.CancelFunc)()
+	if value, ok := self.runs.Load(parameters.RunID); ok {
+		info := value.(activeRunInfo)
+		info.cancel()
+		info.runner.CancelSession(info.sessionKey)
 		self.sendResponse(frame.ID, map[string]interface{}{
 			"aborted": true,
 		})
@@ -677,14 +697,14 @@ func (self *webSocketConnection) handleCronsCreate(frame types.RequestFrame) {
 	}
 
 	job := cron.CronJob{
-		ID:         uuid.New().String()[:8],
+		ID:         uuid.New().String(),
 		Name:       parameters.Name,
 		Schedule:   parameters.Schedule,
 		Message:    parameters.Message,
 		Model:      parameters.Model,
 		AgentID:    parameters.AgentID,
 		Enabled:    true,
-		SessionKey: cron.GenerateSessionKey(),
+		SessionKey: uuid.New().String(),
 		CreatedAt:  time.Now().UnixMilli(),
 	}
 
@@ -759,8 +779,9 @@ func (self *webSocketConnection) handleCronsUpdate(frame types.RequestFrame) {
 	if parameters.Enabled != nil {
 		job.Enabled = *parameters.Enabled
 	}
-	if parameters.AgentID != "" {
+	if parameters.AgentID != "" && parameters.AgentID != job.AgentID {
 		job.AgentID = parameters.AgentID
+		job.SessionKey = uuid.New().String()
 	}
 
 	if err := self.server.Scheduler.UpdateAndReload(*job); err != nil {

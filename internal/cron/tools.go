@@ -29,7 +29,7 @@ func (self *cronListTool) Definition() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "cron_list",
-			Description: "List all cron jobs with their schedule, status, and last run info.",
+			Description: "List all cron jobs and one-shot reminders with their schedule, status, and last run info.",
 			Parameters: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
@@ -54,8 +54,10 @@ func (self *cronCreateTool) Definition() provider.ToolDef {
 	return provider.ToolDef{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "cron_create",
-			Description: "Create a new scheduled cron job.",
+			Name: "cron_create",
+			Description: "Create a new cron job. Use 'schedule' (cron expression) for recurring jobs, or 'delay' (e.g. '1h', '30m') for one-shot reminders. " +
+				"When using 'delay', the job fires once after the specified time in the current conversation session and auto-deletes. " +
+				"Examples: schedule='0 9 * * *' for daily at 9am, delay='1h' to remind in 1 hour, delay='30m' to remind in 30 minutes.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -65,7 +67,7 @@ func (self *cronCreateTool) Definition() provider.ToolDef {
 					},
 					"schedule": map[string]interface{}{
 						"type":        "string",
-						"description": "Cron expression (5-field: minute hour day-of-month month day-of-week). Example: '0 9 * * 1-5' for 9am weekdays.",
+						"description": "Cron expression (5-field: minute hour day-of-month month day-of-week). Example: '0 9 * * 1-5' for 9am weekdays. Mutually exclusive with 'delay'.",
 					},
 					"message": map[string]interface{}{
 						"type":        "string",
@@ -79,41 +81,83 @@ func (self *cronCreateTool) Definition() provider.ToolDef {
 						"type":        "string",
 						"description": "Optional agent ID to run this job against. Defaults to 'main'.",
 					},
+					"delay": map[string]interface{}{
+						"type":        "string",
+						"description": "One-shot delay instead of a recurring schedule. Go duration format: '30m', '1h', '2h30m'. When set, the job fires once after this delay in the current conversation session and then self-destructs. Mutually exclusive with 'schedule'.",
+					},
+					"oneShot": map[string]interface{}{
+						"type":        "boolean",
+						"description": "If true, the job auto-deletes after its first execution. Automatically set when using 'delay'.",
+					},
 				},
-				"required": []string{"name", "schedule", "message"},
+				"required": []string{"name", "message"},
 			},
 		},
 	}
 }
 
-func (self *cronCreateTool) Execute(_ context.Context, rawArguments string) (string, error) {
+func (self *cronCreateTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Name     string `json:"name"`
 		Schedule string `json:"schedule"`
 		Message  string `json:"message"`
 		Model    string `json:"model"`
 		AgentID  string `json:"agentId"`
+		Delay    string `json:"delay"`
+		OneShot  *bool  `json:"oneShot"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
-	if arguments.Name == "" || arguments.Schedule == "" || arguments.Message == "" {
-		return "", fmt.Errorf("name, schedule, and message are required")
+	if arguments.Name == "" || arguments.Message == "" {
+		return "", fmt.Errorf("name and message are required")
+	}
+	if arguments.Delay != "" && arguments.Schedule != "" {
+		return "", fmt.Errorf("provide either 'schedule' or 'delay', not both")
+	}
+	if arguments.Delay == "" && arguments.Schedule == "" {
+		return "", fmt.Errorf("either 'schedule' or 'delay' is required")
 	}
 
-	if _, err := Parse(arguments.Schedule); err != nil {
-		return "", fmt.Errorf("invalid cron expression: %w", err)
+	var runAt int64
+	oneShot := false
+	sessionKey := uuid.New().String()
+
+	if arguments.Delay != "" {
+		duration, parseError := time.ParseDuration(arguments.Delay)
+		if parseError != nil {
+			return "", fmt.Errorf("invalid delay %q: %w (use Go duration format: '30m', '1h', '2h30m')", arguments.Delay, parseError)
+		}
+		if duration < time.Minute {
+			return "", fmt.Errorf("delay must be at least 1 minute, got %s", duration)
+		}
+		runAt = time.Now().Add(duration).UnixMilli()
+		oneShot = true
+		// Bind to the current conversation session.
+		if contextSessionKey := agent.SessionKeyFromContext(ctx); contextSessionKey != "" {
+			sessionKey = contextSessionKey
+		}
+	} else {
+		if _, parseError := Parse(arguments.Schedule); parseError != nil {
+			return "", fmt.Errorf("invalid cron expression: %w", parseError)
+		}
+	}
+
+	if arguments.OneShot != nil {
+		oneShot = *arguments.OneShot
 	}
 
 	job := CronJob{
-		ID:         uuid.New().String()[:8],
+		ID:         uuid.New().String(),
 		Name:       arguments.Name,
 		Schedule:   arguments.Schedule,
 		Message:    arguments.Message,
 		Model:      arguments.Model,
 		AgentID:    arguments.AgentID,
 		Enabled:    true,
-		SessionKey: GenerateSessionKey(),
+		SessionKey: sessionKey,
+		RunAt:      runAt,
+		OneShot:    oneShot,
 		CreatedAt:  time.Now().UnixMilli(),
 	}
 
@@ -124,12 +168,18 @@ func (self *cronCreateTool) Execute(_ context.Context, rawArguments string) (str
 		return "", fmt.Errorf("reloading scheduler: %w", err)
 	}
 
-	result, _ := json.Marshal(map[string]interface{}{
-		"id":       job.ID,
-		"name":     job.Name,
-		"schedule": job.Schedule,
-		"agentId":  job.AgentID,
-	})
+	response := map[string]interface{}{
+		"id":      job.ID,
+		"name":    job.Name,
+		"agentId": job.AgentID,
+	}
+	if job.Schedule != "" {
+		response["schedule"] = job.Schedule
+	}
+	if job.RunAt > 0 {
+		response["firesAt"] = time.UnixMilli(job.RunAt).Format(time.RFC3339)
+	}
+	result, _ := json.Marshal(response)
 	return string(result), nil
 }
 
@@ -142,7 +192,7 @@ func (self *cronUpdateTool) Definition() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "cron_update",
-			Description: "Update an existing cron job.",
+			Description: "Update an existing cron job or reminder.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -244,7 +294,7 @@ func (self *cronDeleteTool) Definition() provider.ToolDef {
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "cron_delete",
-			Description: "Delete a cron job.",
+			Description: "Delete a cron job or cancel a pending reminder.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -320,4 +370,12 @@ func (self *cronTriggerTool) Execute(_ context.Context, rawArguments string) (st
 	}
 
 	return fmt.Sprintf("Triggered cron job %s. It will run in the background.", arguments.ID), nil
+}
+
+// truncateString truncates a string to maxLength, appending "..." if truncated.
+func truncateString(value string, maxLength int) string {
+	if len(value) <= maxLength {
+		return value
+	}
+	return value[:maxLength] + "..."
 }

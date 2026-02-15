@@ -9,6 +9,7 @@
           "key": "models.default",
           "label": "Default Model",
           "type": "string",
+          "suggest": "model",
           "description": "Qualified model name (e.g. openai:gpt-4o)",
           "placeholder": "openai:gpt-4o"
         },
@@ -16,6 +17,7 @@
           "key": "models.summarizerModel",
           "label": "Summarizer Model",
           "type": "string",
+          "suggest": "model",
           "description": "Model for generating session titles, summaries, and context compression. Defaults to default model.",
           "placeholder": "Same as default"
         },
@@ -113,6 +115,7 @@
           "key": "defaultAgent",
           "label": "Default Agent",
           "type": "string",
+          "suggest": "agent",
           "description": "Agent ID to use as the default. If empty, the first configured agent is used.",
           "placeholder": "first agent"
         },
@@ -201,6 +204,7 @@
           "key": "discord.agentId",
           "label": "Agent ID",
           "type": "string",
+          "suggest": "agent",
           "description": "Agent to handle Discord messages. Defaults to the configured default agent.",
           "placeholder": "default agent"
         }
@@ -228,6 +232,7 @@
           "key": "telegram.agentId",
           "label": "Agent ID",
           "type": "string",
+          "suggest": "agent",
           "description": "Agent to handle Telegram messages. Defaults to the configured default agent.",
           "placeholder": "default agent"
         }

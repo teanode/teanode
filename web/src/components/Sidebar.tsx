@@ -48,8 +48,8 @@ export default function Sidebar() {
   const routeSessionKey = activeView === 'chat' && pathParts[2] ? pathParts[2] : null;
   const routeCronJobId = activeView === 'crons' && pathParts[1] && pathParts[1] !== 'new' ? pathParts[1] : null;
   const isNewCronPage = activeView === 'crons' && pathParts[1] === 'new';
-  const routeSettingsSection = activeView === 'settings' ? (pathParts[1] || null) : null;
   const routeSettingsAgentId = activeView === 'settings' && pathParts[1] === 'agents' && pathParts[2] ? pathParts[2] : null;
+  const routeSettingsSection = activeView === 'settings' && !routeSettingsAgentId ? (pathParts[1] || null) : null;
 
   const { agents, currentAgentId } = chat;
   const defaultAgentId = agents.length > 0 ? agents[0].id : 'main';

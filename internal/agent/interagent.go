@@ -27,6 +27,11 @@ func RegisterInterAgentTools(registry *ToolRegistry, selfAgentId string, agentRe
 		agentRegistry: agentRegistry,
 		configuration: configuration,
 	})
+	registry.Register(&subagentSpawnTool{
+		selfAgentId:   selfAgentId,
+		agentRegistry: agentRegistry,
+		configuration: configuration,
+	})
 }
 
 // --- agent_list ---
@@ -184,6 +189,136 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 		"agentId":    arguments.AgentID,
 		"response":   result.Response,
 		"sessionKey": sessionKey,
+	})
+	return string(response), nil
+}
+
+// --- subagent_spawn ---
+
+type subagentSpawnTool struct {
+	selfAgentId   string
+	agentRegistry *AgentRegistry
+	configuration *config.Config
+}
+
+func (self *subagentSpawnTool) Definition() provider.ToolDef {
+	return provider.ToolDef{
+		Type: "function",
+		Function: provider.FunctionSpec{
+			Name:        "subagent_spawn",
+			Description: "Spawn an isolated sub-conversation to handle a subtask. The subagent runs with a fresh conversation history, executes the task, and returns the result. The subagent session is ephemeral and deleted after completion.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"task": map[string]interface{}{
+						"type":        "string",
+						"description": "The task instructions for the subagent.",
+					},
+					"agentId": map[string]interface{}{
+						"type":        "string",
+						"description": "The ID of the agent to spawn. Defaults to the current agent (self-spawn).",
+					},
+					"model": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional model override for the subagent.",
+					},
+				},
+				"required": []string{"task"},
+			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agentId":    map[string]interface{}{"type": "string"},
+					"response":   map[string]interface{}{"type": "string"},
+					"sessionKey": map[string]interface{}{"type": "string"},
+					"depth":      map[string]interface{}{"type": "integer"},
+				},
+			},
+		},
+	}
+}
+
+func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	var arguments struct {
+		Task    string `json:"task"`
+		AgentID string `json:"agentId"`
+		Model   string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("parsing arguments: %w", err)
+	}
+	if arguments.Task == "" {
+		return "", fmt.Errorf("task is required")
+	}
+
+	// Default to self-spawn.
+	targetAgentId := arguments.AgentID
+	if targetAgentId == "" {
+		targetAgentId = self.selfAgentId
+	}
+
+	// Permission check: self-spawn always allowed; cross-agent requires canMessage.
+	if targetAgentId != self.selfAgentId {
+		callerConfig := self.configuration.AgentByID(self.selfAgentId)
+		if callerConfig == nil {
+			return "", fmt.Errorf("caller agent %q not found in config", self.selfAgentId)
+		}
+		allowed := false
+		for _, permittedId := range callerConfig.CanMessage {
+			if permittedId == "*" || permittedId == targetAgentId {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return "", fmt.Errorf("agent %q is not allowed to spawn agent %q", self.selfAgentId, targetAgentId)
+		}
+	}
+
+	// Depth check.
+	currentDepth := SpawnDepthFromContext(ctx)
+	if currentDepth >= DefaultMaxSpawnDepth {
+		return "", fmt.Errorf("subagent spawn depth limit reached (%d)", DefaultMaxSpawnDepth)
+	}
+
+	// Resolve target runner.
+	targetRunner := self.agentRegistry.Get(targetAgentId)
+	if targetRunner == nil {
+		return "", fmt.Errorf("agent %q not found", targetAgentId)
+	}
+
+	// Generate ephemeral session key.
+	sessionKey := uuid.New().String()
+
+	// Build child context with incremented spawn depth.
+	childContext := ContextWithSpawnDepth(ctx, currentDepth+1)
+
+	// Prefix task message with source agent identity and depth.
+	prefixedTask := fmt.Sprintf("[Subagent task from '%s' (depth %d)]: %s", self.selfAgentId, currentDepth+1, arguments.Task)
+
+	// Run synchronously against the target agent.
+	runParams := RunParams{
+		SessionKey: sessionKey,
+		Message:    prefixedTask,
+	}
+	if arguments.Model != "" {
+		runParams.Model = arguments.Model
+	}
+
+	result, err := targetRunner.Run(childContext, runParams, nil)
+
+	// Always clean up the ephemeral session, even on error.
+	_ = targetRunner.Sessions.Delete(sessionKey)
+
+	if err != nil {
+		return "", fmt.Errorf("subagent %q run failed: %w", targetAgentId, err)
+	}
+
+	response, _ := json.Marshal(map[string]interface{}{
+		"agentId":    targetAgentId,
+		"response":   result.Response,
+		"sessionKey": sessionKey,
+		"depth":      currentDepth + 1,
 	})
 	return string(response), nil
 }

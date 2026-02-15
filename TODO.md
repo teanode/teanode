@@ -46,6 +46,7 @@
 - [ ] Image understanding / vision tool (pass images to multimodal LLM)
 - [ ] TTS (text-to-speech) tool
 - [x] Cron / scheduled tasks tool (create, list, update, delete, trigger)
+- [x] One-shot reminders via cron (delay parameter, session-bound, auto-delete)
 - [x] Browser tools (navigate, screenshot, snapshot, click, type, evaluate, tab management)
 - [x] Headless browser support (direct CDP connection to chromedp/headless-shell)
 - [x] Terminal tools (screenshot, type, press key, connection list)
@@ -95,6 +96,7 @@
 - [x] Cron job scheduler with 5-field expression support
 - [x] Persistent cron storage with hot-reload
 - [x] Per-job model overrides and manual triggering
+- [x] One-shot reminder support (delay-based timers, session-bound, auto-cleanup)
 - [ ] Webhook endpoints for external event triggers
 - [ ] Background job lifecycle management
 

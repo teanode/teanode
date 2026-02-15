@@ -70,17 +70,17 @@ func (self *Server) Start(ctx context.Context) error {
 	self.activeRuns = make(map[string]string)
 
 	router := http.NewServeMux()
-	router.HandleFunc("/health", self.handleHealth)
-	router.HandleFunc("/v1/chat/completions", self.handleChatCompletions)
-	router.HandleFunc("/ws", self.handleWebSocket)
+	router.HandleFunc("/api/health", self.handleHealth)
+	router.HandleFunc("/api/v1/chat/completions", self.handleChatCompletions)
+	router.HandleFunc("/api/ws", self.handleWebSocket)
 	if self.BrowserRelay != nil {
-		router.HandleFunc("/browser", self.BrowserRelay.HandleWebSocket)
+		router.HandleFunc("/api/browser", self.BrowserRelay.HandleWebSocket)
 	}
 	if self.TerminalRelay != nil {
-		router.HandleFunc("/terminal", self.TerminalRelay.HandleWebSocket)
+		router.HandleFunc("/api/terminal", self.TerminalRelay.HandleWebSocket)
 	}
 	if self.MediaStore != nil {
-		router.HandleFunc("/media/", self.handleMedia)
+		router.HandleFunc("/api/media/", self.handleMedia)
 	}
 
 	// Serve embedded static files with SPA history fallback.
@@ -158,7 +158,7 @@ func (self *Server) handleHealth(writer http.ResponseWriter, request *http.Reque
 
 func (self *Server) handleMedia(writer http.ResponseWriter, request *http.Request) {
 	// Extract media ID from path: /media/{id}
-	mediaId := strings.TrimPrefix(request.URL.Path, "/media/")
+	mediaId := strings.TrimPrefix(request.URL.Path, "/api/media/")
 	if mediaId == "" {
 		http.Error(writer, "missing media id", http.StatusBadRequest)
 		return
@@ -192,7 +192,7 @@ func (self *Server) withAuth(next http.Handler) http.Handler {
 		}
 
 		// Skip auth for health, browser extension, and terminal endpoints
-		if request.URL.Path == "/health" || request.URL.Path == "/browser" || request.URL.Path == "/terminal" {
+		if request.URL.Path == "/api/health" || request.URL.Path == "/api/browser" || request.URL.Path == "/api/terminal" {
 			next.ServeHTTP(writer, request)
 			return
 		}

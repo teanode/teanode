@@ -299,7 +299,7 @@ func (self *Bot) getSessionKey(channelID string) string {
 	if key, ok := self.sessionKeys[channelID]; ok {
 		return key
 	}
-	return fmt.Sprintf("discord-%s", channelID)
+	return uuid.New().String()
 }
 
 func (self *Bot) getModel(channelID string) string {
@@ -314,11 +314,11 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 
 	switch name {
 	case "new":
-		newKey := fmt.Sprintf("discord-%s-%s", channelID, uuid.New().String()[:8])
+		sessionKey := uuid.New().String()
 		self.sessionMutex.Lock()
-		self.sessionKeys[channelID] = newKey
+		self.sessionKeys[channelID] = sessionKey
 		self.sessionMutex.Unlock()
-		reply = fmt.Sprintf("New session started. (`%s`)", newKey)
+		reply = fmt.Sprintf("New session started. (`%s`)", sessionKey)
 
 	case "reset":
 		sessionKey := self.getSessionKey(channelID)
@@ -335,6 +335,7 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 		self.activeMutex.Unlock()
 		if found {
 			cancel()
+			self.runner.CancelSession(sessionKey)
 			reply = "Run cancelled."
 		} else {
 			reply = "No active run to cancel."
