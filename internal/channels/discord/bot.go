@@ -144,11 +144,6 @@ type Bot struct {
 	modelMutex     sync.RWMutex
 	modelOverrides map[string]string
 
-	// Channel routing: built from user interactions.
-	channelMappingsMutex sync.RWMutex
-	channelMappings      map[string]string // conversationId -> channelId
-	agentChannelMappings map[string]string // agentId -> channelId (fallback)
-
 	// Runs initiated by the bot — skip these in OnEvent.
 	activeConversationsMutex sync.RWMutex
 	activeConversations      map[string]struct{} // conversationId -> present
@@ -161,14 +156,12 @@ type Bot struct {
 // New creates a new Discord bot that dynamically resolves the active agent and conversation from the registry.
 func New(discordConfig *configs.DiscordConfig, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
 	return &Bot{
-		config:               discordConfig,
-		agentRegistry:        agentRegistry,
-		gateway:              gateway,
-		modelOverrides:       make(map[string]string),
-		channelMappings:      make(map[string]string),
-		agentChannelMappings: make(map[string]string),
-		activeConversations:  make(map[string]struct{}),
-		subscribedRuns:       make(map[string]*discordSubscribedRun),
+		config:              discordConfig,
+		agentRegistry:       agentRegistry,
+		gateway:             gateway,
+		modelOverrides:      make(map[string]string),
+		activeConversations: make(map[string]struct{}),
+		subscribedRuns:      make(map[string]*discordSubscribedRun),
 	}
 }
 
@@ -212,12 +205,11 @@ func (self *Bot) OnEvent(event string, payload interface{}) {
 		return
 	}
 
-	conversationId, _ := payloadMap["conversationId"].(string)
 	runId, _ := payloadMap["runId"].(string)
 	state, _ := payloadMap["state"].(string)
-	agentId, _ := payloadMap["agentId"].(string)
+	conversationId, _ := payloadMap["conversationId"].(string)
 
-	if conversationId == "" || runId == "" || state == "" {
+	if runId == "" || state == "" {
 		return
 	}
 
@@ -229,13 +221,8 @@ func (self *Bot) OnEvent(event string, payload interface{}) {
 		return
 	}
 
-	// Resolve target channel.
-	self.channelMappingsMutex.RLock()
-	channelId := self.channelMappings[conversationId]
-	if channelId == "" && agentId != "" {
-		channelId = self.agentChannelMappings[agentId]
-	}
-	self.channelMappingsMutex.RUnlock()
+	// Use the single persisted channel ID.
+	channelId := self.agentRegistry.DiscordChannelID()
 	if channelId == "" {
 		return
 	}
@@ -431,11 +418,8 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 func (self *Bot) handleMessage(conversationId, agentId, channelId, message string) {
 	defer deferutil.Recover()
 
-	// Record channel mappings for subscriber-driven routing.
-	self.channelMappingsMutex.Lock()
-	self.channelMappings[conversationId] = channelId
-	self.agentChannelMappings[agentId] = channelId
-	self.channelMappingsMutex.Unlock()
+	// Persist channel ID for subscriber-driven routing (e.g. scheduled jobs).
+	self.agentRegistry.SetDiscordChannelID(channelId)
 
 	// Mark this conversation as actively handled by us.
 	self.activeConversationsMutex.Lock()

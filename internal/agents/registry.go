@@ -16,6 +16,8 @@ import (
 type persistedState struct {
 	ActiveAgentId         string            `yaml:"activeAgentId,omitempty"`
 	ActiveConversationIds map[string]string `yaml:"activeConversationIds,omitempty"`
+	DiscordChannelId      string            `yaml:"discordChannelId,omitempty"`
+	TelegramChatId        int64             `yaml:"telegramChatId,omitempty"`
 }
 
 // AgentRegistry manages multiple named runners (one per agent).
@@ -25,6 +27,8 @@ type AgentRegistry struct {
 	defaultAgentId        string             // resolved default agent ID
 	activeAgentId         string             // system-wide active agent (falls back to defaultAgentId)
 	activeConversationIds map[string]string   // agentId → active conversationId
+	discordChannelId      string
+	telegramChatId        int64
 }
 
 // NewAgentRegistry creates an empty agent registry.
@@ -126,6 +130,8 @@ func (self *AgentRegistry) LoadState() {
 			self.activeConversationIds[agentId] = conversationId
 		}
 	}
+	self.discordChannelId = state.DiscordChannelId
+	self.telegramChatId = state.TelegramChatId
 }
 
 // saveState writes current active state to ~/.teanode/state.yaml.
@@ -138,6 +144,8 @@ func (self *AgentRegistry) saveState() {
 	state := persistedState{
 		ActiveAgentId:         self.activeAgentId,
 		ActiveConversationIds: make(map[string]string, len(self.activeConversationIds)),
+		DiscordChannelId:      self.discordChannelId,
+		TelegramChatId:        self.telegramChatId,
 	}
 	for agentId, conversationId := range self.activeConversationIds {
 		state.ActiveConversationIds[agentId] = conversationId
@@ -217,4 +225,40 @@ func (self *AgentRegistry) NewConversation(agentId string) string {
 	self.activeConversationIds[agentId] = conversationId
 	self.saveState()
 	return conversationId
+}
+
+// DiscordChannelID returns the persisted Discord channel ID.
+func (self *AgentRegistry) DiscordChannelID() string {
+	self.mutex.RLock()
+	defer self.mutex.RUnlock()
+	return self.discordChannelId
+}
+
+// SetDiscordChannelID saves the Discord channel ID to state.
+func (self *AgentRegistry) SetDiscordChannelID(channelId string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	if self.discordChannelId == channelId {
+		return
+	}
+	self.discordChannelId = channelId
+	self.saveState()
+}
+
+// TelegramChatID returns the persisted Telegram chat ID.
+func (self *AgentRegistry) TelegramChatID() int64 {
+	self.mutex.RLock()
+	defer self.mutex.RUnlock()
+	return self.telegramChatId
+}
+
+// SetTelegramChatID saves the Telegram chat ID to state.
+func (self *AgentRegistry) SetTelegramChatID(chatId int64) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	if self.telegramChatId == chatId {
+		return
+	}
+	self.telegramChatId = chatId
+	self.saveState()
 }

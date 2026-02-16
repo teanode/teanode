@@ -148,11 +148,6 @@ type Bot struct {
 	modelMutex     sync.RWMutex
 	modelOverrides map[string]string
 
-	// Chat routing: built from user interactions.
-	chatMappingsMutex sync.RWMutex
-	chatMappings      map[string]int64 // conversationId -> chatId
-	agentChatMappings map[string]int64 // agentId -> chatId (fallback)
-
 	// Runs initiated by the bot — skip these in OnEvent.
 	activeConversationsMutex sync.RWMutex
 	activeConversations      map[string]struct{} // conversationId -> present
@@ -170,8 +165,6 @@ func New(telegramConfig *configs.TelegramConfig, agentRegistry *agents.AgentRegi
 		gateway:             gateway,
 		modelOverrides:      make(map[string]string),
 		stopChannel:         make(chan struct{}),
-		chatMappings:        make(map[string]int64),
-		agentChatMappings:   make(map[string]int64),
 		activeConversations: make(map[string]struct{}),
 		subscribedRuns:      make(map[string]*telegramSubscribedRun),
 	}
@@ -229,12 +222,11 @@ func (self *Bot) OnEvent(event string, payload interface{}) {
 		return
 	}
 
-	conversationId, _ := payloadMap["conversationId"].(string)
 	runId, _ := payloadMap["runId"].(string)
 	state, _ := payloadMap["state"].(string)
-	agentId, _ := payloadMap["agentId"].(string)
+	conversationId, _ := payloadMap["conversationId"].(string)
 
-	if conversationId == "" || runId == "" || state == "" {
+	if runId == "" || state == "" {
 		return
 	}
 
@@ -246,13 +238,8 @@ func (self *Bot) OnEvent(event string, payload interface{}) {
 		return
 	}
 
-	// Resolve target chat.
-	self.chatMappingsMutex.RLock()
-	chatId := self.chatMappings[conversationId]
-	if chatId == 0 && agentId != "" {
-		chatId = self.agentChatMappings[agentId]
-	}
-	self.chatMappingsMutex.RUnlock()
+	// Use the single persisted chat ID.
+	chatId := self.agentRegistry.TelegramChatID()
 	if chatId == 0 {
 		return
 	}
@@ -484,11 +471,8 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 func (self *Bot) handleMessage(conversationId, agentId string, chatId int64, replyTo int, message, chatIdStr string) {
 	defer deferutil.Recover()
 
-	// Record chat mappings for subscriber-driven routing.
-	self.chatMappingsMutex.Lock()
-	self.chatMappings[conversationId] = chatId
-	self.agentChatMappings[agentId] = chatId
-	self.chatMappingsMutex.Unlock()
+	// Persist chat ID for subscriber-driven routing (e.g. scheduled jobs).
+	self.agentRegistry.SetTelegramChatID(chatId)
 
 	// Mark this conversation as actively handled by us.
 	self.activeConversationsMutex.Lock()
