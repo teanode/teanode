@@ -6,8 +6,8 @@ import { SettingsProvider } from '../../hooks/useSettingsContext';
 
 /** /settings — layout that loads settings state and shares it via context. */
 export default function SettingsLayout() {
-  const { chat } = useAppContext();
-  const settings = useSettings(chat.sendRpc, true, chat.connected);
+  const { backend } = useAppContext();
+  const settings = useSettings(backend.sendRpc, true, backend.connected);
 
   return (
     <SettingsProvider settings={settings}>

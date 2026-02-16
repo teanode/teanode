@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/agents"
 )
 
 func TestWorkspaceTools(t *testing.T) {
 	memoryDirectory := t.TempDir()
-	registry := agent.NewToolRegistry()
+	registry := agents.NewToolRegistry()
 	RegisterTools(registry, memoryDirectory)
 
 	ctx := context.Background()
@@ -72,7 +72,7 @@ func TestWorkspaceTools(t *testing.T) {
 
 func TestWorkspaceAppendTool(t *testing.T) {
 	memoryDirectory := t.TempDir()
-	registry := agent.NewToolRegistry()
+	registry := agents.NewToolRegistry()
 	RegisterTools(registry, memoryDirectory)
 
 	ctx := context.Background()
@@ -115,7 +115,7 @@ func TestWorkspaceAppendTool(t *testing.T) {
 
 func TestWorkspaceSearchTool(t *testing.T) {
 	memoryDirectory := t.TempDir()
-	registry := agent.NewToolRegistry()
+	registry := agents.NewToolRegistry()
 	RegisterTools(registry, memoryDirectory)
 
 	ctx := context.Background()

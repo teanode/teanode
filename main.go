@@ -8,10 +8,9 @@ import (
 	"strings"
 	"syscall"
 
-	gologging "github.com/op/go-logging"
+	"github.com/op/go-logging"
 	"github.com/teanode/teanode/cmd"
-	"github.com/teanode/teanode/internal/config"
-	"github.com/teanode/teanode/internal/logging"
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/urfave/cli/v3"
 )
 
@@ -35,18 +34,25 @@ func main() {
 		},
 		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
 			if value := cmd.String("dir"); value != "" {
-				config.SetDir(value)
+				configs.SetDirectory(value)
 			}
 
-			level := gologging.INFO
+			level := logging.INFO
 			if value := cmd.String("log-level"); value != "" {
-				parsed, err := gologging.LogLevel(strings.ToUpper(value))
+				parsed, err := logging.LogLevel(strings.ToUpper(value))
 				if err != nil {
 					return ctx, fmt.Errorf("invalid log level %q: %w", value, err)
 				}
 				level = parsed
 			}
-			logging.Setup(level)
+			format := logging.MustStringFormatter(
+				"%{color}%{time:2006-01-02 15:04:05.000000} %{module} [%{level}] <%{pid}> [%{shortfile} %{shortfunc}] %{message}%{color:reset}",
+			)
+			backend := logging.NewLogBackend(os.Stderr, "", 0)
+			formatted := logging.NewBackendFormatter(backend, format)
+			leveled := logging.AddModuleLevel(formatted)
+			leveled.SetLevel(level, "")
+			logging.SetBackend(leveled)
 			return ctx, nil
 		},
 		Commands: []*cli.Command{

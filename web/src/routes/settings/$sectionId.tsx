@@ -9,13 +9,68 @@ import Button from '@mui/material/Button';
 import { useAppContext } from '../../context';
 import { useSettingsContext } from '../../hooks/useSettingsContext';
 import SchemaField from '../../components/SchemaField';
+import type { ConfigSchema, JsonSchemaProperty, SchemaSection } from '../../types';
+
+/** Resolved entry: either a single leaf field or a group of fields under a heading. */
+type SectionEntry =
+  | { type: 'field'; key: string; property: JsonSchemaProperty; dotPath: string }
+  | { type: 'group'; title: string; description?: string; fields: { key: string; property: JsonSchemaProperty; dotPath: string }[] };
+
+/** Resolve the fields for a section from the JSON Schema properties tree. */
+function resolveSectionEntries(schema: ConfigSchema, section: SchemaSection): SectionEntry[] {
+  const entries: SectionEntry[] = [];
+  const rootProperties = schema.properties;
+
+  // Collect the (key, property, dotPathPrefix) tuples for this section.
+  const collected: [string, JsonSchemaProperty, string][] = [];
+
+  if (section.path) {
+    // Navigate to the nested object at `path`.
+    const parts = section.path.split('.');
+    let current: Record<string, JsonSchemaProperty> = rootProperties;
+    for (const part of parts) {
+      current = current[part]?.properties ?? {};
+    }
+    for (const [key, property] of Object.entries(current)) {
+      collected.push([key, property, section.path]);
+    }
+  } else if (section.properties) {
+    for (const key of section.properties) {
+      if (rootProperties[key]) {
+        collected.push([key, rootProperties[key], '']);
+      }
+    }
+  }
+
+  for (const [key, property, prefix] of collected) {
+    const dotPath = prefix ? `${prefix}.${key}` : key;
+
+    // Objects without a custom widget are rendered as sub-groups.
+    if (property.type === 'object' && !property['x-widget'] && property.properties) {
+      entries.push({
+        type: 'group',
+        title: property.title ?? key,
+        description: property.description,
+        fields: Object.entries(property.properties).map(([childKey, childProperty]) => ({
+          key: childKey,
+          property: childProperty,
+          dotPath: `${dotPath}.${childKey}`,
+        })),
+      });
+    } else {
+      entries.push({ type: 'field', key, property, dotPath });
+    }
+  }
+
+  return entries;
+}
 
 /** /settings/$sectionId — individual config section page. */
 export default function SettingsSectionPage() {
   const { t } = useTranslation();
   const { sectionId } = useParams({ strict: false }) as { sectionId: string };
   const settings = useSettingsContext();
-  const { chat } = useAppContext();
+  const { backend } = useAppContext();
 
   if (settings.loading && !settings.schema) {
     return (
@@ -25,11 +80,11 @@ export default function SettingsSectionPage() {
     );
   }
 
-  const section = settings.schema?.sections.find(
+  const section = settings.schema?.['x-sections'].find(
     (candidate) => candidate.id === sectionId
   );
 
-  if (!section) {
+  if (!section || !settings.schema) {
     return (
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Typography variant="body2" color="text.secondary">{t('settings.sectionNotFound')}</Typography>
@@ -37,9 +92,11 @@ export default function SettingsSectionPage() {
     );
   }
 
+  const entries = resolveSectionEntries(settings.schema, section);
+
   const suggestionMap: Record<string, string[]> = {
-    model: chat.models.map((modelInfo) => `${modelInfo.provider}:${modelInfo.id}`),
-    agent: chat.agents.map((agent) => agent.id),
+    model: backend.models.map((modelInfo) => `${modelInfo.provider}:${modelInfo.id}`),
+    agent: backend.agents.map((agent) => agent.id),
   };
 
   return (
@@ -47,7 +104,7 @@ export default function SettingsSectionPage() {
       <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
           <Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{section.label}</Typography>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{section.title}</Typography>
             {section.description && (
               <Typography variant="caption" color="text.secondary">{section.description}</Typography>
             )}
@@ -67,19 +124,68 @@ export default function SettingsSectionPage() {
           </Box>
         </Box>
 
-        <Paper variant="outlined" sx={{ p: 2 }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {section.fields.map((field) => (
-              <SchemaField
-                key={field.key}
-                field={field}
-                value={settings.getValue(field.key)}
-                onChange={(value) => settings.setValue(field.key, value)}
-                suggestions={field.suggest ? suggestionMap[field.suggest] : undefined}
-              />
-            ))}
-          </Box>
-        </Paper>
+        {(() => {
+          // Group consecutive top-level fields into panels; each named group gets its own panel.
+          const panels: { title?: string; description?: string; fields: SectionEntry[] }[] = [];
+          for (const entry of entries) {
+            if (entry.type === 'group') {
+              panels.push({ title: entry.title, description: entry.description, fields: [entry] });
+            } else {
+              // Append to the last panel if it has no title (consecutive loose fields).
+              const last = panels[panels.length - 1];
+              if (last && !last.title) {
+                last.fields.push(entry);
+              } else {
+                panels.push({ fields: [entry] });
+              }
+            }
+          }
+
+          return (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {panels.map((panel, panelIndex) => (
+                <Paper key={panel.title ?? panelIndex} variant="outlined" sx={{ p: 2 }}>
+                  {panel.title && (
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: panel.description ? 0.5 : 1 }}>
+                      {panel.title}
+                    </Typography>
+                  )}
+                  {panel.description && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                      {panel.description}
+                    </Typography>
+                  )}
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {panel.fields.flatMap((entry) => {
+                      if (entry.type === 'group') {
+                        return entry.fields.map((field) => (
+                          <SchemaField
+                            key={field.dotPath}
+                            property={field.property}
+                            propertyKey={field.key}
+                            value={settings.getValue(field.dotPath)}
+                            onChange={(value) => settings.setValue(field.dotPath, value)}
+                            suggestions={field.property['x-suggest'] ? suggestionMap[field.property['x-suggest']] : undefined}
+                          />
+                        ));
+                      }
+                      return (
+                        <SchemaField
+                          key={entry.dotPath}
+                          property={entry.property}
+                          propertyKey={entry.key}
+                          value={settings.getValue(entry.dotPath)}
+                          onChange={(value) => settings.setValue(entry.dotPath, value)}
+                          suggestions={entry.property['x-suggest'] ? suggestionMap[entry.property['x-suggest']] : undefined}
+                        />
+                      );
+                    })}
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          );
+        })()}
       </Container>
     </Box>
   );

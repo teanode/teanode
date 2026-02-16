@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/teanode/teanode/internal/agent"
+	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/provider"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
 // RegisterTools adds memory tools to the registry.
-func RegisterTools(registry *agent.ToolRegistry, memoryDirectory string) {
+func RegisterTools(registry *agents.ToolRegistry, memoryDirectory string) {
 	registry.Register(&readTool{directory: memoryDirectory})
 	registry.Register(&writeTool{directory: memoryDirectory})
 	registry.Register(&listTool{directory: memoryDirectory})

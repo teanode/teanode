@@ -2,24 +2,35 @@ package cmd
 
 import (
 	"context"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"runtime"
+	"sync"
+	"syscall"
+	"time"
 
-	"github.com/teanode/teanode/internal/agent"
-	"github.com/teanode/teanode/internal/browser"
-	configpkg "github.com/teanode/teanode/internal/config"
-	"github.com/teanode/teanode/internal/cron"
-	"github.com/teanode/teanode/internal/discord"
-	"github.com/teanode/teanode/internal/gateway"
-	"github.com/teanode/teanode/internal/logging"
+	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/api/v1api"
+	"github.com/teanode/teanode/internal/channels/discord"
+	"github.com/teanode/teanode/internal/channels/telegram"
+	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/frontend"
+	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/integrations/browsers"
+	"github.com/teanode/teanode/internal/integrations/terminals"
+	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/provider"
-	"github.com/teanode/teanode/internal/session"
 	"github.com/teanode/teanode/internal/skill"
-	"github.com/teanode/teanode/internal/telegram"
-	tterminal "github.com/teanode/teanode/internal/terminal"
 	"github.com/teanode/teanode/internal/tools/fetch"
 	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/workspace"
 	"github.com/teanode/teanode/internal/watcher"
+	"github.com/teanode/teanode/internal/web"
 	"github.com/urfave/cli/v3"
 )
 
@@ -35,23 +46,15 @@ func GatewayCmd() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			log := logging.Get("cmd")
-
-			// Run directory migrations before anything else.
-			if err := configpkg.MigrateToAgentDirs(); err != nil {
-				log.Errorf("migration error (non-fatal): %v", err)
-			}
-			if err := configpkg.MigrateAgentsToFiles(); err != nil {
-				log.Errorf("agent migration error (non-fatal): %v", err)
-			}
+			log := logging.MustGetLogger("cmd")
 
 			// Ensure base directories exist.
-			if err := configpkg.EnsureDirs(); err != nil {
+			if err := configs.EnsureDirectories(); err != nil {
 				return err
 			}
 
 			// Load config.
-			configuration, err := configpkg.Load()
+			configuration, err := configs.Load()
 			if err != nil {
 				return err
 			}
@@ -62,7 +65,7 @@ func GatewayCmd() *cli.Command {
 			}
 
 			// Build provider registry.
-			buildProviderRegistry := func(configuration *configpkg.Config) *provider.Registry {
+			buildProviderRegistry := func(configuration *configs.Config) *provider.Registry {
 				registry := provider.NewRegistry(configuration.Models.DefaultProviderName())
 				for name, providerConfig := range configuration.Models.ResolvedProviders() {
 					registry.Register(name, provider.NewClient(providerConfig.BaseURL, providerConfig.APIKey))
@@ -87,13 +90,13 @@ func GatewayCmd() *cli.Command {
 
 			// Browser: always create relay for extension connections, optionally
 			// add headless CDP backend. Both can be active simultaneously.
-			browserRelay := browser.NewRelay()
-			backends := []browser.Browser{browserRelay}
+			browserRelay := browsers.NewRelay()
+			backends := []browsers.Browser{browserRelay}
 
-			var headlessBrowser *browser.Headless
-			if configuration.Browser != nil && configuration.Browser.CDPEndpoint != "" {
-				log.Infof("browser: headless CDP connecting to %s", configuration.Browser.CDPEndpoint)
-				headlessBrowser = browser.NewHeadless(configuration.Browser.CDPEndpoint)
+			var headlessBrowser *browsers.Headless
+			if configuration.Integrations.Browser != nil && configuration.Integrations.Browser.CDPEndpoint != "" {
+				log.Infof("browser: headless CDP connecting to %s", configuration.Integrations.Browser.CDPEndpoint)
+				headlessBrowser = browsers.NewHeadless(configuration.Integrations.Browser.CDPEndpoint)
 				if err := headlessBrowser.Connect(ctx); err != nil {
 					log.Errorf("headless browser failed to connect: %v", err)
 				}
@@ -101,17 +104,17 @@ func GatewayCmd() *cli.Command {
 				defer headlessBrowser.Close()
 				backends = append(backends, headlessBrowser)
 			}
-			log.Info("browser: relay accepting extension connections on /api/browser")
-			browserBackend := browser.NewCompositeBrowser(backends...)
+			log.Info("browser: relay accepting extension connections on /api/v1/browser")
+			browser := browsers.NewCompositeBrowser(backends...)
 
-			terminalRelay := tterminal.NewRelay()
+			terminalRelay := terminals.NewRelay()
 
-			skillsDirectory, err := configpkg.SkillsDir()
+			skillsDirectory, err := configs.SkillsDirectory()
 			if err != nil {
 				return err
 			}
 
-			mediaDirectory, err := configpkg.MediaDir()
+			mediaDirectory, err := configs.MediaDirectory()
 			if err != nil {
 				return err
 			}
@@ -119,69 +122,69 @@ func GatewayCmd() *cli.Command {
 
 			// --- Agent Registry: create a runner per agent ---
 
-			agentRegistry := agent.NewAgentRegistry()
+			agentRegistry := agents.NewAgentRegistry()
 
-			// buildToolsForAgent creates a fresh tool registry for the given agent.
+			// buildToolsForAgent creates a fresh tool registry for the given agents.
 			buildToolsForAgent := func(
-				configuration *configpkg.Config,
-				agentConfig configpkg.AgentConfig,
+				configuration *configs.Config,
+				agentConfig configs.AgentConfig,
 				workspaceDirectory string,
-				sessions *session.Store,
-				scheduler *cron.Scheduler,
-			) (*agent.ToolRegistry, string) {
-				tools := agent.NewToolRegistry()
+				conversations *conversations.Store,
+				scheduler *jobs.Scheduler,
+			) (*agents.ToolRegistry, string) {
+				tools := agents.NewToolRegistry()
 				workspace.RegisterTools(tools, workspaceDirectory)
-				browser.RegisterBrowserTools(tools, browserBackend)
-				tterminal.RegisterTerminalTools(tools, terminalRelay)
+				browsers.RegisterBrowserTools(tools, browser)
+				terminals.RegisterTerminalTools(tools, terminalRelay)
 				search.RegisterTools(tools, configuration.Tools.BraveAPIKey)
 				fetch.RegisterTools(tools)
-				agent.RegisterSessionTools(tools, sessions)
+				agents.RegisterConversationTools(tools, conversations)
 				if scheduler != nil {
-					cron.RegisterCronTools(tools, scheduler)
+					jobs.RegisterTools(tools, scheduler)
 				}
 				skillPrompts := skill.RegisterSkillsFiltered(tools, skillsDirectory, agentConfig.Skills)
-				agent.RegisterInterAgentTools(tools, agentConfig.ID, agentRegistry, configuration)
+				agents.RegisterInterAgentTools(tools, agentConfig.ID, agentRegistry, configuration)
 				tools.ApplyFilter(agentConfig.Tools)
 				return tools, skillPrompts
 			}
 
-			// Set up cron scheduler (needs agent registry).
-			cronStore, err := cron.NewStore()
+			// Set up job scheduler (needs agent registry).
+			jobStore, err := jobs.NewStore()
 			if err != nil {
 				return err
 			}
-			scheduler := cron.NewScheduler(cronStore, agentRegistry)
+			scheduler := jobs.NewScheduler(jobStore, agentRegistry)
 
-			// Create a runner for each configured agent.
+			// Create a runner for each configured agents.
 			for _, agentConfig := range configuration.ResolveAgents() {
-				if err := configpkg.EnsureAgentDirs(agentConfig.ID); err != nil {
+				if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {
 					return err
 				}
-				if err := configpkg.SeedAgentWorkspace(agentConfig.ID); err != nil {
+				if err := configs.SeedAgentWorkspace(agentConfig.ID); err != nil {
 					return err
 				}
 
-				workspaceDirectory, err := configpkg.AgentWorkspaceDir(agentConfig.ID)
+				workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentConfig.ID)
 				if err != nil {
 					return err
 				}
-				sessionsDirectory, err := configpkg.AgentSessionsDir(agentConfig.ID)
+				conversationsDirectory, err := configs.AgentConversationsDirectory(agentConfig.ID)
 				if err != nil {
 					return err
 				}
-				sessions := session.NewStore(sessionsDirectory)
+				conversations := conversations.NewStore(conversationsDirectory)
 
-				tools, skillPrompts := buildToolsForAgent(configuration, agentConfig, workspaceDirectory, sessions, scheduler)
+				tools, skillPrompts := buildToolsForAgent(configuration, agentConfig, workspaceDirectory, conversations, scheduler)
 
-				runner := &agent.Runner{
-					AgentID:      agentConfig.ID,
-					Providers:    providers,
-					Sessions:     sessions,
-					Config:       configuration,
-					Tools:        tools,
-					MediaStore:   mediaStore,
-					WorkspaceDir: workspaceDirectory,
-					SkillPrompts: skillPrompts,
+				runner := &agents.Runner{
+					AgentID:       agentConfig.ID,
+					Providers:     providers,
+					Conversations: conversations,
+					Config:        configuration,
+					Tools:         tools,
+					MediaStore:    mediaStore,
+					WorkspaceDirectory:  workspaceDirectory,
+					SkillPrompts:  skillPrompts,
 				}
 				agentRegistry.Register(agentConfig.ID, runner)
 			}
@@ -189,39 +192,33 @@ func GatewayCmd() *cli.Command {
 			// Set the default agent ID from config.
 			agentRegistry.SetDefault(configuration.ResolveDefaultAgent())
 
-			// --- Server ---
+			// --- Gateway + API + Frontend ---
 
-			summarizer := agent.NewSummarizer(agentRegistry, configuration)
+			summarizer := agents.NewSummarizer(agentRegistry, configuration)
 
-			server := &gateway.Server{
-				Config:        configuration,
-				AgentRegistry: agentRegistry,
-				BrowserRelay:  browserRelay,
-				TerminalRelay: terminalRelay,
-				Scheduler:     scheduler,
-				Summarizer:    summarizer,
-				MediaStore:    mediaStore,
+			gateway := gw.New(configuration, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore)
+			api := v1api.New(gateway)
+			frontendComponent := frontend.New()
+
+			summarizer.IsConversationActive = func(conversationId string) bool {
+				return gateway.GetActiveRun(conversationId) != ""
 			}
+			summarizer.Broadcast = api.Broadcast
 
-			summarizer.IsSessionActive = func(sessionKey string) bool {
-				return server.GetActiveRun(sessionKey) != ""
-			}
-			summarizer.Broadcast = server.Broadcast
-
-			scheduler.Broadcast = server.Broadcast
-			scheduler.SetActiveRun = server.SetActiveRun
-			scheduler.ClearActiveRun = server.ClearActiveRun
+			scheduler.Broadcast = api.Broadcast
+			scheduler.SetActiveRun = gateway.SetActiveRun
+			scheduler.ClearActiveRun = gateway.ClearActiveRun
 
 			// --- Discord bot ---
 
-			if configuration.Discord != nil && configuration.Discord.Token != "" {
-				discordBot, err := discord.New(configuration.Discord, agentRegistry)
+			if configuration.Channels.Discord != nil && configuration.Channels.Discord.Token != "" {
+				discordBot, err := discord.New(configuration.Channels.Discord, agentRegistry)
 				if err != nil {
 					log.Errorf("discord bot: %v", err)
 				} else {
-					discordBot.Broadcast = server.Broadcast
-					discordBot.SetActiveRun = server.SetActiveRun
-					discordBot.ClearActiveRun = server.ClearActiveRun
+					discordBot.Broadcast = api.Broadcast
+					discordBot.SetActiveRun = gateway.SetActiveRun
+					discordBot.ClearActiveRun = gateway.ClearActiveRun
 					if err := discordBot.Start(); err != nil {
 						log.Errorf("discord bot failed to start: %v", err)
 					} else {
@@ -232,14 +229,14 @@ func GatewayCmd() *cli.Command {
 
 			// --- Telegram bot ---
 
-			if configuration.Telegram != nil && configuration.Telegram.Token != "" {
-				telegramBot, err := telegram.New(configuration.Telegram, agentRegistry)
+			if configuration.Channels.Telegram != nil && configuration.Channels.Telegram.Token != "" {
+				telegramBot, err := telegram.New(configuration.Channels.Telegram, agentRegistry)
 				if err != nil {
 					log.Errorf("telegram bot: %v", err)
 				} else {
-					telegramBot.Broadcast = server.Broadcast
-					telegramBot.SetActiveRun = server.SetActiveRun
-					telegramBot.ClearActiveRun = server.ClearActiveRun
+					telegramBot.Broadcast = api.Broadcast
+					telegramBot.SetActiveRun = gateway.SetActiveRun
+					telegramBot.ClearActiveRun = gateway.ClearActiveRun
 					if err := telegramBot.Start(); err != nil {
 						log.Errorf("telegram bot failed to start: %v", err)
 					} else {
@@ -250,16 +247,16 @@ func GatewayCmd() *cli.Command {
 
 			// --- File watcher for hot reloading ---
 
-			dataDirectory, err := configpkg.Dir()
+			dataDirectory, err := configs.Directory()
 			if err != nil {
 				return err
 			}
 
 			fileWatcher := watcher.New(dataDirectory)
 
-			// reloadAgents reconfigures agent runners from the current server config.
+			// reloadAgents reconfigures agent runners from the current gateway config.
 			reloadAgents := func() {
-				currentConfiguration := server.Config
+				currentConfiguration := gateway.Config()
 				currentProviders := buildProviderRegistry(currentConfiguration)
 				agentRegistry.SetDefault(currentConfiguration.ResolveDefaultAgent())
 
@@ -267,51 +264,51 @@ func GatewayCmd() *cli.Command {
 					runner := agentRegistry.Get(agentConfig.ID)
 					if runner == nil {
 						// New agent appeared — create it.
-						if err := configpkg.EnsureAgentDirs(agentConfig.ID); err != nil {
+						if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {
 							log.Errorf("failed to create dirs for new agent %s: %v", agentConfig.ID, err)
 							continue
 						}
-						if err := configpkg.SeedAgentWorkspace(agentConfig.ID); err != nil {
+						if err := configs.SeedAgentWorkspace(agentConfig.ID); err != nil {
 							log.Errorf("failed to seed workspace for new agent %s: %v", agentConfig.ID, err)
 							continue
 						}
-						workspaceDirectory, err := configpkg.AgentWorkspaceDir(agentConfig.ID)
+						workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentConfig.ID)
 						if err != nil {
 							continue
 						}
-						sessionsDirectory, err := configpkg.AgentSessionsDir(agentConfig.ID)
+						conversationsDirectory, err := configs.AgentConversationsDirectory(agentConfig.ID)
 						if err != nil {
 							continue
 						}
-						sessions := session.NewStore(sessionsDirectory)
-						tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, sessions, scheduler)
-						runner = &agent.Runner{
-							AgentID:      agentConfig.ID,
-							Providers:    currentProviders,
-							Sessions:     sessions,
-							Config:       currentConfiguration,
-							Tools:        tools,
-							MediaStore:   mediaStore,
-							WorkspaceDir: workspaceDirectory,
-							SkillPrompts: skillPrompts,
+						conversations := conversations.NewStore(conversationsDirectory)
+						tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, conversations, scheduler)
+						runner = &agents.Runner{
+							AgentID:       agentConfig.ID,
+							Providers:     currentProviders,
+							Conversations: conversations,
+							Config:        currentConfiguration,
+							Tools:         tools,
+							MediaStore:    mediaStore,
+							WorkspaceDirectory:  workspaceDirectory,
+							SkillPrompts:  skillPrompts,
 						}
 						agentRegistry.Register(agentConfig.ID, runner)
 						continue
 					}
 
 					// Existing agent — rebuild tools and reconfigure.
-					workspaceDirectory, err := configpkg.AgentWorkspaceDir(agentConfig.ID)
+					workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentConfig.ID)
 					if err != nil {
 						continue
 					}
-					tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, runner.Sessions, scheduler)
+					tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, runner.Conversations, scheduler)
 					runner.Reconfigure(currentConfiguration, currentProviders, tools, skillPrompts)
 				}
 			}
 
 			fileWatcher.OnConfigReload = func() {
 				log.Info("hot-reloading config")
-				newConfiguration, err := configpkg.Load()
+				newConfiguration, err := configs.Load()
 				if err != nil {
 					log.Errorf("failed to reload config: %v", err)
 					return
@@ -321,16 +318,16 @@ func GatewayCmd() *cli.Command {
 					newConfiguration.Gateway.Port = int(cmd.Int("port"))
 				}
 
-				server.Config = newConfiguration
+				gateway.SetConfig(newConfiguration)
 				summarizer.SetConfig(newConfiguration)
-				server.InvalidateModelsCache()
+				gateway.InvalidateModelsCache()
 				reloadAgents()
 				log.Info("config reloaded successfully")
 			}
 
 			fileWatcher.OnAgentsReload = func() {
 				log.Info("hot-reloading agents")
-				newConfiguration, err := configpkg.Load()
+				newConfiguration, err := configs.Load()
 				if err != nil {
 					log.Errorf("failed to reload agents: %v", err)
 					return
@@ -339,7 +336,7 @@ func GatewayCmd() *cli.Command {
 				if cmd.IsSet("port") {
 					newConfiguration.Gateway.Port = int(cmd.Int("port"))
 				}
-				server.Config = newConfiguration
+				gateway.SetConfig(newConfiguration)
 				summarizer.SetConfig(newConfiguration)
 				reloadAgents()
 				log.Info("agents reloaded successfully")
@@ -347,28 +344,28 @@ func GatewayCmd() *cli.Command {
 
 			fileWatcher.OnSkillsReload = func() {
 				log.Info("hot-reloading skills")
-				agentRegistry.ForEach(func(agentId string, runner *agent.Runner) {
+				agentRegistry.ForEach(func(agentId string, runner *agents.Runner) {
 					currentConfig, currentProviders, _, _, _ := runner.Snapshot()
 					agentConfig := currentConfig.AgentByID(agentId)
 					if agentConfig == nil {
 						return
 					}
-					workspaceDirectory, err := configpkg.AgentWorkspaceDir(agentId)
+					workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentId)
 					if err != nil {
 						return
 					}
-					tools, skillPrompts := buildToolsForAgent(currentConfig, *agentConfig, workspaceDirectory, runner.Sessions, scheduler)
+					tools, skillPrompts := buildToolsForAgent(currentConfig, *agentConfig, workspaceDirectory, runner.Conversations, scheduler)
 					runner.Reconfigure(currentConfig, currentProviders, tools, skillPrompts)
 				})
 				log.Info("skills reloaded successfully")
 			}
 
-			fileWatcher.OnCronsReload = func() {
-				log.Info("hot-reloading cron jobs")
+			fileWatcher.OnJobsReload = func() {
+				log.Info("hot-reloading jobs")
 				if err := scheduler.Reload(); err != nil {
-					log.Errorf("failed to reload cron jobs: %v", err)
+					log.Errorf("failed to reload jobs: %v", err)
 				} else {
-					log.Info("cron jobs reloaded successfully")
+					log.Info("jobs reloaded successfully")
 				}
 			}
 
@@ -378,7 +375,101 @@ func GatewayCmd() *cli.Command {
 				defer fileWatcher.Stop()
 			}
 
-			return server.Start(ctx)
+			// --- Create web server with components ---
+
+			webServer, err := web.NewServer(&web.Settings{}, api, frontendComponent)
+			if err != nil {
+				return err
+			}
+
+			// Apply auth middleware.
+			handler := web.ApplyMiddlewares(webServer, gateway.AuthMiddleware())
+
+			// Create HTTP listener upfront so binding errors surface immediately.
+			address := gateway.ListenAddress()
+			httpListener, err := net.Listen("tcp", address)
+			if err != nil {
+				return err
+			}
+
+			httpServer := &http.Server{
+				Handler: handler,
+			}
+
+			// Start scheduler and summarizer.
+			if scheduler != nil {
+				if err := scheduler.Start(); err != nil {
+					return err
+				}
+			}
+			if summarizer != nil {
+				summarizer.Start()
+			}
+
+			// --- Run ---
+
+			var quit bool
+			var waitGroup sync.WaitGroup
+
+			// Serve HTTP in a goroutine.
+			runningHTTP := make(chan struct{}, 1)
+			waitGroup.Add(1)
+			go func() {
+				defer waitGroup.Done()
+				defer close(runningHTTP)
+
+				log.Infof("TeaNode gateway listening on %s", address)
+				if err := httpServer.Serve(httpListener); err != nil && err != http.ErrServerClosed {
+					log.Errorf("http server exited with error: %v", err)
+				}
+			}()
+
+			// Wait for exit signal or server failure.
+			signaling := make(chan os.Signal, 3)
+			signal.Notify(signaling, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+			for !quit {
+				select {
+				case sig := <-signaling:
+					log.Warningf("received signal %v", sig)
+					if sig == syscall.SIGQUIT {
+						buffer := make([]byte, 1<<20)
+						length := runtime.Stack(buffer, true)
+						log.Warningf("%s", buffer[:length])
+					}
+					quit = true
+				case <-runningHTTP:
+					quit = true
+				}
+			}
+
+			// Enforce a hard shutdown deadline.
+			time.AfterFunc(30*time.Second, func() {
+				log.Fatalf("graceful shutdown timed out, forcing exit")
+				os.Exit(1)
+			})
+
+			// Graceful shutdown.
+			log.Info("shutting down")
+
+			if summarizer != nil {
+				summarizer.Stop()
+			}
+			if scheduler != nil {
+				scheduler.Stop()
+			}
+
+			// Gracefully drain HTTP connections.
+			waitGroup.Add(1)
+			go func() {
+				defer waitGroup.Done()
+				if err := httpServer.Shutdown(context.Background()); err != nil {
+					log.Errorf("failed to shutdown http server: %v", err)
+				}
+			}()
+
+			waitGroup.Wait()
+			return nil
 		},
 	}
 }

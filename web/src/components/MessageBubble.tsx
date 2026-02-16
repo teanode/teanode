@@ -66,13 +66,13 @@ export default function MessageBubble({ role, content, isStreaming, streamText, 
       const errorMessage = displayText.substring('__error__:'.length);
       bubble = (
         <Box sx={{ maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}>
-          <Typography component="em" color="error.main">{t('chat.error', { message: errorMessage })}</Typography>
+          <Typography component="em" color="error.main">{t('conversations.error', { message: errorMessage })}</Typography>
         </Box>
       );
     } else if (displayText === '__aborted__') {
       bubble = (
         <Box sx={{ maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}>
-          <Typography component="em" color="text.secondary">{t('chat.aborted')}</Typography>
+          <Typography component="em" color="text.secondary">{t('conversations.aborted')}</Typography>
         </Box>
       );
     } else if (!displayText) {

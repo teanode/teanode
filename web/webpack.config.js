@@ -8,7 +8,7 @@ module.exports = (env, argv) => {
   return {
     entry: './src/index.tsx',
     output: {
-      path: path.resolve(__dirname, '../internal/gateway/static'),
+      path: path.resolve(__dirname, '../internal/frontend/static'),
       filename: isProd ? 'bundle.[contenthash:8].js' : 'bundle.js',
       publicPath: '/',
       clean: true,
@@ -47,7 +47,7 @@ module.exports = (env, argv) => {
       historyApiFallback: true,
       proxy: [
         {
-          context: ['/api/ws'],
+          context: ['/api/v1/websocket'],
           target: 'ws://127.0.0.1:8833',
           ws: true,
         },

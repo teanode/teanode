@@ -7,16 +7,16 @@ import AgentEditor from '../../../components/AgentEditor';
 /** /settings/agents/$agentId — individual agent editor. */
 export default function SettingsAgentPage() {
   const { agentId } = useParams({ strict: false }) as { agentId: string };
-  const { chat } = useAppContext();
+  const { backend } = useAppContext();
   const navigate = useNavigate();
-  const agentsHook = useAgents(chat.sendRpc);
+  const agentsHook = useAgents(backend.sendRpc);
 
   useEffect(() => {
-    if (chat.connected) {
+    if (backend.connected) {
       agentsHook.loadAgents();
       agentsHook.loadSchema();
     }
-  }, [chat.connected, agentsHook.loadAgents, agentsHook.loadSchema]);
+  }, [backend.connected, agentsHook.loadAgents, agentsHook.loadSchema]);
 
   const agent = agentsHook.agents.find((item) => item.id === agentId) ?? null;
 
@@ -28,28 +28,17 @@ export default function SettingsAgentPage() {
 
   const handleSave = useCallback(
     (agent: Parameters<typeof agentsHook.saveAgent>[0]) => {
-      return agentsHook.saveAgent(agent).then(() => chat.refreshAgents());
+      return agentsHook.saveAgent(agent).then(() => backend.refreshAgents());
     },
-    [agentsHook.saveAgent, chat.refreshAgents]
-  );
-
-  const handleDelete = useCallback(
-    (id: string) => {
-      agentsHook.deleteAgent(id).then(() => {
-        chat.refreshAgents();
-        navigate({ to: '/settings' });
-      });
-    },
-    [agentsHook.deleteAgent, chat.refreshAgents, navigate]
+    [agentsHook.saveAgent, backend.refreshAgents]
   );
 
   return (
     <AgentEditor
       agent={agent}
-      models={chat.models}
+      models={backend.models}
       schema={agentsHook.schema}
       onSave={handleSave}
-      onDelete={handleDelete}
     />
   );
 }

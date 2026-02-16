@@ -1,6 +1,6 @@
 // Package skill loads and registers JSON-defined tools from a skills directory.
 package skill
 
-import "github.com/teanode/teanode/internal/logging"
+import "github.com/op/go-logging"
 
-var log = logging.Get("skill")
+var log = logging.MustGetLogger("skill")

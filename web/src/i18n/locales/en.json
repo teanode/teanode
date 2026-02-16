@@ -14,18 +14,18 @@
   },
   "sidebar": {
     "openSidebar": "Open sidebar",
-    "chat": "Chat",
+    "conversations": "Conversations",
     "jobs": "Jobs",
     "settings": "Settings"
   },
-  "chat": {
-    "newChat": "New Chat",
+  "conversations": {
+    "newConversation": "New Conversation",
     "withAgent": "with {{agentId}}",
     "startConversation": "Start a conversation ...",
     "reply": "Reply ...",
-    "deleteSessionTitle": "Delete session?",
-    "deleteSessionMessage": "This will permanently delete <strong>{{title}}</strong>.",
-    "deleteSessionTooltip": "Delete session",
+    "deleteConversationTitle": "Delete conversation?",
+    "deleteConversationMessage": "This will permanently delete <strong>{{title}}</strong>.",
+    "deleteConversationTooltip": "Delete conversation",
     "error": "Error: {{message}}",
     "aborted": "Aborted",
     "today": "Today",
@@ -34,12 +34,11 @@
     "thinking": "Thinking...",
     "queued": "Queued"
   },
-  "cron": {
+  "jobs": {
     "newJob": "New Job",
     "schedulePeriodicJobs": "Schedule periodic jobs",
-    "noJobs": "No cron jobs yet",
-    "newCronJob": "New Cron Job",
-    "selectOrCreate": "Select a cron job or create a new one",
+    "noJobs": "No jobs yet",
+    "selectOrCreate": "Select a job or create a new one",
     "editJob": "Edit: {{name}}",
     "runNow": "Run Now",
     "enabled": "Enabled",
@@ -54,7 +53,7 @@
     "minutesAgo": "{{count}}m ago",
     "hoursAgo": "{{count}}h ago",
     "daysAgo": "{{count}}d ago",
-    "viewHistory": "View session history",
+    "viewHistory": "View conversation history",
     "presetEveryMinute": "Every minute",
     "presetEvery5Min": "Every 5 min",
     "presetHourly": "Hourly",
@@ -63,14 +62,14 @@
     "presetWeeklyMon9am": "Weekly Mon 9am",
     "name": "Name",
     "namePlaceholder": "Morning briefing",
-    "scheduleLabel": "Schedule (cron expression)",
+    "scheduleLabel": "Schedule (e.g. 0 9 * * *)",
     "schedulePlaceholder": "0 9 * * *",
     "messagePlaceholder": "Give me a morning briefing...",
     "modelOptional": "Model (optional)",
     "modelPlaceholder": "Leave blank for default",
     "agentOptional": "Agent (optional)",
     "defaultAgent": "Default (main)",
-    "deleteConfirm": "Delete this cron job permanently?",
+    "deleteConfirm": "Delete this job permanently?",
     "firesAt": "Fires at"
   },
   "settings": {
@@ -85,9 +84,9 @@
     "darkMode": "Dark mode",
     "lightMode": "Light mode",
     "display": "Display",
-    "displayDescription": "Control what information is shown in the chat",
+    "displayDescription": "Control what information is shown in the conversation",
     "showToolCalls": "Show tool calls",
-    "showToolCallsDescription": "Display tool invocations and results in the chat",
+    "showToolCallsDescription": "Display tool invocations and results in the conversation",
     "showTokenUsage": "Show token usage",
     "showTokenUsageDescription": "Display token counts after each response"
   },
@@ -107,8 +106,7 @@
     "toolsDenyPlaceholder": "Tool names to deny",
     "skillsAllowPlaceholder": "Skill names to allow (empty = all)",
     "skillsDenyPlaceholder": "Skill names to deny",
-    "deleteConfirm": "Delete this agent permanently?",
-    "confirmDelete": "Confirm Delete",
+    "deleteConfirm": "Delete agent \"{{name}}\" permanently?",
     "deleteAgent": "Delete Agent"
   },
   "tool": {

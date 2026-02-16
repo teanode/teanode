@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/op/go-logging"
-	"github.com/segmentio/ksuid"
+	"github.com/teanode/teanode/internal/util/ulid"
 )
 
 var log = logging.MustGetLogger("atomicfile")
@@ -23,7 +23,7 @@ func Create(filename string) (*os.File, error) {
 	if err := os.MkdirAll(directory, 0755); err != nil {
 		return nil, err
 	}
-	tempFilename := path.Join(directory, fmt.Sprintf(".%s.%s~", path.Base(filename), ksuid.New().String()))
+	tempFilename := path.Join(directory, fmt.Sprintf(".%s.%s~", path.Base(filename), ulid.GenerateString()))
 	log.Debugf("creating temp file at: %s", tempFilename)
 	return os.Create(tempFilename)
 }

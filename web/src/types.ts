@@ -43,46 +43,46 @@ export interface ConnectResult {
   defaultAgentId: string;
 }
 
-export interface ChatSendParams {
-  sessionKey: string;
+export interface ConversationSendParams {
+  conversationId: string;
   message: string;
   model?: string;
   agentId?: string;
 }
 
-export interface ChatSendResult {
+export interface ConversationSendResult {
   runId: string;
-  sessionKey: string;
+  conversationId: string;
 }
 
-export interface ChatHistoryParams {
-  sessionKey: string;
+export interface ConversationHistoryParams {
+  conversationId: string;
   agentId?: string;
 }
 
-export interface ChatHistoryResult {
-  sessionKey: string;
+export interface ConversationHistoryResult {
+  conversationId: string;
   messages: Message[];
   activeRunId?: string;
 }
 
-export interface ChatAbortParams {
+export interface ConversationAbortParams {
   runId: string;
 }
 
-export interface SessionsListResult {
-  sessions: Session[];
+export interface ConversationsListResult {
+  conversations: Conversation[];
 }
 
-export interface SessionsDeleteParams {
-  sessionKey: string;
+export interface ConversationsDeleteParams {
+  conversationId: string;
   agentId?: string;
 }
 
 // Domain types
 
-export interface Session {
-  key: string;
+export interface Conversation {
+  id: string;
   title?: string;
   lastActive?: number;
   agentId?: string;
@@ -118,9 +118,9 @@ export interface Message {
   toolName?: string;
 }
 
-// Chat event payloads (server-pushed via WebSocket)
+// Conversation event payloads (server-pushed via WebSocket)
 
-export type ChatEventState =
+export type ConversationEventState =
   | 'user_message'
   | 'queued'
   | 'delta'
@@ -131,10 +131,10 @@ export type ChatEventState =
   | 'error'
   | 'aborted';
 
-export interface ChatEvent {
-  state: ChatEventState;
+export interface ConversationEvent {
+  state: ConversationEventState;
   runId?: string;
-  sessionKey?: string;
+  conversationId?: string;
   text?: string;
   toolName?: string;
   arguments?: string;
@@ -159,9 +159,9 @@ export interface ModelsListResult {
   defaultModel: string;
 }
 
-// Cron job types
+// Job types
 
-export interface CronJob {
+export interface Job {
   id: string;
   name: string;
   schedule: string;
@@ -169,7 +169,7 @@ export interface CronJob {
   model?: string;
   agentId?: string;
   enabled: boolean;
-  sessionKey: string;
+  conversationId: string;
   runAt?: number;
   oneShot?: boolean;
   lastRun?: number;
@@ -178,7 +178,7 @@ export interface CronJob {
   createdAt: number;
 }
 
-export interface CronJobCreateParams {
+export interface JobCreateParams {
   name: string;
   schedule: string;
   message: string;
@@ -186,7 +186,7 @@ export interface CronJobCreateParams {
   agentId?: string;
 }
 
-export interface CronJobUpdateParams {
+export interface JobUpdateParams {
   id: string;
   name?: string;
   schedule?: string;
@@ -196,38 +196,39 @@ export interface CronJobUpdateParams {
   enabled?: boolean;
 }
 
-export interface CronsListResult {
-  jobs: CronJob[];
+export interface JobsListResult {
+  jobs: Job[];
 }
 
-// Config schema types
+// Config schema types (JSON Schema with x-sections extension)
 
-export interface SchemaFieldOption {
-  value: string;
-  label: string;
-}
-
-export interface SchemaFieldDef {
-  key: string;
-  label: string;
-  type: 'string' | 'number' | 'boolean' | 'select' | 'password' | 'textarea' | 'stringArray' | 'providers';
+export interface JsonSchemaProperty {
+  type?: string;
+  title?: string;
   description?: string;
-  placeholder?: string;
   default?: unknown;
-  options?: SchemaFieldOption[];
-  sensitive?: boolean;
-  suggest?: string;
+  enum?: string[];
+  format?: string;
+  items?: JsonSchemaProperty;
+  properties?: Record<string, JsonSchemaProperty>;
+  additionalProperties?: JsonSchemaProperty;
+  'x-placeholder'?: string;
+  'x-widget'?: string;
+  'x-suggest'?: string;
+  'x-enumLabels'?: Record<string, string>;
 }
 
 export interface SchemaSection {
   id: string;
-  label: string;
+  title: string;
   description?: string;
-  fields: SchemaFieldDef[];
+  path?: string;
+  properties?: string[];
 }
 
 export interface ConfigSchema {
-  sections: SchemaSection[];
+  properties: Record<string, JsonSchemaProperty>;
+  'x-sections': SchemaSection[];
 }
 
 export interface ConfigSchemaResult {

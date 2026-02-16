@@ -8,8 +8,7 @@ import type { Theme } from '@mui/material/styles';
 import { router } from './router';
 import { getTheme } from './theme';
 import { useAppContext, AppProvider } from './context';
-import { useChat } from './hooks/useChat';
-import { useCronJobs } from './hooks/useCronJobs';
+import { useBackend } from './hooks/useBackend';
 import './i18n/config';
 import './index.css';
 
@@ -168,11 +167,10 @@ function ThemedApp() {
 }
 
 function Root() {
-  const chat = useChat();
-  const cronJobs = useCronJobs(chat.sendRpc);
+  const backend = useBackend();
 
   return (
-    <AppProvider chat={chat} cronJobs={cronJobs}>
+    <AppProvider backend={backend}>
       <ThemedApp />
     </AppProvider>
   );

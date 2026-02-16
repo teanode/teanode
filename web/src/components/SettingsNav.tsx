@@ -4,48 +4,66 @@ import Box from '@mui/material/Box';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
+import IconButton from '@mui/material/IconButton';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
+import CloseIcon from '@mui/icons-material/Close';
+import ConfirmDialog from './ConfirmDialog';
 import type { AgentInfo, SchemaSection, ConfigSchemaResult } from '../types';
-import type { useChat } from '../hooks/useChat';
+import type { useBackend } from '../hooks/useBackend';
 
 interface SettingsNavProps {
-  chat: ReturnType<typeof useChat>;
+  backend: ReturnType<typeof useBackend>;
   agents: AgentInfo[];
   activeSectionId: string | null;
   activeAgentId: string | null;
   onNavigate: (path: string) => void;
 }
 
-export default function SettingsNav({ chat, agents, activeSectionId, activeAgentId, onNavigate }: SettingsNavProps) {
+export default function SettingsNav({ backend, agents, activeSectionId, activeAgentId, onNavigate }: SettingsNavProps) {
   const { t } = useTranslation();
   const [sections, setSections] = useState<SchemaSection[]>([]);
   const [addingAgent, setAddingAgent] = useState(false);
   const [newAgentId, setNewAgentId] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
-    if (chat.connected && sections.length === 0) {
-      chat.sendRpc<ConfigSchemaResult>('config.schema', {})
-        .then((result) => setSections(result.schema?.sections || []))
+    if (backend.connected && sections.length === 0) {
+      backend.sendRpc<ConfigSchemaResult>('config.schema', {})
+        .then((result) => setSections(result.schema?.['x-sections'] || []))
         .catch((error) => console.error('config.schema:', error));
     }
-  }, [chat.connected, chat.sendRpc, sections.length]);
+  }, [backend.connected, backend.sendRpc, sections.length]);
 
   function handleAddAgent() {
     const trimmed = newAgentId.trim();
     if (!trimmed) return;
     setAddingAgent(false);
     setNewAgentId('');
-    chat.sendRpc('agents.config.save', { agent: { id: trimmed } })
+    backend.sendRpc('agents.config.save', { agent: { id: trimmed } })
       .then(() => {
-        chat.refreshAgents();
+        backend.refreshAgents();
         onNavigate(`/settings/agents/${trimmed}`);
       })
       .catch((error) => console.error('agents.config.save:', error));
   }
 
+  function handleDeleteAgent() {
+    if (!pendingDelete) return;
+    backend.sendRpc('agents.config.delete', { id: pendingDelete.id })
+      .then(() => {
+        backend.refreshAgents();
+        if (activeAgentId === pendingDelete.id) {
+          onNavigate('/settings');
+        }
+      })
+      .catch((error) => console.error('agents.config.delete:', error));
+    setPendingDelete(null);
+  }
+
   return (
+    <>
     <Box sx={{ flex: 1, overflowY: 'auto', p: 1 }}>
       <List disablePadding>
         {/* Preferences */}
@@ -87,7 +105,7 @@ export default function SettingsNav({ chat, agents, activeSectionId, activeAgent
               }}
             >
               <ListItemText
-                primary={section.label}
+                primary={section.title}
                 primaryTypographyProps={{
                   variant: 'caption',
                   fontSize: '13px',
@@ -103,30 +121,48 @@ export default function SettingsNav({ chat, agents, activeSectionId, activeAgent
           {t('settings.agents')}
         </Typography>
 
-        {agents.map((agent) => (
-          <ListItemButton
-            key={agent.id}
-            dense
-            onClick={() => onNavigate(`/settings/agents/${agent.id}`)}
-            sx={{
-              borderRadius: 1,
-              mb: 0.25,
-              ...(activeAgentId === agent.id
-                ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
-                : {}),
-            }}
-          >
-            <ListItemText
-              primary={agent.name || agent.id}
-              primaryTypographyProps={{
-                variant: 'caption',
-                fontSize: '13px',
-                fontFamily: agent.name ? undefined : 'monospace',
-                color: activeAgentId === agent.id ? '#fff' : 'text.secondary',
+        {agents.map((agent) => {
+          const isActive = activeAgentId === agent.id;
+          return (
+            <ListItemButton
+              key={agent.id}
+              dense
+              onClick={() => onNavigate(`/settings/agents/${agent.id}`)}
+              sx={{
+                borderRadius: 1,
+                mb: 0.25,
+                '& .delete-btn': { display: 'none' },
+                '&:hover .delete-btn': { display: 'inline-flex' },
+                ...(isActive
+                  ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+                  : {}),
               }}
-            />
-          </ListItemButton>
-        ))}
+            >
+              <ListItemText
+                primary={agent.name || agent.id}
+                primaryTypographyProps={{
+                  variant: 'caption',
+                  fontSize: '13px',
+                  fontFamily: agent.name ? undefined : 'monospace',
+                  noWrap: true,
+                  color: isActive ? '#fff' : 'text.secondary',
+                }}
+              />
+              <IconButton
+                className="delete-btn"
+                size="small"
+                title={t('agent.deleteAgent')}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setPendingDelete({ id: agent.id, name: agent.name || agent.id });
+                }}
+                sx={{ p: 0.25, ml: 0.5, flexShrink: 0, color: isActive ? 'rgba(255,255,255,0.7)' : 'text.disabled', '&:hover': { color: 'error.main' } }}
+              >
+                <CloseIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </ListItemButton>
+          );
+        })}
 
         {/* Add agent */}
         {addingAgent ? (
@@ -176,5 +212,15 @@ export default function SettingsNav({ chat, agents, activeSectionId, activeAgent
         )}
       </List>
     </Box>
+
+    <ConfirmDialog
+      open={!!pendingDelete}
+      title={t('agent.deleteAgent')}
+      message={t('agent.deleteConfirm', { name: pendingDelete?.name })}
+      confirmLabel={t('common.delete')}
+      onConfirm={handleDeleteAgent}
+      onClose={() => setPendingDelete(null)}
+    />
+    </>
   );
 }

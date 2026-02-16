@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/google/uuid"
+	"github.com/teanode/teanode/internal/util/ulid"
 )
 
 // MediaContent represents detected media in a tool result.
@@ -76,9 +76,9 @@ func NewStore(directory string) *Store {
 	return &Store{directory: directory}
 }
 
-// Save writes data to disk as {uuid}.{format} and returns the media ID (UUID).
+// Save writes data to disk as {id}.{format} and returns the media ID.
 func (self *Store) Save(data []byte, format string) (string, error) {
-	mediaId := uuid.New().String()
+	mediaId := ulid.GenerateString()
 	filename := fmt.Sprintf("%s.%s", mediaId, format)
 	path := filepath.Join(self.directory, filename)
 	if err := os.WriteFile(path, data, 0644); err != nil {

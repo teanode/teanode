@@ -1,12 +1,10 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import type { useChat } from './hooks/useChat';
-import type { useCronJobs } from './hooks/useCronJobs';
+import type { useBackend } from './hooks/useBackend';
 
 export type ThemeMode = 'dark' | 'light';
 
 export interface AppContextValue {
-  chat: ReturnType<typeof useChat>;
-  cronJobs: ReturnType<typeof useCronJobs>;
+  backend: ReturnType<typeof useBackend>;
   showToolCalls: boolean;
   setShowToolCalls: (value: boolean) => void;
   showTokenUsage: boolean;
@@ -28,12 +26,10 @@ export function useAppContext(): AppContextValue {
 }
 
 export function AppProvider({
-  chat,
-  cronJobs,
+  backend,
   children,
 }: {
-  chat: ReturnType<typeof useChat>;
-  cronJobs: ReturnType<typeof useCronJobs>;
+  backend: ReturnType<typeof useBackend>;
   children: React.ReactNode;
 }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -66,8 +62,7 @@ export function AppProvider({
   return (
     <AppContext.Provider
       value={{
-        chat,
-        cronJobs,
+        backend,
         showToolCalls,
         setShowToolCalls,
         showTokenUsage,

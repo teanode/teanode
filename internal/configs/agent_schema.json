@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "title": "Name",
+      "description": "Friendly display name for this agent."
+    },
+    "model": {
+      "type": "string",
+      "title": "Model",
+      "description": "Qualified model override (e.g. openai:gpt-4o). Defaults to global model.",
+      "x-placeholder": "Default",
+      "x-suggest": "model"
+    },
+    "systemPrompt": {
+      "type": "string",
+      "title": "System Prompt",
+      "description": "Per-agent system prompt override.",
+      "x-widget": "textarea"
+    },
+    "canMessage": {
+      "type": "array",
+      "title": "Can Message",
+      "description": "Agent IDs this agent can talk to. Use * for all.",
+      "items": { "type": "string" }
+    },
+    "maxToolRounds": {
+      "type": "number",
+      "title": "Max Tool Rounds",
+      "description": "Maximum tool-call loop iterations per run.",
+      "x-placeholder": "100",
+      "default": 100
+    },
+    "compressionThreshold": {
+      "type": "number",
+      "title": "Compression Threshold",
+      "description": "Context compression triggers when estimated tokens exceed this ratio of the context window (0-1).",
+      "x-placeholder": "0.80",
+      "default": 0.80
+    },
+    "minKeepMessages": {
+      "type": "number",
+      "title": "Min Keep Messages",
+      "description": "Minimum number of recent messages to preserve during truncation and compression.",
+      "x-placeholder": "10",
+      "default": 10
+    },
+    "maxToolResultChars": {
+      "type": "number",
+      "title": "Max Tool Result Chars",
+      "description": "Maximum characters per old tool result before truncation.",
+      "x-placeholder": "8000",
+      "default": 8000
+    },
+    "maxWorkspaceFileChars": {
+      "type": "number",
+      "title": "Max Workspace File Chars",
+      "description": "Maximum characters per workspace file (AGENT.md, MEMORY.md) in the system prompt.",
+      "x-placeholder": "8000",
+      "default": 8000
+    },
+    "tools": {
+      "type": "object",
+      "title": "Tools",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "title": "Allow",
+          "description": "Tool names to allow (empty = all allowed).",
+          "items": { "type": "string" }
+        },
+        "deny": {
+          "type": "array",
+          "title": "Deny",
+          "description": "Tool names to deny (deny wins over allow).",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "title": "Skills",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "title": "Allow",
+          "description": "Skill names to allow (empty = all allowed).",
+          "items": { "type": "string" }
+        },
+        "deny": {
+          "type": "array",
+          "title": "Deny",
+          "description": "Skill names to deny (deny wins over allow).",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "x-sections": [
+    { "id": "general", "title": "General", "description": "Core agent settings.", "properties": ["name", "model", "systemPrompt", "canMessage"] },
+    { "id": "limits", "title": "Limits", "description": "Runtime limits for the tool loop, context compression, and prompt construction.", "properties": ["maxToolRounds", "compressionThreshold", "minKeepMessages", "maxToolResultChars", "maxWorkspaceFileChars"] },
+    { "id": "filters", "title": "Filters", "description": "Allow/deny lists for tools and skills.", "properties": ["tools", "skills"] }
+  ]
+}

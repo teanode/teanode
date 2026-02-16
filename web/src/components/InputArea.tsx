@@ -72,7 +72,7 @@ export default function InputArea({
         <Box
           component="textarea"
           ref={textareaRef}
-          placeholder={t('chat.reply')}
+          placeholder={t('conversations.reply')}
           rows={1}
           onKeyDown={handleKeyDown}
           onInput={handleInput}

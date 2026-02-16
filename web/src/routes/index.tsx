@@ -1,1 +1,1 @@
-// / → redirects to /chat (handled via beforeLoad in router.tsx)
+// / → redirects to /conversations (handled via beforeLoad in router.tsx)

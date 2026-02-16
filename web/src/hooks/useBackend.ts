@@ -1,0 +1,790 @@
+import { useState, useCallback, useRef } from 'react';
+import type {
+  Conversation,
+  DisplayMessage,
+  ConversationEvent,
+  EventFrame,
+  ConnectResult,
+  ConversationSendResult,
+  ConversationHistoryResult,
+  ConversationsListResult,
+  ModelsListResult,
+  AgentsConfigListResult,
+  ModelInfo,
+  AgentInfo,
+  Message,
+  ToolCall,
+  Usage,
+  Job,
+  JobCreateParams,
+  JobUpdateParams,
+  JobsListResult,
+} from '../types';
+import { useWebSocket } from './useWebSocket';
+
+let messageIdCounter = 0;
+function nextMessageId(): string {
+  return `msg-${++messageIdCounter}`;
+}
+
+function extractContent(message: Message): string {
+  if (!message.content) return '';
+  if (typeof message.content === 'string') return message.content;
+  try {
+    return JSON.parse(message.content as string);
+  } catch {
+    return String(message.content);
+  }
+}
+
+function parseToolCalls(raw: ToolCall[] | string | undefined): ToolCall[] {
+  if (!raw) return [];
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  return raw;
+}
+
+function getUsageNumbers(usage: Usage | undefined): { input: number; output: number; total: number } | null {
+  if (!usage) return null;
+  const input = usage.input ?? usage.Input ?? 0;
+  const output = usage.output ?? usage.Output ?? 0;
+  const total = usage.total ?? usage.Total ?? (input + output);
+  if (!total) return null;
+  return { input, output, total };
+}
+
+/** Find the assistant message placeholder for a given runId. */
+function findRunAssistantIndex(messages: DisplayMessage[], runId: string | null): number {
+  if (!runId) return messages.length - 1;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index].type === 'assistant' && messages[index].runId === runId) {
+      return index;
+    }
+  }
+  return messages.length - 1; // fallback
+}
+
+function convertHistory(msgs: Message[]): DisplayMessage[] {
+  const displayMessages: DisplayMessage[] = [];
+  for (const message of msgs) {
+    const content = extractContent(message);
+    const timestamp = message.timestamp;
+    if (message.role === 'user') {
+      displayMessages.push({ id: nextMessageId(), type: 'user', content, timestamp });
+    } else if (message.role === 'assistant') {
+      const toolCalls = parseToolCalls(message.toolCalls);
+      if (toolCalls.length > 0) {
+        if (content?.trim()) {
+          displayMessages.push({ id: nextMessageId(), type: 'assistant', content, timestamp });
+        }
+        for (const toolCall of toolCalls) {
+          const functionData = toolCall.function || (toolCall as unknown as { name: string; arguments: string });
+          displayMessages.push({
+            id: nextMessageId(),
+            type: 'tool-invoke',
+            content: functionData.arguments || '{}',
+            toolName: functionData.name || 'tool',
+            timestamp,
+          });
+        }
+      } else if (content?.trim()) {
+        displayMessages.push({ id: nextMessageId(), type: 'assistant', content, timestamp });
+        const usageNumbers = getUsageNumbers(message.usage);
+        if (usageNumbers) {
+          displayMessages.push({
+            id: nextMessageId(),
+            type: 'usage',
+            content: `${usageNumbers.input} in / ${usageNumbers.output} out \u00b7 ${usageNumbers.total} tokens`,
+            usage: message.usage,
+            timestamp,
+          });
+        }
+      }
+    } else if (message.role === 'tool') {
+      displayMessages.push({
+        id: nextMessageId(),
+        type: 'tool-result',
+        content,
+        toolName: message.toolName || 'tool',
+        timestamp,
+      });
+    }
+  }
+  return displayMessages;
+}
+
+export function useBackend() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [isRunning, setIsRunning] = useState(false);
+  const [status, setStatus] = useState('connecting...');
+  const [defaultModel, setDefaultModel] = useState('');
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [streamText, setStreamText] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [toolActivity, setToolActivity] = useState<string | null>(null);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [currentAgentId, setCurrentAgentId] = useState<string>('');
+  const [connected, setConnected] = useState(false);
+  const currentAgentIdRef = useRef(currentAgentId);
+
+  const conversationIdRef = useRef(conversationId);
+  conversationIdRef.current = conversationId;
+  currentAgentIdRef.current = currentAgentId;
+
+  const currentRunIdRef = useRef<string | null>(null);
+  const activeRunsRef = useRef<Map<string, string>>(new Map());
+  const afterToolCallsRef = useRef(false);
+  const streamTextRef = useRef('');
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
+
+  const conversationsRefreshRef = useRef(0);
+  const historyLoadedRef = useRef(true);
+  const pendingEventsRef = useRef<EventFrame[]>([]);
+  const runQueueRef = useRef<string[]>([]); // ordered run IDs: [active, queued1, queued2, ...]
+
+  function touchConversation(conversationId: string) {
+    const now = Date.now();
+    setConversations((previous) => {
+      const updated = previous.map((conversation) =>
+        conversation.id === conversationId ? { ...conversation, lastActive: now } : conversation
+      );
+      conversationsRef.current = updated;
+      return updated;
+    });
+  }
+
+  function finishCurrentRun() {
+    streamTextRef.current = '';
+    afterToolCallsRef.current = false;
+    setStreamText('');
+    setIsStreaming(false);
+    setToolActivity(null);
+
+    // Remove finished run from queue
+    if (currentRunIdRef.current) {
+      const index = runQueueRef.current.indexOf(currentRunIdRef.current);
+      if (index !== -1) runQueueRef.current.splice(index, 1);
+    }
+
+    // Promote next queued run or finish
+    if (runQueueRef.current.length > 0) {
+      currentRunIdRef.current = runQueueRef.current[0];
+      setStatus('thinking...');
+      // Keep isRunning = true
+    } else {
+      currentRunIdRef.current = null;
+      if (conversationIdRef.current) {
+        activeRunsRef.current.delete(conversationIdRef.current);
+      }
+      setIsRunning(false);
+      setStatus('connected');
+    }
+  }
+
+  const handleEvent = useCallback((frame: EventFrame) => {
+    if (frame.event === 'conversations') {
+      const now = Date.now();
+      if (now - conversationsRefreshRef.current < 2000) return;
+      conversationsRefreshRef.current = now;
+      sendRpcRef.current<ConversationsListResult>('conversations.list', {}).then((res) => {
+        const list = res.conversations || [];
+        setConversations(list);
+        conversationsRef.current = list;
+      }).catch((error: unknown) => console.error('conversations.list (event):', error));
+      return;
+    }
+
+    if (frame.event !== 'conversation') return;
+    const conversationEvent = frame.payload as ConversationEvent;
+    if (!conversationEvent) return;
+
+    // Clean up activeRuns for completed runs (no message mutation)
+    if (conversationEvent.state === 'final' || conversationEvent.state === 'error' || conversationEvent.state === 'aborted') {
+      if (conversationEvent.conversationId && activeRunsRef.current.get(conversationEvent.conversationId) === conversationEvent.runId) {
+        activeRunsRef.current.delete(conversationEvent.conversationId);
+      }
+    }
+
+    // Buffer events for the current conversation while history is loading
+    if (!historyLoadedRef.current && conversationEvent.conversationId === conversationIdRef.current) {
+      pendingEventsRef.current.push(frame);
+      return;
+    }
+
+    // Handle queued events early — no UI update needed, placeholder is already visible
+    if (conversationEvent.state === 'queued') {
+      return;
+    }
+
+    // Handle user messages from external sources (Discord, Telegram, scheduled jobs)
+    if (conversationEvent.state === 'user_message') {
+      if (conversationEvent.conversationId) touchConversation(conversationEvent.conversationId);
+      if (conversationEvent.conversationId === conversationIdRef.current) {
+        currentRunIdRef.current = conversationEvent.runId || null;
+        if (conversationEvent.runId && conversationEvent.conversationId) {
+          activeRunsRef.current.set(conversationEvent.conversationId, conversationEvent.runId);
+        }
+        if (conversationEvent.runId) {
+          runQueueRef.current.push(conversationEvent.runId);
+        }
+        setIsRunning(true);
+        setStatus('thinking...');
+        const assistantMessageId = nextMessageId();
+        setMessages(prev => [
+          ...prev,
+          { id: nextMessageId(), type: 'user', content: conversationEvent.text || '', timestamp: Date.now() },
+          { id: assistantMessageId, type: 'assistant', content: '', runId: conversationEvent.runId || undefined },
+        ]);
+        streamTextRef.current = '';
+        setStreamText('');
+        // Don't set isStreaming — let the delta event set it
+      }
+      return;
+    }
+
+    // Auto-detect new runs on current conversation from broadcast events
+    if (conversationEvent.runId && conversationEvent.conversationId === conversationIdRef.current && !currentRunIdRef.current) {
+      if (conversationEvent.state === 'delta' || conversationEvent.state === 'tool_call') {
+        currentRunIdRef.current = conversationEvent.runId;
+        activeRunsRef.current.set(conversationEvent.conversationId, conversationEvent.runId);
+        runQueueRef.current.push(conversationEvent.runId);
+        setIsRunning(true);
+        setStatus('thinking...');
+        setMessages(prev => [...prev, { id: nextMessageId(), type: 'assistant', content: '', runId: conversationEvent.runId || undefined }]);
+      }
+    }
+
+    // Only update UI for the currently viewed conversation
+    if (!conversationIdRef.current || conversationEvent.conversationId !== conversationIdRef.current) return;
+    if (currentRunIdRef.current && conversationEvent.runId !== currentRunIdRef.current) return;
+
+    // Guard: skip final/error/aborted if we have no active run (avoids corrupting history)
+    if (!currentRunIdRef.current && (conversationEvent.state === 'final' || conversationEvent.state === 'error' || conversationEvent.state === 'aborted')) return;
+
+    const eventRunId = conversationEvent.runId || null;
+
+    if (conversationEvent.state === 'delta') {
+      setToolActivity(null);
+      if (afterToolCallsRef.current) {
+        // New LLM round after tool calls — finalize old text and start fresh
+        const prevText = streamTextRef.current;
+        if (prevText) {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const assistantIndex = findRunAssistantIndex(updated, eventRunId);
+            if (assistantIndex >= 0 && updated[assistantIndex].type === 'assistant') {
+              updated[assistantIndex] = {
+                ...updated[assistantIndex],
+                content: prevText,
+              };
+            }
+            // Add new streaming message after the finalized one
+            const newAssistant: DisplayMessage = { id: nextMessageId(), type: 'assistant', content: '', runId: eventRunId || undefined };
+            updated.splice(assistantIndex + 1, 0, newAssistant);
+            return updated;
+          });
+        } else {
+          // Empty old stream — just reset, reuse existing placeholder
+          setMessages((prev) => {
+            const updated = [...prev];
+            const assistantIndex = findRunAssistantIndex(updated, eventRunId);
+            if (assistantIndex >= 0 && updated[assistantIndex].type === 'assistant' && !updated[assistantIndex].content) {
+              // Reuse it
+            } else {
+              const newAssistant: DisplayMessage = { id: nextMessageId(), type: 'assistant', content: '', runId: eventRunId || undefined };
+              updated.splice(assistantIndex + 1, 0, newAssistant);
+            }
+            return updated;
+          });
+        }
+        streamTextRef.current = '';
+        setStreamText('');
+        afterToolCallsRef.current = false;
+      }
+      streamTextRef.current += conversationEvent.text || '';
+      setStreamText(streamTextRef.current);
+      setIsStreaming(true);
+    } else if (conversationEvent.state === 'tool_call') {
+      afterToolCallsRef.current = true;
+      setMessages((prev) => {
+        const updated = [...prev];
+        const assistantIndex = findRunAssistantIndex(updated, eventRunId);
+        const toolMsg: DisplayMessage = {
+          id: nextMessageId(),
+          type: 'tool-invoke',
+          content: conversationEvent.arguments || '{}',
+          toolName: conversationEvent.toolName,
+          timestamp: Date.now(),
+        };
+        // Insert tool invoke before the run's assistant (streaming) message
+        updated.splice(assistantIndex, 0, toolMsg);
+        return updated;
+      });
+      setIsStreaming(false); // FIX: clear streaming so thinking spinner shows during tool execution
+      setToolActivity(conversationEvent.toolName || null);
+      setStatus(`calling ${conversationEvent.toolName}...`);
+    } else if (conversationEvent.state === 'tool_result') {
+      setMessages((prev) => {
+        const updated = [...prev];
+        const assistantIndex = findRunAssistantIndex(updated, eventRunId);
+        const toolMsg: DisplayMessage = {
+          id: nextMessageId(),
+          type: 'tool-result',
+          content: conversationEvent.result || '',
+          toolName: conversationEvent.toolName,
+          timestamp: Date.now(),
+        };
+        // Insert tool result before the run's assistant (streaming) message
+        updated.splice(assistantIndex, 0, toolMsg);
+        return updated;
+      });
+      setToolActivity(null);
+      setStatus('tool done, thinking...');
+    } else if (conversationEvent.state === 'final') {
+      if (conversationEvent.conversationId) touchConversation(conversationEvent.conversationId);
+      setToolActivity(null);
+      const finalText = conversationEvent.text || streamTextRef.current;
+      const finalTimestamp = Date.now();
+      setMessages((prev) => {
+        const updated = [...prev];
+        const assistantIndex = findRunAssistantIndex(updated, eventRunId);
+        if (assistantIndex >= 0 && updated[assistantIndex].type === 'assistant') {
+          if (finalText) {
+            updated[assistantIndex] = {
+              ...updated[assistantIndex],
+              content: finalText,
+              timestamp: finalTimestamp,
+            };
+          } else {
+            // Remove empty streaming element
+            updated.splice(assistantIndex, 1);
+          }
+        }
+        // Add usage
+        const usageNumbers = getUsageNumbers(conversationEvent.usage);
+        if (usageNumbers) {
+          // Insert usage after the assistant message (or at the position it was)
+          const insertPosition = finalText ? assistantIndex + 1 : assistantIndex;
+          updated.splice(insertPosition, 0, {
+            id: nextMessageId(),
+            type: 'usage',
+            content: `${usageNumbers.input} in / ${usageNumbers.output} out \u00b7 ${usageNumbers.total} tokens`,
+            usage: conversationEvent.usage,
+            timestamp: finalTimestamp,
+          });
+        }
+        return updated;
+      });
+      finishCurrentRun();
+    } else if (conversationEvent.state === 'error') {
+      setToolActivity(null);
+      setMessages((prev) => {
+        const updated = [...prev];
+        const assistantIndex = findRunAssistantIndex(updated, eventRunId);
+        if (assistantIndex >= 0 && updated[assistantIndex].type === 'assistant') {
+          if (streamTextRef.current) {
+            updated[assistantIndex] = {
+              ...updated[assistantIndex],
+              content: streamTextRef.current,
+            };
+          } else {
+            updated[assistantIndex] = {
+              ...updated[assistantIndex],
+              content: `__error__:${conversationEvent.error || 'Unknown error'}`,
+            };
+          }
+        }
+        return updated;
+      });
+      finishCurrentRun();
+    } else if (conversationEvent.state === 'aborted') {
+      setToolActivity(null);
+      setMessages((prev) => {
+        const updated = [...prev];
+        const assistantIndex = findRunAssistantIndex(updated, eventRunId);
+        if (assistantIndex >= 0 && updated[assistantIndex].type === 'assistant') {
+          if (streamTextRef.current) {
+            updated[assistantIndex] = {
+              ...updated[assistantIndex],
+              content: streamTextRef.current,
+            };
+          } else {
+            updated[assistantIndex] = {
+              ...updated[assistantIndex],
+              content: '__aborted__',
+            };
+          }
+        }
+        return updated;
+      });
+      finishCurrentRun();
+    }
+  }, []);
+
+  // sendRpc is defined below but we need it in handleConnect — use a ref
+  const sendRpcRef = useRef<(<T = unknown>(method: string, params: unknown) => Promise<T>)>(null!);
+
+  const handleConnect = useCallback((result: ConnectResult) => {
+    setConnected(true);
+    if (result.defaultModel) {
+      setDefaultModel(result.defaultModel);
+    }
+    if (result.agents) {
+      setAgents(result.agents);
+    }
+    if (result.defaultAgentId && !currentAgentIdRef.current) {
+      setCurrentAgentId(result.defaultAgentId);
+      currentAgentIdRef.current = result.defaultAgentId;
+    }
+    // Fetch available models
+    sendRpcRef.current<ModelsListResult>('models.list', {})
+      .then((res) => {
+        if (res.models) setModels(res.models);
+      })
+      .catch((error: unknown) => console.error('models.list:', error));
+
+    // Load conversations on every (re)connect
+    sendRpcRef.current<ConversationsListResult>('conversations.list', {})
+      .then((res) => {
+        const list = res.conversations || [];
+        setConversations(list);
+        conversationsRef.current = list;
+      })
+      .catch((error: unknown) => console.error('conversations.list:', error));
+
+    // Reload current conversation's history on (re)connect
+    const key = conversationIdRef.current;
+    if (key) {
+      historyLoadedRef.current = false;
+      pendingEventsRef.current = [];
+      sendRpcRef.current<ConversationHistoryResult>('conversations.history', { conversationId: key, agentId: currentAgentIdRef.current || undefined })
+        .then((res) => {
+          if (conversationIdRef.current !== key) return;
+          const displayMessages = convertHistory(res.messages || []);
+          if (res.activeRunId) {
+            currentRunIdRef.current = res.activeRunId;
+            activeRunsRef.current.set(key, res.activeRunId);
+            runQueueRef.current = [res.activeRunId];
+            setIsRunning(true);
+            setStatus('thinking...');
+            displayMessages.push({ id: nextMessageId(), type: 'assistant', content: '', runId: res.activeRunId });
+          }
+          setMessages(displayMessages);
+          historyLoadedRef.current = true;
+          // Replay buffered events (only if run is still active — otherwise history is complete)
+          if (res.activeRunId && pendingEventsRef.current.length > 0) {
+            for (const event of pendingEventsRef.current) {
+              handleEvent(event);
+            }
+          }
+          pendingEventsRef.current = [];
+        })
+        .catch((error: unknown) => console.error('conversations.history reconnect:', error));
+    }
+  }, []);
+
+  const { sendRpc } = useWebSocket({
+    onEvent: handleEvent,
+    onConnect: handleConnect,
+    onStatusChange: setStatus,
+  });
+
+  sendRpcRef.current = sendRpc;
+
+  // Load conversations (callable externally if needed)
+  const loadConversations = useCallback(() => {
+    sendRpc<ConversationsListResult>('conversations.list', {})
+      .then((res) => {
+        const list = res.conversations || [];
+        setConversations(list);
+        conversationsRef.current = list;
+      })
+      .catch((error) => console.error('conversations.list:', error));
+  }, [sendRpc]);
+
+  const switchConversation = useCallback(
+    (key: string, agentId?: string) => {
+      // Detach current streaming state
+      currentRunIdRef.current = null;
+      streamTextRef.current = '';
+      afterToolCallsRef.current = false;
+      runQueueRef.current = [];
+      setStreamText('');
+      setIsStreaming(false);
+      setToolActivity(null);
+
+      // Switch agent if a different one is specified.
+      if (agentId && agentId !== currentAgentIdRef.current) {
+        setCurrentAgentId(agentId);
+        currentAgentIdRef.current = agentId;
+      }
+
+      const resolvedAgentId = agentId || currentAgentIdRef.current || undefined;
+
+      setConversationId(key);
+      conversationIdRef.current = key;
+      setMessages([]);
+
+      setIsRunning(false);
+      setStatus('connected');
+
+      // Buffer events while history is loading
+      historyLoadedRef.current = false;
+      pendingEventsRef.current = [];
+
+      sendRpc<ConversationHistoryResult>('conversations.history', { conversationId: key, agentId: resolvedAgentId })
+        .then((res) => {
+          if (conversationIdRef.current !== key) return;
+          const displayMessages = convertHistory(res.messages || []);
+
+          // Use activeRunId from server response to detect active runs
+          if (res.activeRunId) {
+            currentRunIdRef.current = res.activeRunId;
+            activeRunsRef.current.set(key, res.activeRunId);
+            runQueueRef.current = [res.activeRunId];
+            setIsRunning(true);
+            setStatus('thinking...');
+            displayMessages.push({ id: nextMessageId(), type: 'assistant', content: '', runId: res.activeRunId });
+          }
+
+          setMessages(displayMessages);
+          historyLoadedRef.current = true;
+
+          // Replay buffered events (only if run is still active — otherwise history is complete)
+          if (res.activeRunId && pendingEventsRef.current.length > 0) {
+            for (const event of pendingEventsRef.current) {
+              handleEvent(event);
+            }
+          }
+          pendingEventsRef.current = [];
+        })
+        .catch((error) => console.error('conversations.history:', error));
+    },
+    [sendRpc, handleEvent]
+  );
+
+  const newConversation = useCallback(() => {
+    currentRunIdRef.current = null;
+    streamTextRef.current = '';
+    afterToolCallsRef.current = false;
+    runQueueRef.current = [];
+    setStreamText('');
+    setIsStreaming(false);
+    setIsRunning(false);
+    setToolActivity(null);
+    setConversationId(null);
+    conversationIdRef.current = null;
+    setMessages([]);
+    setStatus('connected');
+  }, []);
+
+  const deleteConversation = useCallback(
+    (conversationId: string, agentId?: string) => {
+      sendRpc('conversations.delete', { conversationId, agentId })
+        .then(() => {
+          setConversations((prev) => {
+            const updated = prev.filter((conversation) => conversation.id !== conversationId);
+            conversationsRef.current = updated;
+            return updated;
+          });
+          if (conversationIdRef.current === conversationId) {
+            setConversationId(null);
+            conversationIdRef.current = null;
+            setMessages([]);
+          }
+        })
+        .catch((error) => console.error('conversations.delete:', error));
+    },
+    [sendRpc]
+  );
+
+  const sendMessage = useCallback(
+    (text: string, model?: string) => {
+      if (!text.trim()) return;
+      // Allow sending while running — backend queues per-conversation
+
+      const now = Date.now();
+      const assistantMessageId = nextMessageId();
+      setMessages((prev) => [
+        ...prev,
+        { id: nextMessageId(), type: 'user', content: text, timestamp: now },
+        { id: assistantMessageId, type: 'assistant', content: '', timestamp: now },
+      ]);
+
+      if (!isRunning) {
+        // First message — set running state
+        streamTextRef.current = '';
+        setStreamText('');
+        setIsRunning(true);
+        setStatus('thinking...');
+      }
+      // Don't set isStreaming true — let the delta event set it
+      setIsStreaming(false);
+
+      const rpcParams: Record<string, string> = {
+        conversationId: conversationIdRef.current || '',
+        message: text,
+      };
+      if (model) rpcParams.model = model;
+      if (currentAgentIdRef.current) rpcParams.agentId = currentAgentIdRef.current;
+
+      sendRpc<ConversationSendResult>('conversations.send', rpcParams)
+        .then((res) => {
+          // Tag assistant placeholder with runId
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === assistantMessageId ? { ...message, runId: res.runId } : message
+            )
+          );
+          runQueueRef.current.push(res.runId);
+          if (!currentRunIdRef.current) {
+            currentRunIdRef.current = res.runId;
+          }
+          activeRunsRef.current.set(res.conversationId, res.runId);
+          touchConversation(res.conversationId);
+          if (!conversationIdRef.current) {
+            setConversationId(res.conversationId);
+            conversationIdRef.current = res.conversationId;
+            setConversations((prev) => {
+              const exists = prev.some((conversation) => conversation.id === res.conversationId);
+              if (!exists) {
+                const updated = [
+                  { id: res.conversationId, lastActive: Date.now() },
+                  ...prev,
+                ];
+                conversationsRef.current = updated;
+                return updated;
+              }
+              return prev;
+            });
+          }
+        })
+        .catch((error) => {
+          // Remove both user message and empty assistant placeholder
+          setMessages((prev) => {
+            const updated = [...prev];
+            // Remove empty assistant placeholder
+            if (updated.length > 0 && updated[updated.length - 1].type === 'assistant'
+                && updated[updated.length - 1].id === assistantMessageId) {
+              updated.pop();
+              // Also remove the user message we just added
+              if (updated.length > 0 && updated[updated.length - 1].type === 'user') {
+                updated.pop();
+              }
+            }
+            return updated;
+          });
+          setStatus(`error: ${(error as { message?: string }).message || error}`);
+          // Only clear running state if no other runs in queue
+          if (runQueueRef.current.length === 0) {
+            setIsRunning(false);
+            setIsStreaming(false);
+          }
+        });
+    },
+    [isRunning, sendRpc]
+  );
+
+  const abortRun = useCallback(() => {
+    if (!currentRunIdRef.current) return;
+    sendRpc('conversations.abort', { runId: currentRunIdRef.current }).catch(() => {});
+  }, [sendRpc]);
+
+  const refreshAgents = useCallback(() => {
+    sendRpc<AgentsConfigListResult>('agents.config.list', {})
+      .then((result) => {
+        if (result.agents) setAgents(result.agents.map((agent) => ({ id: agent.id })));
+      })
+      .catch((error: unknown) => console.error('agents.config.list:', error));
+  }, [sendRpc]);
+
+  // ── Jobs ────────────────────────────────────────────────────────────
+
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+
+  const loadJobs = useCallback(() => {
+    setJobsLoading(true);
+    sendRpc<JobsListResult>('jobs.list', {})
+      .then((result) => setJobs(result.jobs || []))
+      .catch((error) => console.error('jobs.list:', error))
+      .finally(() => setJobsLoading(false));
+  }, [sendRpc]);
+
+  const createJob = useCallback(
+    (params: JobCreateParams) => {
+      return sendRpc<{ job: Job }>('jobs.create', params)
+        .then(() => { loadJobs(); })
+        .catch((error) => { console.error('jobs.create:', error); throw error; });
+    },
+    [sendRpc, loadJobs]
+  );
+
+  const updateJob = useCallback(
+    (params: JobUpdateParams) => {
+      return sendRpc<{ job: Job }>('jobs.update', params)
+        .then(() => { loadJobs(); })
+        .catch((error) => { console.error('jobs.update:', error); throw error; });
+    },
+    [sendRpc, loadJobs]
+  );
+
+  const deleteJob = useCallback(
+    (id: string) => {
+      return sendRpc('jobs.delete', { id })
+        .then(() => { loadJobs(); })
+        .catch((error) => { console.error('jobs.delete:', error); throw error; });
+    },
+    [sendRpc, loadJobs]
+  );
+
+  const triggerJob = useCallback(
+    (id: string): Promise<void> => {
+      return sendRpc('jobs.trigger', { id })
+        .then(() => {})
+        .catch((error) => { console.error('jobs.trigger:', error); throw error; });
+    },
+    [sendRpc]
+  );
+
+  return {
+    conversations,
+    conversationId,
+    messages,
+    isRunning,
+    status,
+    defaultModel,
+    models,
+    streamText,
+    isStreaming,
+    toolActivity,
+    agents,
+    currentAgentId,
+    connected,
+    currentRunId: currentRunIdRef.current,
+    setCurrentAgentId,
+    sendMessage,
+    abortRun,
+    switchConversation,
+    newConversation,
+    deleteConversation,
+    loadConversations,
+    refreshAgents,
+    sendRpc,
+    jobs,
+    jobsLoading,
+    loadJobs,
+    createJob,
+    updateJob,
+    deleteJob,
+    triggerJob,
+  };
+}

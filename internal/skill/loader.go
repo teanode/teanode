@@ -9,10 +9,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// LoadAll reads all *.yaml files from skillsDir and returns parsed skills.
+// LoadAll reads all *.yaml files from skillsDirectory and returns parsed skills.
 // Logs warnings for malformed files and continues.
-func LoadAll(skillsDir string) ([]SkillDef, error) {
-	entries, err := os.ReadDir(skillsDir)
+func LoadAll(skillsDirectory string) ([]SkillDef, error) {
+	entries, err := os.ReadDir(skillsDirectory)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -26,7 +26,7 @@ func LoadAll(skillsDir string) ([]SkillDef, error) {
 			continue
 		}
 
-		path := filepath.Join(skillsDir, entry.Name())
+		path := filepath.Join(skillsDirectory, entry.Name())
 		data, err := os.ReadFile(path)
 		if err != nil {
 			log.Warningf("failed to read %s: %v", entry.Name(), err)

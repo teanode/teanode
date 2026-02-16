@@ -38,7 +38,7 @@ export function connect(onOpen?: () => void): void {
   }
 
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  let url = `${proto}//${window.location.host}/api/ws`;
+  let url = `${proto}//${window.location.host}/api/v1/websocket`;
   const token = getToken();
   if (token) url += `?token=${encodeURIComponent(token)}`;
 

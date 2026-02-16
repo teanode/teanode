@@ -16,9 +16,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	gologging "github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/logging"
-	"github.com/teanode/teanode/internal/terminal"
+	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/util/screenbuffer"
 	"github.com/urfave/cli/v3"
 )
@@ -53,7 +52,7 @@ func TerminalCmd() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
-			log := logging.Get("cmd")
+			log := logging.MustGetLogger("cmd")
 
 			// Determine child command: --command flag, positional args, $SHELL, or bash.
 			var shellArguments []string
@@ -71,18 +70,18 @@ func TerminalCmd() *cli.Command {
 			}
 
 			// Open PTY.
-			master, slave, err := terminal.OpenPTY()
+			master, slave, err := terminals.OpenPTY()
 			if err != nil {
 				return fmt.Errorf("open pty: %w", err)
 			}
 			defer master.Close()
 
 			// Set PTY window size from user terminal.
-			rows, cols, err := terminal.GetWinSize(int(os.Stdin.Fd()))
+			rows, cols, err := terminals.GetWinSize(int(os.Stdin.Fd()))
 			if err == nil {
-				terminal.SetWinSize(int(master.Fd()), rows, cols)
+				terminals.SetWinSize(int(master.Fd()), rows, cols)
 			} else {
-				terminal.SetWinSize(int(master.Fd()), 24, 80)
+				terminals.SetWinSize(int(master.Fd()), 24, 80)
 			}
 
 			// Start child process.
@@ -102,11 +101,11 @@ func TerminalCmd() *cli.Command {
 			slave.Close()
 
 			// Put user terminal in raw mode.
-			originalTermios, err := terminal.MakeRaw(int(os.Stdin.Fd()))
+			originalTermios, err := terminals.MakeRaw(int(os.Stdin.Fd()))
 			if err != nil {
 				return fmt.Errorf("raw mode: %w", err)
 			}
-			defer terminal.RestoreTermios(int(os.Stdin.Fd()), originalTermios)
+			defer terminals.RestoreTermios(int(os.Stdin.Fd()), originalTermios)
 
 			// Screen buffer for capturing output.
 			buffer := screenbuffer.New(1000)
@@ -136,8 +135,8 @@ func TerminalCmd() *cli.Command {
 			signal.Notify(sigwinch, syscall.SIGWINCH)
 			go func() {
 				for range sigwinch {
-					if rows, cols, err := terminal.GetWinSize(int(os.Stdin.Fd())); err == nil {
-						terminal.SetWinSize(int(master.Fd()), rows, cols)
+					if rows, cols, err := terminals.GetWinSize(int(os.Stdin.Fd())); err == nil {
+						terminals.SetWinSize(int(master.Fd()), rows, cols)
 					}
 				}
 			}()
@@ -156,13 +155,13 @@ func TerminalCmd() *cli.Command {
 	}
 }
 
-func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand string, master *os.File, buffer *screenbuffer.Buffer, log *gologging.Logger) {
+func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand string, master *os.File, buffer *screenbuffer.Buffer, log *logging.Logger) {
 	parsedUrl, err := url.Parse(gatewayUrl)
 	if err != nil {
 		log.Errorf("terminal: invalid gateway URL: %v", err)
 		return
 	}
-	parsedUrl.Path = "/api/terminal"
+	parsedUrl.Path = "/api/v1/terminal"
 	query := parsedUrl.Query()
 	if token != "" {
 		query.Set("token", token)
@@ -183,7 +182,7 @@ func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand s
 	}
 }
 
-func serveGatewayConnection(ctx context.Context, url string, shellCommand string, master *os.File, buffer *screenbuffer.Buffer, log *gologging.Logger) {
+func serveGatewayConnection(ctx context.Context, url string, shellCommand string, master *os.File, buffer *screenbuffer.Buffer, log *logging.Logger) {
 	connection, _, err := websocket.DefaultDialer.DialContext(ctx, url, nil)
 	if err != nil {
 		log.Errorf("terminal: gateway connect failed: %v", err)
@@ -259,7 +258,7 @@ func serveGatewayConnection(ctx context.Context, url string, shellCommand string
 				json.Unmarshal(message.Params, &parameters)
 			}
 			if parameters.Rows > 0 && parameters.Cols > 0 {
-				terminal.SetWinSize(int(master.Fd()), parameters.Rows, parameters.Cols)
+				terminals.SetWinSize(int(master.Fd()), parameters.Rows, parameters.Cols)
 			}
 			response, _ := json.Marshal(map[string]interface{}{
 				"id":     message.ID,

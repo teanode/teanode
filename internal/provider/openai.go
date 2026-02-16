@@ -16,17 +16,17 @@ import (
 
 // Client talks to an OpenAI-compatible chat completions API.
 type Client struct {
-	BaseURL    string
-	APIKey     string
-	HTTPClient *http.Client
+	baseUrl    string
+	apiKey     string
+	httpClient *http.Client
 }
 
 // NewClient creates a provider client.
 func NewClient(baseUrl, apiKey string) *Client {
 	return &Client{
-		BaseURL:    strings.TrimRight(baseUrl, "/"),
-		APIKey:     apiKey,
-		HTTPClient: http.DefaultClient,
+		baseUrl:    strings.TrimRight(baseUrl, "/"),
+		apiKey:     apiKey,
+		httpClient: http.DefaultClient,
 	}
 }
 
@@ -145,21 +145,21 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 	request.Stream = false
 	body, _ := json.Marshal(request)
 
-	log.Debugf("POST %s/chat/completions model=%s messages=%d stream=false", self.BaseURL, request.Model, len(request.Messages))
+	log.Debugf("POST %s/chat/completions model=%s messages=%d stream=false", self.baseUrl, request.Model, len(request.Messages))
 
-	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.BaseURL+"/chat/completions", bytes.NewReader(body))
+	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	self.setHeaders(httpRequest)
 
-	response, err := self.HTTPClient.Do(httpRequest)
+	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
 	defer response.Body.Close()
 
-	log.Debugf("POST %s/chat/completions status=%d", self.BaseURL, response.StatusCode)
+	log.Debugf("POST %s/chat/completions status=%d", self.baseUrl, response.StatusCode)
 
 	if response.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(response.Body)
@@ -186,20 +186,20 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 	request.Stream = true
 	body, _ := json.Marshal(request)
 
-	log.Debugf("POST %s/chat/completions model=%s messages=%d stream=true", self.BaseURL, request.Model, len(request.Messages))
+	log.Debugf("POST %s/chat/completions model=%s messages=%d stream=true", self.baseUrl, request.Model, len(request.Messages))
 
-	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.BaseURL+"/chat/completions", bytes.NewReader(body))
+	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	self.setHeaders(httpRequest)
 
-	response, err := self.HTTPClient.Do(httpRequest)
+	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
 
-	log.Debugf("POST %s/chat/completions status=%d (stream opened)", self.BaseURL, response.StatusCode)
+	log.Debugf("POST %s/chat/completions status=%d (stream opened)", self.baseUrl, response.StatusCode)
 
 	if response.StatusCode != http.StatusOK {
 		defer response.Body.Close()
@@ -268,13 +268,13 @@ type ModelInfo struct {
 
 // ListModels fetches available models from the provider's /models endpoint.
 func (self *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	httpRequest, err := http.NewRequestWithContext(ctx, "GET", self.BaseURL+"/models", nil)
+	httpRequest, err := http.NewRequestWithContext(ctx, "GET", self.baseUrl+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	self.setHeaders(httpRequest)
 
-	response, err := self.HTTPClient.Do(httpRequest)
+	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
 		return nil, fmt.Errorf("fetching models: %w", err)
 	}
@@ -302,7 +302,7 @@ func (self *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 
 func (self *Client) setHeaders(request *http.Request) {
 	request.Header.Set("Content-Type", "application/json")
-	if self.APIKey != "" {
-		request.Header.Set("Authorization", "Bearer "+self.APIKey)
+	if self.apiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+self.apiKey)
 	}
 }

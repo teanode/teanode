@@ -49,7 +49,7 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
   if (mediaInfo) {
     const source = mediaInfo.base64
       ? `data:image/${mediaInfo.format};base64,${mediaInfo.base64}`
-      : `/api/media/${mediaInfo.mediaId}`;
+      : `/api/v1/media/${mediaInfo.mediaId}`;
 
     return (
       <Box

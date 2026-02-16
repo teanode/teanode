@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "models": {
+      "type": "object",
+      "title": "Models",
+      "properties": {
+        "default": {
+          "type": "string",
+          "title": "Default Model",
+          "description": "Qualified model name (e.g. openai:gpt-4o)",
+          "x-placeholder": "openai:gpt-4o",
+          "x-suggest": "model"
+        },
+        "summarizerModel": {
+          "type": "string",
+          "title": "Summarizer Model",
+          "description": "Model for generating session titles, summaries, and context compression. Defaults to default model.",
+          "x-placeholder": "Same as default",
+          "x-suggest": "model"
+        },
+        "contextWindow": {
+          "type": "number",
+          "title": "Context Window",
+          "description": "Maximum tokens for context window.",
+          "x-placeholder": "128000",
+          "default": 128000
+        },
+        "providers": {
+          "type": "object",
+          "title": "Providers",
+          "description": "LLM provider connections (name, base URL, API key).",
+          "x-widget": "providers",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "baseUrl": { "type": "string" },
+              "apiKey": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "title": "Gateway",
+      "properties": {
+        "port": {
+          "type": "number",
+          "title": "Port",
+          "description": "Port the gateway listens on.",
+          "x-placeholder": "8833",
+          "default": 8833
+        },
+        "bind": {
+          "type": "string",
+          "title": "Bind",
+          "description": "Network binding: loopback (localhost only) or lan (all interfaces).",
+          "default": "loopback",
+          "enum": ["loopback", "lan"],
+          "x-enumLabels": {
+            "loopback": "Loopback (localhost)",
+            "lan": "LAN (all interfaces)"
+          }
+        },
+        "auth": {
+          "type": "object",
+          "title": "Authentication",
+          "properties": {
+            "token": {
+              "type": "string",
+              "title": "Auth Token",
+              "description": "Bearer token for API authentication.",
+              "format": "password"
+            },
+            "password": {
+              "type": "string",
+              "title": "Auth Password",
+              "description": "Basic auth password.",
+              "format": "password"
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "title": "Tools",
+      "properties": {
+        "braveApiKey": {
+          "type": "string",
+          "title": "Brave API Key",
+          "description": "API key for Brave web search.",
+          "format": "password"
+        }
+      }
+    },
+    "integrations": {
+      "type": "object",
+      "title": "Integrations",
+      "properties": {
+        "browser": {
+          "type": "object",
+          "title": "Browser",
+          "properties": {
+            "cdpEndpoint": {
+              "type": "string",
+              "title": "CDP Endpoint",
+              "description": "Chrome DevTools Protocol endpoint address.",
+              "x-placeholder": "127.0.0.1:9222",
+              "default": "127.0.0.1:9222"
+            }
+          }
+        }
+      }
+    },
+    "channels": {
+      "type": "object",
+      "title": "Channels",
+      "properties": {
+        "discord": {
+          "type": "object",
+          "title": "Discord",
+          "properties": {
+            "token": {
+              "type": "string",
+              "title": "Bot Token",
+              "description": "Discord bot token.",
+              "format": "password"
+            },
+            "allowedUsers": {
+              "type": "array",
+              "title": "Allowed Users",
+              "description": "Discord user IDs allowed to interact with the bot.",
+              "items": { "type": "string" }
+            },
+            "agentId": {
+              "type": "string",
+              "title": "Agent ID",
+              "description": "Agent to handle Discord messages. Defaults to the configured default agent.",
+              "x-placeholder": "default agent",
+              "x-suggest": "agent"
+            }
+          }
+        },
+        "telegram": {
+          "type": "object",
+          "title": "Telegram",
+          "properties": {
+            "token": {
+              "type": "string",
+              "title": "Bot Token",
+              "description": "Telegram bot token.",
+              "format": "password"
+            },
+            "allowedUsers": {
+              "type": "array",
+              "title": "Allowed Users",
+              "description": "Telegram user IDs allowed to interact with the bot.",
+              "items": { "type": "string" }
+            },
+            "agentId": {
+              "type": "string",
+              "title": "Agent ID",
+              "description": "Agent to handle Telegram messages. Defaults to the configured default agent.",
+              "x-placeholder": "default agent",
+              "x-suggest": "agent"
+            }
+          }
+        }
+      }
+    },
+    "defaultAgent": {
+      "type": "string",
+      "title": "Default Agent",
+      "description": "Agent ID to use as the default. If empty, the first configured agent is used.",
+      "x-placeholder": "first agent",
+      "x-suggest": "agent"
+    },
+    "systemPrompt": {
+      "type": "string",
+      "title": "System Prompt",
+      "description": "Custom instructions added to the system prompt for all agents.",
+      "x-widget": "textarea"
+    },
+    "summarizer": {
+      "type": "object",
+      "title": "Summarizer",
+      "properties": {
+        "tickInterval": {
+          "type": "number",
+          "title": "Tick Interval",
+          "description": "How often the summarizer runs, in minutes.",
+          "x-placeholder": "1",
+          "default": 1
+        },
+        "startupDelay": {
+          "type": "number",
+          "title": "Startup Delay",
+          "description": "Delay before the first summarization run, in minutes.",
+          "x-placeholder": "1",
+          "default": 1
+        },
+        "inactivityTime": {
+          "type": "number",
+          "title": "Inactivity Time",
+          "description": "Session inactivity threshold before summarizing, in minutes.",
+          "x-placeholder": "3",
+          "default": 3
+        },
+        "minMessages": {
+          "type": "number",
+          "title": "Min Messages",
+          "description": "Minimum number of messages required to summarize a session.",
+          "x-placeholder": "1",
+          "default": 1
+        },
+        "maxConversationChars": {
+          "type": "number",
+          "title": "Max Conversation Chars",
+          "description": "Maximum characters of conversation text sent to the LLM.",
+          "x-placeholder": "8000",
+          "default": 8000
+        },
+        "maxMessageChars": {
+          "type": "number",
+          "title": "Max Message Chars",
+          "description": "Maximum characters per individual message.",
+          "x-placeholder": "2000",
+          "default": 2000
+        }
+      }
+    }
+  },
+  "x-sections": [
+    { "id": "models", "title": "Models", "description": "Configure LLM providers and default models.", "path": "models" },
+    { "id": "gateway", "title": "Gateway", "description": "HTTP server and authentication settings.", "path": "gateway" },
+    { "id": "tools", "title": "Tools", "description": "API keys for built-in tools.", "path": "tools" },
+    { "id": "integrations", "title": "Integrations", "description": "Headless browser and terminal settings.", "path": "integrations" },
+    { "id": "channels", "title": "Channels", "description": "Chat bot integrations.", "path": "channels" },
+    { "id": "agents", "title": "Agents", "description": "Agent defaults and global system prompt.", "properties": ["defaultAgent", "systemPrompt"] },
+    { "id": "summarizer", "title": "Summarizer", "description": "Background session summarizer timing and limits.", "path": "summarizer" }
+  ]
+}

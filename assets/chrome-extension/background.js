@@ -56,11 +56,11 @@ async function ensureRelayConnection() {
   relayConnectPromise = (async () => {
     const port = await getRelayPort()
     const httpBase = `http://127.0.0.1:${port}`
-    const wsUrl = `ws://127.0.0.1:${port}/api/browser`
+    const wsUrl = `ws://127.0.0.1:${port}/api/v1/browser`
 
     // Fast preflight: is the relay server up?
     try {
-      await fetch(`${httpBase}/api/health`, { method: 'HEAD', signal: AbortSignal.timeout(2000) })
+      await fetch(`${httpBase}/api/v1/health`, { method: 'HEAD', signal: AbortSignal.timeout(2000) })
     } catch (err) {
       throw new Error(`Relay server not reachable at ${httpBase} (${String(err)})`)
     }

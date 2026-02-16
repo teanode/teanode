@@ -5,15 +5,15 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import RootLayout from './routes/__root';
-import ChatLayout from './routes/chat/route';
-import ChatIndex from './routes/chat/index';
-import ChatAgentLayout from './routes/chat/$agentId/route';
-import ChatNewPage from './routes/chat/$agentId/index';
-import ChatSessionPage from './routes/chat/$agentId/$sessionKey';
-import CronsLayout from './routes/crons/route';
-import CronsIndex from './routes/crons/index';
-import CronsNewPage from './routes/crons/new';
-import CronDetailPage from './routes/crons/$jobId';
+import ConversationsLayout from './routes/conversations/route';
+import ConversationsIndex from './routes/conversations/index';
+import ConversationsAgentLayout from './routes/conversations/$agentId/route';
+import ConversationsNewPage from './routes/conversations/$agentId/index';
+import ConversationsConversationPage from './routes/conversations/$agentId/$conversationId';
+import JobsLayout from './routes/jobs/route';
+import JobsIndex from './routes/jobs/index';
+import JobsNewPage from './routes/jobs/new';
+import JobDetailPage from './routes/jobs/$jobId';
 import SettingsLayout from './routes/settings/route';
 import SettingsIndexPage from './routes/settings/index';
 import SettingsSectionPage from './routes/settings/$sectionId';
@@ -26,76 +26,76 @@ const rootRoute = createRootRoute({
   component: RootLayout,
 });
 
-// / → redirect to /chat
+// / → redirect to /conversations
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: () => {
-    throw redirect({ to: '/chat' });
+    throw redirect({ to: '/conversations' });
   },
 });
 
-// /chat
-const chatRoute = createRoute({
+// /conversations
+const conversationsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: 'chat',
-  component: ChatLayout,
+  path: 'conversations',
+  component: ConversationsLayout,
 });
 
-// /chat/ (index) → redirect to default agent (handled by component)
-const chatIndexRoute = createRoute({
-  getParentRoute: () => chatRoute,
+// /conversations/ (index) → redirect to default agent (handled by component)
+const conversationsIndexRoute = createRoute({
+  getParentRoute: () => conversationsRoute,
   path: '/',
-  component: ChatIndex,
+  component: ConversationsIndex,
 });
 
-// /chat/$agentId
-const chatAgentRoute = createRoute({
-  getParentRoute: () => chatRoute,
+// /conversations/$agentId
+const conversationsAgentRoute = createRoute({
+  getParentRoute: () => conversationsRoute,
   path: '$agentId',
-  component: ChatAgentLayout,
+  component: ConversationsAgentLayout,
 });
 
-// /chat/$agentId/ (index) → new chat page
-const chatAgentIndexRoute = createRoute({
-  getParentRoute: () => chatAgentRoute,
+// /conversations/$agentId/ (index) → new conversation page
+const conversationsAgentIndexRoute = createRoute({
+  getParentRoute: () => conversationsAgentRoute,
   path: '/',
-  component: ChatNewPage,
+  component: ConversationsNewPage,
 });
 
-// /chat/$agentId/$sessionKey → active session
-const chatSessionRoute = createRoute({
-  getParentRoute: () => chatAgentRoute,
-  path: '$sessionKey',
-  component: ChatSessionPage,
+// /conversations/$agentId/$conversationId → active conversation
+const conversationsConversationRoute = createRoute({
+  getParentRoute: () => conversationsAgentRoute,
+  path: '$conversationId',
+  component: ConversationsConversationPage,
 });
 
-// /crons
-const cronsRoute = createRoute({
+// /jobs
+const jobsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: 'crons',
-  component: CronsLayout,
+  path: 'jobs',
+  component: JobsLayout,
 });
 
-// /crons/ (index)
-const cronsIndexRoute = createRoute({
-  getParentRoute: () => cronsRoute,
+// /jobs/ (index)
+const jobsIndexRoute = createRoute({
+  getParentRoute: () => jobsRoute,
   path: '/',
-  component: CronsIndex,
+  component: JobsIndex,
 });
 
-// /crons/new
-const cronsNewRoute = createRoute({
-  getParentRoute: () => cronsRoute,
+// /jobs/new
+const jobsNewRoute = createRoute({
+  getParentRoute: () => jobsRoute,
   path: 'new',
-  component: CronsNewPage,
+  component: JobsNewPage,
 });
 
-// /crons/$jobId
-const cronDetailRoute = createRoute({
-  getParentRoute: () => cronsRoute,
+// /jobs/$jobId
+const jobDetailRoute = createRoute({
+  getParentRoute: () => jobsRoute,
   path: '$jobId',
-  component: CronDetailPage,
+  component: JobDetailPage,
 });
 
 // /settings
@@ -137,11 +137,11 @@ const settingsAgentRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  chatRoute.addChildren([
-    chatIndexRoute,
-    chatAgentRoute.addChildren([chatAgentIndexRoute, chatSessionRoute]),
+  conversationsRoute.addChildren([
+    conversationsIndexRoute,
+    conversationsAgentRoute.addChildren([conversationsAgentIndexRoute, conversationsConversationRoute]),
   ]),
-  cronsRoute.addChildren([cronsIndexRoute, cronsNewRoute, cronDetailRoute]),
+  jobsRoute.addChildren([jobsIndexRoute, jobsNewRoute, jobDetailRoute]),
   settingsRoute.addChildren([settingsIndexRoute, settingsPreferencesRoute, settingsAgentRoute, settingsSectionRoute]),
 ]);
 

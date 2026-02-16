@@ -14,7 +14,7 @@ import InputAdornment from '@mui/material/InputAdornment';
 import Autocomplete from '@mui/material/Autocomplete';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import type { SchemaFieldDef } from '../types';
+import type { JsonSchemaProperty } from '../types';
 
 interface ProviderEntry {
   name: string;
@@ -23,17 +23,33 @@ interface ProviderEntry {
 }
 
 interface SchemaFieldProps {
-  field: SchemaFieldDef;
+  property: JsonSchemaProperty;
+  propertyKey: string;
   value: unknown;
   onChange: (value: unknown) => void;
   suggestions?: string[];
 }
 
-export default function SchemaField({ field, value, onChange, suggestions }: SchemaFieldProps) {
+function getWidgetType(property: JsonSchemaProperty): string {
+  if (property['x-widget']) return property['x-widget'];
+  if (property.format === 'password') return 'password';
+  if (property.enum) return 'select';
+  if (property.type === 'number') return 'number';
+  if (property.type === 'boolean') return 'boolean';
+  if (property.type === 'array') return 'stringArray';
+  return 'string';
+}
+
+export default function SchemaField({ property, propertyKey, value, onChange, suggestions }: SchemaFieldProps) {
   const { t } = useTranslation();
   const [showPassword, setShowPassword] = useState(false);
 
-  switch (field.type) {
+  const widgetType = getWidgetType(property);
+  const label = property.title ?? propertyKey;
+  const description = property.description;
+  const placeholder = property['x-placeholder'];
+
+  switch (widgetType) {
     case 'string': {
       if (suggestions?.length) {
         return (
@@ -46,9 +62,9 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label={field.label}
-                  helperText={field.description}
-                  placeholder={field.placeholder}
+                  label={label}
+                  helperText={description}
+                  placeholder={placeholder}
                   size="small"
                 />
               )}
@@ -58,10 +74,10 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
       }
       return (
         <TextField
-          label={field.label}
-          helperText={field.description}
+          label={label}
+          helperText={description}
           value={(value as string) ?? ''}
-          placeholder={field.placeholder}
+          placeholder={placeholder}
           size="small"
           fullWidth
           onChange={(event) => onChange(event.target.value)}
@@ -73,11 +89,11 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
       const hasValue = value != null && value !== 0;
       return (
         <TextField
-          label={field.label}
-          helperText={field.description}
+          label={label}
+          helperText={description}
           type="number"
           value={hasValue ? String(value) : ''}
-          placeholder={field.placeholder}
+          placeholder={placeholder}
           size="small"
           fullWidth
           onChange={(event) => {
@@ -100,9 +116,9 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
           }
           label={
             <Box>
-              <Typography variant="body2" sx={{ fontWeight: 500 }}>{field.label}</Typography>
-              {field.description && (
-                <Typography variant="caption" color="text.secondary">{field.description}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>{label}</Typography>
+              {description && (
+                <Typography variant="caption" color="text.secondary">{description}</Typography>
               )}
             </Box>
           }
@@ -114,16 +130,16 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
       return (
         <TextField
           select
-          label={field.label}
-          helperText={field.description}
-          value={(value as string) ?? (field.default as string) ?? ''}
+          label={label}
+          helperText={description}
+          value={(value as string) ?? (property.default as string) ?? ''}
           size="small"
           fullWidth
           onChange={(event) => onChange(event.target.value)}
         >
-          {field.options?.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              {option.label}
+          {property.enum?.map((enumValue) => (
+            <MenuItem key={enumValue} value={enumValue}>
+              {property['x-enumLabels']?.[enumValue] ?? enumValue}
             </MenuItem>
           ))}
         </TextField>
@@ -132,11 +148,11 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
     case 'password':
       return (
         <TextField
-          label={field.label}
-          helperText={field.description}
+          label={label}
+          helperText={description}
           type={showPassword ? 'text' : 'password'}
           value={(value as string) ?? ''}
-          placeholder={field.placeholder}
+          placeholder={placeholder}
           size="small"
           fullWidth
           onChange={(event) => onChange(event.target.value)}
@@ -161,12 +177,12 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
     case 'textarea':
       return (
         <TextField
-          label={field.label}
-          helperText={field.description}
+          label={label}
+          helperText={description}
           multiline
           minRows={4}
           value={(value as string) ?? ''}
-          placeholder={field.placeholder}
+          placeholder={placeholder}
           size="small"
           fullWidth
           onChange={(event) => onChange(event.target.value)}
@@ -174,10 +190,10 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
       );
 
     case 'stringArray':
-      return <StringArrayField field={field} value={value} onChange={onChange} />;
+      return <StringArrayField property={property} value={value} onChange={onChange} />;
 
     case 'providers':
-      return <ProvidersField field={field} value={value} onChange={onChange} />;
+      return <ProvidersField property={property} value={value} onChange={onChange} />;
 
     default:
       return null;
@@ -185,11 +201,11 @@ export default function SchemaField({ field, value, onChange, suggestions }: Sch
 }
 
 function StringArrayField({
-  field,
+  property,
   value,
   onChange,
 }: {
-  field: SchemaFieldDef;
+  property: JsonSchemaProperty;
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
@@ -211,9 +227,9 @@ function StringArrayField({
 
   return (
     <Box>
-      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{field.label}</Typography>
-      {field.description && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{field.description}</Typography>
+      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{property.title}</Typography>
+      {property.description && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{property.description}</Typography>
       )}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
         {items.map((item, index) => (
@@ -248,11 +264,11 @@ function StringArrayField({
 }
 
 function ProvidersField({
-  field,
+  property,
   value,
   onChange,
 }: {
-  field: SchemaFieldDef;
+  property: JsonSchemaProperty;
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
@@ -296,9 +312,9 @@ function ProvidersField({
 
   return (
     <Box>
-      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{field.label}</Typography>
-      {field.description && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{field.description}</Typography>
+      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{property.title}</Typography>
+      {property.description && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{property.description}</Typography>
       )}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         {entries.map((entry, index) => (

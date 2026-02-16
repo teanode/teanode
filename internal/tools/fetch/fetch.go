@@ -8,17 +8,17 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/teanode/teanode/internal/agent"
-	"github.com/teanode/teanode/internal/logging"
+	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/provider"
 )
 
-var log = logging.Get("web_fetch")
+var log = logging.MustGetLogger("web_fetch")
 
 const maxFetchBodyBytes = 128 * 1024 // 128 KB
 
 // RegisterTools adds the web_fetch tool to the registry.
-func RegisterTools(registry *agent.ToolRegistry) {
+func RegisterTools(registry *agents.ToolRegistry) {
 	registry.Register(&fetchTool{})
 }
 

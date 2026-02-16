@@ -37,8 +37,8 @@ function dateLabelFor(timestamp: number, t: (key: string) => string): string {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const diff = today.getTime() - messageDay.getTime();
 
-  if (diff === 0) return t('chat.today');
-  if (diff === 86_400_000) return t('chat.yesterday');
+  if (diff === 0) return t('conversations.today');
+  if (diff === 86_400_000) return t('conversations.yesterday');
   return messageDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: messageDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
@@ -146,7 +146,7 @@ export default function MessageList({
                 <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <CircularProgress size={12} color="primary" />
                   <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                    {toolActivity ? t('chat.callingTool', { toolName: toolActivity }) : t('chat.thinking')}
+                    {toolActivity ? t('conversations.callingTool', { toolName: toolActivity }) : t('conversations.thinking')}
                   </Typography>
                 </Box>
               </React.Fragment>
@@ -161,7 +161,7 @@ export default function MessageList({
                 <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <HourglassEmptyRounded sx={{ fontSize: 12 }} color="disabled" />
                   <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                    {t('chat.queued')}
+                    {t('conversations.queued')}
                   </Typography>
                 </Box>
               </React.Fragment>

@@ -16,8 +16,8 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseIcon from '@mui/icons-material/Close';
 import { useAppContext } from '../context';
 import Logo from './Logo';
-import ChatNav from './ChatNav';
-import CronNav from './CronNav';
+import ConversationNav from './ConversationNav';
+import JobNav from './JobNav';
 import SettingsNav from './SettingsNav';
 
 const DRAWER_WIDTH = 260;
@@ -25,8 +25,7 @@ const DRAWER_WIDTH = 260;
 export default function Sidebar() {
   const { t } = useTranslation();
   const {
-    chat,
-    cronJobs,
+    backend,
     mobileSidebarOpen,
     setMobileSidebarOpen,
   } = useAppContext();
@@ -37,38 +36,38 @@ export default function Sidebar() {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
 
-  const activeView: 'chat' | 'crons' | 'settings' = pathname.startsWith('/crons')
-    ? 'crons'
+  const activeView: 'conversations' | 'jobs' | 'settings' = pathname.startsWith('/jobs')
+    ? 'jobs'
     : pathname.startsWith('/settings')
       ? 'settings'
-      : 'chat';
+      : 'conversations';
 
   const pathParts = pathname.replace(/^\//, '').split('/').filter(Boolean);
-  const routeAgentId = activeView === 'chat' && pathParts[1] ? pathParts[1] : null;
-  const routeSessionKey = activeView === 'chat' && pathParts[2] ? pathParts[2] : null;
-  const routeCronJobId = activeView === 'crons' && pathParts[1] && pathParts[1] !== 'new' ? pathParts[1] : null;
-  const isNewCronPage = activeView === 'crons' && pathParts[1] === 'new';
+  const routeAgentId = activeView === 'conversations' && pathParts[1] ? pathParts[1] : null;
+  const routeConversationId = activeView === 'conversations' && pathParts[2] ? pathParts[2] : null;
+  const routeJobId = activeView === 'jobs' && pathParts[1] && pathParts[1] !== 'new' ? pathParts[1] : null;
+  const isNewJobPage = activeView === 'jobs' && pathParts[1] === 'new';
   const routeSettingsAgentId = activeView === 'settings' && pathParts[1] === 'agents' && pathParts[2] ? pathParts[2] : null;
   const routeSettingsSection = activeView === 'settings' && !routeSettingsAgentId ? (pathParts[1] || null) : null;
 
-  const { agents, currentAgentId } = chat;
+  const { agents, currentAgentId } = backend;
   const defaultAgentId = agents.length > 0 ? agents[0].id : 'main';
   const activeAgentId = routeAgentId || currentAgentId || defaultAgentId;
-  const activeSessionKey = routeSessionKey || chat.sessionKey;
+  const activeConversationId = routeConversationId || backend.conversationId;
 
   function handleNavigate(path: string) {
     navigate({ to: path });
     setMobileSidebarOpen(false);
   }
 
-  const tabValue = activeView === 'chat' ? 0 : activeView === 'crons' ? 1 : 2;
+  const tabValue = activeView === 'conversations' ? 0 : activeView === 'jobs' ? 1 : 2;
 
   function handleTabChange(_event: React.SyntheticEvent, newValue: number) {
     if (newValue === 0) {
       const agentId = activeAgentId || defaultAgentId;
-      handleNavigate(activeSessionKey ? `/chat/${agentId}/${activeSessionKey}` : `/chat/${agentId}`);
+      handleNavigate(activeConversationId ? `/conversations/${agentId}/${activeConversationId}` : `/conversations/${agentId}`);
     } else if (newValue === 1) {
-      handleNavigate(routeCronJobId ? `/crons/${routeCronJobId}` : '/crons');
+      handleNavigate(routeJobId ? `/jobs/${routeJobId}` : '/jobs');
     } else {
       handleNavigate('/settings');
     }
@@ -102,31 +101,31 @@ export default function Sidebar() {
           '& .MuiTab-root': { minHeight: 36, minWidth: 0, py: 0.75 },
         }}
       >
-        <Tab icon={<Tooltip title={t('sidebar.chat')}><ChatIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label={t('sidebar.chat')} />
+        <Tab icon={<Tooltip title={t('sidebar.conversations')}><ChatIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label={t('sidebar.conversations')} />
         <Tab icon={<Tooltip title={t('sidebar.jobs')}><ScheduleIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label={t('sidebar.jobs')} />
         <Tab icon={<Tooltip title={t('sidebar.settings')}><SettingsIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label={t('sidebar.settings')} />
       </Tabs>
 
       {/* View-specific nav */}
-      {activeView === 'chat' && (
-        <ChatNav
-          chat={chat}
+      {activeView === 'conversations' && (
+        <ConversationNav
+          backend={backend}
           activeAgentId={activeAgentId}
-          activeSessionKey={activeSessionKey}
+          activeConversationId={activeConversationId}
           onNavigate={handleNavigate}
         />
       )}
-      {activeView === 'crons' && (
-        <CronNav
-          jobs={cronJobs.jobs}
-          activeJobId={routeCronJobId}
-          isNewPage={isNewCronPage}
+      {activeView === 'jobs' && (
+        <JobNav
+          jobs={backend.jobs}
+          activeJobId={routeJobId}
+          isNewPage={isNewJobPage}
           onNavigate={handleNavigate}
         />
       )}
       {activeView === 'settings' && (
         <SettingsNav
-          chat={chat}
+          backend={backend}
           agents={agents}
           activeSectionId={routeSettingsSection}
           activeAgentId={routeSettingsAgentId}

@@ -14,7 +14,7 @@ export default function ToolActivity({ toolName }: ToolActivityProps) {
     <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
       <CircularProgress size={12} color="primary" />
       <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-        {t('chat.callingTool', { toolName })}
+        {t('conversations.callingTool', { toolName })}
       </Typography>
     </Box>
   );
