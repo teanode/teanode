@@ -183,7 +183,7 @@ func (self *gateway) ActiveConversationID(agentId string) string {
 func (self *gateway) SetActiveAgent(agentId string) error {
 	err := self.agentRegistry.SetActiveAgent(agentId)
 	if err == nil {
-		self.Broadcast("activeAgent", map[string]interface{}{
+		self.Broadcast(EventTypeActiveAgent, map[string]interface{}{
 			"activeAgentId":        agentId,
 			"activeConversationId": self.agentRegistry.ActiveConversationID(agentId),
 		})
@@ -193,7 +193,7 @@ func (self *gateway) SetActiveAgent(agentId string) error {
 
 func (self *gateway) SetActiveConversation(agentId, conversationId string) {
 	self.agentRegistry.SetActiveConversation(agentId, conversationId)
-	self.Broadcast("activeConversation", map[string]interface{}{
+	self.Broadcast(EventTypeActiveConversation, map[string]interface{}{
 		"agentId":              agentId,
 		"activeConversationId": conversationId,
 	})
@@ -202,7 +202,7 @@ func (self *gateway) SetActiveConversation(agentId, conversationId string) {
 func (self *gateway) SetActiveConversationIfUnset(agentId, conversationId string) bool {
 	changed := self.agentRegistry.SetActiveConversationIfUnset(agentId, conversationId)
 	if changed {
-		self.Broadcast("activeConversation", map[string]interface{}{
+		self.Broadcast(EventTypeActiveConversation, map[string]interface{}{
 			"agentId":              agentId,
 			"activeConversationId": conversationId,
 		})
@@ -212,7 +212,7 @@ func (self *gateway) SetActiveConversationIfUnset(agentId, conversationId string
 
 func (self *gateway) NewConversation(agentId string) string {
 	conversationId := self.agentRegistry.NewConversation(agentId)
-	self.Broadcast("activeConversation", map[string]interface{}{
+	self.Broadcast(EventTypeActiveConversation, map[string]interface{}{
 		"agentId":              agentId,
 		"activeConversationId": conversationId,
 	})
@@ -236,11 +236,11 @@ func (self *gateway) Unsubscribe(subscriber Subscriber) {
 }
 
 // Broadcast sends an event to all subscribers.
-func (self *gateway) Broadcast(event string, payload interface{}) {
+func (self *gateway) Broadcast(eventType EventType, payload interface{}) {
 	self.subscribersMutex.RLock()
 	defer self.subscribersMutex.RUnlock()
 	for subscriber := range self.subscribers {
-		subscriber.OnEvent(event, payload)
+		subscriber.OnEvent(eventType, payload)
 	}
 }
 
@@ -293,8 +293,8 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	if parameters.Origin != "" {
 		userMessagePayload["origin"] = parameters.Origin
 	}
-	self.Broadcast("conversation", userMessagePayload)
-	self.Broadcast("conversations", nil)
+	self.Broadcast(EventTypeConversation, userMessagePayload)
+	self.Broadcast(EventTypeConversations, nil)
 
 	// Prepare the outcome channel.
 	done := make(chan struct{})
@@ -331,14 +331,14 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 		if err != nil {
 			outcome.Error = err
 			if runContext.Err() != nil {
-				self.Broadcast("conversation", map[string]interface{}{
+				self.Broadcast(EventTypeConversation, map[string]interface{}{
 					"state":          "aborted",
 					"runId":          runId,
 					"conversationId": conversationId,
 					"agentId":        resolvedAgentId,
 				})
 			} else {
-				self.Broadcast("conversation", map[string]interface{}{
+				self.Broadcast(EventTypeConversation, map[string]interface{}{
 					"state":          "error",
 					"runId":          runId,
 					"conversationId": conversationId,
@@ -366,7 +366,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 		if result.Usage != nil {
 			payload["usage"] = result.Usage
 		}
-		self.Broadcast("conversation", payload)
+		self.Broadcast(EventTypeConversation, payload)
 	}()
 
 	return &RunHandle{
@@ -382,7 +382,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string, callerCallbacks *agents.RunCallbacks) *agents.RunCallbacks {
 	return &agents.RunCallbacks{
 		OnQueued: func() {
-			self.Broadcast("conversation", map[string]interface{}{
+			self.Broadcast(EventTypeConversation, map[string]interface{}{
 				"state":          "queued",
 				"runId":          runId,
 				"conversationId": conversationId,
@@ -398,7 +398,7 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string,
 			}
 		},
 		OnTextDelta: func(text string) {
-			self.Broadcast("conversation", map[string]interface{}{
+			self.Broadcast(EventTypeConversation, map[string]interface{}{
 				"state":          "delta",
 				"runId":          runId,
 				"conversationId": conversationId,
@@ -410,7 +410,7 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string,
 			}
 		},
 		OnToolCall: func(toolName string, arguments string) {
-			self.Broadcast("conversation", map[string]interface{}{
+			self.Broadcast(EventTypeConversation, map[string]interface{}{
 				"state":          "tool_call",
 				"runId":          runId,
 				"conversationId": conversationId,
@@ -423,7 +423,7 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string,
 			}
 		},
 		OnToolResult: func(toolName string, result string) {
-			self.Broadcast("conversation", map[string]interface{}{
+			self.Broadcast(EventTypeConversation, map[string]interface{}{
 				"state":          "tool_result",
 				"runId":          runId,
 				"conversationId": conversationId,
@@ -490,7 +490,7 @@ func (self *gateway) DeleteConversation(agentId, conversationId string) error {
 		return err
 	}
 
-	self.Broadcast("conversations", nil)
+	self.Broadcast(EventTypeConversations, nil)
 	return nil
 }
 

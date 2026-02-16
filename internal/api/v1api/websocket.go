@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/teanode/teanode/internal/gw"
 )
 
 // webSocketConnection manages a single WebSocket connection.
@@ -27,8 +28,8 @@ func newWebSocketConnection(connection *websocket.Conn, api *API) *webSocketConn
 }
 
 // OnEvent implements gw.Subscriber. It forwards gateway events to this WebSocket client.
-func (self *webSocketConnection) OnEvent(event string, payload interface{}) {
-	self.sendEvent(event, payload)
+func (self *webSocketConnection) OnEvent(eventType gw.EventType, payload interface{}) {
+	self.sendEvent(eventType, payload)
 }
 
 func (self *webSocketConnection) serve() {
@@ -139,10 +140,10 @@ func (self *webSocketConnection) sendError(id string, code int, message string) 
 	})
 }
 
-func (self *webSocketConnection) sendEvent(event string, payload interface{}) {
+func (self *webSocketConnection) sendEvent(eventType gw.EventType, payload interface{}) {
 	self.writeJSON(eventFrame{
 		Type:    "event",
-		Event:   event,
+		Event:   string(eventType),
 		Payload: payload,
 	})
 }

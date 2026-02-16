@@ -47,9 +47,30 @@ type RunOutcome struct {
 	Error      error
 }
 
+// EventType identifies the kind of broadcast event.
+type EventType string
+
+const (
+	// EventTypeConversation is emitted for each stage of an agent run: user_message, queued,
+	// delta (streaming text), tool_call, tool_result, final, error, and aborted.
+	EventTypeConversation EventType = "conversation"
+
+	// EventTypeConversations signals that the conversation list has changed (created, deleted, or summarized).
+	EventTypeConversations EventType = "conversations"
+
+	// EventTypeActiveAgent is emitted when the system-wide active agent changes.
+	EventTypeActiveAgent EventType = "activeAgent"
+
+	// EventTypeActiveConversation is emitted when the active conversation for an agent changes.
+	EventTypeActiveConversation EventType = "activeConversation"
+
+	// EventTypeJobs signals that the scheduled jobs list has changed.
+	EventTypeJobs EventType = "jobs"
+)
+
 // Subscriber receives broadcast events from the gateway.
 type Subscriber interface {
-	OnEvent(event string, payload interface{})
+	OnEvent(eventType EventType, payload interface{})
 }
 
 // Gateway is the main domain interface for the TeaNode gateway.
@@ -88,7 +109,7 @@ type Gateway interface {
 	// Event broadcasting via subscriber pattern
 	Subscribe(subscriber Subscriber)
 	Unsubscribe(subscriber Subscriber)
-	Broadcast(event string, payload interface{})
+	Broadcast(eventType EventType, payload interface{})
 
 	// Auth middleware for the HTTP server
 	AuthMiddleware() web.Middleware

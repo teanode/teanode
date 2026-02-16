@@ -206,10 +206,14 @@ func NewGatewayCommand() *cli.Command {
 			summarizer.IsConversationActive = func(conversationId string) bool {
 				return gateway.GetActiveRun(conversationId) != ""
 			}
-			summarizer.Broadcast = gateway.Broadcast
+			summarizer.Broadcast = func(event string, payload interface{}) {
+				gateway.Broadcast(gw.EventType(event), payload)
+			}
 
 			// Wire scheduler to gateway via closure.
-			scheduler.Broadcast = gateway.Broadcast
+			scheduler.Broadcast = func(event string, payload interface{}) {
+				gateway.Broadcast(gw.EventType(event), payload)
+			}
 			scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 				handle := gateway.SendMessage(ctx, gw.SendMessageParameters{
 					AgentID:        agentId,

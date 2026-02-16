@@ -211,10 +211,10 @@ func (self *Bot) Stop() {
 	}
 }
 
-// OnEvent implements gw.Subscriber. It handles "conversation" events for runs
+// OnEvent implements gw.Subscriber. It handles conversation events for runs
 // not initiated by this bot (e.g. scheduled jobs), streaming them to the appropriate chat.
-func (self *Bot) OnEvent(event string, payload interface{}) {
-	if event != "conversation" {
+func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
+	if eventType != gw.EventTypeConversation {
 		return
 	}
 	payloadMap, ok := payload.(map[string]interface{})
