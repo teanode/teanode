@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/teanode/teanode/internal/agents"
@@ -19,6 +20,113 @@ import (
 )
 
 const maxDiscordMessageLen = 2000
+
+// discordStreamPreview manages a live-updating preview message during LLM streaming.
+// It sends an initial message on the first text delta, then edits it at a capped
+// rate (every 500ms) as more tokens arrive. Discord renders markdown client-side,
+// so partial/unclosed markup is tolerated during streaming.
+type discordStreamPreview struct {
+	mutex        sync.Mutex
+	accumulated  strings.Builder
+	lastSentText string
+	messageId    string
+	stopped      bool
+	done         chan struct{}
+	channelId    string
+	session      *discordgo.Session
+}
+
+func newDiscordStreamPreview(session *discordgo.Session, channelId string) *discordStreamPreview {
+	preview := &discordStreamPreview{
+		channelId: channelId,
+		session:   session,
+		done:      make(chan struct{}),
+	}
+	go preview.run()
+	return preview
+}
+
+func (self *discordStreamPreview) run() {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-self.done:
+			return
+		case <-ticker.C:
+			self.flush()
+		}
+	}
+}
+
+func (self *discordStreamPreview) flush() {
+	self.mutex.Lock()
+	text := self.accumulated.String()
+	if text == self.lastSentText || text == "" || self.stopped {
+		self.mutex.Unlock()
+		return
+	}
+	if len(text) > maxDiscordMessageLen {
+		text = text[:maxDiscordMessageLen]
+	}
+	messageId := self.messageId
+	self.lastSentText = text
+	self.mutex.Unlock()
+
+	if messageId == "" {
+		sent, err := self.session.ChannelMessageSend(self.channelId, text)
+		if err != nil {
+			return
+		}
+		self.mutex.Lock()
+		self.messageId = sent.ID
+		self.mutex.Unlock()
+	} else {
+		self.session.ChannelMessageEdit(self.channelId, messageId, text)
+	}
+}
+
+// Update appends a text delta to the accumulated buffer.
+func (self *discordStreamPreview) Update(delta string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	if self.stopped {
+		return
+	}
+	self.accumulated.WriteString(delta)
+}
+
+// Reset clears the buffer for the next LLM round (after a tool call).
+func (self *discordStreamPreview) Reset() {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.accumulated.Reset()
+	self.lastSentText = ""
+}
+
+// Stop shuts down the background goroutine, performs a final flush, and returns
+// the preview message ID and accumulated text.
+func (self *discordStreamPreview) Stop() (string, string) {
+	close(self.done)
+	self.flush()
+	self.mutex.Lock()
+	self.stopped = true
+	messageId := self.messageId
+	text := self.accumulated.String()
+	self.mutex.Unlock()
+	return messageId, text
+}
+
+// Delete removes the preview message from the channel if one was sent.
+func (self *discordStreamPreview) Delete() {
+	self.mutex.Lock()
+	messageId := self.messageId
+	self.messageId = ""
+	self.mutex.Unlock()
+	if messageId != "" {
+		self.session.ChannelMessageDelete(self.channelId, messageId)
+	}
+}
 
 // Bot manages a Discord bot that forwards messages to the agents.
 type Bot struct {
@@ -198,19 +306,23 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 	var pendingMedia []*media.MediaContent
 	var pendingMediaMutex sync.Mutex
 
-	var callbacks *agents.RunCallbacks
-	if self.Broadcast != nil {
-		broadcast := self.Broadcast
-		callbacks = &agents.RunCallbacks{
-			OnTextDelta: func(text string) {
+	preview := newDiscordStreamPreview(self.discord, channelId)
+	broadcast := self.Broadcast
+
+	callbacks := &agents.RunCallbacks{
+		OnTextDelta: func(text string) {
+			if broadcast != nil {
 				broadcast("chat", map[string]interface{}{
 					"state":          "delta",
 					"runId":          runId,
 					"conversationId": conversationId,
 					"text":           text,
 				})
-			},
-			OnToolCall: func(toolName string, arguments string) {
+			}
+			preview.Update(text)
+		},
+		OnToolCall: func(toolName string, arguments string) {
+			if broadcast != nil {
 				broadcast("chat", map[string]interface{}{
 					"state":          "tool_call",
 					"runId":          runId,
@@ -218,10 +330,13 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 					"toolName":       toolName,
 					"arguments":      arguments,
 				})
-				// Re-send typing indicator after tool calls.
-				self.discord.ChannelTyping(channelId)
-			},
-			OnToolResult: func(toolName string, result string) {
+			}
+			preview.Reset()
+			// Re-send typing indicator after tool calls.
+			self.discord.ChannelTyping(channelId)
+		},
+		OnToolResult: func(toolName string, result string) {
+			if broadcast != nil {
 				broadcast("chat", map[string]interface{}{
 					"state":          "tool_result",
 					"runId":          runId,
@@ -229,14 +344,14 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 					"toolName":       toolName,
 					"result":         result,
 				})
-				// Collect media for sending as attachments.
-				if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
-					pendingMediaMutex.Lock()
-					pendingMedia = append(pendingMedia, detected)
-					pendingMediaMutex.Unlock()
-				}
-			},
-		}
+			}
+			// Collect media for sending as attachments.
+			if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+				pendingMediaMutex.Lock()
+				pendingMedia = append(pendingMedia, detected)
+				pendingMediaMutex.Unlock()
+			}
+		},
 	}
 
 	result, err := self.runner.Run(ctx, agents.RunParams{
@@ -244,6 +359,8 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 		Message:        message,
 		Model:          self.getModel(channelId),
 	}, callbacks)
+
+	previewMessageId, _ := preview.Stop()
 
 	if self.Broadcast != nil {
 		if err != nil {
@@ -269,9 +386,10 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 		}
 	}
 
-	// Send response to Discord.
+	// Handle error: delete preview, send error message.
 	if err != nil {
 		log.Errorf("discord agent run error (conversation %s): %v", conversationId, err)
+		preview.Delete()
 		self.discord.ChannelMessageSend(channelId, "Sorry, an error occurred while processing your request.")
 		return
 	}
@@ -288,6 +406,17 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 				{Name: filename, Reader: bytes.NewReader(rawData)},
 			},
 		})
+	}
+
+	// Try final edit if preview exists and response fits in one message.
+	if previewMessageId != "" && len(result.Response) <= maxDiscordMessageLen {
+		if _, editError := self.discord.ChannelMessageEdit(channelId, previewMessageId, result.Response); editError == nil {
+			return
+		}
+		// Edit failed — delete and fall through to sendChunked.
+		preview.Delete()
+	} else if previewMessageId != "" {
+		preview.Delete()
 	}
 
 	self.sendChunked(channelId, result.Response)

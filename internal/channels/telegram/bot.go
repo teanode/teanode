@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/teanode/teanode/internal/agents"
@@ -18,6 +19,118 @@ import (
 )
 
 const maxTelegramMessageLen = 4096
+
+// telegramStreamPreview manages a live-updating preview message during LLM streaming.
+// It sends an initial plain-text message on the first text delta, then edits it
+// at a capped rate (every 500ms) as more tokens arrive.
+type telegramStreamPreview struct {
+	mutex        sync.Mutex
+	accumulated  strings.Builder
+	lastSentText string
+	messageId    int
+	stopped      bool
+	done         chan struct{}
+	chatId       int64
+	replyTo      int
+	api          *tgbotapi.BotAPI
+}
+
+func newTelegramStreamPreview(api *tgbotapi.BotAPI, chatId int64, replyTo int) *telegramStreamPreview {
+	preview := &telegramStreamPreview{
+		chatId:  chatId,
+		replyTo: replyTo,
+		api:     api,
+		done:    make(chan struct{}),
+	}
+	go preview.run()
+	return preview
+}
+
+func (self *telegramStreamPreview) run() {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-self.done:
+			return
+		case <-ticker.C:
+			self.flush()
+		}
+	}
+}
+
+func (self *telegramStreamPreview) flush() {
+	self.mutex.Lock()
+	text := self.accumulated.String()
+	if text == self.lastSentText || text == "" || self.stopped {
+		self.mutex.Unlock()
+		return
+	}
+	if len(text) > maxTelegramMessageLen {
+		text = text[:maxTelegramMessageLen]
+	}
+	messageId := self.messageId
+	self.lastSentText = text
+	self.mutex.Unlock()
+
+	if messageId == 0 {
+		msg := tgbotapi.NewMessage(self.chatId, text)
+		msg.ReplyToMessageID = self.replyTo
+		sent, err := self.api.Send(msg)
+		if err != nil {
+			return
+		}
+		self.mutex.Lock()
+		self.messageId = sent.MessageID
+		self.mutex.Unlock()
+	} else {
+		edit := tgbotapi.NewEditMessageText(self.chatId, messageId, text)
+		self.api.Send(edit)
+	}
+}
+
+// Update appends a text delta to the accumulated buffer.
+func (self *telegramStreamPreview) Update(delta string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	if self.stopped {
+		return
+	}
+	self.accumulated.WriteString(delta)
+}
+
+// Reset clears the buffer for the next LLM round (after a tool call).
+func (self *telegramStreamPreview) Reset() {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.accumulated.Reset()
+	self.lastSentText = ""
+}
+
+// Stop shuts down the background goroutine, performs a final flush, and returns
+// the preview message ID and accumulated text.
+func (self *telegramStreamPreview) Stop() (int, string) {
+	close(self.done)
+	self.flush()
+	self.mutex.Lock()
+	self.stopped = true
+	messageId := self.messageId
+	text := self.accumulated.String()
+	self.mutex.Unlock()
+	return messageId, text
+}
+
+// Delete removes the preview message from the chat if one was sent.
+func (self *telegramStreamPreview) Delete() {
+	self.mutex.Lock()
+	messageId := self.messageId
+	self.messageId = 0
+	self.mutex.Unlock()
+	if messageId != 0 {
+		deleteMessage := tgbotapi.NewDeleteMessage(self.chatId, messageId)
+		self.api.Request(deleteMessage)
+	}
+}
 
 // Bot manages a Telegram bot that forwards messages to the agents.
 type Bot struct {
@@ -234,19 +347,23 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 	var pendingMedia []*media.MediaContent
 	var pendingMediaMutex sync.Mutex
 
-	var callbacks *agents.RunCallbacks
-	if self.Broadcast != nil {
-		broadcast := self.Broadcast
-		callbacks = &agents.RunCallbacks{
-			OnTextDelta: func(text string) {
+	preview := newTelegramStreamPreview(self.api, chatId, replyTo)
+	broadcast := self.Broadcast
+
+	callbacks := &agents.RunCallbacks{
+		OnTextDelta: func(text string) {
+			if broadcast != nil {
 				broadcast("chat", map[string]interface{}{
 					"state":          "delta",
 					"runId":          runId,
 					"conversationId": conversationId,
 					"text":           text,
 				})
-			},
-			OnToolCall: func(toolName string, arguments string) {
+			}
+			preview.Update(text)
+		},
+		OnToolCall: func(toolName string, arguments string) {
+			if broadcast != nil {
 				broadcast("chat", map[string]interface{}{
 					"state":          "tool_call",
 					"runId":          runId,
@@ -254,11 +371,14 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 					"toolName":       toolName,
 					"arguments":      arguments,
 				})
-				// Re-send typing action after tool calls.
-				action := tgbotapi.NewChatAction(chatId, tgbotapi.ChatTyping)
-				self.api.Send(action)
-			},
-			OnToolResult: func(toolName string, result string) {
+			}
+			preview.Reset()
+			// Re-send typing action after tool calls.
+			action := tgbotapi.NewChatAction(chatId, tgbotapi.ChatTyping)
+			self.api.Send(action)
+		},
+		OnToolResult: func(toolName string, result string) {
+			if broadcast != nil {
 				broadcast("chat", map[string]interface{}{
 					"state":          "tool_result",
 					"runId":          runId,
@@ -266,14 +386,14 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 					"toolName":       toolName,
 					"result":         result,
 				})
-				// Collect media for sending as photos.
-				if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
-					pendingMediaMutex.Lock()
-					pendingMedia = append(pendingMedia, detected)
-					pendingMediaMutex.Unlock()
-				}
-			},
-		}
+			}
+			// Collect media for sending as photos.
+			if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+				pendingMediaMutex.Lock()
+				pendingMedia = append(pendingMedia, detected)
+				pendingMediaMutex.Unlock()
+			}
+		},
 	}
 
 	chatIdStr := fmt.Sprintf("%d", chatId)
@@ -282,6 +402,8 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 		Message:        message,
 		Model:          self.getModel(chatIdStr),
 	}, callbacks)
+
+	previewMessageId, _ := preview.Stop()
 
 	if self.Broadcast != nil {
 		if err != nil {
@@ -307,9 +429,10 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 		}
 	}
 
-	// Send response to Telegram.
+	// Handle error: delete preview, send error message.
 	if err != nil {
 		log.Errorf("telegram agent run error (conversation %s): %v", conversationId, err)
+		preview.Delete()
 		msg := tgbotapi.NewMessage(chatId, "Sorry, an error occurred while processing your request.")
 		msg.ReplyToMessageID = replyTo
 		self.api.Send(msg)
@@ -328,6 +451,24 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 		if _, sendError := self.api.Send(photo); sendError != nil {
 			log.Errorf("telegram photo send error: %v", sendError)
 		}
+	}
+
+	// Try final formatted edit if preview exists and response fits in one message.
+	if previewMessageId != 0 && len(result.Response) <= maxTelegramMessageLen {
+		edit := tgbotapi.NewEditMessageText(chatId, previewMessageId, result.Response)
+		edit.ParseMode = "Markdown"
+		if _, editError := self.api.Send(edit); editError == nil {
+			return
+		}
+		// Retry without Markdown in case of formatting errors.
+		edit.ParseMode = ""
+		if _, editError := self.api.Send(edit); editError == nil {
+			return
+		}
+		// Edit failed — delete and fall through to sendChunked.
+		preview.Delete()
+	} else if previewMessageId != 0 {
+		preview.Delete()
 	}
 
 	self.sendChunked(chatId, replyTo, result.Response)
