@@ -228,23 +228,28 @@ export function useBackend() {
     if (conversationEvent.state === 'user_message') {
       if (conversationEvent.conversationId) touchConversation(conversationEvent.conversationId);
       if (conversationEvent.conversationId === conversationIdRef.current) {
+        // If this run is already tracked (e.g. from history load), skip adding
+        // duplicate messages — the history already contains them.
+        const alreadyTracked = currentRunIdRef.current === conversationEvent.runId;
         currentRunIdRef.current = conversationEvent.runId || null;
         if (conversationEvent.runId && conversationEvent.conversationId) {
           activeRunsRef.current.set(conversationEvent.conversationId, conversationEvent.runId);
         }
-        if (conversationEvent.runId) {
+        if (conversationEvent.runId && !alreadyTracked) {
           runQueueRef.current.push(conversationEvent.runId);
         }
         setIsRunning(true);
         setStatus('thinking...');
-        const assistantMessageId = nextMessageId();
-        setMessages(prev => [
-          ...prev,
-          { id: nextMessageId(), type: 'user', content: conversationEvent.text || '', timestamp: Date.now() },
-          { id: assistantMessageId, type: 'assistant', content: '', runId: conversationEvent.runId || undefined },
-        ]);
-        streamTextRef.current = '';
-        setStreamText('');
+        if (!alreadyTracked) {
+          const assistantMessageId = nextMessageId();
+          setMessages(prev => [
+            ...prev,
+            { id: nextMessageId(), type: 'user', content: conversationEvent.text || '', timestamp: Date.now() },
+            { id: assistantMessageId, type: 'assistant', content: '', runId: conversationEvent.runId || undefined },
+          ]);
+          streamTextRef.current = '';
+          setStreamText('');
+        }
         // Don't set isStreaming — let the delta event set it
       }
       return;
@@ -532,6 +537,17 @@ export function useBackend() {
       setConversationId(key);
       conversationIdRef.current = key;
       setMessages([]);
+
+      // Ensure conversation appears in the sidebar list immediately
+      setConversations((previous) => {
+        const exists = previous.some((conversation) => conversation.id === key);
+        if (!exists) {
+          const updated = [{ id: key, lastActive: Date.now() }, ...previous];
+          conversationsRef.current = updated;
+          return updated;
+        }
+        return previous;
+      });
 
       setIsRunning(false);
       setStatus('connected');

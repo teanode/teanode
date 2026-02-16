@@ -87,7 +87,7 @@ export default function ConversationsNewPage() {
             <Box
               component="textarea"
               ref={textareaRef}
-              placeholder={t('backend.startConversation')}
+              placeholder={t('conversations.startConversation')}
               rows={2}
               autoFocus
               onKeyDown={handleKeyDown}

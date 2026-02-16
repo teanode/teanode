@@ -24,7 +24,7 @@
     "startConversation": "Start a conversation ...",
     "reply": "Reply ...",
     "deleteConversationTitle": "Delete conversation?",
-    "deleteConversationMessage": "This will permanently delete <strong>{{title}}</strong>.",
+    "deleteConversationMessage": "This will permanently delete conversation \"{{title}}\".",
     "deleteConversationTooltip": "Delete conversation",
     "error": "Error: {{message}}",
     "aborted": "Aborted",
