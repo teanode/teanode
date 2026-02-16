@@ -13,13 +13,13 @@
 - [ ] Improve HTTP error responses (structured JSON errors instead of plain strings)
 - [ ] Add context timeouts to tool execution (currently unbounded)
 - [ ] Add timeout for sync LLM calls (currently no explicit timeout)
-- [ ] Handle ignored marshal errors in `internal/provider/openai.go`
-- [ ] Avoid silent failures on malformed JSON during streaming parse
+- [x] Handle marshal errors in `internal/provider/openai.go`
+- [x] Surface errors on malformed JSON during streaming parse
 
 ## Logging & Observability
 
 - [x] Replace `log.Println` with structured logging (go-logging with levels)
-- [ ] Add debug logging for tool execution and LLM requests
+- [x] Add debug logging for tool execution and LLM requests
 - [ ] Add Prometheus metrics or similar observability endpoint
 
 ## Security
@@ -27,14 +27,18 @@
 - [ ] Add rate limiting to API endpoints
 - [ ] Restrict CORS origin (`CheckOrigin` currently allows all)
 - [ ] Avoid passing auth token in WebSocket query params (log leakage risk)
+- [x] Forwarder key middleware for secure reverse proxy deployments (X-Forwarded-For trust)
 
 ## Features
 
 - [x] Support multiple LLM providers (provider registry with name-qualified models)
 - [x] Implement graceful shutdown (signal.NotifyContext with SIGTERM)
 - [ ] Deepen `/health` endpoint (check workspace availability, provider reachability)
-- [x] Add configuration hot-reload without restart (file watcher on config, skills, crons)
+- [x] Add configuration hot-reload without restart (file watcher on config, agents, skills, crons)
 - [ ] Optimize `workspace_list` tool (caching or streaming instead of full tree walk)
+- [x] Model list caching with 24-hour TTL and disk persistence (auto-invalidated on config reload)
+- [x] Media store for image storage and serving (base64 extraction from tool results, `/api/v1/media`)
+- [x] Version info injection via ldflags (Server header, build metadata)
 
 ## Agent Tools
 
@@ -50,7 +54,7 @@
 - [x] Browser tools (navigate, screenshot, snapshot, click, type, evaluate, tab management)
 - [x] Headless browser support (direct CDP connection to chromedp/headless-shell)
 - [x] Terminal tools (screenshot, type, press key, connection list)
-- [x] Session tools (set title)
+- [x] Conversation tools (list, compact)
 
 ## Provider Support
 
@@ -108,21 +112,33 @@
 - [x] Skill prompt injection into system prompt
 - [x] Context compaction / summarization for long conversations
 - [x] Schema-driven config defaults (single source of truth in JSON schemas)
-- [ ] Runtime host/OS/shell info injection
+- [ ] Runtime host/OS/shell info injection into system prompt
 
 ## CLI
 
 - [x] Gateway command (`teanode gateway` with port flag)
-- [x] Terminal command (`teanode terminal`)
+- [x] Terminal command (`teanode terminal` with PTY relay and machine info)
+- [x] Global flags (`--dir`, `--log-level` with env var support)
 - [ ] Interactive onboarding wizard (`teanode onboard`)
 - [ ] Session management commands (`teanode sessions list/delete`)
 - [ ] Configuration management commands (`teanode config`)
 - [ ] Health check / diagnostics command (`teanode doctor`)
 
+## Frontend
+
+- [x] React/TypeScript SPA with WebSocket RPC client
+- [x] Conversation UI with streaming responses
+- [x] Job scheduling interface
+- [x] Agent editor
+- [x] Settings and preferences
+- [ ] Mobile-responsive layout
+- [ ] Keyboard shortcuts
+
 ## Plugin / Extension System
 
 - [x] Skills system (JSON-defined tools with shell and HTTP execution)
 - [x] Hot-reloadable skill loading from `~/.teanode/skills/`
+- [x] Chrome extension for browser relay (Manifest v3)
 - [ ] Plugin SDK for registering custom tools, providers, and hooks
 
 ## Documentation

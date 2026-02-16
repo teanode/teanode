@@ -29,7 +29,7 @@ services:
     volumes:
     - "/etc/localtime:/etc/localtime:ro"
     ports:
-    - 9222
+    - "9222:9222"
     logging:
       options:
         max-size: "50M"

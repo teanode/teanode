@@ -22,7 +22,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func TerminalCmd() *cli.Command {
+func NewTerminalCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "terminal",
 		Usage:     "Launch a PTY-backed terminal and relay it to the gateway",

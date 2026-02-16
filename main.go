@@ -56,8 +56,8 @@ func main() {
 			return ctx, nil
 		},
 		Commands: []*cli.Command{
-			cmd.GatewayCmd(),
-			cmd.TerminalCmd(),
+			cmd.NewGatewayCommand(),
+			cmd.NewTerminalCommand(),
 		},
 	}
 

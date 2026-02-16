@@ -35,7 +35,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func GatewayCmd() *cli.Command {
+func NewGatewayCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "gateway",
 		Usage: "Start the TeaNode gateway server",
