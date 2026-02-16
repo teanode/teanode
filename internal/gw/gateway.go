@@ -523,7 +523,7 @@ func (self *gateway) AuthMiddleware() web.Middleware {
 				}
 			}
 
-			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			web.WriteError(writer, web.ErrUnauthorized)
 		})
 	}
 }

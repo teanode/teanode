@@ -106,3 +106,27 @@ func (self *Store) Load(mediaId string) ([]byte, string, error) {
 	}
 	return data, extension, nil
 }
+
+// MediaFile holds an open file handle and the format inferred from the extension.
+type MediaFile struct {
+	File   *os.File
+	Format string
+}
+
+// Open locates a media file by ID and returns an open file handle for streaming.
+func (self *Store) Open(mediaId string) (*MediaFile, error) {
+	matches, err := filepath.Glob(filepath.Join(self.directory, mediaId+".*"))
+	if err != nil {
+		return nil, fmt.Errorf("searching for media file: %w", err)
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("media not found: %s", mediaId)
+	}
+	path := matches[0]
+	format := strings.TrimPrefix(filepath.Ext(path), ".")
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("opening media file: %w", err)
+	}
+	return &MediaFile{File: file, Format: format}, nil
+}

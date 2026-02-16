@@ -5,6 +5,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/web"
 )
 
 var log = logging.MustGetLogger("v1api")
@@ -25,8 +26,8 @@ func New(gateway gw.Gateway) *API {
 func (self *API) AddRoutes(router *mux.Router) error {
 	sub := router.PathPrefix("/api/v1").Subrouter()
 
-	sub.HandleFunc("/health", self.handleHealth)
-	sub.HandleFunc("/chat/completions", self.handleChatCompletions)
+	sub.Handle("/health", web.HandlerFunc(self.handleHealth))
+	sub.Handle("/chat/completions", web.HandlerFunc(self.handleChatCompletions))
 	sub.HandleFunc("/websocket", self.handleWebSocket)
 
 	if self.gateway.BrowserRelay() != nil {
@@ -36,7 +37,7 @@ func (self *API) AddRoutes(router *mux.Router) error {
 		sub.HandleFunc("/terminal", self.gateway.TerminalRelay().HandleWebSocket)
 	}
 	if self.gateway.MediaStore() != nil {
-		sub.HandleFunc("/media/{id}", self.handleMedia)
+		sub.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
 	}
 
 	return nil

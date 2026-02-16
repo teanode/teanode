@@ -10,6 +10,7 @@ import (
 
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/util/ulid"
+	"github.com/teanode/teanode/internal/web"
 )
 
 // openaiRequest mirrors the OpenAI chat completions request format.
@@ -50,27 +51,23 @@ type openaiUsage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
-func (self *API) handleChatCompletions(writer http.ResponseWriter, request *http.Request) {
+func (self *API) handleChatCompletions(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodPost {
-		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
-		return
+		return web.ErrMethodNotAllowed
 	}
 
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
-		http.Error(writer, "reading body: "+err.Error(), http.StatusBadRequest)
-		return
+		return web.Errorf(400, "reading body: %s", err)
 	}
 
 	var chatRequest openaiRequest
 	if err := json.Unmarshal(body, &chatRequest); err != nil {
-		http.Error(writer, "invalid json: "+err.Error(), http.StatusBadRequest)
-		return
+		return web.Errorf(400, "invalid json: %s", err)
 	}
 
 	if len(chatRequest.Messages) == 0 {
-		http.Error(writer, "messages is required", http.StatusBadRequest)
-		return
+		return web.Error(400, "messages is required")
 	}
 
 	// Use user field or generate ephemeral conversation id.
@@ -83,20 +80,18 @@ func (self *API) handleChatCompletions(writer http.ResponseWriter, request *http
 	lastMessage := chatRequest.Messages[len(chatRequest.Messages)-1]
 
 	if chatRequest.Stream {
-		self.handleChatCompletionsStream(writer, request, chatRequest, conversationId, lastMessage)
-	} else {
-		self.handleChatCompletionsSync(writer, chatRequest, conversationId, lastMessage)
+		return self.handleChatCompletionsStream(writer, request, chatRequest, conversationId, lastMessage)
 	}
+	return self.handleChatCompletionsSync(writer, chatRequest, conversationId, lastMessage)
 }
 
-func (self *API) handleChatCompletionsSync(writer http.ResponseWriter, request openaiRequest, conversationId string, lastMessage openaiMessage) {
+func (self *API) handleChatCompletionsSync(writer http.ResponseWriter, request openaiRequest, conversationId string, lastMessage openaiMessage) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	runner := self.gateway.AgentRegistry().Default()
 	if runner == nil {
-		http.Error(writer, "no default agent configured", http.StatusInternalServerError)
-		return
+		return web.Error(500, "no default agent configured")
 	}
 
 	result, err := runner.Run(ctx, agents.RunParams{
@@ -105,8 +100,7 @@ func (self *API) handleChatCompletionsSync(writer http.ResponseWriter, request o
 		Model:          request.Model,
 	}, nil) // no callbacks for sync mode
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
+		return web.Error(500, err.Error())
 	}
 
 	finishReason := "stop"
@@ -140,13 +134,13 @@ func (self *API) handleChatCompletionsSync(writer http.ResponseWriter, request o
 
 	writer.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(writer).Encode(response)
+	return nil
 }
 
-func (self *API) handleChatCompletionsStream(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage) {
+func (self *API) handleChatCompletionsStream(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage) error {
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
-		http.Error(writer, "streaming not supported", http.StatusInternalServerError)
-		return
+		return web.Error(500, "streaming not supported")
 	}
 
 	writer.Header().Set("Content-Type", "text/event-stream")
@@ -163,7 +157,7 @@ func (self *API) handleChatCompletionsStream(writer http.ResponseWriter, httpReq
 		errData, _ := json.Marshal(map[string]string{"error": "no default agent configured"})
 		fmt.Fprintf(writer, "data: %s\n\n", errData)
 		flusher.Flush()
-		return
+		return nil
 	}
 
 	result, err := runner.Run(ctx, agents.RunParams{
@@ -196,7 +190,7 @@ func (self *API) handleChatCompletionsStream(writer http.ResponseWriter, httpReq
 		errData, _ := json.Marshal(map[string]string{"error": err.Error()})
 		fmt.Fprintf(writer, "data: %s\n\n", errData)
 		flusher.Flush()
-		return
+		return nil
 	}
 
 	// Send final chunk with finish_reason.
@@ -221,4 +215,5 @@ func (self *API) handleChatCompletionsStream(writer http.ResponseWriter, httpReq
 	fmt.Fprintf(writer, "data: %s\n\n", data)
 	fmt.Fprintf(writer, "data: [DONE]\n\n")
 	flusher.Flush()
+	return nil
 }

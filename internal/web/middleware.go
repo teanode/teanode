@@ -118,7 +118,7 @@ func MakeForwarderMiddleware(forwarderKey string) Middleware {
 			if forwardedFor := request.Header.Get("X-Forwarded-For"); forwardedFor != "" {
 				if forwarderKey != "" && request.Header.Get("X-Forwarder-Key") != forwarderKey {
 					log.Warningf("request from %s has X-Forwarded-For header %q, but has invalid X-Forwarder-Key", request.RemoteAddr, forwardedFor)
-					http.Error(writer, "Service Unavailable", http.StatusServiceUnavailable)
+					WriteError(writer, ErrServiceUnavailable)
 					return
 				}
 				ips := strings.Split(forwardedFor, ",")

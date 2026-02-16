@@ -2,8 +2,8 @@
 
 ## Testing
 
-- [ ] Add gateway HTTP handler tests (`/v1/chat/completions`, `/health`, auth middleware)
-- [ ] Add WebSocket RPC handler tests (`chat.send`, `chat.history`, `sessions.list`, etc.)
+- [ ] Add gateway HTTP handler tests (`/api/v1/chat/completions`, `/api/v1/health`, auth middleware)
+- [ ] Add WebSocket RPC handler tests (`conversations.send`, `conversations.history`, `conversations.list`, etc.)
 - [ ] Add config loading tests (file parsing, env variable overrides, defaults)
 - [ ] Add concurrent access / stress tests for parallel requests
 - [ ] Add edge-case tests (malformed JSON, truncated SSE streams, oversized payloads)
@@ -20,7 +20,6 @@
 
 - [x] Replace `log.Println` with structured logging (go-logging with levels)
 - [x] Add debug logging for tool execution and LLM requests
-- [ ] Add Prometheus metrics or similar observability endpoint
 
 ## Security
 
@@ -80,19 +79,19 @@
 - [ ] WhatsApp channel integration
 - [x] Channel-level routing to specific agents
 
-## Session Management
+## Conversation Management
 
-- [x] Session state patch (per-channel model overrides in Discord/Telegram)
-- [x] Session pruning / context compaction (summarize old messages)
-- [x] JSONL-based persistent session storage with titles
-- [x] Background session summarizer (auto-generate titles and summaries)
+- [x] Conversation state patch (per-channel model overrides in Discord/Telegram)
+- [x] Conversation pruning / context compaction (summarize old messages)
+- [x] JSONL-based persistent conversation storage with titles
+- [x] Background conversation summarizer (auto-generate titles and summaries)
 - [x] Configurable summarizer settings (timing, thresholds, char limits via schema)
 - [ ] Queue modes for concurrent requests (serial, parallel, drop)
 
 ## Security & Sandboxing
 
 - [ ] Tool approval workflows (user confirms before sensitive tool execution)
-- [ ] Docker-based sandbox for tool execution (per-session containers)
+- [ ] Docker-based sandbox for tool execution (per-conversation containers)
 - [x] Tool policies (allowlist/denylist per agent or group)
 
 ## Automation
@@ -100,7 +99,7 @@
 - [x] Cron job scheduler with 5-field expression support
 - [x] Persistent cron storage with hot-reload
 - [x] Per-job model overrides and manual triggering
-- [x] One-shot reminder support (delay-based timers, session-bound, auto-cleanup)
+- [x] One-shot reminder support (delay-based timers, conversation-bound, auto-cleanup)
 - [ ] Webhook endpoints for external event triggers
 - [ ] Background job lifecycle management
 
@@ -120,7 +119,6 @@
 - [x] Terminal command (`teanode terminal` with PTY relay and machine info)
 - [x] Global flags (`--dir`, `--log-level` with env var support)
 - [ ] Interactive onboarding wizard (`teanode onboard`)
-- [ ] Session management commands (`teanode sessions list/delete`)
 - [ ] Configuration management commands (`teanode config`)
 - [ ] Health check / diagnostics command (`teanode doctor`)
 
