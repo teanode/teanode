@@ -24,7 +24,7 @@ interface JobFormProps {
   models?: ModelInfo[];
   agents?: AgentInfo[];
   onSave: (data: { name: string; schedule: string; message: string; model: string; agentId: string }) => void;
-  onCancel: () => void;
+  onCancel?: () => void;
 }
 
 export default function JobForm({ initial, models = [], agents = [], onSave, onCancel }: JobFormProps) {
@@ -166,9 +166,11 @@ export default function JobForm({ initial, models = [], agents = [], onSave, onC
           >
             {initial ? t('common.save') : t('common.create')}
           </Button>
-          <Button variant="text" size="small" onClick={onCancel}>
-            {t('common.cancel')}
-          </Button>
+          {onCancel && (
+            <Button variant="text" size="small" onClick={onCancel}>
+              {t('common.cancel')}
+            </Button>
+          )}
         </Box>
       </Box>
     </Paper>

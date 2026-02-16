@@ -1,18 +1,21 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
+import Container from '@mui/material/Container';
 import IconButton from '@mui/material/IconButton';
 import SendRounded from '@mui/icons-material/SendRounded';
 import StopRounded from '@mui/icons-material/StopRounded';
 
 interface InputAreaProps {
   isRunning: boolean;
+  agentName: string;
   onSend: (text: string) => void;
   onAbort: () => void;
 }
 
 export default function InputArea({
   isRunning,
+  agentName,
   onSend,
   onAbort,
 }: InputAreaProps) {
@@ -52,7 +55,7 @@ export default function InputArea({
   const showStop = isRunning && !hasText;
 
   return (
-    <Box sx={{ px: 2, py: 1.5 }}>
+    <Container maxWidth="md" sx={{ py: 1.5 }}>
       <Box
         sx={{
           display: 'flex',
@@ -72,7 +75,7 @@ export default function InputArea({
         <Box
           component="textarea"
           ref={textareaRef}
-          placeholder={t('conversations.reply')}
+          placeholder={t('conversations.reply', { agentName })}
           rows={1}
           onKeyDown={handleKeyDown}
           onInput={handleInput}
@@ -107,6 +110,6 @@ export default function InputArea({
           {showStop ? <StopRounded fontSize="small" /> : <SendRounded fontSize="small" />}
         </IconButton>
       </Box>
-    </Box>
+    </Container>
   );
 }

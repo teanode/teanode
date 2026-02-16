@@ -204,7 +204,7 @@ func (self *Scheduler) executeJob(job Job) {
 	// Resolve the runner for this job's agent.
 	agentId := job.AgentID
 	if agentId == "" {
-		agentId = self.agentRegistry.DefaultID()
+		agentId = self.agentRegistry.ActiveAgentID()
 	}
 	runner := self.agentRegistry.Get(agentId)
 	if runner == nil {
@@ -215,15 +215,21 @@ func (self *Scheduler) executeJob(job Job) {
 		return
 	}
 
+	// Resolve conversation: use stored value if present (backward compat), otherwise use active conversation.
+	conversationId := job.ConversationID
+	if conversationId == "" {
+		conversationId = self.agentRegistry.ActiveConversationID(agentId)
+	}
+
 	runId := ulid.GenerateString()
-	log.Infof("executing job %s (%s) -> agent %s conversation %s run %s", job.ID, job.Name, agentId, job.ConversationID, runId)
+	log.Infof("executing job %s (%s) -> agent %s conversation %s run %s", job.ID, job.Name, agentId, conversationId, runId)
 
 	if self.SetActiveRun != nil {
-		self.SetActiveRun(job.ConversationID, runId)
+		self.SetActiveRun(conversationId, runId)
 	}
 	defer func() {
 		if self.ClearActiveRun != nil {
-			self.ClearActiveRun(job.ConversationID, runId)
+			self.ClearActiveRun(conversationId, runId)
 		}
 	}()
 
@@ -232,7 +238,7 @@ func (self *Scheduler) executeJob(job Job) {
 		self.Broadcast("conversation", map[string]interface{}{
 			"state":          "user_message",
 			"runId":          runId,
-			"conversationId": job.ConversationID,
+			"conversationId": conversationId,
 			"text":           job.Message,
 		})
 	}
@@ -245,7 +251,7 @@ func (self *Scheduler) executeJob(job Job) {
 				broadcast("chat", map[string]interface{}{
 					"state":          "delta",
 					"runId":          runId,
-					"conversationId": job.ConversationID,
+					"conversationId": conversationId,
 					"text":           text,
 				})
 			},
@@ -253,7 +259,7 @@ func (self *Scheduler) executeJob(job Job) {
 				broadcast("chat", map[string]interface{}{
 					"state":          "tool_call",
 					"runId":          runId,
-					"conversationId": job.ConversationID,
+					"conversationId": conversationId,
 					"toolName":       toolName,
 					"arguments":      arguments,
 				})
@@ -262,7 +268,7 @@ func (self *Scheduler) executeJob(job Job) {
 				broadcast("chat", map[string]interface{}{
 					"state":          "tool_result",
 					"runId":          runId,
-					"conversationId": job.ConversationID,
+					"conversationId": conversationId,
 					"toolName":       toolName,
 					"result":         result,
 				})
@@ -271,7 +277,7 @@ func (self *Scheduler) executeJob(job Job) {
 	}
 
 	result, err := runner.Run(context.Background(), agents.RunParams{
-		ConversationID: job.ConversationID,
+		ConversationID: conversationId,
 		Message:        job.Message,
 		Model:          job.Model,
 	}, callbacks)
@@ -281,14 +287,14 @@ func (self *Scheduler) executeJob(job Job) {
 			self.Broadcast("conversation", map[string]interface{}{
 				"state":          "error",
 				"runId":          runId,
-				"conversationId": job.ConversationID,
+				"conversationId": conversationId,
 				"error":          err.Error(),
 			})
 		} else {
 			payload := map[string]interface{}{
 				"state":          "final",
 				"runId":          runId,
-				"conversationId": job.ConversationID,
+				"conversationId": conversationId,
 				"text":           result.Response,
 				"model":          result.Model,
 				"stopReason":     result.StopReason,

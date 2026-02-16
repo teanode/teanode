@@ -10,6 +10,8 @@ import type {
   ConversationsListResult,
   ModelsListResult,
   AgentsConfigListResult,
+  AgentsSetActiveResult,
+  ConversationsSetActiveResult,
   ModelInfo,
   AgentInfo,
   Message,
@@ -131,6 +133,7 @@ export function useBackend() {
   const [toolActivity, setToolActivity] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [currentAgentId, setCurrentAgentId] = useState<string>('');
+  const [serverActiveAgentId, setServerActiveAgentId] = useState<string>('');
   const [connected, setConnected] = useState(false);
   const currentAgentIdRef = useRef(currentAgentId);
 
@@ -190,6 +193,35 @@ export function useBackend() {
   }
 
   const handleEvent = useCallback((frame: EventFrame) => {
+    if (frame.event === 'activeAgent') {
+      const payload = frame.payload as { activeAgentId?: string; activeConversationId?: string } | undefined;
+      if (payload?.activeAgentId) {
+        setServerActiveAgentId(payload.activeAgentId);
+        setAgents((previous) =>
+          previous.map((agent) =>
+            agent.id === payload.activeAgentId
+              ? { ...agent, activeConversationId: payload.activeConversationId }
+              : agent
+          )
+        );
+      }
+      return;
+    }
+
+    if (frame.event === 'activeConversation') {
+      const payload = frame.payload as { agentId?: string; activeConversationId?: string } | undefined;
+      if (payload?.agentId) {
+        setAgents((previous) =>
+          previous.map((agent) =>
+            agent.id === payload.agentId
+              ? { ...agent, activeConversationId: payload.activeConversationId }
+              : agent
+          )
+        );
+      }
+      return;
+    }
+
     if (frame.event === 'conversations') {
       const now = Date.now();
       if (now - conversationsRefreshRef.current < 2000) return;
@@ -445,9 +477,13 @@ export function useBackend() {
     if (result.agents) {
       setAgents(result.agents);
     }
-    if (result.defaultAgentId && !currentAgentIdRef.current) {
-      setCurrentAgentId(result.defaultAgentId);
-      currentAgentIdRef.current = result.defaultAgentId;
+    if (result.activeAgentId) {
+      setServerActiveAgentId(result.activeAgentId);
+    }
+    const initialAgentId = result.activeAgentId || result.defaultAgentId;
+    if (initialAgentId && !currentAgentIdRef.current) {
+      setCurrentAgentId(initialAgentId);
+      currentAgentIdRef.current = initialAgentId;
     }
     // Fetch available models
     sendRpcRef.current<ModelsListResult>('models.list', {})
@@ -714,6 +750,41 @@ export function useBackend() {
     sendRpc('conversations.abort', { runId: currentRunIdRef.current }).catch(() => {});
   }, [sendRpc]);
 
+  const setActiveAgent = useCallback(
+    (agentId: string) => {
+      setServerActiveAgentId(agentId);
+      sendRpc<AgentsSetActiveResult>('agents.setActive', { agentId })
+        .then((result) => {
+          setServerActiveAgentId(result.activeAgentId);
+          // Update the agent's activeConversationId in the agents list.
+          setAgents((previous) =>
+            previous.map((agent) =>
+              agent.id === result.activeAgentId
+                ? { ...agent, activeConversationId: result.activeConversationId }
+                : agent
+            )
+          );
+        })
+        .catch((error: unknown) => console.error('agents.setActive:', error));
+    },
+    [sendRpc]
+  );
+
+  const setActiveConversation = useCallback(
+    (agentId: string, conversationId: string) => {
+      // Optimistic update.
+      setAgents((previous) =>
+        previous.map((agent) =>
+          agent.id === agentId ? { ...agent, activeConversationId: conversationId } : agent
+        )
+      );
+      sendRpc<ConversationsSetActiveResult>('conversations.setActive', { agentId, conversationId }).catch(
+        (error: unknown) => console.error('conversations.setActive:', error)
+      );
+    },
+    [sendRpc]
+  );
+
   const refreshAgents = useCallback(() => {
     sendRpc<AgentsConfigListResult>('agents.config.list', {})
       .then((result) => {
@@ -738,7 +809,7 @@ export function useBackend() {
   const createJob = useCallback(
     (params: JobCreateParams) => {
       return sendRpc<{ job: Job }>('jobs.create', params)
-        .then(() => { loadJobs(); })
+        .then((result) => { loadJobs(); return result.job; })
         .catch((error) => { console.error('jobs.create:', error); throw error; });
     },
     [sendRpc, loadJobs]
@@ -786,7 +857,10 @@ export function useBackend() {
     currentAgentId,
     connected,
     currentRunId: currentRunIdRef.current,
+    serverActiveAgentId,
     setCurrentAgentId,
+    setActiveAgent,
+    setActiveConversation,
     sendMessage,
     abortRun,
     switchConversation,

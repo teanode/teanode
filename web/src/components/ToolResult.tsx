@@ -18,7 +18,7 @@ interface MediaInfo {
 
 const imageFormats = new Set(['png', 'jpeg', 'jpg', 'gif', 'webp']);
 
-function detectMedia(content: string): MediaInfo | null {
+export function detectMedia(content: string): MediaInfo | null {
   try {
     const parsed = JSON.parse(content);
     if (!parsed || typeof parsed !== 'object' || !parsed.format) return null;

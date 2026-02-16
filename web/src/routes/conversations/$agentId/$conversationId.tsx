@@ -11,6 +11,8 @@ export default function ConversationsConversationPage() {
     conversationId: string;
   };
   const { backend } = useAppContext();
+  const agent = backend.agents.find((agent) => agent.id === agentId);
+  const agentName = agent?.name || agentId;
 
   // Switch to this conversation when params change.
   const previousKeyRef = useRef<string | null>(null);
@@ -43,6 +45,7 @@ export default function ConversationsConversationPage() {
       />
       <InputArea
         isRunning={backend.isRunning}
+        agentName={agentName}
         onSend={handleSend}
         onAbort={backend.abortRun}
       />

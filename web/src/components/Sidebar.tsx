@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
@@ -42,18 +42,42 @@ export default function Sidebar() {
       ? 'settings'
       : 'conversations';
 
+  const isAllConversationsPage = pathname === '/conversations/all';
+
   const pathParts = pathname.replace(/^\//, '').split('/').filter(Boolean);
-  const routeAgentId = activeView === 'conversations' && pathParts[1] ? pathParts[1] : null;
-  const routeConversationId = activeView === 'conversations' && pathParts[2] ? pathParts[2] : null;
+  const routeAgentId = activeView === 'conversations' && !isAllConversationsPage && pathParts[1] ? pathParts[1] : null;
+  const routeConversationId = activeView === 'conversations' && !isAllConversationsPage && pathParts[2] ? pathParts[2] : null;
   const routeJobId = activeView === 'jobs' && pathParts[1] && pathParts[1] !== 'new' ? pathParts[1] : null;
   const isNewJobPage = activeView === 'jobs' && pathParts[1] === 'new';
   const routeSettingsAgentId = activeView === 'settings' && pathParts[1] === 'agents' && pathParts[2] ? pathParts[2] : null;
   const routeSettingsSection = activeView === 'settings' && !routeSettingsAgentId ? (pathParts[1] || null) : null;
 
-  const { agents, currentAgentId } = backend;
+  const { agents, currentAgentId, conversations: conversationList, serverActiveAgentId } = backend;
   const defaultAgentId = agents.length > 0 ? agents[0].id : 'main';
-  const activeAgentId = routeAgentId || currentAgentId || defaultAgentId;
+  const viewingAgentId = routeAgentId || currentAgentId || defaultAgentId;
   const activeConversationId = routeConversationId || backend.conversationId;
+
+  // Determine if the "View all conversations" button should be highlighted.
+  const highlightViewAll = useMemo(() => {
+    if (isAllConversationsPage) return true;
+    // If viewing a specific conversation, check if it's in the nav's list.
+    if (!routeConversationId) return false;
+    const activeAgentId = serverActiveAgentId || defaultAgentId;
+    const activeAgent = agents.find((agent) => agent.id === activeAgentId);
+    const pinnedConversationId = activeAgent?.activeConversationId || null;
+    // If it's the pinned conversation, it's in the nav.
+    if (routeConversationId === pinnedConversationId) return false;
+    // Check if it's in the recent list (top 10 non-pinned conversations for the active agent).
+    const agentConversations = conversationList.filter((conversation) => {
+      const conversationAgentId = conversation.agentId || defaultAgentId;
+      return conversationAgentId === activeAgentId;
+    });
+    const recentConversations = agentConversations
+      .filter((conversation) => conversation.id !== pinnedConversationId)
+      .slice(0, 10);
+    const isInRecentList = recentConversations.some((conversation) => conversation.id === routeConversationId);
+    return !isInRecentList;
+  }, [isAllConversationsPage, routeConversationId, serverActiveAgentId, defaultAgentId, agents, conversationList]);
 
   function handleNavigate(path: string) {
     navigate({ to: path });
@@ -64,7 +88,7 @@ export default function Sidebar() {
 
   function handleTabChange(_event: React.SyntheticEvent, newValue: number) {
     if (newValue === 0) {
-      const agentId = activeAgentId || defaultAgentId;
+      const agentId = viewingAgentId || defaultAgentId;
       handleNavigate(activeConversationId ? `/conversations/${agentId}/${activeConversationId}` : `/conversations/${agentId}`);
     } else if (newValue === 1) {
       handleNavigate(routeJobId ? `/jobs/${routeJobId}` : '/jobs');
@@ -110,8 +134,9 @@ export default function Sidebar() {
       {activeView === 'conversations' && (
         <ConversationNav
           backend={backend}
-          activeAgentId={activeAgentId}
+          viewingAgentId={viewingAgentId}
           activeConversationId={activeConversationId}
+          highlightViewAll={highlightViewAll}
           onNavigate={handleNavigate}
         />
       )}
@@ -128,7 +153,7 @@ export default function Sidebar() {
           backend={backend}
           agents={agents}
           activeSectionId={routeSettingsSection}
-          activeAgentId={routeSettingsAgentId}
+          viewingAgentId={routeSettingsAgentId}
           onNavigate={handleNavigate}
         />
       )}

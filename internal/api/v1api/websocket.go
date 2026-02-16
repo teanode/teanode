@@ -109,6 +109,10 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleAgentsConfigSave(frame)
 	case "agents.config.delete":
 		self.handleAgentsConfigDelete(frame)
+	case "agents.setActive":
+		self.handleAgentsSetActive(frame)
+	case "conversations.setActive":
+		self.handleConversationsSetActive(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

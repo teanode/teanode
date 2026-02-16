@@ -16,11 +16,13 @@ import (
 
 // handleConnect: handshake, return capabilities.
 func (self *webSocketConnection) handleConnect(frame requestFrame) {
-	agents := self.api.gateway.Config().ResolveAgents()
-	agentInfos := make([]map[string]interface{}, 0, len(agents))
-	for _, agentConfig := range agents {
+	agentConfigs := self.api.gateway.Config().ResolveAgents()
+	activeAgentId := self.api.gateway.ActiveAgentID()
+	agentInfos := make([]map[string]interface{}, 0, len(agentConfigs))
+	for _, agentConfig := range agentConfigs {
 		info := map[string]interface{}{
-			"id": agentConfig.ID,
+			"id":                   agentConfig.ID,
+			"activeConversationId": self.api.gateway.ActiveConversationID(agentConfig.ID),
 		}
 		if agentConfig.Name != "" {
 			info["name"] = agentConfig.Name
@@ -29,11 +31,13 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"version":        "1.0.0",
-		"capabilities":   []string{"conversations"},
-		"defaultModel":   self.api.gateway.Config().Models.Default,
-		"agents":         agentInfos,
-		"defaultAgentId": self.api.gateway.AgentRegistry().DefaultID(),
+		"version":              "1.0.0",
+		"capabilities":        []string{"conversations"},
+		"defaultModel":        self.api.gateway.Config().Models.Default,
+		"agents":              agentInfos,
+		"defaultAgentId":      self.api.gateway.AgentRegistry().DefaultID(),
+		"activeAgentId":       activeAgentId,
+		"activeConversationId": self.api.gateway.ActiveConversationID(activeAgentId),
 	})
 }
 
@@ -46,11 +50,13 @@ func (self *webSocketConnection) handleHealth(frame requestFrame) {
 
 // handleAgentsList: return list of configured agents.
 func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
-	agents := self.api.gateway.Config().ResolveAgents()
-	agentInfos := make([]map[string]interface{}, 0, len(agents))
-	for _, agentConfig := range agents {
+	agentConfigs := self.api.gateway.Config().ResolveAgents()
+	activeAgentId := self.api.gateway.ActiveAgentID()
+	agentInfos := make([]map[string]interface{}, 0, len(agentConfigs))
+	for _, agentConfig := range agentConfigs {
 		info := map[string]interface{}{
-			"id": agentConfig.ID,
+			"id":                   agentConfig.ID,
+			"activeConversationId": self.api.gateway.ActiveConversationID(agentConfig.ID),
 		}
 		if agentConfig.Name != "" {
 			info["name"] = agentConfig.Name
@@ -60,6 +66,61 @@ func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"agents":         agentInfos,
 		"defaultAgentId": self.api.gateway.AgentRegistry().DefaultID(),
+		"activeAgentId":  activeAgentId,
+	})
+}
+
+// agentsSetActiveParameters are the parameters for agents.setActive.
+type agentsSetActiveParameters struct {
+	AgentID string `json:"agentId"`
+}
+
+// handleAgentsSetActive: set the active agent.
+func (self *webSocketConnection) handleAgentsSetActive(frame requestFrame) {
+	var parameters agentsSetActiveParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.AgentID == "" {
+		self.sendError(frame.ID, 400, "agentId is required")
+		return
+	}
+	if err := self.api.gateway.SetActiveAgent(parameters.AgentID); err != nil {
+		self.sendError(frame.ID, 404, err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"activeAgentId":        parameters.AgentID,
+		"activeConversationId": self.api.gateway.ActiveConversationID(parameters.AgentID),
+	})
+}
+
+// conversationsSetActiveParameters are the parameters for conversations.setActive.
+type conversationsSetActiveParameters struct {
+	AgentID        string `json:"agentId"`
+	ConversationID string `json:"conversationId"`
+}
+
+// handleConversationsSetActive: set the active conversation for an agent.
+func (self *webSocketConnection) handleConversationsSetActive(frame requestFrame) {
+	var parameters conversationsSetActiveParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.ConversationID == "" {
+		self.sendError(frame.ID, 400, "conversationId is required")
+		return
+	}
+	agentId := parameters.AgentID
+	if agentId == "" {
+		agentId = self.api.gateway.ActiveAgentID()
+	}
+	self.api.gateway.SetActiveConversation(agentId, parameters.ConversationID)
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"activeAgentId":        agentId,
+		"activeConversationId": parameters.ConversationID,
 	})
 }
 
@@ -91,14 +152,21 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 		return
 	}
 
-	if parameters.ConversationID == "" {
-		parameters.ConversationID = ulid.GenerateString()
-	}
-
 	runner := self.api.gateway.ResolveRunner(parameters.AgentID)
 	if runner == nil {
 		self.sendError(frame.ID, 404, "agent not found: "+parameters.AgentID)
 		return
+	}
+
+	resolvedAgentId := parameters.AgentID
+	if resolvedAgentId == "" {
+		resolvedAgentId = self.api.gateway.ActiveAgentID()
+	}
+
+	if parameters.ConversationID == "" {
+		parameters.ConversationID = self.api.gateway.NewConversation(resolvedAgentId)
+	} else {
+		self.api.gateway.SetActiveConversationIfUnset(resolvedAgentId, parameters.ConversationID)
 	}
 
 	runId := ulid.GenerateString()
@@ -286,6 +354,17 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 		return
 	}
 
+	// Resolve the agent ID for active-conversation check.
+	resolvedAgentId := parameters.AgentID
+	if resolvedAgentId == "" {
+		resolvedAgentId = self.api.gateway.ActiveAgentID()
+	}
+	activeConversationId := self.api.gateway.ActiveConversationID(resolvedAgentId)
+	if parameters.ConversationID == activeConversationId {
+		self.sendError(frame.ID, 409, "cannot delete the active conversation")
+		return
+	}
+
 	runner := self.api.gateway.ResolveRunner(parameters.AgentID)
 	if runner == nil {
 		self.sendError(frame.ID, 404, "agent not found: "+parameters.AgentID)
@@ -306,6 +385,7 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 // conversationsListParameters are the parameters for conversations.list.
 type conversationsListParameters struct {
 	AgentID string `json:"agentId,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
 }
 
 // handleConversationsList: list available conversations.
@@ -316,7 +396,7 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 	}
 
 	if parameters.AgentID != "" {
-		// List conversations for a specific agents.
+		// List conversations for a specific agent.
 		runner := self.api.gateway.ResolveRunner(parameters.AgentID)
 		if runner == nil {
 			self.sendError(frame.ID, 404, "agent not found: "+parameters.AgentID)
@@ -326,6 +406,9 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 		if err != nil {
 			self.sendError(frame.ID, 500, "listing conversations: "+err.Error())
 			return
+		}
+		if parameters.Limit > 0 && len(conversations) > parameters.Limit {
+			conversations = conversations[:parameters.Limit]
 		}
 		self.sendResponse(frame.ID, map[string]interface{}{
 			"conversations": conversations,
@@ -358,6 +441,10 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 			})
 		}
 	})
+
+	if parameters.Limit > 0 && len(allConversations) > parameters.Limit {
+		allConversations = allConversations[:parameters.Limit]
+	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"conversations": allConversations,
@@ -584,6 +671,14 @@ func (self *webSocketConnection) handleAgentsConfigDelete(frame requestFrame) {
 		self.sendError(frame.ID, 400, "id is required")
 		return
 	}
+	if parameters.ID == self.api.gateway.AgentRegistry().DefaultID() {
+		self.sendError(frame.ID, 409, "cannot delete the default agent")
+		return
+	}
+	if parameters.ID == self.api.gateway.ActiveAgentID() {
+		self.sendError(frame.ID, 409, "cannot delete the active agent")
+		return
+	}
 	if err := configs.DeleteAgent(parameters.ID); err != nil {
 		self.sendError(frame.ID, 500, "deleting agent: "+err.Error())
 		return
@@ -652,7 +747,7 @@ func (self *webSocketConnection) handleJobsCreate(frame requestFrame) {
 		Model:          parameters.Model,
 		AgentID:        parameters.AgentID,
 		Enabled:        true,
-		ConversationID: ulid.GenerateString(),
+		ConversationID: "", // resolved at execution time from active conversation
 		CreatedAt:      time.Now().UnixMilli(),
 	}
 
@@ -729,7 +824,7 @@ func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) {
 	}
 	if parameters.AgentID != "" && parameters.AgentID != job.AgentID {
 		job.AgentID = parameters.AgentID
-		job.ConversationID = ulid.GenerateString()
+		job.ConversationID = "" // resolved at execution time from active conversation
 	}
 
 	if err := self.api.gateway.Scheduler().UpdateAndReload(*job); err != nil {

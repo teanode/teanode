@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
+import Container from '@mui/material/Container';
 import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -9,7 +10,7 @@ import type { DisplayMessage } from '../types';
 import { useAppContext } from '../context';
 import MessageBubble from './MessageBubble';
 import ToolInvoke from './ToolInvoke';
-import ToolResult from './ToolResult';
+import ToolResult, { detectMedia } from './ToolResult';
 import UsageIndicator from './UsageIndicator';
 
 const SCROLL_THRESHOLD = 80;
@@ -102,12 +103,9 @@ export default function MessageList({
       sx={{
         flex: 1,
         overflowY: 'auto',
-        p: 2,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 1,
       }}
     >
+      <Container maxWidth="md" sx={{ py: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
       {messages.map((message, index) => {
         const isActiveRun = message.runId === activeRunId;
         const isStreamingMessage = isActiveRun && isStreaming;
@@ -195,7 +193,8 @@ export default function MessageList({
         }
 
         if (message.type === 'tool-result') {
-          if (!showToolCalls) return null;
+          const hasMedia = detectMedia(message.content) !== null;
+          if (!showToolCalls && !hasMedia) return null;
           return (
             <ToolResult
               key={message.id}
@@ -212,6 +211,7 @@ export default function MessageList({
 
         return null;
       })}
+      </Container>
     </Box>
   );
 }

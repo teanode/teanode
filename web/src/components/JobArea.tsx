@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
+import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
-import Button from '@mui/material/Button';
-import Switch from '@mui/material/Switch';
 import Chip from '@mui/material/Chip';
-import type { Job, JobCreateParams, JobUpdateParams, ModelInfo, AgentInfo, Conversation } from '../types';
+import type { Job, JobCreateParams, JobUpdateParams, ModelInfo, AgentInfo } from '../types';
 import JobForm from './JobForm';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -22,14 +21,13 @@ interface JobAreaProps {
   creating: boolean;
   models: ModelInfo[];
   agents: AgentInfo[];
-  conversations: Conversation[];
   onLoad: () => void;
-  onCreate: (params: JobCreateParams) => Promise<void>;
+  onCreate: (params: JobCreateParams) => Promise<Job>;
   onUpdate: (params: JobUpdateParams) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onTrigger: (id: string) => Promise<void>;
   onCancelCreate: () => void;
-  onViewConversation: (conversationId: string) => void;
+  onViewAgentConversation: (agentId: string) => void;
 }
 
 export default function JobArea({
@@ -37,35 +35,27 @@ export default function JobArea({
   creating,
   models,
   agents,
-  conversations,
   onLoad,
   onCreate,
-  onUpdate,
   onDelete,
+  onUpdate,
   onTrigger,
   onCancelCreate,
-  onViewConversation,
+  onViewAgentConversation,
 }: JobAreaProps) {
   const { t } = useTranslation();
-  const [editing, setEditing] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   useEffect(() => {
     onLoad();
   }, [onLoad]);
 
-  useEffect(() => {
-    setEditing(false);
-    setDeleteConfirm(false);
-  }, [job?.id]);
+  const defaultAgentId = agents.length > 0 ? agents[0].id : 'main';
 
   if (creating) {
     return (
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{t('jobs.newJob')}</Typography>
-        </Box>
-        <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+      <Box sx={{ flex: 1, overflowY: 'auto' }}>
+        <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
           <JobForm
             models={models}
             agents={agents}
@@ -77,7 +67,7 @@ export default function JobArea({
             }}
             onCancel={onCancelCreate}
           />
-        </Box>
+        </Container>
       </Box>
     );
   }
@@ -90,14 +80,14 @@ export default function JobArea({
     );
   }
 
-  if (editing) {
-    return (
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{t('jobs.editJob', { name: job.name })}</Typography>
-        </Box>
-        <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+  const effectiveAgentId = job.agentId || defaultAgentId;
+
+  return (
+    <Box sx={{ flex: 1, overflowY: 'auto' }}>
+      <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <JobForm
+            key={job.id}
             initial={job}
             models={models}
             agents={agents}
@@ -108,126 +98,83 @@ export default function JobArea({
               if (data.message !== job.message) params.message = data.message;
               if (data.model !== (job.model || '')) params.model = data.model;
               if (data.agentId !== (job.agentId || '')) params.agentId = data.agentId;
-              onUpdate(params).then(() => setEditing(false)).catch(() => {});
+              onUpdate(params).catch(() => {});
             }}
-            onCancel={() => setEditing(false)}
           />
-        </Box>
-      </Box>
-    );
-  }
 
-  return (
-    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{job.name}</Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {!job.oneShot && (
-            <Button
-              size="small"
-              variant="contained"
-              onClick={() => onTrigger(job.id).then(() => onViewConversation(job.conversationId))}
-            >
-              {t('jobs.runNow')}
-            </Button>
-          )}
-          {!job.oneShot && (
-            <Button size="small" variant="text" onClick={() => setEditing(true)}>
-              {t('common.edit')}
-            </Button>
-          )}
-          <Button size="small" color="error" variant="text" onClick={() => setDeleteConfirm(true)}>
-            {t('common.delete')}
-          </Button>
-        </Box>
-      </Box>
-
-      <ConfirmDialog
-        open={deleteConfirm}
-        title={t('common.delete')}
-        message={t('jobs.deleteConfirm', { name: job.name })}
-        confirmLabel={t('common.delete')}
-        onConfirm={() => onDelete(job.id)}
-        onClose={() => setDeleteConfirm(false)}
-      />
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
-        {/* Status toggle */}
-        {!job.oneShot && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-            <Switch
-              checked={job.enabled}
-              onChange={() => onUpdate({ id: job.id, enabled: !job.enabled })}
-              color="primary"
-            />
-            <Typography variant="body2">{job.enabled ? t('jobs.enabled') : t('jobs.disabled')}</Typography>
-          </Box>
-        )}
-
-        {/* Details */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2 }}>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-              {job.runAt ? t('jobs.firesAt') : t('jobs.schedule')}
-            </Typography>
-            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-              {job.runAt ? new Date(job.runAt).toLocaleString() : job.schedule}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{t('jobs.message')}</Typography>
+          {/* Actions */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            {!job.oneShot && (
+              <Typography
+                variant="body2"
+                color="primary"
+                sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                onClick={() => onTrigger(job.id).then(() => onViewAgentConversation(effectiveAgentId))}
+              >
+                {t('jobs.runNow')}
+              </Typography>
+            )}
             <Typography
               variant="body2"
-              sx={{ whiteSpace: 'pre-wrap', bgcolor: 'background.default', border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}
+              color="primary"
+              sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+              onClick={() => onViewAgentConversation(effectiveAgentId)}
             >
-              {job.message}
+              {t('jobs.viewHistory')}
+            </Typography>
+            {!job.oneShot && (
+              <Typography
+                variant="body2"
+                color="primary"
+                sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                onClick={() => onUpdate({ id: job.id, enabled: !job.enabled })}
+              >
+                {job.enabled ? t('jobs.disableJob') : t('jobs.enableJob')}
+              </Typography>
+            )}
+            <Typography
+              variant="body2"
+              color="primary"
+              sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+              onClick={() => setDeleteConfirm(true)}
+            >
+              {t('common.delete')}
             </Typography>
           </Box>
-          {job.model && (
-            <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{t('jobs.model')}</Typography>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{job.model}</Typography>
-            </Box>
-          )}
-          {job.agentId && (
-            <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{t('jobs.agent')}</Typography>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{job.agentId}</Typography>
-            </Box>
-          )}
-        </Box>
 
-        {/* Last run info */}
-        <Box sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5, mb: 2 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{t('jobs.lastRun')}</Typography>
-          {job.lastRun ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="body2">{relativeTime(job.lastRun, t)}</Typography>
-                <Chip
-                  label={job.lastStatus}
-                  size="small"
-                  color={job.lastStatus === 'success' ? 'success' : 'error'}
-                  sx={{ height: 20, fontSize: '10px' }}
-                />
-              </Box>
-              {job.lastError && (
-                <Typography variant="caption" color="error.main">{job.lastError}</Typography>
-              )}
-            </Box>
-          ) : (
-            <Typography variant="body2" color="text.secondary">{t('jobs.neverRun')}</Typography>
-          )}
-        </Box>
+          <ConfirmDialog
+            open={deleteConfirm}
+            title={t('common.delete')}
+            message={t('jobs.deleteConfirm', { name: job.name })}
+            confirmLabel={t('common.delete')}
+            onConfirm={() => onDelete(job.id)}
+            onClose={() => setDeleteConfirm(false)}
+          />
 
-        {/* View conversation link */}
-        {job.conversationId && conversations.some((conversation) => conversation.id === job.conversationId) && (
+          {/* Last run info */}
           <Box sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5 }}>
-            <Button size="small" color="primary" variant="text" onClick={() => onViewConversation(job.conversationId)}>
-              {t('jobs.viewHistory')}
-            </Button>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{t('jobs.lastRun')}</Typography>
+            {job.lastRun ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="body2">{relativeTime(job.lastRun, t)}</Typography>
+                  <Chip
+                    label={job.lastStatus}
+                    size="small"
+                    color={job.lastStatus === 'success' ? 'success' : 'error'}
+                    sx={{ height: 20, fontSize: '10px' }}
+                  />
+                </Box>
+                {job.lastError && (
+                  <Typography variant="caption" color="error.main">{job.lastError}</Typography>
+                )}
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.secondary">{t('jobs.neverRun')}</Typography>
+            )}
           </Box>
-        )}
-      </Box>
+        </Box>
+      </Container>
     </Box>
   );
 }

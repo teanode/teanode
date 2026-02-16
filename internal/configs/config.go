@@ -484,6 +484,15 @@ func MediaDirectory() (string, error) {
 	return filepath.Join(directory, "media"), nil
 }
 
+// StateFile returns the path to the state file (~/.teanode/state.json).
+func StateFile() (string, error) {
+	directory, err := Directory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, "state.json"), nil
+}
+
 // EnsureDirectories creates the base teanode directories if needed.
 func EnsureDirectories() error {
 	directory, err := Directory()

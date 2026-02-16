@@ -15,8 +15,10 @@ type definition struct {
 var commands = []definition{
 	{Name: "new", Description: "Start a new conversation"},
 	{Name: "reset", Description: "Clear current conversation history"},
+	{Name: "clear", Description: "Clear current conversation and start new"},
 	{Name: "stop", Description: "Cancel the current run"},
 	{Name: "model", Args: "[name]", Description: "Show or set the model"},
+	{Name: "agent", Args: "[name]", Description: "Show or switch the active agent"},
 	{Name: "status", Description: "Show bot status"},
 	{Name: "help", Description: "Show available commands"},
 }

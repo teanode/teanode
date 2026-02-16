@@ -189,8 +189,9 @@ func GatewayCmd() *cli.Command {
 				agentRegistry.Register(agentConfig.ID, runner)
 			}
 
-			// Set the default agent ID from config.
+			// Set the default agent ID from config and restore persisted active state.
 			agentRegistry.SetDefault(configuration.ResolveDefaultAgent())
+			agentRegistry.LoadState()
 
 			// --- Gateway + API + Frontend ---
 
@@ -198,6 +199,7 @@ func GatewayCmd() *cli.Command {
 
 			gateway := gw.New(configuration, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore)
 			api := v1api.New(gateway)
+			gateway.SetBroadcast(api.Broadcast)
 			frontendComponent := frontend.New()
 
 			summarizer.IsConversationActive = func(conversationId string) bool {
@@ -212,36 +214,32 @@ func GatewayCmd() *cli.Command {
 			// --- Discord bot ---
 
 			if configuration.Channels.Discord != nil && configuration.Channels.Discord.Token != "" {
-				discordBot, err := discord.New(configuration.Channels.Discord, agentRegistry)
-				if err != nil {
-					log.Errorf("discord bot: %v", err)
+				discordBot := discord.New(configuration.Channels.Discord, agentRegistry)
+				discordBot.Broadcast = api.Broadcast
+				discordBot.SetActiveRun = gateway.SetActiveRun
+				discordBot.ClearActiveRun = gateway.ClearActiveRun
+				discordBot.SetActiveAgent = gateway.SetActiveAgent
+				discordBot.NewConversation = gateway.NewConversation
+				if err := discordBot.Start(); err != nil {
+					log.Errorf("discord bot failed to start: %v", err)
 				} else {
-					discordBot.Broadcast = api.Broadcast
-					discordBot.SetActiveRun = gateway.SetActiveRun
-					discordBot.ClearActiveRun = gateway.ClearActiveRun
-					if err := discordBot.Start(); err != nil {
-						log.Errorf("discord bot failed to start: %v", err)
-					} else {
-						defer discordBot.Stop()
-					}
+					defer discordBot.Stop()
 				}
 			}
 
 			// --- Telegram bot ---
 
 			if configuration.Channels.Telegram != nil && configuration.Channels.Telegram.Token != "" {
-				telegramBot, err := telegram.New(configuration.Channels.Telegram, agentRegistry)
-				if err != nil {
-					log.Errorf("telegram bot: %v", err)
+				telegramBot := telegram.New(configuration.Channels.Telegram, agentRegistry)
+				telegramBot.Broadcast = api.Broadcast
+				telegramBot.SetActiveRun = gateway.SetActiveRun
+				telegramBot.ClearActiveRun = gateway.ClearActiveRun
+				telegramBot.SetActiveAgent = gateway.SetActiveAgent
+				telegramBot.NewConversation = gateway.NewConversation
+				if err := telegramBot.Start(); err != nil {
+					log.Errorf("telegram bot failed to start: %v", err)
 				} else {
-					telegramBot.Broadcast = api.Broadcast
-					telegramBot.SetActiveRun = gateway.SetActiveRun
-					telegramBot.ClearActiveRun = gateway.ClearActiveRun
-					if err := telegramBot.Start(); err != nil {
-						log.Errorf("telegram bot failed to start: %v", err)
-					} else {
-						defer telegramBot.Stop()
-					}
+					defer telegramBot.Stop()
 				}
 			}
 

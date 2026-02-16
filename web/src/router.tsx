@@ -10,6 +10,7 @@ import ConversationsIndex from './routes/conversations/index';
 import ConversationsAgentLayout from './routes/conversations/$agentId/route';
 import ConversationsNewPage from './routes/conversations/$agentId/index';
 import ConversationsConversationPage from './routes/conversations/$agentId/$conversationId';
+import ConversationsAllPage from './routes/conversations/all';
 import JobsLayout from './routes/jobs/route';
 import JobsIndex from './routes/jobs/index';
 import JobsNewPage from './routes/jobs/new';
@@ -61,6 +62,13 @@ const conversationsAgentIndexRoute = createRoute({
   getParentRoute: () => conversationsAgentRoute,
   path: '/',
   component: ConversationsNewPage,
+});
+
+// /conversations/all → browse all conversations across all agents
+const conversationsAllRoute = createRoute({
+  getParentRoute: () => conversationsRoute,
+  path: 'all',
+  component: ConversationsAllPage,
 });
 
 // /conversations/$agentId/$conversationId → active conversation
@@ -139,6 +147,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   conversationsRoute.addChildren([
     conversationsIndexRoute,
+    conversationsAllRoute,
     conversationsAgentRoute.addChildren([conversationsAgentIndexRoute, conversationsConversationRoute]),
   ]),
   jobsRoute.addChildren([jobsIndexRoute, jobsNewRoute, jobDetailRoute]),

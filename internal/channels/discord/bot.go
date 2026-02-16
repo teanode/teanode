@@ -12,7 +12,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/slashcommands"
@@ -61,28 +60,25 @@ func (self *discordStreamPreview) run() {
 
 func (self *discordStreamPreview) flush() {
 	self.mutex.Lock()
+	defer self.mutex.Unlock()
+
 	text := self.accumulated.String()
 	if text == self.lastSentText || text == "" || self.stopped {
-		self.mutex.Unlock()
 		return
 	}
 	if len(text) > maxDiscordMessageLen {
 		text = text[:maxDiscordMessageLen]
 	}
-	messageId := self.messageId
 	self.lastSentText = text
-	self.mutex.Unlock()
 
-	if messageId == "" {
+	if self.messageId == "" {
 		sent, err := self.session.ChannelMessageSend(self.channelId, text)
 		if err != nil {
 			return
 		}
-		self.mutex.Lock()
 		self.messageId = sent.ID
-		self.mutex.Unlock()
 	} else {
-		self.session.ChannelMessageEdit(self.channelId, messageId, text)
+		self.session.ChannelMessageEdit(self.channelId, self.messageId, text)
 	}
 }
 
@@ -131,8 +127,7 @@ func (self *discordStreamPreview) Delete() {
 // Bot manages a Discord bot that forwards messages to the agents.
 type Bot struct {
 	config        *configs.DiscordConfig
-	runner        *agents.Runner
-	conversations *conversations.Store
+	agentRegistry *agents.AgentRegistry
 	discord       *discordgo.Session
 	botUserId     string
 
@@ -140,41 +135,25 @@ type Bot struct {
 	activeMutex sync.Mutex
 	active      map[string]context.CancelFunc
 
-	// Per-channel conversation id overrides (channelId → conversation id).
-	conversationMutex sync.RWMutex
-	conversationIds   map[string]string
-
 	// Per-channel model overrides (channelId → model name).
 	modelMutex     sync.RWMutex
 	modelOverrides map[string]string
 
-	Broadcast      func(event string, payload interface{})
-	SetActiveRun   func(conversationId, runId string)
-	ClearActiveRun func(conversationId, runId string)
+	Broadcast       func(event string, payload interface{})
+	SetActiveRun    func(conversationId, runId string)
+	ClearActiveRun  func(conversationId, runId string)
+	SetActiveAgent  func(agentId string) error
+	NewConversation func(agentId string) string
 }
 
-// New creates a new Discord bot. It resolves the runner from the agent registry
-// using the config's AgentID (defaults to the configured default agent).
-func New(discordConfig *configs.DiscordConfig, agentRegistry *agents.AgentRegistry) (*Bot, error) {
-	agentId := discordConfig.AgentID
-	if agentId == "" {
-		agentId = agentRegistry.DefaultID()
-	}
-	runner := agentRegistry.Get(agentId)
-	if runner == nil {
-		runner = agentRegistry.Default()
-	}
-	if runner == nil {
-		return nil, fmt.Errorf("no agent runner available for discord (agent %q)", agentId)
-	}
+// New creates a new Discord bot that dynamically resolves the active agent and conversation from the registry.
+func New(discordConfig *configs.DiscordConfig, agentRegistry *agents.AgentRegistry) *Bot {
 	return &Bot{
-		config:          discordConfig,
-		runner:          runner,
-		conversations:   runner.Conversations,
-		active:          make(map[string]context.CancelFunc),
-		conversationIds: make(map[string]string),
-		modelOverrides:  make(map[string]string),
-	}, nil
+		config:         discordConfig,
+		agentRegistry:  agentRegistry,
+		active:         make(map[string]context.CancelFunc),
+		modelOverrides: make(map[string]string),
+	}
 }
 
 // Start connects the bot to Discord.
@@ -253,7 +232,13 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		return
 	}
 
-	conversationId := self.getConversationId(event.ChannelID)
+	activeAgentId := self.agentRegistry.ActiveAgentID()
+	runner := self.agentRegistry.Get(activeAgentId)
+	if runner == nil {
+		discordSession.ChannelMessageSend(event.ChannelID, "No active agent available.")
+		return
+	}
+	conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
 
 	// Check if there's already an active run for this conversation.
 	self.activeMutex.Lock()
@@ -266,10 +251,10 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 	self.active[conversationId] = cancel
 	self.activeMutex.Unlock()
 
-	go self.handleMessage(ctx, cancel, conversationId, event.ChannelID, content)
+	go self.handleMessage(ctx, cancel, runner, conversationId, event.ChannelID, content)
 }
 
-func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, conversationId, channelId, message string) {
+func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, runner *agents.Runner, conversationId, channelId, message string) {
 	defer deferutil.Recover()
 	defer func() {
 		self.activeMutex.Lock()
@@ -354,7 +339,7 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 		},
 	}
 
-	result, err := self.runner.Run(ctx, agents.RunParams{
+	result, err := runner.Run(ctx, agents.RunParams{
 		ConversationID: conversationId,
 		Message:        message,
 		Model:          self.getModel(channelId),
@@ -408,27 +393,28 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 		})
 	}
 
-	// Try final edit if preview exists and response fits in one message.
-	if previewMessageId != "" && len(result.Response) <= maxDiscordMessageLen {
-		if _, editError := self.discord.ChannelMessageEdit(channelId, previewMessageId, result.Response); editError == nil {
-			return
+	// Reuse the preview message as the final message by editing it.
+	if previewMessageId != "" {
+		finalText := result.Response
+		firstChunk := finalText
+		remaining := ""
+		if len(finalText) > maxDiscordMessageLen {
+			cut := strings.LastIndex(finalText[:maxDiscordMessageLen], "\n")
+			if cut < maxDiscordMessageLen/2 {
+				cut = maxDiscordMessageLen
+			}
+			firstChunk = finalText[:cut]
+			remaining = finalText[cut:]
 		}
-		// Edit failed — delete and fall through to sendChunked.
-		preview.Delete()
-	} else if previewMessageId != "" {
-		preview.Delete()
+		self.discord.ChannelMessageEdit(channelId, previewMessageId, firstChunk)
+		if remaining != "" {
+			self.sendChunked(channelId, remaining)
+		}
+		return
 	}
 
+	// No preview message was created — send as new message(s).
 	self.sendChunked(channelId, result.Response)
-}
-
-func (self *Bot) getConversationId(channelId string) string {
-	self.conversationMutex.RLock()
-	defer self.conversationMutex.RUnlock()
-	if id, ok := self.conversationIds[channelId]; ok {
-		return id
-	}
-	return ulid.GenerateString()
 }
 
 func (self *Bot) getModel(channelId string) string {
@@ -441,30 +427,46 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 	channelId := messageEvent.ChannelID
 	var reply string
 
+	activeAgentId := self.agentRegistry.ActiveAgentID()
+	runner := self.agentRegistry.Get(activeAgentId)
+
 	switch name {
 	case "new":
-		conversationId := ulid.GenerateString()
-		self.conversationMutex.Lock()
-		self.conversationIds[channelId] = conversationId
-		self.conversationMutex.Unlock()
+		conversationId := self.newConversation(activeAgentId)
 		reply = fmt.Sprintf("New conversation started. (`%s`)", conversationId)
 
-	case "reset":
-		conversationId := self.getConversationId(channelId)
-		if err := self.conversations.Delete(conversationId); err != nil {
-			reply = fmt.Sprintf("Error clearing conversation: %v", err)
+	case "reset", "clear":
+		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
+		// Cancel active run if any.
+		self.activeMutex.Lock()
+		if cancel, found := self.active[conversationId]; found {
+			cancel()
+			if runner != nil {
+				runner.CancelConversation(conversationId)
+			}
+		}
+		self.activeMutex.Unlock()
+		if runner != nil {
+			if err := runner.Conversations.Delete(conversationId); err != nil {
+				reply = fmt.Sprintf("Error clearing conversation: %v", err)
+			} else {
+				newConversationId := self.newConversation(activeAgentId)
+				reply = fmt.Sprintf("Conversation cleared. New conversation started. (`%s`)", newConversationId)
+			}
 		} else {
-			reply = "Conversation history cleared."
+			reply = "No active agent available."
 		}
 
 	case "stop":
-		conversationId := self.getConversationId(channelId)
+		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
 		self.activeMutex.Lock()
 		cancel, found := self.active[conversationId]
 		self.activeMutex.Unlock()
 		if found {
 			cancel()
-			self.runner.CancelConversation(conversationId)
+			if runner != nil {
+				runner.CancelConversation(conversationId)
+			}
 			reply = "Run cancelled."
 		} else {
 			reply = "No active run to cancel."
@@ -473,8 +475,8 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 	case "model":
 		if arguments == "" {
 			model := self.getModel(channelId)
-			if model == "" {
-				model = self.runner.Config.Models.Default
+			if model == "" && runner != nil {
+				model = runner.Config.Models.Default
 			}
 			reply = fmt.Sprintf("Current model: `%s`", model)
 		} else {
@@ -484,11 +486,33 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 			reply = fmt.Sprintf("Model set to `%s`.", arguments)
 		}
 
+	case "agent":
+		if arguments == "" {
+			var lines []string
+			lines = append(lines, fmt.Sprintf("Active agent: `%s`", activeAgentId))
+			lines = append(lines, "Agents:")
+			for _, agentId := range self.agentRegistry.AgentIDs() {
+				marker := "  "
+				if agentId == activeAgentId {
+					marker = "* "
+				}
+				lines = append(lines, marker+"`"+agentId+"`")
+			}
+			reply = strings.Join(lines, "\n")
+		} else {
+			if err := self.setActiveAgent(arguments); err != nil {
+				reply = fmt.Sprintf("Error: %v", err)
+			} else {
+				newConversationId := self.agentRegistry.ActiveConversationID(arguments)
+				reply = fmt.Sprintf("Switched to agent `%s`. (conversation: `%s`)", arguments, newConversationId)
+			}
+		}
+
 	case "status":
-		conversationId := self.getConversationId(channelId)
+		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
 		model := self.getModel(channelId)
-		if model == "" {
-			model = self.runner.Config.Models.Default
+		if model == "" && runner != nil {
+			model = runner.Config.Models.Default
 		}
 		self.activeMutex.Lock()
 		_, running := self.active[conversationId]
@@ -497,7 +521,11 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 		if running {
 			status = "running"
 		}
-		reply = fmt.Sprintf("Conversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", conversationId, model, self.runner.Config.Models.DefaultProviderName(), status)
+		providerName := ""
+		if runner != nil {
+			providerName = runner.Config.Models.DefaultProviderName()
+		}
+		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", activeAgentId, conversationId, model, providerName, status)
 
 	case "help":
 		reply = slashcommands.HelpText()
@@ -528,6 +556,20 @@ func (self *Bot) sendChunked(channelId, text string) {
 		}
 		text = text[len(chunk):]
 	}
+}
+
+func (self *Bot) setActiveAgent(agentId string) error {
+	if self.SetActiveAgent != nil {
+		return self.SetActiveAgent(agentId)
+	}
+	return self.agentRegistry.SetActiveAgent(agentId)
+}
+
+func (self *Bot) newConversation(agentId string) string {
+	if self.NewConversation != nil {
+		return self.NewConversation(agentId)
+	}
+	return self.agentRegistry.NewConversation(agentId)
 }
 
 func (self *Bot) isUserAllowed(userId string) bool {

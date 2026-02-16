@@ -11,7 +11,6 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/slashcommands"
@@ -61,30 +60,27 @@ func (self *telegramStreamPreview) run() {
 
 func (self *telegramStreamPreview) flush() {
 	self.mutex.Lock()
+	defer self.mutex.Unlock()
+
 	text := self.accumulated.String()
 	if text == self.lastSentText || text == "" || self.stopped {
-		self.mutex.Unlock()
 		return
 	}
 	if len(text) > maxTelegramMessageLen {
 		text = text[:maxTelegramMessageLen]
 	}
-	messageId := self.messageId
 	self.lastSentText = text
-	self.mutex.Unlock()
 
-	if messageId == 0 {
+	if self.messageId == 0 {
 		msg := tgbotapi.NewMessage(self.chatId, text)
 		msg.ReplyToMessageID = self.replyTo
 		sent, err := self.api.Send(msg)
 		if err != nil {
 			return
 		}
-		self.mutex.Lock()
 		self.messageId = sent.MessageID
-		self.mutex.Unlock()
 	} else {
-		edit := tgbotapi.NewEditMessageText(self.chatId, messageId, text)
+		edit := tgbotapi.NewEditMessageText(self.chatId, self.messageId, text)
 		self.api.Send(edit)
 	}
 }
@@ -135,8 +131,7 @@ func (self *telegramStreamPreview) Delete() {
 // Bot manages a Telegram bot that forwards messages to the agents.
 type Bot struct {
 	config        *configs.TelegramConfig
-	runner        *agents.Runner
-	conversations *conversations.Store
+	agentRegistry *agents.AgentRegistry
 	api           *tgbotapi.BotAPI
 	stopChannel   chan struct{}
 
@@ -144,42 +139,26 @@ type Bot struct {
 	activeMutex sync.Mutex
 	active      map[string]context.CancelFunc
 
-	// Per-chat conversation id overrides (chatId string → conversation id).
-	conversationMutex sync.RWMutex
-	conversationIds   map[string]string
-
 	// Per-chat model overrides (chatId string → model name).
 	modelMutex     sync.RWMutex
 	modelOverrides map[string]string
 
-	Broadcast      func(event string, payload interface{})
-	SetActiveRun   func(conversationId, runId string)
-	ClearActiveRun func(conversationId, runId string)
+	Broadcast       func(event string, payload interface{})
+	SetActiveRun    func(conversationId, runId string)
+	ClearActiveRun  func(conversationId, runId string)
+	SetActiveAgent  func(agentId string) error
+	NewConversation func(agentId string) string
 }
 
-// New creates a new Telegram bot. It resolves the runner from the agent registry
-// using the config's AgentID (defaults to the configured default agent).
-func New(telegramConfig *configs.TelegramConfig, agentRegistry *agents.AgentRegistry) (*Bot, error) {
-	agentId := telegramConfig.AgentID
-	if agentId == "" {
-		agentId = agentRegistry.DefaultID()
-	}
-	runner := agentRegistry.Get(agentId)
-	if runner == nil {
-		runner = agentRegistry.Default()
-	}
-	if runner == nil {
-		return nil, fmt.Errorf("no agent runner available for telegram (agent %q)", agentId)
-	}
+// New creates a new Telegram bot that dynamically resolves the active agent and conversation from the registry.
+func New(telegramConfig *configs.TelegramConfig, agentRegistry *agents.AgentRegistry) *Bot {
 	return &Bot{
-		config:          telegramConfig,
-		runner:          runner,
-		conversations:   runner.Conversations,
-		active:          make(map[string]context.CancelFunc),
-		conversationIds: make(map[string]string),
-		modelOverrides:  make(map[string]string),
-		stopChannel:     make(chan struct{}),
-	}, nil
+		config:         telegramConfig,
+		agentRegistry:  agentRegistry,
+		active:         make(map[string]context.CancelFunc),
+		modelOverrides: make(map[string]string),
+		stopChannel:    make(chan struct{}),
+	}
 }
 
 // Start connects the bot to Telegram and begins polling for updates.
@@ -196,8 +175,10 @@ func (self *Bot) Start() error {
 	commands := tgbotapi.NewSetMyCommands(
 		tgbotapi.BotCommand{Command: "new", Description: "Start a new conversation"},
 		tgbotapi.BotCommand{Command: "reset", Description: "Clear current conversation history"},
+		tgbotapi.BotCommand{Command: "clear", Description: "Clear current conversation and start new"},
 		tgbotapi.BotCommand{Command: "stop", Description: "Cancel the current run"},
 		tgbotapi.BotCommand{Command: "model", Description: "Show or set the model"},
+		tgbotapi.BotCommand{Command: "agent", Description: "Show or switch the active agent"},
 		tgbotapi.BotCommand{Command: "status", Description: "Show bot status"},
 		tgbotapi.BotCommand{Command: "help", Description: "Show available commands"},
 		tgbotapi.BotCommand{Command: "ask", Description: "Ask the AI (required in groups)"},
@@ -291,7 +272,15 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 		}
 	}
 
-	conversationId := self.getConversationId(chatIdStr)
+	activeAgentId := self.agentRegistry.ActiveAgentID()
+	runner := self.agentRegistry.Get(activeAgentId)
+	if runner == nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "No active agent available.")
+		msg.ReplyToMessageID = message.MessageID
+		self.api.Send(msg)
+		return
+	}
+	conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
 
 	// Check if there's already an active run for this conversation.
 	self.activeMutex.Lock()
@@ -306,10 +295,10 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 	self.active[conversationId] = cancel
 	self.activeMutex.Unlock()
 
-	go self.handleMessage(ctx, cancel, conversationId, message.Chat.ID, message.MessageID, text)
+	go self.handleMessage(ctx, cancel, runner, conversationId, message.Chat.ID, message.MessageID, text)
 }
 
-func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, conversationId string, chatId int64, replyTo int, message string) {
+func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, runner *agents.Runner, conversationId string, chatId int64, replyTo int, message string) {
 	defer deferutil.Recover()
 	defer func() {
 		self.activeMutex.Lock()
@@ -397,7 +386,7 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 	}
 
 	chatIdStr := fmt.Sprintf("%d", chatId)
-	result, err := self.runner.Run(ctx, agents.RunParams{
+	result, err := runner.Run(ctx, agents.RunParams{
 		ConversationID: conversationId,
 		Message:        message,
 		Model:          self.getModel(chatIdStr),
@@ -453,34 +442,33 @@ func (self *Bot) handleMessage(ctx context.Context, cancel context.CancelFunc, c
 		}
 	}
 
-	// Try final formatted edit if preview exists and response fits in one message.
-	if previewMessageId != 0 && len(result.Response) <= maxTelegramMessageLen {
-		edit := tgbotapi.NewEditMessageText(chatId, previewMessageId, result.Response)
+	// Reuse the preview message as the final message by editing it.
+	if previewMessageId != 0 {
+		finalText := result.Response
+		firstChunk := finalText
+		remaining := ""
+		if len(finalText) > maxTelegramMessageLen {
+			cut := strings.LastIndex(finalText[:maxTelegramMessageLen], "\n")
+			if cut < maxTelegramMessageLen/2 {
+				cut = maxTelegramMessageLen
+			}
+			firstChunk = finalText[:cut]
+			remaining = finalText[cut:]
+		}
+		edit := tgbotapi.NewEditMessageText(chatId, previewMessageId, firstChunk)
 		edit.ParseMode = "Markdown"
-		if _, editError := self.api.Send(edit); editError == nil {
-			return
+		if _, editError := self.api.Send(edit); editError != nil {
+			edit.ParseMode = ""
+			self.api.Send(edit)
 		}
-		// Retry without Markdown in case of formatting errors.
-		edit.ParseMode = ""
-		if _, editError := self.api.Send(edit); editError == nil {
-			return
+		if remaining != "" {
+			self.sendChunked(chatId, 0, remaining)
 		}
-		// Edit failed — delete and fall through to sendChunked.
-		preview.Delete()
-	} else if previewMessageId != 0 {
-		preview.Delete()
+		return
 	}
 
+	// No preview message was created — send as new message(s).
 	self.sendChunked(chatId, replyTo, result.Response)
-}
-
-func (self *Bot) getConversationId(chatIdStr string) string {
-	self.conversationMutex.RLock()
-	defer self.conversationMutex.RUnlock()
-	if id, ok := self.conversationIds[chatIdStr]; ok {
-		return id
-	}
-	return ulid.GenerateString()
 }
 
 func (self *Bot) getModel(chatIdStr string) string {
@@ -492,30 +480,46 @@ func (self *Bot) getModel(chatIdStr string) string {
 func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, arguments string) {
 	var reply string
 
+	activeAgentId := self.agentRegistry.ActiveAgentID()
+	runner := self.agentRegistry.Get(activeAgentId)
+
 	switch name {
 	case "new":
-		conversationId := ulid.GenerateString()
-		self.conversationMutex.Lock()
-		self.conversationIds[chatIdStr] = conversationId
-		self.conversationMutex.Unlock()
+		conversationId := self.newConversation(activeAgentId)
 		reply = fmt.Sprintf("New conversation started. (%s)", conversationId)
 
-	case "reset":
-		conversationId := self.getConversationId(chatIdStr)
-		if err := self.conversations.Delete(conversationId); err != nil {
-			reply = fmt.Sprintf("Error clearing conversation: %v", err)
+	case "reset", "clear":
+		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
+		// Cancel active run if any.
+		self.activeMutex.Lock()
+		if cancel, found := self.active[conversationId]; found {
+			cancel()
+			if runner != nil {
+				runner.CancelConversation(conversationId)
+			}
+		}
+		self.activeMutex.Unlock()
+		if runner != nil {
+			if err := runner.Conversations.Delete(conversationId); err != nil {
+				reply = fmt.Sprintf("Error clearing conversation: %v", err)
+			} else {
+				newConversationId := self.newConversation(activeAgentId)
+				reply = fmt.Sprintf("Conversation cleared. New conversation started. (%s)", newConversationId)
+			}
 		} else {
-			reply = "Conversation history cleared."
+			reply = "No active agent available."
 		}
 
 	case "stop":
-		conversationId := self.getConversationId(chatIdStr)
+		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
 		self.activeMutex.Lock()
 		cancel, found := self.active[conversationId]
 		self.activeMutex.Unlock()
 		if found {
 			cancel()
-			self.runner.CancelConversation(conversationId)
+			if runner != nil {
+				runner.CancelConversation(conversationId)
+			}
 			reply = "Run cancelled."
 		} else {
 			reply = "No active run to cancel."
@@ -524,8 +528,8 @@ func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, argum
 	case "model":
 		if arguments == "" {
 			model := self.getModel(chatIdStr)
-			if model == "" {
-				model = self.runner.Config.Models.Default
+			if model == "" && runner != nil {
+				model = runner.Config.Models.Default
 			}
 			reply = fmt.Sprintf("Current model: %s", model)
 		} else {
@@ -535,11 +539,33 @@ func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, argum
 			reply = fmt.Sprintf("Model set to %s.", arguments)
 		}
 
+	case "agent":
+		if arguments == "" {
+			var lines []string
+			lines = append(lines, fmt.Sprintf("Active agent: %s", activeAgentId))
+			lines = append(lines, "Agents:")
+			for _, agentId := range self.agentRegistry.AgentIDs() {
+				marker := "  "
+				if agentId == activeAgentId {
+					marker = "* "
+				}
+				lines = append(lines, marker+agentId)
+			}
+			reply = strings.Join(lines, "\n")
+		} else {
+			if err := self.setActiveAgent(arguments); err != nil {
+				reply = fmt.Sprintf("Error: %v", err)
+			} else {
+				newConversationId := self.agentRegistry.ActiveConversationID(arguments)
+				reply = fmt.Sprintf("Switched to agent %s. (conversation: %s)", arguments, newConversationId)
+			}
+		}
+
 	case "status":
-		conversationId := self.getConversationId(chatIdStr)
+		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
 		model := self.getModel(chatIdStr)
-		if model == "" {
-			model = self.runner.Config.Models.Default
+		if model == "" && runner != nil {
+			model = runner.Config.Models.Default
 		}
 		self.activeMutex.Lock()
 		_, running := self.active[conversationId]
@@ -548,7 +574,11 @@ func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, argum
 		if running {
 			status = "running"
 		}
-		reply = fmt.Sprintf("Conversation: %s\nModel: %s\nProvider: %s\nStatus: %s", conversationId, model, self.runner.Config.Models.DefaultProviderName(), status)
+		providerName := ""
+		if runner != nil {
+			providerName = runner.Config.Models.DefaultProviderName()
+		}
+		reply = fmt.Sprintf("Agent: %s\nConversation: %s\nModel: %s\nProvider: %s\nStatus: %s", activeAgentId, conversationId, model, providerName, status)
 
 	case "help":
 		reply = slashcommands.HelpText()
@@ -592,6 +622,20 @@ func (self *Bot) sendChunked(chatId int64, replyTo int, text string) {
 		}
 		text = text[len(chunk):]
 	}
+}
+
+func (self *Bot) setActiveAgent(agentId string) error {
+	if self.SetActiveAgent != nil {
+		return self.SetActiveAgent(agentId)
+	}
+	return self.agentRegistry.SetActiveAgent(agentId)
+}
+
+func (self *Bot) newConversation(agentId string) string {
+	if self.NewConversation != nil {
+		return self.NewConversation(agentId)
+	}
+	return self.agentRegistry.NewConversation(agentId)
 }
 
 func (self *Bot) isUserAllowed(userId int64) bool {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import List from '@mui/material/List';
@@ -15,8 +15,66 @@ interface JobNavProps {
   onNavigate: (path: string) => void;
 }
 
+function sortJobs(jobs: Job[]): Job[] {
+  return [...jobs].sort((first, second) => {
+    const firstTimestamp = first.lastRun || first.createdAt || 0;
+    const secondTimestamp = second.lastRun || second.createdAt || 0;
+    return secondTimestamp - firstTimestamp;
+  });
+}
+
 export default function JobNav({ jobs, activeJobId, isNewPage, onNavigate }: JobNavProps) {
   const { t } = useTranslation();
+
+  const { enabledJobs, disabledJobs } = useMemo(() => {
+    const enabled: Job[] = [];
+    const disabled: Job[] = [];
+    for (const job of jobs) {
+      if (job.enabled) {
+        enabled.push(job);
+      } else {
+        disabled.push(job);
+      }
+    }
+    return { enabledJobs: sortJobs(enabled), disabledJobs: sortJobs(disabled) };
+  }, [jobs]);
+
+  function renderJobItem(job: Job) {
+    const active = activeJobId === job.id;
+    return (
+      <ListItemButton
+        key={job.id}
+        dense
+        onClick={() => onNavigate(`/jobs/${job.id}`)}
+        sx={{
+          borderRadius: 1,
+          mb: 0.25,
+          ...(active
+            ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+            : {}),
+        }}
+      >
+        <ListItemText
+          primary={job.name}
+          secondary={job.runAt ? new Date(job.runAt).toLocaleString() : job.schedule}
+          primaryTypographyProps={{
+            variant: 'caption',
+            fontSize: '13px',
+            noWrap: true,
+            title: job.name,
+            color: active ? '#fff' : 'text.secondary',
+          }}
+          secondaryTypographyProps={{
+            variant: 'caption',
+            fontSize: '10px',
+            sx: { fontFamily: 'monospace' },
+            color: active ? 'rgba(255,255,255,0.7)' : 'text.disabled',
+          }}
+        />
+      </ListItemButton>
+    );
+  }
+
   return (
     <Box sx={{ flex: 1, overflowY: 'auto', p: 1 }}>
       <List disablePadding>
@@ -46,56 +104,23 @@ export default function JobNav({ jobs, activeJobId, isNewPage, onNavigate }: Job
           />
         </ListItemButton>
 
-        {jobs.map((job) => (
-          <ListItemButton
-            key={job.id}
-            dense
-            onClick={() => onNavigate(`/jobs/${job.id}`)}
-            sx={{
-              borderRadius: 1,
-              mb: 0.25,
-              ...(activeJobId === job.id
-                ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
-                : {}),
-            }}
-          >
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <Typography
-                  variant="caption"
-                  noWrap
-                  title={job.name}
-                  sx={{
-                    fontSize: '13px',
-                    color: activeJobId === job.id ? '#fff' : 'text.secondary',
-                  }}
-                >
-                  {job.name}
-                </Typography>
-              </Box>
-              <Typography
-                variant="caption"
-                sx={{
-                  fontSize: '10px',
-                  fontFamily: 'monospace',
-                  opacity: activeJobId === job.id ? 0.8 : 0.7,
-                  color: activeJobId === job.id ? '#fff' : 'text.secondary',
-                }}
-              >
-                {job.runAt ? new Date(job.runAt).toLocaleString() : job.schedule}
-              </Typography>
-            </Box>
-            <Box
-              sx={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                flexShrink: 0,
-                bgcolor: job.enabled ? 'success.main' : 'divider',
-              }}
-            />
-          </ListItemButton>
-        ))}
+        {enabledJobs.length > 0 && (
+          <>
+            <Typography variant="overline" sx={{ display: 'block', px: 1.25, mt: 1, mb: 0.25, fontSize: '10px', color: 'text.secondary', letterSpacing: '0.08em' }}>
+              {t('jobs.activeSection')}
+            </Typography>
+            {enabledJobs.map(renderJobItem)}
+          </>
+        )}
+
+        {disabledJobs.length > 0 && (
+          <>
+            <Typography variant="overline" sx={{ display: 'block', px: 1.25, mt: 1, mb: 0.25, fontSize: '10px', color: 'text.secondary', letterSpacing: '0.08em' }}>
+              {t('jobs.inactiveSection')}
+            </Typography>
+            {disabledJobs.map(renderJobItem)}
+          </>
+        )}
       </List>
     </Box>
   );

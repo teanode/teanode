@@ -10,8 +10,9 @@ export default function JobsNewPage() {
 
   const handleCreate = useCallback(
     (...args: Parameters<typeof backend.createJob>) => {
-      return backend.createJob(...args).then(() => {
-        navigate({ to: '/jobs' });
+      return backend.createJob(...args).then((createdJob) => {
+        navigate({ to: '/jobs/$jobId', params: { jobId: createdJob.id } });
+        return createdJob;
       });
     },
     [backend.createJob, navigate]
@@ -23,16 +24,20 @@ export default function JobsNewPage() {
       creating={true}
       models={backend.models}
       agents={backend.agents}
-      conversations={backend.conversations}
       onLoad={backend.loadJobs}
       onCreate={handleCreate}
-      onUpdate={backend.updateJob}
       onDelete={async () => {}}
+      onUpdate={backend.updateJob}
       onTrigger={backend.triggerJob}
       onCancelCreate={() => navigate({ to: '/jobs' })}
-      onViewConversation={(key) => {
-        const defaultAgentId = backend.agents.length > 0 ? backend.agents[0].id : 'main';
-        navigate({ to: '/conversations/$agentId/$conversationId', params: { agentId: defaultAgentId, conversationId: key } });
+      onViewAgentConversation={(agentId) => {
+        const agent = backend.agents.find((candidate) => candidate.id === agentId);
+        const conversationId = agent?.activeConversationId;
+        if (conversationId) {
+          navigate({ to: '/conversations/$agentId/$conversationId', params: { agentId, conversationId } });
+        } else {
+          navigate({ to: '/conversations/$agentId', params: { agentId } });
+        }
       }}
     />
   );

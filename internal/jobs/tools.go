@@ -122,7 +122,7 @@ func (self *jobCreateTool) Execute(ctx context.Context, rawArguments string) (st
 
 	var runAt int64
 	oneShot := false
-	conversationId := ulid.GenerateString()
+	conversationId := "" // recurring jobs resolve conversation at execution time
 
 	if arguments.Delay != "" {
 		duration, parseError := time.ParseDuration(arguments.Delay)
@@ -134,9 +134,11 @@ func (self *jobCreateTool) Execute(ctx context.Context, rawArguments string) (st
 		}
 		runAt = time.Now().Add(duration).UnixMilli()
 		oneShot = true
-		// Bind to the current conversation.
+		// One-shot reminders bind to the current conversation.
 		if contextConversationId := agents.ConversationIDFromContext(ctx); contextConversationId != "" {
 			conversationId = contextConversationId
+		} else {
+			conversationId = ulid.GenerateString()
 		}
 	} else {
 		if _, parseError := cronexpr.Parse(arguments.Schedule); parseError != nil {
