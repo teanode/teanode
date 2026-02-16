@@ -43,6 +43,10 @@ const sharedSettings = {
         '*::-webkit-scrollbar': { width: 6 },
         '*::-webkit-scrollbar-track': { background: 'transparent' },
         '*::-webkit-scrollbar-thumb': { background: '#555', borderRadius: 3 },
+        // Prevent iOS Safari from zooming in when focusing inputs.
+        '@media screen and (max-width: 768px)': {
+          'input, textarea, select': { fontSize: '16px !important' },
+        },
       },
     },
     MuiButton: {

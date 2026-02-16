@@ -223,8 +223,8 @@ func (self *Config) ResolveSummarizerConfig() SummarizerConfig {
 }
 
 type Config struct {
-	Gateway      GatewayConfig      `json:"gateway" yaml:"gateway"`
-	Models       ModelsConfig       `json:"models" yaml:"models"`
+	Gateway      GatewayConfig      `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Models       ModelsConfig       `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools        ToolsConfig        `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Integrations IntegrationsConfig `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Summarizer   *SummarizerConfig  `json:"summarizer,omitempty" yaml:"summarizer,omitempty"`
@@ -268,8 +268,8 @@ type ToolsConfig struct {
 }
 
 type GatewayConfig struct {
-	Port         int         `json:"port" yaml:"port"`
-	Bind         string      `json:"bind" yaml:"bind"` // "loopback" | "lan"
+	Port         int         `json:"port,omitempty" yaml:"port,omitempty"`
+	Bind         string      `json:"bind,omitempty" yaml:"bind,omitempty"` // "loopback" | "lan"
 	Auth         *AuthConfig `json:"auth,omitempty" yaml:"auth,omitempty"`
 	ForwarderKey string      `json:"forwarderKey,omitempty" yaml:"forwarderKey,omitempty"`
 }
@@ -281,12 +281,12 @@ type AuthConfig struct {
 
 // ProviderConfig holds connection details for a single provider.
 type ProviderConfig struct {
-	BaseURL string `json:"baseUrl" yaml:"baseUrl"`
+	BaseURL string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
 	APIKey  string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
 }
 
 type ModelsConfig struct {
-	Default         string                    `json:"default" yaml:"default"`
+	Default         string                    `json:"default,omitempty" yaml:"default,omitempty"`
 	SummarizerModel string                    `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
 	ContextWindow   int                       `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; default 128000
 	Providers       map[string]ProviderConfig `json:"providers,omitempty" yaml:"providers,omitempty"`             // multi-provider config

@@ -284,10 +284,14 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 		"state":          "user_message",
 		"runId":          runId,
 		"conversationId": conversationId,
+		"agentId":        resolvedAgentId,
 		"text":           parameters.Message,
 	}
 	if parameters.OriginID != "" {
 		userMessagePayload["originId"] = parameters.OriginID
+	}
+	if parameters.Origin != "" {
+		userMessagePayload["origin"] = parameters.Origin
 	}
 	self.Broadcast("conversation", userMessagePayload)
 	self.Broadcast("conversations", nil)
@@ -297,7 +301,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	var outcome RunOutcome
 
 	// Build merged callbacks (broadcast + caller).
-	mergedCallbacks := self.buildMergedCallbacks(runId, conversationId, callerCallbacks)
+	mergedCallbacks := self.buildMergedCallbacks(runId, conversationId, resolvedAgentId, callerCallbacks)
 
 	// Run agent in background goroutine.
 	go func() {
@@ -331,12 +335,14 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 					"state":          "aborted",
 					"runId":          runId,
 					"conversationId": conversationId,
+					"agentId":        resolvedAgentId,
 				})
 			} else {
 				self.Broadcast("conversation", map[string]interface{}{
 					"state":          "error",
 					"runId":          runId,
 					"conversationId": conversationId,
+					"agentId":        resolvedAgentId,
 					"error":          err.Error(),
 				})
 			}
@@ -352,6 +358,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			"state":          "final",
 			"runId":          runId,
 			"conversationId": conversationId,
+			"agentId":        resolvedAgentId,
 			"text":           result.Response,
 			"model":          result.Model,
 			"stopReason":     result.StopReason,
@@ -372,13 +379,14 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 
 // buildMergedCallbacks creates RunCallbacks that both broadcast events (using the
 // "conversation" event name consistently) and call the caller's optional callbacks.
-func (self *gateway) buildMergedCallbacks(runId, conversationId string, callerCallbacks *agents.RunCallbacks) *agents.RunCallbacks {
+func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string, callerCallbacks *agents.RunCallbacks) *agents.RunCallbacks {
 	return &agents.RunCallbacks{
 		OnQueued: func() {
 			self.Broadcast("conversation", map[string]interface{}{
 				"state":          "queued",
 				"runId":          runId,
 				"conversationId": conversationId,
+				"agentId":        agentId,
 			})
 			if callerCallbacks != nil && callerCallbacks.OnQueued != nil {
 				callerCallbacks.OnQueued()
@@ -394,6 +402,7 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId string, callerCa
 				"state":          "delta",
 				"runId":          runId,
 				"conversationId": conversationId,
+				"agentId":        agentId,
 				"text":           text,
 			})
 			if callerCallbacks != nil && callerCallbacks.OnTextDelta != nil {
@@ -405,6 +414,7 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId string, callerCa
 				"state":          "tool_call",
 				"runId":          runId,
 				"conversationId": conversationId,
+				"agentId":        agentId,
 				"toolName":       toolName,
 				"arguments":      arguments,
 			})
@@ -417,6 +427,7 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId string, callerCa
 				"state":          "tool_result",
 				"runId":          runId,
 				"conversationId": conversationId,
+				"agentId":        agentId,
 				"toolName":       toolName,
 				"result":         result,
 			})

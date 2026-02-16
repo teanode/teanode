@@ -128,6 +128,14 @@ func (self *telegramStreamPreview) Delete() {
 	}
 }
 
+// telegramSubscribedRun tracks streaming state for a run received via Subscriber events.
+type telegramSubscribedRun struct {
+	preview      *telegramStreamPreview
+	chatId       int64
+	pendingMedia []*media.MediaContent
+	mediaMutex   sync.Mutex
+}
+
 // Bot manages a Telegram bot that forwards messages to the agents.
 type Bot struct {
 	config        *configs.TelegramConfig
@@ -139,16 +147,33 @@ type Bot struct {
 	// Per-chat model overrides (chatId string -> model name).
 	modelMutex     sync.RWMutex
 	modelOverrides map[string]string
+
+	// Chat routing: built from user interactions.
+	chatMappingsMutex sync.RWMutex
+	chatMappings      map[string]int64 // conversationId -> chatId
+	agentChatMappings map[string]int64 // agentId -> chatId (fallback)
+
+	// Runs initiated by the bot — skip these in OnEvent.
+	activeConversationsMutex sync.RWMutex
+	activeConversations      map[string]struct{} // conversationId -> present
+
+	// Subscriber-driven streaming state.
+	subscribedRunsMutex sync.Mutex
+	subscribedRuns      map[string]*telegramSubscribedRun // runId -> state
 }
 
 // New creates a new Telegram bot that dynamically resolves the active agent and conversation from the registry.
 func New(telegramConfig *configs.TelegramConfig, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
 	return &Bot{
-		config:         telegramConfig,
-		agentRegistry:  agentRegistry,
-		gateway:        gateway,
-		modelOverrides: make(map[string]string),
-		stopChannel:    make(chan struct{}),
+		config:              telegramConfig,
+		agentRegistry:       agentRegistry,
+		gateway:             gateway,
+		modelOverrides:      make(map[string]string),
+		stopChannel:         make(chan struct{}),
+		chatMappings:        make(map[string]int64),
+		agentChatMappings:   make(map[string]int64),
+		activeConversations: make(map[string]struct{}),
+		subscribedRuns:      make(map[string]*telegramSubscribedRun),
 	}
 }
 
@@ -179,15 +204,186 @@ func (self *Bot) Start() error {
 		log.Errorf("failed to set telegram commands: %v", err)
 	}
 
+	self.gateway.Subscribe(self)
 	go self.poll()
 	return nil
 }
 
 // Stop halts the bot.
 func (self *Bot) Stop() {
+	self.gateway.Unsubscribe(self)
 	close(self.stopChannel)
 	if self.api != nil {
 		self.api.StopReceivingUpdates()
+	}
+}
+
+// OnEvent implements gw.Subscriber. It handles "conversation" events for runs
+// not initiated by this bot (e.g. scheduled jobs), streaming them to the appropriate chat.
+func (self *Bot) OnEvent(event string, payload interface{}) {
+	if event != "conversation" {
+		return
+	}
+	payloadMap, ok := payload.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	conversationId, _ := payloadMap["conversationId"].(string)
+	runId, _ := payloadMap["runId"].(string)
+	state, _ := payloadMap["state"].(string)
+	agentId, _ := payloadMap["agentId"].(string)
+
+	if conversationId == "" || runId == "" || state == "" {
+		return
+	}
+
+	// Skip conversations we're actively handling via callerCallbacks.
+	self.activeConversationsMutex.RLock()
+	_, isActive := self.activeConversations[conversationId]
+	self.activeConversationsMutex.RUnlock()
+	if isActive {
+		return
+	}
+
+	// Resolve target chat.
+	self.chatMappingsMutex.RLock()
+	chatId := self.chatMappings[conversationId]
+	if chatId == 0 && agentId != "" {
+		chatId = self.agentChatMappings[agentId]
+	}
+	self.chatMappingsMutex.RUnlock()
+	if chatId == 0 {
+		return
+	}
+
+	switch state {
+	case "user_message":
+		// Only handle runs from automated sources (e.g. scheduler). Interactive
+		// sources (webui, discord, telegram) already have their own display.
+		origin, _ := payloadMap["origin"].(string)
+		if origin != "" {
+			return
+		}
+
+		// Show the triggering message so the user has context.
+		triggerText, _ := payloadMap["text"].(string)
+		if triggerText != "" {
+			contextMessage := tgbotapi.NewMessage(chatId, "> "+strings.ReplaceAll(triggerText, "\n", "\n> "))
+			self.api.Send(contextMessage)
+		}
+
+		preview := newTelegramStreamPreview(self.api, chatId, 0)
+		self.subscribedRunsMutex.Lock()
+		self.subscribedRuns[runId] = &telegramSubscribedRun{
+			preview: preview,
+			chatId:  chatId,
+		}
+		self.subscribedRunsMutex.Unlock()
+		action := tgbotapi.NewChatAction(chatId, tgbotapi.ChatTyping)
+		self.api.Send(action)
+
+	case "delta":
+		self.subscribedRunsMutex.Lock()
+		subscribedRun := self.subscribedRuns[runId]
+		self.subscribedRunsMutex.Unlock()
+		if subscribedRun != nil {
+			text, _ := payloadMap["text"].(string)
+			subscribedRun.preview.Update(text)
+		}
+
+	case "tool_call":
+		self.subscribedRunsMutex.Lock()
+		subscribedRun := self.subscribedRuns[runId]
+		self.subscribedRunsMutex.Unlock()
+		if subscribedRun != nil {
+			subscribedRun.preview.Reset()
+			action := tgbotapi.NewChatAction(subscribedRun.chatId, tgbotapi.ChatTyping)
+			self.api.Send(action)
+		}
+
+	case "tool_result":
+		self.subscribedRunsMutex.Lock()
+		subscribedRun := self.subscribedRuns[runId]
+		self.subscribedRunsMutex.Unlock()
+		if subscribedRun != nil {
+			result, _ := payloadMap["result"].(string)
+			if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+				subscribedRun.mediaMutex.Lock()
+				subscribedRun.pendingMedia = append(subscribedRun.pendingMedia, detected)
+				subscribedRun.mediaMutex.Unlock()
+			}
+		}
+
+	case "final":
+		self.subscribedRunsMutex.Lock()
+		subscribedRun := self.subscribedRuns[runId]
+		delete(self.subscribedRuns, runId)
+		self.subscribedRunsMutex.Unlock()
+		if subscribedRun == nil {
+			return
+		}
+
+		previewMessageId, _ := subscribedRun.preview.Stop()
+		finalText, _ := payloadMap["text"].(string)
+
+		// Send collected media as photo attachments.
+		for _, mediaContent := range subscribedRun.pendingMedia {
+			rawData, decodeError := base64.StdEncoding.DecodeString(mediaContent.Base64)
+			if decodeError != nil {
+				continue
+			}
+			filename := fmt.Sprintf("screenshot.%s", mediaContent.Format)
+			photo := tgbotapi.NewPhoto(subscribedRun.chatId, tgbotapi.FileBytes{Name: filename, Bytes: rawData})
+			if _, sendError := self.api.Send(photo); sendError != nil {
+				log.Errorf("telegram photo send error: %v", sendError)
+			}
+		}
+
+		// Reuse preview message or send new.
+		if previewMessageId != 0 {
+			firstChunk := finalText
+			remaining := ""
+			if len(finalText) > maxTelegramMessageLen {
+				cut := strings.LastIndex(finalText[:maxTelegramMessageLen], "\n")
+				if cut < maxTelegramMessageLen/2 {
+					cut = maxTelegramMessageLen
+				}
+				firstChunk = finalText[:cut]
+				remaining = finalText[cut:]
+			}
+			edit := tgbotapi.NewEditMessageText(subscribedRun.chatId, previewMessageId, firstChunk)
+			edit.ParseMode = "Markdown"
+			if _, editError := self.api.Send(edit); editError != nil {
+				edit.ParseMode = ""
+				self.api.Send(edit)
+			}
+			if remaining != "" {
+				self.sendChunked(subscribedRun.chatId, 0, remaining)
+			}
+		} else {
+			self.sendChunked(subscribedRun.chatId, 0, finalText)
+		}
+
+	case "error", "aborted":
+		self.subscribedRunsMutex.Lock()
+		subscribedRun := self.subscribedRuns[runId]
+		delete(self.subscribedRuns, runId)
+		self.subscribedRunsMutex.Unlock()
+		if subscribedRun == nil {
+			return
+		}
+
+		subscribedRun.preview.Stop()
+		subscribedRun.preview.Delete()
+		if state == "error" {
+			errorText, _ := payloadMap["error"].(string)
+			if errorText == "" {
+				errorText = "An error occurred while processing the request."
+			}
+			msg := tgbotapi.NewMessage(subscribedRun.chatId, "Sorry, an error occurred: "+errorText)
+			self.api.Send(msg)
+		}
 	}
 }
 
@@ -288,6 +484,23 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 func (self *Bot) handleMessage(conversationId, agentId string, chatId int64, replyTo int, message, chatIdStr string) {
 	defer deferutil.Recover()
 
+	// Record chat mappings for subscriber-driven routing.
+	self.chatMappingsMutex.Lock()
+	self.chatMappings[conversationId] = chatId
+	self.agentChatMappings[agentId] = chatId
+	self.chatMappingsMutex.Unlock()
+
+	// Mark this conversation as actively handled by us.
+	self.activeConversationsMutex.Lock()
+	self.activeConversations[conversationId] = struct{}{}
+	self.activeConversationsMutex.Unlock()
+
+	defer func() {
+		self.activeConversationsMutex.Lock()
+		delete(self.activeConversations, conversationId)
+		self.activeConversationsMutex.Unlock()
+	}()
+
 	// Send typing action.
 	action := tgbotapi.NewChatAction(chatId, tgbotapi.ChatTyping)
 	self.api.Send(action)
@@ -323,6 +536,7 @@ func (self *Bot) handleMessage(conversationId, agentId string, chatId int64, rep
 		ConversationID: conversationId,
 		Message:        message,
 		Model:          self.getModel(chatIdStr),
+		Origin:         "telegram",
 	}, callerCallbacks)
 
 	// Wait for completion.

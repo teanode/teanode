@@ -159,6 +159,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 		Message:        parameters.Message,
 		Model:          parameters.Model,
 		OriginID:       parameters.OriginID,
+		Origin:         "webui",
 	}, nil)
 
 	self.sendResponse(frame.ID, map[string]interface{}{

@@ -124,6 +124,14 @@ func (self *discordStreamPreview) Delete() {
 	}
 }
 
+// discordSubscribedRun tracks streaming state for a run received via Subscriber events.
+type discordSubscribedRun struct {
+	preview      *discordStreamPreview
+	channelId    string
+	pendingMedia []*media.MediaContent
+	mediaMutex   sync.Mutex
+}
+
 // Bot manages a Discord bot that forwards messages to the agents.
 type Bot struct {
 	config        *configs.DiscordConfig
@@ -135,15 +143,32 @@ type Bot struct {
 	// Per-channel model overrides (channelId -> model name).
 	modelMutex     sync.RWMutex
 	modelOverrides map[string]string
+
+	// Channel routing: built from user interactions.
+	channelMappingsMutex sync.RWMutex
+	channelMappings      map[string]string // conversationId -> channelId
+	agentChannelMappings map[string]string // agentId -> channelId (fallback)
+
+	// Runs initiated by the bot — skip these in OnEvent.
+	activeConversationsMutex sync.RWMutex
+	activeConversations      map[string]struct{} // conversationId -> present
+
+	// Subscriber-driven streaming state.
+	subscribedRunsMutex sync.Mutex
+	subscribedRuns      map[string]*discordSubscribedRun // runId -> state
 }
 
 // New creates a new Discord bot that dynamically resolves the active agent and conversation from the registry.
 func New(discordConfig *configs.DiscordConfig, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
 	return &Bot{
-		config:         discordConfig,
-		agentRegistry:  agentRegistry,
-		gateway:        gateway,
-		modelOverrides: make(map[string]string),
+		config:               discordConfig,
+		agentRegistry:        agentRegistry,
+		gateway:              gateway,
+		modelOverrides:       make(map[string]string),
+		channelMappings:      make(map[string]string),
+		agentChannelMappings: make(map[string]string),
+		activeConversations:  make(map[string]struct{}),
+		subscribedRuns:       make(map[string]*discordSubscribedRun),
 	}
 }
 
@@ -163,14 +188,177 @@ func (self *Bot) Start() error {
 
 	self.discord = discordSession
 	self.botUserId = discordSession.State.User.ID
+	self.gateway.Subscribe(self)
 	log.Infof("discord bot connected as %s (%s)", discordSession.State.User.Username, self.botUserId)
 	return nil
 }
 
 // Stop disconnects the bot.
 func (self *Bot) Stop() {
+	self.gateway.Unsubscribe(self)
 	if self.discord != nil {
 		self.discord.Close()
+	}
+}
+
+// OnEvent implements gw.Subscriber. It handles "conversation" events for runs
+// not initiated by this bot (e.g. scheduled jobs), streaming them to the appropriate channel.
+func (self *Bot) OnEvent(event string, payload interface{}) {
+	if event != "conversation" {
+		return
+	}
+	payloadMap, ok := payload.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	conversationId, _ := payloadMap["conversationId"].(string)
+	runId, _ := payloadMap["runId"].(string)
+	state, _ := payloadMap["state"].(string)
+	agentId, _ := payloadMap["agentId"].(string)
+
+	if conversationId == "" || runId == "" || state == "" {
+		return
+	}
+
+	// Skip conversations we're actively handling via callerCallbacks.
+	self.activeConversationsMutex.RLock()
+	_, isActive := self.activeConversations[conversationId]
+	self.activeConversationsMutex.RUnlock()
+	if isActive {
+		return
+	}
+
+	// Resolve target channel.
+	self.channelMappingsMutex.RLock()
+	channelId := self.channelMappings[conversationId]
+	if channelId == "" && agentId != "" {
+		channelId = self.agentChannelMappings[agentId]
+	}
+	self.channelMappingsMutex.RUnlock()
+	if channelId == "" {
+		return
+	}
+
+	switch state {
+	case "user_message":
+		// Only handle runs from automated sources (e.g. scheduler). Interactive
+		// sources (webui, discord, telegram) already have their own display.
+		origin, _ := payloadMap["origin"].(string)
+		if origin != "" {
+			return
+		}
+
+		// Show the triggering message so the user has context.
+		triggerText, _ := payloadMap["text"].(string)
+		if triggerText != "" {
+			self.discord.ChannelMessageSend(channelId, "> "+strings.ReplaceAll(triggerText, "\n", "\n> "))
+		}
+
+		preview := newDiscordStreamPreview(self.discord, channelId)
+		self.subscribedRunsMutex.Lock()
+		self.subscribedRuns[runId] = &discordSubscribedRun{
+			preview:   preview,
+			channelId: channelId,
+		}
+		self.subscribedRunsMutex.Unlock()
+		self.discord.ChannelTyping(channelId)
+
+	case "delta":
+		self.subscribedRunsMutex.Lock()
+		subscribedRun := self.subscribedRuns[runId]
+		self.subscribedRunsMutex.Unlock()
+		if subscribedRun != nil {
+			text, _ := payloadMap["text"].(string)
+			subscribedRun.preview.Update(text)
+		}
+
+	case "tool_call":
+		self.subscribedRunsMutex.Lock()
+		subscribedRun := self.subscribedRuns[runId]
+		self.subscribedRunsMutex.Unlock()
+		if subscribedRun != nil {
+			subscribedRun.preview.Reset()
+			self.discord.ChannelTyping(subscribedRun.channelId)
+		}
+
+	case "tool_result":
+		self.subscribedRunsMutex.Lock()
+		subscribedRun := self.subscribedRuns[runId]
+		self.subscribedRunsMutex.Unlock()
+		if subscribedRun != nil {
+			result, _ := payloadMap["result"].(string)
+			if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+				subscribedRun.mediaMutex.Lock()
+				subscribedRun.pendingMedia = append(subscribedRun.pendingMedia, detected)
+				subscribedRun.mediaMutex.Unlock()
+			}
+		}
+
+	case "final":
+		self.subscribedRunsMutex.Lock()
+		subscribedRun := self.subscribedRuns[runId]
+		delete(self.subscribedRuns, runId)
+		self.subscribedRunsMutex.Unlock()
+		if subscribedRun == nil {
+			return
+		}
+
+		previewMessageId, _ := subscribedRun.preview.Stop()
+		finalText, _ := payloadMap["text"].(string)
+
+		// Send collected media as file attachments.
+		for index, mediaContent := range subscribedRun.pendingMedia {
+			rawData, decodeError := base64.StdEncoding.DecodeString(mediaContent.Base64)
+			if decodeError != nil {
+				continue
+			}
+			filename := fmt.Sprintf("image_%d.%s", index+1, mediaContent.Format)
+			self.discord.ChannelMessageSendComplex(subscribedRun.channelId, &discordgo.MessageSend{
+				Files: []*discordgo.File{
+					{Name: filename, Reader: bytes.NewReader(rawData)},
+				},
+			})
+		}
+
+		// Reuse preview message or send new.
+		if previewMessageId != "" {
+			firstChunk := finalText
+			remaining := ""
+			if len(finalText) > maxDiscordMessageLen {
+				cut := strings.LastIndex(finalText[:maxDiscordMessageLen], "\n")
+				if cut < maxDiscordMessageLen/2 {
+					cut = maxDiscordMessageLen
+				}
+				firstChunk = finalText[:cut]
+				remaining = finalText[cut:]
+			}
+			self.discord.ChannelMessageEdit(subscribedRun.channelId, previewMessageId, firstChunk)
+			if remaining != "" {
+				self.sendChunked(subscribedRun.channelId, remaining)
+			}
+		} else {
+			self.sendChunked(subscribedRun.channelId, finalText)
+		}
+
+	case "error", "aborted":
+		self.subscribedRunsMutex.Lock()
+		subscribedRun := self.subscribedRuns[runId]
+		delete(self.subscribedRuns, runId)
+		self.subscribedRunsMutex.Unlock()
+		if subscribedRun == nil {
+			return
+		}
+
+		subscribedRun.preview.Stop()
+		subscribedRun.preview.Delete()
+		if state == "error" {
+			errorText, _ := payloadMap["error"].(string)
+			if errorText == "" {
+				errorText = "An error occurred while processing the request."
+			}
+			self.discord.ChannelMessageSend(subscribedRun.channelId, "Sorry, an error occurred: "+errorText)
+		}
 	}
 }
 
@@ -243,6 +431,23 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 func (self *Bot) handleMessage(conversationId, agentId, channelId, message string) {
 	defer deferutil.Recover()
 
+	// Record channel mappings for subscriber-driven routing.
+	self.channelMappingsMutex.Lock()
+	self.channelMappings[conversationId] = channelId
+	self.agentChannelMappings[agentId] = channelId
+	self.channelMappingsMutex.Unlock()
+
+	// Mark this conversation as actively handled by us.
+	self.activeConversationsMutex.Lock()
+	self.activeConversations[conversationId] = struct{}{}
+	self.activeConversationsMutex.Unlock()
+
+	defer func() {
+		self.activeConversationsMutex.Lock()
+		delete(self.activeConversations, conversationId)
+		self.activeConversationsMutex.Unlock()
+	}()
+
 	// Send typing indicator.
 	self.discord.ChannelTyping(channelId)
 
@@ -276,6 +481,7 @@ func (self *Bot) handleMessage(conversationId, agentId, channelId, message strin
 		ConversationID: conversationId,
 		Message:        message,
 		Model:          self.getModel(channelId),
+		Origin:         "discord",
 	}, callerCallbacks)
 
 	// Wait for completion.
