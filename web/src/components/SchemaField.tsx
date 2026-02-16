@@ -190,7 +190,7 @@ export default function SchemaField({ property, propertyKey, value, onChange, su
       );
 
     case 'stringArray':
-      return <StringArrayField property={property} value={value} onChange={onChange} />;
+      return <StringArrayField property={property} value={value} onChange={onChange} suggestions={suggestions} />;
 
     case 'providers':
       return <ProvidersField property={property} value={value} onChange={onChange} />;
@@ -204,17 +204,19 @@ function StringArrayField({
   property,
   value,
   onChange,
+  suggestions,
 }: {
   property: JsonSchemaProperty;
   value: unknown;
   onChange: (value: unknown) => void;
+  suggestions?: string[];
 }) {
   const { t } = useTranslation();
   const items: string[] = Array.isArray(value) ? (value as string[]) : [];
   const [inputValue, setInputValue] = useState('');
 
-  function addItem() {
-    const trimmed = inputValue.trim();
+  function addItem(text?: string) {
+    const trimmed = (text ?? inputValue).trim();
     if (trimmed && !items.includes(trimmed)) {
       onChange([...items, trimmed]);
     }
@@ -224,6 +226,9 @@ function StringArrayField({
   function removeItem(index: number) {
     onChange(items.filter((_, itemIndex) => itemIndex !== index));
   }
+
+  // Filter out already-selected items from suggestions.
+  const available = suggestions?.filter((option) => !items.includes(option));
 
   return (
     <Box>
@@ -242,20 +247,46 @@ function StringArrayField({
         ))}
       </Box>
       <Box sx={{ display: 'flex', gap: 1 }}>
-        <TextField
-          size="small"
-          fullWidth
-          value={inputValue}
-          placeholder={t('schema.addItemPlaceholder')}
-          onChange={(event) => setInputValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              addItem();
-            }
-          }}
-        />
-        <Button variant="contained" size="small" onClick={addItem}>
+        {available?.length ? (
+          <Autocomplete
+            freeSolo
+            fullWidth
+            options={available}
+            inputValue={inputValue}
+            onInputChange={(_event, newValue) => setInputValue(newValue)}
+            onChange={(_event, newValue) => {
+              if (newValue) addItem(typeof newValue === 'string' ? newValue : '');
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                size="small"
+                placeholder={t('schema.addItemPlaceholder')}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addItem();
+                  }
+                }}
+              />
+            )}
+          />
+        ) : (
+          <TextField
+            size="small"
+            fullWidth
+            value={inputValue}
+            placeholder={t('schema.addItemPlaceholder')}
+            onChange={(event) => setInputValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                addItem();
+              }
+            }}
+          />
+        )}
+        <Button variant="contained" size="small" onClick={() => addItem()}>
           {t('common.add')}
         </Button>
       </Box>

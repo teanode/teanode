@@ -5,6 +5,7 @@ export function useAgents(sendRpc: <T = unknown>(method: string, params: unknown
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [schema, setSchema] = useState<ConfigSchema | null>(null);
+  const [suggestions, setSuggestions] = useState<Record<string, string[]>>({});
 
   const loadAgents = useCallback(() => {
     setLoading(true);
@@ -16,7 +17,10 @@ export function useAgents(sendRpc: <T = unknown>(method: string, params: unknown
 
   const loadSchema = useCallback(() => {
     sendRpc<AgentConfigSchemaResult>('agents.config.schema', {})
-      .then((result) => setSchema(result.schema ?? null))
+      .then((result) => {
+        setSchema(result.schema ?? null);
+        setSuggestions(result.suggestions ?? {});
+      })
       .catch((error) => console.error('agents.config.schema:', error));
   }, [sendRpc]);
 
@@ -38,5 +42,5 @@ export function useAgents(sendRpc: <T = unknown>(method: string, params: unknown
     [sendRpc, loadAgents]
   );
 
-  return { agents, loading, loadAgents, saveAgent, deleteAgent, schema, loadSchema };
+  return { agents, loading, loadAgents, saveAgent, deleteAgent, schema, suggestions, loadSchema };
 }

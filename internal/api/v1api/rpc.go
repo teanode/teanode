@@ -8,6 +8,7 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/jobs"
+	"github.com/teanode/teanode/internal/skill"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/ulid"
@@ -507,8 +508,26 @@ func deepMerge(destination map[string]interface{}, source map[string]interface{}
 
 // handleAgentsConfigSchema: return the agent config schema for UI form generation.
 func (self *webSocketConnection) handleAgentsConfigSchema(frame requestFrame) {
+	suggestions := map[string][]string{}
+
+	// Collect tool names from the default runner.
+	runner := self.api.gateway.AgentRegistry().Default()
+	if runner != nil {
+		_, _, tools, _, _ := runner.Snapshot()
+		if tools != nil {
+			suggestions["tool"] = tools.Names()
+		}
+	}
+
+	// Collect skill names from the skills directory.
+	skillsDirectory, err := configs.SkillsDirectory()
+	if err == nil {
+		suggestions["skill"] = skill.Names(skillsDirectory)
+	}
+
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"schema": configs.AgentConfigSchema(),
+		"schema":      configs.AgentConfigSchema(),
+		"suggestions": suggestions,
 	})
 }
 

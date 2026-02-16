@@ -14,9 +14,9 @@ func RegisterSkills(registry *agents.ToolRegistry, skillsDirectory string) strin
 }
 
 // RegisterSkillsFiltered loads skills from the directory and registers their tools,
-// filtering by the given skills filter. Returns the combined prompt text from
-// all registered skills (empty if none).
-func RegisterSkillsFiltered(registry *agents.ToolRegistry, skillsDirectory string, filter *configs.FilterConfig) string {
+// filtering by the given allow list. A nil list means all skills are loaded.
+// Returns the combined prompt text from all registered skills (empty if none).
+func RegisterSkillsFiltered(registry *agents.ToolRegistry, skillsDirectory string, allowed []string) string {
 	skills, err := LoadAll(skillsDirectory)
 	if err != nil {
 		log.Warningf("failed to load skills: %v", err)
@@ -25,8 +25,8 @@ func RegisterSkillsFiltered(registry *agents.ToolRegistry, skillsDirectory strin
 
 	var skillPrompts []string
 	for _, skill := range skills {
-		// Check if this skill is allowed by the filter.
-		if !configs.IsAllowed(skill.Name, filter) {
+		// Check if this skill is in the allow list.
+		if !configs.IsAllowed(skill.Name, allowed) {
 			continue
 		}
 
@@ -50,4 +50,17 @@ func RegisterSkillsFiltered(registry *agents.ToolRegistry, skillsDirectory strin
 	}
 
 	return strings.Join(skillPrompts, "\n\n")
+}
+
+// Names returns the names of all valid skills in the directory.
+func Names(skillsDirectory string) []string {
+	skills, err := LoadAll(skillsDirectory)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, len(skills))
+	for index, definition := range skills {
+		names[index] = definition.Name
+	}
+	return names
 }

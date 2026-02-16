@@ -245,18 +245,13 @@ export interface ConfigUpdateParams {
 
 // Agent config types for the editor
 
-export interface AgentFilterConfig {
-  allow?: string[];
-  deny?: string[];
-}
-
 export interface AgentConfig {
   id: string;
   name?: string;
   model?: string;
   systemPrompt?: string;
-  skills?: AgentFilterConfig;
-  tools?: AgentFilterConfig;
+  skills?: string[];
+  tools?: string[];
   canMessage?: string[];
   maxToolRounds?: number;
   compressionThreshold?: number;
@@ -281,6 +276,7 @@ export interface AgentConfigDeleteParams {
 
 export interface AgentConfigSchemaResult {
   schema: ConfigSchema;
+  suggestions?: Record<string, string[]>;
 }
 
 // Display message types for the UI

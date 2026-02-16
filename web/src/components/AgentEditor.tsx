@@ -12,6 +12,7 @@ interface AgentEditorProps {
   agent: AgentConfig | null;
   models: ModelInfo[];
   schema: ConfigSchema | null;
+  suggestions?: Record<string, string[]>;
   onSave: (agent: AgentConfig) => void;
 }
 
@@ -66,7 +67,7 @@ function resolveSectionEntries(schema: ConfigSchema, section: SchemaSection): Se
   return entries;
 }
 
-export default function AgentEditor({ agent, models, schema, onSave }: AgentEditorProps) {
+export default function AgentEditor({ agent, models, schema, suggestions = {}, onSave }: AgentEditorProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<Record<string, unknown>>({});
 
@@ -118,6 +119,7 @@ export default function AgentEditor({ agent, models, schema, onSave }: AgentEdit
   const isDirty = JSON.stringify(draft) !== JSON.stringify(agent);
   const suggestionMap: Record<string, string[]> = {
     model: models.map((modelInfo) => `${modelInfo.provider}:${modelInfo.id}`),
+    ...suggestions,
   };
 
   const sections = schema?.['x-sections'] ?? [];

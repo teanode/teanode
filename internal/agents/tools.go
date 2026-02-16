@@ -47,13 +47,14 @@ func (self *ToolRegistry) Names() []string {
 	return names
 }
 
-// ApplyFilter removes tools that don't pass the given filter.
-func (self *ToolRegistry) ApplyFilter(filter *configs.FilterConfig) {
-	if filter == nil {
+// ApplyFilter removes tools not present in the allow list.
+// A nil list means all tools are kept.
+func (self *ToolRegistry) ApplyFilter(allowed []string) {
+	if allowed == nil {
 		return
 	}
 	for name := range self.tools {
-		if !configs.IsAllowed(name, filter) {
+		if !configs.IsAllowed(name, allowed) {
 			delete(self.tools, name)
 		}
 	}

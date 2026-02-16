@@ -62,45 +62,22 @@
       "default": 8000
     },
     "tools": {
-      "type": "object",
+      "type": "array",
       "title": "Tools",
-      "properties": {
-        "allow": {
-          "type": "array",
-          "title": "Allow",
-          "description": "Tool names to allow (empty = all allowed).",
-          "items": { "type": "string" }
-        },
-        "deny": {
-          "type": "array",
-          "title": "Deny",
-          "description": "Tool names to deny (deny wins over allow).",
-          "items": { "type": "string" }
-        }
-      }
+      "description": "Tool names to allow. Leave empty to allow all tools.",
+      "items": { "type": "string" },
+      "x-suggest": "tool"
     },
     "skills": {
-      "type": "object",
+      "type": "array",
       "title": "Skills",
-      "properties": {
-        "allow": {
-          "type": "array",
-          "title": "Allow",
-          "description": "Skill names to allow (empty = all allowed).",
-          "items": { "type": "string" }
-        },
-        "deny": {
-          "type": "array",
-          "title": "Deny",
-          "description": "Skill names to deny (deny wins over allow).",
-          "items": { "type": "string" }
-        }
-      }
+      "description": "Skill names to allow. Leave empty to allow all skills.",
+      "items": { "type": "string" },
+      "x-suggest": "skill"
     }
   },
   "x-sections": [
-    { "id": "general", "title": "General", "description": "Core agent settings.", "properties": ["name", "model", "systemPrompt", "canMessage"] },
-    { "id": "limits", "title": "Limits", "description": "Runtime limits for the tool loop, context compression, and prompt construction.", "properties": ["maxToolRounds", "compressionThreshold", "minKeepMessages", "maxToolResultChars", "maxWorkspaceFileChars"] },
-    { "id": "filters", "title": "Filters", "description": "Allow/deny lists for tools and skills.", "properties": ["tools", "skills"] }
+    { "id": "general", "title": "General", "description": "Core agent settings.", "properties": ["name", "model", "systemPrompt", "canMessage", "tools", "skills"] },
+    { "id": "limits", "title": "Limits", "description": "Runtime limits for the tool loop, context compression, and prompt construction.", "properties": ["maxToolRounds", "compressionThreshold", "minKeepMessages", "maxToolResultChars", "maxWorkspaceFileChars"] }
   ]
 }

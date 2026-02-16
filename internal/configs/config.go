@@ -133,8 +133,8 @@ type AgentConfig struct {
 	Name                  string        `json:"name,omitempty" yaml:"name,omitempty"`                                   // friendly display name
 	Model                 string        `json:"model,omitempty" yaml:"model,omitempty"`                                 // qualified model override (e.g. "openai:gpt-4o")
 	SystemPrompt          string        `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`                   // per-agent identity line override
-	Skills                *FilterConfig `json:"skills,omitempty" yaml:"skills,omitempty"`                               // skill allow/deny filter
-	Tools                 *FilterConfig `json:"tools,omitempty" yaml:"tools,omitempty"`                                 // builtin tool allow/deny filter
+	Skills                []string `json:"skills,omitempty" yaml:"skills,omitempty"`                                    // skill allow list (nil = all)
+	Tools                 []string `json:"tools,omitempty" yaml:"tools,omitempty"`                                     // tool allow list (nil = all)
 	CanMessage            []string      `json:"canMessage,omitempty" yaml:"canMessage,omitempty"`                       // agent IDs this agent can talk to; "*" = all
 	MaxToolRounds         int           `json:"maxToolRounds,omitempty" yaml:"maxToolRounds,omitempty"`                 // max tool-call loop iterations
 	CompressionThreshold  float64       `json:"compressionThreshold,omitempty" yaml:"compressionThreshold,omitempty"`   // context compression ratio (0-1)
@@ -178,12 +178,6 @@ func (self *AgentConfig) ResolveLimits() AgentLimits {
 	return limits
 }
 
-// FilterConfig defines allow/deny lists for filtering tools or skills.
-// Deny wins over allow. A nil Allow list means all are allowed.
-type FilterConfig struct {
-	Allow []string `json:"allow,omitempty" yaml:"allow,omitempty"` // nil = all allowed; [] = none allowed
-	Deny  []string `json:"deny,omitempty" yaml:"deny,omitempty"`   // deny wins over allow
-}
 
 // SummarizerConfig controls the background session summarizer behavior.
 // Time fields are in minutes. Zero values fall back to defaults.
@@ -388,26 +382,14 @@ func (self *Config) ResolveDefaultAgent() string {
 	return DefaultAgentID
 }
 
-// IsAllowed checks whether a name passes a filter. Deny wins over allow.
-// A nil filter means everything is allowed. A nil Allow list means all allowed;
-// an empty Allow list means none allowed.
-func IsAllowed(name string, filter *FilterConfig) bool {
-	if filter == nil {
+// IsAllowed checks whether a name is present in an allow list.
+// A nil list means everything is allowed.
+func IsAllowed(name string, allowed []string) bool {
+	if allowed == nil {
 		return true
 	}
-	// Deny wins.
-	for _, denied := range filter.Deny {
-		if denied == name {
-			return false
-		}
-	}
-	// Nil allow = all allowed.
-	if filter.Allow == nil {
-		return true
-	}
-	// Explicit allow list.
-	for _, allowed := range filter.Allow {
-		if allowed == name {
+	for _, entry := range allowed {
+		if entry == name {
 			return true
 		}
 	}

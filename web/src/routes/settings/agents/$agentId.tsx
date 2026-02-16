@@ -38,6 +38,7 @@ export default function SettingsAgentPage() {
       agent={agent}
       models={backend.models}
       schema={agentsHook.schema}
+      suggestions={agentsHook.suggestions}
       onSave={handleSave}
     />
   );
