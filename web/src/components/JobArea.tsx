@@ -27,7 +27,7 @@ interface JobAreaProps {
   onDelete: (id: string) => Promise<void>;
   onTrigger: (id: string) => Promise<void>;
   onCancelCreate: () => void;
-  onViewAgentConversation: (agentId: string) => void;
+  onViewAgentConversation: (agentId: string, conversationId?: string) => void;
 }
 
 export default function JobArea({
@@ -109,7 +109,7 @@ export default function JobArea({
                 variant="body2"
                 color="primary"
                 sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                onClick={() => onTrigger(job.id).then(() => onViewAgentConversation(effectiveAgentId))}
+                onClick={() => onTrigger(job.id).then(() => onViewAgentConversation(effectiveAgentId, job.conversationId || undefined))}
               >
                 {t('jobs.runNow')}
               </Typography>
@@ -118,7 +118,7 @@ export default function JobArea({
               variant="body2"
               color="primary"
               sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-              onClick={() => onViewAgentConversation(effectiveAgentId)}
+              onClick={() => onViewAgentConversation(effectiveAgentId, job.conversationId || undefined)}
             >
               {t('jobs.viewHistory')}
             </Typography>

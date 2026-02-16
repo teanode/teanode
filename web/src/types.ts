@@ -158,6 +158,7 @@ export interface ConversationEvent {
   usage?: Usage;
   model?: string;
   stopReason?: string;
+  originId?: string;
 }
 
 // Model types

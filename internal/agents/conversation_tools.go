@@ -5,13 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/provider"
 )
 
 // RegisterConversationTools adds conversation-related tools to the registry.
-func RegisterConversationTools(registry *ToolRegistry, conversations *conversations.Store) {
-	registry.Register(&listConversationsTool{conversations: conversations})
+func RegisterConversationTools(registry *ToolRegistry, store *conversations.Store, providers *provider.Registry, configuration *configs.Config) {
+	registry.Register(&listConversationsTool{conversations: store})
+	registry.Register(&compactConversationTool{
+		conversations: store,
+		providers:     providers,
+		config:        configuration,
+	})
 }
 
 // --- conversation_list ---
@@ -108,5 +114,59 @@ func (self *listConversationsTool) Execute(ctx context.Context, rawArguments str
 		"conversations": filtered,
 		"total":         total,
 	})
+	return string(result), nil
+}
+
+// --- conversation_compact ---
+
+type compactConversationTool struct {
+	conversations *conversations.Store
+	providers     *provider.Registry
+	config        *configs.Config
+}
+
+func (self *compactConversationTool) Definition() provider.ToolDef {
+	return provider.ToolDef{
+		Type: "function",
+		Function: provider.FunctionSpec{
+			Name:        "conversation_compact",
+			Description: "Compact the current conversation by summarizing older messages. Use when the conversation is getting long.",
+			Parameters: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"summarizedMessages": map[string]interface{}{
+						"type":        "integer",
+						"description": "Number of messages that were summarized.",
+					},
+					"keptMessages": map[string]interface{}{
+						"type":        "integer",
+						"description": "Number of recent messages preserved.",
+					},
+					"summaryLength": map[string]interface{}{
+						"type":        "integer",
+						"description": "Character length of the generated summary.",
+					},
+				},
+			},
+		},
+	}
+}
+
+func (self *compactConversationTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	conversationId := ConversationIDFromContext(ctx)
+	if conversationId == "" {
+		return "", fmt.Errorf("no active conversation")
+	}
+
+	compactResult, err := CompactConversation(ctx, self.conversations, self.providers, self.config, conversationId, 0)
+	if err != nil {
+		return "", err
+	}
+
+	result, _ := json.Marshal(compactResult)
 	return string(result), nil
 }

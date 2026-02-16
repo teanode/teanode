@@ -1,7 +1,6 @@
 package agents
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,12 +9,13 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/provider"
 	"github.com/teanode/teanode/internal/util/ulid"
+	"gopkg.in/yaml.v3"
 )
 
-// persistedState is the JSON structure written to ~/.teanode/state.json.
+// persistedState is the YAML structure written to ~/.teanode/state.yaml.
 type persistedState struct {
-	ActiveAgentId         string            `json:"activeAgentId,omitempty"`
-	ActiveConversationIds map[string]string `json:"activeConversationIds,omitempty"`
+	ActiveAgentId         string            `yaml:"activeAgentId,omitempty"`
+	ActiveConversationIds map[string]string `yaml:"activeConversationIds,omitempty"`
 }
 
 // AgentRegistry manages multiple named runners (one per agent).
@@ -97,7 +97,7 @@ func (self *AgentRegistry) ForEach(fn func(agentId string, runner *Runner)) {
 	}
 }
 
-// LoadState restores active agent and conversation state from ~/.teanode/state.json.
+// LoadState restores active agent and conversation state from ~/.teanode/state.yaml.
 // Missing or malformed files are silently ignored (fresh start).
 func (self *AgentRegistry) LoadState() {
 	stateFile, err := configs.StateFile()
@@ -109,7 +109,7 @@ func (self *AgentRegistry) LoadState() {
 		return
 	}
 	var state persistedState
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := yaml.Unmarshal(data, &state); err != nil {
 		slog.Warn("ignoring malformed state file", "path", stateFile, "error", err)
 		return
 	}
@@ -128,7 +128,7 @@ func (self *AgentRegistry) LoadState() {
 	}
 }
 
-// saveState writes current active state to ~/.teanode/state.json.
+// saveState writes current active state to ~/.teanode/state.yaml.
 // Must be called with mutex held (at least RLock).
 func (self *AgentRegistry) saveState() {
 	stateFile, err := configs.StateFile()
@@ -142,7 +142,7 @@ func (self *AgentRegistry) saveState() {
 	for agentId, conversationId := range self.activeConversationIds {
 		state.ActiveConversationIds[agentId] = conversationId
 	}
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := yaml.Marshal(state)
 	if err != nil {
 		slog.Warn("failed to marshal state", "error", err)
 		return

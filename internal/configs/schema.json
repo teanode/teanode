@@ -64,6 +64,12 @@
             "lan": "LAN (all interfaces)"
           }
         },
+        "forwarderKey": {
+          "type": "string",
+          "title": "Forwarder Key",
+          "description": "Secret key for trusting X-Forwarded-For headers from a reverse proxy.",
+          "format": "password"
+        },
         "auth": {
           "type": "object",
           "title": "Authentication",

@@ -9,13 +9,11 @@ import (
 )
 
 // webSocketConnection manages a single WebSocket connection.
+// It implements gw.Subscriber to receive broadcast events from the gateway.
 type webSocketConnection struct {
 	connection *websocket.Conn
 	api        *API
 	writeMutex sync.Mutex
-
-	// Active agent runs keyed by run ID.
-	runs sync.Map // map[string]activeRunInfo
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time
@@ -28,10 +26,15 @@ func newWebSocketConnection(connection *websocket.Conn, api *API) *webSocketConn
 	}
 }
 
+// OnEvent implements gw.Subscriber. It forwards gateway events to this WebSocket client.
+func (self *webSocketConnection) OnEvent(event string, payload interface{}) {
+	self.sendEvent(event, payload)
+}
+
 func (self *webSocketConnection) serve() {
 	defer self.connection.Close()
-	self.api.registerClient(self)
-	defer self.api.unregisterClient(self)
+	self.api.gateway.Subscribe(self)
+	defer self.api.gateway.Unsubscribe(self)
 
 	for {
 		_, rawMessage, err := self.connection.ReadMessage()

@@ -17,9 +17,17 @@ import (
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/provider"
 	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/util/ulid"
 	"github.com/teanode/teanode/internal/web"
 	"gopkg.in/yaml.v3"
 )
+
+// activeRun tracks a running agent invocation with its cancel function.
+type activeRun struct {
+	runId  string
+	cancel context.CancelFunc
+	runner *agents.Runner
+}
 
 // gateway is the unexported concrete implementation of Gateway.
 type gateway struct {
@@ -31,13 +39,15 @@ type gateway struct {
 	summarizer    *agents.Summarizer
 	mediaStore    *media.Store
 
-	broadcast func(event string, payload interface{})
+	subscribersMutex sync.RWMutex
+	subscribers      map[Subscriber]struct{}
 
-	activeRunsMutex sync.RWMutex
-	activeRuns      map[string]string // conversationId → runId
+	activeRunsMutex sync.Mutex
+	activeRuns      map[string]*activeRun // conversationId -> activeRun
+	runIndex        map[string]string     // runId -> conversationId
 
 	modelsMutex sync.RWMutex
-	models      map[string][]provider.ModelInfo // provider name → models
+	models      map[string][]provider.ModelInfo // provider name -> models
 	modelsTime  time.Time                       // when cache was populated
 }
 
@@ -49,11 +59,11 @@ func (self *gateway) SetConfig(configuration *configs.Config) { self.config = co
 // --- Subsystem access ---
 
 func (self *gateway) AgentRegistry() *agents.AgentRegistry { return self.agentRegistry }
-func (self *gateway) Scheduler() *jobs.Scheduler          { return self.scheduler }
+func (self *gateway) Scheduler() *jobs.Scheduler           { return self.scheduler }
 func (self *gateway) Summarizer() *agents.Summarizer       { return self.summarizer }
-func (self *gateway) MediaStore() *media.Store            { return self.mediaStore }
-func (self *gateway) BrowserRelay() *browsers.Relay       { return self.browserRelay }
-func (self *gateway) TerminalRelay() *terminals.Relay     { return self.terminalRelay }
+func (self *gateway) MediaStore() *media.Store              { return self.mediaStore }
+func (self *gateway) BrowserRelay() *browsers.Relay         { return self.browserRelay }
+func (self *gateway) TerminalRelay() *terminals.Relay       { return self.terminalRelay }
 
 // --- Domain operations ---
 
@@ -165,17 +175,15 @@ func (self *gateway) updateRunnerContextWindows(models map[string][]provider.Mod
 
 // --- Active agent / conversation ---
 
-func (self *gateway) ActiveAgentID() string              { return self.agentRegistry.ActiveAgentID() }
-func (self *gateway) ActiveConversationID(agentId string) string { return self.agentRegistry.ActiveConversationID(agentId) }
-
-func (self *gateway) SetBroadcast(broadcast func(event string, payload interface{})) {
-	self.broadcast = broadcast
+func (self *gateway) ActiveAgentID() string { return self.agentRegistry.ActiveAgentID() }
+func (self *gateway) ActiveConversationID(agentId string) string {
+	return self.agentRegistry.ActiveConversationID(agentId)
 }
 
 func (self *gateway) SetActiveAgent(agentId string) error {
 	err := self.agentRegistry.SetActiveAgent(agentId)
-	if err == nil && self.broadcast != nil {
-		self.broadcast("activeAgent", map[string]interface{}{
+	if err == nil {
+		self.Broadcast("activeAgent", map[string]interface{}{
 			"activeAgentId":        agentId,
 			"activeConversationId": self.agentRegistry.ActiveConversationID(agentId),
 		})
@@ -185,18 +193,16 @@ func (self *gateway) SetActiveAgent(agentId string) error {
 
 func (self *gateway) SetActiveConversation(agentId, conversationId string) {
 	self.agentRegistry.SetActiveConversation(agentId, conversationId)
-	if self.broadcast != nil {
-		self.broadcast("activeConversation", map[string]interface{}{
-			"agentId":              agentId,
-			"activeConversationId": conversationId,
-		})
-	}
+	self.Broadcast("activeConversation", map[string]interface{}{
+		"agentId":              agentId,
+		"activeConversationId": conversationId,
+	})
 }
 
 func (self *gateway) SetActiveConversationIfUnset(agentId, conversationId string) bool {
 	changed := self.agentRegistry.SetActiveConversationIfUnset(agentId, conversationId)
-	if changed && self.broadcast != nil {
-		self.broadcast("activeConversation", map[string]interface{}{
+	if changed {
+		self.Broadcast("activeConversation", map[string]interface{}{
 			"agentId":              agentId,
 			"activeConversationId": conversationId,
 		})
@@ -206,43 +212,275 @@ func (self *gateway) SetActiveConversationIfUnset(agentId, conversationId string
 
 func (self *gateway) NewConversation(agentId string) string {
 	conversationId := self.agentRegistry.NewConversation(agentId)
-	if self.broadcast != nil {
-		self.broadcast("activeConversation", map[string]interface{}{
-			"agentId":              agentId,
-			"activeConversationId": conversationId,
-		})
-	}
+	self.Broadcast("activeConversation", map[string]interface{}{
+		"agentId":              agentId,
+		"activeConversationId": conversationId,
+	})
 	return conversationId
 }
 
-// --- Run tracking ---
+// --- Subscriber pattern ---
 
-// SetActiveRun records that a run is active for a conversation.
-func (self *gateway) SetActiveRun(conversationId, runId string) {
-	self.activeRunsMutex.Lock()
-	self.activeRuns[conversationId] = runId
-	self.activeRunsMutex.Unlock()
+// Subscribe registers a subscriber to receive broadcast events.
+func (self *gateway) Subscribe(subscriber Subscriber) {
+	self.subscribersMutex.Lock()
+	self.subscribers[subscriber] = struct{}{}
+	self.subscribersMutex.Unlock()
 }
 
-// ClearActiveRun removes the active run for a conversation if it matches the given runId.
-// Also notifies the summarizer so new/updated conversations get titled promptly.
-func (self *gateway) ClearActiveRun(conversationId, runId string) {
-	self.activeRunsMutex.Lock()
-	if self.activeRuns[conversationId] == runId {
-		delete(self.activeRuns, conversationId)
+// Unsubscribe removes a subscriber.
+func (self *gateway) Unsubscribe(subscriber Subscriber) {
+	self.subscribersMutex.Lock()
+	delete(self.subscribers, subscriber)
+	self.subscribersMutex.Unlock()
+}
+
+// Broadcast sends an event to all subscribers.
+func (self *gateway) Broadcast(event string, payload interface{}) {
+	self.subscribersMutex.RLock()
+	defer self.subscribersMutex.RUnlock()
+	for subscriber := range self.subscribers {
+		subscriber.OnEvent(event, payload)
 	}
+}
+
+// --- Centralized message sending ---
+
+// SendMessage orchestrates an agent run: resolves runner and conversation, generates
+// a run ID, tracks the run, broadcasts all events, merges caller callbacks, and cleans
+// up on completion. Returns a RunHandle immediately so the caller can wait or proceed.
+func (self *gateway) SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle {
+	// Resolve agent and runner.
+	resolvedAgentId := parameters.AgentID
+	if resolvedAgentId == "" {
+		resolvedAgentId = self.agentRegistry.ActiveAgentID()
+	}
+	runner := self.ResolveRunner(resolvedAgentId)
+
+	// Resolve or create conversation.
+	conversationId := parameters.ConversationID
+	if conversationId == "" {
+		conversationId = self.NewConversation(resolvedAgentId)
+	} else {
+		self.SetActiveConversationIfUnset(resolvedAgentId, conversationId)
+	}
+
+	// Generate run ID and create cancellable context.
+	runId := ulid.GenerateString()
+	runContext, cancel := context.WithCancel(ctx)
+
+	// Track the active run.
+	self.activeRunsMutex.Lock()
+	self.activeRuns[conversationId] = &activeRun{
+		runId:  runId,
+		cancel: cancel,
+		runner: runner,
+	}
+	self.runIndex[runId] = conversationId
 	self.activeRunsMutex.Unlock()
 
-	if self.summarizer != nil {
-		self.summarizer.Notify()
+	// Broadcast user message and conversations list update.
+	userMessagePayload := map[string]interface{}{
+		"state":          "user_message",
+		"runId":          runId,
+		"conversationId": conversationId,
+		"text":           parameters.Message,
 	}
+	if parameters.OriginID != "" {
+		userMessagePayload["originId"] = parameters.OriginID
+	}
+	self.Broadcast("conversation", userMessagePayload)
+	self.Broadcast("conversations", nil)
+
+	// Prepare the outcome channel.
+	done := make(chan struct{})
+	var outcome RunOutcome
+
+	// Build merged callbacks (broadcast + caller).
+	mergedCallbacks := self.buildMergedCallbacks(runId, conversationId, callerCallbacks)
+
+	// Run agent in background goroutine.
+	go func() {
+		defer close(done)
+		defer func() {
+			// Clean up run tracking.
+			self.activeRunsMutex.Lock()
+			if current, exists := self.activeRuns[conversationId]; exists && current.runId == runId {
+				delete(self.activeRuns, conversationId)
+			}
+			delete(self.runIndex, runId)
+			self.activeRunsMutex.Unlock()
+			cancel()
+
+			// Notify summarizer.
+			if self.summarizer != nil {
+				self.summarizer.Notify()
+			}
+		}()
+
+		result, err := runner.Run(runContext, agents.RunParams{
+			ConversationID: conversationId,
+			Message:        parameters.Message,
+			Model:          parameters.Model,
+		}, mergedCallbacks)
+
+		if err != nil {
+			outcome.Error = err
+			if runContext.Err() != nil {
+				self.Broadcast("conversation", map[string]interface{}{
+					"state":          "aborted",
+					"runId":          runId,
+					"conversationId": conversationId,
+				})
+			} else {
+				self.Broadcast("conversation", map[string]interface{}{
+					"state":          "error",
+					"runId":          runId,
+					"conversationId": conversationId,
+					"error":          err.Error(),
+				})
+			}
+			return
+		}
+
+		outcome.Response = result.Response
+		outcome.Model = result.Model
+		outcome.StopReason = result.StopReason
+		outcome.Usage = result.Usage
+
+		payload := map[string]interface{}{
+			"state":          "final",
+			"runId":          runId,
+			"conversationId": conversationId,
+			"text":           result.Response,
+			"model":          result.Model,
+			"stopReason":     result.StopReason,
+		}
+		if result.Usage != nil {
+			payload["usage"] = result.Usage
+		}
+		self.Broadcast("conversation", payload)
+	}()
+
+	return &RunHandle{
+		RunID:          runId,
+		ConversationID: conversationId,
+		Done:           done,
+		Outcome:        func() *RunOutcome { return &outcome },
+	}
+}
+
+// buildMergedCallbacks creates RunCallbacks that both broadcast events (using the
+// "conversation" event name consistently) and call the caller's optional callbacks.
+func (self *gateway) buildMergedCallbacks(runId, conversationId string, callerCallbacks *agents.RunCallbacks) *agents.RunCallbacks {
+	return &agents.RunCallbacks{
+		OnQueued: func() {
+			self.Broadcast("conversation", map[string]interface{}{
+				"state":          "queued",
+				"runId":          runId,
+				"conversationId": conversationId,
+			})
+			if callerCallbacks != nil && callerCallbacks.OnQueued != nil {
+				callerCallbacks.OnQueued()
+			}
+		},
+		OnStart: func() {
+			if callerCallbacks != nil && callerCallbacks.OnStart != nil {
+				callerCallbacks.OnStart()
+			}
+		},
+		OnTextDelta: func(text string) {
+			self.Broadcast("conversation", map[string]interface{}{
+				"state":          "delta",
+				"runId":          runId,
+				"conversationId": conversationId,
+				"text":           text,
+			})
+			if callerCallbacks != nil && callerCallbacks.OnTextDelta != nil {
+				callerCallbacks.OnTextDelta(text)
+			}
+		},
+		OnToolCall: func(toolName string, arguments string) {
+			self.Broadcast("conversation", map[string]interface{}{
+				"state":          "tool_call",
+				"runId":          runId,
+				"conversationId": conversationId,
+				"toolName":       toolName,
+				"arguments":      arguments,
+			})
+			if callerCallbacks != nil && callerCallbacks.OnToolCall != nil {
+				callerCallbacks.OnToolCall(toolName, arguments)
+			}
+		},
+		OnToolResult: func(toolName string, result string) {
+			self.Broadcast("conversation", map[string]interface{}{
+				"state":          "tool_result",
+				"runId":          runId,
+				"conversationId": conversationId,
+				"toolName":       toolName,
+				"result":         result,
+			})
+			if callerCallbacks != nil && callerCallbacks.OnToolResult != nil {
+				callerCallbacks.OnToolResult(toolName, result)
+			}
+		},
+	}
+}
+
+// --- Run tracking and abort ---
+
+// AbortRun cancels a running agent invocation by run ID. Returns true if the run was found.
+func (self *gateway) AbortRun(runId string) bool {
+	self.activeRunsMutex.Lock()
+	conversationId, found := self.runIndex[runId]
+	if !found {
+		self.activeRunsMutex.Unlock()
+		return false
+	}
+	run, exists := self.activeRuns[conversationId]
+	self.activeRunsMutex.Unlock()
+
+	if !exists {
+		return false
+	}
+
+	run.cancel()
+	if run.runner != nil {
+		run.runner.CancelConversation(conversationId)
+	}
+	return true
 }
 
 // GetActiveRun returns the active run ID for a conversation, or empty string if none.
 func (self *gateway) GetActiveRun(conversationId string) string {
-	self.activeRunsMutex.RLock()
-	defer self.activeRunsMutex.RUnlock()
-	return self.activeRuns[conversationId]
+	self.activeRunsMutex.Lock()
+	defer self.activeRunsMutex.Unlock()
+	if run, exists := self.activeRuns[conversationId]; exists {
+		return run.runId
+	}
+	return ""
+}
+
+// --- Delete conversation ---
+
+// DeleteConversation deletes a conversation if it's not actively running.
+func (self *gateway) DeleteConversation(agentId, conversationId string) error {
+	// Check not active.
+	if self.GetActiveRun(conversationId) != "" {
+		return fmt.Errorf("cannot delete conversation with active run")
+	}
+
+	runner := self.ResolveRunner(agentId)
+	if runner == nil {
+		return fmt.Errorf("agent not found: %s", agentId)
+	}
+
+	if err := runner.Conversations.Delete(conversationId); err != nil {
+		return err
+	}
+
+	self.Broadcast("conversations", nil)
+	return nil
 }
 
 // --- Auth middleware ---

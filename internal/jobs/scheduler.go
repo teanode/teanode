@@ -9,7 +9,6 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/deferutil"
-	"github.com/teanode/teanode/internal/util/ulid"
 )
 
 // Scheduler runs scheduled jobs on a 1-minute tick.
@@ -21,9 +20,8 @@ type Scheduler struct {
 	expressions   map[string]*cronexpr.CronExpr
 	stopChannel   chan struct{}
 
-	Broadcast      func(event string, payload interface{})
-	SetActiveRun   func(conversationId, runId string)
-	ClearActiveRun func(conversationId, runId string)
+	Broadcast  func(event string, payload interface{})
+	RunMessage func(ctx context.Context, agentId, conversationId, message, model string) (runId string, done <-chan struct{}, getError func() error)
 }
 
 // NewScheduler creates a new job scheduler.
@@ -206,14 +204,6 @@ func (self *Scheduler) executeJob(job Job) {
 	if agentId == "" {
 		agentId = self.agentRegistry.ActiveAgentID()
 	}
-	runner := self.agentRegistry.Get(agentId)
-	if runner == nil {
-		runner = self.agentRegistry.Default()
-	}
-	if runner == nil {
-		log.Errorf("job %s: no runner available for agent %q", job.ID, agentId)
-		return
-	}
 
 	// Resolve conversation: use stored value if present (backward compat), otherwise use active conversation.
 	conversationId := job.ConversationID
@@ -221,93 +211,21 @@ func (self *Scheduler) executeJob(job Job) {
 		conversationId = self.agentRegistry.ActiveConversationID(agentId)
 	}
 
-	runId := ulid.GenerateString()
-	log.Infof("executing job %s (%s) -> agent %s conversation %s run %s", job.ID, job.Name, agentId, conversationId, runId)
-
-	if self.SetActiveRun != nil {
-		self.SetActiveRun(conversationId, runId)
-	}
-	defer func() {
-		if self.ClearActiveRun != nil {
-			self.ClearActiveRun(conversationId, runId)
-		}
-	}()
-
-	// Broadcast user message to WebUI.
-	if self.Broadcast != nil {
-		self.Broadcast("conversation", map[string]interface{}{
-			"state":          "user_message",
-			"runId":          runId,
-			"conversationId": conversationId,
-			"text":           job.Message,
-		})
+	if self.RunMessage == nil {
+		log.Errorf("job %s: RunMessage callback not configured", job.ID)
+		return
 	}
 
-	var callbacks *agents.RunCallbacks
-	if self.Broadcast != nil {
-		broadcast := self.Broadcast
-		callbacks = &agents.RunCallbacks{
-			OnTextDelta: func(text string) {
-				broadcast("chat", map[string]interface{}{
-					"state":          "delta",
-					"runId":          runId,
-					"conversationId": conversationId,
-					"text":           text,
-				})
-			},
-			OnToolCall: func(toolName string, arguments string) {
-				broadcast("chat", map[string]interface{}{
-					"state":          "tool_call",
-					"runId":          runId,
-					"conversationId": conversationId,
-					"toolName":       toolName,
-					"arguments":      arguments,
-				})
-			},
-			OnToolResult: func(toolName string, result string) {
-				broadcast("chat", map[string]interface{}{
-					"state":          "tool_result",
-					"runId":          runId,
-					"conversationId": conversationId,
-					"toolName":       toolName,
-					"result":         result,
-				})
-			},
-		}
-	}
+	log.Infof("executing job %s (%s) -> agent %s conversation %s", job.ID, job.Name, agentId, conversationId)
 
-	result, err := runner.Run(context.Background(), agents.RunParams{
-		ConversationID: conversationId,
-		Message:        job.Message,
-		Model:          job.Model,
-	}, callbacks)
+	runId, done, getError := self.RunMessage(context.Background(), agentId, conversationId, job.Message, job.Model)
+	log.Infof("job %s started run %s", job.ID, runId)
 
-	if self.Broadcast != nil {
-		if err != nil {
-			self.Broadcast("conversation", map[string]interface{}{
-				"state":          "error",
-				"runId":          runId,
-				"conversationId": conversationId,
-				"error":          err.Error(),
-			})
-		} else {
-			payload := map[string]interface{}{
-				"state":          "final",
-				"runId":          runId,
-				"conversationId": conversationId,
-				"text":           result.Response,
-				"model":          result.Model,
-				"stopReason":     result.StopReason,
-			}
-			if result.Usage != nil {
-				payload["usage"] = result.Usage
-			}
-			self.Broadcast("conversation", payload)
-		}
-	}
+	// Wait for the run to complete.
+	<-done
 
 	now := time.Now().UnixMilli()
-	if err != nil {
+	if err := getError(); err != nil {
 		log.Errorf("job %s failed: %v", job.ID, err)
 		job.LastRun = now
 		job.LastStatus = "error"

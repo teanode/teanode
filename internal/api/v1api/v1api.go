@@ -2,8 +2,6 @@
 package v1api
 
 import (
-	"sync"
-
 	"github.com/gorilla/mux"
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/gw"
@@ -11,20 +9,15 @@ import (
 
 var log = logging.MustGetLogger("v1api")
 
-// API is the v1 API component. It implements web.Component and manages
-// WebSocket client connections for broadcasting events.
+// API is the v1 API component. It implements web.Component.
 type API struct {
 	gateway gw.Gateway
-
-	clientsMutex sync.RWMutex
-	clients      map[*webSocketConnection]struct{}
 }
 
 // New creates a new v1 API wired to the given Gateway.
 func New(gateway gw.Gateway) *API {
 	return &API{
 		gateway: gateway,
-		clients: make(map[*webSocketConnection]struct{}),
 	}
 }
 
@@ -47,25 +40,4 @@ func (self *API) AddRoutes(router *mux.Router) error {
 	}
 
 	return nil
-}
-
-// Broadcast sends an event to all connected WebSocket clients.
-func (self *API) Broadcast(event string, payload interface{}) {
-	self.clientsMutex.RLock()
-	defer self.clientsMutex.RUnlock()
-	for client := range self.clients {
-		client.sendEvent(event, payload)
-	}
-}
-
-func (self *API) registerClient(client *webSocketConnection) {
-	self.clientsMutex.Lock()
-	self.clients[client] = struct{}{}
-	self.clientsMutex.Unlock()
-}
-
-func (self *API) unregisterClient(client *webSocketConnection) {
-	self.clientsMutex.Lock()
-	delete(self.clients, client)
-	self.clientsMutex.Unlock()
 }

@@ -26,7 +26,7 @@ type jobFrontmatter struct {
 	Model          string `yaml:"model,omitempty"`
 	AgentID        string `yaml:"agentId,omitempty"`
 	Enabled        bool   `yaml:"enabled"`
-	ConversationID string `yaml:"conversationId"`
+	ConversationID string `yaml:"conversationId,omitempty"`
 	RunAt          int64  `yaml:"runAt,omitempty"`
 	OneShot        bool   `yaml:"oneShot,omitempty"`
 	LastRun        int64  `yaml:"lastRun,omitempty"`

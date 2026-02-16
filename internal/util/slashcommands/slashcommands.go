@@ -20,6 +20,7 @@ var commands = []definition{
 	{Name: "model", Args: "[name]", Description: "Show or set the model"},
 	{Name: "agent", Args: "[name]", Description: "Show or switch the active agent"},
 	{Name: "status", Description: "Show bot status"},
+	{Name: "compact", Description: "Compact current conversation history"},
 	{Name: "help", Description: "Show available commands"},
 }
 

@@ -23,9 +23,9 @@ export default function JobDetailPage() {
       onUpdate={backend.updateJob}
       onTrigger={backend.triggerJob}
       onCancelCreate={() => navigate({ to: '/jobs' })}
-      onViewAgentConversation={(agentId) => {
-        const agent = backend.agents.find((candidate) => candidate.id === agentId);
-        const conversationId = agent?.activeConversationId;
+      onViewAgentConversation={(agentId, jobConversationId) => {
+        const conversationId = jobConversationId
+          ?? backend.agents.find((candidate) => candidate.id === agentId)?.activeConversationId;
         if (conversationId) {
           navigate({ to: '/conversations/$agentId/$conversationId', params: { agentId, conversationId } });
         } else {

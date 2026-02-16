@@ -7,10 +7,11 @@ import (
 
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/version"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/skill"
 	"github.com/teanode/teanode/internal/util/cronexpr"
-	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/ulid"
 )
 
@@ -31,12 +32,12 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"version":              "1.0.0",
-		"capabilities":        []string{"conversations"},
-		"defaultModel":        self.api.gateway.Config().Models.Default,
-		"agents":              agentInfos,
-		"defaultAgentId":      self.api.gateway.AgentRegistry().DefaultID(),
-		"activeAgentId":       activeAgentId,
+		"version":               version.Version(),
+		"capabilities":         []string{"conversations"},
+		"defaultModel":         self.api.gateway.Config().Models.Default,
+		"agents":               agentInfos,
+		"defaultAgentId":       self.api.gateway.AgentRegistry().DefaultID(),
+		"activeAgentId":        activeAgentId,
 		"activeConversationId": self.api.gateway.ActiveConversationID(activeAgentId),
 	})
 }
@@ -124,22 +125,16 @@ func (self *webSocketConnection) handleConversationsSetActive(frame requestFrame
 	})
 }
 
-// activeRunInfo tracks the cancel function, conversation id, and runner for an active agent run.
-type activeRunInfo struct {
-	cancel         context.CancelFunc
-	conversationId string
-	runner         *agents.Runner
-}
-
 // conversationSendParameters are the parameters for conversations.send.
 type conversationSendParameters struct {
 	ConversationID string `json:"conversationId"`
 	Message        string `json:"message"`
 	Model          string `json:"model,omitempty"`
 	AgentID        string `json:"agentId,omitempty"`
+	OriginID       string `json:"originId,omitempty"`
 }
 
-// handleConversationsSend: send user message, trigger agent run with streaming.
+// handleConversationsSend: send user message, trigger agent run via gateway.
 func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 	var parameters conversationSendParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
@@ -158,115 +153,18 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 		return
 	}
 
-	resolvedAgentId := parameters.AgentID
-	if resolvedAgentId == "" {
-		resolvedAgentId = self.api.gateway.ActiveAgentID()
-	}
+	handle := self.api.gateway.SendMessage(context.Background(), gw.SendMessageParameters{
+		AgentID:        parameters.AgentID,
+		ConversationID: parameters.ConversationID,
+		Message:        parameters.Message,
+		Model:          parameters.Model,
+		OriginID:       parameters.OriginID,
+	}, nil)
 
-	if parameters.ConversationID == "" {
-		parameters.ConversationID = self.api.gateway.NewConversation(resolvedAgentId)
-	} else {
-		self.api.gateway.SetActiveConversationIfUnset(resolvedAgentId, parameters.ConversationID)
-	}
-
-	runId := ulid.GenerateString()
-	ctx, cancel := context.WithCancel(context.Background())
-	self.runs.Store(runId, activeRunInfo{
-		cancel:         cancel,
-		conversationId: parameters.ConversationID,
-		runner:         runner,
-	})
-
-	// Acknowledge the request immediately with the run ID.
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"runId":          runId,
-		"conversationId": parameters.ConversationID,
+		"runId":          handle.RunID,
+		"conversationId": handle.ConversationID,
 	})
-
-	// Run agent in background goroutine.
-	go func() {
-		defer deferutil.Recover()
-		defer func() {
-			self.api.gateway.ClearActiveRun(parameters.ConversationID, runId)
-			self.runs.Delete(runId)
-			cancel()
-		}()
-
-		result, err := runner.Run(ctx, agents.RunParams{
-			ConversationID: parameters.ConversationID,
-			Message:        parameters.Message,
-			Model:          parameters.Model,
-		}, &agents.RunCallbacks{
-			OnQueued: func() {
-				self.api.Broadcast("conversation", map[string]interface{}{
-					"state":          "queued",
-					"runId":          runId,
-					"conversationId": parameters.ConversationID,
-				})
-			},
-			OnStart: func() {
-				self.api.gateway.SetActiveRun(parameters.ConversationID, runId)
-			},
-			OnTextDelta: func(text string) {
-				self.api.Broadcast("conversation", map[string]interface{}{
-					"state":          "delta",
-					"runId":          runId,
-					"conversationId": parameters.ConversationID,
-					"text":           text,
-				})
-			},
-			OnToolCall: func(toolName string, arguments string) {
-				self.api.Broadcast("conversation", map[string]interface{}{
-					"state":          "tool_call",
-					"runId":          runId,
-					"conversationId": parameters.ConversationID,
-					"toolName":       toolName,
-					"arguments":      arguments,
-				})
-			},
-			OnToolResult: func(toolName string, result string) {
-				self.api.Broadcast("conversation", map[string]interface{}{
-					"state":          "tool_result",
-					"runId":          runId,
-					"conversationId": parameters.ConversationID,
-					"toolName":       toolName,
-					"result":         result,
-				})
-			},
-		})
-
-		if err != nil {
-			if ctx.Err() != nil {
-				self.api.Broadcast("conversation", map[string]interface{}{
-					"state":          "aborted",
-					"runId":          runId,
-					"conversationId": parameters.ConversationID,
-				})
-				return
-			}
-			log.Errorf("agent run error: %v", err)
-			self.api.Broadcast("conversation", map[string]interface{}{
-				"state":          "error",
-				"runId":          runId,
-				"conversationId": parameters.ConversationID,
-				"error":          err.Error(),
-			})
-			return
-		}
-
-		payload := map[string]interface{}{
-			"state":          "final",
-			"runId":          runId,
-			"conversationId": parameters.ConversationID,
-			"text":           result.Response,
-			"model":          result.Model,
-			"stopReason":     result.StopReason,
-		}
-		if result.Usage != nil {
-			payload["usage"] = result.Usage
-		}
-		self.api.Broadcast("conversation", payload)
-	}()
 }
 
 // conversationHistoryParameters are the parameters for conversations.history.
@@ -315,7 +213,7 @@ type conversationAbortParameters struct {
 	RunID string `json:"runId"`
 }
 
-// handleConversationsAbort: cancel a running agent.
+// handleConversationsAbort: cancel a running agent. Works cross-tab and cross-channel.
 func (self *webSocketConnection) handleConversationsAbort(frame requestFrame) {
 	var parameters conversationAbortParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
@@ -323,10 +221,7 @@ func (self *webSocketConnection) handleConversationsAbort(frame requestFrame) {
 		return
 	}
 
-	if value, ok := self.runs.Load(parameters.RunID); ok {
-		info := value.(activeRunInfo)
-		info.cancel()
-		info.runner.CancelConversation(info.conversationId)
+	if self.api.gateway.AbortRun(parameters.RunID) {
 		self.sendResponse(frame.ID, map[string]interface{}{
 			"aborted": true,
 		})
@@ -365,13 +260,7 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 		return
 	}
 
-	runner := self.api.gateway.ResolveRunner(parameters.AgentID)
-	if runner == nil {
-		self.sendError(frame.ID, 404, "agent not found: "+parameters.AgentID)
-		return
-	}
-
-	if err := runner.Conversations.Delete(parameters.ConversationID); err != nil {
+	if err := self.api.gateway.DeleteConversation(parameters.AgentID, parameters.ConversationID); err != nil {
 		self.sendError(frame.ID, 500, "deleting conversation: "+err.Error())
 		return
 	}
@@ -379,7 +268,6 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"deleted": true,
 	})
-	self.api.Broadcast("conversations", nil)
 }
 
 // conversationsListParameters are the parameters for conversations.list.

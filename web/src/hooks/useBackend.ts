@@ -152,6 +152,7 @@ export function useBackend() {
   const historyLoadedRef = useRef(true);
   const pendingEventsRef = useRef<EventFrame[]>([]);
   const runQueueRef = useRef<string[]>([]); // ordered run IDs: [active, queued1, queued2, ...]
+  const selfOriginIdsRef = useRef<Set<string>>(new Set()); // origin IDs for self-sent messages
 
   function touchConversation(conversationId: string) {
     const now = Date.now();
@@ -260,6 +261,10 @@ export function useBackend() {
     if (conversationEvent.state === 'user_message') {
       if (conversationEvent.conversationId) touchConversation(conversationEvent.conversationId);
       if (conversationEvent.conversationId === conversationIdRef.current) {
+        // Skip self-sent messages — sendMessage already added them optimistically.
+        if (conversationEvent.originId && selfOriginIdsRef.current.delete(conversationEvent.originId)) {
+          return;
+        }
         // If this run is already tracked (e.g. from history load), skip adding
         // duplicate messages — the history already contains them.
         const alreadyTracked = currentRunIdRef.current === conversationEvent.runId;
@@ -671,6 +676,10 @@ export function useBackend() {
         { id: assistantMessageId, type: 'assistant', content: '', timestamp: now },
       ]);
 
+      // Generate an origin ID so we can recognize our own broadcast echo.
+      const originId = crypto.randomUUID();
+      selfOriginIdsRef.current.add(originId);
+
       if (!isRunning) {
         // First message — set running state
         streamTextRef.current = '';
@@ -684,6 +693,7 @@ export function useBackend() {
       const rpcParams: Record<string, string> = {
         conversationId: conversationIdRef.current || '',
         message: text,
+        originId,
       };
       if (model) rpcParams.model = model;
       if (currentAgentIdRef.current) rpcParams.agentId = currentAgentIdRef.current;
@@ -720,6 +730,7 @@ export function useBackend() {
           }
         })
         .catch((error) => {
+          selfOriginIdsRef.current.delete(originId);
           // Remove both user message and empty assistant placeholder
           setMessages((prev) => {
             const updated = [...prev];

@@ -29,6 +29,7 @@ import (
 	"github.com/teanode/teanode/internal/tools/fetch"
 	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/workspace"
+	"github.com/teanode/teanode/internal/version"
 	"github.com/teanode/teanode/internal/watcher"
 	"github.com/teanode/teanode/internal/web"
 	"github.com/urfave/cli/v3"
@@ -138,7 +139,7 @@ func GatewayCmd() *cli.Command {
 				terminals.RegisterTerminalTools(tools, terminalRelay)
 				search.RegisterTools(tools, configuration.Tools.BraveAPIKey)
 				fetch.RegisterTools(tools)
-				agents.RegisterConversationTools(tools, conversations)
+				agents.RegisterConversationTools(tools, conversations, providers, configuration)
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)
 				}
@@ -177,14 +178,14 @@ func GatewayCmd() *cli.Command {
 				tools, skillPrompts := buildToolsForAgent(configuration, agentConfig, workspaceDirectory, conversations, scheduler)
 
 				runner := &agents.Runner{
-					AgentID:       agentConfig.ID,
-					Providers:     providers,
-					Conversations: conversations,
-					Config:        configuration,
-					Tools:         tools,
-					MediaStore:    mediaStore,
-					WorkspaceDirectory:  workspaceDirectory,
-					SkillPrompts:  skillPrompts,
+					AgentID:            agentConfig.ID,
+					Providers:          providers,
+					Conversations:      conversations,
+					Config:             configuration,
+					Tools:              tools,
+					MediaStore:         mediaStore,
+					WorkspaceDirectory: workspaceDirectory,
+					SkillPrompts:       skillPrompts,
 				}
 				agentRegistry.Register(agentConfig.ID, runner)
 			}
@@ -199,27 +200,30 @@ func GatewayCmd() *cli.Command {
 
 			gateway := gw.New(configuration, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore)
 			api := v1api.New(gateway)
-			gateway.SetBroadcast(api.Broadcast)
 			frontendComponent := frontend.New()
 
+			// Wire summarizer to gateway.
 			summarizer.IsConversationActive = func(conversationId string) bool {
 				return gateway.GetActiveRun(conversationId) != ""
 			}
-			summarizer.Broadcast = api.Broadcast
+			summarizer.Broadcast = gateway.Broadcast
 
-			scheduler.Broadcast = api.Broadcast
-			scheduler.SetActiveRun = gateway.SetActiveRun
-			scheduler.ClearActiveRun = gateway.ClearActiveRun
+			// Wire scheduler to gateway via closure.
+			scheduler.Broadcast = gateway.Broadcast
+			scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+				handle := gateway.SendMessage(ctx, gw.SendMessageParameters{
+					AgentID:        agentId,
+					ConversationID: conversationId,
+					Message:        message,
+					Model:          model,
+				}, nil)
+				return handle.RunID, handle.Done, func() error { return handle.Outcome().Error }
+			}
 
 			// --- Discord bot ---
 
 			if configuration.Channels.Discord != nil && configuration.Channels.Discord.Token != "" {
-				discordBot := discord.New(configuration.Channels.Discord, agentRegistry)
-				discordBot.Broadcast = api.Broadcast
-				discordBot.SetActiveRun = gateway.SetActiveRun
-				discordBot.ClearActiveRun = gateway.ClearActiveRun
-				discordBot.SetActiveAgent = gateway.SetActiveAgent
-				discordBot.NewConversation = gateway.NewConversation
+				discordBot := discord.New(configuration.Channels.Discord, agentRegistry, gateway)
 				if err := discordBot.Start(); err != nil {
 					log.Errorf("discord bot failed to start: %v", err)
 				} else {
@@ -230,12 +234,7 @@ func GatewayCmd() *cli.Command {
 			// --- Telegram bot ---
 
 			if configuration.Channels.Telegram != nil && configuration.Channels.Telegram.Token != "" {
-				telegramBot := telegram.New(configuration.Channels.Telegram, agentRegistry)
-				telegramBot.Broadcast = api.Broadcast
-				telegramBot.SetActiveRun = gateway.SetActiveRun
-				telegramBot.ClearActiveRun = gateway.ClearActiveRun
-				telegramBot.SetActiveAgent = gateway.SetActiveAgent
-				telegramBot.NewConversation = gateway.NewConversation
+				telegramBot := telegram.New(configuration.Channels.Telegram, agentRegistry, gateway)
 				if err := telegramBot.Start(); err != nil {
 					log.Errorf("telegram bot failed to start: %v", err)
 				} else {
@@ -281,14 +280,14 @@ func GatewayCmd() *cli.Command {
 						conversations := conversations.NewStore(conversationsDirectory)
 						tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, conversations, scheduler)
 						runner = &agents.Runner{
-							AgentID:       agentConfig.ID,
-							Providers:     currentProviders,
-							Conversations: conversations,
-							Config:        currentConfiguration,
-							Tools:         tools,
-							MediaStore:    mediaStore,
-							WorkspaceDirectory:  workspaceDirectory,
-							SkillPrompts:  skillPrompts,
+							AgentID:            agentConfig.ID,
+							Providers:          currentProviders,
+							Conversations:      conversations,
+							Config:             currentConfiguration,
+							Tools:              tools,
+							MediaStore:         mediaStore,
+							WorkspaceDirectory: workspaceDirectory,
+							SkillPrompts:       skillPrompts,
 						}
 						agentRegistry.Register(agentConfig.ID, runner)
 						continue
@@ -380,8 +379,14 @@ func GatewayCmd() *cli.Command {
 				return err
 			}
 
-			// Apply auth middleware.
-			handler := web.ApplyMiddlewares(webServer, gateway.AuthMiddleware())
+			// Apply middleware stack (innermost first → outermost last).
+			handler := web.ApplyMiddlewares(webServer,
+				gateway.AuthMiddleware(),
+				web.CompressionMiddleware,
+				web.MakeServerNameMiddleware(version.ServerName()),
+				web.LoggingMiddleware,
+				web.MakeForwarderMiddleware(configuration.Gateway.ForwarderKey),
+			)
 
 			// Create HTTP listener upfront so binding errors surface immediately.
 			address := gateway.ListenAddress()

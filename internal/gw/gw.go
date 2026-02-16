@@ -1,4 +1,4 @@
-// Package gateway provides the core Gateway interface that mediates between
+// Package gw provides the core Gateway interface that mediates between
 // the HTTP/WebSocket layer (v1api) and domain subsystems (agents, browser,
 // terminal, scheduler, summarizer, media).
 package gw
@@ -9,6 +9,7 @@ import (
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
@@ -18,6 +19,37 @@ import (
 )
 
 var log = logging.MustGetLogger("gateway")
+
+// SendMessageParameters are the parameters for sending a message through the gateway.
+type SendMessageParameters struct {
+	AgentID        string
+	ConversationID string // empty = auto-create
+	Message        string
+	Model          string
+	OriginID       string // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
+}
+
+// RunHandle is returned by SendMessage and allows the caller to wait for completion.
+type RunHandle struct {
+	RunID          string
+	ConversationID string
+	Done           <-chan struct{}
+	Outcome        func() *RunOutcome // safe to call after <-Done
+}
+
+// RunOutcome holds the final result of a completed run.
+type RunOutcome struct {
+	Response   string
+	Model      string
+	StopReason string
+	Usage      *conversations.Usage
+	Error      error
+}
+
+// Subscriber receives broadcast events from the gateway.
+type Subscriber interface {
+	OnEvent(event string, payload interface{})
+}
 
 // Gateway is the main domain interface for the TeaNode gateway.
 type Gateway interface {
@@ -46,13 +78,16 @@ type Gateway interface {
 	SetActiveConversationIfUnset(agentId, conversationId string) bool
 	NewConversation(agentId string) string
 
-	// Run tracking
-	SetActiveRun(conversationId, runId string)
-	ClearActiveRun(conversationId, runId string)
+	// Centralized message sending and run management
+	SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle
+	AbortRun(runId string) bool
 	GetActiveRun(conversationId string) string
+	DeleteConversation(agentId, conversationId string) error
 
-	// SetBroadcast sets the callback used to push events to all WebSocket clients.
-	SetBroadcast(broadcast func(event string, payload interface{}))
+	// Event broadcasting via subscriber pattern
+	Subscribe(subscriber Subscriber)
+	Unsubscribe(subscriber Subscriber)
+	Broadcast(event string, payload interface{})
 
 	// Auth middleware for the HTTP server
 	AuthMiddleware() web.Middleware
@@ -79,6 +114,8 @@ func New(
 		scheduler:     scheduler,
 		summarizer:    summarizer,
 		mediaStore:    mediaStore,
-		activeRuns:    make(map[string]string),
+		subscribers:   make(map[Subscriber]struct{}),
+		activeRuns:    make(map[string]*activeRun),
+		runIndex:      make(map[string]string),
 	}
 }

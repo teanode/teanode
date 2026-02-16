@@ -1,5 +1,11 @@
 .PHONY: all web clean dev test fmt lint
 
+VERSION ?= $(shell git describe --tags 2>/dev/null || echo 0.1.0)
+COMMIT ?= $(shell git describe --match=NeVeRmAtCh --always --abbrev=40 --dirty)
+LDFLAGS := -s -w -extldflags "-static" \
+	-X github.com/teanode/teanode/internal/version.version=$(VERSION) \
+	-X github.com/teanode/teanode/internal/version.commit=$(COMMIT)
+
 all: teanode
 
 web: web/node_modules
@@ -10,7 +16,7 @@ web/node_modules: web/package.json web/package-lock.json
 	@touch $@
 
 teanode: web
-	CGO_ENABLED=0 go build -ldflags '-s -w -extldflags "-static"' -o teanode .
+	CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o teanode .
 
 test:
 	go test ./...

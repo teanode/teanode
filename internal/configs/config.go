@@ -268,9 +268,10 @@ type ToolsConfig struct {
 }
 
 type GatewayConfig struct {
-	Port int         `json:"port" yaml:"port"`
-	Bind string      `json:"bind" yaml:"bind"` // "loopback" | "lan"
-	Auth *AuthConfig `json:"auth,omitempty" yaml:"auth,omitempty"`
+	Port         int         `json:"port" yaml:"port"`
+	Bind         string      `json:"bind" yaml:"bind"` // "loopback" | "lan"
+	Auth         *AuthConfig `json:"auth,omitempty" yaml:"auth,omitempty"`
+	ForwarderKey string      `json:"forwarderKey,omitempty" yaml:"forwarderKey,omitempty"`
 }
 
 type AuthConfig struct {
@@ -484,13 +485,13 @@ func MediaDirectory() (string, error) {
 	return filepath.Join(directory, "media"), nil
 }
 
-// StateFile returns the path to the state file (~/.teanode/state.json).
+// StateFile returns the path to the state file (~/.teanode/state.yaml).
 func StateFile() (string, error) {
 	directory, err := Directory()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(directory, "state.json"), nil
+	return filepath.Join(directory, "state.yaml"), nil
 }
 
 // EnsureDirectories creates the base teanode directories if needed.
@@ -665,6 +666,7 @@ func Load() (*Config, error) {
 		}
 	}
 
+	applyDefaults(configuration)
 	applyEnv(configuration)
 
 	// Load agents from per-agent files.
@@ -715,6 +717,29 @@ func defaults() *Config {
 			Provider: "openai",
 			BaseURL:  "https://api.openai.com/v1",
 		},
+	}
+}
+
+// applyDefaults fills in zero-valued required fields with their defaults.
+// This runs after YAML unmarshal to guard against config files that explicitly
+// set fields to empty strings or zero (e.g. "default: """).
+func applyDefaults(configuration *Config) {
+	fallback := defaults()
+
+	if configuration.Gateway.Port <= 0 {
+		configuration.Gateway.Port = fallback.Gateway.Port
+	}
+	if configuration.Gateway.Bind == "" {
+		configuration.Gateway.Bind = fallback.Gateway.Bind
+	}
+	if configuration.Models.Default == "" {
+		configuration.Models.Default = fallback.Models.Default
+	}
+	if configuration.Models.Provider == "" && len(configuration.Models.Providers) == 0 {
+		configuration.Models.Provider = fallback.Models.Provider
+	}
+	if configuration.Models.BaseURL == "" && len(configuration.Models.Providers) == 0 {
+		configuration.Models.BaseURL = fallback.Models.BaseURL
 	}
 }
 
