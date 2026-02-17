@@ -12,17 +12,8 @@ import (
 
 // RegisterBrowserTools adds all browser-control tools to the registry.
 func RegisterBrowserTools(registry *agents.ToolRegistry, browser Browser) {
-	registry.Register(&browserNavigateTool{browser: browser})
-	registry.Register(&browserScreenshotTool{browser: browser})
-	registry.Register(&browserSnapshotTool{browser: browser})
-	registry.Register(&browserClickTool{browser: browser})
-	registry.Register(&browserTypeTool{browser: browser})
-	registry.Register(&browserPressKeyTool{browser: browser})
-	registry.Register(&browserEvaluateTool{browser: browser})
-	registry.Register(&browserTabListTool{browser: browser})
-	registry.Register(&browserTabOpenTool{browser: browser})
-	registry.Register(&browserTabCloseTool{browser: browser})
-	registry.Register(&browserTabActivateTool{browser: browser})
+	registry.Register(&browserTool{browser: browser})
+	registry.Register(&browserTabsTool{browser: browser})
 }
 
 // resolveSessionId returns the sessionId for the given connectionId,
@@ -42,101 +33,122 @@ func resolveSessionId(browser Browser, connectionId string) (string, error) {
 	return target.SessionID, nil
 }
 
-// --- browser_navigate ---
+// --- browser (page interaction) ---
 
-type browserNavigateTool struct{ browser Browser }
+type browserTool struct{ browser Browser }
 
-func (self *browserNavigateTool) Definition() provider.ToolDefinition {
+func (self *browserTool) Definition() provider.ToolDefinition {
 	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "browser_navigate",
-			Description: "Navigate the browser to a URL.",
+			Name: "browser",
+			Description: "Interact with the browser page. Actions: navigate (go to URL), screenshot (capture page image), " +
+				"snapshot (get accessibility tree), click (click element), type (type text), press_key (press keyboard key), " +
+				"evaluate (run JavaScript).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"url": map[string]interface{}{
+					"action": map[string]interface{}{
 						"type":        "string",
-						"description": "The URL to navigate to.",
+						"enum":        []string{"navigate", "screenshot", "snapshot", "click", "type", "press_key", "evaluate"},
+						"description": "The browser action to perform.",
 					},
 					"connectionId": map[string]interface{}{
 						"type":        "string",
 						"description": "Connection ID of the browser tab to target. If omitted, uses the default tab.",
 					},
+					"url": map[string]interface{}{
+						"type":        "string",
+						"description": "The URL to navigate to (for navigate action).",
+					},
+					"x": map[string]interface{}{
+						"type":        "number",
+						"description": "X coordinate to click (for click action).",
+					},
+					"y": map[string]interface{}{
+						"type":        "number",
+						"description": "Y coordinate to click (for click action).",
+					},
+					"selector": map[string]interface{}{
+						"type":        "string",
+						"description": "CSS selector of the element (for click, type actions).",
+					},
+					"text": map[string]interface{}{
+						"type":        "string",
+						"description": "The text to type (for type action).",
+					},
+					"key": map[string]interface{}{
+						"type":        "string",
+						"description": "The key to press, e.g. \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\" (for press_key action).",
+					},
+					"expression": map[string]interface{}{
+						"type":        "string",
+						"description": "JavaScript expression to evaluate (for evaluate action).",
+					},
 				},
-				"required": []string{"url"},
+				"required": []string{"action"},
 			},
 			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"url": map[string]interface{}{"type": "string"},
-				},
+				"type":        "object",
+				"description": "Action-dependent result. navigate: {url}. screenshot: {base64, format}. snapshot: {tree}. click: {selector} or {x, y}. type: {text}. press_key: {key}. evaluate: {type, value}.",
 			},
 		},
 	}
 }
 
-func (self *browserNavigateTool) Execute(ctx context.Context, input string) (string, error) {
+func (self *browserTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
-		URL          string `json:"url"`
-		ConnectionID string `json:"connectionId"`
+		Action       string   `json:"action"`
+		ConnectionID string   `json:"connectionId"`
+		URL          string   `json:"url"`
+		X            *float64 `json:"x"`
+		Y            *float64 `json:"y"`
+		Selector     string   `json:"selector"`
+		Text         string   `json:"text"`
+		Key          string   `json:"key"`
+		Expression   string   `json:"expression"`
 	}
-	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
-	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
+
+	switch arguments.Action {
+	case "navigate":
+		return self.executeNavigate(ctx, arguments.ConnectionID, arguments.URL)
+	case "screenshot":
+		return self.executeScreenshot(ctx, arguments.ConnectionID)
+	case "snapshot":
+		return self.executeSnapshot(ctx, arguments.ConnectionID)
+	case "click":
+		return self.executeClick(ctx, arguments.ConnectionID, arguments.X, arguments.Y, arguments.Selector)
+	case "type":
+		return self.executeType(ctx, arguments.ConnectionID, arguments.Text, arguments.Selector)
+	case "press_key":
+		return self.executePressKey(ctx, arguments.ConnectionID, arguments.Key)
+	case "evaluate":
+		return self.executeEvaluate(ctx, arguments.ConnectionID, arguments.Expression)
+	default:
+		return "", fmt.Errorf("unknown browser action: %s", arguments.Action)
+	}
+}
+
+func (self *browserTool) executeNavigate(ctx context.Context, connectionId string, url string) (string, error) {
+	sessionId, err := resolveSessionId(self.browser, connectionId)
 	if err != nil {
 		return "", err
 	}
 	_, err = self.browser.SendCDPCommand(ctx, "Page.navigate", map[string]interface{}{
-		"url": arguments.URL,
+		"url": url,
 	}, sessionId)
 	if err != nil {
 		return "", err
 	}
-	out, _ := json.Marshal(map[string]string{"url": arguments.URL})
+	out, _ := json.Marshal(map[string]string{"url": url})
 	return string(out), nil
 }
 
-// --- browser_screenshot ---
-
-type browserScreenshotTool struct{ browser Browser }
-
-func (self *browserScreenshotTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "browser_screenshot",
-			Description: "Take a screenshot of the current browser tab. The screenshot is displayed directly to the user in the chat.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"connectionId": map[string]interface{}{
-						"type":        "string",
-						"description": "Session ID of the browser tab to target. If omitted, uses the default tab.",
-					},
-				},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"mediaId":   map[string]interface{}{"type": "string", "description": "Unique identifier for the saved media file"},
-					"format":    map[string]interface{}{"type": "string", "description": "Image format (png)"},
-					"displayed": map[string]interface{}{"type": "boolean", "description": "Whether the image was displayed to the user"},
-				},
-			},
-		},
-	}
-}
-
-func (self *browserScreenshotTool) Execute(ctx context.Context, input string) (string, error) {
-	var arguments struct {
-		ConnectionID string `json:"connectionId"`
-	}
-	if input != "" {
-		json.Unmarshal([]byte(input), &arguments)
-	}
-	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
+func (self *browserTool) executeScreenshot(ctx context.Context, connectionId string) (string, error) {
+	sessionId, err := resolveSessionId(self.browser, connectionId)
 	if err != nil {
 		return "", err
 	}
@@ -159,43 +171,8 @@ func (self *browserScreenshotTool) Execute(ctx context.Context, input string) (s
 	return string(out), nil
 }
 
-// --- browser_snapshot ---
-
-type browserSnapshotTool struct{ browser Browser }
-
-func (self *browserSnapshotTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "browser_snapshot",
-			Description: "Get the accessibility tree of the current page. This is the primary way to understand page structure and content.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"connectionId": map[string]interface{}{
-						"type":        "string",
-						"description": "Session ID of the browser tab to target. If omitted, uses the default tab.",
-					},
-				},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"tree": map[string]interface{}{"type": "string", "description": "Indented text representation of the accessibility tree"},
-				},
-			},
-		},
-	}
-}
-
-func (self *browserSnapshotTool) Execute(ctx context.Context, input string) (string, error) {
-	var arguments struct {
-		ConnectionID string `json:"connectionId"`
-	}
-	if input != "" {
-		json.Unmarshal([]byte(input), &arguments)
-	}
-	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
+func (self *browserTool) executeSnapshot(ctx context.Context, connectionId string) (string, error) {
+	sessionId, err := resolveSessionId(self.browser, connectionId)
 	if err != nil {
 		return "", err
 	}
@@ -212,6 +189,287 @@ func (self *browserSnapshotTool) Execute(ctx context.Context, input string) (str
 	out, _ := json.Marshal(map[string]string{"tree": buildAXTree(response.Nodes)})
 	return string(out), nil
 }
+
+func (self *browserTool) executeClick(ctx context.Context, connectionId string, x *float64, y *float64, selector string) (string, error) {
+	sessionId, err := resolveSessionId(self.browser, connectionId)
+	if err != nil {
+		return "", err
+	}
+
+	if selector != "" {
+		expression := fmt.Sprintf(`document.querySelector(%q)?.click()`, selector)
+		_, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
+			"expression":    expression,
+			"returnByValue": true,
+		}, sessionId)
+		if err != nil {
+			return "", err
+		}
+		out, _ := json.Marshal(map[string]string{"selector": selector})
+		return string(out), nil
+	}
+
+	if x == nil || y == nil {
+		return "", fmt.Errorf("provide either (x, y) coordinates or a selector")
+	}
+	xValue, yValue := *x, *y
+	for _, eventType := range []string{"mousePressed", "mouseReleased"} {
+		_, err := self.browser.SendCDPCommand(ctx, "Input.dispatchMouseEvent", map[string]interface{}{
+			"type":       eventType,
+			"x":          xValue,
+			"y":          yValue,
+			"button":     "left",
+			"clickCount": 1,
+		}, sessionId)
+		if err != nil {
+			return "", err
+		}
+	}
+	out, _ := json.Marshal(map[string]interface{}{"x": xValue, "y": yValue})
+	return string(out), nil
+}
+
+func (self *browserTool) executeType(ctx context.Context, connectionId string, text string, selector string) (string, error) {
+	sessionId, err := resolveSessionId(self.browser, connectionId)
+	if err != nil {
+		return "", err
+	}
+
+	if selector != "" {
+		expression := fmt.Sprintf(`document.querySelector(%q)?.focus()`, selector)
+		_, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
+			"expression":    expression,
+			"returnByValue": true,
+		}, sessionId)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	_, err = self.browser.SendCDPCommand(ctx, "Input.insertText", map[string]interface{}{
+		"text": text,
+	}, sessionId)
+	if err != nil {
+		return "", err
+	}
+	out, _ := json.Marshal(map[string]string{"text": text})
+	return string(out), nil
+}
+
+func (self *browserTool) executePressKey(ctx context.Context, connectionId string, key string) (string, error) {
+	sessionId, err := resolveSessionId(self.browser, connectionId)
+	if err != nil {
+		return "", err
+	}
+
+	info := keyInfo(key)
+
+	for _, eventType := range []string{"keyDown", "keyUp"} {
+		params := map[string]interface{}{
+			"type": eventType,
+			"key":  info.key,
+		}
+		if info.code != "" {
+			params["code"] = info.code
+		}
+		if info.keyCode != 0 {
+			params["windowsVirtualKeyCode"] = info.keyCode
+			params["nativeVirtualKeyCode"] = info.keyCode
+		}
+		if eventType == "keyDown" && len(info.text) > 0 {
+			params["text"] = info.text
+		}
+		_, err := self.browser.SendCDPCommand(ctx, "Input.dispatchKeyEvent", params, sessionId)
+		if err != nil {
+			return "", err
+		}
+	}
+	out, _ := json.Marshal(map[string]string{"key": key})
+	return string(out), nil
+}
+
+func (self *browserTool) executeEvaluate(ctx context.Context, connectionId string, expression string) (string, error) {
+	sessionId, err := resolveSessionId(self.browser, connectionId)
+	if err != nil {
+		return "", err
+	}
+	result, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
+		"expression":    expression,
+		"returnByValue": true,
+	}, sessionId)
+	if err != nil {
+		return "", err
+	}
+	var response struct {
+		Result struct {
+			Type  string          `json:"type"`
+			Value json.RawMessage `json:"value"`
+		} `json:"result"`
+		ExceptionDetails *struct {
+			Text string `json:"text"`
+		} `json:"exceptionDetails"`
+	}
+	if err := json.Unmarshal(result, &response); err != nil {
+		return string(result), nil
+	}
+	if response.ExceptionDetails != nil {
+		return "", fmt.Errorf("evaluation error: %s", response.ExceptionDetails.Text)
+	}
+	out, _ := json.Marshal(map[string]interface{}{
+		"type":  response.Result.Type,
+		"value": response.Result.Value,
+	})
+	return string(out), nil
+}
+
+// --- browser_tabs (tab management) ---
+
+type browserTabsTool struct{ browser Browser }
+
+func (self *browserTabsTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
+		Type: "function",
+		Function: provider.FunctionSpec{
+			Name: "browser_tabs",
+			Description: "Manage browser tabs. Actions: list (list all tabs), open (open new tab), " +
+				"close (close a tab), activate (bring tab to foreground).",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"list", "open", "close", "activate"},
+						"description": "The tab management action to perform.",
+					},
+					"targetId": map[string]interface{}{
+						"type":        "string",
+						"description": "Target ID of the tab (for close, activate actions).",
+					},
+					"url": map[string]interface{}{
+						"type":        "string",
+						"description": "URL to open in the new tab, defaults to about:blank (for open action).",
+					},
+				},
+				"required": []string{"action"},
+			},
+			Returns: map[string]interface{}{
+				"type":        "object",
+				"description": "Action-dependent result. list: {tabs: [{targetId, title, url, connectionId, source}]}. open: {targetId, url}. close: {targetId}. activate: {targetId}.",
+			},
+		},
+	}
+}
+
+func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	var arguments struct {
+		Action   string `json:"action"`
+		TargetID string `json:"targetId"`
+		URL      string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("parsing arguments: %w", err)
+	}
+
+	switch arguments.Action {
+	case "list":
+		return self.executeList()
+	case "open":
+		return self.executeOpen(ctx, arguments.URL)
+	case "close":
+		return self.executeClose(ctx, arguments.TargetID)
+	case "activate":
+		return self.executeActivate(ctx, arguments.TargetID)
+	default:
+		return "", fmt.Errorf("unknown browser_tabs action: %s", arguments.Action)
+	}
+}
+
+func (self *browserTabsTool) executeList() (string, error) {
+	targets := self.browser.Targets()
+	type entry struct {
+		TargetID     string `json:"targetId"`
+		Title        string `json:"title"`
+		URL          string `json:"url"`
+		ConnectionID string `json:"connectionId"`
+		Source       string `json:"source"`
+	}
+	entries := make([]entry, len(targets))
+	for index, target := range targets {
+		entries[index] = entry{
+			TargetID:     target.TargetID,
+			Title:        target.Title,
+			URL:          target.URL,
+			ConnectionID: target.SessionID,
+			Source:       target.Source,
+		}
+	}
+	out, _ := json.Marshal(map[string]interface{}{"tabs": entries})
+	return string(out), nil
+}
+
+func (self *browserTabsTool) executeOpen(ctx context.Context, url string) (string, error) {
+	if url == "" {
+		url = "about:blank"
+	}
+
+	sessionId, err := resolveSessionId(self.browser, "")
+	if err != nil {
+		return "", err
+	}
+	result, err := self.browser.SendCDPCommand(ctx, "Target.createTarget", map[string]interface{}{
+		"url": url,
+	}, sessionId)
+	if err != nil {
+		return "", err
+	}
+	var response struct {
+		TargetID string `json:"targetId"`
+	}
+	json.Unmarshal(result, &response)
+	out, _ := json.Marshal(map[string]string{
+		"targetId": response.TargetID,
+		"url":      url,
+	})
+	return string(out), nil
+}
+
+func (self *browserTabsTool) executeClose(ctx context.Context, targetId string) (string, error) {
+	sessionId, err := resolveSessionId(self.browser, "")
+	if err != nil {
+		return "", err
+	}
+	params := map[string]interface{}{}
+	if targetId != "" {
+		params["targetId"] = targetId
+	}
+	_, err = self.browser.SendCDPCommand(ctx, "Target.closeTarget", params, sessionId)
+	if err != nil {
+		return "", err
+	}
+	out, _ := json.Marshal(map[string]string{"targetId": targetId})
+	return string(out), nil
+}
+
+func (self *browserTabsTool) executeActivate(ctx context.Context, targetId string) (string, error) {
+	if targetId == "" {
+		return "", fmt.Errorf("targetId is required for activate action")
+	}
+
+	sessionId, err := resolveSessionId(self.browser, "")
+	if err != nil {
+		return "", err
+	}
+	_, err = self.browser.SendCDPCommand(ctx, "Target.activateTarget", map[string]interface{}{
+		"targetId": targetId,
+	}, sessionId)
+	if err != nil {
+		return "", err
+	}
+	out, _ := json.Marshal(map[string]string{"targetId": targetId})
+	return string(out), nil
+}
+
+// --- Accessibility tree types and helpers ---
 
 type accessibilityNode struct {
 	NodeID     string                  `json:"nodeId"`
@@ -240,8 +498,8 @@ func buildAXTree(nodes []accessibilityNode) string {
 	}
 
 	nodesById := make(map[string]*accessibilityNode, len(nodes))
-	for i := range nodes {
-		nodesById[nodes[i].NodeID] = &nodes[i]
+	for index := range nodes {
+		nodesById[nodes[index].NodeID] = &nodes[index]
 	}
 
 	var builder strings.Builder
@@ -299,242 +557,7 @@ func buildAXTree(nodes []accessibilityNode) string {
 	return strings.TrimRight(builder.String(), "\n")
 }
 
-// --- browser_click ---
-
-type browserClickTool struct{ browser Browser }
-
-func (self *browserClickTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "browser_click",
-			Description: "Click an element on the page. Provide either (x, y) coordinates or a CSS selector.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"x": map[string]interface{}{
-						"type":        "number",
-						"description": "X coordinate to click.",
-					},
-					"y": map[string]interface{}{
-						"type":        "number",
-						"description": "Y coordinate to click.",
-					},
-					"selector": map[string]interface{}{
-						"type":        "string",
-						"description": "CSS selector of the element to click.",
-					},
-					"connectionId": map[string]interface{}{
-						"type":        "string",
-						"description": "Session ID of the browser tab to target. If omitted, uses the default tab.",
-					},
-				},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"selector": map[string]interface{}{"type": "string", "description": "CSS selector that was clicked (if selector was used)"},
-					"x":        map[string]interface{}{"type": "number", "description": "X coordinate clicked (if coordinates were used)"},
-					"y":        map[string]interface{}{"type": "number", "description": "Y coordinate clicked (if coordinates were used)"},
-				},
-			},
-		},
-	}
-}
-
-func (self *browserClickTool) Execute(ctx context.Context, input string) (string, error) {
-	var arguments struct {
-		X            *float64 `json:"x"`
-		Y            *float64 `json:"y"`
-		Selector     string   `json:"selector"`
-		ConnectionID string   `json:"connectionId"`
-	}
-	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
-	if err != nil {
-		return "", err
-	}
-
-	if arguments.Selector != "" {
-		expr := fmt.Sprintf(`document.querySelector(%q)?.click()`, arguments.Selector)
-		_, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
-			"expression":    expr,
-			"returnByValue": true,
-		}, sessionId)
-		if err != nil {
-			return "", err
-		}
-		out, _ := json.Marshal(map[string]string{"selector": arguments.Selector})
-		return string(out), nil
-	}
-
-	if arguments.X == nil || arguments.Y == nil {
-		return "", fmt.Errorf("provide either (x, y) coordinates or a selector")
-	}
-	x, y := *arguments.X, *arguments.Y
-	for _, evType := range []string{"mousePressed", "mouseReleased"} {
-		_, err := self.browser.SendCDPCommand(ctx, "Input.dispatchMouseEvent", map[string]interface{}{
-			"type":       evType,
-			"x":          x,
-			"y":          y,
-			"button":     "left",
-			"clickCount": 1,
-		}, sessionId)
-		if err != nil {
-			return "", err
-		}
-	}
-	out, _ := json.Marshal(map[string]interface{}{"x": x, "y": y})
-	return string(out), nil
-}
-
-// --- browser_type ---
-
-type browserTypeTool struct{ browser Browser }
-
-func (self *browserTypeTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "browser_type",
-			Description: "Type text into the focused element or an element matching a CSS selector.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"text": map[string]interface{}{
-						"type":        "string",
-						"description": "The text to type.",
-					},
-					"selector": map[string]interface{}{
-						"type":        "string",
-						"description": "Optional CSS selector to focus before typing.",
-					},
-					"connectionId": map[string]interface{}{
-						"type":        "string",
-						"description": "Session ID of the browser tab to target. If omitted, uses the default tab.",
-					},
-				},
-				"required": []string{"text"},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"text": map[string]interface{}{"type": "string", "description": "The text that was typed"},
-				},
-			},
-		},
-	}
-}
-
-func (self *browserTypeTool) Execute(ctx context.Context, input string) (string, error) {
-	var arguments struct {
-		Text         string `json:"text"`
-		Selector     string `json:"selector"`
-		ConnectionID string `json:"connectionId"`
-	}
-	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
-	if err != nil {
-		return "", err
-	}
-
-	if arguments.Selector != "" {
-		expr := fmt.Sprintf(`document.querySelector(%q)?.focus()`, arguments.Selector)
-		_, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
-			"expression":    expr,
-			"returnByValue": true,
-		}, sessionId)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	_, err = self.browser.SendCDPCommand(ctx, "Input.insertText", map[string]interface{}{
-		"text": arguments.Text,
-	}, sessionId)
-	if err != nil {
-		return "", err
-	}
-	out, _ := json.Marshal(map[string]string{"text": arguments.Text})
-	return string(out), nil
-}
-
-// --- browser_press_key ---
-
-type browserPressKeyTool struct{ browser Browser }
-
-func (self *browserPressKeyTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "browser_press_key",
-			Description: "Press a keyboard key (e.g. \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\").",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"key": map[string]interface{}{
-						"type":        "string",
-						"description": "The key to press (DOM key value).",
-					},
-					"connectionId": map[string]interface{}{
-						"type":        "string",
-						"description": "Session ID of the browser tab to target. If omitted, uses the default tab.",
-					},
-				},
-				"required": []string{"key"},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"key": map[string]interface{}{"type": "string", "description": "The key that was pressed"},
-				},
-			},
-		},
-	}
-}
-
-func (self *browserPressKeyTool) Execute(ctx context.Context, input string) (string, error) {
-	var arguments struct {
-		Key          string `json:"key"`
-		ConnectionID string `json:"connectionId"`
-	}
-	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
-	if err != nil {
-		return "", err
-	}
-
-	info := keyInfo(arguments.Key)
-
-	for _, evType := range []string{"keyDown", "keyUp"} {
-		params := map[string]interface{}{
-			"type": evType,
-			"key":  info.key,
-		}
-		if info.code != "" {
-			params["code"] = info.code
-		}
-		if info.keyCode != 0 {
-			params["windowsVirtualKeyCode"] = info.keyCode
-			params["nativeVirtualKeyCode"] = info.keyCode
-		}
-		if evType == "keyDown" && len(info.text) > 0 {
-			params["text"] = info.text
-		}
-		_, err := self.browser.SendCDPCommand(ctx, "Input.dispatchKeyEvent", params, sessionId)
-		if err != nil {
-			return "", err
-		}
-	}
-	out, _ := json.Marshal(map[string]string{"key": arguments.Key})
-	return string(out), nil
-}
+// --- Key mapping helpers ---
 
 type keyData struct {
 	key     string
@@ -576,301 +599,4 @@ func keyInfo(key string) keyData {
 	default:
 		return keyData{key: key}
 	}
-}
-
-// --- browser_evaluate ---
-
-type browserEvaluateTool struct{ browser Browser }
-
-func (self *browserEvaluateTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "browser_evaluate",
-			Description: "Evaluate a JavaScript expression in the browser and return the result.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"expression": map[string]interface{}{
-						"type":        "string",
-						"description": "JavaScript expression to evaluate.",
-					},
-					"connectionId": map[string]interface{}{
-						"type":        "string",
-						"description": "Session ID of the browser tab to target. If omitted, uses the default tab.",
-					},
-				},
-				"required": []string{"expression"},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"type":  map[string]interface{}{"type": "string", "description": "JavaScript type of the result (string, number, boolean, object, undefined)"},
-					"value": map[string]interface{}{"description": "The evaluated result value"},
-				},
-			},
-		},
-	}
-}
-
-func (self *browserEvaluateTool) Execute(ctx context.Context, input string) (string, error) {
-	var arguments struct {
-		Expression   string `json:"expression"`
-		ConnectionID string `json:"connectionId"`
-	}
-	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	sessionId, err := resolveSessionId(self.browser, arguments.ConnectionID)
-	if err != nil {
-		return "", err
-	}
-	result, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
-		"expression":    arguments.Expression,
-		"returnByValue": true,
-	}, sessionId)
-	if err != nil {
-		return "", err
-	}
-	var response struct {
-		Result struct {
-			Type  string          `json:"type"`
-			Value json.RawMessage `json:"value"`
-		} `json:"result"`
-		ExceptionDetails *struct {
-			Text string `json:"text"`
-		} `json:"exceptionDetails"`
-	}
-	if err := json.Unmarshal(result, &response); err != nil {
-		return string(result), nil
-	}
-	if response.ExceptionDetails != nil {
-		return "", fmt.Errorf("evaluation error: %s", response.ExceptionDetails.Text)
-	}
-	out, _ := json.Marshal(map[string]interface{}{
-		"type":  response.Result.Type,
-		"value": response.Result.Value,
-	})
-	return string(out), nil
-}
-
-// --- browser_tab_list ---
-
-type browserTabListTool struct{ browser Browser }
-
-func (self *browserTabListTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "browser_tab_list",
-			Description: "List all attached browser tabs.",
-			Parameters: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-			Returns: map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"targetId":     map[string]interface{}{"type": "string", "description": "Unique target identifier"},
-						"title":        map[string]interface{}{"type": "string", "description": "Page title"},
-						"url":          map[string]interface{}{"type": "string", "description": "Page URL"},
-						"connectionId": map[string]interface{}{"type": "string", "description": "Session ID used as connectionId for other tools"},
-						"source":       map[string]interface{}{"type": "string", "description": "Browser backend hosting this tab (headless or extension)"},
-					},
-				},
-			},
-		},
-	}
-}
-
-func (self *browserTabListTool) Execute(_ context.Context, _ string) (string, error) {
-	targets := self.browser.Targets()
-	type entry struct {
-		TargetID     string `json:"targetId"`
-		Title        string `json:"title"`
-		URL          string `json:"url"`
-		ConnectionID string `json:"connectionId"`
-		Source       string `json:"source"`
-	}
-	entries := make([]entry, len(targets))
-	for index, target := range targets {
-		entries[index] = entry{
-			TargetID:     target.TargetID,
-			Title:        target.Title,
-			URL:          target.URL,
-			ConnectionID: target.SessionID,
-			Source:       target.Source,
-		}
-	}
-	out, _ := json.Marshal(entries)
-	return string(out), nil
-}
-
-// --- browser_tab_open ---
-
-type browserTabOpenTool struct{ browser Browser }
-
-func (self *browserTabOpenTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "browser_tab_open",
-			Description: "Open a new browser tab, optionally navigating to a URL.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"url": map[string]interface{}{
-						"type":        "string",
-						"description": "URL to open in the new tab. Defaults to about:blank.",
-					},
-				},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"targetId": map[string]interface{}{"type": "string", "description": "Target ID of the new tab"},
-					"url":      map[string]interface{}{"type": "string", "description": "URL opened in the new tab"},
-				},
-			},
-		},
-	}
-}
-
-func (self *browserTabOpenTool) Execute(ctx context.Context, input string) (string, error) {
-	var arguments struct {
-		URL string `json:"url"`
-	}
-	if input != "" {
-		json.Unmarshal([]byte(input), &arguments)
-	}
-	if arguments.URL == "" {
-		arguments.URL = "about:blank"
-	}
-
-	sessionId, err := resolveSessionId(self.browser, "")
-	if err != nil {
-		return "", err
-	}
-	result, err := self.browser.SendCDPCommand(ctx, "Target.createTarget", map[string]interface{}{
-		"url": arguments.URL,
-	}, sessionId)
-	if err != nil {
-		return "", err
-	}
-	var response struct {
-		TargetID string `json:"targetId"`
-	}
-	json.Unmarshal(result, &response)
-	out, _ := json.Marshal(map[string]string{
-		"targetId": response.TargetID,
-		"url":      arguments.URL,
-	})
-	return string(out), nil
-}
-
-// --- browser_tab_close ---
-
-type browserTabCloseTool struct{ browser Browser }
-
-func (self *browserTabCloseTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "browser_tab_close",
-			Description: "Close a browser tab by target ID. Closes the current tab if no ID is given.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"targetId": map[string]interface{}{
-						"type":        "string",
-						"description": "Target ID of the tab to close.",
-					},
-				},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"targetId": map[string]interface{}{"type": "string", "description": "Target ID of the closed tab"},
-				},
-			},
-		},
-	}
-}
-
-func (self *browserTabCloseTool) Execute(ctx context.Context, input string) (string, error) {
-	var arguments struct {
-		TargetID string `json:"targetId"`
-	}
-	if input != "" {
-		json.Unmarshal([]byte(input), &arguments)
-	}
-
-	sessionId, err := resolveSessionId(self.browser, "")
-	if err != nil {
-		return "", err
-	}
-	params := map[string]interface{}{}
-	if arguments.TargetID != "" {
-		params["targetId"] = arguments.TargetID
-	}
-	_, err = self.browser.SendCDPCommand(ctx, "Target.closeTarget", params, sessionId)
-	if err != nil {
-		return "", err
-	}
-	out, _ := json.Marshal(map[string]string{"targetId": arguments.TargetID})
-	return string(out), nil
-}
-
-// --- browser_tab_activate ---
-
-type browserTabActivateTool struct{ browser Browser }
-
-func (self *browserTabActivateTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "browser_tab_activate",
-			Description: "Bring a browser tab to the foreground by target ID.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"targetId": map[string]interface{}{
-						"type":        "string",
-						"description": "Target ID of the tab to activate.",
-					},
-				},
-				"required": []string{"targetId"},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"targetId": map[string]interface{}{"type": "string", "description": "Target ID of the activated tab"},
-				},
-			},
-		},
-	}
-}
-
-func (self *browserTabActivateTool) Execute(ctx context.Context, input string) (string, error) {
-	var arguments struct {
-		TargetID string `json:"targetId"`
-	}
-	if err := json.Unmarshal([]byte(input), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-
-	sessionId, err := resolveSessionId(self.browser, "")
-	if err != nil {
-		return "", err
-	}
-	_, err = self.browser.SendCDPCommand(ctx, "Target.activateTarget", map[string]interface{}{
-		"targetId": arguments.TargetID,
-	}, sessionId)
-	if err != nil {
-		return "", err
-	}
-	out, _ := json.Marshal(map[string]string{"targetId": arguments.TargetID})
-	return string(out), nil
 }

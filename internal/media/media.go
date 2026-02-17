@@ -1,5 +1,5 @@
 // Package media handles detection, storage, and retrieval of media content
-// (images, videos) returned by tools such as browser_screenshot.
+// (images, videos) returned by tools such as the browser screenshot action.
 package media
 
 import (

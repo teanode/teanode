@@ -14,91 +14,86 @@ import (
 
 // RegisterTools adds job management tools to the registry.
 func RegisterTools(registry *agents.ToolRegistry, scheduler *Scheduler) {
-	registry.Register(&jobListTool{scheduler: scheduler})
-	registry.Register(&jobCreateTool{scheduler: scheduler})
-	registry.Register(&jobUpdateTool{scheduler: scheduler})
-	registry.Register(&jobDeleteTool{scheduler: scheduler})
-	registry.Register(&jobTriggerTool{scheduler: scheduler})
+	registry.Register(&jobsTool{scheduler: scheduler})
 }
 
-// --- jobs_list ---
+// --- jobs (multi-action) ---
 
-type jobListTool struct{ scheduler *Scheduler }
+type jobsTool struct{ scheduler *Scheduler }
 
-func (self *jobListTool) Definition() provider.ToolDefinition {
+func (self *jobsTool) Definition() provider.ToolDefinition {
 	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "jobs_list",
-			Description: "List all scheduled jobs and one-shot reminders with their schedule, status, and last run info.",
-			Parameters: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
-	}
-}
-
-func (self *jobListTool) Execute(_ context.Context, _ string) (string, error) {
-	jobs := self.scheduler.List()
-	result, _ := json.Marshal(map[string]interface{}{
-		"jobs": jobs,
-	})
-	return string(result), nil
-}
-
-// --- jobs_create ---
-
-type jobCreateTool struct{ scheduler *Scheduler }
-
-func (self *jobCreateTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name: "jobs_create",
-			Description: "Create a new scheduled job. Use 'schedule' (cron expression) for recurring jobs, or 'delay' (e.g. '1h', '30m') for one-shot reminders. " +
-				"When using 'delay', the job fires once after the specified time in the current conversation and auto-deletes. " +
-				"Examples: schedule='0 9 * * *' for daily at 9am, delay='1h' to remind in 1 hour, delay='30m' to remind in 30 minutes.",
+			Name: "jobs",
+			Description: "Manage scheduled jobs and one-shot reminders. Actions: list (view all jobs), " +
+				"create (new job or reminder), update (modify existing job), delete (remove a job), " +
+				"trigger (run a job immediately).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"list", "create", "update", "delete", "trigger"},
+						"description": "The job action to perform.",
+					},
+					"id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the job (for update, delete, trigger actions).",
+					},
 					"name": map[string]interface{}{
 						"type":        "string",
-						"description": "Name for the job.",
+						"description": "Name for the job (required for create, optional for update).",
 					},
 					"schedule": map[string]interface{}{
 						"type":        "string",
-						"description": "Cron expression (5-field: minute hour day-of-month month day-of-week). Example: '0 9 * * 1-5' for 9am weekdays. Mutually exclusive with 'delay'.",
+						"description": "Cron expression, 5-field: minute hour day-of-month month day-of-week. Example: '0 9 * * 1-5' for 9am weekdays. Mutually exclusive with 'delay' (for create, update actions).",
 					},
 					"message": map[string]interface{}{
 						"type":        "string",
-						"description": "The prompt/message to send when the job triggers.",
+						"description": "The prompt/message to send when the job triggers (required for create, optional for update).",
 					},
 					"model": map[string]interface{}{
 						"type":        "string",
-						"description": "Optional model override for this job.",
+						"description": "Optional model override for this job (for create, update actions).",
 					},
 					"agentId": map[string]interface{}{
 						"type":        "string",
-						"description": "Optional agent ID to run this job against. Defaults to 'main'.",
+						"description": "Agent ID to run this job against, defaults to 'main' (for create action).",
 					},
 					"delay": map[string]interface{}{
 						"type":        "string",
-						"description": "One-shot delay instead of a recurring schedule. Go duration format: '30m', '1h', '2h30m'. When set, the job fires once after this delay in the current conversation and then self-destructs. Mutually exclusive with 'schedule'.",
+						"description": "One-shot delay instead of recurring schedule. Go duration format: '30m', '1h', '2h30m'. Fires once then self-destructs. Mutually exclusive with 'schedule' (for create action).",
 					},
 					"oneShot": map[string]interface{}{
 						"type":        "boolean",
-						"description": "If true, the job auto-deletes after its first execution. Automatically set when using 'delay'.",
+						"description": "If true, auto-delete after first execution. Automatically set when using 'delay' (for create action).",
+					},
+					"enabled": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Enable or disable the job (for update action).",
 					},
 				},
-				"required": []string{"name", "message"},
+				"required": []string{"action"},
+			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action":  map[string]interface{}{"type": "string"},
+					"jobs":    map[string]interface{}{"type": "array", "description": "List of jobs (for list action)"},
+					"id":      map[string]interface{}{"type": "string"},
+					"name":    map[string]interface{}{"type": "string"},
+					"success": map[string]interface{}{"type": "boolean", "description": "Whether the action succeeded (for update, delete, trigger actions)"},
+				},
 			},
 		},
 	}
 }
 
-func (self *jobCreateTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
+		Action   string `json:"action"`
+		ID       string `json:"id"`
 		Name     string `json:"name"`
 		Schedule string `json:"schedule"`
 		Message  string `json:"message"`
@@ -106,34 +101,62 @@ func (self *jobCreateTool) Execute(ctx context.Context, rawArguments string) (st
 		AgentID  string `json:"agentId"`
 		Delay    string `json:"delay"`
 		OneShot  *bool  `json:"oneShot"`
+		Enabled  *bool  `json:"enabled"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
-	if arguments.Name == "" || arguments.Message == "" {
+
+	switch arguments.Action {
+	case "list":
+		return self.executeList()
+	case "create":
+		return self.executeCreate(ctx, arguments.Name, arguments.Schedule, arguments.Message, arguments.Model, arguments.AgentID, arguments.Delay, arguments.OneShot)
+	case "update":
+		return self.executeUpdate(arguments.ID, arguments.Name, arguments.Schedule, arguments.Message, arguments.Model, arguments.Enabled)
+	case "delete":
+		return self.executeDelete(arguments.ID)
+	case "trigger":
+		return self.executeTrigger(arguments.ID)
+	default:
+		return "", fmt.Errorf("unknown jobs action: %s", arguments.Action)
+	}
+}
+
+func (self *jobsTool) executeList() (string, error) {
+	jobs := self.scheduler.List()
+	result, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+		"jobs":   jobs,
+	})
+	return string(result), nil
+}
+
+func (self *jobsTool) executeCreate(ctx context.Context, name string, schedule string, message string, model string, agentId string, delay string, oneShot *bool) (string, error) {
+	if name == "" || message == "" {
 		return "", fmt.Errorf("name and message are required")
 	}
-	if arguments.Delay != "" && arguments.Schedule != "" {
+	if delay != "" && schedule != "" {
 		return "", fmt.Errorf("provide either 'schedule' or 'delay', not both")
 	}
-	if arguments.Delay == "" && arguments.Schedule == "" {
+	if delay == "" && schedule == "" {
 		return "", fmt.Errorf("either 'schedule' or 'delay' is required")
 	}
 
 	var runAt int64
-	oneShot := false
+	isOneShot := false
 	conversationId := "" // recurring jobs resolve conversation at execution time
 
-	if arguments.Delay != "" {
-		duration, parseError := time.ParseDuration(arguments.Delay)
+	if delay != "" {
+		duration, parseError := time.ParseDuration(delay)
 		if parseError != nil {
-			return "", fmt.Errorf("invalid delay %q: %w (use Go duration format: '30m', '1h', '2h30m')", arguments.Delay, parseError)
+			return "", fmt.Errorf("invalid delay %q: %w (use Go duration format: '30m', '1h', '2h30m')", delay, parseError)
 		}
 		if duration < time.Minute {
 			return "", fmt.Errorf("delay must be at least 1 minute, got %s", duration)
 		}
 		runAt = time.Now().Add(duration).UnixMilli()
-		oneShot = true
+		isOneShot = true
 		// One-shot reminders bind to the current conversation.
 		if contextConversationId := agents.ConversationIDFromContext(ctx); contextConversationId != "" {
 			conversationId = contextConversationId
@@ -141,26 +164,26 @@ func (self *jobCreateTool) Execute(ctx context.Context, rawArguments string) (st
 			conversationId = ulid.GenerateString()
 		}
 	} else {
-		if _, parseError := cronexpr.Parse(arguments.Schedule); parseError != nil {
+		if _, parseError := cronexpr.Parse(schedule); parseError != nil {
 			return "", fmt.Errorf("invalid schedule expression: %w", parseError)
 		}
 	}
 
-	if arguments.OneShot != nil {
-		oneShot = *arguments.OneShot
+	if oneShot != nil {
+		isOneShot = *oneShot
 	}
 
 	job := Job{
 		ID:             ulid.GenerateString(),
-		Name:           arguments.Name,
-		Schedule:       arguments.Schedule,
-		Message:        arguments.Message,
-		Model:          arguments.Model,
-		AgentID:        arguments.AgentID,
+		Name:           name,
+		Schedule:       schedule,
+		Message:        message,
+		Model:          model,
+		AgentID:        agentId,
 		Enabled:        true,
 		ConversationID: conversationId,
 		RunAt:          runAt,
-		OneShot:        oneShot,
+		OneShot:        isOneShot,
 		CreatedAt:      time.Now().UnixMilli(),
 	}
 
@@ -172,6 +195,7 @@ func (self *jobCreateTool) Execute(ctx context.Context, rawArguments string) (st
 	}
 
 	response := map[string]interface{}{
+		"action":  "create",
 		"id":      job.ID,
 		"name":    job.Name,
 		"agentId": job.AgentID,
@@ -186,63 +210,8 @@ func (self *jobCreateTool) Execute(ctx context.Context, rawArguments string) (st
 	return string(result), nil
 }
 
-// --- jobs_update ---
-
-type jobUpdateTool struct{ scheduler *Scheduler }
-
-func (self *jobUpdateTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "jobs_update",
-			Description: "Update an existing scheduled job or reminder.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"id": map[string]interface{}{
-						"type":        "string",
-						"description": "ID of the job to update.",
-					},
-					"name": map[string]interface{}{
-						"type":        "string",
-						"description": "New name (optional).",
-					},
-					"schedule": map[string]interface{}{
-						"type":        "string",
-						"description": "New schedule expression (optional).",
-					},
-					"message": map[string]interface{}{
-						"type":        "string",
-						"description": "New message (optional).",
-					},
-					"model": map[string]interface{}{
-						"type":        "string",
-						"description": "New model override (optional).",
-					},
-					"enabled": map[string]interface{}{
-						"type":        "boolean",
-						"description": "Enable or disable the job (optional).",
-					},
-				},
-				"required": []string{"id"},
-			},
-		},
-	}
-}
-
-func (self *jobUpdateTool) Execute(_ context.Context, rawArguments string) (string, error) {
-	var arguments struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Schedule string `json:"schedule"`
-		Message  string `json:"message"`
-		Model    string `json:"model"`
-		Enabled  *bool  `json:"enabled"`
-	}
-	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	if arguments.ID == "" {
+func (self *jobsTool) executeUpdate(id string, name string, schedule string, message string, model string, enabled *bool) (string, error) {
+	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
 
@@ -250,32 +219,32 @@ func (self *jobUpdateTool) Execute(_ context.Context, rawArguments string) (stri
 	jobs := self.scheduler.List()
 	var job *Job
 	for index := range jobs {
-		if jobs[index].ID == arguments.ID {
+		if jobs[index].ID == id {
 			job = &jobs[index]
 			break
 		}
 	}
 	if job == nil {
-		return "", fmt.Errorf("job not found: %s", arguments.ID)
+		return "", fmt.Errorf("job not found: %s", id)
 	}
 
-	if arguments.Name != "" {
-		job.Name = arguments.Name
+	if name != "" {
+		job.Name = name
 	}
-	if arguments.Schedule != "" {
-		if _, err := cronexpr.Parse(arguments.Schedule); err != nil {
+	if schedule != "" {
+		if _, err := cronexpr.Parse(schedule); err != nil {
 			return "", fmt.Errorf("invalid schedule expression: %w", err)
 		}
-		job.Schedule = arguments.Schedule
+		job.Schedule = schedule
 	}
-	if arguments.Message != "" {
-		job.Message = arguments.Message
+	if message != "" {
+		job.Message = message
 	}
-	if arguments.Model != "" {
-		job.Model = arguments.Model
+	if model != "" {
+		job.Model = model
 	}
-	if arguments.Enabled != nil {
-		job.Enabled = *arguments.Enabled
+	if enabled != nil {
+		job.Enabled = *enabled
 	}
 
 	if err := self.scheduler.store.Update(*job); err != nil {
@@ -285,94 +254,50 @@ func (self *jobUpdateTool) Execute(_ context.Context, rawArguments string) (stri
 		return "", fmt.Errorf("reloading scheduler: %w", err)
 	}
 
-	return fmt.Sprintf("Updated job '%s' (id: %s).", job.Name, job.ID), nil
+	result, _ := json.Marshal(map[string]interface{}{
+		"action":  "update",
+		"id":      job.ID,
+		"name":    job.Name,
+		"success": true,
+	})
+	return string(result), nil
 }
 
-// --- jobs_delete ---
-
-type jobDeleteTool struct{ scheduler *Scheduler }
-
-func (self *jobDeleteTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "jobs_delete",
-			Description: "Delete a scheduled job or cancel a pending reminder.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"id": map[string]interface{}{
-						"type":        "string",
-						"description": "ID of the job to delete.",
-					},
-				},
-				"required": []string{"id"},
-			},
-		},
-	}
-}
-
-func (self *jobDeleteTool) Execute(_ context.Context, rawArguments string) (string, error) {
-	var arguments struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	if arguments.ID == "" {
+func (self *jobsTool) executeDelete(id string) (string, error) {
+	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
 
-	if err := self.scheduler.store.Delete(arguments.ID); err != nil {
+	if err := self.scheduler.store.Delete(id); err != nil {
 		return "", fmt.Errorf("deleting job: %w", err)
 	}
 	if err := self.scheduler.Reload(); err != nil {
 		return "", fmt.Errorf("reloading scheduler: %w", err)
 	}
 
-	return fmt.Sprintf("Deleted job %s.", arguments.ID), nil
+	result, _ := json.Marshal(map[string]interface{}{
+		"action":  "delete",
+		"id":      id,
+		"success": true,
+	})
+	return string(result), nil
 }
 
-// --- jobs_trigger ---
-
-type jobTriggerTool struct{ scheduler *Scheduler }
-
-func (self *jobTriggerTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "jobs_trigger",
-			Description: "Manually trigger a scheduled job to run immediately.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"id": map[string]interface{}{
-						"type":        "string",
-						"description": "ID of the job to trigger.",
-					},
-				},
-				"required": []string{"id"},
-			},
-		},
-	}
-}
-
-func (self *jobTriggerTool) Execute(_ context.Context, rawArguments string) (string, error) {
-	var arguments struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	if arguments.ID == "" {
+func (self *jobsTool) executeTrigger(id string) (string, error) {
+	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
 
-	if err := self.scheduler.Trigger(arguments.ID); err != nil {
+	if err := self.scheduler.Trigger(id); err != nil {
 		return "", err
 	}
 
-	return fmt.Sprintf("Triggered job %s. It will run in the background.", arguments.ID), nil
+	result, _ := json.Marshal(map[string]interface{}{
+		"action":  "trigger",
+		"id":      id,
+		"success": true,
+	})
+	return string(result), nil
 }
 
 // truncateString truncates a string to maxLength, appending "..." if truncated.

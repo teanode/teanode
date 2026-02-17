@@ -30,8 +30,8 @@
       "type": "number",
       "title": "Max Tool Rounds",
       "description": "Maximum tool-call loop iterations per run.",
-      "x-placeholder": "100",
-      "default": 100
+      "x-placeholder": "250",
+      "default": 250
     },
     "compressionThreshold": {
       "type": "number",
