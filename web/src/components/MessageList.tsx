@@ -261,9 +261,6 @@ export default function MessageList({
   const prevMessagesRef = useRef(messages);
   const prevItemsRef = useRef(items);
 
-  const getItemKey = (item: ListItem): string =>
-    item.kind === 'separator' ? item.key : item.message.id;
-
   // Render-time detection: determine if items were prepended, appended, or reset.
   const prevMessages = prevMessagesRef.current;
   const prevItems = prevItemsRef.current;
@@ -283,12 +280,21 @@ export default function MessageList({
         if (isReload) {
           firstItemIndexRef.current = VIRTUAL_START;
         } else if (prevItems.length > 0) {
-          // Prepend — find how many ListItems were inserted before the old first.
-          const oldFirstKey = getItemKey(prevItems[0]);
-          for (let index = 0; index < items.length; index++) {
-            if (getItemKey(items[index]) === oldFirstKey) {
-              firstItemIndexRef.current -= index;
+          // Prepend — find the old first MESSAGE item (skip separators, which
+          // can appear/disappear when prepended messages change the date sequence).
+          let oldFirstMessageId: string | null = null;
+          for (const item of prevItems) {
+            if (item.kind === 'message') {
+              oldFirstMessageId = item.message.id;
               break;
+            }
+          }
+          if (oldFirstMessageId) {
+            for (let index = 0; index < items.length; index++) {
+              if (items[index].kind === 'message' && (items[index] as { kind: 'message'; message: DisplayMessage }).message.id === oldFirstMessageId) {
+                firstItemIndexRef.current -= index;
+                break;
+              }
             }
           }
         }
@@ -302,11 +308,30 @@ export default function MessageList({
 
   const firstItemIndex = firstItemIndexRef.current;
 
+  // Track whether the user is at the top of the list.
+  const atTopRef = useRef(false);
+
   const handleStartReached = useCallback(() => {
+    atTopRef.current = true;
     if (hasMoreHistory && !loadingOlderMessages && onLoadOlderMessages) {
       onLoadOlderMessages();
     }
   }, [hasMoreHistory, loadingOlderMessages, onLoadOlderMessages]);
+
+  // Clear atTop when the visible range moves away from the first item.
+  const handleRangeChanged = useCallback(({ startIndex }: { startIndex: number }) => {
+    if (startIndex > firstItemIndexRef.current + 2) {
+      atTopRef.current = false;
+    }
+  }, []);
+
+  // Auto-load more when a finished load didn't push the user away from the top
+  // (e.g. all prepended messages were filtered out because tool calls are hidden).
+  useEffect(() => {
+    if (!loadingOlderMessages && atTopRef.current && hasMoreHistory && onLoadOlderMessages) {
+      onLoadOlderMessages();
+    }
+  }, [loadingOlderMessages, hasMoreHistory, onLoadOlderMessages]);
 
   const headerComponent = useCallback(() => {
     if (!loadingOlderMessages) return <div />;
@@ -330,6 +355,7 @@ export default function MessageList({
         atBottomThreshold={80}
         atBottomStateChange={handleAtBottomStateChange}
         startReached={handleStartReached}
+        rangeChanged={handleRangeChanged}
         increaseViewportBy={{ top: 500, bottom: 200 }}
         itemContent={renderItem}
         components={{ Header: headerComponent }}
