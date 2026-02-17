@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckIcon from '@mui/icons-material/Check';
 import { highlightJson } from '../markdown';
 
 interface ToolResultProps {
@@ -41,7 +44,30 @@ function escapeHtml(str: string): string {
 
 export default function ToolResult({ toolName, content }: ToolResultProps) {
   const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
   const mediaInfo = detectMedia(content);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  const copyButton = (
+    <IconButton
+      size="small"
+      onClick={handleCopy}
+      sx={{
+        marginLeft: 'auto',
+        padding: '2px',
+        color: copied ? 'primary.main' : 'text.secondary',
+        '&:hover': { color: copied ? 'primary.main' : 'text.primary' },
+      }}
+    >
+      {copied ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 14 }} />}
+    </IconButton>
+  );
 
   const resultBorderColor = (theme: any) => theme.palette.mode === 'dark' ? '#2a3a1a' : '#c5d5a5';
   const resultBgColor = (theme: any) => theme.palette.mode === 'dark' ? '#161a10' : '#f0f5e5';
@@ -74,6 +100,7 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
             sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
           />
           <Typography variant="caption">{t('tool.result')}</Typography>
+          {copyButton}
         </Box>
         <Box sx={{ borderRadius: 0.5, overflow: 'hidden' }}>
           <img
@@ -120,6 +147,7 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
           sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
         />
         <Typography variant="caption">{t('tool.result')}</Typography>
+        {copyButton}
       </Box>
       <Box
         component="pre"

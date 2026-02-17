@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckIcon from '@mui/icons-material/Check';
 import { highlightJson } from '../markdown';
 
 interface ToolInvokeProps {
@@ -12,6 +15,15 @@ interface ToolInvokeProps {
 
 export default function ToolInvoke({ toolName, args }: ToolInvokeProps) {
   const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(args).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
   return (
     <Box
       sx={{
@@ -34,6 +46,18 @@ export default function ToolInvoke({ toolName, args }: ToolInvokeProps) {
           sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
         />
         <Typography variant="caption">{t('tool.called')}</Typography>
+        <IconButton
+          size="small"
+          onClick={handleCopy}
+          sx={{
+            marginLeft: 'auto',
+            padding: '2px',
+            color: copied ? 'primary.main' : 'text.secondary',
+            '&:hover': { color: copied ? 'primary.main' : 'text.primary' },
+          }}
+        >
+          {copied ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 14 }} />}
+        </IconButton>
       </Box>
       <Box
         component="pre"
