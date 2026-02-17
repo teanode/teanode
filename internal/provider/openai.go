@@ -43,7 +43,7 @@ type ChatRequest struct {
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	MaxTokens     int            `json:"max_tokens,omitempty"`
 	Temperature   *float64       `json:"temperature,omitempty"`
-	Tools         []ToolDef      `json:"tools,omitempty"`
+	Tools         []ToolDefinition `json:"tools,omitempty"`
 }
 
 // ChatMessage is a single message in the conversation.
@@ -55,8 +55,8 @@ type ChatMessage struct {
 	Name       string     `json:"name,omitempty"`
 }
 
-// ToolDef defines a tool available to the model.
-type ToolDef struct {
+// ToolDefinition defines a tool available to the model.
+type ToolDefinition struct {
 	Type     string       `json:"type"`
 	Function FunctionSpec `json:"function"`
 }

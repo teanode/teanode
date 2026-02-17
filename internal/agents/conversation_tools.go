@@ -26,8 +26,8 @@ type listConversationsTool struct {
 	conversations *conversations.Store
 }
 
-func (self *listConversationsTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *listConversationsTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "conversation_list",
@@ -125,8 +125,8 @@ type compactConversationTool struct {
 	config        *configs.Config
 }
 
-func (self *compactConversationTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *compactConversationTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "conversation_compact",

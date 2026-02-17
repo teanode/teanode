@@ -30,8 +30,8 @@ type searchTool struct {
 	apiKey string
 }
 
-func (self *searchTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *searchTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "web_search",

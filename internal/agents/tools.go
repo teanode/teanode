@@ -9,7 +9,7 @@ import (
 
 // Tool is something the LLM can invoke during a conversation.
 type Tool interface {
-	Definition() provider.ToolDef
+	Definition() provider.ToolDefinition
 	Execute(ctx context.Context, arguments string) (string, error)
 }
 
@@ -61,8 +61,8 @@ func (self *ToolRegistry) ApplyFilter(allowed []string) {
 }
 
 // Definitions returns all tool definitions for the chat request.
-func (self *ToolRegistry) Definitions() []provider.ToolDef {
-	definitions := make([]provider.ToolDef, 0, len(self.tools))
+func (self *ToolRegistry) Definitions() []provider.ToolDefinition {
+	definitions := make([]provider.ToolDefinition, 0, len(self.tools))
 	for _, tool := range self.tools {
 		definitions = append(definitions, tool.Definition())
 	}

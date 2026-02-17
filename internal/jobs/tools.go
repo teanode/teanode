@@ -25,8 +25,8 @@ func RegisterTools(registry *agents.ToolRegistry, scheduler *Scheduler) {
 
 type jobListTool struct{ scheduler *Scheduler }
 
-func (self *jobListTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *jobListTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "jobs_list",
@@ -51,8 +51,8 @@ func (self *jobListTool) Execute(_ context.Context, _ string) (string, error) {
 
 type jobCreateTool struct{ scheduler *Scheduler }
 
-func (self *jobCreateTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *jobCreateTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name: "jobs_create",
@@ -190,8 +190,8 @@ func (self *jobCreateTool) Execute(ctx context.Context, rawArguments string) (st
 
 type jobUpdateTool struct{ scheduler *Scheduler }
 
-func (self *jobUpdateTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *jobUpdateTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "jobs_update",
@@ -292,8 +292,8 @@ func (self *jobUpdateTool) Execute(_ context.Context, rawArguments string) (stri
 
 type jobDeleteTool struct{ scheduler *Scheduler }
 
-func (self *jobDeleteTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *jobDeleteTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "jobs_delete",
@@ -337,8 +337,8 @@ func (self *jobDeleteTool) Execute(_ context.Context, rawArguments string) (stri
 
 type jobTriggerTool struct{ scheduler *Scheduler }
 
-func (self *jobTriggerTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *jobTriggerTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "jobs_trigger",

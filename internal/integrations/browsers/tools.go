@@ -46,8 +46,8 @@ func resolveSessionId(browser Browser, connectionId string) (string, error) {
 
 type browserNavigateTool struct{ browser Browser }
 
-func (self *browserNavigateTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserNavigateTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_navigate",
@@ -102,8 +102,8 @@ func (self *browserNavigateTool) Execute(ctx context.Context, input string) (str
 
 type browserScreenshotTool struct{ browser Browser }
 
-func (self *browserScreenshotTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserScreenshotTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_screenshot",
@@ -163,8 +163,8 @@ func (self *browserScreenshotTool) Execute(ctx context.Context, input string) (s
 
 type browserSnapshotTool struct{ browser Browser }
 
-func (self *browserSnapshotTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserSnapshotTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_snapshot",
@@ -303,8 +303,8 @@ func buildAXTree(nodes []accessibilityNode) string {
 
 type browserClickTool struct{ browser Browser }
 
-func (self *browserClickTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserClickTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_click",
@@ -394,8 +394,8 @@ func (self *browserClickTool) Execute(ctx context.Context, input string) (string
 
 type browserTypeTool struct{ browser Browser }
 
-func (self *browserTypeTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserTypeTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_type",
@@ -467,8 +467,8 @@ func (self *browserTypeTool) Execute(ctx context.Context, input string) (string,
 
 type browserPressKeyTool struct{ browser Browser }
 
-func (self *browserPressKeyTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserPressKeyTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_press_key",
@@ -582,8 +582,8 @@ func keyInfo(key string) keyData {
 
 type browserEvaluateTool struct{ browser Browser }
 
-func (self *browserEvaluateTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserEvaluateTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_evaluate",
@@ -658,8 +658,8 @@ func (self *browserEvaluateTool) Execute(ctx context.Context, input string) (str
 
 type browserTabListTool struct{ browser Browser }
 
-func (self *browserTabListTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserTabListTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_tab_list",
@@ -712,8 +712,8 @@ func (self *browserTabListTool) Execute(_ context.Context, _ string) (string, er
 
 type browserTabOpenTool struct{ browser Browser }
 
-func (self *browserTabOpenTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserTabOpenTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_tab_open",
@@ -774,8 +774,8 @@ func (self *browserTabOpenTool) Execute(ctx context.Context, input string) (stri
 
 type browserTabCloseTool struct{ browser Browser }
 
-func (self *browserTabCloseTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserTabCloseTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_tab_close",
@@ -827,8 +827,8 @@ func (self *browserTabCloseTool) Execute(ctx context.Context, input string) (str
 
 type browserTabActivateTool struct{ browser Browser }
 
-func (self *browserTabActivateTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *browserTabActivateTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "browser_tab_activate",

@@ -32,7 +32,7 @@ func estimateMessageTokens(message provider.ChatMessage) int {
 }
 
 // estimateToolDefsTokens estimates the token overhead of tool definitions.
-func estimateToolDefsTokens(tools []provider.ToolDef) int {
+func estimateToolDefsTokens(tools []provider.ToolDefinition) int {
 	tokens := 0
 	for _, tool := range tools {
 		tokens += estimateTokens(tool.Function.Name) + estimateTokens(tool.Function.Description)
@@ -108,7 +108,7 @@ func (self *Runner) compressContext(
 	providers *provider.Registry,
 	cfg *configs.Config,
 	messages []provider.ChatMessage,
-	toolDefs []provider.ToolDef,
+	toolDefs []provider.ToolDefinition,
 	conversationId string,
 	contextWindow int,
 	limits configs.AgentLimits,

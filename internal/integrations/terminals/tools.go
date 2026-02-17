@@ -30,8 +30,8 @@ func resolveConnectionId(relay *Relay, connectionId string) (string, error) {
 
 type terminalConnectionListTool struct{ relay *Relay }
 
-func (self *terminalConnectionListTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *terminalConnectionListTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "terminal_connection_list",
@@ -96,8 +96,8 @@ func (self *terminalConnectionListTool) Execute(_ context.Context, _ string) (st
 
 type terminalScreenshotTool struct{ relay *Relay }
 
-func (self *terminalScreenshotTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *terminalScreenshotTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "terminal_screenshot",
@@ -150,8 +150,8 @@ func (self *terminalScreenshotTool) Execute(ctx context.Context, rawArguments st
 
 type terminalTypeTool struct{ relay *Relay }
 
-func (self *terminalTypeTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *terminalTypeTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "terminal_type",
@@ -206,8 +206,8 @@ func (self *terminalTypeTool) Execute(ctx context.Context, rawArguments string) 
 
 type terminalPressKeyTool struct{ relay *Relay }
 
-func (self *terminalPressKeyTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *terminalPressKeyTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "terminal_press_key",

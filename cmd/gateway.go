@@ -27,7 +27,7 @@ import (
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/provider"
-	"github.com/teanode/teanode/internal/skill"
+	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/tools/fetch"
 	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/workspace"
@@ -145,7 +145,7 @@ func NewGatewayCommand() *cli.Command {
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)
 				}
-				skillPrompts := skill.RegisterSkillsFiltered(tools, skillsDirectory, agentConfig.Skills)
+				skillPrompts := skills.RegisterSkillsFiltered(tools, skillsDirectory, agentConfig.Skills)
 				agents.RegisterInterAgentTools(tools, agentConfig.ID, agentRegistry, configuration)
 				tools.ApplyFilter(agentConfig.Tools)
 				return tools, skillPrompts

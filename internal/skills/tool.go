@@ -1,4 +1,4 @@
-package skill
+package skills
 
 import (
 	"bytes"
@@ -21,11 +21,11 @@ const (
 
 // ShellTool implements agent.Tool for shell-type skill tools.
 type ShellTool struct {
-	definition ToolDef
+	definition ToolDefinition
 }
 
-func (self *ShellTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *ShellTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        self.definition.Name,
@@ -80,11 +80,11 @@ func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string
 
 // HTTPTool implements agent.Tool for http-type skill tools.
 type HTTPTool struct {
-	definition ToolDef
+	definition ToolDefinition
 }
 
-func (self *HTTPTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *HTTPTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        self.definition.Name,

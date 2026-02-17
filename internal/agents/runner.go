@@ -224,7 +224,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		llmMessages = truncateOldToolResults(llmMessages, limits.MinKeepMessages, limits.MaxToolResultChars)
 
 		// Build tool definitions for the request.
-		var toolDefs []provider.ToolDef
+		var toolDefs []provider.ToolDefinition
 		if tools != nil {
 			toolDefs = tools.Definitions()
 		}

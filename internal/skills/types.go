@@ -1,15 +1,15 @@
-package skill
+package skills
 
-// SkillDef is the YAML structure of a skill file.
-type SkillDef struct {
-	Name        string    `json:"name" yaml:"name"`
-	Description string    `json:"description,omitempty" yaml:"description,omitempty"`
-	Prompt      string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	Tools       []ToolDef `json:"tools" yaml:"tools"`
+// SkillDefinition is the YAML structure of a skill file.
+type SkillDefinition struct {
+	Name        string           `json:"name" yaml:"name"`
+	Description string           `json:"description,omitempty" yaml:"description,omitempty"`
+	Prompt      string           `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Tools       []ToolDefinition `json:"tools" yaml:"tools"`
 }
 
-// ToolDef is one tool inside a skill.
-type ToolDef struct {
+// ToolDefinition is one tool inside a skill.
+type ToolDefinition struct {
 	Name        string      `json:"name" yaml:"name"`
 	Description string      `json:"description" yaml:"description"`
 	Type        string      `json:"type" yaml:"type"`             // "shell" or "http"

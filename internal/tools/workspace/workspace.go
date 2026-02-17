@@ -40,8 +40,8 @@ func safePath(memoryDirectory, rel string) (string, error) {
 
 type readTool struct{ directory string }
 
-func (self *readTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *readTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "workspace_read",
@@ -82,8 +82,8 @@ func (self *readTool) Execute(_ context.Context, rawArguments string) (string, e
 
 type writeTool struct{ directory string }
 
-func (self *writeTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *writeTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "workspace_write",
@@ -128,8 +128,8 @@ func (self *writeTool) Execute(_ context.Context, rawArguments string) (string, 
 
 type listTool struct{ directory string }
 
-func (self *listTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *listTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "workspace_list",
@@ -167,8 +167,8 @@ func (self *listTool) Execute(_ context.Context, _ string) (string, error) {
 
 type appendTool struct{ directory string }
 
-func (self *appendTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *appendTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "workspace_append",
@@ -221,8 +221,8 @@ func (self *appendTool) Execute(_ context.Context, rawArguments string) (string,
 
 type deleteTool struct{ directory string }
 
-func (self *deleteTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *deleteTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "workspace_delete",
@@ -279,8 +279,8 @@ func (self *deleteTool) Execute(_ context.Context, rawArguments string) (string,
 
 type searchTool struct{ directory string }
 
-func (self *searchTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *searchTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "workspace_search",

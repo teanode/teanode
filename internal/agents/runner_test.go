@@ -51,8 +51,8 @@ func mockOpenAIServer(responseText string) *httptest.Server {
 // stubTool is a minimal tool for testing the runner tool-call loop.
 type stubTool struct{ name string }
 
-func (self *stubTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *stubTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type:     "function",
 		Function: provider.FunctionSpec{Name: self.name},
 	}

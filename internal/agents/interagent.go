@@ -41,8 +41,8 @@ type agentListTool struct {
 	configuration *configs.Config
 }
 
-func (self *agentListTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *agentListTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "agent_list",
@@ -96,8 +96,8 @@ type agentMessageTool struct {
 	configuration *configs.Config
 }
 
-func (self *agentMessageTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *agentMessageTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "agent_message",
@@ -201,8 +201,8 @@ type subagentSpawnTool struct {
 	configuration *configs.Config
 }
 
-func (self *subagentSpawnTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *subagentSpawnTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "subagent_spawn",

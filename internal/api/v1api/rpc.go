@@ -9,7 +9,7 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/jobs"
-	"github.com/teanode/teanode/internal/skill"
+	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/ulid"
 	"github.com/teanode/teanode/internal/version"
@@ -498,7 +498,7 @@ func (self *webSocketConnection) handleAgentsConfigSchema(frame requestFrame) {
 	// Collect skill names from the skills directory.
 	skillsDirectory, err := configs.SkillsDirectory()
 	if err == nil {
-		suggestions["skill"] = skill.Names(skillsDirectory)
+		suggestions["skill"] = skills.Names(skillsDirectory)
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{

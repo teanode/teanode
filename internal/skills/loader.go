@@ -1,4 +1,4 @@
-package skill
+package skills
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 
 // LoadAll reads all *.yaml files from skillsDirectory and returns parsed skills.
 // Logs warnings for malformed files and continues.
-func LoadAll(skillsDirectory string) ([]SkillDef, error) {
+func LoadAll(skillsDirectory string) ([]SkillDefinition, error) {
 	entries, err := os.ReadDir(skillsDirectory)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -20,7 +20,7 @@ func LoadAll(skillsDirectory string) ([]SkillDef, error) {
 		return nil, err
 	}
 
-	var skills []SkillDef
+	var skills []SkillDefinition
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
@@ -33,7 +33,7 @@ func LoadAll(skillsDirectory string) ([]SkillDef, error) {
 			continue
 		}
 
-		var skill SkillDef
+		var skill SkillDefinition
 		if err := yaml.Unmarshal(data, &skill); err != nil {
 			log.Warningf("failed to parse %s: %v", entry.Name(), err)
 			continue
@@ -45,7 +45,7 @@ func LoadAll(skillsDirectory string) ([]SkillDef, error) {
 		}
 
 		// Validate tools, keeping only valid ones.
-		var validTools []ToolDef
+		var validTools []ToolDefinition
 		for _, tool := range skill.Tools {
 			if err := validateTool(tool); err != nil {
 				log.Warningf("skill %s: tool %q invalid: %v", skill.Name, tool.Name, err)
@@ -66,7 +66,7 @@ func LoadAll(skillsDirectory string) ([]SkillDef, error) {
 	return skills, nil
 }
 
-func validateTool(tool ToolDef) error {
+func validateTool(tool ToolDefinition) error {
 	if tool.Name == "" {
 		return fmt.Errorf("missing name")
 	}

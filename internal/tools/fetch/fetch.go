@@ -24,8 +24,8 @@ func RegisterTools(registry *agents.ToolRegistry) {
 
 type fetchTool struct{}
 
-func (self *fetchTool) Definition() provider.ToolDef {
-	return provider.ToolDef{
+func (self *fetchTool) Definition() provider.ToolDefinition {
+	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "web_fetch",
