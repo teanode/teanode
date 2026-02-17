@@ -627,6 +627,16 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 			reply = "No active agent available."
 		}
 
+	case "restart":
+		discordSession.ChannelMessageSend(channelId, "Restarting gateway...")
+		self.gateway.RequestLifecycle(gw.LifecycleRestart)
+		return
+
+	case "terminate":
+		discordSession.ChannelMessageSend(channelId, "Shutting down gateway...")
+		self.gateway.RequestLifecycle(gw.LifecycleShutdown)
+		return
+
 	case "help":
 		reply = slashcommands.HelpText()
 	}

@@ -190,6 +190,8 @@ func (self *Bot) Start() error {
 		tgbotapi.BotCommand{Command: "agent", Description: "Show or switch the active agent"},
 		tgbotapi.BotCommand{Command: "status", Description: "Show bot status"},
 		tgbotapi.BotCommand{Command: "compact", Description: "Compact current conversation history"},
+		tgbotapi.BotCommand{Command: "restart", Description: "Restart the gateway"},
+		tgbotapi.BotCommand{Command: "terminate", Description: "Shut down the gateway"},
 		tgbotapi.BotCommand{Command: "help", Description: "Show available commands"},
 		tgbotapi.BotCommand{Command: "ask", Description: "Ask the AI (required in groups)"},
 	)
@@ -687,6 +689,20 @@ func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, argum
 		} else {
 			reply = "No active agent available."
 		}
+
+	case "restart":
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Restarting gateway...")
+		msg.ReplyToMessageID = message.MessageID
+		self.api.Send(msg)
+		self.gateway.RequestLifecycle(gw.LifecycleRestart)
+		return
+
+	case "terminate":
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Shutting down gateway...")
+		msg.ReplyToMessageID = message.MessageID
+		self.api.Send(msg)
+		self.gateway.RequestLifecycle(gw.LifecycleShutdown)
+		return
 
 	case "help":
 		reply = slashcommands.HelpText()

@@ -21,6 +21,8 @@ var commands = []definition{
 	{Name: "agent", Args: "[name]", Description: "Show or switch the active agent"},
 	{Name: "status", Description: "Show bot status"},
 	{Name: "compact", Description: "Compact current conversation history"},
+	{Name: "restart", Description: "Restart the gateway"},
+	{Name: "terminate", Description: "Shut down the gateway"},
 	{Name: "help", Description: "Show available commands"},
 }
 

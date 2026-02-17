@@ -73,6 +73,14 @@ type Subscriber interface {
 	OnEvent(eventType EventType, payload interface{})
 }
 
+// LifecycleAction identifies a gateway lifecycle request.
+type LifecycleAction int
+
+const (
+	LifecycleShutdown LifecycleAction = iota
+	LifecycleRestart
+)
+
 // Gateway is the main domain interface for the TeaNode gateway.
 type Gateway interface {
 	// Configuration access
@@ -116,6 +124,11 @@ type Gateway interface {
 
 	// ListenAddress returns the host:port the server should bind to.
 	ListenAddress() string
+
+	// Lifecycle controls
+	RequestLifecycle(action LifecycleAction)
+	ScheduleLifecycle(action LifecycleAction)
+	LifecycleChannel() <-chan LifecycleAction
 }
 
 // New creates a new Gateway.
@@ -129,15 +142,16 @@ func New(
 	mediaStore *media.Store,
 ) Gateway {
 	return &gateway{
-		config:        configuration,
-		agentRegistry: agentRegistry,
-		browserRelay:  browserRelay,
-		terminalRelay: terminalRelay,
-		scheduler:     scheduler,
-		summarizer:    summarizer,
-		mediaStore:    mediaStore,
-		subscribers:   make(map[Subscriber]struct{}),
-		activeRuns:    make(map[string]*activeRun),
-		runIndex:      make(map[string]string),
+		config:           configuration,
+		agentRegistry:    agentRegistry,
+		browserRelay:     browserRelay,
+		terminalRelay:    terminalRelay,
+		scheduler:        scheduler,
+		summarizer:       summarizer,
+		mediaStore:       mediaStore,
+		subscribers:      make(map[Subscriber]struct{}),
+		activeRuns:       make(map[string]*activeRun),
+		runIndex:         make(map[string]string),
+		lifecycleChannel: make(chan LifecycleAction, 1),
 	}
 }

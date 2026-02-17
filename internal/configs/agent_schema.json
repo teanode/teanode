@@ -7,6 +7,12 @@
       "title": "Name",
       "description": "Friendly display name for this agent."
     },
+    "description": {
+      "type": "string",
+      "title": "Description",
+      "description": "Short description of what this agent specializes in. Shown to other agents for routing decisions.",
+      "x-widget": "textarea"
+    },
     "model": {
       "type": "string",
       "title": "Model",
@@ -77,7 +83,7 @@
     }
   },
   "x-sections": [
-    { "id": "general", "title": "General", "description": "Core agent settings.", "properties": ["name", "model", "systemPrompt", "canMessage", "tools", "skills"] },
+    { "id": "general", "title": "General", "description": "Core agent settings.", "properties": ["name", "description", "model", "systemPrompt", "canMessage", "tools", "skills"] },
     { "id": "limits", "title": "Limits", "description": "Runtime limits for the tool loop, context compression, and prompt construction.", "properties": ["maxToolRounds", "compressionThreshold", "minKeepMessages", "maxToolResultChars", "maxWorkspaceFileChars"] }
   ]
 }

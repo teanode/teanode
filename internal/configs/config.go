@@ -131,6 +131,7 @@ const DefaultAgentID = "main"
 type AgentConfig struct {
 	ID                    string   `json:"id" yaml:"id"`                                                           // unique; "main" is default
 	Name                  string   `json:"name,omitempty" yaml:"name,omitempty"`                                   // friendly display name
+	Description           string   `json:"description,omitempty" yaml:"description,omitempty"`                     // short routing description
 	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`                                 // qualified model override (e.g. "openai:gpt-4o")
 	SystemPrompt          string   `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`                   // per-agent identity line override
 	Skills                []string `json:"skills,omitempty" yaml:"skills,omitempty"`                               // skill allow list (nil = all)

@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/version"
 )
 
-const defaultIdentityLine = "You are a personal AI assistant running inside TeaNode."
+const defaultIdentityLine = "You are a personal AI assistant running inside TeaNode, hosted by the gateway process."
 
 //go:embed systemprompt.txt
 var systemPromptTemplate string
@@ -21,6 +22,7 @@ var parsedSystemPrompt = template.Must(template.New("systemprompt").Parse(system
 
 type systemPromptData struct {
 	IdentityLine  string
+	Version       string
 	DateTime      string
 	Timezone      string
 	Today         string
@@ -46,6 +48,7 @@ func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceD
 
 	data := systemPromptData{
 		IdentityLine: identityLine,
+		Version:      version.Version(),
 		DateTime:     now.Format("2006-01-02 15:04:05"),
 		Timezone:     now.Location().String(),
 		Today:        today,

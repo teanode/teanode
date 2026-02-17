@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -41,6 +42,9 @@ import (
 	"github.com/teanode/teanode/internal/web"
 	"github.com/urfave/cli/v3"
 )
+
+// ErrRestart is returned from the gateway command when a restart was requested.
+var ErrRestart = errors.New("restart requested")
 
 func NewGatewayCommand() *cli.Command {
 	return &cli.Command{
@@ -132,6 +136,11 @@ func NewGatewayCommand() *cli.Command {
 
 			agentRegistry := agents.NewAgentRegistry()
 
+			// gateway is declared here so buildToolsForAgent can capture it via closure.
+			// It is assigned after runners are created, but tools are never called until
+			// bots and the API server start, which happens after assignment.
+			var gateway gw.Gateway
+
 			// buildToolsForAgent creates a fresh tool registry for the given agents.
 			buildToolsForAgent := func(
 				configuration *configs.Config,
@@ -155,6 +164,7 @@ func NewGatewayCommand() *cli.Command {
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)
 				}
+				gw.RegisterTools(tools, func(action gw.LifecycleAction) { gateway.ScheduleLifecycle(action) })
 				skillPrompts := skills.RegisterSkillsFiltered(tools, skillsDirectory, agentConfig.Skills)
 				agents.RegisterInterAgentTools(tools, agentConfig.ID, agentRegistry, configuration)
 				tools.ApplyFilter(agentConfig.Tools)
@@ -210,7 +220,7 @@ func NewGatewayCommand() *cli.Command {
 
 			summarizer := agents.NewSummarizer(agentRegistry, configuration)
 
-			gateway := gw.New(configuration, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore)
+			gateway = gw.New(configuration, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore)
 			api := v1api.New(gateway)
 			frontendComponent := frontend.New()
 
@@ -428,6 +438,7 @@ func NewGatewayCommand() *cli.Command {
 			// --- Run ---
 
 			var quit bool
+			var restart bool
 			var waitGroup sync.WaitGroup
 
 			// Serve HTTP in a goroutine.
@@ -459,6 +470,9 @@ func NewGatewayCommand() *cli.Command {
 					quit = true
 				case <-runningHTTP:
 					quit = true
+				case action := <-gateway.LifecycleChannel():
+					quit = true
+					restart = action == gw.LifecycleRestart
 				}
 			}
 
@@ -488,6 +502,10 @@ func NewGatewayCommand() *cli.Command {
 			}()
 
 			waitGroup.Wait()
+
+			if restart {
+				return ErrRestart
+			}
 			return nil
 		},
 	}

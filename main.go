@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -65,6 +66,17 @@ func main() {
 	defer stop()
 
 	if err := app.Run(ctx, os.Args); err != nil {
+		if errors.Is(err, cmd.ErrRestart) {
+			executablePath, executableError := os.Executable()
+			if executableError != nil {
+				fmt.Fprintf(os.Stderr, "restart failed: %v\n", executableError)
+				os.Exit(1)
+			}
+			fmt.Fprintln(os.Stderr, "restarting...")
+			execError := syscall.Exec(executablePath, os.Args, os.Environ())
+			fmt.Fprintf(os.Stderr, "restart failed: %v\n", execError)
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

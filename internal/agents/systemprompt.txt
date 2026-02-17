@@ -1,5 +1,6 @@
 {{.IdentityLine}}
 
+TeaNode version: {{.Version}}
 Current date and time: {{.DateTime}}
 Timezone: {{.Timezone}}
 {{- if .AgentContent}}

@@ -49,6 +49,10 @@ type gateway struct {
 	modelsMutex sync.RWMutex
 	models      map[string][]provider.ModelInfo // provider name -> models
 	modelsTime  time.Time                       // when cache was populated
+
+	lifecycleChannel       chan LifecycleAction
+	pendingLifecycleMutex  sync.Mutex
+	pendingLifecycleAction *LifecycleAction
 }
 
 // --- Configuration access ---
@@ -320,6 +324,9 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			if self.summarizer != nil {
 				self.summarizer.Notify()
 			}
+
+			// Fire any deferred lifecycle action now that the run is complete.
+			self.firePendingLifecycle()
 		}()
 
 		result, err := runner.Run(runContext, agents.RunParams{
@@ -540,6 +547,43 @@ func (self *gateway) AuthMiddleware() web.Middleware {
 			web.WriteError(writer, web.ErrUnauthorized)
 		})
 	}
+}
+
+// --- Lifecycle controls ---
+
+// RequestLifecycle sends a lifecycle action immediately (non-blocking).
+// Used by slash commands that run outside agent runs.
+func (self *gateway) RequestLifecycle(action LifecycleAction) {
+	select {
+	case self.lifecycleChannel <- action:
+	default:
+	}
+}
+
+// ScheduleLifecycle stores a pending lifecycle action that fires after the
+// current agent run completes. Used by the LLM gateway tool so the conversation
+// finishes cleanly before the gateway shuts down or restarts.
+func (self *gateway) ScheduleLifecycle(action LifecycleAction) {
+	self.pendingLifecycleMutex.Lock()
+	self.pendingLifecycleAction = &action
+	self.pendingLifecycleMutex.Unlock()
+}
+
+// firePendingLifecycle checks for a pending lifecycle action and fires it.
+// Called from run cleanup after the LLM response has been broadcast.
+func (self *gateway) firePendingLifecycle() {
+	self.pendingLifecycleMutex.Lock()
+	action := self.pendingLifecycleAction
+	self.pendingLifecycleAction = nil
+	self.pendingLifecycleMutex.Unlock()
+
+	if action != nil {
+		self.RequestLifecycle(*action)
+	}
+}
+
+func (self *gateway) LifecycleChannel() <-chan LifecycleAction {
+	return self.lifecycleChannel
 }
 
 // --- Listen address ---

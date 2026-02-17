@@ -19,6 +19,7 @@ func RegisterInterAgentTools(registry *ToolRegistry, selfAgentId string, agentRe
 	}
 
 	registry.Register(&agentListTool{
+		selfAgentId:   selfAgentId,
 		agentRegistry: agentRegistry,
 		configuration: configuration,
 	})
@@ -37,6 +38,7 @@ func RegisterInterAgentTools(registry *ToolRegistry, selfAgentId string, agentRe
 // --- agent_list ---
 
 type agentListTool struct {
+	selfAgentId   string
 	agentRegistry *AgentRegistry
 	configuration *configs.Config
 }
@@ -46,7 +48,7 @@ func (self *agentListTool) Definition() provider.ToolDefinition {
 		Type: "function",
 		Function: provider.FunctionSpec{
 			Name:        "agent_list",
-			Description: "List all available agents in the system.",
+			Description: "List all available agents with their capabilities, tools, and models.",
 			Parameters: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
@@ -59,8 +61,12 @@ func (self *agentListTool) Definition() provider.ToolDefinition {
 						"items": map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"id":   map[string]interface{}{"type": "string"},
-								"name": map[string]interface{}{"type": "string"},
+								"id":          map[string]interface{}{"type": "string", "description": "Unique agent identifier."},
+								"name":        map[string]interface{}{"type": "string", "description": "Friendly display name."},
+								"description": map[string]interface{}{"type": "string", "description": "What this agent specializes in."},
+								"model":       map[string]interface{}{"type": "string", "description": "Qualified model (e.g. openai:gpt-4o)."},
+								"tools":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Tool names available to this agent."},
+								"isSelf":      map[string]interface{}{"type": "boolean", "description": "True only for the calling agent."},
 							},
 						},
 					},
@@ -77,8 +83,21 @@ func (self *agentListTool) Execute(_ context.Context, _ string) (string, error) 
 		entry := map[string]interface{}{
 			"id": agentId,
 		}
-		if agentConfig := self.configuration.AgentByID(agentId); agentConfig != nil && agentConfig.Name != "" {
-			entry["name"] = agentConfig.Name
+		if agentConfig := self.configuration.AgentByID(agentId); agentConfig != nil {
+			if agentConfig.Name != "" {
+				entry["name"] = agentConfig.Name
+			}
+			if agentConfig.Description != "" {
+				entry["description"] = agentConfig.Description
+			}
+		}
+		entry["model"] = self.configuration.AgentModel(agentId)
+		if runner := self.agentRegistry.Get(agentId); runner != nil {
+			_, _, tools, _, _ := runner.Snapshot()
+			entry["tools"] = tools.Names()
+		}
+		if agentId == self.selfAgentId {
+			entry["isSelf"] = true
 		}
 		agents = append(agents, entry)
 	}
