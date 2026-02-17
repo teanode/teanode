@@ -29,6 +29,7 @@ import (
 	"github.com/teanode/teanode/internal/provider"
 	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/tools/fetch"
+	"github.com/teanode/teanode/internal/tools/github"
 	"github.com/teanode/teanode/internal/tools/google"
 	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/workspace"
@@ -143,6 +144,7 @@ func NewGatewayCommand() *cli.Command {
 				search.RegisterTools(tools, configuration.Tools.BraveAPIKey)
 				fetch.RegisterTools(tools)
 				google.RegisterTools(tools, configuration.Tools.Google)
+				github.RegisterTools(tools, configuration.Tools.GitHub)
 				agents.RegisterConversationTools(tools, conversations, providers, configuration)
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)

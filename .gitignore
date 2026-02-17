@@ -1,5 +1,7 @@
 /teanode
 /data
+/coverage.out
+/coverage.html
 
 # Frontend
 /web/node_modules/

@@ -127,6 +127,28 @@
               }
             }
           }
+        },
+        "github": {
+          "type": "object",
+          "title": "GitHub",
+          "description": "GitHub tools powered by the gh CLI.",
+          "properties": {
+            "binaryPath": {
+              "type": "string",
+              "title": "Binary Path",
+              "description": "Path to the gh binary. Defaults to 'gh' from PATH.",
+              "x-placeholder": "gh"
+            },
+            "services": {
+              "type": "array",
+              "title": "Services",
+              "description": "GitHub services to enable. Default: issues, pulls, repos.",
+              "items": {
+                "type": "string",
+                "enum": ["issues", "pulls", "repos", "search", "actions", "releases"]
+              }
+            }
+          }
         }
       }
     },

@@ -1,4 +1,4 @@
-.PHONY: all web clean dev test fmt lint
+.PHONY: all web clean dev test coverage format lint
 
 VERSION ?= $(shell git describe --tags 2>/dev/null || echo 0.1.0)
 COMMIT ?= $(shell git describe --match=NeVeRmAtCh --always --abbrev=40 --dirty)
@@ -21,6 +21,15 @@ teanode: web
 test:
 	go test ./...
 
+coverage:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+	@echo ""
+	@go tool cover -func=coverage.out | tail -1
+
+coverage-html: coverage
+	go tool cover -html=coverage.out -o coverage.html
+
 format:
 	gofmt -w .
 
@@ -31,3 +40,4 @@ clean:
 	rm -f teanode
 	rm -rf web/node_modules web/dist
 	rm -f internal/gateway/static/bundle.* internal/gateway/static/index.html
+	rm -f coverage.out coverage.html
