@@ -263,7 +263,15 @@ type TelegramConfig struct {
 }
 
 type ToolsConfig struct {
-	BraveAPIKey string `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
+	BraveAPIKey string        `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
+	Google      *GoogleConfig `json:"google,omitempty" yaml:"google,omitempty"`
+}
+
+// GoogleConfig controls Google Workspace tools powered by the gog CLI.
+type GoogleConfig struct {
+	BinaryPath string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"` // default: "gog"
+	Account    string   `json:"account,omitempty" yaml:"account,omitempty"`       // gog --account flag
+	Services   []string `json:"services,omitempty" yaml:"services,omitempty"`     // nil = tier 1 defaults
 }
 
 type GatewayConfig struct {
@@ -779,6 +787,12 @@ func applyEnv(configuration *Config) {
 			configuration.Channels.Telegram = &TelegramConfig{}
 		}
 		configuration.Channels.Telegram.Token = value
+	}
+	if value := os.Getenv("GOG_BINARY_PATH"); value != "" {
+		if configuration.Tools.Google == nil {
+			configuration.Tools.Google = &GoogleConfig{}
+		}
+		configuration.Tools.Google.BinaryPath = value
 	}
 	if value := os.Getenv("TEANODE_CDP_ENDPOINT"); value != "" {
 		if configuration.Integrations.Browser == nil {

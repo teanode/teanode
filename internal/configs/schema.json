@@ -99,6 +99,34 @@
           "title": "Brave API Key",
           "description": "API key for Brave web search.",
           "format": "password"
+        },
+        "google": {
+          "type": "object",
+          "title": "Google Workspace",
+          "description": "Google Workspace tools powered by the gog CLI (gogcli).",
+          "properties": {
+            "binaryPath": {
+              "type": "string",
+              "title": "Binary Path",
+              "description": "Path to the gog binary. Defaults to 'gog' from PATH.",
+              "x-placeholder": "gog"
+            },
+            "account": {
+              "type": "string",
+              "title": "Account",
+              "description": "Google account to use (passed as --account to gog).",
+              "x-placeholder": "user@gmail.com"
+            },
+            "services": {
+              "type": "array",
+              "title": "Services",
+              "description": "Google services to enable. Default: gmail, calendar, tasks.",
+              "items": {
+                "type": "string",
+                "enum": ["gmail", "calendar", "tasks", "drive", "contacts"]
+              }
+            }
+          }
         }
       }
     },
