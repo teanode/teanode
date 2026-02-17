@@ -159,6 +159,7 @@ export interface ConversationEvent {
   model?: string;
   stopReason?: string;
   originId?: string;
+  contextWindow?: number;
 }
 
 // Model types

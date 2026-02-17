@@ -617,11 +617,11 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
 		if runner != nil {
 			configuration, runnerProviders, _, _, _ := runner.Snapshot()
-			result, err := agents.CompactConversation(context.Background(), runner.Conversations, runnerProviders, configuration, conversationId, 0)
+			result, err := agents.CompactConversation(context.Background(), runner.Conversations, runnerProviders, configuration, conversationId)
 			if err != nil {
 				reply = fmt.Sprintf("Error compacting: %v", err)
 			} else {
-				reply = fmt.Sprintf("Conversation compacted. Summarized %d messages, kept %d recent messages.", result.SummarizedMessages, result.KeptMessages)
+				reply = fmt.Sprintf("Conversation compacted. Summarized %d messages.", result.SummarizedMessages)
 			}
 		} else {
 			reply = "No active agent available."

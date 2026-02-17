@@ -60,6 +60,23 @@ function getUsageNumbers(usage: Usage | undefined): { input: number; output: num
   return { input, output, total };
 }
 
+function formatUsageText(usageNumbers: { input: number; output: number; total: number }, contextWindow?: number): string {
+  let text = `${usageNumbers.input} in / ${usageNumbers.output} out \u00b7 ${usageNumbers.total} tokens`;
+  if (contextWindow && contextWindow > 0 && usageNumbers.input > 0) {
+    const percentage = (usageNumbers.input / contextWindow) * 100;
+    text += ` \u00b7 ${percentage < 1 ? '<1' : Math.round(percentage)}% context`;
+  }
+  return text;
+}
+
+/** Look up context_length for a model from the models list. */
+function findContextWindow(models: ModelInfo[], model?: string): number | undefined {
+  if (!model || !models.length) return undefined;
+  // Try exact match on id first.
+  const match = models.find((modelInfo) => modelInfo.id === model);
+  return match?.context_length;
+}
+
 /** Find the assistant message placeholder for a given runId. */
 function findRunAssistantIndex(messages: DisplayMessage[], runId: string | null): number {
   if (!runId) return messages.length - 1;
@@ -71,7 +88,7 @@ function findRunAssistantIndex(messages: DisplayMessage[], runId: string | null)
   return messages.length - 1; // fallback
 }
 
-function convertHistory(msgs: Message[]): DisplayMessage[] {
+function convertHistory(msgs: Message[], models: ModelInfo[]): DisplayMessage[] {
   const displayMessages: DisplayMessage[] = [];
   for (const message of msgs) {
     const content = extractContent(message);
@@ -98,10 +115,11 @@ function convertHistory(msgs: Message[]): DisplayMessage[] {
         displayMessages.push({ id: nextMessageId(), type: 'assistant', content, timestamp });
         const usageNumbers = getUsageNumbers(message.usage);
         if (usageNumbers) {
+          const contextWindow = findContextWindow(models, message.model);
           displayMessages.push({
             id: nextMessageId(),
             type: 'usage',
-            content: `${usageNumbers.input} in / ${usageNumbers.output} out \u00b7 ${usageNumbers.total} tokens`,
+            content: formatUsageText(usageNumbers, contextWindow),
             usage: message.usage,
             timestamp,
           });
@@ -136,10 +154,12 @@ export function useBackend() {
   const [serverActiveAgentId, setServerActiveAgentId] = useState<string>('');
   const [connected, setConnected] = useState(false);
   const currentAgentIdRef = useRef(currentAgentId);
+  const modelsRef = useRef(models);
 
   const conversationIdRef = useRef(conversationId);
   conversationIdRef.current = conversationId;
   currentAgentIdRef.current = currentAgentId;
+  modelsRef.current = models;
 
   const currentRunIdRef = useRef<string | null>(null);
   const activeRunsRef = useRef<Map<string, string>>(new Map());
@@ -413,12 +433,13 @@ export function useBackend() {
         // Add usage
         const usageNumbers = getUsageNumbers(conversationEvent.usage);
         if (usageNumbers) {
+          const contextWindow = conversationEvent.contextWindow || findContextWindow(modelsRef.current, conversationEvent.model);
           // Insert usage after the assistant message (or at the position it was)
           const insertPosition = finalText ? assistantIndex + 1 : assistantIndex;
           updated.splice(insertPosition, 0, {
             id: nextMessageId(),
             type: 'usage',
-            content: `${usageNumbers.input} in / ${usageNumbers.output} out \u00b7 ${usageNumbers.total} tokens`,
+            content: formatUsageText(usageNumbers, contextWindow),
             usage: conversationEvent.usage,
             timestamp: finalTimestamp,
           });
@@ -514,7 +535,7 @@ export function useBackend() {
       sendRpcRef.current<ConversationHistoryResult>('conversations.history', { conversationId: key, agentId: currentAgentIdRef.current || undefined })
         .then((res) => {
           if (conversationIdRef.current !== key) return;
-          const displayMessages = convertHistory(res.messages || []);
+          const displayMessages = convertHistory(res.messages || [], modelsRef.current);
           if (res.activeRunId) {
             currentRunIdRef.current = res.activeRunId;
             activeRunsRef.current.set(key, res.activeRunId);
@@ -600,7 +621,7 @@ export function useBackend() {
       sendRpc<ConversationHistoryResult>('conversations.history', { conversationId: key, agentId: resolvedAgentId })
         .then((res) => {
           if (conversationIdRef.current !== key) return;
-          const displayMessages = convertHistory(res.messages || []);
+          const displayMessages = convertHistory(res.messages || [], modelsRef.current);
 
           // Use activeRunId from server response to detect active runs
           if (res.activeRunId) {

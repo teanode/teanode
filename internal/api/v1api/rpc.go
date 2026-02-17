@@ -357,20 +357,27 @@ func (self *webSocketConnection) handleModelsList(frame requestFrame) {
 		return
 	}
 
+	configuration := self.api.gateway.Config()
+	defaultContextWindow := configuration.Models.ContextWindow
+
 	var entries []modelsListEntry
 	for providerName, modelList := range models {
 		for _, model := range modelList {
+			contextLength := model.ContextLength
+			if contextLength <= 0 {
+				contextLength = defaultContextWindow
+			}
 			entries = append(entries, modelsListEntry{
 				Provider:      providerName,
 				ID:            model.ID,
-				ContextLength: model.ContextLength,
+				ContextLength: contextLength,
 			})
 		}
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"models":       entries,
-		"defaultModel": self.api.gateway.Config().Models.Default,
+		"defaultModel": configuration.Models.Default,
 	})
 }
 

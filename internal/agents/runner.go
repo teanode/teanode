@@ -63,18 +63,18 @@ func (self *Runner) Snapshot() (config *configs.Config, providers *provider.Regi
 
 // SetModels populates the context window map for models from a given provider.
 func (self *Runner) SetModels(providerName string, models []provider.ModelInfo) {
-	for _, m := range models {
-		if m.ContextLength > 0 {
-			key := provider.QualifyModel(providerName, m.ID)
-			self.contextWindows.Store(key, m.ContextLength)
+	for _, model := range models {
+		if model.ContextLength > 0 {
+			key := provider.QualifyModel(providerName, model.ID)
+			self.contextWindows.Store(key, model.ContextLength)
 		}
 	}
 }
 
 // lookupContextWindow returns the context window for a qualified model, or 0 if unknown.
 func (self *Runner) lookupContextWindow(qualifiedModel string) int {
-	if v, ok := self.contextWindows.Load(qualifiedModel); ok {
-		return v.(int)
+	if value, ok := self.contextWindows.Load(qualifiedModel); ok {
+		return value.(int)
 	}
 	return 0
 }
@@ -88,11 +88,12 @@ type RunParams struct {
 
 // RunResult holds the result of a completed agent run.
 type RunResult struct {
-	RunID      string
-	Response   string
-	Usage      *conversations.Usage
-	Model      string
-	StopReason string
+	RunID         string
+	Response      string
+	Usage         *conversations.Usage
+	Model         string
+	StopReason    string
+	ContextWindow int // context window size of the model used
 }
 
 // RunCallbacks receives events during an agent run.
@@ -213,6 +214,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	var responseText string
 	var responseModel string
 	var stopReason string
+	var contextWindow int
 
 	for round := 0; round < limits.MaxToolRounds; round++ {
 		log.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
@@ -231,7 +233,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 
 		// Tier 2: compress context if approaching the context window limit.
 		// Use per-model context window if available, otherwise fall back to configs.
-		contextWindow := self.lookupContextWindow(qualifiedModel)
+		contextWindow = self.lookupContextWindow(qualifiedModel)
 		if contextWindow <= 0 {
 			contextWindow = configuration.Models.ContextWindow
 		}
@@ -460,11 +462,12 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	log.Debugf("run done id=%s model=%s stop=%s", runId, responseModel, stopReason)
 
 	return &RunResult{
-		RunID:      runId,
-		Response:   responseText,
-		Usage:      totalUsage,
-		Model:      responseModel,
-		StopReason: stopReason,
+		RunID:         runId,
+		Response:      responseText,
+		Usage:         totalUsage,
+		Model:         responseModel,
+		StopReason:    stopReason,
+		ContextWindow: contextWindow,
 	}, nil
 }
 
@@ -501,6 +504,21 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 			})
 			startIndex = index + 1
 			break
+		}
+	}
+
+	// Skip the remainder of any in-progress run after the summary. When a
+	// summary is appended mid-run (e.g. conversation_compact tool or
+	// auto-compression), messages from that run follow the summary on disk.
+	// Advance past the next complete LLM turn (an assistant message with a
+	// terminal stopReason) so we start from a clean boundary.
+	if startIndex < len(history) && history[startIndex].Role != "user" {
+		for startIndex < len(history) {
+			message := history[startIndex]
+			startIndex++
+			if message.StopReason != "" && message.StopReason != "tool_calls" && message.StopReason != "context_summary" {
+				break
+			}
 		}
 	}
 

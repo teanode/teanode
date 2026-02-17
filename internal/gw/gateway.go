@@ -366,6 +366,9 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 		if result.Usage != nil {
 			payload["usage"] = result.Usage
 		}
+		if result.ContextWindow > 0 {
+			payload["contextWindow"] = result.ContextWindow
+		}
 		self.Broadcast(EventTypeConversation, payload)
 	}()
 

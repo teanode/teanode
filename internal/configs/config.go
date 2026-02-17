@@ -734,9 +734,10 @@ func defaults() *Config {
 			},
 		},
 		Models: ModelsConfig{
-			Default:  "gpt-5.1",
-			Provider: "openai",
-			BaseURL:  "https://api.openai.com/v1",
+			Default:       "gpt-5.1",
+			Provider:      "openai",
+			BaseURL:       "https://api.openai.com/v1",
+			ContextWindow: schemaInt(configDefaults, "models.contextWindow"),
 		},
 	}
 }
@@ -761,6 +762,9 @@ func applyDefaults(configuration *Config) {
 	}
 	if configuration.Models.BaseURL == "" && len(configuration.Models.Providers) == 0 {
 		configuration.Models.BaseURL = fallback.Models.BaseURL
+	}
+	if configuration.Models.ContextWindow <= 0 {
+		configuration.Models.ContextWindow = fallback.Models.ContextWindow
 	}
 }
 

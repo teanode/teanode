@@ -142,10 +142,6 @@ func (self *compactConversationTool) Definition() provider.ToolDefinition {
 						"type":        "integer",
 						"description": "Number of messages that were summarized.",
 					},
-					"keptMessages": map[string]interface{}{
-						"type":        "integer",
-						"description": "Number of recent messages preserved.",
-					},
 					"summaryLength": map[string]interface{}{
 						"type":        "integer",
 						"description": "Character length of the generated summary.",
@@ -162,7 +158,7 @@ func (self *compactConversationTool) Execute(ctx context.Context, rawArguments s
 		return "", fmt.Errorf("no active conversation")
 	}
 
-	compactResult, err := CompactConversation(ctx, self.conversations, self.providers, self.config, conversationId, 0)
+	compactResult, err := CompactConversation(ctx, self.conversations, self.providers, self.config, conversationId)
 	if err != nil {
 		return "", err
 	}

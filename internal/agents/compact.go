@@ -11,50 +11,33 @@ import (
 	"github.com/teanode/teanode/internal/provider"
 )
 
-const defaultMinKeepMessages = 6
-
 // CompactResult holds the outcome of a conversation compaction.
 type CompactResult struct {
 	SummarizedMessages int `json:"summarizedMessages"`
-	KeptMessages       int `json:"keptMessages"`
 	SummaryLength      int `json:"summaryLength"`
 }
 
-// CompactConversation summarizes older messages in a conversation and appends
-// a summary message. minKeepMessages controls how many recent messages to
-// preserve; 0 uses the default of 6.
+// CompactConversation summarizes all messages in a conversation and appends
+// a summary message. Future runs will start from the summary, discarding
+// everything before it.
 func CompactConversation(
 	ctx context.Context,
 	store *conversations.Store,
 	providers *provider.Registry,
 	configuration *configs.Config,
 	conversationId string,
-	minKeepMessages int,
 ) (*CompactResult, error) {
-	if minKeepMessages <= 0 {
-		minKeepMessages = defaultMinKeepMessages
-	}
-
 	messages, err := store.Load(conversationId)
 	if err != nil {
 		return nil, fmt.Errorf("loading conversation: %w", err)
 	}
-	if len(messages) <= minKeepMessages {
-		return nil, fmt.Errorf("conversation has too few messages to compact (%d messages, need more than %d)", len(messages), minKeepMessages)
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("conversation is empty")
 	}
 
-	// Find a safe split point that doesn't break tool call/result pairs.
-	// We work on conversations.Message, adapting the findKeepBoundary logic.
-	keepIndex := findConversationKeepBoundary(messages, minKeepMessages)
-	if keepIndex <= 0 {
-		return nil, fmt.Errorf("nothing to compact")
-	}
-
-	toSummarize := messages[:keepIndex]
-
-	// Build text from messages to summarize.
+	// Build text from all messages.
 	var builder strings.Builder
-	for _, message := range toSummarize {
+	for _, message := range messages {
 		role := message.Role
 		if role == "tool" && message.ToolName != "" {
 			role = fmt.Sprintf("tool(%s)", message.ToolName)
@@ -94,7 +77,7 @@ func CompactConversation(
 	var summaryText string
 	response, err := client.ChatCompletion(ctx, summaryRequest)
 	if err != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.Content) == "" {
-		summaryText = fmt.Sprintf("[Earlier conversation with %d messages was dropped due to compaction]", len(toSummarize))
+		summaryText = fmt.Sprintf("[Earlier conversation with %d messages was dropped due to compaction]", len(messages))
 	} else {
 		summaryText = strings.TrimSpace(response.Choices[0].Message.Content)
 	}
@@ -105,42 +88,10 @@ func CompactConversation(
 		return nil, fmt.Errorf("saving summary: %w", err)
 	}
 
-	keptMessages := len(messages) - keepIndex
-	log.Debugf("conversation compacted: %d messages summarized, %d kept", len(toSummarize), keptMessages)
+	log.Debugf("conversation compacted: %d messages summarized", len(messages))
 
 	return &CompactResult{
-		SummarizedMessages: len(toSummarize),
-		KeptMessages:       keptMessages,
+		SummarizedMessages: len(messages),
 		SummaryLength:      len(summaryText),
 	}, nil
-}
-
-// findConversationKeepBoundary walks backward from the target split point to
-// find an index where we can safely split without breaking tool call/result pairs.
-// Returns the index of the first message to keep (everything before it gets summarized).
-func findConversationKeepBoundary(messages []conversations.Message, minKeep int) int {
-	if len(messages) <= minKeep {
-		return 0
-	}
-	target := len(messages) - minKeep
-
-	index := target
-	for index > 0 {
-		if messages[index].Role == "tool" {
-			for index > 0 && messages[index].Role == "tool" {
-				index--
-			}
-			// index now points at the assistant message with tool calls; include it
-			continue
-		}
-
-		if index > 0 && messages[index-1].Role == "assistant" && len(messages[index-1].ToolCalls) > 0 {
-			index--
-			continue
-		}
-
-		break
-	}
-
-	return index
 }
