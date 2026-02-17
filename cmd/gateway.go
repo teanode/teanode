@@ -29,10 +29,12 @@ import (
 	"github.com/teanode/teanode/internal/provider"
 	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/tools/fetch"
+	"github.com/teanode/teanode/internal/tools/filesystem"
 	"github.com/teanode/teanode/internal/tools/github"
 	"github.com/teanode/teanode/internal/tools/gitlab"
 	"github.com/teanode/teanode/internal/tools/google"
 	"github.com/teanode/teanode/internal/tools/search"
+	"github.com/teanode/teanode/internal/tools/shell"
 	"github.com/teanode/teanode/internal/tools/workspace"
 	"github.com/teanode/teanode/internal/version"
 	"github.com/teanode/teanode/internal/watcher"
@@ -144,6 +146,8 @@ func NewGatewayCommand() *cli.Command {
 				terminals.RegisterTerminalTools(tools, terminalRelay)
 				search.RegisterTools(tools, configuration.Tools.BraveAPIKey)
 				fetch.RegisterTools(tools)
+				filesystem.RegisterTools(tools)
+				shell.RegisterTools(tools)
 				google.RegisterTools(tools, configuration.Tools.Google)
 				github.RegisterTools(tools, configuration.Tools.GitHub)
 				gitlab.RegisterTools(tools, configuration.Tools.GitLab)

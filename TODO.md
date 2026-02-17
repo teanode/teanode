@@ -43,9 +43,9 @@
 
 - [x] Web search tool (Brave Search API)
 - [x] Web fetch / URL reading tool (HTML → markdown extraction)
-- [ ] Bash / command execution tool with approval workflow
+- [x] Shell command execution tool (sh -c with timeout, output truncation, exit code reporting)
 - [x] Memory read/write/edit/search tools (workspace-scoped filesystem)
-- [ ] General filesystem tools (read/write outside workspace)
+- [x] General filesystem tools (read, write, list, info, mkdir, delete, move)
 - [ ] Image understanding / vision tool (pass images to multimodal LLM)
 - [ ] TTS (text-to-speech) tool
 - [x] Cron / scheduled tasks tool (create, list, update, delete, trigger)
