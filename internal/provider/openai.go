@@ -37,12 +37,12 @@ type StreamOptions struct {
 
 // ChatRequest is the request body for chat completions.
 type ChatRequest struct {
-	Model         string         `json:"model"`
-	Messages      []ChatMessage  `json:"messages"`
-	Stream        bool           `json:"stream"`
-	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
-	MaxTokens     int            `json:"max_tokens,omitempty"`
-	Temperature   *float64       `json:"temperature,omitempty"`
+	Model         string           `json:"model"`
+	Messages      []ChatMessage    `json:"messages"`
+	Stream        bool             `json:"stream"`
+	StreamOptions *StreamOptions   `json:"stream_options,omitempty"`
+	MaxTokens     int              `json:"max_tokens,omitempty"`
+	Temperature   *float64         `json:"temperature,omitempty"`
 	Tools         []ToolDefinition `json:"tools,omitempty"`
 }
 

@@ -19,7 +19,7 @@ func (self *contactsTool) Definition() provider.ToolDefinition {
 	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name: "google_contacts",
+			Name:        "google_contacts",
 			Description: "Interact with Google Contacts. Actions: search (find contacts), list (all contacts).",
 			Parameters: map[string]interface{}{
 				"type": "object",
@@ -59,16 +59,16 @@ func (self *contactsTool) Execute(ctx context.Context, rawArguments string) (str
 		if args.Query == "" {
 			return "", fmt.Errorf("query is required for search action")
 		}
-		cmdArgs := []string{"contacts", "search", "--query", args.Query}
+		cmdArgs := []string{"contacts", "search", args.Query}
 		if args.Limit > 0 {
-			cmdArgs = append(cmdArgs, "--limit", strconv.Itoa(args.Limit))
+			cmdArgs = append(cmdArgs, "--max", strconv.Itoa(args.Limit))
 		}
 		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
 
 	case "list":
 		cmdArgs := []string{"contacts", "list"}
 		if args.Limit > 0 {
-			cmdArgs = append(cmdArgs, "--limit", strconv.Itoa(args.Limit))
+			cmdArgs = append(cmdArgs, "--max", strconv.Itoa(args.Limit))
 		}
 		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
 

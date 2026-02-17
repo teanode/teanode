@@ -65,9 +65,12 @@ func (self *reposTool) Execute(ctx context.Context, rawArguments string) (string
 
 	switch args.Action {
 	case "view":
-		commandArgs := []string{"repo", "view",
-			"--json", "name,description,url,defaultBranchRef,stargazerCount,isPrivate,forkCount"}
-		appendRepository(&commandArgs, args.Repository)
+		commandArgs := []string{"repo", "view"}
+		if args.Repository != "" {
+			commandArgs = append(commandArgs, args.Repository)
+		}
+		commandArgs = append(commandArgs,
+			"--json", "name,description,url,defaultBranchRef,stargazerCount,isPrivate,forkCount")
 		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
 
 	case "list":

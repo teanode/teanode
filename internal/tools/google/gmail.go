@@ -92,7 +92,7 @@ func (self *gmailTool) Execute(ctx context.Context, rawArguments string) (string
 			return "", fmt.Errorf("message_id is required for read action")
 		}
 		return execGog(ctx, self.runner, self.binary, self.account,
-			"gmail", "read", args.MessageID)
+			"gmail", "get", args.MessageID)
 
 	case "send":
 		if args.To == "" {
@@ -115,14 +115,14 @@ func (self *gmailTool) Execute(ctx context.Context, rawArguments string) (string
 			return "", fmt.Errorf("body is required for reply action")
 		}
 		return execGog(ctx, self.runner, self.binary, self.account,
-			"gmail", "reply", args.MessageID, "--body", args.Body)
+			"gmail", "send", "--reply-to-message-id", args.MessageID, "--body", args.Body)
 
 	case "trash":
 		if args.MessageID == "" {
 			return "", fmt.Errorf("message_id is required for trash action")
 		}
 		return execGog(ctx, self.runner, self.binary, self.account,
-			"gmail", "trash", args.MessageID)
+			"gmail", "thread", "modify", args.MessageID, "--add", "TRASH")
 
 	default:
 		return "", fmt.Errorf("unknown gmail action: %s", args.Action)

@@ -46,6 +46,14 @@ func (self *issuesTool) Definition() provider.ToolDefinition {
 						"type":        "string",
 						"description": "Comma-separated labels (for create and edit actions).",
 					},
+					"assignee": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by assignee username, use \"@me\" to refer to current user (for list action).",
+					},
+					"author": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by author username, use \"@me\" to refer to current user (for list action).",
+					},
 					"assignees": map[string]interface{}{
 						"type":        "string",
 						"description": "Comma-separated assignee usernames (for create action).",
@@ -81,6 +89,8 @@ func (self *issuesTool) Execute(ctx context.Context, rawArguments string) (strin
 		Title      string `json:"title"`
 		Body       string `json:"body"`
 		Labels     string `json:"labels"`
+		Assignee   string `json:"assignee"`
+		Author     string `json:"author"`
 		Assignees  string `json:"assignees"`
 		State      string `json:"state"`
 		Limit      int    `json:"limit"`
@@ -101,6 +111,12 @@ func (self *issuesTool) Execute(ctx context.Context, rawArguments string) (strin
 			"--limit", strconv.Itoa(limit)}
 		if args.State != "" {
 			commandArgs = append(commandArgs, "--state", args.State)
+		}
+		if args.Assignee != "" {
+			commandArgs = append(commandArgs, "--assignee", args.Assignee)
+		}
+		if args.Author != "" {
+			commandArgs = append(commandArgs, "--author", args.Author)
 		}
 		appendRepository(&commandArgs, args.Repository)
 		return execGitHub(ctx, self.runner, self.binary, commandArgs...)

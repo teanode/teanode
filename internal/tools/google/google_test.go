@@ -155,14 +155,99 @@ func TestGmailTool_ReadAction(t *testing.T) {
 	}
 
 	cmdArgs := (*calls)[0]
-	found := false
-	for _, arg := range cmdArgs {
+	foundGet := false
+	foundMessageID := false
+	for index, arg := range cmdArgs {
+		if arg == "gmail" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "get" {
+			foundGet = true
+		}
 		if arg == "msg123" {
-			found = true
-			break
+			foundMessageID = true
 		}
 	}
-	if !found {
+	if !foundGet {
+		t.Errorf("expected 'gmail get' in args: %v", cmdArgs)
+	}
+	if !foundMessageID {
+		t.Errorf("expected message ID in args: %v", cmdArgs)
+	}
+}
+
+func TestGmailTool_ReplyAction(t *testing.T) {
+	runner, calls := mockRunner(`{"status":"sent"}`, nil)
+	tool := &gmailTool{binary: "gog", runner: runner}
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"action":     "reply",
+		"message_id": "msg456",
+		"body":       "Thanks!",
+	})
+	_, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cmdArgs := (*calls)[0]
+	foundSend := false
+	foundReplyTo := false
+	foundBody := false
+	for index, arg := range cmdArgs {
+		if arg == "gmail" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "send" {
+			foundSend = true
+		}
+		if arg == "--reply-to-message-id" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "msg456" {
+			foundReplyTo = true
+		}
+		if arg == "--body" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "Thanks!" {
+			foundBody = true
+		}
+	}
+	if !foundSend {
+		t.Errorf("expected 'gmail send' in args: %v", cmdArgs)
+	}
+	if !foundReplyTo {
+		t.Errorf("expected '--reply-to-message-id msg456' in args: %v", cmdArgs)
+	}
+	if !foundBody {
+		t.Errorf("expected '--body' in args: %v", cmdArgs)
+	}
+}
+
+func TestGmailTool_TrashAction(t *testing.T) {
+	runner, calls := mockRunner(`{"status":"ok"}`, nil)
+	tool := &gmailTool{binary: "gog", runner: runner}
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"action":     "trash",
+		"message_id": "msg789",
+	})
+	_, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cmdArgs := (*calls)[0]
+	foundThreadModify := false
+	foundAddTrash := false
+	foundID := false
+	for index, arg := range cmdArgs {
+		if arg == "thread" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "modify" {
+			foundThreadModify = true
+		}
+		if arg == "--add" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "TRASH" {
+			foundAddTrash = true
+		}
+		if arg == "msg789" {
+			foundID = true
+		}
+	}
+	if !foundThreadModify {
+		t.Errorf("expected 'thread modify' in args: %v", cmdArgs)
+	}
+	if !foundAddTrash {
+		t.Errorf("expected '--add TRASH' in args: %v", cmdArgs)
+	}
+	if !foundID {
 		t.Errorf("expected message ID in args: %v", cmdArgs)
 	}
 }
@@ -274,15 +359,86 @@ func TestCalendarTool_CreateAction(t *testing.T) {
 	}
 }
 
+func TestCalendarTool_SearchAction(t *testing.T) {
+	runner, calls := mockRunner(`[{"summary":"Team Meeting"}]`, nil)
+	tool := &calendarTool{binary: "gog", runner: runner}
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"action": "search",
+		"query":  "team meeting",
+	})
+	_, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cmdArgs := (*calls)[0]
+	foundSearch := false
+	foundQuery := false
+	for index, arg := range cmdArgs {
+		if arg == "calendar" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "search" {
+			foundSearch = true
+		}
+		if arg == "team meeting" {
+			foundQuery = true
+		}
+		if arg == "--query" {
+			t.Errorf("should not use --query flag (query is positional): %v", cmdArgs)
+		}
+		if arg == "primary" {
+			t.Errorf("should not pass 'primary' as positional (calendar search takes query, not calendarId): %v", cmdArgs)
+		}
+	}
+	if !foundSearch {
+		t.Errorf("expected 'calendar search' in args: %v", cmdArgs)
+	}
+	if !foundQuery {
+		t.Errorf("expected query as positional arg: %v", cmdArgs)
+	}
+}
+
+func TestTasksTool_ListAction(t *testing.T) {
+	runner, calls := mockRunner(`[{"id":"task1","title":"Buy milk"}]`, nil)
+	tool := &tasksTool{binary: "gog", runner: runner}
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"action":    "list",
+		"task_list": "mylist123",
+	})
+	_, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cmdArgs := (*calls)[0]
+	foundTasksList := false
+	foundListID := false
+	for index, arg := range cmdArgs {
+		if arg == "tasks" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "list" {
+			foundTasksList = true
+		}
+		if arg == "mylist123" {
+			foundListID = true
+		}
+	}
+	if !foundTasksList {
+		t.Errorf("expected 'tasks list' in args: %v", cmdArgs)
+	}
+	if !foundListID {
+		t.Errorf("expected task list ID as positional arg: %v", cmdArgs)
+	}
+}
+
 func TestTasksTool_CreateAction(t *testing.T) {
 	runner, calls := mockRunner(`{"status":"created"}`, nil)
 	tool := &tasksTool{binary: "gog", runner: runner}
 
 	args, _ := json.Marshal(map[string]interface{}{
-		"action": "create",
-		"title":  "Buy groceries",
-		"notes":  "Milk, bread, eggs",
-		"due":    "2025-01-20",
+		"action":    "create",
+		"task_list": "mylist123",
+		"title":     "Buy groceries",
+		"notes":     "Milk, bread, eggs",
+		"due":       "2025-01-20",
 	})
 	_, err := tool.Execute(context.Background(), string(args))
 	if err != nil {
@@ -293,15 +449,19 @@ func TestTasksTool_CreateAction(t *testing.T) {
 	hasTitle := false
 	hasNotes := false
 	hasDue := false
-	for i, arg := range cmdArgs {
-		if arg == "--title" && i+1 < len(cmdArgs) && cmdArgs[i+1] == "Buy groceries" {
+	hasListID := false
+	for index, arg := range cmdArgs {
+		if arg == "--title" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "Buy groceries" {
 			hasTitle = true
 		}
-		if arg == "--notes" && i+1 < len(cmdArgs) {
+		if arg == "--notes" && index+1 < len(cmdArgs) {
 			hasNotes = true
 		}
-		if arg == "--due" && i+1 < len(cmdArgs) {
+		if arg == "--due" && index+1 < len(cmdArgs) {
 			hasDue = true
+		}
+		if arg == "mylist123" {
+			hasListID = true
 		}
 	}
 	if !hasTitle {
@@ -313,6 +473,9 @@ func TestTasksTool_CreateAction(t *testing.T) {
 	if !hasDue {
 		t.Error("expected --due in args")
 	}
+	if !hasListID {
+		t.Errorf("expected task list ID as positional arg: %v", cmdArgs)
+	}
 }
 
 func TestTasksTool_CompleteAction(t *testing.T) {
@@ -320,8 +483,9 @@ func TestTasksTool_CompleteAction(t *testing.T) {
 	tool := &tasksTool{binary: "gog", runner: runner}
 
 	args, _ := json.Marshal(map[string]interface{}{
-		"action":  "complete",
-		"task_id": "task123",
+		"action":    "complete",
+		"task_list": "mylist123",
+		"task_id":   "task123",
 	})
 	_, err := tool.Execute(context.Background(), string(args))
 	if err != nil {
@@ -329,15 +493,113 @@ func TestTasksTool_CompleteAction(t *testing.T) {
 	}
 
 	cmdArgs := (*calls)[0]
-	found := false
-	for _, arg := range cmdArgs {
+	foundComplete := false
+	foundListID := false
+	foundTaskID := false
+	for index, arg := range cmdArgs {
+		if arg == "tasks" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "complete" {
+			foundComplete = true
+		}
+		if arg == "mylist123" {
+			foundListID = true
+		}
 		if arg == "task123" {
-			found = true
-			break
+			foundTaskID = true
 		}
 	}
-	if !found {
+	if !foundComplete {
+		t.Errorf("expected 'tasks complete' in args: %v", cmdArgs)
+	}
+	if !foundListID {
+		t.Errorf("expected task list ID in args: %v", cmdArgs)
+	}
+	if !foundTaskID {
 		t.Errorf("expected task ID in args: %v", cmdArgs)
+	}
+}
+
+func TestTasksTool_DeleteAction(t *testing.T) {
+	runner, calls := mockRunner(`{"status":"deleted"}`, nil)
+	tool := &tasksTool{binary: "gog", runner: runner}
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"action":    "delete",
+		"task_list": "mylist123",
+		"task_id":   "task456",
+	})
+	_, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cmdArgs := (*calls)[0]
+	foundDelete := false
+	foundListID := false
+	foundTaskID := false
+	for index, arg := range cmdArgs {
+		if arg == "tasks" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "delete" {
+			foundDelete = true
+		}
+		if arg == "mylist123" {
+			foundListID = true
+		}
+		if arg == "task456" {
+			foundTaskID = true
+		}
+	}
+	if !foundDelete {
+		t.Errorf("expected 'tasks delete' in args: %v", cmdArgs)
+	}
+	if !foundListID {
+		t.Errorf("expected task list ID in args: %v", cmdArgs)
+	}
+	if !foundTaskID {
+		t.Errorf("expected task ID in args: %v", cmdArgs)
+	}
+}
+
+func TestTasksTool_MissingTaskList(t *testing.T) {
+	runner, _ := mockRunner("", nil)
+	tool := &tasksTool{binary: "gog", runner: runner}
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+	})
+	_, err := tool.Execute(context.Background(), string(args))
+	if err == nil || !strings.Contains(err.Error(), "task_list is required") {
+		t.Errorf("expected 'task_list is required' error, got: %v", err)
+	}
+}
+
+func TestDriveTool_ListAction(t *testing.T) {
+	runner, calls := mockRunner(`[{"name":"doc.pdf"}]`, nil)
+	tool := &driveTool{binary: "gog", runner: runner}
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+		"limit":  5,
+	})
+	_, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cmdArgs := (*calls)[0]
+	foundLs := false
+	foundMax := false
+	for index, arg := range cmdArgs {
+		if arg == "drive" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "ls" {
+			foundLs = true
+		}
+		if arg == "--max" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "5" {
+			foundMax = true
+		}
+	}
+	if !foundLs {
+		t.Errorf("expected 'drive ls' in args: %v", cmdArgs)
+	}
+	if !foundMax {
+		t.Errorf("expected '--max 5' in args: %v", cmdArgs)
 	}
 }
 
@@ -348,6 +610,7 @@ func TestDriveTool_SearchAction(t *testing.T) {
 	args, _ := json.Marshal(map[string]interface{}{
 		"action": "search",
 		"query":  "budget 2025",
+		"limit":  10,
 	})
 	_, err := tool.Execute(context.Background(), string(args))
 	if err != nil {
@@ -355,15 +618,63 @@ func TestDriveTool_SearchAction(t *testing.T) {
 	}
 
 	cmdArgs := (*calls)[0]
-	found := false
-	for i, arg := range cmdArgs {
-		if arg == "drive" && i+1 < len(cmdArgs) && cmdArgs[i+1] == "search" {
-			found = true
-			break
+	foundSearch := false
+	foundQuery := false
+	foundMax := false
+	for index, arg := range cmdArgs {
+		if arg == "drive" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "search" {
+			foundSearch = true
+		}
+		if arg == "budget 2025" {
+			foundQuery = true
+		}
+		if arg == "--max" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "10" {
+			foundMax = true
+		}
+		if arg == "--query" {
+			t.Errorf("should not use --query flag (query is positional): %v", cmdArgs)
 		}
 	}
-	if !found {
+	if !foundSearch {
 		t.Errorf("expected 'drive search' in args: %v", cmdArgs)
+	}
+	if !foundQuery {
+		t.Errorf("expected query as positional arg: %v", cmdArgs)
+	}
+	if !foundMax {
+		t.Errorf("expected '--max 10' in args: %v", cmdArgs)
+	}
+}
+
+func TestDriveTool_InfoAction(t *testing.T) {
+	runner, calls := mockRunner(`{"name":"doc.pdf","mimeType":"application/pdf"}`, nil)
+	tool := &driveTool{binary: "gog", runner: runner}
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"action":  "info",
+		"file_id": "file123",
+	})
+	_, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cmdArgs := (*calls)[0]
+	foundGet := false
+	foundFileID := false
+	for index, arg := range cmdArgs {
+		if arg == "drive" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "get" {
+			foundGet = true
+		}
+		if arg == "file123" {
+			foundFileID = true
+		}
+	}
+	if !foundGet {
+		t.Errorf("expected 'drive get' in args: %v", cmdArgs)
+	}
+	if !foundFileID {
+		t.Errorf("expected file ID in args: %v", cmdArgs)
 	}
 }
 
@@ -374,6 +685,7 @@ func TestContactsTool_SearchAction(t *testing.T) {
 	args, _ := json.Marshal(map[string]interface{}{
 		"action": "search",
 		"query":  "Alice",
+		"limit":  5,
 	})
 	_, err := tool.Execute(context.Background(), string(args))
 	if err != nil {
@@ -381,15 +693,66 @@ func TestContactsTool_SearchAction(t *testing.T) {
 	}
 
 	cmdArgs := (*calls)[0]
-	found := false
-	for i, arg := range cmdArgs {
-		if arg == "contacts" && i+1 < len(cmdArgs) && cmdArgs[i+1] == "search" {
-			found = true
-			break
+	foundSearch := false
+	foundQuery := false
+	foundMax := false
+	for index, arg := range cmdArgs {
+		if arg == "contacts" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "search" {
+			foundSearch = true
+		}
+		if arg == "Alice" {
+			foundQuery = true
+		}
+		if arg == "--max" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "5" {
+			foundMax = true
+		}
+		if arg == "--query" {
+			t.Errorf("should not use --query flag (query is positional): %v", cmdArgs)
 		}
 	}
-	if !found {
+	if !foundSearch {
 		t.Errorf("expected 'contacts search' in args: %v", cmdArgs)
+	}
+	if !foundQuery {
+		t.Errorf("expected query as positional arg: %v", cmdArgs)
+	}
+	if !foundMax {
+		t.Errorf("expected '--max 5' in args: %v", cmdArgs)
+	}
+}
+
+func TestContactsTool_ListAction(t *testing.T) {
+	runner, calls := mockRunner(`[{"name":"Alice"},{"name":"Bob"}]`, nil)
+	tool := &contactsTool{binary: "gog", runner: runner}
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+		"limit":  20,
+	})
+	_, err := tool.Execute(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cmdArgs := (*calls)[0]
+	foundList := false
+	foundMax := false
+	for index, arg := range cmdArgs {
+		if arg == "contacts" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "list" {
+			foundList = true
+		}
+		if arg == "--max" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "20" {
+			foundMax = true
+		}
+		if arg == "--limit" {
+			t.Errorf("should not use --limit flag (use --max): %v", cmdArgs)
+		}
+	}
+	if !foundList {
+		t.Errorf("expected 'contacts list' in args: %v", cmdArgs)
+	}
+	if !foundMax {
+		t.Errorf("expected '--max 20' in args: %v", cmdArgs)
 	}
 }
 

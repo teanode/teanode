@@ -67,15 +67,15 @@ func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string
 			limit = 10
 		}
 		return execGog(ctx, self.runner, self.binary, self.account,
-			"drive", "list", "--limit", strconv.Itoa(limit))
+			"drive", "ls", "--max", strconv.Itoa(limit))
 
 	case "search":
 		if args.Query == "" {
 			return "", fmt.Errorf("query is required for search action")
 		}
-		cmdArgs := []string{"drive", "search", "--query", args.Query}
+		cmdArgs := []string{"drive", "search", args.Query}
 		if args.Limit > 0 {
-			cmdArgs = append(cmdArgs, "--limit", strconv.Itoa(args.Limit))
+			cmdArgs = append(cmdArgs, "--max", strconv.Itoa(args.Limit))
 		}
 		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
 
@@ -84,7 +84,7 @@ func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string
 			return "", fmt.Errorf("file_id is required for info action")
 		}
 		return execGog(ctx, self.runner, self.binary, self.account,
-			"drive", "info", args.FileID)
+			"drive", "get", args.FileID)
 
 	default:
 		return "", fmt.Errorf("unknown drive action: %s", args.Action)

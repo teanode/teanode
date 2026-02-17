@@ -271,6 +271,56 @@ func TestIssuesTool_CloseAction(testing *testing.T) {
 	}
 }
 
+func TestIssuesTool_ListAssigneeMe(testing *testing.T) {
+	runner, calls := mockRunner(`[{"number":5}]`, nil)
+	tool := &issuesTool{binary: "gh", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action":   "list",
+		"assignee": "@me",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := (*calls)[0]
+	foundAssignee := false
+	for index, argument := range commandArgs {
+		if argument == "--assignee" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+			foundAssignee = true
+		}
+	}
+	if !foundAssignee {
+		testing.Errorf("expected '--assignee @me' in args: %v", commandArgs)
+	}
+}
+
+func TestIssuesTool_ListAuthor(testing *testing.T) {
+	runner, calls := mockRunner(`[{"number":6}]`, nil)
+	tool := &issuesTool{binary: "gh", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+		"author": "@me",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := (*calls)[0]
+	foundAuthor := false
+	for index, argument := range commandArgs {
+		if argument == "--author" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+			foundAuthor = true
+		}
+	}
+	if !foundAuthor {
+		testing.Errorf("expected '--author @me' in args: %v", commandArgs)
+	}
+}
+
 func TestIssuesTool_RepositoryOverride(testing *testing.T) {
 	runner, calls := mockRunner(`[{"number":1}]`, nil)
 	tool := &issuesTool{binary: "gh", runner: runner}
@@ -338,6 +388,56 @@ func TestPullsTool_ListAction(testing *testing.T) {
 	}
 	if !foundPRList {
 		testing.Errorf("expected 'pr list' in args: %v", commandArgs)
+	}
+}
+
+func TestPullsTool_ListAssigneeMe(testing *testing.T) {
+	runner, calls := mockRunner(`[{"number":11}]`, nil)
+	tool := &pullsTool{binary: "gh", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action":   "list",
+		"assignee": "@me",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := (*calls)[0]
+	foundAssignee := false
+	for index, argument := range commandArgs {
+		if argument == "--assignee" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+			foundAssignee = true
+		}
+	}
+	if !foundAssignee {
+		testing.Errorf("expected '--assignee @me' in args: %v", commandArgs)
+	}
+}
+
+func TestPullsTool_ListAuthor(testing *testing.T) {
+	runner, calls := mockRunner(`[{"number":12}]`, nil)
+	tool := &pullsTool{binary: "gh", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+		"author": "@me",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := (*calls)[0]
+	foundAuthor := false
+	for index, argument := range commandArgs {
+		if argument == "--author" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+			foundAuthor = true
+		}
+	}
+	if !foundAuthor {
+		testing.Errorf("expected '--author @me' in args: %v", commandArgs)
 	}
 }
 
@@ -479,14 +579,23 @@ func TestReposTool_ViewAction(testing *testing.T) {
 
 	commandArgs := (*calls)[0]
 	foundRepoView := false
+	foundPositionalRepo := false
 	for index, argument := range commandArgs {
 		if argument == "repo" && index+1 < len(commandArgs) && commandArgs[index+1] == "view" {
 			foundRepoView = true
-			break
+		}
+		if argument == "view" && index+1 < len(commandArgs) && commandArgs[index+1] == "owner/repo" {
+			foundPositionalRepo = true
+		}
+		if argument == "-R" {
+			testing.Errorf("repo view should not use -R flag: %v", commandArgs)
 		}
 	}
 	if !foundRepoView {
 		testing.Errorf("expected 'repo view' in args: %v", commandArgs)
+	}
+	if !foundPositionalRepo {
+		testing.Errorf("expected 'owner/repo' as positional argument after 'view': %v", commandArgs)
 	}
 }
 

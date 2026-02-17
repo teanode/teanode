@@ -99,7 +99,7 @@ func (self *calendarTool) Execute(ctx context.Context, rawArguments string) (str
 			return "", fmt.Errorf("query is required for search action")
 		}
 		return execGog(ctx, self.runner, self.binary, self.account,
-			"calendar", "search", "primary", "--query", args.Query)
+			"calendar", "search", args.Query)
 
 	case "create":
 		if args.Summary == "" {

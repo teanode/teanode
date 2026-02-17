@@ -149,6 +149,28 @@
               }
             }
           }
+        },
+        "gitlab": {
+          "type": "object",
+          "title": "GitLab",
+          "description": "GitLab tools powered by the glab CLI.",
+          "properties": {
+            "binaryPath": {
+              "type": "string",
+              "title": "Binary Path",
+              "description": "Path to the glab binary. Defaults to 'glab' from PATH.",
+              "x-placeholder": "glab"
+            },
+            "services": {
+              "type": "array",
+              "title": "Services",
+              "description": "GitLab services to enable. Default: issues, merge_requests, projects.",
+              "items": {
+                "type": "string",
+                "enum": ["issues", "merge_requests", "projects", "pipelines", "releases"]
+              }
+            }
+          }
         }
       }
     },

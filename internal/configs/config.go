@@ -266,6 +266,7 @@ type ToolsConfig struct {
 	BraveAPIKey string        `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
 	Google      *GoogleConfig `json:"google,omitempty" yaml:"google,omitempty"`
 	GitHub      *GitHubConfig `json:"github,omitempty" yaml:"github,omitempty"`
+	GitLab      *GitLabConfig `json:"gitlab,omitempty" yaml:"gitlab,omitempty"`
 }
 
 // GoogleConfig controls Google Workspace tools powered by the gog CLI.
@@ -278,6 +279,12 @@ type GoogleConfig struct {
 // GitHubConfig controls GitHub tools powered by the gh CLI.
 type GitHubConfig struct {
 	BinaryPath string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"` // default: "gh"
+	Services   []string `json:"services,omitempty" yaml:"services,omitempty"`     // nil = tier 1 defaults
+}
+
+// GitLabConfig controls GitLab tools powered by the glab CLI.
+type GitLabConfig struct {
+	BinaryPath string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"` // default: "glab"
 	Services   []string `json:"services,omitempty" yaml:"services,omitempty"`     // nil = tier 1 defaults
 }
 
@@ -806,6 +813,12 @@ func applyEnv(configuration *Config) {
 			configuration.Tools.GitHub = &GitHubConfig{}
 		}
 		configuration.Tools.GitHub.BinaryPath = value
+	}
+	if value := os.Getenv("GLAB_BINARY_PATH"); value != "" {
+		if configuration.Tools.GitLab == nil {
+			configuration.Tools.GitLab = &GitLabConfig{}
+		}
+		configuration.Tools.GitLab.BinaryPath = value
 	}
 	if value := os.Getenv("TEANODE_CDP_ENDPOINT"); value != "" {
 		if configuration.Integrations.Browser == nil {

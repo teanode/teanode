@@ -55,6 +55,14 @@ func (self *pullsTool) Definition() provider.ToolDefinition {
 						"enum":        []string{"merge", "squash", "rebase"},
 						"description": "Merge method (for merge action, default merge).",
 					},
+					"assignee": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by assignee username, use \"@me\" to refer to current user (for list action).",
+					},
+					"author": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by author username, use \"@me\" to refer to current user (for list action).",
+					},
 					"state": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"open", "closed", "merged", "all"},
@@ -88,6 +96,8 @@ func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string
 		Head        string `json:"head"`
 		Base        string `json:"base"`
 		MergeMethod string `json:"merge_method"`
+		Assignee    string `json:"assignee"`
+		Author      string `json:"author"`
 		State       string `json:"state"`
 		Limit       int    `json:"limit"`
 		Repository  string `json:"repository"`
@@ -107,6 +117,12 @@ func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string
 			"--limit", strconv.Itoa(limit)}
 		if args.State != "" {
 			commandArgs = append(commandArgs, "--state", args.State)
+		}
+		if args.Assignee != "" {
+			commandArgs = append(commandArgs, "--assignee", args.Assignee)
+		}
+		if args.Author != "" {
+			commandArgs = append(commandArgs, "--author", args.Author)
 		}
 		appendRepository(&commandArgs, args.Repository)
 		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
