@@ -61,7 +61,7 @@ func (self *browserNavigateTool) Definition() provider.ToolDef {
 					},
 					"connectionId": map[string]interface{}{
 						"type":        "string",
-						"description": "Session ID of the browser tab to target. If omitted, uses the default tab.",
+						"description": "Connection ID of the browser tab to target. If omitted, uses the default tab.",
 					},
 				},
 				"required": []string{"url"},

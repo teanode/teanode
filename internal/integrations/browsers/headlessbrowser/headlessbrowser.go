@@ -1,4 +1,4 @@
-package browsers
+package headlessbrowser
 
 import (
 	"context"
@@ -11,16 +11,20 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/pending"
 )
+
+var log = logging.MustGetLogger("headlessbrowser")
 
 // Headless connects directly to a CDP endpoint (e.g. chromedp/headless-shell
 // on 127.0.0.1:9222) and implements the Browser interface.
 type Headless struct {
 	endpoint      string // host:port of the CDP debugger
 	connection    *websocket.Conn
-	targets       map[string]*ConnectedTarget // sessionId -> target
+	targets       map[string]*browsers.ConnectedTarget // sessionId -> target
 	pending       *pending.Requests
 	mutex         sync.Mutex
 	writeMutex    sync.Mutex // serializes WebSocket writes (gorilla requires this)
@@ -32,7 +36,7 @@ type Headless struct {
 func NewHeadless(endpoint string) *Headless {
 	return &Headless{
 		endpoint: endpoint,
-		targets:  make(map[string]*ConnectedTarget),
+		targets:  make(map[string]*browsers.ConnectedTarget),
 		pending:  pending.NewRequests(),
 	}
 }
@@ -44,33 +48,33 @@ func (self *Headless) Connect(ctx context.Context) error {
 	versionURL := fmt.Sprintf("http://%s/json/version", self.endpoint)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil)
 	if err != nil {
-		return fmt.Errorf("headless: creating request: %w", err)
+		return fmt.Errorf("headlessbrowser: creating request: %w", err)
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("headless: fetching %s: %w", versionURL, err)
+		return fmt.Errorf("headlessbrowser: fetching %s: %w", versionURL, err)
 	}
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return fmt.Errorf("headless: reading version response: %w", err)
+		return fmt.Errorf("headlessbrowser: reading version response: %w", err)
 	}
 
 	var versionInfo struct {
 		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
 	}
 	if err := json.Unmarshal(body, &versionInfo); err != nil {
-		return fmt.Errorf("headless: parsing version response: %w", err)
+		return fmt.Errorf("headlessbrowser: parsing version response: %w", err)
 	}
 	if versionInfo.WebSocketDebuggerURL == "" {
-		return fmt.Errorf("headless: no webSocketDebuggerUrl in version response")
+		return fmt.Errorf("headlessbrowser: no webSocketDebuggerUrl in version response")
 	}
 
 	// 2. Dial the browser-level WebSocket.
 	connection, _, err := websocket.DefaultDialer.DialContext(ctx, versionInfo.WebSocketDebuggerURL, nil)
 	if err != nil {
-		return fmt.Errorf("headless: dialing %s: %w", versionInfo.WebSocketDebuggerURL, err)
+		return fmt.Errorf("headlessbrowser: dialing %s: %w", versionInfo.WebSocketDebuggerURL, err)
 	}
 
 	self.mutex.Lock()
@@ -88,16 +92,16 @@ func (self *Headless) Connect(ctx context.Context) error {
 	targetResult, err := self.sendBrowserCommand(ctx, "Target.getTargets", nil)
 	if err != nil {
 		connection.Close()
-		return fmt.Errorf("headless: getTargets: %w", err)
+		return fmt.Errorf("headlessbrowser: getTargets: %w", err)
 	}
 
 	var targetList struct {
 		TargetInfos []targetInfo `json:"targetInfos"`
 	}
 	if err := json.Unmarshal(targetResult, &targetList); err == nil {
-		log.Infof("headless: discovered %d targets", len(targetList.TargetInfos))
+		log.Infof("discovered %d targets", len(targetList.TargetInfos))
 		for _, info := range targetList.TargetInfos {
-			log.Infof("headless:   target %s type=%s url=%s", info.TargetID, info.Type, info.URL)
+			log.Infof("  target %s type=%s url=%s", info.TargetID, info.Type, info.URL)
 			if info.Type == "page" {
 				self.attachTarget(ctx, info)
 			}
@@ -111,12 +115,12 @@ func (self *Headless) Connect(ctx context.Context) error {
 	self.mutex.Unlock()
 
 	if !hasTargets {
-		log.Info("headless: no page targets found, creating one")
+		log.Info("no page targets found, creating one")
 		createResult, err := self.sendBrowserCommand(ctx, "Target.createTarget", map[string]interface{}{
 			"url": "about:blank",
 		})
 		if err != nil {
-			log.Errorf("headless: createTarget: %v", err)
+			log.Errorf("createTarget: %v", err)
 		} else {
 			var created struct {
 				TargetID string `json:"targetId"`
@@ -138,10 +142,10 @@ func (self *Headless) Connect(ctx context.Context) error {
 	})
 	if err != nil {
 		connection.Close()
-		return fmt.Errorf("headless: setDiscoverTargets: %w", err)
+		return fmt.Errorf("headlessbrowser: setDiscoverTargets: %w", err)
 	}
 
-	log.Infof("headless: connected to %s", self.endpoint)
+	log.Infof("connected to %s", self.endpoint)
 	return nil
 }
 
@@ -163,7 +167,7 @@ func (self *Headless) Close() {
 		self.connection.Close()
 		self.connection = nil
 	}
-	self.targets = make(map[string]*ConnectedTarget)
+	self.targets = make(map[string]*browsers.ConnectedTarget)
 	self.pending.RejectAll("headless connection closed")
 }
 
@@ -211,13 +215,13 @@ func (self *Headless) reconnectLoop(ctx context.Context, done chan struct{}) {
 			case <-time.After(delay):
 			}
 
-			log.Infof("headless: reconnecting to %s", self.endpoint)
+			log.Infof("reconnecting to %s", self.endpoint)
 			connectContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 			err := self.Connect(connectContext)
 			cancel()
 
 			if err != nil {
-				log.Errorf("headless: reconnect failed: %v", err)
+				log.Errorf("reconnect failed: %v", err)
 				delay *= 2
 				if delay > maxDelay {
 					delay = maxDelay
@@ -242,10 +246,10 @@ func (self *Headless) Connected() bool {
 }
 
 // Targets returns a snapshot of connected targets.
-func (self *Headless) Targets() []ConnectedTarget {
+func (self *Headless) Targets() []browsers.ConnectedTarget {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	out := make([]ConnectedTarget, 0, len(self.targets))
+	out := make([]browsers.ConnectedTarget, 0, len(self.targets))
 	for _, target := range self.targets {
 		out = append(out, *target)
 	}
@@ -253,7 +257,7 @@ func (self *Headless) Targets() []ConnectedTarget {
 }
 
 // DefaultTarget returns the first connected target, or an error.
-func (self *Headless) DefaultTarget() (*ConnectedTarget, error) {
+func (self *Headless) DefaultTarget() (*browsers.ConnectedTarget, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	for _, target := range self.targets {
@@ -263,7 +267,7 @@ func (self *Headless) DefaultTarget() (*ConnectedTarget, error) {
 }
 
 // TargetByConnectionID looks up a target by its session ID.
-func (self *Headless) TargetByConnectionID(connectionId string) (*ConnectedTarget, error) {
+func (self *Headless) TargetByConnectionID(connectionId string) (*browsers.ConnectedTarget, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	target, ok := self.targets[connectionId]
@@ -380,7 +384,7 @@ func (self *Headless) attachTarget(ctx context.Context, info targetInfo) {
 		"flatten":  true,
 	})
 	if err != nil {
-		log.Errorf("headless: attachToTarget %s: %v", info.TargetID, err)
+		log.Errorf("attachToTarget %s: %v", info.TargetID, err)
 		return
 	}
 
@@ -395,7 +399,7 @@ func (self *Headless) attachTarget(ctx context.Context, info targetInfo) {
 	// Target.attachedToTarget event which may arrive out of order or
 	// be missed during concurrent operations.
 	self.mutex.Lock()
-	self.targets[attachResponse.SessionID] = &ConnectedTarget{
+	self.targets[attachResponse.SessionID] = &browsers.ConnectedTarget{
 		SessionID: attachResponse.SessionID,
 		TargetID:  info.TargetID,
 		URL:       info.URL,
@@ -404,7 +408,7 @@ func (self *Headless) attachTarget(ctx context.Context, info targetInfo) {
 	}
 	self.mutex.Unlock()
 
-	log.Infof("headless: attached to target %s session=%s url=%s", info.TargetID, attachResponse.SessionID, info.URL)
+	log.Infof("attached to target %s session=%s url=%s", info.TargetID, attachResponse.SessionID, info.URL)
 }
 
 func (self *Headless) readLoop(connection *websocket.Conn, done chan struct{}) {
@@ -467,14 +471,14 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 			self.mutex.Lock()
 			// Only store if not already registered by attachTarget.
 			if _, exists := self.targets[payload.SessionID]; !exists {
-				self.targets[payload.SessionID] = &ConnectedTarget{
+				self.targets[payload.SessionID] = &browsers.ConnectedTarget{
 					SessionID: payload.SessionID,
 					TargetID:  payload.TargetInfo.TargetID,
 					URL:       payload.TargetInfo.URL,
 					Title:     payload.TargetInfo.Title,
 					Source:    "headless",
 				}
-				log.Infof("headless: target attached (event) session=%s url=%s", payload.SessionID, payload.TargetInfo.URL)
+				log.Infof("target attached (event) session=%s url=%s", payload.SessionID, payload.TargetInfo.URL)
 			}
 			self.mutex.Unlock()
 		}
@@ -487,7 +491,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 			self.mutex.Lock()
 			delete(self.targets, payload.SessionID)
 			self.mutex.Unlock()
-			log.Infof("headless: target detached session=%s", payload.SessionID)
+			log.Infof("target detached session=%s", payload.SessionID)
 		}
 
 	case "Target.targetInfoChanged":
@@ -542,8 +546,8 @@ func (self *Headless) onDisconnect(connection *websocket.Conn) {
 		return
 	}
 	self.connection = nil
-	self.targets = make(map[string]*ConnectedTarget)
+	self.targets = make(map[string]*browsers.ConnectedTarget)
 	self.pending.RejectAll("headless connection lost")
 
-	log.Info("headless: disconnected")
+	log.Info("disconnected")
 }

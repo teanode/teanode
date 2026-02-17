@@ -12,6 +12,15 @@ import (
 
 var log = logging.MustGetLogger("browsers")
 
+// ConnectedTarget describes a Chrome tab attached via a backend.
+type ConnectedTarget struct {
+	SessionID string
+	TargetID  string
+	URL       string
+	Title     string
+	Source    string // "extension" or "headless"
+}
+
 // Browser is the interface that both Relay (extension-backed) and Headless
 // (direct CDP) implementations satisfy. All browser tools operate on this
 // interface so the backend is transparent.

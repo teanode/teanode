@@ -129,18 +129,18 @@ const DefaultAgentID = "main"
 
 // AgentConfig defines a single agent in the multi-agent system.
 type AgentConfig struct {
-	ID                    string        `json:"id" yaml:"id"`                                                           // unique; "main" is default
-	Name                  string        `json:"name,omitempty" yaml:"name,omitempty"`                                   // friendly display name
-	Model                 string        `json:"model,omitempty" yaml:"model,omitempty"`                                 // qualified model override (e.g. "openai:gpt-4o")
-	SystemPrompt          string        `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`                   // per-agent identity line override
-	Skills                []string `json:"skills,omitempty" yaml:"skills,omitempty"`                                    // skill allow list (nil = all)
-	Tools                 []string `json:"tools,omitempty" yaml:"tools,omitempty"`                                     // tool allow list (nil = all)
-	CanMessage            []string      `json:"canMessage,omitempty" yaml:"canMessage,omitempty"`                       // agent IDs this agent can talk to; "*" = all
-	MaxToolRounds         int           `json:"maxToolRounds,omitempty" yaml:"maxToolRounds,omitempty"`                 // max tool-call loop iterations
-	CompressionThreshold  float64       `json:"compressionThreshold,omitempty" yaml:"compressionThreshold,omitempty"`   // context compression ratio (0-1)
-	MinKeepMessages       int           `json:"minKeepMessages,omitempty" yaml:"minKeepMessages,omitempty"`             // min recent messages to preserve
-	MaxToolResultChars    int           `json:"maxToolResultChars,omitempty" yaml:"maxToolResultChars,omitempty"`       // max chars per old tool result
-	MaxWorkspaceFileChars int           `json:"maxWorkspaceFileChars,omitempty" yaml:"maxWorkspaceFileChars,omitempty"` // max chars per workspace file in prompt
+	ID                    string   `json:"id" yaml:"id"`                                                           // unique; "main" is default
+	Name                  string   `json:"name,omitempty" yaml:"name,omitempty"`                                   // friendly display name
+	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`                                 // qualified model override (e.g. "openai:gpt-4o")
+	SystemPrompt          string   `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`                   // per-agent identity line override
+	Skills                []string `json:"skills,omitempty" yaml:"skills,omitempty"`                               // skill allow list (nil = all)
+	Tools                 []string `json:"tools,omitempty" yaml:"tools,omitempty"`                                 // tool allow list (nil = all)
+	CanMessage            []string `json:"canMessage,omitempty" yaml:"canMessage,omitempty"`                       // agent IDs this agent can talk to; "*" = all
+	MaxToolRounds         int      `json:"maxToolRounds,omitempty" yaml:"maxToolRounds,omitempty"`                 // max tool-call loop iterations
+	CompressionThreshold  float64  `json:"compressionThreshold,omitempty" yaml:"compressionThreshold,omitempty"`   // context compression ratio (0-1)
+	MinKeepMessages       int      `json:"minKeepMessages,omitempty" yaml:"minKeepMessages,omitempty"`             // min recent messages to preserve
+	MaxToolResultChars    int      `json:"maxToolResultChars,omitempty" yaml:"maxToolResultChars,omitempty"`       // max chars per old tool result
+	MaxWorkspaceFileChars int      `json:"maxWorkspaceFileChars,omitempty" yaml:"maxWorkspaceFileChars,omitempty"` // max chars per workspace file in prompt
 }
 
 // AgentLimits holds resolved runtime limits for an agent.
@@ -177,7 +177,6 @@ func (self *AgentConfig) ResolveLimits() AgentLimits {
 	}
 	return limits
 }
-
 
 // SummarizerConfig controls the background session summarizer behavior.
 // Time fields are in minutes. Zero values fall back to defaults.

@@ -21,6 +21,8 @@ import (
 	"github.com/teanode/teanode/internal/frontend"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/integrations/browsers"
+	"github.com/teanode/teanode/internal/integrations/browsers/headlessbrowser"
+	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
@@ -91,13 +93,13 @@ func NewGatewayCommand() *cli.Command {
 
 			// Browser: always create relay for extension connections, optionally
 			// add headless CDP backend. Both can be active simultaneously.
-			browserRelay := browsers.NewRelay()
+			browserRelay := relaybrowser.NewRelay()
 			backends := []browsers.Browser{browserRelay}
 
-			var headlessBrowser *browsers.Headless
+			var headlessBrowser *headlessbrowser.Headless
 			if configuration.Integrations.Browser != nil && configuration.Integrations.Browser.CDPEndpoint != "" {
 				log.Infof("browser: headless CDP connecting to %s", configuration.Integrations.Browser.CDPEndpoint)
-				headlessBrowser = browsers.NewHeadless(configuration.Integrations.Browser.CDPEndpoint)
+				headlessBrowser = headlessbrowser.NewHeadless(configuration.Integrations.Browser.CDPEndpoint)
 				if err := headlessBrowser.Connect(ctx); err != nil {
 					log.Errorf("headless browser failed to connect: %v", err)
 				}

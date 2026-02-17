@@ -26,7 +26,7 @@ type AgentRegistry struct {
 	runners               map[string]*Runner // agentId → Runner
 	defaultAgentId        string             // resolved default agent ID
 	activeAgentId         string             // system-wide active agent (falls back to defaultAgentId)
-	activeConversationIds map[string]string   // agentId → active conversationId
+	activeConversationIds map[string]string  // agentId → active conversationId
 	discordChannelId      string
 	telegramChatId        int64
 }

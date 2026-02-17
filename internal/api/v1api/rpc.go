@@ -8,11 +8,11 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/version"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/skill"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/ulid"
+	"github.com/teanode/teanode/internal/version"
 )
 
 // handleConnect: handshake, return capabilities.
@@ -32,7 +32,7 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"version":               version.Version(),
+		"version":              version.Version(),
 		"capabilities":         []string{"conversations"},
 		"defaultModel":         self.api.gateway.Config().Models.Default,
 		"agents":               agentInfos,

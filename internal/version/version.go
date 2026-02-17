@@ -9,7 +9,7 @@ import "fmt"
 // version and commit are set at build time via -ldflags.
 var (
 	version = "0.1.0"
-	commit = "unknown"
+	commit  = "unknown"
 )
 
 // Version returns the semantic version string (e.g. "0.1.0").

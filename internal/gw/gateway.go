@@ -11,7 +11,7 @@ import (
 
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/integrations/browsers"
+	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
@@ -33,7 +33,7 @@ type activeRun struct {
 type gateway struct {
 	config        *configs.Config
 	agentRegistry *agents.AgentRegistry
-	browserRelay  *browsers.Relay
+	browserRelay  *relaybrowser.Relay
 	terminalRelay *terminals.Relay
 	scheduler     *jobs.Scheduler
 	summarizer    *agents.Summarizer
@@ -61,9 +61,9 @@ func (self *gateway) SetConfig(configuration *configs.Config) { self.config = co
 func (self *gateway) AgentRegistry() *agents.AgentRegistry { return self.agentRegistry }
 func (self *gateway) Scheduler() *jobs.Scheduler           { return self.scheduler }
 func (self *gateway) Summarizer() *agents.Summarizer       { return self.summarizer }
-func (self *gateway) MediaStore() *media.Store              { return self.mediaStore }
-func (self *gateway) BrowserRelay() *browsers.Relay         { return self.browserRelay }
-func (self *gateway) TerminalRelay() *terminals.Relay       { return self.terminalRelay }
+func (self *gateway) MediaStore() *media.Store             { return self.mediaStore }
+func (self *gateway) BrowserRelay() *relaybrowser.Relay    { return self.browserRelay }
+func (self *gateway) TerminalRelay() *terminals.Relay      { return self.terminalRelay }
 
 // --- Domain operations ---
 

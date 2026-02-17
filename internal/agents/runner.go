@@ -26,15 +26,15 @@ type conversationState struct {
 
 // Runner orchestrates: load conversation -> build prompt -> call LLM -> save response.
 type Runner struct {
-	mutex         sync.RWMutex
-	AgentID       string
-	Providers     *provider.Registry
-	Conversations *conversations.Store
-	Config        *configs.Config
-	Tools         *ToolRegistry
-	MediaStore    *media.Store
-	WorkspaceDirectory  string
-	SkillPrompts  string
+	mutex              sync.RWMutex
+	AgentID            string
+	Providers          *provider.Registry
+	Conversations      *conversations.Store
+	Config             *configs.Config
+	Tools              *ToolRegistry
+	MediaStore         *media.Store
+	WorkspaceDirectory string
+	SkillPrompts       string
 
 	// contextWindows maps "provider:model" -> context window size.
 	contextWindows sync.Map

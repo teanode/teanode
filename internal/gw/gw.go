@@ -10,7 +10,7 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
-	"github.com/teanode/teanode/internal/integrations/browsers"
+	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
@@ -84,7 +84,7 @@ type Gateway interface {
 	Scheduler() *jobs.Scheduler
 	Summarizer() *agents.Summarizer
 	MediaStore() *media.Store
-	BrowserRelay() *browsers.Relay
+	BrowserRelay() *relaybrowser.Relay
 	TerminalRelay() *terminals.Relay
 
 	// Domain operations
@@ -122,7 +122,7 @@ type Gateway interface {
 func New(
 	configuration *configs.Config,
 	agentRegistry *agents.AgentRegistry,
-	browserRelay *browsers.Relay,
+	browserRelay *relaybrowser.Relay,
 	terminalRelay *terminals.Relay,
 	scheduler *jobs.Scheduler,
 	summarizer *agents.Summarizer,
