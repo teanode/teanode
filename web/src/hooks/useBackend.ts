@@ -174,6 +174,11 @@ export function useBackend() {
   const runQueueRef = useRef<string[]>([]); // ordered run IDs: [active, queued1, queued2, ...]
   const selfOriginIdsRef = useRef<Set<string>>(new Set()); // origin IDs for self-sent messages
 
+  // Pagination state
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const oldestLoadedIndexRef = useRef(0);
+
   function touchConversation(conversationId: string) {
     const now = Date.now();
     setConversations((previous) => {
@@ -532,10 +537,15 @@ export function useBackend() {
     if (key) {
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
-      sendRpcRef.current<ConversationHistoryResult>('conversations.history', { conversationId: key, agentId: currentAgentIdRef.current || undefined })
+      sendRpcRef.current<ConversationHistoryResult>('conversations.history', { conversationId: key, agentId: currentAgentIdRef.current || undefined, limit: 50 })
         .then((res) => {
           if (conversationIdRef.current !== key) return;
           const displayMessages = convertHistory(res.messages || [], modelsRef.current);
+
+          // Store pagination metadata
+          oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
+          setHasMoreHistory(res.hasMore ?? false);
+
           if (res.activeRunId) {
             currentRunIdRef.current = res.activeRunId;
             activeRunsRef.current.set(key, res.activeRunId);
@@ -614,14 +624,22 @@ export function useBackend() {
       setIsRunning(false);
       setStatus('connected');
 
+      // Reset pagination state
+      oldestLoadedIndexRef.current = 0;
+      setHasMoreHistory(false);
+
       // Buffer events while history is loading
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
 
-      sendRpc<ConversationHistoryResult>('conversations.history', { conversationId: key, agentId: resolvedAgentId })
+      sendRpc<ConversationHistoryResult>('conversations.history', { conversationId: key, agentId: resolvedAgentId, limit: 50 })
         .then((res) => {
           if (conversationIdRef.current !== key) return;
           const displayMessages = convertHistory(res.messages || [], modelsRef.current);
+
+          // Store pagination metadata
+          oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
+          setHasMoreHistory(res.hasMore ?? false);
 
           // Use activeRunId from server response to detect active runs
           if (res.activeRunId) {
@@ -662,7 +680,33 @@ export function useBackend() {
     conversationIdRef.current = null;
     setMessages([]);
     setStatus('connected');
+    // Reset pagination state
+    oldestLoadedIndexRef.current = 0;
+    setHasMoreHistory(false);
   }, []);
+
+  const loadOlderMessages = useCallback(() => {
+    const key = conversationIdRef.current;
+    if (!key || loadingOlderMessages || !hasMoreHistory) return;
+    setLoadingOlderMessages(true);
+
+    const agentId = currentAgentIdRef.current || undefined;
+    sendRpc<ConversationHistoryResult>('conversations.history', {
+      conversationId: key,
+      agentId,
+      limit: 50,
+      beforeIndex: oldestLoadedIndexRef.current,
+    })
+      .then((res) => {
+        if (conversationIdRef.current !== key) return;
+        const olderDisplayMessages = convertHistory(res.messages || [], modelsRef.current);
+        oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
+        setHasMoreHistory(res.hasMore ?? false);
+        setMessages((previous) => [...olderDisplayMessages, ...previous]);
+      })
+      .catch((error) => console.error('conversations.history (older):', error))
+      .finally(() => setLoadingOlderMessages(false));
+  }, [sendRpc, loadingOlderMessages, hasMoreHistory]);
 
   const deleteConversation = useCallback(
     (conversationId: string, agentId?: string) => {
@@ -901,6 +945,9 @@ export function useBackend() {
     loadConversations,
     refreshAgents,
     sendRpc,
+    hasMoreHistory,
+    loadingOlderMessages,
+    loadOlderMessages,
     jobs,
     jobsLoading,
     loadJobs,

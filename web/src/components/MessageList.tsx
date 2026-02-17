@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import Box from '@mui/material/Box';
@@ -6,7 +6,9 @@ import Container from '@mui/material/Container';
 import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
 import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
+import KeyboardArrowDownRounded from '@mui/icons-material/KeyboardArrowDownRounded';
 import type { DisplayMessage } from '../types';
 import { useAppContext } from '../context';
 import MessageBubble from './MessageBubble';
@@ -22,7 +24,12 @@ interface MessageListProps {
   toolActivity: string | null;
   status: string;
   activeRunId: string | null;
+  hasMoreHistory?: boolean;
+  loadingOlderMessages?: boolean;
+  onLoadOlderMessages?: () => void;
 }
+
+const VIRTUAL_START = 1_000_000;
 
 type ListItem =
   | { kind: 'separator'; label: string; key: string }
@@ -77,16 +84,37 @@ export default function MessageList({
   toolActivity,
   status,
   activeRunId,
+  hasMoreHistory,
+  loadingOlderMessages,
+  onLoadOlderMessages,
 }: MessageListProps) {
   const { t } = useTranslation();
   const { showToolCalls, showTokenUsage } = useAppContext();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const atBottomRef = useRef(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const items = useMemo(
     () => buildItems(messages, t, showToolCalls, showTokenUsage),
     [messages, t, showToolCalls, showTokenUsage],
   );
+
+  const itemsLengthRef = useRef(items.length);
+  itemsLengthRef.current = items.length;
+
+  // Scroll to bottom when a conversation's history loads (items go from empty to non-empty).
+  // initialTopMostItemIndex only applies on Virtuoso mount — this handles conversation switches.
+  const wasEmptyRef = useRef(true);
+  useEffect(() => {
+    if (wasEmptyRef.current && items.length > 0 && virtuosoRef.current) {
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({ index: itemsLengthRef.current - 1, align: 'end' });
+      });
+      atBottomRef.current = true;
+      setShowScrollToBottom(false);
+    }
+    wasEmptyRef.current = items.length === 0;
+  }, [items.length]);
 
   // Scroll to bottom when streaming text updates and user hasn't scrolled up.
   // Virtuoso's followOutput handles new items, but streaming updates only change
@@ -99,6 +127,13 @@ export default function MessageList({
 
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
     atBottomRef.current = atBottom;
+    setShowScrollToBottom(!atBottom);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    if (virtuosoRef.current && itemsLengthRef.current > 0) {
+      virtuosoRef.current.scrollToIndex({ index: itemsLengthRef.current - 1, align: 'end', behavior: 'smooth' });
+    }
   }, []);
 
   function handleClick(event: React.MouseEvent) {
@@ -220,20 +255,102 @@ export default function MessageList({
     return item.kind === 'separator' ? item.key : item.message.id;
   }, []);
 
+  // Track firstItemIndex in a ref — only decreases when older messages are
+  // prepended, NOT when new messages are appended at the bottom.
+  const firstItemIndexRef = useRef(VIRTUAL_START);
+  const prevMessagesRef = useRef(messages);
+  const prevItemsRef = useRef(items);
+
+  const getItemKey = (item: ListItem): string =>
+    item.kind === 'separator' ? item.key : item.message.id;
+
+  // Render-time detection: determine if items were prepended, appended, or reset.
+  const prevMessages = prevMessagesRef.current;
+  const prevItems = prevItemsRef.current;
+
+  if (messages !== prevMessages) {
+    if (messages.length === 0 || prevMessages.length === 0) {
+      // Conversation cleared or fresh load from empty — reset.
+      firstItemIndexRef.current = VIRTUAL_START;
+    } else {
+      const prevFirstId = prevMessages[0].id;
+      const currentFirstId = messages[0].id;
+      if (prevFirstId !== currentFirstId) {
+        // First message changed — either prepend or full reload.
+        // A prepend preserves existing messages; a reload replaces them.
+        const prevLastId = prevMessages[prevMessages.length - 1].id;
+        const isReload = !messages.some((message) => message.id === prevLastId);
+        if (isReload) {
+          firstItemIndexRef.current = VIRTUAL_START;
+        } else if (prevItems.length > 0) {
+          // Prepend — find how many ListItems were inserted before the old first.
+          const oldFirstKey = getItemKey(prevItems[0]);
+          for (let index = 0; index < items.length; index++) {
+            if (getItemKey(items[index]) === oldFirstKey) {
+              firstItemIndexRef.current -= index;
+              break;
+            }
+          }
+        }
+      }
+      // If firstId unchanged, items were appended — no adjustment needed.
+    }
+  }
+
+  prevMessagesRef.current = messages;
+  prevItemsRef.current = items;
+
+  const firstItemIndex = firstItemIndexRef.current;
+
+  const handleStartReached = useCallback(() => {
+    if (hasMoreHistory && !loadingOlderMessages && onLoadOlderMessages) {
+      onLoadOlderMessages();
+    }
+  }, [hasMoreHistory, loadingOlderMessages, onLoadOlderMessages]);
+
+  const headerComponent = useCallback(() => {
+    if (!loadingOlderMessages) return <div />;
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+        <CircularProgress size={20} />
+      </Box>
+    );
+  }, [loadingOlderMessages]);
+
   return (
-    <Box onClick={handleClick} sx={{ flex: 1, minHeight: 0 }}>
+    <Box onClick={handleClick} sx={{ flex: 1, minHeight: 0, position: 'relative' }}>
       <Virtuoso
         ref={virtuosoRef}
         style={{ height: '100%' }}
         data={items}
         computeItemKey={computeItemKey}
+        firstItemIndex={firstItemIndex}
         initialTopMostItemIndex={items.length > 0 ? items.length - 1 : 0}
         followOutput="smooth"
         atBottomThreshold={80}
         atBottomStateChange={handleAtBottomStateChange}
+        startReached={handleStartReached}
         increaseViewportBy={{ top: 500, bottom: 200 }}
         itemContent={renderItem}
+        components={{ Header: headerComponent }}
       />
+      {showScrollToBottom && items.length > 0 && (
+        <IconButton
+          onClick={scrollToBottom}
+          size="small"
+          sx={{
+            position: 'absolute',
+            bottom: 16,
+            right: 24,
+            bgcolor: 'background.paper',
+            boxShadow: 2,
+            '&:hover': { bgcolor: 'action.hover' },
+            zIndex: 1,
+          }}
+        >
+          <KeyboardArrowDownRounded />
+        </IconButton>
+      )}
     </Box>
   );
 }

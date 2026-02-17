@@ -39,6 +39,20 @@ export default function ConversationsNewPage() {
     }
   }, [ready, backend.conversationId, agentId, navigate]);
 
+  const draftKey = 'new';
+
+  // Restore draft on mount.
+  useEffect(() => {
+    const element = textareaRef.current;
+    if (!element) return;
+    const saved = localStorage.getItem(`draft:${draftKey}`);
+    if (saved) {
+      element.value = saved;
+      element.style.height = 'auto';
+      element.style.height = Math.min(element.scrollHeight, 150) + 'px';
+    }
+  }, []);
+
   const handleSend = useCallback(() => {
     const element = textareaRef.current;
     if (!element) return;
@@ -47,6 +61,7 @@ export default function ConversationsNewPage() {
     backend.sendMessage(text);
     element.value = '';
     element.style.height = 'auto';
+    localStorage.removeItem(`draft:${draftKey}`);
   }, [backend.sendMessage]);
 
   const handleKeyDown = useCallback(
@@ -64,6 +79,11 @@ export default function ConversationsNewPage() {
     if (!element) return;
     element.style.height = 'auto';
     element.style.height = Math.min(element.scrollHeight, 150) + 'px';
+    if (element.value) {
+      localStorage.setItem(`draft:${draftKey}`, element.value);
+    } else {
+      localStorage.removeItem(`draft:${draftKey}`);
+    }
   }, []);
 
   return (

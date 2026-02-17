@@ -71,12 +71,17 @@ export interface ConversationSendResult {
 export interface ConversationHistoryParams {
   conversationId: string;
   agentId?: string;
+  limit?: number;
+  beforeIndex?: number;
 }
 
 export interface ConversationHistoryResult {
   conversationId: string;
   messages: Message[];
   activeRunId?: string;
+  hasMore?: boolean;
+  totalCount?: number;
+  oldestLoadedIndex?: number;
 }
 
 export interface ConversationAbortParams {

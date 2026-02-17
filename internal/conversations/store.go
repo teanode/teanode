@@ -269,6 +269,51 @@ func (self *Store) Delete(conversationId string) error {
 	return err
 }
 
+// PageResult holds a page of messages plus pagination metadata.
+type PageResult struct {
+	Messages          []Message `json:"messages"`
+	TotalCount        int       `json:"totalCount"`
+	OldestLoadedIndex int       `json:"oldestLoadedIndex"`
+	HasMore           bool      `json:"hasMore"`
+}
+
+// LoadPage returns a page of messages from a conversation.
+// It loads the full conversation and slices in memory — the savings come from
+// sending fewer messages over the wire to the frontend.
+//
+// If beforeIndex <= 0, the last `limit` messages are returned.
+// Otherwise, `limit` messages ending just before `beforeIndex` are returned.
+func (self *Store) LoadPage(conversationId string, limit, beforeIndex int) (*PageResult, error) {
+	messages, err := self.Load(conversationId)
+	if err != nil {
+		return nil, err
+	}
+	if messages == nil {
+		return &PageResult{Messages: []Message{}}, nil
+	}
+
+	totalCount := len(messages)
+
+	// Determine the slice end (exclusive upper bound).
+	end := totalCount
+	if beforeIndex > 0 && beforeIndex < totalCount {
+		end = beforeIndex
+	}
+
+	// Determine the slice start.
+	start := end - limit
+	if start < 0 {
+		start = 0
+	}
+
+	return &PageResult{
+		Messages:          messages[start:end],
+		TotalCount:        totalCount,
+		OldestLoadedIndex: start,
+		HasMore:           start > 0,
+	}, nil
+}
+
 var errEmptyConversationId = fmt.Errorf("conversation id must not be empty")
 
 func (self *Store) path(conversationId string) (string, error) {

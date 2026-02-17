@@ -42,10 +42,14 @@ export default function ConversationsConversationPage() {
         toolActivity={backend.toolActivity}
         status={backend.status}
         activeRunId={backend.currentRunId}
+        hasMoreHistory={backend.hasMoreHistory}
+        loadingOlderMessages={backend.loadingOlderMessages}
+        onLoadOlderMessages={backend.loadOlderMessages}
       />
       <InputArea
         isRunning={backend.isRunning}
         agentName={agentName}
+        draftKey={conversationId}
         onSend={handleSend}
         onAbort={backend.abortRun}
       />

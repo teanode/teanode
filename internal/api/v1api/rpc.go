@@ -172,6 +172,8 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 type conversationHistoryParameters struct {
 	ConversationID string `json:"conversationId"`
 	AgentID        string `json:"agentId,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	BeforeIndex    int    `json:"beforeIndex,omitempty"`
 }
 
 // handleConversationsHistory: return conversation transcript.
@@ -193,15 +195,23 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 		return
 	}
 
-	messages, err := runner.Conversations.Load(parameters.ConversationID)
+	limit := parameters.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+
+	page, err := runner.Conversations.LoadPage(parameters.ConversationID, limit, parameters.BeforeIndex)
 	if err != nil {
 		self.sendError(frame.ID, 500, "loading conversation: "+err.Error())
 		return
 	}
 
 	response := map[string]interface{}{
-		"conversationId": parameters.ConversationID,
-		"messages":       messages,
+		"conversationId":    parameters.ConversationID,
+		"messages":          page.Messages,
+		"totalCount":        page.TotalCount,
+		"oldestLoadedIndex": page.OldestLoadedIndex,
+		"hasMore":           page.HasMore,
 	}
 	if activeRunId := self.api.gateway.GetActiveRun(parameters.ConversationID); activeRunId != "" {
 		response["activeRunId"] = activeRunId

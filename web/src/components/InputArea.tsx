@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
@@ -9,6 +9,7 @@ import StopRounded from '@mui/icons-material/StopRounded';
 interface InputAreaProps {
   isRunning: boolean;
   agentName: string;
+  draftKey?: string;
   onSend: (text: string) => void;
   onAbort: () => void;
 }
@@ -16,12 +17,28 @@ interface InputAreaProps {
 export default function InputArea({
   isRunning,
   agentName,
+  draftKey,
   onSend,
   onAbort,
 }: InputAreaProps) {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [hasText, setHasText] = useState(false);
+  const draftKeyRef = useRef(draftKey);
+  draftKeyRef.current = draftKey;
+
+  // Restore draft when draftKey changes (conversation switch).
+  useEffect(() => {
+    const element = textareaRef.current;
+    if (!element) return;
+    const saved = draftKey ? localStorage.getItem(`draft:${draftKey}`) : null;
+    element.value = saved || '';
+    element.style.height = 'auto';
+    if (saved) {
+      element.style.height = Math.min(element.scrollHeight, 150) + 'px';
+    }
+    setHasText(!!element.value.trim());
+  }, [draftKey]);
 
   const handleSend = useCallback(() => {
     const element = textareaRef.current;
@@ -32,6 +49,9 @@ export default function InputArea({
     element.value = '';
     element.style.height = 'auto';
     setHasText(false);
+    if (draftKeyRef.current) {
+      localStorage.removeItem(`draft:${draftKeyRef.current}`);
+    }
   }, [onSend]);
 
   const handleKeyDown = useCallback(
@@ -50,6 +70,13 @@ export default function InputArea({
     element.style.height = 'auto';
     element.style.height = Math.min(element.scrollHeight, 150) + 'px';
     setHasText(!!element.value.trim());
+    if (draftKeyRef.current) {
+      if (element.value) {
+        localStorage.setItem(`draft:${draftKeyRef.current}`, element.value);
+      } else {
+        localStorage.removeItem(`draft:${draftKeyRef.current}`);
+      }
+    }
   }, []);
 
   const showStop = isRunning && !hasText;
