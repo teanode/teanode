@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -15,56 +16,76 @@ func TestWorkspaceTools(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Test workspace_list on empty dir.
-	listTool := registry.Get("workspace_list")
-	if listTool == nil {
-		t.Fatal("workspace_list not registered")
-	}
-	result, err := listTool.Execute(ctx, "{}")
-	if err != nil {
-		t.Fatalf("workspace_list: %v", err)
-	}
-	if result != "no files" {
-		t.Errorf("workspace_list = %q, want 'no files'", result)
+	tool := registry.Get("workspace")
+	if tool == nil {
+		t.Fatal("workspace not registered")
 	}
 
-	// Test workspace_write.
-	writeTool := registry.Get("workspace_write")
-	if writeTool == nil {
-		t.Fatal("workspace_write not registered")
-	}
-	result, err = writeTool.Execute(ctx, `{"path":"notes/test.txt","content":"hello world"}`)
+	// Test list on empty dir.
+	result, err := tool.Execute(ctx, `{"action":"list"}`)
 	if err != nil {
-		t.Fatalf("workspace_write: %v", err)
+		t.Fatalf("workspace list: %v", err)
 	}
-	if result != "ok" {
-		t.Errorf("workspace_write = %q, want 'ok'", result)
+	var listResult struct {
+		Action string   `json:"action"`
+		Files  []string `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(result), &listResult); err != nil {
+		t.Fatalf("parsing list result: %v", err)
+	}
+	if listResult.Action != "list" {
+		t.Errorf("list action = %q, want 'list'", listResult.Action)
+	}
+	if len(listResult.Files) != 0 {
+		t.Errorf("list files = %v, want empty", listResult.Files)
 	}
 
-	// Test workspace_read.
-	readTool := registry.Get("workspace_read")
-	if readTool == nil {
-		t.Fatal("workspace_read not registered")
-	}
-	result, err = readTool.Execute(ctx, `{"path":"notes/test.txt"}`)
+	// Test write.
+	result, err = tool.Execute(ctx, `{"action":"write","path":"notes/test.txt","content":"hello world"}`)
 	if err != nil {
-		t.Fatalf("workspace_read: %v", err)
+		t.Fatalf("workspace write: %v", err)
 	}
-	if result != "hello world" {
-		t.Errorf("workspace_read = %q, want 'hello world'", result)
+	var writeResult struct {
+		Action  string `json:"action"`
+		Success bool   `json:"success"`
+	}
+	if err := json.Unmarshal([]byte(result), &writeResult); err != nil {
+		t.Fatalf("parsing write result: %v", err)
+	}
+	if writeResult.Action != "write" || !writeResult.Success {
+		t.Errorf("write result = %+v, want action=write success=true", writeResult)
 	}
 
-	// Test workspace_list with files.
-	result, err = listTool.Execute(ctx, "{}")
+	// Test read.
+	result, err = tool.Execute(ctx, `{"action":"read","path":"notes/test.txt"}`)
 	if err != nil {
-		t.Fatalf("workspace_list: %v", err)
+		t.Fatalf("workspace read: %v", err)
 	}
-	if result != "notes/test.txt" {
-		t.Errorf("workspace_list = %q, want 'notes/test.txt'", result)
+	var readResult struct {
+		Action  string `json:"action"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(result), &readResult); err != nil {
+		t.Fatalf("parsing read result: %v", err)
+	}
+	if readResult.Action != "read" || readResult.Content != "hello world" {
+		t.Errorf("read result = %+v, want action=read content='hello world'", readResult)
+	}
+
+	// Test list with files.
+	result, err = tool.Execute(ctx, `{"action":"list"}`)
+	if err != nil {
+		t.Fatalf("workspace list: %v", err)
+	}
+	if err := json.Unmarshal([]byte(result), &listResult); err != nil {
+		t.Fatalf("parsing list result: %v", err)
+	}
+	if len(listResult.Files) != 1 || listResult.Files[0] != "notes/test.txt" {
+		t.Errorf("list files = %v, want [notes/test.txt]", listResult.Files)
 	}
 
 	// Test path traversal rejection.
-	_, err = readTool.Execute(ctx, `{"path":"../../../etc/passwd"}`)
+	_, err = tool.Execute(ctx, `{"action":"read","path":"../../../etc/passwd"}`)
 	if err == nil {
 		t.Error("expected error for path traversal, got nil")
 	}
@@ -76,38 +97,55 @@ func TestWorkspaceAppendTool(t *testing.T) {
 	RegisterTools(registry, memoryDirectory)
 
 	ctx := context.Background()
-	appendTool := registry.Get("workspace_append")
-	if appendTool == nil {
-		t.Fatal("workspace_append not registered")
+
+	tool := registry.Get("workspace")
+	if tool == nil {
+		t.Fatal("workspace not registered")
 	}
 
 	// Append to a new file.
-	result, err := appendTool.Execute(ctx, `{"path":"memory/2025-01-01.md","content":"- learned something"}`)
+	result, err := tool.Execute(ctx, `{"action":"append","path":"memory/2025-01-01.md","content":"- learned something"}`)
 	if err != nil {
-		t.Fatalf("workspace_append: %v", err)
+		t.Fatalf("workspace append: %v", err)
 	}
-	if result != "ok" {
-		t.Errorf("workspace_append = %q, want 'ok'", result)
+	var appendResult struct {
+		Action  string `json:"action"`
+		Success bool   `json:"success"`
+	}
+	if err := json.Unmarshal([]byte(result), &appendResult); err != nil {
+		t.Fatalf("parsing append result: %v", err)
+	}
+	if appendResult.Action != "append" || !appendResult.Success {
+		t.Errorf("append result = %+v, want action=append success=true", appendResult)
 	}
 
 	// Append again.
-	result, err = appendTool.Execute(ctx, `{"path":"memory/2025-01-01.md","content":"- learned more"}`)
+	_, err = tool.Execute(ctx, `{"action":"append","path":"memory/2025-01-01.md","content":"- learned more"}`)
 	if err != nil {
-		t.Fatalf("workspace_append: %v", err)
+		t.Fatalf("workspace append: %v", err)
 	}
 
 	// Read back and verify both entries.
-	readTool := registry.Get("workspace_read")
-	result, err = readTool.Execute(ctx, `{"path":"memory/2025-01-01.md"}`)
+	result, err = tool.Execute(ctx, `{"action":"read","path":"memory/2025-01-01.md"}`)
 	if err != nil {
-		t.Fatalf("workspace_read: %v", err)
+		t.Fatalf("workspace read: %v", err)
 	}
-	if !strings.Contains(result, "learned something") || !strings.Contains(result, "learned more") {
-		t.Errorf("appended content = %q, want both entries", result)
+	var readResult struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(result), &readResult); err != nil {
+		t.Fatalf("parsing read result: %v", err)
+	}
+	if readResult.Content == "" {
+		t.Fatal("read content is empty")
+	}
+	content := readResult.Content
+	if !(strings.Contains(content, "learned something") && strings.Contains(content, "learned more")) {
+		t.Errorf("appended content = %q, want both entries", content)
 	}
 
 	// Test path traversal rejection.
-	_, err = appendTool.Execute(ctx, `{"path":"../../etc/evil","content":"bad"}`)
+	_, err = tool.Execute(ctx, `{"action":"append","path":"../../etc/evil","content":"bad"}`)
 	if err == nil {
 		t.Error("expected error for path traversal, got nil")
 	}
@@ -119,59 +157,94 @@ func TestWorkspaceSearchTool(t *testing.T) {
 	RegisterTools(registry, memoryDirectory)
 
 	ctx := context.Background()
-	writeTool := registry.Get("workspace_write")
-	searchTool := registry.Get("workspace_search")
-	if searchTool == nil {
-		t.Fatal("workspace_search not registered")
+
+	tool := registry.Get("workspace")
+	if tool == nil {
+		t.Fatal("workspace not registered")
 	}
 
 	// Write some files.
-	writeTool.Execute(ctx, `{"path":"notes.md","content":"The user likes cats\nThe user hates spam"}`)
-	writeTool.Execute(ctx, `{"path":"memory/2025-01-01.md","content":"Discussed project alpha\nUser prefers dark mode"}`)
+	tool.Execute(ctx, `{"action":"write","path":"notes.md","content":"The user likes cats\nThe user hates spam"}`)
+	tool.Execute(ctx, `{"action":"write","path":"memory/2025-01-01.md","content":"Discussed project alpha\nUser prefers dark mode"}`)
 
 	// Search for "cats".
-	result, err := searchTool.Execute(ctx, `{"query":"cats"}`)
+	result, err := tool.Execute(ctx, `{"action":"search","query":"cats"}`)
 	if err != nil {
-		t.Fatalf("workspace_search: %v", err)
+		t.Fatalf("workspace search: %v", err)
 	}
-	if !strings.Contains(result, "notes.md:1:") || !strings.Contains(result, "cats") {
-		t.Errorf("search result = %q, want match in notes.md", result)
+	var searchResult struct {
+		Action  string `json:"action"`
+		Matches []struct {
+			Path string `json:"path"`
+			Line int    `json:"line"`
+			Text string `json:"text"`
+		} `json:"matches"`
+	}
+	if err := json.Unmarshal([]byte(result), &searchResult); err != nil {
+		t.Fatalf("parsing search result: %v", err)
+	}
+	if searchResult.Action != "search" {
+		t.Errorf("search action = %q, want 'search'", searchResult.Action)
+	}
+	if len(searchResult.Matches) != 1 || searchResult.Matches[0].Path != "notes.md" {
+		t.Errorf("search matches = %+v, want match in notes.md", searchResult.Matches)
+	}
+	if !strings.Contains(searchResult.Matches[0].Text, "cats") {
+		t.Errorf("search match text = %q, want to contain 'cats'", searchResult.Matches[0].Text)
 	}
 
 	// Search for "dark mode".
-	result, err = searchTool.Execute(ctx, `{"query":"dark mode"}`)
+	result, err = tool.Execute(ctx, `{"action":"search","query":"dark mode"}`)
 	if err != nil {
-		t.Fatalf("workspace_search: %v", err)
+		t.Fatalf("workspace search: %v", err)
 	}
-	if !strings.Contains(result, "2025-01-01.md") {
-		t.Errorf("search result = %q, want match in daily log", result)
+	if err := json.Unmarshal([]byte(result), &searchResult); err != nil {
+		t.Fatalf("parsing search result: %v", err)
+	}
+	found := false
+	for _, match := range searchResult.Matches {
+		if strings.Contains(match.Path, "2025-01-01.md") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("search matches = %+v, want match in daily log", searchResult.Matches)
 	}
 
 	// Case-insensitive search.
-	result, err = searchTool.Execute(ctx, `{"query":"CATS"}`)
+	result, err = tool.Execute(ctx, `{"action":"search","query":"CATS"}`)
 	if err != nil {
-		t.Fatalf("workspace_search: %v", err)
+		t.Fatalf("workspace search: %v", err)
 	}
-	if !strings.Contains(result, "cats") {
-		t.Errorf("case-insensitive search = %q, want match", result)
+	if err := json.Unmarshal([]byte(result), &searchResult); err != nil {
+		t.Fatalf("parsing search result: %v", err)
+	}
+	if len(searchResult.Matches) == 0 || !strings.Contains(searchResult.Matches[0].Text, "cats") {
+		t.Errorf("case-insensitive search = %+v, want match with 'cats'", searchResult.Matches)
 	}
 
 	// No match.
-	result, err = searchTool.Execute(ctx, `{"query":"nonexistent"}`)
+	result, err = tool.Execute(ctx, `{"action":"search","query":"nonexistent"}`)
 	if err != nil {
-		t.Fatalf("workspace_search: %v", err)
+		t.Fatalf("workspace search: %v", err)
 	}
-	if result != "no matches" {
-		t.Errorf("search result = %q, want 'no matches'", result)
+	if err := json.Unmarshal([]byte(result), &searchResult); err != nil {
+		t.Fatalf("parsing search result: %v", err)
+	}
+	if len(searchResult.Matches) != 0 {
+		t.Errorf("search matches = %+v, want empty", searchResult.Matches)
 	}
 
 	// Max results.
-	result, err = searchTool.Execute(ctx, `{"query":"user","max_results":1}`)
+	result, err = tool.Execute(ctx, `{"action":"search","query":"user","maxResults":1}`)
 	if err != nil {
-		t.Fatalf("workspace_search: %v", err)
+		t.Fatalf("workspace search: %v", err)
 	}
-	lines := strings.Split(strings.TrimSpace(result), "\n")
-	if len(lines) != 1 {
-		t.Errorf("expected 1 result, got %d: %q", len(lines), result)
+	if err := json.Unmarshal([]byte(result), &searchResult); err != nil {
+		t.Fatalf("parsing search result: %v", err)
+	}
+	if len(searchResult.Matches) != 1 {
+		t.Errorf("expected 1 result, got %d: %+v", len(searchResult.Matches), searchResult.Matches)
 	}
 }

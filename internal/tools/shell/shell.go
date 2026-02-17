@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 	"time"
 
 	"github.com/op/go-logging"
@@ -135,6 +136,10 @@ func (self *shellTool) Execute(ctx context.Context, rawArguments string) (string
 
 	command := exec.CommandContext(commandContext, "sh", "-c", arguments.Command)
 	command.Dir = directory
+	command.Stdin = nil // Reads return EOF immediately.
+	command.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true, // New session with no controlling terminal; prevents /dev/tty access (e.g. sudo password prompts).
+	}
 
 	// Set environment variables.
 	if len(arguments.Environment) > 0 {

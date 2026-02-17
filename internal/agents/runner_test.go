@@ -213,7 +213,7 @@ func mockToolCallServer(toolCallId, toolName, toolArgs, finalText string) *httpt
 }
 
 func TestRunnerToolCallLoop(t *testing.T) {
-	server := mockToolCallServer("call-1", "workspace_write", `{"path":"test.txt","content":"hello"}`, "Done! I saved that for you.")
+	server := mockToolCallServer("call-1", "workspace", `{"action":"write","path":"test.txt","content":"hello"}`, "Done! I saved that for you.")
 	defer server.Close()
 
 	directory := t.TempDir()
@@ -228,7 +228,7 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	providerClient := provider.NewClient(server.URL, "")
 
 	tools := NewToolRegistry()
-	tools.Register(&stubTool{name: "workspace_write"})
+	tools.Register(&stubTool{name: "workspace"})
 
 	runner := &Runner{
 		Providers:     mockRegistry(providerClient),
@@ -253,8 +253,8 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	if result.Response != "Done! I saved that for you." {
 		t.Errorf("response = %q", result.Response)
 	}
-	if len(toolCalls) != 1 || toolCalls[0] != "workspace_write" {
-		t.Errorf("toolCalls = %v, want [workspace_write]", toolCalls)
+	if len(toolCalls) != 1 || toolCalls[0] != "workspace" {
+		t.Errorf("toolCalls = %v, want [workspace]", toolCalls)
 	}
 
 	// Usage should be accumulated across rounds.
@@ -325,8 +325,8 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 	if !strings.Contains(prompt, "TeaNode") {
 		t.Error("prompt should contain TeaNode identifier")
 	}
-	if !strings.Contains(prompt, "workspace_append") {
-		t.Error("prompt should mention workspace_append tool")
+	if !strings.Contains(prompt, "workspace") {
+		t.Error("prompt should mention workspace tool")
 	}
 }
 
@@ -339,7 +339,7 @@ func TestBuildSystemPromptCustomOverride(t *testing.T) {
 		t.Error("prompt should contain custom identity line")
 	}
 	// The custom SystemPrompt replaces the identity line, not the entire prompt.
-	if !strings.Contains(prompt, "Workspace Tools") {
+	if !strings.Contains(prompt, "Workspace Tool") {
 		t.Error("prompt should still contain tool documentation sections")
 	}
 }

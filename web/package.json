@@ -19,7 +19,8 @@
     "marked": "^12.0.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-i18next": "^16.5.4"
+    "react-i18next": "^16.5.4",
+    "react-virtuoso": "^4.18.1"
   },
   "devDependencies": {
     "@types/react": "^19.1.4",

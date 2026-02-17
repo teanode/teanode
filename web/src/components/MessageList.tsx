@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
 import Divider from '@mui/material/Divider';
@@ -13,8 +14,6 @@ import ToolInvoke from './ToolInvoke';
 import ToolResult, { detectMedia } from './ToolResult';
 import UsageIndicator from './UsageIndicator';
 
-const SCROLL_THRESHOLD = 80;
-
 interface MessageListProps {
   messages: DisplayMessage[];
   isRunning: boolean;
@@ -25,10 +24,9 @@ interface MessageListProps {
   activeRunId: string | null;
 }
 
-function formatTime(timestamp: number): string {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
+type ListItem =
+  | { kind: 'separator'; label: string; key: string }
+  | { kind: 'message'; message: DisplayMessage };
 
 function dateLabelFor(timestamp: number, t: (key: string) => string): string {
   const messageDate = new Date(timestamp);
@@ -43,8 +41,32 @@ function dateLabelFor(timestamp: number, t: (key: string) => string): string {
   return messageDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: messageDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
-function isNearBottom(element: HTMLElement): boolean {
-  return element.scrollHeight - element.scrollTop - element.clientHeight < SCROLL_THRESHOLD;
+function buildItems(
+  messages: DisplayMessage[],
+  t: (key: string) => string,
+  showToolCalls: boolean,
+  showTokenUsage: boolean,
+): ListItem[] {
+  const items: ListItem[] = [];
+  let lastDateLabel = '';
+
+  for (const message of messages) {
+    if (message.type === 'tool-invoke' && !showToolCalls) continue;
+    if (message.type === 'tool-result' && !showToolCalls && detectMedia(message.content) === null) continue;
+    if (message.type === 'usage' && !showTokenUsage) continue;
+
+    if (message.timestamp && (message.type === 'user' || message.type === 'assistant')) {
+      const label = dateLabelFor(message.timestamp, t);
+      if (label !== lastDateLabel) {
+        lastDateLabel = label;
+        items.push({ kind: 'separator', label, key: `sep-${message.id}` });
+      }
+    }
+
+    items.push({ kind: 'message', message });
+  }
+
+  return items;
 }
 
 export default function MessageList({
@@ -58,20 +80,26 @@ export default function MessageList({
 }: MessageListProps) {
   const { t } = useTranslation();
   const { showToolCalls, showTokenUsage } = useAppContext();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const userScrolledUp = useRef(false);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const atBottomRef = useRef(true);
 
-  const handleScroll = useCallback(() => {
-    if (containerRef.current) {
-      userScrolledUp.current = !isNearBottom(containerRef.current);
-    }
-  }, []);
+  const items = useMemo(
+    () => buildItems(messages, t, showToolCalls, showTokenUsage),
+    [messages, t, showToolCalls, showTokenUsage],
+  );
 
+  // Scroll to bottom when streaming text updates and user hasn't scrolled up.
+  // Virtuoso's followOutput handles new items, but streaming updates only change
+  // content of the last item without adding new ones.
   useEffect(() => {
-    if (containerRef.current && !userScrolledUp.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    if (atBottomRef.current && virtuosoRef.current && items.length > 0) {
+      virtuosoRef.current.scrollToIndex({ index: items.length - 1, align: 'end', behavior: 'smooth' });
     }
-  }, [messages, streamText, toolActivity, isRunning]);
+  }, [streamText, toolActivity]);
+
+  const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
+    atBottomRef.current = atBottom;
+  }, []);
 
   function handleClick(event: React.MouseEvent) {
     const target = event.target as HTMLElement;
@@ -93,125 +121,119 @@ export default function MessageList({
     });
   }
 
-  let lastDateLabel = '';
+  const renderItem = useCallback((index: number, item: ListItem) => {
+    if (item.kind === 'separator') {
+      return (
+        <Container maxWidth="md" sx={{ py: 0.5, display: 'flex', flexDirection: 'column' }}>
+          <Divider sx={{ my: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '11px', fontWeight: 500 }}>
+              {item.label}
+            </Typography>
+          </Divider>
+        </Container>
+      );
+    }
+
+    const message = item.message;
+    const isActiveRun = message.runId === activeRunId;
+    const isStreamingMessage = isActiveRun && isStreaming;
+
+    if (message.type === 'user') {
+      return (
+        <Container maxWidth="md" sx={{ py: 0.5, display: 'flex', flexDirection: 'column' }}>
+          <MessageBubble role="user" content={message.content} timestamp={message.timestamp} />
+        </Container>
+      );
+    }
+
+    if (message.type === 'assistant') {
+      // Active run, waiting for response — show thinking spinner.
+      if (!message.content && !isStreaming && isRunning && (isActiveRun || !message.runId)) {
+        return (
+          <Container maxWidth="md" sx={{ py: 0.5, display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={12} color="primary" />
+              <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                {toolActivity ? t('conversations.callingTool', { toolName: toolActivity }) : t('conversations.thinking')}
+              </Typography>
+            </Box>
+          </Container>
+        );
+      }
+
+      // Queued run — show queued indicator
+      if (!isActiveRun && !message.content && message.runId) {
+        return (
+          <Container maxWidth="md" sx={{ py: 0.5, display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HourglassEmptyRounded sx={{ fontSize: 12 }} color="disabled" />
+              <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                {t('conversations.queued')}
+              </Typography>
+            </Box>
+          </Container>
+        );
+      }
+
+      // Normal assistant message rendering
+      return (
+        <Container maxWidth="md" sx={{ py: 0.5, display: 'flex', flexDirection: 'column' }}>
+          <MessageBubble
+            role="assistant"
+            content={message.content}
+            isStreaming={isStreamingMessage}
+            streamText={isStreamingMessage ? streamText : undefined}
+            timestamp={message.timestamp}
+          />
+        </Container>
+      );
+    }
+
+    if (message.type === 'tool-invoke') {
+      return (
+        <Container maxWidth="md" sx={{ py: 0.5 }}>
+          <ToolInvoke toolName={message.toolName || 'tool'} args={message.content} />
+        </Container>
+      );
+    }
+
+    if (message.type === 'tool-result') {
+      return (
+        <Container maxWidth="md" sx={{ py: 0.5 }}>
+          <ToolResult toolName={message.toolName || 'tool'} content={message.content} />
+        </Container>
+      );
+    }
+
+    if (message.type === 'usage') {
+      return (
+        <Container maxWidth="md" sx={{ py: 0.5 }}>
+          <UsageIndicator text={message.content} />
+        </Container>
+      );
+    }
+
+    return <div />;
+  }, [activeRunId, isStreaming, isRunning, streamText, toolActivity, t]);
+
+  const computeItemKey = useCallback((_index: number, item: ListItem) => {
+    return item.kind === 'separator' ? item.key : item.message.id;
+  }, []);
 
   return (
-    <Box
-      ref={containerRef}
-      onClick={handleClick}
-      onScroll={handleScroll}
-      sx={{
-        flex: 1,
-        overflowY: 'auto',
-      }}
-    >
-      <Container maxWidth="md" sx={{ py: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-      {messages.map((message, index) => {
-        const isActiveRun = message.runId === activeRunId;
-        const isStreamingMessage = isActiveRun && isStreaming;
-
-        let dateSeparator: React.ReactNode = null;
-        if (message.timestamp && (message.type === 'user' || message.type === 'assistant')) {
-          const label = dateLabelFor(message.timestamp, t);
-          if (label !== lastDateLabel) {
-            lastDateLabel = label;
-            dateSeparator = (
-              <Divider key={`sep-${message.id}`} sx={{ my: 1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '11px', fontWeight: 500 }}>
-                  {label}
-                </Typography>
-              </Divider>
-            );
-          }
-        }
-
-        if (message.type === 'user') {
-          return (
-            <React.Fragment key={message.id}>
-              {dateSeparator}
-              <MessageBubble role="user" content={message.content} timestamp={message.timestamp} />
-            </React.Fragment>
-          );
-        }
-
-        if (message.type === 'assistant') {
-          // Active run, waiting for response — show thinking spinner.
-          // Also show thinking for messages not yet tagged with a runId (pre-RPC-response).
-          if (!message.content && !isStreaming && isRunning && (isActiveRun || !message.runId)) {
-            return (
-              <React.Fragment key={message.id}>
-                {dateSeparator}
-                <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <CircularProgress size={12} color="primary" />
-                  <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                    {toolActivity ? t('conversations.callingTool', { toolName: toolActivity }) : t('conversations.thinking')}
-                  </Typography>
-                </Box>
-              </React.Fragment>
-            );
-          }
-
-          // Queued run — show queued indicator
-          if (!isActiveRun && !message.content && message.runId) {
-            return (
-              <React.Fragment key={message.id}>
-                {dateSeparator}
-                <Box sx={{ alignSelf: 'flex-start', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <HourglassEmptyRounded sx={{ fontSize: 12 }} color="disabled" />
-                  <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                    {t('conversations.queued')}
-                  </Typography>
-                </Box>
-              </React.Fragment>
-            );
-          }
-
-          // Normal assistant message rendering
-          return (
-            <React.Fragment key={message.id}>
-              {dateSeparator}
-              <MessageBubble
-                role="assistant"
-                content={message.content}
-                isStreaming={isStreamingMessage}
-                streamText={isStreamingMessage ? streamText : undefined}
-                timestamp={message.timestamp}
-              />
-            </React.Fragment>
-          );
-        }
-
-        if (message.type === 'tool-invoke') {
-          if (!showToolCalls) return null;
-          return (
-            <ToolInvoke
-              key={message.id}
-              toolName={message.toolName || 'tool'}
-              args={message.content}
-            />
-          );
-        }
-
-        if (message.type === 'tool-result') {
-          const hasMedia = detectMedia(message.content) !== null;
-          if (!showToolCalls && !hasMedia) return null;
-          return (
-            <ToolResult
-              key={message.id}
-              toolName={message.toolName || 'tool'}
-              content={message.content}
-            />
-          );
-        }
-
-        if (message.type === 'usage') {
-          if (!showTokenUsage) return null;
-          return <UsageIndicator key={message.id} text={message.content} />;
-        }
-
-        return null;
-      })}
-      </Container>
+    <Box onClick={handleClick} sx={{ flex: 1, minHeight: 0 }}>
+      <Virtuoso
+        ref={virtuosoRef}
+        style={{ height: '100%' }}
+        data={items}
+        computeItemKey={computeItemKey}
+        initialTopMostItemIndex={items.length > 0 ? items.length - 1 : 0}
+        followOutput="smooth"
+        atBottomThreshold={80}
+        atBottomStateChange={handleAtBottomStateChange}
+        increaseViewportBy={{ top: 500, bottom: 200 }}
+        itemContent={renderItem}
+      />
     </Box>
   );
 }

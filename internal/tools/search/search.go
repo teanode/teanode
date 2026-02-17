@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
@@ -49,6 +48,22 @@ func (self *searchTool) Definition() provider.ToolDefinition {
 					},
 				},
 				"required": []string{"query"},
+			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"results": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"title":       map[string]interface{}{"type": "string", "description": "Result title"},
+								"url":         map[string]interface{}{"type": "string", "description": "Result URL"},
+								"description": map[string]interface{}{"type": "string", "description": "Result description"},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
@@ -101,7 +116,7 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 		return "", fmt.Errorf("search API returned %d: %s", response.StatusCode, string(body))
 	}
 
-	var result struct {
+	var apiResult struct {
 		Web struct {
 			Results []struct {
 				Title       string `json:"title"`
@@ -110,22 +125,25 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 			} `json:"results"`
 		} `json:"web"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := json.Unmarshal(body, &apiResult); err != nil {
 		return "", fmt.Errorf("parsing search results: %w", err)
 	}
 
-	log.Debugf("brave search returned %d results for query=%q", len(result.Web.Results), arguments.Query)
+	log.Debugf("brave search returned %d results for query=%q", len(apiResult.Web.Results), arguments.Query)
 
-	if len(result.Web.Results) == 0 {
-		return "no results found", nil
+	type resultEntry struct {
+		Title       string `json:"title"`
+		URL         string `json:"url"`
+		Description string `json:"description"`
 	}
-
-	var builder strings.Builder
-	for index, searchResult := range result.Web.Results {
-		if index > 0 {
-			builder.WriteString("\n\n")
+	entries := make([]resultEntry, len(apiResult.Web.Results))
+	for index, searchResult := range apiResult.Web.Results {
+		entries[index] = resultEntry{
+			Title:       searchResult.Title,
+			URL:         searchResult.URL,
+			Description: searchResult.Description,
 		}
-		fmt.Fprintf(&builder, "[%d] %s\n%s\n%s", index+1, searchResult.Title, searchResult.URL, searchResult.Description)
 	}
-	return builder.String(), nil
+	output, _ := json.Marshal(map[string]interface{}{"results": entries})
+	return string(output), nil
 }

@@ -12,10 +12,7 @@ import (
 
 // RegisterTerminalTools adds all terminal-control tools to the registry.
 func RegisterTerminalTools(registry *agents.ToolRegistry, relay *Relay) {
-	registry.Register(&terminalConnectionListTool{relay: relay})
-	registry.Register(&terminalScreenshotTool{relay: relay})
-	registry.Register(&terminalTypeTool{relay: relay})
-	registry.Register(&terminalPressKeyTool{relay: relay})
+	registry.Register(&terminalTool{relay: relay})
 }
 
 // resolveConnectionId returns the connectionId from args or falls back to the default.
@@ -26,45 +23,75 @@ func resolveConnectionId(relay *Relay, connectionId string) (string, error) {
 	return relay.DefaultConnection()
 }
 
-// --- terminal_connection_list ---
+// --- terminal (consolidated) ---
 
-type terminalConnectionListTool struct{ relay *Relay }
+type terminalTool struct{ relay *Relay }
 
-func (self *terminalConnectionListTool) Definition() provider.ToolDefinition {
+func (self *terminalTool) Definition() provider.ToolDefinition {
 	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "terminal_connection_list",
-			Description: "List all connected terminal connections.",
+			Name: "terminal",
+			Description: "Control a connected terminal session. Actions: list (list connections), " +
+				"screenshot (capture screen text), type (type text), press_key (press a special key).",
 			Parameters: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-			Returns: map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"id":               map[string]interface{}{"type": "string", "description": "Connection identifier"},
-						"hostname":         map[string]interface{}{"type": "string", "description": "Machine hostname"},
-						"username":         map[string]interface{}{"type": "string", "description": "OS username"},
-						"os":               map[string]interface{}{"type": "string", "description": "Operating system (linux, darwin, windows)"},
-						"architecture":     map[string]interface{}{"type": "string", "description": "CPU architecture (amd64, arm64)"},
-						"shellCommand":     map[string]interface{}{"type": "string", "description": "Shell command running in the terminal"},
-						"workingDirectory": map[string]interface{}{"type": "string", "description": "Working directory of the terminal"},
-						"timezone":         map[string]interface{}{"type": "string", "description": "IANA timezone (e.g. America/New_York)"},
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"list", "screenshot", "type", "press_key"},
+						"description": "The terminal action to perform.",
+					},
+					"connectionId": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the terminal connection to target. If omitted, uses the default connection.",
+					},
+					"text": map[string]interface{}{
+						"type":        "string",
+						"description": "The text to type into the terminal (for type action). Use \\n for newlines to execute commands.",
+					},
+					"key": map[string]interface{}{
+						"type":        "string",
+						"description": "The key to press: Enter, Tab, Escape, Backspace, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Ctrl+C, Ctrl+D, Ctrl+Z, Ctrl+L (for press_key action).",
 					},
 				},
+				"required": []string{"action"},
+			},
+			Returns: map[string]interface{}{
+				"type":        "object",
+				"description": "Action-dependent result. list: {connections: [...]}. screenshot: {text}. type: {text}. press_key: {key}.",
 			},
 		},
 	}
 }
 
-func (self *terminalConnectionListTool) Execute(_ context.Context, _ string) (string, error) {
-	connections := self.relay.Connections()
-	if len(connections) == 0 {
-		return "[]", nil
+func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	var arguments struct {
+		Action       string `json:"action"`
+		ConnectionID string `json:"connectionId"`
+		Text         string `json:"text"`
+		Key          string `json:"key"`
 	}
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("parsing arguments: %w", err)
+	}
+
+	switch arguments.Action {
+	case "list":
+		return self.executeList()
+	case "screenshot":
+		return self.executeScreenshot(ctx, arguments.ConnectionID)
+	case "type":
+		return self.executeType(ctx, arguments.ConnectionID, arguments.Text)
+	case "press_key":
+		return self.executePressKey(ctx, arguments.ConnectionID, arguments.Key)
+	default:
+		return "", fmt.Errorf("unknown terminal action: %s", arguments.Action)
+	}
+}
+
+func (self *terminalTool) executeList() (string, error) {
+	connections := self.relay.Connections()
 	type entry struct {
 		ID               string `json:"id"`
 		Hostname         string `json:"hostname,omitempty"`
@@ -88,51 +115,16 @@ func (self *terminalConnectionListTool) Execute(_ context.Context, _ string) (st
 			Timezone:         connection.Machine.Timezone,
 		}
 	}
-	out, _ := json.Marshal(entries)
-	return string(out), nil
+	output, _ := json.Marshal(map[string]interface{}{"connections": entries})
+	return string(output), nil
 }
 
-// --- terminal_screenshot ---
-
-type terminalScreenshotTool struct{ relay *Relay }
-
-func (self *terminalScreenshotTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "terminal_screenshot",
-			Description: "Capture the current terminal screen content as plain text.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"connectionId": map[string]interface{}{
-						"type":        "string",
-						"description": "ID of the terminal connection to target. If omitted, uses the default connection.",
-					},
-				},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"text": map[string]interface{}{"type": "string", "description": "Plain text content of the terminal screen"},
-				},
-			},
-		},
-	}
-}
-
-func (self *terminalScreenshotTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var arguments struct {
-		ConnectionID string `json:"connectionId"`
-	}
-	if rawArguments != "" {
-		json.Unmarshal([]byte(rawArguments), &arguments)
-	}
-	connectionId, err := resolveConnectionId(self.relay, arguments.ConnectionID)
+func (self *terminalTool) executeScreenshot(ctx context.Context, connectionId string) (string, error) {
+	resolvedId, err := resolveConnectionId(self.relay, connectionId)
 	if err != nil {
 		return "", err
 	}
-	result, err := self.relay.SendCommand(ctx, connectionId, "screenshot", nil)
+	result, err := self.relay.SendCommand(ctx, resolvedId, "screenshot", nil)
 	if err != nil {
 		return "", err
 	}
@@ -146,121 +138,37 @@ func (self *terminalScreenshotTool) Execute(ctx context.Context, rawArguments st
 	return string(output), nil
 }
 
-// --- terminal_type ---
-
-type terminalTypeTool struct{ relay *Relay }
-
-func (self *terminalTypeTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "terminal_type",
-			Description: "Type text into the terminal. Use \\n for newlines to execute commands.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"text": map[string]interface{}{
-						"type":        "string",
-						"description": "The text to type into the terminal.",
-					},
-					"connectionId": map[string]interface{}{
-						"type":        "string",
-						"description": "ID of the terminal connection to target. If omitted, uses the default connection.",
-					},
-				},
-				"required": []string{"text"},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"text": map[string]interface{}{"type": "string", "description": "The text that was typed"},
-				},
-			},
-		},
-	}
-}
-
-func (self *terminalTypeTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var arguments struct {
-		Text         string `json:"text"`
-		ConnectionID string `json:"connectionId"`
-	}
-	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	connectionId, err := resolveConnectionId(self.relay, arguments.ConnectionID)
+func (self *terminalTool) executeType(ctx context.Context, connectionId string, text string) (string, error) {
+	resolvedId, err := resolveConnectionId(self.relay, connectionId)
 	if err != nil {
 		return "", err
 	}
-	_, err = self.relay.SendCommand(ctx, connectionId, "write", map[string]interface{}{
-		"data": arguments.Text,
+	_, err = self.relay.SendCommand(ctx, resolvedId, "write", map[string]interface{}{
+		"data": text,
 	})
 	if err != nil {
 		return "", err
 	}
-	output, _ := json.Marshal(map[string]string{"text": arguments.Text})
+	output, _ := json.Marshal(map[string]string{"text": text})
 	return string(output), nil
 }
 
-// --- terminal_press_key ---
-
-type terminalPressKeyTool struct{ relay *Relay }
-
-func (self *terminalPressKeyTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "terminal_press_key",
-			Description: "Press a special key or key combination in the terminal (e.g. \"Enter\", \"Ctrl+C\", \"ArrowUp\").",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"key": map[string]interface{}{
-						"type":        "string",
-						"description": "The key to press (Enter, Tab, Escape, Backspace, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Ctrl+C, Ctrl+D, Ctrl+Z, Ctrl+L).",
-					},
-					"connectionId": map[string]interface{}{
-						"type":        "string",
-						"description": "ID of the terminal connection to target. If omitted, uses the default connection.",
-					},
-				},
-				"required": []string{"key"},
-			},
-			Returns: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"key": map[string]interface{}{"type": "string", "description": "The key that was pressed"},
-				},
-			},
-		},
-	}
-}
-
-func (self *terminalPressKeyTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var arguments struct {
-		Key          string `json:"key"`
-		ConnectionID string `json:"connectionId"`
-	}
-	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-
-	seq, ok := termKeyMap[strings.ToLower(arguments.Key)]
+func (self *terminalTool) executePressKey(ctx context.Context, connectionId string, key string) (string, error) {
+	seq, ok := termKeyMap[strings.ToLower(key)]
 	if !ok {
-		return "", fmt.Errorf("unknown key: %s", arguments.Key)
+		return "", fmt.Errorf("unknown key: %s", key)
 	}
-
-	connectionId, err := resolveConnectionId(self.relay, arguments.ConnectionID)
+	resolvedId, err := resolveConnectionId(self.relay, connectionId)
 	if err != nil {
 		return "", err
 	}
-	_, err = self.relay.SendCommand(ctx, connectionId, "write", map[string]interface{}{
+	_, err = self.relay.SendCommand(ctx, resolvedId, "write", map[string]interface{}{
 		"data": seq,
 	})
 	if err != nil {
 		return "", err
 	}
-	output, _ := json.Marshal(map[string]string{"key": arguments.Key})
+	output, _ := json.Marshal(map[string]string{"key": key})
 	return string(output), nil
 }
 

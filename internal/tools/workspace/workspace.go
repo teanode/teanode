@@ -15,12 +15,7 @@ import (
 
 // RegisterTools adds memory tools to the registry.
 func RegisterTools(registry *agents.ToolRegistry, memoryDirectory string) {
-	registry.Register(&readTool{directory: memoryDirectory})
-	registry.Register(&writeTool{directory: memoryDirectory})
-	registry.Register(&listTool{directory: memoryDirectory})
-	registry.Register(&appendTool{directory: memoryDirectory})
-	registry.Register(&searchTool{directory: memoryDirectory})
-	registry.Register(&deleteTool{directory: memoryDirectory})
+	registry.Register(&workspaceTool{directory: memoryDirectory})
 }
 
 // safePath resolves a relative path inside memoryDirectory and rejects traversal.
@@ -36,38 +31,106 @@ func safePath(memoryDirectory, rel string) (string, error) {
 	return full, nil
 }
 
-// --- workspace_read ---
+// --- workspace (consolidated) ---
 
-type readTool struct{ directory string }
+type workspaceTool struct{ directory string }
 
-func (self *readTool) Definition() provider.ToolDefinition {
+func (self *workspaceTool) Definition() provider.ToolDefinition {
 	return provider.ToolDefinition{
 		Type: "function",
 		Function: provider.FunctionSpec{
-			Name:        "workspace_read",
-			Description: "Read a file from persistent memory storage.",
+			Name: "workspace",
+			Description: "Persistent workspace storage. Actions: read (read a file), write (create/overwrite a file), " +
+				"list (list all files), append (append to a file), search (search across files), delete (delete a file).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"action": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"read", "write", "list", "append", "search", "delete"},
+						"description": "The workspace action to perform.",
+					},
 					"path": map[string]interface{}{
 						"type":        "string",
-						"description": "Relative path of the file to read.",
+						"description": "Relative path of the file (for read, write, append, delete actions).",
+					},
+					"content": map[string]interface{}{
+						"type":        "string",
+						"description": "Content to write or append (for write, append actions).",
+					},
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Text to search for, case-insensitive substring match (for search action).",
+					},
+					"maxResults": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of matching lines to return, default 10 (for search action).",
 					},
 				},
-				"required": []string{"path"},
+				"required": []string{"action"},
+			},
+			Returns: map[string]interface{}{
+				"type":        "object",
+				"description": "Action-dependent result. read: {action, content}. write: {action, success}. list: {action, files}. append: {action, success}. search: {action, matches}. delete: {action, success}.",
+				"properties": map[string]interface{}{
+					"action":  map[string]interface{}{"type": "string", "description": "The action that was performed"},
+					"success": map[string]interface{}{"type": "boolean", "description": "Whether the action succeeded (write, append, delete)"},
+					"content": map[string]interface{}{"type": "string", "description": "File content (read)"},
+					"files": map[string]interface{}{
+						"type":  "array",
+						"items": map[string]interface{}{"type": "string"},
+						"description": "List of file paths (list)",
+					},
+					"matches": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"path": map[string]interface{}{"type": "string"},
+								"line": map[string]interface{}{"type": "integer"},
+								"text": map[string]interface{}{"type": "string"},
+							},
+						},
+						"description": "Search matches (search)",
+					},
+				},
 			},
 		},
 	}
 }
 
-func (self *readTool) Execute(_ context.Context, rawArguments string) (string, error) {
+func (self *workspaceTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
-		Path string `json:"path"`
+		Action     string `json:"action"`
+		Path       string `json:"path"`
+		Content    string `json:"content"`
+		Query      string `json:"query"`
+		MaxResults int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
-	full, err := safePath(self.directory, arguments.Path)
+
+	switch arguments.Action {
+	case "read":
+		return self.executeRead(arguments.Path)
+	case "write":
+		return self.executeWrite(arguments.Path, arguments.Content)
+	case "list":
+		return self.executeList()
+	case "append":
+		return self.executeAppend(arguments.Path, arguments.Content)
+	case "search":
+		return self.executeSearch(arguments.Query, arguments.MaxResults)
+	case "delete":
+		return self.executeDelete(arguments.Path)
+	default:
+		return "", fmt.Errorf("unknown workspace action: %s", arguments.Action)
+	}
+}
+
+func (self *workspaceTool) executeRead(path string) (string, error) {
+	full, err := safePath(self.directory, path)
 	if err != nil {
 		return "", err
 	}
@@ -75,74 +138,29 @@ func (self *readTool) Execute(_ context.Context, rawArguments string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("reading file: %w", err)
 	}
-	return string(data), nil
+	output, _ := json.Marshal(map[string]interface{}{
+		"action":  "read",
+		"content": string(data),
+	})
+	return string(output), nil
 }
 
-// --- workspace_write ---
-
-type writeTool struct{ directory string }
-
-func (self *writeTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "workspace_write",
-			Description: "Write a file to persistent memory storage. Creates parent directories as needed.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Relative path of the file to write.",
-					},
-					"content": map[string]interface{}{
-						"type":        "string",
-						"description": "Content to write to the file.",
-					},
-				},
-				"required": []string{"path", "content"},
-			},
-		},
-	}
-}
-
-func (self *writeTool) Execute(_ context.Context, rawArguments string) (string, error) {
-	var arguments struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	full, err := safePath(self.directory, arguments.Path)
+func (self *workspaceTool) executeWrite(path string, content string) (string, error) {
+	full, err := safePath(self.directory, path)
 	if err != nil {
 		return "", err
 	}
-	if err := atomicfile.WriteFile(full, []byte(arguments.Content)); err != nil {
+	if err := atomicfile.WriteFile(full, []byte(content)); err != nil {
 		return "", fmt.Errorf("writing file: %w", err)
 	}
-	return "ok", nil
+	output, _ := json.Marshal(map[string]interface{}{
+		"action":  "write",
+		"success": true,
+	})
+	return string(output), nil
 }
 
-// --- workspace_list ---
-
-type listTool struct{ directory string }
-
-func (self *listTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "workspace_list",
-			Description: "List all files in persistent memory storage.",
-			Parameters: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
-	}
-}
-
-func (self *listTool) Execute(_ context.Context, _ string) (string, error) {
+func (self *workspaceTool) executeList() (string, error) {
 	var files []string
 	err := filepath.Walk(self.directory, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -157,49 +175,18 @@ func (self *listTool) Execute(_ context.Context, _ string) (string, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("listing files: %w", err)
 	}
-	if len(files) == 0 {
-		return "no files", nil
+	if files == nil {
+		files = []string{}
 	}
-	return strings.Join(files, "\n"), nil
+	output, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+		"files":  files,
+	})
+	return string(output), nil
 }
 
-// --- workspace_append ---
-
-type appendTool struct{ directory string }
-
-func (self *appendTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "workspace_append",
-			Description: "Append text to a file in persistent memory storage. Creates the file and parent directories if needed. Useful for daily logs.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Relative path of the file to append to.",
-					},
-					"content": map[string]interface{}{
-						"type":        "string",
-						"description": "Content to append to the file.",
-					},
-				},
-				"required": []string{"path", "content"},
-			},
-		},
-	}
-}
-
-func (self *appendTool) Execute(_ context.Context, rawArguments string) (string, error) {
-	var arguments struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	full, err := safePath(self.directory, arguments.Path)
+func (self *workspaceTool) executeAppend(path string, content string) (string, error) {
+	full, err := safePath(self.directory, path)
 	if err != nil {
 		return "", err
 	}
@@ -211,44 +198,78 @@ func (self *appendTool) Execute(_ context.Context, rawArguments string) (string,
 		return "", fmt.Errorf("opening file: %w", err)
 	}
 	defer file.Close()
-	if _, err := file.WriteString(arguments.Content + "\n"); err != nil {
+	if _, err := file.WriteString(content + "\n"); err != nil {
 		return "", fmt.Errorf("appending to file: %w", err)
 	}
-	return "ok", nil
+	output, _ := json.Marshal(map[string]interface{}{
+		"action":  "append",
+		"success": true,
+	})
+	return string(output), nil
 }
 
-// --- workspace_delete ---
-
-type deleteTool struct{ directory string }
-
-func (self *deleteTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "workspace_delete",
-			Description: "Delete a file from persistent memory storage. If the parent directory becomes empty after deletion, it is removed automatically.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Relative path of the file to delete.",
-					},
-				},
-				"required": []string{"path"},
-			},
-		},
+func (self *workspaceTool) executeSearch(query string, maxResults int) (string, error) {
+	if query == "" {
+		return "", fmt.Errorf("query is required")
 	}
-}
+	if maxResults <= 0 {
+		maxResults = 10
+	}
 
-func (self *deleteTool) Execute(_ context.Context, rawArguments string) (string, error) {
-	var arguments struct {
+	queryLower := strings.ToLower(query)
+	type matchEntry struct {
 		Path string `json:"path"`
+		Line int    `json:"line"`
+		Text string `json:"text"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	var matches []matchEntry
+
+	err := filepath.Walk(self.directory, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // skip errors
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".md") && !strings.HasSuffix(path, ".txt") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		relative, _ := filepath.Rel(self.directory, path)
+		lines := strings.Split(string(data), "\n")
+		for index, line := range lines {
+			if len(matches) >= maxResults {
+				return filepath.SkipAll
+			}
+			if strings.Contains(strings.ToLower(line), queryLower) {
+				matches = append(matches, matchEntry{
+					Path: relative,
+					Line: index + 1,
+					Text: line,
+				})
+			}
+		}
+		return nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("searching files: %w", err)
 	}
-	full, err := safePath(self.directory, arguments.Path)
+
+	if matches == nil {
+		matches = []matchEntry{}
+	}
+	output, _ := json.Marshal(map[string]interface{}{
+		"action":  "search",
+		"matches": matches,
+	})
+	return string(output), nil
+}
+
+func (self *workspaceTool) executeDelete(path string) (string, error) {
+	full, err := safePath(self.directory, path)
 	if err != nil {
 		return "", err
 	}
@@ -272,87 +293,9 @@ func (self *deleteTool) Execute(_ context.Context, rawArguments string) (string,
 		os.Remove(directory)
 		directory = filepath.Dir(directory)
 	}
-	return "ok", nil
-}
-
-// --- workspace_search ---
-
-type searchTool struct{ directory string }
-
-func (self *searchTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
-		Type: "function",
-		Function: provider.FunctionSpec{
-			Name:        "workspace_search",
-			Description: "Search across all workspace files for a query string. Returns matching lines with file path and line number.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"query": map[string]interface{}{
-						"type":        "string",
-						"description": "Text to search for (case-insensitive substring match).",
-					},
-					"max_results": map[string]interface{}{
-						"type":        "integer",
-						"description": "Maximum number of matching lines to return. Default 10.",
-					},
-				},
-				"required": []string{"query"},
-			},
-		},
-	}
-}
-
-func (self *searchTool) Execute(_ context.Context, rawArguments string) (string, error) {
-	var arguments struct {
-		Query      string `json:"query"`
-		MaxResults int    `json:"max_results"`
-	}
-	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
-	}
-	if arguments.Query == "" {
-		return "", fmt.Errorf("query is required")
-	}
-	if arguments.MaxResults <= 0 {
-		arguments.MaxResults = 10
-	}
-
-	queryLower := strings.ToLower(arguments.Query)
-	var matches []string
-
-	err := filepath.Walk(self.directory, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // skip errors
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(path, ".md") && !strings.HasSuffix(path, ".txt") {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		relative, _ := filepath.Rel(self.directory, path)
-		lines := strings.Split(string(data), "\n")
-		for index, line := range lines {
-			if len(matches) >= arguments.MaxResults {
-				return filepath.SkipAll
-			}
-			if strings.Contains(strings.ToLower(line), queryLower) {
-				matches = append(matches, fmt.Sprintf("%s:%d: %s", relative, index+1, line))
-			}
-		}
-		return nil
+	output, _ := json.Marshal(map[string]interface{}{
+		"action":  "delete",
+		"success": true,
 	})
-	if err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("searching files: %w", err)
-	}
-
-	if len(matches) == 0 {
-		return "no matches", nil
-	}
-	return strings.Join(matches, "\n"), nil
+	return string(output), nil
 }
