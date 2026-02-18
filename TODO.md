@@ -2,6 +2,17 @@
 
 ## Testing
 
+Core infrastructure packages now have high test coverage:
+- `internal/providers` ~92% (Anthropic, OpenAI, registry, NewProvider factory)
+- `internal/jobs` ~89% (store, types/frontmatter, scheduler with cron dedup, one-shot delays, tools API)
+- `internal/sessions` ~95% (store: create, get, touch, delete, list)
+- `internal/util/security` ~92% (GenerateRandom, GenerateRandomString, HashPassword, VerifyPassword, NewULID)
+
+Remaining coverage gaps:
+- [ ] Add tests for `internal/media` (media store, image extraction, serving)
+- [ ] Add tests for `internal/web` (embedded SPA serving, static assets)
+- [ ] Add tests for `internal/api/v1api` (HTTP handlers, SSE streaming, auth middleware)
+- [ ] Add tests for CLI commands in `cmd/` (gateway, terminal flag parsing and wiring)
 - [ ] Add gateway HTTP handler tests (`/api/v1/chat/completions`, `/api/v1/health`, auth middleware)
 - [ ] Add WebSocket RPC handler tests (`conversations.send`, `conversations.history`, `conversations.list`, etc.)
 - [ ] Add config loading tests (file parsing, env variable overrides, defaults)
@@ -96,7 +107,7 @@
 
 ## Automation
 
-- [x] Cron job scheduler with 5-field expression support
+- [x] Cron job scheduler with 5-field expression support (5s tick with deduplication to prevent double-fires)
 - [x] Persistent cron storage with hot-reload
 - [x] Per-job model overrides and manual triggering
 - [x] One-shot reminder support (delay-based timers, conversation-bound, auto-cleanup)
