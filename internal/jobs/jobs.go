@@ -1,4 +1,4 @@
-// Package jobs provides a scheduler that runs scheduled jobs on a per-minute tick.
+// Package jobs provides a scheduler that runs scheduled jobs on a periodic tick.
 package jobs
 
 import "github.com/op/go-logging"

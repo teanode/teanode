@@ -11,13 +11,17 @@ import (
 	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
-// Scheduler runs scheduled jobs on a 1-minute tick.
+// tickInterval is the scheduler's internal polling interval.
+const tickInterval = 5 * time.Second
+
+// Scheduler runs scheduled jobs on a periodic tick.
 type Scheduler struct {
 	store         *Store
 	agentRegistry *agents.AgentRegistry
 	mutex         sync.Mutex
 	jobs          []Job
 	expressions   map[string]*cronexpr.CronExpr
+	lastCronFire  map[string]time.Time // tracks last fire minute per cron job to avoid duplicates
 	stopChannel   chan struct{}
 
 	Broadcast       func(event string, payload interface{})
@@ -31,6 +35,7 @@ func NewScheduler(store *Store, agentRegistry *agents.AgentRegistry) *Scheduler 
 		store:         store,
 		agentRegistry: agentRegistry,
 		expressions:   make(map[string]*cronexpr.CronExpr),
+		lastCronFire:  make(map[string]time.Time),
 		stopChannel:   make(chan struct{}),
 	}
 }
@@ -136,21 +141,15 @@ func (self *Scheduler) DeleteAndReload(id string) error {
 func (self *Scheduler) run() {
 	defer deferutil.Recover()
 
-	// Align to next minute boundary.
-	now := time.Now()
-	next := now.Truncate(time.Minute).Add(time.Minute)
-	timer := time.NewTimer(time.Until(next))
-	defer timer.Stop()
+	ticker := time.NewTicker(tickInterval)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-self.stopChannel:
 			return
-		case tickTime := <-timer.C:
+		case tickTime := <-ticker.C:
 			self.tick(tickTime)
-			// Reset timer for next minute.
-			next = tickTime.Truncate(time.Minute).Add(time.Minute)
-			timer.Reset(time.Until(next))
 		}
 	}
 }
@@ -162,6 +161,7 @@ func (self *Scheduler) tick(when time.Time) {
 	expressions := self.expressions
 	self.mutex.Unlock()
 
+	minuteBoundary := when.Truncate(time.Minute)
 	nowMilliseconds := when.UnixMilli()
 	for _, job := range jobs {
 		if !job.Enabled {
@@ -178,7 +178,16 @@ func (self *Scheduler) tick(when time.Time) {
 			continue
 		}
 		if expression.Matches(when) {
-			go self.executeJob(job)
+			self.mutex.Lock()
+			lastFire := self.lastCronFire[job.ID]
+			alreadyFired := lastFire.Equal(minuteBoundary)
+			if !alreadyFired {
+				self.lastCronFire[job.ID] = minuteBoundary
+			}
+			self.mutex.Unlock()
+			if !alreadyFired {
+				go self.executeJob(job)
+			}
 		}
 	}
 }
