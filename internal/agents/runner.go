@@ -452,10 +452,16 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 				if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
 					rawData, decodeError := base64.StdEncoding.DecodeString(detected.Base64)
 					if decodeError == nil {
-						mediaId, saveError := self.MediaStore.Save(rawData, detected.Format)
+						saved, saveError := self.MediaStore.Save(rawData, detected.Format, media.SaveOptions{
+							SourceType:     "tool",
+							AgentID:        self.AgentID,
+							ConversationID: params.ConversationID,
+							ToolName:       item.toolCall.Function.Name,
+							ToolCallID:     item.toolCall.ID,
+						})
 						if saveError == nil {
 							ref, _ := json.Marshal(map[string]interface{}{
-								"mediaId":   mediaId,
+								"mediaId":   saved.MediaID,
 								"format":    detected.Format,
 								"displayed": true,
 							})
