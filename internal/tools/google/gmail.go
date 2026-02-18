@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type gmailTool struct {
@@ -15,10 +15,10 @@ type gmailTool struct {
 	runner  commandRunner
 }
 
-func (self *gmailTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *gmailTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "google_gmail",
 			Description: "Interact with Gmail. Actions: search (find emails), read (get email content), " +
 				"send (compose new email), reply (reply to email), trash (delete email).",

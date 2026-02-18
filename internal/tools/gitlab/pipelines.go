@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type pipelinesTool struct {
@@ -14,10 +14,10 @@ type pipelinesTool struct {
 	runner commandRunner
 }
 
-func (self *pipelinesTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *pipelinesTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "gitlab_pipelines",
 			Description: "Interact with GitLab CI/CD pipelines. Actions: list (list pipelines), " +
 				"view (view pipeline details), run (trigger a pipeline), retry (retry a pipeline).",

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type reposTool struct {
@@ -14,10 +14,10 @@ type reposTool struct {
 	runner commandRunner
 }
 
-func (self *reposTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *reposTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "github_repos",
 			Description: "Interact with GitHub repositories. Actions: view (get repository info), " +
 				"list (list repositories for an owner).",

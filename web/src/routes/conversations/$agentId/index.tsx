@@ -1,11 +1,15 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
 import IconButton from '@mui/material/IconButton';
+import MenuItem from '@mui/material/MenuItem';
+import ListSubheader from '@mui/material/ListSubheader';
+import Select from '@mui/material/Select';
 import SendRounded from '@mui/icons-material/SendRounded';
 import { useAppContext } from '../../../context';
+import type { ModelInfo } from '../../../types';
 
 /** /conversations/$agentId/ — new conversation page with centered input. */
 export default function ConversationsNewPage() {
@@ -16,6 +20,9 @@ export default function ConversationsNewPage() {
   const agentName = agent?.name || agentId;
   const navigate = useNavigate();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Model picker state — default to empty (agent's configured default).
+  const [selectedModel, setSelectedModel] = useState('');
 
   // Track whether the page is ready to accept a new conversation id.
   // Starts false; becomes true once any prior conversation has been cleared.
@@ -49,7 +56,7 @@ export default function ConversationsNewPage() {
     if (saved) {
       element.value = saved;
       element.style.height = 'auto';
-      element.style.height = Math.min(element.scrollHeight, 150) + 'px';
+      element.style.height = Math.min(element.scrollHeight, 300) + 'px';
     }
   }, []);
 
@@ -58,11 +65,11 @@ export default function ConversationsNewPage() {
     if (!element) return;
     const text = element.value.trim();
     if (!text) return;
-    backend.sendMessage(text);
+    backend.sendMessage(text, selectedModel || undefined);
     element.value = '';
     element.style.height = 'auto';
     localStorage.removeItem(`draft:${draftKey}`);
-  }, [backend.sendMessage]);
+  }, [backend.sendMessage, selectedModel]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
@@ -78,7 +85,7 @@ export default function ConversationsNewPage() {
     const element = textareaRef.current;
     if (!element) return;
     element.style.height = 'auto';
-    element.style.height = Math.min(element.scrollHeight, 150) + 'px';
+    element.style.height = Math.min(element.scrollHeight, 300) + 'px';
     if (element.value) {
       localStorage.setItem(`draft:${draftKey}`, element.value);
     } else {
@@ -86,20 +93,45 @@ export default function ConversationsNewPage() {
     }
   }, []);
 
+  // Group models by provider for the select menu.
+  const grouped = useMemo(() => {
+    const map = new Map<string, ModelInfo[]>();
+    for (const modelInfo of backend.models) {
+      const list = map.get(modelInfo.provider) || [];
+      list.push(modelInfo);
+      map.set(modelInfo.provider, list);
+    }
+    return map;
+  }, [backend.models]);
+
+  const modelMenuItems: React.ReactNode[] = [
+    <MenuItem key="__default" value="">{t('common.default')}</MenuItem>,
+  ];
+  for (const [provider, providerModels] of grouped.entries()) {
+    modelMenuItems.push(<ListSubheader key={`header-${provider}`}>{provider}</ListSubheader>);
+    for (const modelInfo of providerModels) {
+      const qualified = `${modelInfo.provider}:${modelInfo.id}`;
+      modelMenuItems.push(
+        <MenuItem key={qualified} value={qualified}>{modelInfo.id}</MenuItem>
+      );
+    }
+  }
+
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <Container maxWidth="md" sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', px: 2 }}>
+        <Box sx={{ width: '100%' }}>
           <Box
             sx={{
               display: 'flex',
-              alignItems: 'flex-end',
+              flexDirection: 'column',
               bgcolor: 'surface2',
               borderRadius: 1.5,
               border: 1,
               borderColor: 'divider',
               px: 1.5,
               py: 1,
-              gap: 1,
+              gap: 0.5,
               width: '100%',
               '&:focus-within': {
                 borderColor: 'primary.main',
@@ -110,12 +142,13 @@ export default function ConversationsNewPage() {
               component="textarea"
               ref={textareaRef}
               placeholder={t('conversations.startConversation', { agentName })}
-              rows={2}
               autoFocus
               onKeyDown={handleKeyDown}
               onInput={handleInput}
               sx={{
-                flex: 1,
+                width: '100%',
+                minHeight: '2.625rem',
+                maxHeight: 300,
                 border: 'none',
                 outline: 'none',
                 bgcolor: 'transparent',
@@ -124,6 +157,7 @@ export default function ConversationsNewPage() {
                 fontFamily: 'inherit',
                 lineHeight: 1.5,
                 resize: 'none',
+                overflow: 'auto',
                 py: 0.5,
                 '&::placeholder': {
                   color: 'text.secondary',
@@ -131,19 +165,48 @@ export default function ConversationsNewPage() {
                 },
               }}
             />
-            <IconButton
-              size="small"
-              color="primary"
-              onClick={handleSend}
-              sx={{
-                flexShrink: 0,
-                width: 32,
-                height: 32,
-              }}
-            >
-              <SendRounded fontSize="small" />
-            </IconButton>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
+              {backend.models.length > 0 && (
+                <Select
+                  size="small"
+                  variant="standard"
+                  displayEmpty
+                  disableUnderline
+                  value={selectedModel}
+                  onChange={(event) => setSelectedModel(event.target.value as string)}
+                  renderValue={(value) => {
+                    if (!value) return t('common.default');
+                    return value.includes(':') ? value.split(':').slice(1).join(':') : value;
+                  }}
+                  IconComponent={() => null}
+                  sx={{
+                    fontSize: '0.75rem',
+                    color: 'text.secondary',
+                    '& .MuiSelect-select': {
+                      py: 0.5,
+                      pr: '0.5rem !important',
+                      pl: 0.5,
+                    },
+                  }}
+                >
+                  {modelMenuItems}
+                </Select>
+              )}
+              <IconButton
+                size="small"
+                color="primary"
+                onClick={handleSend}
+                sx={{
+                  flexShrink: 0,
+                  width: 32,
+                  height: 32,
+                }}
+              >
+                <SendRounded fontSize="small" />
+              </IconButton>
+            </Box>
           </Box>
+        </Box>
       </Container>
     </Box>
   );

@@ -17,7 +17,7 @@ import (
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
@@ -52,7 +52,7 @@ type gateway struct {
 	runIndex        map[string]string     // runId -> conversationId
 
 	modelsMutex sync.RWMutex
-	models      map[string][]provider.ModelInfo // provider name -> models
+	models      map[string][]providers.ModelInfo // provider name -> models
 	modelsTime  time.Time                       // when cache was populated
 
 	lifecycleChannel       chan LifecycleAction
@@ -96,13 +96,13 @@ func (self *gateway) ResolveRunner(agentId string) *agents.Runner {
 // modelsCache is the YAML structure written to ~/.teanode/models.yaml.
 type modelsCache struct {
 	FetchedAt time.Time                       `json:"fetchedAt" yaml:"fetchedAt"`
-	Providers map[string][]provider.ModelInfo `json:"providers" yaml:"providers"`
+	Providers map[string][]providers.ModelInfo `json:"providers" yaml:"providers"`
 }
 
 const modelsCacheMaxAge = 24 * time.Hour
 
 // LoadModels returns the cached models or fetches from each provider's API.
-func (self *gateway) LoadModels(ctx context.Context) (map[string][]provider.ModelInfo, error) {
+func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.ModelInfo, error) {
 	self.modelsMutex.RLock()
 	if self.models != nil && time.Since(self.modelsTime) < modelsCacheMaxAge {
 		result := self.models
@@ -138,14 +138,14 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]provider.Mode
 	if defaultRunner == nil {
 		return nil, fmt.Errorf("no default agent runner")
 	}
-	_, providers, _, _, _ := defaultRunner.Snapshot()
-	result := make(map[string][]provider.ModelInfo)
-	for _, name := range providers.ProviderNames() {
-		client, _, err := providers.Resolve(provider.QualifyModel(name, "dummy"))
+	_, providerRegistry, _, _, _ := defaultRunner.Snapshot()
+	result := make(map[string][]providers.ModelInfo)
+	for _, name := range providerRegistry.ProviderNames() {
+		provider, _, err := providerRegistry.Resolve(providers.QualifyModel(name, "dummy"))
 		if err != nil {
 			continue
 		}
-		models, err := client.ListModels(ctx)
+		models, err := provider.ListModels(ctx)
 		if err != nil {
 			log.Debugf("failed to fetch models from %s: %v", name, err)
 			continue
@@ -179,7 +179,7 @@ func (self *gateway) InvalidateModelsCache() {
 	self.modelsMutex.Unlock()
 }
 
-func (self *gateway) updateRunnerContextWindows(models map[string][]provider.ModelInfo) {
+func (self *gateway) updateRunnerContextWindows(models map[string][]providers.ModelInfo) {
 	self.agentRegistry.ForEach(func(agentId string, runner *agents.Runner) {
 		for providerName, modelList := range models {
 			runner.SetModels(providerName, modelList)
@@ -224,8 +224,25 @@ func (self *gateway) SetActiveConversationIfUnset(agentId, conversationId string
 	return changed
 }
 
-func (self *gateway) NewConversation(agentId string) string {
+func (self *gateway) NewConversation(agentId, model string) string {
 	conversationId := self.agentRegistry.NewConversation(agentId)
+
+	// Resolve model and create conversation file with provider/model in the header.
+	runner := self.ResolveRunner(agentId)
+	if runner != nil {
+		qualifiedModel := model
+		if qualifiedModel == "" {
+			qualifiedModel = self.config.AgentModel(agentId)
+		}
+		if qualifiedModel != "" {
+			_, providerRegistry, _, _, _ := runner.Snapshot()
+			resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, providerRegistry.DefaultProvider())
+			if err := runner.Conversations.Create(conversationId, resolvedProvider, qualifiedModel); err != nil {
+				log.Errorf("creating conversation file: %v", err)
+			}
+		}
+	}
+
 	self.Broadcast(EventTypeActiveConversation, map[string]interface{}{
 		"agentId":              agentId,
 		"activeConversationId": conversationId,
@@ -274,7 +291,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	// Resolve or create conversation.
 	conversationId := parameters.ConversationID
 	if conversationId == "" {
-		conversationId = self.NewConversation(resolvedAgentId)
+		conversationId = self.NewConversation(resolvedAgentId, parameters.Model)
 	} else {
 		self.SetActiveConversationIfUnset(resolvedAgentId, conversationId)
 	}

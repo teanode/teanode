@@ -10,6 +10,7 @@ interface InputAreaProps {
   isRunning: boolean;
   agentName: string;
   draftKey?: string;
+  model?: string | null;
   onSend: (text: string) => void;
   onAbort: () => void;
 }
@@ -18,12 +19,14 @@ export default function InputArea({
   isRunning,
   agentName,
   draftKey,
+  model,
   onSend,
   onAbort,
 }: InputAreaProps) {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [hasText, setHasText] = useState(false);
+  const [focused, setFocused] = useState(false);
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;
 
@@ -81,19 +84,22 @@ export default function InputArea({
 
   const showStop = isRunning && !hasText;
 
+  // Extract the short model name (after the colon) for display.
+  const displayModel = model ? (model.includes(':') ? model.split(':').slice(1).join(':') : model) : null;
+
   return (
     <Container maxWidth="md" sx={{ py: 1.5 }}>
       <Box
         sx={{
           display: 'flex',
-          alignItems: 'flex-end',
+          flexDirection: 'column',
           bgcolor: 'surface2',
           borderRadius: 1.5,
           border: 1,
           borderColor: 'divider',
           px: 1.5,
           py: 1,
-          gap: 1,
+          gap: 0.5,
           '&:focus-within': {
             borderColor: 'primary.main',
           },
@@ -106,8 +112,10 @@ export default function InputArea({
           rows={1}
           onKeyDown={handleKeyDown}
           onInput={handleInput}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           sx={{
-            flex: 1,
+            width: '100%',
             border: 'none',
             outline: 'none',
             bgcolor: 'transparent',
@@ -116,6 +124,7 @@ export default function InputArea({
             fontFamily: 'inherit',
             lineHeight: 1.5,
             resize: 'none',
+            overflow: 'auto',
             py: 0.5,
             '&::placeholder': {
               color: 'text.secondary',
@@ -123,19 +132,37 @@ export default function InputArea({
             },
           }}
         />
-        <IconButton
-          size="small"
-          color={showStop ? 'error' : 'primary'}
-          onClick={showStop ? onAbort : handleSend}
-          disabled={!showStop && !hasText}
-          sx={{
-            flexShrink: 0,
-            width: 32,
-            height: 32,
-          }}
-        >
-          {showStop ? <StopRounded fontSize="small" /> : <SendRounded fontSize="small" />}
-        </IconButton>
+        {(focused || showStop) && (
+          <Box
+            onMouseDown={(event: React.MouseEvent) => event.preventDefault()}
+            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}
+          >
+            {displayModel && focused && (
+              <Box
+                component="span"
+                sx={{
+                  fontSize: '0.75rem',
+                  color: 'text.secondary',
+                }}
+              >
+                {displayModel}
+              </Box>
+            )}
+            <IconButton
+              size="small"
+              color={showStop ? 'error' : 'primary'}
+              onClick={showStop ? onAbort : handleSend}
+              disabled={!showStop && !hasText}
+              sx={{
+                flexShrink: 0,
+                width: 32,
+                height: 32,
+              }}
+            >
+              {showStop ? <StopRounded fontSize="small" /> : <SendRounded fontSize="small" />}
+            </IconButton>
+          </Box>
+        )}
       </Box>
     </Container>
   );

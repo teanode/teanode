@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type actionsTool struct {
@@ -14,10 +14,10 @@ type actionsTool struct {
 	runner commandRunner
 }
 
-func (self *actionsTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *actionsTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "github_actions",
 			Description: "Interact with GitHub Actions. Actions: list_workflows (list workflows), " +
 				"list_runs (list workflow runs), view_run (view run details).",

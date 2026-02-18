@@ -9,8 +9,8 @@
         "default": {
           "type": "string",
           "title": "Default Model",
-          "description": "Qualified model name (e.g. openai:gpt-4o)",
-          "x-placeholder": "openai:gpt-4o",
+          "description": "Qualified model name (e.g. openai:gpt-5.1)",
+          "x-placeholder": "openai:gpt-5.1",
           "x-suggest": "model"
         },
         "summarizerModel": {
@@ -28,16 +28,21 @@
           "default": 128000
         },
         "providers": {
-          "type": "object",
+          "type": "array",
           "title": "Providers",
           "description": "LLM provider connections (name, base URL, API key).",
           "x-widget": "providers",
-          "additionalProperties": {
+          "items": {
             "type": "object",
             "properties": {
+              "name": {
+                "type": "string",
+                "enum": ["openai", "anthropic", "openrouter"]
+              },
               "baseUrl": { "type": "string" },
               "apiKey": { "type": "string" }
-            }
+            },
+            "required": ["name"]
           }
         }
       }
@@ -163,6 +168,39 @@
                 "type": "string",
                 "enum": ["issues", "merge_requests", "projects", "pipelines", "releases"]
               }
+            }
+          }
+        },
+        "claudeCode": {
+          "type": "object",
+          "title": "Claude Code",
+          "description": "Claude Code headless tool for delegating complex coding tasks.",
+          "properties": {
+            "binaryPath": {
+              "type": "string",
+              "title": "Binary Path",
+              "description": "Path to the claude binary. Defaults to 'claude' from PATH.",
+              "x-placeholder": "claude"
+            },
+            "allowedTools": {
+              "type": "array",
+              "title": "Allowed Tools",
+              "description": "Tools Claude Code is allowed to use. Default: Bash, Read, Edit, Write, Glob, Grep, WebFetch, WebSearch.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "model": {
+              "type": "string",
+              "title": "Model",
+              "description": "Model override for Claude Code (e.g. claude-sonnet-4-5-20250514).",
+              "x-placeholder": "default"
+            },
+            "maxTurnTimeoutSeconds": {
+              "type": "number",
+              "title": "Max Turn Timeout",
+              "description": "Maximum timeout per tool call in seconds.",
+              "default": 300
             }
           }
         }

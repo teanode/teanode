@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type driveTool struct {
@@ -15,10 +15,10 @@ type driveTool struct {
 	runner  commandRunner
 }
 
-func (self *driveTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *driveTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "google_drive",
 			Description: "Interact with Google Drive. Actions: list (recent files), search (find files), " +
 				"info (file details).",

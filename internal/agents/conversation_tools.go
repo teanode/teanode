@@ -7,15 +7,15 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 // RegisterConversationTools adds conversation-related tools to the registry.
-func RegisterConversationTools(registry *ToolRegistry, store *conversations.Store, providers *provider.Registry, configuration *configs.Config) {
+func RegisterConversationTools(registry *ToolRegistry, store *conversations.Store, providerRegistry *providers.Registry, configuration *configs.Config) {
 	registry.Register(&listConversationsTool{conversations: store})
 	registry.Register(&compactConversationTool{
 		conversations: store,
-		providers:     providers,
+		providers:     providerRegistry,
 		config:        configuration,
 	})
 }
@@ -26,10 +26,10 @@ type listConversationsTool struct {
 	conversations *conversations.Store
 }
 
-func (self *listConversationsTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *listConversationsTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        "conversation_list",
 			Description: "List other conversations for this agent. Returns conversation ids, titles, summaries, and last activity times. The current conversation is excluded from results.",
 			Parameters: map[string]interface{}{
@@ -121,14 +121,14 @@ func (self *listConversationsTool) Execute(ctx context.Context, rawArguments str
 
 type compactConversationTool struct {
 	conversations *conversations.Store
-	providers     *provider.Registry
+	providers     *providers.Registry
 	config        *configs.Config
 }
 
-func (self *compactConversationTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *compactConversationTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        "conversation_compact",
 			Description: "Compact the current conversation by summarizing older messages. Use when the conversation is getting long.",
 			Parameters: map[string]interface{}{

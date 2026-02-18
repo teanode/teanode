@@ -4,12 +4,12 @@ import (
 	"context"
 
 	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 // Tool is something the LLM can invoke during a conversation.
 type Tool interface {
-	Definition() provider.ToolDefinition
+	Definition() providers.ToolDefinition
 	Execute(ctx context.Context, arguments string) (string, error)
 }
 
@@ -61,8 +61,8 @@ func (self *ToolRegistry) ApplyFilter(allowed []string) {
 }
 
 // Definitions returns all tool definitions for the chat request.
-func (self *ToolRegistry) Definitions() []provider.ToolDefinition {
-	definitions := make([]provider.ToolDefinition, 0, len(self.tools))
+func (self *ToolRegistry) Definitions() []providers.ToolDefinition {
+	definitions := make([]providers.ToolDefinition, 0, len(self.tools))
 	for _, tool := range self.tools {
 		definitions = append(definitions, tool.Definition())
 	}

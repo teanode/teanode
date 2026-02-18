@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
 	"gopkg.in/yaml.v3"
 )
@@ -84,12 +84,12 @@ func (self *AgentRegistry) AgentIDs() []string {
 }
 
 // Reconfigure hot-swaps a single agent's runner configuration.
-func (self *AgentRegistry) Reconfigure(agentId string, configuration *configs.Config, providers *provider.Registry, tools *ToolRegistry, skillPrompts string) {
+func (self *AgentRegistry) Reconfigure(agentId string, configuration *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, skillPrompts string) {
 	runner := self.Get(agentId)
 	if runner == nil {
 		return
 	}
-	runner.Reconfigure(configuration, providers, tools, skillPrompts)
+	runner.Reconfigure(configuration, providerRegistry, tools, skillPrompts)
 }
 
 // ForEach iterates over all agents, calling fn for each one.

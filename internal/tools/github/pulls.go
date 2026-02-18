@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type pullsTool struct {
@@ -14,10 +14,10 @@ type pullsTool struct {
 	runner commandRunner
 }
 
-func (self *pullsTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *pullsTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "github_pulls",
 			Description: "Interact with GitHub pull requests. Actions: list (list PRs), view (get PR details), " +
 				"create (open new PR), comment (add comment), merge (merge PR), diff (get PR diff), " +

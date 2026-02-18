@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type mergeRequestsTool struct {
@@ -14,10 +14,10 @@ type mergeRequestsTool struct {
 	runner commandRunner
 }
 
-func (self *mergeRequestsTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *mergeRequestsTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "gitlab_merge_requests",
 			Description: "Interact with GitLab merge requests. Actions: list (list MRs), view (get MR details), " +
 				"create (open new MR), comment (add comment), merge (merge MR), diff (get MR diff), " +

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
@@ -35,10 +35,10 @@ func safePath(memoryDirectory, rel string) (string, error) {
 
 type workspaceTool struct{ directory string }
 
-func (self *workspaceTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *workspaceTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "workspace",
 			Description: "Persistent workspace storage. Actions: read (read a file), write (create/overwrite a file), " +
 				"list (list all files), append (append to a file), search (search across files), delete (delete a file).",

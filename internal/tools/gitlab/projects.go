@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type projectsTool struct {
@@ -14,10 +14,10 @@ type projectsTool struct {
 	runner commandRunner
 }
 
-func (self *projectsTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *projectsTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "gitlab_projects",
 			Description: "Interact with GitLab projects. Actions: view (get project info), " +
 				"list (list your projects), search (search for projects).",

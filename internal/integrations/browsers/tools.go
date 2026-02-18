@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 // RegisterBrowserTools adds all browser-control tools to the registry.
@@ -37,10 +37,10 @@ func resolveSessionId(browser Browser, connectionId string) (string, error) {
 
 type browserTool struct{ browser Browser }
 
-func (self *browserTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *browserTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "browser",
 			Description: "Interact with the browser page. Actions: navigate (go to URL), screenshot (capture page image), " +
 				"snapshot (get accessibility tree), click (click element), type (type text), press_key (press keyboard key), " +
@@ -326,10 +326,10 @@ func (self *browserTool) executeEvaluate(ctx context.Context, connectionId strin
 
 type browserTabsTool struct{ browser Browser }
 
-func (self *browserTabsTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *browserTabsTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "browser_tabs",
 			Description: "Manage browser tabs. Actions: list (list all tabs), open (open new tab), " +
 				"close (close a tab), activate (bring tab to foreground).",

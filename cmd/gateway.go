@@ -29,7 +29,7 @@ import (
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/tools/fetch"
 	"github.com/teanode/teanode/internal/tools/filesystem"
@@ -37,6 +37,7 @@ import (
 	"github.com/teanode/teanode/internal/tools/gitlab"
 	"github.com/teanode/teanode/internal/tools/google"
 	"github.com/teanode/teanode/internal/tools/search"
+	"github.com/teanode/teanode/internal/tools/claudecode"
 	"github.com/teanode/teanode/internal/tools/shell"
 	"github.com/teanode/teanode/internal/tools/workspace"
 	"github.com/teanode/teanode/internal/version"
@@ -101,10 +102,10 @@ func NewGatewayCommand() *cli.Command {
 			sessionStore := sessions.NewStore(sessionsDirectory)
 
 			// Build provider registry.
-			buildProviderRegistry := func(configuration *configs.Config) *provider.Registry {
-				registry := provider.NewRegistry(configuration.Models.DefaultProviderName())
-				for name, providerConfig := range configuration.Models.ResolvedProviders() {
-					registry.Register(name, provider.NewClient(providerConfig.BaseURL, providerConfig.APIKey))
+			buildProviderRegistry := func(configuration *configs.Config) *providers.Registry {
+				registry := providers.NewRegistry(configuration.Models.DefaultProviderName())
+				for _, providerConfig := range configuration.Models.ResolvedProviders() {
+					registry.Register(providerConfig.Name, providers.NewProvider(providerConfig.Name, providerConfig.BaseURL, providerConfig.APIKey))
 				}
 				return registry
 			}
@@ -184,6 +185,7 @@ func NewGatewayCommand() *cli.Command {
 				google.RegisterTools(tools, configuration.Tools.Google)
 				github.RegisterTools(tools, configuration.Tools.GitHub)
 				gitlab.RegisterTools(tools, configuration.Tools.GitLab)
+				claudecode.RegisterTools(tools, configuration.Tools.ClaudeCode)
 				agents.RegisterConversationTools(tools, conversations, providers, configuration)
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)
@@ -260,6 +262,9 @@ func NewGatewayCommand() *cli.Command {
 			// Wire scheduler to gateway via closure.
 			scheduler.Broadcast = func(event string, payload interface{}) {
 				gateway.Broadcast(gw.EventType(event), payload)
+			}
+			scheduler.NewConversation = func(agentId, model string) string {
+				return gateway.NewConversation(agentId, model)
 			}
 			scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 				handle := gateway.SendMessage(ctx, gw.SendMessageParameters{

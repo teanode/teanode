@@ -153,11 +153,14 @@ export function useBackend() {
   const [currentAgentId, setCurrentAgentId] = useState<string>('');
   const [serverActiveAgentId, setServerActiveAgentId] = useState<string>('');
   const [connected, setConnected] = useState(false);
+  const [conversationModel, setConversationModel] = useState<string | null>(null);
   const currentAgentIdRef = useRef(currentAgentId);
   const modelsRef = useRef(models);
 
   const conversationIdRef = useRef(conversationId);
+  const conversationModelRef = useRef(conversationModel);
   conversationIdRef.current = conversationId;
+  conversationModelRef.current = conversationModel;
   currentAgentIdRef.current = currentAgentId;
   modelsRef.current = models;
 
@@ -546,6 +549,8 @@ export function useBackend() {
           oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
           setHasMoreHistory(res.hasMore ?? false);
 
+          setConversationModel(res.model || null);
+
           if (res.activeRunId) {
             currentRunIdRef.current = res.activeRunId;
             activeRunsRef.current.set(key, res.activeRunId);
@@ -641,6 +646,8 @@ export function useBackend() {
           oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
           setHasMoreHistory(res.hasMore ?? false);
 
+          setConversationModel(res.model || null);
+
           // Use activeRunId from server response to detect active runs
           if (res.activeRunId) {
             currentRunIdRef.current = res.activeRunId;
@@ -680,6 +687,7 @@ export function useBackend() {
     conversationIdRef.current = null;
     setMessages([]);
     setStatus('connected');
+    setConversationModel(null);
     // Reset pagination state
     oldestLoadedIndexRef.current = 0;
     setHasMoreHistory(false);
@@ -760,7 +768,9 @@ export function useBackend() {
         message: text,
         originId,
       };
-      if (model) rpcParams.model = model;
+      // Use conversation's locked model, fall back to explicit model param.
+      const resolvedModel = conversationModelRef.current || model;
+      if (resolvedModel) rpcParams.model = resolvedModel;
       if (currentAgentIdRef.current) rpcParams.agentId = currentAgentIdRef.current;
 
       sendRpc<ConversationSendResult>('conversations.send', rpcParams)
@@ -777,6 +787,11 @@ export function useBackend() {
           }
           activeRunsRef.current.set(res.conversationId, res.runId);
           touchConversation(res.conversationId);
+          // Lock conversation model on first send.
+          if (!conversationModelRef.current && resolvedModel) {
+            setConversationModel(resolvedModel);
+            conversationModelRef.current = resolvedModel;
+          }
           if (!conversationIdRef.current) {
             setConversationId(res.conversationId);
             conversationIdRef.current = res.conversationId;
@@ -933,6 +948,7 @@ export function useBackend() {
     currentAgentId,
     connected,
     currentRunId: currentRunIdRef.current,
+    conversationModel,
     serverActiveAgentId,
     setCurrentAgentId,
     setActiveAgent,

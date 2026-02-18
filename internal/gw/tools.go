@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 // RegisterTools adds the consolidated gateway lifecycle tool to the registry.
@@ -22,10 +22,10 @@ type gatewayTool struct {
 	scheduleLifecycle func(LifecycleAction)
 }
 
-func (self *gatewayTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *gatewayTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        "gateway",
 			Description: "Manage the gateway process lifecycle. Actions: restart (graceful restart with same configuration), terminate (shut down the gateway).",
 			Parameters: map[string]interface{}{

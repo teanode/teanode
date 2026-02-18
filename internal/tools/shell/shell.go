@@ -12,7 +12,7 @@ import (
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 var log = logging.MustGetLogger("shell")
@@ -30,10 +30,10 @@ func RegisterTools(registry *agents.ToolRegistry) {
 
 type shellTool struct{}
 
-func (self *shellTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *shellTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        "shell",
 			Description: "Execute a shell command on the local machine. The command runs via sh -c. Non-zero exit codes are reported in the result, not as errors.",
 			Parameters: map[string]interface{}{

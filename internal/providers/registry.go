@@ -1,4 +1,4 @@
-package provider
+package providers
 
 import (
 	"fmt"
@@ -7,27 +7,27 @@ import (
 
 // Registry holds named provider clients and resolves qualified model IDs.
 type Registry struct {
-	clients         map[string]*Client
+	clients         map[string]Provider
 	defaultProvider string
 }
 
 // NewRegistry creates a provider registry with the given default provider name.
 func NewRegistry(defaultProvider string) *Registry {
 	return &Registry{
-		clients:         make(map[string]*Client),
+		clients:         make(map[string]Provider),
 		defaultProvider: defaultProvider,
 	}
 }
 
 // Register adds a named provider client.
-func (r *Registry) Register(name string, client *Client) {
+func (r *Registry) Register(name string, client Provider) {
 	r.clients[name] = client
 }
 
 // Resolve splits a qualified model ID ("provider:model") and returns the
 // corresponding client and bare model name. If the model has no provider
 // prefix, the default provider is used.
-func (r *Registry) Resolve(qualifiedModel string) (client *Client, bareModel string, err error) {
+func (r *Registry) Resolve(qualifiedModel string) (client Provider, bareModel string, err error) {
 	providerName, model := ParseQualifiedModel(qualifiedModel, r.defaultProvider)
 	client, ok := r.clients[providerName]
 	if !ok {

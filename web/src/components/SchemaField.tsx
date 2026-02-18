@@ -294,6 +294,14 @@ function StringArrayField({
   );
 }
 
+const SUPPORTED_PROVIDERS = ['openai', 'anthropic', 'openrouter'] as const;
+
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: 'OpenAI Compatible',
+  anthropic: 'Anthropic',
+  openrouter: 'OpenRouter',
+};
+
 function ProvidersField({
   property,
   value,
@@ -304,13 +312,10 @@ function ProvidersField({
   onChange: (value: unknown) => void;
 }) {
   const { t } = useTranslation();
-  const providers: Record<string, { baseUrl: string; apiKey: string }> =
-    (value as Record<string, { baseUrl: string; apiKey: string }>) ?? {};
-
-  const entries: ProviderEntry[] = Object.entries(providers).map(([name, config]) => ({
-    name,
-    baseUrl: config.baseUrl ?? '',
-    apiKey: config.apiKey ?? '',
+  const entries: ProviderEntry[] = (Array.isArray(value) ? value : []).map((entry: ProviderEntry) => ({
+    name: entry.name ?? '',
+    baseUrl: entry.baseUrl ?? '',
+    apiKey: entry.apiKey ?? '',
   }));
 
   const [newName, setNewName] = useState('');
@@ -318,28 +323,24 @@ function ProvidersField({
   function updateEntry(index: number, updates: Partial<ProviderEntry>) {
     const updated = [...entries];
     updated[index] = { ...updated[index], ...updates };
-    const result: Record<string, { baseUrl: string; apiKey: string }> = {};
-    for (const entry of updated) {
-      result[entry.name] = { baseUrl: entry.baseUrl, apiKey: entry.apiKey };
-    }
-    onChange(result);
+    onChange(updated);
   }
 
   function removeEntry(index: number) {
-    const updated = entries.filter((_, entryIndex) => entryIndex !== index);
-    const result: Record<string, { baseUrl: string; apiKey: string }> = {};
-    for (const entry of updated) {
-      result[entry.name] = { baseUrl: entry.baseUrl, apiKey: entry.apiKey };
-    }
-    onChange(result);
+    onChange(entries.filter((_, entryIndex) => entryIndex !== index));
   }
 
   function addEntry() {
     const trimmed = newName.trim();
-    if (!trimmed || providers[trimmed]) return;
-    onChange({ ...providers, [trimmed]: { baseUrl: '', apiKey: '' } });
+    if (!trimmed || entries.some(entry => entry.name === trimmed)) return;
+    onChange([...entries, { name: trimmed, baseUrl: '', apiKey: '' }]);
     setNewName('');
   }
+
+  // Only show providers that haven't been added yet.
+  const availableProviders = SUPPORTED_PROVIDERS.filter(
+    (provider) => !entries.some((entry) => entry.name === provider)
+  );
 
   return (
     <Box>
@@ -351,7 +352,9 @@ function ProvidersField({
         {entries.map((entry, index) => (
           <Paper key={entry.name} variant="outlined" sx={{ p: 1.5 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>{entry.name}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
+                {PROVIDER_LABELS[entry.name] || entry.name}
+              </Typography>
               <Button size="small" color="error" onClick={() => removeEntry(index)}>
                 {t('common.delete')}
               </Button>
@@ -376,24 +379,27 @@ function ProvidersField({
           </Paper>
         ))}
       </Box>
-      <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
-        <TextField
-          size="small"
-          fullWidth
-          value={newName}
-          placeholder={t('schema.providerNamePlaceholder')}
-          onChange={(event) => setNewName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              addEntry();
-            }
-          }}
-        />
-        <Button variant="contained" size="small" onClick={addEntry}>
-          {t('schema.addProvider')}
-        </Button>
-      </Box>
+      {availableProviders.length > 0 && (
+        <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
+          <TextField
+            select
+            size="small"
+            fullWidth
+            value={newName}
+            onChange={(event) => setNewName(event.target.value)}
+            label={t('schema.providerNamePlaceholder')}
+          >
+            {availableProviders.map((provider) => (
+              <MenuItem key={provider} value={provider}>
+                {PROVIDER_LABELS[provider] || provider}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Button variant="contained" size="small" onClick={addEntry} disabled={!newName}>
+            {t('schema.addProvider')}
+          </Button>
+        </Box>
+      )}
     </Box>
   );
 }

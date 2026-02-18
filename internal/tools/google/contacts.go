@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type contactsTool struct {
@@ -15,10 +15,10 @@ type contactsTool struct {
 	runner  commandRunner
 }
 
-func (self *contactsTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *contactsTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        "google_contacts",
 			Description: "Interact with Google Contacts. Actions: search (find contacts), list (all contacts).",
 			Parameters: map[string]interface{}{

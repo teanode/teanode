@@ -275,49 +275,48 @@ func TestResolveDefaultAgent(t *testing.T) {
 
 // --- 6. Provider Config ---
 
-func TestResolvedProviders_PopulatedMap(t *testing.T) {
+func TestResolvedProviders_PopulatedList(t *testing.T) {
 	models := &ModelsConfig{
-		Providers: map[string]ProviderConfig{
-			"openai":    {BaseURL: "https://api.openai.com/v1", APIKey: "sk-123"},
-			"anthropic": {BaseURL: "https://api.anthropic.com", APIKey: "sk-456"},
+		Providers: []ProviderConfig{
+			{Name: "openai", BaseURL: "https://api.openai.com/v1", APIKey: "sk-123"},
+			{Name: "anthropic", BaseURL: "https://api.anthropic.com", APIKey: "sk-456"},
 		},
 	}
-	providers := models.ResolvedProviders()
+	resolved := models.ResolvedProviders()
 
-	if len(providers) != 2 {
-		t.Fatalf("len(providers) = %d, want 2", len(providers))
+	if len(resolved) != 2 {
+		t.Fatalf("len(providers) = %d, want 2", len(resolved))
 	}
-	if providers["openai"].APIKey != "sk-123" {
-		t.Errorf("openai APIKey = %q, want sk-123", providers["openai"].APIKey)
+	if resolved[0].Name != "openai" || resolved[0].APIKey != "sk-123" {
+		t.Errorf("providers[0] = %+v, want Name=openai APIKey=sk-123", resolved[0])
 	}
 }
 
-func TestResolvedProviders_LegacyFields(t *testing.T) {
+func TestResolvedProviders_SingleProvider(t *testing.T) {
 	models := &ModelsConfig{
-		Provider: "anthropic",
-		BaseURL:  "https://api.anthropic.com",
-		APIKey:   "sk-abc",
+		Providers: []ProviderConfig{
+			{Name: "anthropic", BaseURL: "https://api.anthropic.com", APIKey: "sk-abc"},
+		},
 	}
-	providers := models.ResolvedProviders()
+	resolved := models.ResolvedProviders()
 
-	if len(providers) != 1 {
-		t.Fatalf("len(providers) = %d, want 1", len(providers))
+	if len(resolved) != 1 {
+		t.Fatalf("len(providers) = %d, want 1", len(resolved))
 	}
-	provider, ok := providers["anthropic"]
-	if !ok {
-		t.Fatal("expected provider 'anthropic' not found")
+	if resolved[0].Name != "anthropic" {
+		t.Errorf("provider name = %q, want anthropic", resolved[0].Name)
 	}
-	if provider.BaseURL != "https://api.anthropic.com" || provider.APIKey != "sk-abc" {
-		t.Errorf("provider = %+v, want BaseURL=https://api.anthropic.com APIKey=sk-abc", provider)
+	if resolved[0].BaseURL != "https://api.anthropic.com" || resolved[0].APIKey != "sk-abc" {
+		t.Errorf("provider = %+v, want BaseURL=https://api.anthropic.com APIKey=sk-abc", resolved[0])
 	}
 }
 
-func TestResolvedProviders_DefaultsToOpenAI(t *testing.T) {
+func TestResolvedProviders_EmptyReturnsNil(t *testing.T) {
 	models := &ModelsConfig{}
-	providers := models.ResolvedProviders()
+	resolved := models.ResolvedProviders()
 
-	if _, ok := providers["openai"]; !ok {
-		t.Error("expected default provider 'openai' not found")
+	if len(resolved) != 0 {
+		t.Errorf("expected empty providers, got %+v", resolved)
 	}
 }
 
@@ -329,19 +328,12 @@ func TestDefaultProviderName(t *testing.T) {
 		}
 	})
 
-	t.Run("legacy provider field", func(t *testing.T) {
-		models := &ModelsConfig{Provider: "groq"}
-		if name := models.DefaultProviderName(); name != "groq" {
-			t.Errorf("got %q, want groq", name)
-		}
-	})
-
-	t.Run("multi-provider map returns a key", func(t *testing.T) {
+	t.Run("provider list returns first name", func(t *testing.T) {
 		models := &ModelsConfig{
-			Providers: map[string]ProviderConfig{"myProvider": {}},
+			Providers: []ProviderConfig{{Name: "anthropic"}},
 		}
-		if name := models.DefaultProviderName(); name != "myProvider" {
-			t.Errorf("got %q, want myProvider", name)
+		if name := models.DefaultProviderName(); name != "anthropic" {
+			t.Errorf("got %q, want anthropic", name)
 		}
 	})
 
@@ -751,8 +743,8 @@ func TestLoad_AppliesDefaults(t *testing.T) {
 	if loaded.Gateway.Bind != "loopback" {
 		t.Errorf("Bind = %q, want loopback (default)", loaded.Gateway.Bind)
 	}
-	if loaded.Models.Default != "gpt-5.1" {
-		t.Errorf("Default = %q, want gpt-5.1 (default)", loaded.Models.Default)
+	if loaded.Models.Default != "openai:gpt-5.1" {
+		t.Errorf("Default = %q, want openai:gpt-5.1 (default)", loaded.Models.Default)
 	}
 	if loaded.Models.ContextWindow != 128000 {
 		t.Errorf("ContextWindow = %d, want 128000 (default)", loaded.Models.ContextWindow)
@@ -786,7 +778,11 @@ func TestLoad_AutoCreatesDefaultAgent(t *testing.T) {
 func TestApplyDefaults_PreservesUserValues(t *testing.T) {
 	configuration := &Config{
 		Gateway: GatewayConfig{Port: 7777, Bind: "lan"},
-		Models:  ModelsConfig{Default: "mymodel", Provider: "myprovider", BaseURL: "https://custom.api", ContextWindow: 64000},
+		Models: ModelsConfig{
+			Default:       "mymodel",
+			ContextWindow: 64000,
+			Providers:     []ProviderConfig{{Name: "openai", BaseURL: "https://custom.api"}},
+		},
 	}
 	applyDefaults(configuration)
 
@@ -799,11 +795,8 @@ func TestApplyDefaults_PreservesUserValues(t *testing.T) {
 	if configuration.Models.Default != "mymodel" {
 		t.Errorf("Default = %q, want mymodel (user-set)", configuration.Models.Default)
 	}
-	if configuration.Models.Provider != "myprovider" {
-		t.Errorf("Provider = %q, want myprovider (user-set)", configuration.Models.Provider)
-	}
-	if configuration.Models.BaseURL != "https://custom.api" {
-		t.Errorf("BaseURL = %q, want https://custom.api (user-set)", configuration.Models.BaseURL)
+	if configuration.Models.Providers[0].BaseURL != "https://custom.api" {
+		t.Errorf("BaseURL = %q, want https://custom.api (user-set)", configuration.Models.Providers[0].BaseURL)
 	}
 	if configuration.Models.ContextWindow != 64000 {
 		t.Errorf("ContextWindow = %d, want 64000 (user-set)", configuration.Models.ContextWindow)
@@ -820,36 +813,32 @@ func TestApplyDefaults_FillsZeroValues(t *testing.T) {
 	if configuration.Gateway.Bind != "loopback" {
 		t.Errorf("Bind = %q, want loopback", configuration.Gateway.Bind)
 	}
-	if configuration.Models.Default != "gpt-5.1" {
-		t.Errorf("Default = %q, want gpt-5.1", configuration.Models.Default)
-	}
-	if configuration.Models.Provider != "openai" {
-		t.Errorf("Provider = %q, want openai", configuration.Models.Provider)
-	}
-	if configuration.Models.BaseURL != "https://api.openai.com/v1" {
-		t.Errorf("BaseURL = %q, want https://api.openai.com/v1", configuration.Models.BaseURL)
+	if configuration.Models.Default != "openai:gpt-5.1" {
+		t.Errorf("Default = %q, want openai:gpt-5.1", configuration.Models.Default)
 	}
 	if configuration.Models.ContextWindow != 128000 {
 		t.Errorf("ContextWindow = %d, want 128000", configuration.Models.ContextWindow)
 	}
 }
 
-func TestApplyDefaults_SkipsLegacyWhenProvidersSet(t *testing.T) {
+func TestApplyDefaults_PreservesProviders(t *testing.T) {
 	configuration := &Config{
 		Models: ModelsConfig{
-			Providers: map[string]ProviderConfig{
-				"custom": {BaseURL: "https://custom.api"},
+			Providers: []ProviderConfig{
+				{Name: "openai", BaseURL: "https://custom.api"},
 			},
 		},
 	}
 	applyDefaults(configuration)
 
-	// When Providers is populated, legacy Provider and BaseURL should not be filled.
-	if configuration.Models.Provider != "" {
-		t.Errorf("Provider = %q, want empty (Providers is set)", configuration.Models.Provider)
+	if len(configuration.Models.Providers) != 1 {
+		t.Fatalf("len(Providers) = %d, want 1", len(configuration.Models.Providers))
 	}
-	if configuration.Models.BaseURL != "" {
-		t.Errorf("BaseURL = %q, want empty (Providers is set)", configuration.Models.BaseURL)
+	if configuration.Models.Providers[0].Name != "openai" {
+		t.Errorf("Providers[0].Name = %q, want openai", configuration.Models.Providers[0].Name)
+	}
+	if configuration.Models.Providers[0].BaseURL != "https://custom.api" {
+		t.Errorf("Providers[0].BaseURL = %q, want https://custom.api", configuration.Models.Providers[0].BaseURL)
 	}
 }
 
@@ -858,8 +847,14 @@ func TestApplyEnv(t *testing.T) {
 		t.Setenv("OPENAI_API_KEY", "sk-test-key")
 		configuration := &Config{}
 		applyEnv(configuration)
-		if configuration.Models.APIKey != "sk-test-key" {
-			t.Errorf("APIKey = %q, want sk-test-key", configuration.Models.APIKey)
+		found := false
+		for _, provider := range configuration.Models.Providers {
+			if provider.Name == "openai" && provider.APIKey == "sk-test-key" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected openai provider with APIKey sk-test-key, got %+v", configuration.Models.Providers)
 		}
 	})
 

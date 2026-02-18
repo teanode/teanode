@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type searchTool struct {
@@ -14,10 +14,10 @@ type searchTool struct {
 	runner commandRunner
 }
 
-func (self *searchTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *searchTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "github_search",
 			Description: "Search GitHub. Actions: issues (search issues), pulls (search pull requests), " +
 				"code (search code). Use repo:owner/name qualifiers in the query to scope results.",

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 // RegisterTerminalTools adds all terminal-control tools to the registry.
@@ -27,10 +27,10 @@ func resolveConnectionId(relay *Relay, connectionId string) (string, error) {
 
 type terminalTool struct{ relay *Relay }
 
-func (self *terminalTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *terminalTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "terminal",
 			Description: "Control a connected terminal session. Actions: list (list connections), " +
 				"screenshot (capture screen text), type (type text), press_key (press a special key).",

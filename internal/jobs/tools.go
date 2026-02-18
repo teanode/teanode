@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/security"
 )
@@ -21,10 +21,10 @@ func RegisterTools(registry *agents.ToolRegistry, scheduler *Scheduler) {
 
 type jobsTool struct{ scheduler *Scheduler }
 
-func (self *jobsTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *jobsTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "jobs",
 			Description: "Manage scheduled jobs and one-shot reminders. Actions: list (view all jobs), " +
 				"create (new job or reminder), update (modify existing job), delete (remove a job), " +

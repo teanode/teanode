@@ -14,7 +14,7 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/media"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
@@ -28,7 +28,7 @@ type conversationState struct {
 type Runner struct {
 	mutex              sync.RWMutex
 	AgentID            string
-	Providers          *provider.Registry
+	Providers          *providers.Registry
 	Conversations      *conversations.Store
 	Config             *configs.Config
 	Tools              *ToolRegistry
@@ -45,27 +45,27 @@ type Runner struct {
 
 // Reconfigure hot-swaps the runner's configuration, providers, tools, and skill prompts.
 // In-progress runs continue with their snapshotted references; new runs use the updated values.
-func (self *Runner) Reconfigure(config *configs.Config, providers *provider.Registry, tools *ToolRegistry, skillPrompts string) {
+func (self *Runner) Reconfigure(config *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, skillPrompts string) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.Config = config
-	self.Providers = providers
+	self.Providers = providerRegistry
 	self.Tools = tools
 	self.SkillPrompts = skillPrompts
 }
 
 // Snapshot captures the runner's current state under the read lock.
-func (self *Runner) Snapshot() (config *configs.Config, providers *provider.Registry, tools *ToolRegistry, workspaceDirectory string, skillPrompts string) {
+func (self *Runner) Snapshot() (config *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, workspaceDirectory string, skillPrompts string) {
 	self.mutex.RLock()
 	defer self.mutex.RUnlock()
 	return self.Config, self.Providers, self.Tools, self.WorkspaceDirectory, self.SkillPrompts
 }
 
 // SetModels populates the context window map for models from a given provider.
-func (self *Runner) SetModels(providerName string, models []provider.ModelInfo) {
+func (self *Runner) SetModels(providerName string, models []providers.ModelInfo) {
 	for _, model := range models {
 		if model.ContextLength > 0 {
-			key := provider.QualifyModel(providerName, model.ID)
+			key := providers.QualifyModel(providerName, model.ID)
 			self.contextWindows.Store(key, model.ContextLength)
 		}
 	}
@@ -168,7 +168,7 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 // (streaming), and appends the assistant response. Loops when the LLM requests tool calls.
 func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
 	// Snapshot mutable fields so in-progress runs aren't affected by hot-reloads.
-	configuration, providers, tools, _, _ := self.Snapshot()
+	configuration, providerRegistry, tools, _, _ := self.Snapshot()
 
 	// Resolve per-agent limits (falls back to defaults for unconfigured agents).
 	var limits configs.AgentLimits
@@ -186,28 +186,46 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	// Enrich context with conversation id for tools.
 	ctx = ContextWithRun(ctx, params.ConversationID)
 
-	// 1. Append user message to conversation.
-	userMessage := conversations.NewTextMessage("user", params.Message, now)
-	if err := self.Conversations.Append(params.ConversationID, userMessage); err != nil {
-		return nil, fmt.Errorf("saving user message: %w", err)
-	}
-
-	// 2. Load full conversation history.
-	history, err := self.Conversations.Load(params.ConversationID)
-	if err != nil {
-		return nil, fmt.Errorf("loading conversation: %w", err)
-	}
-
-	// 3. Choose model and resolve provider.
+	// 1. Choose model and resolve provider (before appending, so we can stamp the header).
 	qualifiedModel := configuration.AgentModel(self.AgentID)
 	if params.Model != "" {
 		qualifiedModel = params.Model
 	}
-	providerClient, model, err := providers.Resolve(qualifiedModel)
+
+	// Validate provider/model alignment with existing conversation.
+	header, headerError := self.Conversations.LoadHeader(params.ConversationID)
+	if headerError == nil && header.Model != "" {
+		// Existing conversation with a locked model.
+		if params.Model != "" && params.Model != header.Model {
+			return nil, fmt.Errorf("model mismatch: conversation %s is locked to %q but request specified %q",
+				params.ConversationID, header.Model, params.Model)
+		}
+		qualifiedModel = header.Model
+	}
+
+	// Validate that we resolved a non-empty model.
+	if qualifiedModel == "" {
+		return nil, fmt.Errorf("no model configured: set a default model in config or specify one in the request")
+	}
+
+	provider, model, err := providerRegistry.Resolve(qualifiedModel)
 	if err != nil {
 		return nil, fmt.Errorf("resolving model %q: %w", qualifiedModel, err)
 	}
-	resolvedProvider, _ := provider.ParseQualifiedModel(qualifiedModel, providers.DefaultProvider())
+	resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, providerRegistry.DefaultProvider())
+
+	// 2. Append user message to conversation (sets provider/model on new or backfills existing).
+	userMessage := conversations.NewTextMessage("user", params.Message, now)
+	if err := self.Conversations.Append(params.ConversationID, userMessage,
+		conversations.WithProviderAndModel(resolvedProvider, qualifiedModel)); err != nil {
+		return nil, fmt.Errorf("saving user message: %w", err)
+	}
+
+	// 3. Load full conversation history.
+	history, err := self.Conversations.Load(params.ConversationID)
+	if err != nil {
+		return nil, fmt.Errorf("loading conversation: %w", err)
+	}
 
 	// 4. Tool-call loop.
 	var totalUsage *conversations.Usage
@@ -226,7 +244,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		llmMessages = truncateOldToolResults(llmMessages, limits.MinKeepMessages, limits.MaxToolResultChars)
 
 		// Build tool definitions for the request.
-		var toolDefs []provider.ToolDefinition
+		var toolDefs []providers.ToolDefinition
 		if tools != nil {
 			toolDefs = tools.Definitions()
 		}
@@ -237,33 +255,33 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		if contextWindow <= 0 {
 			contextWindow = configuration.Models.ContextWindow
 		}
-		llmMessages, err = self.compressContext(ctx, providers, configuration, llmMessages, toolDefs, params.ConversationID, contextWindow, limits)
+		llmMessages, err = self.compressContext(ctx, providerRegistry, configuration, llmMessages, toolDefs, params.ConversationID, contextWindow, limits)
 		if err != nil {
 			log.Debugf("context compression error (non-fatal): %v", err)
 		}
 
 		// Build request.
-		request := provider.ChatRequest{
+		request := providers.ChatRequest{
 			Model:         model,
 			Messages:      llmMessages,
 			Stream:        true,
-			StreamOptions: &provider.StreamOptions{IncludeUsage: true},
+			StreamOptions: &providers.StreamOptions{IncludeUsage: true},
 		}
 		if len(toolDefs) > 0 {
 			request.Tools = toolDefs
 		}
 
 		// Call LLM with streaming.
-		stream, err := providerClient.ChatCompletionStream(ctx, request)
+		stream, err := provider.ChatCompletionStream(ctx, request)
 		if err != nil {
 			return nil, fmt.Errorf("calling LLM: %w", err)
 		}
 
 		// Collect response + tool call deltas.
 		var textBuilder strings.Builder
-		var toolCalls []provider.ToolCall
-		toolCallMap := make(map[int]*provider.ToolCall)
-		var usage *provider.UsageInfo
+		var toolCalls []providers.ToolCall
+		toolCallMap := make(map[int]*providers.ToolCall)
+		var usage *providers.UsageInfo
 
 		for event := range stream {
 			if ctx.Err() != nil {
@@ -301,7 +319,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 				for _, toolCallDelta := range choice.Delta.ToolCalls {
 					toolCall, ok := toolCallMap[toolCallDelta.Index]
 					if !ok {
-						toolCall = &provider.ToolCall{Type: "function"}
+						toolCall = &providers.ToolCall{Type: "function"}
 						toolCallMap[toolCallDelta.Index] = toolCall
 					}
 					if toolCallDelta.ID != "" {
@@ -319,7 +337,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 
 		// Flatten tool call map to sorted slice.
 		if len(toolCallMap) > 0 {
-			toolCalls = make([]provider.ToolCall, len(toolCallMap))
+			toolCalls = make([]providers.ToolCall, len(toolCallMap))
 			for index, toolCall := range toolCallMap {
 				toolCalls[index] = *toolCall
 			}
@@ -365,7 +383,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 
 		// Phase 1 — Filter & notify: resolve tools, fire OnToolCall callbacks in order.
 		type toolWorkItem struct {
-			toolCall  provider.ToolCall
+			toolCall  providers.ToolCall
 			tool      Tool
 			arguments string
 		}
@@ -486,10 +504,10 @@ func repairToolArgs(input string) string {
 
 // buildMessages converts conversation history into LLM messages.
 // It scans backward for the last context_summary message and skips everything before it.
-func (self *Runner) buildMessages(history []conversations.Message, limits configs.AgentLimits) []provider.ChatMessage {
+func (self *Runner) buildMessages(history []conversations.Message, limits configs.AgentLimits) []providers.ChatMessage {
 	systemPrompt := BuildSystemPrompt(self.Config, self.AgentID, self.WorkspaceDirectory, self.SkillPrompts, limits.MaxWorkspaceFileChars)
-	messages := make([]provider.ChatMessage, 0, len(history)+1)
-	messages = append(messages, provider.ChatMessage{
+	messages := make([]providers.ChatMessage, 0, len(history)+1)
+	messages = append(messages, providers.ChatMessage{
 		Role:    "system",
 		Content: systemPrompt,
 	})
@@ -497,7 +515,7 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 	// Find the last context summary and start from there.
 	startIndex := 0
 	if idx := findLastSummaryIndex(history); idx >= 0 {
-		messages = append(messages, provider.ChatMessage{
+		messages = append(messages, providers.ChatMessage{
 			Role:    "system",
 			Content: "Previous conversation summary:\n" + history[idx].ContentText(),
 		})
@@ -520,14 +538,14 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 	}
 
 	for _, message := range history[startIndex:] {
-		chatMessage := provider.ChatMessage{
+		chatMessage := providers.ChatMessage{
 			Role:    message.Role,
 			Content: message.ContentText(),
 		}
 
 		// Attach tool calls on assistant messages.
 		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
-			var toolCalls []provider.ToolCall
+			var toolCalls []providers.ToolCall
 			if err := json.Unmarshal(message.ToolCalls, &toolCalls); err == nil {
 				chatMessage.ToolCalls = toolCalls
 			}

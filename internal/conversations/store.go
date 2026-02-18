@@ -81,10 +81,62 @@ func (self *Store) Load(conversationId string) ([]Message, error) {
 	return messages, nil
 }
 
-// Append writes a message to the conversation file, creating it with a header if needed.
-func (self *Store) Append(conversationId string, message Message) error {
+// Create creates a new conversation file with just the header line.
+// The header includes the provider and model so the conversation is bound from the start.
+func (self *Store) Create(conversationId, provider, model string) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
+
+	path, err := self.path(conversationId)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("creating conversation dir: %w", err)
+	}
+
+	header := Header{
+		Type:      "conversation",
+		Version:   1,
+		ID:        security.NewULID(),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Provider:  provider,
+		Model:     model,
+	}
+	headerData, _ := json.Marshal(header)
+	if err := atomicfile.WriteFile(path, append(headerData, '\n')); err != nil {
+		return fmt.Errorf("writing conversation header: %w", err)
+	}
+	return nil
+}
+
+// AppendOption configures optional behavior for Append.
+type AppendOption func(*appendOptions)
+
+type appendOptions struct {
+	provider string
+	model    string
+}
+
+// WithProviderAndModel sets the provider and model on the conversation header
+// when the conversation is first created.
+func WithProviderAndModel(provider, model string) AppendOption {
+	return func(options *appendOptions) {
+		options.provider = provider
+		options.model = model
+	}
+}
+
+// Append writes a message to the conversation file, creating it with a header if needed.
+func (self *Store) Append(conversationId string, message Message, options ...AppendOption) error {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+
+	var opts appendOptions
+	for _, option := range options {
+		option(&opts)
+	}
 
 	path, err := self.path(conversationId)
 	if err != nil {
@@ -101,10 +153,20 @@ func (self *Store) Append(conversationId string, message Message) error {
 			Version:   1,
 			ID:        security.NewULID(),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Provider:  opts.provider,
+			Model:     opts.model,
 		}
 		headerData, _ := json.Marshal(header)
 		if err := atomicfile.WriteFile(path, append(headerData, '\n')); err != nil {
 			return fmt.Errorf("writing conversation header: %w", err)
+		}
+	} else if opts.provider != "" || opts.model != "" {
+		// Backfill provider/model on existing conversations that don't have them yet.
+		if header, loadError := self.loadHeaderUnlocked(conversationId); loadError == nil && header.Provider == "" && header.Model == "" {
+			self.updateHeaderUnlocked(conversationId, func(header *Header) {
+				header.Provider = opts.provider
+				header.Model = opts.model
+			})
 		}
 	}
 
@@ -132,6 +194,8 @@ type Info struct {
 	LastActive int64  `json:"lastActive"` // ms since epoch
 	Title      string `json:"title,omitempty"`
 	Summary    string `json:"summary,omitempty"`
+	Provider   string `json:"provider,omitempty"`
+	Model      string `json:"model,omitempty"`
 }
 
 // List returns all conversations, sorted by last modification time (newest first).
@@ -157,10 +221,12 @@ func (self *Store) List() ([]Info, error) {
 			ID:         strings.TrimSuffix(entry.Name(), ".jsonl"),
 			LastActive: info.ModTime().UnixMilli(),
 		}
-		// Read the header line to extract the title and summary.
+		// Read the header line to extract the title, summary, and provider/model.
 		if header, err := self.LoadHeader(conversationInfo.ID); err == nil {
 			conversationInfo.Title = header.Title
 			conversationInfo.Summary = header.Summary
+			conversationInfo.Provider = header.Provider
+			conversationInfo.Model = header.Model
 		}
 		conversations = append(conversations, conversationInfo)
 	}
@@ -174,6 +240,11 @@ func (self *Store) List() ([]Info, error) {
 
 // LoadHeader reads and parses just the first line (header) of a conversation JSONL file.
 func (self *Store) LoadHeader(conversationId string) (*Header, error) {
+	return self.loadHeaderUnlocked(conversationId)
+}
+
+// loadHeaderUnlocked is the non-locking implementation of LoadHeader.
+func (self *Store) loadHeaderUnlocked(conversationId string) (*Header, error) {
 	path, err := self.path(conversationId)
 	if err != nil {
 		return nil, err
@@ -202,16 +273,26 @@ func (self *Store) LoadHeader(conversationId string) (*Header, error) {
 func (self *Store) SetTitleAndSummary(conversationId, title, summary string) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	return self.updateHeader(conversationId, func(header *Header) {
+	return self.updateHeaderUnlocked(conversationId, func(header *Header) {
 		header.Title = title
 		header.Summary = summary
 		header.SummarizedAt = time.Now().UnixMilli()
 	})
 }
 
-// updateHeader reads the conversation file, applies mutate to the header, rewrites
-// the file, and restores the original modification time.
-func (self *Store) updateHeader(conversationId string, mutate func(*Header)) error {
+// SetProviderAndModel updates the provider and model in a conversation's header.
+func (self *Store) SetProviderAndModel(conversationId, provider, model string) error {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.updateHeaderUnlocked(conversationId, func(header *Header) {
+		header.Provider = provider
+		header.Model = model
+	})
+}
+
+// updateHeaderUnlocked reads the conversation file, applies mutate to the header, rewrites
+// the file, and restores the original modification time. Caller must hold self.mutex.
+func (self *Store) updateHeaderUnlocked(conversationId string, mutate func(*Header)) error {
 	path, err := self.path(conversationId)
 	if err != nil {
 		return err

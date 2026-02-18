@@ -9,7 +9,7 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 const defaultContextWindow = 128000
@@ -20,7 +20,7 @@ func estimateTokens(text string) int {
 }
 
 // estimateMessageTokens estimates the token count for a single ChatMessage.
-func estimateMessageTokens(message provider.ChatMessage) int {
+func estimateMessageTokens(message providers.ChatMessage) int {
 	tokens := estimateTokens(message.Content) + 4 // role + overhead
 	for _, toolCall := range message.ToolCalls {
 		tokens += estimateTokens(toolCall.Function.Name) + estimateTokens(toolCall.Function.Arguments) + 4
@@ -32,7 +32,7 @@ func estimateMessageTokens(message provider.ChatMessage) int {
 }
 
 // estimateToolDefsTokens estimates the token overhead of tool definitions.
-func estimateToolDefsTokens(tools []provider.ToolDefinition) int {
+func estimateToolDefsTokens(tools []providers.ToolDefinition) int {
 	tokens := 0
 	for _, tool := range tools {
 		tokens += estimateTokens(tool.Function.Name) + estimateTokens(tool.Function.Description)
@@ -46,13 +46,13 @@ func estimateToolDefsTokens(tools []provider.ToolDefinition) int {
 
 // truncateOldToolResults caps old tool-result message content at maxChars.
 // Messages in the last minKeep are preserved intact.
-func truncateOldToolResults(messages []provider.ChatMessage, minKeep int, maxChars int) []provider.ChatMessage {
+func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxChars int) []providers.ChatMessage {
 	if len(messages) <= minKeep {
 		return messages
 	}
 	boundary := len(messages) - minKeep
 
-	result := make([]provider.ChatMessage, len(messages))
+	result := make([]providers.ChatMessage, len(messages))
 	copy(result, messages)
 	for index := 0; index < boundary; index++ {
 		if result[index].Role == "tool" && len(result[index].Content) > maxChars {
@@ -65,7 +65,7 @@ func truncateOldToolResults(messages []provider.ChatMessage, minKeep int, maxCha
 // findKeepBoundary walks backward from the target split point to find an index
 // where we can safely split without breaking tool call/result pairs.
 // Returns the index of the first message to keep.
-func findKeepBoundary(messages []provider.ChatMessage, minKeep int) int {
+func findKeepBoundary(messages []providers.ChatMessage, minKeep int) int {
 	if len(messages) <= minKeep {
 		return 0
 	}
@@ -153,7 +153,7 @@ func messagesText(messages []conversations.Message, maxTotalChars int, maxMessag
 // chatMessagesText builds a truncated text representation of provider chat
 // messages, collecting from the end to prioritize recent messages. Returns
 // chronologically ordered text. Pass maxTotalChars <= 0 for no total limit.
-func chatMessagesText(messages []provider.ChatMessage, maxTotalChars int, maxMessageChars int) string {
+func chatMessagesText(messages []providers.ChatMessage, maxTotalChars int, maxMessageChars int) string {
 	var lines []string
 	totalChars := 0
 
@@ -192,14 +192,14 @@ func chatMessagesText(messages []provider.ChatMessage, maxTotalChars int, maxMes
 // compression threshold and, if so, summarizes older messages via an LLM call.
 func (self *Runner) compressContext(
 	ctx context.Context,
-	providers *provider.Registry,
+	providerRegistry *providers.Registry,
 	config *configs.Config,
-	messages []provider.ChatMessage,
-	toolDefs []provider.ToolDefinition,
+	messages []providers.ChatMessage,
+	toolDefs []providers.ToolDefinition,
 	conversationId string,
 	contextWindow int,
 	limits configs.AgentLimits,
-) ([]provider.ChatMessage, error) {
+) ([]providers.ChatMessage, error) {
 	if contextWindow <= 0 {
 		contextWindow = defaultContextWindow
 	}
@@ -237,14 +237,14 @@ func (self *Runner) compressContext(
 		summaryQualifiedModel = config.Models.SummarizerModel
 	}
 
-	summaryClient, summaryBareModel, resolveErr := providers.Resolve(summaryQualifiedModel)
+	summaryClient, summaryBareModel, resolveErr := providerRegistry.Resolve(summaryQualifiedModel)
 	if resolveErr != nil {
 		return messages, fmt.Errorf("resolving summary model %q: %w", summaryQualifiedModel, resolveErr)
 	}
 
-	summaryRequest := provider.ChatRequest{
+	summaryRequest := providers.ChatRequest{
 		Model: summaryBareModel,
-		Messages: []provider.ChatMessage{
+		Messages: []providers.ChatMessage{
 			{
 				Role:    "system",
 				Content: "Summarize the following conversation into a concise summary (max 500 words). Preserve key facts, decisions, tool results, and user preferences. Focus on information needed to continue the conversation naturally.",
@@ -273,9 +273,9 @@ func (self *Runner) compressContext(
 	}
 
 	// Build compressed messages: system prompt + summary + kept messages.
-	compressed := make([]provider.ChatMessage, 0, 2+len(messages)-keepIdx)
+	compressed := make([]providers.ChatMessage, 0, 2+len(messages)-keepIdx)
 	compressed = append(compressed, messages[0]) // system prompt
-	compressed = append(compressed, provider.ChatMessage{
+	compressed = append(compressed, providers.ChatMessage{
 		Role:    "system",
 		Content: "Previous conversation summary:\n" + summaryText,
 	})

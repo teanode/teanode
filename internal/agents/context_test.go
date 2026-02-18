@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 func TestEstimateTokens(t *testing.T) {
@@ -32,14 +32,14 @@ func TestEstimateTokens(t *testing.T) {
 }
 
 func TestEstimateMessageTokens(t *testing.T) {
-	msg := provider.ChatMessage{
+	msg := providers.ChatMessage{
 		Role:    "assistant",
 		Content: strings.Repeat("x", 100),
-		ToolCalls: []provider.ToolCall{
+		ToolCalls: []providers.ToolCall{
 			{
 				ID:   "call-1",
 				Type: "function",
-				Function: provider.FunctionCall{
+				Function: providers.FunctionCall{
 					Name:      "web_search",
 					Arguments: `{"query":"test"}`,
 				},
@@ -55,25 +55,25 @@ func TestEstimateMessageTokens(t *testing.T) {
 
 func TestTruncateOldToolResults(t *testing.T) {
 	// Build messages: system + 12 messages (> minKeepMessages)
-	messages := make([]provider.ChatMessage, 0, 15)
-	messages = append(messages, provider.ChatMessage{Role: "system", Content: "system prompt"})
+	messages := make([]providers.ChatMessage, 0, 15)
+	messages = append(messages, providers.ChatMessage{Role: "system", Content: "system prompt"})
 
 	// Old tool result with large content (should be truncated)
 	bigContent := strings.Repeat("x", 20000)
-	messages = append(messages, provider.ChatMessage{Role: "user", Content: "search for something"})
-	messages = append(messages, provider.ChatMessage{
+	messages = append(messages, providers.ChatMessage{Role: "user", Content: "search for something"})
+	messages = append(messages, providers.ChatMessage{
 		Role:    "assistant",
 		Content: "",
-		ToolCalls: []provider.ToolCall{
-			{ID: "call-1", Type: "function", Function: provider.FunctionCall{Name: "web_search", Arguments: `{}`}},
+		ToolCalls: []providers.ToolCall{
+			{ID: "call-1", Type: "function", Function: providers.FunctionCall{Name: "web_search", Arguments: `{}`}},
 		},
 	})
-	messages = append(messages, provider.ChatMessage{Role: "tool", Content: bigContent, ToolCallID: "call-1", Name: "web_search"})
-	messages = append(messages, provider.ChatMessage{Role: "assistant", Content: "here's what I found"})
+	messages = append(messages, providers.ChatMessage{Role: "tool", Content: bigContent, ToolCallID: "call-1", Name: "web_search"})
+	messages = append(messages, providers.ChatMessage{Role: "assistant", Content: "here's what I found"})
 
 	// Add enough recent messages to fill minKeepMessages
 	for index := 0; index < configs.DefaultAgentLimits.MinKeepMessages; index++ {
-		messages = append(messages, provider.ChatMessage{Role: "user", Content: "recent message"})
+		messages = append(messages, providers.ChatMessage{Role: "user", Content: "recent message"})
 	}
 
 	result := truncateOldToolResults(messages, configs.DefaultAgentLimits.MinKeepMessages, configs.DefaultAgentLimits.MaxToolResultChars)
@@ -97,7 +97,7 @@ func TestTruncateOldToolResults(t *testing.T) {
 }
 
 func TestTruncateOldToolResultsShortHistory(t *testing.T) {
-	messages := []provider.ChatMessage{
+	messages := []providers.ChatMessage{
 		{Role: "system", Content: "prompt"},
 		{Role: "user", Content: "hi"},
 		{Role: "tool", Content: strings.Repeat("x", 20000), ToolCallID: "c1", Name: "test"},
@@ -113,12 +113,12 @@ func TestTruncateOldToolResultsShortHistory(t *testing.T) {
 
 func TestFindKeepBoundary(t *testing.T) {
 	t.Run("simple messages", func(t *testing.T) {
-		messages := make([]provider.ChatMessage, 20)
+		messages := make([]providers.ChatMessage, 20)
 		for index := range messages {
 			if index%2 == 0 {
-				messages[index] = provider.ChatMessage{Role: "user", Content: "msg"}
+				messages[index] = providers.ChatMessage{Role: "user", Content: "msg"}
 			} else {
-				messages[index] = provider.ChatMessage{Role: "assistant", Content: "reply"}
+				messages[index] = providers.ChatMessage{Role: "assistant", Content: "reply"}
 			}
 		}
 
@@ -129,11 +129,11 @@ func TestFindKeepBoundary(t *testing.T) {
 	})
 
 	t.Run("tool result at boundary", func(t *testing.T) {
-		messages := []provider.ChatMessage{
+		messages := []providers.ChatMessage{
 			{Role: "user", Content: "q1"},
 			{Role: "assistant", Content: "a1"},
 			{Role: "user", Content: "q2"},
-			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1"}}},
+			{Role: "assistant", Content: "", ToolCalls: []providers.ToolCall{{ID: "c1"}}},
 			{Role: "tool", Content: "result1", ToolCallID: "c1"}, // target split would be here
 			{Role: "tool", Content: "result2", ToolCallID: "c2"},
 			{Role: "assistant", Content: "final"},
@@ -150,11 +150,11 @@ func TestFindKeepBoundary(t *testing.T) {
 	})
 
 	t.Run("assistant with tool calls at boundary", func(t *testing.T) {
-		messages := []provider.ChatMessage{
+		messages := []providers.ChatMessage{
 			{Role: "user", Content: "q1"},
 			{Role: "assistant", Content: "a1"},
 			{Role: "user", Content: "q2"},
-			{Role: "assistant", Content: "", ToolCalls: []provider.ToolCall{{ID: "c1"}}},
+			{Role: "assistant", Content: "", ToolCalls: []providers.ToolCall{{ID: "c1"}}},
 			{Role: "tool", Content: "result", ToolCallID: "c1"},
 			{Role: "assistant", Content: "done"},
 		}
@@ -168,7 +168,7 @@ func TestFindKeepBoundary(t *testing.T) {
 	})
 
 	t.Run("all messages within minKeep", func(t *testing.T) {
-		messages := []provider.ChatMessage{
+		messages := []providers.ChatMessage{
 			{Role: "user", Content: "q1"},
 			{Role: "assistant", Content: "a1"},
 		}

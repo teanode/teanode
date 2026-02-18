@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type tasksTool struct {
@@ -14,10 +14,10 @@ type tasksTool struct {
 	runner  commandRunner
 }
 
-func (self *tasksTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *tasksTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "google_tasks",
 			Description: "Interact with Google Tasks. Actions: list (show tasks), create (new task), " +
 				"complete (mark done), delete (remove task). All actions require a task_list ID.",

@@ -11,7 +11,7 @@ import (
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 var log = logging.MustGetLogger("filesystem")
@@ -28,10 +28,10 @@ func RegisterTools(registry *agents.ToolRegistry) {
 
 type filesystemTool struct{}
 
-func (self *filesystemTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *filesystemTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "filesystem",
 			Description: "Interact with the local filesystem. Actions: read (read file contents), write (write file contents), " +
 				"list (list directory entries), info (get file/directory metadata), mkdir (create directory), " +

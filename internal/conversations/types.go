@@ -11,6 +11,8 @@ type Header struct {
 	Title        string `json:"title,omitempty"`        // conversation title
 	Summary      string `json:"summary,omitempty"`      // conversation summary
 	SummarizedAt int64  `json:"summarizedAt,omitempty"` // unix ms when summary was generated
+	Provider     string `json:"provider,omitempty"`     // provider name (e.g. "openai")
+	Model        string `json:"model,omitempty"`        // qualified "provider:model" format
 }
 
 // Message represents a chat message in a conversation.

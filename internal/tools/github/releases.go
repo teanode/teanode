@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type releasesTool struct {
@@ -14,10 +14,10 @@ type releasesTool struct {
 	runner commandRunner
 }
 
-func (self *releasesTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *releasesTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "github_releases",
 			Description: "Interact with GitHub releases. Actions: list (list releases), " +
 				"create (create a new release).",

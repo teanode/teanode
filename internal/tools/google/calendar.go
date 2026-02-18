@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type calendarTool struct {
@@ -15,10 +15,10 @@ type calendarTool struct {
 	runner  commandRunner
 }
 
-func (self *calendarTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *calendarTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "google_calendar",
 			Description: "Interact with Google Calendar. Actions: list (upcoming events), search (find events), " +
 				"create (new event), delete (remove event).",

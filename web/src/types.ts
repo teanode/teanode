@@ -82,6 +82,8 @@ export interface ConversationHistoryResult {
   hasMore?: boolean;
   totalCount?: number;
   oldestLoadedIndex?: number;
+  provider?: string;
+  model?: string;
 }
 
 export interface ConversationAbortParams {
@@ -105,6 +107,8 @@ export interface Conversation {
   summary?: string;
   lastActive?: number;
   agentId?: string;
+  provider?: string;
+  model?: string;
 }
 
 export interface Usage {

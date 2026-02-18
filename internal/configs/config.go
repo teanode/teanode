@@ -264,10 +264,11 @@ type TelegramConfig struct {
 }
 
 type ToolsConfig struct {
-	BraveAPIKey string        `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
-	Google      *GoogleConfig `json:"google,omitempty" yaml:"google,omitempty"`
-	GitHub      *GitHubConfig `json:"github,omitempty" yaml:"github,omitempty"`
-	GitLab      *GitLabConfig `json:"gitlab,omitempty" yaml:"gitlab,omitempty"`
+	BraveAPIKey string           `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
+	Google      *GoogleConfig    `json:"google,omitempty" yaml:"google,omitempty"`
+	GitHub      *GitHubConfig    `json:"github,omitempty" yaml:"github,omitempty"`
+	GitLab      *GitLabConfig    `json:"gitlab,omitempty" yaml:"gitlab,omitempty"`
+	ClaudeCode  *ClaudeCodeConfig `json:"claudeCode,omitempty" yaml:"claudeCode,omitempty"`
 }
 
 // GoogleConfig controls Google Workspace tools powered by the gog CLI.
@@ -289,6 +290,14 @@ type GitLabConfig struct {
 	Services   []string `json:"services,omitempty" yaml:"services,omitempty"`     // nil = tier 1 defaults
 }
 
+// ClaudeCodeConfig controls the Claude Code headless tool.
+type ClaudeCodeConfig struct {
+	BinaryPath            string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`                       // default: "claude"
+	AllowedTools          []string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`                     // tools Claude Code can use; nil = defaults
+	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`                                   // model override for Claude Code
+	MaxTurnTimeoutSeconds int      `json:"maxTurnTimeoutSeconds,omitempty" yaml:"maxTurnTimeoutSeconds,omitempty"` // per-call timeout (default 300, max 600)
+}
+
 type GatewayConfig struct {
 	Port         int         `json:"port,omitempty" yaml:"port,omitempty"`
 	Bind         string      `json:"bind,omitempty" yaml:"bind,omitempty"` // "loopback" | "lan"
@@ -301,37 +310,25 @@ type AuthConfig struct {
 }
 
 // ProviderConfig holds connection details for a single provider.
+// Name must be one of the supported provider types: "openai", "anthropic", "openrouter".
 type ProviderConfig struct {
+	Name    string `json:"name,omitempty" yaml:"name,omitempty"` // "openai" | "anthropic" | "openrouter"
 	BaseURL string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
 	APIKey  string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
 }
 
 type ModelsConfig struct {
-	Default         string                    `json:"default,omitempty" yaml:"default,omitempty"`
-	SummarizerModel string                    `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
-	ContextWindow   int                       `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; default 128000
-	Providers       map[string]ProviderConfig `json:"providers,omitempty" yaml:"providers,omitempty"`             // multi-provider config
-
-	// Legacy single-provider fields (used if Providers is empty)
-	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
-	BaseURL  string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
-	APIKey   string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
+	Default         string           `json:"default,omitempty" yaml:"default,omitempty"`
+	SummarizerModel string           `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
+	ContextWindow   int              `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; default 128000
+	Providers       []ProviderConfig `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
 
-// ResolvedProviders returns the providers map. If the new Providers field is
-// populated it is returned directly; otherwise a single-entry map is
+// ResolvedProviders returns the providers list. If the Providers field is
+// populated it is returned directly; otherwise a single-entry list is
 // synthesized from the legacy Provider/BaseURL/APIKey fields.
-func (self *ModelsConfig) ResolvedProviders() map[string]ProviderConfig {
-	if len(self.Providers) > 0 {
-		return self.Providers
-	}
-	name := self.Provider
-	if name == "" {
-		name = "openai"
-	}
-	return map[string]ProviderConfig{
-		name: {BaseURL: self.BaseURL, APIKey: self.APIKey},
-	}
+func (self *ModelsConfig) ResolvedProviders() []ProviderConfig {
+	return self.Providers
 }
 
 // DefaultProviderName returns the name of the default provider.
@@ -339,21 +336,15 @@ func (self *ModelsConfig) ResolvedProviders() map[string]ProviderConfig {
 // returned; otherwise the first (or only) configured provider name is used.
 func (self *ModelsConfig) DefaultProviderName() string {
 	// Check if default model is qualified.
-	if idx := strings.IndexByte(self.Default, ':'); idx >= 0 {
-		return self.Default[:idx]
+	if index := strings.IndexByte(self.Default, ':'); index >= 0 {
+		return self.Default[:index]
 	}
 	// Legacy single-provider.
 	if len(self.Providers) == 0 {
-		if self.Provider != "" {
-			return self.Provider
-		}
 		return "openai"
 	}
-	// Multi-provider: pick the first key (deterministic for single-entry maps).
-	for name := range self.Providers {
-		return name
-	}
-	return "openai"
+	// Multi-provider: pick the first entry.
+	return self.Providers[0].Name
 }
 
 // --- Agent Config Helpers ---
@@ -743,9 +734,7 @@ func defaults() *Config {
 			},
 		},
 		Models: ModelsConfig{
-			Default:       "gpt-5.1",
-			Provider:      "openai",
-			BaseURL:       "https://api.openai.com/v1",
+			Default:       "openai:gpt-5.1",
 			ContextWindow: schemaInt(configDefaults, "models.contextWindow"),
 		},
 	}
@@ -766,11 +755,11 @@ func applyDefaults(configuration *Config) {
 	if configuration.Models.Default == "" {
 		configuration.Models.Default = fallback.Models.Default
 	}
-	if configuration.Models.Provider == "" && len(configuration.Models.Providers) == 0 {
-		configuration.Models.Provider = fallback.Models.Provider
-	}
-	if configuration.Models.BaseURL == "" && len(configuration.Models.Providers) == 0 {
-		configuration.Models.BaseURL = fallback.Models.BaseURL
+	// Default provider name to "openai" if missing.
+	for index := range configuration.Models.Providers {
+		if configuration.Models.Providers[index].Name == "" {
+			configuration.Models.Providers[index].Name = "openai"
+		}
 	}
 	if configuration.Models.ContextWindow <= 0 {
 		configuration.Models.ContextWindow = fallback.Models.ContextWindow
@@ -778,9 +767,6 @@ func applyDefaults(configuration *Config) {
 }
 
 func applyEnv(configuration *Config) {
-	if value := os.Getenv("OPENAI_API_KEY"); value != "" {
-		configuration.Models.APIKey = value
-	}
 	if value := os.Getenv("TEANODE_GATEWAY_PORT"); value != "" {
 		if port, err := strconv.Atoi(value); err == nil {
 			configuration.Gateway.Port = port
@@ -826,6 +812,72 @@ func applyEnv(configuration *Config) {
 			configuration.Tools.GitLab = &GitLabConfig{}
 		}
 		configuration.Tools.GitLab.BinaryPath = value
+	}
+	if value := os.Getenv("CLAUDE_CODE_BINARY_PATH"); value != "" {
+		if configuration.Tools.ClaudeCode == nil {
+			configuration.Tools.ClaudeCode = &ClaudeCodeConfig{}
+		}
+		configuration.Tools.ClaudeCode.BinaryPath = value
+	}
+	if value := os.Getenv("OPENAI_API_KEY"); value != "" {
+		found := false
+		for index := range configuration.Models.Providers {
+			if configuration.Models.Providers[index].Name == "openai" {
+				configuration.Models.Providers[index].APIKey = value
+				if configuration.Models.Providers[index].BaseURL == "" {
+					configuration.Models.Providers[index].BaseURL = "https://api.openai.com/v1"
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			configuration.Models.Providers = append(configuration.Models.Providers, ProviderConfig{
+				Name:    "openai",
+				BaseURL: "https://api.openai.com/v1",
+				APIKey:  value,
+			})
+		}
+	}
+	if value := os.Getenv("ANTHROPIC_API_KEY"); value != "" {
+		found := false
+		for index := range configuration.Models.Providers {
+			if configuration.Models.Providers[index].Name == "anthropic" {
+				configuration.Models.Providers[index].APIKey = value
+				if configuration.Models.Providers[index].BaseURL == "" {
+					configuration.Models.Providers[index].BaseURL = "https://api.anthropic.com/v1"
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			configuration.Models.Providers = append(configuration.Models.Providers, ProviderConfig{
+				Name:    "anthropic",
+				BaseURL: "https://api.anthropic.com/v1",
+				APIKey:  value,
+			})
+		}
+	}
+	if value := os.Getenv("OPENROUTER_API_KEY"); value != "" {
+		found := false
+		for index := range configuration.Models.Providers {
+			if configuration.Models.Providers[index].Name == "openrouter" {
+				configuration.Models.Providers[index].APIKey = value
+				if configuration.Models.Providers[index].BaseURL == "" {
+					configuration.Models.Providers[index].BaseURL = "https://openrouter.ai/api/v1"
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			configuration.Models.Providers = append(configuration.Models.Providers, ProviderConfig{
+				Name:    "openrouter",
+				BaseURL: "https://openrouter.ai/api/v1",
+				APIKey:  value,
+			})
+		}
 	}
 	if value := os.Getenv("TEANODE_CDP_ENDPOINT"); value != "" {
 		if configuration.Integrations.Browser == nil {

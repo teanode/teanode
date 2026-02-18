@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 // mockRunner returns a commandRunner that records calls and returns canned output.
@@ -760,7 +760,7 @@ func TestToolDefinitions(t *testing.T) {
 	tools := []struct {
 		name string
 		tool interface {
-			Definition() provider.ToolDefinition
+			Definition() providers.ToolDefinition
 		}
 	}{
 		{"gmail", &gmailTool{}},

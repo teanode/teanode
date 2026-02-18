@@ -685,7 +685,7 @@ func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, argum
 
 	switch name {
 	case "new":
-		conversationId := self.gateway.NewConversation(activeAgentId)
+		conversationId := self.gateway.NewConversation(activeAgentId, "")
 		reply = fmt.Sprintf("New conversation started. (%s)", conversationId)
 
 	case "reset", "clear":
@@ -697,7 +697,7 @@ func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, argum
 		if err := self.gateway.DeleteConversation(activeAgentId, conversationId); err != nil {
 			reply = fmt.Sprintf("Error clearing conversation: %v", err)
 		} else {
-			newConversationId := self.gateway.NewConversation(activeAgentId)
+			newConversationId := self.gateway.NewConversation(activeAgentId, "")
 			reply = fmt.Sprintf("Conversation cleared. New conversation started. (%s)", newConversationId)
 		}
 

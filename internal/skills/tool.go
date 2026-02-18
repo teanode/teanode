@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 const (
@@ -24,10 +24,10 @@ type ShellTool struct {
 	definition ToolDefinition
 }
 
-func (self *ShellTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *ShellTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        self.definition.Name,
 			Description: self.definition.Description,
 			Parameters:  self.definition.Parameters,
@@ -83,10 +83,10 @@ type HTTPTool struct {
 	definition ToolDefinition
 }
 
-func (self *HTTPTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *HTTPTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        self.definition.Name,
 			Description: self.definition.Description,
 			Parameters:  self.definition.Parameters,

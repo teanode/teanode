@@ -14,7 +14,7 @@ import (
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/web"
 )
@@ -100,7 +100,7 @@ type Gateway interface {
 
 	// Domain operations
 	ResolveRunner(agentId string) *agents.Runner
-	LoadModels(ctx context.Context) (map[string][]provider.ModelInfo, error)
+	LoadModels(ctx context.Context) (map[string][]providers.ModelInfo, error)
 	InvalidateModelsCache()
 
 	// Active agent / conversation
@@ -109,7 +109,7 @@ type Gateway interface {
 	ActiveConversationID(agentId string) string
 	SetActiveConversation(agentId, conversationId string)
 	SetActiveConversationIfUnset(agentId, conversationId string) bool
-	NewConversation(agentId string) string
+	NewConversation(agentId, model string) string
 
 	// Centralized message sending and run management
 	SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle

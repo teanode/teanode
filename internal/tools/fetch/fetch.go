@@ -10,7 +10,7 @@ import (
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/version"
 )
 
@@ -25,10 +25,10 @@ func RegisterTools(registry *agents.ToolRegistry) {
 
 type fetchTool struct{}
 
-func (self *fetchTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *fetchTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        "web_fetch",
 			Description: "Fetch content from any URL via HTTP GET. Returns the response body as text. Useful for reading web pages, APIs, RSS feeds, or any publicly accessible URL.",
 			Parameters: map[string]interface{}{

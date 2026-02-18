@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
@@ -43,10 +43,10 @@ type agentListTool struct {
 	configuration *configs.Config
 }
 
-func (self *agentListTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *agentListTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        "agent_list",
 			Description: "List all available agents with their capabilities, tools, and models.",
 			Parameters: map[string]interface{}{
@@ -115,10 +115,10 @@ type agentMessageTool struct {
 	configuration *configs.Config
 }
 
-func (self *agentMessageTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *agentMessageTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        "agent_message",
 			Description: "Send a message to another agent and receive its response. The message runs synchronously — the tool returns when the target agent completes its response.",
 			Parameters: map[string]interface{}{
@@ -220,10 +220,10 @@ type subagentSpawnTool struct {
 	configuration *configs.Config
 }
 
-func (self *subagentSpawnTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *subagentSpawnTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        "subagent_spawn",
 			Description: "Spawn an isolated sub-conversation to handle a subtask. The subagent runs with a fresh conversation history, executes the task, and returns the result. The subagent conversation is ephemeral and deleted after completion.",
 			Parameters: map[string]interface{}{

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 // ConfigTool is an LLM tool that lets agents inspect and modify the teanode
@@ -16,10 +16,10 @@ type ConfigTool struct {
 	Config *Config
 }
 
-func (self *ConfigTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *ConfigTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "config",
 			Description: "View or modify the teanode configuration. Actions: get (return the current effective config with defaults applied), " +
 				"set (deep-merge a partial JSON config into the on-disk config and save; triggers hot-reload), " +

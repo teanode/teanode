@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 type issuesTool struct {
@@ -14,10 +14,10 @@ type issuesTool struct {
 	runner commandRunner
 }
 
-func (self *issuesTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *issuesTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name: "github_issues",
 			Description: "Interact with GitHub issues. Actions: list (list issues), view (get issue details), " +
 				"create (open new issue), comment (add comment), close (close issue), reopen (reopen issue), " +

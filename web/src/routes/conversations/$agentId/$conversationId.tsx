@@ -50,6 +50,7 @@ export default function ConversationsConversationPage() {
         isRunning={backend.isRunning}
         agentName={agentName}
         draftKey={conversationId}
+        model={backend.conversationModel}
         onSend={handleSend}
         onAbort={backend.abortRun}
       />

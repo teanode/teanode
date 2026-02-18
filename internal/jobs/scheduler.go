@@ -20,8 +20,9 @@ type Scheduler struct {
 	expressions   map[string]*cronexpr.CronExpr
 	stopChannel   chan struct{}
 
-	Broadcast  func(event string, payload interface{})
-	RunMessage func(ctx context.Context, agentId, conversationId, message, model string) (runId string, done <-chan struct{}, getError func() error)
+	Broadcast       func(event string, payload interface{})
+	RunMessage      func(ctx context.Context, agentId, conversationId, message, model string) (runId string, done <-chan struct{}, getError func() error)
+	NewConversation func(agentId, model string) string
 }
 
 // NewScheduler creates a new job scheduler.
@@ -209,6 +210,20 @@ func (self *Scheduler) executeJob(job Job) {
 	conversationId := job.ConversationID
 	if conversationId == "" {
 		conversationId = self.agentRegistry.ActiveConversationID(agentId)
+	}
+
+	// If job specifies a model, verify the active conversation is compatible.
+	if job.Model != "" && conversationId != "" && self.NewConversation != nil {
+		runner := self.agentRegistry.Get(agentId)
+		if runner != nil {
+			header, headerError := runner.Conversations.LoadHeader(conversationId)
+			if headerError == nil && header.Model != job.Model {
+				// Active conversation uses a different model — create a new one.
+				conversationId = self.NewConversation(agentId, job.Model)
+				log.Infof("job %s: created new conversation %s (model mismatch: conversation=%s, job=%s)",
+					job.ID, conversationId, header.Model, job.Model)
+			}
+		}
 	}
 
 	if self.RunMessage == nil {

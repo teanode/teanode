@@ -14,13 +14,13 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 // mockRegistry creates a single-provider registry for testing.
-func mockRegistry(client *provider.Client) *provider.Registry {
-	registry := provider.NewRegistry("mock")
-	registry.Register("mock", client)
+func mockRegistry(provider providers.Provider) *providers.Registry {
+	registry := providers.NewRegistry("mock")
+	registry.Register("mock", provider)
 	return registry
 }
 
@@ -51,10 +51,10 @@ func mockOpenAIServer(responseText string) *httptest.Server {
 // stubTool is a minimal tool for testing the runner tool-call loop.
 type stubTool struct{ name string }
 
-func (self *stubTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *stubTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type:     "function",
-		Function: provider.FunctionSpec{Name: self.name},
+		Function: providers.FunctionSpec{Name: self.name},
 	}
 }
 
@@ -71,15 +71,16 @@ func TestRunnerRun(t *testing.T) {
 	store := conversations.NewStore(directory)
 	configuration := &configs.Config{
 		Models: configs.ModelsConfig{
-			Default:  "mock-model",
-			Provider: "mock",
-			BaseURL:  server.URL,
+			Default: "mock-model",
+			Providers: []configs.ProviderConfig{
+				{Name: "mock", BaseURL: server.URL},
+			},
 		},
 	}
-	providerClient := provider.NewClient(server.URL, "")
+	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		Providers:     mockRegistry(providerClient),
+		Providers:     mockRegistry(provider),
 		Conversations: store,
 		Config:        configuration,
 	}
@@ -150,13 +151,15 @@ func TestRunnerRunAbort(t *testing.T) {
 	configuration := &configs.Config{
 		Models: configs.ModelsConfig{
 			Default: "mock",
-			BaseURL: server.URL,
+			Providers: []configs.ProviderConfig{
+				{Name: "mock", BaseURL: server.URL},
+			},
 		},
 	}
-	providerClient := provider.NewClient(server.URL, "")
+	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		Providers:     mockRegistry(providerClient),
+		Providers:     mockRegistry(provider),
 		Conversations: store,
 		Config:        configuration,
 	}
@@ -186,7 +189,7 @@ func mockToolCallServer(toolCallId, toolName, toolArgs, finalText string) *httpt
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// Read the request to check if it contains tool results.
 		body, _ := io.ReadAll(request.Body)
-		var chatRequest provider.ChatRequest
+		var chatRequest providers.ChatRequest
 		json.Unmarshal(body, &chatRequest)
 
 		writer.Header().Set("Content-Type", "text/event-stream")
@@ -220,18 +223,19 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	store := conversations.NewStore(directory)
 	configuration := &configs.Config{
 		Models: configs.ModelsConfig{
-			Default:  "mock-model",
-			Provider: "mock",
-			BaseURL:  server.URL,
+			Default: "mock-model",
+			Providers: []configs.ProviderConfig{
+				{Name: "mock", BaseURL: server.URL},
+			},
 		},
 	}
-	providerClient := provider.NewClient(server.URL, "")
+	provider := providers.NewClient(server.URL, "")
 
 	tools := NewToolRegistry()
 	tools.Register(&stubTool{name: "workspace"})
 
 	runner := &Runner{
-		Providers:     mockRegistry(providerClient),
+		Providers:     mockRegistry(provider),
 		Conversations: store,
 		Config:        configuration,
 		Tools:         tools,
@@ -358,5 +362,77 @@ func TestBuildSystemPromptTruncation(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "... (truncated)") {
 		t.Error("prompt should indicate truncation")
+	}
+}
+
+func TestRunnerModelMismatchError(t *testing.T) {
+	server := mockOpenAIServer("first response")
+	defer server.Close()
+
+	directory := t.TempDir()
+	store := conversations.NewStore(directory)
+	configuration := &configs.Config{
+		Models: configs.ModelsConfig{
+			Default: "mock-model",
+			Providers: []configs.ProviderConfig{
+				{Name: "mock", BaseURL: server.URL},
+			},
+		},
+	}
+	provider := providers.NewClient(server.URL, "")
+
+	runner := &Runner{
+		Providers:     mockRegistry(provider),
+		Conversations: store,
+		Config:        configuration,
+	}
+
+	// First run: creates the conversation and locks it to "mock:mock-model".
+	_, err := runner.Run(context.Background(), RunParams{
+		ConversationID: "mismatch-test",
+		Message:        "hello",
+	}, nil)
+	if err != nil {
+		t.Fatalf("first run failed: %v", err)
+	}
+
+	// Second run: same conversation, explicitly different model — should error.
+	_, err = runner.Run(context.Background(), RunParams{
+		ConversationID: "mismatch-test",
+		Message:        "hello again",
+		Model:          "mock:other-model",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected model mismatch error, got nil")
+	}
+	if !strings.Contains(err.Error(), "model mismatch") {
+		t.Errorf("expected 'model mismatch' error, got: %v", err)
+	}
+}
+
+func TestRunnerNoModelError(t *testing.T) {
+	directory := t.TempDir()
+	store := conversations.NewStore(directory)
+	configuration := &configs.Config{
+		Models: configs.ModelsConfig{
+			// No default model set.
+		},
+	}
+
+	runner := &Runner{
+		Providers:     providers.NewRegistry("mock"),
+		Conversations: store,
+		Config:        configuration,
+	}
+
+	_, err := runner.Run(context.Background(), RunParams{
+		ConversationID: "no-model-test",
+		Message:        "hello",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected 'no model configured' error, got nil")
+	}
+	if !strings.Contains(err.Error(), "no model configured") {
+		t.Errorf("expected 'no model configured' error, got: %v", err)
 	}
 }

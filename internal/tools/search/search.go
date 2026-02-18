@@ -11,7 +11,7 @@ import (
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 var log = logging.MustGetLogger("search")
@@ -29,10 +29,10 @@ type searchTool struct {
 	apiKey string
 }
 
-func (self *searchTool) Definition() provider.ToolDefinition {
-	return provider.ToolDefinition{
+func (self *searchTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
 		Type: "function",
-		Function: provider.FunctionSpec{
+		Function: providers.FunctionSpec{
 			Name:        "web_search",
 			Description: "Search the web using Brave Search and return results with titles, URLs, and descriptions.",
 			Parameters: map[string]interface{}{

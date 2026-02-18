@@ -9,7 +9,7 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
-	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
@@ -173,7 +173,7 @@ func (self *Summarizer) summarizeConversation(
 	header *conversations.Header,
 	messages []conversations.Message,
 ) {
-	configuration, providers, _, _, _ := runner.Snapshot()
+	configuration, providerRegistry, _, _, _ := runner.Snapshot()
 	resolved := self.resolveConfig()
 
 	// If conversation has been compacted, only consider messages after the
@@ -196,27 +196,27 @@ func (self *Summarizer) summarizeConversation(
 		qualifiedModel = configuration.Models.SummarizerModel
 	}
 
-	client, bareModel, err := providers.Resolve(qualifiedModel)
+	provider, bareModel, err := providerRegistry.Resolve(qualifiedModel)
 	if err != nil {
 		log.Debugf("summarizer: failed to resolve model %q: %v", qualifiedModel, err)
 		return
 	}
 
 	// Always generate both title and summary together.
-	self.generateTitleAndSummary(ctx, client, bareModel, runner, conversationId, conversationText)
+	self.generateTitleAndSummary(ctx, provider, bareModel, runner, conversationId, conversationText)
 }
 
 func (self *Summarizer) generateTitleAndSummary(
 	ctx context.Context,
-	client *provider.Client,
+	provider providers.Provider,
 	bareModel string,
 	runner *Runner,
 	conversationId string,
 	conversationText string,
 ) {
-	request := provider.ChatRequest{
+	request := providers.ChatRequest{
 		Model: bareModel,
-		Messages: []provider.ChatMessage{
+		Messages: []providers.ChatMessage{
 			{
 				Role:    "system",
 				Content: "Analyze the following conversation. Output a JSON object with two fields:\n- \"title\": a short title (max 8 words)\n- \"summary\": a 2-4 sentence summary of the main topic, key decisions, and outcomes\n\nOutput only valid JSON, nothing else.",
@@ -225,7 +225,7 @@ func (self *Summarizer) generateTitleAndSummary(
 		},
 	}
 
-	response, err := client.ChatCompletion(ctx, request)
+	response, err := provider.ChatCompletion(ctx, request)
 	if err != nil || len(response.Choices) == 0 {
 		log.Debugf("summarizer: LLM call failed for conversation %s: %v", conversationId, err)
 		return

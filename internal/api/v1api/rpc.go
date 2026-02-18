@@ -219,6 +219,15 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 	if activeRunId := self.api.gateway.GetActiveRun(parameters.ConversationID); activeRunId != "" {
 		response["activeRunId"] = activeRunId
 	}
+	// Include conversation's locked provider/model from the header.
+	if header, headerError := runner.Conversations.LoadHeader(parameters.ConversationID); headerError == nil {
+		if header.Provider != "" {
+			response["provider"] = header.Provider
+		}
+		if header.Model != "" {
+			response["model"] = header.Model
+		}
+	}
 	self.sendResponse(frame.ID, response)
 }
 
@@ -325,6 +334,8 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 		Title      string `json:"title,omitempty"`
 		Summary    string `json:"summary,omitempty"`
 		AgentID    string `json:"agentId,omitempty"`
+		Provider   string `json:"provider,omitempty"`
+		Model      string `json:"model,omitempty"`
 	}
 
 	var allConversations []conversationWithAgent
@@ -340,6 +351,8 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 				Title:      conversationInfo.Title,
 				Summary:    conversationInfo.Summary,
 				AgentID:    agentId,
+				Provider:   conversationInfo.Provider,
+				Model:      conversationInfo.Model,
 			})
 		}
 	})
