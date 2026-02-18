@@ -14,13 +14,13 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(request *http.Request) bool { return true },
 }
 
-func (self *API) handleHealth(writer http.ResponseWriter, request *http.Request) error {
+func (self *v1Api) handleHealth(writer http.ResponseWriter, request *http.Request) error {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.Write([]byte(`{"status":"ok"}`))
 	return nil
 }
 
-func (self *API) handleMedia(writer http.ResponseWriter, request *http.Request) error {
+func (self *v1Api) handleMedia(writer http.ResponseWriter, request *http.Request) error {
 	mediaId := mux.Vars(request)["id"]
 	if mediaId == "" {
 		return web.Error(400, "missing media id")
@@ -36,12 +36,16 @@ func (self *API) handleMedia(writer http.ResponseWriter, request *http.Request) 
 	return nil
 }
 
-func (self *API) handleWebSocket(writer http.ResponseWriter, request *http.Request) {
+func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Request) {
 	connection, err := upgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		log.Errorf("websocket upgrade error: %v", err)
 		return
 	}
-	webSocketConnection := newWebSocketConnection(connection, self)
+	var sessionId string
+	if cookie, err := request.Cookie("session"); err == nil {
+		sessionId = cookie.Value
+	}
+	webSocketConnection := newWebSocketConnection(connection, self, sessionId)
 	webSocketConnection.serve()
 }

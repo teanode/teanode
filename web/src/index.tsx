@@ -12,7 +12,6 @@ import { getTheme } from './theme';
 import { useAppContext, AppProvider } from './context';
 import { useBackend } from './hooks/useBackend';
 import { authStatus } from './rpc';
-import LoginPage from './components/LoginPage';
 import './i18n/config';
 import './index.css';
 
@@ -170,35 +169,46 @@ function ThemedApp({ children }: { children: React.ReactNode }) {
   );
 }
 
-function AuthenticatedApp() {
-  return <RouterProvider router={router} />;
-}
-
-type AuthState = 'loading' | 'login' | 'setup' | 'authenticated';
-
 function Root() {
-  const [authState, setAuthState] = useState<AuthState>('loading');
+  const [ready, setReady] = useState(false);
   const backend = useBackend();
 
   useEffect(() => {
+    const pathname = window.location.pathname;
+
     authStatus()
       .then((result) => {
         if (!result.passwordSet) {
-          setAuthState('setup');
+          // Redirect to /setup if not already there.
+          if (pathname !== '/setup') {
+            const next = pathname !== '/login' && pathname !== '/' ? pathname : '';
+            const url = next ? `/setup?next=${encodeURIComponent(next)}` : '/setup';
+            window.history.replaceState(null, '', url);
+          }
         } else if (!result.authenticated) {
-          setAuthState('login');
+          // Redirect to /login with ?next= if not already there.
+          if (pathname !== '/login') {
+            const next = pathname !== '/setup' && pathname !== '/' ? pathname : '';
+            const url = next ? `/login?next=${encodeURIComponent(next)}` : '/login';
+            window.history.replaceState(null, '', url);
+          }
         } else {
-          setAuthState('authenticated');
+          // Authenticated — if on /login or /setup, redirect to ?next= or /.
+          if (pathname === '/login' || pathname === '/setup') {
+            const params = new URLSearchParams(window.location.search);
+            const next = params.get('next');
+            window.history.replaceState(null, '', next && next.startsWith('/') && !next.startsWith('//') ? next : '/');
+          }
         }
       })
       .catch(() => {
-        // If auth status fails (e.g. no server), treat as authenticated
+        // If auth status fails (e.g. no server), leave URL as-is
         // so the app can show its normal connection error state.
-        setAuthState('authenticated');
-      });
+      })
+      .finally(() => setReady(true));
   }, []);
 
-  if (authState === 'loading') {
+  if (!ready) {
     return (
       <AppProvider backend={backend}>
         <ThemedApp>
@@ -210,23 +220,10 @@ function Root() {
     );
   }
 
-  if (authState === 'login' || authState === 'setup') {
-    return (
-      <AppProvider backend={backend}>
-        <ThemedApp>
-          <LoginPage
-            mode={authState}
-            onSuccess={() => setAuthState('authenticated')}
-          />
-        </ThemedApp>
-      </AppProvider>
-    );
-  }
-
   return (
     <AppProvider backend={backend}>
       <ThemedApp>
-        <AuthenticatedApp />
+        <RouterProvider router={router} />
       </ThemedApp>
     </AppProvider>
   );

@@ -34,15 +34,21 @@ func frontendHandler(fileSystem http.FileSystem) http.Handler {
 	fileServer := http.FileServer(fileSystem)
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		path := request.URL.Path
-		// Try opening the requested file.
-		file, err := fileSystem.Open(path)
-		if err != nil {
-			// File doesn't exist — serve index.html for SPA routing.
+
+		// Determine whether we're serving index.html (directly or as SPA fallback).
+		servingIndex := path == "/" || path == "/index.html"
+		if file, err := fileSystem.Open(path); err != nil {
 			request.URL.Path = "/"
-			fileServer.ServeHTTP(writer, request)
-			return
+			servingIndex = true
+		} else {
+			file.Close()
 		}
-		file.Close()
+
+		if servingIndex {
+			writer.Header().Set("Cache-Control", "no-cache")
+		} else {
+			writer.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
 		fileServer.ServeHTTP(writer, request)
 	})
 }

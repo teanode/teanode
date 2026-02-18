@@ -236,6 +236,12 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 			return
 		}
 
+		// Only forward events for the currently active agent.
+		agentId, _ := payloadMap["agentId"].(string)
+		if agentId != self.agentRegistry.ActiveAgentID() {
+			return
+		}
+
 		// Show the triggering message so the user has context.
 		triggerText, _ := payloadMap["text"].(string)
 		if triggerText != "" {

@@ -13,17 +13,19 @@ import (
 // It implements gw.Subscriber to receive broadcast events from the gateway.
 type webSocketConnection struct {
 	connection *websocket.Conn
-	api        *API
+	api        *v1Api
 	writeMutex sync.Mutex
+	sessionId  string
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time
 }
 
-func newWebSocketConnection(connection *websocket.Conn, api *API) *webSocketConnection {
+func newWebSocketConnection(connection *websocket.Conn, api *v1Api, sessionId string) *webSocketConnection {
 	return &webSocketConnection{
 		connection: connection,
 		api:        api,
+		sessionId:  sessionId,
 	}
 }
 

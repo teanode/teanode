@@ -11,6 +11,7 @@ import (
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/version"
 )
 
 var log = logging.MustGetLogger("web_fetch")
@@ -93,7 +94,7 @@ func (self *fetchTool) Execute(ctx context.Context, rawArguments string) (string
 		return "", fmt.Errorf("creating request: %w", err)
 	}
 
-	request.Header.Set("User-Agent", "TeaNode/1.0")
+	request.Header.Set("User-Agent", version.ServerName())
 	for key, value := range arguments.Headers {
 		request.Header.Set(key, value)
 	}

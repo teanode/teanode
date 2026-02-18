@@ -830,7 +830,8 @@ func (self *webSocketConnection) handleSessionsList(frame requestFrame) {
 		sessionList = []*sessions.Session{}
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"sessions": sessionList,
+		"sessions":         sessionList,
+		"currentSessionId": self.sessionId,
 	})
 }
 
@@ -848,6 +849,10 @@ func (self *webSocketConnection) handleSessionsRevoke(frame requestFrame) {
 	}
 	if parameters.SessionID == "" {
 		self.sendError(frame.ID, 400, "sessionId is required")
+		return
+	}
+	if parameters.SessionID == self.sessionId {
+		self.sendError(frame.ID, 400, "cannot revoke the current session")
 		return
 	}
 

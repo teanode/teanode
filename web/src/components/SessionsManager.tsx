@@ -1,40 +1,74 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
-import { DataGrid, type GridColDef } from '@mui/x-data-grid';
-import type { SessionInfo } from '../types';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import ListSubheader from '@mui/material/ListSubheader';
+import Tooltip from '@mui/material/Tooltip';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import type { SessionInfo, SessionsListResult } from '../types';
 import type { useBackend } from '../hooks/useBackend';
+
+dayjs.extend(relativeTime);
 
 interface SessionsManagerProps {
   backend: ReturnType<typeof useBackend>;
 }
 
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
+function shortenUserAgent(userAgent: string): string {
+  if (!userAgent) return '-';
+  if (userAgent.length > 60) return userAgent.slice(0, 57) + '...';
+  return userAgent;
 }
 
-function shortenUserAgent(ua: string): string {
-  if (!ua) return '-';
-  if (ua.length > 60) return ua.slice(0, 57) + '...';
-  return ua;
+function SessionItem({ session, onRevoke }: { session: SessionInfo; onRevoke?: () => void }) {
+  const lastSeen = dayjs(session.lastSeenAt);
+  return (
+    <ListItem
+      disableGutters
+      secondaryAction={
+        onRevoke ? (
+          <IconButton size="small" edge="end" sx={{ opacity: 0.4 }} onClick={onRevoke}>
+            <DeleteOutlineIcon fontSize="small" />
+          </IconButton>
+        ) : undefined
+      }
+    >
+      <ListItemText
+        primary={<Typography variant="body2">{shortenUserAgent(session.userAgent)}</Typography>}
+        secondary={
+          <>
+            {session.remoteAddr}
+            {' · '}
+            <Tooltip title={lastSeen.format('YYYY-MM-DD HH:mm:ss')} arrow>
+              <span>{lastSeen.fromNow()}</span>
+            </Tooltip>
+          </>
+        }
+      />
+    </ListItem>
+  );
 }
 
 export default function SessionsManager({ backend }: SessionsManagerProps) {
   const { t } = useTranslation();
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState('');
   const [loading, setLoading] = useState(true);
 
   function loadSessions() {
     setLoading(true);
-    backend.sendRpc<{ sessions: SessionInfo[] }>('sessions.list', {})
-      .then((result) => setSessions(result.sessions || []))
+    backend.sendRpc<SessionsListResult>('sessions.list', {})
+      .then((result) => {
+        setSessions(result.sessions || []);
+        setCurrentSessionId(result.currentSessionId || '');
+      })
       .catch((error) => console.error('sessions.list:', error))
       .finally(() => setLoading(false));
   }
@@ -46,57 +80,10 @@ export default function SessionsManager({ backend }: SessionsManagerProps) {
   function handleRevoke(sessionId: string) {
     backend.sendRpc('sessions.revoke', { sessionId })
       .then(() => {
-        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+        setSessions((previous) => previous.filter((session) => session.id !== sessionId));
       })
       .catch((error) => console.error('sessions.revoke:', error));
   }
-
-  const columns: GridColDef[] = [
-    {
-      field: 'createdAt',
-      headerName: t('auth.sessionCreated'),
-      flex: 1,
-      minWidth: 160,
-      valueFormatter: (value: string) => formatDate(value),
-    },
-    {
-      field: 'lastSeenAt',
-      headerName: t('auth.sessionLastSeen'),
-      flex: 1,
-      minWidth: 160,
-      valueFormatter: (value: string) => formatDate(value),
-    },
-    {
-      field: 'userAgent',
-      headerName: t('auth.sessionUserAgent'),
-      flex: 1.5,
-      minWidth: 200,
-      valueFormatter: (value: string) => shortenUserAgent(value),
-    },
-    {
-      field: 'remoteAddr',
-      headerName: t('auth.sessionIP'),
-      flex: 0.7,
-      minWidth: 120,
-    },
-    {
-      field: 'actions',
-      headerName: '',
-      width: 100,
-      sortable: false,
-      filterable: false,
-      renderCell: (params) => (
-        <Button
-          size="small"
-          color="error"
-          variant="outlined"
-          onClick={() => handleRevoke(params.row.id)}
-        >
-          {t('auth.revoke')}
-        </Button>
-      ),
-    },
-  ];
 
   if (loading) {
     return (
@@ -106,34 +93,42 @@ export default function SessionsManager({ backend }: SessionsManagerProps) {
     );
   }
 
+  const currentSession = sessions.find((session) => session.id === currentSessionId);
+  const otherSessions = sessions
+    .filter((session) => session.id !== currentSessionId)
+    .sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
+
   return (
-    <Box sx={{ p: 3, maxWidth: 900 }}>
-      <Typography variant="h6" sx={{ mb: 2 }}>
-        {t('auth.sessions')}
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        {t('auth.sessionsDescription')}
-      </Typography>
+    <Box>
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{t('auth.sessions')}</Typography>
+        <Typography variant="caption" color="text.secondary">{t('auth.sessionsDescription')}</Typography>
+      </Box>
       {sessions.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
           {t('auth.noSessions')}
         </Typography>
       ) : (
-        <DataGrid
-          rows={sessions}
-          columns={columns}
-          getRowId={(row) => row.id}
-          autoHeight
-          disableRowSelectionOnClick
-          pageSizeOptions={[10, 25]}
-          initialState={{
-            pagination: { paginationModel: { pageSize: 10 } },
-          }}
-          sx={{
-            '& .MuiDataGrid-cell': { fontSize: '0.8rem' },
-            '& .MuiDataGrid-columnHeaderTitle': { fontSize: '0.8rem' },
-          }}
-        />
+        <>
+          {currentSession && (
+            <List
+              disablePadding
+              subheader={<ListSubheader disableGutters disableSticky>{t('auth.currentSession')}</ListSubheader>}
+            >
+              <SessionItem session={currentSession} />
+            </List>
+          )}
+          {otherSessions.length > 0 && (
+            <List
+              disablePadding
+              subheader={<ListSubheader disableGutters disableSticky>{t('auth.otherSessions')}</ListSubheader>}
+            >
+              {otherSessions.map((session) => (
+                <SessionItem key={session.id} session={session} onRevoke={() => handleRevoke(session.id)} />
+              ))}
+            </List>
+          )}
+        </>
       )}
     </Box>
   );

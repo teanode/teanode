@@ -318,6 +318,7 @@ export interface SessionInfo {
 
 export interface SessionsListResult {
   sessions: SessionInfo[];
+  currentSessionId: string;
 }
 
 // Display message types for the UI

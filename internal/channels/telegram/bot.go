@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -21,12 +22,15 @@ const maxTelegramMessageLen = 4096
 
 // telegramStreamPreview manages a live-updating preview message during LLM streaming.
 // It sends an initial plain-text message on the first text delta, then edits it
-// at a capped rate (every 500ms) as more tokens arrive.
+// with adaptive backoff: starts at 500ms intervals, slowing down over time to
+// avoid Telegram's rate limits. If a rate limit (429) is hit, the preview waits
+// the prescribed duration, then deletes the old message and sends a new one to recover.
 type telegramStreamPreview struct {
 	mutex        sync.Mutex
 	accumulated  strings.Builder
 	lastSentText string
 	messageId    int
+	editCount    int
 	stopped      bool
 	done         chan struct{}
 	chatId       int64
@@ -46,43 +50,110 @@ func newTelegramStreamPreview(api *tgbotapi.BotAPI, chatId int64, replyTo int) *
 }
 
 func (self *telegramStreamPreview) run() {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+	interval := 500 * time.Millisecond
 	for {
 		select {
 		case <-self.done:
 			return
-		case <-ticker.C:
-			self.flush()
+		case <-time.After(interval):
+			retryAfter := self.flush()
+			if retryAfter > 0 {
+				// Rate limited — wait the prescribed time, then recover.
+				log.Warningf("telegram rate limited, retrying after %ds", retryAfter)
+				time.Sleep(time.Duration(retryAfter) * time.Second)
+				self.recoverMessage()
+				// Be conservative after hitting a rate limit.
+				interval = 3 * time.Second
+			} else {
+				// Adaptive backoff: start fast (500ms), slow down by 250ms per edit, cap at 3s.
+				self.mutex.Lock()
+				editCount := self.editCount
+				self.mutex.Unlock()
+				milliseconds := 500 + editCount*250
+				if milliseconds > 3000 {
+					milliseconds = 3000
+				}
+				interval = time.Duration(milliseconds) * time.Millisecond
+			}
 		}
 	}
 }
 
-func (self *telegramStreamPreview) flush() {
+// flush sends or edits the preview message. Returns retry_after seconds if rate limited, 0 otherwise.
+func (self *telegramStreamPreview) flush() int {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
 	text := self.accumulated.String()
 	if text == self.lastSentText || text == "" || self.stopped {
-		return
+		return 0
 	}
 	if len(text) > maxTelegramMessageLen {
 		text = text[:maxTelegramMessageLen]
 	}
-	self.lastSentText = text
 
 	if self.messageId == 0 {
 		msg := tgbotapi.NewMessage(self.chatId, text)
 		msg.ReplyToMessageID = self.replyTo
 		sent, err := self.api.Send(msg)
 		if err != nil {
-			return
+			if retryAfter := telegramRetryAfter(err); retryAfter > 0 {
+				return retryAfter
+			}
+			return 0
 		}
 		self.messageId = sent.MessageID
+		self.lastSentText = text
+		self.editCount++
 	} else {
 		edit := tgbotapi.NewEditMessageText(self.chatId, self.messageId, text)
-		self.api.Send(edit)
+		_, err := self.api.Send(edit)
+		if err != nil {
+			if retryAfter := telegramRetryAfter(err); retryAfter > 0 {
+				return retryAfter
+			}
+			return 0
+		}
+		self.lastSentText = text
+		self.editCount++
 	}
+	return 0
+}
+
+// recoverMessage deletes the current preview message and sends a fresh one
+// with the accumulated text. This is used after a rate limit is hit to ensure
+// the user sees the full streamed content instead of a truncated message.
+func (self *telegramStreamPreview) recoverMessage() {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+
+	if self.stopped {
+		return
+	}
+
+	// Delete the stale message.
+	if self.messageId != 0 {
+		deleteMessage := tgbotapi.NewDeleteMessage(self.chatId, self.messageId)
+		self.api.Request(deleteMessage)
+		self.messageId = 0
+	}
+
+	// Send a new message with the current accumulated text.
+	text := self.accumulated.String()
+	if text == "" {
+		return
+	}
+	if len(text) > maxTelegramMessageLen {
+		text = text[:maxTelegramMessageLen]
+	}
+
+	msg := tgbotapi.NewMessage(self.chatId, text)
+	sent, err := self.api.Send(msg)
+	if err != nil {
+		return
+	}
+	self.messageId = sent.MessageID
+	self.lastSentText = text
 }
 
 // Update appends a text delta to the accumulated buffer.
@@ -126,6 +197,16 @@ func (self *telegramStreamPreview) Delete() {
 		deleteMessage := tgbotapi.NewDeleteMessage(self.chatId, messageId)
 		self.api.Request(deleteMessage)
 	}
+}
+
+// telegramRetryAfter extracts the retry_after duration from a Telegram API error.
+// Returns the number of seconds to wait, or 0 if the error is not a rate limit.
+func telegramRetryAfter(err error) int {
+	var telegramError *tgbotapi.Error
+	if errors.As(err, &telegramError) {
+		return telegramError.RetryAfter
+	}
+	return 0
 }
 
 // telegramSubscribedRun tracks streaming state for a run received via Subscriber events.
@@ -252,6 +333,12 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		// sources (webui, discord, telegram) already have their own display.
 		origin, _ := payloadMap["origin"].(string)
 		if origin != "" {
+			return
+		}
+
+		// Only forward events for the currently active agent.
+		agentId, _ := payloadMap["agentId"].(string)
+		if agentId != self.agentRegistry.ActiveAgentID() {
 			return
 		}
 

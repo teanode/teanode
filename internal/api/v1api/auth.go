@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/util/ratelimit"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
 )
 
 // handleAuthStatus returns the current auth state for the frontend.
-func (self *API) handleAuthStatus(writer http.ResponseWriter, request *http.Request) error {
+func (self *v1Api) handleAuthStatus(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodGet {
 		return web.ErrMethodNotAllowed
 	}
@@ -40,9 +41,13 @@ func (self *API) handleAuthStatus(writer http.ResponseWriter, request *http.Requ
 }
 
 // handleAuthSetup handles first-time password setup (onboarding).
-func (self *API) handleAuthSetup(writer http.ResponseWriter, request *http.Request) error {
+func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodPost {
 		return web.ErrMethodNotAllowed
+	}
+
+	if err := self.checkAuthRateLimit(request); err != nil {
+		return err
 	}
 
 	securityConfig := self.gateway.SecurityConfig()
@@ -91,9 +96,13 @@ func (self *API) handleAuthSetup(writer http.ResponseWriter, request *http.Reque
 }
 
 // handleAuthLogin handles password login.
-func (self *API) handleAuthLogin(writer http.ResponseWriter, request *http.Request) error {
+func (self *v1Api) handleAuthLogin(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodPost {
 		return web.ErrMethodNotAllowed
+	}
+
+	if err := self.checkAuthRateLimit(request); err != nil {
+		return err
 	}
 
 	securityConfig := self.gateway.SecurityConfig()
@@ -131,7 +140,7 @@ func (self *API) handleAuthLogin(writer http.ResponseWriter, request *http.Reque
 }
 
 // handleAuthLogout deletes the session and clears the cookie.
-func (self *API) handleAuthLogout(writer http.ResponseWriter, request *http.Request) error {
+func (self *v1Api) handleAuthLogout(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodPost {
 		return web.ErrMethodNotAllowed
 	}
@@ -174,4 +183,29 @@ func resolveMaxAge(config *configs.Config) time.Duration {
 		return time.Duration(config.Gateway.Auth.SessionMaxAgeDays) * 24 * time.Hour
 	}
 	return 14 * 24 * time.Hour
+}
+
+// authBucketForRemoteAddress returns the per-IP rate limit bucket for auth endpoints,
+// creating one if it doesn't exist. Allows a burst of 5 requests, refilling
+// at 1 request per 10 seconds.
+func (self *v1Api) authBucketForRemoteAddress(remoteAddress string) *ratelimit.Bucket {
+	self.authBucketsMutex.Lock()
+	defer self.authBucketsMutex.Unlock()
+
+	bucket, exists := self.authBuckets[remoteAddress]
+	if !exists {
+		bucket = ratelimit.NewBucketWithQuantumAndInterval(1, 10*time.Second, 5)
+		self.authBuckets[remoteAddress] = bucket
+	}
+	return bucket
+}
+
+// checkAuthRateLimit consumes one token from the per-IP auth bucket.
+// Returns a 429 error if the rate limit is exceeded.
+func (self *v1Api) checkAuthRateLimit(request *http.Request) error {
+	bucket := self.authBucketForRemoteAddress(request.RemoteAddr)
+	if bucket.TakeAvailable(1) == 0 {
+		return web.Error(429, "too many requests")
+	}
+	return nil
 }

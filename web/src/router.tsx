@@ -23,6 +23,8 @@ import SettingsTokenPage from './routes/settings/token';
 import SettingsPasswordPage from './routes/settings/password';
 import SettingsSessionsPage from './routes/settings/sessions';
 import SettingsAgentPage from './routes/settings/agents/$agentId';
+import LoginRoute from './routes/login';
+import SetupRoute from './routes/setup';
 
 // ── Route tree ──────────────────────────────────────────────────────
 
@@ -165,10 +167,26 @@ const settingsAgentRoute = createRoute({
   component: SettingsAgentPage,
 });
 
+// /login
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'login',
+  component: LoginRoute,
+});
+
+// /setup
+const setupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'setup',
+  component: SetupRoute,
+});
+
 // ── Assemble tree ───────────────────────────────────────────────────
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  loginRoute,
+  setupRoute,
   conversationsRoute.addChildren([
     conversationsIndexRoute,
     conversationsAllRoute,

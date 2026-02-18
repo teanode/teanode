@@ -51,7 +51,7 @@ type openaiUsage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
-func (self *API) handleChatCompletions(writer http.ResponseWriter, request *http.Request) error {
+func (self *v1Api) handleChatCompletions(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodPost {
 		return web.ErrMethodNotAllowed
 	}
@@ -85,7 +85,7 @@ func (self *API) handleChatCompletions(writer http.ResponseWriter, request *http
 	return self.handleChatCompletionsSync(writer, chatRequest, conversationId, lastMessage)
 }
 
-func (self *API) handleChatCompletionsSync(writer http.ResponseWriter, request openaiRequest, conversationId string, lastMessage openaiMessage) error {
+func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, request openaiRequest, conversationId string, lastMessage openaiMessage) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -137,7 +137,7 @@ func (self *API) handleChatCompletionsSync(writer http.ResponseWriter, request o
 	return nil
 }
 
-func (self *API) handleChatCompletionsStream(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage) error {
+func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage) error {
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
 		return web.Error(500, "streaming not supported")
