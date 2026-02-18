@@ -7,7 +7,7 @@
     }
   },
   "models": {
-    "default": "openai:gpt-4o",
+    "default": "openai:gpt-5.1",
     "contextWindow": 128000,
     "summarizerModel": "",
     "providers": {

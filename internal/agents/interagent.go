@@ -64,7 +64,7 @@ func (self *agentListTool) Definition() providers.ToolDefinition {
 								"id":          map[string]interface{}{"type": "string", "description": "Unique agent identifier."},
 								"name":        map[string]interface{}{"type": "string", "description": "Friendly display name."},
 								"description": map[string]interface{}{"type": "string", "description": "What this agent specializes in."},
-								"model":       map[string]interface{}{"type": "string", "description": "Qualified model (e.g. openai:gpt-4o)."},
+								"model":       map[string]interface{}{"type": "string", "description": "Qualified model (e.g. openai:gpt-5.1)."},
 								"tools":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Tool names available to this agent."},
 								"isSelf":      map[string]interface{}{"type": "boolean", "description": "True only for the calling agent."},
 							},

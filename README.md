@@ -124,7 +124,7 @@ Example `config.json`:
     "bind": "loopback"
   },
   "models": {
-    "default": "gpt-4o",
+    "default": "gpt-5.1",
     "provider": "openai",
     "baseUrl": "https://api.openai.com/v1"
   }

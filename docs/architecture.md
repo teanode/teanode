@@ -192,7 +192,7 @@ Key code: `internal/provider/`
 
 Responsibilities:
 
-- Map a logical model name (e.g. `"gpt-4o"`, `"claude-opus"`) to an underlying API call.
+- Map a logical model name (e.g. `"gpt-5.1"`, `"claude-opus"`) to an underlying API call.
 - Handle auth, rate limits, retries, and streaming as needed.
 - Present a simple interface to the agent layer:
   - “Given this prompt and tools, run a completion and return a structured result.”

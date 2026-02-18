@@ -78,7 +78,7 @@ Example `~/.teanode/config.json` (see `config.example.json` in the repo):
     "bind": "loopback"
   },
   "models": {
-    "default": "gpt-4o",
+    "default": "gpt-5.1",
     "provider": "openai",
     "baseUrl": "https://api.openai.com/v1"
   }
@@ -123,7 +123,7 @@ curl -X POST \
   -H "Content-Type: application/json" \
   http://localhost:8833/api/v1/chat/completions \
   -d '{
-    "model": "gpt-4o",
+    "model": "gpt-5.1",
     "messages": [
       {"role": "user", "content": "Hello from TeaNode"}
     ]
