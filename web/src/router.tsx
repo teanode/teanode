@@ -19,6 +19,9 @@ import SettingsLayout from './routes/settings/route';
 import SettingsIndexPage from './routes/settings/index';
 import SettingsSectionPage from './routes/settings/$sectionId';
 import SettingsPreferencesPage from './routes/settings/preferences';
+import SettingsTokenPage from './routes/settings/token';
+import SettingsPasswordPage from './routes/settings/password';
+import SettingsSessionsPage from './routes/settings/sessions';
 import SettingsAgentPage from './routes/settings/agents/$agentId';
 
 // ── Route tree ──────────────────────────────────────────────────────
@@ -134,6 +137,27 @@ const settingsPreferencesRoute = createRoute({
   component: SettingsPreferencesPage,
 });
 
+// /settings/token → auth token management
+const settingsTokenRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: 'token',
+  component: SettingsTokenPage,
+});
+
+// /settings/password → password management
+const settingsPasswordRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: 'password',
+  component: SettingsPasswordPage,
+});
+
+// /settings/sessions → login session management
+const settingsSessionsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: 'sessions',
+  component: SettingsSessionsPage,
+});
+
 // /settings/agents/$agentId → individual agent editor
 const settingsAgentRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -151,7 +175,7 @@ const routeTree = rootRoute.addChildren([
     conversationsAgentRoute.addChildren([conversationsAgentIndexRoute, conversationsConversationRoute]),
   ]),
   jobsRoute.addChildren([jobsIndexRoute, jobsNewRoute, jobDetailRoute]),
-  settingsRoute.addChildren([settingsIndexRoute, settingsPreferencesRoute, settingsAgentRoute, settingsSectionRoute]),
+  settingsRoute.addChildren([settingsIndexRoute, settingsPreferencesRoute, settingsTokenRoute, settingsPasswordRoute, settingsSessionsRoute, settingsAgentRoute, settingsSectionRoute]),
 ]);
 
 // ── Create router ───────────────────────────────────────────────────

@@ -74,17 +74,11 @@
           "type": "object",
           "title": "Authentication",
           "properties": {
-            "token": {
-              "type": "string",
-              "title": "Auth Token",
-              "description": "Bearer token for API authentication.",
-              "format": "password"
-            },
-            "password": {
-              "type": "string",
-              "title": "Auth Password",
-              "description": "Basic auth password.",
-              "format": "password"
+            "sessionMaxAgeDays": {
+              "type": "number",
+              "title": "Session Max Age (days)",
+              "description": "How long login sessions remain valid, in days.",
+              "default": 14
             }
           }
         }

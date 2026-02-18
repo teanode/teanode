@@ -173,16 +173,28 @@
         </div>
 
         <div class="card">
-          <h2>Relay port</h2>
-          <label for="port">Port</label>
+          <h2>Relay URL</h2>
+          <label for="url">URL</label>
           <div class="row">
-            <input id="port" inputmode="numeric" pattern="[0-9]*" />
+            <input id="url" type="text" style="width: 320px;" placeholder="http://127.0.0.1:8833" />
             <button id="save" type="button">Save</button>
           </div>
           <div class="hint">
-            Default: <code>8833</code>. Extension connects to: <code id="relay-url">http://127.0.0.1:&lt;port&gt;/</code>.
+            Default: <code>http://127.0.0.1:8833</code>. The URL of your TeaNode gateway.
           </div>
           <div class="status" id="status"></div>
+        </div>
+
+        <div class="card">
+          <h2>Authentication Token</h2>
+          <label for="token">Token</label>
+          <div class="row">
+            <input id="token" type="text" style="width: 320px; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; font-size: 13px;" />
+            <button id="save-token" type="button">Save</button>
+          </div>
+          <div class="hint">
+            Bearer token for authenticating with the TeaNode gateway. Find it in your <code>config.yaml</code> under <code>gateway.auth.token</code>.
+          </div>
         </div>
       </div>
 

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"strings"
+
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
@@ -16,8 +18,9 @@ import (
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/util/atomicfile"
-	"github.com/teanode/teanode/internal/util/ulid"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
 	"gopkg.in/yaml.v3"
 )
@@ -31,13 +34,15 @@ type activeRun struct {
 
 // gateway is the unexported concrete implementation of Gateway.
 type gateway struct {
-	config        *configs.Config
-	agentRegistry *agents.AgentRegistry
+	config         *configs.Config
+	securityConfig *configs.SecurityConfig
+	agentRegistry  *agents.AgentRegistry
 	browserRelay  *relaybrowser.Relay
 	terminalRelay *terminals.Relay
 	scheduler     *jobs.Scheduler
 	summarizer    *agents.Summarizer
 	mediaStore    *media.Store
+	sessionStore  *sessions.Store
 
 	subscribersMutex sync.RWMutex
 	subscribers      map[Subscriber]struct{}
@@ -59,6 +64,10 @@ type gateway struct {
 
 func (self *gateway) Config() *configs.Config                 { return self.config }
 func (self *gateway) SetConfig(configuration *configs.Config) { self.config = configuration }
+func (self *gateway) SecurityConfig() *configs.SecurityConfig { return self.securityConfig }
+func (self *gateway) SetSecurityConfig(securityConfig *configs.SecurityConfig) {
+	self.securityConfig = securityConfig
+}
 
 // --- Subsystem access ---
 
@@ -68,6 +77,7 @@ func (self *gateway) Summarizer() *agents.Summarizer       { return self.summari
 func (self *gateway) MediaStore() *media.Store             { return self.mediaStore }
 func (self *gateway) BrowserRelay() *relaybrowser.Relay    { return self.browserRelay }
 func (self *gateway) TerminalRelay() *terminals.Relay      { return self.terminalRelay }
+func (self *gateway) SessionStore() *sessions.Store        { return self.sessionStore }
 
 // --- Domain operations ---
 
@@ -270,7 +280,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	}
 
 	// Generate run ID and create cancellable context.
-	runId := ulid.GenerateString()
+	runId := security.NewULID()
 	runContext, cancel := context.WithCancel(ctx)
 
 	// Track the active run.
@@ -506,42 +516,96 @@ func (self *gateway) DeleteConversation(agentId, conversationId string) error {
 
 // --- Auth middleware ---
 
-// AuthMiddleware returns a web.Middleware that enforces token/password auth.
+// resolveSessionMaxAge returns the session max age from config, defaulting to 14 days.
+func (self *gateway) resolveSessionMaxAge() time.Duration {
+	if self.config.Gateway.Auth != nil && self.config.Gateway.Auth.SessionMaxAgeDays > 0 {
+		return time.Duration(self.config.Gateway.Auth.SessionMaxAgeDays) * 24 * time.Hour
+	}
+	return 14 * 24 * time.Hour
+}
+
+// checkBearerToken checks for a valid bearer token in the Authorization header or query param.
+func (self *gateway) checkBearerToken(request *http.Request) bool {
+	token := self.securityConfig.Token
+	if token == "" {
+		return false
+	}
+	auth := request.Header.Get("Authorization")
+	if auth == "Bearer "+token {
+		return true
+	}
+	if request.URL.Query().Get("token") == token {
+		return true
+	}
+	return false
+}
+
+// checkSessionCookie checks for a valid session cookie.
+func (self *gateway) checkSessionCookie(request *http.Request) bool {
+	if self.sessionStore == nil {
+		return false
+	}
+	cookie, err := request.Cookie("session")
+	if err != nil || cookie.Value == "" {
+		return false
+	}
+	session := self.sessionStore.Get(cookie.Value)
+	if session == nil {
+		return false
+	}
+	// Renew session asynchronously (throttled to once per hour inside Touch).
+	go self.sessionStore.Touch(session.ID, self.resolveSessionMaxAge())
+	return true
+}
+
+// AuthMiddleware returns a web.Middleware that enforces token/session auth.
 func (self *gateway) AuthMiddleware() web.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if self.config.Gateway.Auth == nil {
+			path := request.URL.Path
+
+			// 1. Non-/api/ paths (frontend static files): always allow.
+			if !strings.HasPrefix(path, "/api/") {
 				next.ServeHTTP(writer, request)
 				return
 			}
 
-			// Skip auth for health, browser extension, and terminal endpoints.
-			if request.URL.Path == "/api/v1/health" || request.URL.Path == "/api/v1/browser" || request.URL.Path == "/api/v1/terminal" {
+			// 2. Health endpoint: always allow.
+			if path == "/api/v1/health" {
 				next.ServeHTTP(writer, request)
 				return
 			}
 
-			token := self.config.Gateway.Auth.Token
-			if token != "" {
-				auth := request.Header.Get("Authorization")
-				if auth == "Bearer "+token {
-					next.ServeHTTP(writer, request)
-					return
-				}
-				// Also check query param for WebSocket connections.
-				if request.URL.Query().Get("token") == token {
-					next.ServeHTTP(writer, request)
-					return
-				}
+			// 3. Auth endpoints: always allow.
+			if strings.HasPrefix(path, "/api/v1/auth/") {
+				next.ServeHTTP(writer, request)
+				return
 			}
 
-			password := self.config.Gateway.Auth.Password
-			if password != "" {
-				_, pass, ok := request.BasicAuth()
-				if ok && pass == password {
+			// 4. Media endpoints: always allow.
+			if strings.HasPrefix(path, "/api/v1/media/") {
+				next.ServeHTTP(writer, request)
+				return
+			}
+
+			// 5. Machine endpoints: token-only auth.
+			if path == "/api/v1/browser" || path == "/api/v1/terminal" || path == "/api/v1/chat/completions" {
+				if self.checkBearerToken(request) {
 					next.ServeHTTP(writer, request)
 					return
 				}
+				web.WriteError(writer, web.ErrUnauthorized)
+				return
+			}
+
+			// 6. Websocket api: accept only session cookie.
+			if path == "/api/v1/websocket" {
+				if self.checkSessionCookie(request) {
+					next.ServeHTTP(writer, request)
+					return
+				}
+				web.WriteError(writer, web.ErrUnauthorized)
+				return
 			}
 
 			web.WriteError(writer, web.ErrUnauthorized)

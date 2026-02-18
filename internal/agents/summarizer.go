@@ -3,7 +3,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -177,8 +176,19 @@ func (self *Summarizer) summarizeConversation(
 	configuration, providers, _, _, _ := runner.Snapshot()
 	resolved := self.resolveConfig()
 
-	// Build conversation text for the LLM.
-	conversationText := buildConversationText(messages, resolved.MaxConversationChars, resolved.MaxMessageChars)
+	// If conversation has been compacted, only consider messages after the
+	// last summary and provide the existing summary as context.
+	var previousSummary string
+	if idx := findLastSummaryIndex(messages); idx >= 0 {
+		previousSummary = messages[idx].ContentText()
+		messages = messages[idx+1:]
+	}
+
+	// Build conversation text prioritizing recent messages.
+	conversationText := messagesText(messages, resolved.MaxConversationChars, resolved.MaxMessageChars)
+	if previousSummary != "" {
+		conversationText = "[Previous summary]: " + previousSummary + "\n" + conversationText
+	}
 
 	// Resolve the model: SummarizerModel > Default.
 	qualifiedModel := configuration.Models.Default
@@ -255,37 +265,3 @@ func (self *Summarizer) generateTitleAndSummary(
 	}
 }
 
-// buildConversationText constructs a truncated text representation of messages.
-func buildConversationText(messages []conversations.Message, maxConversationChars int, maxMessageChars int) string {
-	var builder strings.Builder
-	totalChars := 0
-
-	for _, message := range messages {
-		if totalChars >= maxConversationChars {
-			break
-		}
-
-		role := message.Role
-		if role == "tool" && message.ToolName != "" {
-			role = fmt.Sprintf("tool(%s)", message.ToolName)
-		}
-
-		content := message.ContentText()
-		if len(content) > maxMessageChars {
-			content = content[:maxMessageChars] + "..."
-		}
-
-		line := fmt.Sprintf("[%s]: %s\n", role, content)
-		if totalChars+len(line) > maxConversationChars {
-			remaining := maxConversationChars - totalChars
-			if remaining > 0 {
-				builder.WriteString(line[:remaining])
-			}
-			break
-		}
-		builder.WriteString(line)
-		totalChars += len(line)
-	}
-
-	return builder.String()
-}

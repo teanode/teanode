@@ -872,18 +872,6 @@ func TestApplyEnv(t *testing.T) {
 		}
 	})
 
-	t.Run("TEANODE_GATEWAY_TOKEN initializes nil Auth", func(t *testing.T) {
-		t.Setenv("TEANODE_GATEWAY_TOKEN", "my-token")
-		configuration := &Config{}
-		applyEnv(configuration)
-		if configuration.Gateway.Auth == nil {
-			t.Fatal("Auth is nil, expected initialized")
-		}
-		if configuration.Gateway.Auth.Token != "my-token" {
-			t.Errorf("Token = %q, want my-token", configuration.Gateway.Auth.Token)
-		}
-	})
-
 	t.Run("DISCORD_BOT_TOKEN initializes nil Discord", func(t *testing.T) {
 		t.Setenv("DISCORD_BOT_TOKEN", "discord-token")
 		configuration := &Config{}

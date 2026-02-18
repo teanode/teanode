@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/util/atomicfile"
-	"github.com/teanode/teanode/internal/util/ulid"
+	"github.com/teanode/teanode/internal/util/security"
 )
 
 // Store provides JSONL-based conversation persistence.
@@ -99,7 +99,7 @@ func (self *Store) Append(conversationId string, message Message) error {
 		header := Header{
 			Type:      "conversation",
 			Version:   1,
-			ID:        ulid.GenerateString(),
+			ID:        security.NewULID(),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		}
 		headerData, _ := json.Marshal(header)

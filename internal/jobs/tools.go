@@ -9,7 +9,7 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/provider"
 	"github.com/teanode/teanode/internal/util/cronexpr"
-	"github.com/teanode/teanode/internal/util/ulid"
+	"github.com/teanode/teanode/internal/util/security"
 )
 
 // RegisterTools adds job management tools to the registry.
@@ -161,7 +161,7 @@ func (self *jobsTool) executeCreate(ctx context.Context, name string, schedule s
 		if contextConversationId := agents.ConversationIDFromContext(ctx); contextConversationId != "" {
 			conversationId = contextConversationId
 		} else {
-			conversationId = ulid.GenerateString()
+			conversationId = security.NewULID()
 		}
 	} else {
 		if _, parseError := cronexpr.Parse(schedule); parseError != nil {
@@ -174,7 +174,7 @@ func (self *jobsTool) executeCreate(ctx context.Context, name string, schedule s
 	}
 
 	job := Job{
-		ID:             ulid.GenerateString(),
+		ID:             security.NewULID(),
 		Name:           name,
 		Schedule:       schedule,
 		Message:        message,

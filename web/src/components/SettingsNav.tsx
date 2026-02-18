@@ -8,11 +8,14 @@ import IconButton from '@mui/material/IconButton';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
+import Divider from '@mui/material/Divider';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
+import LogoutIcon from '@mui/icons-material/Logout';
 import RadioButtonCheckedIcon from '@mui/icons-material/RadioButtonChecked';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import ConfirmDialog from './ConfirmDialog';
+import { authLogout } from '../rpc';
 import type { AgentInfo, SchemaSection, ConfigSchemaResult } from '../types';
 import type { useBackend } from '../hooks/useBackend';
 
@@ -118,6 +121,72 @@ export default function SettingsNav({ backend, agents, activeSectionId, viewingA
             </ListItemButton>
           );
         })}
+
+        {/* Auth Token */}
+        <ListItemButton
+          dense
+          onClick={() => onNavigate('/settings/token')}
+          sx={{
+            borderRadius: 1,
+            mb: 0.25,
+            ...(activeSectionId === 'token'
+              ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+              : {}),
+          }}
+        >
+          <ListItemText
+            primary={t('auth.tokenTitle')}
+            primaryTypographyProps={{
+              variant: 'caption',
+              fontSize: '13px',
+              color: activeSectionId === 'token' ? '#fff' : 'text.secondary',
+            }}
+          />
+        </ListItemButton>
+
+        {/* Password */}
+        <ListItemButton
+          dense
+          onClick={() => onNavigate('/settings/password')}
+          sx={{
+            borderRadius: 1,
+            mb: 0.25,
+            ...(activeSectionId === 'password'
+              ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+              : {}),
+          }}
+        >
+          <ListItemText
+            primary={t('auth.passwordTitle')}
+            primaryTypographyProps={{
+              variant: 'caption',
+              fontSize: '13px',
+              color: activeSectionId === 'password' ? '#fff' : 'text.secondary',
+            }}
+          />
+        </ListItemButton>
+
+        {/* Sessions */}
+        <ListItemButton
+          dense
+          onClick={() => onNavigate('/settings/sessions')}
+          sx={{
+            borderRadius: 1,
+            mb: 0.25,
+            ...(activeSectionId === 'sessions'
+              ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+              : {}),
+          }}
+        >
+          <ListItemText
+            primary={t('auth.sessions')}
+            primaryTypographyProps={{
+              variant: 'caption',
+              fontSize: '13px',
+              color: activeSectionId === 'sessions' ? '#fff' : 'text.secondary',
+            }}
+          />
+        </ListItemButton>
 
         {/* Agents heading */}
         <Typography variant="overline" sx={{ display: 'block', px: 1.25, mt: 1.5, mb: 0.5, fontSize: '10px', color: 'text.secondary', letterSpacing: '0.08em' }}>
@@ -237,6 +306,26 @@ export default function SettingsNav({ backend, agents, activeSectionId, viewingA
           </ListItemButton>
         )}
       </List>
+    </Box>
+
+    {/* Logout */}
+    <Divider />
+    <Box sx={{ p: 1 }}>
+      <ListItemButton
+        dense
+        onClick={() => { authLogout().then(() => window.location.reload()); }}
+        sx={{ borderRadius: 1 }}
+      >
+        <LogoutIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />
+        <ListItemText
+          primary={t('auth.logout')}
+          primaryTypographyProps={{
+            variant: 'caption',
+            fontSize: '13px',
+            color: 'text.secondary',
+          }}
+        />
+      </ListItemButton>
     </Box>
 
     <ConfirmDialog

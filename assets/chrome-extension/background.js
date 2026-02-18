@@ -1,4 +1,4 @@
-const DEFAULT_PORT = 8833
+const DEFAULT_URL = 'http://127.0.0.1:8833'
 
 const BADGE = {
   on: { text: 'ON', color: '#FF5A36' },
@@ -34,12 +34,20 @@ function nowStack() {
   }
 }
 
-async function getRelayPort() {
-  const stored = await chrome.storage.local.get(['relayPort'])
-  const raw = stored.relayPort
-  const n = Number.parseInt(String(raw || ''), 10)
-  if (!Number.isFinite(n) || n <= 0 || n > 65535) return DEFAULT_PORT
-  return n
+async function getRelayUrl() {
+  const stored = await chrome.storage.local.get(['relayUrl'])
+  return (stored.relayUrl || '').trim() || DEFAULT_URL
+}
+
+async function getRelayToken() {
+  const stored = await chrome.storage.local.get(['relayToken'])
+  return stored.relayToken || ''
+}
+
+function httpToWs(url) {
+  if (url.startsWith('https://')) return 'wss://' + url.slice(8)
+  if (url.startsWith('http://')) return 'ws://' + url.slice(7)
+  return 'ws://' + url
 }
 
 function setBadge(tabId, kind) {
@@ -54,15 +62,18 @@ async function ensureRelayConnection() {
   if (relayConnectPromise) return await relayConnectPromise
 
   relayConnectPromise = (async () => {
-    const port = await getRelayPort()
-    const httpBase = `http://127.0.0.1:${port}`
-    const wsUrl = `ws://127.0.0.1:${port}/api/v1/browser`
+    const baseUrl = (await getRelayUrl()).replace(/\/+$/, '')
+    const token = await getRelayToken()
+    let wsUrl = httpToWs(baseUrl) + '/api/v1/browser'
+    if (token) wsUrl += `?token=${encodeURIComponent(token)}`
 
     // Fast preflight: is the relay server up?
     try {
-      await fetch(`${httpBase}/api/v1/health`, { method: 'HEAD', signal: AbortSignal.timeout(2000) })
+      const headers = {}
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      await fetch(`${baseUrl}/api/v1/health`, { method: 'HEAD', signal: AbortSignal.timeout(2000), headers })
     } catch (err) {
-      throw new Error(`Relay server not reachable at ${httpBase} (${String(err)})`)
+      throw new Error(`Relay server not reachable at ${baseUrl} (${String(err)})`)
     }
 
     const ws = new WebSocket(wsUrl)

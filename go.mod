@@ -13,11 +13,9 @@ require (
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/urfave/cli/v3 v3.6.2
+	golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b
 	golang.org/x/sys v0.13.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require (
-	github.com/felixge/httpsnoop v1.0.3 // indirect
-	golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b // indirect
-)
+require github.com/felixge/httpsnoop v1.0.3 // indirect

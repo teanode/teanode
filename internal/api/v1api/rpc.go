@@ -9,9 +9,10 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/jobs"
+	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/util/cronexpr"
-	"github.com/teanode/teanode/internal/util/ulid"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/version"
 )
 
@@ -31,10 +32,12 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 		agentInfos = append(agentInfos, info)
 	}
 
+	config := self.api.gateway.Config()
+
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"version":              version.Version(),
 		"capabilities":         []string{"conversations"},
-		"defaultModel":         self.api.gateway.Config().Models.Default,
+		"defaultModel":         config.Models.Default,
 		"agents":               agentInfos,
 		"defaultAgentId":       self.api.gateway.AgentRegistry().DefaultID(),
 		"activeAgentId":        activeAgentId,
@@ -646,7 +649,7 @@ func (self *webSocketConnection) handleJobsCreate(frame requestFrame) {
 	}
 
 	job := jobs.Job{
-		ID:             ulid.GenerateString(),
+		ID:             security.NewULID(),
 		Name:           parameters.Name,
 		Schedule:       parameters.Schedule,
 		Message:        parameters.Message,
@@ -804,5 +807,138 @@ func (self *webSocketConnection) handleJobsTrigger(frame requestFrame) {
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"triggered": true,
+	})
+}
+
+// --- Sessions RPC handlers ---
+
+// handleSessionsList: list all active sessions.
+func (self *webSocketConnection) handleSessionsList(frame requestFrame) {
+	store := self.api.gateway.SessionStore()
+	if store == nil {
+		self.sendResponse(frame.ID, map[string]interface{}{
+			"sessions": []interface{}{},
+		})
+		return
+	}
+	sessionList, err := store.List()
+	if err != nil {
+		self.sendError(frame.ID, 500, "listing sessions: "+err.Error())
+		return
+	}
+	if sessionList == nil {
+		sessionList = []*sessions.Session{}
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"sessions": sessionList,
+	})
+}
+
+// sessionsRevokeParameters are the parameters for sessions.revoke.
+type sessionsRevokeParameters struct {
+	SessionID string `json:"sessionId"`
+}
+
+// handleSessionsRevoke: revoke (delete) a session.
+func (self *webSocketConnection) handleSessionsRevoke(frame requestFrame) {
+	var parameters sessionsRevokeParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.SessionID == "" {
+		self.sendError(frame.ID, 400, "sessionId is required")
+		return
+	}
+
+	store := self.api.gateway.SessionStore()
+	if store == nil {
+		self.sendError(frame.ID, 500, "session store not available")
+		return
+	}
+	if err := store.Delete(parameters.SessionID); err != nil {
+		self.sendError(frame.ID, 404, "session not found: "+parameters.SessionID)
+		return
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"revoked": true,
+	})
+}
+
+// --- Auth RPC handlers ---
+
+// handleAuthRegenerateToken generates a new random auth token, saves it, and returns it.
+func (self *webSocketConnection) handleAuthRegenerateToken(frame requestFrame) {
+	token := security.GenerateRandomString(48, security.LowerAlphaNumeric)
+
+	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.Token = token
+
+	if err := configs.SaveSecurity(securityConfig); err != nil {
+		self.sendError(frame.ID, 500, "failed to save security config")
+		return
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"token": token,
+	})
+}
+
+// handleAuthGetToken returns the current auth token.
+func (self *webSocketConnection) handleAuthGetToken(frame requestFrame) {
+	securityConfig := self.api.gateway.SecurityConfig()
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"token": securityConfig.Token,
+	})
+}
+
+// authChangePasswordParameters are the parameters for auth.changePassword.
+type authChangePasswordParameters struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
+// handleAuthChangePassword changes the login password given the current password.
+func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
+	var parameters authChangePasswordParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if len(parameters.NewPassword) < 8 {
+		self.sendError(frame.ID, 400, "new password must be at least 8 characters")
+		return
+	}
+
+	securityConfig := self.api.gateway.SecurityConfig()
+
+	// If a password is already set, verify the current password.
+	if securityConfig.Password != "" {
+		if parameters.CurrentPassword == "" {
+			self.sendError(frame.ID, 400, "current password is required")
+			return
+		}
+		match, err := security.VerifyPassword([]byte(securityConfig.Password), parameters.CurrentPassword)
+		if err != nil || !match {
+			self.sendError(frame.ID, 401, "current password is incorrect")
+			return
+		}
+	}
+
+	hash, err := security.HashPassword(parameters.NewPassword)
+	if err != nil {
+		self.sendError(frame.ID, 500, "failed to hash password")
+		return
+	}
+
+	securityConfig.Password = string(hash)
+	if err := configs.SaveSecurity(securityConfig); err != nil {
+		self.sendError(frame.ID, 500, "failed to save security config")
+		return
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"ok": true,
 	})
 }

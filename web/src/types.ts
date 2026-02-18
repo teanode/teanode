@@ -300,6 +300,26 @@ export interface AgentConfigSchemaResult {
   suggestions?: Record<string, string[]>;
 }
 
+// Auth types
+
+export interface AuthStatusResult {
+  passwordSet: boolean;
+  authenticated: boolean;
+}
+
+export interface SessionInfo {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  userAgent: string;
+  remoteAddr: string;
+  lastSeenAt: string;
+}
+
+export interface SessionsListResult {
+  sessions: SessionInfo[];
+}
+
 // Display message types for the UI
 
 export type DisplayMessageType =

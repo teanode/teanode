@@ -17,6 +17,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/util/screenbuffer"
 	"github.com/urfave/cli/v3"
@@ -144,6 +145,12 @@ func NewTerminalCommand() *cli.Command {
 			// Connect to gateway WebSocket.
 			gatewayUrl := command.String("gateway")
 			token := command.String("token")
+			// Default token from security.yaml if --token is not provided.
+			if token == "" {
+				if securityConfig, err := configs.LoadSecurity(); err == nil {
+					token = securityConfig.Token
+				}
+			}
 			name := command.String("name")
 			shellCommand := strings.Join(shellArguments, " ")
 			go connectGateway(ctx, gatewayUrl, token, name, shellCommand, master, buffer, log)

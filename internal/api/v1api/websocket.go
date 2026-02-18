@@ -117,6 +117,16 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleAgentsSetActive(frame)
 	case "conversations.setActive":
 		self.handleConversationsSetActive(frame)
+	case "sessions.list":
+		self.handleSessionsList(frame)
+	case "sessions.revoke":
+		self.handleSessionsRevoke(frame)
+	case "auth.getToken":
+		self.handleAuthGetToken(frame)
+	case "auth.regenerateToken":
+		self.handleAuthRegenerateToken(frame)
+	case "auth.changePassword":
+		self.handleAuthChangePassword(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

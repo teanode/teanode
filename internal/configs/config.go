@@ -297,8 +297,7 @@ type GatewayConfig struct {
 }
 
 type AuthConfig struct {
-	Token    string `json:"token,omitempty" yaml:"token,omitempty"`
-	Password string `json:"password,omitempty" yaml:"password,omitempty"`
+	SessionMaxAgeDays int `json:"sessionMaxAgeDays,omitempty" yaml:"sessionMaxAgeDays,omitempty"` // default 14
 }
 
 // ProviderConfig holds connection details for a single provider.
@@ -507,6 +506,15 @@ func MediaDirectory() (string, error) {
 	return filepath.Join(directory, "media"), nil
 }
 
+// SessionsDirectory returns the sessions directory (~/.teanode/sessions).
+func SessionsDirectory() (string, error) {
+	directory, err := Directory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, "sessions"), nil
+}
+
 // StateFile returns the path to the state file (~/.teanode/state.yaml).
 func StateFile() (string, error) {
 	directory, err := Directory()
@@ -522,7 +530,7 @@ func EnsureDirectories() error {
 	if err != nil {
 		return err
 	}
-	for _, sub := range []string{"conversations", "workspaces", "skills", "media", "agents", "jobs"} {
+	for _, sub := range []string{"conversations", "workspaces", "skills", "media", "agents", "jobs", "sessions"} {
 		if err := os.MkdirAll(filepath.Join(directory, sub), 0755); err != nil {
 			return fmt.Errorf("creating directories: %w", err)
 		}
@@ -788,12 +796,6 @@ func applyEnv(configuration *Config) {
 		if contextWindow, err := strconv.Atoi(value); err == nil {
 			configuration.Models.ContextWindow = contextWindow
 		}
-	}
-	if value := os.Getenv("TEANODE_GATEWAY_TOKEN"); value != "" {
-		if configuration.Gateway.Auth == nil {
-			configuration.Gateway.Auth = &AuthConfig{}
-		}
-		configuration.Gateway.Auth.Token = value
 	}
 	if value := os.Getenv("DISCORD_BOT_TOKEN"); value != "" {
 		if configuration.Channels.Discord == nil {

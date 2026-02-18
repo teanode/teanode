@@ -15,6 +15,7 @@ import (
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/provider"
+	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/web"
 )
 
@@ -86,6 +87,8 @@ type Gateway interface {
 	// Configuration access
 	Config() *configs.Config
 	SetConfig(configuration *configs.Config)
+	SecurityConfig() *configs.SecurityConfig
+	SetSecurityConfig(securityConfig *configs.SecurityConfig)
 
 	// Subsystem access
 	AgentRegistry() *agents.AgentRegistry
@@ -119,6 +122,9 @@ type Gateway interface {
 	Unsubscribe(subscriber Subscriber)
 	Broadcast(eventType EventType, payload interface{})
 
+	// Session store access
+	SessionStore() *sessions.Store
+
 	// Auth middleware for the HTTP server
 	AuthMiddleware() web.Middleware
 
@@ -134,21 +140,25 @@ type Gateway interface {
 // New creates a new Gateway.
 func New(
 	configuration *configs.Config,
+	securityConfig *configs.SecurityConfig,
 	agentRegistry *agents.AgentRegistry,
 	browserRelay *relaybrowser.Relay,
 	terminalRelay *terminals.Relay,
 	scheduler *jobs.Scheduler,
 	summarizer *agents.Summarizer,
 	mediaStore *media.Store,
+	sessionStore *sessions.Store,
 ) Gateway {
 	return &gateway{
 		config:           configuration,
+		securityConfig:   securityConfig,
 		agentRegistry:    agentRegistry,
 		browserRelay:     browserRelay,
 		terminalRelay:    terminalRelay,
 		scheduler:        scheduler,
 		summarizer:       summarizer,
 		mediaStore:       mediaStore,
+		sessionStore:     sessionStore,
 		subscribers:      make(map[Subscriber]struct{}),
 		activeRuns:       make(map[string]*activeRun),
 		runIndex:         make(map[string]string),

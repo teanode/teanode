@@ -15,7 +15,7 @@ import (
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/provider"
-	"github.com/teanode/teanode/internal/util/ulid"
+	"github.com/teanode/teanode/internal/util/security"
 )
 
 // conversationState holds per-conversation concurrency control channels.
@@ -178,7 +178,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		limits = configs.DefaultAgentLimits
 	}
 
-	runId := ulid.GenerateString()
+	runId := security.NewULID()
 	now := time.Now().UnixMilli()
 
 	log.Debugf("run start id=%s conversation=%s model=%s", runId, params.ConversationID, params.Model)
@@ -496,15 +496,12 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 
 	// Find the last context summary and start from there.
 	startIndex := 0
-	for index := len(history) - 1; index >= 0; index-- {
-		if history[index].Role == "system" && history[index].StopReason == "context_summary" {
-			messages = append(messages, provider.ChatMessage{
-				Role:    "system",
-				Content: "Previous conversation summary:\n" + history[index].ContentText(),
-			})
-			startIndex = index + 1
-			break
-		}
+	if idx := findLastSummaryIndex(history); idx >= 0 {
+		messages = append(messages, provider.ChatMessage{
+			Role:    "system",
+			Content: "Previous conversation summary:\n" + history[idx].ContentText(),
+		})
+		startIndex = idx + 1
 	}
 
 	// Skip the remainder of any in-progress run after the summary. When a

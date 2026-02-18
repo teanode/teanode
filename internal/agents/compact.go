@@ -36,18 +36,7 @@ func CompactConversation(
 	}
 
 	// Build text from all messages.
-	var builder strings.Builder
-	for _, message := range messages {
-		role := message.Role
-		if role == "tool" && message.ToolName != "" {
-			role = fmt.Sprintf("tool(%s)", message.ToolName)
-		}
-		content := message.ContentText()
-		if len(content) > 2000 {
-			content = content[:2000] + "..."
-		}
-		fmt.Fprintf(&builder, "[%s]: %s\n", role, content)
-	}
+	conversationText := messagesText(messages, 0, 2000)
 
 	// Resolve summarizer model.
 	qualifiedModel := configuration.Models.Default
@@ -69,7 +58,7 @@ func CompactConversation(
 			},
 			{
 				Role:    "user",
-				Content: builder.String(),
+				Content: conversationText,
 			},
 		},
 	}

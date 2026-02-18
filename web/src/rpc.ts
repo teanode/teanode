@@ -1,4 +1,4 @@
-import { RequestFrame, ResponseFrame, EventFrame, RPCError } from './types';
+import { RequestFrame, ResponseFrame, EventFrame, RPCError, AuthStatusResult } from './types';
 
 type EventHandler = (frame: EventFrame) => void;
 
@@ -106,4 +106,40 @@ export function disconnect(): void {
     webSocket.close();
     webSocket = null;
   }
+}
+
+// --- REST auth helpers (work before WebSocket is established) ---
+
+export async function authStatus(): Promise<AuthStatusResult> {
+  const response = await fetch('/api/v1/auth/status');
+  if (!response.ok) throw new Error(`auth/status: ${response.status}`);
+  return response.json();
+}
+
+export async function authLogin(password: string): Promise<void> {
+  const response = await fetch('/api/v1/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({ error: { message: 'Login failed' } }));
+    throw new Error(data.error?.message || 'Login failed');
+  }
+}
+
+export async function authSetup(password: string): Promise<void> {
+  const response = await fetch('/api/v1/auth/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({ error: { message: 'Setup failed' } }));
+    throw new Error(data.error?.message || 'Setup failed');
+  }
+}
+
+export async function authLogout(): Promise<void> {
+  await fetch('/api/v1/auth/logout', { method: 'POST' });
 }

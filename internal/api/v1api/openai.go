@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/util/ulid"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
 )
 
@@ -73,7 +73,7 @@ func (self *API) handleChatCompletions(writer http.ResponseWriter, request *http
 	// Use user field or generate ephemeral conversation id.
 	conversationId := chatRequest.User
 	if conversationId == "" {
-		conversationId = ulid.GenerateString()
+		conversationId = security.NewULID()
 	}
 
 	// Extract the last user message.
@@ -109,7 +109,7 @@ func (self *API) handleChatCompletionsSync(writer http.ResponseWriter, request o
 	}
 
 	response := openaiResponse{
-		ID:      ulid.GenerateString(),
+		ID:      security.NewULID(),
 		Object:  "chat.completion",
 		Created: time.Now().Unix(),
 		Model:   result.Model,
@@ -150,7 +150,7 @@ func (self *API) handleChatCompletionsStream(writer http.ResponseWriter, httpReq
 	ctx, cancel := context.WithCancel(httpRequest.Context())
 	defer cancel()
 
-	responseId := ulid.GenerateString()
+	responseId := security.NewULID()
 
 	runner := self.gateway.AgentRegistry().Default()
 	if runner == nil {

@@ -30,6 +30,12 @@ func (self *API) AddRoutes(router *mux.Router) error {
 	sub.Handle("/chat/completions", web.HandlerFunc(self.handleChatCompletions))
 	sub.HandleFunc("/websocket", self.handleWebSocket)
 
+	// Auth endpoints (exempt from auth middleware).
+	sub.Handle("/auth/status", web.HandlerFunc(self.handleAuthStatus))
+	sub.Handle("/auth/setup", web.HandlerFunc(self.handleAuthSetup))
+	sub.Handle("/auth/login", web.HandlerFunc(self.handleAuthLogin))
+	sub.Handle("/auth/logout", web.HandlerFunc(self.handleAuthLogout))
+
 	if self.gateway.BrowserRelay() != nil {
 		sub.HandleFunc("/browser", self.gateway.BrowserRelay().HandleWebSocket)
 	}

@@ -12,6 +12,7 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.8",
     "@mui/material": "^7.3.8",
+    "@mui/x-data-grid": "^8.27.1",
     "@tanstack/react-router": "^1.159.10",
     "dayjs": "^1.11.13",
     "highlight.js": "^11.9.0",

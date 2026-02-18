@@ -1,14 +1,18 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import GlobalStyles from '@mui/material/GlobalStyles';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
 import type { Theme } from '@mui/material/styles';
 import { router } from './router';
 import { getTheme } from './theme';
 import { useAppContext, AppProvider } from './context';
 import { useBackend } from './hooks/useBackend';
+import { authStatus } from './rpc';
+import LoginPage from './components/LoginPage';
 import './i18n/config';
 import './index.css';
 
@@ -153,7 +157,7 @@ function markdownStyles(theme: Theme) {
   };
 }
 
-function ThemedApp() {
+function ThemedApp({ children }: { children: React.ReactNode }) {
   const { themeMode } = useAppContext();
   const theme = useMemo(() => getTheme(themeMode), [themeMode]);
 
@@ -161,17 +165,69 @@ function ThemedApp() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <GlobalStyles styles={(currentTheme: Theme) => markdownStyles(currentTheme)} />
-      <RouterProvider router={router} />
+      {children}
     </ThemeProvider>
   );
 }
 
+function AuthenticatedApp() {
+  return <RouterProvider router={router} />;
+}
+
+type AuthState = 'loading' | 'login' | 'setup' | 'authenticated';
+
 function Root() {
+  const [authState, setAuthState] = useState<AuthState>('loading');
   const backend = useBackend();
+
+  useEffect(() => {
+    authStatus()
+      .then((result) => {
+        if (!result.passwordSet) {
+          setAuthState('setup');
+        } else if (!result.authenticated) {
+          setAuthState('login');
+        } else {
+          setAuthState('authenticated');
+        }
+      })
+      .catch(() => {
+        // If auth status fails (e.g. no server), treat as authenticated
+        // so the app can show its normal connection error state.
+        setAuthState('authenticated');
+      });
+  }, []);
+
+  if (authState === 'loading') {
+    return (
+      <AppProvider backend={backend}>
+        <ThemedApp>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+            <CircularProgress />
+          </Box>
+        </ThemedApp>
+      </AppProvider>
+    );
+  }
+
+  if (authState === 'login' || authState === 'setup') {
+    return (
+      <AppProvider backend={backend}>
+        <ThemedApp>
+          <LoginPage
+            mode={authState}
+            onSuccess={() => setAuthState('authenticated')}
+          />
+        </ThemedApp>
+      </AppProvider>
+    );
+  }
 
   return (
     <AppProvider backend={backend}>
-      <ThemedApp />
+      <ThemedApp>
+        <AuthenticatedApp />
+      </ThemedApp>
     </AppProvider>
   );
 }

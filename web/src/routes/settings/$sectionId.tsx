@@ -166,6 +166,7 @@ export default function SettingsSectionPage() {
                             value={settings.getValue(field.dotPath)}
                             onChange={(value) => settings.setValue(field.dotPath, value)}
                             suggestions={field.property['x-suggest'] ? suggestionMap[field.property['x-suggest']] : undefined}
+
                           />
                         ));
                       }

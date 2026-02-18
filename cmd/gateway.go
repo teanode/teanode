@@ -21,6 +21,8 @@ import (
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/frontend"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/sessions"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/integrations/browsers/headlessbrowser"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
@@ -75,6 +77,28 @@ func NewGatewayCommand() *cli.Command {
 			if cmd.IsSet("port") {
 				configuration.Gateway.Port = int(cmd.Int("port"))
 			}
+
+			// Load security config (token + password hash).
+			securityConfig, err := configs.LoadSecurity()
+			if err != nil {
+				return err
+			}
+
+			// Auto-generate auth token if not set.
+			if securityConfig.Token == "" {
+				securityConfig.Token = security.GenerateRandomString(48, security.LowerAlphaNumeric)
+				log.Infof("auto-generated auth token: %s", securityConfig.Token)
+				if err := configs.SaveSecurity(securityConfig); err != nil {
+					log.Errorf("failed to save security config: %v", err)
+				}
+			}
+
+			// Create session store.
+			sessionsDirectory, err := configs.SessionsDirectory()
+			if err != nil {
+				return err
+			}
+			sessionStore := sessions.NewStore(sessionsDirectory)
 
 			// Build provider registry.
 			buildProviderRegistry := func(configuration *configs.Config) *provider.Registry {
@@ -164,6 +188,7 @@ func NewGatewayCommand() *cli.Command {
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)
 				}
+					tools.Register(&configs.ConfigTool{Config: configuration})
 				gw.RegisterTools(tools, func(action gw.LifecycleAction) { gateway.ScheduleLifecycle(action) })
 				skillPrompts := skills.RegisterSkillsFiltered(tools, skillsDirectory, agentConfig.Skills)
 				agents.RegisterInterAgentTools(tools, agentConfig.ID, agentRegistry, configuration)
@@ -220,7 +245,7 @@ func NewGatewayCommand() *cli.Command {
 
 			summarizer := agents.NewSummarizer(agentRegistry, configuration)
 
-			gateway = gw.New(configuration, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore)
+			gateway = gw.New(configuration, securityConfig, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore, sessionStore)
 			api := v1api.New(gateway)
 			frontendComponent := frontend.New()
 

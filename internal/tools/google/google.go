@@ -11,7 +11,7 @@ import (
 var log = logging.MustGetLogger("google")
 
 // defaultServices are registered when no explicit service list is configured (Tier 1).
-var defaultServices = []string{"gmail", "calendar", "tasks"}
+var defaultServices = []string{"gmail", "calendar", "drive"}
 
 // RegisterTools adds Google Workspace tools to the registry.
 // If the gog binary is not found, no tools are registered.

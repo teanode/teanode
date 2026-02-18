@@ -8,7 +8,7 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/provider"
-	"github.com/teanode/teanode/internal/util/ulid"
+	"github.com/teanode/teanode/internal/util/security"
 	"gopkg.in/yaml.v3"
 )
 
@@ -190,7 +190,7 @@ func (self *AgentRegistry) ActiveConversationID(agentId string) string {
 	if conversationId, ok := self.activeConversationIds[agentId]; ok {
 		return conversationId
 	}
-	conversationId := ulid.GenerateString()
+	conversationId := security.NewULID()
 	self.activeConversationIds[agentId] = conversationId
 	self.saveState()
 	return conversationId
@@ -221,7 +221,7 @@ func (self *AgentRegistry) SetActiveConversationIfUnset(agentId, conversationId 
 func (self *AgentRegistry) NewConversation(agentId string) string {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	conversationId := ulid.GenerateString()
+	conversationId := security.NewULID()
 	self.activeConversationIds[agentId] = conversationId
 	self.saveState()
 	return conversationId

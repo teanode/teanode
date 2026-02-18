@@ -7,7 +7,7 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/provider"
-	"github.com/teanode/teanode/internal/util/ulid"
+	"github.com/teanode/teanode/internal/util/security"
 )
 
 // RegisterInterAgentTools adds agent_list and agent_message tools to the registry
@@ -189,7 +189,7 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 	// Generate conversation id if not provided.
 	conversationId := arguments.ConversationID
 	if conversationId == "" {
-		conversationId = ulid.GenerateString()
+		conversationId = security.NewULID()
 	}
 
 	// Prefix the message with source agent identity.
@@ -307,7 +307,7 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	}
 
 	// Generate ephemeral conversation id.
-	conversationId := ulid.GenerateString()
+	conversationId := security.NewULID()
 
 	// Build child context with incremented spawn depth.
 	childContext := ContextWithSpawnDepth(ctx, currentDepth+1)

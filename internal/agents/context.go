@@ -101,12 +101,99 @@ func findKeepBoundary(messages []provider.ChatMessage, minKeep int) int {
 	return index
 }
 
+// findLastSummaryIndex returns the index of the last context_summary message
+// in history, or -1 if none exists.
+func findLastSummaryIndex(messages []conversations.Message) int {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "system" && messages[i].StopReason == "context_summary" {
+			return i
+		}
+	}
+	return -1
+}
+
+// messagesText builds a truncated text representation of conversation messages,
+// collecting from the end to prioritize recent messages. Returns chronologically
+// ordered text. Pass maxTotalChars <= 0 for no total limit.
+func messagesText(messages []conversations.Message, maxTotalChars int, maxMessageChars int) string {
+	var lines []string
+	totalChars := 0
+
+	for i := len(messages) - 1; i >= 0; i-- {
+		role := messages[i].Role
+		if role == "tool" && messages[i].ToolName != "" {
+			role = fmt.Sprintf("tool(%s)", messages[i].ToolName)
+		}
+
+		content := messages[i].ContentText()
+		if maxMessageChars > 0 && len(content) > maxMessageChars {
+			content = content[:maxMessageChars] + "..."
+		}
+
+		line := fmt.Sprintf("[%s]: %s\n", role, content)
+		if maxTotalChars > 0 && totalChars+len(line) > maxTotalChars {
+			remaining := maxTotalChars - totalChars
+			if remaining > 0 {
+				lines = append(lines, line[:remaining])
+			}
+			break
+		}
+		lines = append(lines, line)
+		totalChars += len(line)
+	}
+
+	// Reverse to chronological order.
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+
+	return strings.Join(lines, "")
+}
+
+// chatMessagesText builds a truncated text representation of provider chat
+// messages, collecting from the end to prioritize recent messages. Returns
+// chronologically ordered text. Pass maxTotalChars <= 0 for no total limit.
+func chatMessagesText(messages []provider.ChatMessage, maxTotalChars int, maxMessageChars int) string {
+	var lines []string
+	totalChars := 0
+
+	for i := len(messages) - 1; i >= 0; i-- {
+		role := messages[i].Role
+		if role == "tool" && messages[i].Name != "" {
+			role = fmt.Sprintf("tool(%s)", messages[i].Name)
+		}
+
+		content := messages[i].Content
+		if maxMessageChars > 0 && len(content) > maxMessageChars {
+			content = content[:maxMessageChars] + "..."
+		}
+
+		line := fmt.Sprintf("[%s]: %s\n", role, content)
+		if maxTotalChars > 0 && totalChars+len(line) > maxTotalChars {
+			remaining := maxTotalChars - totalChars
+			if remaining > 0 {
+				lines = append(lines, line[:remaining])
+			}
+			break
+		}
+		lines = append(lines, line)
+		totalChars += len(line)
+	}
+
+	// Reverse to chronological order.
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+
+	return strings.Join(lines, "")
+}
+
 // compressContext checks whether the estimated token count exceeds the
 // compression threshold and, if so, summarizes older messages via an LLM call.
 func (self *Runner) compressContext(
 	ctx context.Context,
 	providers *provider.Registry,
-	cfg *configs.Config,
+	config *configs.Config,
 	messages []provider.ChatMessage,
 	toolDefs []provider.ToolDefinition,
 	conversationId string,
@@ -142,23 +229,12 @@ func (self *Runner) compressContext(
 	toSummarize := messages[1:keepIdx]
 
 	// Build summary text from messages.
-	var builder strings.Builder
-	for _, message := range toSummarize {
-		role := message.Role
-		if role == "tool" && message.Name != "" {
-			role = fmt.Sprintf("tool(%s)", message.Name)
-		}
-		content := message.Content
-		if len(content) > 2000 {
-			content = content[:2000] + "..."
-		}
-		fmt.Fprintf(&builder, "[%s]: %s\n", role, content)
-	}
+	summaryInput := chatMessagesText(toSummarize, 0, 2000)
 
 	// Pick summary model and resolve its provider.
-	summaryQualifiedModel := cfg.Models.Default
-	if cfg.Models.SummarizerModel != "" {
-		summaryQualifiedModel = cfg.Models.SummarizerModel
+	summaryQualifiedModel := config.Models.Default
+	if config.Models.SummarizerModel != "" {
+		summaryQualifiedModel = config.Models.SummarizerModel
 	}
 
 	summaryClient, summaryBareModel, resolveErr := providers.Resolve(summaryQualifiedModel)
@@ -175,7 +251,7 @@ func (self *Runner) compressContext(
 			},
 			{
 				Role:    "user",
-				Content: builder.String(),
+				Content: summaryInput,
 			},
 		},
 	}
