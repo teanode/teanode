@@ -2,11 +2,21 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 
 interface QueueItem {
   text: string;
-  audioToken?: string;
+  audioBuffer?: AudioBuffer;
   status: 'pending' | 'fetching' | 'ready' | 'playing' | 'done';
 }
 
-const MAX_CONCURRENT_FETCHES = 2;
+const MAX_CONCURRENT_FETCHES = 4;
+
+export interface UseStreamingTTSOptions {
+  voice: string;
+  /** AudioContext to play through (created during user gesture in startCall). */
+  audioContext: AudioContext | null;
+  /** Called once when the entire queue drains naturally (all items played to
+   *  completion, not interrupted by stopAndClear). Only fires if at least one
+   *  audio segment was actually played during the turn. */
+  onTurnComplete?: () => void;
+}
 
 export interface UseStreamingTTSReturn {
   enqueueSentence: (text: string) => void;
@@ -15,7 +25,8 @@ export interface UseStreamingTTSReturn {
   isSynthesizing: boolean;
 }
 
-export function useStreamingTTS(voice: string, audioElement: HTMLAudioElement | null): UseStreamingTTSReturn {
+export function useStreamingTTS(options: UseStreamingTTSOptions): UseStreamingTTSReturn {
+  const { voice, audioContext, onTurnComplete } = options;
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSynthesizing, setIsSynthesizing] = useState(false);
 
@@ -23,10 +34,14 @@ export function useStreamingTTS(voice: string, audioElement: HTMLAudioElement | 
   const playIndexRef = useRef(0);
   const abortControllersRef = useRef<AbortController[]>([]);
   const voiceRef = useRef(voice);
-  const audioElementRef = useRef(audioElement);
+  const audioContextRef = useRef(audioContext);
   const activeRef = useRef(false);
+  const playedAnyRef = useRef(false);
+  const onTurnCompleteRef = useRef(onTurnComplete);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
   voiceRef.current = voice;
-  audioElementRef.current = audioElement;
+  audioContextRef.current = audioContext;
+  onTurnCompleteRef.current = onTurnComplete;
 
   const updateSynthesizingState = useCallback(() => {
     const hasPendingOrFetching = queueRef.current.some(
@@ -35,36 +50,70 @@ export function useStreamingTTS(voice: string, audioElement: HTMLAudioElement | 
     setIsSynthesizing(hasPendingOrFetching);
   }, []);
 
-  const playNext = useCallback(() => {
-    if (!activeRef.current) return;
-    const audio = audioElementRef.current;
-    if (!audio) return;
-
+  const advanceQueue = useCallback(() => {
     const queue = queueRef.current;
     const index = playIndexRef.current;
+    if (index < queue.length) {
+      queue[index].status = 'done';
+    }
+    currentSourceRef.current = null;
+    playIndexRef.current++;
+  }, []);
 
-    if (index >= queue.length) {
+  const playNext = useCallback(() => {
+    if (!activeRef.current) return;
+    const context = audioContextRef.current;
+    if (!context || context.state === 'closed') return;
+
+    const queue = queueRef.current;
+
+    // Skip any items that failed during fetch.
+    while (playIndexRef.current < queue.length) {
+      if (queue[playIndexRef.current].status === 'done') {
+        playIndexRef.current++;
+        continue;
+      }
+      break;
+    }
+
+    const currentIndex = playIndexRef.current;
+    if (currentIndex >= queue.length) {
       setIsPlaying(false);
+      if (playedAnyRef.current && onTurnCompleteRef.current) {
+        onTurnCompleteRef.current();
+      }
       return;
     }
 
-    const item = queue[index];
-    if (item.status === 'ready' && item.audioToken) {
+    const item = queue[currentIndex];
+    if (item.status === 'ready' && item.audioBuffer) {
       item.status = 'playing';
+      playedAnyRef.current = true;
       setIsPlaying(true);
-      audio.src = `/api/v1/audio/stream?token=${item.audioToken}`;
-      audio.play().catch(() => {
-        // Playback failed — advance to next
-        item.status = 'done';
-        playIndexRef.current++;
+
+      // Play via AudioBufferSourceNode — bypasses all HTMLAudioElement
+      // quirks on iOS Safari (silent first play, src-change issues).
+      const source = context.createBufferSource();
+      source.buffer = item.audioBuffer;
+      source.connect(context.destination);
+      currentSourceRef.current = source;
+
+      source.onended = () => {
+        if (!activeRef.current) return;
+        advanceQueue();
         playNext();
-      });
+      };
+
+      source.start();
     }
     // If not ready yet, playNext will be called again when the fetch completes
-  }, []);
+  }, [advanceQueue]);
 
   const fetchTTS = useCallback(async (item: QueueItem, index: number) => {
     if (!activeRef.current) return;
+    const context = audioContextRef.current;
+    if (!context || context.state === 'closed') return;
+
     item.status = 'fetching';
     updateSynthesizingState();
 
@@ -72,28 +121,37 @@ export function useStreamingTTS(voice: string, audioElement: HTMLAudioElement | 
     abortControllersRef.current.push(controller);
 
     try {
-      const response = await fetch('/api/v1/audio/synthesize', {
+      const synthesizeResponse = await fetch('/api/v1/audio/synthesize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: item.text, voice: voiceRef.current }),
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error(`TTS request failed: ${response.status}`);
-      const { token } = await response.json();
-      item.audioToken = token;
+      if (!synthesizeResponse.ok) throw new Error(`TTS synthesize failed: ${synthesizeResponse.status}`);
+      const { token } = await synthesizeResponse.json();
+
+      // Download and decode audio into an AudioBuffer for instant playback.
+      const audioResponse = await fetch(`/api/v1/audio/stream?token=${token}`, {
+        signal: controller.signal,
+      });
+      if (!audioResponse.ok) throw new Error(`TTS stream failed: ${audioResponse.status}`);
+      const arrayBuffer = await audioResponse.arrayBuffer();
+      item.audioBuffer = await context.decodeAudioData(arrayBuffer);
       item.status = 'ready';
     } catch {
-      item.status = 'done'; // Skip on error
+      item.status = 'done';
     }
 
     updateSynthesizingState();
 
-    // If this is the item at playIndex and it's ready, start playing
-    if (activeRef.current && playIndexRef.current === index && item.status === 'ready') {
-      playNext();
+    // If this item is at playIndex and ready, start playing.
+    if (activeRef.current && item.status === 'ready') {
+      const currentItem = queueRef.current[playIndexRef.current];
+      if (currentItem === item || (currentItem && currentItem.status === 'done')) {
+        playNext();
+      }
     }
 
-    // Kick off next pending fetch
     startFetches();
   }, [playNext, updateSynthesizingState]);
 
@@ -112,6 +170,9 @@ export function useStreamingTTS(voice: string, audioElement: HTMLAudioElement | 
 
   const enqueueSentence = useCallback((text: string) => {
     if (!text.trim()) return;
+    if (!activeRef.current) {
+      playedAnyRef.current = false;
+    }
     activeRef.current = true;
     const item: QueueItem = { text, status: 'pending' };
     queueRef.current.push(item);
@@ -121,14 +182,13 @@ export function useStreamingTTS(voice: string, audioElement: HTMLAudioElement | 
 
   const stopAndClear = useCallback(() => {
     activeRef.current = false;
-    const audio = audioElementRef.current;
-    if (audio) {
-      audio.pause();
-      // Reset to a silent WAV instead of removing src — removeAttribute('src')
-      // re-locks the audio element on iOS Safari, breaking future playback.
-      audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+    playedAnyRef.current = false;
+    // Stop the currently playing source node.
+    if (currentSourceRef.current) {
+      try { currentSourceRef.current.stop(); } catch { /* may already be stopped */ }
+      currentSourceRef.current = null;
     }
-    // Abort all in-flight fetches
+    // Abort all in-flight fetches.
     for (const controller of abortControllersRef.current) {
       controller.abort();
     }
@@ -139,43 +199,13 @@ export function useStreamingTTS(voice: string, audioElement: HTMLAudioElement | 
     setIsSynthesizing(false);
   }, []);
 
-  // Handle audio ended event — advance to next item
-  useEffect(() => {
-    const audio = audioElement;
-    if (!audio) return;
-
-    const handleEnded = () => {
-      const queue = queueRef.current;
-      const index = playIndexRef.current;
-      if (index < queue.length) {
-        queue[index].status = 'done';
-      }
-      playIndexRef.current++;
-      playNext();
-    };
-
-    const handleError = () => {
-      const queue = queueRef.current;
-      const index = playIndexRef.current;
-      if (index < queue.length) {
-        queue[index].status = 'done';
-      }
-      playIndexRef.current++;
-      playNext();
-    };
-
-    audio.addEventListener('ended', handleEnded);
-    audio.addEventListener('error', handleError);
-    return () => {
-      audio.removeEventListener('ended', handleEnded);
-      audio.removeEventListener('error', handleError);
-    };
-  }, [audioElement, playNext]);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       activeRef.current = false;
+      if (currentSourceRef.current) {
+        try { currentSourceRef.current.stop(); } catch { /* ignore */ }
+      }
       for (const controller of abortControllersRef.current) {
         controller.abort();
       }

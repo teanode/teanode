@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useStreamingTTS } from './useStreamingTTS';
+import { useChimePlayer, type ChimeConfig } from './useChimePlayer';
 
 const VOICE_CALL_PROMPT =
   'The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational — 1–3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists.';
@@ -100,10 +101,12 @@ export interface UseVoiceCallOptions {
   conversationId: string | null;
   agentId: string;
   audioCapability: boolean;
+  chimeConfig: ChimeConfig;
 }
 
 export interface UseVoiceCallReturn {
   isCallActive: boolean;
+  isConnecting: boolean;
   callDuration: number;
   isMuted: boolean;
   isUserSpeaking: boolean;
@@ -126,13 +129,15 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     ttsVoice,
     conversationId,
     agentId,
+    chimeConfig,
   } = options;
 
   const [isCallActive, setIsCallActive] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
-  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [ttsAudioContext, setTtsAudioContext] = useState<AudioContext | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
 
   // Refs for mutable state across callbacks
@@ -156,20 +161,41 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   agentIdRef.current = agentId;
   isRunningRef.current = isRunning;
 
-  const streamingTTS = useStreamingTTS(ttsVoice, audioElement);
+  const chimePlayer = useChimePlayer(chimeConfig);
+
+  const handleTurnComplete = useCallback(() => {
+    // Pause VAD while the chime plays to prevent echo feedback on iOS
+    // (speaker output leaks back through the mic, VAD re-detects as speech).
+    vadRef.current?.pause();
+    chimePlayer.play('agentDone');
+    setTimeout(() => {
+      if (isCallActiveRef.current) vadRef.current?.start();
+    }, 300);
+  }, [chimePlayer]);
+
+  const streamingTTS = useStreamingTTS({
+    voice: ttsVoice,
+    audioContext: ttsAudioContext,
+    onTurnComplete: handleTurnComplete,
+  });
 
   const startCall = useCallback(async () => {
     if (isCallActiveRef.current) return;
     setCallError(null);
+    setIsConnecting(true);
 
     try {
       // Create AudioContext immediately during user gesture — iOS Safari
       // suspends AudioContexts created outside gesture handlers.
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
+      setTtsAudioContext(audioContext);
       if (audioContext.state === 'suspended') {
         await audioContext.resume();
       }
+
+      // Attach chime player to the shared AudioContext.
+      chimePlayer.init(audioContext);
 
       // Request mic with echo cancellation
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -180,14 +206,6 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         },
       });
       streamRef.current = mediaStream;
-
-      // Unlock audio element for iOS playback (fire-and-forget — the play()
-      // promise may never resolve once the gesture context is consumed).
-      const audio = new Audio();
-      audio.setAttribute('playsinline', '');
-      audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-      audio.play().then(() => audio.pause()).catch(() => {});
-      setAudioElement(audio);
 
       // Connect mic stream to our AudioContext
       const sourceNode = new MediaStreamAudioSourceNode(audioContext, {
@@ -219,6 +237,14 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         onSpeechEnd: async (audioData: Float32Array) => {
           if (!isCallActiveRef.current) return;
           setIsUserSpeaking(false);
+
+          // Pause VAD while the chime plays to prevent echo feedback on iOS
+          // (speaker output leaks back through the mic, VAD detects it as speech).
+          vadRef.current?.pause();
+          chimePlayer.play('inputCaptured');
+          setTimeout(() => {
+            if (isCallActiveRef.current) vadRef.current?.start();
+          }, 300);
 
           // Convert PCM to WAV and transcribe
           const wavBlob = pcmToWav(audioData, 16000);
@@ -256,6 +282,9 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       vad.start();
       vadRef.current = vad;
 
+      // Signal that the call is ready to accept speech.
+      chimePlayer.play('agentDone');
+
       // Request WakeLock (progressive enhancement)
       try {
         if ('wakeLock' in navigator) {
@@ -271,11 +300,13 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       }, 1000);
 
       isCallActiveRef.current = true;
+      setIsConnecting(false);
       setIsCallActive(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error('Failed to start voice call:', message, error);
       setCallError(message);
+      setIsConnecting(false);
       // Cleanup on failure
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
@@ -286,7 +317,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         audioContextRef.current = null;
       }
     }
-  }, [abortRun, sendVoiceMessage, streamingTTS]);
+  }, [abortRun, sendVoiceMessage, streamingTTS, chimePlayer]);
 
   const endCall = useCallback(() => {
     isCallActiveRef.current = false;
@@ -317,9 +348,12 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       audioContextRef.current = null;
     }
 
-    // Stop TTS and release audio element
+    // Stop TTS
     streamingTTS.stopAndClear();
-    setAudioElement(null);
+    setTtsAudioContext(null);
+
+    // Close chime player
+    chimePlayer.close();
 
     // Release WakeLock
     if (wakeLockRef.current) {
@@ -337,7 +371,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     interruptedRef.current = false;
     prevStreamTextLengthRef.current = 0;
     sentencesEnqueuedRef.current = 0;
-  }, [streamingTTS]);
+  }, [streamingTTS, chimePlayer]);
 
   const toggleMute = useCallback(() => {
     if (!streamRef.current) return;
@@ -438,6 +472,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
 
   return {
     isCallActive,
+    isConnecting,
     callDuration,
     isMuted,
     isUserSpeaking,

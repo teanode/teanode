@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import { Outlet, useParams } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { useAppContext } from '../../../context';
 import { useVoiceCall, type UseVoiceCallReturn } from '../../../hooks/useVoiceCall';
+import type { ChimeConfig } from '../../../hooks/useChimePlayer';
 
 const VoiceCallContext = createContext<UseVoiceCallReturn | null>(null);
 
@@ -16,13 +17,27 @@ export function useAgentVoiceCall(): UseVoiceCallReturn {
 /** /conversations/$agentId — layout that syncs the current agent and renders child routes. */
 export default function ConversationsAgentLayout() {
   const { agentId } = useParams({ strict: false }) as { agentId: string };
-  const { backend, ttsVoice } = useAppContext();
+  const {
+    backend,
+    ttsVoice,
+    voiceChimesEnabled,
+    voiceChimesVolume,
+    voiceChimeInputUrl,
+    voiceChimeAgentUrl,
+  } = useAppContext();
 
   useEffect(() => {
     if (agentId && agentId !== backend.currentAgentId) {
       backend.setCurrentAgentId(agentId);
     }
   }, [agentId, backend.currentAgentId, backend.setCurrentAgentId]);
+
+  const chimeConfig: ChimeConfig = useMemo(() => ({
+    enabled: voiceChimesEnabled,
+    volume: voiceChimesVolume,
+    inputUrl: voiceChimeInputUrl || undefined,
+    agentUrl: voiceChimeAgentUrl || undefined,
+  }), [voiceChimesEnabled, voiceChimesVolume, voiceChimeInputUrl, voiceChimeAgentUrl]);
 
   const voiceCall = useVoiceCall({
     sendRpc: backend.sendRpc,
@@ -35,6 +50,7 @@ export default function ConversationsAgentLayout() {
     conversationId: backend.conversationId,
     agentId,
     audioCapability: backend.audioCapability,
+    chimeConfig,
   });
 
   return (

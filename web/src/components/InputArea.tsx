@@ -55,6 +55,8 @@ interface InputAreaProps {
   voiceAutoSend?: boolean;
   /** Whether a voice call is currently active (hides mic/call buttons, VAD handles audio). */
   voiceCallActive?: boolean;
+  /** Whether a voice call is currently connecting. */
+  voiceCallConnecting?: boolean;
   /** Called to start a voice call. */
   onStartVoiceCall?: () => void;
   onSend: (text: string, attachments?: Attachment[]) => void;
@@ -75,6 +77,7 @@ export default function InputArea({
   voiceEnabled,
   voiceAutoSend,
   voiceCallActive,
+  voiceCallConnecting,
   onStartVoiceCall,
   onSend,
   onAbort,
@@ -135,7 +138,8 @@ export default function InputArea({
   }, [isRecording]);
 
   const showMic = voiceEnabled && micSupported && !hasText && voiceState === 'idle' && !voiceCallActive;
-  const showCallButton = voiceEnabled && !voiceCallActive && voiceState === 'idle' && onStartVoiceCall;
+  const showCallButton = voiceEnabled && !voiceCallActive && voiceState === 'idle' && onStartVoiceCall && !voiceCallConnecting;
+  const showCallConnecting = voiceCallConnecting;
 
   // Restore draft when draftKey changes (conversation switch).
   useEffect(() => {
@@ -318,34 +322,51 @@ export default function InputArea({
           ))}
         </Box>
       )}
-      <Box
-        component="textarea"
-        ref={textareaRef}
-        placeholder={resolvedPlaceholder}
-        autoFocus={autoFocus}
-        rows={1}
-        onKeyDown={handleKeyDown}
-        onInput={handleInput}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        sx={{
-          width: '100%',
-          border: 'none',
-          outline: 'none',
-          bgcolor: 'transparent',
-          color: 'text.primary',
-          fontSize: '0.875rem',
-          fontFamily: 'inherit',
-          lineHeight: 1.5,
-          resize: 'none',
-          overflow: 'auto',
-          py: 0.5,
-          '&::placeholder': {
-            color: 'text.secondary',
-            opacity: 1,
-          },
-        }}
-      />
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Box
+          component="textarea"
+          ref={textareaRef}
+          placeholder={resolvedPlaceholder}
+          autoFocus={autoFocus}
+          rows={1}
+          onKeyDown={handleKeyDown}
+          onInput={handleInput}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          sx={{
+            flex: 1,
+            border: 'none',
+            outline: 'none',
+            bgcolor: 'transparent',
+            color: 'text.primary',
+            fontSize: '0.875rem',
+            fontFamily: 'inherit',
+            lineHeight: 1.5,
+            resize: 'none',
+            overflow: 'auto',
+            py: 0.5,
+            '&::placeholder': {
+              color: 'text.secondary',
+              opacity: 1,
+            },
+          }}
+        />
+        {!focused && (showCallButton || showCallConnecting) && (
+          <Box onMouseDown={(event: React.MouseEvent) => event.preventDefault()} sx={{ flexShrink: 0, ml: 0.5 }}>
+            {showCallConnecting ? (
+              <CircularProgress size={18} sx={{ mx: '7px' }} />
+            ) : (
+              <IconButton
+                size="small"
+                onClick={onStartVoiceCall}
+                sx={{ width: 32, height: 32, color: 'text.secondary', '&:hover': { color: 'success.main' } }}
+              >
+                <PhoneRounded fontSize="small" />
+              </IconButton>
+            )}
+          </Box>
+        )}
+      </Box>
       <input
         type="file"
         ref={fileInputRef}
@@ -353,7 +374,7 @@ export default function InputArea({
         onChange={handleFileChange}
         style={{ display: 'none' }}
       />
-      {(focused || showStop || showCallButton || pendingFiles.length > 0 || uploading || voiceState !== 'idle') && (
+      {(focused || showStop || pendingFiles.length > 0 || uploading || voiceState !== 'idle') && (
         <Box
           onMouseDown={(event: React.MouseEvent) => event.preventDefault()}
           sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}
@@ -402,7 +423,7 @@ export default function InputArea({
               <MicRounded fontSize="small" />
             </IconButton>
           )}
-          {showCallButton && (
+          {focused && showCallButton && (
             <IconButton
               size="small"
               onClick={onStartVoiceCall}

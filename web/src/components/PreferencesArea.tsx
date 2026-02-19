@@ -5,6 +5,8 @@ import Container from '@mui/material/Container';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Select from '@mui/material/Select';
+import Slider from '@mui/material/Slider';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
@@ -27,6 +29,14 @@ export default function PreferencesArea() {
     setVoiceAutoSend,
     ttsVoice,
     setTtsVoice,
+    voiceChimesEnabled,
+    setVoiceChimesEnabled,
+    voiceChimesVolume,
+    setVoiceChimesVolume,
+    voiceChimeInputUrl,
+    setVoiceChimeInputUrl,
+    voiceChimeAgentUrl,
+    setVoiceChimeAgentUrl,
     backend,
   } = useAppContext();
 
@@ -153,6 +163,66 @@ export default function PreferencesArea() {
                   ))}
                 </Select>
               </Box>
+
+              {/* Voice call indicator chimes */}
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={voiceChimesEnabled}
+                    onChange={(event) => setVoiceChimesEnabled(event.target.checked)}
+                    color="primary"
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.voiceChimes')}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {t('settings.voiceChimesDescription')}
+                    </Typography>
+                  </Box>
+                }
+                sx={{ alignItems: 'flex-start', ml: 0, mt: 1 }}
+              />
+              {voiceChimesEnabled && (
+                <Box sx={{ pl: 1, mt: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{t('settings.voiceChimesVolume')}</Typography>
+                    <Slider
+                      value={voiceChimesVolume}
+                      onChange={(_event, value) => setVoiceChimesVolume(value as number)}
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      size="small"
+                      valueLabelDisplay="auto"
+                      valueLabelFormat={(value) => `${Math.round(value * 100)}%`}
+                      sx={{ maxWidth: 200 }}
+                    />
+                  </Box>
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{t('settings.voiceChimeInputUrl')}</Typography>
+                    <TextField
+                      value={voiceChimeInputUrl}
+                      onChange={(event) => setVoiceChimeInputUrl(event.target.value)}
+                      size="small"
+                      placeholder={t('settings.voiceChimeUrlPlaceholder')}
+                      fullWidth
+                      sx={{ maxWidth: 400 }}
+                    />
+                  </Box>
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{t('settings.voiceChimeAgentUrl')}</Typography>
+                    <TextField
+                      value={voiceChimeAgentUrl}
+                      onChange={(event) => setVoiceChimeAgentUrl(event.target.value)}
+                      size="small"
+                      placeholder={t('settings.voiceChimeUrlPlaceholder')}
+                      fullWidth
+                      sx={{ maxWidth: 400 }}
+                    />
+                  </Box>
+                </Box>
+              )}
             </Box>
           </Paper>
         )}

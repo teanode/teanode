@@ -140,6 +140,7 @@ export default function ConversationsNewPage() {
               bare
               voiceEnabled={backend.audioCapability}
               voiceAutoSend={voiceAutoSend}
+              voiceCallConnecting={voiceCall.isConnecting}
               onStartVoiceCall={voiceCall.startCall}
               onSend={handleSend}
               onVoiceMessage={handleVoiceMessage}

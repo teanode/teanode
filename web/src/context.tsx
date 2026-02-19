@@ -17,6 +17,14 @@ export interface AppContextValue {
   setVoiceAutoSend: (value: boolean) => void;
   ttsVoice: string;
   setTtsVoice: (voice: string) => void;
+  voiceChimesEnabled: boolean;
+  setVoiceChimesEnabled: (value: boolean) => void;
+  voiceChimesVolume: number;
+  setVoiceChimesVolume: (value: number) => void;
+  voiceChimeInputUrl: string;
+  setVoiceChimeInputUrl: (value: string) => void;
+  voiceChimeAgentUrl: string;
+  setVoiceChimeAgentUrl: (value: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -53,6 +61,19 @@ export function AppProvider({
   const [ttsVoice, setTtsVoiceState] = useState(() => {
     return localStorage.getItem('teanode-voice-tts-voice') || 'alloy';
   });
+  const [voiceChimesEnabled, setVoiceChimesEnabledState] = useState(() => {
+    return localStorage.getItem('teanode-voice-chimes-enabled') !== 'false';
+  });
+  const [voiceChimesVolume, setVoiceChimesVolumeState] = useState(() => {
+    const stored = localStorage.getItem('teanode-voice-chimes-volume');
+    return stored !== null ? Number(stored) : 0.3;
+  });
+  const [voiceChimeInputUrl, setVoiceChimeInputUrlState] = useState(() => {
+    return localStorage.getItem('teanode-voice-chime-input-url') || '';
+  });
+  const [voiceChimeAgentUrl, setVoiceChimeAgentUrlState] = useState(() => {
+    return localStorage.getItem('teanode-voice-chime-agent-url') || '';
+  });
 
   const setShowToolCalls = useCallback((value: boolean) => {
     setShowToolCallsState(value);
@@ -79,6 +100,34 @@ export function AppProvider({
     localStorage.setItem('teanode-voice-tts-voice', voice);
   }, []);
 
+  const setVoiceChimesEnabled = useCallback((value: boolean) => {
+    setVoiceChimesEnabledState(value);
+    localStorage.setItem('teanode-voice-chimes-enabled', String(value));
+  }, []);
+
+  const setVoiceChimesVolume = useCallback((value: number) => {
+    setVoiceChimesVolumeState(value);
+    localStorage.setItem('teanode-voice-chimes-volume', String(value));
+  }, []);
+
+  const setVoiceChimeInputUrl = useCallback((value: string) => {
+    setVoiceChimeInputUrlState(value);
+    if (value) {
+      localStorage.setItem('teanode-voice-chime-input-url', value);
+    } else {
+      localStorage.removeItem('teanode-voice-chime-input-url');
+    }
+  }, []);
+
+  const setVoiceChimeAgentUrl = useCallback((value: string) => {
+    setVoiceChimeAgentUrlState(value);
+    if (value) {
+      localStorage.setItem('teanode-voice-chime-agent-url', value);
+    } else {
+      localStorage.removeItem('teanode-voice-chime-agent-url');
+    }
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
@@ -95,6 +144,14 @@ export function AppProvider({
         setVoiceAutoSend,
         ttsVoice,
         setTtsVoice,
+        voiceChimesEnabled,
+        setVoiceChimesEnabled,
+        voiceChimesVolume,
+        setVoiceChimesVolume,
+        voiceChimeInputUrl,
+        setVoiceChimeInputUrl,
+        voiceChimeAgentUrl,
+        setVoiceChimeAgentUrl,
       }}
     >
       {children}

@@ -142,6 +142,7 @@ export default function ConversationsConversationPage() {
           voiceEnabled={backend.audioCapability}
           voiceAutoSend={voiceAutoSend}
           voiceCallActive={voiceCall.isCallActive}
+          voiceCallConnecting={voiceCall.isConnecting}
           onStartVoiceCall={voiceCall.startCall}
           onSend={handleSend}
           onAbort={backend.abortRun}

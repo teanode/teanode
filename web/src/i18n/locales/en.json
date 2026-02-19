@@ -113,7 +113,13 @@
     "voiceAutoSendDescription": "Automatically send the message after voice transcription completes",
     "ttsVoice": "TTS Voice",
     "listening": "Listening...",
-    "transcribing": "Transcribing..."
+    "transcribing": "Transcribing...",
+    "voiceChimes": "Indicator chimes",
+    "voiceChimesDescription": "Play short audio cues when your speech is captured and when the agent finishes speaking",
+    "voiceChimesVolume": "Chime volume",
+    "voiceChimeInputUrl": "Custom input-captured chime URL",
+    "voiceChimeAgentUrl": "Custom agent-done chime URL",
+    "voiceChimeUrlPlaceholder": "https://example.com/chime.mp3 (leave blank for default tone)"
   },
   "agent": {
     "selectToEdit": "Select an agent to edit",
