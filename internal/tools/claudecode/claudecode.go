@@ -81,10 +81,12 @@ type claudeCodeTool struct {
 }
 
 // RegisterTools adds the claude_code tool to the registry.
-// If the claude binary is not found, no tools are registered (graceful degradation).
+// If the claude binary is not found, no tools are registered.
+// A nil config is treated as "use defaults" — tools are registered
+// as long as the binary is present on PATH.
 func RegisterTools(registry *agents.ToolRegistry, config *configs.ClaudeCodeConfig) {
 	binaryPath := "claude"
-	var allowedTools []string
+	allowedTools := DefaultAllowedTools
 	var model string
 	timeout := defaultTimeout
 
@@ -95,9 +97,7 @@ func RegisterTools(registry *agents.ToolRegistry, config *configs.ClaudeCodeConf
 		if len(config.AllowedTools) > 0 {
 			allowedTools = config.AllowedTools
 		}
-		if config.Model != "" {
-			model = config.Model
-		}
+		model = config.Model
 		if config.MaxTurnTimeoutSeconds > 0 {
 			timeout = time.Duration(config.MaxTurnTimeoutSeconds) * time.Second
 			if timeout > maxTimeout {
@@ -106,13 +106,9 @@ func RegisterTools(registry *agents.ToolRegistry, config *configs.ClaudeCodeConf
 		}
 	}
 
-	if allowedTools == nil {
-		allowedTools = DefaultAllowedTools
-	}
-
 	resolvedPath, err := exec.LookPath(binaryPath)
 	if err != nil {
-		log.Debugf("claude binary not found (%s), skipping Claude Code tools", binaryPath)
+		log.Infof("Claude Code tools skipped: %s binary not found", binaryPath)
 		return
 	}
 	log.Infof("Claude Code tools enabled (binary: %s)", resolvedPath)

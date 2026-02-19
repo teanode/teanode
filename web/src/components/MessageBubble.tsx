@@ -107,6 +107,7 @@ export default function MessageBubble({ role, content, isStreaming, streamText, 
       <Paper
         elevation={0}
         sx={{
+          minWidth: 0,
           maxWidth: { xs: '95%', md: '85%' },
           px: 2,
           py: 1.5,
@@ -129,18 +130,18 @@ export default function MessageBubble({ role, content, isStreaming, streamText, 
       </Paper>
     );
   } else {
-    const displayText = isStreaming ? (streamText ?? content) : content;
+    const displayText = isStreaming ? (streamText || content) : content;
 
     if (displayText.startsWith('__error__:')) {
       const errorMessage = displayText.substring('__error__:'.length);
       bubble = (
-        <Box sx={{ maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}>
+        <Box sx={{ minWidth: 0, maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}>
           <Typography component="em" color="error.main">{t('conversations.error', { message: errorMessage })}</Typography>
         </Box>
       );
     } else if (displayText === '__aborted__') {
       bubble = (
-        <Box sx={{ maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}>
+        <Box sx={{ minWidth: 0, maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}>
           <Typography component="em" color="text.secondary">{t('conversations.aborted')}</Typography>
         </Box>
       );
@@ -150,7 +151,7 @@ export default function MessageBubble({ role, content, isStreaming, streamText, 
       bubble = (
         <Box
           className="markdown-content"
-          sx={{ maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}
+          sx={{ minWidth: 0, maxWidth: { xs: '95%', md: '85%' }, px: 2, py: 1.5, lineHeight: 1.6, wordBreak: 'break-word' }}
         >
           <div dangerouslySetInnerHTML={{ __html: renderMarkdown(displayText) }} />
         </Box>
@@ -196,7 +197,7 @@ export default function MessageBubble({ role, content, isStreaming, streamText, 
       }}
     >
       {bubble}
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
         {speakerElement}
         {timeElement}
       </Box>

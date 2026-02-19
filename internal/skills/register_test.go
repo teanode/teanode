@@ -91,6 +91,21 @@ tools:
 		}
 	})
 
+	t.Run("empty allow list loads all (preserves defaults)", func(t *testing.T) {
+		registry := agents.NewToolRegistry()
+		RegisterSkillsFiltered(registry, directory, []string{})
+
+		if registry.Get("alpha_tool") == nil {
+			t.Error("alpha_tool not registered")
+		}
+		if registry.Get("beta_tool") == nil {
+			t.Error("beta_tool not registered")
+		}
+		if registry.Get("gamma_tool") == nil {
+			t.Error("gamma_tool not registered")
+		}
+	})
+
 	t.Run("filter to subset", func(t *testing.T) {
 		registry := agents.NewToolRegistry()
 		RegisterSkillsFiltered(registry, directory, []string{"alpha", "gamma"})

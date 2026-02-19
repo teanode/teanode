@@ -48,9 +48,10 @@ func (self *ToolRegistry) Names() []string {
 }
 
 // ApplyFilter removes tools not present in the allow list.
-// A nil list means all tools are kept.
+// A nil or empty list means all tools are kept (preserving defaults).
+// Only an explicitly populated list restricts the tool set.
 func (self *ToolRegistry) ApplyFilter(allowed []string) {
-	if allowed == nil {
+	if len(allowed) == 0 {
 		return
 	}
 	for name := range self.tools {

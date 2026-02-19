@@ -264,11 +264,37 @@ type TelegramConfig struct {
 }
 
 type ToolsConfig struct {
-	BraveAPIKey string           `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
-	Google      *GoogleConfig    `json:"google,omitempty" yaml:"google,omitempty"`
-	GitHub      *GitHubConfig    `json:"github,omitempty" yaml:"github,omitempty"`
-	GitLab      *GitLabConfig    `json:"gitlab,omitempty" yaml:"gitlab,omitempty"`
-	ClaudeCode  *ClaudeCodeConfig `json:"claudeCode,omitempty" yaml:"claudeCode,omitempty"`
+	BraveAPIKey   string               `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
+	Google        *GoogleConfig        `json:"google,omitempty" yaml:"google,omitempty"`
+	GitHub        *GitHubConfig        `json:"github,omitempty" yaml:"github,omitempty"`
+	GitLab        *GitLabConfig        `json:"gitlab,omitempty" yaml:"gitlab,omitempty"`
+	ClaudeCode    *ClaudeCodeConfig    `json:"claudeCode,omitempty" yaml:"claudeCode,omitempty"`
+	HomeAssistant *HomeAssistantConfig `json:"homeAssistant,omitempty" yaml:"homeAssistant,omitempty"`
+	UniFiProtect  *UniFiProtectConfig  `json:"unifiProtect,omitempty" yaml:"unifiProtect,omitempty"`
+}
+
+// HomeAssistantConfig controls the Home Assistant smart home tool.
+type HomeAssistantConfig struct {
+	BaseURL         string   `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`                   // e.g. "http://homeassistant.local:8123"
+	Token           string   `json:"token,omitempty" yaml:"token,omitempty"`                       // long-lived access token
+	ReadOnly        bool     `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`                 // block control/scene actions
+	AllowedDomains  []string `json:"allowedDomains,omitempty" yaml:"allowedDomains,omitempty"`     // nil = safe defaults
+	BlockedDomains  []string `json:"blockedDomains,omitempty" yaml:"blockedDomains,omitempty"`     // nil = safe defaults
+	AllowedEntities []string `json:"allowedEntities,omitempty" yaml:"allowedEntities,omitempty"`   // empty = all (subject to domain rules)
+	TimeoutSeconds  int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`     // default 10
+}
+
+// UniFiProtectConfig controls the UniFi Protect camera integration tool.
+type UniFiProtectConfig struct {
+	BaseURL                string   `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`                               // e.g. "https://protect.local"
+	APIKey                 string   `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`                                 // X-API-Key header value
+	Username               string   `json:"username,omitempty" yaml:"username,omitempty"`                             // fallback auth username
+	Password               string   `json:"password,omitempty" yaml:"password,omitempty"`                             // fallback auth password
+	VerifyTLS              bool     `json:"verifyTls,omitempty" yaml:"verifyTls,omitempty"`                           // verify TLS certificates
+	ReadOnly               bool     `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`                             // block write actions
+	AllowedCameras         []string `json:"allowedCameras,omitempty" yaml:"allowedCameras,omitempty"`                 // nil = all cameras
+	AllowDangerousActions  []string `json:"allowDangerousActions,omitempty" yaml:"allowDangerousActions,omitempty"`   // e.g. ["set_privacy_mode"]
+	TimeoutSeconds         int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`                 // default 15
 }
 
 // GoogleConfig controls Google Workspace tools powered by the gog CLI.
@@ -397,9 +423,10 @@ func (self *Config) ResolveDefaultAgent() string {
 }
 
 // IsAllowed checks whether a name is present in an allow list.
-// A nil list means everything is allowed.
+// A nil or empty list means everything is allowed (preserving defaults).
+// Only an explicitly populated list restricts access.
 func IsAllowed(name string, allowed []string) bool {
-	if allowed == nil {
+	if len(allowed) == 0 {
 		return true
 	}
 	for _, entry := range allowed {
@@ -883,10 +910,46 @@ func applyEnv(configuration *Config) {
 	if value := os.Getenv("TEANODE_PUBLIC_URL"); value != "" {
 		configuration.Gateway.PublicURL = value
 	}
+	if value := os.Getenv("HASS_BASE_URL"); value != "" {
+		if configuration.Tools.HomeAssistant == nil {
+			configuration.Tools.HomeAssistant = &HomeAssistantConfig{}
+		}
+		configuration.Tools.HomeAssistant.BaseURL = value
+	}
+	if value := os.Getenv("HASS_TOKEN"); value != "" {
+		if configuration.Tools.HomeAssistant == nil {
+			configuration.Tools.HomeAssistant = &HomeAssistantConfig{}
+		}
+		configuration.Tools.HomeAssistant.Token = value
+	}
 	if value := os.Getenv("TEANODE_CDP_ENDPOINT"); value != "" {
 		if configuration.Integrations.Browser == nil {
 			configuration.Integrations.Browser = &BrowserConfig{}
 		}
 		configuration.Integrations.Browser.CDPEndpoint = value
+	}
+	if value := os.Getenv("UNIFI_PROTECT_BASE_URL"); value != "" {
+		if configuration.Tools.UniFiProtect == nil {
+			configuration.Tools.UniFiProtect = &UniFiProtectConfig{}
+		}
+		configuration.Tools.UniFiProtect.BaseURL = value
+	}
+	if value := os.Getenv("UNIFI_PROTECT_API_KEY"); value != "" {
+		if configuration.Tools.UniFiProtect == nil {
+			configuration.Tools.UniFiProtect = &UniFiProtectConfig{}
+		}
+		configuration.Tools.UniFiProtect.APIKey = value
+	}
+	if value := os.Getenv("UNIFI_PROTECT_USERNAME"); value != "" {
+		if configuration.Tools.UniFiProtect == nil {
+			configuration.Tools.UniFiProtect = &UniFiProtectConfig{}
+		}
+		configuration.Tools.UniFiProtect.Username = value
+	}
+	if value := os.Getenv("UNIFI_PROTECT_PASSWORD"); value != "" {
+		if configuration.Tools.UniFiProtect == nil {
+			configuration.Tools.UniFiProtect = &UniFiProtectConfig{}
+		}
+		configuration.Tools.UniFiProtect.Password = value
 	}
 }

@@ -15,10 +15,11 @@ var defaultServices = []string{"issues", "merge_requests", "projects"}
 
 // RegisterTools adds GitLab tools to the registry.
 // If the glab binary is not found, no tools are registered.
+// A nil config is treated as "use defaults" — tools are registered
+// as long as the binary is present on PATH.
 func RegisterTools(registry *agents.ToolRegistry, config *configs.GitLabConfig) {
 	binary := "glab"
 	var services []string
-
 	if config != nil {
 		if config.BinaryPath != "" {
 			binary = config.BinaryPath
@@ -29,12 +30,12 @@ func RegisterTools(registry *agents.ToolRegistry, config *configs.GitLabConfig) 
 	// Check that the binary exists on PATH.
 	resolvedPath, err := exec.LookPath(binary)
 	if err != nil {
-		log.Debugf("glab binary not found (%s), skipping GitLab tools", binary)
+		log.Infof("GitLab tools skipped: %s binary not found", binary)
 		return
 	}
 	log.Infof("GitLab tools enabled (binary: %s)", resolvedPath)
 
-	if services == nil {
+	if len(services) == 0 {
 		services = defaultServices
 	}
 

@@ -11,7 +11,6 @@ export function useTTS(voice: string): UseTTSReturn {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const blobUrlRef = useRef<string | null>(null);
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
 
@@ -23,23 +22,16 @@ export function useTTS(voice: string): UseTTSReturn {
     return audioRef.current;
   }, []);
 
-  const revokeBlobUrl = useCallback(() => {
-    if (blobUrlRef.current) {
-      URL.revokeObjectURL(blobUrlRef.current);
-      blobUrlRef.current = null;
-    }
-  }, []);
-
   const stop = useCallback(() => {
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
       audio.currentTime = 0;
+      audio.removeAttribute('src');
     }
     setIsSpeaking(false);
     setIsLoading(false);
-    revokeBlobUrl();
-  }, [revokeBlobUrl]);
+  }, []);
 
   const speak = useCallback(async (text: string) => {
     if (!text.trim()) return;
@@ -47,6 +39,7 @@ export function useTTS(voice: string): UseTTSReturn {
     setIsLoading(true);
 
     try {
+      // Step 1: Get a streaming token.
       const response = await fetch('/api/v1/audio/synthesize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -55,33 +48,29 @@ export function useTTS(voice: string): UseTTSReturn {
       if (!response.ok) {
         throw new Error(`TTS request failed: ${response.status}`);
       }
+      const { token } = await response.json();
 
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      revokeBlobUrl();
-      blobUrlRef.current = url;
-
+      // Step 2: Point audio element at the streaming endpoint.
       const audio = getAudioElement();
-      audio.src = url;
+      audio.src = `/api/v1/audio/stream?token=${token}`;
 
-      audio.onended = () => {
-        setIsSpeaking(false);
-        revokeBlobUrl();
+      audio.oncanplay = () => {
+        setIsLoading(false);
+        setIsSpeaking(true);
       };
+      audio.onended = () => setIsSpeaking(false);
       audio.onerror = () => {
+        setIsLoading(false);
         setIsSpeaking(false);
-        revokeBlobUrl();
       };
 
-      setIsLoading(false);
-      setIsSpeaking(true);
       await audio.play();
     } catch (error) {
       console.error('TTS error:', error);
       setIsLoading(false);
       setIsSpeaking(false);
     }
-  }, [stop, revokeBlobUrl, getAudioElement]);
+  }, [stop, getAudioElement]);
 
   // Cleanup on unmount.
   useEffect(() => {
@@ -89,10 +78,6 @@ export function useTTS(voice: string): UseTTSReturn {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
-      }
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = null;
       }
     };
   }, []);

@@ -22,6 +22,7 @@ func RegisterTools(registry *agents.ToolRegistry, apiKey string) {
 	if apiKey == "" {
 		return
 	}
+	log.Infof("Brave Search tool enabled")
 	registry.Register(&searchTool{apiKey: apiKey})
 }
 

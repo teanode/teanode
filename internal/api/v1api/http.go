@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
 )
 
@@ -159,8 +160,7 @@ func (self *v1Api) handleAudioSynthesize(writer http.ResponseWriter, request *ht
 		return web.Error(500, "provider registry not available")
 	}
 
-	synthesizer, _, ok := registry.FindSynthesizer()
-	if !ok {
+	if _, _, ok := registry.FindSynthesizer(); !ok {
 		return web.Error(501, "no audio synthesis provider configured")
 	}
 
@@ -176,11 +176,76 @@ func (self *v1Api) handleAudioSynthesize(writer http.ResponseWriter, request *ht
 		return web.Error(400, "text is required")
 	}
 
+	token := security.NewULID()
+	now := time.Now()
+
+	self.synthesisTokensMutex.Lock()
+	// Lazy cleanup: remove expired tokens.
+	for key, entry := range self.synthesisTokens {
+		if now.After(entry.ExpiresAt) {
+			delete(self.synthesisTokens, key)
+		}
+	}
+	self.synthesisTokens[token] = synthesisToken{
+		Text:      params.Text,
+		Voice:     params.Voice,
+		Speed:     params.Speed,
+		ExpiresAt: now.Add(60 * time.Second),
+	}
+	self.synthesisTokensMutex.Unlock()
+
+	writer.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(writer).Encode(map[string]string{"token": token})
+	return nil
+}
+
+func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.Request) error {
+	if request.Method != http.MethodGet {
+		return web.Error(405, "method not allowed")
+	}
+
+	tokenValue := request.URL.Query().Get("token")
+	if tokenValue == "" {
+		return web.Error(400, "missing token parameter")
+	}
+
+	now := time.Now()
+
+	self.synthesisTokensMutex.Lock()
+	// Lazy cleanup: remove expired tokens.
+	for key, entry := range self.synthesisTokens {
+		if now.After(entry.ExpiresAt) {
+			delete(self.synthesisTokens, key)
+		}
+	}
+	entry, found := self.synthesisTokens[tokenValue]
+	if found {
+		delete(self.synthesisTokens, tokenValue) // Single-use.
+	}
+	self.synthesisTokensMutex.Unlock()
+
+	if !found {
+		return web.Error(404, "token not found or expired")
+	}
+	if now.After(entry.ExpiresAt) {
+		return web.Error(410, "token expired")
+	}
+
+	registry := self.gateway.ProviderRegistry()
+	if registry == nil {
+		return web.Error(500, "provider registry not available")
+	}
+
+	synthesizer, _, ok := registry.FindSynthesizer()
+	if !ok {
+		return web.Error(501, "no audio synthesis provider configured")
+	}
+
 	result, err := synthesizer.Synthesize(request.Context(), providers.SynthesizeRequest{
-		Text:   params.Text,
-		Voice:  params.Voice,
+		Text:   entry.Text,
+		Voice:  entry.Voice,
 		Format: "mp3",
-		Speed:  params.Speed,
+		Speed:  entry.Speed,
 	})
 	if err != nil {
 		return web.Error(500, "synthesis failed: "+err.Error())
@@ -188,7 +253,21 @@ func (self *v1Api) handleAudioSynthesize(writer http.ResponseWriter, request *ht
 	defer result.Audio.Close()
 
 	writer.Header().Set("Content-Type", result.ContentType)
-	io.Copy(writer, result.Audio)
+	if flusher, ok := writer.(http.Flusher); ok {
+		buffer := make([]byte, 4096)
+		for {
+			bytesRead, readError := result.Audio.Read(buffer)
+			if bytesRead > 0 {
+				writer.Write(buffer[:bytesRead])
+				flusher.Flush()
+			}
+			if readError != nil {
+				break
+			}
+		}
+	} else {
+		io.Copy(writer, result.Audio)
+	}
 	return nil
 }
 

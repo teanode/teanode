@@ -8,29 +8,26 @@ These are the highest-impact items to tackle next, roughly in order.
 - [ ] Tool search tool (let agents discover available tools by name/description search)
 - [ ] TeaNode documentation tool (let agents explore TeaNode's own docs, config schema, API surface)
 
-### 2. Robustness & Bug Fixes
-- [ ] Add context timeouts to tool execution (currently unbounded)
+### 2. Robustness & Reliability
+- [ ] Add context timeouts to non-shell tool execution (shell tool already has timeouts)
 - [ ] Add timeout for sync LLM calls (currently no explicit timeout)
-- [ ] Improve HTTP error responses (structured JSON errors instead of plain strings)
 
 ### 3. Security Hardening
-- [ ] Restrict CORS origin (`CheckOrigin` currently allows all)
-- [ ] Avoid passing auth token in WebSocket query params (log leakage risk)
-- [ ] Add rate limiting to API endpoints
+- [ ] Restrict CORS origin (`CheckOrigin` currently allows all in v1api, terminals, browser relay)
+- [ ] Avoid passing auth token in WebSocket query params (log leakage risk; cookie auth exists but query param fallback remains)
+- [ ] Add rate limiting to general API endpoints (auth endpoints already have per-IP rate limiting)
 
 ### 4. Test Coverage Expansion
-- [ ] Audio transcription/synthesis tests (OpenAI Transcribe, Synthesize methods, REST endpoints)
-- [ ] `internal/api/v1api` handler tests (HTTP handlers, SSE streaming, auth middleware)
+- [ ] `internal/api/v1api` handler tests (HTTP handlers, SSE streaming, auth middleware, media endpoints)
 - [ ] WebSocket RPC handler tests (`conversations.send`, `conversations.history`, etc.)
 - [ ] `internal/web` tests (embedded SPA serving, static assets)
 - [ ] CLI command tests in `cmd/` (gateway, terminal flag parsing and wiring)
-- [ ] Config loading tests (file parsing, env variable overrides, defaults)
-- [ ] Frontend tests (no `*.test.ts` / `*.test.tsx` files exist yet)
+- [ ] Audio transcription/synthesis tests (OpenAI Transcribe, Synthesize methods, REST endpoints)
+- [ ] Frontend component and route tests (`useBackend.test.ts` exists; no component/integration tests yet)
 - [ ] Concurrent access / stress tests for parallel requests
 - [ ] Edge-case tests (malformed JSON, truncated SSE streams, oversized payloads)
 
 ### 5. Provider Ecosystem
-- [x] Anthropic Claude provider (native API in `anthropic.go`)
 - [ ] Google Gemini provider
 - [ ] Provider failover (multiple API keys / auth profiles with fallback)
 - [ ] OAuth-based provider auth (Anthropic Pro/Max, OpenAI)
@@ -57,12 +54,18 @@ Core infrastructure packages have high test coverage:
 - `internal/sessions` ~95% (store: create, get, touch, delete, list)
 - `internal/util/security` ~92% (GenerateRandom, GenerateRandomString, HashPassword, VerifyPassword, NewULID)
 - `internal/media` — sharded storage, metadata sidecars, legacy compat, orphan cleanup (27 tests)
+- `internal/configs` — config loading, file parsing, defaults
+- `internal/skills` — registration, tool spec building, loader
+- `internal/agents` — tool registration, runner, context handling
+- `internal/tools/{github,gitlab,google,claudecode,homeassistant,unifiprotect}` — registration and spec tests
+- `web/src/hooks/useBackend.test.ts` — WebSocket RPC client hook
 
 ### Robustness
 - [x] Interrupted tool-call recovery (synthetic tool results for unanswered calls in `runner.go`)
 - [x] Mic button visible during agent run (voice input while running, queued like typed messages)
 
 ### Error Handling
+- [x] Structured JSON error responses across all HTTP handlers (`internal/web/errors.go`)
 - [x] Handle marshal errors in `internal/provider/openai.go`
 - [x] Surface errors on malformed JSON during streaming parse
 
@@ -72,6 +75,8 @@ Core infrastructure packages have high test coverage:
 
 ### Security
 - [x] Forwarder key middleware for secure reverse proxy deployments (X-Forwarded-For trust)
+- [x] Per-IP rate limiting on auth endpoints (token bucket in `auth.go`)
+- [x] Tool policies (allowlist/denylist per agent or group)
 
 ### Features
 - [x] Support multiple LLM providers (provider registry with name-qualified models)
@@ -80,6 +85,7 @@ Core infrastructure packages have high test coverage:
 - [x] Model list caching with 24-hour TTL and disk persistence (auto-invalidated on config reload)
 - [x] Media store for image storage and serving (base64 extraction from tool results, `/api/v1/media`)
 - [x] Version info injection via ldflags (Server header, build metadata)
+- [x] Multimodal / vision support (image attachments in messages, provider content parts, media upload endpoint)
 
 ### Audio / Voice
 - [x] Provider capability interfaces (`AudioTranscriber`, `AudioSynthesizer` in `providers/interface.go`)
@@ -109,6 +115,8 @@ Core infrastructure packages have high test coverage:
 - [x] GitLab tools (projects, issues, merge requests, pipelines, releases)
 - [x] Google tools (calendar, contacts, drive, gmail, tasks)
 - [x] Claude Code tool
+- [x] Home Assistant tools (entity control, state queries, access control, read-only mode)
+- [x] UniFi Protect tools (camera snapshots, events, device info, dual auth)
 
 ### Multi-Agent & Routing
 - [x] Multi-agent support (multiple agent configs with separate workspaces)
@@ -127,9 +135,6 @@ Core infrastructure packages have high test coverage:
 - [x] JSONL-based persistent conversation storage with titles
 - [x] Background conversation summarizer (auto-generate titles and summaries)
 - [x] Configurable summarizer settings (timing, thresholds, char limits via schema)
-
-### Security & Sandboxing
-- [x] Tool policies (allowlist/denylist per agent or group)
 
 ### Automation
 - [x] Cron job scheduler with 5-field expression support (5s tick with deduplication to prevent double-fires)
@@ -172,9 +177,8 @@ Lower priority or longer-term items.
 ### Features
 - [ ] Deepen `/health` endpoint (check workspace availability, provider reachability)
 - [ ] Optimize `workspace_list` tool (caching or streaming instead of full tree walk)
-- [ ] Image understanding / vision tool (pass images to multimodal LLM)
 - [ ] Queue modes for concurrent requests (serial, parallel, drop)
-- [ ] Runtime host/OS/shell info injection into system prompt
+- [ ] Expand runtime info in system prompt (OS, architecture, shell type, hostname — username/timezone/homedir already injected)
 
 ### Security & Sandboxing
 - [ ] Tool approval workflows (user confirms before sensitive tool execution)

@@ -38,6 +38,8 @@ import (
 	"github.com/teanode/teanode/internal/tools/google"
 	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/claudecode"
+	"github.com/teanode/teanode/internal/tools/homeassistant"
+	"github.com/teanode/teanode/internal/tools/unifiprotect"
 	"github.com/teanode/teanode/internal/tools/shell"
 	"github.com/teanode/teanode/internal/tools/workspace"
 	"github.com/teanode/teanode/internal/version"
@@ -186,6 +188,8 @@ func NewGatewayCommand() *cli.Command {
 				github.RegisterTools(tools, configuration.Tools.GitHub)
 				gitlab.RegisterTools(tools, configuration.Tools.GitLab)
 				claudecode.RegisterTools(tools, configuration.Tools.ClaudeCode)
+			homeassistant.RegisterTools(tools, configuration.Tools.HomeAssistant)
+		unifiprotect.RegisterTools(tools, configuration.Tools.UniFiProtect)
 				agents.RegisterConversationTools(tools, conversations, providers, configuration)
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)

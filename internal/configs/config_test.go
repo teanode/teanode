@@ -89,7 +89,7 @@ func TestIsAllowed(t *testing.T) {
 		expected bool
 	}{
 		{"nil list allows everything", "anything", nil, true},
-		{"empty list denies everything", "anything", []string{}, false},
+		{"empty list allows everything (preserves defaults)", "anything", []string{}, true},
 		{"match found", "shell", []string{"browser", "shell", "search"}, true},
 		{"match not found", "delete", []string{"browser", "shell", "search"}, false},
 	}

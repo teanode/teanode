@@ -15,10 +15,11 @@ var defaultServices = []string{"issues", "pulls", "repos"}
 
 // RegisterTools adds GitHub tools to the registry.
 // If the gh binary is not found, no tools are registered.
+// A nil config is treated as "use defaults" — tools are registered
+// as long as the binary is present on PATH.
 func RegisterTools(registry *agents.ToolRegistry, config *configs.GitHubConfig) {
 	binary := "gh"
 	var services []string
-
 	if config != nil {
 		if config.BinaryPath != "" {
 			binary = config.BinaryPath
@@ -29,12 +30,12 @@ func RegisterTools(registry *agents.ToolRegistry, config *configs.GitHubConfig) 
 	// Check that the binary exists on PATH.
 	resolvedPath, err := exec.LookPath(binary)
 	if err != nil {
-		log.Debugf("gh binary not found (%s), skipping GitHub tools", binary)
+		log.Infof("GitHub tools skipped: %s binary not found", binary)
 		return
 	}
 	log.Infof("GitHub tools enabled (binary: %s)", resolvedPath)
 
-	if services == nil {
+	if len(services) == 0 {
 		services = defaultServices
 	}
 

@@ -209,6 +209,125 @@
               "default": 300
             }
           }
+        },
+        "homeAssistant": {
+          "type": "object",
+          "title": "Home Assistant",
+          "description": "Home Assistant smart home integration.",
+          "properties": {
+            "baseUrl": {
+              "type": "string",
+              "title": "Base URL",
+              "description": "Home Assistant URL (e.g. http://homeassistant.local:8123).",
+              "x-placeholder": "http://homeassistant.local:8123"
+            },
+            "token": {
+              "type": "string",
+              "title": "Token",
+              "description": "Long-lived access token from your Home Assistant profile.",
+              "format": "password"
+            },
+            "readOnly": {
+              "type": "boolean",
+              "title": "Read-only",
+              "description": "If true, only allow read actions (no control/scene triggers).",
+              "default": false
+            },
+            "allowedDomains": {
+              "type": "array",
+              "title": "Allowed Domains",
+              "description": "Optional list of Home Assistant domains the tool may access (e.g. light, switch, climate). Empty = safe defaults.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "blockedDomains": {
+              "type": "array",
+              "title": "Blocked Domains",
+              "description": "Domains that are always blocked (e.g. lock, alarm_control_panel).",
+              "items": {
+                "type": "string"
+              }
+            },
+            "allowedEntities": {
+              "type": "array",
+              "title": "Allowed Entities",
+              "description": "Optional explicit entity_id allowlist. Empty = all entities in allowed domains.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "timeoutSeconds": {
+              "type": "number",
+              "title": "Timeout (seconds)",
+              "description": "Per-request timeout for Home Assistant API calls.",
+              "default": 10
+            }
+          }
+        },
+        "unifiProtect": {
+          "type": "object",
+          "title": "UniFi Protect",
+          "description": "UniFi Protect camera system integration.",
+          "properties": {
+            "baseUrl": {
+              "type": "string",
+              "title": "Base URL",
+              "description": "UniFi Protect URL (e.g. https://protect.local).",
+              "x-placeholder": "https://protect.local"
+            },
+            "apiKey": {
+              "type": "string",
+              "title": "API Key",
+              "description": "API key for X-API-Key authentication.",
+              "format": "password"
+            },
+            "username": {
+              "type": "string",
+              "title": "Username",
+              "description": "Username for fallback authentication (if no API key)."
+            },
+            "password": {
+              "type": "string",
+              "title": "Password",
+              "description": "Password for fallback authentication (if no API key).",
+              "format": "password"
+            },
+            "verifyTls": {
+              "type": "boolean",
+              "title": "Verify TLS",
+              "description": "Verify TLS certificates when connecting to Protect.",
+              "default": false
+            },
+            "readOnly": {
+              "type": "boolean",
+              "title": "Read-only",
+              "description": "If true, only allow read actions (no camera setting changes).",
+              "default": false
+            },
+            "allowedCameras": {
+              "type": "array",
+              "title": "Allowed Cameras",
+              "description": "Optional camera name/ID allowlist. Empty = all cameras.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "allowDangerousActions": {
+              "type": "array",
+              "title": "Allowed Dangerous Actions",
+              "description": "Write actions that are explicitly allowed (e.g. set_status_light, set_recording_mode, set_privacy_mode).",
+              "items": {
+                "type": "string"
+              }
+            },
+            "timeoutSeconds": {
+              "type": "number",
+              "title": "Timeout (seconds)",
+              "description": "Per-request timeout for UniFi Protect API calls.",
+              "default": 15
+            }
+          }
         }
       }
     },

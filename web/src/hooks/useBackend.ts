@@ -368,10 +368,22 @@ export function useBackend() {
       if (conversationEvent.state === 'delta' || conversationEvent.state === 'tool_call') {
         currentRunIdRef.current = conversationEvent.runId;
         activeRunsRef.current.set(conversationEvent.conversationId, conversationEvent.runId);
-        runQueueRef.current.push(conversationEvent.runId);
+        if (!runQueueRef.current.includes(conversationEvent.runId)) {
+          runQueueRef.current.push(conversationEvent.runId);
+        }
         setIsRunning(true);
         setStatus('thinking...');
-        setMessages(prev => [...prev, { id: nextMessageId(), type: 'assistant', content: '', runId: conversationEvent.runId || undefined }]);
+        setMessages(prev => {
+          // If sendMessage already created an untagged assistant placeholder,
+          // tag it with the runId instead of creating a duplicate.
+          const lastMessage = prev[prev.length - 1];
+          if (lastMessage && lastMessage.type === 'assistant' && !lastMessage.content && !lastMessage.runId) {
+            return prev.map((message, index) =>
+              index === prev.length - 1 ? { ...message, runId: conversationEvent.runId } : message
+            );
+          }
+          return [...prev, { id: nextMessageId(), type: 'assistant', content: '', runId: conversationEvent.runId || undefined }];
+        });
       }
     }
 
@@ -427,6 +439,12 @@ export function useBackend() {
       setIsStreaming(true);
     } else if (conversationEvent.state === 'tool_call') {
       afterToolCallsRef.current = true;
+      // Commit accumulated stream text to the assistant message before clearing
+      // streaming state.  Without this, the text disappears when isStreaming
+      // becomes false because content is still empty.
+      const accumulatedText = streamTextRef.current;
+      streamTextRef.current = '';
+      setStreamText('');
       setMessages((prev) => {
         const updated = [...prev];
         const assistantIndex = findRunAssistantIndex(updated, eventRunId);
@@ -437,11 +455,23 @@ export function useBackend() {
           toolName: conversationEvent.toolName,
           timestamp: Date.now(),
         };
-        // Insert tool invoke before the run's assistant (streaming) message
-        updated.splice(assistantIndex, 0, toolMsg);
+        if (accumulatedText && assistantIndex >= 0 && updated[assistantIndex].type === 'assistant') {
+          // Commit pre-tool text, place tool after it, and add a new
+          // empty assistant as the streaming tail for post-tool content.
+          updated[assistantIndex] = {
+            ...updated[assistantIndex],
+            content: accumulatedText,
+          };
+          updated.splice(assistantIndex + 1, 0, toolMsg);
+          const newTail: DisplayMessage = { id: nextMessageId(), type: 'assistant', content: '', runId: eventRunId || undefined };
+          updated.splice(assistantIndex + 2, 0, newTail);
+        } else {
+          // No pre-tool text — insert tool before the empty assistant tail.
+          updated.splice(assistantIndex, 0, toolMsg);
+        }
         return updated;
       });
-      setIsStreaming(false); // FIX: clear streaming so thinking spinner shows during tool execution
+      setIsStreaming(false);
       setToolActivity(conversationEvent.toolName || null);
       setStatus(`calling ${conversationEvent.toolName}...`);
     } else if (conversationEvent.state === 'tool_result') {
@@ -464,11 +494,23 @@ export function useBackend() {
     } else if (conversationEvent.state === 'final') {
       if (conversationEvent.conversationId) touchConversation(conversationEvent.conversationId);
       setToolActivity(null);
-      const finalText = conversationEvent.text || streamTextRef.current;
       const finalTimestamp = Date.now();
+      // Capture stream text before finishCurrentRun clears it — the
+      // setMessages updater runs asynchronously (React batching) so reading
+      // the ref inside the updater would see the cleared value.
+      const capturedStreamText = streamTextRef.current;
       setMessages((prev) => {
         const updated = [...prev];
         const assistantIndex = findRunAssistantIndex(updated, eventRunId);
+        // When tool calls split the response into multiple assistant messages,
+        // use only the current segment's stream text to avoid duplicating
+        // pre-tool content already committed to earlier messages.
+        const hasToolSplits = updated.some((message, index) =>
+          index !== assistantIndex && message.type === 'assistant' && message.runId === eventRunId
+        );
+        const finalText = hasToolSplits
+          ? capturedStreamText
+          : (conversationEvent.text || capturedStreamText);
         if (assistantIndex >= 0 && updated[assistantIndex].type === 'assistant') {
           if (finalText) {
             updated[assistantIndex] = {
@@ -476,8 +518,15 @@ export function useBackend() {
               content: finalText,
               timestamp: finalTimestamp,
             };
+          } else if (updated[assistantIndex].content) {
+            // Assistant already has committed content from an earlier
+            // tool_call — preserve it instead of removing the message.
+            updated[assistantIndex] = {
+              ...updated[assistantIndex],
+              timestamp: finalTimestamp,
+            };
           } else {
-            // Remove empty streaming element
+            // Remove truly empty placeholder
             updated.splice(assistantIndex, 1);
           }
         }
@@ -500,14 +549,15 @@ export function useBackend() {
       finishCurrentRun();
     } else if (conversationEvent.state === 'error') {
       setToolActivity(null);
+      const capturedStreamText = streamTextRef.current;
       setMessages((prev) => {
         const updated = [...prev];
         const assistantIndex = findRunAssistantIndex(updated, eventRunId);
         if (assistantIndex >= 0 && updated[assistantIndex].type === 'assistant') {
-          if (streamTextRef.current) {
+          if (capturedStreamText) {
             updated[assistantIndex] = {
               ...updated[assistantIndex],
-              content: streamTextRef.current,
+              content: capturedStreamText,
             };
           } else {
             updated[assistantIndex] = {
@@ -521,14 +571,15 @@ export function useBackend() {
       finishCurrentRun();
     } else if (conversationEvent.state === 'aborted') {
       setToolActivity(null);
+      const capturedStreamText = streamTextRef.current;
       setMessages((prev) => {
         const updated = [...prev];
         const assistantIndex = findRunAssistantIndex(updated, eventRunId);
         if (assistantIndex >= 0 && updated[assistantIndex].type === 'assistant') {
-          if (streamTextRef.current) {
+          if (capturedStreamText) {
             updated[assistantIndex] = {
               ...updated[assistantIndex],
-              content: streamTextRef.current,
+              content: capturedStreamText,
             };
           } else {
             updated[assistantIndex] = {
@@ -826,7 +877,9 @@ export function useBackend() {
               message.id === assistantMessageId ? { ...message, runId: res.runId } : message
             )
           );
-          runQueueRef.current.push(res.runId);
+          if (!runQueueRef.current.includes(res.runId)) {
+            runQueueRef.current.push(res.runId);
+          }
           if (!currentRunIdRef.current) {
             currentRunIdRef.current = res.runId;
           }

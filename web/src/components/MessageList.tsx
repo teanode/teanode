@@ -107,6 +107,19 @@ export default function MessageList({
     [messages, t, showToolCalls, showTokenUsage],
   );
 
+  // Only the last assistant message for the active run should show streaming
+  // text.  Earlier assistant messages (from before tool call boundaries) have
+  // their content committed and must not be overwritten by the current stream.
+  const lastStreamingAssistantId = useMemo(() => {
+    if (!activeRunId || !isStreaming) return null;
+    for (let index = messages.length - 1; index >= 0; index--) {
+      if (messages[index].type === 'assistant' && messages[index].runId === activeRunId) {
+        return messages[index].id;
+      }
+    }
+    return null;
+  }, [messages, activeRunId, isStreaming]);
+
   const itemsLengthRef = useRef(items.length);
   itemsLengthRef.current = items.length;
 
@@ -179,7 +192,7 @@ export default function MessageList({
 
     const message = item.message;
     const isActiveRun = message.runId === activeRunId;
-    const isStreamingMessage = isActiveRun && isStreaming;
+    const isStreamingMessage = message.id === lastStreamingAssistantId;
 
     if (message.type === 'user') {
       return (
@@ -261,7 +274,7 @@ export default function MessageList({
     }
 
     return <div />;
-  }, [activeRunId, isStreaming, isRunning, streamText, toolActivity, t, voiceEnabled, speakingMessageId, onSpeak, onStopSpeaking]);
+  }, [lastStreamingAssistantId, activeRunId, isStreaming, isRunning, streamText, toolActivity, t, voiceEnabled, speakingMessageId, onSpeak, onStopSpeaking]);
 
   const computeItemKey = useCallback((_index: number, item: ListItem) => {
     return item.kind === 'separator' ? item.key : item.message.id;

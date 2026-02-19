@@ -223,27 +223,47 @@ export default function ConversationsAllPage() {
             {selectMode ? (
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                 {singleSelectedConversation && (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<RadioButtonUncheckedIcon sx={{ fontSize: 14 }} />}
-                    onClick={handleSetActive}
-                    sx={{ fontSize: '12px', textTransform: 'none' }}
-                  >
-                    {t('conversations.setActive')}
-                  </Button>
+                  <Tooltip title={t('conversations.setActive')}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<RadioButtonUncheckedIcon sx={{ fontSize: 14 }} />}
+                      onClick={handleSetActive}
+                      sx={{
+                        fontSize: '12px',
+                        textTransform: 'none',
+                        minWidth: { xs: 'auto', sm: undefined },
+                        px: { xs: 1, sm: 1.5 },
+                        '& .MuiButton-startIcon': { mr: { xs: 0, sm: 0.5 } },
+                      }}
+                    >
+                      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                        {t('conversations.setActive')}
+                      </Box>
+                    </Button>
+                  </Tooltip>
                 )}
                 {selected.size > 0 && (
-                  <Button
-                    size="small"
-                    color="error"
-                    variant="outlined"
-                    startIcon={<DeleteIcon sx={{ fontSize: 14 }} />}
-                    onClick={() => setConfirmDeleteOpen(true)}
-                    sx={{ fontSize: '12px', textTransform: 'none' }}
-                  >
-                    {t('conversations.deleteSelected', { count: selected.size })}
-                  </Button>
+                  <Tooltip title={t('conversations.deleteSelected', { count: selected.size })}>
+                    <Button
+                      size="small"
+                      color="error"
+                      variant="outlined"
+                      startIcon={<DeleteIcon sx={{ fontSize: 14 }} />}
+                      onClick={() => setConfirmDeleteOpen(true)}
+                      sx={{
+                        fontSize: '12px',
+                        textTransform: 'none',
+                        minWidth: { xs: 'auto', sm: undefined },
+                        px: { xs: 1, sm: 1.5 },
+                        '& .MuiButton-startIcon': { mr: { xs: 0, sm: 0.5 } },
+                      }}
+                    >
+                      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                        {t('conversations.deleteSelected', { count: selected.size })}
+                      </Box>
+                    </Button>
+                  </Tooltip>
                 )}
                 <Button
                   size="small"
