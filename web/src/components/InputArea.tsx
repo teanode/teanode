@@ -127,7 +127,7 @@ export default function InputArea({
     if (isRecording) setVoiceState('recording');
   }, [isRecording]);
 
-  const showMic = voiceEnabled && micSupported && !isRunning && !hasText && voiceState === 'idle';
+  const showMic = voiceEnabled && micSupported && !hasText && voiceState === 'idle';
 
   // Restore draft when draftKey changes (conversation switch).
   useEffect(() => {

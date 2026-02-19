@@ -587,6 +587,65 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 		messages = append(messages, chatMessage)
 	}
 
+	// Fix interrupted tool calls: if an assistant message has tool_calls but
+	// some or all lack corresponding tool result messages, the LLM API will
+	// reject the request. Append synthetic tool results for any unanswered calls.
+	messages = fixInterruptedToolCalls(messages)
+
+	return messages
+}
+
+// fixInterruptedToolCalls scans for assistant messages with tool_calls whose
+// IDs have no corresponding tool result message following them. For each
+// missing result, a synthetic tool message is appended so the LLM API does
+// not reject the request.
+func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatMessage {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg.Role != "assistant" || len(msg.ToolCalls) == 0 {
+			continue
+		}
+
+		// Collect tool_call IDs that have results after this assistant message.
+		answered := make(map[string]bool)
+		for j := i + 1; j < len(messages); j++ {
+			if messages[j].Role == "tool" && messages[j].ToolCallID != "" {
+				answered[messages[j].ToolCallID] = true
+			}
+			// Stop at the next assistant or user message — tool results only
+			// apply between this assistant message and the next turn.
+			if messages[j].Role == "assistant" || messages[j].Role == "user" {
+				break
+			}
+		}
+
+		// Append synthetic results for any unanswered tool calls.
+		var synthetic []providers.ChatMessage
+		for _, tc := range msg.ToolCalls {
+			if !answered[tc.ID] {
+				synthetic = append(synthetic, providers.ChatMessage{
+					Role:       "tool",
+					Content:    "Tool call was interrupted and did not complete.",
+					ToolCallID: tc.ID,
+					Name:       tc.Function.Name,
+				})
+			}
+		}
+
+		if len(synthetic) > 0 {
+			// Insert synthetic results right after the existing tool results
+			// for this assistant message (or right after the assistant message).
+			insertAt := i + 1
+			for insertAt < len(messages) && messages[insertAt].Role == "tool" {
+				insertAt++
+			}
+			result := make([]providers.ChatMessage, 0, len(messages)+len(synthetic))
+			result = append(result, messages[:insertAt]...)
+			result = append(result, synthetic...)
+			result = append(result, messages[insertAt:]...)
+			messages = result
+		}
+	}
 	return messages
 }
 
