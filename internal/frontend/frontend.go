@@ -2,15 +2,8 @@
 package frontend
 
 import (
-	"embed"
-	"io/fs"
 	"net/http"
-
-	"github.com/gorilla/mux"
 )
-
-//go:embed static
-var staticFiles embed.FS
 
 // frontendComponent serves the embedded SPA frontend.
 type frontendComponent struct{}
@@ -19,12 +12,6 @@ type frontendComponent struct{}
 // with SPA history-API fallback.
 func New() *frontendComponent {
 	return &frontendComponent{}
-}
-
-func (self *frontendComponent) AddRoutes(router *mux.Router) error {
-	staticSub, _ := fs.Sub(staticFiles, "static")
-	router.PathPrefix("/").Handler(frontendHandler(http.FS(staticSub)))
-	return nil
 }
 
 // frontendHandler serves static files from the given filesystem, falling back to
