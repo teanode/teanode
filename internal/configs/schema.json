@@ -69,6 +69,12 @@
             "lan": "LAN (all interfaces)"
           }
         },
+        "publicUrl": {
+          "type": "string",
+          "title": "Public URL",
+          "description": "External URL (e.g. https://myserver.com) for LLM providers to fetch media. Enables URL-based image references instead of base64.",
+          "x-placeholder": "https://myserver.com"
+        },
         "forwarderKey": {
           "type": "string",
           "title": "Forwarder Key",

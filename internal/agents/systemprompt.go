@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"text/template"
 	"time"
@@ -25,6 +26,8 @@ type systemPromptData struct {
 	Version       string
 	DateTime      string
 	Timezone      string
+	Username      string
+	HomeDirectory string
 	Today         string
 	Yesterday     string
 	AgentContent  string
@@ -46,14 +49,22 @@ func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceD
 	today := now.Format("2006-01-02")
 	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
 
+	homeDir, _ := os.UserHomeDir()
+	username := ""
+	if u, err := user.Current(); err == nil {
+		username = u.Username
+	}
+
 	data := systemPromptData{
-		IdentityLine: identityLine,
-		Version:      version.Version(),
-		DateTime:     now.Format("2006-01-02 15:04:05"),
-		Timezone:     now.Location().String(),
-		Today:        today,
-		Yesterday:    yesterday,
-		SkillPrompts: skillPrompts,
+		IdentityLine:  identityLine,
+		Version:       version.Version(),
+		DateTime:      now.Format("2006-01-02 15:04:05"),
+		Timezone:      now.Location().String(),
+		Username:      username,
+		HomeDirectory: homeDir,
+		Today:         today,
+		Yesterday:     yesterday,
+		SkillPrompts:  skillPrompts,
 	}
 
 	if workspaceDirectory != "" {

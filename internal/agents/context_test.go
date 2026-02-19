@@ -79,20 +79,20 @@ func TestTruncateOldToolResults(t *testing.T) {
 	result := truncateOldToolResults(messages, configs.DefaultAgentLimits.MinKeepMessages, configs.DefaultAgentLimits.MaxToolResultChars)
 
 	// The old tool result (index 3) should be truncated
-	if len(result[3].Content) >= 20000 {
-		t.Errorf("old tool result was not truncated: len=%d", len(result[3].Content))
+	if len(result[3].ContentText()) >= 20000 {
+		t.Errorf("old tool result was not truncated: len=%d", len(result[3].ContentText()))
 	}
-	if !strings.HasSuffix(result[3].Content, "... (truncated)") {
+	if !strings.HasSuffix(result[3].ContentText(), "... (truncated)") {
 		t.Error("truncated content should end with '... (truncated)'")
 	}
-	if len(result[3].Content) > configs.DefaultAgentLimits.MaxToolResultChars+20 {
-		t.Errorf("truncated content too long: %d", len(result[3].Content))
+	if len(result[3].ContentText()) > configs.DefaultAgentLimits.MaxToolResultChars+20 {
+		t.Errorf("truncated content too long: %d", len(result[3].ContentText()))
 	}
 
 	// Recent messages should be preserved
 	lastIdx := len(result) - 1
-	if result[lastIdx].Content != "recent message" {
-		t.Errorf("recent message was modified: %q", result[lastIdx].Content)
+	if result[lastIdx].ContentText() != "recent message" {
+		t.Errorf("recent message was modified: %q", result[lastIdx].ContentText())
 	}
 }
 
@@ -106,7 +106,7 @@ func TestTruncateOldToolResultsShortHistory(t *testing.T) {
 	result := truncateOldToolResults(messages, configs.DefaultAgentLimits.MinKeepMessages, configs.DefaultAgentLimits.MaxToolResultChars)
 
 	// With fewer than minKeepMessages, nothing should be truncated
-	if result[2].Content != messages[2].Content {
+	if result[2].ContentText() != messages[2].ContentText() {
 		t.Error("short history should not be truncated")
 	}
 }

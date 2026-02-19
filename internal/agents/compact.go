@@ -65,10 +65,10 @@ func CompactConversation(
 
 	var summaryText string
 	response, err := provider.ChatCompletion(ctx, summaryRequest)
-	if err != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.Content) == "" {
+	if err != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.ContentText()) == "" {
 		summaryText = fmt.Sprintf("[Earlier conversation with %d messages was dropped due to compaction]", len(messages))
 	} else {
-		summaryText = strings.TrimSpace(response.Choices[0].Message.Content)
+		summaryText = strings.TrimSpace(response.Choices[0].Message.ContentText())
 	}
 
 	// Persist summary to conversation.

@@ -324,6 +324,9 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	if parameters.Origin != "" {
 		userMessagePayload["origin"] = parameters.Origin
 	}
+	if len(parameters.Attachments) > 0 {
+		userMessagePayload["attachments"] = parameters.Attachments
+	}
 	self.Broadcast(EventTypeConversation, userMessagePayload)
 	self.Broadcast(EventTypeConversations, nil)
 
@@ -360,6 +363,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			ConversationID: conversationId,
 			Message:        parameters.Message,
 			Model:          parameters.Model,
+			Attachments:    parameters.Attachments,
 		}, mergedCallbacks)
 
 		if err != nil {
@@ -599,9 +603,19 @@ func (self *gateway) AuthMiddleware() web.Middleware {
 				return
 			}
 
-			// 4. Media endpoints: always allow.
-			if strings.HasPrefix(path, "/api/v1/media/") {
+			// 4. Media GET endpoints: always allow (LLM providers fetch images).
+			if strings.HasPrefix(path, "/api/v1/media/") && request.Method == "GET" {
 				next.ServeHTTP(writer, request)
+				return
+			}
+
+			// 4b. Media upload: requires session or bearer auth.
+			if path == "/api/v1/media/upload" {
+				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
+					next.ServeHTTP(writer, request)
+					return
+				}
+				web.WriteError(writer, web.ErrUnauthorized)
 				return
 			}
 

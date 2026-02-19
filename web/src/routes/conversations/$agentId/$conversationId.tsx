@@ -3,6 +3,7 @@ import { useParams } from '@tanstack/react-router';
 import { useAppContext } from '../../../context';
 import MessageList from '../../../components/MessageList';
 import InputArea from '../../../components/InputArea';
+import type { Attachment } from '../../../types';
 
 /** /conversations/$agentId/$conversationId — active conversation. */
 export default function ConversationsConversationPage() {
@@ -26,8 +27,8 @@ export default function ConversationsConversationPage() {
   }, [conversationId, agentId, backend.conversationId, backend.switchConversation]);
 
   const handleSend = useCallback(
-    (text: string) => {
-      backend.sendMessage(text);
+    (text: string, attachments?: Attachment[]) => {
+      backend.sendMessage(text, undefined, attachments);
     },
     [backend.sendMessage]
   );

@@ -7,6 +7,7 @@ import (
 
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/sessions"
@@ -130,11 +131,12 @@ func (self *webSocketConnection) handleConversationsSetActive(frame requestFrame
 
 // conversationSendParameters are the parameters for conversations.send.
 type conversationSendParameters struct {
-	ConversationID string `json:"conversationId"`
-	Message        string `json:"message"`
-	Model          string `json:"model,omitempty"`
-	AgentID        string `json:"agentId,omitempty"`
-	OriginID       string `json:"originId,omitempty"`
+	ConversationID string                       `json:"conversationId"`
+	Message        string                       `json:"message"`
+	Model          string                       `json:"model,omitempty"`
+	AgentID        string                       `json:"agentId,omitempty"`
+	OriginID       string                       `json:"originId,omitempty"`
+	Attachments    []conversations.Attachment    `json:"attachments,omitempty"`
 }
 
 // handleConversationsSend: send user message, trigger agent run via gateway.
@@ -163,6 +165,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 		Model:          parameters.Model,
 		OriginID:       parameters.OriginID,
 		Origin:         "webui",
+		Attachments:    parameters.Attachments,
 	}, nil)
 
 	self.sendResponse(frame.ID, map[string]interface{}{

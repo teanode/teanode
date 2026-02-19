@@ -84,6 +84,7 @@ type RunParams struct {
 	ConversationID string
 	Message        string
 	Model          string // override config default
+	Attachments    []conversations.Attachment
 }
 
 // RunResult holds the result of a completed agent run.
@@ -215,7 +216,12 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, providerRegistry.DefaultProvider())
 
 	// 2. Append user message to conversation (sets provider/model on new or backfills existing).
-	userMessage := conversations.NewTextMessage("user", params.Message, now)
+	var userMessage conversations.Message
+	if len(params.Attachments) > 0 {
+		userMessage = conversations.NewMessageWithAttachments("user", params.Message, params.Attachments, now)
+	} else {
+		userMessage = conversations.NewTextMessage("user", params.Message, now)
+	}
 	if err := self.Conversations.Append(params.ConversationID, userMessage,
 		conversations.WithProviderAndModel(resolvedProvider, qualifiedModel)); err != nil {
 		return nil, fmt.Errorf("saving user message: %w", err)
@@ -545,8 +551,23 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 
 	for _, message := range history[startIndex:] {
 		chatMessage := providers.ChatMessage{
-			Role:    message.Role,
-			Content: message.ContentText(),
+			Role: message.Role,
+		}
+
+		// Check for multimodal content (attachments).
+		blocks := message.ContentBlocks()
+		hasAttachments := false
+		for _, block := range blocks {
+			if block.Type == "attachment" {
+				hasAttachments = true
+				break
+			}
+		}
+
+		if hasAttachments && message.Role == "user" {
+			chatMessage.Content = self.buildMultimodalContent(blocks)
+		} else {
+			chatMessage.Content = message.ContentText()
 		}
 
 		// Attach tool calls on assistant messages.
@@ -567,4 +588,60 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 	}
 
 	return messages
+}
+
+// buildMultimodalContent converts conversation ContentBlocks into provider ContentParts.
+// Image attachments are sent as image_url parts with base64 data URIs.
+// Non-image attachments are included as text references.
+func (self *Runner) buildMultimodalContent(blocks []conversations.ContentBlock) []providers.ContentPart {
+	var parts []providers.ContentPart
+
+	for _, block := range blocks {
+		switch block.Type {
+		case "text":
+			if block.Text != "" {
+				parts = append(parts, providers.ContentPart{Type: "text", Text: block.Text})
+			}
+		case "attachment":
+			if media.IsImageFormat(block.Format) {
+				imageURL := self.resolveMediaURL(block.MediaID, block.Format)
+				if imageURL != "" {
+					parts = append(parts, providers.ContentPart{
+						Type:     "image_url",
+						ImageURL: &providers.ImageURLPart{URL: imageURL},
+					})
+				}
+			} else {
+				// Non-image: include as text reference.
+				label := block.Filename
+				if label == "" {
+					label = block.MediaID
+				}
+				parts = append(parts, providers.ContentPart{
+					Type: "text",
+					Text: fmt.Sprintf("[Attached file: %s (%s)]", label, block.Format),
+				})
+			}
+		}
+	}
+
+	if len(parts) == 0 {
+		parts = append(parts, providers.ContentPart{Type: "text", Text: ""})
+	}
+	return parts
+}
+
+// resolveMediaURL returns a base64 data URI for a media file.
+func (self *Runner) resolveMediaURL(mediaId, format string) string {
+	if self.MediaStore == nil {
+		return ""
+	}
+	data, metadata, err := self.MediaStore.Load(mediaId)
+	if err != nil {
+		log.Debugf("failed to load media %s for multimodal: %v", mediaId, err)
+		return ""
+	}
+	mimeType := media.MimeType(metadata.Format)
+	encoded := base64.StdEncoding.EncodeToString(data)
+	return "data:" + mimeType + ";base64," + encoded
 }

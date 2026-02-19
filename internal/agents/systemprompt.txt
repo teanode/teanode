@@ -3,6 +3,12 @@
 TeaNode version: {{.Version}}
 Current date and time: {{.DateTime}}
 Timezone: {{.Timezone}}
+{{- if .Username}}
+Local user: {{.Username}}
+{{- end}}
+{{- if .HomeDirectory}}
+Home directory: {{.HomeDirectory}}
+{{- end}}
 {{- if .AgentContent}}
 
 ## Operating Instructions (AGENT.md)

@@ -61,6 +61,7 @@ export interface ConversationSendParams {
   message: string;
   model?: string;
   agentId?: string;
+  attachments?: Attachment[];
 }
 
 export interface ConversationSendResult {
@@ -169,6 +170,7 @@ export interface ConversationEvent {
   stopReason?: string;
   originId?: string;
   contextWindow?: number;
+  attachments?: Attachment[];
 }
 
 // Model types
@@ -325,6 +327,14 @@ export interface SessionsListResult {
   currentSessionId: string;
 }
 
+// Attachment types
+
+export interface Attachment {
+  mediaId: string;
+  format: string;
+  filename: string;
+}
+
 // Display message types for the UI
 
 export type DisplayMessageType =
@@ -342,4 +352,5 @@ export interface DisplayMessage {
   usage?: Usage;
   timestamp?: number; // ms since epoch
   runId?: string;     // associates message with a run for queuing
+  attachments?: Attachment[];
 }

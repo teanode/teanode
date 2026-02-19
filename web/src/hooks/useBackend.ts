@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import type {
+  Attachment,
   Conversation,
   DisplayMessage,
   ConversationEvent,
@@ -29,14 +30,50 @@ function nextMessageId(): string {
   return `msg-${++messageIdCounter}`;
 }
 
+interface ExtractedContent {
+  text: string;
+  attachments?: Attachment[];
+}
+
 function extractContent(message: Message): string {
-  if (!message.content) return '';
-  if (typeof message.content === 'string') return message.content;
-  try {
-    return JSON.parse(message.content as string);
-  } catch {
-    return String(message.content);
+  return extractContentWithAttachments(message).text;
+}
+
+function extractFromBlocks(blocks: { type: string; text?: string; mediaId?: string; format?: string; filename?: string }[]): ExtractedContent {
+  let text = '';
+  const attachments: Attachment[] = [];
+  for (const block of blocks) {
+    if (block.type === 'text') text += block.text || '';
+    else if (block.type === 'attachment') {
+      attachments.push({ mediaId: block.mediaId!, format: block.format!, filename: block.filename! });
+    }
   }
+  return { text, attachments: attachments.length > 0 ? attachments : undefined };
+}
+
+function extractContentWithAttachments(message: Message): ExtractedContent {
+  if (!message.content) return { text: '' };
+
+  // Content may already be a parsed array (json.RawMessage deserializes to native types).
+  if (Array.isArray(message.content) && message.content.length > 0 && message.content[0].type) {
+    return extractFromBlocks(message.content);
+  }
+
+  if (typeof message.content === 'string') {
+    // Try parsing as JSON (could be a JSON string or array of content blocks).
+    try {
+      const parsed = JSON.parse(message.content);
+      if (typeof parsed === 'string') return { text: parsed };
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].type) {
+        return extractFromBlocks(parsed);
+      }
+      return { text: String(parsed) };
+    } catch {
+      return { text: message.content };
+    }
+  }
+
+  return { text: String(message.content) };
 }
 
 function parseToolCalls(raw: ToolCall[] | string | undefined): ToolCall[] {
@@ -91,10 +128,11 @@ function findRunAssistantIndex(messages: DisplayMessage[], runId: string | null)
 function convertHistory(msgs: Message[], models: ModelInfo[]): DisplayMessage[] {
   const displayMessages: DisplayMessage[] = [];
   for (const message of msgs) {
-    const content = extractContent(message);
+    const extracted = extractContentWithAttachments(message);
+    const content = extracted.text;
     const timestamp = message.timestamp;
     if (message.role === 'user') {
-      displayMessages.push({ id: nextMessageId(), type: 'user', content, timestamp });
+      displayMessages.push({ id: nextMessageId(), type: 'user', content, timestamp, attachments: extracted.attachments });
     } else if (message.role === 'assistant') {
       const toolCalls = parseToolCalls(message.toolCalls);
       if (toolCalls.length > 0) {
@@ -309,7 +347,7 @@ export function useBackend() {
           const assistantMessageId = nextMessageId();
           setMessages(prev => [
             ...prev,
-            { id: nextMessageId(), type: 'user', content: conversationEvent.text || '', timestamp: Date.now() },
+            { id: nextMessageId(), type: 'user', content: conversationEvent.text || '', timestamp: Date.now(), attachments: conversationEvent.attachments },
             { id: assistantMessageId, type: 'assistant', content: '', runId: conversationEvent.runId || undefined },
           ]);
           streamTextRef.current = '';
@@ -737,15 +775,15 @@ export function useBackend() {
   );
 
   const sendMessage = useCallback(
-    (text: string, model?: string) => {
-      if (!text.trim()) return;
+    (text: string, model?: string, attachments?: Attachment[]) => {
+      if (!text.trim() && (!attachments || attachments.length === 0)) return;
       // Allow sending while running — backend queues per-conversation
 
       const now = Date.now();
       const assistantMessageId = nextMessageId();
       setMessages((prev) => [
         ...prev,
-        { id: nextMessageId(), type: 'user', content: text, timestamp: now },
+        { id: nextMessageId(), type: 'user', content: text, timestamp: now, attachments },
         { id: assistantMessageId, type: 'assistant', content: '', timestamp: now },
       ]);
 
@@ -763,7 +801,7 @@ export function useBackend() {
       // Don't set isStreaming true — let the delta event set it
       setIsStreaming(false);
 
-      const rpcParams: Record<string, string> = {
+      const rpcParams: Record<string, unknown> = {
         conversationId: conversationIdRef.current || '',
         message: text,
         originId,
@@ -772,6 +810,7 @@ export function useBackend() {
       const resolvedModel = conversationModelRef.current || model;
       if (resolvedModel) rpcParams.model = resolvedModel;
       if (currentAgentIdRef.current) rpcParams.agentId = currentAgentIdRef.current;
+      if (attachments && attachments.length > 0) rpcParams.attachments = attachments;
 
       sendRpc<ConversationSendResult>('conversations.send', rpcParams)
         .then((res) => {

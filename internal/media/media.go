@@ -63,8 +63,68 @@ func MimeType(format string) string {
 		return "image/gif"
 	case "webp":
 		return "image/webp"
+	case "pdf":
+		return "application/pdf"
+	case "mp4":
+		return "video/mp4"
+	case "webm":
+		return "video/webm"
+	case "mov":
+		return "video/quicktime"
+	case "mp3":
+		return "audio/mpeg"
+	case "wav":
+		return "audio/wav"
+	case "ogg":
+		return "audio/ogg"
+	case "svg":
+		return "image/svg+xml"
+	case "txt":
+		return "text/plain"
+	case "json":
+		return "application/json"
+	case "csv":
+		return "text/csv"
 	default:
 		return "application/octet-stream"
+	}
+}
+
+// FormatFromMimeType returns a short format string from a MIME type.
+func FormatFromMimeType(mimeType string) string {
+	switch strings.ToLower(mimeType) {
+	case "image/png":
+		return "png"
+	case "image/jpeg":
+		return "jpeg"
+	case "image/gif":
+		return "gif"
+	case "image/webp":
+		return "webp"
+	case "image/svg+xml":
+		return "svg"
+	case "application/pdf":
+		return "pdf"
+	case "video/mp4":
+		return "mp4"
+	case "video/webm":
+		return "webm"
+	case "video/quicktime":
+		return "mov"
+	case "audio/mpeg":
+		return "mp3"
+	case "audio/wav":
+		return "wav"
+	case "audio/ogg":
+		return "ogg"
+	case "text/plain":
+		return "txt"
+	case "application/json":
+		return "json"
+	case "text/csv":
+		return "csv"
+	default:
+		return ""
 	}
 }
 
@@ -79,6 +139,7 @@ type MediaMetadata struct {
 	ConversationID string `json:"conversationId,omitempty"`
 	ToolName       string `json:"toolName,omitempty"`
 	ToolCallID     string `json:"toolCallId,omitempty"`
+	OriginalName   string `json:"originalName,omitempty"`
 }
 
 // Media bundles the saved media ID with its metadata.
@@ -94,6 +155,7 @@ type SaveOptions struct {
 	ConversationID string
 	ToolName       string
 	ToolCallID     string
+	OriginalName   string
 }
 
 // MediaFile holds an open file handle, format, and metadata.
@@ -152,6 +214,7 @@ func (self *Store) Save(data []byte, format string, options SaveOptions) (Media,
 		ConversationID: options.ConversationID,
 		ToolName:       options.ToolName,
 		ToolCallID:     options.ToolCallID,
+		OriginalName:   options.OriginalName,
 	}
 
 	metaPath := filepath.Join(shardDirectory, mediaId+metaSuffix)

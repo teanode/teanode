@@ -73,6 +73,58 @@ func NewSummaryMessage(summary string, timestamp int64) Message {
 	}
 }
 
+// ContentBlock represents a single block within a multi-part message content array.
+type ContentBlock struct {
+	Type     string `json:"type"`               // "text" or "attachment"
+	Text     string `json:"text,omitempty"`      // for type="text"
+	MediaID  string `json:"mediaId,omitempty"`   // for type="attachment"
+	Format   string `json:"format,omitempty"`    // for type="attachment"
+	Filename string `json:"filename,omitempty"`  // for type="attachment"
+}
+
+// Attachment represents a file attached to a user message.
+type Attachment struct {
+	MediaID  string `json:"mediaId"`
+	Format   string `json:"format"`
+	Filename string `json:"filename"`
+}
+
+// ContentBlocks parses the message content as a []ContentBlock.
+// If content is a plain JSON string, it returns a single text block.
+// If content is a JSON array, it parses into []ContentBlock.
+func (self *Message) ContentBlocks() []ContentBlock {
+	// Try array first.
+	var blocks []ContentBlock
+	if err := json.Unmarshal(self.Content, &blocks); err == nil && len(blocks) > 0 {
+		// Validate that we got actual content blocks (not just random data).
+		if blocks[0].Type != "" {
+			return blocks
+		}
+	}
+	// Fall back to plain string.
+	return []ContentBlock{{Type: "text", Text: self.ContentText()}}
+}
+
+// NewMessageWithAttachments creates a user message with text and file attachments.
+// The content is stored as a JSON array of ContentBlock entries.
+func NewMessageWithAttachments(role, text string, attachments []Attachment, timestamp int64) Message {
+	blocks := []ContentBlock{{Type: "text", Text: text}}
+	for _, attachment := range attachments {
+		blocks = append(blocks, ContentBlock{
+			Type:     "attachment",
+			MediaID:  attachment.MediaID,
+			Format:   attachment.Format,
+			Filename: attachment.Filename,
+		})
+	}
+	content, _ := json.Marshal(blocks)
+	return Message{
+		Role:      role,
+		Content:   content,
+		Timestamp: timestamp,
+	}
+}
+
 // NewToolMessage creates a tool result message.
 func NewToolMessage(toolCallId, toolName, content string, timestamp int64) Message {
 	contentJSON, _ := json.Marshal(content)

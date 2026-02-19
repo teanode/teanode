@@ -303,6 +303,7 @@ type GatewayConfig struct {
 	Bind         string      `json:"bind,omitempty" yaml:"bind,omitempty"` // "loopback" | "lan"
 	Auth         *AuthConfig `json:"auth,omitempty" yaml:"auth,omitempty"`
 	ForwarderKey string      `json:"forwarderKey,omitempty" yaml:"forwarderKey,omitempty"`
+	PublicURL    string      `json:"publicUrl,omitempty" yaml:"publicUrl,omitempty"` // external URL for LLM provider media fetching
 }
 
 type AuthConfig struct {
@@ -355,7 +356,7 @@ func (self *Config) ResolveAgents() []AgentConfig {
 	if len(self.Agents) > 0 {
 		return self.Agents
 	}
-	return []AgentConfig{{ID: DefaultAgentID, CanMessage: []string{"*"}}}
+	return []AgentConfig{{ID: DefaultAgentID, Name: "Tea", CanMessage: []string{"*"}}}
 }
 
 // AgentByID returns the agent config for the given ID, or nil if not found.
@@ -697,7 +698,7 @@ func Load() (*Config, error) {
 	}
 	if len(agents) == 0 {
 		// Auto-create the default main agent with full messaging permissions.
-		defaultAgent := AgentConfig{ID: DefaultAgentID, CanMessage: []string{"*"}}
+		defaultAgent := AgentConfig{ID: DefaultAgentID, Name: "Tea", CanMessage: []string{"*"}}
 		if err := SaveAgent(defaultAgent); err != nil {
 			return nil, fmt.Errorf("saving default agent: %w", err)
 		}
@@ -878,6 +879,9 @@ func applyEnv(configuration *Config) {
 				APIKey:  value,
 			})
 		}
+	}
+	if value := os.Getenv("TEANODE_PUBLIC_URL"); value != "" {
+		configuration.Gateway.PublicURL = value
 	}
 	if value := os.Getenv("TEANODE_CDP_ENDPOINT"); value != "" {
 		if configuration.Integrations.Browser == nil {

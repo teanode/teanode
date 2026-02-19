@@ -231,7 +231,7 @@ func (self *Summarizer) generateTitleAndSummary(
 		return
 	}
 
-	responseText := strings.TrimSpace(response.Choices[0].Message.Content)
+	responseText := strings.TrimSpace(response.Choices[0].Message.ContentText())
 	if responseText == "" {
 		return
 	}

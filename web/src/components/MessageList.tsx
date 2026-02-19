@@ -121,9 +121,9 @@ export default function MessageList({
   // content of the last item without adding new ones.
   useEffect(() => {
     if (atBottomRef.current && virtuosoRef.current && items.length > 0) {
-      virtuosoRef.current.scrollToIndex({ index: items.length - 1, align: 'end', behavior: 'smooth' });
+      virtuosoRef.current.scrollToIndex({ index: items.length - 1, align: 'end', behavior: 'auto' });
     }
-  }, [streamText, toolActivity]);
+  }, [streamText]);
 
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
     atBottomRef.current = atBottom;
@@ -176,7 +176,7 @@ export default function MessageList({
     if (message.type === 'user') {
       return (
         <Container maxWidth="md" sx={{ py: 0.5, display: 'flex', flexDirection: 'column' }}>
-          <MessageBubble role="user" content={message.content} timestamp={message.timestamp} />
+          <MessageBubble role="user" content={message.content} timestamp={message.timestamp} attachments={message.attachments} />
         </Container>
       );
     }
@@ -351,7 +351,8 @@ export default function MessageList({
         computeItemKey={computeItemKey}
         firstItemIndex={firstItemIndex}
         initialTopMostItemIndex={items.length > 0 ? items.length - 1 : 0}
-        followOutput="smooth"
+        defaultItemHeight={56}
+        followOutput="auto"
         atBottomThreshold={80}
         atBottomStateChange={handleAtBottomStateChange}
         startReached={handleStartReached}

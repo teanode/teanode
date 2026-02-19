@@ -48,13 +48,21 @@ type anthropicMessage struct {
 }
 
 type anthropicContentBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text,omitempty"`
-	ID        string          `json:"id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Input     json.RawMessage `json:"input,omitempty"`
-	ToolUseID string          `json:"tool_use_id,omitempty"`
-	Content   string          `json:"content,omitempty"`
+	Type      string                `json:"type"`
+	Text      string                `json:"text,omitempty"`
+	ID        string                `json:"id,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Input     json.RawMessage       `json:"input,omitempty"`
+	ToolUseID string                `json:"tool_use_id,omitempty"`
+	Content   string                `json:"content,omitempty"`
+	Source    *anthropicImageSource `json:"source,omitempty"`
+}
+
+type anthropicImageSource struct {
+	Type      string `json:"type"`                 // "base64" or "url"
+	MediaType string `json:"media_type,omitempty"` // e.g. "image/png"
+	Data      string `json:"data,omitempty"`       // base64 data
+	URL       string `json:"url,omitempty"`        // URL reference
 }
 
 type anthropicToolDef struct {
@@ -292,7 +300,7 @@ func (self *AnthropicClient) extractSystemAndMessages(messages []ChatMessage) ([
 		if !leadingDone && message.Role == "system" {
 			systemBlocks = append(systemBlocks, anthropicSystemBlock{
 				Type: "text",
-				Text: message.Content,
+				Text: message.ContentText(),
 			})
 			continue
 		}
@@ -302,7 +310,7 @@ func (self *AnthropicClient) extractSystemAndMessages(messages []ChatMessage) ([
 			// Mid-conversation system messages become user messages with [System] prefix.
 			remaining = append(remaining, ChatMessage{
 				Role:    "user",
-				Content: "[System] " + message.Content,
+				Content: "[System] " + message.ContentText(),
 			})
 		} else {
 			remaining = append(remaining, message)
@@ -331,18 +339,66 @@ func (self *AnthropicClient) translateMessage(message ChatMessage) anthropicMess
 	case "tool":
 		return self.translateToolResultMessage(message)
 	default:
-		// User messages: simple text content blocks.
-		blocks := []anthropicContentBlock{{Type: "text", Text: message.Content}}
+		// User messages: may contain multimodal content parts.
+		if parts, ok := message.Content.([]ContentPart); ok {
+			var blocks []anthropicContentBlock
+			for _, part := range parts {
+				switch part.Type {
+				case "text":
+					blocks = append(blocks, anthropicContentBlock{Type: "text", Text: part.Text})
+				case "image_url":
+					if part.ImageURL != nil {
+						blocks = append(blocks, self.translateImagePart(*part.ImageURL))
+					}
+				}
+			}
+			if len(blocks) == 0 {
+				blocks = append(blocks, anthropicContentBlock{Type: "text", Text: ""})
+			}
+			content, _ := json.Marshal(blocks)
+			return anthropicMessage{Role: "user", Content: content}
+		}
+		// Plain string content.
+		blocks := []anthropicContentBlock{{Type: "text", Text: message.ContentText()}}
 		content, _ := json.Marshal(blocks)
 		return anthropicMessage{Role: "user", Content: content}
+	}
+}
+
+// translateImagePart converts an ImageURLPart into an Anthropic image content block.
+// If the URL is a data URI (base64), it emits a base64 source block.
+// Otherwise it emits a URL source block.
+func (self *AnthropicClient) translateImagePart(imageURL ImageURLPart) anthropicContentBlock {
+	if strings.HasPrefix(imageURL.URL, "data:") {
+		// Parse data URI: data:<mediaType>;base64,<data>
+		parts := strings.SplitN(imageURL.URL, ",", 2)
+		if len(parts) == 2 {
+			mediaType := strings.TrimPrefix(parts[0], "data:")
+			mediaType = strings.TrimSuffix(mediaType, ";base64")
+			return anthropicContentBlock{
+				Type: "image",
+				Source: &anthropicImageSource{
+					Type:      "base64",
+					MediaType: mediaType,
+					Data:      parts[1],
+				},
+			}
+		}
+	}
+	return anthropicContentBlock{
+		Type: "image",
+		Source: &anthropicImageSource{
+			Type: "url",
+			URL:  imageURL.URL,
+		},
 	}
 }
 
 func (self *AnthropicClient) translateAssistantMessage(message ChatMessage) anthropicMessage {
 	var blocks []anthropicContentBlock
 
-	if message.Content != "" {
-		blocks = append(blocks, anthropicContentBlock{Type: "text", Text: message.Content})
+	if text := message.ContentText(); text != "" {
+		blocks = append(blocks, anthropicContentBlock{Type: "text", Text: text})
 	}
 
 	for _, toolCall := range message.ToolCalls {
@@ -373,7 +429,7 @@ func (self *AnthropicClient) translateToolResultMessage(message ChatMessage) ant
 	blocks := []anthropicContentBlock{{
 		Type:      "tool_result",
 		ToolUseID: message.ToolCallID,
-		Content:   message.Content,
+		Content:   message.ContentText(),
 	}}
 	content, _ := json.Marshal(blocks)
 	return anthropicMessage{Role: "user", Content: content}

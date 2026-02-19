@@ -21,7 +21,7 @@ func estimateTokens(text string) int {
 
 // estimateMessageTokens estimates the token count for a single ChatMessage.
 func estimateMessageTokens(message providers.ChatMessage) int {
-	tokens := estimateTokens(message.Content) + 4 // role + overhead
+	tokens := estimateTokens(message.ContentText()) + 4 // role + overhead
 	for _, toolCall := range message.ToolCalls {
 		tokens += estimateTokens(toolCall.Function.Name) + estimateTokens(toolCall.Function.Arguments) + 4
 	}
@@ -55,8 +55,8 @@ func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxCh
 	result := make([]providers.ChatMessage, len(messages))
 	copy(result, messages)
 	for index := 0; index < boundary; index++ {
-		if result[index].Role == "tool" && len(result[index].Content) > maxChars {
-			result[index].Content = result[index].Content[:maxChars] + "\n... (truncated)"
+		if text, ok := result[index].Content.(string); ok && result[index].Role == "tool" && len(text) > maxChars {
+			result[index].Content = text[:maxChars] + "\n... (truncated)"
 		}
 	}
 	return result
@@ -163,7 +163,7 @@ func chatMessagesText(messages []providers.ChatMessage, maxTotalChars int, maxMe
 			role = fmt.Sprintf("tool(%s)", messages[i].Name)
 		}
 
-		content := messages[i].Content
+		content := messages[i].ContentText()
 		if maxMessageChars > 0 && len(content) > maxMessageChars {
 			content = content[:maxMessageChars] + "..."
 		}
@@ -258,12 +258,12 @@ func (self *Runner) compressContext(
 
 	var summaryText string
 	response, err := summaryClient.ChatCompletion(ctx, summaryRequest)
-	if err != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.Content) == "" {
+	if err != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.ContentText()) == "" {
 		// Fallback: drop old messages without summary.
 		log.Debugf("context summarization failed, falling back to drop: %v", err)
 		summaryText = fmt.Sprintf("[Earlier conversation with %d messages was dropped due to context limits]", len(toSummarize))
 	} else {
-		summaryText = strings.TrimSpace(response.Choices[0].Message.Content)
+		summaryText = strings.TrimSpace(response.Choices[0].Message.ContentText())
 	}
 
 	// Persist summary to conversation.

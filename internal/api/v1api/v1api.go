@@ -51,6 +51,7 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 		sub.HandleFunc("/terminal", self.gateway.TerminalRelay().HandleWebSocket)
 	}
 	if self.gateway.MediaStore() != nil {
+		sub.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
 		sub.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
 	}
 

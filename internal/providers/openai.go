@@ -46,13 +46,105 @@ type ChatRequest struct {
 	Tools         []ToolDefinition `json:"tools,omitempty"`
 }
 
+// ContentPart represents a single part of multimodal message content.
+type ContentPart struct {
+	Type     string        `json:"type"`                // "text" or "image_url"
+	Text     string        `json:"text,omitempty"`      // for type="text"
+	ImageURL *ImageURLPart `json:"image_url,omitempty"` // for type="image_url"
+}
+
+// ImageURLPart holds the URL for an image content part.
+type ImageURLPart struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"` // "auto", "low", "high"
+}
+
 // ChatMessage is a single message in the conversation.
+// Content can be a string (text-only) or []ContentPart (multimodal).
 type ChatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	Name       string     `json:"name,omitempty"`
+	Role       string      `json:"role"`
+	Content    interface{} `json:"-"` // string or []ContentPart; custom marshaling below
+	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID string      `json:"tool_call_id,omitempty"`
+	Name       string      `json:"name,omitempty"`
+}
+
+// ContentText returns the text content of a message as a plain string.
+// If Content is a []ContentPart, it concatenates all text parts.
+func (self *ChatMessage) ContentText() string {
+	if self.Content == nil {
+		return ""
+	}
+	if text, ok := self.Content.(string); ok {
+		return text
+	}
+	if parts, ok := self.Content.([]ContentPart); ok {
+		var texts []string
+		for _, part := range parts {
+			if part.Type == "text" {
+				texts = append(texts, part.Text)
+			}
+		}
+		return strings.Join(texts, "")
+	}
+	return fmt.Sprintf("%v", self.Content)
+}
+
+// chatMessageJSON is the wire format for ChatMessage.
+type chatMessageJSON struct {
+	Role       string          `json:"role"`
+	Content    json.RawMessage `json:"content,omitempty"`
+	ToolCalls  []ToolCall      `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Name       string          `json:"name,omitempty"`
+}
+
+// MarshalJSON implements custom JSON marshaling for ChatMessage.
+// Emits Content as a string when text-only, or as an array when multimodal.
+func (self ChatMessage) MarshalJSON() ([]byte, error) {
+	wire := chatMessageJSON{
+		Role:       self.Role,
+		ToolCalls:  self.ToolCalls,
+		ToolCallID: self.ToolCallID,
+		Name:       self.Name,
+	}
+	switch content := self.Content.(type) {
+	case string:
+		wire.Content, _ = json.Marshal(content)
+	case []ContentPart:
+		wire.Content, _ = json.Marshal(content)
+	case nil:
+		// leave Content nil
+	default:
+		wire.Content, _ = json.Marshal(content)
+	}
+	return json.Marshal(wire)
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for ChatMessage.
+func (self *ChatMessage) UnmarshalJSON(data []byte) error {
+	var wire chatMessageJSON
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	self.Role = wire.Role
+	self.ToolCalls = wire.ToolCalls
+	self.ToolCallID = wire.ToolCallID
+	self.Name = wire.Name
+
+	// Try to unmarshal Content as a string first, then as []ContentPart.
+	var text string
+	if err := json.Unmarshal(wire.Content, &text); err == nil {
+		self.Content = text
+	} else {
+		var parts []ContentPart
+		if err := json.Unmarshal(wire.Content, &parts); err == nil {
+			self.Content = parts
+		} else {
+			self.Content = string(wire.Content)
+		}
+	}
+	return nil
 }
 
 // ToolDefinition defines a tool available to the model.

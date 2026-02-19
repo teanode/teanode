@@ -27,8 +27,9 @@ type SendMessageParameters struct {
 	ConversationID string // empty = auto-create
 	Message        string
 	Model          string
-	OriginID       string // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
-	Origin         string // source of the message (e.g. "webui", "discord", "telegram"); empty for automated sources like the scheduler
+	OriginID       string                    // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
+	Origin         string                    // source of the message (e.g. "webui", "discord", "telegram"); empty for automated sources like the scheduler
+	Attachments    []conversations.Attachment // file attachments
 }
 
 // RunHandle is returned by SendMessage and allows the caller to wait for completion.
