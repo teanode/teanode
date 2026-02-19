@@ -4,19 +4,21 @@
 
 These are the highest-impact items to tackle next, roughly in order.
 
-### 1. Robustness & Bug Fixes
-- [ ] Interrupted tool-call recovery (WIP in `runner.go` — synthetic tool results for unanswered calls)
-- [ ] Mic button visibility during agent run (WIP in `InputArea.tsx` — allow recording while running)
+### 1. Agent Tool Discovery & Self-Documentation
+- [ ] Tool search tool (let agents discover available tools by name/description search)
+- [ ] TeaNode documentation tool (let agents explore TeaNode's own docs, config schema, API surface)
+
+### 2. Robustness & Bug Fixes
 - [ ] Add context timeouts to tool execution (currently unbounded)
 - [ ] Add timeout for sync LLM calls (currently no explicit timeout)
 - [ ] Improve HTTP error responses (structured JSON errors instead of plain strings)
 
-### 2. Security Hardening
+### 3. Security Hardening
 - [ ] Restrict CORS origin (`CheckOrigin` currently allows all)
 - [ ] Avoid passing auth token in WebSocket query params (log leakage risk)
 - [ ] Add rate limiting to API endpoints
 
-### 3. Test Coverage Expansion
+### 4. Test Coverage Expansion
 - [ ] Audio transcription/synthesis tests (OpenAI Transcribe, Synthesize methods, REST endpoints)
 - [ ] `internal/api/v1api` handler tests (HTTP handlers, SSE streaming, auth middleware)
 - [ ] WebSocket RPC handler tests (`conversations.send`, `conversations.history`, etc.)
@@ -27,20 +29,20 @@ These are the highest-impact items to tackle next, roughly in order.
 - [ ] Concurrent access / stress tests for parallel requests
 - [ ] Edge-case tests (malformed JSON, truncated SSE streams, oversized payloads)
 
-### 4. Provider Ecosystem
+### 5. Provider Ecosystem
 - [x] Anthropic Claude provider (native API in `anthropic.go`)
 - [ ] Google Gemini provider
 - [ ] Provider failover (multiple API keys / auth profiles with fallback)
 - [ ] OAuth-based provider auth (Anthropic Pro/Max, OpenAI)
 - [ ] Per-model tool gating (enable/disable tools based on model capabilities)
 
-### 5. Voice & Audio (next phase)
+### 6. Voice & Audio (next phase)
 - [ ] Streaming TTS (chunked audio playback for long responses)
 - [ ] TTS as an agent tool (let the agent proactively speak / send audio clips)
 - [ ] Voice activity detection (auto-start/stop recording without button)
 - [ ] Realtime voice conversation mode (bidirectional audio streaming)
 
-### 6. New Messaging Channels
+### 7. New Messaging Channels
 - [ ] Slack channel integration
 - [ ] WhatsApp channel integration
 
@@ -55,6 +57,10 @@ Core infrastructure packages have high test coverage:
 - `internal/sessions` ~95% (store: create, get, touch, delete, list)
 - `internal/util/security` ~92% (GenerateRandom, GenerateRandomString, HashPassword, VerifyPassword, NewULID)
 - `internal/media` — sharded storage, metadata sidecars, legacy compat, orphan cleanup (27 tests)
+
+### Robustness
+- [x] Interrupted tool-call recovery (synthetic tool results for unanswered calls in `runner.go`)
+- [x] Mic button visible during agent run (voice input while running, queued like typed messages)
 
 ### Error Handling
 - [x] Handle marshal errors in `internal/provider/openai.go`

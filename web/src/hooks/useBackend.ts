@@ -67,13 +67,16 @@ function extractContentWithAttachments(message: Message): ExtractedContent {
       if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].type) {
         return extractFromBlocks(parsed);
       }
-      return { text: String(parsed) };
+      // Parsed to an object/number/etc — keep the original string representation
+      // (e.g. tool results that are JSON objects like {"mediaId":"..."}).
+      return { text: message.content };
     } catch {
       return { text: message.content };
     }
   }
 
-  return { text: String(message.content) };
+  // Content is already a parsed JS value (json.RawMessage → native type).
+  return { text: JSON.stringify(message.content) };
 }
 
 function parseToolCalls(raw: ToolCall[] | string | undefined): ToolCall[] {
