@@ -81,10 +81,11 @@ func (self *Runner) lookupContextWindow(qualifiedModel string) int {
 
 // RunParams holds the parameters for a single agent run.
 type RunParams struct {
-	ConversationID string
-	Message        string
-	Model          string // override config default
-	Attachments    []conversations.Attachment
+	ConversationID     string
+	Message            string
+	Model              string // override config default
+	Attachments        []conversations.Attachment
+	SystemPromptSuffix string // optional; appended to system prompt for this run only
 }
 
 // RunResult holds the result of a completed agent run.
@@ -244,7 +245,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		log.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
 
 		// Build messages for the LLM.
-		llmMessages := self.buildMessages(history, limits)
+		llmMessages := self.buildMessages(history, limits, params.SystemPromptSuffix)
 
 		// Tier 1: truncate old tool results.
 		llmMessages = truncateOldToolResults(llmMessages, limits.MinKeepMessages, limits.MaxToolResultChars)
@@ -516,8 +517,11 @@ func repairToolArgs(input string) string {
 
 // buildMessages converts conversation history into LLM messages.
 // It scans backward for the last context_summary message and skips everything before it.
-func (self *Runner) buildMessages(history []conversations.Message, limits configs.AgentLimits) []providers.ChatMessage {
+func (self *Runner) buildMessages(history []conversations.Message, limits configs.AgentLimits, systemPromptSuffix string) []providers.ChatMessage {
 	systemPrompt := BuildSystemPrompt(self.Config, self.AgentID, self.WorkspaceDirectory, self.SkillPrompts, limits.MaxWorkspaceFileChars)
+	if systemPromptSuffix != "" {
+		systemPrompt += "\n\n" + systemPromptSuffix
+	}
 	messages := make([]providers.ChatMessage, 0, len(history)+1)
 	messages = append(messages, providers.ChatMessage{
 		Role:    "system",

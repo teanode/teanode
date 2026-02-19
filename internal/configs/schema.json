@@ -40,7 +40,7 @@
                 "enum": ["openai", "anthropic", "openrouter"]
               },
               "baseUrl": { "type": "string" },
-              "apiKey": { "type": "string" }
+              "apiKey": { "type": "string", "format": "password" }
             },
             "required": ["name"]
           }

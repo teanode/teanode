@@ -23,13 +23,14 @@ var log = logging.MustGetLogger("gateway")
 
 // SendMessageParameters are the parameters for sending a message through the gateway.
 type SendMessageParameters struct {
-	AgentID        string
-	ConversationID string // empty = auto-create
-	Message        string
-	Model          string
-	OriginID       string                    // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
-	Origin         string                    // source of the message (e.g. "webui", "discord", "telegram"); empty for automated sources like the scheduler
-	Attachments    []conversations.Attachment // file attachments
+	AgentID            string
+	ConversationID     string // empty = auto-create
+	Message            string
+	Model              string
+	OriginID           string                    // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
+	Origin             string                    // source of the message (e.g. "webui", "discord", "telegram"); empty for automated sources like the scheduler
+	Attachments        []conversations.Attachment // file attachments
+	SystemPromptSuffix string                    // optional; appended to system prompt for this run only
 }
 
 // RunHandle is returned by SendMessage and allows the caller to wait for completion.

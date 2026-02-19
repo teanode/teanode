@@ -44,6 +44,12 @@ func frontendHandler(fileSystem http.FileSystem) http.Handler {
 			file.Close()
 		}
 
+		// Enable cross-origin isolation so SharedArrayBuffer is available.
+		// Required by ONNX Runtime's WASM backend (used for voice call VAD).
+		// Safe because all resources are same-origin.
+		writer.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		writer.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
+
 		if servingIndex {
 			writer.Header().Set("Cache-Control", "no-cache")
 		} else {

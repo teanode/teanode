@@ -38,17 +38,17 @@ export function AppProvider({
 }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showToolCalls, setShowToolCallsState] = useState(() => {
-    return localStorage.getItem('teanode-show-tools') !== 'false';
+    return localStorage.getItem('teanode-show-tools') === 'true';
   });
   const [showTokenUsage, setShowTokenUsageState] = useState(() => {
-    return localStorage.getItem('teanode-show-usage') !== 'false';
+    return localStorage.getItem('teanode-show-usage') === 'true';
   });
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
     const stored = localStorage.getItem('teanode-theme-mode');
     return stored === 'light' ? 'light' : 'dark';
   });
   const [voiceAutoSend, setVoiceAutoSendState] = useState(() => {
-    return localStorage.getItem('teanode-voice-auto-send') === 'true';
+    return localStorage.getItem('teanode-voice-auto-send') !== 'false';
   });
   const [ttsVoice, setTtsVoiceState] = useState(() => {
     return localStorage.getItem('teanode-voice-tts-voice') || 'alloy';

@@ -832,7 +832,7 @@ export function useBackend() {
   );
 
   const sendMessage = useCallback(
-    (text: string, model?: string, attachments?: Attachment[]) => {
+    (text: string, model?: string, attachments?: Attachment[], systemPromptSuffix?: string) => {
       if (!text.trim() && (!attachments || attachments.length === 0)) return;
       // Allow sending while running — backend queues per-conversation
 
@@ -868,6 +868,7 @@ export function useBackend() {
       if (resolvedModel) rpcParams.model = resolvedModel;
       if (currentAgentIdRef.current) rpcParams.agentId = currentAgentIdRef.current;
       if (attachments && attachments.length > 0) rpcParams.attachments = attachments;
+      if (systemPromptSuffix) rpcParams.systemPromptSuffix = systemPromptSuffix;
 
       sendRpc<ConversationSendResult>('conversations.send', rpcParams)
         .then((res) => {
@@ -1032,9 +1033,9 @@ export function useBackend() {
   );
 
   const sendVoiceMessage = useCallback(
-    (text: string, model?: string) => {
+    (text: string, model?: string, systemPromptSuffix?: string) => {
       lastSentViaMicRef.current = true;
-      sendMessage(text, model);
+      sendMessage(text, model, undefined, systemPromptSuffix);
     },
     [sendMessage]
   );

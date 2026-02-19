@@ -370,10 +370,11 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 		}()
 
 		result, err := runner.Run(runContext, agents.RunParams{
-			ConversationID: conversationId,
-			Message:        parameters.Message,
-			Model:          parameters.Model,
-			Attachments:    parameters.Attachments,
+			ConversationID:     conversationId,
+			Message:            parameters.Message,
+			Model:              parameters.Model,
+			Attachments:        parameters.Attachments,
+			SystemPromptSuffix: parameters.SystemPromptSuffix,
 		}, mergedCallbacks)
 
 		if err != nil {

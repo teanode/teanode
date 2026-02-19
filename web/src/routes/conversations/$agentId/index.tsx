@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
@@ -8,6 +8,8 @@ import ListSubheader from '@mui/material/ListSubheader';
 import Select from '@mui/material/Select';
 import { useAppContext } from '../../../context';
 import InputArea from '../../../components/InputArea';
+import VoiceCallBar from '../../../components/VoiceCallBar';
+import { useAgentVoiceCall } from './route';
 import type { Attachment, ModelInfo } from '../../../types';
 
 /** /conversations/$agentId/ — new conversation page with centered input. */
@@ -18,6 +20,8 @@ export default function ConversationsNewPage() {
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;
   const navigate = useNavigate();
+
+  const voiceCall = useAgentVoiceCall();
 
   // Model picker state — default to empty (agent's configured default).
   const [selectedModel, setSelectedModel] = useState('');
@@ -54,7 +58,8 @@ export default function ConversationsNewPage() {
 
   const handleVoiceMessage = useCallback(
     (text: string) => {
-      backend.sendVoiceMessage(text, selectedModel || undefined);
+      backend.sendVoiceMessage(text, selectedModel || undefined,
+        'The user dictated this message using voice input and the response may be read aloud. Keep the response concise and avoid heavy markdown formatting.');
     },
     [backend.sendVoiceMessage, selectedModel]
   );
@@ -114,18 +119,32 @@ export default function ConversationsNewPage() {
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <Container maxWidth="md" sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', px: 2 }}>
         <Box sx={{ width: '100%' }}>
-          <InputArea
-            agentName={agentName}
-            draftKey="new"
-            placeholder={t('conversations.startConversation', { agentName })}
-            autoFocus
-            modelPicker={modelPicker}
-            bare
-            voiceEnabled={backend.audioCapability}
-            voiceAutoSend={voiceAutoSend}
-            onSend={handleSend}
-            onVoiceMessage={handleVoiceMessage}
-          />
+          {voiceCall.isCallActive ? (
+            <VoiceCallBar
+              callDuration={voiceCall.callDuration}
+              isMuted={voiceCall.isMuted}
+              isUserSpeaking={voiceCall.isUserSpeaking}
+              isPlaying={voiceCall.isPlaying}
+              isSynthesizing={voiceCall.isSynthesizing}
+              onToggleMute={voiceCall.toggleMute}
+              onEndCall={voiceCall.endCall}
+              bare
+            />
+          ) : (
+            <InputArea
+              agentName={agentName}
+              draftKey="new"
+              placeholder={t('conversations.startConversation', { agentName })}
+              autoFocus
+              modelPicker={modelPicker}
+              bare
+              voiceEnabled={backend.audioCapability}
+              voiceAutoSend={voiceAutoSend}
+              onStartVoiceCall={voiceCall.startCall}
+              onSend={handleSend}
+              onVoiceMessage={handleVoiceMessage}
+            />
+          )}
         </Box>
       </Container>
     </Box>

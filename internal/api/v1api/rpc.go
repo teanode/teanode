@@ -138,12 +138,13 @@ func (self *webSocketConnection) handleConversationsSetActive(frame requestFrame
 
 // conversationSendParameters are the parameters for conversations.send.
 type conversationSendParameters struct {
-	ConversationID string                       `json:"conversationId"`
-	Message        string                       `json:"message"`
-	Model          string                       `json:"model,omitempty"`
-	AgentID        string                       `json:"agentId,omitempty"`
-	OriginID       string                       `json:"originId,omitempty"`
-	Attachments    []conversations.Attachment    `json:"attachments,omitempty"`
+	ConversationID     string                    `json:"conversationId"`
+	Message            string                    `json:"message"`
+	Model              string                    `json:"model,omitempty"`
+	AgentID            string                    `json:"agentId,omitempty"`
+	OriginID           string                    `json:"originId,omitempty"`
+	Attachments        []conversations.Attachment `json:"attachments,omitempty"`
+	SystemPromptSuffix string                    `json:"systemPromptSuffix,omitempty"`
 }
 
 // handleConversationsSend: send user message, trigger agent run via gateway.
@@ -166,13 +167,14 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 	}
 
 	handle := self.api.gateway.SendMessage(context.Background(), gw.SendMessageParameters{
-		AgentID:        parameters.AgentID,
-		ConversationID: parameters.ConversationID,
-		Message:        parameters.Message,
-		Model:          parameters.Model,
-		OriginID:       parameters.OriginID,
-		Origin:         "webui",
-		Attachments:    parameters.Attachments,
+		AgentID:            parameters.AgentID,
+		ConversationID:     parameters.ConversationID,
+		Message:            parameters.Message,
+		Model:              parameters.Model,
+		OriginID:           parameters.OriginID,
+		Origin:             "webui",
+		Attachments:        parameters.Attachments,
+		SystemPromptSuffix: parameters.SystemPromptSuffix,
 	}, nil)
 
 	self.sendResponse(frame.ID, map[string]interface{}{

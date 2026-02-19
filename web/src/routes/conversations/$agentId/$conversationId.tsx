@@ -3,7 +3,9 @@ import { useParams } from '@tanstack/react-router';
 import { useAppContext } from '../../../context';
 import MessageList from '../../../components/MessageList';
 import InputArea from '../../../components/InputArea';
+import VoiceCallBar from '../../../components/VoiceCallBar';
 import { useTTS } from '../../../hooks/useTTS';
+import { useAgentVoiceCall } from './route';
 import type { Attachment } from '../../../types';
 
 /** /conversations/$agentId/$conversationId — active conversation. */
@@ -18,6 +20,8 @@ export default function ConversationsConversationPage() {
 
   const tts = useTTS(ttsVoice);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+
+  const voiceCall = useAgentVoiceCall();
 
   // Clear speaking state when TTS stops.
   const prevSpeaking = useRef(false);
@@ -40,8 +44,19 @@ export default function ConversationsConversationPage() {
   }, [conversationId, agentId, backend.conversationId, backend.switchConversation]);
 
   // Auto-read: when a final message arrives and user sent via mic, speak the response.
+  // Disabled when voice call is active (streaming TTS handles it).
   const prevMessagesLenRef = useRef(backend.messages.length);
+  const wasCallActiveRef = useRef(voiceCall.isCallActive);
   useEffect(() => {
+    // When a call just ended, clear the mic flag so we don't auto-read the
+    // last response that was already handled by the call's streaming TTS.
+    if (wasCallActiveRef.current && !voiceCall.isCallActive) {
+      backend.lastSentViaMicRef.current = false;
+      prevMessagesLenRef.current = backend.messages.length;
+    }
+    wasCallActiveRef.current = voiceCall.isCallActive;
+
+    if (voiceCall.isCallActive) return;
     if (!backend.lastSentViaMicRef.current) return;
     if (backend.isRunning) return;
     const msgs = backend.messages;
@@ -51,15 +66,15 @@ export default function ConversationsConversationPage() {
     }
     prevMessagesLenRef.current = msgs.length;
     // Find the last assistant message.
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].type === 'assistant' && msgs[i].content) {
-        tts.speak(msgs[i].content);
-        setSpeakingMessageId(msgs[i].id);
+    for (let index = msgs.length - 1; index >= 0; index--) {
+      if (msgs[index].type === 'assistant' && msgs[index].content) {
+        tts.speak(msgs[index].content);
+        setSpeakingMessageId(msgs[index].id);
         backend.lastSentViaMicRef.current = false;
         break;
       }
     }
-  }, [backend.isRunning, backend.messages, tts.speak]);
+  }, [backend.isRunning, backend.messages, tts.speak, voiceCall.isCallActive]);
 
   const handleSend = useCallback(
     (text: string, attachments?: Attachment[]) => {
@@ -71,7 +86,8 @@ export default function ConversationsConversationPage() {
 
   const handleVoiceMessage = useCallback(
     (text: string) => {
-      backend.sendVoiceMessage(text);
+      backend.sendVoiceMessage(text, undefined,
+        'The user dictated this message using voice input and the response may be read aloud. Keep the response concise and avoid heavy markdown formatting.');
     },
     [backend.sendVoiceMessage]
   );
@@ -102,22 +118,36 @@ export default function ConversationsConversationPage() {
         hasMoreHistory={backend.hasMoreHistory}
         loadingOlderMessages={backend.loadingOlderMessages}
         onLoadOlderMessages={backend.loadOlderMessages}
-        voiceEnabled={backend.audioCapability}
+        voiceEnabled={backend.audioCapability && !voiceCall.isCallActive}
         speakingMessageId={speakingMessageId}
         onSpeak={handleSpeak}
         onStopSpeaking={handleStopSpeaking}
       />
-      <InputArea
-        isRunning={backend.isRunning}
-        agentName={agentName}
-        draftKey={conversationId}
-        model={backend.conversationModel}
-        voiceEnabled={backend.audioCapability}
-        voiceAutoSend={voiceAutoSend}
-        onSend={handleSend}
-        onAbort={backend.abortRun}
-        onVoiceMessage={handleVoiceMessage}
-      />
+      {voiceCall.isCallActive ? (
+        <VoiceCallBar
+          callDuration={voiceCall.callDuration}
+          isMuted={voiceCall.isMuted}
+          isUserSpeaking={voiceCall.isUserSpeaking}
+          isPlaying={voiceCall.isPlaying}
+          isSynthesizing={voiceCall.isSynthesizing}
+          onToggleMute={voiceCall.toggleMute}
+          onEndCall={voiceCall.endCall}
+        />
+      ) : (
+        <InputArea
+          isRunning={backend.isRunning}
+          agentName={agentName}
+          draftKey={conversationId}
+          model={backend.conversationModel}
+          voiceEnabled={backend.audioCapability}
+          voiceAutoSend={voiceAutoSend}
+          voiceCallActive={voiceCall.isCallActive}
+          onStartVoiceCall={voiceCall.startCall}
+          onSend={handleSend}
+          onAbort={backend.abortRun}
+          onVoiceMessage={handleVoiceMessage}
+        />
+      )}
     </>
   );
 }

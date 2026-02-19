@@ -8,6 +8,7 @@ import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import AttachFileRounded from '@mui/icons-material/AttachFileRounded';
 import MicRounded from '@mui/icons-material/MicRounded';
+import PhoneRounded from '@mui/icons-material/PhoneRounded';
 import SendRounded from '@mui/icons-material/SendRounded';
 import StopRounded from '@mui/icons-material/StopRounded';
 import type { Attachment } from '../types';
@@ -52,6 +53,10 @@ interface InputAreaProps {
   voiceEnabled?: boolean;
   /** Whether to auto-send after transcription. */
   voiceAutoSend?: boolean;
+  /** Whether a voice call is currently active (hides mic/call buttons, VAD handles audio). */
+  voiceCallActive?: boolean;
+  /** Called to start a voice call. */
+  onStartVoiceCall?: () => void;
   onSend: (text: string, attachments?: Attachment[]) => void;
   onAbort?: () => void;
   /** Called when voice-transcribed text should be auto-sent. */
@@ -69,6 +74,8 @@ export default function InputArea({
   bare,
   voiceEnabled,
   voiceAutoSend,
+  voiceCallActive,
+  onStartVoiceCall,
   onSend,
   onAbort,
   onVoiceMessage,
@@ -127,7 +134,8 @@ export default function InputArea({
     if (isRecording) setVoiceState('recording');
   }, [isRecording]);
 
-  const showMic = voiceEnabled && micSupported && !hasText && voiceState === 'idle';
+  const showMic = voiceEnabled && micSupported && !hasText && voiceState === 'idle' && !voiceCallActive;
+  const showCallButton = voiceEnabled && !voiceCallActive && voiceState === 'idle' && onStartVoiceCall;
 
   // Restore draft when draftKey changes (conversation switch).
   useEffect(() => {
@@ -345,7 +353,7 @@ export default function InputArea({
         onChange={handleFileChange}
         style={{ display: 'none' }}
       />
-      {(focused || showStop || pendingFiles.length > 0 || uploading || voiceState !== 'idle') && (
+      {(focused || showStop || showCallButton || pendingFiles.length > 0 || uploading || voiceState !== 'idle') && (
         <Box
           onMouseDown={(event: React.MouseEvent) => event.preventDefault()}
           sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}
@@ -364,7 +372,7 @@ export default function InputArea({
               <Typography variant="caption" color="text.secondary">{t('settings.transcribing')}</Typography>
             </Box>
           )}
-          {modelPicker}
+          {focused && modelPicker}
           {!modelPicker && displayModel && focused && voiceState === 'idle' && (
             <Box
               component="span"
@@ -376,7 +384,7 @@ export default function InputArea({
               {displayModel}
             </Box>
           )}
-          {voiceState === 'idle' && (
+          {focused && voiceState === 'idle' && (
             <IconButton
               size="small"
               onClick={() => fileInputRef.current?.click()}
@@ -385,13 +393,22 @@ export default function InputArea({
               <AttachFileRounded fontSize="small" />
             </IconButton>
           )}
-          {showMic && voiceState === 'idle' && (
+          {focused && showMic && voiceState === 'idle' && (
             <IconButton
               size="small"
               onClick={startRecording}
               sx={{ flexShrink: 0, width: 32, height: 32, color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
             >
               <MicRounded fontSize="small" />
+            </IconButton>
+          )}
+          {showCallButton && (
+            <IconButton
+              size="small"
+              onClick={onStartVoiceCall}
+              sx={{ flexShrink: 0, width: 32, height: 32, color: 'text.secondary', '&:hover': { color: 'success.main' } }}
+            >
+              <PhoneRounded fontSize="small" />
             </IconButton>
           )}
           {voiceState === 'recording' ? (
@@ -403,7 +420,7 @@ export default function InputArea({
             >
               <StopRounded fontSize="small" />
             </IconButton>
-          ) : (
+          ) : (focused || showStop) && (
             <IconButton
               size="small"
               color={showStop ? 'error' : 'primary'}
