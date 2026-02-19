@@ -120,6 +120,11 @@ export interface UseVoiceCallReturn {
 }
 
 export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
+  const MIN_INTERRUPT_MS = 300;
+
+  const speechStartTimeRef = useRef<number | null>(null);
+  const pendingInterruptRef = useRef(false);
+
   const {
     sendVoiceMessage,
     abortRun,
