@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"sort"
 	"strings"
@@ -397,4 +398,121 @@ func (self *Client) setHeaders(request *http.Request) {
 	if self.apiKey != "" {
 		request.Header.Set("Authorization", "Bearer "+self.apiKey)
 	}
+}
+
+// Transcribe sends audio to the OpenAI Whisper API and returns transcribed text.
+func (self *Client) Transcribe(ctx context.Context, req TranscribeRequest) (*TranscribeResponse, error) {
+	// Build multipart form body.
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	// Determine file extension for the form field.
+	ext := req.Format
+	if ext == "" {
+		ext = "webm"
+	}
+	part, err := writer.CreateFormFile("file", "audio."+ext)
+	if err != nil {
+		return nil, fmt.Errorf("creating form file: %w", err)
+	}
+	if _, err := io.Copy(part, req.Audio); err != nil {
+		return nil, fmt.Errorf("copying audio data: %w", err)
+	}
+
+	writer.WriteField("model", "whisper-1")
+	writer.WriteField("response_format", "json")
+	if req.Language != "" {
+		writer.WriteField("language", req.Language)
+	}
+	writer.Close()
+
+	log.Debugf("POST %s/audio/transcriptions format=%s", self.baseUrl, ext)
+
+	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/audio/transcriptions", &body)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	httpRequest.Header.Set("Content-Type", writer.FormDataContentType())
+	if self.apiKey != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+self.apiKey)
+	}
+
+	response, err := self.httpClient.Do(httpRequest)
+	if err != nil {
+		return nil, fmt.Errorf("sending request: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		responseBody, _ := io.ReadAll(response.Body)
+		return nil, fmt.Errorf("transcription API error %d: %s", response.StatusCode, string(responseBody))
+	}
+
+	var result struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding transcription response: %w", err)
+	}
+
+	return &TranscribeResponse{Text: result.Text}, nil
+}
+
+// Synthesize sends text to the OpenAI TTS API and returns an audio stream.
+func (self *Client) Synthesize(ctx context.Context, req SynthesizeRequest) (*SynthesizeResponse, error) {
+	voice := req.Voice
+	if voice == "" {
+		voice = "alloy"
+	}
+	format := req.Format
+	if format == "" {
+		format = "mp3"
+	}
+	speed := req.Speed
+	if speed <= 0 {
+		speed = 1.0
+	}
+
+	payload := map[string]interface{}{
+		"model":           "tts-1",
+		"input":           req.Text,
+		"voice":           voice,
+		"response_format": format,
+		"speed":           speed,
+	}
+	body, _ := json.Marshal(payload)
+
+	log.Debugf("POST %s/audio/speech voice=%s format=%s", self.baseUrl, voice, format)
+
+	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/audio/speech", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	self.setHeaders(httpRequest)
+
+	response, err := self.httpClient.Do(httpRequest)
+	if err != nil {
+		return nil, fmt.Errorf("sending request: %w", err)
+	}
+
+	if response.StatusCode != http.StatusOK {
+		defer response.Body.Close()
+		responseBody, _ := io.ReadAll(response.Body)
+		return nil, fmt.Errorf("TTS API error %d: %s", response.StatusCode, string(responseBody))
+	}
+
+	contentType := "audio/mpeg"
+	if format == "opus" {
+		contentType = "audio/ogg"
+	} else if format == "aac" {
+		contentType = "audio/aac"
+	} else if format == "flac" {
+		contentType = "audio/flac"
+	}
+
+	return &SynthesizeResponse{
+		Audio:       response.Body,
+		Format:      format,
+		ContentType: contentType,
+	}, nil
 }

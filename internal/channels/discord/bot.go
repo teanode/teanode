@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
+	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/util/deferutil"
@@ -369,7 +373,9 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 	}
 
 	content := strings.TrimSpace(event.Content)
-	if content == "" {
+	hasAttachments := len(event.Attachments) > 0
+
+	if content == "" && !hasAttachments {
 		return
 	}
 
@@ -388,7 +394,7 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		// Strip the mention from the message.
 		content = strings.TrimSpace(strings.ReplaceAll(content, "<@"+self.botUserId+">", ""))
 		content = strings.TrimSpace(strings.ReplaceAll(content, "<@!"+self.botUserId+">", ""))
-		if content == "" {
+		if content == "" && !hasAttachments {
 			return
 		}
 	}
@@ -418,10 +424,16 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		return
 	}
 
-	go self.handleMessage(conversationId, activeAgentId, event.ChannelID, content)
+	// Extract attachments from the message.
+	var attachments []conversations.Attachment
+	if hasAttachments {
+		attachments = self.extractAttachments(event.Attachments)
+	}
+
+	go self.handleMessage(conversationId, activeAgentId, event.ChannelID, content, attachments)
 }
 
-func (self *Bot) handleMessage(conversationId, agentId, channelId, message string) {
+func (self *Bot) handleMessage(conversationId, agentId, channelId, message string, attachments []conversations.Attachment) {
 	defer deferutil.Recover()
 
 	// Persist channel ID for subscriber-driven routing (e.g. scheduled jobs).
@@ -472,6 +484,7 @@ func (self *Bot) handleMessage(conversationId, agentId, channelId, message strin
 		Message:        message,
 		Model:          self.getModel(channelId),
 		Origin:         "discord",
+		Attachments:    attachments,
 	}, callerCallbacks)
 
 	// Wait for completion.
@@ -684,4 +697,59 @@ func (self *Bot) isUserAllowed(userId string) bool {
 		}
 	}
 	return false
+}
+
+// extractAttachments downloads files attached to a Discord message and saves
+// them to the media store, returning conversation attachment references.
+func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttachment) []conversations.Attachment {
+	mediaStore := self.gateway.MediaStore()
+	if mediaStore == nil {
+		return nil
+	}
+
+	var attachments []conversations.Attachment
+	for _, att := range messageAttachments {
+		data, err := downloadURL(att.URL)
+		if err != nil {
+			log.Errorf("failed to download discord attachment %s: %v", att.Filename, err)
+			continue
+		}
+
+		// Determine format from filename extension, fall back to content type.
+		format := strings.TrimPrefix(filepath.Ext(att.Filename), ".")
+		if format == "" {
+			format = media.FormatFromMimeType(att.ContentType)
+		}
+		if format == "" {
+			format = "bin"
+		}
+
+		saved, err := mediaStore.Save(data, format, media.SaveOptions{
+			SourceType:   "discord",
+			OriginalName: att.Filename,
+		})
+		if err != nil {
+			log.Errorf("failed to save discord attachment: %v", err)
+			continue
+		}
+		attachments = append(attachments, conversations.Attachment{
+			MediaID:  saved.MediaID,
+			Format:   format,
+			Filename: att.Filename,
+		})
+	}
+	return attachments
+}
+
+// downloadURL fetches data from a URL.
+func downloadURL(url string) ([]byte, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("downloading: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download returned status %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
 }

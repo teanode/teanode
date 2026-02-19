@@ -2,9 +2,12 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import InsertDriveFileRounded from '@mui/icons-material/InsertDriveFileRounded';
+import StopRounded from '@mui/icons-material/StopRounded';
+import VolumeUpRounded from '@mui/icons-material/VolumeUpRounded';
 import { renderMarkdown } from '../markdown';
 import type { Attachment } from '../types';
 
@@ -15,6 +18,10 @@ interface MessageBubbleProps {
   streamText?: string;
   timestamp?: number;
   attachments?: Attachment[];
+  voiceEnabled?: boolean;
+  isSpeakingThis?: boolean;
+  onSpeak?: (text: string) => void;
+  onStopSpeaking?: () => void;
 }
 
 function formatTime(timestamp: number): string {
@@ -58,7 +65,21 @@ function AttachmentDisplay({ attachment }: { attachment: Attachment }) {
   );
 }
 
-export default function MessageBubble({ role, content, isStreaming, streamText, timestamp, attachments }: MessageBubbleProps) {
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, '') // code blocks
+    .replace(/`[^`]*`/g, '')        // inline code
+    .replace(/!\[.*?\]\(.*?\)/g, '') // images
+    .replace(/\[([^\]]*)\]\(.*?\)/g, '$1') // links
+    .replace(/#{1,6}\s/g, '')       // headings
+    .replace(/[*_~]+/g, '')         // emphasis
+    .replace(/>\s/g, '')            // blockquotes
+    .replace(/[-*+]\s/g, '')        // list markers
+    .replace(/\n{2,}/g, '\n')       // collapse blank lines
+    .trim();
+}
+
+export default function MessageBubble({ role, content, isStreaming, streamText, timestamp, attachments, voiceEnabled, isSpeakingThis, onSpeak, onStopSpeaking }: MessageBubbleProps) {
   const { t } = useTranslation();
   const isUser = role === 'user';
 
@@ -137,6 +158,31 @@ export default function MessageBubble({ role, content, isStreaming, streamText, 
     }
   }
 
+  const showSpeaker = voiceEnabled && !isUser && !isStreaming && content && !content.startsWith('__error__:') && content !== '__aborted__';
+
+  const speakerElement = showSpeaker ? (
+    <IconButton
+      size="small"
+      onClick={() => {
+        if (isSpeakingThis) {
+          onStopSpeaking?.();
+        } else {
+          onSpeak?.(stripMarkdown(content));
+        }
+      }}
+      sx={{
+        width: 24,
+        height: 24,
+        opacity: isSpeakingThis ? 1 : 0,
+        transition: 'opacity 0.15s',
+        '.message-row:hover &': { opacity: 1 },
+        color: isSpeakingThis ? 'primary.main' : 'text.secondary',
+      }}
+    >
+      {isSpeakingThis ? <StopRounded sx={{ fontSize: 16 }} /> : <VolumeUpRounded sx={{ fontSize: 16 }} />}
+    </IconButton>
+  ) : null;
+
   return (
     <Box
       className="message-row"
@@ -150,7 +196,10 @@ export default function MessageBubble({ role, content, isStreaming, streamText, 
       }}
     >
       {bubble}
-      {timeElement}
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25 }}>
+        {speakerElement}
+        {timeElement}
+      </Box>
     </Box>
   );
 }

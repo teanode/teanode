@@ -27,6 +27,10 @@ interface MessageListProps {
   hasMoreHistory?: boolean;
   loadingOlderMessages?: boolean;
   onLoadOlderMessages?: () => void;
+  voiceEnabled?: boolean;
+  speakingMessageId?: string | null;
+  onSpeak?: (messageId: string, text: string) => void;
+  onStopSpeaking?: () => void;
 }
 
 const VIRTUAL_START = 1_000_000;
@@ -87,6 +91,10 @@ export default function MessageList({
   hasMoreHistory,
   loadingOlderMessages,
   onLoadOlderMessages,
+  voiceEnabled,
+  speakingMessageId,
+  onSpeak,
+  onStopSpeaking,
 }: MessageListProps) {
   const { t } = useTranslation();
   const { showToolCalls, showTokenUsage } = useAppContext();
@@ -219,6 +227,10 @@ export default function MessageList({
             isStreaming={isStreamingMessage}
             streamText={isStreamingMessage ? streamText : undefined}
             timestamp={message.timestamp}
+            voiceEnabled={voiceEnabled}
+            isSpeakingThis={speakingMessageId === message.id}
+            onSpeak={(text) => onSpeak?.(message.id, text)}
+            onStopSpeaking={onStopSpeaking}
           />
         </Container>
       );
@@ -249,7 +261,7 @@ export default function MessageList({
     }
 
     return <div />;
-  }, [activeRunId, isStreaming, isRunning, streamText, toolActivity, t]);
+  }, [activeRunId, isStreaming, isRunning, streamText, toolActivity, t, voiceEnabled, speakingMessageId, onSpeak, onStopSpeaking]);
 
   const computeItemKey = useCallback((_index: number, item: ListItem) => {
     return item.kind === 'separator' ? item.key : item.message.id;

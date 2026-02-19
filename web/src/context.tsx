@@ -13,6 +13,10 @@ export interface AppContextValue {
   setMobileSidebarOpen: (open: boolean) => void;
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
+  voiceAutoSend: boolean;
+  setVoiceAutoSend: (value: boolean) => void;
+  ttsVoice: string;
+  setTtsVoice: (voice: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -43,6 +47,12 @@ export function AppProvider({
     const stored = localStorage.getItem('teanode-theme-mode');
     return stored === 'light' ? 'light' : 'dark';
   });
+  const [voiceAutoSend, setVoiceAutoSendState] = useState(() => {
+    return localStorage.getItem('teanode-voice-auto-send') === 'true';
+  });
+  const [ttsVoice, setTtsVoiceState] = useState(() => {
+    return localStorage.getItem('teanode-voice-tts-voice') || 'alloy';
+  });
 
   const setShowToolCalls = useCallback((value: boolean) => {
     setShowToolCallsState(value);
@@ -59,6 +69,16 @@ export function AppProvider({
     localStorage.setItem('teanode-theme-mode', mode);
   }, []);
 
+  const setVoiceAutoSend = useCallback((value: boolean) => {
+    setVoiceAutoSendState(value);
+    localStorage.setItem('teanode-voice-auto-send', String(value));
+  }, []);
+
+  const setTtsVoice = useCallback((voice: string) => {
+    setTtsVoiceState(voice);
+    localStorage.setItem('teanode-voice-tts-voice', voice);
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
@@ -71,6 +91,10 @@ export function AppProvider({
         setMobileSidebarOpen,
         themeMode,
         setThemeMode,
+        voiceAutoSend,
+        setVoiceAutoSend,
+        ttsVoice,
+        setTtsVoice,
       }}
     >
       {children}

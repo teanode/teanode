@@ -35,9 +35,16 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 
 	config := self.api.gateway.Config()
 
+	capabilities := []string{"conversations"}
+	if registry := self.api.gateway.ProviderRegistry(); registry != nil {
+		if _, _, ok := registry.FindTranscriber(); ok {
+			capabilities = append(capabilities, "audio")
+		}
+	}
+
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"version":              version.Version(),
-		"capabilities":         []string{"conversations"},
+		"capabilities":         capabilities,
 		"defaultModel":         config.Models.Default,
 		"agents":               agentInfos,
 		"defaultAgentId":       self.api.gateway.AgentRegistry().DefaultID(),

@@ -5,10 +5,13 @@ import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Container from '@mui/material/Container';
 import IconButton from '@mui/material/IconButton';
+import Typography from '@mui/material/Typography';
 import AttachFileRounded from '@mui/icons-material/AttachFileRounded';
+import MicRounded from '@mui/icons-material/MicRounded';
 import SendRounded from '@mui/icons-material/SendRounded';
 import StopRounded from '@mui/icons-material/StopRounded';
 import type { Attachment } from '../types';
+import { useAudioRecorder } from '../hooks/useAudioRecorder';
 
 interface PendingFile {
   file: File;
@@ -32,6 +35,8 @@ function isImageFile(file: File): boolean {
   return file.type.startsWith('image/');
 }
 
+type VoiceState = 'idle' | 'recording' | 'transcribing';
+
 interface InputAreaProps {
   agentName: string;
   draftKey?: string;
@@ -43,8 +48,14 @@ interface InputAreaProps {
   modelPicker?: React.ReactNode;
   /** When true, renders the input box without a Container wrapper. */
   bare?: boolean;
+  /** Whether voice input is available (audio-capable provider configured). */
+  voiceEnabled?: boolean;
+  /** Whether to auto-send after transcription. */
+  voiceAutoSend?: boolean;
   onSend: (text: string, attachments?: Attachment[]) => void;
   onAbort?: () => void;
+  /** Called when voice-transcribed text should be auto-sent. */
+  onVoiceMessage?: (text: string) => void;
 }
 
 export default function InputArea({
@@ -56,8 +67,11 @@ export default function InputArea({
   model,
   modelPicker,
   bare,
+  voiceEnabled,
+  voiceAutoSend,
   onSend,
   onAbort,
+  onVoiceMessage,
 }: InputAreaProps) {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -70,6 +84,50 @@ export default function InputArea({
   const [dragOver, setDragOver] = useState(false);
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+
+  const handleRecordingComplete = useCallback(async (blob: Blob, format: string) => {
+    setVoiceState('transcribing');
+    try {
+      const formData = new FormData();
+      formData.append('file', blob, `audio.${format}`);
+      const response = await fetch('/api/v1/audio/transcribe', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) throw new Error(`Transcription failed: ${response.status}`);
+      const result = await response.json();
+      const text = result.text?.trim();
+      if (text) {
+        if (voiceAutoSend && onVoiceMessage) {
+          onVoiceMessage(text);
+        } else {
+          const element = textareaRef.current;
+          if (element) {
+            element.value = text;
+            element.style.height = 'auto';
+            element.style.height = Math.min(element.scrollHeight, 150) + 'px';
+            setHasText(true);
+            element.focus();
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Transcription error:', error);
+    }
+    setVoiceState('idle');
+  }, [voiceAutoSend, onVoiceMessage]);
+
+  const { isRecording, isSupported: micSupported, duration, startRecording, stopRecording, cancelRecording } = useAudioRecorder({
+    onRecordingComplete: handleRecordingComplete,
+  });
+
+  // Sync recording state.
+  useEffect(() => {
+    if (isRecording) setVoiceState('recording');
+  }, [isRecording]);
+
+  const showMic = voiceEnabled && micSupported && !isRunning && !hasText && voiceState === 'idle';
 
   // Restore draft when draftKey changes (conversation switch).
   useEffect(() => {
@@ -204,7 +262,11 @@ export default function InputArea({
   // Extract the short model name (after the colon) for display.
   const displayModel = model ? (model.includes(':') ? model.split(':').slice(1).join(':') : model) : null;
 
-  const resolvedPlaceholder = placeholder || t('conversations.reply', { agentName });
+  const resolvedPlaceholder = voiceState === 'recording'
+    ? t('settings.listening')
+    : voiceState === 'transcribing'
+      ? t('settings.transcribing')
+      : (placeholder || t('conversations.reply', { agentName }));
 
   const inputBox = (
     <Box
@@ -283,13 +345,27 @@ export default function InputArea({
         onChange={handleFileChange}
         style={{ display: 'none' }}
       />
-      {(focused || showStop || pendingFiles.length > 0 || uploading) && (
+      {(focused || showStop || pendingFiles.length > 0 || uploading || voiceState !== 'idle') && (
         <Box
           onMouseDown={(event: React.MouseEvent) => event.preventDefault()}
           sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}
         >
+          {voiceState === 'recording' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 'auto' }}>
+              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'error.main', animation: 'pulse 1.5s infinite', '@keyframes pulse': { '0%, 100%': { opacity: 1 }, '50%': { opacity: 0.4 } } }} />
+              <Typography variant="caption" color="text.secondary">
+                {Math.floor(duration / 60)}:{String(duration % 60).padStart(2, '0')}
+              </Typography>
+            </Box>
+          )}
+          {voiceState === 'transcribing' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 'auto' }}>
+              <CircularProgress size={14} />
+              <Typography variant="caption" color="text.secondary">{t('settings.transcribing')}</Typography>
+            </Box>
+          )}
           {modelPicker}
-          {!modelPicker && displayModel && focused && (
+          {!modelPicker && displayModel && focused && voiceState === 'idle' && (
             <Box
               component="span"
               sx={{
@@ -300,26 +376,48 @@ export default function InputArea({
               {displayModel}
             </Box>
           )}
-          <IconButton
-            size="small"
-            onClick={() => fileInputRef.current?.click()}
-            sx={{ flexShrink: 0, width: 32, height: 32, color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
-          >
-            <AttachFileRounded fontSize="small" />
-          </IconButton>
-          <IconButton
-            size="small"
-            color={showStop ? 'error' : 'primary'}
-            onClick={showStop ? onAbort : handleSend}
-            disabled={uploading || (!showStop && !hasContent)}
-            sx={{
-              flexShrink: 0,
-              width: 32,
-              height: 32,
-            }}
-          >
-            {uploading ? <CircularProgress size={16} color="primary" /> : showStop ? <StopRounded fontSize="small" /> : <SendRounded fontSize="small" />}
-          </IconButton>
+          {voiceState === 'idle' && (
+            <IconButton
+              size="small"
+              onClick={() => fileInputRef.current?.click()}
+              sx={{ flexShrink: 0, width: 32, height: 32, color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+            >
+              <AttachFileRounded fontSize="small" />
+            </IconButton>
+          )}
+          {showMic && voiceState === 'idle' && (
+            <IconButton
+              size="small"
+              onClick={startRecording}
+              sx={{ flexShrink: 0, width: 32, height: 32, color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+            >
+              <MicRounded fontSize="small" />
+            </IconButton>
+          )}
+          {voiceState === 'recording' ? (
+            <IconButton
+              size="small"
+              color="error"
+              onClick={stopRecording}
+              sx={{ flexShrink: 0, width: 32, height: 32 }}
+            >
+              <StopRounded fontSize="small" />
+            </IconButton>
+          ) : (
+            <IconButton
+              size="small"
+              color={showStop ? 'error' : 'primary'}
+              onClick={showStop ? onAbort : handleSend}
+              disabled={uploading || voiceState === 'transcribing' || (!showStop && !hasContent)}
+              sx={{
+                flexShrink: 0,
+                width: 32,
+                height: 32,
+              }}
+            >
+              {uploading ? <CircularProgress size={16} color="primary" /> : showStop ? <StopRounded fontSize="small" /> : <SendRounded fontSize="small" />}
+            </IconButton>
+          )}
         </Box>
       )}
     </Box>

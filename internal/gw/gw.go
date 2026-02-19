@@ -101,6 +101,7 @@ type Gateway interface {
 
 	// Domain operations
 	ResolveRunner(agentId string) *agents.Runner
+	ProviderRegistry() *providers.Registry
 	LoadModels(ctx context.Context) (map[string][]providers.ModelInfo, error)
 	InvalidateModelsCache()
 

@@ -2,7 +2,9 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
+import Select from '@mui/material/Select';
 import Typography from '@mui/material/Typography';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
@@ -21,7 +23,14 @@ export default function PreferencesArea() {
     setShowToolCalls,
     showTokenUsage,
     setShowTokenUsage,
+    voiceAutoSend,
+    setVoiceAutoSend,
+    ttsVoice,
+    setTtsVoice,
+    backend,
   } = useAppContext();
+
+  const voiceAvailable = backend.audioCapability;
 
   return (
     <Box sx={{ flex: 1, overflowY: 'auto' }}>
@@ -102,6 +111,51 @@ export default function PreferencesArea() {
             />
           </Box>
         </Paper>
+
+        {/* Voice */}
+        {voiceAvailable && (
+          <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+              {t('settings.voice')}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              {t('settings.voiceDescription')}
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={voiceAutoSend}
+                    onChange={(event) => setVoiceAutoSend(event.target.checked)}
+                    color="primary"
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.voiceAutoSend')}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {t('settings.voiceAutoSendDescription')}
+                    </Typography>
+                  </Box>
+                }
+                sx={{ alignItems: 'flex-start', ml: 0 }}
+              />
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{t('settings.ttsVoice')}</Typography>
+                <Select
+                  value={ttsVoice}
+                  onChange={(event) => setTtsVoice(event.target.value)}
+                  size="small"
+                  sx={{ minWidth: 140 }}
+                >
+                  {['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'].map((v) => (
+                    <MenuItem key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</MenuItem>
+                  ))}
+                </Select>
+              </Box>
+            </Box>
+          </Paper>
+        )}
       </Container>
     </Box>
   );

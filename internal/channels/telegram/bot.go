@@ -5,6 +5,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +15,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/util/deferutil"
@@ -491,6 +495,11 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 
 	text := strings.TrimSpace(message.Text)
 	if text == "" {
+		text = strings.TrimSpace(message.Caption)
+	}
+	hasAttachments := message.Photo != nil || message.Document != nil || message.Audio != nil || message.Video != nil || message.Voice != nil
+
+	if text == "" && !hasAttachments {
 		return
 	}
 
@@ -516,7 +525,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 			rest = rest[index:]
 		}
 		text = strings.TrimSpace(rest)
-		if text == "" {
+		if text == "" && !hasAttachments {
 			msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /ask <message>")
 			msg.ReplyToMessageID = message.MessageID
 			self.api.Send(msg)
@@ -554,10 +563,16 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 		return
 	}
 
-	go self.handleMessage(conversationId, activeAgentId, message.Chat.ID, message.MessageID, text, chatIdStr)
+	// Extract attachments from the message.
+	var attachments []conversations.Attachment
+	if hasAttachments {
+		attachments = self.extractAttachments(message)
+	}
+
+	go self.handleMessage(conversationId, activeAgentId, message.Chat.ID, message.MessageID, text, chatIdStr, attachments)
 }
 
-func (self *Bot) handleMessage(conversationId, agentId string, chatId int64, replyTo int, message, chatIdStr string) {
+func (self *Bot) handleMessage(conversationId, agentId string, chatId int64, replyTo int, message, chatIdStr string, attachments []conversations.Attachment) {
 	defer deferutil.Recover()
 
 	// Persist chat ID for subscriber-driven routing (e.g. scheduled jobs).
@@ -610,6 +625,7 @@ func (self *Bot) handleMessage(conversationId, agentId string, chatId int64, rep
 		Message:        message,
 		Model:          self.getModel(chatIdStr),
 		Origin:         "telegram",
+		Attachments:    attachments,
 	}, callerCallbacks)
 
 	// Wait for completion.
@@ -845,4 +861,93 @@ func (self *Bot) isUserAllowed(userId int64) bool {
 		}
 	}
 	return false
+}
+
+// extractAttachments downloads files attached to a Telegram message and saves
+// them to the media store, returning conversation attachment references.
+func (self *Bot) extractAttachments(message *tgbotapi.Message) []conversations.Attachment {
+	mediaStore := self.gateway.MediaStore()
+	if mediaStore == nil {
+		return nil
+	}
+
+	type telegramFile struct {
+		fileId   string
+		filename string
+		mimeType string
+	}
+
+	var files []telegramFile
+
+	// Photos: pick the largest size.
+	if message.Photo != nil && len(message.Photo) > 0 {
+		best := message.Photo[len(message.Photo)-1]
+		files = append(files, telegramFile{fileId: best.FileID, filename: "photo.jpg", mimeType: "image/jpeg"})
+	}
+	if message.Document != nil {
+		files = append(files, telegramFile{fileId: message.Document.FileID, filename: message.Document.FileName, mimeType: message.Document.MimeType})
+	}
+	if message.Audio != nil {
+		name := "audio"
+		if message.Audio.Title != "" {
+			name = message.Audio.Title
+		}
+		files = append(files, telegramFile{fileId: message.Audio.FileID, filename: name, mimeType: message.Audio.MimeType})
+	}
+	if message.Video != nil {
+		files = append(files, telegramFile{fileId: message.Video.FileID, filename: "video.mp4", mimeType: "video/mp4"})
+	}
+	if message.Voice != nil {
+		files = append(files, telegramFile{fileId: message.Voice.FileID, filename: "voice.ogg", mimeType: message.Voice.MimeType})
+	}
+
+	var attachments []conversations.Attachment
+	for _, file := range files {
+		data, err := self.downloadTelegramFile(file.fileId)
+		if err != nil {
+			log.Errorf("failed to download telegram file %s: %v", file.fileId, err)
+			continue
+		}
+
+		// Determine format from filename extension, fall back to MIME type.
+		format := strings.TrimPrefix(filepath.Ext(file.filename), ".")
+		if format == "" {
+			format = media.FormatFromMimeType(file.mimeType)
+		}
+		if format == "" {
+			format = "bin"
+		}
+
+		saved, err := mediaStore.Save(data, format, media.SaveOptions{
+			SourceType:   "telegram",
+			OriginalName: file.filename,
+		})
+		if err != nil {
+			log.Errorf("failed to save telegram attachment: %v", err)
+			continue
+		}
+		attachments = append(attachments, conversations.Attachment{
+			MediaID:  saved.MediaID,
+			Format:   format,
+			Filename: file.filename,
+		})
+	}
+	return attachments
+}
+
+// downloadTelegramFile downloads a file from Telegram by its file ID.
+func (self *Bot) downloadTelegramFile(fileId string) ([]byte, error) {
+	url, err := self.api.GetFileDirectURL(fileId)
+	if err != nil {
+		return nil, fmt.Errorf("getting file URL: %w", err)
+	}
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("downloading file: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download returned status %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
 }

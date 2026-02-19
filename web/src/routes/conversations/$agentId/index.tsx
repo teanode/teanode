@@ -14,7 +14,7 @@ import type { Attachment, ModelInfo } from '../../../types';
 export default function ConversationsNewPage() {
   const { t } = useTranslation();
   const { agentId } = useParams({ strict: false }) as { agentId: string };
-  const { backend } = useAppContext();
+  const { backend, voiceAutoSend } = useAppContext();
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;
   const navigate = useNavigate();
@@ -46,9 +46,17 @@ export default function ConversationsNewPage() {
 
   const handleSend = useCallback(
     (text: string, attachments?: Attachment[]) => {
+      backend.markTypedSend();
       backend.sendMessage(text, selectedModel || undefined, attachments);
     },
-    [backend.sendMessage, selectedModel]
+    [backend.sendMessage, backend.markTypedSend, selectedModel]
+  );
+
+  const handleVoiceMessage = useCallback(
+    (text: string) => {
+      backend.sendVoiceMessage(text, selectedModel || undefined);
+    },
+    [backend.sendVoiceMessage, selectedModel]
   );
 
   // Group models by provider for the select menu.
@@ -113,7 +121,10 @@ export default function ConversationsNewPage() {
             autoFocus
             modelPicker={modelPicker}
             bare
+            voiceEnabled={backend.audioCapability}
+            voiceAutoSend={voiceAutoSend}
             onSend={handleSend}
+            onVoiceMessage={handleVoiceMessage}
           />
         </Box>
       </Container>

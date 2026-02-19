@@ -55,6 +55,9 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 		sub.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
 	}
 
+	sub.Handle("/audio/transcribe", web.HandlerFunc(self.handleAudioTranscribe))
+	sub.Handle("/audio/synthesize", web.HandlerFunc(self.handleAudioSynthesize))
+
 	sub.Handle("/chat/completions", web.HandlerFunc(self.handleChatCompletions))
 	return nil
 }

@@ -63,3 +63,23 @@ func ParseQualifiedModel(qualified, defaultProvider string) (providerName, model
 func QualifyModel(providerName, model string) string {
 	return providerName + ":" + model
 }
+
+// FindTranscriber returns the first registered provider that implements AudioTranscriber.
+func (r *Registry) FindTranscriber() (AudioTranscriber, string, bool) {
+	for name, client := range r.clients {
+		if transcriber, ok := client.(AudioTranscriber); ok {
+			return transcriber, name, true
+		}
+	}
+	return nil, "", false
+}
+
+// FindSynthesizer returns the first registered provider that implements AudioSynthesizer.
+func (r *Registry) FindSynthesizer() (AudioSynthesizer, string, bool) {
+	for name, client := range r.clients {
+		if synthesizer, ok := client.(AudioSynthesizer); ok {
+			return synthesizer, name, true
+		}
+	}
+	return nil, "", false
+}

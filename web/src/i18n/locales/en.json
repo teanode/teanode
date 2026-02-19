@@ -106,7 +106,14 @@
     "showToolCalls": "Show tool calls",
     "showToolCallsDescription": "Display tool invocations and results in the conversation",
     "showTokenUsage": "Show token usage",
-    "showTokenUsageDescription": "Display token counts after each response"
+    "showTokenUsageDescription": "Display token counts after each response",
+    "voice": "Voice",
+    "voiceDescription": "Configure voice input and text-to-speech output",
+    "voiceAutoSend": "Auto-send after transcription",
+    "voiceAutoSendDescription": "Automatically send the message after voice transcription completes",
+    "ttsVoice": "TTS Voice",
+    "listening": "Listening...",
+    "transcribing": "Transcribing..."
   },
   "agent": {
     "selectToEdit": "Select an agent to edit",

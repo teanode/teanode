@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/web"
 )
 
@@ -93,6 +94,101 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 		"format":   format,
 		"filename": filename,
 	})
+	return nil
+}
+
+const maxAudioUploadSize = 25 << 20 // 25 MB (OpenAI Whisper limit)
+
+func (self *v1Api) handleAudioTranscribe(writer http.ResponseWriter, request *http.Request) error {
+	if request.Method != http.MethodPost {
+		return web.Error(405, "method not allowed")
+	}
+
+	registry := self.gateway.ProviderRegistry()
+	if registry == nil {
+		return web.Error(500, "provider registry not available")
+	}
+
+	transcriber, _, ok := registry.FindTranscriber()
+	if !ok {
+		return web.Error(501, "no audio transcription provider configured")
+	}
+
+	request.Body = http.MaxBytesReader(writer, request.Body, maxAudioUploadSize)
+	if err := request.ParseMultipartForm(maxAudioUploadSize); err != nil {
+		return web.Error(400, "file too large or invalid multipart form")
+	}
+
+	file, header, err := request.FormFile("file")
+	if err != nil {
+		return web.Error(400, "missing file field")
+	}
+	defer file.Close()
+
+	ext := strings.TrimPrefix(filepath.Ext(header.Filename), ".")
+	format := strings.ToLower(ext)
+	if format == "" {
+		format = "webm"
+	}
+
+	language := request.FormValue("language")
+
+	result, err := transcriber.Transcribe(request.Context(), providers.TranscribeRequest{
+		Audio:    file,
+		Format:   format,
+		Language: language,
+	})
+	if err != nil {
+		return web.Error(500, "transcription failed: "+err.Error())
+	}
+
+	writer.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(writer).Encode(map[string]interface{}{
+		"text": result.Text,
+	})
+	return nil
+}
+
+func (self *v1Api) handleAudioSynthesize(writer http.ResponseWriter, request *http.Request) error {
+	if request.Method != http.MethodPost {
+		return web.Error(405, "method not allowed")
+	}
+
+	registry := self.gateway.ProviderRegistry()
+	if registry == nil {
+		return web.Error(500, "provider registry not available")
+	}
+
+	synthesizer, _, ok := registry.FindSynthesizer()
+	if !ok {
+		return web.Error(501, "no audio synthesis provider configured")
+	}
+
+	var params struct {
+		Text  string  `json:"text"`
+		Voice string  `json:"voice"`
+		Speed float64 `json:"speed"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&params); err != nil {
+		return web.Error(400, "invalid JSON body: "+err.Error())
+	}
+	if params.Text == "" {
+		return web.Error(400, "text is required")
+	}
+
+	result, err := synthesizer.Synthesize(request.Context(), providers.SynthesizeRequest{
+		Text:   params.Text,
+		Voice:  params.Voice,
+		Format: "mp3",
+		Speed:  params.Speed,
+	})
+	if err != nil {
+		return web.Error(500, "synthesis failed: "+err.Error())
+	}
+	defer result.Audio.Close()
+
+	writer.Header().Set("Content-Type", result.ContentType)
+	io.Copy(writer, result.Audio)
 	return nil
 }
 

@@ -192,6 +192,8 @@ export function useBackend() {
   const [serverActiveAgentId, setServerActiveAgentId] = useState<string>('');
   const [connected, setConnected] = useState(false);
   const [conversationModel, setConversationModel] = useState<string | null>(null);
+  const [audioCapability, setAudioCapability] = useState(false);
+  const lastSentViaMicRef = useRef(false);
   const currentAgentIdRef = useRef(currentAgentId);
   const modelsRef = useRef(models);
 
@@ -543,6 +545,7 @@ export function useBackend() {
 
   const handleConnect = useCallback((result: ConnectResult) => {
     setConnected(true);
+    setAudioCapability(result.capabilities?.includes('audio') ?? false);
     if (result.defaultModel) {
       setDefaultModel(result.defaultModel);
     }
@@ -972,6 +975,18 @@ export function useBackend() {
     [sendRpc]
   );
 
+  const sendVoiceMessage = useCallback(
+    (text: string, model?: string) => {
+      lastSentViaMicRef.current = true;
+      sendMessage(text, model);
+    },
+    [sendMessage]
+  );
+
+  const markTypedSend = useCallback(() => {
+    lastSentViaMicRef.current = false;
+  }, []);
+
   return {
     conversations,
     conversationId,
@@ -989,10 +1004,14 @@ export function useBackend() {
     currentRunId: currentRunIdRef.current,
     conversationModel,
     serverActiveAgentId,
+    audioCapability,
+    lastSentViaMicRef,
     setCurrentAgentId,
     setActiveAgent,
     setActiveConversation,
     sendMessage,
+    sendVoiceMessage,
+    markTypedSend,
     abortRun,
     switchConversation,
     newConversation,

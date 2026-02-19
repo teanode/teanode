@@ -81,6 +81,16 @@ func (self *gateway) SessionStore() *sessions.Store        { return self.session
 
 // --- Domain operations ---
 
+// ProviderRegistry returns the provider registry from the default runner.
+func (self *gateway) ProviderRegistry() *providers.Registry {
+	runner := self.agentRegistry.Default()
+	if runner == nil {
+		return nil
+	}
+	_, providerRegistry, _, _, _ := runner.Snapshot()
+	return providerRegistry
+}
+
 // ResolveRunner returns the runner for the given agent ID, defaulting to the configured default agents.
 func (self *gateway) ResolveRunner(agentId string) *agents.Runner {
 	if agentId == "" {
@@ -611,6 +621,16 @@ func (self *gateway) AuthMiddleware() web.Middleware {
 
 			// 4b. Media upload: requires session or bearer auth.
 			if path == "/api/v1/media/upload" {
+				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
+					next.ServeHTTP(writer, request)
+					return
+				}
+				web.WriteError(writer, web.ErrUnauthorized)
+				return
+			}
+
+			// 4c. Audio endpoints: requires session or bearer auth.
+			if strings.HasPrefix(path, "/api/v1/audio/") {
 				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
 					next.ServeHTTP(writer, request)
 					return
