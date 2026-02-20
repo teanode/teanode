@@ -30,7 +30,7 @@
         "defaultLimits": {
           "type": "object",
           "title": "Default Runtime Limits",
-          "description": "Default runtime limits applied to all models unless overridden in models.limits.",
+          "description": "Default runtime limits applied to all models unless overridden in models.limits entries.",
           "properties": {
             "maxToolRounds": {
               "type": "number",
@@ -70,12 +70,19 @@
           }
         },
         "limits": {
-          "type": "object",
+          "type": "array",
           "title": "Per-Model Runtime Limits",
-          "description": "Per-model runtime limit overrides keyed by model name (e.g. \"openai:gpt-5.1\" or \"gpt-5.1\").",
-          "additionalProperties": {
+          "description": "Per-model runtime limit overrides.",
+          "x-widget": "modelRuntimeLimits",
+          "x-suggest": "model",
+          "items": {
             "type": "object",
             "properties": {
+              "model": {
+                "type": "string",
+                "description": "Model identifier (e.g. \"openai:gpt-5.1\" or \"gpt-5.1\").",
+                "x-suggest": "model"
+              },
               "maxToolRounds": {
                 "type": "number",
                 "description": "Maximum tool-call loop iterations per run."
@@ -96,7 +103,8 @@
                 "type": "number",
                 "description": "Maximum characters per workspace file in the system prompt."
               }
-            }
+            },
+            "required": ["model"]
           }
         },
         "providers": {

@@ -22,6 +22,15 @@ interface ProviderEntry {
   apiKey: string;
 }
 
+interface ModelRuntimeLimitEntry {
+  model?: string;
+  maxToolRounds?: number;
+  compressionThreshold?: number;
+  minKeepMessages?: number;
+  maxToolResultChars?: number;
+  maxWorkspaceFileChars?: number;
+}
+
 interface SchemaFieldProps {
   property: JsonSchemaProperty;
   propertyKey: string;
@@ -194,6 +203,9 @@ export default function SchemaField({ property, propertyKey, value, onChange, su
 
     case 'providers':
       return <ProvidersField property={property} value={value} onChange={onChange} />;
+
+    case 'modelRuntimeLimits':
+      return <ModelRuntimeLimitsField property={property} value={value} onChange={onChange} suggestions={suggestions} />;
 
     default:
       return null;
@@ -404,3 +416,108 @@ function ProvidersField({
   );
 }
 
+function ModelRuntimeLimitsField({
+  property,
+  value,
+  onChange,
+  suggestions,
+}: {
+  property: JsonSchemaProperty;
+  value: unknown;
+  onChange: (value: unknown) => void;
+  suggestions?: string[];
+}) {
+  const { t } = useTranslation();
+  const entries: ModelRuntimeLimitEntry[] = Array.isArray(value) ? (value as ModelRuntimeLimitEntry[]) : [];
+  const itemProperties = property.items?.properties ?? {};
+  const limitFields = Object.entries(itemProperties).filter(([key]) => key !== 'model');
+
+  function updateEntry(index: number, updates: Partial<ModelRuntimeLimitEntry>) {
+    const updated = [...entries];
+    updated[index] = { ...updated[index], ...updates };
+    onChange(updated);
+  }
+
+  function removeEntry(index: number) {
+    onChange(entries.filter((_, entryIndex) => entryIndex !== index));
+  }
+
+  function addEntry() {
+    onChange([...entries, {}]);
+  }
+
+  return (
+    <Box>
+      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{property.title}</Typography>
+      {property.description && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{property.description}</Typography>
+      )}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        {entries.map((entry, index) => (
+          <Paper key={`${entry.model ?? 'model'}-${index}`} variant="outlined" sx={{ p: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                {itemProperties.model?.title ?? 'Model'}
+              </Typography>
+              <Button size="small" color="error" onClick={() => removeEntry(index)}>
+                {t('common.delete')}
+              </Button>
+            </Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {suggestions?.length ? (
+                <Autocomplete
+                  freeSolo
+                  options={suggestions}
+                  value={entry.model ?? ''}
+                  onInputChange={(_event, newValue) => updateEntry(index, { model: newValue })}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      size="small"
+                      fullWidth
+                      label={itemProperties.model?.title ?? 'Model'}
+                      helperText={itemProperties.model?.description}
+                    />
+                  )}
+                />
+              ) : (
+                <TextField
+                  size="small"
+                  fullWidth
+                  label={itemProperties.model?.title ?? 'Model'}
+                  helperText={itemProperties.model?.description}
+                  value={entry.model ?? ''}
+                  onChange={(event) => updateEntry(index, { model: event.target.value })}
+                />
+              )}
+              {limitFields.map(([fieldKey, fieldProperty]) => {
+                const rawValue = (entry as Record<string, unknown>)[fieldKey];
+                const hasValue = rawValue != null && rawValue !== 0;
+                return (
+                  <TextField
+                    key={fieldKey}
+                    type="number"
+                    size="small"
+                    fullWidth
+                    label={fieldProperty.title ?? fieldKey}
+                    helperText={fieldProperty.description}
+                    value={hasValue ? String(rawValue) : ''}
+                    onChange={(event) => {
+                      const parsed = event.target.value === '' ? undefined : Number(event.target.value);
+                      updateEntry(index, { [fieldKey]: parsed } as Partial<ModelRuntimeLimitEntry>);
+                    }}
+                  />
+                );
+              })}
+            </Box>
+          </Paper>
+        ))}
+      </Box>
+      <Box sx={{ mt: 1.5 }}>
+        <Button variant="contained" size="small" onClick={addEntry}>
+          {t('common.add')}
+        </Button>
+      </Box>
+    </Box>
+  );
+}

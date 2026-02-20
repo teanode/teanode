@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -129,23 +130,23 @@ const DefaultAgentID = "main"
 
 // AgentConfig defines a single agent in the multi-agent system.
 type AgentConfig struct {
-	ID                    string   `json:"id" yaml:"id"`                                                           // unique; "main" is default
-	Name                  string   `json:"name,omitempty" yaml:"name,omitempty"`                                   // friendly display name
-	Description           string   `json:"description,omitempty" yaml:"description,omitempty"`                     // short routing description
-	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`                                 // qualified model override (e.g. "openai:gpt-5.1")
-	SystemPrompt          string   `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`                   // per-agent identity line override
-	Skills                []string `json:"skills,omitempty" yaml:"skills,omitempty"`                               // skill allow list (nil = all)
-	Tools                 []string `json:"tools,omitempty" yaml:"tools,omitempty"`                                 // tool allow list (nil = all)
-	CanMessage            []string `json:"canMessage,omitempty" yaml:"canMessage,omitempty"`                       // agent IDs this agent can talk to; "*" = all
+	ID           string   `json:"id" yaml:"id"`                                         // unique; "main" is default
+	Name         string   `json:"name,omitempty" yaml:"name,omitempty"`                 // friendly display name
+	Description  string   `json:"description,omitempty" yaml:"description,omitempty"`   // short routing description
+	Model        string   `json:"model,omitempty" yaml:"model,omitempty"`               // qualified model override (e.g. "openai:gpt-5.1")
+	SystemPrompt string   `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"` // per-agent identity line override
+	Skills       []string `json:"skills,omitempty" yaml:"skills,omitempty"`             // skill allow list (nil = all)
+	Tools        []string `json:"tools,omitempty" yaml:"tools,omitempty"`               // tool allow list (nil = all)
+	CanMessage   []string `json:"canMessage,omitempty" yaml:"canMessage,omitempty"`     // agent IDs this agent can talk to; "*" = all
 }
 
 // AgentLimits holds resolved runtime limits for an agent.
 type AgentLimits struct {
-	MaxToolRounds         int
-	CompressionThreshold  float64
-	MinKeepMessages       int
-	MaxToolResultChars    int
-	MaxWorkspaceFileChars int
+	MaxToolRounds         int     `json:"maxToolRounds,omitempty" yaml:"maxToolRounds,omitempty"`
+	CompressionThreshold  float64 `json:"compressionThreshold,omitempty" yaml:"compressionThreshold,omitempty"`
+	MinKeepMessages       int     `json:"minKeepMessages,omitempty" yaml:"minKeepMessages,omitempty"`
+	MaxToolResultChars    int     `json:"maxToolResultChars,omitempty" yaml:"maxToolResultChars,omitempty"`
+	MaxWorkspaceFileChars int     `json:"maxWorkspaceFileChars,omitempty" yaml:"maxWorkspaceFileChars,omitempty"`
 }
 
 // DefaultAgentLimits contains the default values for all agent limits.
@@ -344,12 +345,98 @@ type ProviderConfig struct {
 }
 
 type ModelsConfig struct {
-	Default         string                 `json:"default,omitempty" yaml:"default,omitempty"`
-	SummarizerModel string                 `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
-	ContextWindow   int                    `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; default 128000
-	DefaultLimits   AgentLimits            `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`     // default runtime limits applied to all models
-	Limits          map[string]AgentLimits `json:"limits,omitempty" yaml:"limits,omitempty"`                   // per-model runtime limits keyed by model name
-	Providers       []ProviderConfig       `json:"providers,omitempty" yaml:"providers,omitempty"`
+	Default         string                   `json:"default,omitempty" yaml:"default,omitempty"`
+	SummarizerModel string                   `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
+	ContextWindow   int                      `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; default 128000
+	DefaultLimits   AgentLimits              `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`     // default runtime limits applied to all models
+	Limits          ModelRuntimeLimits       `json:"limits,omitempty" yaml:"limits,omitempty"`                   // per-model runtime limits
+	Providers       []ProviderConfig         `json:"providers,omitempty" yaml:"providers,omitempty"`
+}
+
+// ModelRuntimeLimitEntry stores per-model runtime limit overrides.
+type ModelRuntimeLimitEntry struct {
+	Model       string `json:"model,omitempty" yaml:"model,omitempty"`
+	AgentLimits `json:",inline" yaml:",inline"`
+}
+
+// ModelRuntimeLimits supports both the current list format and a legacy map
+// format keyed by model name.
+type ModelRuntimeLimits []ModelRuntimeLimitEntry
+
+func (self *ModelRuntimeLimits) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*self = nil
+		return nil
+	}
+
+	var list []ModelRuntimeLimitEntry
+	if err := json.Unmarshal(data, &list); err == nil {
+		*self = list
+		return nil
+	}
+
+	// Backward compatibility:
+	// models.limits:
+	//   "provider:model":
+	//     maxToolRounds: 200
+	var legacy map[string]ModelRuntimeLimitEntry
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+
+	models := make([]string, 0, len(legacy))
+	for model := range legacy {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+
+	converted := make(ModelRuntimeLimits, 0, len(models))
+	for _, model := range models {
+		entry := legacy[model]
+		if entry.Model == "" {
+			entry.Model = model
+		}
+		converted = append(converted, entry)
+	}
+	*self = converted
+	return nil
+}
+
+func (self *ModelRuntimeLimits) UnmarshalYAML(value *yaml.Node) error {
+	if value == nil || value.Kind == yaml.ScalarNode && (value.Value == "" || value.Value == "null") {
+		*self = nil
+		return nil
+	}
+
+	var list []ModelRuntimeLimitEntry
+	if err := value.Decode(&list); err == nil {
+		*self = list
+		return nil
+	}
+
+	// Backward compatibility for map format.
+	var legacy map[string]ModelRuntimeLimitEntry
+	if err := value.Decode(&legacy); err != nil {
+		return err
+	}
+
+	models := make([]string, 0, len(legacy))
+	for model := range legacy {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+
+	converted := make(ModelRuntimeLimits, 0, len(models))
+	for _, model := range models {
+		entry := legacy[model]
+		if entry.Model == "" {
+			entry.Model = model
+		}
+		converted = append(converted, entry)
+	}
+	*self = converted
+	return nil
 }
 
 // ResolvedProviders returns the providers list. If the Providers field is
@@ -409,23 +496,30 @@ func (self *ModelsConfig) modelLimits(model string) (AgentLimits, bool) {
 	if len(self.Limits) == 0 || model == "" {
 		return AgentLimits{}, false
 	}
-	if limits, ok := self.Limits[model]; ok {
+	limitsByModel := make(map[string]AgentLimits, len(self.Limits))
+	for _, entry := range self.Limits {
+		if entry.Model == "" {
+			continue
+		}
+		limitsByModel[entry.Model] = mergeLimits(limitsByModel[entry.Model], entry.AgentLimits)
+	}
+	if limits, ok := limitsByModel[model]; ok {
 		return limits, true
 	}
 	defaultProvider := self.DefaultProviderName()
 	providerName, bareModel := providers.ParseQualifiedModel(model, defaultProvider)
 	qualifiedModel := providers.QualifyModel(providerName, bareModel)
-	if limits, ok := self.Limits[qualifiedModel]; ok {
+	if limits, ok := limitsByModel[qualifiedModel]; ok {
 		return limits, true
 	}
-	if limits, ok := self.Limits[bareModel]; ok {
+	if limits, ok := limitsByModel[bareModel]; ok {
 		return limits, true
 	}
 	return AgentLimits{}, false
 }
 
 // ResolveModelLimits returns runtime limits for a model.
-// Merge order: built-in defaults -> models.defaultLimits -> models.limits[model].
+// Merge order: built-in defaults -> models.defaultLimits -> models.limits entry.
 func (self *Config) ResolveModelLimits(model string) AgentLimits {
 	limits := mergeLimits(DefaultAgentLimits, self.Models.DefaultLimits)
 	if modelLimits, ok := self.Models.modelLimits(model); ok {

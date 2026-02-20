@@ -121,10 +121,8 @@ func TestResolveModelLimits_DefaultAndPerModelOverrides(t *testing.T) {
 			DefaultLimits: AgentLimits{
 				MaxToolRounds: 123,
 			},
-			Limits: map[string]AgentLimits{
-				"openai:gpt-5.1": {
-					MinKeepMessages: 5,
-				},
+			Limits: ModelRuntimeLimits{
+				{Model: "openai:gpt-5.1", AgentLimits: AgentLimits{MinKeepMessages: 5}},
 			},
 		},
 	}
@@ -145,8 +143,8 @@ func TestResolveModelLimits_BareModelLookup(t *testing.T) {
 	configuration := &Config{
 		Models: ModelsConfig{
 			Default: "openai:gpt-5.1",
-			Limits: map[string]AgentLimits{
-				"gpt-5.1": {MaxToolResultChars: 2222},
+			Limits: ModelRuntimeLimits{
+				{Model: "gpt-5.1", AgentLimits: AgentLimits{MaxToolResultChars: 2222}},
 			},
 		},
 	}
@@ -160,8 +158,8 @@ func TestResolveModelLimits_IgnoresAgentConfig(t *testing.T) {
 	configuration := &Config{
 		Models: ModelsConfig{
 			Default: "openai:gpt-5.1",
-			Limits: map[string]AgentLimits{
-				"openai:gpt-5.1": {MaxToolRounds: 300},
+			Limits: ModelRuntimeLimits{
+				{Model: "openai:gpt-5.1", AgentLimits: AgentLimits{MaxToolRounds: 300}},
 			},
 		},
 		Agents: []AgentConfig{
@@ -741,6 +739,66 @@ func TestLoadRaw_NoFile(t *testing.T) {
 	// Should return empty config, not error.
 	if loaded.Gateway.Port != 0 {
 		t.Errorf("expected zero-value config, got Port=%d", loaded.Gateway.Port)
+	}
+}
+
+func TestLoadRaw_LegacyModelLimitsMapMigratesToList(t *testing.T) {
+	directory := withTempDir(t)
+
+	legacy := []byte(`models:
+  default: openai:gpt-5.1
+  limits:
+    openai:gpt-5.1:
+      maxToolRounds: 321
+      minKeepMessages: 7
+    gpt-5.1:
+      maxToolResultChars: 4321
+`)
+	if err := os.WriteFile(filepath.Join(directory, "config.yaml"), legacy, 0644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	loaded, err := LoadRaw()
+	if err != nil {
+		t.Fatalf("LoadRaw() error: %v", err)
+	}
+	if len(loaded.Models.Limits) != 2 {
+		t.Fatalf("len(Models.Limits) = %d, want 2", len(loaded.Models.Limits))
+	}
+
+	byModel := map[string]AgentLimits{}
+	for _, entry := range loaded.Models.Limits {
+		byModel[entry.Model] = entry.AgentLimits
+	}
+	if byModel["openai:gpt-5.1"].MaxToolRounds != 321 {
+		t.Errorf("openai:gpt-5.1 MaxToolRounds = %d, want 321", byModel["openai:gpt-5.1"].MaxToolRounds)
+	}
+	if byModel["openai:gpt-5.1"].MinKeepMessages != 7 {
+		t.Errorf("openai:gpt-5.1 MinKeepMessages = %d, want 7", byModel["openai:gpt-5.1"].MinKeepMessages)
+	}
+	if byModel["gpt-5.1"].MaxToolResultChars != 4321 {
+		t.Errorf("gpt-5.1 MaxToolResultChars = %d, want 4321", byModel["gpt-5.1"].MaxToolResultChars)
+	}
+}
+
+func TestModelRuntimeLimits_UnmarshalJSONLegacyMap(t *testing.T) {
+	var limits ModelRuntimeLimits
+	raw := []byte(`{"openai:gpt-5.1":{"maxToolRounds":222},"gpt-5.1":{"minKeepMessages":4}}`)
+	if err := json.Unmarshal(raw, &limits); err != nil {
+		t.Fatalf("json.Unmarshal error: %v", err)
+	}
+	if len(limits) != 2 {
+		t.Fatalf("len(limits) = %d, want 2", len(limits))
+	}
+	byModel := map[string]AgentLimits{}
+	for _, entry := range limits {
+		byModel[entry.Model] = entry.AgentLimits
+	}
+	if byModel["openai:gpt-5.1"].MaxToolRounds != 222 {
+		t.Errorf("openai:gpt-5.1 MaxToolRounds = %d, want 222", byModel["openai:gpt-5.1"].MaxToolRounds)
+	}
+	if byModel["gpt-5.1"].MinKeepMessages != 4 {
+		t.Errorf("gpt-5.1 MinKeepMessages = %d, want 4", byModel["gpt-5.1"].MinKeepMessages)
 	}
 }
 
