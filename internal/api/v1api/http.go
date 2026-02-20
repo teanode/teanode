@@ -1,7 +1,11 @@
 package v1api
 
 import (
+	"bytes"
 	"encoding/json"
+	"image"
+	"image/draw"
+	"image/jpeg"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -10,10 +14,13 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
+	_ "image/gif"
+	_ "image/png"
 )
 
 var upgrader = websocket.Upgrader{
@@ -43,6 +50,7 @@ func (self *v1Api) handleMedia(writer http.ResponseWriter, request *http.Request
 }
 
 const maxUploadSize = 50 << 20 // 50 MB
+const maxAvatarUploadSize = 10 << 20
 
 func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodPost {
@@ -96,6 +104,152 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 		"filename": filename,
 	})
 	return nil
+}
+
+func processAvatarImage(data []byte) ([]byte, string, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", err
+	}
+
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	size := width
+	if height < size {
+		size = height
+	}
+	startX := bounds.Min.X + (width-size)/2
+	startY := bounds.Min.Y + (height-size)/2
+
+	square := image.NewRGBA(image.Rect(0, 0, size, size))
+	draw.Draw(square, square.Bounds(), img, image.Point{X: startX, Y: startY}, draw.Src)
+
+	const avatarSize = 256
+	resized := image.NewRGBA(image.Rect(0, 0, avatarSize, avatarSize))
+	scaleNearestNeighbor(resized, square)
+
+	var output bytes.Buffer
+	if err := jpeg.Encode(&output, resized, &jpeg.Options{Quality: 85}); err != nil {
+		return nil, "", err
+	}
+	return output.Bytes(), "jpeg", nil
+}
+
+func scaleNearestNeighbor(destination *image.RGBA, source *image.RGBA) {
+	dstBounds := destination.Bounds()
+	srcBounds := source.Bounds()
+	dstWidth := dstBounds.Dx()
+	dstHeight := dstBounds.Dy()
+	srcWidth := srcBounds.Dx()
+	srcHeight := srcBounds.Dy()
+	if dstWidth <= 0 || dstHeight <= 0 || srcWidth <= 0 || srcHeight <= 0 {
+		return
+	}
+	for y := 0; y < dstHeight; y++ {
+		srcY := y * srcHeight / dstHeight
+		for x := 0; x < dstWidth; x++ {
+			srcX := x * srcWidth / dstWidth
+			destination.Set(x, y, source.At(srcX, srcY))
+		}
+	}
+}
+
+func (self *v1Api) handleAgentAvatar(writer http.ResponseWriter, request *http.Request) error {
+	agentId := mux.Vars(request)["id"]
+	if agentId == "" {
+		return web.Error(400, "missing agent id")
+	}
+	agentExists := false
+	if agents, err := configs.LoadAgents(); err == nil {
+		for _, agent := range agents {
+			if agent.ID == agentId {
+				agentExists = true
+				break
+			}
+		}
+	}
+	if !agentExists {
+		return web.Error(404, "agent not found")
+	}
+	mediaStore := self.gateway.MediaStore()
+	if mediaStore == nil {
+		return web.Error(500, "media store not available")
+	}
+
+	switch request.Method {
+	case http.MethodPost:
+		request.Body = http.MaxBytesReader(writer, request.Body, maxAvatarUploadSize)
+		if err := request.ParseMultipartForm(maxAvatarUploadSize); err != nil {
+			return web.Error(400, "file too large or invalid multipart form")
+		}
+		file, header, err := request.FormFile("file")
+		if err != nil {
+			return web.Error(400, "missing file field")
+		}
+		defer file.Close()
+		raw, err := io.ReadAll(file)
+		if err != nil {
+			return web.Error(400, "failed to read file")
+		}
+		avatarData, format, err := processAvatarImage(raw)
+		if err != nil {
+			return web.Error(400, "invalid image file")
+		}
+		saved, err := mediaStore.Save(avatarData, format, media.SaveOptions{
+			SourceType:   "agent_avatar",
+			AgentID:      agentId,
+			OriginalName: header.Filename,
+		})
+		if err != nil {
+			return web.Error(500, "failed to save avatar: "+err.Error())
+		}
+
+		state, err := configs.LoadAgentState(agentId)
+		if err != nil {
+			return web.Error(500, "loading agent state: "+err.Error())
+		}
+		oldAvatarMediaId := state.AvatarMediaID
+		state.AvatarMediaID = saved.MediaID
+		if err := configs.SaveAgentState(agentId, state); err != nil {
+			return web.Error(500, "saving agent state: "+err.Error())
+		}
+		if oldAvatarMediaId != "" && oldAvatarMediaId != saved.MediaID {
+			_ = mediaStore.Delete(oldAvatarMediaId)
+		}
+
+		writer.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(writer).Encode(map[string]interface{}{
+			"agentId":       agentId,
+			"avatarMediaId": saved.MediaID,
+			"format":        format,
+			"filename":      "avatar.jpg",
+		})
+		return nil
+
+	case http.MethodDelete:
+		state, err := configs.LoadAgentState(agentId)
+		if err != nil {
+			return web.Error(500, "loading agent state: "+err.Error())
+		}
+		oldAvatarMediaId := state.AvatarMediaID
+		state.AvatarMediaID = ""
+		if err := configs.SaveAgentState(agentId, state); err != nil {
+			return web.Error(500, "saving agent state: "+err.Error())
+		}
+		if oldAvatarMediaId != "" {
+			_ = mediaStore.Delete(oldAvatarMediaId)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(writer).Encode(map[string]interface{}{
+			"agentId":       agentId,
+			"avatarMediaId": "",
+			"deleted":       true,
+		})
+		return nil
+	}
+
+	return web.Error(405, "method not allowed")
 }
 
 const maxAudioUploadSize = 25 << 20 // 25 MB (OpenAI Whisper limit)

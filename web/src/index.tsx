@@ -2,6 +2,11 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { ThemeProvider } from '@mui/material/styles';
+import { useTranslation } from 'react-i18next';
+import dayjs from 'dayjs';
+import 'dayjs/locale/en';
+import 'dayjs/locale/ja';
+import 'dayjs/locale/zh-cn';
 import CssBaseline from '@mui/material/CssBaseline';
 import GlobalStyles from '@mui/material/GlobalStyles';
 import Box from '@mui/material/Box';
@@ -13,6 +18,7 @@ import { useAppContext, AppProvider } from './context';
 import { useBackend } from './hooks/useBackend';
 import { authStatus } from './rpc';
 import './i18n/config';
+import { resolveLanguageFromPreference } from './i18n/config';
 import './index.css';
 
 function markdownStyles(theme: Theme) {
@@ -157,8 +163,19 @@ function markdownStyles(theme: Theme) {
 }
 
 function ThemedApp({ children }: { children: React.ReactNode }) {
-  const { themeMode } = useAppContext();
+  const { themeMode, languagePreference } = useAppContext();
+  const { i18n } = useTranslation();
   const theme = useMemo(() => getTheme(themeMode), [themeMode]);
+
+  useEffect(() => {
+    const targetLanguage = resolveLanguageFromPreference(languagePreference);
+    if (i18n.language !== targetLanguage) {
+      i18n.changeLanguage(targetLanguage).catch(() => {});
+    }
+
+    const dayjsLocale = targetLanguage === 'zh' ? 'zh-cn' : targetLanguage;
+    dayjs.locale(dayjsLocale);
+  }, [languagePreference, i18n]);
 
   return (
     <ThemeProvider theme={theme}>

@@ -28,6 +28,7 @@ type AgentRegistry struct {
 	defaultConversationIds map[string]string  // agentId → default conversationId
 	discordChannelId       string
 	telegramChatId         int64
+	createAgent            func(agentConfig configs.AgentConfig) error
 }
 
 // NewAgentRegistry creates an empty agent registry.
@@ -43,6 +44,24 @@ func (self *AgentRegistry) Register(agentId string, runner *Runner) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.runners[agentId] = runner
+}
+
+// SetCreateAgentFunc sets the callback used by CreateAgent for runtime agent provisioning.
+func (self *AgentRegistry) SetCreateAgentFunc(create func(agentConfig configs.AgentConfig) error) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.createAgent = create
+}
+
+// CreateAgent provisions and registers a new agent at runtime.
+func (self *AgentRegistry) CreateAgent(agentConfig configs.AgentConfig) error {
+	self.mutex.RLock()
+	create := self.createAgent
+	self.mutex.RUnlock()
+	if create == nil {
+		return fmt.Errorf("agent creation is not configured")
+	}
+	return create(agentConfig)
 }
 
 // Get returns the runner for the given agent ID, or nil if not found.

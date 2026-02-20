@@ -14,6 +14,7 @@ import (
 
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/util/trash"
 )
 
 // Store provides JSONL-based conversation persistence.
@@ -343,11 +344,12 @@ func (self *Store) Delete(conversationId string) error {
 	if err != nil {
 		return err
 	}
-	err = os.Remove(path)
-	if os.IsNotExist(err) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
+	} else if err != nil {
+		return err
 	}
-	return err
+	return trash.Move(path, self.trashDirectory())
 }
 
 // PageResult holds a page of messages plus pagination metadata.
@@ -402,4 +404,15 @@ func (self *Store) path(conversationId string) (string, error) {
 		return "", errEmptyConversationId
 	}
 	return filepath.Join(self.directory, conversationId+".jsonl"), nil
+}
+
+func (self *Store) trashDirectory() string {
+	parent := filepath.Dir(self.directory)
+	if filepath.Base(parent) == "conversations" {
+		return filepath.Join(filepath.Dir(parent), ".trash")
+	}
+	if filepath.Base(self.directory) == "conversations" {
+		return filepath.Join(parent, ".trash")
+	}
+	return filepath.Join(self.directory, ".trash")
 }

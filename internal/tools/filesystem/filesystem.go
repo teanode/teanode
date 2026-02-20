@@ -7,11 +7,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/util/trash"
 )
 
 var log = logging.MustGetLogger("filesystem")
@@ -317,14 +320,41 @@ func executeMkdir(path string, recursive bool) (string, error) {
 }
 
 func executeDelete(path string, recursive bool) (string, error) {
-	var err error
-	if recursive {
-		err = os.RemoveAll(path)
-	} else {
-		err = os.Remove(path)
-	}
+	info, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("deleting path: %w", err)
+	}
+	if info.IsDir() && !recursive {
+		entries, readError := os.ReadDir(path)
+		if readError != nil {
+			return "", fmt.Errorf("deleting path: %w", readError)
+		}
+		if len(entries) > 0 {
+			return "", fmt.Errorf("deleting path: directory not empty")
+		}
+	}
+
+	dataDirectory, err := configs.Directory()
+	if err != nil {
+		return "", err
+	}
+	if isPathInsideDirectory(path, dataDirectory) {
+		trashDirectory, err := configs.TrashDirectory()
+		if err != nil {
+			return "", err
+		}
+		if err := trash.Move(path, trashDirectory); err != nil {
+			return "", fmt.Errorf("deleting path: %w", err)
+		}
+	} else {
+		if recursive {
+			err = os.RemoveAll(path)
+		} else {
+			err = os.Remove(path)
+		}
+		if err != nil {
+			return "", fmt.Errorf("deleting path: %w", err)
+		}
 	}
 
 	result, err := json.Marshal(map[string]interface{}{
@@ -335,6 +365,22 @@ func executeDelete(path string, recursive bool) (string, error) {
 		return "", fmt.Errorf("marshaling result: %w", err)
 	}
 	return string(result), nil
+}
+
+func isPathInsideDirectory(path, directory string) bool {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absoluteDirectory, err := filepath.Abs(directory)
+	if err != nil {
+		return false
+	}
+	relativePath, err := filepath.Rel(absoluteDirectory, absolutePath)
+	if err != nil {
+		return false
+	}
+	return relativePath == "." || (!strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) && relativePath != "..")
 }
 
 func executeMove(path, destination string) (string, error) {

@@ -22,7 +22,9 @@ import SettingsPreferencesPage from './routes/settings/preferences';
 import SettingsTokenPage from './routes/settings/token';
 import SettingsPasswordPage from './routes/settings/password';
 import SettingsSessionsPage from './routes/settings/sessions';
+import SettingsAgentsPage from './routes/settings/agents';
 import SettingsAgentPage from './routes/settings/agents/$agentId';
+import SettingsJobsPage from './routes/settings/jobs';
 import LoginRoute from './routes/login';
 import SetupRoute from './routes/setup';
 
@@ -160,6 +162,20 @@ const settingsSessionsRoute = createRoute({
   component: SettingsSessionsPage,
 });
 
+// /settings/agents → agent management page
+const settingsAgentsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: 'agents',
+  component: SettingsAgentsPage,
+});
+
+// /settings/jobs → jobs management page
+const settingsJobsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: 'jobs',
+  component: SettingsJobsPage,
+});
+
 // /settings/agents/$agentId → individual agent editor
 const settingsAgentRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -193,7 +209,7 @@ const routeTree = rootRoute.addChildren([
     conversationsAgentRoute.addChildren([conversationsAgentIndexRoute, conversationsConversationRoute]),
   ]),
   jobsRoute.addChildren([jobsIndexRoute, jobsNewRoute, jobDetailRoute]),
-  settingsRoute.addChildren([settingsIndexRoute, settingsPreferencesRoute, settingsTokenRoute, settingsPasswordRoute, settingsSessionsRoute, settingsAgentRoute, settingsSectionRoute]),
+  settingsRoute.addChildren([settingsIndexRoute, settingsPreferencesRoute, settingsTokenRoute, settingsPasswordRoute, settingsSessionsRoute, settingsAgentsRoute, settingsJobsRoute, settingsAgentRoute, settingsSectionRoute]),
 ]);
 
 // ── Create router ───────────────────────────────────────────────────

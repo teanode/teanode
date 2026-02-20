@@ -9,8 +9,10 @@ import (
 	"strings"
 
 	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/util/trash"
 )
 
 // RegisterTools adds memory tools to the registry.
@@ -77,8 +79,8 @@ func (self *workspaceTool) Definition() providers.ToolDefinition {
 					"success": map[string]interface{}{"type": "boolean", "description": "Whether the action succeeded (write, append, delete)"},
 					"content": map[string]interface{}{"type": "string", "description": "File content (read)"},
 					"files": map[string]interface{}{
-						"type":  "array",
-						"items": map[string]interface{}{"type": "string"},
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
 						"description": "List of file paths (list)",
 					},
 					"matches": map[string]interface{}{
@@ -280,8 +282,22 @@ func (self *workspaceTool) executeDelete(path string) (string, error) {
 	if info.IsDir() {
 		return "", fmt.Errorf("cannot delete directories, only files")
 	}
-	if err := os.Remove(full); err != nil {
-		return "", fmt.Errorf("deleting file: %w", err)
+	dataDirectory, err := configs.Directory()
+	if err != nil {
+		return "", err
+	}
+	if isPathInsideDirectory(full, dataDirectory) {
+		trashDirectory, err := configs.TrashDirectory()
+		if err != nil {
+			return "", err
+		}
+		if err := trash.Move(full, trashDirectory); err != nil {
+			return "", fmt.Errorf("deleting file: %w", err)
+		}
+	} else {
+		if err := os.Remove(full); err != nil {
+			return "", fmt.Errorf("deleting file: %w", err)
+		}
 	}
 	// Remove empty parent directories up to the workspace root.
 	directory := filepath.Dir(full)
@@ -298,4 +314,20 @@ func (self *workspaceTool) executeDelete(path string) (string, error) {
 		"success": true,
 	})
 	return string(output), nil
+}
+
+func isPathInsideDirectory(path, directory string) bool {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absoluteDirectory, err := filepath.Abs(directory)
+	if err != nil {
+		return false
+	}
+	relativePath, err := filepath.Rel(absoluteDirectory, absolutePath)
+	if err != nil {
+		return false
+	}
+	return relativePath == "." || (!strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) && relativePath != "..")
 }

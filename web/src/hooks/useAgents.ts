@@ -26,7 +26,8 @@ export function useAgents(sendRpc: <T = unknown>(method: string, params: unknown
 
   const saveAgent = useCallback(
     (agent: AgentConfig) => {
-      return sendRpc('agents.config.save', { agent })
+      const { avatarMediaId: _avatarMediaId, ...configOnly } = agent;
+      return sendRpc('agents.config.save', { agent: configOnly })
         .then(() => { loadAgents(); })
         .catch((error) => { console.error('agents.config.save:', error); throw error; });
     },

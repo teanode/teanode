@@ -1,37 +1,19 @@
-import React from 'react';
-import { useNavigate, useParams } from '@tanstack/react-router';
-import { useAppContext } from '../../context';
-import JobArea from '../../components/JobArea';
+import React, { useEffect } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
 
-/** /jobs/$jobId — detail view. */
+/** /jobs/$jobId — legacy path redirect to settings jobs page. */
 export default function JobDetailPage() {
-  const { jobId } = useParams({ strict: false }) as { jobId: string };
-  const { backend } = useAppContext();
   const navigate = useNavigate();
 
-  const job = backend.jobs.find((item) => item.id === jobId) || null;
+  useEffect(() => {
+    navigate({ to: '/settings/jobs', replace: true });
+  }, [navigate]);
 
   return (
-    <JobArea
-      job={job}
-      creating={false}
-      models={backend.models}
-      agents={backend.agents}
-      onLoad={backend.loadJobs}
-      onCreate={(params) => backend.createJob(params)}
-      onDelete={(id) => backend.deleteJob(id).then(() => { navigate({ to: '/jobs' }); })}
-      onUpdate={backend.updateJob}
-      onTrigger={backend.triggerJob}
-      onCancelCreate={() => navigate({ to: '/jobs' })}
-      onViewAgentConversation={(agentId, jobConversationId) => {
-        const conversationId = jobConversationId
-          ?? backend.agents.find((candidate) => candidate.id === agentId)?.defaultConversationId;
-        if (conversationId) {
-          navigate({ to: '/conversations/$agentId/$conversationId', params: { agentId, conversationId } });
-        } else {
-          navigate({ to: '/conversations/$agentId', params: { agentId } });
-        }
-      }}
-    />
+    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+      <CircularProgress />
+    </Box>
   );
 }

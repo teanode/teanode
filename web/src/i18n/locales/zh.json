@@ -1,0 +1,238 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "create": "创建",
+    "add": "添加",
+    "loading": "加载中...",
+    "saving": "保存中...",
+    "unsavedChanges": "未保存更改",
+    "default": "默认",
+    "remove": "移除"
+  },
+  "sidebar": {
+    "openSidebar": "打开侧边栏",
+    "conversations": "对话",
+    "jobs": "任务",
+    "settings": "设置"
+  },
+  "conversations": {
+    "newConversation": "新建对话",
+    "withAgent": "与 {{agentId}}",
+    "startConversation": "与 {{agentName}} 开始对话...",
+    "reply": "回复 {{agentName}} ...",
+    "deleteConversationTitle": "删除对话？",
+    "deleteConversationMessage": "将永久删除对话“{{title}}”。",
+    "deleteConversationTooltip": "删除对话",
+    "error": "错误: {{message}}",
+    "aborted": "已中止",
+    "today": "今天",
+    "yesterday": "昨天",
+    "callingTool": "正在调用 {{toolName}}...",
+    "thinking": "思考中...",
+    "queued": "排队中",
+    "recentConversations": "最近",
+    "viewMore": "查看更多对话",
+    "defaultConversation": "默认",
+    "allConversations": "全部对话",
+    "searchPlaceholder": "按标题或摘要筛选...",
+    "deleteSelected": "删除 {{count}} 个所选",
+    "deleteSelectedTitle": "删除所选对话？",
+    "deleteSelectedMessage": "将永久删除 {{count}} 个对话。",
+    "noResults": "没有匹配筛选条件的对话。",
+    "noConversations": "还没有对话。",
+    "defaultAgent": "默认 Agent",
+    "defaultConversationLabel": "默认对话",
+    "setDefault": "设为默认",
+    "model": "模型"
+  },
+  "jobs": {
+    "newJob": "新建任务",
+    "schedulePeriodicJobs": "安排周期任务",
+    "noJobs": "暂无任务",
+    "selectOrCreate": "选择任务或创建新任务",
+    "editJob": "编辑: {{name}}",
+    "runNow": "立即运行",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "schedule": "计划",
+    "message": "消息",
+    "model": "模型",
+    "agent": "Agent",
+    "lastRun": "上次运行",
+    "neverRun": "从未运行",
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}}分钟前",
+    "hoursAgo": "{{count}}小时前",
+    "daysAgo": "{{count}}天前",
+    "viewHistory": "查看对话历史",
+    "enableJob": "启用",
+    "disableJob": "禁用",
+    "presetEveryMinute": "每分钟",
+    "presetEvery5Min": "每5分钟",
+    "presetHourly": "每小时",
+    "presetDaily9am": "每天 9:00",
+    "presetWeekdays9am": "工作日 9:00",
+    "presetWeeklyMon9am": "每周一 9:00",
+    "name": "名称",
+    "namePlaceholder": "早间简报",
+    "scheduleLabel": "计划（例如 0 9 * * *）",
+    "schedulePlaceholder": "0 9 * * *",
+    "messagePlaceholder": "给我一份早间简报...",
+    "modelOptional": "模型（可选）",
+    "modelPlaceholder": "留空使用默认",
+    "agentOptional": "Agent（可选）",
+    "defaultAgent": "默认（main）",
+    "activeSection": "启用中",
+    "inactiveSection": "未启用",
+    "deleteConfirm": "永久删除该任务？",
+    "firesAt": "触发时间"
+  },
+  "settings": {
+    "preferences": "偏好设置",
+    "preferencesDescription": "这些偏好仅保存在当前设备，不会同步到服务器或其他浏览器。",
+    "agents": "Agents",
+    "jobs": "任务",
+    "agentsDescription": "管理你的 agents、默认项和行为设置。",
+    "jobsDescription": "安排、编辑并监控周期任务。",
+    "addAgent": "添加 Agent",
+    "agentIdPlaceholder": "选择或输入 Agent ID",
+    "loadingSettings": "设置加载中...",
+    "sectionNotFound": "未找到该分区",
+    "theme": "主题",
+    "themeDescription": "在深色和浅色模式之间切换",
+    "language": "语言",
+    "languageDescription": "覆盖浏览器检测到的界面语言。",
+    "languageAuto": "使用浏览器语言（检测到：{{locale}}）",
+    "darkMode": "深色模式",
+    "lightMode": "浅色模式",
+    "display": "显示",
+    "displayDescription": "控制对话中显示的信息",
+    "showToolCalls": "显示工具调用",
+    "showToolCallsDescription": "在对话中显示工具调用和结果",
+    "showTokenUsage": "显示 Token 使用量",
+    "showTokenUsageDescription": "每次回复后显示 Token 统计",
+    "voice": "语音",
+    "voiceDescription": "配置语音输入和文本转语音输出",
+    "voiceAutoSend": "转写后自动发送",
+    "voiceAutoSendDescription": "语音转写完成后自动发送消息",
+    "ttsVoice": "TTS 音色",
+    "listening": "聆听中...",
+    "transcribing": "转写中...",
+    "voiceChimes": "提示音",
+    "voiceChimesDescription": "在捕获语音、agent 忙碌和发言完成时播放提示音",
+    "voiceChimesVolume": "提示音音量"
+  },
+  "auth": {
+    "loginTitle": "欢迎回来",
+    "loginDescription": "输入密码以继续。",
+    "setupTitle": "设置密码",
+    "setupDescription": "创建密码以保护你的 TeaNode 实例。",
+    "password": "密码",
+    "confirmPassword": "确认密码",
+    "login": "登录",
+    "setUp": "设置",
+    "logout": "退出登录",
+    "passwordMinLength": "密码至少 8 个字符",
+    "passwordsDoNotMatch": "两次输入的密码不一致",
+    "sessions": "会话",
+    "sessionsDescription": "当前登录会话。可撤销会话以让其他浏览器退出登录。",
+    "noSessions": "没有活跃会话。",
+    "sessionCreated": "创建时间",
+    "sessionLastSeen": "最后活动",
+    "sessionUserAgent": "浏览器",
+    "sessionIP": "IP",
+    "revoke": "撤销",
+    "currentSession": "当前会话",
+    "otherSessions": "其他会话",
+    "tokenTitle": "Token",
+    "tokenDescription": "TeaNode API 的 Bearer Token。用于 TeaNode 浏览器扩展、TeaNode 终端 CLI 以及 OpenAI 兼容接口。",
+    "passwordTitle": "密码",
+    "passwordDescription": "管理 Web UI 登录密码。",
+    "regenerateToken": "重新生成",
+    "regenerateTokenTitle": "重新生成认证 token？",
+    "regenerateTokenMessage": "这将使当前 token 失效。使用旧 token 的浏览器扩展、终端会话或 API 客户端需要更新。",
+    "tokenRegenerated": "Token 已重新生成",
+    "changePassword": "修改密码",
+    "currentPassword": "当前密码",
+    "newPassword": "新密码",
+    "confirmNewPassword": "确认新密码",
+    "passwordChanged": "密码已修改",
+    "noPasswordSet": "未设置密码",
+    "currentPasswordRequired": "需要当前密码",
+    "currentPasswordIncorrect": "当前密码错误"
+  },
+  "schema": {
+    "addItemPlaceholder": "添加项目...",
+    "baseUrlPlaceholder": "Base URL（例如 https://api.openai.com/v1）",
+    "apiKeyPlaceholder": "API Key",
+    "providerNamePlaceholder": "提供商",
+    "addProvider": "添加",
+    "config": {
+      "sections": {
+        "models": {
+          "title": "模型",
+          "description": "配置 LLM 提供商、默认模型和模型级运行时限制。"
+        },
+        "gateway": {
+          "title": "网关",
+          "description": "HTTP 服务和认证设置。"
+        },
+        "tools": {
+          "title": "工具",
+          "description": "内置工具的 API 密钥。"
+        },
+        "integrations": {
+          "title": "集成",
+          "description": "无头浏览器和终端设置。"
+        },
+        "channels": {
+          "title": "渠道",
+          "description": "聊天机器人集成。"
+        },
+        "summarizer": {
+          "title": "摘要器",
+          "description": "后台会话摘要器的时序和限制。"
+        }
+      },
+      "fields": {
+        "gateway": {
+          "bind": {
+            "options": {
+              "loopback": "回环（localhost）",
+              "lan": "局域网（所有网卡）"
+            }
+          }
+        }
+      }
+    },
+    "agent": {
+      "sections": {
+        "general": {
+          "title": "通用",
+          "description": "核心 Agent 设置。模型级限制请在全局模型中配置。"
+        }
+      },
+      "fields": {
+        "name": {
+          "title": "名称",
+          "description": "该 Agent 的友好显示名称。"
+        },
+        "model": {
+          "title": "模型",
+          "description": "模型覆盖（例如 openai:gpt-5.1）。默认使用全局模型。"
+        },
+        "tools": {
+          "title": "工具",
+          "description": "允许使用的工具名称。留空表示允许所有工具。"
+        },
+        "skills": {
+          "title": "技能",
+          "description": "允许使用的技能名称。留空表示允许所有技能。"
+        }
+      }
+    }
+  }
+}

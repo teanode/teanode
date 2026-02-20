@@ -1016,7 +1016,17 @@ export function useBackend() {
   const refreshAgents = useCallback(() => {
     sendRpc<AgentsConfigListResult>('agents.config.list', {})
       .then((result) => {
-        if (result.agents) setAgents(result.agents.map((agent) => ({ id: agent.id })));
+        if (result.agents) {
+          setAgents((previous) => result.agents.map((agent) => {
+            const existing = previous.find((entry) => entry.id === agent.id);
+            return {
+              id: agent.id,
+              name: agent.name,
+              avatarMediaId: agent.avatarMediaId,
+              defaultConversationId: existing?.defaultConversationId,
+            };
+          }));
+        }
       })
       .catch((error: unknown) => console.error('agents.config.list:', error));
   }, [sendRpc]);

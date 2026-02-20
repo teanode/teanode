@@ -22,7 +22,7 @@ High-level responsibilities of `internal/conversations`:
 
 TeaNode uses a **JSONL-based** storage format for conversations (see also `docs/architecture.md` and TODO section "Conversation Management"):
 
-- Each conversation is stored as one or more JSONL files under a workspace directory.
+- Each conversation is stored as one or more JSONL files under a workspace directory (by default under `~/.teanode/agents/<agent-id>/conversations/`, but this can be overridden via `--dir` or config).
 - Each line is a single JSON object (message or summary record).
 - This makes appends cheap and streaming-friendly, while keeping the format simple to inspect and debug.
 

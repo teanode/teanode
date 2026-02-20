@@ -12,6 +12,7 @@ import (
 
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/util/trash"
 )
 
 // MediaContent represents detected media in a tool result.
@@ -349,7 +350,10 @@ func (self *Store) Scan(filter func(MediaMetadata) bool) ([]MediaMetadata, error
 	for _, entry := range metaFiles {
 		if _, hasMedia := mediaFiles[entry.mediaId]; !hasMedia {
 			// Orphan metadata without a media file — clean up.
-			os.Remove(filepath.Join(entry.directory, entry.mediaId+metaSuffix))
+			metaPath := filepath.Join(entry.directory, entry.mediaId+metaSuffix)
+			if err := trash.Move(metaPath, self.trashDirectory()); err != nil && !os.IsNotExist(err) {
+				continue
+			}
 			continue
 		}
 		metaPath := filepath.Join(entry.directory, entry.mediaId+metaSuffix)
@@ -376,15 +380,34 @@ func (self *Store) Delete(mediaId string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(mediaPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("removing media file: %w", err)
+	trashDirectory := self.trashDirectory()
+
+	if _, err := os.Stat(mediaPath); err == nil {
+		if err := trash.Move(mediaPath, trashDirectory); err != nil {
+			return fmt.Errorf("moving media file to trash: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stating media file: %w", err)
 	}
 
 	// Remove metadata sidecar from the same directory as the media file.
 	metaPath := filepath.Join(filepath.Dir(mediaPath), mediaId+metaSuffix)
-	os.Remove(metaPath)
+	if _, err := os.Stat(metaPath); err == nil {
+		if err := trash.Move(metaPath, trashDirectory); err != nil {
+			return fmt.Errorf("moving media metadata to trash: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stating media metadata: %w", err)
+	}
 
 	return nil
+}
+
+func (self *Store) trashDirectory() string {
+	if filepath.Base(self.directory) == "media" {
+		return filepath.Join(filepath.Dir(self.directory), ".trash")
+	}
+	return filepath.Join(self.directory, ".trash")
 }
 
 // findMediaFileInDirectory searches a single directory for a media file

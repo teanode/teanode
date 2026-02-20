@@ -10,11 +10,12 @@ import { useAppContext } from '../../context';
 import { useSettingsContext } from '../../hooks/useSettingsContext';
 import SchemaField from '../../components/SchemaField';
 import type { ConfigSchema, JsonSchemaProperty, SchemaSection } from '../../types';
+import { getPropertyDescription, getPropertyTitle, getSectionDescription, getSectionTitle } from '../../schemaLocalization';
 
 /** Resolved entry: either a single leaf field or a group of fields under a heading. */
 type SectionEntry =
   | { type: 'field'; key: string; property: JsonSchemaProperty; dotPath: string }
-  | { type: 'group'; title: string; description?: string; fields: { key: string; property: JsonSchemaProperty; dotPath: string }[] };
+  | { type: 'group'; key: string; property: JsonSchemaProperty; fields: { key: string; property: JsonSchemaProperty; dotPath: string }[] };
 
 /** Resolve the fields for a section from the JSON Schema properties tree. */
 function resolveSectionEntries(schema: ConfigSchema, section: SchemaSection): SectionEntry[] {
@@ -49,8 +50,8 @@ function resolveSectionEntries(schema: ConfigSchema, section: SchemaSection): Se
     if (property.type === 'object' && !property['x-widget'] && property.properties) {
       entries.push({
         type: 'group',
-        title: property.title ?? key,
-        description: property.description,
+        key,
+        property,
         fields: Object.entries(property.properties).map(([childKey, childProperty]) => ({
           key: childKey,
           property: childProperty,
@@ -93,6 +94,8 @@ export default function SettingsSectionPage() {
   }
 
   const entries = resolveSectionEntries(settings.schema, section);
+  const sectionTitle = getSectionTitle(t, section);
+  const sectionDescription = getSectionDescription(t, section);
 
   const suggestionMap: Record<string, string[]> = {
     model: backend.models.map((modelInfo) => `${modelInfo.provider}:${modelInfo.id}`),
@@ -104,9 +107,9 @@ export default function SettingsSectionPage() {
       <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
           <Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{section.title}</Typography>
-            {section.description && (
-              <Typography variant="caption" color="text.secondary">{section.description}</Typography>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{sectionTitle}</Typography>
+            {sectionDescription && (
+              <Typography variant="caption" color="text.secondary">{sectionDescription}</Typography>
             )}
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -129,7 +132,11 @@ export default function SettingsSectionPage() {
           const panels: { title?: string; description?: string; fields: SectionEntry[] }[] = [];
           for (const entry of entries) {
             if (entry.type === 'group') {
-              panels.push({ title: entry.title, description: entry.description, fields: [entry] });
+              panels.push({
+                title: getPropertyTitle(t, entry.property, entry.key),
+                description: getPropertyDescription(t, entry.property),
+                fields: [entry],
+              });
             } else {
               // Append to the last panel if it has no title (consecutive loose fields).
               const last = panels[panels.length - 1];

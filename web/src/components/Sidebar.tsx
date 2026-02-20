@@ -3,21 +3,16 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
-import Tabs from '@mui/material/Tabs';
-import Tab from '@mui/material/Tab';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import ChatIcon from '@mui/icons-material/ChatBubbleOutline';
-import ScheduleIcon from '@mui/icons-material/Schedule';
 import SettingsIcon from '@mui/icons-material/SettingsOutlined';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import CloseIcon from '@mui/icons-material/Close';
 import { useAppContext } from '../context';
 import Logo from './Logo';
 import ConversationNav from './ConversationNav';
-import JobNav from './JobNav';
 import SettingsNav from './SettingsNav';
 
 const DRAWER_WIDTH = 260;
@@ -36,24 +31,21 @@ export default function Sidebar() {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
 
-  const activeView: 'conversations' | 'jobs' | 'settings' = pathname.startsWith('/jobs')
-    ? 'jobs'
-    : pathname.startsWith('/settings')
-      ? 'settings'
-      : 'conversations';
+  const activeView: 'conversations' | 'settings' = (pathname.startsWith('/settings') || pathname.startsWith('/jobs'))
+    ? 'settings'
+    : 'conversations';
 
   const isAllConversationsPage = pathname === '/conversations/all';
 
   const pathParts = pathname.replace(/^\//, '').split('/').filter(Boolean);
   const routeAgentId = activeView === 'conversations' && !isAllConversationsPage && pathParts[1] ? pathParts[1] : null;
   const routeConversationId = activeView === 'conversations' && !isAllConversationsPage && pathParts[2] ? pathParts[2] : null;
-  const routeJobId = activeView === 'jobs' && pathParts[1] && pathParts[1] !== 'new' ? pathParts[1] : null;
-  const isNewJobPage = activeView === 'jobs' && pathParts[1] === 'new';
-  const routeSettingsAgentId = activeView === 'settings' && pathParts[1] === 'agents' && pathParts[2] ? pathParts[2] : null;
-  const routeSettingsSection = activeView === 'settings' && !routeSettingsAgentId ? (pathParts[1] || null) : null;
+  const routeSettingsSection = activeView === 'settings' ? (pathParts[1] || null) : null;
 
   const { agents, currentAgentId, conversations: conversationList, serverDefaultAgentId } = backend;
   const fallbackAgentId = agents.length > 0 ? agents[0].id : 'main';
+  const defaultAgentId = serverDefaultAgentId || fallbackAgentId;
+  const defaultConversationId = agents.find((agent) => agent.id === defaultAgentId)?.defaultConversationId;
   const viewingAgentId = routeAgentId || currentAgentId || fallbackAgentId;
   const viewingConversationId = routeConversationId || backend.conversationId;
 
@@ -84,51 +76,41 @@ export default function Sidebar() {
     setMobileSidebarOpen(false);
   }
 
-  const tabValue = activeView === 'conversations' ? 0 : activeView === 'jobs' ? 1 : 2;
-
-  function handleTabChange(_event: React.SyntheticEvent, newValue: number) {
-    if (newValue === 0) {
-      const agentId = viewingAgentId || fallbackAgentId;
-      handleNavigate(viewingConversationId ? `/conversations/${agentId}/${viewingConversationId}` : `/conversations/${agentId}`);
-    } else if (newValue === 1) {
-      handleNavigate(routeJobId ? `/jobs/${routeJobId}` : '/jobs');
-    } else {
-      handleNavigate('/settings');
-    }
-  }
-
   const drawerContent = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
       <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Logo />
-        </Box>
-        {!isDesktop && (
-          <IconButton size="small" onClick={() => setMobileSidebarOpen(false)}>
-            <CloseIcon fontSize="small" />
+        <Tooltip title={t('sidebar.conversations')}>
+          <IconButton
+            size="small"
+            onClick={() => {
+              if (defaultConversationId) {
+                handleNavigate(`/conversations/${defaultAgentId}/${defaultConversationId}`);
+              } else {
+                handleNavigate(`/conversations/${defaultAgentId}`);
+              }
+            }}
+            sx={{ p: 0.25 }}
+          >
+            <Logo />
           </IconButton>
-        )}
+        </Tooltip>
+        <Tooltip title={activeView === 'settings' ? t('sidebar.conversations') : t('sidebar.settings')}>
+          <IconButton
+            size="small"
+            onClick={() => {
+              if (activeView === 'settings') {
+                const agentId = viewingAgentId || fallbackAgentId;
+                handleNavigate(viewingConversationId ? `/conversations/${agentId}/${viewingConversationId}` : `/conversations/${agentId}`);
+              } else {
+                handleNavigate('/settings');
+              }
+            }}
+          >
+            {activeView === 'settings' ? <ChatIcon sx={{ fontSize: 16 }} /> : <SettingsIcon sx={{ fontSize: 16 }} />}
+          </IconButton>
+        </Tooltip>
       </Box>
-
-      {/* Tabs */}
-      <Tabs
-        value={tabValue}
-        onChange={handleTabChange}
-        variant="fullWidth"
-        indicatorColor="primary"
-        textColor="primary"
-        sx={{
-          borderBottom: 1,
-          borderColor: 'divider',
-          minHeight: 36,
-          '& .MuiTab-root': { minHeight: 36, minWidth: 0, py: 0.75 },
-        }}
-      >
-        <Tab icon={<Tooltip title={t('sidebar.conversations')}><ChatIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label={t('sidebar.conversations')} />
-        <Tab icon={<Tooltip title={t('sidebar.jobs')}><ScheduleIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label={t('sidebar.jobs')} />
-        <Tab icon={<Tooltip title={t('sidebar.settings')}><SettingsIcon sx={{ fontSize: 18 }} /></Tooltip>} aria-label={t('sidebar.settings')} />
-      </Tabs>
 
       {/* View-specific nav */}
       {activeView === 'conversations' && (
@@ -140,20 +122,10 @@ export default function Sidebar() {
           onNavigate={handleNavigate}
         />
       )}
-      {activeView === 'jobs' && (
-        <JobNav
-          jobs={backend.jobs}
-          viewingJobId={routeJobId}
-          isNewPage={isNewJobPage}
-          onNavigate={handleNavigate}
-        />
-      )}
       {activeView === 'settings' && (
         <SettingsNav
           backend={backend}
-          agents={agents}
           activeSectionId={routeSettingsSection}
-          viewingAgentId={routeSettingsAgentId}
           onNavigate={handleNavigate}
         />
       )}
@@ -169,17 +141,23 @@ export default function Sidebar() {
           title={t('sidebar.openSidebar')}
           sx={{
             position: 'fixed',
-            top: 12,
+            top: 72,
             left: 0,
             zIndex: (currentTheme) => currentTheme.zIndex.drawer + 1,
-            bgcolor: 'background.paper',
+            bgcolor: 'transparent',
             border: 1,
             borderLeft: 0,
-            borderColor: 'divider',
+            borderColor: 'transparent',
             borderRadius: '0 8px 8px 0',
             px: 0.75,
             py: 1,
-            '&:hover': { bgcolor: 'action.hover' },
+            opacity: 0.4,
+            transition: 'opacity 150ms ease, background-color 150ms ease, border-color 150ms ease',
+            '&:hover, &:focus-visible': {
+              opacity: 0.95,
+              bgcolor: 'background.paper',
+              borderColor: 'divider',
+            },
           }}
         >
           <ChevronRightIcon sx={{ fontSize: 16 }} />

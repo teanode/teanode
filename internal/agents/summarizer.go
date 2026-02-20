@@ -266,4 +266,3 @@ func (self *Summarizer) generateTitleAndSummary(
 		self.Broadcast("conversations", nil)
 	}
 }
-

@@ -1,0 +1,238 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "キャンセル",
+    "delete": "削除",
+    "edit": "編集",
+    "create": "作成",
+    "add": "追加",
+    "loading": "読み込み中...",
+    "saving": "保存中...",
+    "unsavedChanges": "未保存の変更",
+    "default": "デフォルト",
+    "remove": "削除"
+  },
+  "sidebar": {
+    "openSidebar": "サイドバーを開く",
+    "conversations": "会話",
+    "jobs": "ジョブ",
+    "settings": "設定"
+  },
+  "conversations": {
+    "newConversation": "新しい会話",
+    "withAgent": "{{agentId}} と",
+    "startConversation": "{{agentName}} と会話を開始...",
+    "reply": "{{agentName}} に返信...",
+    "deleteConversationTitle": "会話を削除しますか？",
+    "deleteConversationMessage": "会話「{{title}}」は完全に削除されます。",
+    "deleteConversationTooltip": "会話を削除",
+    "error": "エラー: {{message}}",
+    "aborted": "中止しました",
+    "today": "今日",
+    "yesterday": "昨日",
+    "callingTool": "{{toolName}} を呼び出し中...",
+    "thinking": "考え中...",
+    "queued": "待機中",
+    "recentConversations": "最近",
+    "viewMore": "会話をもっと見る",
+    "defaultConversation": "デフォルト",
+    "allConversations": "すべての会話",
+    "searchPlaceholder": "タイトルまたは要約で絞り込み...",
+    "deleteSelected": "{{count}} 件を削除",
+    "deleteSelectedTitle": "選択した会話を削除しますか？",
+    "deleteSelectedMessage": "{{count}} 件の会話を完全に削除します。",
+    "noResults": "条件に一致する会話はありません。",
+    "noConversations": "まだ会話がありません。",
+    "defaultAgent": "デフォルト agent",
+    "defaultConversationLabel": "デフォルト会話",
+    "setDefault": "デフォルトに設定",
+    "model": "モデル"
+  },
+  "jobs": {
+    "newJob": "新しいジョブ",
+    "schedulePeriodicJobs": "定期ジョブをスケジュール",
+    "noJobs": "ジョブはありません",
+    "selectOrCreate": "ジョブを選択または新規作成",
+    "editJob": "編集: {{name}}",
+    "runNow": "今すぐ実行",
+    "enabled": "有効",
+    "disabled": "無効",
+    "schedule": "スケジュール",
+    "message": "メッセージ",
+    "model": "モデル",
+    "agent": "Agent",
+    "lastRun": "最終実行",
+    "neverRun": "未実行",
+    "justNow": "たった今",
+    "minutesAgo": "{{count}}分前",
+    "hoursAgo": "{{count}}時間前",
+    "daysAgo": "{{count}}日前",
+    "viewHistory": "会話履歴を見る",
+    "enableJob": "有効化",
+    "disableJob": "無効化",
+    "presetEveryMinute": "毎分",
+    "presetEvery5Min": "5分ごと",
+    "presetHourly": "毎時",
+    "presetDaily9am": "毎日 9:00",
+    "presetWeekdays9am": "平日 9:00",
+    "presetWeeklyMon9am": "毎週月曜 9:00",
+    "name": "名前",
+    "namePlaceholder": "朝のブリーフィング",
+    "scheduleLabel": "スケジュール（例: 0 9 * * *）",
+    "schedulePlaceholder": "0 9 * * *",
+    "messagePlaceholder": "朝のブリーフィングをください...",
+    "modelOptional": "モデル（任意）",
+    "modelPlaceholder": "空欄でデフォルト",
+    "agentOptional": "Agent（任意）",
+    "defaultAgent": "デフォルト（main）",
+    "activeSection": "有効",
+    "inactiveSection": "無効",
+    "deleteConfirm": "このジョブを完全に削除しますか？",
+    "firesAt": "実行時刻"
+  },
+  "settings": {
+    "preferences": "環境設定",
+    "preferencesDescription": "これらの設定はこの端末にのみ保存され、サーバーや他のブラウザには同期されません。",
+    "agents": "Agents",
+    "jobs": "ジョブ",
+    "agentsDescription": "agents、デフォルト、動作設定を管理します。",
+    "jobsDescription": "定期ジョブの作成、編集、監視を行います。",
+    "addAgent": "Agent を追加",
+    "agentIdPlaceholder": "Agent ID を選択または入力",
+    "loadingSettings": "設定を読み込み中...",
+    "sectionNotFound": "セクションが見つかりません",
+    "theme": "テーマ",
+    "themeDescription": "ダークモードとライトモードを切り替えます",
+    "language": "言語",
+    "languageDescription": "ブラウザで検出したロケールを上書きします。",
+    "languageAuto": "ブラウザ言語を使用（検出: {{locale}}）",
+    "darkMode": "ダークモード",
+    "lightMode": "ライトモード",
+    "display": "表示",
+    "displayDescription": "会話に表示する情報を制御します",
+    "showToolCalls": "ツール呼び出しを表示",
+    "showToolCallsDescription": "会話内にツール呼び出しと結果を表示します",
+    "showTokenUsage": "トークン使用量を表示",
+    "showTokenUsageDescription": "各応答後にトークン数を表示します",
+    "voice": "音声",
+    "voiceDescription": "音声入力とテキスト読み上げを設定します",
+    "voiceAutoSend": "文字起こし後に自動送信",
+    "voiceAutoSendDescription": "音声文字起こし完了後にメッセージを自動送信します",
+    "ttsVoice": "TTS 音声",
+    "listening": "聞き取り中...",
+    "transcribing": "文字起こし中...",
+    "voiceChimes": "通知チャイム",
+    "voiceChimesDescription": "音声の取得時、agent の処理中、発話完了時に短い通知音を再生します",
+    "voiceChimesVolume": "チャイム音量"
+  },
+  "auth": {
+    "loginTitle": "おかえりなさい",
+    "loginDescription": "続行するにはパスワードを入力してください。",
+    "setupTitle": "パスワード設定",
+    "setupDescription": "TeaNode インスタンスを保護するためのパスワードを作成します。",
+    "password": "パスワード",
+    "confirmPassword": "パスワード確認",
+    "login": "ログイン",
+    "setUp": "設定",
+    "logout": "ログアウト",
+    "passwordMinLength": "パスワードは8文字以上必要です",
+    "passwordsDoNotMatch": "パスワードが一致しません",
+    "sessions": "セッション",
+    "sessionsDescription": "アクティブなログインセッション。取り消すと他ブラウザをログアウトできます。",
+    "noSessions": "アクティブなセッションはありません。",
+    "sessionCreated": "作成日時",
+    "sessionLastSeen": "最終アクセス",
+    "sessionUserAgent": "ブラウザ",
+    "sessionIP": "IP",
+    "revoke": "取り消し",
+    "currentSession": "現在のセッション",
+    "otherSessions": "他のセッション",
+    "tokenTitle": "トークン",
+    "tokenDescription": "TeaNode API 認証用 Bearer トークン。TeaNode ブラウザ拡張、TeaNode ターミナル CLI、OpenAI 互換エンドポイントで使用します。",
+    "passwordTitle": "パスワード",
+    "passwordDescription": "Web UI のログインパスワードを管理します。",
+    "regenerateToken": "再生成",
+    "regenerateTokenTitle": "認証トークンを再生成しますか？",
+    "regenerateTokenMessage": "現在のトークンは無効になります。旧トークンを使う拡張機能、端末セッション、API クライアントは更新が必要です。",
+    "tokenRegenerated": "トークンを再生成しました",
+    "changePassword": "パスワード変更",
+    "currentPassword": "現在のパスワード",
+    "newPassword": "新しいパスワード",
+    "confirmNewPassword": "新しいパスワード（確認）",
+    "passwordChanged": "パスワードを変更しました",
+    "noPasswordSet": "パスワード未設定",
+    "currentPasswordRequired": "現在のパスワードが必要です",
+    "currentPasswordIncorrect": "現在のパスワードが正しくありません"
+  },
+  "schema": {
+    "addItemPlaceholder": "項目を追加...",
+    "baseUrlPlaceholder": "Base URL（例: https://api.openai.com/v1）",
+    "apiKeyPlaceholder": "API Key",
+    "providerNamePlaceholder": "プロバイダー",
+    "addProvider": "追加",
+    "config": {
+      "sections": {
+        "models": {
+          "title": "モデル",
+          "description": "LLM プロバイダー、デフォルトモデル、モデル別ランタイム制限を設定します。"
+        },
+        "gateway": {
+          "title": "ゲートウェイ",
+          "description": "HTTP サーバーと認証の設定。"
+        },
+        "tools": {
+          "title": "ツール",
+          "description": "組み込みツールの API キー。"
+        },
+        "integrations": {
+          "title": "連携",
+          "description": "ヘッドレスブラウザとターミナルの設定。"
+        },
+        "channels": {
+          "title": "チャネル",
+          "description": "チャットボット連携。"
+        },
+        "summarizer": {
+          "title": "要約",
+          "description": "バックグラウンド要約のタイミングと制限。"
+        }
+      },
+      "fields": {
+        "gateway": {
+          "bind": {
+            "options": {
+              "loopback": "ループバック（localhost）",
+              "lan": "LAN（全インターフェース）"
+            }
+          }
+        }
+      }
+    },
+    "agent": {
+      "sections": {
+        "general": {
+          "title": "一般",
+          "description": "agent の基本設定。モデル単位の制限はグローバルモデルで設定します。"
+        }
+      },
+      "fields": {
+        "name": {
+          "title": "名前",
+          "description": "この agent の表示名。"
+        },
+        "model": {
+          "title": "モデル",
+          "description": "モデル上書き（例: openai:gpt-5.1）。未設定時はグローバルモデルを使用。"
+        },
+        "tools": {
+          "title": "ツール",
+          "description": "許可するツール名。空の場合はすべて許可。"
+        },
+        "skills": {
+          "title": "スキル",
+          "description": "許可するスキル名。空の場合はすべて許可。"
+        }
+      }
+    }
+  }
+}

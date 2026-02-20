@@ -68,6 +68,7 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 	if self.gateway.MediaStore() != nil {
 		sub.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
 		sub.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
+		sub.Handle("/agents/{id}/avatar", web.HandlerFunc(self.handleAgentAvatar))
 	}
 
 	sub.Handle("/audio/transcribe", web.HandlerFunc(self.handleAudioTranscribe))

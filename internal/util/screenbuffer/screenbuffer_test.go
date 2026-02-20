@@ -76,10 +76,8 @@ func TestScreenshotMaxLines(t *testing.T) {
 	buf := New(100)
 	buf.Write([]byte("a\nb\nc\nd\ne\n"))
 
-	// Screenshot(n) reserves 1 slot for the current partial line,
-	// so it shows n-1 completed lines plus the partial line.
 	got := buf.Screenshot(3)
-	want := "d\ne"
+	want := "c\nd\ne"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
@@ -231,4 +229,80 @@ func TestIncrementalWrites(t *testing.T) {
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
+}
+
+func TestStripCharsetDesignationEscape(t *testing.T) {
+	t.Parallel()
+
+	buf := New(100)
+	// ESC(B and ESC)0 are common in ncurses full-screen redraws.
+	buf.Write([]byte("\x1b(B\x1b)0hello\n"))
+
+	got := buf.Screenshot(100)
+	want := "hello"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestStripOSCWithSTTerminator(t *testing.T) {
+	t.Parallel()
+
+	buf := New(100)
+	buf.Write([]byte("\x1b]0;title\x1b\\visible\n"))
+
+	got := buf.Screenshot(100)
+	want := "visible"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestCSIAbsoluteCursorPosition(t *testing.T) {
+	t.Parallel()
+
+	buf := NewWithSize(100, 4, 20)
+	// Clear screen, write header, then move to row 3 col 5 and write "CPU".
+	buf.Write([]byte("\x1b[2Jheader\x1b[3;5HCPU"))
+
+	got := buf.Screenshot(100)
+	want := "header\n\n    CPU"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestAltScreenSwitch(t *testing.T) {
+	t.Parallel()
+
+	buf := NewWithSize(100, 4, 20)
+	buf.Write([]byte("shell\n"))
+	buf.Write([]byte("\x1b[?1049hhtop"))
+	if got := buf.Screenshot(100); got != "htop" {
+		t.Fatalf("expected alt screen content %q, got %q", "htop", got)
+	}
+
+	buf.Write([]byte("\x1b[?1049l"))
+	got := buf.Screenshot(100)
+	want := "shell"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestResizeAfterAltScreenDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	buf := NewWithSize(100, 61, 104)
+	buf.Write([]byte("shell\n"))
+	buf.Write([]byte("\x1b[?1049h"))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf.Resize(61, 211)
+		buf.Resize(30, 100)
+		buf.Resize(61, 104)
+	}()
+	<-done
 }

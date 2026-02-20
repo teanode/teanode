@@ -1,11 +1,11 @@
-//go:build linux
+//go:build darwin
 
 package terminals
 
 import (
+	"bytes"
 	"fmt"
 	"os"
-	"strconv"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -22,24 +22,43 @@ func OpenPTY() (master, slave *os.File, err error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("open /dev/ptmx: %w", err)
 	}
+	defer func() {
+		if err != nil {
+			masterFile.Close()
+		}
+	}()
 
-	// Unlock the slave.
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, masterFile.Fd(), unix.TIOCSPTLCK, uintptr(unsafe.Pointer(new(int32)))); errno != 0 {
-		masterFile.Close()
-		return nil, nil, fmt.Errorf("TIOCSPTLCK: %w", errno)
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, masterFile.Fd(), uintptr(unix.TIOCPTYGRANT), 0); errno != 0 {
+		return nil, nil, fmt.Errorf("TIOCPTYGRANT: %w", errno)
+	}
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, masterFile.Fd(), uintptr(unix.TIOCPTYUNLK), 0); errno != 0 {
+		return nil, nil, fmt.Errorf("TIOCPTYUNLK: %w", errno)
 	}
 
-	// Get slave number.
-	var slaveNumber uint32
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, masterFile.Fd(), unix.TIOCGPTN, uintptr(unsafe.Pointer(&slaveNumber))); errno != 0 {
-		masterFile.Close()
-		return nil, nil, fmt.Errorf("TIOCGPTN: %w", errno)
+	// The argument size is encoded in the ioctl request.
+	const iocparmMask = 0x1fff
+	nameLen := (unix.TIOCPTYGNAME >> 16) & iocparmMask
+	nameBuffer := make([]byte, nameLen)
+	if _, _, errno := unix.Syscall(
+		unix.SYS_IOCTL,
+		masterFile.Fd(),
+		uintptr(unix.TIOCPTYGNAME),
+		uintptr(unsafe.Pointer(&nameBuffer[0])),
+	); errno != 0 {
+		return nil, nil, fmt.Errorf("TIOCPTYGNAME: %w", errno)
 	}
 
-	slavePath := "/dev/pts/" + strconv.Itoa(int(slaveNumber))
+	nameEnd := bytes.IndexByte(nameBuffer, 0)
+	if nameEnd < 0 {
+		nameEnd = len(nameBuffer)
+	}
+	slavePath := string(nameBuffer[:nameEnd])
+	if slavePath == "" {
+		return nil, nil, fmt.Errorf("TIOCPTYGNAME: empty slave path")
+	}
+
 	slaveFile, err := os.OpenFile(slavePath, os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
-		masterFile.Close()
 		return nil, nil, fmt.Errorf("open slave %s: %w", slavePath, err)
 	}
 
@@ -63,7 +82,7 @@ func GetWinSize(fd int) (rows, cols uint16, err error) {
 
 // MakeRaw puts the terminal into raw mode and returns the original state for later restore.
 func MakeRaw(fd int) (*TermState, error) {
-	orig, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	orig, err := unix.IoctlGetTermios(fd, unix.TIOCGETA)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +93,7 @@ func MakeRaw(fd int) (*TermState, error) {
 	raw.Lflag &^= unix.ECHO | unix.ICANON | unix.IEXTEN | unix.ISIG
 	raw.Cc[unix.VMIN] = 1
 	raw.Cc[unix.VTIME] = 0
-	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &raw); err != nil {
+	if err := unix.IoctlSetTermios(fd, unix.TIOCSETA, &raw); err != nil {
 		return nil, err
 	}
 	return &TermState{termios: orig}, nil
@@ -83,6 +102,6 @@ func MakeRaw(fd int) (*TermState, error) {
 // RestoreTermios restores the terminal to its original mode.
 func RestoreTermios(fd int, state *TermState) {
 	if state != nil && state.termios != nil {
-		unix.IoctlSetTermios(fd, unix.TCSETS, state.termios)
+		_ = unix.IoctlSetTermios(fd, unix.TIOCSETA, state.termios)
 	}
 }

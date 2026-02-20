@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
@@ -25,15 +25,43 @@ interface JobFormProps {
   agents?: AgentInfo[];
   onSave: (data: { name: string; schedule: string; message: string; model: string; agentId: string }) => void;
   onCancel?: () => void;
+  flat?: boolean;
+  showActions?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+  onCanSaveChange?: (canSave: boolean) => void;
 }
 
-export default function JobForm({ initial, models = [], agents = [], onSave, onCancel }: JobFormProps) {
+export interface JobFormHandle {
+  save: () => void;
+  isDirty: () => boolean;
+  canSave: () => boolean;
+}
+
+const JobForm = React.forwardRef<JobFormHandle, JobFormProps>(function JobForm({
+  initial,
+  models = [],
+  agents = [],
+  onSave,
+  onCancel,
+  flat = false,
+  showActions = true,
+  onDirtyChange,
+  onCanSaveChange,
+}, ref) {
   const { t } = useTranslation();
   const [name, setName] = useState(initial?.name || '');
   const [schedule, setSchedule] = useState(initial?.schedule || '0 * * * *');
   const [message, setMessage] = useState(initial?.message || '');
   const [model, setModel] = useState(initial?.model || '');
   const [agentId, setAgentId] = useState(initial?.agentId || '');
+
+  useEffect(() => {
+    setName(initial?.name || '');
+    setSchedule(initial?.schedule || '0 * * * *');
+    setMessage(initial?.message || '');
+    setModel(initial?.model || '');
+    setAgentId(initial?.agentId || '');
+  }, [initial?.id]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, ModelInfo[]>();
@@ -45,11 +73,36 @@ export default function JobForm({ initial, models = [], agents = [], onSave, onC
     return map;
   }, [models]);
 
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!name.trim() || !schedule.trim() || !message.trim()) return;
+  const canSave = !!name.trim() && !!schedule.trim() && !!message.trim();
+  const dirty = initial
+    ? name !== (initial.name || '')
+      || schedule !== (initial.schedule || '')
+      || message !== (initial.message || '')
+      || model !== (initial.model || '')
+      || agentId !== (initial.agentId || '')
+    : true;
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    onCanSaveChange?.(canSave);
+  }, [canSave, onCanSaveChange]);
+
+  const saveDraft = useCallback(() => {
+    if (!canSave) return;
     onSave({ name: name.trim(), schedule: schedule.trim(), message: message.trim(), model: model.trim(), agentId: agentId.trim() });
-  };
+  }, [canSave, onSave, name, schedule, message, model, agentId]);
+
+  const handleSubmit = useCallback((event: React.FormEvent) => {
+    event.preventDefault();
+    saveDraft();
+  }, [saveDraft]);
+
+  useImperativeHandle(ref, () => ({
+    save: saveDraft,
+    isDirty: () => dirty,
+    canSave: () => canSave,
+  }), [saveDraft, dirty, canSave]);
 
   // Build model select items with group headers.
   const modelMenuItems: React.ReactNode[] = [
@@ -65,13 +118,8 @@ export default function JobForm({ initial, models = [], agents = [], onSave, onC
     }
   }
 
-  return (
-    <Paper
-      component="form"
-      variant="outlined"
-      onSubmit={handleSubmit}
-      sx={{ p: 2, bgcolor: 'background.paper' }}
-    >
+  const content = (
+    <Box component="form" onSubmit={handleSubmit}>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
           label={t('jobs.name')}
@@ -80,7 +128,6 @@ export default function JobForm({ initial, models = [], agents = [], onSave, onC
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder={t('jobs.namePlaceholder')}
-          autoFocus
         />
 
         <Box>
@@ -157,22 +204,37 @@ export default function JobForm({ initial, models = [], agents = [], onSave, onC
           </TextField>
         )}
 
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            type="submit"
-            variant="contained"
-            size="small"
-            disabled={!name.trim() || !schedule.trim() || !message.trim()}
-          >
-            {initial ? t('common.save') : t('common.create')}
-          </Button>
-          {onCancel && (
-            <Button variant="text" size="small" onClick={onCancel}>
-              {t('common.cancel')}
+        {showActions && (
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              type="submit"
+              variant="contained"
+              size="small"
+              disabled={!name.trim() || !schedule.trim() || !message.trim()}
+            >
+              {initial ? t('common.save') : t('common.create')}
             </Button>
-          )}
-        </Box>
+            {onCancel && (
+              <Button variant="text" size="small" onClick={onCancel}>
+                {t('common.cancel')}
+              </Button>
+            )}
+          </Box>
+        )}
       </Box>
+    </Box>
+  );
+
+  if (flat) return content;
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{ p: 2, bgcolor: 'background.paper' }}
+    >
+      {content}
     </Paper>
   );
-}
+});
+
+export default JobForm;

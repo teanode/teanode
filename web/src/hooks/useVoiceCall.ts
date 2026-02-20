@@ -120,7 +120,7 @@ export interface UseVoiceCallReturn {
 }
 
 export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
-  const MIN_INTERRUPT_MS = 300;
+  const MIN_INTERRUPT_MS = 500;
 
   const speechStartTimeRef = useRef<number | null>(null);
   const pendingInterruptRef = useRef(false);
@@ -151,6 +151,8 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const waitingToneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const interruptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const interruptedRef = useRef(false);
   const isCallActiveRef = useRef(false);
@@ -232,16 +234,34 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
           if (!isCallActiveRef.current) return;
           setIsUserSpeaking(true);
 
-          // Interrupt: stop TTS and abort running LLM
-          streamingTTS.stopAndClear();
-          if (isRunningRef.current) {
-            abortRun();
-            interruptedRef.current = true;
+          // Delay interruption slightly so brief noise doesn't barge in.
+          speechStartTimeRef.current = Date.now();
+          pendingInterruptRef.current = true;
+          if (interruptTimeoutRef.current) {
+            clearTimeout(interruptTimeoutRef.current);
           }
+          interruptTimeoutRef.current = setTimeout(() => {
+            if (!isCallActiveRef.current || !pendingInterruptRef.current) return;
+            const startedAt = speechStartTimeRef.current;
+            if (!startedAt || Date.now() - startedAt < MIN_INTERRUPT_MS) return;
+
+            // Interrupt: stop TTS and abort running LLM after sustained speech.
+            streamingTTS.stopAndClear();
+            if (isRunningRef.current) {
+              abortRun();
+              interruptedRef.current = true;
+            }
+          }, MIN_INTERRUPT_MS);
         },
         onSpeechEnd: async (audioData: Float32Array) => {
           if (!isCallActiveRef.current) return;
           setIsUserSpeaking(false);
+          pendingInterruptRef.current = false;
+          speechStartTimeRef.current = null;
+          if (interruptTimeoutRef.current) {
+            clearTimeout(interruptTimeoutRef.current);
+            interruptTimeoutRef.current = null;
+          }
 
           // Pause VAD while the chime plays to prevent echo feedback on iOS
           // (speaker output leaks back through the mic, VAD detects it as speech).
@@ -371,9 +391,19 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       clearInterval(durationIntervalRef.current);
       durationIntervalRef.current = null;
     }
+    if (waitingToneIntervalRef.current) {
+      clearInterval(waitingToneIntervalRef.current);
+      waitingToneIntervalRef.current = null;
+    }
+    if (interruptTimeoutRef.current) {
+      clearTimeout(interruptTimeoutRef.current);
+      interruptTimeoutRef.current = null;
+    }
 
     // Reset stream tracking
     interruptedRef.current = false;
+    pendingInterruptRef.current = false;
+    speechStartTimeRef.current = null;
     prevStreamTextLengthRef.current = 0;
     sentencesEnqueuedRef.current = 0;
   }, [streamingTTS, chimePlayer]);
@@ -437,6 +467,26 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     wasRunningRef.current = isRunning;
   }, [isRunning]);
 
+  useEffect(() => {
+    const shouldPlayWaitingTone =
+      isCallActive && isRunning && !isUserSpeaking && !streamingTTS.isPlaying;
+
+    if (shouldPlayWaitingTone) {
+      if (!waitingToneIntervalRef.current) {
+        chimePlayer.play('agentWaiting');
+        waitingToneIntervalRef.current = setInterval(() => {
+          if (isCallActiveRef.current) chimePlayer.play('agentWaiting');
+        }, 2200);
+      }
+      return;
+    }
+
+    if (waitingToneIntervalRef.current) {
+      clearInterval(waitingToneIntervalRef.current);
+      waitingToneIntervalRef.current = null;
+    }
+  }, [isCallActive, isRunning, isUserSpeaking, streamingTTS.isPlaying, chimePlayer]);
+
   // Re-acquire WakeLock when returning from background
   useEffect(() => {
     if (!isCallActive) return;
@@ -471,6 +521,8 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         if (audioContextRef.current) audioContextRef.current.close();
         if (wakeLockRef.current) wakeLockRef.current.release().catch(() => {});
         if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+        if (waitingToneIntervalRef.current) clearInterval(waitingToneIntervalRef.current);
+        if (interruptTimeoutRef.current) clearTimeout(interruptTimeoutRef.current);
       }
     };
   }, []);

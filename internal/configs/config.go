@@ -13,6 +13,7 @@ import (
 
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/util/trash"
 	"gopkg.in/yaml.v3"
 )
 
@@ -130,14 +131,19 @@ const DefaultAgentID = "main"
 
 // AgentConfig defines a single agent in the multi-agent system.
 type AgentConfig struct {
-	ID           string   `json:"id" yaml:"id"`                                         // unique; "main" is default
-	Name         string   `json:"name,omitempty" yaml:"name,omitempty"`                 // friendly display name
-	Description  string   `json:"description,omitempty" yaml:"description,omitempty"`   // short routing description
-	Model        string   `json:"model,omitempty" yaml:"model,omitempty"`               // qualified model override (e.g. "openai:gpt-5.1")
-	SystemPrompt string   `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"` // per-agent identity line override
-	Skills       []string `json:"skills,omitempty" yaml:"skills,omitempty"`             // skill allow list (nil = all)
-	Tools        []string `json:"tools,omitempty" yaml:"tools,omitempty"`               // tool allow list (nil = all)
-	CanMessage   []string `json:"canMessage,omitempty" yaml:"canMessage,omitempty"`     // agent IDs this agent can talk to; "*" = all
+	ID     string   `json:"id" yaml:"id"`                             // unique; "main" is default
+	Name   string   `json:"name,omitempty" yaml:"name,omitempty"`     // friendly display name
+	Model  string   `json:"model,omitempty" yaml:"model,omitempty"`   // qualified model override (e.g. "openai:gpt-5.1")
+	Skills []string `json:"skills,omitempty" yaml:"skills,omitempty"` // skill allow list (nil = all)
+	Tools  []string `json:"tools,omitempty" yaml:"tools,omitempty"`   // tool allow list (nil = all)
+}
+
+// AgentState stores derived runtime metadata for an agent.
+// Persisted at ~/.teanode/agents/<agentId>/state.yaml.
+type AgentState struct {
+	Description          string `json:"description,omitempty" yaml:"description,omitempty"`
+	DescriptionUpdatedAt int64  `json:"descriptionUpdatedAt,omitempty" yaml:"descriptionUpdatedAt,omitempty"`
+	AvatarMediaID        string `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
 }
 
 // AgentLimits holds resolved runtime limits for an agent.
@@ -345,12 +351,12 @@ type ProviderConfig struct {
 }
 
 type ModelsConfig struct {
-	Default         string                   `json:"default,omitempty" yaml:"default,omitempty"`
-	SummarizerModel string                   `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
-	ContextWindow   int                      `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; default 128000
-	DefaultLimits   AgentLimits              `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`     // default runtime limits applied to all models
-	Limits          ModelRuntimeLimits       `json:"limits,omitempty" yaml:"limits,omitempty"`                   // per-model runtime limits
-	Providers       []ProviderConfig         `json:"providers,omitempty" yaml:"providers,omitempty"`
+	Default         string             `json:"default,omitempty" yaml:"default,omitempty"`
+	SummarizerModel string             `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
+	ContextWindow   int                `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; default 128000
+	DefaultLimits   AgentLimits        `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`     // default runtime limits applied to all models
+	Limits          ModelRuntimeLimits `json:"limits,omitempty" yaml:"limits,omitempty"`                   // per-model runtime limits
+	Providers       []ProviderConfig   `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
 
 // ModelRuntimeLimitEntry stores per-model runtime limit overrides.
@@ -470,7 +476,7 @@ func (self *Config) ResolveAgents() []AgentConfig {
 	if len(self.Agents) > 0 {
 		return self.Agents
 	}
-	return []AgentConfig{{ID: DefaultAgentID, Name: "Tea", CanMessage: []string{"*"}}}
+	return []AgentConfig{{ID: DefaultAgentID, Name: "Tea"}}
 }
 
 // AgentByID returns the agent config for the given ID, or nil if not found.
@@ -614,6 +620,15 @@ func AgentConversationsDirectory(agentId string) (string, error) {
 	return filepath.Join(directory, "conversations", agentId), nil
 }
 
+// AgentStateFile returns the path to the agent state file (~/.teanode/agents/<agentId>/state.yaml).
+func AgentStateFile(agentId string) (string, error) {
+	agentsDirectory, err := AgentsDirectory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(agentsDirectory, agentId, "state.yaml"), nil
+}
+
 // SkillsDirectory returns the skills directory (~/.teanode/skills).
 func SkillsDirectory() (string, error) {
 	directory, err := Directory()
@@ -650,6 +665,15 @@ func SessionsDirectory() (string, error) {
 	return filepath.Join(directory, "sessions"), nil
 }
 
+// TrashDirectory returns the trash directory (~/.teanode/.trash).
+func TrashDirectory() (string, error) {
+	directory, err := Directory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, ".trash"), nil
+}
+
 // StateFile returns the path to the state file (~/.teanode/state.yaml).
 func StateFile() (string, error) {
 	directory, err := Directory()
@@ -665,7 +689,7 @@ func EnsureDirectories() error {
 	if err != nil {
 		return err
 	}
-	for _, sub := range []string{"conversations", "workspaces", "skills", "media", "agents", "jobs", "sessions"} {
+	for _, sub := range []string{"conversations", "workspaces", "skills", "media", "agents", "jobs", "sessions", ".trash"} {
 		if err := os.MkdirAll(filepath.Join(directory, sub), 0755); err != nil {
 			return fmt.Errorf("creating directories: %w", err)
 		}
@@ -777,6 +801,48 @@ func SaveAgent(agentConfig AgentConfig) error {
 	return atomicfile.WriteFile(filepath.Join(agentDirectory, "config.yaml"), data)
 }
 
+// LoadAgentState reads agents/<id>/state.yaml.
+// Missing files return an empty state.
+func LoadAgentState(agentId string) (*AgentState, error) {
+	stateFile, err := AgentStateFile(agentId)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &AgentState{}, nil
+		}
+		return nil, fmt.Errorf("reading agent state %s: %w", agentId, err)
+	}
+	state := &AgentState{}
+	if err := yaml.Unmarshal(data, state); err != nil {
+		return nil, fmt.Errorf("parsing agent state %s: %w", agentId, err)
+	}
+	return state, nil
+}
+
+// SaveAgentState writes agents/<id>/state.yaml atomically.
+func SaveAgentState(agentId string, state *AgentState) error {
+	if state == nil {
+		state = &AgentState{}
+	}
+	agentsDirectory, err := AgentsDirectory()
+	if err != nil {
+		return err
+	}
+	agentDirectory := filepath.Join(agentsDirectory, agentId)
+	if err := os.MkdirAll(agentDirectory, 0755); err != nil {
+		return fmt.Errorf("creating agent directory: %w", err)
+	}
+	data, err := yaml.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("marshalling agent state: %w", err)
+	}
+	stateFile := filepath.Join(agentDirectory, "state.yaml")
+	return atomicfile.WriteFile(stateFile, data)
+}
+
 // DeleteAgent removes the agents/<agentId>/ directory.
 func DeleteAgent(agentId string) error {
 	agentsDirectory, err := AgentsDirectory()
@@ -787,7 +853,30 @@ func DeleteAgent(agentId string) error {
 	if _, err := os.Stat(agentDirectory); os.IsNotExist(err) {
 		return fmt.Errorf("agent not found: %s", agentId)
 	}
-	return os.RemoveAll(agentDirectory)
+	workspaceDirectory, err := AgentWorkspaceDirectory(agentId)
+	if err != nil {
+		return err
+	}
+	conversationsDirectory, err := AgentConversationsDirectory(agentId)
+	if err != nil {
+		return err
+	}
+	trashDirectory, err := TrashDirectory()
+	if err != nil {
+		return err
+	}
+
+	for _, path := range []string{agentDirectory, workspaceDirectory, conversationsDirectory} {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if err := trash.Move(path, trashDirectory); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // LoadRaw reads config from ~/.teanode/config.yaml without applying defaults
@@ -840,8 +929,8 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("loading agents: %w", err)
 	}
 	if len(agents) == 0 {
-		// Auto-create the default main agent with full messaging permissions.
-		defaultAgent := AgentConfig{ID: DefaultAgentID, Name: "Tea", CanMessage: []string{"*"}}
+		// Auto-create the default main agent.
+		defaultAgent := AgentConfig{ID: DefaultAgentID, Name: "Tea"}
 		if err := SaveAgent(defaultAgent); err != nil {
 			return nil, fmt.Errorf("saving default agent: %w", err)
 		}

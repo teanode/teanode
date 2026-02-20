@@ -10,6 +10,7 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/util/trash"
 	"gopkg.in/yaml.v3"
 )
 
@@ -71,6 +72,11 @@ func (self *Store) Save(jobs []Job) error {
 }
 
 func (self *Store) saveLocked(jobs []Job) error {
+	trashDirectory, err := configs.TrashDirectory()
+	if err != nil {
+		return err
+	}
+
 	// Remove all existing .md files.
 	entries, err := os.ReadDir(self.directory)
 	if err != nil && !os.IsNotExist(err) {
@@ -78,7 +84,9 @@ func (self *Store) saveLocked(jobs []Job) error {
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
-			os.Remove(filepath.Join(self.directory, entry.Name()))
+			if err := trash.Move(filepath.Join(self.directory, entry.Name()), trashDirectory); err != nil {
+				return fmt.Errorf("moving old job file to trash: %w", err)
+			}
 		}
 	}
 
@@ -119,7 +127,11 @@ func (self *Store) Delete(id string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Errorf("job not found: %s", id)
 	}
-	return os.Remove(path)
+	trashDirectory, err := configs.TrashDirectory()
+	if err != nil {
+		return err
+	}
+	return trash.Move(path, trashDirectory)
 }
 
 // readJobFile parses a single job markdown file.

@@ -345,17 +345,16 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptCustomOverride(t *testing.T) {
+func TestBuildSystemPromptUsesAgentIdentity(t *testing.T) {
 	configuration := &configs.Config{
 		Agents: []configs.AgentConfig{
-			{ID: "custom", SystemPrompt: "I am a custom assistant."},
+			{ID: "custom", Name: "Custom Assistant"},
 		},
 	}
 	prompt := BuildSystemPrompt(configuration, "custom", "/some/dir", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars)
-	if !strings.Contains(prompt, "I am a custom assistant.") {
-		t.Error("prompt should contain custom identity line")
+	if !strings.Contains(prompt, "You are 'Custom Assistant' (agent: custom).") {
+		t.Error("prompt should contain agent identity suffix")
 	}
-	// The custom SystemPrompt replaces the identity line, not the entire prompt.
 	if !strings.Contains(prompt, "Workspace Tool") {
 		t.Error("prompt should still contain tool documentation sections")
 	}

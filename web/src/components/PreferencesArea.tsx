@@ -6,7 +6,6 @@ import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Select from '@mui/material/Select';
 import Slider from '@mui/material/Slider';
-import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
@@ -15,6 +14,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import { useAppContext, type ThemeMode } from '../context';
+import type { LanguagePreference } from '../i18n/config';
 
 export default function PreferencesArea() {
   const { t } = useTranslation();
@@ -33,10 +33,8 @@ export default function PreferencesArea() {
     setVoiceChimesEnabled,
     voiceChimesVolume,
     setVoiceChimesVolume,
-    voiceChimeInputUrl,
-    setVoiceChimeInputUrl,
-    voiceChimeAgentUrl,
-    setVoiceChimeAgentUrl,
+    languagePreference,
+    setLanguagePreference,
     backend,
   } = useAppContext();
 
@@ -45,9 +43,39 @@ export default function PreferencesArea() {
   return (
     <Box sx={{ flex: 1, overflowY: 'auto' }}>
       <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 3 }}>
-          {t('settings.preferences')}
-        </Typography>
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+            {t('settings.preferences')}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {t('settings.preferencesDescription')}
+          </Typography>
+        </Box>
+
+        {/* Theme */}
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+            {t('settings.language')}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            {t('settings.languageDescription')}
+          </Typography>
+          <Select
+            value={languagePreference}
+            onChange={(event) => setLanguagePreference(event.target.value as LanguagePreference)}
+            size="small"
+            sx={{ minWidth: 220 }}
+          >
+            <MenuItem value="auto">
+              {t('settings.languageAuto', {
+                locale: typeof navigator !== 'undefined' ? navigator.language : 'en',
+              })}
+            </MenuItem>
+            <MenuItem value="en">English</MenuItem>
+            <MenuItem value="zh">中文</MenuItem>
+            <MenuItem value="ja">日本語</MenuItem>
+          </Select>
+        </Paper>
 
         {/* Theme */}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
@@ -197,28 +225,6 @@ export default function PreferencesArea() {
                       valueLabelDisplay="auto"
                       valueLabelFormat={(value) => `${Math.round(value * 100)}%`}
                       sx={{ maxWidth: 200 }}
-                    />
-                  </Box>
-                  <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{t('settings.voiceChimeInputUrl')}</Typography>
-                    <TextField
-                      value={voiceChimeInputUrl}
-                      onChange={(event) => setVoiceChimeInputUrl(event.target.value)}
-                      size="small"
-                      placeholder={t('settings.voiceChimeUrlPlaceholder')}
-                      fullWidth
-                      sx={{ maxWidth: 400 }}
-                    />
-                  </Box>
-                  <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{t('settings.voiceChimeAgentUrl')}</Typography>
-                    <TextField
-                      value={voiceChimeAgentUrl}
-                      onChange={(event) => setVoiceChimeAgentUrl(event.target.value)}
-                      size="small"
-                      placeholder={t('settings.voiceChimeUrlPlaceholder')}
-                      fullWidth
-                      sx={{ maxWidth: 400 }}
                     />
                   </Box>
                 </Box>

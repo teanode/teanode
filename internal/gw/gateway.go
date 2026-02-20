@@ -650,6 +650,16 @@ func (self *gateway) AuthMiddleware() web.Middleware {
 				return
 			}
 
+			// 4d. Agent avatar endpoints: requires session or bearer auth.
+			if strings.HasPrefix(path, "/api/v1/agents/") && strings.HasSuffix(path, "/avatar") {
+				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
+					next.ServeHTTP(writer, request)
+					return
+				}
+				web.WriteError(writer, web.ErrUnauthorized)
+				return
+			}
+
 			// 5. Machine endpoints: token-only auth.
 			if path == "/api/v1/browser" || path == "/api/v1/terminal" || path == "/api/v1/chat/completions" {
 				if self.checkBearerToken(request) {

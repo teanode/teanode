@@ -4,12 +4,12 @@ import Box from '@mui/material/Box';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
-import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 
 import type { useBackend } from '../hooks/useBackend';
 import ConversationItem from './ConversationItem';
+import SidebarSectionTitle from './SidebarSectionTitle';
 
 const DEFAULT_RECENT_LIMIT = 10;
 
@@ -84,9 +84,9 @@ export default function ConversationNav({ backend, viewingAgentId, viewingConver
         {/* Default conversation */}
         {pinnedConversation && (
           <>
-            <Typography variant="overline" sx={{ display: 'block', px: 1.25, mt: 0.5, mb: 0.25, fontSize: '10px', color: 'text.secondary', letterSpacing: '0.08em' }}>
+            <SidebarSectionTitle mt={0.5}>
               {t('conversations.defaultConversation')}
-            </Typography>
+            </SidebarSectionTitle>
             <ConversationItem
               conversation={pinnedConversation}
               active={!highlightViewAll && pinnedConversation.id === viewingConversationId}
@@ -98,9 +98,9 @@ export default function ConversationNav({ backend, viewingAgentId, viewingConver
         {/* Recent conversations */}
         {recentConversations.length > 0 && (
           <>
-            <Typography variant="overline" sx={{ display: 'block', px: 1.25, mt: 1, mb: 0.25, fontSize: '10px', color: 'text.secondary', letterSpacing: '0.08em' }}>
+            <SidebarSectionTitle>
               {t('conversations.recentConversations')}
-            </Typography>
+            </SidebarSectionTitle>
             {recentConversations.map((conversation) => (
               <ConversationItem
                 key={conversation.id}

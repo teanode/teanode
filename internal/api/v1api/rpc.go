@@ -30,6 +30,9 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 		if agentConfig.Name != "" {
 			info["name"] = agentConfig.Name
 		}
+		if state, err := configs.LoadAgentState(agentConfig.ID); err == nil && state.AvatarMediaID != "" {
+			info["avatarMediaId"] = state.AvatarMediaID
+		}
 		agentInfos = append(agentInfos, info)
 	}
 
@@ -43,12 +46,12 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"version":                version.Version(),
-		"capabilities":           capabilities,
-		"defaultModel":           config.Models.Default,
-		"agents":                 agentInfos,
-		"defaultAgentId":         defaultAgentId,
-		"defaultConversationId":  self.api.gateway.DefaultConversationID(defaultAgentId),
+		"version":               version.Version(),
+		"capabilities":          capabilities,
+		"defaultModel":          config.Models.Default,
+		"agents":                agentInfos,
+		"defaultAgentId":        defaultAgentId,
+		"defaultConversationId": self.api.gateway.DefaultConversationID(defaultAgentId),
 	})
 }
 
@@ -70,6 +73,9 @@ func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 		}
 		if agentConfig.Name != "" {
 			info["name"] = agentConfig.Name
+		}
+		if state, err := configs.LoadAgentState(agentConfig.ID); err == nil && state.AvatarMediaID != "" {
+			info["avatarMediaId"] = state.AvatarMediaID
 		}
 		agentInfos = append(agentInfos, info)
 	}
@@ -135,13 +141,13 @@ func (self *webSocketConnection) handleConversationsSetDefault(frame requestFram
 
 // conversationSendParameters are the parameters for conversations.send.
 type conversationSendParameters struct {
-	ConversationID     string                    `json:"conversationId"`
-	Message            string                    `json:"message"`
-	Model              string                    `json:"model,omitempty"`
-	AgentID            string                    `json:"agentId,omitempty"`
-	OriginID           string                    `json:"originId,omitempty"`
+	ConversationID     string                     `json:"conversationId"`
+	Message            string                     `json:"message"`
+	Model              string                     `json:"model,omitempty"`
+	AgentID            string                     `json:"agentId,omitempty"`
+	OriginID           string                     `json:"originId,omitempty"`
 	Attachments        []conversations.Attachment `json:"attachments,omitempty"`
-	SystemPromptSuffix string                    `json:"systemPromptSuffix,omitempty"`
+	SystemPromptSuffix string                     `json:"systemPromptSuffix,omitempty"`
 }
 
 // handleConversationsSend: send user message, trigger agent run via gateway.
@@ -556,8 +562,32 @@ func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
 		self.sendError(frame.ID, 500, "loading agents: "+err.Error())
 		return
 	}
+
+	entries := make([]map[string]interface{}, 0, len(agents))
+	for _, agentConfig := range agents {
+		entry := map[string]interface{}{
+			"id": agentConfig.ID,
+		}
+		if agentConfig.Name != "" {
+			entry["name"] = agentConfig.Name
+		}
+		if agentConfig.Model != "" {
+			entry["model"] = agentConfig.Model
+		}
+		if len(agentConfig.Tools) > 0 {
+			entry["tools"] = agentConfig.Tools
+		}
+		if len(agentConfig.Skills) > 0 {
+			entry["skills"] = agentConfig.Skills
+		}
+		if state, stateErr := configs.LoadAgentState(agentConfig.ID); stateErr == nil && state.AvatarMediaID != "" {
+			entry["avatarMediaId"] = state.AvatarMediaID
+		}
+		entries = append(entries, entry)
+	}
+
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"agents": agents,
+		"agents": entries,
 	})
 }
 
@@ -605,6 +635,9 @@ func (self *webSocketConnection) handleAgentsConfigDelete(frame requestFrame) {
 	if parameters.ID == self.api.gateway.DefaultAgentID() {
 		self.sendError(frame.ID, 409, "cannot delete the default agent")
 		return
+	}
+	if state, stateErr := configs.LoadAgentState(parameters.ID); stateErr == nil && state.AvatarMediaID != "" && self.api.gateway.MediaStore() != nil {
+		_ = self.api.gateway.MediaStore().Delete(state.AvatarMediaID)
 	}
 	if err := configs.DeleteAgent(parameters.ID); err != nil {
 		self.sendError(frame.ID, 500, "deleting agent: "+err.Error())

@@ -1,45 +1,13 @@
-import React, { useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from '@tanstack/react-router';
-import { useAppContext } from '../../../context';
-import { useAgents } from '../../../hooks/useAgents';
-import AgentEditor from '../../../components/AgentEditor';
+import React, { useEffect } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 
-/** /settings/agents/$agentId — individual agent editor. */
+/** /settings/agents/$agentId — legacy route, redirect to unified agents page. */
 export default function SettingsAgentPage() {
-  const { agentId } = useParams({ strict: false }) as { agentId: string };
-  const { backend } = useAppContext();
   const navigate = useNavigate();
-  const agentsHook = useAgents(backend.sendRpc);
 
   useEffect(() => {
-    if (backend.connected) {
-      agentsHook.loadAgents();
-      agentsHook.loadSchema();
-    }
-  }, [backend.connected, agentsHook.loadAgents, agentsHook.loadSchema]);
+    navigate({ to: '/settings/agents', replace: true });
+  }, [navigate]);
 
-  const agent = agentsHook.agents.find((item) => item.id === agentId) ?? null;
-
-  useEffect(() => {
-    if (!agentsHook.loading && !agent) {
-      navigate({ to: '/settings' });
-    }
-  }, [agentsHook.loading, agent, navigate]);
-
-  const handleSave = useCallback(
-    (agent: Parameters<typeof agentsHook.saveAgent>[0]) => {
-      return agentsHook.saveAgent(agent).then(() => backend.refreshAgents());
-    },
-    [agentsHook.saveAgent, backend.refreshAgents]
-  );
-
-  return (
-    <AgentEditor
-      agent={agent}
-      models={backend.models}
-      schema={agentsHook.schema}
-      suggestions={agentsHook.suggestions}
-      onSave={handleSave}
-    />
-  );
+  return null;
 }

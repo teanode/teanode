@@ -22,8 +22,6 @@ export default function ConversationsAgentLayout() {
     ttsVoice,
     voiceChimesEnabled,
     voiceChimesVolume,
-    voiceChimeInputUrl,
-    voiceChimeAgentUrl,
   } = useAppContext();
 
   useEffect(() => {
@@ -35,9 +33,7 @@ export default function ConversationsAgentLayout() {
   const chimeConfig: ChimeConfig = useMemo(() => ({
     enabled: voiceChimesEnabled,
     volume: voiceChimesVolume,
-    inputUrl: voiceChimeInputUrl || undefined,
-    agentUrl: voiceChimeAgentUrl || undefined,
-  }), [voiceChimesEnabled, voiceChimesVolume, voiceChimeInputUrl, voiceChimeAgentUrl]);
+  }), [voiceChimesEnabled, voiceChimesVolume]);
 
   const voiceCall = useVoiceCall({
     sendRpc: backend.sendRpc,

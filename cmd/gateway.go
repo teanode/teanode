@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -191,7 +192,7 @@ func NewGatewayCommand() *cli.Command {
 				gitlab.RegisterTools(tools, configuration.Tools.GitLab)
 				claudecode.RegisterTools(tools, configuration.Tools.ClaudeCode)
 				codex.RegisterTools(tools, configuration.Tools.Codex)
-			datetime.RegisterTools(tools)
+				datetime.RegisterTools(tools)
 				homeassistant.RegisterTools(tools, configuration.Tools.HomeAssistant)
 				unifiprotect.RegisterTools(tools, configuration.Tools.UniFiProtect)
 				agents.RegisterConversationTools(tools, conversations, providers, configuration)
@@ -254,10 +255,61 @@ func NewGatewayCommand() *cli.Command {
 			// --- Gateway + API + Frontend ---
 
 			summarizer := agents.NewSummarizer(agentRegistry, configuration)
+			describer := agents.NewDescriber(agentRegistry)
 
 			gateway = gw.New(configuration, securityConfig, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore, sessionStore)
 			api := v1api.New(gateway)
 			frontendComponent := frontend.New()
+
+			agentRegistry.SetCreateAgentFunc(func(agentConfig configs.AgentConfig) error {
+				if agentConfig.ID == "" {
+					return errors.New("agent id is required")
+				}
+				if agentRegistry.Get(agentConfig.ID) != nil {
+					return fmt.Errorf("agent already exists: %s", agentConfig.ID)
+				}
+
+				if err := configs.SaveAgent(agentConfig); err != nil {
+					return err
+				}
+				if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {
+					return err
+				}
+				if err := configs.SeedAgentWorkspace(agentConfig.ID); err != nil {
+					return err
+				}
+
+				workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentConfig.ID)
+				if err != nil {
+					return err
+				}
+				conversationsDirectory, err := configs.AgentConversationsDirectory(agentConfig.ID)
+				if err != nil {
+					return err
+				}
+				conversationStore := conversations.NewStore(conversationsDirectory)
+
+				currentConfiguration := gateway.Config()
+				if currentConfiguration.AgentByID(agentConfig.ID) == nil {
+					currentConfiguration.Agents = append(currentConfiguration.Agents, agentConfig)
+				}
+				currentProviders := buildProviderRegistry(currentConfiguration)
+				tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, conversationStore, scheduler)
+
+				agentRegistry.Register(agentConfig.ID, &agents.Runner{
+					AgentID:            agentConfig.ID,
+					Providers:          currentProviders,
+					Conversations:      conversationStore,
+					Config:             currentConfiguration,
+					Tools:              tools,
+					MediaStore:         mediaStore,
+					WorkspaceDirectory: workspaceDirectory,
+					SkillPrompts:       skillPrompts,
+				})
+				describer.Notify()
+
+				return nil
+			})
 
 			// Wire summarizer to gateway.
 			summarizer.IsConversationActive = func(conversationId string) bool {
@@ -379,9 +431,9 @@ func NewGatewayCommand() *cli.Command {
 				}
 
 				gateway.SetConfig(newConfiguration)
-				summarizer.SetConfig(newConfiguration)
 				gateway.InvalidateModelsCache()
 				reloadAgents()
+				describer.Notify()
 				log.Info("config reloaded successfully")
 			}
 
@@ -397,8 +449,8 @@ func NewGatewayCommand() *cli.Command {
 					newConfiguration.Gateway.Port = int(cmd.Int("port"))
 				}
 				gateway.SetConfig(newConfiguration)
-				summarizer.SetConfig(newConfiguration)
 				reloadAgents()
+				describer.Notify()
 				log.Info("agents reloaded successfully")
 			}
 
@@ -462,7 +514,7 @@ func NewGatewayCommand() *cli.Command {
 				Handler: handler,
 			}
 
-			// Start scheduler and summarizer.
+			// Start scheduler, summarizer, and describer.
 			if scheduler != nil {
 				if err := scheduler.Start(); err != nil {
 					return err
@@ -470,6 +522,9 @@ func NewGatewayCommand() *cli.Command {
 			}
 			if summarizer != nil {
 				summarizer.Start()
+			}
+			if describer != nil {
+				describer.Start()
 			}
 
 			// --- Run ---
@@ -492,8 +547,8 @@ func NewGatewayCommand() *cli.Command {
 			}()
 
 			// Wait for exit signal or server failure.
-			signaling := make(chan os.Signal, 3)
-			signal.Notify(signaling, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+			signaling := make(chan os.Signal, 4)
+			signal.Notify(signaling, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
 
 			for !quit {
 				select {
@@ -503,6 +558,9 @@ func NewGatewayCommand() *cli.Command {
 						buffer := make([]byte, 1<<20)
 						length := runtime.Stack(buffer, true)
 						log.Warningf("%s", buffer[:length])
+					}
+					if sig == syscall.SIGHUP {
+						restart = true
 					}
 					quit = true
 				case <-runningHTTP:
@@ -524,6 +582,9 @@ func NewGatewayCommand() *cli.Command {
 
 			if summarizer != nil {
 				summarizer.Stop()
+			}
+			if describer != nil {
+				describer.Stop()
 			}
 			if scheduler != nil {
 				scheduler.Stop()

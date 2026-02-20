@@ -31,6 +31,7 @@ export interface RPCError {
 export interface AgentInfo {
   id: string;
   name?: string;
+  avatarMediaId?: string;
   defaultConversationId?: string;
 }
 
@@ -231,7 +232,9 @@ export interface JobsListResult {
 export interface JsonSchemaProperty {
   type?: string;
   title?: string;
+  titleKey?: string;
   description?: string;
+  descriptionKey?: string;
   default?: unknown;
   enum?: string[];
   format?: string;
@@ -239,17 +242,25 @@ export interface JsonSchemaProperty {
   properties?: Record<string, JsonSchemaProperty>;
   additionalProperties?: JsonSchemaProperty;
   'x-placeholder'?: string;
+  'x-placeholderKey'?: string;
   'x-widget'?: string;
   'x-suggest'?: string;
   'x-enumLabels'?: Record<string, string>;
+  'x-enumLabelKeys'?: Record<string, string>;
+  'x-titleKey'?: string;
+  'x-descriptionKey'?: string;
 }
 
 export interface SchemaSection {
   id: string;
   title: string;
+  titleKey?: string;
   description?: string;
+  descriptionKey?: string;
   path?: string;
   properties?: string[];
+  'x-titleKey'?: string;
+  'x-descriptionKey'?: string;
 }
 
 export interface ConfigSchema {
@@ -274,11 +285,10 @@ export interface ConfigUpdateParams {
 export interface AgentConfig {
   id: string;
   name?: string;
+  avatarMediaId?: string;
   model?: string;
-  systemPrompt?: string;
   skills?: string[];
   tools?: string[];
-  canMessage?: string[];
 }
 
 // Agent config RPC types

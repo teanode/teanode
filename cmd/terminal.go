@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package cmd
 
@@ -23,6 +23,11 @@ import (
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/util/screenbuffer"
 	"github.com/urfave/cli/v3"
+)
+
+const (
+	defaultTerminalRows uint16 = 24
+	defaultTerminalCols uint16 = 80
 )
 
 func NewTerminalCommand() *cli.Command {
@@ -79,13 +84,10 @@ func NewTerminalCommand() *cli.Command {
 			}
 			defer master.Close()
 
-			// Set PTY window size from user terminal.
-			rows, cols, err := terminals.GetWinSize(int(os.Stdin.Fd()))
-			if err == nil {
-				terminals.SetWinSize(int(master.Fd()), rows, cols)
-			} else {
-				terminals.SetWinSize(int(master.Fd()), 24, 80)
-			}
+			// Set PTY window size from the local terminal. Try stdout/stderr first
+			// because stdin may be piped in some invocations.
+			rows, cols := currentTerminalSize()
+			_ = terminals.SetWinSize(int(master.Fd()), rows, cols)
 
 			// Start child process.
 			child := exec.CommandContext(ctx, shellArguments[0], shellArguments[1:]...)
@@ -111,7 +113,7 @@ func NewTerminalCommand() *cli.Command {
 			defer terminals.RestoreTermios(int(os.Stdin.Fd()), originalTermios)
 
 			// Screen buffer for capturing output.
-			buffer := screenbuffer.New(1000)
+			buffer := screenbuffer.NewWithSize(1000, rows, cols)
 
 			// Goroutine: stdin -> PTY master.
 			go func() {
@@ -136,11 +138,12 @@ func NewTerminalCommand() *cli.Command {
 			// Handle SIGWINCH.
 			sigwinch := make(chan os.Signal, 1)
 			signal.Notify(sigwinch, syscall.SIGWINCH)
+			defer signal.Stop(sigwinch)
 			go func() {
 				for range sigwinch {
-					if rows, cols, err := terminals.GetWinSize(int(os.Stdin.Fd())); err == nil {
-						terminals.SetWinSize(int(master.Fd()), rows, cols)
-					}
+					rows, cols := currentTerminalSize()
+					_ = terminals.SetWinSize(int(master.Fd()), rows, cols)
+					buffer.Resize(rows, cols)
 				}
 			}()
 
@@ -162,6 +165,16 @@ func NewTerminalCommand() *cli.Command {
 			return nil
 		},
 	}
+}
+
+func currentTerminalSize() (rows, cols uint16) {
+	candidates := []int{int(os.Stdout.Fd()), int(os.Stderr.Fd()), int(os.Stdin.Fd())}
+	for _, fd := range candidates {
+		if rows, cols, err := terminals.GetWinSize(fd); err == nil && rows > 0 && cols > 0 {
+			return rows, cols
+		}
+	}
+	return defaultTerminalRows, defaultTerminalCols
 }
 
 func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand string, master *os.File, buffer *screenbuffer.Buffer, log *logging.Logger) {

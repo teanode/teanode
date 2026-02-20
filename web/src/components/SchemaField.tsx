@@ -15,6 +15,7 @@ import Autocomplete from '@mui/material/Autocomplete';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import type { JsonSchemaProperty } from '../types';
+import { getEnumLabel, getPropertyDescription, getPropertyPlaceholder, getPropertyTitle } from '../schemaLocalization';
 
 interface ProviderEntry {
   name: string;
@@ -54,9 +55,9 @@ export default function SchemaField({ property, propertyKey, value, onChange, su
   const [showPassword, setShowPassword] = useState(false);
 
   const widgetType = getWidgetType(property);
-  const label = property.title ?? propertyKey;
-  const description = property.description;
-  const placeholder = property['x-placeholder'];
+  const label = getPropertyTitle(t, property, propertyKey);
+  const description = getPropertyDescription(t, property);
+  const placeholder = getPropertyPlaceholder(t, property);
 
   switch (widgetType) {
     case 'string': {
@@ -148,7 +149,7 @@ export default function SchemaField({ property, propertyKey, value, onChange, su
         >
           {property.enum?.map((enumValue) => (
             <MenuItem key={enumValue} value={enumValue}>
-              {property['x-enumLabels']?.[enumValue] ?? enumValue}
+              {getEnumLabel(t, property, enumValue)}
             </MenuItem>
           ))}
         </TextField>
@@ -226,6 +227,8 @@ function StringArrayField({
   const { t } = useTranslation();
   const items: string[] = Array.isArray(value) ? (value as string[]) : [];
   const [inputValue, setInputValue] = useState('');
+  const label = getPropertyTitle(t, property, 'items');
+  const description = getPropertyDescription(t, property);
 
   function addItem(text?: string) {
     const trimmed = (text ?? inputValue).trim();
@@ -244,9 +247,9 @@ function StringArrayField({
 
   return (
     <Box>
-      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{property.title}</Typography>
-      {property.description && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{property.description}</Typography>
+      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{label}</Typography>
+      {description && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{description}</Typography>
       )}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
         {items.map((item, index) => (
@@ -331,6 +334,8 @@ function ProvidersField({
   }));
 
   const [newName, setNewName] = useState('');
+  const label = getPropertyTitle(t, property, 'providers');
+  const description = getPropertyDescription(t, property);
 
   function updateEntry(index: number, updates: Partial<ProviderEntry>) {
     const updated = [...entries];
@@ -356,9 +361,9 @@ function ProvidersField({
 
   return (
     <Box>
-      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{property.title}</Typography>
-      {property.description && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{property.description}</Typography>
+      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{label}</Typography>
+      {description && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{description}</Typography>
       )}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         {entries.map((entry, index) => (
@@ -431,6 +436,10 @@ function ModelRuntimeLimitsField({
   const entries: ModelRuntimeLimitEntry[] = Array.isArray(value) ? (value as ModelRuntimeLimitEntry[]) : [];
   const itemProperties = property.items?.properties ?? {};
   const limitFields = Object.entries(itemProperties).filter(([key]) => key !== 'model');
+  const label = getPropertyTitle(t, property, 'limits');
+  const description = getPropertyDescription(t, property);
+  const modelLabel = itemProperties.model ? getPropertyTitle(t, itemProperties.model, 'model') : 'Model';
+  const modelDescription = itemProperties.model ? getPropertyDescription(t, itemProperties.model) : undefined;
 
   function updateEntry(index: number, updates: Partial<ModelRuntimeLimitEntry>) {
     const updated = [...entries];
@@ -448,16 +457,16 @@ function ModelRuntimeLimitsField({
 
   return (
     <Box>
-      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{property.title}</Typography>
-      {property.description && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{property.description}</Typography>
+      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{label}</Typography>
+      {description && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{description}</Typography>
       )}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         {entries.map((entry, index) => (
           <Paper key={`${entry.model ?? 'model'}-${index}`} variant="outlined" sx={{ p: 1.5 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
               <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                {itemProperties.model?.title ?? 'Model'}
+                {modelLabel}
               </Typography>
               <Button size="small" color="error" onClick={() => removeEntry(index)}>
                 {t('common.delete')}
@@ -475,8 +484,8 @@ function ModelRuntimeLimitsField({
                       {...params}
                       size="small"
                       fullWidth
-                      label={itemProperties.model?.title ?? 'Model'}
-                      helperText={itemProperties.model?.description}
+                      label={modelLabel}
+                      helperText={modelDescription}
                     />
                   )}
                 />
@@ -484,8 +493,8 @@ function ModelRuntimeLimitsField({
                 <TextField
                   size="small"
                   fullWidth
-                  label={itemProperties.model?.title ?? 'Model'}
-                  helperText={itemProperties.model?.description}
+                  label={modelLabel}
+                  helperText={modelDescription}
                   value={entry.model ?? ''}
                   onChange={(event) => updateEntry(index, { model: event.target.value })}
                 />
@@ -493,14 +502,16 @@ function ModelRuntimeLimitsField({
               {limitFields.map(([fieldKey, fieldProperty]) => {
                 const rawValue = (entry as Record<string, unknown>)[fieldKey];
                 const hasValue = rawValue != null && rawValue !== 0;
+                const fieldLabel = getPropertyTitle(t, fieldProperty, fieldKey);
+                const fieldDescription = getPropertyDescription(t, fieldProperty);
                 return (
                   <TextField
                     key={fieldKey}
                     type="number"
                     size="small"
                     fullWidth
-                    label={fieldProperty.title ?? fieldKey}
-                    helperText={fieldProperty.description}
+                    label={fieldLabel}
+                    helperText={fieldDescription}
                     value={hasValue ? String(rawValue) : ''}
                     onChange={(event) => {
                       const parsed = event.target.value === '' ? undefined : Number(event.target.value);

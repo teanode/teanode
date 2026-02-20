@@ -456,6 +456,14 @@ func TestPathHelpers(t *testing.T) {
 	if conversationsDirectory != filepath.Join(directory, "conversations", "alpha") {
 		t.Errorf("AgentConversationsDirectory = %q, want %q", conversationsDirectory, filepath.Join(directory, "conversations", "alpha"))
 	}
+
+	agentStateFile, err := AgentStateFile("alpha")
+	if err != nil {
+		t.Fatalf("AgentStateFile error: %v", err)
+	}
+	if agentStateFile != filepath.Join(directory, "agents", "alpha", "state.yaml") {
+		t.Errorf("AgentStateFile = %q, want %q", agentStateFile, filepath.Join(directory, "agents", "alpha", "state.yaml"))
+	}
 }
 
 func TestEnsureDirectories(t *testing.T) {
@@ -465,7 +473,7 @@ func TestEnsureDirectories(t *testing.T) {
 		t.Fatalf("EnsureDirectories() error: %v", err)
 	}
 
-	expectedSubdirectories := []string{"conversations", "workspaces", "skills", "media", "agents", "jobs"}
+	expectedSubdirectories := []string{"conversations", "workspaces", "skills", "media", "agents", "jobs", "sessions", ".trash"}
 	for _, subdirectory := range expectedSubdirectories {
 		path := filepath.Join(directory, subdirectory)
 		info, err := os.Stat(path)
@@ -513,10 +521,9 @@ func TestSaveAndLoadAgents(t *testing.T) {
 	}
 
 	original := AgentConfig{
-		ID:          "alpha",
-		Name:        "Alpha Agent",
-		Description: "Test agent",
-		Model:       "openai:gpt-5.1",
+		ID:    "alpha",
+		Name:  "Alpha Agent",
+		Model: "openai:gpt-5.1",
 	}
 	if err := SaveAgent(original); err != nil {
 		t.Fatalf("SaveAgent() error: %v", err)
@@ -534,6 +541,42 @@ func TestSaveAndLoadAgents(t *testing.T) {
 	}
 	if agents[0].Name != "Alpha Agent" {
 		t.Errorf("agent Name = %q, want Alpha Agent", agents[0].Name)
+	}
+}
+
+func TestLoadAndSaveAgentState(t *testing.T) {
+	withTempDir(t)
+
+	if err := EnsureDirectories(); err != nil {
+		t.Fatalf("EnsureDirectories() error: %v", err)
+	}
+
+	// Missing state file should return an empty state.
+	state, err := LoadAgentState("alpha")
+	if err != nil {
+		t.Fatalf("LoadAgentState() error: %v", err)
+	}
+	if state.Description != "" || state.DescriptionUpdatedAt != 0 {
+		t.Fatalf("expected empty state, got %+v", state)
+	}
+
+	want := &AgentState{
+		Description:          "Specializes in code review and refactoring.",
+		DescriptionUpdatedAt: 123456789,
+	}
+	if err := SaveAgentState("alpha", want); err != nil {
+		t.Fatalf("SaveAgentState() error: %v", err)
+	}
+
+	got, err := LoadAgentState("alpha")
+	if err != nil {
+		t.Fatalf("LoadAgentState() error: %v", err)
+	}
+	if got.Description != want.Description {
+		t.Errorf("Description = %q, want %q", got.Description, want.Description)
+	}
+	if got.DescriptionUpdatedAt != want.DescriptionUpdatedAt {
+		t.Errorf("DescriptionUpdatedAt = %d, want %d", got.DescriptionUpdatedAt, want.DescriptionUpdatedAt)
 	}
 }
 
@@ -612,13 +655,22 @@ func TestLoadAgents_SkipsNonDirsAndMissingConfig(t *testing.T) {
 }
 
 func TestDeleteAgent(t *testing.T) {
-	withTempDir(t)
+	directory := withTempDir(t)
 
 	if err := EnsureDirectories(); err != nil {
 		t.Fatalf("EnsureDirectories() error: %v", err)
 	}
 	if err := SaveAgent(AgentConfig{ID: "alpha"}); err != nil {
 		t.Fatalf("SaveAgent() error: %v", err)
+	}
+	if err := EnsureAgentDirectories("alpha"); err != nil {
+		t.Fatalf("EnsureAgentDirectories() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "workspaces", "alpha", "notes.md"), []byte("workspace note"), 0644); err != nil {
+		t.Fatalf("WriteFile workspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "conversations", "alpha", "conversation-1.jsonl"), []byte("hello"), 0644); err != nil {
+		t.Fatalf("WriteFile conversation: %v", err)
 	}
 
 	if err := DeleteAgent("alpha"); err != nil {
@@ -631,6 +683,27 @@ func TestDeleteAgent(t *testing.T) {
 	}
 	if len(agents) != 0 {
 		t.Errorf("expected no agents after delete, got %v", agents)
+	}
+	for _, path := range []string{
+		filepath.Join(directory, "agents", "alpha"),
+		filepath.Join(directory, "workspaces", "alpha"),
+		filepath.Join(directory, "conversations", "alpha"),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expected %q to be deleted, stat err=%v", path, err)
+		}
+	}
+
+	trashDirectory, err := TrashDirectory()
+	if err != nil {
+		t.Fatalf("TrashDirectory() error: %v", err)
+	}
+	entries, err := os.ReadDir(trashDirectory)
+	if err != nil {
+		t.Fatalf("ReadDir trash: %v", err)
+	}
+	if len(entries) < 3 {
+		t.Fatalf("expected at least 3 trashed entries for agent delete, got %d", len(entries))
 	}
 }
 

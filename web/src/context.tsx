@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import type { useBackend } from './hooks/useBackend';
+import {
+  LANGUAGE_PREFERENCE_STORAGE_KEY,
+  type LanguagePreference,
+} from './i18n/config';
 
 export type ThemeMode = 'dark' | 'light';
 
@@ -21,10 +25,8 @@ export interface AppContextValue {
   setVoiceChimesEnabled: (value: boolean) => void;
   voiceChimesVolume: number;
   setVoiceChimesVolume: (value: number) => void;
-  voiceChimeInputUrl: string;
-  setVoiceChimeInputUrl: (value: string) => void;
-  voiceChimeAgentUrl: string;
-  setVoiceChimeAgentUrl: (value: string) => void;
+  languagePreference: LanguagePreference;
+  setLanguagePreference: (value: LanguagePreference) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -68,11 +70,12 @@ export function AppProvider({
     const stored = localStorage.getItem('teanode-voice-chimes-volume');
     return stored !== null ? Number(stored) : 0.3;
   });
-  const [voiceChimeInputUrl, setVoiceChimeInputUrlState] = useState(() => {
-    return localStorage.getItem('teanode-voice-chime-input-url') || '';
-  });
-  const [voiceChimeAgentUrl, setVoiceChimeAgentUrlState] = useState(() => {
-    return localStorage.getItem('teanode-voice-chime-agent-url') || '';
+  const [languagePreference, setLanguagePreferenceState] = useState<LanguagePreference>(() => {
+    const stored = localStorage.getItem(LANGUAGE_PREFERENCE_STORAGE_KEY);
+    if (stored === 'en') return 'en';
+    if (stored === 'zh') return 'zh';
+    if (stored === 'ja') return 'ja';
+    return 'auto';
   });
 
   const setShowToolCalls = useCallback((value: boolean) => {
@@ -110,22 +113,9 @@ export function AppProvider({
     localStorage.setItem('teanode-voice-chimes-volume', String(value));
   }, []);
 
-  const setVoiceChimeInputUrl = useCallback((value: string) => {
-    setVoiceChimeInputUrlState(value);
-    if (value) {
-      localStorage.setItem('teanode-voice-chime-input-url', value);
-    } else {
-      localStorage.removeItem('teanode-voice-chime-input-url');
-    }
-  }, []);
-
-  const setVoiceChimeAgentUrl = useCallback((value: string) => {
-    setVoiceChimeAgentUrlState(value);
-    if (value) {
-      localStorage.setItem('teanode-voice-chime-agent-url', value);
-    } else {
-      localStorage.removeItem('teanode-voice-chime-agent-url');
-    }
+  const setLanguagePreference = useCallback((value: LanguagePreference) => {
+    setLanguagePreferenceState(value);
+    localStorage.setItem(LANGUAGE_PREFERENCE_STORAGE_KEY, value);
   }, []);
 
   return (
@@ -148,10 +138,8 @@ export function AppProvider({
         setVoiceChimesEnabled,
         voiceChimesVolume,
         setVoiceChimesVolume,
-        voiceChimeInputUrl,
-        setVoiceChimeInputUrl,
-        voiceChimeAgentUrl,
-        setVoiceChimeAgentUrl,
+        languagePreference,
+        setLanguagePreference,
       }}
     >
       {children}

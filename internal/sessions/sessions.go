@@ -12,6 +12,7 @@ import (
 
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/util/trash"
 	"gopkg.in/yaml.v3"
 )
 
@@ -68,7 +69,7 @@ func (self *Store) Get(id string) *Session {
 	}
 	if time.Now().After(session.ExpiresAt) {
 		// Expired — clean up.
-		os.Remove(self.sessionPath(id))
+		_ = self.moveToTrash(self.sessionPath(id))
 		return nil
 	}
 	return session
@@ -105,7 +106,7 @@ func (self *Store) Delete(id string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Errorf("session not found: %s", id)
 	}
-	return os.Remove(path)
+	return self.moveToTrash(path)
 }
 
 // List returns all non-expired sessions.
@@ -133,7 +134,7 @@ func (self *Store) List() ([]*Session, error) {
 			continue
 		}
 		if now.After(session.ExpiresAt) {
-			os.Remove(self.sessionPath(id))
+			_ = self.moveToTrash(self.sessionPath(id))
 			continue
 		}
 		sessions = append(sessions, session)
@@ -163,4 +164,15 @@ func (self *Store) writeSession(session *Session) error {
 		return fmt.Errorf("marshalling session: %w", err)
 	}
 	return atomicfile.WriteFile(self.sessionPath(session.ID), data)
+}
+
+func (self *Store) moveToTrash(path string) error {
+	return trash.Move(path, self.trashDirectory())
+}
+
+func (self *Store) trashDirectory() string {
+	if filepath.Base(self.directory) == "sessions" {
+		return filepath.Join(filepath.Dir(self.directory), ".trash")
+	}
+	return filepath.Join(self.directory, ".trash")
 }

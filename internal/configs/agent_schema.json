@@ -5,49 +5,46 @@
     "name": {
       "type": "string",
       "title": "Name",
-      "description": "Friendly display name for this agent."
-    },
-    "description": {
-      "type": "string",
-      "title": "Description",
-      "description": "Short description of what this agent specializes in. Shown to other agents for routing decisions.",
-      "x-widget": "textarea"
+      "titleKey": "schema.agent.fields.name.title",
+      "description": "Friendly display name for this agent.",
+      "descriptionKey": "schema.agent.fields.name.description"
     },
     "model": {
       "type": "string",
       "title": "Model",
+      "titleKey": "schema.agent.fields.model.title",
       "description": "Qualified model override (e.g. openai:gpt-5.1). Defaults to global model.",
+      "descriptionKey": "schema.agent.fields.model.description",
       "x-placeholder": "Default",
       "x-suggest": "model"
-    },
-    "systemPrompt": {
-      "type": "string",
-      "title": "System Prompt",
-      "description": "Per-agent system prompt override.",
-      "x-widget": "textarea"
-    },
-    "canMessage": {
-      "type": "array",
-      "title": "Can Message",
-      "description": "Agent IDs this agent can talk to. Use * for all.",
-      "items": { "type": "string" }
     },
     "tools": {
       "type": "array",
       "title": "Tools",
+      "titleKey": "schema.agent.fields.tools.title",
       "description": "Tool names to allow. Leave empty to allow all tools.",
+      "descriptionKey": "schema.agent.fields.tools.description",
       "items": { "type": "string" },
       "x-suggest": "tool"
     },
     "skills": {
       "type": "array",
       "title": "Skills",
+      "titleKey": "schema.agent.fields.skills.title",
       "description": "Skill names to allow. Leave empty to allow all skills.",
+      "descriptionKey": "schema.agent.fields.skills.description",
       "items": { "type": "string" },
       "x-suggest": "skill"
     }
   },
   "x-sections": [
-    { "id": "general", "title": "General", "description": "Core agent settings. Model-level limits are configured under global models.", "properties": ["name", "description", "model", "systemPrompt", "canMessage", "tools", "skills"] }
+    {
+      "id": "general",
+      "title": "General",
+      "titleKey": "schema.agent.sections.general.title",
+      "description": "Core agent settings. Model-level limits are configured under global models.",
+      "descriptionKey": "schema.agent.sections.general.description",
+      "properties": ["name", "model", "tools", "skills"]
+    }
   ]
 }

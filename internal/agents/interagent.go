@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
-// RegisterInterAgentTools adds agent_list and agent_message tools to the registry
-// if the agent has permission to message other agents (canMessage).
+var validAgentIDPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+// RegisterInterAgentTools adds agent_list and agent_message tools to the registry.
 func RegisterInterAgentTools(registry *ToolRegistry, selfAgentId string, agentRegistry *AgentRegistry, configuration *configs.Config) {
 	agentConfig := configuration.AgentByID(selfAgentId)
 	if agentConfig == nil {
@@ -28,11 +31,92 @@ func RegisterInterAgentTools(registry *ToolRegistry, selfAgentId string, agentRe
 		agentRegistry: agentRegistry,
 		configuration: configuration,
 	})
+	registry.Register(&agentCreateTool{
+		selfAgentId:   selfAgentId,
+		agentRegistry: agentRegistry,
+		configuration: configuration,
+	})
 	registry.Register(&subagentSpawnTool{
 		selfAgentId:   selfAgentId,
 		agentRegistry: agentRegistry,
 		configuration: configuration,
 	})
+}
+
+// --- agent_create ---
+
+type agentCreateTool struct {
+	selfAgentId   string
+	agentRegistry *AgentRegistry
+	configuration *configs.Config
+}
+
+func (self *agentCreateTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
+		Type: "function",
+		Function: providers.FunctionSpec{
+			Name:        "agent_create",
+			Description: "Create a new agent with an ID and name so it can be messaged immediately in this same run.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agentId": map[string]interface{}{
+						"type":        "string",
+						"description": "Unique agent ID. Use lowercase letters, numbers, hyphens, and underscores.",
+					},
+					"name": map[string]interface{}{
+						"type":        "string",
+						"description": "Friendly display name for the new agent.",
+					},
+				},
+				"required": []string{"agentId", "name"},
+			},
+			Returns: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agentId": map[string]interface{}{"type": "string"},
+					"name":    map[string]interface{}{"type": "string"},
+					"created": map[string]interface{}{"type": "boolean"},
+				},
+			},
+		},
+	}
+}
+
+func (self *agentCreateTool) Execute(_ context.Context, rawArguments string) (string, error) {
+	var arguments struct {
+		AgentID string `json:"agentId"`
+		Name    string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("parsing arguments: %w", err)
+	}
+	arguments.AgentID = strings.TrimSpace(arguments.AgentID)
+	arguments.Name = strings.TrimSpace(arguments.Name)
+	if arguments.AgentID == "" || arguments.Name == "" {
+		return "", fmt.Errorf("agentId and name are required")
+	}
+	if !validAgentIDPattern.MatchString(arguments.AgentID) {
+		return "", fmt.Errorf("invalid agentId %q: use lowercase letters, numbers, hyphens, and underscores", arguments.AgentID)
+	}
+	if self.agentRegistry.Get(arguments.AgentID) != nil {
+		return "", fmt.Errorf("agent %q already exists", arguments.AgentID)
+	}
+
+	agentConfig := configs.AgentConfig{
+		ID:   arguments.AgentID,
+		Name: arguments.Name,
+	}
+	if err := self.agentRegistry.CreateAgent(agentConfig); err != nil {
+		return "", fmt.Errorf("creating agent %q: %w", arguments.AgentID, err)
+	}
+
+	response, _ := json.Marshal(map[string]interface{}{
+		"agentId": arguments.AgentID,
+		"name":    arguments.Name,
+		"created": true,
+	})
+	return string(response), nil
 }
 
 // --- agent_list ---
@@ -87,9 +171,9 @@ func (self *agentListTool) Execute(_ context.Context, _ string) (string, error) 
 			if agentConfig.Name != "" {
 				entry["name"] = agentConfig.Name
 			}
-			if agentConfig.Description != "" {
-				entry["description"] = agentConfig.Description
-			}
+		}
+		if state, err := configs.LoadAgentState(agentId); err == nil && state.Description != "" {
+			entry["description"] = state.Description
 		}
 		entry["model"] = self.configuration.AgentModel(agentId)
 		if runner := self.agentRegistry.Get(agentId); runner != nil {
@@ -162,22 +246,6 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 	}
 	if arguments.AgentID == "" || arguments.Message == "" {
 		return "", fmt.Errorf("agentId and message are required")
-	}
-
-	// Permission check.
-	callerConfig := self.configuration.AgentByID(self.selfAgentId)
-	if callerConfig == nil {
-		return "", fmt.Errorf("caller agent %q not found in config", self.selfAgentId)
-	}
-	allowed := false
-	for _, targetId := range callerConfig.CanMessage {
-		if targetId == "*" || targetId == arguments.AgentID {
-			allowed = true
-			break
-		}
-	}
-	if !allowed {
-		return "", fmt.Errorf("agent %q is not allowed to message agent %q", self.selfAgentId, arguments.AgentID)
 	}
 
 	// Resolve target runner.
@@ -274,24 +342,6 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	targetAgentId := arguments.AgentID
 	if targetAgentId == "" {
 		targetAgentId = self.selfAgentId
-	}
-
-	// Permission check: self-spawn always allowed; cross-agent requires canMessage.
-	if targetAgentId != self.selfAgentId {
-		callerConfig := self.configuration.AgentByID(self.selfAgentId)
-		if callerConfig == nil {
-			return "", fmt.Errorf("caller agent %q not found in config", self.selfAgentId)
-		}
-		allowed := false
-		for _, permittedId := range callerConfig.CanMessage {
-			if permittedId == "*" || permittedId == targetAgentId {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return "", fmt.Errorf("agent %q is not allowed to spawn agent %q", self.selfAgentId, targetAgentId)
-		}
 	}
 
 	// Depth check.

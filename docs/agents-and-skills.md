@@ -41,7 +41,7 @@ Skills are declarative, YAML-defined bundles of tools and prompts that extend wh
 
 High-level flow:
 
-1. TeaNode loads all skill definitions (YAML files) from the configured skills directory (e.g. `~/.teanode/skills/`).
+1. TeaNode loads all skill definitions (YAML files) from the configured skills directory (for the default gateway this is typically `~/.teanode/skills/`, but it can be overridden via the `--dir` flag or config).
 2. Each skill defines a set of tools (shell or HTTP) and an optional prompt.
 3. When an agent is created, it can be configured to enable one or more skills.
 4. The agent surfaces the skill tools to the LLM as regular function tools, and includes the skill prompt in its system prompt when active.

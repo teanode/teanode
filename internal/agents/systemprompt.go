@@ -73,14 +73,7 @@ func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceD
 }
 
 // resolveIdentityLine determines the identity line for the system prompt.
-// Priority: per-agent SystemPrompt > default + agent suffix.
 func resolveIdentityLine(configuration *configs.Config, agentId string) string {
-	// Check per-agent SystemPrompt.
-	if agentConfig := configuration.AgentByID(agentId); agentConfig != nil && agentConfig.SystemPrompt != "" {
-		return agentConfig.SystemPrompt
-	}
-
-	// Default identity.
 	return fmt.Sprintf("%s %s", defaultIdentityLine, agentIdentitySuffix(configuration, agentId))
 }
 
