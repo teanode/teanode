@@ -8,6 +8,7 @@
  * correctness of the merge at each stage of a streaming run.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
+import { reconcileRunStateFromHistory } from './useBackend';
 
 // ─── Types (subset of src/types.ts needed for the test) ────────────
 
@@ -432,5 +433,31 @@ describe('findRunAssistantIndex', () => {
       { id: '2', type: 'assistant', content: '', runId: 'r1' },
     ];
     expect(findRunAssistantIndex(messages, null)).toBe(1);
+  });
+});
+
+describe('reconcileRunStateFromHistory', () => {
+  it('clears stale active run tracking when history has no active run', () => {
+    const activeRuns = new Map<string, string>([['conv-1', 'stale-run']]);
+    const reconciled = reconcileRunStateFromHistory(activeRuns, 'conv-1', undefined);
+
+    expect(reconciled).toEqual({
+      currentRunId: null,
+      runQueue: [],
+      isRunning: false,
+    });
+    expect(activeRuns.has('conv-1')).toBe(false);
+  });
+
+  it('tracks active run when history reports one', () => {
+    const activeRuns = new Map<string, string>();
+    const reconciled = reconcileRunStateFromHistory(activeRuns, 'conv-1', 'run-123');
+
+    expect(reconciled).toEqual({
+      currentRunId: 'run-123',
+      runQueue: ['run-123'],
+      isRunning: true,
+    });
+    expect(activeRuns.get('conv-1')).toBe('run-123');
   });
 });

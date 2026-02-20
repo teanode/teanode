@@ -131,6 +131,34 @@ function findRunAssistantIndex(messages: DisplayMessage[], runId: string | null)
   return messages.length - 1; // fallback
 }
 
+interface ReconciledRunState {
+  currentRunId: string | null;
+  runQueue: string[];
+  isRunning: boolean;
+}
+
+export function reconcileRunStateFromHistory(
+  activeRuns: Map<string, string>,
+  conversationKey: string,
+  activeRunId?: string
+): ReconciledRunState {
+  if (activeRunId) {
+    activeRuns.set(conversationKey, activeRunId);
+    return {
+      currentRunId: activeRunId,
+      runQueue: [activeRunId],
+      isRunning: true,
+    };
+  }
+
+  activeRuns.delete(conversationKey);
+  return {
+    currentRunId: null,
+    runQueue: [],
+    isRunning: false,
+  };
+}
+
 function convertHistory(msgs: Message[], models: ModelInfo[]): DisplayMessage[] {
   const displayMessages: DisplayMessage[] = [];
   for (const message of msgs) {
@@ -649,18 +677,25 @@ export function useBackend() {
 
           setConversationModel(res.model || null);
 
-          if (res.activeRunId) {
-            currentRunIdRef.current = res.activeRunId;
-            activeRunsRef.current.set(key, res.activeRunId);
-            runQueueRef.current = [res.activeRunId];
-            setIsRunning(true);
+          const reconciledRunState = reconcileRunStateFromHistory(activeRunsRef.current, key, res.activeRunId);
+          currentRunIdRef.current = reconciledRunState.currentRunId;
+          runQueueRef.current = reconciledRunState.runQueue;
+          setIsRunning(reconciledRunState.isRunning);
+          if (reconciledRunState.isRunning) {
             setStatus('thinking...');
             displayMessages.push({ id: nextMessageId(), type: 'assistant', content: '', runId: res.activeRunId });
+          } else {
+            streamTextRef.current = '';
+            afterToolCallsRef.current = false;
+            setStreamText('');
+            setIsStreaming(false);
+            setToolActivity(null);
+            setStatus('connected');
           }
           setMessages(displayMessages);
           historyLoadedRef.current = true;
           // Replay buffered events (only if run is still active — otherwise history is complete)
-          if (res.activeRunId && pendingEventsRef.current.length > 0) {
+          if (reconciledRunState.isRunning && pendingEventsRef.current.length > 0) {
             for (const event of pendingEventsRef.current) {
               handleEvent(event);
             }
