@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"sort"
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
@@ -38,12 +39,13 @@ func (self *ToolRegistry) Remove(name string) {
 	delete(self.tools, name)
 }
 
-// Names returns all tool names in the registry.
+// Names returns all tool names in the registry in sorted order.
 func (self *ToolRegistry) Names() []string {
 	names := make([]string, 0, len(self.tools))
 	for name := range self.tools {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 
@@ -61,11 +63,15 @@ func (self *ToolRegistry) ApplyFilter(allowed []string) {
 	}
 }
 
-// Definitions returns all tool definitions for the chat request.
+// Definitions returns all tool definitions for the chat request in stable
+// sorted order. Stable ordering is important for prompt caching: providers
+// like Anthropic cache the request prefix, so tool definitions must appear
+// in the same order across requests.
 func (self *ToolRegistry) Definitions() []providers.ToolDefinition {
-	definitions := make([]providers.ToolDefinition, 0, len(self.tools))
-	for _, tool := range self.tools {
-		definitions = append(definitions, tool.Definition())
+	names := self.Names() // already sorted
+	definitions := make([]providers.ToolDefinition, 0, len(names))
+	for _, name := range names {
+		definitions = append(definitions, self.tools[name].Definition())
 	}
 	return definitions
 }

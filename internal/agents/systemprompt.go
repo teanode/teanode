@@ -14,7 +14,7 @@ import (
 	"github.com/teanode/teanode/internal/version"
 )
 
-const defaultIdentityLine = "You are a personal AI assistant running inside TeaNode, hosted by the gateway process."
+const defaultIdentityLine = "You are a personal AI assistant running inside TeaNode."
 
 //go:embed systemprompt.txt
 var systemPromptTemplate string
@@ -24,17 +24,13 @@ var parsedSystemPrompt = template.Must(template.New("systemprompt").Parse(system
 type systemPromptData struct {
 	IdentityLine  string
 	Version       string
-	DateTime      string
+	Date          string
 	Timezone      string
 	Username      string
 	HomeDirectory string
-	Today         string
-	Yesterday     string
 	AgentContent  string
 	MemoryContent string
 	SkillsContent string
-	TodayLog      string
-	YesterdayLog  string
 	SkillPrompts  string
 }
 
@@ -45,25 +41,20 @@ func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceD
 	// Resolve the identity line.
 	identityLine := resolveIdentityLine(configuration, agentId)
 
-	now := time.Now()
-	today := now.Format("2006-01-02")
-	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
-
 	homeDir, _ := os.UserHomeDir()
 	username := ""
 	if u, err := user.Current(); err == nil {
 		username = u.Username
 	}
 
+	now := time.Now()
 	data := systemPromptData{
 		IdentityLine:  identityLine,
 		Version:       version.Version(),
-		DateTime:      now.Format("2006-01-02 15:04:05"),
-		Timezone:      now.Location().String(),
+		Date:          now.Format("2006-01-02"),
+		Timezone:      now.Format("MST"),
 		Username:      username,
 		HomeDirectory: homeDir,
-		Today:         today,
-		Yesterday:     yesterday,
 		SkillPrompts:  skillPrompts,
 	}
 
@@ -71,8 +62,6 @@ func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceD
 		data.AgentContent = loadWorkspaceFile(workspaceDirectory, "AGENT.md", maxWorkspaceFileChars)
 		data.MemoryContent = loadWorkspaceFile(workspaceDirectory, "MEMORY.md", maxWorkspaceFileChars)
 		data.SkillsContent = loadWorkspaceFile(workspaceDirectory, "SKILLS.md", maxWorkspaceFileChars)
-		data.TodayLog = loadWorkspaceFile(workspaceDirectory, filepath.Join("memory", today+".md"), maxWorkspaceFileChars)
-		data.YesterdayLog = loadWorkspaceFile(workspaceDirectory, filepath.Join("memory", yesterday+".md"), maxWorkspaceFileChars)
 	}
 
 	var buffer bytes.Buffer

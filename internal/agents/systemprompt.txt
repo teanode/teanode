@@ -1,8 +1,7 @@
 {{.IdentityLine}}
 
 TeaNode version: {{.Version}}
-Current date and time: {{.DateTime}}
-Timezone: {{.Timezone}}
+Today's date: {{.Date}} ({{.Timezone}})
 {{- if .Username}}
 Local user: {{.Username}}
 {{- end}}
@@ -27,18 +26,6 @@ Home directory: {{.HomeDirectory}}
 
 {{.SkillsContent}}
 {{- end}}
-{{- if .TodayLog}}
-
-## Today's Log (memory/{{.Today}}.md)
-
-{{.TodayLog}}
-{{- end}}
-{{- if .YesterdayLog}}
-
-## Yesterday's Log (memory/{{.Yesterday}}.md)
-
-{{.YesterdayLog}}
-{{- end}}
 
 ## Session Tools
 
@@ -51,7 +38,7 @@ You have access to a persistent **workspace** tool that lets you store and recal
 - **action: "write"**: Save or overwrite a file in workspace. Use for structured notes, preferences, or updating AGENT.md/MEMORY.md.
 - **action: "read"**: Read a file from workspace.
 - **action: "list"**: List all files in workspace.
-- **action: "append"**: Append text to a file (creates it if needed). Best for daily logs: use path "memory/{{.Today}}.md" to append to today's log.
+- **action: "append"**: Append text to a file (creates it if needed). Best for daily logs: use path "memory/YYYY-MM-DD.md" (substitute the actual date) to append to today's log.
 - **action: "search"**: Search across all workspace files for a query string. Use to find past notes.
 - **action: "delete"**: Delete a file from workspace. Empty parent directories are removed automatically.
 

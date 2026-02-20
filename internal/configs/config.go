@@ -265,6 +265,7 @@ type ToolsConfig struct {
 	GitHub        *GitHubConfig        `json:"github,omitempty" yaml:"github,omitempty"`
 	GitLab        *GitLabConfig        `json:"gitlab,omitempty" yaml:"gitlab,omitempty"`
 	ClaudeCode    *ClaudeCodeConfig    `json:"claudeCode,omitempty" yaml:"claudeCode,omitempty"`
+	Codex         *CodexConfig         `json:"codex,omitempty" yaml:"codex,omitempty"`
 	HomeAssistant *HomeAssistantConfig `json:"homeAssistant,omitempty" yaml:"homeAssistant,omitempty"`
 	UniFiProtect  *UniFiProtectConfig  `json:"unifiProtect,omitempty" yaml:"unifiProtect,omitempty"`
 }
@@ -318,6 +319,15 @@ type ClaudeCodeConfig struct {
 	AllowedTools          []string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`                   // tools Claude Code can use; nil = defaults
 	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`                                 // model override for Claude Code
 	MaxTurnTimeoutSeconds int      `json:"maxTurnTimeoutSeconds,omitempty" yaml:"maxTurnTimeoutSeconds,omitempty"` // per-call timeout (default 300, max 600)
+}
+
+// CodexConfig controls the Codex headless tool.
+type CodexConfig struct {
+	BinaryPath            string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`                       // default: "codex"
+	AllowedTools          []string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`                   // tools Codex can use; nil = defaults
+	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`                                 // model override for Codex
+	ExtraArgs             []string `json:"extraArgs,omitempty" yaml:"extraArgs,omitempty"`                         // additional CLI args appended to each invocation
+	MaxTurnTimeoutSeconds int      `json:"maxTurnTimeoutSeconds,omitempty" yaml:"maxTurnTimeoutSeconds,omitempty"` // per-call timeout (default 300, max 1800)
 }
 
 type GatewayConfig struct {
@@ -834,6 +844,12 @@ func applyEnv(configuration *Config) {
 			configuration.Tools.ClaudeCode = &ClaudeCodeConfig{}
 		}
 		configuration.Tools.ClaudeCode.BinaryPath = value
+	}
+	if value := os.Getenv("CODEX_BINARY_PATH"); value != "" {
+		if configuration.Tools.Codex == nil {
+			configuration.Tools.Codex = &CodexConfig{}
+		}
+		configuration.Tools.Codex.BinaryPath = value
 	}
 	if value := os.Getenv("OPENAI_API_KEY"); value != "" {
 		found := false

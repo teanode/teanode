@@ -210,6 +210,47 @@
             }
           }
         },
+        "codex": {
+          "type": "object",
+          "title": "Codex",
+          "description": "Codex headless tool for delegating complex coding tasks.",
+          "properties": {
+            "binaryPath": {
+              "type": "string",
+              "title": "Binary Path",
+              "description": "Path to the codex binary. Defaults to 'codex' from PATH.",
+              "x-placeholder": "codex"
+            },
+            "allowedTools": {
+              "type": "array",
+              "title": "Allowed Tools",
+              "description": "Tools Codex is allowed to use. Default: Bash, Read, Edit, Write, Glob, Grep, WebFetch, WebSearch.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "model": {
+              "type": "string",
+              "title": "Model",
+              "description": "Model override for Codex.",
+              "x-placeholder": "default"
+            },
+            "extraArgs": {
+              "type": "array",
+              "title": "Extra Args",
+              "description": "Additional CLI args appended to each codex invocation.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "maxTurnTimeoutSeconds": {
+              "type": "number",
+              "title": "Max Turn Timeout",
+              "description": "Maximum timeout per tool call in seconds.",
+              "default": 300
+            }
+          }
+        },
         "homeAssistant": {
           "type": "object",
           "title": "Home Assistant",

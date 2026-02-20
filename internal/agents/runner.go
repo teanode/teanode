@@ -185,8 +185,9 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 
 	log.Debugf("run start id=%s conversation=%s model=%s", runId, params.ConversationID, params.Model)
 
-	// Enrich context with conversation id for tools.
+	// Enrich context with conversation id and runner for tools.
 	ctx = ContextWithRun(ctx, params.ConversationID)
+	ctx = contextWithRunner(ctx, self)
 
 	// 1. Choose model and resolve provider (before appending, so we can stamp the header).
 	qualifiedModel := configuration.AgentModel(self.AgentID)
@@ -308,7 +309,14 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 				responseModel = event.Chunk.Model
 			}
 			if event.Chunk.Usage != nil {
-				usage = event.Chunk.Usage
+				if usage == nil {
+					usage = &providers.UsageInfo{}
+				}
+				usage.PromptTokens += event.Chunk.Usage.PromptTokens
+				usage.CompletionTokens += event.Chunk.Usage.CompletionTokens
+				usage.TotalTokens += event.Chunk.Usage.TotalTokens
+				usage.CacheCreationInputTokens += event.Chunk.Usage.CacheCreationInputTokens
+				usage.CacheReadInputTokens += event.Chunk.Usage.CacheReadInputTokens
 			}
 
 			for _, choice := range event.Chunk.Choices {
@@ -358,6 +366,8 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			totalUsage.Input += usage.PromptTokens
 			totalUsage.Output += usage.CompletionTokens
 			totalUsage.Total += usage.TotalTokens
+			totalUsage.CacheCreated += usage.CacheCreationInputTokens
+			totalUsage.CacheRead += usage.CacheReadInputTokens
 		}
 
 		responseText = textBuilder.String()
@@ -369,9 +379,11 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		assistantMessage.StopReason = stopReason
 		if usage != nil {
 			assistantMessage.Usage = &conversations.Usage{
-				Input:  usage.PromptTokens,
-				Output: usage.CompletionTokens,
-				Total:  usage.TotalTokens,
+				Input:        usage.PromptTokens,
+				Output:       usage.CompletionTokens,
+				Total:        usage.TotalTokens,
+				CacheCreated: usage.CacheCreationInputTokens,
+				CacheRead:    usage.CacheReadInputTokens,
 			}
 		}
 		if len(toolCalls) > 0 {
@@ -537,6 +549,7 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 		})
 		startIndex = idx + 1
 	}
+
 
 	// Skip the remainder of any in-progress run after the summary. When a
 	// summary is appended mid-run (e.g. conversation_compact tool or

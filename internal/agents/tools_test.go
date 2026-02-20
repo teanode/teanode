@@ -93,3 +93,36 @@ func TestDefinitions_MatchesRegisteredTools(t *testing.T) {
 		t.Errorf("expected [alpha beta gamma], got %v", names)
 	}
 }
+
+func TestDefinitions_StableOrder(t *testing.T) {
+	registry := newTestRegistry()
+
+	// Call Definitions multiple times and verify order is stable.
+	for run := 0; run < 10; run++ {
+		definitions := registry.Definitions()
+		if len(definitions) != 3 {
+			t.Fatalf("run %d: expected 3 definitions, got %d", run, len(definitions))
+		}
+		if definitions[0].Function.Name != "alpha" {
+			t.Errorf("run %d: definitions[0] = %q, want alpha", run, definitions[0].Function.Name)
+		}
+		if definitions[1].Function.Name != "beta" {
+			t.Errorf("run %d: definitions[1] = %q, want beta", run, definitions[1].Function.Name)
+		}
+		if definitions[2].Function.Name != "gamma" {
+			t.Errorf("run %d: definitions[2] = %q, want gamma", run, definitions[2].Function.Name)
+		}
+	}
+}
+
+func TestNames_Sorted(t *testing.T) {
+	registry := newTestRegistry()
+	names := registry.Names()
+
+	if len(names) != 3 {
+		t.Fatalf("expected 3 names, got %d", len(names))
+	}
+	if names[0] != "alpha" || names[1] != "beta" || names[2] != "gamma" {
+		t.Errorf("expected [alpha beta gamma], got %v", names)
+	}
+}

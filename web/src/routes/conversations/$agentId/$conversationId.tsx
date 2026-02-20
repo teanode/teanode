@@ -86,8 +86,7 @@ export default function ConversationsConversationPage() {
 
   const handleVoiceMessage = useCallback(
     (text: string) => {
-      backend.sendVoiceMessage(text, undefined,
-        'The user dictated this message using voice input and the response may be read aloud. Keep the response concise and avoid heavy markdown formatting.');
+      backend.sendVoiceMessage(text);
     },
     [backend.sendVoiceMessage]
   );

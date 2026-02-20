@@ -158,7 +158,14 @@ func (self *compactConversationTool) Execute(ctx context.Context, rawArguments s
 		return "", fmt.Errorf("no default conversation")
 	}
 
-	compactResult, err := CompactConversation(ctx, self.conversations, self.providers, self.config, conversationId)
+	// Prefer the runner's cache-aware compaction when available.
+	var compactResult *CompactResult
+	var err error
+	if runner := RunnerFromContext(ctx); runner != nil {
+		compactResult, err = runner.CompactConversation(ctx, conversationId)
+	} else {
+		compactResult, err = CompactConversation(ctx, self.conversations, self.providers, self.config, conversationId)
+	}
 	if err != nil {
 		return "", err
 	}

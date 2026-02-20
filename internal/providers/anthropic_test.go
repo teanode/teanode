@@ -320,6 +320,9 @@ func TestAnthropicSSEStreaming(t *testing.T) {
 		if request.Header.Get("anthropic-version") != "2023-06-01" {
 			t.Errorf("anthropic-version = %q", request.Header.Get("anthropic-version"))
 		}
+		if request.Header.Get("anthropic-beta") != "prompt-caching-2024-07-31" {
+			t.Errorf("anthropic-beta = %q, want prompt-caching-2024-07-31", request.Header.Get("anthropic-beta"))
+		}
 
 		// Verify the request body is valid.
 		body, _ := io.ReadAll(request.Body)
@@ -682,6 +685,9 @@ func TestAnthropicHeaders(t *testing.T) {
 		if request.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("Content-Type = %q, want application/json", request.Header.Get("Content-Type"))
 		}
+		if request.Header.Get("anthropic-beta") != "prompt-caching-2024-07-31" {
+			t.Errorf("anthropic-beta = %q, want prompt-caching-2024-07-31", request.Header.Get("anthropic-beta"))
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(writer).Encode(anthropicResponse{
 			ID:         "msg_hdr",
@@ -1010,6 +1016,178 @@ func TestAnthropicSSEStreamingContextCancellation(t *testing.T) {
 
 	// Drain remaining events.
 	for range stream {
+	}
+}
+
+func TestTranslateRequest_CacheControlOnSystemAndTools(t *testing.T) {
+	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
+
+	request := ChatRequest{
+		Model: "claude-sonnet-4-20250514",
+		Messages: []ChatMessage{
+			{Role: "system", Content: "You are helpful."},
+			{Role: "system", Content: "Be concise."},
+			{Role: "user", Content: "Hello"},
+		},
+		Tools: []ToolDefinition{
+			{
+				Type:     "function",
+				Function: FunctionSpec{Name: "tool_a", Description: "First tool", Parameters: map[string]interface{}{"type": "object"}},
+			},
+			{
+				Type:     "function",
+				Function: FunctionSpec{Name: "tool_b", Description: "Second tool", Parameters: map[string]interface{}{"type": "object"}},
+			},
+		},
+	}
+
+	translated := client.translateRequest(request, false)
+
+	// Verify cache_control on last system block.
+	var systemBlocks []anthropicSystemBlock
+	if err := json.Unmarshal(translated.System, &systemBlocks); err != nil {
+		t.Fatalf("unmarshal system: %v", err)
+	}
+	if len(systemBlocks) != 2 {
+		t.Fatalf("expected 2 system blocks, got %d", len(systemBlocks))
+	}
+	if systemBlocks[0].CacheControl != nil {
+		t.Error("first system block should not have cache_control")
+	}
+	if systemBlocks[1].CacheControl == nil || systemBlocks[1].CacheControl.Type != "ephemeral" {
+		t.Error("last system block should have cache_control: ephemeral")
+	}
+
+	// Verify cache_control on last tool.
+	if len(translated.Tools) != 2 {
+		t.Fatalf("expected 2 tools, got %d", len(translated.Tools))
+	}
+	if translated.Tools[0].CacheControl != nil {
+		t.Error("first tool should not have cache_control")
+	}
+	if translated.Tools[1].CacheControl == nil || translated.Tools[1].CacheControl.Type != "ephemeral" {
+		t.Error("last tool should have cache_control: ephemeral")
+	}
+}
+
+func TestTranslateRequest_CacheControlSingleSystem(t *testing.T) {
+	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
+
+	request := ChatRequest{
+		Model: "claude-sonnet-4-20250514",
+		Messages: []ChatMessage{
+			{Role: "system", Content: "You are helpful."},
+			{Role: "user", Content: "Hello"},
+		},
+	}
+
+	translated := client.translateRequest(request, false)
+
+	var systemBlocks []anthropicSystemBlock
+	if err := json.Unmarshal(translated.System, &systemBlocks); err != nil {
+		t.Fatalf("unmarshal system: %v", err)
+	}
+	if len(systemBlocks) != 1 {
+		t.Fatalf("expected 1 system block, got %d", len(systemBlocks))
+	}
+	if systemBlocks[0].CacheControl == nil || systemBlocks[0].CacheControl.Type != "ephemeral" {
+		t.Error("single system block should have cache_control: ephemeral")
+	}
+}
+
+func TestTranslateResponse_CacheUsage(t *testing.T) {
+	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
+
+	response := anthropicResponse{
+		ID:    "msg_cache",
+		Model: "claude-sonnet-4-20250514",
+		Content: []anthropicContentBlock{
+			{Type: "text", Text: "Cached response"},
+		},
+		StopReason: "end_turn",
+		Usage: anthropicUsage{
+			InputTokens:              100,
+			OutputTokens:             50,
+			CacheCreationInputTokens: 80,
+			CacheReadInputTokens:     20,
+		},
+	}
+
+	chatResponse := client.translateResponse(response)
+
+	if chatResponse.Usage.CacheCreationInputTokens != 80 {
+		t.Errorf("cache_creation_input_tokens = %d, want 80", chatResponse.Usage.CacheCreationInputTokens)
+	}
+	if chatResponse.Usage.CacheReadInputTokens != 20 {
+		t.Errorf("cache_read_input_tokens = %d, want 20", chatResponse.Usage.CacheReadInputTokens)
+	}
+}
+
+func TestAnthropicSSECacheUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := writer.(http.Flusher)
+
+		// message_start with cache usage.
+		fmt.Fprintf(writer, "event: message_start\n")
+		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_start","message":{"id":"msg_cache","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":100,"output_tokens":0,"cache_creation_input_tokens":80,"cache_read_input_tokens":20}}}`)
+		flusher.Flush()
+
+		// content_block_start
+		fmt.Fprintf(writer, "event: content_block_start\n")
+		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
+		flusher.Flush()
+
+		// content_block_delta
+		fmt.Fprintf(writer, "event: content_block_delta\n")
+		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}`)
+		flusher.Flush()
+
+		// message_delta
+		fmt.Fprintf(writer, "event: message_delta\n")
+		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`)
+		flusher.Flush()
+
+		// message_stop
+		fmt.Fprintf(writer, "event: message_stop\n")
+		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_stop"}`)
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := NewAnthropicClient(server.URL, "test-key")
+	stream, err := client.ChatCompletionStream(context.Background(), ChatRequest{
+		Model:    "claude-sonnet-4-20250514",
+		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletionStream: %v", err)
+	}
+
+	var totalCacheCreation, totalCacheRead, totalPrompt, totalCompletion int
+	for event := range stream {
+		if event.Err != nil {
+			t.Fatalf("stream error: %v", event.Err)
+		}
+		if event.Chunk != nil && event.Chunk.Usage != nil {
+			totalPrompt += event.Chunk.Usage.PromptTokens
+			totalCompletion += event.Chunk.Usage.CompletionTokens
+			totalCacheCreation += event.Chunk.Usage.CacheCreationInputTokens
+			totalCacheRead += event.Chunk.Usage.CacheReadInputTokens
+		}
+	}
+
+	if totalCacheCreation != 80 {
+		t.Errorf("cache_creation_input_tokens = %d, want 80", totalCacheCreation)
+	}
+	if totalCacheRead != 20 {
+		t.Errorf("cache_read_input_tokens = %d, want 20", totalCacheRead)
+	}
+	if totalPrompt != 100 {
+		t.Errorf("prompt_tokens = %d, want 100", totalPrompt)
+	}
+	if totalCompletion != 5 {
+		t.Errorf("completion_tokens = %d, want 5", totalCompletion)
 	}
 }
 

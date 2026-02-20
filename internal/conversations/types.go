@@ -31,9 +31,11 @@ type Message struct {
 
 // Usage tracks token usage for a message.
 type Usage struct {
-	Input  int `json:"input"`
-	Output int `json:"output"`
-	Total  int `json:"totalTokens"`
+	Input        int `json:"input"`
+	Output       int `json:"output"`
+	Total        int `json:"totalTokens"`
+	CacheCreated int `json:"cacheCreated,omitempty"`
+	CacheRead    int `json:"cacheRead,omitempty"`
 }
 
 // ContentText returns the message content as a plain string.

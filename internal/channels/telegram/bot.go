@@ -782,8 +782,7 @@ func (self *Bot) handleCommand(message *tgbotapi.Message, chatIdStr, name, argum
 	case "compact":
 		conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
 		if runner != nil {
-			configuration, runnerProviders, _, _, _ := runner.Snapshot()
-			result, err := agents.CompactConversation(context.Background(), runner.Conversations, runnerProviders, configuration, conversationId)
+			result, err := runner.CompactConversation(context.Background(), conversationId)
 			if err != nil {
 				reply = fmt.Sprintf("Error compacting: %v", err)
 			} else {

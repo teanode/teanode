@@ -25,6 +25,9 @@ import type {
 } from '../types';
 import { useWebSocket } from './useWebSocket';
 
+const VOICE_INPUT_PROMPT =
+  'The user dictated this message using voice input and the response may be read aloud. Keep the response concise and avoid heavy markdown formatting.';
+
 let messageIdCounter = 0;
 function nextMessageId(): string {
   return `msg-${++messageIdCounter}`;
@@ -1035,7 +1038,7 @@ export function useBackend() {
   const sendVoiceMessage = useCallback(
     (text: string, model?: string, systemPromptSuffix?: string) => {
       lastSentViaMicRef.current = true;
-      sendMessage(text, model, undefined, systemPromptSuffix);
+      sendMessage(text, model, undefined, systemPromptSuffix ?? VOICE_INPUT_PROMPT);
     },
     [sendMessage]
   );

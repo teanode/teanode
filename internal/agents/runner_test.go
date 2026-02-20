@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
@@ -303,21 +304,21 @@ func TestBuildSystemPromptWithWorkspace(t *testing.T) {
 
 	// Write workspace files.
 	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte("Be extra helpful"), 0644)
-	os.WriteFile(filepath.Join(workspaceDirectory, "MEMORY.md"), []byte("User likes Go"), 0644)
 
 	prompt := BuildSystemPrompt(configuration, "", workspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars)
 
+	// AGENT.md should be embedded in the system prompt (rarely changes).
 	if !strings.Contains(prompt, "Be extra helpful") {
 		t.Error("prompt should contain AGENT.md content")
-	}
-	if !strings.Contains(prompt, "User likes Go") {
-		t.Error("prompt should contain MEMORY.md content")
 	}
 	if !strings.Contains(prompt, "Operating Instructions") {
 		t.Error("prompt should have AGENT.md section header")
 	}
-	if !strings.Contains(prompt, "Long-term Memory") {
-		t.Error("prompt should have MEMORY.md section header")
+
+	// MEMORY.md and SKILLS.md are NOT in the system prompt — they're injected
+	// as user messages in buildMessages() so they don't break the cache.
+	if strings.Contains(prompt, "Long-term Memory") {
+		t.Error("prompt should NOT contain MEMORY.md section (injected as user message)")
 	}
 }
 
@@ -332,13 +333,25 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 	if !strings.Contains(prompt, "workspace") {
 		t.Error("prompt should mention workspace tool")
 	}
+
+	// Should contain today's date and timezone.
+	today := time.Now().Format("2006-01-02")
+	if !strings.Contains(prompt, today) {
+		t.Errorf("prompt should contain today's date %s", today)
+	}
+	tz := time.Now().Format("MST")
+	if !strings.Contains(prompt, tz) {
+		t.Errorf("prompt should contain timezone %s", tz)
+	}
 }
 
 func TestBuildSystemPromptCustomOverride(t *testing.T) {
 	configuration := &configs.Config{
-		SystemPrompt: "I am a custom assistant.",
+		Agents: []configs.AgentConfig{
+			{ID: "custom", SystemPrompt: "I am a custom assistant."},
+		},
 	}
-	prompt := BuildSystemPrompt(configuration, "", "/some/dir", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars)
+	prompt := BuildSystemPrompt(configuration, "custom", "/some/dir", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars)
 	if !strings.Contains(prompt, "I am a custom assistant.") {
 		t.Error("prompt should contain custom identity line")
 	}

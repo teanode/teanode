@@ -228,9 +228,6 @@ func (self *Runner) compressContext(
 	// Messages to summarize: messages[1:keepIdx] (skip system prompt at 0).
 	toSummarize := messages[1:keepIdx]
 
-	// Build summary text from messages.
-	summaryInput := chatMessagesText(toSummarize, 0, 2000)
-
 	// Pick summary model and resolve its provider.
 	summaryQualifiedModel := config.Models.Default
 	if config.Models.SummarizerModel != "" {
@@ -242,18 +239,51 @@ func (self *Runner) compressContext(
 		return messages, fmt.Errorf("resolving summary model %q: %w", summaryQualifiedModel, resolveErr)
 	}
 
-	summaryRequest := providers.ChatRequest{
-		Model: summaryBareModel,
-		Messages: []providers.ChatMessage{
-			{
-				Role:    "system",
-				Content: "Summarize the following conversation into a concise summary (max 500 words). Preserve key facts, decisions, tool results, and user preferences. Focus on information needed to continue the conversation naturally.",
+	// Try to reuse the cached message prefix: send messages[0:keepIdx] + tool defs
+	// + a summarization instruction. This lets the provider cache the system prompt
+	// and tool definitions rather than building a fresh request.
+	summarizeInstruction := providers.ChatMessage{
+		Role:    "user",
+		Content: "Summarize the preceding conversation into a concise summary (max 500 words). Preserve key facts, decisions, tool results, and user preferences. Focus on information needed to continue the conversation naturally.",
+	}
+
+	// Estimate whether the prefix + instruction + output buffer fits.
+	prefixTokens := 0
+	for _, msg := range messages[:keepIdx] {
+		prefixTokens += estimateMessageTokens(msg)
+	}
+	prefixTokens += estimateToolDefsTokens(toolDefs)
+	prefixTokens += estimateMessageTokens(summarizeInstruction) + 2000 // output buffer
+
+	var summaryRequest providers.ChatRequest
+	if prefixTokens < contextWindow {
+		// Reuse the cached prefix: system prompt + conversation history + summarize instruction.
+		reusedMessages := make([]providers.ChatMessage, 0, keepIdx+1)
+		reusedMessages = append(reusedMessages, messages[:keepIdx]...)
+		reusedMessages = append(reusedMessages, summarizeInstruction)
+		summaryRequest = providers.ChatRequest{
+			Model:    summaryBareModel,
+			Messages: reusedMessages,
+			Tools:    toolDefs,
+		}
+		log.Debugf("context compression: reusing %d message prefix with tools", keepIdx)
+	} else {
+		// Fallback: serialize to text (prefix too large for context window).
+		summaryInput := chatMessagesText(toSummarize, 0, 2000)
+		summaryRequest = providers.ChatRequest{
+			Model: summaryBareModel,
+			Messages: []providers.ChatMessage{
+				{
+					Role:    "system",
+					Content: "Summarize the following conversation into a concise summary (max 500 words). Preserve key facts, decisions, tool results, and user preferences. Focus on information needed to continue the conversation naturally.",
+				},
+				{
+					Role:    "user",
+					Content: summaryInput,
+				},
 			},
-			{
-				Role:    "user",
-				Content: summaryInput,
-			},
-		},
+		}
+		log.Debugf("context compression: falling back to text serialization (prefix %d tokens > context %d)", prefixTokens, contextWindow)
 	}
 
 	var summaryText string

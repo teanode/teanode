@@ -65,10 +65,15 @@ type anthropicImageSource struct {
 	URL       string `json:"url,omitempty"`        // URL reference
 }
 
+type anthropicCacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
 type anthropicToolDef struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	InputSchema interface{} `json:"input_schema"`
+	Name         string                `json:"name"`
+	Description  string                `json:"description,omitempty"`
+	InputSchema  interface{}           `json:"input_schema"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 type anthropicResponse struct {
@@ -82,8 +87,10 @@ type anthropicResponse struct {
 }
 
 type anthropicUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // --- SSE event types ---
@@ -124,8 +131,9 @@ type anthropicDelta struct {
 // --- System content block type ---
 
 type anthropicSystemBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type         string                `json:"type"`
+	Text         string                `json:"text"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 // --- Request translation ---
@@ -277,12 +285,16 @@ func (self *AnthropicClient) translateRequest(request ChatRequest, stream bool) 
 	}
 
 	if len(systemBlocks) > 0 {
+		// Mark the last system block for prompt caching.
+		systemBlocks[len(systemBlocks)-1].CacheControl = &anthropicCacheControl{Type: "ephemeral"}
 		systemJSON, _ := json.Marshal(systemBlocks)
 		result.System = systemJSON
 	}
 
 	if len(request.Tools) > 0 {
 		result.Tools = self.translateTools(request.Tools)
+		// Mark the last tool for prompt caching.
+		result.Tools[len(result.Tools)-1].CacheControl = &anthropicCacheControl{Type: "ephemeral"}
 	}
 
 	return result
@@ -497,9 +509,11 @@ func (self *AnthropicClient) translateResponse(response anthropicResponse) *Chat
 			FinishReason: translateStopReason(response.StopReason),
 		}},
 		Usage: &UsageInfo{
-			PromptTokens:     response.Usage.InputTokens,
-			CompletionTokens: response.Usage.OutputTokens,
-			TotalTokens:      response.Usage.InputTokens + response.Usage.OutputTokens,
+			PromptTokens:             response.Usage.InputTokens,
+			CompletionTokens:         response.Usage.OutputTokens,
+			TotalTokens:              response.Usage.InputTokens + response.Usage.OutputTokens,
+			CacheCreationInputTokens: response.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     response.Usage.CacheReadInputTokens,
 		},
 	}
 }
@@ -562,6 +576,21 @@ func (self *AnthropicClient) readSSE(ctx context.Context, reader io.Reader, even
 			}
 			messageID = event.Message.ID
 			messageModel = event.Message.Model
+
+			// Emit input token usage (including cache metrics) from message_start.
+			if event.Message.Usage.InputTokens > 0 || event.Message.Usage.CacheCreationInputTokens > 0 || event.Message.Usage.CacheReadInputTokens > 0 {
+				events <- StreamEvent{
+					Chunk: &StreamChunk{
+						ID:    messageID,
+						Model: messageModel,
+						Usage: &UsageInfo{
+							PromptTokens:             event.Message.Usage.InputTokens,
+							CacheCreationInputTokens: event.Message.Usage.CacheCreationInputTokens,
+							CacheReadInputTokens:     event.Message.Usage.CacheReadInputTokens,
+						},
+					},
+				}
+			}
 
 		case "content_block_start":
 			var event anthropicSSEContentBlockStart
@@ -677,4 +706,5 @@ func (self *AnthropicClient) setHeaders(request *http.Request) {
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("x-api-key", self.apiKey)
 	request.Header.Set("anthropic-version", "2023-06-01")
+	request.Header.Set("anthropic-beta", "prompt-caching-2024-07-31")
 }

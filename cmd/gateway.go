@@ -21,8 +21,6 @@ import (
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/frontend"
 	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/sessions"
-	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/integrations/browsers/headlessbrowser"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
@@ -30,18 +28,22 @@ import (
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/skills"
+	"github.com/teanode/teanode/internal/tools/claudecode"
+	"github.com/teanode/teanode/internal/tools/codex"
+	"github.com/teanode/teanode/internal/tools/datetime"
 	"github.com/teanode/teanode/internal/tools/fetch"
 	"github.com/teanode/teanode/internal/tools/filesystem"
 	"github.com/teanode/teanode/internal/tools/github"
 	"github.com/teanode/teanode/internal/tools/gitlab"
 	"github.com/teanode/teanode/internal/tools/google"
-	"github.com/teanode/teanode/internal/tools/search"
-	"github.com/teanode/teanode/internal/tools/claudecode"
 	"github.com/teanode/teanode/internal/tools/homeassistant"
-	"github.com/teanode/teanode/internal/tools/unifiprotect"
+	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/shell"
+	"github.com/teanode/teanode/internal/tools/unifiprotect"
 	"github.com/teanode/teanode/internal/tools/workspace"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/version"
 	"github.com/teanode/teanode/internal/watcher"
 	"github.com/teanode/teanode/internal/web"
@@ -188,13 +190,15 @@ func NewGatewayCommand() *cli.Command {
 				github.RegisterTools(tools, configuration.Tools.GitHub)
 				gitlab.RegisterTools(tools, configuration.Tools.GitLab)
 				claudecode.RegisterTools(tools, configuration.Tools.ClaudeCode)
-			homeassistant.RegisterTools(tools, configuration.Tools.HomeAssistant)
-		unifiprotect.RegisterTools(tools, configuration.Tools.UniFiProtect)
+				codex.RegisterTools(tools, configuration.Tools.Codex)
+			datetime.RegisterTools(tools)
+				homeassistant.RegisterTools(tools, configuration.Tools.HomeAssistant)
+				unifiprotect.RegisterTools(tools, configuration.Tools.UniFiProtect)
 				agents.RegisterConversationTools(tools, conversations, providers, configuration)
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)
 				}
-					tools.Register(&configs.ConfigTool{Config: configuration})
+				tools.Register(&configs.ConfigTool{Config: configuration})
 				gw.RegisterTools(tools, func(action gw.LifecycleAction) { gateway.ScheduleLifecycle(action) })
 				skillPrompts := skills.RegisterSkillsFiltered(tools, skillsDirectory, agentConfig.Skills)
 				agents.RegisterInterAgentTools(tools, agentConfig.ID, agentRegistry, configuration)
