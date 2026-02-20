@@ -228,8 +228,6 @@ type Config struct {
 	Tools        ToolsConfig        `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Integrations IntegrationsConfig `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Summarizer   *SummarizerConfig  `json:"summarizer,omitempty" yaml:"summarizer,omitempty"`
-	SystemPrompt string             `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`
-	DefaultAgent string             `json:"defaultAgent,omitempty" yaml:"defaultAgent,omitempty"` // defaults to first configured agent
 	Channels     ChannelsConfig     `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Agents       []AgentConfig      `json:"-" yaml:"-"`
 }
@@ -254,13 +252,11 @@ type ChannelsConfig struct {
 type DiscordConfig struct {
 	Token        string   `json:"token,omitempty" yaml:"token,omitempty"`
 	AllowedUsers []string `json:"allowedUsers,omitempty" yaml:"allowedUsers,omitempty"` // Discord user IDs
-	AgentID      string   `json:"agentId,omitempty" yaml:"agentId,omitempty"`           // defaults to the configured default agent
 }
 
 type TelegramConfig struct {
 	Token        string  `json:"token,omitempty" yaml:"token,omitempty"`
 	AllowedUsers []int64 `json:"allowedUsers,omitempty" yaml:"allowedUsers,omitempty"` // Telegram user IDs
-	AgentID      string  `json:"agentId,omitempty" yaml:"agentId,omitempty"`           // defaults to the configured default agent
 }
 
 type ToolsConfig struct {
@@ -275,26 +271,26 @@ type ToolsConfig struct {
 
 // HomeAssistantConfig controls the Home Assistant smart home tool.
 type HomeAssistantConfig struct {
-	BaseURL         string   `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`                   // e.g. "http://homeassistant.local:8123"
-	Token           string   `json:"token,omitempty" yaml:"token,omitempty"`                       // long-lived access token
-	ReadOnly        bool     `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`                 // block control/scene actions
-	AllowedDomains  []string `json:"allowedDomains,omitempty" yaml:"allowedDomains,omitempty"`     // nil = safe defaults
-	BlockedDomains  []string `json:"blockedDomains,omitempty" yaml:"blockedDomains,omitempty"`     // nil = safe defaults
-	AllowedEntities []string `json:"allowedEntities,omitempty" yaml:"allowedEntities,omitempty"`   // empty = all (subject to domain rules)
-	TimeoutSeconds  int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`     // default 10
+	BaseURL         string   `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`                 // e.g. "http://homeassistant.local:8123"
+	Token           string   `json:"token,omitempty" yaml:"token,omitempty"`                     // long-lived access token
+	ReadOnly        bool     `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`               // block control/scene actions
+	AllowedDomains  []string `json:"allowedDomains,omitempty" yaml:"allowedDomains,omitempty"`   // nil = safe defaults
+	BlockedDomains  []string `json:"blockedDomains,omitempty" yaml:"blockedDomains,omitempty"`   // nil = safe defaults
+	AllowedEntities []string `json:"allowedEntities,omitempty" yaml:"allowedEntities,omitempty"` // empty = all (subject to domain rules)
+	TimeoutSeconds  int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`   // default 10
 }
 
 // UniFiProtectConfig controls the UniFi Protect camera integration tool.
 type UniFiProtectConfig struct {
-	BaseURL                string   `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`                               // e.g. "https://protect.local"
-	APIKey                 string   `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`                                 // X-API-Key header value
-	Username               string   `json:"username,omitempty" yaml:"username,omitempty"`                             // fallback auth username
-	Password               string   `json:"password,omitempty" yaml:"password,omitempty"`                             // fallback auth password
-	VerifyTLS              bool     `json:"verifyTls,omitempty" yaml:"verifyTls,omitempty"`                           // verify TLS certificates
-	ReadOnly               bool     `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`                             // block write actions
-	AllowedCameras         []string `json:"allowedCameras,omitempty" yaml:"allowedCameras,omitempty"`                 // nil = all cameras
-	AllowDangerousActions  []string `json:"allowDangerousActions,omitempty" yaml:"allowDangerousActions,omitempty"`   // e.g. ["set_privacy_mode"]
-	TimeoutSeconds         int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`                 // default 15
+	BaseURL               string   `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`                             // e.g. "https://protect.local"
+	APIKey                string   `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`                               // X-API-Key header value
+	Username              string   `json:"username,omitempty" yaml:"username,omitempty"`                           // fallback auth username
+	Password              string   `json:"password,omitempty" yaml:"password,omitempty"`                           // fallback auth password
+	VerifyTLS             bool     `json:"verifyTls,omitempty" yaml:"verifyTls,omitempty"`                         // verify TLS certificates
+	ReadOnly              bool     `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`                           // block write actions
+	AllowedCameras        []string `json:"allowedCameras,omitempty" yaml:"allowedCameras,omitempty"`               // nil = all cameras
+	AllowDangerousActions []string `json:"allowDangerousActions,omitempty" yaml:"allowDangerousActions,omitempty"` // e.g. ["set_privacy_mode"]
+	TimeoutSeconds        int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`               // default 15
 }
 
 // GoogleConfig controls Google Workspace tools powered by the gog CLI.
@@ -319,8 +315,8 @@ type GitLabConfig struct {
 // ClaudeCodeConfig controls the Claude Code headless tool.
 type ClaudeCodeConfig struct {
 	BinaryPath            string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`                       // default: "claude"
-	AllowedTools          []string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`                     // tools Claude Code can use; nil = defaults
-	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`                                   // model override for Claude Code
+	AllowedTools          []string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`                   // tools Claude Code can use; nil = defaults
+	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`                                 // model override for Claude Code
 	MaxTurnTimeoutSeconds int      `json:"maxTurnTimeoutSeconds,omitempty" yaml:"maxTurnTimeoutSeconds,omitempty"` // per-call timeout (default 300, max 600)
 }
 
@@ -405,17 +401,9 @@ func (self *Config) AgentModel(agentId string) string {
 }
 
 // ResolveDefaultAgent returns the effective default agent ID.
-// If DefaultAgent is set and matches a configured agent, it is returned.
-// Otherwise, the first configured agent's ID is used.
+// The first configured agent's ID is used.
 // If no agents are configured, DefaultAgentID is returned as a fallback.
 func (self *Config) ResolveDefaultAgent() string {
-	if self.DefaultAgent != "" {
-		for _, agentConfig := range self.Agents {
-			if agentConfig.ID == self.DefaultAgent {
-				return self.DefaultAgent
-			}
-		}
-	}
 	if len(self.Agents) > 0 {
 		return self.Agents[0].ID
 	}

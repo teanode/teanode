@@ -52,32 +52,32 @@ export default function Sidebar() {
   const routeSettingsAgentId = activeView === 'settings' && pathParts[1] === 'agents' && pathParts[2] ? pathParts[2] : null;
   const routeSettingsSection = activeView === 'settings' && !routeSettingsAgentId ? (pathParts[1] || null) : null;
 
-  const { agents, currentAgentId, conversations: conversationList, serverActiveAgentId } = backend;
-  const defaultAgentId = agents.length > 0 ? agents[0].id : 'main';
-  const viewingAgentId = routeAgentId || currentAgentId || defaultAgentId;
-  const activeConversationId = routeConversationId || backend.conversationId;
+  const { agents, currentAgentId, conversations: conversationList, serverDefaultAgentId } = backend;
+  const fallbackAgentId = agents.length > 0 ? agents[0].id : 'main';
+  const viewingAgentId = routeAgentId || currentAgentId || fallbackAgentId;
+  const viewingConversationId = routeConversationId || backend.conversationId;
 
   // Determine if the "View all conversations" button should be highlighted.
   const highlightViewAll = useMemo(() => {
     if (isAllConversationsPage) return true;
     // If viewing a specific conversation, check if it's in the nav's list.
     if (!routeConversationId) return false;
-    const activeAgentId = serverActiveAgentId || defaultAgentId;
-    const activeAgent = agents.find((agent) => agent.id === activeAgentId);
-    const pinnedConversationId = activeAgent?.activeConversationId || null;
+    const defaultAgentId = serverDefaultAgentId || fallbackAgentId;
+    const defaultAgent = agents.find((agent) => agent.id === defaultAgentId);
+    const pinnedConversationId = defaultAgent?.defaultConversationId || null;
     // If it's the pinned conversation, it's in the nav.
     if (routeConversationId === pinnedConversationId) return false;
-    // Check if it's in the recent list (top 10 non-pinned conversations for the active agent).
+    // Check if it's in the recent list (top 10 non-pinned conversations for the default agent).
     const agentConversations = conversationList.filter((conversation) => {
-      const conversationAgentId = conversation.agentId || defaultAgentId;
-      return conversationAgentId === activeAgentId;
+      const conversationAgentId = conversation.agentId || fallbackAgentId;
+      return conversationAgentId === defaultAgentId;
     });
     const recentConversations = agentConversations
       .filter((conversation) => conversation.id !== pinnedConversationId)
       .slice(0, 10);
     const isInRecentList = recentConversations.some((conversation) => conversation.id === routeConversationId);
     return !isInRecentList;
-  }, [isAllConversationsPage, routeConversationId, serverActiveAgentId, defaultAgentId, agents, conversationList]);
+  }, [isAllConversationsPage, routeConversationId, serverDefaultAgentId, fallbackAgentId, agents, conversationList]);
 
   function handleNavigate(path: string) {
     navigate({ to: path });
@@ -88,8 +88,8 @@ export default function Sidebar() {
 
   function handleTabChange(_event: React.SyntheticEvent, newValue: number) {
     if (newValue === 0) {
-      const agentId = viewingAgentId || defaultAgentId;
-      handleNavigate(activeConversationId ? `/conversations/${agentId}/${activeConversationId}` : `/conversations/${agentId}`);
+      const agentId = viewingAgentId || fallbackAgentId;
+      handleNavigate(viewingConversationId ? `/conversations/${agentId}/${viewingConversationId}` : `/conversations/${agentId}`);
     } else if (newValue === 1) {
       handleNavigate(routeJobId ? `/jobs/${routeJobId}` : '/jobs');
     } else {
@@ -135,7 +135,7 @@ export default function Sidebar() {
         <ConversationNav
           backend={backend}
           viewingAgentId={viewingAgentId}
-          activeConversationId={activeConversationId}
+          viewingConversationId={viewingConversationId}
           highlightViewAll={highlightViewAll}
           onNavigate={handleNavigate}
         />
@@ -143,7 +143,7 @@ export default function Sidebar() {
       {activeView === 'jobs' && (
         <JobNav
           jobs={backend.jobs}
-          activeJobId={routeJobId}
+          viewingJobId={routeJobId}
           isNewPage={isNewJobPage}
           onNavigate={handleNavigate}
         />

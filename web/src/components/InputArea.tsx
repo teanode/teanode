@@ -49,6 +49,8 @@ interface InputAreaProps {
   modelPicker?: React.ReactNode;
   /** When true, renders the input box without a Container wrapper. */
   bare?: boolean;
+  /** When true, the toolbar is always visible (not gated by focus). */
+  alwaysExpanded?: boolean;
   /** Whether voice input is available (audio-capable provider configured). */
   voiceEnabled?: boolean;
   /** Whether to auto-send after transcription. */
@@ -74,6 +76,7 @@ export default function InputArea({
   model,
   modelPicker,
   bare,
+  alwaysExpanded,
   voiceEnabled,
   voiceAutoSend,
   voiceCallActive,
@@ -270,6 +273,7 @@ export default function InputArea({
 
   const hasContent = hasText || pendingFiles.length > 0;
   const showStop = isRunning && !hasContent && !!onAbort;
+  const expanded = alwaysExpanded || focused;
 
   // Extract the short model name (after the colon) for display.
   const displayModel = model ? (model.includes(':') ? model.split(':').slice(1).join(':') : model) : null;
@@ -351,7 +355,7 @@ export default function InputArea({
             },
           }}
         />
-        {!focused && (showCallButton || showCallConnecting) && (
+        {!expanded && (showCallButton || showCallConnecting) && (
           <Box onMouseDown={(event: React.MouseEvent) => event.preventDefault()} sx={{ flexShrink: 0, ml: 0.5 }}>
             {showCallConnecting ? (
               <CircularProgress size={18} sx={{ mx: '7px' }} />
@@ -374,7 +378,7 @@ export default function InputArea({
         onChange={handleFileChange}
         style={{ display: 'none' }}
       />
-      {(focused || showStop || pendingFiles.length > 0 || uploading || voiceState !== 'idle') && (
+      {(expanded || showStop || pendingFiles.length > 0 || uploading || voiceState !== 'idle') && (
         <Box
           onMouseDown={(event: React.MouseEvent) => event.preventDefault()}
           sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}
@@ -393,8 +397,8 @@ export default function InputArea({
               <Typography variant="caption" color="text.secondary">{t('settings.transcribing')}</Typography>
             </Box>
           )}
-          {focused && modelPicker}
-          {!modelPicker && displayModel && focused && voiceState === 'idle' && (
+          {expanded && modelPicker}
+          {!modelPicker && displayModel && expanded && voiceState === 'idle' && (
             <Box
               component="span"
               sx={{
@@ -405,7 +409,7 @@ export default function InputArea({
               {displayModel}
             </Box>
           )}
-          {focused && voiceState === 'idle' && (
+          {expanded && voiceState === 'idle' && (
             <IconButton
               size="small"
               onClick={() => fileInputRef.current?.click()}
@@ -414,7 +418,7 @@ export default function InputArea({
               <AttachFileRounded fontSize="small" />
             </IconButton>
           )}
-          {focused && showMic && voiceState === 'idle' && (
+          {expanded && showMic && voiceState === 'idle' && (
             <IconButton
               size="small"
               onClick={startRecording}
@@ -423,7 +427,7 @@ export default function InputArea({
               <MicRounded fontSize="small" />
             </IconButton>
           )}
-          {focused && showCallButton && (
+          {expanded && showCallButton && (
             <IconButton
               size="small"
               onClick={onStartVoiceCall}
@@ -441,7 +445,7 @@ export default function InputArea({
             >
               <StopRounded fontSize="small" />
             </IconButton>
-          ) : (focused || showStop) && (
+          ) : (expanded || showStop) && (
             <IconButton
               size="small"
               color={showStop ? 'error' : 'primary'}

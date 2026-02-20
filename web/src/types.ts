@@ -31,7 +31,7 @@ export interface RPCError {
 export interface AgentInfo {
   id: string;
   name?: string;
-  activeConversationId?: string;
+  defaultConversationId?: string;
 }
 
 // RPC method payloads
@@ -42,18 +42,17 @@ export interface ConnectResult {
   defaultModel: string;
   agents: AgentInfo[];
   defaultAgentId: string;
-  activeAgentId?: string;
-  activeConversationId?: string;
+  defaultConversationId?: string;
 }
 
-export interface AgentsSetActiveResult {
-  activeAgentId: string;
-  activeConversationId: string;
+export interface AgentsSetDefaultResult {
+  defaultAgentId: string;
+  defaultConversationId: string;
 }
 
-export interface ConversationsSetActiveResult {
-  activeAgentId: string;
-  activeConversationId: string;
+export interface ConversationsSetDefaultResult {
+  defaultAgentId: string;
+  defaultConversationId: string;
 }
 
 export interface ConversationSendParams {

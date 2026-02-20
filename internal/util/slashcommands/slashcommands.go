@@ -18,7 +18,7 @@ var commands = []definition{
 	{Name: "clear", Description: "Clear current conversation and start new"},
 	{Name: "stop", Description: "Cancel the current run"},
 	{Name: "model", Args: "[name]", Description: "Show or set the model"},
-	{Name: "agent", Args: "[name]", Description: "Show or switch the active agent"},
+	{Name: "agent", Args: "[name]", Description: "Show or switch the default agent"},
 	{Name: "status", Description: "Show bot status"},
 	{Name: "compact", Description: "Compact current conversation history"},
 	{Name: "restart", Description: "Restart the gateway"},

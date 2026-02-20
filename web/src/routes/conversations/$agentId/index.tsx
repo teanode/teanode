@@ -138,6 +138,7 @@ export default function ConversationsNewPage() {
               autoFocus
               modelPicker={modelPicker}
               bare
+              alwaysExpanded
               voiceEnabled={backend.audioCapability}
               voiceAutoSend={voiceAutoSend}
               voiceCallConnecting={voiceCall.isConnecting}

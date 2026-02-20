@@ -14,28 +14,27 @@ import (
 
 // persistedState is the YAML structure written to ~/.teanode/state.yaml.
 type persistedState struct {
-	ActiveAgentId         string            `yaml:"activeAgentId,omitempty"`
-	ActiveConversationIds map[string]string `yaml:"activeConversationIds,omitempty"`
-	DiscordChannelId      string            `yaml:"discordChannelId,omitempty"`
-	TelegramChatId        int64             `yaml:"telegramChatId,omitempty"`
+	DefaultAgentId         string            `yaml:"defaultAgentId,omitempty"`
+	DefaultConversationIds map[string]string `yaml:"defaultConversationIds,omitempty"`
+	DiscordChannelId       string            `yaml:"discordChannelId,omitempty"`
+	TelegramChatId         int64             `yaml:"telegramChatId,omitempty"`
 }
 
 // AgentRegistry manages multiple named runners (one per agent).
 type AgentRegistry struct {
-	mutex                 sync.RWMutex
-	runners               map[string]*Runner // agentId → Runner
-	defaultAgentId        string             // resolved default agent ID
-	activeAgentId         string             // system-wide active agent (falls back to defaultAgentId)
-	activeConversationIds map[string]string  // agentId → active conversationId
-	discordChannelId      string
-	telegramChatId        int64
+	mutex                  sync.RWMutex
+	runners                map[string]*Runner // agentId → Runner
+	defaultAgentId         string             // resolved default agent ID
+	defaultConversationIds map[string]string  // agentId → default conversationId
+	discordChannelId       string
+	telegramChatId         int64
 }
 
 // NewAgentRegistry creates an empty agent registry.
 func NewAgentRegistry() *AgentRegistry {
 	return &AgentRegistry{
-		runners:               make(map[string]*Runner),
-		activeConversationIds: make(map[string]string),
+		runners:                make(map[string]*Runner),
+		defaultConversationIds: make(map[string]string),
 	}
 }
 
@@ -101,7 +100,7 @@ func (self *AgentRegistry) ForEach(fn func(agentId string, runner *Runner)) {
 	}
 }
 
-// LoadState restores active agent and conversation state from ~/.teanode/state.yaml.
+// LoadState restores default agent and conversation state from ~/.teanode/state.yaml.
 // Missing or malformed files are silently ignored (fresh start).
 func (self *AgentRegistry) LoadState() {
 	stateFile, err := configs.StateFile()
@@ -119,22 +118,22 @@ func (self *AgentRegistry) LoadState() {
 	}
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	// Only restore activeAgentId if the agent is registered.
-	if state.ActiveAgentId != "" {
-		if _, ok := self.runners[state.ActiveAgentId]; ok {
-			self.activeAgentId = state.ActiveAgentId
+	// Only restore defaultAgentId if the agent is registered.
+	if state.DefaultAgentId != "" {
+		if _, ok := self.runners[state.DefaultAgentId]; ok {
+			self.defaultAgentId = state.DefaultAgentId
 		}
 	}
-	for agentId, conversationId := range state.ActiveConversationIds {
+	for agentId, conversationId := range state.DefaultConversationIds {
 		if conversationId != "" {
-			self.activeConversationIds[agentId] = conversationId
+			self.defaultConversationIds[agentId] = conversationId
 		}
 	}
 	self.discordChannelId = state.DiscordChannelId
 	self.telegramChatId = state.TelegramChatId
 }
 
-// saveState writes current active state to ~/.teanode/state.yaml.
+// saveState writes current default state to ~/.teanode/state.yaml.
 // Must be called with mutex held (at least RLock).
 func (self *AgentRegistry) saveState() {
 	stateFile, err := configs.StateFile()
@@ -142,13 +141,13 @@ func (self *AgentRegistry) saveState() {
 		return
 	}
 	state := persistedState{
-		ActiveAgentId:         self.activeAgentId,
-		ActiveConversationIds: make(map[string]string, len(self.activeConversationIds)),
-		DiscordChannelId:      self.discordChannelId,
-		TelegramChatId:        self.telegramChatId,
+		DefaultAgentId:         self.defaultAgentId,
+		DefaultConversationIds: make(map[string]string, len(self.defaultConversationIds)),
+		DiscordChannelId:       self.discordChannelId,
+		TelegramChatId:         self.telegramChatId,
 	}
-	for agentId, conversationId := range self.activeConversationIds {
-		state.ActiveConversationIds[agentId] = conversationId
+	for agentId, conversationId := range self.defaultConversationIds {
+		state.DefaultConversationIds[agentId] = conversationId
 	}
 	data, err := yaml.Marshal(state)
 	if err != nil {
@@ -160,69 +159,59 @@ func (self *AgentRegistry) saveState() {
 	}
 }
 
-// ActiveAgentID returns the system-wide active agent ID, falling back to the default.
-func (self *AgentRegistry) ActiveAgentID() string {
-	self.mutex.RLock()
-	defer self.mutex.RUnlock()
-	if self.activeAgentId != "" {
-		return self.activeAgentId
-	}
-	return self.defaultAgentId
-}
-
-// SetActiveAgent sets the system-wide active agent. Returns an error if the agent doesn't exist.
-func (self *AgentRegistry) SetActiveAgent(agentId string) error {
+// SetDefaultAgent sets the system-wide default agent. Returns an error if the agent doesn't exist.
+func (self *AgentRegistry) SetDefaultAgent(agentId string) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	if _, ok := self.runners[agentId]; !ok {
 		return fmt.Errorf("agent not found: %s", agentId)
 	}
-	self.activeAgentId = agentId
+	self.defaultAgentId = agentId
 	self.saveState()
 	return nil
 }
 
-// ActiveConversationID returns the active conversation for the given agent.
+// DefaultConversationID returns the default conversation for the given agent.
 // If none is set, it auto-generates a new ULID and stores it.
-func (self *AgentRegistry) ActiveConversationID(agentId string) string {
+func (self *AgentRegistry) DefaultConversationID(agentId string) string {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	if conversationId, ok := self.activeConversationIds[agentId]; ok {
+	if conversationId, ok := self.defaultConversationIds[agentId]; ok {
 		return conversationId
 	}
 	conversationId := security.NewULID()
-	self.activeConversationIds[agentId] = conversationId
+	self.defaultConversationIds[agentId] = conversationId
 	self.saveState()
 	return conversationId
 }
 
-// SetActiveConversation sets the active conversation for the given agent.
-func (self *AgentRegistry) SetActiveConversation(agentId, conversationId string) {
+// SetDefaultConversation sets the default conversation for the given agent.
+func (self *AgentRegistry) SetDefaultConversation(agentId, conversationId string) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	self.activeConversationIds[agentId] = conversationId
+	self.defaultConversationIds[agentId] = conversationId
 	self.saveState()
 }
 
-// SetActiveConversationIfUnset sets the active conversation only if the agent has no active conversation.
+// SetDefaultConversationIfUnset sets the default conversation only if the agent has no default conversation.
 // Returns true if the conversation was set.
-func (self *AgentRegistry) SetActiveConversationIfUnset(agentId, conversationId string) bool {
+func (self *AgentRegistry) SetDefaultConversationIfUnset(agentId, conversationId string) bool {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	if _, ok := self.activeConversationIds[agentId]; ok {
+	if _, ok := self.defaultConversationIds[agentId]; ok {
 		return false
 	}
-	self.activeConversationIds[agentId] = conversationId
+	self.defaultConversationIds[agentId] = conversationId
 	self.saveState()
 	return true
 }
 
-// NewConversation generates a new ULID, sets it as the active conversation for the agent, and returns it.
+// NewConversation generates a new ULID, sets it as the default conversation for the agent, and returns it.
 func (self *AgentRegistry) NewConversation(agentId string) string {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	conversationId := security.NewULID()
-	self.activeConversationIds[agentId] = conversationId
+	self.defaultConversationIds[agentId] = conversationId
 	self.saveState()
 	return conversationId
 }

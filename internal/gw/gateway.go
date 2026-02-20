@@ -37,12 +37,12 @@ type gateway struct {
 	config         *configs.Config
 	securityConfig *configs.SecurityConfig
 	agentRegistry  *agents.AgentRegistry
-	browserRelay  *relaybrowser.Relay
-	terminalRelay *terminals.Relay
-	scheduler     *jobs.Scheduler
-	summarizer    *agents.Summarizer
-	mediaStore    *media.Store
-	sessionStore  *sessions.Store
+	browserRelay   *relaybrowser.Relay
+	terminalRelay  *terminals.Relay
+	scheduler      *jobs.Scheduler
+	summarizer     *agents.Summarizer
+	mediaStore     *media.Store
+	sessionStore   *sessions.Store
 
 	subscribersMutex sync.RWMutex
 	subscribers      map[Subscriber]struct{}
@@ -53,7 +53,7 @@ type gateway struct {
 
 	modelsMutex sync.RWMutex
 	models      map[string][]providers.ModelInfo // provider name -> models
-	modelsTime  time.Time                       // when cache was populated
+	modelsTime  time.Time                        // when cache was populated
 
 	lifecycleChannel       chan LifecycleAction
 	pendingLifecycleMutex  sync.Mutex
@@ -105,7 +105,7 @@ func (self *gateway) ResolveRunner(agentId string) *agents.Runner {
 
 // modelsCache is the YAML structure written to ~/.teanode/models.yaml.
 type modelsCache struct {
-	FetchedAt time.Time                       `json:"fetchedAt" yaml:"fetchedAt"`
+	FetchedAt time.Time                        `json:"fetchedAt" yaml:"fetchedAt"`
 	Providers map[string][]providers.ModelInfo `json:"providers" yaml:"providers"`
 }
 
@@ -129,6 +129,14 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.Mod
 		return self.models, nil
 	}
 
+	// Use the default runner to resolve the currently configured providers.
+	defaultRunner := self.agentRegistry.Default()
+	if defaultRunner == nil {
+		return nil, fmt.Errorf("no default agent runner")
+	}
+	_, providerRegistry, _, _, _ := defaultRunner.Snapshot()
+	providerNames := providerRegistry.ProviderNames()
+
 	// Try loading from disk cache.
 	modelsFile, err := configs.ModelsFile()
 	if err == nil {
@@ -143,14 +151,9 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.Mod
 		}
 	}
 
-	// Fetch from each provider's API. Use the default runner to get providers.
-	defaultRunner := self.agentRegistry.Default()
-	if defaultRunner == nil {
-		return nil, fmt.Errorf("no default agent runner")
-	}
-	_, providerRegistry, _, _, _ := defaultRunner.Snapshot()
+	// Fetch from each provider's API.
 	result := make(map[string][]providers.ModelInfo)
-	for _, name := range providerRegistry.ProviderNames() {
+	for _, name := range providerNames {
 		provider, _, err := providerRegistry.Resolve(providers.QualifyModel(name, "dummy"))
 		if err != nil {
 			continue
@@ -197,38 +200,38 @@ func (self *gateway) updateRunnerContextWindows(models map[string][]providers.Mo
 	})
 }
 
-// --- Active agent / conversation ---
+// --- Default agent / conversation ---
 
-func (self *gateway) ActiveAgentID() string { return self.agentRegistry.ActiveAgentID() }
-func (self *gateway) ActiveConversationID(agentId string) string {
-	return self.agentRegistry.ActiveConversationID(agentId)
+func (self *gateway) DefaultAgentID() string { return self.agentRegistry.DefaultID() }
+func (self *gateway) DefaultConversationID(agentId string) string {
+	return self.agentRegistry.DefaultConversationID(agentId)
 }
 
-func (self *gateway) SetActiveAgent(agentId string) error {
-	err := self.agentRegistry.SetActiveAgent(agentId)
+func (self *gateway) SetDefaultAgent(agentId string) error {
+	err := self.agentRegistry.SetDefaultAgent(agentId)
 	if err == nil {
-		self.Broadcast(EventTypeActiveAgent, map[string]interface{}{
-			"activeAgentId":        agentId,
-			"activeConversationId": self.agentRegistry.ActiveConversationID(agentId),
+		self.Broadcast(EventTypeDefaultAgent, map[string]interface{}{
+			"defaultAgentId":        agentId,
+			"defaultConversationId": self.agentRegistry.DefaultConversationID(agentId),
 		})
 	}
 	return err
 }
 
-func (self *gateway) SetActiveConversation(agentId, conversationId string) {
-	self.agentRegistry.SetActiveConversation(agentId, conversationId)
-	self.Broadcast(EventTypeActiveConversation, map[string]interface{}{
-		"agentId":              agentId,
-		"activeConversationId": conversationId,
+func (self *gateway) SetDefaultConversation(agentId, conversationId string) {
+	self.agentRegistry.SetDefaultConversation(agentId, conversationId)
+	self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
+		"agentId":               agentId,
+		"defaultConversationId": conversationId,
 	})
 }
 
-func (self *gateway) SetActiveConversationIfUnset(agentId, conversationId string) bool {
-	changed := self.agentRegistry.SetActiveConversationIfUnset(agentId, conversationId)
+func (self *gateway) SetDefaultConversationIfUnset(agentId, conversationId string) bool {
+	changed := self.agentRegistry.SetDefaultConversationIfUnset(agentId, conversationId)
 	if changed {
-		self.Broadcast(EventTypeActiveConversation, map[string]interface{}{
-			"agentId":              agentId,
-			"activeConversationId": conversationId,
+		self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
+			"agentId":               agentId,
+			"defaultConversationId": conversationId,
 		})
 	}
 	return changed
@@ -253,9 +256,9 @@ func (self *gateway) NewConversation(agentId, model string) string {
 		}
 	}
 
-	self.Broadcast(EventTypeActiveConversation, map[string]interface{}{
-		"agentId":              agentId,
-		"activeConversationId": conversationId,
+	self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
+		"agentId":               agentId,
+		"defaultConversationId": conversationId,
 	})
 	return conversationId
 }
@@ -294,7 +297,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	// Resolve agent and runner.
 	resolvedAgentId := parameters.AgentID
 	if resolvedAgentId == "" {
-		resolvedAgentId = self.agentRegistry.ActiveAgentID()
+		resolvedAgentId = self.agentRegistry.DefaultID()
 	}
 	runner := self.ResolveRunner(resolvedAgentId)
 
@@ -303,7 +306,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	if conversationId == "" {
 		conversationId = self.NewConversation(resolvedAgentId, parameters.Model)
 	} else {
-		self.SetActiveConversationIfUnset(resolvedAgentId, conversationId)
+		self.SetDefaultConversationIfUnset(resolvedAgentId, conversationId)
 	}
 
 	// Generate run ID and create cancellable context.

@@ -11,8 +11,8 @@ import type {
   ConversationsListResult,
   ModelsListResult,
   AgentsConfigListResult,
-  AgentsSetActiveResult,
-  ConversationsSetActiveResult,
+  AgentsSetDefaultResult,
+  ConversationsSetDefaultResult,
   ModelInfo,
   AgentInfo,
   Message,
@@ -192,7 +192,7 @@ export function useBackend() {
   const [toolActivity, setToolActivity] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [currentAgentId, setCurrentAgentId] = useState<string>('');
-  const [serverActiveAgentId, setServerActiveAgentId] = useState<string>('');
+  const [serverDefaultAgentId, setServerDefaultAgentId] = useState<string>('');
   const [connected, setConnected] = useState(false);
   const [conversationModel, setConversationModel] = useState<string | null>(null);
   const [audioCapability, setAudioCapability] = useState(false);
@@ -265,14 +265,14 @@ export function useBackend() {
   }
 
   const handleEvent = useCallback((frame: EventFrame) => {
-    if (frame.event === 'activeAgent') {
-      const payload = frame.payload as { activeAgentId?: string; activeConversationId?: string } | undefined;
-      if (payload?.activeAgentId) {
-        setServerActiveAgentId(payload.activeAgentId);
+    if (frame.event === 'defaultAgent') {
+      const payload = frame.payload as { defaultAgentId?: string; defaultConversationId?: string } | undefined;
+      if (payload?.defaultAgentId) {
+        setServerDefaultAgentId(payload.defaultAgentId);
         setAgents((previous) =>
           previous.map((agent) =>
-            agent.id === payload.activeAgentId
-              ? { ...agent, activeConversationId: payload.activeConversationId }
+            agent.id === payload.defaultAgentId
+              ? { ...agent, defaultConversationId: payload.defaultConversationId }
               : agent
           )
         );
@@ -280,13 +280,13 @@ export function useBackend() {
       return;
     }
 
-    if (frame.event === 'activeConversation') {
-      const payload = frame.payload as { agentId?: string; activeConversationId?: string } | undefined;
+    if (frame.event === 'defaultConversation') {
+      const payload = frame.payload as { agentId?: string; defaultConversationId?: string } | undefined;
       if (payload?.agentId) {
         setAgents((previous) =>
           previous.map((agent) =>
             agent.id === payload.agentId
-              ? { ...agent, activeConversationId: payload.activeConversationId }
+              ? { ...agent, defaultConversationId: payload.defaultConversationId }
               : agent
           )
         );
@@ -606,10 +606,10 @@ export function useBackend() {
     if (result.agents) {
       setAgents(result.agents);
     }
-    if (result.activeAgentId) {
-      setServerActiveAgentId(result.activeAgentId);
+    if (result.defaultAgentId) {
+      setServerDefaultAgentId(result.defaultAgentId);
     }
-    const initialAgentId = result.activeAgentId || result.defaultAgentId;
+    const initialAgentId = result.defaultAgentId;
     if (initialAgentId && !currentAgentIdRef.current) {
       setCurrentAgentId(initialAgentId);
       currentAgentIdRef.current = initialAgentId;
@@ -940,36 +940,36 @@ export function useBackend() {
     sendRpc('conversations.abort', { runId: currentRunIdRef.current }).catch(() => {});
   }, [sendRpc]);
 
-  const setActiveAgent = useCallback(
+  const setDefaultAgent = useCallback(
     (agentId: string) => {
-      setServerActiveAgentId(agentId);
-      sendRpc<AgentsSetActiveResult>('agents.setActive', { agentId })
+      setServerDefaultAgentId(agentId);
+      sendRpc<AgentsSetDefaultResult>('agents.setDefault', { agentId })
         .then((result) => {
-          setServerActiveAgentId(result.activeAgentId);
-          // Update the agent's activeConversationId in the agents list.
+          setServerDefaultAgentId(result.defaultAgentId);
+          // Update the agent's defaultConversationId in the agents list.
           setAgents((previous) =>
             previous.map((agent) =>
-              agent.id === result.activeAgentId
-                ? { ...agent, activeConversationId: result.activeConversationId }
+              agent.id === result.defaultAgentId
+                ? { ...agent, defaultConversationId: result.defaultConversationId }
                 : agent
             )
           );
         })
-        .catch((error: unknown) => console.error('agents.setActive:', error));
+        .catch((error: unknown) => console.error('agents.setDefault:', error));
     },
     [sendRpc]
   );
 
-  const setActiveConversation = useCallback(
+  const setDefaultConversation = useCallback(
     (agentId: string, conversationId: string) => {
       // Optimistic update.
       setAgents((previous) =>
         previous.map((agent) =>
-          agent.id === agentId ? { ...agent, activeConversationId: conversationId } : agent
+          agent.id === agentId ? { ...agent, defaultConversationId: conversationId } : agent
         )
       );
-      sendRpc<ConversationsSetActiveResult>('conversations.setActive', { agentId, conversationId }).catch(
-        (error: unknown) => console.error('conversations.setActive:', error)
+      sendRpc<ConversationsSetDefaultResult>('conversations.setDefault', { agentId, conversationId }).catch(
+        (error: unknown) => console.error('conversations.setDefault:', error)
       );
     },
     [sendRpc]
@@ -1060,12 +1060,12 @@ export function useBackend() {
     connected,
     currentRunId: currentRunIdRef.current,
     conversationModel,
-    serverActiveAgentId,
+    serverDefaultAgentId,
     audioCapability,
     lastSentViaMicRef,
     setCurrentAgentId,
-    setActiveAgent,
-    setActiveConversation,
+    setDefaultAgent,
+    setDefaultConversation,
     sendMessage,
     sendVoiceMessage,
     markTypedSend,

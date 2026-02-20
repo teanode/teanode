@@ -115,10 +115,10 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleAgentsConfigSave(frame)
 	case "agents.config.delete":
 		self.handleAgentsConfigDelete(frame)
-	case "agents.setActive":
-		self.handleAgentsSetActive(frame)
-	case "conversations.setActive":
-		self.handleConversationsSetActive(frame)
+	case "agents.setDefault":
+		self.handleAgentsSetDefault(frame)
+	case "conversations.setDefault":
+		self.handleConversationsSetDefault(frame)
 	case "sessions.list":
 		self.handleSessionsList(frame)
 	case "sessions.revoke":

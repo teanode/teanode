@@ -10,7 +10,7 @@ import type { Job } from '../types';
 
 interface JobNavProps {
   jobs: Job[];
-  activeJobId: string | null;
+  viewingJobId: string | null;
   isNewPage: boolean;
   onNavigate: (path: string) => void;
 }
@@ -23,7 +23,7 @@ function sortJobs(jobs: Job[]): Job[] {
   });
 }
 
-export default function JobNav({ jobs, activeJobId, isNewPage, onNavigate }: JobNavProps) {
+export default function JobNav({ jobs, viewingJobId, isNewPage, onNavigate }: JobNavProps) {
   const { t } = useTranslation();
 
   const { enabledJobs, disabledJobs } = useMemo(() => {
@@ -40,7 +40,7 @@ export default function JobNav({ jobs, activeJobId, isNewPage, onNavigate }: Job
   }, [jobs]);
 
   function renderJobItem(job: Job) {
-    const active = activeJobId === job.id;
+    const active = viewingJobId === job.id;
     return (
       <ListItemButton
         key={job.id}

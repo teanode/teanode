@@ -244,7 +244,9 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	self.setHeaders(httpRequest)
+	if err := self.setHeaders(httpRequest); err != nil {
+		return nil, err
+	}
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
@@ -285,7 +287,9 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	self.setHeaders(httpRequest)
+	if err := self.setHeaders(httpRequest); err != nil {
+		return nil, err
+	}
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
@@ -365,7 +369,9 @@ func (self *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	self.setHeaders(httpRequest)
+	if err := self.setHeaders(httpRequest); err != nil {
+		return nil, err
+	}
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
@@ -393,11 +399,19 @@ func (self *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	return result.Data, nil
 }
 
-func (self *Client) setHeaders(request *http.Request) {
+func (self *Client) setHeaders(request *http.Request) error {
 	request.Header.Set("Content-Type", "application/json")
+	if err := self.setAuthorizationHeader(request); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (self *Client) setAuthorizationHeader(request *http.Request) error {
 	if self.apiKey != "" {
 		request.Header.Set("Authorization", "Bearer "+self.apiKey)
 	}
+	return nil
 }
 
 // Transcribe sends audio to the OpenAI Whisper API and returns transcribed text.
@@ -433,8 +447,8 @@ func (self *Client) Transcribe(ctx context.Context, req TranscribeRequest) (*Tra
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	httpRequest.Header.Set("Content-Type", writer.FormDataContentType())
-	if self.apiKey != "" {
-		httpRequest.Header.Set("Authorization", "Bearer "+self.apiKey)
+	if err := self.setAuthorizationHeader(httpRequest); err != nil {
+		return nil, err
 	}
 
 	response, err := self.httpClient.Do(httpRequest)
@@ -488,7 +502,9 @@ func (self *Client) Synthesize(ctx context.Context, req SynthesizeRequest) (*Syn
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	self.setHeaders(httpRequest)
+	if err := self.setHeaders(httpRequest); err != nil {
+		return nil, err
+	}
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {

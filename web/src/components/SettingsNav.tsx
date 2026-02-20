@@ -196,8 +196,8 @@ export default function SettingsNav({ backend, agents, activeSectionId, viewingA
         {agents.map((agent, index) => {
           const isViewing = viewingAgentId === agent.id;
           const isDefaultAgent = index === 0;
-          const isActiveAgent = backend.serverActiveAgentId === agent.id;
-          const canDelete = !isDefaultAgent && !isActiveAgent;
+          const isServerDefault = backend.serverDefaultAgentId === agent.id;
+          const canDelete = !isDefaultAgent && !isServerDefault;
           return (
             <ListItemButton
               key={agent.id}
@@ -223,17 +223,17 @@ export default function SettingsNav({ backend, agents, activeSectionId, viewingA
                   color: isViewing ? '#fff' : 'text.secondary',
                 }}
               />
-              {isActiveAgent ? (
-                <Tooltip title={t('conversations.activeAgent')} placement="top">
+              {isServerDefault ? (
+                <Tooltip title={t('conversations.defaultAgent')} placement="top">
                   <RadioButtonCheckedIcon sx={{ fontSize: 12, color: isViewing ? 'rgba(255,255,255,0.9)' : 'primary.main', flexShrink: 0, mr: 0.5 }} />
                 </Tooltip>
               ) : (
-                <Tooltip title={t('conversations.setActive')} placement="top">
+                <Tooltip title={t('conversations.setDefault')} placement="top">
                   <IconButton
                     size="small"
                     onClick={(event) => {
                       event.stopPropagation();
-                      backend.setActiveAgent(agent.id);
+                      backend.setDefaultAgent(agent.id);
                     }}
                     sx={{ p: 0, mr: 0.5, flexShrink: 0, color: isViewing ? 'rgba(255,255,255,0.5)' : 'text.disabled', '&:hover': { color: 'primary.main' } }}
                   >

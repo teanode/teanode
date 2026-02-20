@@ -35,7 +35,7 @@
     "queued": "Queued",
     "recentConversations": "Recent",
     "viewMore": "View all conversations",
-    "activeConversation": "Active",
+    "defaultConversation": "Default",
     "allConversations": "All Conversations",
     "searchPlaceholder": "Filter by title or summary...",
     "deleteSelected": "Delete {{count}} selected",
@@ -43,9 +43,9 @@
     "deleteSelectedMessage": "This will permanently delete {{count}} conversation(s).",
     "noResults": "No conversations match your filter.",
     "noConversations": "No conversations yet.",
-    "activeAgent": "Active agent",
-    "activeConversationLabel": "Active conversation",
-    "setActive": "Set as active",
+    "defaultAgent": "Default agent",
+    "defaultConversationLabel": "Default conversation",
+    "setDefault": "Set as default",
     "model": "Model"
   },
   "jobs": {

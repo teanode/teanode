@@ -70,7 +70,7 @@ export default function ConversationsAllPage() {
   const navigate = useNavigate();
   const { backend } = useAppContext();
   const { conversations, agents } = backend;
-  const defaultAgentId = agents.length > 0 ? agents[0].id : 'main';
+  const fallbackAgentId = agents.length > 0 ? agents[0].id : 'main';
 
   const stickyHeaderRef = useRef<HTMLDivElement>(null);
   const [stickyHeaderHeight, setStickyHeaderHeight] = useState(0);
@@ -90,12 +90,12 @@ export default function ConversationsAllPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-  // Build active conversation map: agentId → activeConversationId
-  const activeConversationByAgent = useMemo(() => {
+  // Build default conversation map: agentId → defaultConversationId
+  const defaultConversationByAgent = useMemo(() => {
     const mapping = new Map<string, string>();
     for (const agent of agents) {
-      if (agent.activeConversationId) {
-        mapping.set(agent.id, agent.activeConversationId);
+      if (agent.defaultConversationId) {
+        mapping.set(agent.id, agent.defaultConversationId);
       }
     }
     return mapping;
@@ -108,13 +108,13 @@ export default function ConversationsAllPage() {
       groups.set(agent.id, []);
     }
     for (const conversation of conversations) {
-      const agentId = conversation.agentId || defaultAgentId;
+      const agentId = conversation.agentId || fallbackAgentId;
       const list = groups.get(agentId) || [];
       list.push(conversation);
       groups.set(agentId, list);
     }
     return groups;
-  }, [conversations, agents, defaultAgentId]);
+  }, [conversations, agents, fallbackAgentId]);
 
   // Ordered agent IDs (registered agents first, then any extra from conversations).
   const agentIds = useMemo(() => {
@@ -149,8 +149,8 @@ export default function ConversationsAllPage() {
     return result;
   }, [agentIds, conversationsByAgent, lowerFilter]);
 
-  function isActiveConversation(agentId: string, conversationId: string): boolean {
-    return activeConversationByAgent.get(agentId) === conversationId;
+  function isDefaultConversation(agentId: string, conversationId: string): boolean {
+    return defaultConversationByAgent.get(agentId) === conversationId;
   }
 
   function toggleSelected(conversationId: string) {
@@ -168,30 +168,30 @@ export default function ConversationsAllPage() {
   const handleDeleteSelected = useCallback(() => {
     for (const conversationId of selected) {
       const conversation = conversations.find((conversation) => conversation.id === conversationId);
-      const agentId = conversation?.agentId || defaultAgentId;
-      if (!isActiveConversation(agentId, conversationId)) {
+      const agentId = conversation?.agentId || fallbackAgentId;
+      if (!isDefaultConversation(agentId, conversationId)) {
         backend.deleteConversation(conversationId, agentId);
       }
     }
     setSelected(new Set());
     setSelectMode(false);
     setConfirmDeleteOpen(false);
-  }, [selected, conversations, defaultAgentId, backend]);
+  }, [selected, conversations, fallbackAgentId, backend]);
 
-  // When exactly one non-active conversation is selected, allow setting it as active.
+  // When exactly one non-default conversation is selected, allow setting it as default.
   const singleSelectedConversation = useMemo(() => {
     if (selected.size !== 1) return null;
     const conversationId = Array.from(selected)[0];
     const conversation = conversations.find((conversation) => conversation.id === conversationId);
     if (!conversation) return null;
-    const agentId = conversation.agentId || defaultAgentId;
-    if (isActiveConversation(agentId, conversationId)) return null;
+    const agentId = conversation.agentId || fallbackAgentId;
+    if (isDefaultConversation(agentId, conversationId)) return null;
     return { conversationId, agentId };
-  }, [selected, conversations, defaultAgentId]);
+  }, [selected, conversations, fallbackAgentId]);
 
-  function handleSetActive() {
+  function handleSetDefault() {
     if (!singleSelectedConversation) return;
-    backend.setActiveConversation(singleSelectedConversation.agentId, singleSelectedConversation.conversationId);
+    backend.setDefaultConversation(singleSelectedConversation.agentId, singleSelectedConversation.conversationId);
     setSelected(new Set());
     setSelectMode(false);
   }
@@ -203,7 +203,7 @@ export default function ConversationsAllPage() {
 
   function handleConversationClick(agentId: string, conversationId: string) {
     if (selectMode) {
-      if (!isActiveConversation(agentId, conversationId)) {
+      if (!isDefaultConversation(agentId, conversationId)) {
         toggleSelected(conversationId);
       }
     } else {
@@ -223,12 +223,12 @@ export default function ConversationsAllPage() {
             {selectMode ? (
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                 {singleSelectedConversation && (
-                  <Tooltip title={t('conversations.setActive')}>
+                  <Tooltip title={t('conversations.setDefault')}>
                     <Button
                       size="small"
                       variant="outlined"
                       startIcon={<RadioButtonUncheckedIcon sx={{ fontSize: 14 }} />}
-                      onClick={handleSetActive}
+                      onClick={handleSetDefault}
                       sx={{
                         fontSize: '12px',
                         textTransform: 'none',
@@ -238,7 +238,7 @@ export default function ConversationsAllPage() {
                       }}
                     >
                       <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                        {t('conversations.setActive')}
+                        {t('conversations.setDefault')}
                       </Box>
                     </Button>
                   </Tooltip>
@@ -341,7 +341,7 @@ export default function ConversationsAllPage() {
 
                 <List disablePadding>
                   {agentConversations.map((conversation) => {
-                    const isActive = isActiveConversation(agentId, conversation.id);
+                    const isDefault = isDefaultConversation(agentId, conversation.id);
                     const isSelected = selected.has(conversation.id);
                     const label = displayLabel(conversation);
                     return (
@@ -351,7 +351,7 @@ export default function ConversationsAllPage() {
                         onClick={() => handleConversationClick(agentId, conversation.id)}
                         sx={{ borderRadius: 1, mb: 0.25 }}
                       >
-                        {selectMode && !isActive && (
+                        {selectMode && !isDefault && (
                           <Checkbox
                             size="small"
                             checked={isSelected}
@@ -387,8 +387,8 @@ export default function ConversationsAllPage() {
                             sx: { mt: 0.25 },
                           }}
                         />
-                        {isActive && (
-                          <Tooltip title={t('conversations.activeConversationLabel')} placement="top">
+                        {isDefault && (
+                          <Tooltip title={t('conversations.defaultConversationLabel')} placement="top">
                             <RadioButtonCheckedIcon sx={{ fontSize: 12, color: 'primary.main', flexShrink: 0, ml: 1 }} />
                           </Tooltip>
                         )}

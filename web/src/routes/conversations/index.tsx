@@ -4,7 +4,7 @@ import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import { useAppContext } from '../../context';
 
-/** /conversations/ — redirect to the active agent's active conversation, or new conversation page. */
+/** /conversations/ — redirect to the default agent's default conversation, or new conversation page. */
 export default function ConversationsIndex() {
   const { backend } = useAppContext();
   const navigate = useNavigate();
@@ -12,25 +12,25 @@ export default function ConversationsIndex() {
   useEffect(() => {
     if (!backend.connected) return;
 
-    const activeAgentId = backend.serverActiveAgentId
+    const defaultAgentId = backend.serverDefaultAgentId
       || (backend.agents.length > 0 ? backend.agents[0].id : 'main');
-    const activeAgent = backend.agents.find((agent) => agent.id === activeAgentId);
-    const activeConversationId = activeAgent?.activeConversationId;
+    const defaultAgent = backend.agents.find((agent) => agent.id === defaultAgentId);
+    const defaultConversationId = defaultAgent?.defaultConversationId;
 
-    if (activeConversationId) {
+    if (defaultConversationId) {
       navigate({
         to: '/conversations/$agentId/$conversationId',
-        params: { agentId: activeAgentId, conversationId: activeConversationId },
+        params: { agentId: defaultAgentId, conversationId: defaultConversationId },
         replace: true,
       });
     } else {
       navigate({
         to: '/conversations/$agentId',
-        params: { agentId: activeAgentId },
+        params: { agentId: defaultAgentId },
         replace: true,
       });
     }
-  }, [navigate, backend.connected, backend.serverActiveAgentId, backend.agents]);
+  }, [navigate, backend.connected, backend.serverDefaultAgentId, backend.agents]);
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>

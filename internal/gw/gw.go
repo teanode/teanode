@@ -61,11 +61,11 @@ const (
 	// EventTypeConversations signals that the conversation list has changed (created, deleted, or summarized).
 	EventTypeConversations EventType = "conversations"
 
-	// EventTypeActiveAgent is emitted when the system-wide active agent changes.
-	EventTypeActiveAgent EventType = "activeAgent"
+	// EventTypeDefaultAgent is emitted when the system-wide default agent changes.
+	EventTypeDefaultAgent EventType = "defaultAgent"
 
-	// EventTypeActiveConversation is emitted when the active conversation for an agent changes.
-	EventTypeActiveConversation EventType = "activeConversation"
+	// EventTypeDefaultConversation is emitted when the default conversation for an agent changes.
+	EventTypeDefaultConversation EventType = "defaultConversation"
 
 	// EventTypeJobs signals that the scheduled jobs list has changed.
 	EventTypeJobs EventType = "jobs"
@@ -106,12 +106,12 @@ type Gateway interface {
 	LoadModels(ctx context.Context) (map[string][]providers.ModelInfo, error)
 	InvalidateModelsCache()
 
-	// Active agent / conversation
-	ActiveAgentID() string
-	SetActiveAgent(agentId string) error
-	ActiveConversationID(agentId string) string
-	SetActiveConversation(agentId, conversationId string)
-	SetActiveConversationIfUnset(agentId, conversationId string) bool
+	// Default agent / conversation
+	DefaultAgentID() string
+	SetDefaultAgent(agentId string) error
+	DefaultConversationID(agentId string) string
+	SetDefaultConversation(agentId, conversationId string)
+	SetDefaultConversationIfUnset(agentId, conversationId string) bool
 	NewConversation(agentId, model string) string
 
 	// Centralized message sending and run management

@@ -153,7 +153,7 @@ func TestResolveSummarizerConfig_NilSummarizer(t *testing.T) {
 func TestResolveSummarizerConfig_PartialOverrides(t *testing.T) {
 	configuration := &Config{
 		Summarizer: &SummarizerConfig{
-			TickInterval:   5,
+			TickInterval:    5,
 			MaxMessageChars: 500,
 		},
 	}
@@ -245,20 +245,9 @@ func TestAgentModel(t *testing.T) {
 }
 
 func TestResolveDefaultAgent(t *testing.T) {
-	t.Run("explicit match", func(t *testing.T) {
+	t.Run("first agent", func(t *testing.T) {
 		configuration := &Config{
-			DefaultAgent: "beta",
-			Agents:       []AgentConfig{{ID: "alpha"}, {ID: "beta"}},
-		}
-		if result := configuration.ResolveDefaultAgent(); result != "beta" {
-			t.Errorf("got %q, want beta", result)
-		}
-	})
-
-	t.Run("no match falls to first agent", func(t *testing.T) {
-		configuration := &Config{
-			DefaultAgent: "missing",
-			Agents:       []AgentConfig{{ID: "alpha"}, {ID: "beta"}},
+			Agents: []AgentConfig{{ID: "alpha"}, {ID: "beta"}},
 		}
 		if result := configuration.ResolveDefaultAgent(); result != "alpha" {
 			t.Errorf("got %q, want alpha", result)

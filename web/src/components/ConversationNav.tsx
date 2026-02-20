@@ -16,43 +16,43 @@ const DEFAULT_RECENT_LIMIT = 10;
 interface ConversationNavProps {
   backend: ReturnType<typeof useBackend>;
   viewingAgentId: string;
-  activeConversationId: string | null;
+  viewingConversationId: string | null;
   highlightViewAll: boolean;
   recentLimit?: number;
   onNavigate: (path: string) => void;
 }
 
-export default function ConversationNav({ backend, viewingAgentId, activeConversationId, highlightViewAll, recentLimit = DEFAULT_RECENT_LIMIT, onNavigate }: ConversationNavProps) {
+export default function ConversationNav({ backend, viewingAgentId, viewingConversationId, highlightViewAll, recentLimit = DEFAULT_RECENT_LIMIT, onNavigate }: ConversationNavProps) {
   const { t } = useTranslation();
-  const { conversations: conversationList, agents, serverActiveAgentId } = backend;
-  const defaultAgentId = agents.length > 0 ? agents[0].id : 'main';
+  const { conversations: conversationList, agents, serverDefaultAgentId } = backend;
+  const fallbackAgentId = agents.length > 0 ? agents[0].id : 'main';
 
-  const activeAgentId = serverActiveAgentId || defaultAgentId;
-  const activeAgent = agents.find((agent) => agent.id === activeAgentId);
-  const activeAgentConversationId = activeAgent?.activeConversationId || null;
+  const defaultAgentId = serverDefaultAgentId || fallbackAgentId;
+  const defaultAgent = agents.find((agent) => agent.id === defaultAgentId);
+  const defaultConversationId = defaultAgent?.defaultConversationId || null;
 
-  // Filter conversations for the active agent only.
+  // Filter conversations for the default agent.
   const agentConversations = useMemo(() => {
     return conversationList.filter((conversation) => {
-      const conversationAgentId = conversation.agentId || defaultAgentId;
-      return conversationAgentId === activeAgentId;
+      const conversationAgentId = conversation.agentId || fallbackAgentId;
+      return conversationAgentId === defaultAgentId;
     });
-  }, [conversationList, activeAgentId, defaultAgentId]);
+  }, [conversationList, defaultAgentId, fallbackAgentId]);
 
-  // Active conversation (pinned at top).
+  // Default conversation (pinned at top).
   const pinnedConversation = useMemo(() => {
-    if (!activeAgentConversationId) return null;
-    return agentConversations.find((conversation) => conversation.id === activeAgentConversationId) || null;
-  }, [agentConversations, activeAgentConversationId]);
+    if (!defaultConversationId) return null;
+    return agentConversations.find((conversation) => conversation.id === defaultConversationId) || null;
+  }, [agentConversations, defaultConversationId]);
 
-  // Recent conversations excluding the active one, limited.
+  // Recent conversations excluding the default, limited.
   const recentConversations = useMemo(() => {
     return agentConversations
-      .filter((conversation) => conversation.id !== activeAgentConversationId)
+      .filter((conversation) => conversation.id !== defaultConversationId)
       .slice(0, recentLimit);
-  }, [agentConversations, activeAgentConversationId, recentLimit]);
+  }, [agentConversations, defaultConversationId, recentLimit]);
 
-  const isNewConversationActive = !highlightViewAll && viewingAgentId === activeAgentId && !activeConversationId;
+  const isViewingNewConversation = !highlightViewAll && viewingAgentId === defaultAgentId && !viewingConversationId;
 
   return (
     <Box sx={{ flex: 1, overflowY: 'auto', p: 1 }}>
@@ -60,37 +60,37 @@ export default function ConversationNav({ backend, viewingAgentId, activeConvers
         <Box sx={{ mt: 1 }}>
           <ListItemButton
             dense
-            onClick={() => onNavigate(`/conversations/${activeAgentId}`)}
+            onClick={() => onNavigate(`/conversations/${defaultAgentId}`)}
             sx={{
               borderRadius: 1,
               mb: 0.25,
-              ...(isNewConversationActive
+              ...(isViewingNewConversation
                 ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
                 : {}),
             }}
           >
-            <AddIcon sx={{ fontSize: 14, mr: 0.5, color: isNewConversationActive ? '#fff' : 'text.secondary' }} />
+            <AddIcon sx={{ fontSize: 14, mr: 0.5, color: isViewingNewConversation ? '#fff' : 'text.secondary' }} />
             <ListItemText
               primary={t('conversations.newConversation')}
               primaryTypographyProps={{
                 variant: 'caption',
                 fontSize: '13px',
-                color: isNewConversationActive ? '#fff' : 'primary.main',
+                color: isViewingNewConversation ? '#fff' : 'primary.main',
               }}
             />
           </ListItemButton>
         </Box>
 
-        {/* Active conversation */}
+        {/* Default conversation */}
         {pinnedConversation && (
           <>
             <Typography variant="overline" sx={{ display: 'block', px: 1.25, mt: 0.5, mb: 0.25, fontSize: '10px', color: 'text.secondary', letterSpacing: '0.08em' }}>
-              {t('conversations.activeConversation')}
+              {t('conversations.defaultConversation')}
             </Typography>
             <ConversationItem
               conversation={pinnedConversation}
-              active={!highlightViewAll && pinnedConversation.id === activeConversationId}
-              onClick={() => onNavigate(`/conversations/${activeAgentId}/${pinnedConversation.id}`)}
+              active={!highlightViewAll && pinnedConversation.id === viewingConversationId}
+              onClick={() => onNavigate(`/conversations/${defaultAgentId}/${pinnedConversation.id}`)}
             />
           </>
         )}
@@ -105,8 +105,8 @@ export default function ConversationNav({ backend, viewingAgentId, activeConvers
               <ConversationItem
                 key={conversation.id}
                 conversation={conversation}
-                active={!highlightViewAll && conversation.id === activeConversationId}
-                onClick={() => onNavigate(`/conversations/${activeAgentId}/${conversation.id}`)}
+                active={!highlightViewAll && conversation.id === viewingConversationId}
+                onClick={() => onNavigate(`/conversations/${defaultAgentId}/${conversation.id}`)}
               />
             ))}
           </>

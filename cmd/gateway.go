@@ -243,7 +243,7 @@ func NewGatewayCommand() *cli.Command {
 				agentRegistry.Register(agentConfig.ID, runner)
 			}
 
-			// Set the default agent ID from config and restore persisted active state.
+			// Set the default agent ID from config and restore persisted state.
 			agentRegistry.SetDefault(configuration.ResolveDefaultAgent())
 			agentRegistry.LoadState()
 
@@ -315,7 +315,6 @@ func NewGatewayCommand() *cli.Command {
 			reloadAgents := func() {
 				currentConfiguration := gateway.Config()
 				currentProviders := buildProviderRegistry(currentConfiguration)
-				agentRegistry.SetDefault(currentConfiguration.ResolveDefaultAgent())
 
 				for _, agentConfig := range currentConfiguration.ResolveAgents() {
 					runner := agentRegistry.Get(agentConfig.ID)

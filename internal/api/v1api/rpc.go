@@ -20,12 +20,12 @@ import (
 // handleConnect: handshake, return capabilities.
 func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	agentConfigs := self.api.gateway.Config().ResolveAgents()
-	activeAgentId := self.api.gateway.ActiveAgentID()
+	defaultAgentId := self.api.gateway.DefaultAgentID()
 	agentInfos := make([]map[string]interface{}, 0, len(agentConfigs))
 	for _, agentConfig := range agentConfigs {
 		info := map[string]interface{}{
-			"id":                   agentConfig.ID,
-			"activeConversationId": self.api.gateway.ActiveConversationID(agentConfig.ID),
+			"id":                    agentConfig.ID,
+			"defaultConversationId": self.api.gateway.DefaultConversationID(agentConfig.ID),
 		}
 		if agentConfig.Name != "" {
 			info["name"] = agentConfig.Name
@@ -43,13 +43,12 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"version":              version.Version(),
-		"capabilities":         capabilities,
-		"defaultModel":         config.Models.Default,
-		"agents":               agentInfos,
-		"defaultAgentId":       self.api.gateway.AgentRegistry().DefaultID(),
-		"activeAgentId":        activeAgentId,
-		"activeConversationId": self.api.gateway.ActiveConversationID(activeAgentId),
+		"version":                version.Version(),
+		"capabilities":           capabilities,
+		"defaultModel":           config.Models.Default,
+		"agents":                 agentInfos,
+		"defaultAgentId":         defaultAgentId,
+		"defaultConversationId":  self.api.gateway.DefaultConversationID(defaultAgentId),
 	})
 }
 
@@ -63,12 +62,11 @@ func (self *webSocketConnection) handleHealth(frame requestFrame) {
 // handleAgentsList: return list of configured agents.
 func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 	agentConfigs := self.api.gateway.Config().ResolveAgents()
-	activeAgentId := self.api.gateway.ActiveAgentID()
 	agentInfos := make([]map[string]interface{}, 0, len(agentConfigs))
 	for _, agentConfig := range agentConfigs {
 		info := map[string]interface{}{
-			"id":                   agentConfig.ID,
-			"activeConversationId": self.api.gateway.ActiveConversationID(agentConfig.ID),
+			"id":                    agentConfig.ID,
+			"defaultConversationId": self.api.gateway.DefaultConversationID(agentConfig.ID),
 		}
 		if agentConfig.Name != "" {
 			info["name"] = agentConfig.Name
@@ -77,19 +75,18 @@ func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"agents":         agentInfos,
-		"defaultAgentId": self.api.gateway.AgentRegistry().DefaultID(),
-		"activeAgentId":  activeAgentId,
+		"defaultAgentId": self.api.gateway.DefaultAgentID(),
 	})
 }
 
-// agentsSetActiveParameters are the parameters for agents.setActive.
-type agentsSetActiveParameters struct {
+// agentsSetDefaultParameters are the parameters for agents.setDefault.
+type agentsSetDefaultParameters struct {
 	AgentID string `json:"agentId"`
 }
 
-// handleAgentsSetActive: set the active agent.
-func (self *webSocketConnection) handleAgentsSetActive(frame requestFrame) {
-	var parameters agentsSetActiveParameters
+// handleAgentsSetDefault: set the default agent.
+func (self *webSocketConnection) handleAgentsSetDefault(frame requestFrame) {
+	var parameters agentsSetDefaultParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
@@ -98,25 +95,25 @@ func (self *webSocketConnection) handleAgentsSetActive(frame requestFrame) {
 		self.sendError(frame.ID, 400, "agentId is required")
 		return
 	}
-	if err := self.api.gateway.SetActiveAgent(parameters.AgentID); err != nil {
+	if err := self.api.gateway.SetDefaultAgent(parameters.AgentID); err != nil {
 		self.sendError(frame.ID, 404, err.Error())
 		return
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"activeAgentId":        parameters.AgentID,
-		"activeConversationId": self.api.gateway.ActiveConversationID(parameters.AgentID),
+		"defaultAgentId":        parameters.AgentID,
+		"defaultConversationId": self.api.gateway.DefaultConversationID(parameters.AgentID),
 	})
 }
 
-// conversationsSetActiveParameters are the parameters for conversations.setActive.
-type conversationsSetActiveParameters struct {
+// conversationsSetDefaultParameters are the parameters for conversations.setDefault.
+type conversationsSetDefaultParameters struct {
 	AgentID        string `json:"agentId"`
 	ConversationID string `json:"conversationId"`
 }
 
-// handleConversationsSetActive: set the active conversation for an agent.
-func (self *webSocketConnection) handleConversationsSetActive(frame requestFrame) {
-	var parameters conversationsSetActiveParameters
+// handleConversationsSetDefault: set the default conversation for an agent.
+func (self *webSocketConnection) handleConversationsSetDefault(frame requestFrame) {
+	var parameters conversationsSetDefaultParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
@@ -127,12 +124,12 @@ func (self *webSocketConnection) handleConversationsSetActive(frame requestFrame
 	}
 	agentId := parameters.AgentID
 	if agentId == "" {
-		agentId = self.api.gateway.ActiveAgentID()
+		agentId = self.api.gateway.DefaultAgentID()
 	}
-	self.api.gateway.SetActiveConversation(agentId, parameters.ConversationID)
+	self.api.gateway.SetDefaultConversation(agentId, parameters.ConversationID)
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"activeAgentId":        agentId,
-		"activeConversationId": parameters.ConversationID,
+		"defaultAgentId":        agentId,
+		"defaultConversationId": parameters.ConversationID,
 	})
 }
 
@@ -284,14 +281,14 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 		return
 	}
 
-	// Resolve the agent ID for active-conversation check.
+	// Resolve the agent ID for default-conversation check.
 	resolvedAgentId := parameters.AgentID
 	if resolvedAgentId == "" {
-		resolvedAgentId = self.api.gateway.ActiveAgentID()
+		resolvedAgentId = self.api.gateway.DefaultAgentID()
 	}
-	activeConversationId := self.api.gateway.ActiveConversationID(resolvedAgentId)
-	if parameters.ConversationID == activeConversationId {
-		self.sendError(frame.ID, 409, "cannot delete the active conversation")
+	defaultConversationId := self.api.gateway.DefaultConversationID(resolvedAgentId)
+	if parameters.ConversationID == defaultConversationId {
+		self.sendError(frame.ID, 409, "cannot delete the default conversation")
 		return
 	}
 
@@ -605,12 +602,8 @@ func (self *webSocketConnection) handleAgentsConfigDelete(frame requestFrame) {
 		self.sendError(frame.ID, 400, "id is required")
 		return
 	}
-	if parameters.ID == self.api.gateway.AgentRegistry().DefaultID() {
+	if parameters.ID == self.api.gateway.DefaultAgentID() {
 		self.sendError(frame.ID, 409, "cannot delete the default agent")
-		return
-	}
-	if parameters.ID == self.api.gateway.ActiveAgentID() {
-		self.sendError(frame.ID, 409, "cannot delete the active agent")
 		return
 	}
 	if err := configs.DeleteAgent(parameters.ID); err != nil {
@@ -681,7 +674,7 @@ func (self *webSocketConnection) handleJobsCreate(frame requestFrame) {
 		Model:          parameters.Model,
 		AgentID:        parameters.AgentID,
 		Enabled:        true,
-		ConversationID: "", // resolved at execution time from active conversation
+		ConversationID: "", // resolved at execution time from default conversation
 		CreatedAt:      time.Now().UnixMilli(),
 	}
 
@@ -758,7 +751,7 @@ func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) {
 	}
 	if parameters.AgentID != "" && parameters.AgentID != job.AgentID {
 		job.AgentID = parameters.AgentID
-		job.ConversationID = "" // resolved at execution time from active conversation
+		job.ConversationID = "" // resolved at execution time from default conversation
 	}
 
 	if err := self.api.gateway.Scheduler().UpdateAndReload(*job); err != nil {

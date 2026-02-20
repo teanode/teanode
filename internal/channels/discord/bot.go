@@ -157,7 +157,7 @@ type Bot struct {
 	subscribedRuns      map[string]*discordSubscribedRun // runId -> state
 }
 
-// New creates a new Discord bot that dynamically resolves the active agent and conversation from the registry.
+// New creates a new Discord bot that dynamically resolves the default agent and conversation from the registry.
 func New(discordConfig *configs.DiscordConfig, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
 	return &Bot{
 		config:              discordConfig,
@@ -242,7 +242,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 
 		// Only forward events for the currently active agent.
 		agentId, _ := payloadMap["agentId"].(string)
-		if agentId != self.agentRegistry.ActiveAgentID() {
+		if agentId != self.agentRegistry.DefaultID() {
 			return
 		}
 
@@ -410,13 +410,13 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		return
 	}
 
-	activeAgentId := self.agentRegistry.ActiveAgentID()
-	runner := self.agentRegistry.Get(activeAgentId)
+	defaultAgentId := self.agentRegistry.DefaultID()
+	runner := self.agentRegistry.Get(defaultAgentId)
 	if runner == nil {
-		discordSession.ChannelMessageSend(event.ChannelID, "No active agent available.")
+		discordSession.ChannelMessageSend(event.ChannelID, "No default agent available.")
 		return
 	}
-	conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
+	conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
 
 	// Check if there's already an active run for this conversation.
 	if self.gateway.GetActiveRun(conversationId) != "" {
@@ -430,7 +430,7 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		attachments = self.extractAttachments(event.Attachments)
 	}
 
-	go self.handleMessage(conversationId, activeAgentId, event.ChannelID, content, attachments)
+	go self.handleMessage(conversationId, defaultAgentId, event.ChannelID, content, attachments)
 }
 
 func (self *Bot) handleMessage(conversationId, agentId, channelId, message string, attachments []conversations.Attachment) {
@@ -549,29 +549,29 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 	channelId := messageEvent.ChannelID
 	var reply string
 
-	activeAgentId := self.agentRegistry.ActiveAgentID()
-	runner := self.agentRegistry.Get(activeAgentId)
+	defaultAgentId := self.agentRegistry.DefaultID()
+	runner := self.agentRegistry.Get(defaultAgentId)
 
 	switch name {
 	case "new":
-		conversationId := self.gateway.NewConversation(activeAgentId, "")
+		conversationId := self.gateway.NewConversation(defaultAgentId, "")
 		reply = fmt.Sprintf("New conversation started. (`%s`)", conversationId)
 
 	case "reset", "clear":
-		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
+		conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
 		// Abort active run if any.
 		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
 			self.gateway.AbortRun(activeRunId)
 		}
-		if err := self.gateway.DeleteConversation(activeAgentId, conversationId); err != nil {
+		if err := self.gateway.DeleteConversation(defaultAgentId, conversationId); err != nil {
 			reply = fmt.Sprintf("Error clearing conversation: %v", err)
 		} else {
-			newConversationId := self.gateway.NewConversation(activeAgentId, "")
+			newConversationId := self.gateway.NewConversation(defaultAgentId, "")
 			reply = fmt.Sprintf("Conversation cleared. New conversation started. (`%s`)", newConversationId)
 		}
 
 	case "stop":
-		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
+		conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
 		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
 			self.gateway.AbortRun(activeRunId)
 			reply = "Run cancelled."
@@ -596,27 +596,27 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 	case "agent":
 		if arguments == "" {
 			var lines []string
-			lines = append(lines, fmt.Sprintf("Active agent: `%s`", activeAgentId))
+			lines = append(lines, fmt.Sprintf("Default agent: `%s`", defaultAgentId))
 			lines = append(lines, "Agents:")
 			for _, agentId := range self.agentRegistry.AgentIDs() {
 				marker := "  "
-				if agentId == activeAgentId {
+				if agentId == defaultAgentId {
 					marker = "* "
 				}
 				lines = append(lines, marker+"`"+agentId+"`")
 			}
 			reply = strings.Join(lines, "\n")
 		} else {
-			if err := self.gateway.SetActiveAgent(arguments); err != nil {
+			if err := self.gateway.SetDefaultAgent(arguments); err != nil {
 				reply = fmt.Sprintf("Error: %v", err)
 			} else {
-				newConversationId := self.agentRegistry.ActiveConversationID(arguments)
+				newConversationId := self.agentRegistry.DefaultConversationID(arguments)
 				reply = fmt.Sprintf("Switched to agent `%s`. (conversation: `%s`)", arguments, newConversationId)
 			}
 		}
 
 	case "status":
-		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
+		conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
 		model := self.getModel(channelId)
 		if model == "" && runner != nil {
 			model = runner.Config.Models.Default
@@ -630,10 +630,10 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 		if runner != nil {
 			providerName = runner.Config.Models.DefaultProviderName()
 		}
-		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", activeAgentId, conversationId, model, providerName, status)
+		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
 
 	case "compact":
-		conversationId := self.agentRegistry.ActiveConversationID(activeAgentId)
+		conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
 		if runner != nil {
 			configuration, runnerProviders, _, _, _ := runner.Snapshot()
 			result, err := agents.CompactConversation(context.Background(), runner.Conversations, runnerProviders, configuration, conversationId)
@@ -643,7 +643,7 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 				reply = fmt.Sprintf("Conversation compacted. Summarized %d messages.", result.SummarizedMessages)
 			}
 		} else {
-			reply = "No active agent available."
+			reply = "No default agent available."
 		}
 
 	case "restart":

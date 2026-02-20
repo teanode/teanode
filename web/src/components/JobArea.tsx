@@ -50,7 +50,7 @@ export default function JobArea({
     onLoad();
   }, [onLoad]);
 
-  const defaultAgentId = agents.length > 0 ? agents[0].id : 'main';
+  const fallbackAgentId = agents.length > 0 ? agents[0].id : 'main';
 
   if (creating) {
     return (
@@ -80,7 +80,7 @@ export default function JobArea({
     );
   }
 
-  const effectiveAgentId = job.agentId || defaultAgentId;
+  const effectiveAgentId = job.agentId || fallbackAgentId;
 
   return (
     <Box sx={{ flex: 1, overflowY: 'auto' }}>

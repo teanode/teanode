@@ -212,22 +212,22 @@ func (self *Scheduler) executeJob(job Job) {
 	// Resolve the runner for this job's agent.
 	agentId := job.AgentID
 	if agentId == "" {
-		agentId = self.agentRegistry.ActiveAgentID()
+		agentId = self.agentRegistry.DefaultID()
 	}
 
-	// Resolve conversation: use stored value if present (backward compat), otherwise use active conversation.
+	// Resolve conversation: use stored value if present (backward compat), otherwise use default conversation.
 	conversationId := job.ConversationID
 	if conversationId == "" {
-		conversationId = self.agentRegistry.ActiveConversationID(agentId)
+		conversationId = self.agentRegistry.DefaultConversationID(agentId)
 	}
 
-	// If job specifies a model, verify the active conversation is compatible.
+	// If job specifies a model, verify the default conversation is compatible.
 	if job.Model != "" && conversationId != "" && self.NewConversation != nil {
 		runner := self.agentRegistry.Get(agentId)
 		if runner != nil {
 			header, headerError := runner.Conversations.LoadHeader(conversationId)
 			if headerError == nil && header.Model != job.Model {
-				// Active conversation uses a different model — create a new one.
+				// Default conversation uses a different model — create a new one.
 				conversationId = self.NewConversation(agentId, job.Model)
 				log.Infof("job %s: created new conversation %s (model mismatch: conversation=%s, job=%s)",
 					job.ID, conversationId, header.Model, job.Model)

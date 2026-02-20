@@ -155,7 +155,7 @@ func (self *compactConversationTool) Definition() providers.ToolDefinition {
 func (self *compactConversationTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	conversationId := ConversationIDFromContext(ctx)
 	if conversationId == "" {
-		return "", fmt.Errorf("no active conversation")
+		return "", fmt.Errorf("no default conversation")
 	}
 
 	compactResult, err := CompactConversation(ctx, self.conversations, self.providers, self.config, conversationId)

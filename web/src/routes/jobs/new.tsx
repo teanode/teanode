@@ -32,7 +32,7 @@ export default function JobsNewPage() {
       onCancelCreate={() => navigate({ to: '/jobs' })}
       onViewAgentConversation={(agentId) => {
         const agent = backend.agents.find((candidate) => candidate.id === agentId);
-        const conversationId = agent?.activeConversationId;
+        const conversationId = agent?.defaultConversationId;
         if (conversationId) {
           navigate({ to: '/conversations/$agentId/$conversationId', params: { agentId, conversationId } });
         } else {

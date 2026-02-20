@@ -25,7 +25,7 @@ export default function JobDetailPage() {
       onCancelCreate={() => navigate({ to: '/jobs' })}
       onViewAgentConversation={(agentId, jobConversationId) => {
         const conversationId = jobConversationId
-          ?? backend.agents.find((candidate) => candidate.id === agentId)?.activeConversationId;
+          ?? backend.agents.find((candidate) => candidate.id === agentId)?.defaultConversationId;
         if (conversationId) {
           navigate({ to: '/conversations/$agentId/$conversationId', params: { agentId, conversationId } });
         } else {
