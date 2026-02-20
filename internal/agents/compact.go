@@ -93,14 +93,6 @@ func CompactConversation(
 func (self *Runner) CompactConversation(ctx context.Context, conversationId string) (*CompactResult, error) {
 	configuration, providerRegistry, tools, _, _ := self.Snapshot()
 
-	// Resolve per-agent limits.
-	var limits configs.AgentLimits
-	if agentConfig := configuration.AgentByID(self.AgentID); agentConfig != nil {
-		limits = agentConfig.ResolveLimits()
-	} else {
-		limits = configs.DefaultAgentLimits
-	}
-
 	// Load conversation history.
 	history, err := self.Conversations.Load(conversationId)
 	if err != nil {
@@ -109,6 +101,12 @@ func (self *Runner) CompactConversation(ctx context.Context, conversationId stri
 	if len(history) == 0 {
 		return nil, fmt.Errorf("conversation is empty")
 	}
+
+	qualifiedModel := configuration.AgentModel(self.AgentID)
+	if header, headerErr := self.Conversations.LoadHeader(conversationId); headerErr == nil && header.Model != "" {
+		qualifiedModel = header.Model
+	}
+	limits := configuration.ResolveModelLimits(qualifiedModel)
 
 	// Build messages via the same pipeline used for normal runs.
 	llmMessages := self.buildMessages(history, limits, "")
@@ -126,7 +124,7 @@ func (self *Runner) CompactConversation(ctx context.Context, conversationId stri
 	})
 
 	// Resolve summarizer model.
-	qualifiedModel := configuration.Models.Default
+	qualifiedModel = configuration.Models.Default
 	if configuration.Models.SummarizerModel != "" {
 		qualifiedModel = configuration.Models.SummarizerModel
 	}

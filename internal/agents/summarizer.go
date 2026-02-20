@@ -132,11 +132,6 @@ func (self *Summarizer) summarizeAgent(ctx context.Context, agentId string, runn
 			return
 		}
 
-		// Skip conversations with an active run.
-		if self.IsConversationActive != nil && self.IsConversationActive(conversationInfo.ID) {
-			continue
-		}
-
 		// Check if summary is already up-to-date.
 		header, err := runner.Conversations.LoadHeader(conversationInfo.ID)
 		if err != nil {
@@ -146,10 +141,17 @@ func (self *Summarizer) summarizeAgent(ctx context.Context, agentId string, runn
 			continue
 		}
 
-		// Untitled conversations are summarized immediately (no inactivity wait).
-		// Titled conversations require inactivity before re-summarizing.
-		if header.Title != "" && conversationInfo.LastActive > inactivityThreshold {
-			continue
+		// Untitled conversations are summarized immediately (no inactivity wait)
+		// and are allowed through even during active runs so they get a title ASAP.
+		// Titled conversations skip re-summarization while a run is active or
+		// if the conversation hasn't been inactive long enough.
+		if header.Title != "" {
+			if self.IsConversationActive != nil && self.IsConversationActive(conversationInfo.ID) {
+				continue
+			}
+			if conversationInfo.LastActive > inactivityThreshold {
+				continue
+			}
 		}
 
 		// Load messages to check minimum count and generate summary.

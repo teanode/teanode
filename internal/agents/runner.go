@@ -172,14 +172,6 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	// Snapshot mutable fields so in-progress runs aren't affected by hot-reloads.
 	configuration, providerRegistry, tools, _, _ := self.Snapshot()
 
-	// Resolve per-agent limits (falls back to defaults for unconfigured agents).
-	var limits configs.AgentLimits
-	if agentConfig := configuration.AgentByID(self.AgentID); agentConfig != nil {
-		limits = agentConfig.ResolveLimits()
-	} else {
-		limits = configs.DefaultAgentLimits
-	}
-
 	runId := security.NewULID()
 	now := time.Now().UnixMilli()
 
@@ -210,6 +202,8 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	if qualifiedModel == "" {
 		return nil, fmt.Errorf("no model configured: set a default model in config or specify one in the request")
 	}
+
+	limits := configuration.ResolveModelLimits(qualifiedModel)
 
 	provider, model, err := providerRegistry.Resolve(qualifiedModel)
 	if err != nil {
@@ -549,7 +543,6 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 		})
 		startIndex = idx + 1
 	}
-
 
 	// Skip the remainder of any in-progress run after the summary. When a
 	// summary is appended mid-run (e.g. conversation_compact tool or

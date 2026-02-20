@@ -27,6 +27,78 @@
           "x-placeholder": "128000",
           "default": 128000
         },
+        "defaultLimits": {
+          "type": "object",
+          "title": "Default Runtime Limits",
+          "description": "Default runtime limits applied to all models unless overridden in models.limits.",
+          "properties": {
+            "maxToolRounds": {
+              "type": "number",
+              "title": "Max Tool Rounds",
+              "description": "Maximum tool-call loop iterations per run.",
+              "x-placeholder": "250",
+              "default": 250
+            },
+            "compressionThreshold": {
+              "type": "number",
+              "title": "Compression Threshold",
+              "description": "Context compression triggers when estimated tokens exceed this ratio of the context window (0-1).",
+              "x-placeholder": "0.80",
+              "default": 0.80
+            },
+            "minKeepMessages": {
+              "type": "number",
+              "title": "Min Keep Messages",
+              "description": "Minimum number of recent messages to preserve during truncation and compression.",
+              "x-placeholder": "10",
+              "default": 10
+            },
+            "maxToolResultChars": {
+              "type": "number",
+              "title": "Max Tool Result Chars",
+              "description": "Maximum characters per old tool result before truncation.",
+              "x-placeholder": "8000",
+              "default": 8000
+            },
+            "maxWorkspaceFileChars": {
+              "type": "number",
+              "title": "Max Workspace File Chars",
+              "description": "Maximum characters per workspace file (AGENT.md, MEMORY.md, SKILLS.md) included in system prompts.",
+              "x-placeholder": "8000",
+              "default": 8000
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "title": "Per-Model Runtime Limits",
+          "description": "Per-model runtime limit overrides keyed by model name (e.g. \"openai:gpt-5.1\" or \"gpt-5.1\").",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "maxToolRounds": {
+                "type": "number",
+                "description": "Maximum tool-call loop iterations per run."
+              },
+              "compressionThreshold": {
+                "type": "number",
+                "description": "Context compression trigger ratio (0-1)."
+              },
+              "minKeepMessages": {
+                "type": "number",
+                "description": "Minimum number of recent messages preserved during truncation and compression."
+              },
+              "maxToolResultChars": {
+                "type": "number",
+                "description": "Maximum characters per old tool result before truncation."
+              },
+              "maxWorkspaceFileChars": {
+                "type": "number",
+                "description": "Maximum characters per workspace file in the system prompt."
+              }
+            }
+          }
+        },
         "providers": {
           "type": "array",
           "title": "Providers",
@@ -483,7 +555,7 @@
     }
   },
   "x-sections": [
-    { "id": "models", "title": "Models", "description": "Configure LLM providers and default models.", "path": "models" },
+    { "id": "models", "title": "Models", "description": "Configure LLM providers, default models, and model-level runtime limits.", "path": "models" },
     { "id": "gateway", "title": "Gateway", "description": "HTTP server and authentication settings.", "path": "gateway" },
     { "id": "tools", "title": "Tools", "description": "API keys for built-in tools.", "path": "tools" },
     { "id": "integrations", "title": "Integrations", "description": "Headless browser and terminal settings.", "path": "integrations" },

@@ -251,20 +251,23 @@ func TestResumeKnownSession(testing *testing.T) {
 		testing.Errorf("expected sessionId 'abc-123', got %v", parsed["sessionId"])
 	}
 
-	// Verify --resume flag was passed.
+	// Verify resume subcommand and session id were passed.
 	if len(*calls) != 1 {
 		testing.Fatalf("expected 1 call, got %d", len(*calls))
 	}
 	commandArguments := (*calls)[0].Arguments
 	foundResume := false
-	for index, argument := range commandArguments {
-		if argument == "--resume" && index+1 < len(commandArguments) && commandArguments[index+1] == "abc-123" {
+	foundSessionID := false
+	for _, argument := range commandArguments {
+		if argument == "resume" {
 			foundResume = true
-			break
+		}
+		if argument == "abc-123" {
+			foundSessionID = true
 		}
 	}
-	if !foundResume {
-		testing.Errorf("expected '--resume abc-123' in args: %v", commandArguments)
+	if !foundResume || !foundSessionID {
+		testing.Errorf("expected 'exec resume ... abc-123 ...' in args: %v", commandArguments)
 	}
 
 	// Verify turn count was incremented.
@@ -430,39 +433,38 @@ func TestBuildArgumentsBasic(testing *testing.T) {
 
 	arguments := tool.buildArguments("Do something", "", "")
 
-	// Verify -p is first.
-	if len(arguments) < 2 || arguments[0] != "-p" || arguments[1] != "Do something" {
-		testing.Errorf("expected '-p Do something' at start, got: %v", arguments)
+	// Verify exec mode and prompt placement.
+	if len(arguments) < 2 || arguments[0] != "exec" {
+		testing.Errorf("expected 'exec' at start, got: %v", arguments)
+	}
+	if arguments[len(arguments)-1] != "Do something" {
+		testing.Errorf("expected prompt as last arg, got: %v", arguments)
 	}
 
-	// Verify --output-format json is present.
-	foundOutputFormat := false
-	for index, argument := range arguments {
-		if argument == "--output-format" && index+1 < len(arguments) && arguments[index+1] == "json" {
-			foundOutputFormat = true
+	// Verify --output-format is NOT present (newer codex CLI does not support it).
+	for _, argument := range arguments {
+		if argument == "--output-format" {
+			testing.Errorf("did not expect '--output-format' in args: %v", arguments)
 			break
 		}
 	}
-	if !foundOutputFormat {
-		testing.Errorf("expected '--output-format json' in args: %v", arguments)
-	}
 
-	// Verify --allowedTools is always present.
-	foundAllowedTools := false
+	// Verify --json is present.
+	foundJSON := false
 	for _, argument := range arguments {
-		if argument == "--allowedTools" {
-			foundAllowedTools = true
+		if argument == "--json" {
+			foundJSON = true
 			break
 		}
 	}
-	if !foundAllowedTools {
-		testing.Errorf("expected '--allowedTools' in args: %v", arguments)
+	if !foundJSON {
+		testing.Errorf("expected '--json' in args: %v", arguments)
 	}
 
-	// Verify --resume is NOT present.
+	// Verify resume subcommand is NOT present.
 	for _, argument := range arguments {
-		if argument == "--resume" {
-			testing.Errorf("did not expect '--resume' in args: %v", arguments)
+		if argument == "resume" {
+			testing.Errorf("did not expect 'resume' in args: %v", arguments)
 			break
 		}
 	}
@@ -475,15 +477,21 @@ func TestBuildArgumentsWithResume(testing *testing.T) {
 
 	arguments := tool.buildArguments("Continue", "session-xyz", "")
 
-	foundResume := false
+	foundResumeSubcommand := false
+	foundSessionID := false
 	for index, argument := range arguments {
-		if argument == "--resume" && index+1 < len(arguments) && arguments[index+1] == "session-xyz" {
-			foundResume = true
+		if argument == "resume" {
+			foundResumeSubcommand = true
+		}
+		if argument == "session-xyz" {
+			foundSessionID = true
+		}
+		if foundResumeSubcommand && foundSessionID && index > 0 {
 			break
 		}
 	}
-	if !foundResume {
-		testing.Errorf("expected '--resume session-xyz' in args: %v", arguments)
+	if !foundResumeSubcommand || !foundSessionID {
+		testing.Errorf("expected 'exec resume ... session-xyz ...' in args: %v", arguments)
 	}
 }
 
@@ -514,45 +522,23 @@ func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
 
 	arguments := tool.buildArguments("Do something", "", "You are a helpful assistant")
 
-	foundSystemPrompt := false
-	for index, argument := range arguments {
-		if argument == "--append-system-prompt" && index+1 < len(arguments) && arguments[index+1] == "You are a helpful assistant" {
-			foundSystemPrompt = true
-			break
-		}
-	}
-	if !foundSystemPrompt {
-		testing.Errorf("expected '--append-system-prompt' in args: %v", arguments)
+	combinedPrompt := arguments[len(arguments)-1]
+	if !strings.Contains(combinedPrompt, "Additional system instructions:\nYou are a helpful assistant") {
+		testing.Errorf("expected systemPrompt to be embedded in final prompt arg, got: %q", combinedPrompt)
 	}
 }
 
-func TestBuildArgumentsAllowedToolsAlwaysPresent(testing *testing.T) {
+func TestBuildArgumentsDoesNotEmitUnsupportedLegacyFlags(testing *testing.T) {
 	tool := &codexTool{
 		allowedTools: []string{"Bash", "Read"},
 	}
 
 	arguments := tool.buildArguments("Do something", "", "")
 
-	// Find the --allowedTools flag and verify the tools follow.
-	allowedToolsIndex := -1
-	for index, argument := range arguments {
-		if argument == "--allowedTools" {
-			allowedToolsIndex = index
-			break
+	for _, argument := range arguments {
+		if argument == "--allowedTools" || argument == "--append-system-prompt" || argument == "--resume" {
+			testing.Errorf("did not expect legacy unsupported flag %q in args: %v", argument, arguments)
 		}
-	}
-	if allowedToolsIndex == -1 {
-		testing.Fatalf("--allowedTools not found in args: %v", arguments)
-	}
-	// The tools should follow immediately after --allowedTools.
-	if allowedToolsIndex+2 >= len(arguments) {
-		testing.Fatalf("not enough args after --allowedTools: %v", arguments)
-	}
-	if arguments[allowedToolsIndex+1] != "Bash" {
-		testing.Errorf("expected 'Bash' after --allowedTools, got %q", arguments[allowedToolsIndex+1])
-	}
-	if arguments[allowedToolsIndex+2] != "Read" {
-		testing.Errorf("expected 'Read' after --allowedTools, got %q", arguments[allowedToolsIndex+2])
 	}
 }
 

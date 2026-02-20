@@ -103,39 +103,74 @@ func TestIsAllowed(t *testing.T) {
 	}
 }
 
-// --- 3. AgentConfig.ResolveLimits ---
+// --- 3. Model/Agent Limits Resolution ---
 
-func TestResolveLimits_Defaults(t *testing.T) {
-	agentConfig := &AgentConfig{}
-	limits := agentConfig.ResolveLimits()
+func TestResolveModelLimits_Defaults(t *testing.T) {
+	configuration := &Config{}
+	limits := configuration.ResolveModelLimits("openai:gpt-5.1")
 
 	if limits != DefaultAgentLimits {
-		t.Errorf("zero-value AgentConfig should resolve to DefaultAgentLimits, got %+v", limits)
+		t.Errorf("ResolveModelLimits should return DefaultAgentLimits, got %+v", limits)
 	}
 }
 
-func TestResolveLimits_Overrides(t *testing.T) {
-	agentConfig := &AgentConfig{
-		MaxToolRounds:   100,
-		MinKeepMessages: 5,
+func TestResolveModelLimits_DefaultAndPerModelOverrides(t *testing.T) {
+	configuration := &Config{
+		Models: ModelsConfig{
+			Default: "openai:gpt-5.1",
+			DefaultLimits: AgentLimits{
+				MaxToolRounds: 123,
+			},
+			Limits: map[string]AgentLimits{
+				"openai:gpt-5.1": {
+					MinKeepMessages: 5,
+				},
+			},
+		},
 	}
-	limits := agentConfig.ResolveLimits()
+	limits := configuration.ResolveModelLimits("openai:gpt-5.1")
 
-	if limits.MaxToolRounds != 100 {
-		t.Errorf("MaxToolRounds = %d, want 100", limits.MaxToolRounds)
+	if limits.MaxToolRounds != 123 {
+		t.Errorf("MaxToolRounds = %d, want 123", limits.MaxToolRounds)
 	}
 	if limits.MinKeepMessages != 5 {
 		t.Errorf("MinKeepMessages = %d, want 5", limits.MinKeepMessages)
 	}
-	// Non-overridden fields should keep defaults.
 	if limits.CompressionThreshold != DefaultAgentLimits.CompressionThreshold {
 		t.Errorf("CompressionThreshold = %f, want default %f", limits.CompressionThreshold, DefaultAgentLimits.CompressionThreshold)
 	}
-	if limits.MaxToolResultChars != DefaultAgentLimits.MaxToolResultChars {
-		t.Errorf("MaxToolResultChars = %d, want default %d", limits.MaxToolResultChars, DefaultAgentLimits.MaxToolResultChars)
+}
+
+func TestResolveModelLimits_BareModelLookup(t *testing.T) {
+	configuration := &Config{
+		Models: ModelsConfig{
+			Default: "openai:gpt-5.1",
+			Limits: map[string]AgentLimits{
+				"gpt-5.1": {MaxToolResultChars: 2222},
+			},
+		},
 	}
-	if limits.MaxWorkspaceFileChars != DefaultAgentLimits.MaxWorkspaceFileChars {
-		t.Errorf("MaxWorkspaceFileChars = %d, want default %d", limits.MaxWorkspaceFileChars, DefaultAgentLimits.MaxWorkspaceFileChars)
+	limits := configuration.ResolveModelLimits("openai:gpt-5.1")
+	if limits.MaxToolResultChars != 2222 {
+		t.Errorf("MaxToolResultChars = %d, want 2222", limits.MaxToolResultChars)
+	}
+}
+
+func TestResolveModelLimits_IgnoresAgentConfig(t *testing.T) {
+	configuration := &Config{
+		Models: ModelsConfig{
+			Default: "openai:gpt-5.1",
+			Limits: map[string]AgentLimits{
+				"openai:gpt-5.1": {MaxToolRounds: 300},
+			},
+		},
+		Agents: []AgentConfig{
+			{ID: "main", Model: "openai:gpt-5.1"},
+		},
+	}
+	limits := configuration.ResolveModelLimits("openai:gpt-5.1")
+	if limits.MaxToolRounds != 300 {
+		t.Errorf("MaxToolRounds = %d, want 300 (model-level override)", limits.MaxToolRounds)
 	}
 }
 
@@ -480,11 +515,10 @@ func TestSaveAndLoadAgents(t *testing.T) {
 	}
 
 	original := AgentConfig{
-		ID:            "alpha",
-		Name:          "Alpha Agent",
-		Description:   "Test agent",
-		Model:         "openai:gpt-5.1",
-		MaxToolRounds: 100,
+		ID:          "alpha",
+		Name:        "Alpha Agent",
+		Description: "Test agent",
+		Model:       "openai:gpt-5.1",
 	}
 	if err := SaveAgent(original); err != nil {
 		t.Fatalf("SaveAgent() error: %v", err)
@@ -502,9 +536,6 @@ func TestSaveAndLoadAgents(t *testing.T) {
 	}
 	if agents[0].Name != "Alpha Agent" {
 		t.Errorf("agent Name = %q, want Alpha Agent", agents[0].Name)
-	}
-	if agents[0].MaxToolRounds != 100 {
-		t.Errorf("agent MaxToolRounds = %d, want 100", agents[0].MaxToolRounds)
 	}
 }
 
@@ -738,6 +769,9 @@ func TestLoad_AppliesDefaults(t *testing.T) {
 	if loaded.Models.ContextWindow != 128000 {
 		t.Errorf("ContextWindow = %d, want 128000 (default)", loaded.Models.ContextWindow)
 	}
+	if loaded.Models.DefaultLimits != DefaultAgentLimits {
+		t.Errorf("DefaultLimits = %+v, want %+v", loaded.Models.DefaultLimits, DefaultAgentLimits)
+	}
 }
 
 func TestLoad_AutoCreatesDefaultAgent(t *testing.T) {
@@ -770,7 +804,10 @@ func TestApplyDefaults_PreservesUserValues(t *testing.T) {
 		Models: ModelsConfig{
 			Default:       "mymodel",
 			ContextWindow: 64000,
-			Providers:     []ProviderConfig{{Name: "openai", BaseURL: "https://custom.api"}},
+			DefaultLimits: AgentLimits{
+				MaxToolRounds: 111,
+			},
+			Providers: []ProviderConfig{{Name: "openai", BaseURL: "https://custom.api"}},
 		},
 	}
 	applyDefaults(configuration)
@@ -790,6 +827,9 @@ func TestApplyDefaults_PreservesUserValues(t *testing.T) {
 	if configuration.Models.ContextWindow != 64000 {
 		t.Errorf("ContextWindow = %d, want 64000 (user-set)", configuration.Models.ContextWindow)
 	}
+	if configuration.Models.DefaultLimits.MaxToolRounds != 111 {
+		t.Errorf("DefaultLimits.MaxToolRounds = %d, want 111 (user-set)", configuration.Models.DefaultLimits.MaxToolRounds)
+	}
 }
 
 func TestApplyDefaults_FillsZeroValues(t *testing.T) {
@@ -807,6 +847,9 @@ func TestApplyDefaults_FillsZeroValues(t *testing.T) {
 	}
 	if configuration.Models.ContextWindow != 128000 {
 		t.Errorf("ContextWindow = %d, want 128000", configuration.Models.ContextWindow)
+	}
+	if configuration.Models.DefaultLimits != DefaultAgentLimits {
+		t.Errorf("DefaultLimits = %+v, want %+v", configuration.Models.DefaultLimits, DefaultAgentLimits)
 	}
 }
 

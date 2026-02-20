@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"gopkg.in/yaml.v3"
 )
@@ -104,14 +105,13 @@ func schemaString(defaults map[string]interface{}, key string) string {
 
 func init() {
 	configDefaults := parseSchemaDefaults(configSchemaJSON)
-	agentDefaults := parseSchemaDefaults(agentSchemaJSON)
 
 	DefaultAgentLimits = AgentLimits{
-		MaxToolRounds:         schemaInt(agentDefaults, "maxToolRounds"),
-		CompressionThreshold:  schemaFloat64(agentDefaults, "compressionThreshold"),
-		MinKeepMessages:       schemaInt(agentDefaults, "minKeepMessages"),
-		MaxToolResultChars:    schemaInt(agentDefaults, "maxToolResultChars"),
-		MaxWorkspaceFileChars: schemaInt(agentDefaults, "maxWorkspaceFileChars"),
+		MaxToolRounds:         schemaInt(configDefaults, "models.defaultLimits.maxToolRounds"),
+		CompressionThreshold:  schemaFloat64(configDefaults, "models.defaultLimits.compressionThreshold"),
+		MinKeepMessages:       schemaInt(configDefaults, "models.defaultLimits.minKeepMessages"),
+		MaxToolResultChars:    schemaInt(configDefaults, "models.defaultLimits.maxToolResultChars"),
+		MaxWorkspaceFileChars: schemaInt(configDefaults, "models.defaultLimits.maxWorkspaceFileChars"),
 	}
 
 	DefaultSummarizerConfig = SummarizerConfig{
@@ -137,11 +137,6 @@ type AgentConfig struct {
 	Skills                []string `json:"skills,omitempty" yaml:"skills,omitempty"`                               // skill allow list (nil = all)
 	Tools                 []string `json:"tools,omitempty" yaml:"tools,omitempty"`                                 // tool allow list (nil = all)
 	CanMessage            []string `json:"canMessage,omitempty" yaml:"canMessage,omitempty"`                       // agent IDs this agent can talk to; "*" = all
-	MaxToolRounds         int      `json:"maxToolRounds,omitempty" yaml:"maxToolRounds,omitempty"`                 // max tool-call loop iterations
-	CompressionThreshold  float64  `json:"compressionThreshold,omitempty" yaml:"compressionThreshold,omitempty"`   // context compression ratio (0-1)
-	MinKeepMessages       int      `json:"minKeepMessages,omitempty" yaml:"minKeepMessages,omitempty"`             // min recent messages to preserve
-	MaxToolResultChars    int      `json:"maxToolResultChars,omitempty" yaml:"maxToolResultChars,omitempty"`       // max chars per old tool result
-	MaxWorkspaceFileChars int      `json:"maxWorkspaceFileChars,omitempty" yaml:"maxWorkspaceFileChars,omitempty"` // max chars per workspace file in prompt
 }
 
 // AgentLimits holds resolved runtime limits for an agent.
@@ -154,29 +149,27 @@ type AgentLimits struct {
 }
 
 // DefaultAgentLimits contains the default values for all agent limits.
-// Populated from agent_schema.json at init time.
+// Populated from schema.json at init time (models.defaultLimits).
 var DefaultAgentLimits AgentLimits
 
-// ResolveLimits returns an AgentLimits with per-agent overrides applied on top
-// of the defaults. Zero-value fields fall back to DefaultAgentLimits.
-func (self *AgentConfig) ResolveLimits() AgentLimits {
-	limits := DefaultAgentLimits
-	if self.MaxToolRounds > 0 {
-		limits.MaxToolRounds = self.MaxToolRounds
+func mergeLimits(base, overrides AgentLimits) AgentLimits {
+	merged := base
+	if overrides.MaxToolRounds > 0 {
+		merged.MaxToolRounds = overrides.MaxToolRounds
 	}
-	if self.CompressionThreshold > 0 {
-		limits.CompressionThreshold = self.CompressionThreshold
+	if overrides.CompressionThreshold > 0 {
+		merged.CompressionThreshold = overrides.CompressionThreshold
 	}
-	if self.MinKeepMessages > 0 {
-		limits.MinKeepMessages = self.MinKeepMessages
+	if overrides.MinKeepMessages > 0 {
+		merged.MinKeepMessages = overrides.MinKeepMessages
 	}
-	if self.MaxToolResultChars > 0 {
-		limits.MaxToolResultChars = self.MaxToolResultChars
+	if overrides.MaxToolResultChars > 0 {
+		merged.MaxToolResultChars = overrides.MaxToolResultChars
 	}
-	if self.MaxWorkspaceFileChars > 0 {
-		limits.MaxWorkspaceFileChars = self.MaxWorkspaceFileChars
+	if overrides.MaxWorkspaceFileChars > 0 {
+		merged.MaxWorkspaceFileChars = overrides.MaxWorkspaceFileChars
 	}
-	return limits
+	return merged
 }
 
 // SummarizerConfig controls the background session summarizer behavior.
@@ -351,10 +344,12 @@ type ProviderConfig struct {
 }
 
 type ModelsConfig struct {
-	Default         string           `json:"default,omitempty" yaml:"default,omitempty"`
-	SummarizerModel string           `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
-	ContextWindow   int              `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; default 128000
-	Providers       []ProviderConfig `json:"providers,omitempty" yaml:"providers,omitempty"`
+	Default         string                 `json:"default,omitempty" yaml:"default,omitempty"`
+	SummarizerModel string                 `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
+	ContextWindow   int                    `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; default 128000
+	DefaultLimits   AgentLimits            `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`     // default runtime limits applied to all models
+	Limits          map[string]AgentLimits `json:"limits,omitempty" yaml:"limits,omitempty"`                   // per-model runtime limits keyed by model name
+	Providers       []ProviderConfig       `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
 
 // ResolvedProviders returns the providers list. If the Providers field is
@@ -408,6 +403,35 @@ func (self *Config) AgentModel(agentId string) string {
 		return agentConfig.Model
 	}
 	return self.Models.Default
+}
+
+func (self *ModelsConfig) modelLimits(model string) (AgentLimits, bool) {
+	if len(self.Limits) == 0 || model == "" {
+		return AgentLimits{}, false
+	}
+	if limits, ok := self.Limits[model]; ok {
+		return limits, true
+	}
+	defaultProvider := self.DefaultProviderName()
+	providerName, bareModel := providers.ParseQualifiedModel(model, defaultProvider)
+	qualifiedModel := providers.QualifyModel(providerName, bareModel)
+	if limits, ok := self.Limits[qualifiedModel]; ok {
+		return limits, true
+	}
+	if limits, ok := self.Limits[bareModel]; ok {
+		return limits, true
+	}
+	return AgentLimits{}, false
+}
+
+// ResolveModelLimits returns runtime limits for a model.
+// Merge order: built-in defaults -> models.defaultLimits -> models.limits[model].
+func (self *Config) ResolveModelLimits(model string) AgentLimits {
+	limits := mergeLimits(DefaultAgentLimits, self.Models.DefaultLimits)
+	if modelLimits, ok := self.Models.modelLimits(model); ok {
+		limits = mergeLimits(limits, modelLimits)
+	}
+	return limits
 }
 
 // ResolveDefaultAgent returns the effective default agent ID.
@@ -762,6 +786,7 @@ func defaults() *Config {
 		Models: ModelsConfig{
 			Default:       "openai:gpt-5.1",
 			ContextWindow: schemaInt(configDefaults, "models.contextWindow"),
+			DefaultLimits: DefaultAgentLimits,
 		},
 	}
 }
@@ -790,6 +815,7 @@ func applyDefaults(configuration *Config) {
 	if configuration.Models.ContextWindow <= 0 {
 		configuration.Models.ContextWindow = fallback.Models.ContextWindow
 	}
+	configuration.Models.DefaultLimits = mergeLimits(fallback.Models.DefaultLimits, configuration.Models.DefaultLimits)
 }
 
 func applyEnv(configuration *Config) {

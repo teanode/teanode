@@ -294,22 +294,27 @@ func (self *codexTool) executeListSessions() (string, error) {
 }
 
 func (self *codexTool) buildArguments(prompt, sessionID, systemPrompt string) []string {
-	arguments := []string{"-p", prompt, "--output-format", "json"}
-
-	if sessionID != "" {
-		arguments = append(arguments, "--resume", sessionID)
+	if systemPrompt != "" {
+		prompt = fmt.Sprintf("Additional system instructions:\n%s\n\nUser request:\n%s", systemPrompt, prompt)
 	}
+
+	arguments := []string{"exec"}
+	if sessionID != "" {
+		arguments = append(arguments, "resume")
+	}
+
+	arguments = append(arguments, "--json", "--skip-git-repo-check")
+
 	if self.model != "" {
 		arguments = append(arguments, "--model", self.model)
 	}
-	arguments = append(arguments, "--allowedTools")
-	arguments = append(arguments, self.allowedTools...)
 	if len(self.extraArgs) > 0 {
 		arguments = append(arguments, self.extraArgs...)
 	}
-	if systemPrompt != "" {
-		arguments = append(arguments, "--append-system-prompt", systemPrompt)
+	if sessionID != "" {
+		arguments = append(arguments, sessionID)
 	}
+	arguments = append(arguments, prompt)
 
 	return arguments
 }
@@ -352,7 +357,7 @@ func (self *codexTool) executeCommand(ctx context.Context, commandArguments []st
 	return self.parseOutput(stdout, stderr, exitCode, duration, timedOut)
 }
 
-// codexOutput represents the JSON output from `codex -p --output-format json`.
+// codexOutput represents the JSON output from `codex -p`.
 type codexOutput struct {
 	Result          string  `json:"result"`
 	SessionID       string  `json:"session_id"`

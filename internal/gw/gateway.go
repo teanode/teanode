@@ -435,6 +435,10 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 // buildMergedCallbacks creates RunCallbacks that both broadcast events (using the
 // "conversation" event name consistently) and call the caller's optional callbacks.
 func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string, callerCallbacks *agents.RunCallbacks) *agents.RunCallbacks {
+	// Notify summarizer on first text delta so untitled conversations get a title
+	// while tool-call loops are still running.
+	var notifyOnce sync.Once
+
 	return &agents.RunCallbacks{
 		OnQueued: func() {
 			self.Broadcast(EventTypeConversation, map[string]interface{}{
@@ -460,6 +464,9 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string,
 				"agentId":        agentId,
 				"text":           text,
 			})
+			if self.summarizer != nil {
+				notifyOnce.Do(func() { self.summarizer.Notify() })
+			}
 			if callerCallbacks != nil && callerCallbacks.OnTextDelta != nil {
 				callerCallbacks.OnTextDelta(text)
 			}

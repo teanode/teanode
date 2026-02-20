@@ -279,11 +279,6 @@ export interface AgentConfig {
   skills?: string[];
   tools?: string[];
   canMessage?: string[];
-  maxToolRounds?: number;
-  compressionThreshold?: number;
-  minKeepMessages?: number;
-  maxToolResultChars?: number;
-  maxWorkspaceFileChars?: number;
 }
 
 // Agent config RPC types
