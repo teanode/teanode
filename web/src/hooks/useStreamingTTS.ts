@@ -1,5 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
+/**
+ * @deprecated Replaced by server-driven voice sessions. Retained for legacy paths/tests.
+ */
 interface QueueItem {
   text: string;
   audioBuffer?: AudioBuffer;
