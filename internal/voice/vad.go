@@ -19,6 +19,13 @@ type VADState struct {
 	redemptionCount int
 }
 
+// Reset clears all transient VAD counters.
+func (v *VADState) Reset() {
+	v.IsSpeaking = false
+	v.speechFrames = 0
+	v.redemptionCount = 0
+}
+
 // ProcessFrame processes one s16le frame and returns (started, ended, rms).
 func (v *VADState) ProcessFrame(pcm []byte) (bool, bool, float64) {
 	rms := rmsS16LE(pcm)
@@ -38,6 +45,7 @@ func (v *VADState) ProcessFrame(pcm []byte) (bool, bool, float64) {
 		}
 		return started, ended, rms
 	}
+	v.speechFrames = 0
 
 	if rms < vadNegativeThreshold {
 		v.redemptionCount++
