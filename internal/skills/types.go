@@ -8,6 +8,7 @@ type SkillDefinition struct {
 	HTTPAuth          map[string]HTTPAuthProfile `json:"httpAuth,omitempty" yaml:"httpAuth,omitempty"`
 	Prompt            string                     `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	Tools             []ToolDefinition           `json:"tools" yaml:"tools"`
+	IsLocal           bool                       `json:"-" yaml:"-"`
 }
 
 type HTTPAuthProfile struct {

@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -90,6 +91,7 @@ func LoadAll(skillsDirectory string) ([]SkillDefinition, error) {
 		if !ok {
 			continue
 		}
+		skill.IsLocal = true
 		localNames[skill.Name] = true
 		skills = append(skills, skill)
 	}
@@ -103,10 +105,18 @@ func LoadAll(skillsDirectory string) ([]SkillDefinition, error) {
 		if filepath.Base(path) != "skill.md" {
 			return nil
 		}
+		enabled, manifestErr := loadInstalledSkillEnabled(filepath.Dir(path))
+		if manifestErr != nil {
+			log.Warningf("failed to read installed skill manifest for %s: %v", path, manifestErr)
+		}
+		if !enabled {
+			return nil
+		}
 		skill, ok := loadFile(path, path)
 		if !ok {
 			return nil
 		}
+		skill.IsLocal = false
 		if localNames[skill.Name] {
 			return nil
 		}
@@ -124,6 +134,26 @@ func LoadAll(skillsDirectory string) ([]SkillDefinition, error) {
 	}
 
 	return skills, nil
+}
+
+func loadInstalledSkillEnabled(versionDirectory string) (bool, error) {
+	manifestPath := filepath.Join(versionDirectory, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return true, err
+	}
+
+	var manifest installManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return true, err
+	}
+	if manifest.Enabled == nil {
+		return true, nil
+	}
+	return *manifest.Enabled, nil
 }
 
 type installedSkill struct {

@@ -49,6 +49,7 @@ type InstalledSkill struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Version     string `json:"version"`
+	Enabled     bool   `json:"enabled"`
 	SourceID    string `json:"sourceId,omitempty"`
 	Publisher   string `json:"publisher,omitempty"`
 	InstalledAt int64  `json:"installedAt,omitempty"`
@@ -58,6 +59,7 @@ type installManifest struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Version     string `json:"version"`
+	Enabled     *bool  `json:"enabled,omitempty"`
 	SourceID    string `json:"sourceId"`
 	Publisher   string `json:"publisher"`
 	Digest      string `json:"digest"`
@@ -267,6 +269,7 @@ func Install(ctx context.Context, registries []configs.SkillsRegistry, sourceId 
 		Name:        entry.Name,
 		Description: entry.Description,
 		Version:     entry.Version,
+		Enabled:     boolPointer(true),
 		SourceID:    source.ID,
 		Publisher:   publisher,
 		Digest:      digest,
@@ -281,6 +284,7 @@ func Install(ctx context.Context, registries []configs.SkillsRegistry, sourceId 
 		Name:        entry.Name,
 		Description: entry.Description,
 		Version:     entry.Version,
+		Enabled:     true,
 		SourceID:    source.ID,
 		Publisher:   publisher,
 		InstalledAt: manifest.InstalledAt,
@@ -333,11 +337,14 @@ func ListInstalled() ([]InstalledSkill, error) {
 			continue
 		}
 
-		record := InstalledSkill{Name: skillEntry.Name(), Version: bestVersion}
+		record := InstalledSkill{Name: skillEntry.Name(), Version: bestVersion, Enabled: true}
 		if data, err := os.ReadFile(bestPath); err == nil {
 			var manifest installManifest
 			if json.Unmarshal(data, &manifest) == nil {
 				record.Description = manifest.Description
+				if manifest.Enabled != nil {
+					record.Enabled = *manifest.Enabled
+				}
 				record.SourceID = manifest.SourceID
 				record.Publisher = manifest.Publisher
 				record.InstalledAt = manifest.InstalledAt
@@ -346,6 +353,58 @@ func ListInstalled() ([]InstalledSkill, error) {
 		installed = append(installed, record)
 	}
 	return installed, nil
+}
+
+func SetInstalledSkillEnabled(name string, enabled bool) error {
+	skillsDirectory, err := configs.SkillsDirectory()
+	if err != nil {
+		return err
+	}
+	if !isSafePathSegment(name) {
+		return fmt.Errorf("invalid skill name")
+	}
+	skillPath, err := resolveInstalledSkillPath(skillsDirectory, name)
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(skillPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("skill not installed: %s", name)
+		}
+		return err
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() || !isSafePathSegment(entry.Name()) {
+			continue
+		}
+		manifestPath := filepath.Join(skillPath, entry.Name(), "manifest.json")
+
+		var manifest installManifest
+		if data, readErr := os.ReadFile(manifestPath); readErr == nil {
+			if unmarshalErr := json.Unmarshal(data, &manifest); unmarshalErr != nil {
+				return fmt.Errorf("parsing manifest %s: %w", manifestPath, unmarshalErr)
+			}
+		} else if !os.IsNotExist(readErr) {
+			return readErr
+		}
+		if manifest.Name == "" {
+			manifest.Name = name
+		}
+		if manifest.Version == "" {
+			manifest.Version = entry.Name()
+		}
+
+		manifest.Enabled = boolPointer(enabled)
+		manifestBytes, _ := json.MarshalIndent(manifest, "", "  ")
+		if err := writeInstalledFile(filepath.Join(skillPath, entry.Name()), "manifest.json", manifestBytes); err != nil {
+			return err
+		}
+	}
+
+	notifyInstalledSkillsChanged(skillsDirectory)
+	return nil
 }
 
 func Uninstall(name string) error {
@@ -563,4 +622,8 @@ func notifyInstalledSkillsChanged(skillsDirectory string) {
 	}
 	// Touch a marker file so filesystem watchers pick up installs/updates/removals immediately.
 	_ = os.WriteFile(filepath.Join(root, ".reload"), []byte(strconv.FormatInt(time.Now().UnixMilli(), 10)), 0644)
+}
+
+func boolPointer(value bool) *bool {
+	return &value
 }

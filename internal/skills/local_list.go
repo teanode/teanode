@@ -32,6 +32,7 @@ func ListLocal(skillsDirectory string) ([]SkillDefinition, error) {
 		if err != nil {
 			continue
 		}
+		definition.IsLocal = true
 		definition.Prompt = strings.TrimSpace(body)
 		if definition.Name == "" {
 			continue

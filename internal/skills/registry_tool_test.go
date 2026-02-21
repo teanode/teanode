@@ -168,3 +168,63 @@ func TestExecuteInstallCallsSkillsChangedCallback(t *testing.T) {
 		t.Fatalf("callback calls = %d, want 1", got)
 	}
 }
+
+func TestExecuteEnableDisableActions(t *testing.T) {
+	directory := t.TempDir()
+	configs.SetDirectory(directory)
+	t.Cleanup(func() { configs.SetDirectory("") })
+
+	installDirectory := filepath.Join(directory, "skills", ".installed", "demo", "1.0.0")
+	if err := os.MkdirAll(installDirectory, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	manifest := installManifest{
+		Name:    "demo",
+		Version: "1.0.0",
+	}
+	manifestBytes, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(installDirectory, "manifest.json"), manifestBytes, 0644); err != nil {
+		t.Fatalf("manifest write: %v", err)
+	}
+
+	var callbackCalls int32
+	tool := &skillsTool{
+		onSkillsChanged: func() {
+			atomic.AddInt32(&callbackCalls, 1)
+		},
+	}
+
+	disabledRaw, err := tool.Execute(context.Background(), `{"action":"disable","name":"demo"}`)
+	if err != nil {
+		t.Fatalf("disable failed: %v", err)
+	}
+	var disabledPayload map[string]interface{}
+	if err := json.Unmarshal([]byte(disabledRaw), &disabledPayload); err != nil {
+		t.Fatalf("invalid disable payload: %v", err)
+	}
+	if disabledPayload["action"] != "set_enabled" {
+		t.Fatalf("action = %v, want set_enabled", disabledPayload["action"])
+	}
+	if disabledPayload["enabled"] != false {
+		t.Fatalf("enabled = %v, want false", disabledPayload["enabled"])
+	}
+
+	enabledRaw, err := tool.Execute(context.Background(), `{"action":"enable","name":"demo"}`)
+	if err != nil {
+		t.Fatalf("enable failed: %v", err)
+	}
+	var enabledPayload map[string]interface{}
+	if err := json.Unmarshal([]byte(enabledRaw), &enabledPayload); err != nil {
+		t.Fatalf("invalid enable payload: %v", err)
+	}
+	if enabledPayload["action"] != "set_enabled" {
+		t.Fatalf("action = %v, want set_enabled", enabledPayload["action"])
+	}
+	if enabledPayload["enabled"] != true {
+		t.Fatalf("enabled = %v, want true", enabledPayload["enabled"])
+	}
+
+	if got := atomic.LoadInt32(&callbackCalls); got != 2 {
+		t.Fatalf("callback calls = %d, want 2", got)
+	}
+}

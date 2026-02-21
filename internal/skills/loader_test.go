@@ -1,9 +1,12 @@
 package skills
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/teanode/teanode/internal/agents"
 )
 
 func TestLoadAllNonExistentDirectory(t *testing.T) {
@@ -460,6 +463,48 @@ installed prompt
 	}
 }
 
+func TestLoadAllSkipsDisabledInstalledSkills(t *testing.T) {
+	directory := t.TempDir()
+
+	local := `---
+name: local
+tools:
+  - name: local_tool
+    description: local
+    type: shell
+    command: ["echo", "local"]
+---`
+	installed := `---
+name: weather
+tools:
+  - name: get_weather
+    description: weather
+    type: shell
+    command: ["echo", "weather"]
+---
+weather prompt
+`
+
+	_ = os.WriteFile(filepath.Join(directory, "local.md"), []byte(local), 0644)
+	installedDirectory := filepath.Join(directory, ".installed", "weather", "1.0.0")
+	_ = os.MkdirAll(installedDirectory, 0755)
+	_ = os.WriteFile(filepath.Join(installedDirectory, "skill.md"), []byte(installed), 0644)
+	manifest := installManifest{Name: "weather", Version: "1.0.0", Enabled: boolPointer(false)}
+	manifestBytes, _ := json.Marshal(manifest)
+	_ = os.WriteFile(filepath.Join(installedDirectory, "manifest.json"), manifestBytes, 0644)
+
+	skills, err := LoadAll(directory)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected only local skill when installed one is disabled, got %d", len(skills))
+	}
+	if skills[0].Name != "local" {
+		t.Fatalf("expected local skill, got %q", skills[0].Name)
+	}
+}
+
 func TestValidateTool(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -578,5 +623,25 @@ func TestValidateTool(t *testing.T) {
 				t.Errorf("validateTool() error = %v, wantErr = %v", err, testCase.wantErr)
 			}
 		})
+	}
+}
+
+func TestLoadAllLocalSkillEnabledFrontmatterIgnoredByRegister(t *testing.T) {
+	directory := t.TempDir()
+	localDisabled := `---
+name: local-disabled
+enabled: false
+tools:
+  - name: local_disabled_tool
+    description: disabled
+    type: shell
+    command: ["echo", "disabled"]
+---`
+	_ = os.WriteFile(filepath.Join(directory, "local-disabled.md"), []byte(localDisabled), 0644)
+
+	registry := agents.NewToolRegistry()
+	RegisterSkillsFiltered(registry, directory, nil)
+	if registry.Get("local_disabled_tool") == nil {
+		t.Fatal("local skill tool should be registered even when enabled: false is present")
 	}
 }

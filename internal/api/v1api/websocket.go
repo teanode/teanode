@@ -143,6 +143,8 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleSkillsUninstall(frame)
 	case "skills.update":
 		self.handleSkillsUpdate(frame)
+	case "skills.setEnabled":
+		self.handleSkillsSetEnabled(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

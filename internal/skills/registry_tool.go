@@ -30,13 +30,13 @@ func (self *skillsTool) Definition() providers.ToolDefinition {
 			Description: "Browse and manage installable skills. Actions: list_registry (list configured registry sources), " +
 				"search (search online registry), install (install skill from registry), " +
 				"list_installed (list currently installed skills), update (update installed skills), " +
-				"uninstall (remove installed skill).",
+				"uninstall (remove installed skill), enable (enable an installed skill), disable (disable an installed skill).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"list_registry", "search", "install", "list_installed", "update", "uninstall"},
+						"enum":        []string{"list_registry", "search", "install", "list_installed", "update", "uninstall", "enable", "disable"},
 						"description": "The skills action to perform.",
 					},
 					"query": map[string]interface{}{
@@ -91,6 +91,10 @@ func (self *skillsTool) Execute(ctx context.Context, rawArguments string) (strin
 		return self.executeUpdate(ctx, arguments.Name)
 	case "uninstall":
 		return self.executeUninstall(arguments.Name)
+	case "enable":
+		return self.executeSetEnabled(arguments.Name, true)
+	case "disable":
+		return self.executeSetEnabled(arguments.Name, false)
 	default:
 		return "", fmt.Errorf("unknown skills action: %s", arguments.Action)
 	}
@@ -180,6 +184,38 @@ func (self *skillsTool) executeUninstall(name string) (string, error) {
 		"action":      "uninstall",
 		"uninstalled": true,
 		"name":        name,
+	})
+	if self.onSkillsChanged != nil {
+		self.onSkillsChanged()
+	}
+	return string(output), nil
+}
+
+func (self *skillsTool) executeSetEnabled(name string, enabled bool) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("name is required for enable/disable action")
+	}
+	if err := SetInstalledSkillEnabled(name, enabled); err != nil {
+		return "", fmt.Errorf("setting installed skill enabled state: %w", err)
+	}
+	items, err := ListInstalled()
+	if err != nil {
+		return "", fmt.Errorf("listing installed skills: %w", err)
+	}
+	var selected *InstalledSkill
+	for index := range items {
+		if items[index].Name == name {
+			skill := items[index]
+			selected = &skill
+			break
+		}
+	}
+	output, _ := json.Marshal(map[string]interface{}{
+		"action":  "set_enabled",
+		"name":    name,
+		"enabled": enabled,
+		"skill":   selected,
+		"skills":  items,
 	})
 	if self.onSkillsChanged != nil {
 		self.onSkillsChanged()

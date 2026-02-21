@@ -1126,6 +1126,41 @@ func (self *webSocketConnection) handleSkillsUninstall(frame requestFrame) {
 	}
 }
 
+type skillsSetEnabledParameters struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
+func (self *webSocketConnection) handleSkillsSetEnabled(frame requestFrame) {
+	var parameters skillsSetEnabledParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.Name == "" {
+		self.sendError(frame.ID, 400, "name is required")
+		return
+	}
+	if err := skills.SetInstalledSkillEnabled(parameters.Name, parameters.Enabled); err != nil {
+		self.sendError(frame.ID, 500, "set enabled failed: "+err.Error())
+		return
+	}
+	installed, err := skills.ListInstalled()
+	if err != nil {
+		self.sendError(frame.ID, 500, "listing installed skills: "+err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"ok":      true,
+		"name":    parameters.Name,
+		"enabled": parameters.Enabled,
+		"skills":  installed,
+	})
+	if self.api.onSkillsChanged != nil {
+		self.api.onSkillsChanged()
+	}
+}
+
 type skillsUpdateParameters struct {
 	Name string `json:"name,omitempty"`
 }

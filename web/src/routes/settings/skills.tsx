@@ -10,10 +10,12 @@ import ListSubheader from "@mui/material/ListSubheader";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import CircularProgress from "@mui/material/CircularProgress";
+import Switch from "@mui/material/Switch";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import UpdateIcon from "@mui/icons-material/Update";
 import CheckIcon from "@mui/icons-material/Check";
 import { useAppContext } from "../../context";
+import { setInstalledSkillEnabled } from "./skills.helpers";
 
 interface LocalSkill {
   name: string;
@@ -25,6 +27,7 @@ interface InstalledSkill {
   name: string;
   description?: string;
   version: string;
+  enabled?: boolean;
   sourceId?: string;
   publisher?: string;
   installedAt?: number;
@@ -95,6 +98,35 @@ export default function SettingsSkillsPage() {
       } catch (error) {
         console.error("skills.uninstall:", error);
         setStatusText(t("settings.skillUninstallFailed", { name }));
+      } finally {
+        setBusySkillName(null);
+      }
+    },
+    [backend, loadSkills, t],
+  );
+
+  const toggleSkillEnabled = useCallback(
+    async (name: string, enabled: boolean) => {
+      setBusySkillName(name);
+      setStatusText("");
+      try {
+        await setInstalledSkillEnabled(backend, name, enabled);
+        setStatusText(
+          t(enabled ? "settings.skillEnabled" : "settings.skillDisabled", {
+            name,
+          }),
+        );
+        await loadSkills();
+      } catch (error) {
+        console.error("skills.setEnabled:", error);
+        setStatusText(
+          t(
+            enabled
+              ? "settings.skillEnableFailed"
+              : "settings.skillDisableFailed",
+            { name },
+          ),
+        );
       } finally {
         setBusySkillName(null);
       }
@@ -245,6 +277,25 @@ export default function SettingsSkillsPage() {
                       <Box
                         sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
                       >
+                        <Tooltip
+                          title={`${t("settings.skillEnabledToggle")}: ${t(
+                            (skill.enabled ?? true)
+                              ? "settings.skillEnabled"
+                              : "settings.skillDisabled",
+                            { name: skill.name },
+                          )}`}
+                        >
+                          <span>
+                            <Switch
+                              size="small"
+                              checked={skill.enabled ?? true}
+                              onChange={(_, checked) =>
+                                void toggleSkillEnabled(skill.name, checked)
+                              }
+                              disabled={busySkillName !== null}
+                            />
+                          </span>
+                        </Tooltip>
                         <Tooltip title={t("settings.checkUpdate")}>
                           <span>
                             <IconButton
