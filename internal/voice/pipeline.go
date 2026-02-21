@@ -17,6 +17,8 @@ const (
 	bargeInTriggerMinScore = 0.06
 )
 
+const voiceCallPromptSuffix = "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists."
+
 func (s *Session) audioInputLoop() {
 	vad := &VADState{}
 	var speechBuf []byte
@@ -37,7 +39,7 @@ func (s *Session) audioInputLoop() {
 					VADScore:    score,
 					AudioSeqRef: s.inSeq.Load(),
 				})
-				if s.Features.BargeIn && score >= bargeInTriggerMinScore && s.GetCurrentResponseID() != "" {
+				if s.Features.BargeIn && score >= bargeInTriggerMinScore && (s.GetCurrentRunID() != "" || s.GetCurrentResponseID() != "") {
 					s.triggerBargeIn()
 				}
 			}
@@ -59,6 +61,11 @@ func (s *Session) audioInputLoop() {
 				speechBuf = speechBuf[:0]
 				if len(captured) < minCommittedTurnBytes {
 					pipelineLog.Infof("voice turn ignored (too short): session=%s turn=%s bytes=%d", s.ID, turnID, len(captured))
+					s.sendVoiceEvent("turn.event", turnEventPayload{
+						TurnID: turnID,
+						Event:  "turn_dropped",
+						Reason: "dropped_too_short_audio",
+					})
 					continue
 				}
 				if !s.TryStartTurnTranscription(turnID) {
@@ -136,6 +143,7 @@ func (s *Session) llmEventForwarder() {
 				s.ClearCurrentRun()
 				streamText = ""
 				sentencesEnqueued = 0
+				s.commitNextPendingTurn()
 			}
 		}
 	}
@@ -242,29 +250,44 @@ func (s *Session) transcribeAndSend(turnID string, captured []byte) {
 	text := strings.TrimSpace(result.Text)
 	if text == "" {
 		pipelineLog.Infof("voice transcript ignored (empty): session=%s turn=%s", s.ID, turnID)
+		s.sendVoiceEvent("turn.event", turnEventPayload{
+			TurnID: turnID,
+			Event:  "turn_dropped",
+			Reason: "dropped_empty_transcript",
+		})
 		return
 	}
 	if len([]rune(text)) < minCommittedTextRunes {
 		pipelineLog.Infof("voice transcript ignored (too short): session=%s turn=%s text=%q", s.ID, turnID, text)
+		s.sendVoiceEvent("turn.event", turnEventPayload{
+			TurnID: turnID,
+			Event:  "turn_dropped",
+			Reason: "dropped_too_short_text",
+		})
 		return
 	}
 	if s.GetCurrentRunID() != "" {
-		pipelineLog.Infof("voice transcript ignored (run in flight): session=%s turn=%s run=%s", s.ID, turnID, s.GetCurrentRunID())
+		s.enqueueTranscriptTurn(turnID, text)
 		return
 	}
 	if s.IsTurnCommitted(turnID) {
 		pipelineLog.Infof("voice transcript ignored (already committed): session=%s turn=%s", s.ID, turnID)
 		return
 	}
+	s.commitVoiceTurn(turnID, text)
+}
+
+func (s *Session) commitVoiceTurn(turnID, text string) {
 	pipelineLog.Infof("voice transcript.final: session=%s turn=%s text_len=%d", s.ID, turnID, len(text))
 	s.sendVoiceEvent("transcript.final", map[string]interface{}{
 		"turn_id": turnID,
 		"text":    text,
 	})
 	run := s.deps.SendMessage(context.Background(), VoiceSendMessageParams{
-		AgentID:        s.AgentID,
-		ConversationID: s.ConversationID,
-		Message:        text,
+		AgentID:            s.AgentID,
+		ConversationID:     s.ConversationID,
+		Message:            text,
+		SystemPromptSuffix: voiceCallPromptSuffix,
 	})
 	s.MarkTurnCommitted(turnID)
 	s.SetCurrentRunID(run.RunID)
@@ -273,6 +296,41 @@ func (s *Session) transcribeAndSend(turnID string, captured []byte) {
 		TurnID: turnID,
 		Event:  "turn_committed",
 	})
+}
+
+func (s *Session) enqueueTranscriptTurn(turnID, text string) {
+	dropped, depth := s.EnqueuePendingTurn(turnID, text)
+	if dropped != nil {
+		pipelineLog.Infof("voice turn dropped (queue overflow): session=%s dropped_turn=%s", s.ID, dropped.TurnID)
+		s.sendVoiceEvent("turn.event", turnEventPayload{
+			TurnID:     dropped.TurnID,
+			Event:      "turn_dropped",
+			Reason:     "dropped_queue_overflow",
+			QueueDepth: depth,
+		})
+	}
+	pipelineLog.Infof("voice turn queued (run active): session=%s turn=%s run=%s depth=%d", s.ID, turnID, s.GetCurrentRunID(), depth)
+	s.sendVoiceEvent("turn.event", turnEventPayload{
+		TurnID:     turnID,
+		Event:      "turn_queued",
+		Reason:     "queued_run_active",
+		QueueDepth: depth,
+	})
+}
+
+func (s *Session) commitNextPendingTurn() {
+	if s.GetCurrentRunID() != "" {
+		return
+	}
+	next, ok := s.DequeuePendingTurn()
+	if !ok {
+		return
+	}
+	if next.Text == "" || next.TurnID == "" || s.IsTurnCommitted(next.TurnID) {
+		return
+	}
+	pipelineLog.Infof("voice queued turn draining: session=%s turn=%s", s.ID, next.TurnID)
+	s.commitVoiceTurn(next.TurnID, next.Text)
 }
 
 func (s *Session) triggerBargeIn() {

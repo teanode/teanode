@@ -28,8 +28,16 @@ type Features struct {
 type turnEventPayload struct {
 	TurnID      string  `json:"turn_id,omitempty"`
 	Event       string  `json:"event"`
+	Reason      string  `json:"reason,omitempty"`
+	QueueDepth  int     `json:"queue_depth,omitempty"`
 	VADScore    float64 `json:"vad_score,omitempty"`
 	AudioSeqRef uint64  `json:"audio_seq_ref,omitempty"`
+}
+
+type PendingTurn struct {
+	TurnID    string
+	Text      string
+	CreatedAt time.Time
 }
 
 // Session owns the lifecycle and concurrency state for one voice connection.
@@ -57,6 +65,8 @@ type Session struct {
 	ttsCancel          func()
 	transcribeInFlight map[string]struct{}
 	committedTurns     map[string]struct{}
+	pendingTurns       []PendingTurn
+	maxPendingTurns    int
 
 	outSeq atomic.Uint64
 	inSeq  atomic.Uint64
@@ -71,6 +81,7 @@ const (
 	defaultAudioInBufferFrames  = 64
 	defaultTTSSentenceBuffer    = 32
 	defaultAudioOutBufferFrames = 128
+	defaultMaxPendingTurns      = 3
 )
 
 // NewSession creates a session with default channel capacities.
@@ -87,6 +98,7 @@ func NewSession(id, conversationID, agentID string, in, out AudioFormat, feature
 		sendBinaryFn:       sendBinary,
 		transcribeInFlight: make(map[string]struct{}),
 		committedTurns:     make(map[string]struct{}),
+		maxPendingTurns:    defaultMaxPendingTurns,
 		audioInCh:          make(chan []byte, defaultAudioInBufferFrames),
 		ttsInCh:            make(chan string, defaultTTSSentenceBuffer),
 		audioOutCh:         make(chan []byte, defaultAudioOutBufferFrames),
@@ -296,4 +308,56 @@ func (s *Session) MarkTurnCommitted(turnID string) {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 	s.committedTurns[turnID] = struct{}{}
+}
+
+func (s *Session) EnqueuePendingTurn(turnID, text string) (dropped *PendingTurn, queueDepth int) {
+	if turnID == "" || text == "" {
+		return nil, 0
+	}
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+
+	maxPending := s.maxPendingTurns
+	if maxPending <= 0 {
+		maxPending = defaultMaxPendingTurns
+	}
+	if len(s.pendingTurns) >= maxPending {
+		oldest := s.pendingTurns[0]
+		s.pendingTurns = s.pendingTurns[1:]
+		dropped = &oldest
+	}
+	s.pendingTurns = append(s.pendingTurns, PendingTurn{
+		TurnID:    turnID,
+		Text:      text,
+		CreatedAt: time.Now(),
+	})
+	return dropped, len(s.pendingTurns)
+}
+
+func (s *Session) DequeuePendingTurn() (PendingTurn, bool) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if len(s.pendingTurns) == 0 {
+		return PendingTurn{}, false
+	}
+	next := s.pendingTurns[0]
+	s.pendingTurns = s.pendingTurns[1:]
+	return next, true
+}
+
+func (s *Session) HasPendingTurns() bool {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return len(s.pendingTurns) > 0
+}
+
+func (s *Session) DropOldestPendingTurn(_ string) (PendingTurn, bool) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if len(s.pendingTurns) == 0 {
+		return PendingTurn{}, false
+	}
+	dropped := s.pendingTurns[0]
+	s.pendingTurns = s.pendingTurns[1:]
+	return dropped, true
 }
