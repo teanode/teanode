@@ -16,6 +16,7 @@ import (
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/sessions"
+	"github.com/teanode/teanode/internal/voice"
 	"github.com/teanode/teanode/internal/web"
 )
 
@@ -124,6 +125,15 @@ type Gateway interface {
 	Subscribe(subscriber Subscriber)
 	Unsubscribe(subscriber Subscriber)
 	Broadcast(eventType EventType, payload interface{})
+
+	// Voice session lifecycle
+	StartVoiceSession(
+		conversationID, agentID string,
+		audioIn, audioOut voice.AudioFormat,
+		features voice.Features,
+		sendJSON func(interface{}),
+		sendBinary func([]byte),
+	) (*voice.Session, error)
 
 	// Session store access
 	SessionStore() *sessions.Store

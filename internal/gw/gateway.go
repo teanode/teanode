@@ -1,8 +1,11 @@
 package gw
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +24,7 @@ import (
 	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/voice"
 	"github.com/teanode/teanode/internal/web"
 	"gopkg.in/yaml.v3"
 )
@@ -46,6 +50,8 @@ type gateway struct {
 
 	subscribersMutex sync.RWMutex
 	subscribers      map[Subscriber]struct{}
+	// map[voice.VoiceSubscriber]*voiceSubscriberBridge
+	voiceSubscriberBridges sync.Map
 
 	activeRunsMutex sync.Mutex
 	activeRuns      map[string]*activeRun // conversationId -> activeRun
@@ -731,4 +737,179 @@ func (self *gateway) ListenAddress() string {
 		host = "0.0.0.0"
 	}
 	return net.JoinHostPort(host, fmt.Sprintf("%d", self.config.Gateway.Port))
+}
+
+// StartVoiceSession creates a voice session bound to this gateway instance.
+func (self *gateway) StartVoiceSession(
+	conversationID, agentID string,
+	audioIn, audioOut voice.AudioFormat,
+	features voice.Features,
+	sendJSON func(interface{}),
+	sendBinary func([]byte),
+) (*voice.Session, error) {
+	if agentID == "" {
+		agentID = self.DefaultAgentID()
+	}
+	if conversationID == "" {
+		conversationID = self.NewConversation(agentID, "")
+	}
+	sessionID := security.NewULID()
+	adapter := &voiceGatewayAdapter{gw: self}
+	return voice.NewSession(sessionID, conversationID, agentID, audioIn, audioOut, features, adapter, sendJSON, sendBinary), nil
+}
+
+type voiceGatewayAdapter struct {
+	gw *gateway
+}
+
+func (v *voiceGatewayAdapter) SendMessage(ctx context.Context, params voice.VoiceSendMessageParams) voice.VoiceRunHandle {
+	handle := v.gw.SendMessage(ctx, SendMessageParameters{
+		AgentID:            params.AgentID,
+		ConversationID:     params.ConversationID,
+		Message:            params.Message,
+		Model:              params.Model,
+		SystemPromptSuffix: params.SystemPromptSuffix,
+		Origin:             "voice",
+	}, nil)
+	if handle == nil {
+		done := make(chan struct{})
+		close(done)
+		return voice.VoiceRunHandle{Done: done}
+	}
+	return voice.VoiceRunHandle{
+		RunID:          handle.RunID,
+		ConversationID: handle.ConversationID,
+		Done:           handle.Done,
+	}
+}
+
+func (v *voiceGatewayAdapter) AbortRun(runID string) bool {
+	return v.gw.AbortRun(runID)
+}
+
+func (v *voiceGatewayAdapter) Subscribe(sub voice.VoiceSubscriber) {
+	bridge := &voiceSubscriberBridge{sub: sub}
+	v.gw.voiceSubscriberBridges.Store(sub, bridge)
+	v.gw.Subscribe(bridge)
+}
+
+func (v *voiceGatewayAdapter) Unsubscribe(sub voice.VoiceSubscriber) {
+	value, ok := v.gw.voiceSubscriberBridges.LoadAndDelete(sub)
+	if !ok {
+		return
+	}
+	bridge, ok := value.(*voiceSubscriberBridge)
+	if !ok {
+		return
+	}
+	v.gw.Unsubscribe(bridge)
+}
+
+func (v *voiceGatewayAdapter) NewConversation(agentID, model string) string {
+	return v.gw.NewConversation(agentID, model)
+}
+
+func (v *voiceGatewayAdapter) DefaultAgentID() string {
+	return v.gw.DefaultAgentID()
+}
+
+func (v *voiceGatewayAdapter) ProviderRegistry() voice.VoiceProviderRegistry {
+	reg := v.gw.ProviderRegistry()
+	if reg == nil {
+		return nil
+	}
+	return &voiceProviderRegistryAdapter{registry: reg}
+}
+
+type voiceSubscriberBridge struct {
+	sub voice.VoiceSubscriber
+}
+
+func (b *voiceSubscriberBridge) OnEvent(et EventType, payload interface{}) {
+	b.sub.OnVoiceEvent(string(et), payload)
+}
+
+type voiceProviderRegistryAdapter struct {
+	registry *providers.Registry
+}
+
+func (a *voiceProviderRegistryAdapter) FindTranscriber() (voice.VoiceTranscriber, string, bool) {
+	transcriber, provider, ok := a.registry.FindTranscriber()
+	if !ok {
+		return nil, "", false
+	}
+	return &voiceTranscriberAdapter{transcriber: transcriber}, provider, true
+}
+
+func (a *voiceProviderRegistryAdapter) FindSynthesizer() (voice.VoiceSynthesizer, string, bool) {
+	synth, provider, ok := a.registry.FindSynthesizer()
+	if !ok {
+		return nil, "", false
+	}
+	return &voiceSynthesizerAdapter{synthesizer: synth}, provider, true
+}
+
+type voiceTranscriberAdapter struct {
+	transcriber providers.AudioTranscriber
+}
+
+func (a *voiceTranscriberAdapter) Transcribe(ctx context.Context, req voice.VoiceTranscribeRequest) (*voice.VoiceTranscribeResponse, error) {
+	result, err := a.transcriber.Transcribe(ctx, providers.TranscribeRequest{
+		Audio:    bytes.NewReader(req.Audio),
+		Format:   req.Format,
+		Language: req.Language,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &voice.VoiceTranscribeResponse{Text: result.Text}, nil
+}
+
+type voiceSynthesizerAdapter struct {
+	synthesizer providers.AudioSynthesizer
+}
+
+func (a *voiceSynthesizerAdapter) SynthesizePCM(ctx context.Context, text, voiceName string, _ int) ([]byte, error) {
+	result, err := a.synthesizer.Synthesize(ctx, providers.SynthesizeRequest{
+		Text:   text,
+		Voice:  voiceName,
+		Format: "wav",
+		Speed:  1.0,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer result.Audio.Close()
+
+	wavData, err := io.ReadAll(result.Audio)
+	if err != nil {
+		return nil, err
+	}
+	return wavToPCM16LE(wavData)
+}
+
+func wavToPCM16LE(wavData []byte) ([]byte, error) {
+	if len(wavData) < 44 {
+		return nil, fmt.Errorf("wav payload too short")
+	}
+	if string(wavData[0:4]) != "RIFF" || string(wavData[8:12]) != "WAVE" {
+		return nil, fmt.Errorf("invalid wav header")
+	}
+	for i := 12; i+8 <= len(wavData); {
+		chunkID := string(wavData[i : i+4])
+		chunkSize := int(binary.LittleEndian.Uint32(wavData[i+4 : i+8]))
+		chunkStart := i + 8
+		chunkEnd := chunkStart + chunkSize
+		if chunkEnd > len(wavData) {
+			return nil, fmt.Errorf("invalid wav chunk size")
+		}
+		if chunkID == "data" {
+			return append([]byte(nil), wavData[chunkStart:chunkEnd]...), nil
+		}
+		i = chunkEnd
+		if i%2 == 1 {
+			i++
+		}
+	}
+	return nil, fmt.Errorf("wav data chunk not found")
 }
