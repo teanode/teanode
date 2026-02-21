@@ -40,6 +40,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Prepare embedded frontend placeholder
+        run: |
+          mkdir -p internal/frontend/static
+          if [ ! -f internal/frontend/static/index.html ]; then
+            echo "<!doctype html><title>placeholder</title>" > internal/frontend/static/index.html
+          fi
+
       - name: Run lint
         run: go vet ./...
 
@@ -56,6 +63,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Prepare embedded frontend placeholder
+        run: |
+          mkdir -p internal/frontend/static
+          if [ ! -f internal/frontend/static/index.html ]; then
+            echo "<!doctype html><title>placeholder</title>" > internal/frontend/static/index.html
+          fi
+
       - name: Build backend
         run: go build ./...
 
@@ -71,6 +85,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Prepare embedded frontend placeholder
+        run: |
+          mkdir -p internal/frontend/static
+          if [ ! -f internal/frontend/static/index.html ]; then
+            echo "<!doctype html><title>placeholder</title>" > internal/frontend/static/index.html
+          fi
 
       - name: Run backend tests
         run: go test ./...
