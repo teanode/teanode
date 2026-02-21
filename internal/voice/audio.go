@@ -12,7 +12,9 @@ func PCMToWAV(pcm []byte, sampleRate, channels int) []byte {
 	}
 
 	const bitsPerSample = 16
-	dataSize := len(pcm)
+	// Keep data chunk aligned to whole int16 samples.
+	dataSize := len(pcm) &^ 1
+	pcm = pcm[:dataSize]
 	blockAlign := channels * bitsPerSample / 8
 	byteRate := sampleRate * blockAlign
 
