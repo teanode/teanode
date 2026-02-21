@@ -16,6 +16,8 @@ const (
 	BinaryHeaderSize = 18
 )
 
+const maxUint48 = uint64(1<<48 - 1)
+
 // BinaryAudioFrame is the canonical websocket binary voice frame.
 type BinaryAudioFrame struct {
 	FrameType   byte
@@ -32,6 +34,9 @@ func ParseBinaryAudioFrame(raw []byte) (*BinaryAudioFrame, error) {
 	if raw[0] != BinaryMagic {
 		return nil, fmt.Errorf("invalid binary frame magic: %x", raw[0])
 	}
+	if raw[1] != FrameTypeAudioIn && raw[1] != FrameTypeAudioOut && raw[1] != FrameTypeFlush {
+		return nil, fmt.Errorf("invalid frame type: %d", raw[1])
+	}
 
 	seqBytes := [8]byte{}
 	copy(seqBytes[2:], raw[2:8])
@@ -44,10 +49,20 @@ func ParseBinaryAudioFrame(raw []byte) (*BinaryAudioFrame, error) {
 		DurationMS:  binary.BigEndian.Uint16(raw[16:18]),
 		Data:        append([]byte(nil), raw[18:]...),
 	}
+	if frame.FrameType == FrameTypeFlush && len(frame.Data) != 0 {
+		return nil, errors.New("flush frame must not include payload")
+	}
 	return frame, nil
 }
 
 func EncodeBinaryAudioFrame(frame BinaryAudioFrame) []byte {
+	if frame.Seq > maxUint48 {
+		frame.Seq = frame.Seq & maxUint48
+	}
+	if frame.FrameType == FrameTypeFlush {
+		frame.Data = nil
+		frame.DurationMS = 0
+	}
 	buf := make([]byte, BinaryHeaderSize+len(frame.Data))
 	buf[0] = BinaryMagic
 	buf[1] = frame.FrameType
