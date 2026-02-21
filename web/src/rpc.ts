@@ -7,6 +7,7 @@ import {
 } from "./types";
 
 type EventHandler = (frame: EventFrame) => void;
+type BinaryHandler = (data: ArrayBuffer) => void;
 
 interface PendingCall {
   resolve: (payload: unknown) => void;
@@ -19,6 +20,7 @@ const pendingCalls: Map<string, PendingCall> = new Map();
 let eventHandler: EventHandler | null = null;
 let onStatusChange: ((status: string) => void) | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const binaryHandlers: BinaryHandler[] = [];
 
 function getToken(): string {
   const params = new URLSearchParams(window.location.search);
@@ -67,7 +69,17 @@ export function connect(onOpen?: () => void): void {
 
   webSocket.onerror = () => {};
 
-  webSocket.onmessage = (e) => {
+  webSocket.onmessage = async (e) => {
+    if (e.data instanceof ArrayBuffer) {
+      for (const handler of binaryHandlers) handler(e.data);
+      return;
+    }
+    if (e.data instanceof Blob) {
+      const data = await e.data.arrayBuffer();
+      for (const handler of binaryHandlers) handler(data);
+      return;
+    }
+
     const frame = JSON.parse(e.data as string);
     if (frame.type === "res") {
       const response = frame as ResponseFrame;
@@ -117,6 +129,25 @@ export function disconnect(): void {
     webSocket.close();
     webSocket = null;
   }
+}
+
+export function sendBinary(data: ArrayBuffer | Uint8Array): void {
+  if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+  if (data instanceof Uint8Array) {
+    webSocket.send(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+    return;
+  }
+  webSocket.send(data);
+}
+
+export function onBinaryMessage(handler: BinaryHandler): () => void {
+  binaryHandlers.push(handler);
+  return () => {
+    const idx = binaryHandlers.indexOf(handler);
+    if (idx >= 0) binaryHandlers.splice(idx, 1);
+  };
 }
 
 // --- REST auth helpers (work before WebSocket is established) ---
