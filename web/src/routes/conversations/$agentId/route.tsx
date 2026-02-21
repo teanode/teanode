@@ -42,6 +42,8 @@ export default function ConversationsAgentLayout() {
 
   const voiceCall = useVoiceCall({
     sendRpc: backend.sendRpc,
+    sendBinary: backend.sendBinary,
+    onBinaryMessage: backend.onBinaryMessage,
     sendVoiceMessage: backend.sendVoiceMessage,
     abortRun: backend.abortRun,
     isRunning: backend.isRunning,
