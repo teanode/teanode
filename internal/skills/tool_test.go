@@ -36,15 +36,15 @@ func TestParseArguments(t *testing.T) {
 
 	t.Run("invalid JSON", func(t *testing.T) {
 		result := parseArguments("not json")
-		if result != nil {
-			t.Errorf("expected nil for invalid JSON, got %v", result)
+		if result == nil || len(result) != 0 {
+			t.Errorf("expected empty map for invalid JSON, got %v", result)
 		}
 	})
 
 	t.Run("empty string", func(t *testing.T) {
 		result := parseArguments("")
-		if result != nil {
-			t.Errorf("expected nil for empty string, got %v", result)
+		if result == nil || len(result) != 0 {
+			t.Errorf("expected empty map for empty string, got %v", result)
 		}
 	})
 }
@@ -90,6 +90,39 @@ func TestApplyTemplate(t *testing.T) {
 		result := applyTemplate("{{known}} {{unknown}}", map[string]interface{}{"known": "yes"})
 		if result != "yes {{unknown}}" {
 			t.Errorf("got %q, want %q", result, "yes {{unknown}}")
+		}
+	})
+
+	t.Run("dot path substitution", func(t *testing.T) {
+		result := applyTemplate("id={{steps.fetch}}", map[string]interface{}{
+			"steps": map[string]interface{}{
+				"fetch": "abc123",
+			},
+		})
+		if result != "id=abc123" {
+			t.Errorf("got %q, want %q", result, "id=abc123")
+		}
+	})
+
+	t.Run("filters", func(t *testing.T) {
+		args := map[string]interface{}{
+			"query": "hello world",
+			"tags":  []interface{}{"a", "b"},
+		}
+		got := applyTemplate("{{query|urlencode}}|{{tags|join:;}}|{{missing|default:na}}", args)
+		want := "hello+world|a;b|na"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("secret and env resolution", func(t *testing.T) {
+		SetRuntimeSecrets(map[string]string{"API_TOKEN": "from-config"})
+		t.Setenv("ONLY_ENV", "from-env")
+		got := applyTemplate("{{secret:API_TOKEN}}|{{secret:ONLY_ENV}}|{{env:ONLY_ENV}}", map[string]interface{}{})
+		want := "from-config|from-env|from-env"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 }
@@ -268,6 +301,22 @@ func TestShellToolExecute(t *testing.T) {
 		}
 		if strings.TrimSpace(result) != `{"message":"from stdin"}` {
 			t.Errorf("got %q, want raw arguments echoed", strings.TrimSpace(result))
+		}
+	})
+
+	t.Run("required parameters enforced", func(t *testing.T) {
+		tool := &ShellTool{definition: ToolDefinition{
+			Name:    "required_test",
+			Type:    "shell",
+			Command: []string{"echo", "{{path}}"},
+			Parameters: map[string]interface{}{
+				"type":     "object",
+				"required": []interface{}{"path"},
+			},
+		}}
+		_, err := tool.Execute(context.Background(), `{}`)
+		if err == nil || !strings.Contains(err.Error(), "missing required parameter: path") {
+			t.Fatalf("expected required parameter error, got: %v", err)
 		}
 	})
 }
@@ -487,6 +536,332 @@ func TestHTTPToolExecute(t *testing.T) {
 		}
 		if !strings.HasSuffix(result, "... (truncated)") {
 			t.Error("expected truncation suffix")
+		}
+	})
+
+	t.Run("auth profile bearer", func(t *testing.T) {
+		SetRuntimeSecrets(map[string]string{"AUTH_TOKEN": "top-secret"})
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.Header.Get("Authorization") != "Bearer top-secret" {
+				t.Fatalf("unexpected Authorization header: %q", request.Header.Get("Authorization"))
+			}
+			writer.Write([]byte("ok"))
+		}))
+		defer server.Close()
+
+		tool := &HTTPTool{
+			definition: ToolDefinition{
+				Name: "auth_test",
+				Type: "http",
+				URL:  server.URL,
+				Auth: "main",
+			},
+			httpAuthProfiles: map[string]HTTPAuthProfile{
+				"main": {
+					Type:  "bearer",
+					Token: "{{secret:AUTH_TOKEN}}",
+				},
+			},
+		}
+
+		if _, err := tool.Execute(context.Background(), "{}"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestWorkflowToolExecute(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Write([]byte("world"))
+	}))
+	defer server.Close()
+
+	tool := &WorkflowTool{definition: ToolDefinition{
+		Name: "multi_action",
+		Type: "workflow",
+		Steps: []ActionDefinition{
+			{
+				Name: "fetch",
+				Type: "http",
+				URL:  server.URL,
+			},
+			{
+				Name:    "compose",
+				Type:    "shell",
+				Command: []string{"echo", "hello {{steps.fetch}}"},
+			},
+		},
+	}}
+
+	result, err := tool.Execute(context.Background(), "{}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "\"name\":\"fetch\"") {
+		t.Fatalf("missing fetch step in result: %s", result)
+	}
+	if !strings.Contains(result, "\"name\":\"compose\"") {
+		t.Fatalf("missing compose step in result: %s", result)
+	}
+	if !strings.Contains(result, "hello world") {
+		t.Fatalf("missing composed output in result: %s", result)
+	}
+}
+
+func TestWorkflowToolConditionAndContinueOnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusInternalServerError)
+		writer.Write([]byte("nope"))
+	}))
+	defer server.Close()
+
+	tool := &WorkflowTool{definition: ToolDefinition{
+		Name: "conditional_flow",
+		Type: "workflow",
+		Steps: []ActionDefinition{
+			{
+				Name:    "gate",
+				Type:    "shell",
+				Command: []string{"echo", "run"},
+			},
+			{
+				Name:    "skipped",
+				Type:    "shell",
+				If:      "false",
+				Command: []string{"echo", "should_not_run"},
+			},
+			{
+				Name:    "fails",
+				Type:    "http",
+				URL:     server.URL,
+				OnError: "continue",
+			},
+			{
+				Name:    "after_error",
+				Type:    "shell",
+				Command: []string{"echo", "ok"},
+			},
+		},
+	}}
+
+	result, err := tool.Execute(context.Background(), "{}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"name":"skipped","type":"shell","status":"skipped"`) {
+		t.Fatalf("expected skipped step in result: %s", result)
+	}
+	if !strings.Contains(result, `"name":"fails","type":"http","status":"error"`) {
+		t.Fatalf("expected error step in result: %s", result)
+	}
+	if !strings.Contains(result, `"name":"after_error","type":"shell","status":"ok"`) {
+		t.Fatalf("expected after_error step to continue: %s", result)
+	}
+}
+
+func TestWorkflowToolJSONResultReuse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Write([]byte(`{"id":"abc-123"}`))
+	}))
+	defer server.Close()
+
+	tool := &WorkflowTool{definition: ToolDefinition{
+		Name: "json_reuse",
+		Type: "workflow",
+		Steps: []ActionDefinition{
+			{
+				Name:   "fetch",
+				Type:   "http",
+				URL:    server.URL,
+				Result: "json",
+			},
+			{
+				Name:    "use",
+				Type:    "shell",
+				Command: []string{"echo", "id={{steps.fetch.id}}"},
+			},
+		},
+	}}
+
+	result, err := tool.Execute(context.Background(), "{}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "id=abc-123") {
+		t.Fatalf("expected nested json field interpolation: %s", result)
+	}
+}
+
+func TestWorkflowToolJSONSelectAndExtract(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Write([]byte(`{"data":{"id":"x1","status":"ok"}}`))
+	}))
+	defer server.Close()
+
+	tool := &WorkflowTool{definition: ToolDefinition{
+		Name: "json_select",
+		Type: "workflow",
+		Steps: []ActionDefinition{
+			{
+				Name:    "fetch",
+				Type:    "http",
+				URL:     server.URL,
+				Result:  "json",
+				Extract: "data",
+				Select: map[string]string{
+					"id": "id",
+				},
+			},
+			{
+				Name:    "use",
+				Type:    "shell",
+				Command: []string{"echo", "{{steps.fetch.id}}"},
+			},
+		},
+	}}
+
+	result, err := tool.Execute(context.Background(), "{}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"name":"fetch"`) {
+		t.Fatalf("missing fetch step in result: %s", result)
+	}
+	if !strings.Contains(result, "x1") {
+		t.Fatalf("expected selected/extracted value to flow through workflow: %s", result)
+	}
+}
+
+func TestWorkflowForEachSwitchAndFinally(t *testing.T) {
+	tool := &WorkflowTool{definition: ToolDefinition{
+		Name: "control_flow",
+		Type: "workflow",
+		Steps: []ActionDefinition{
+			{
+				Name:    "init",
+				Type:    "shell",
+				Command: []string{"echo", `[1,2,3]`},
+				Result:  "json",
+				SaveAs:  "numbers",
+			},
+			{
+				Name:    "loop",
+				Type:    "forEach",
+				ForEach: "steps.numbers",
+				As:      "num",
+				Steps: []ActionDefinition{
+					{
+						Name:   "route",
+						Type:   "switch",
+						Switch: "num",
+						Cases: []SwitchCase{
+							{
+								Match: "2",
+								Steps: []ActionDefinition{
+									{Name: "mark_two", Type: "shell", Command: []string{"echo", "two-{{num}}"}},
+								},
+							},
+						},
+						Default: []ActionDefinition{
+							{Name: "mark_other", Type: "shell", Command: []string{"echo", "other-{{num}}"}},
+						},
+					},
+				},
+			},
+		},
+		Finally: []ActionDefinition{
+			{
+				Name:    "cleanup",
+				Type:    "shell",
+				Command: []string{"echo", "done"},
+			},
+		},
+	}}
+
+	result, err := tool.Execute(context.Background(), "{}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "loop[0].route.mark_other") {
+		t.Fatalf("missing forEach/switch default path: %s", result)
+	}
+	if !strings.Contains(result, "loop[1].route.mark_two") {
+		t.Fatalf("missing switch case path: %s", result)
+	}
+	if !strings.Contains(result, "finally.cleanup") {
+		t.Fatalf("missing finally path: %s", result)
+	}
+}
+
+func TestWorkflowActionRouting(t *testing.T) {
+	tool := &WorkflowTool{definition: ToolDefinition{
+		Name:        "router",
+		Type:        "workflow",
+		ActionField: "op",
+		Actions: map[string][]ActionDefinition{
+			"ping": {
+				{Name: "echo", Type: "shell", Command: []string{"echo", "pong"}},
+			},
+		},
+	}}
+
+	result, err := tool.Execute(context.Background(), `{"op":"ping"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "pong") {
+		t.Fatalf("missing routed action output: %s", result)
+	}
+
+	if _, err := tool.Execute(context.Background(), `{"op":"missing"}`); err == nil {
+		t.Fatal("expected unknown action error")
+	}
+}
+
+func TestToolOutputSchemaValidation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Write([]byte(`{"name":"alice"}`))
+	}))
+	defer server.Close()
+
+	t.Run("pass", func(t *testing.T) {
+		tool := &HTTPTool{definition: ToolDefinition{
+			Name:   "schema_pass",
+			Type:   "http",
+			URL:    server.URL,
+			Result: "json",
+			OutputSchema: map[string]interface{}{
+				"type": "object",
+				"required": []interface{}{
+					"name",
+				},
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{"type": "string"},
+				},
+			},
+		}}
+		_, err := tool.Execute(context.Background(), "{}")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("fail", func(t *testing.T) {
+		tool := &HTTPTool{definition: ToolDefinition{
+			Name:   "schema_fail",
+			Type:   "http",
+			URL:    server.URL,
+			Result: "json",
+			OutputSchema: map[string]interface{}{
+				"type": "object",
+				"required": []interface{}{
+					"id",
+				},
+			},
+		}}
+		_, err := tool.Execute(context.Background(), "{}")
+		if err == nil || !strings.Contains(err.Error(), "missing required field") {
+			t.Fatalf("expected output schema validation error, got: %v", err)
 		}
 	})
 }

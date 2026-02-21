@@ -608,6 +608,14 @@
           }
         }
       }
+    },
+    "secrets": {
+      "type": "object",
+      "title": "Secrets",
+      "description": "Named secrets available to skills via {{secret:NAME}} templates.",
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   },
   "x-sections": [

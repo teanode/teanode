@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/teanode/teanode/internal/version"
 	"gopkg.in/yaml.v3"
 )
 
@@ -47,6 +48,10 @@ func LoadAll(skillsDirectory string) ([]SkillDefinition, error) {
 			log.Warningf("%s missing name, skipping", sourceName)
 			return SkillDefinition{}, false
 		}
+		if !isRuntimeCompatible(skill.RuntimeMinVersion) {
+			log.Warningf("skill %s requires runtime >= %s, skipping", skill.Name, skill.RuntimeMinVersion)
+			return SkillDefinition{}, false
+		}
 
 		// Validate tools, keeping only valid ones.
 		var validTools []ToolDefinition
@@ -61,6 +66,14 @@ func LoadAll(skillsDirectory string) ([]SkillDefinition, error) {
 
 		if len(skill.Tools) == 0 {
 			log.Warningf("skill %s: no valid tools, skipping", skill.Name)
+			return SkillDefinition{}, false
+		}
+		if err := validateHTTPAuthProfiles(skill.HTTPAuth); err != nil {
+			log.Warningf("skill %s: %v", skill.Name, err)
+			return SkillDefinition{}, false
+		}
+		if err := validateSkillAuthReferences(skill); err != nil {
+			log.Warningf("skill %s: %v", skill.Name, err)
 			return SkillDefinition{}, false
 		}
 		return skill, true
@@ -203,8 +216,209 @@ func validateTool(tool ToolDefinition) error {
 		if tool.URL == "" {
 			return fmt.Errorf("http tool %q has empty url", tool.Name)
 		}
+	case "workflow":
+		if len(tool.Steps) == 0 && len(tool.Actions) == 0 {
+			return fmt.Errorf("workflow tool %q has no steps", tool.Name)
+		}
+		for index, step := range tool.Steps {
+			if err := validateAction(step); err != nil {
+				return fmt.Errorf("workflow tool %q step %d invalid: %w", tool.Name, index+1, err)
+			}
+		}
+		for index, step := range tool.Finally {
+			if err := validateAction(step); err != nil {
+				return fmt.Errorf("workflow tool %q finally step %d invalid: %w", tool.Name, index+1, err)
+			}
+		}
+		for actionName, actionSteps := range tool.Actions {
+			if actionName == "" {
+				return fmt.Errorf("workflow tool %q has empty action key", tool.Name)
+			}
+			if len(actionSteps) == 0 {
+				return fmt.Errorf("workflow tool %q action %q has no steps", tool.Name, actionName)
+			}
+			for index, step := range actionSteps {
+				if err := validateAction(step); err != nil {
+					return fmt.Errorf("workflow tool %q action %q step %d invalid: %w", tool.Name, actionName, index+1, err)
+				}
+			}
+		}
 	default:
 		return fmt.Errorf("unknown type %q", tool.Type)
 	}
+	switch tool.Result {
+	case "", "text", "json":
+	default:
+		return fmt.Errorf("result must be one of: text, json")
+	}
+	if (tool.Extract != "" || len(tool.Select) > 0) && tool.Result != "json" {
+		return fmt.Errorf("extract/select require result=json")
+	}
 	return nil
+}
+
+func validateAction(action ActionDefinition) error {
+	switch action.Type {
+	case "shell":
+		if len(action.Command) == 0 {
+			return fmt.Errorf("shell action has empty command")
+		}
+	case "http":
+		if action.URL == "" {
+			return fmt.Errorf("http action has empty url")
+		}
+	case "forEach":
+		if action.ForEach == "" {
+			return fmt.Errorf("forEach action requires forEach path")
+		}
+		if len(action.Steps) == 0 {
+			return fmt.Errorf("forEach action requires nested steps")
+		}
+		for index, step := range action.Steps {
+			if err := validateAction(step); err != nil {
+				return fmt.Errorf("forEach nested step %d invalid: %w", index+1, err)
+			}
+		}
+	case "switch":
+		if action.Switch == "" {
+			return fmt.Errorf("switch action requires switch expression")
+		}
+		if len(action.Cases) == 0 && len(action.Default) == 0 {
+			return fmt.Errorf("switch action requires at least one case or default")
+		}
+		for caseIndex, switchCase := range action.Cases {
+			if switchCase.Match == "" {
+				return fmt.Errorf("switch case %d missing match", caseIndex+1)
+			}
+			if len(switchCase.Steps) == 0 {
+				return fmt.Errorf("switch case %d has no steps", caseIndex+1)
+			}
+			for stepIndex, step := range switchCase.Steps {
+				if err := validateAction(step); err != nil {
+					return fmt.Errorf("switch case %d step %d invalid: %w", caseIndex+1, stepIndex+1, err)
+				}
+			}
+		}
+		for index, step := range action.Default {
+			if err := validateAction(step); err != nil {
+				return fmt.Errorf("switch default step %d invalid: %w", index+1, err)
+			}
+		}
+	default:
+		return fmt.Errorf("unknown action type %q", action.Type)
+	}
+	if action.Retries < 0 {
+		return fmt.Errorf("retries must be >= 0")
+	}
+	switch action.OnError {
+	case "", "fail", "continue":
+	default:
+		return fmt.Errorf("onError must be one of: fail, continue")
+	}
+	switch action.Result {
+	case "", "text", "json":
+	default:
+		return fmt.Errorf("result must be one of: text, json")
+	}
+	if (action.Extract != "" || len(action.Select) > 0) && action.Result != "json" {
+		return fmt.Errorf("extract/select require result=json")
+	}
+	if action.Auth != "" && action.Type != "http" {
+		return fmt.Errorf("auth is only valid for http actions")
+	}
+	return nil
+}
+
+func validateSkillAuthReferences(skill SkillDefinition) error {
+	for _, tool := range skill.Tools {
+		if tool.Auth != "" {
+			if _, ok := skill.HTTPAuth[tool.Auth]; !ok {
+				return fmt.Errorf("tool %q references unknown auth profile %q", tool.Name, tool.Auth)
+			}
+		}
+		for _, step := range tool.Steps {
+			if err := validateActionAuthReferences(step, skill.HTTPAuth); err != nil {
+				return fmt.Errorf("tool %q: %w", tool.Name, err)
+			}
+		}
+		for _, step := range tool.Finally {
+			if err := validateActionAuthReferences(step, skill.HTTPAuth); err != nil {
+				return fmt.Errorf("tool %q finally: %w", tool.Name, err)
+			}
+		}
+		for actionName, actionSteps := range tool.Actions {
+			for _, step := range actionSteps {
+				if err := validateActionAuthReferences(step, skill.HTTPAuth); err != nil {
+					return fmt.Errorf("tool %q action %q: %w", tool.Name, actionName, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateHTTPAuthProfiles(profiles map[string]HTTPAuthProfile) error {
+	for name, profile := range profiles {
+		if name == "" {
+			return fmt.Errorf("httpAuth has empty profile name")
+		}
+		switch profile.Type {
+		case "bearer":
+			if profile.Token == "" {
+				return fmt.Errorf("httpAuth profile %q missing token", name)
+			}
+		case "basic":
+			if profile.Username == "" || profile.Password == "" {
+				return fmt.Errorf("httpAuth profile %q requires username and password", name)
+			}
+		case "apiKey":
+			if profile.Value == "" {
+				return fmt.Errorf("httpAuth profile %q missing value", name)
+			}
+			if profile.Header == "" && profile.QueryParam == "" {
+				return fmt.Errorf("httpAuth profile %q needs header or queryParam", name)
+			}
+		default:
+			return fmt.Errorf("httpAuth profile %q has unsupported type %q", name, profile.Type)
+		}
+	}
+	return nil
+}
+
+func validateActionAuthReferences(action ActionDefinition, profiles map[string]HTTPAuthProfile) error {
+	if action.Auth != "" {
+		if _, ok := profiles[action.Auth]; !ok {
+			return fmt.Errorf("action %q references unknown auth profile %q", action.Name, action.Auth)
+		}
+	}
+	for _, step := range action.Steps {
+		if err := validateActionAuthReferences(step, profiles); err != nil {
+			return err
+		}
+	}
+	for _, switchCase := range action.Cases {
+		for _, step := range switchCase.Steps {
+			if err := validateActionAuthReferences(step, profiles); err != nil {
+				return err
+			}
+		}
+	}
+	for _, step := range action.Default {
+		if err := validateActionAuthReferences(step, profiles); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isRuntimeCompatible(minVersion string) bool {
+	minVersion = strings.TrimSpace(minVersion)
+	if minVersion == "" {
+		return true
+	}
+	current := strings.TrimSpace(version.Version())
+	if current == "" || strings.EqualFold(current, "dev") {
+		return true
+	}
+	return compareVersions(current, minVersion) >= 0
 }

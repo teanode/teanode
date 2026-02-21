@@ -226,6 +226,7 @@ type Config struct {
 	Gateway          GatewayConfig      `json:"gateway,omitempty" yaml:"gateway,omitempty"`
 	Models           ModelsConfig       `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools            ToolsConfig        `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Secrets          map[string]string  `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	Integrations     IntegrationsConfig `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Summarizer       *SummarizerConfig  `json:"summarizer,omitempty" yaml:"summarizer,omitempty"`
 	SkillsRegistries []SkillsRegistry   `json:"skillsRegistries,omitempty" yaml:"skillsRegistries,omitempty"`
@@ -996,7 +997,7 @@ func defaults() *Config {
 				Publisher: "github.com/teanode/teanode-skills",
 				IndexURL:  "https://raw.githubusercontent.com/teanode/teanode-skills/main/index.json",
 				PublicKeys: []string{
-					"MCowBQYDK2VwAyEAlPFKUpWbq3G1EykDv6SvsAACW0W/FZUaPiRyFlmEfj4=",
+					"lPFKUpWbq3G1EykDv6SvsAACW0W/FZUaPiRyFlmEfj4=",
 				},
 			},
 		},

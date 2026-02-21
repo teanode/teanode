@@ -204,6 +204,7 @@ func NewGatewayCommand() *cli.Command {
 				homeassistant.RegisterTools(tools, configuration.Tools.HomeAssistant)
 				unifiprotect.RegisterTools(tools, configuration.Tools.UniFiProtect)
 				skills.RegisterTools(tools, configuration.SkillsRegistries, reloadSkills)
+				skills.SetRuntimeSecrets(configuration.Secrets)
 				agents.RegisterConversationTools(tools, conversations, providers, configuration)
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)

@@ -97,6 +97,24 @@ skillsRegistries:
 	}
 }
 
+func TestSecretsDecode(t *testing.T) {
+	var configuration Config
+	input := []byte(`
+secrets:
+  API_TOKEN: abc123
+  PROTECT_KEY: xyz789
+`)
+	if err := yaml.Unmarshal(input, &configuration); err != nil {
+		t.Fatalf("yaml unmarshal failed: %v", err)
+	}
+	if configuration.Secrets["API_TOKEN"] != "abc123" {
+		t.Fatalf("API_TOKEN decode mismatch: %q", configuration.Secrets["API_TOKEN"])
+	}
+	if configuration.Secrets["PROTECT_KEY"] != "xyz789" {
+		t.Fatalf("PROTECT_KEY decode mismatch: %q", configuration.Secrets["PROTECT_KEY"])
+	}
+}
+
 func TestConfigSchema(t *testing.T) {
 	raw := ConfigSchema()
 	var parsed map[string]interface{}

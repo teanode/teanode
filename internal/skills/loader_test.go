@@ -145,6 +145,90 @@ tools:
 	}
 }
 
+func TestLoadAllWorkflowSkill(t *testing.T) {
+	directory := t.TempDir()
+	content := `---
+name: orchestrator
+tools:
+  - name: check_release
+    description: Run multi-step checks
+    type: workflow
+    steps:
+      - name: ping
+        type: http
+        url: "https://example.com/health"
+      - name: summarize
+        type: shell
+        command: ["echo", "health={{steps.ping}}"]
+---`
+	_ = os.WriteFile(filepath.Join(directory, "orchestrator.md"), []byte(content), 0644)
+
+	skills, err := LoadAll(directory)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if len(skills[0].Tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(skills[0].Tools))
+	}
+	tool := skills[0].Tools[0]
+	if tool.Type != "workflow" {
+		t.Fatalf("tool type = %q, want workflow", tool.Type)
+	}
+	if len(tool.Steps) != 2 {
+		t.Fatalf("steps = %d, want 2", len(tool.Steps))
+	}
+	if tool.Steps[0].Name != "ping" || tool.Steps[1].Name != "summarize" {
+		t.Fatalf("unexpected step names: %#v", tool.Steps)
+	}
+}
+
+func TestLoadAllSkipsIncompatibleRuntimeMinVersion(t *testing.T) {
+	directory := t.TempDir()
+	content := `---
+name: future-skill
+runtimeMinVersion: 9999.0.0
+tools:
+  - name: do_nothing
+    description: noop
+    type: shell
+    command: ["echo", "ok"]
+---`
+	_ = os.WriteFile(filepath.Join(directory, "future.md"), []byte(content), 0644)
+
+	skills, err := LoadAll(directory)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(skills) != 0 {
+		t.Fatalf("expected incompatible skill to be skipped, got %d", len(skills))
+	}
+}
+
+func TestLoadAllSkipsUnknownAuthProfileReference(t *testing.T) {
+	directory := t.TempDir()
+	content := `---
+name: auth-skill
+tools:
+  - name: get_secure
+    description: secure request
+    type: http
+    url: https://example.com
+    auth: missing_profile
+---`
+	_ = os.WriteFile(filepath.Join(directory, "auth.md"), []byte(content), 0644)
+
+	skills, err := LoadAll(directory)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(skills) != 0 {
+		t.Fatalf("expected skill to be skipped for missing auth profile, got %d", len(skills))
+	}
+}
+
 func TestLoadAllSkipsMissingName(t *testing.T) {
 	directory := t.TempDir()
 	content := `---
@@ -373,6 +457,30 @@ func TestValidateTool(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid workflow tool",
+			tool: ToolDefinition{
+				Name: "test",
+				Type: "workflow",
+				Steps: []ActionDefinition{
+					{Type: "shell", Command: []string{"echo", "ok"}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid workflow tool with actions map",
+			tool: ToolDefinition{
+				Name: "test",
+				Type: "workflow",
+				Actions: map[string][]ActionDefinition{
+					"ping": {
+						{Type: "shell", Command: []string{"echo", "ok"}},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
 			name:    "missing name",
 			tool:    ToolDefinition{Type: "shell", Command: []string{"echo"}},
 			wantErr: true,
@@ -390,6 +498,55 @@ func TestValidateTool(t *testing.T) {
 		{
 			name:    "unknown type",
 			tool:    ToolDefinition{Name: "test", Type: "ftp"},
+			wantErr: true,
+		},
+		{
+			name:    "workflow with no steps",
+			tool:    ToolDefinition{Name: "test", Type: "workflow"},
+			wantErr: true,
+		},
+		{
+			name: "workflow with bad step",
+			tool: ToolDefinition{
+				Name: "test",
+				Type: "workflow",
+				Steps: []ActionDefinition{
+					{Type: "http"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "workflow with invalid onError",
+			tool: ToolDefinition{
+				Name: "test",
+				Type: "workflow",
+				Steps: []ActionDefinition{
+					{Type: "shell", Command: []string{"echo", "ok"}, OnError: "ignore"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "workflow with invalid result",
+			tool: ToolDefinition{
+				Name: "test",
+				Type: "workflow",
+				Steps: []ActionDefinition{
+					{Type: "shell", Command: []string{"echo", "ok"}, Result: "yaml"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "workflow with negative retries",
+			tool: ToolDefinition{
+				Name: "test",
+				Type: "workflow",
+				Steps: []ActionDefinition{
+					{Type: "shell", Command: []string{"echo", "ok"}, Retries: -1},
+				},
+			},
 			wantErr: true,
 		},
 	}
