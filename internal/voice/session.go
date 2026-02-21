@@ -1,8 +1,12 @@
 package voice
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/teanode/teanode/internal/util/security"
 )
 
 // AudioFormat defines negotiated audio transport settings.
@@ -53,6 +57,7 @@ type Session struct {
 	ttsCancel         func()
 
 	outSeq atomic.Uint64
+	inSeq  atomic.Uint64
 
 	audioInCh  chan []byte
 	ttsInCh    chan string
@@ -97,6 +102,12 @@ func (s *Session) Start() {
 // Close stops the session and waits for loop termination.
 func (s *Session) Close() {
 	s.closeOnce.Do(func() {
+		if prev := s.SwapRunCancel(nil); prev != nil {
+			prev()
+		}
+		if prev := s.SwapTTSCancel(nil); prev != nil {
+			prev()
+		}
 		close(s.doneCh)
 		s.wg.Wait()
 	})
@@ -124,15 +135,54 @@ func (s *Session) enqueueAudioIn(data []byte) bool {
 	}
 }
 
+// HandleInputBinaryFrame parses a client binary frame and enqueues audio payload.
+func (s *Session) HandleInputBinaryFrame(raw []byte) error {
+	frame, err := ParseBinaryAudioFrame(raw)
+	if err != nil {
+		return err
+	}
+	if frame.FrameType != FrameTypeAudioIn {
+		return errors.New("expected audio_in frame")
+	}
+	s.inSeq.Store(frame.Seq)
+	if !s.enqueueAudioIn(frame.Data) {
+		return errors.New("audio input queue full")
+	}
+	return nil
+}
+
+// InputCommit allows push-to-talk sessions to flush buffered input turn.
+func (s *Session) InputCommit() {
+	s.sendVoiceEvent("turn.event", turnEventPayload{
+		TurnID: s.GetCurrentTurnID(),
+		Event:  "turn_committed",
+	})
+}
+
 func (s *Session) sendVoiceEvent(eventType string, payload interface{}) {
 	if s.sendJSONFn == nil {
 		return
 	}
 	s.sendJSONFn(map[string]interface{}{
+		"v":          1,
 		"type":       eventType,
 		"session_id": s.ID,
+		"seq":        s.NextOutSeq(),
+		"ts_ms":      time.Now().UnixMilli(),
 		"payload":    payload,
 	})
+}
+
+func (s *Session) GetCurrentTurnID() string {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return s.currentTurnID
+}
+
+func (s *Session) SetCurrentTurnID(id string) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.currentTurnID = id
 }
 
 func (s *Session) GetCurrentRunID() string {
@@ -181,4 +231,8 @@ func (s *Session) SwapTTSCancel(cancelFn func()) (prev func()) {
 	prev = s.ttsCancel
 	s.ttsCancel = cancelFn
 	return prev
+}
+
+func (s *Session) newTurnID() string {
+	return security.NewULID()
 }
