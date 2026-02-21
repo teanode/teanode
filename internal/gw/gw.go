@@ -129,6 +129,7 @@ type Gateway interface {
 	// Voice session lifecycle
 	StartVoiceSession(
 		conversationID, agentID string,
+		promptSuffix string,
 		audioIn, audioOut voice.AudioFormat,
 		features voice.Features,
 		sendJSON func(interface{}),

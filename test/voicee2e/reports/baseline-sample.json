@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "suite_name": "voice-e2e-default",
+  "gateway_url": "http://127.0.0.1:8833",
+  "started_at": "1970-01-01T00:00:00Z",
+  "ended_at": "1970-01-01T00:00:00Z",
+  "duration_ms": 0,
+  "scenario_count": 0,
+  "passed_count": 0,
+  "failed_count": 0,
+  "results": []
+}

@@ -742,6 +742,7 @@ func (self *gateway) ListenAddress() string {
 // StartVoiceSession creates a voice session bound to this gateway instance.
 func (self *gateway) StartVoiceSession(
 	conversationID, agentID string,
+	promptSuffix string,
 	audioIn, audioOut voice.AudioFormat,
 	features voice.Features,
 	sendJSON func(interface{}),
@@ -751,11 +752,13 @@ func (self *gateway) StartVoiceSession(
 		agentID = self.DefaultAgentID()
 	}
 	if conversationID == "" {
+		// Start a fresh conversation when the client omits conversation_id.
+		// This avoids cross-session context bleed between separate voice calls.
 		conversationID = self.NewConversation(agentID, "")
 	}
 	sessionID := security.NewULID()
 	adapter := &voiceGatewayAdapter{gw: self}
-	return voice.NewSession(sessionID, conversationID, agentID, audioIn, audioOut, features, adapter, sendJSON, sendBinary), nil
+	return voice.NewSession(sessionID, conversationID, agentID, promptSuffix, audioIn, audioOut, features, adapter, sendJSON, sendBinary), nil
 }
 
 type voiceGatewayAdapter struct {
@@ -858,6 +861,7 @@ func (a *voiceTranscriberAdapter) Transcribe(ctx context.Context, req voice.Voic
 		Audio:    bytes.NewReader(req.Audio),
 		Format:   req.Format,
 		Language: req.Language,
+		Prompt:   req.Prompt,
 	})
 	if err != nil {
 		return nil, err

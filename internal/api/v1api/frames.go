@@ -68,6 +68,7 @@ type voiceClientInfo struct {
 type voiceStartParams struct {
 	ConversationID string           `json:"conversation_id"`
 	AgentID        string           `json:"agent_id"`
+	PromptSuffix   string           `json:"prompt_suffix,omitempty"`
 	AudioIn        voiceAudioFormat `json:"audio_in"`
 	AudioOut       voiceAudioFormat `json:"audio_out"`
 	Features       voiceFeatures    `json:"features"`

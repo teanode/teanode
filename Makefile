@@ -1,4 +1,4 @@
-.PHONY: all web clean dev test coverage format lint
+.PHONY: all web clean dev test coverage format lint voice-e2e voice-e2e-smoke voice-e2e-compare
 
 VERSION ?= $(shell git describe --tags 2>/dev/null || echo 0.1.0)
 COMMIT ?= $(shell git describe --match=NeVeRmAtCh --always --abbrev=40 --dirty)
@@ -41,3 +41,15 @@ clean:
 	rm -rf web/node_modules web/dist
 	rm -f internal/gateway/static/bundle.* internal/gateway/static/index.html
 	rm -f coverage.out coverage.html
+
+voice-e2e:
+	go run ./test/voicee2e/cmd/voicee2e --suite test/voicee2e/scenarios/suite.yaml --out test/voicee2e/reports/full.json
+
+voice-e2e-smoke:
+	go run ./test/voicee2e/cmd/voicee2e --suite test/voicee2e/scenarios/suite.yaml --scenario s1_short --out test/voicee2e/reports/smoke.json
+	go run ./test/voicee2e/cmd/voicee2e --suite test/voicee2e/scenarios/suite.yaml --scenario s5_barge_in --out test/voicee2e/reports/smoke-barge.json
+
+voice-e2e-compare:
+	go run ./test/voicee2e/cmd/voicee2e --suite test/voicee2e/scenarios/suite.yaml --prompt $(PROMPT_A) --out test/voicee2e/reports/prompt-a.json
+	go run ./test/voicee2e/cmd/voicee2e --suite test/voicee2e/scenarios/suite.yaml --prompt $(PROMPT_B) --out test/voicee2e/reports/prompt-b.json
+	go run ./test/voicee2e/cmd/voicee2e --compare --prompt-a test/voicee2e/reports/prompt-a.json --prompt-b test/voicee2e/reports/prompt-b.json --out test/voicee2e/reports/prompt-compare.json

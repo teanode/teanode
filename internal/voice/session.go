@@ -45,6 +45,7 @@ type Session struct {
 	ID             string
 	ConversationID string
 	AgentID        string
+	PromptSuffix   string
 	AudioIn        AudioFormat
 	AudioOut       AudioFormat
 	Features       Features
@@ -61,6 +62,7 @@ type Session struct {
 	currentTurnID      string
 	currentRunID       string
 	currentResponseID  string
+	lastCommittedText  string
 	runCancel          func()
 	ttsCancel          func()
 	transcribeInFlight map[string]struct{}
@@ -85,11 +87,12 @@ const (
 )
 
 // NewSession creates a session with default channel capacities.
-func NewSession(id, conversationID, agentID string, in, out AudioFormat, features Features, deps GatewayDeps, sendJSON func(any), sendBinary func([]byte)) *Session {
+func NewSession(id, conversationID, agentID, promptSuffix string, in, out AudioFormat, features Features, deps GatewayDeps, sendJSON func(any), sendBinary func([]byte)) *Session {
 	return &Session{
 		ID:                 id,
 		ConversationID:     conversationID,
 		AgentID:            agentID,
+		PromptSuffix:       promptSuffix,
 		AudioIn:            in,
 		AudioOut:           out,
 		Features:           features,
@@ -246,6 +249,18 @@ func (s *Session) ClearCurrentResponse() {
 	s.SetCurrentResponseID("")
 }
 
+func (s *Session) GetLastCommittedTranscript() string {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return s.lastCommittedText
+}
+
+func (s *Session) SetLastCommittedTranscript(text string) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.lastCommittedText = text
+}
+
 func (s *Session) SwapRunCancel(cancelFn func()) (prev func()) {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
@@ -289,6 +304,12 @@ func (s *Session) FinishTurnTranscription(turnID string) {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 	delete(s.transcribeInFlight, turnID)
+}
+
+func (s *Session) HasTranscriptionInFlight() bool {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return len(s.transcribeInFlight) > 0
 }
 
 func (s *Session) IsTurnCommitted(turnID string) bool {

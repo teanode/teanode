@@ -19,7 +19,7 @@ func (s *stubDeps) DefaultAgentID() string                  { return "agent" }
 func (s *stubDeps) ProviderRegistry() VoiceProviderRegistry { return nil }
 
 func newTestSession() *Session {
-	return NewSession("sess", "conv", "agent", AudioFormat{Codec: "pcm_s16le", SampleRateHz: 16000, Channels: 1}, AudioFormat{Codec: "pcm_s16le", SampleRateHz: 24000, Channels: 1}, Features{BargeIn: true}, nil, nil, nil)
+	return NewSession("sess", "conv", "agent", "", AudioFormat{Codec: "pcm_s16le", SampleRateHz: 16000, Channels: 1}, AudioFormat{Codec: "pcm_s16le", SampleRateHz: 24000, Channels: 1}, Features{BargeIn: true}, nil, nil, nil)
 }
 
 func TestCloseIdempotent(t *testing.T) {

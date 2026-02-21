@@ -27,6 +27,7 @@ type TranscribeRequest struct {
 	Audio    io.Reader
 	Format   string // "mp3", "wav", "m4a", "webm", "mp4"
 	Language string // optional BCP-47 hint
+	Prompt   string // optional transcription hint/context
 }
 
 // TranscribeResponse is the output of speech-to-text.

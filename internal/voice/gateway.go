@@ -50,6 +50,7 @@ type VoiceTranscribeRequest struct {
 	Audio      []byte
 	Format     string
 	Language   string
+	Prompt     string
 	SampleRate int
 	Channels   int
 }

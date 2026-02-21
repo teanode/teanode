@@ -7,6 +7,7 @@ const FRAME_TYPE_FLUSH = 0x03;
 const FRAME_HEADER_BYTES = 18;
 const INPUT_FRAME_SAMPLES = 320; // 20ms @ 16kHz
 const PROCESSOR_BUFFER_SIZE = 1024; // Must be 0 or power-of-two in [256..16384]
+const INPUT_SAMPLE_RATE_HZ = 16000;
 
 type BinarySender = (data: ArrayBuffer | Uint8Array) => void;
 type BinarySubscriber = (handler: (data: ArrayBuffer) => void) => () => void;
@@ -50,6 +51,27 @@ export function useVoiceSession(options: UseVoiceSessionOptions): VoiceSessionRu
   const pendingInputSamplesRef = useRef<Float32Array>(new Float32Array(0));
   const inputFramesSentRef = useRef(0);
   const outputFramesRecvRef = useRef(0);
+  const lastVoiceDetectedAtRef = useRef(0);
+
+  const resampleTo16k = useCallback((input: Float32Array, inputRate: number): Float32Array => {
+    if (inputRate === INPUT_SAMPLE_RATE_HZ) {
+      return input;
+    }
+    if (inputRate <= 0 || input.length === 0) {
+      return new Float32Array(0);
+    }
+    const ratio = inputRate / INPUT_SAMPLE_RATE_HZ;
+    const outputLength = Math.max(0, Math.floor(input.length / ratio));
+    const output = new Float32Array(outputLength);
+    for (let i = 0; i < outputLength; i++) {
+      const sourcePos = i * ratio;
+      const left = Math.floor(sourcePos);
+      const right = Math.min(left + 1, input.length - 1);
+      const frac = sourcePos - left;
+      output[i] = input[left] + (input[right] - input[left]) * frac;
+    }
+    return output;
+  }, []);
 
   const playNext = useCallback(() => {
     const context = audioContextRef.current;
@@ -199,10 +221,11 @@ export function useVoiceSession(options: UseVoiceSessionOptions): VoiceSessionRu
 
     processor.onaudioprocess = (event) => {
       const samples = event.inputBuffer.getChannelData(0);
+      const resampled = resampleTo16k(samples, event.inputBuffer.sampleRate);
       const prior = pendingInputSamplesRef.current;
-      const combined = new Float32Array(prior.length + samples.length);
+      const combined = new Float32Array(prior.length + resampled.length);
       combined.set(prior);
-      combined.set(samples, prior.length);
+      combined.set(resampled, prior.length);
 
       let offset = 0;
       let sawVoice = false;
@@ -229,14 +252,20 @@ export function useVoiceSession(options: UseVoiceSessionOptions): VoiceSessionRu
       }
 
       pendingInputSamplesRef.current = combined.subarray(offset);
-      setIsUserSpeaking(sawVoice);
+      const now = Date.now();
+      if (sawVoice) {
+        lastVoiceDetectedAtRef.current = now;
+        setIsUserSpeaking(true);
+      } else if (now - lastVoiceDetectedAtRef.current > 250) {
+        setIsUserSpeaking(false);
+      }
     };
 
     mediaSourceRef.current = source;
     processorRef.current = processor;
 
     unsubscribeBinaryRef.current = onBinaryMessage(handleBinary);
-  }, [agentId, conversationId, encodeInputFrame, handleBinary, onBinaryMessage, sendBinary, sendRpc]);
+  }, [agentId, conversationId, encodeInputFrame, handleBinary, onBinaryMessage, resampleTo16k, sendBinary, sendRpc]);
 
   const stop = useCallback(() => {
     console.debug('[voice][session] stop', { session_id: sessionIdRef.current });

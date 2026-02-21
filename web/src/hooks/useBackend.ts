@@ -444,9 +444,16 @@ export function useBackend() {
     }
 
     // Handle user messages from external sources (Discord, Telegram, scheduled jobs)
-    if (conversationEvent.state === "user_message") {
-      if (conversationEvent.conversationId)
-        touchConversation(conversationEvent.conversationId);
+    if (conversationEvent.state === 'user_message') {
+      const eventOrigin = (conversationEvent as ConversationEvent & { origin?: string }).origin;
+      // Voice sessions can start before a specific conversation route is active.
+      // Auto-bind to the first voice user_message conversation so UI renders it.
+      if (!conversationIdRef.current && eventOrigin === 'voice' && conversationEvent.conversationId) {
+        setConversationId(conversationEvent.conversationId);
+        conversationIdRef.current = conversationEvent.conversationId;
+        setMessages([]);
+      }
+      if (conversationEvent.conversationId) touchConversation(conversationEvent.conversationId);
       if (conversationEvent.conversationId === conversationIdRef.current) {
         // Skip self-sent messages — sendMessage already added them optimistically.
         if (

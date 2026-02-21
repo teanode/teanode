@@ -15,6 +15,7 @@ const (
 	minCommittedTurnBytes  = 19200 // ~600ms at 16kHz mono s16le
 	minCommittedTextRunes  = 8
 	bargeInTriggerMinScore = 0.06
+	maxResponseStartDelay  = 2 * time.Second
 )
 
 const voiceCallPromptSuffix = "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists."
@@ -94,6 +95,7 @@ func (s *Session) llmEventForwarder() {
 
 	streamText := ""
 	sentencesEnqueued := 0
+	sawDelta := false
 
 	for {
 		select {
@@ -102,9 +104,6 @@ func (s *Session) llmEventForwarder() {
 		case event := <-sub.eventCh:
 			state, _ := event["state"].(string)
 			text, _ := event["text"].(string)
-			if text != "" {
-				streamText += text
-			}
 			if runID, _ := event["runId"].(string); runID != "" && (state == "queued" || state == "delta") {
 				s.SetCurrentRunID(runID)
 			}
@@ -112,6 +111,10 @@ func (s *Session) llmEventForwarder() {
 				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", s.ID, s.GetCurrentTurnID(), state, len(text), s.GetCurrentRunID())
 			}
 			if state == "delta" {
+				if text != "" {
+					streamText += text
+					sawDelta = true
+				}
 				newSentences, nextCount := ExtractCompleteSentences(streamText, sentencesEnqueued)
 				sentencesEnqueued = nextCount
 				if len(newSentences) > 0 {
@@ -126,7 +129,13 @@ func (s *Session) llmEventForwarder() {
 				}
 			}
 			if state == "final" || state == "aborted" || state == "error" {
-				remaining := strings.TrimSpace(FlushRemaining(streamText, sentencesEnqueued))
+				streamForFlush := streamText
+				// Some providers may only emit final text (no deltas). In that case,
+				// use the final text as the source for sentence flushing.
+				if !sawDelta && strings.TrimSpace(text) != "" {
+					streamForFlush = text
+				}
+				remaining := strings.TrimSpace(FlushRemaining(streamForFlush, sentencesEnqueued))
 				if remaining != "" {
 					select {
 					case s.ttsInCh <- remaining:
@@ -143,6 +152,7 @@ func (s *Session) llmEventForwarder() {
 				s.ClearCurrentRun()
 				streamText = ""
 				sentencesEnqueued = 0
+				sawDelta = false
 				s.commitNextPendingTurn()
 			}
 		}
@@ -166,15 +176,31 @@ func (s *Session) ttsSynthLoop() {
 				s.ClearCurrentResponse()
 				continue
 			}
-			if s.deps == nil || s.deps.ProviderRegistry() == nil {
+			if s.deps == nil {
+				pipelineLog.Warningf("voice synthesis skipped: missing gateway deps")
+				continue
+			}
+			if s.deps.ProviderRegistry() == nil {
+				pipelineLog.Warningf("voice synthesis skipped: provider registry unavailable")
 				continue
 			}
 			synth, _, ok := s.deps.ProviderRegistry().FindSynthesizer()
 			if !ok || synth == nil {
+				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
 			}
 			responseID := s.GetCurrentResponseID()
 			if responseID == "" {
+				// Avoid speaking between two close user utterances while a transcription
+				// is still in-flight for a newer turn.
+				start := time.Now()
+				for s.HasTranscriptionInFlight() && time.Since(start) < maxResponseStartDelay {
+					select {
+					case <-s.doneCh:
+						return
+					case <-time.After(50 * time.Millisecond):
+					}
+				}
 				responseID = s.newTurnID()
 				s.SetCurrentResponseID(responseID)
 				pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", s.ID, responseID, s.GetCurrentTurnID())
@@ -189,6 +215,7 @@ func (s *Session) ttsSynthLoop() {
 			if prev != nil {
 				prev()
 			}
+			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s text_len=%d text=%q", s.ID, s.GetCurrentResponseID(), s.GetCurrentTurnID(), len(sentence), sentence)
 			audio, err := synth.SynthesizePCM(ttsCtx, sentence, "alloy", s.AudioOut.SampleRateHz)
 			s.SwapTTSCancel(nil)
 			if err != nil {
@@ -225,12 +252,21 @@ func (s *Session) audioOutputLoop() {
 }
 
 func (s *Session) transcribeAndSend(turnID string, captured []byte) {
-	if len(captured) == 0 || s.deps == nil || s.deps.ProviderRegistry() == nil {
+	if len(captured) == 0 {
 		return
 	}
-	pipelineLog.Debugf("voice transcribe start: session=%s turn=%s bytes=%d", s.ID, turnID, len(captured))
+	if s.deps == nil {
+		pipelineLog.Warningf("voice transcription skipped: missing gateway deps")
+		return
+	}
+	if s.deps.ProviderRegistry() == nil {
+		pipelineLog.Warningf("voice transcription skipped: provider registry unavailable")
+		return
+	}
+	pipelineLog.Infof("voice transcribe start: session=%s turn=%s bytes=%d", s.ID, turnID, len(captured))
 	transcriber, _, ok := s.deps.ProviderRegistry().FindTranscriber()
 	if !ok || transcriber == nil {
+		pipelineLog.Warningf("voice transcription skipped: no transcriber configured")
 		return
 	}
 
@@ -240,10 +276,13 @@ func (s *Session) transcribeAndSend(turnID string, captured []byte) {
 		Format:     "wav",
 		SampleRate: s.AudioIn.SampleRateHz,
 		Channels:   s.AudioIn.Channels,
+		Prompt:     s.transcriptionPrompt(),
 	})
 	if err != nil || result == nil {
 		if err != nil {
 			pipelineLog.Warningf("voice transcription failed: %v", err)
+		} else {
+			pipelineLog.Warningf("voice transcription failed: empty result")
 		}
 		return
 	}
@@ -266,6 +305,10 @@ func (s *Session) transcribeAndSend(turnID string, captured []byte) {
 		})
 		return
 	}
+	// If an older response already started speaking, interrupt it and prioritize this newer user turn.
+	if s.GetCurrentResponseID() != "" {
+		s.triggerBargeIn()
+	}
 	if s.GetCurrentRunID() != "" {
 		s.enqueueTranscriptTurn(turnID, text)
 		return
@@ -278,7 +321,8 @@ func (s *Session) transcribeAndSend(turnID string, captured []byte) {
 }
 
 func (s *Session) commitVoiceTurn(turnID, text string) {
-	pipelineLog.Infof("voice transcript.final: session=%s turn=%s text_len=%d", s.ID, turnID, len(text))
+	pipelineLog.Infof("voice transcript.final: session=%s turn=%s text_len=%d text=%q", s.ID, turnID, len(text), text)
+	s.SetLastCommittedTranscript(text)
 	s.sendVoiceEvent("transcript.final", map[string]interface{}{
 		"turn_id": turnID,
 		"text":    text,
@@ -287,7 +331,7 @@ func (s *Session) commitVoiceTurn(turnID, text string) {
 		AgentID:            s.AgentID,
 		ConversationID:     s.ConversationID,
 		Message:            text,
-		SystemPromptSuffix: voiceCallPromptSuffix,
+		SystemPromptSuffix: s.effectivePromptSuffix(),
 	})
 	s.MarkTurnCommitted(turnID)
 	s.SetCurrentRunID(run.RunID)
@@ -296,6 +340,22 @@ func (s *Session) commitVoiceTurn(turnID, text string) {
 		TurnID: turnID,
 		Event:  "turn_committed",
 	})
+}
+
+func (s *Session) effectivePromptSuffix() string {
+	if strings.TrimSpace(s.PromptSuffix) != "" {
+		return s.PromptSuffix
+	}
+	return voiceCallPromptSuffix
+}
+
+func (s *Session) transcriptionPrompt() string {
+	last := strings.TrimSpace(s.GetLastCommittedTranscript())
+	base := "This is a live voice conversation transcription. Transcribe literally and preserve question words and place names exactly."
+	if last == "" {
+		return base
+	}
+	return base + " Prior user utterance context: " + last
 }
 
 func (s *Session) enqueueTranscriptTurn(turnID, text string) {
