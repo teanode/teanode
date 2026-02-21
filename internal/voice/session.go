@@ -159,6 +159,11 @@ func (s *Session) InputCommit() {
 	})
 }
 
+// CancelResponse aborts current response generation and playback.
+func (s *Session) CancelResponse() {
+	s.triggerBargeIn()
+}
+
 func (s *Session) sendVoiceEvent(eventType string, payload interface{}) {
 	if s.sendJSONFn == nil {
 		return
