@@ -63,7 +63,13 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const endCallRef = useRef<() => void>(() => {});
 
   const chimePlayer = useChimePlayer(chimeConfig);
-  const voiceSession = useVoiceSession({
+  const {
+    start: startVoiceSession,
+    stop: stopVoiceSession,
+    isUserSpeaking,
+    isPlaying,
+    isSynthesizing,
+  } = useVoiceSession({
     sendRpc,
     sendBinary,
     onBinaryMessage,
@@ -93,7 +99,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       });
       streamRef.current = mediaStream;
 
-      await voiceSession.start(audioContext, mediaStream);
+      await startVoiceSession(audioContext, mediaStream);
 
       try {
         if ('wakeLock' in navigator) {
@@ -126,14 +132,14 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         audioContextRef.current = null;
       }
     }
-  }, [chimePlayer, isCallActive, voiceSession]);
+  }, [chimePlayer, isCallActive, startVoiceSession]);
 
   const endCall = useCallback(() => {
     setIsCallActive(false);
     setIsMuted(false);
     setCallDuration(0);
 
-    voiceSession.stop();
+    stopVoiceSession();
 
     if (durationIntervalRef.current) {
       clearInterval(durationIntervalRef.current);
@@ -164,7 +170,9 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     }
 
     chimePlayer.close();
-  }, [chimePlayer, voiceSession]);
+  }, [chimePlayer, stopVoiceSession]);
+
+  endCallRef.current = endCall;
 
   endCallRef.current = endCall;
 
@@ -189,9 +197,9 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     isConnecting,
     callDuration,
     isMuted,
-    isUserSpeaking: voiceSession.isUserSpeaking,
-    isPlaying: voiceSession.isPlaying,
-    isSynthesizing: voiceSession.isSynthesizing,
+    isUserSpeaking,
+    isPlaying,
+    isSynthesizing,
     callError,
     startCall,
     endCall,

@@ -61,6 +61,7 @@ func (self *webSocketConnection) serve() {
 		if messageType == websocket.BinaryMessage {
 			sess := self.getActiveVoiceSession()
 			if sess == nil {
+				log.Warningf("ws binary frame dropped: no active voice session, bytes=%d", len(rawMessage))
 				continue
 			}
 			if err := sess.HandleInputBinaryFrame(rawMessage); err != nil {

@@ -906,7 +906,7 @@ func wavToPCM16LE(wavData []byte) ([]byte, error) {
 		chunkStart := i + 8
 		chunkEnd := chunkStart + chunkSize
 		if chunkEnd > len(wavData) {
-			return nil, fmt.Errorf("invalid wav chunk size")
+			break
 		}
 		if chunkID == "fmt " && chunkSize >= 16 {
 			audioFormat = binary.LittleEndian.Uint16(wavData[chunkStart : chunkStart+2])
@@ -930,5 +930,36 @@ func wavToPCM16LE(wavData []byte) ([]byte, error) {
 			i++
 		}
 	}
+
+	// Fallback parser: some providers return non-standard RIFF chunk sizes.
+	dataOffset := 12
+	for dataOffset+8 <= len(wavData) {
+		idx := bytes.Index(wavData[dataOffset:], []byte("data"))
+		if idx < 0 {
+			break
+		}
+		header := dataOffset + idx
+		if header+8 > len(wavData) {
+			break
+		}
+		chunkSize := int(binary.LittleEndian.Uint32(wavData[header+4 : header+8]))
+		chunkStart := header + 8
+		if chunkStart >= len(wavData) {
+			break
+		}
+		chunkEnd := chunkStart + chunkSize
+		if chunkEnd > len(wavData) {
+			chunkEnd = len(wavData)
+		}
+		pcm := append([]byte(nil), wavData[chunkStart:chunkEnd]...)
+		if len(pcm)%2 == 1 {
+			pcm = pcm[:len(pcm)-1]
+		}
+		if len(pcm) > 0 {
+			return pcm, nil
+		}
+		dataOffset = chunkStart
+	}
+
 	return nil, fmt.Errorf("wav data chunk not found")
 }

@@ -5,6 +5,8 @@ const FRAME_TYPE_AUDIO_IN = 0x01;
 const FRAME_TYPE_AUDIO_OUT = 0x02;
 const FRAME_TYPE_FLUSH = 0x03;
 const FRAME_HEADER_BYTES = 18;
+const INPUT_FRAME_SAMPLES = 320; // 20ms @ 16kHz
+const PROCESSOR_BUFFER_SIZE = 1024; // Must be 0 or power-of-two in [256..16384]
 
 type BinarySender = (data: ArrayBuffer | Uint8Array) => void;
 type BinarySubscriber = (handler: (data: ArrayBuffer) => void) => () => void;
@@ -45,6 +47,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions): VoiceSessionRu
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const unsubscribeBinaryRef = useRef<(() => void) | null>(null);
+  const pendingInputSamplesRef = useRef<Float32Array>(new Float32Array(0));
+  const inputFramesSentRef = useRef(0);
+  const outputFramesRecvRef = useRef(0);
 
   const playNext = useCallback(() => {
     const context = audioContextRef.current;
@@ -72,6 +77,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions): VoiceSessionRu
   }, []);
 
   const handleFlush = useCallback(() => {
+    console.debug('[voice][session] flush received', {
+      queued: outputQueueRef.current.length,
+      hasCurrentSource: Boolean(currentSourceRef.current),
+    });
     outputQueueRef.current = [];
     if (currentSourceRef.current) {
       try {
@@ -100,6 +109,14 @@ export function useVoiceSession(options: UseVoiceSessionOptions): VoiceSessionRu
       }
       outputQueueRef.current.push(buffer);
       setIsSynthesizing(true);
+      outputFramesRecvRef.current += 1;
+      if (outputFramesRecvRef.current % 20 === 0) {
+        console.debug('[voice][session] output frames', {
+          count: outputFramesRecvRef.current,
+          queueDepth: outputQueueRef.current.length,
+          bytes: pcmBytes.byteLength,
+        });
+      }
       playNext();
     },
     [playNext],
@@ -160,7 +177,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions): VoiceSessionRu
 
   const start = useCallback(async (audioContext: AudioContext, mediaStream: MediaStream) => {
     audioContextRef.current = audioContext;
+    inputFramesSentRef.current = 0;
+    outputFramesRecvRef.current = 0;
 
+    console.debug('[voice][session] start request', { conversationId, agentId });
     const result = await sendRpc<VoiceStartResult>('voice.start', {
       conversation_id: conversationId,
       agent_id: agentId,
@@ -170,25 +190,46 @@ export function useVoiceSession(options: UseVoiceSessionOptions): VoiceSessionRu
       client: { platform: 'web', app_version: '1.0.0' },
     });
     sessionIdRef.current = result.session_id;
+    console.debug('[voice][session] start ready', { session_id: result.session_id, conversation_id: result.conversation_id });
 
     const source = new MediaStreamAudioSourceNode(audioContext, { mediaStream });
-    const processor = audioContext.createScriptProcessor(320, 1, 1);
+    const processor = audioContext.createScriptProcessor(PROCESSOR_BUFFER_SIZE, 1, 1);
     source.connect(processor);
     processor.connect(audioContext.destination);
 
     processor.onaudioprocess = (event) => {
       const samples = event.inputBuffer.getChannelData(0);
-      const pcm = new Int16Array(samples.length);
-      let voiced = false;
-      for (let i = 0; i < samples.length; i++) {
-        const sample = Math.max(-1, Math.min(1, samples[i]));
-        if (!voiced && Math.abs(sample) > 0.015) {
-          voiced = true;
+      const prior = pendingInputSamplesRef.current;
+      const combined = new Float32Array(prior.length + samples.length);
+      combined.set(prior);
+      combined.set(samples, prior.length);
+
+      let offset = 0;
+      let sawVoice = false;
+      while (offset + INPUT_FRAME_SAMPLES <= combined.length) {
+        const chunk = combined.subarray(offset, offset + INPUT_FRAME_SAMPLES);
+        const pcm = new Int16Array(INPUT_FRAME_SAMPLES);
+        for (let i = 0; i < INPUT_FRAME_SAMPLES; i++) {
+          const sample = Math.max(-1, Math.min(1, chunk[i]));
+          if (!sawVoice && Math.abs(sample) > 0.015) {
+            sawVoice = true;
+          }
+          pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
         }
-        pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+        sendBinary(encodeInputFrame(pcm));
+        inputFramesSentRef.current += 1;
+        if (inputFramesSentRef.current % 50 === 0) {
+          console.debug('[voice][session] input frames', {
+            count: inputFramesSentRef.current,
+            pendingSamples: pendingInputSamplesRef.current.length,
+            sawVoice,
+          });
+        }
+        offset += INPUT_FRAME_SAMPLES;
       }
-      setIsUserSpeaking(voiced);
-      sendBinary(encodeInputFrame(pcm));
+
+      pendingInputSamplesRef.current = combined.subarray(offset);
+      setIsUserSpeaking(sawVoice);
     };
 
     mediaSourceRef.current = source;
@@ -198,6 +239,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions): VoiceSessionRu
   }, [agentId, conversationId, encodeInputFrame, handleBinary, onBinaryMessage, sendBinary, sendRpc]);
 
   const stop = useCallback(() => {
+    console.debug('[voice][session] stop', { session_id: sessionIdRef.current });
     if (sessionIdRef.current) {
       sendRpc('voice.end', { session_id: sessionIdRef.current }).catch(() => {});
       sessionIdRef.current = null;
@@ -216,6 +258,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions): VoiceSessionRu
     }
 
     handleFlush();
+    pendingInputSamplesRef.current = new Float32Array(0);
     setIsUserSpeaking(false);
   }, [handleFlush, sendRpc]);
 

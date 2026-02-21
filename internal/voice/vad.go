@@ -6,10 +6,11 @@ import (
 )
 
 const (
-	vadPositiveThreshold = 0.015
-	vadNegativeThreshold = 0.008
-	vadMinSpeechFrames   = 5
-	vadRedemptionFrames  = 12
+	// Tuned to reduce false positives and self-interruptions from playback leakage.
+	vadPositiveThreshold = 0.025
+	vadNegativeThreshold = 0.012
+	vadMinSpeechFrames   = 7
+	vadRedemptionFrames  = 16
 )
 
 // VADState tracks simple energy-based speech state.

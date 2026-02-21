@@ -53,12 +53,14 @@ export function connect(onOpen?: () => void): void {
   webSocket = new WebSocket(url);
 
   webSocket.onopen = () => {
-    setStatus("connected");
+    console.debug('[voice][ws] open');
+    setStatus('connected');
     onOpen?.();
   };
 
   webSocket.onclose = () => {
-    setStatus("disconnected - reconnecting...");
+    console.debug('[voice][ws] close');
+    setStatus('disconnected - reconnecting...');
     // Reject all pending RPCs
     for (const [id, pending] of pendingCalls) {
       pending.reject({ code: -1, message: "disconnected" });
@@ -71,17 +73,20 @@ export function connect(onOpen?: () => void): void {
 
   webSocket.onmessage = async (e) => {
     if (e.data instanceof ArrayBuffer) {
+      console.debug('[voice][ws] binary message', { bytes: e.data.byteLength });
       for (const handler of binaryHandlers) handler(e.data);
       return;
     }
     if (e.data instanceof Blob) {
       const data = await e.data.arrayBuffer();
+      console.debug('[voice][ws] binary blob message', { bytes: data.byteLength });
       for (const handler of binaryHandlers) handler(data);
       return;
     }
 
     const frame = JSON.parse(e.data as string);
-    if (frame.type === "res") {
+    console.debug('[voice][ws] text message', { type: frame.type, id: frame.id, event: frame.event });
+    if (frame.type === 'res') {
       const response = frame as ResponseFrame;
       const pending = pendingCalls.get(response.id);
       if (pending) {
@@ -114,7 +119,8 @@ export function sendRpc<T = unknown>(
       resolve: resolve as (payload: unknown) => void,
       reject,
     });
-    const frame: RequestFrame = { type: "req", id, method, params };
+    const frame: RequestFrame = { type: 'req', id, method, params };
+    console.debug('[voice][ws] send rpc', { method, id });
     webSocket.send(JSON.stringify(frame));
   });
 }
@@ -133,12 +139,15 @@ export function disconnect(): void {
 
 export function sendBinary(data: ArrayBuffer | Uint8Array): void {
   if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
+    console.debug('[voice][ws] drop binary send: socket not open');
     return;
   }
   if (data instanceof Uint8Array) {
+    console.debug('[voice][ws] send binary', { bytes: data.byteLength });
     webSocket.send(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
     return;
   }
+  console.debug('[voice][ws] send binary', { bytes: data.byteLength });
   webSocket.send(data);
 }
 

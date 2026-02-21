@@ -24,34 +24,34 @@ func TestVADSilenceNoEvents(t *testing.T) {
 	}
 }
 
-func TestVADStartsAtFrameFive(t *testing.T) {
+func TestVADStartsAtFrameSeven(t *testing.T) {
 	v := &VADState{}
 	loud := makeFrame(12000, 320)
-	for i := 1; i <= 5; i++ {
+	for i := 1; i <= 7; i++ {
 		started, _, _ := v.ProcessFrame(loud)
-		if i < 5 && started {
+		if i < 7 && started {
 			t.Fatalf("started too early at frame %d", i)
 		}
-		if i == 5 && !started {
-			t.Fatalf("expected start at frame 5")
+		if i == 7 && !started {
+			t.Fatalf("expected start at frame 7")
 		}
 	}
 }
 
-func TestVADEndsAfterRedemptionFrames(t *testing.T) {
+func TestVADEndsAfterSixteenRedemptionFrames(t *testing.T) {
 	v := &VADState{}
 	loud := makeFrame(12000, 320)
 	silence := makeFrame(0, 320)
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 7; i++ {
 		v.ProcessFrame(loud)
 	}
-	for i := 1; i <= 12; i++ {
+	for i := 1; i <= 16; i++ {
 		_, ended, _ := v.ProcessFrame(silence)
-		if i < 12 && ended {
+		if i < 16 && ended {
 			t.Fatalf("ended too early at frame %d", i)
 		}
-		if i == 12 && !ended {
-			t.Fatalf("expected ended at frame 12")
+		if i == 16 && !ended {
+			t.Fatalf("expected ended at frame 16")
 		}
 	}
 }

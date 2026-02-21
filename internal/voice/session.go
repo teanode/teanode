@@ -49,12 +49,14 @@ type Session struct {
 	bargeInOnce sync.Once
 	wg          sync.WaitGroup
 
-	stateMu           sync.RWMutex
-	currentTurnID     string
-	currentRunID      string
-	currentResponseID string
-	runCancel         func()
-	ttsCancel         func()
+	stateMu            sync.RWMutex
+	currentTurnID      string
+	currentRunID       string
+	currentResponseID  string
+	runCancel          func()
+	ttsCancel          func()
+	transcribeInFlight map[string]struct{}
+	committedTurns     map[string]struct{}
 
 	outSeq atomic.Uint64
 	inSeq  atomic.Uint64
@@ -74,24 +76,27 @@ const (
 // NewSession creates a session with default channel capacities.
 func NewSession(id, conversationID, agentID string, in, out AudioFormat, features Features, deps GatewayDeps, sendJSON func(any), sendBinary func([]byte)) *Session {
 	return &Session{
-		ID:             id,
-		ConversationID: conversationID,
-		AgentID:        agentID,
-		AudioIn:        in,
-		AudioOut:       out,
-		Features:       features,
-		deps:           deps,
-		sendJSONFn:     sendJSON,
-		sendBinaryFn:   sendBinary,
-		audioInCh:      make(chan []byte, defaultAudioInBufferFrames),
-		ttsInCh:        make(chan string, defaultTTSSentenceBuffer),
-		audioOutCh:     make(chan []byte, defaultAudioOutBufferFrames),
-		doneCh:         make(chan struct{}),
+		ID:                 id,
+		ConversationID:     conversationID,
+		AgentID:            agentID,
+		AudioIn:            in,
+		AudioOut:           out,
+		Features:           features,
+		deps:               deps,
+		sendJSONFn:         sendJSON,
+		sendBinaryFn:       sendBinary,
+		transcribeInFlight: make(map[string]struct{}),
+		committedTurns:     make(map[string]struct{}),
+		audioInCh:          make(chan []byte, defaultAudioInBufferFrames),
+		ttsInCh:            make(chan string, defaultTTSSentenceBuffer),
+		audioOutCh:         make(chan []byte, defaultAudioOutBufferFrames),
+		doneCh:             make(chan struct{}),
 	}
 }
 
 // Start begins session background loops.
 func (s *Session) Start() {
+	pipelineLog.Infof("voice session start: session=%s conv=%s agent=%s", s.ID, s.ConversationID, s.AgentID)
 	s.wg.Add(4)
 	go func() { defer s.wg.Done(); s.audioInputLoop() }()
 	go func() { defer s.wg.Done(); s.llmEventForwarder() }()
@@ -102,6 +107,7 @@ func (s *Session) Start() {
 // Close stops the session and waits for loop termination.
 func (s *Session) Close() {
 	s.closeOnce.Do(func() {
+		pipelineLog.Infof("voice session close: session=%s", s.ID)
 		if prev := s.SwapRunCancel(nil); prev != nil {
 			prev()
 		}
@@ -122,6 +128,7 @@ func (s *Session) enqueueAudioOut(data []byte) bool {
 	case s.audioOutCh <- data:
 		return true
 	default:
+		pipelineLog.Warningf("voice audioOut queue full: session=%s dropped_bytes=%d", s.ID, len(data))
 		return false
 	}
 }
@@ -131,6 +138,7 @@ func (s *Session) enqueueAudioIn(data []byte) bool {
 	case s.audioInCh <- data:
 		return true
 	default:
+		pipelineLog.Warningf("voice audioIn queue full: session=%s dropped_bytes=%d", s.ID, len(data))
 		return false
 	}
 }
@@ -145,6 +153,9 @@ func (s *Session) HandleInputBinaryFrame(raw []byte) error {
 		return errors.New("expected audio_in frame")
 	}
 	s.inSeq.Store(frame.Seq)
+	if frame.Seq%100 == 0 {
+		pipelineLog.Debugf("voice input frame: session=%s seq=%d payload_bytes=%d", s.ID, frame.Seq, len(frame.Data))
+	}
 	if !s.enqueueAudioIn(frame.Data) {
 		return errors.New("audio input queue full")
 	}
@@ -161,6 +172,7 @@ func (s *Session) InputCommit() {
 
 // CancelResponse aborts current response generation and playback.
 func (s *Session) CancelResponse() {
+	pipelineLog.Infof("voice cancel response: session=%s response=%s run=%s", s.ID, s.GetCurrentResponseID(), s.GetCurrentRunID())
 	s.triggerBargeIn()
 }
 
@@ -240,4 +252,48 @@ func (s *Session) SwapTTSCancel(cancelFn func()) (prev func()) {
 
 func (s *Session) newTurnID() string {
 	return security.NewULID()
+}
+
+func (s *Session) TryStartTurnTranscription(turnID string) bool {
+	if turnID == "" {
+		return false
+	}
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if _, exists := s.committedTurns[turnID]; exists {
+		return false
+	}
+	if _, exists := s.transcribeInFlight[turnID]; exists {
+		return false
+	}
+	s.transcribeInFlight[turnID] = struct{}{}
+	return true
+}
+
+func (s *Session) FinishTurnTranscription(turnID string) {
+	if turnID == "" {
+		return
+	}
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	delete(s.transcribeInFlight, turnID)
+}
+
+func (s *Session) IsTurnCommitted(turnID string) bool {
+	if turnID == "" {
+		return false
+	}
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	_, exists := s.committedTurns[turnID]
+	return exists
+}
+
+func (s *Session) MarkTurnCommitted(turnID string) {
+	if turnID == "" {
+		return
+	}
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.committedTurns[turnID] = struct{}{}
 }
