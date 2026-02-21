@@ -895,6 +895,11 @@ func wavToPCM16LE(wavData []byte) ([]byte, error) {
 	if string(wavData[0:4]) != "RIFF" || string(wavData[8:12]) != "WAVE" {
 		return nil, fmt.Errorf("invalid wav header")
 	}
+	var (
+		audioFormat   uint16
+		channels      uint16
+		bitsPerSample uint16
+	)
 	for i := 12; i+8 <= len(wavData); {
 		chunkID := string(wavData[i : i+4])
 		chunkSize := int(binary.LittleEndian.Uint32(wavData[i+4 : i+8]))
@@ -903,7 +908,21 @@ func wavToPCM16LE(wavData []byte) ([]byte, error) {
 		if chunkEnd > len(wavData) {
 			return nil, fmt.Errorf("invalid wav chunk size")
 		}
+		if chunkID == "fmt " && chunkSize >= 16 {
+			audioFormat = binary.LittleEndian.Uint16(wavData[chunkStart : chunkStart+2])
+			channels = binary.LittleEndian.Uint16(wavData[chunkStart+2 : chunkStart+4])
+			bitsPerSample = binary.LittleEndian.Uint16(wavData[chunkStart+14 : chunkStart+16])
+		}
 		if chunkID == "data" {
+			if audioFormat != 1 {
+				return nil, fmt.Errorf("unsupported wav format: %d", audioFormat)
+			}
+			if channels != 1 {
+				return nil, fmt.Errorf("unsupported wav channels: %d", channels)
+			}
+			if bitsPerSample != 16 {
+				return nil, fmt.Errorf("unsupported wav bits per sample: %d", bitsPerSample)
+			}
 			return append([]byte(nil), wavData[chunkStart:chunkEnd]...), nil
 		}
 		i = chunkEnd
