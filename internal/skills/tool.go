@@ -278,18 +278,25 @@ func executeForEachStep(ctx context.Context, step ActionDefinition, fullName str
 		alias = "item"
 	}
 	originalAlias, hadAlias := contextData[alias]
+	aliasIndexKey := alias + "Index"
+	originalAliasIndex, hadAliasIndex := contextData[aliasIndexKey]
 	defer func() {
 		if hadAlias {
 			contextData[alias] = originalAlias
 		} else {
 			delete(contextData, alias)
 		}
+		if hadAliasIndex {
+			contextData[aliasIndexKey] = originalAliasIndex
+		} else {
+			delete(contextData, aliasIndexKey)
+		}
 	}()
 
 	collected := make([]interface{}, 0, len(items))
 	for index, item := range items {
 		contextData[alias] = item
-		contextData[alias+"Index"] = index
+		contextData[aliasIndexKey] = index
 		output, err := executeWorkflowSteps(ctx, step.Steps, contextData, results, fullName+fmt.Sprintf("[%d].", index), httpAuthProfiles)
 		if err != nil {
 			if step.OnError == "continue" {
@@ -727,10 +734,150 @@ func shouldRunStep(action ActionDefinition, contextData map[string]interface{}) 
 		return true
 	}
 	condition := strings.TrimSpace(action.If)
-	if value, ok := resolveTemplateValue(contextData, condition); ok {
-		return isTruthy(value)
+	if strings.Contains(condition, "==") || strings.Contains(condition, "!=") {
+		comparisonValue, ok := evaluateConditionComparison(condition, contextData)
+		if !ok {
+			return false
+		}
+		return comparisonValue
 	}
-	return isTruthy(strings.TrimSpace(applyTemplate(condition, contextData)))
+	value, ok := resolveConditionValue(condition, contextData)
+	if !ok {
+		return false
+	}
+	return isTruthy(value)
+}
+
+func evaluateConditionComparison(condition string, contextData map[string]interface{}) (bool, bool) {
+	operator := "=="
+	parts := strings.SplitN(condition, "==", 2)
+	if len(parts) != 2 {
+		operator = "!="
+		parts = strings.SplitN(condition, "!=", 2)
+	}
+	if len(parts) != 2 {
+		return false, false
+	}
+	left, leftOk := resolveConditionOperand(strings.TrimSpace(parts[0]), contextData)
+	right, rightOk := resolveConditionOperand(strings.TrimSpace(parts[1]), contextData)
+	if !leftOk || !rightOk {
+		return false, false
+	}
+	equal := valuesEqual(left, right)
+	if operator == "!=" {
+		return !equal, true
+	}
+	return equal, true
+}
+
+func resolveConditionOperand(token string, contextData map[string]interface{}) (interface{}, bool) {
+	if token == "" {
+		return nil, false
+	}
+	if literal, ok := parseConditionLiteral(token); ok {
+		return literal, true
+	}
+	if value, ok := resolveTemplateValue(contextData, token); ok {
+		return value, true
+	}
+	if isLikelyPathToken(token) {
+		return nil, true
+	}
+	return nil, false
+}
+
+func resolveConditionValue(condition string, contextData map[string]interface{}) (interface{}, bool) {
+	if literal, ok := parseConditionLiteral(condition); ok {
+		return literal, true
+	}
+	if value, ok := resolveTemplateValue(contextData, condition); ok {
+		return value, true
+	}
+	if strings.Contains(condition, "{{") {
+		templated := strings.TrimSpace(applyTemplate(condition, contextData))
+		if literal, ok := parseConditionLiteral(templated); ok {
+			return literal, true
+		}
+		if templated != condition && !strings.Contains(templated, "{{") {
+			return templated, true
+		}
+	}
+	return nil, false
+}
+
+func parseConditionLiteral(token string) (interface{}, bool) {
+	switch strings.ToLower(token) {
+	case "null":
+		return nil, true
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	}
+	if len(token) >= 2 {
+		if (token[0] == '"' && token[len(token)-1] == '"') || (token[0] == '\'' && token[len(token)-1] == '\'') {
+			return token[1 : len(token)-1], true
+		}
+	}
+	if number, err := strconv.ParseFloat(token, 64); err == nil {
+		return number, true
+	}
+	return nil, false
+}
+
+func isLikelyPathToken(token string) bool {
+	if token == "" || strings.Contains(token, " ") {
+		return false
+	}
+	for _, runeValue := range token {
+		if (runeValue >= 'a' && runeValue <= 'z') || (runeValue >= 'A' && runeValue <= 'Z') || (runeValue >= '0' && runeValue <= '9') || runeValue == '_' || runeValue == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func valuesEqual(left interface{}, right interface{}) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	if leftNumber, ok := toFloat(left); ok {
+		rightNumber, rightOk := toFloat(right)
+		return rightOk && leftNumber == rightNumber
+	}
+	return fmt.Sprintf("%v", left) == fmt.Sprintf("%v", right)
+}
+
+func toFloat(value interface{}) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int8:
+		return float64(typed), true
+	case int16:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case uint:
+		return float64(typed), true
+	case uint8:
+		return float64(typed), true
+	case uint16:
+		return float64(typed), true
+	case uint32:
+		return float64(typed), true
+	case uint64:
+		return float64(typed), true
+	default:
+		return 0, false
+	}
 }
 
 func isTruthy(value interface{}) bool {

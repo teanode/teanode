@@ -124,11 +124,11 @@ func (self *skillsTool) executeSearch(ctx context.Context, query string) (string
 	return string(output), nil
 }
 
-func (self *skillsTool) executeInstall(ctx context.Context, sourceID string, name string, version string) (string, error) {
+func (self *skillsTool) executeInstall(ctx context.Context, sourceId string, name string, version string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("name is required for install action")
 	}
-	installed, err := Install(ctx, self.registries, sourceID, name, version)
+	installed, err := Install(ctx, self.registries, sourceId, name, version)
 	if err != nil {
 		return "", fmt.Errorf("installing skill: %w", err)
 	}

@@ -145,6 +145,26 @@ tools:
 	}
 }
 
+func TestLoadAllParsesCRLFMarkdownFrontmatter(t *testing.T) {
+	directory := t.TempDir()
+	content := "---\r\nname: crlf\r\ntools:\r\n  - name: ping\r\n    description: Ping\r\n    type: shell\r\n    command: [\"echo\", \"ok\"]\r\n---\r\nPrompt line.\r\n"
+	_ = os.WriteFile(filepath.Join(directory, "crlf.md"), []byte(content), 0644)
+
+	skills, err := LoadAll(directory)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if skills[0].Name != "crlf" {
+		t.Fatalf("name = %q, want crlf", skills[0].Name)
+	}
+	if skills[0].Prompt != "Prompt line." {
+		t.Fatalf("prompt = %q, want %q", skills[0].Prompt, "Prompt line.")
+	}
+}
+
 func TestLoadAllWorkflowSkill(t *testing.T) {
 	directory := t.TempDir()
 	content := `---

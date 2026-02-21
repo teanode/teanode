@@ -133,6 +133,8 @@ type installedSkill struct {
 
 func parseSkillMarkdown(data []byte, definition *SkillDefinition) (string, error) {
 	content := string(data)
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
 
 	// Expect: ---\n<yaml>\n---\n<body>
 	if !strings.HasPrefix(content, "---\n") {

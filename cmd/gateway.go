@@ -64,7 +64,7 @@ func NewGatewayCommand() *cli.Command {
 				Usage:   "port to listen on (overrides config)",
 			},
 		},
-		Action: func(ctx context.Context, cmd *cli.Command) error {
+		Action: func(ctx context.Context, command *cli.Command) error {
 			// Ensure base directories exist.
 			if err := configs.EnsureDirectories(); err != nil {
 				return err
@@ -86,8 +86,8 @@ func NewGatewayCommand() *cli.Command {
 			}
 
 			// CLI flag overrides config.
-			if cmd.IsSet("port") {
-				configuration.Gateway.Port = int(cmd.Int("port"))
+			if command.IsSet("port") {
+				configuration.Gateway.Port = int(command.Int("port"))
 			}
 
 			// Load security config (token + password hash).
@@ -453,8 +453,8 @@ func NewGatewayCommand() *cli.Command {
 					return
 				}
 				// Preserve CLI port override.
-				if cmd.IsSet("port") {
-					newConfiguration.Gateway.Port = int(cmd.Int("port"))
+				if command.IsSet("port") {
+					newConfiguration.Gateway.Port = int(command.Int("port"))
 				}
 
 				gateway.SetConfig(newConfiguration)
@@ -472,8 +472,8 @@ func NewGatewayCommand() *cli.Command {
 					return
 				}
 				// Preserve CLI port override.
-				if cmd.IsSet("port") {
-					newConfiguration.Gateway.Port = int(cmd.Int("port"))
+				if command.IsSet("port") {
+					newConfiguration.Gateway.Port = int(command.Int("port"))
 				}
 				gateway.SetConfig(newConfiguration)
 				reloadAgents()

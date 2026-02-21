@@ -659,6 +659,70 @@ func TestWorkflowToolConditionAndContinueOnError(t *testing.T) {
 	}
 }
 
+func TestWorkflowToolConditionMissingPathIsFalse(t *testing.T) {
+	tool := &WorkflowTool{definition: ToolDefinition{
+		Name: "conditional_missing_path",
+		Type: "workflow",
+		Steps: []ActionDefinition{
+			{
+				Name:    "guarded",
+				Type:    "shell",
+				If:      "missing.path",
+				Command: []string{"echo", "should_not_run"},
+			},
+		},
+	}}
+
+	result, err := tool.Execute(context.Background(), "{}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"name":"guarded","type":"shell","status":"skipped"`) {
+		t.Fatalf("expected missing path condition to skip step: %s", result)
+	}
+}
+
+func TestWorkflowToolConditionComparison(t *testing.T) {
+	tool := &WorkflowTool{definition: ToolDefinition{
+		Name: "conditional_comparison",
+		Type: "workflow",
+		Steps: []ActionDefinition{
+			{
+				Name:    "match",
+				Type:    "shell",
+				If:      "mode == \"prod\"",
+				Command: []string{"echo", "matched"},
+			},
+			{
+				Name:    "missing_is_null",
+				Type:    "shell",
+				If:      "missing.value == null",
+				Command: []string{"echo", "null_match"},
+			},
+			{
+				Name:    "mismatch",
+				Type:    "shell",
+				If:      "mode != \"prod\"",
+				Command: []string{"echo", "should_not_run"},
+			},
+		},
+	}}
+
+	result, err := tool.Execute(context.Background(), `{"mode":"prod"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"name":"match","type":"shell","status":"ok"`) {
+		t.Fatalf("expected equality condition to run step: %s", result)
+	}
+	if !strings.Contains(result, `"name":"missing_is_null","type":"shell","status":"ok"`) {
+		t.Fatalf("expected null comparison to run step: %s", result)
+	}
+	if !strings.Contains(result, `"name":"mismatch","type":"shell","status":"skipped"`) {
+		t.Fatalf("expected inequality mismatch to skip step: %s", result)
+	}
+}
+
 func TestWorkflowToolJSONResultReuse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Write([]byte(`{"id":"abc-123"}`))
@@ -790,6 +854,44 @@ func TestWorkflowForEachSwitchAndFinally(t *testing.T) {
 	}
 	if !strings.Contains(result, "finally.cleanup") {
 		t.Fatalf("missing finally path: %s", result)
+	}
+}
+
+func TestWorkflowForEachRestoresAliasIndex(t *testing.T) {
+	tool := &WorkflowTool{definition: ToolDefinition{
+		Name: "for_each_alias_restore",
+		Type: "workflow",
+		Steps: []ActionDefinition{
+			{
+				Name:    "loop",
+				Type:    "forEach",
+				ForEach: "items",
+				As:      "item",
+				Steps: []ActionDefinition{
+					{
+						Name:    "work",
+						Type:    "shell",
+						Command: []string{"echo", "{{itemIndex}}"},
+					},
+				},
+			},
+			{
+				Name:    "after",
+				Type:    "shell",
+				Command: []string{"echo", "{{itemIndex}}"},
+			},
+		},
+	}}
+
+	result, err := tool.Execute(context.Background(), `{"items":[1,2],"itemIndex":"seed"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"name":"after","type":"shell","status":"ok","attempts":1`) {
+		t.Fatalf("missing after step: %s", result)
+	}
+	if !strings.Contains(result, `"output":"seed\n"`) {
+		t.Fatalf("expected alias index to restore original value: %s", result)
 	}
 }
 

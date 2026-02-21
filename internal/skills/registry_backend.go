@@ -174,7 +174,7 @@ func Search(ctx context.Context, registries []configs.SkillsRegistry, query stri
 	return results, nil
 }
 
-func findEntry(ctx context.Context, registries []configs.SkillsRegistry, sourceID string, name string, version string) (*SkillEntry, configs.SkillsRegistry, string, error) {
+func findEntry(ctx context.Context, registries []configs.SkillsRegistry, sourceId string, name string, version string) (*SkillEntry, configs.SkillsRegistry, string, error) {
 	if len(registries) == 0 {
 		return nil, configs.SkillsRegistry{}, "", fmt.Errorf("skills registry is not configured")
 	}
@@ -184,7 +184,7 @@ func findEntry(ctx context.Context, registries []configs.SkillsRegistry, sourceI
 	chosenPublisher := ""
 
 	for _, source := range registries {
-		if sourceID != "" && source.ID != sourceID {
+		if sourceId != "" && source.ID != sourceId {
 			continue
 		}
 		index, err := fetchIndex(ctx, source)
@@ -213,8 +213,8 @@ func findEntry(ctx context.Context, registries []configs.SkillsRegistry, sourceI
 	return chosen, chosenSource, chosenPublisher, nil
 }
 
-func Install(ctx context.Context, registries []configs.SkillsRegistry, sourceID string, name string, version string) (*InstalledSkill, error) {
-	entry, source, publisher, err := findEntry(ctx, registries, sourceID, name, version)
+func Install(ctx context.Context, registries []configs.SkillsRegistry, sourceId string, name string, version string) (*InstalledSkill, error) {
+	entry, source, publisher, err := findEntry(ctx, registries, sourceId, name, version)
 	if err != nil {
 		return nil, err
 	}
