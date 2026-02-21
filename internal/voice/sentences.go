@@ -12,7 +12,7 @@ var abbreviations = map[string]struct{}{
 
 // ExtractCompleteSentences returns only newly complete sentences after alreadyEnqueued.
 func ExtractCompleteSentences(text string, alreadyEnqueued int) ([]string, int) {
-	all := splitSentences(text)
+	all, _ := splitSentences(text)
 	if alreadyEnqueued >= len(all) {
 		return nil, len(all)
 	}
@@ -21,27 +21,34 @@ func ExtractCompleteSentences(text string, alreadyEnqueued int) ([]string, int) 
 
 // FlushRemaining returns the tail fragment after all complete sentences.
 func FlushRemaining(text string, alreadyEnqueued int) string {
-	all := splitSentences(text)
-	if len(all) == 0 {
-		return strings.TrimSpace(text)
-	}
-	joined := strings.Join(all, " ")
+	all, consumed := splitSentences(text)
 	trimmed := strings.TrimSpace(text)
-	rem := strings.TrimSpace(strings.TrimPrefix(trimmed, strings.TrimSpace(joined)))
+	if len(all) == 0 {
+		return trimmed
+	}
+	rem := strings.TrimSpace(trimmed[consumed:])
 	if alreadyEnqueued >= len(all) {
 		return rem
 	}
-	joined = strings.Join(all[:alreadyEnqueued], " ")
-	return strings.TrimSpace(strings.TrimPrefix(trimmed, strings.TrimSpace(joined)))
+	if alreadyEnqueued <= 0 {
+		return trimmed
+	}
+	partial := all[:alreadyEnqueued]
+	_, partialConsumed := splitSentences(strings.Join(partial, " "))
+	if partialConsumed > len(trimmed) {
+		return ""
+	}
+	return strings.TrimSpace(trimmed[partialConsumed:])
 }
 
-func splitSentences(text string) []string {
+func splitSentences(text string) ([]string, int) {
 	runes := []rune(strings.TrimSpace(text))
 	if len(runes) == 0 {
-		return nil
+		return nil, 0
 	}
 	var out []string
 	start := 0
+	lastConsumedRune := 0
 	for i := 0; i < len(runes); i++ {
 		if !isSentenceEndRune(runes[i]) {
 			continue
@@ -68,11 +75,27 @@ func splitSentences(text string) []string {
 			out = append(out, s)
 		}
 		start = i + 1
+		lastConsumedRune = start
 		for start < len(runes) && unicode.IsSpace(runes[start]) {
 			start++
+			lastConsumedRune = start
 		}
 	}
-	return out
+	return out, byteOffsetForRuneIndex(string(runes), lastConsumedRune)
+}
+
+func byteOffsetForRuneIndex(text string, runeIdx int) int {
+	if runeIdx <= 0 {
+		return 0
+	}
+	i := 0
+	for pos := range text {
+		if i == runeIdx {
+			return pos
+		}
+		i++
+	}
+	return len(text)
 }
 
 func looksLikeAbbreviation(sentence []rune) bool {
