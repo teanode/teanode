@@ -565,59 +565,46 @@
         }
       }
     },
-    "skillsRegistry": {
-      "type": "object",
-      "title": "Skills Registry",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "title": "Enabled",
-          "description": "Enable online skill registry features.",
-          "default": true
-        },
-        "sources": {
-          "type": "array",
-          "title": "Sources",
-          "description": "Registry index sources.",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": { "type": "string" },
-              "publisher": { "type": "string" },
-              "indexUrl": { "type": "string" },
-              "enabled": { "type": "boolean", "default": true },
-              "priority": { "type": "number", "default": 100 },
-              "publicKeys": {
-                "type": "array",
-                "items": { "type": "string" }
-              }
-            }
-          }
-        },
-        "policy": {
-          "type": "object",
-          "properties": {
-            "requireSignatures": {
-              "type": "boolean",
-              "default": true
-            },
-            "allowPublishers": {
-              "type": "array",
-              "items": { "type": "string" }
-            }
-          }
-        },
-        "updates": {
-          "type": "object",
-          "properties": {
-            "autoUpdateEnabled": {
-              "type": "boolean",
-              "default": true
-            },
-            "scheduleJob": {
-              "type": "string",
-              "default": "0 */6 * * *"
-            }
+    "skillsRegistries": {
+      "type": "array",
+      "title": "Skills Registries",
+      "description": "Online skill registries used for browsing and installing skills.",
+      "x-widget": "skillsRegistries",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Registry ID",
+            "description": "Unique identifier used when selecting a specific registry source."
+          },
+          "publisher": {
+            "type": "string",
+            "title": "Publisher",
+            "description": "Publisher identity expected in the registry index (e.g. github.com/teanode/teanode-skills)."
+          },
+          "indexUrl": {
+            "type": "string",
+            "title": "Index URL",
+            "description": "HTTP(S) URL to the registry index.json."
+          },
+          "publicKeys": {
+            "type": "array",
+            "title": "Public Keys",
+            "description": "Allowed Ed25519 public keys (base64 raw or base64 PKIX DER) for signature verification.",
+            "items": { "type": "string" }
+          },
+          "ignoreSignatures": {
+            "type": "boolean",
+            "title": "Ignore Signatures",
+            "description": "If true, skip signature verification for this registry.",
+            "default": false
+          },
+          "ignoreUpdates": {
+            "type": "boolean",
+            "title": "Ignore Updates",
+            "description": "If true, this registry is skipped by bulk update checks.",
+            "default": false
           }
         }
       }
@@ -673,10 +660,10 @@
       "path": "summarizer"
     },
     {
-      "id": "skillsRegistry",
-      "title": "Skills Registry",
-      "description": "Online skill registry sources, trust policy, and update behavior.",
-      "path": "skillsRegistry"
+      "id": "skillsRegistries",
+      "title": "Skills Registries",
+      "description": "Online skill registry sources.",
+      "properties": ["skillsRegistries"]
     }
   ]
 }

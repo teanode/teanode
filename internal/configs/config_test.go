@@ -61,56 +61,39 @@ func TestDefaultSummarizerConfig(t *testing.T) {
 
 func TestDefaultSkillsRegistryConfig(t *testing.T) {
 	configuration := defaults()
-	if configuration.SkillsRegistry == nil {
-		t.Fatal("SkillsRegistry should be initialized by defaults()")
+	if len(configuration.SkillsRegistries) != 1 {
+		t.Fatalf("expected 1 default source, got %d", len(configuration.SkillsRegistries))
 	}
-	if !configuration.SkillsRegistry.Enabled {
-		t.Error("SkillsRegistry.Enabled = false, want true")
-	}
-	if len(configuration.SkillsRegistry.Sources) != 1 {
-		t.Fatalf("expected 1 default source, got %d", len(configuration.SkillsRegistry.Sources))
-	}
-	source := configuration.SkillsRegistry.Sources[0]
+	source := configuration.SkillsRegistries[0]
 	if source.Publisher != "github.com/teanode/teanode-skills" {
 		t.Errorf("publisher = %q, want github.com/teanode/teanode-skills", source.Publisher)
 	}
 	if source.IndexURL != "https://raw.githubusercontent.com/teanode/teanode-skills/main/index.json" {
 		t.Errorf("indexUrl = %q, unexpected", source.IndexURL)
 	}
-	if !configuration.SkillsRegistry.Policy.RequireSignatures {
-		t.Error("RequireSignatures = false, want true")
-	}
-	if !configuration.SkillsRegistry.Updates.AutoUpdateEnabled {
-		t.Error("AutoUpdateEnabled = false, want true")
-	}
-	if configuration.SkillsRegistry.Updates.ScheduleJob != "0 */6 * * *" {
-		t.Errorf("ScheduleJob = %q, want %q", configuration.SkillsRegistry.Updates.ScheduleJob, "0 */6 * * *")
-	}
 }
 
-func TestSkillsRegistryEnabledDefaultsWhenOmitted(t *testing.T) {
+func TestSkillsRegistriesDecode(t *testing.T) {
 	var configuration Config
 	input := []byte(`
-skillsRegistry:
-  sources:
-    - id: custom
-      publisher: github.com/example/skills
-      indexUrl: https://example.invalid/index.json
+skillsRegistries:
+  - id: custom
+    publisher: github.com/example/skills
+    indexUrl: https://example.invalid/index.json
+    ignoreSignatures: true
+    ignoreUpdates: true
 `)
 	if err := yaml.Unmarshal(input, &configuration); err != nil {
 		t.Fatalf("yaml unmarshal failed: %v", err)
 	}
-	if configuration.SkillsRegistry == nil {
-		t.Fatal("skillsRegistry is nil")
+	if len(configuration.SkillsRegistries) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(configuration.SkillsRegistries))
 	}
-	if !configuration.SkillsRegistry.Enabled {
-		t.Fatal("skillsRegistry.enabled should default to true when omitted")
+	if !configuration.SkillsRegistries[0].IgnoreSignatures {
+		t.Fatal("ignoreSignatures should decode as true")
 	}
-	if len(configuration.SkillsRegistry.Sources) != 1 {
-		t.Fatalf("expected 1 source, got %d", len(configuration.SkillsRegistry.Sources))
-	}
-	if !configuration.SkillsRegistry.Sources[0].Enabled {
-		t.Fatal("skillsRegistry.sources[0].enabled should default to true when omitted")
+	if !configuration.SkillsRegistries[0].IgnoreUpdates {
+		t.Fatal("ignoreUpdates should decode as true")
 	}
 }
 
@@ -483,6 +466,7 @@ func TestPathHelpers(t *testing.T) {
 		{"SkillsDirectory", SkillsDirectory, filepath.Join(directory, "skills")},
 		{"ModelsFile", ModelsFile, filepath.Join(directory, "models.yaml")},
 		{"MediaDirectory", MediaDirectory, filepath.Join(directory, "media")},
+		{"GatewayPIDFile", GatewayPIDFile, filepath.Join(directory, "gateway.pid")},
 		{"StateFile", StateFile, filepath.Join(directory, "state.yaml")},
 	}
 	for _, testCase := range tests {

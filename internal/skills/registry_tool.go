@@ -8,18 +8,17 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
-	skillregistry "github.com/teanode/teanode/internal/skills/registry"
 )
 
 // RegisterTools adds the skills management tool to the registry.
-func RegisterTools(registry *agents.ToolRegistry, config *configs.SkillsRegistryConfig, onSkillsChanged func()) {
-	registry.Register(&skillsTool{config: config, onSkillsChanged: onSkillsChanged})
+func RegisterTools(registry *agents.ToolRegistry, registries []configs.SkillsRegistry, onSkillsChanged func()) {
+	registry.Register(&skillsTool{registries: registries, onSkillsChanged: onSkillsChanged})
 }
 
 // --- skills (multi-action) ---
 
 type skillsTool struct {
-	config          *configs.SkillsRegistryConfig
+	registries      []configs.SkillsRegistry
 	onSkillsChanged func()
 }
 
@@ -98,26 +97,22 @@ func (self *skillsTool) Execute(ctx context.Context, rawArguments string) (strin
 }
 
 func (self *skillsTool) executeListRegistry() (string, error) {
-	if self.config == nil {
+	if len(self.registries) == 0 {
 		output, _ := json.Marshal(map[string]interface{}{
-			"action":  "list_registry",
-			"enabled": false,
-			"sources": []interface{}{},
+			"action":     "list_registry",
+			"registries": []interface{}{},
 		})
 		return string(output), nil
 	}
 	output, _ := json.Marshal(map[string]interface{}{
-		"action":  "list_registry",
-		"enabled": self.config.Enabled,
-		"policy":  self.config.Policy,
-		"updates": self.config.Updates,
-		"sources": self.config.Sources,
+		"action":     "list_registry",
+		"registries": self.registries,
 	})
 	return string(output), nil
 }
 
 func (self *skillsTool) executeSearch(ctx context.Context, query string) (string, error) {
-	results, err := skillregistry.Search(ctx, self.config, query)
+	results, err := Search(ctx, self.registries, query)
 	if err != nil {
 		return "", fmt.Errorf("searching registry: %w", err)
 	}
@@ -133,7 +128,7 @@ func (self *skillsTool) executeInstall(ctx context.Context, sourceID string, nam
 	if name == "" {
 		return "", fmt.Errorf("name is required for install action")
 	}
-	installed, err := skillregistry.Install(ctx, self.config, sourceID, name, version)
+	installed, err := Install(ctx, self.registries, sourceID, name, version)
 	if err != nil {
 		return "", fmt.Errorf("installing skill: %w", err)
 	}
@@ -148,7 +143,7 @@ func (self *skillsTool) executeInstall(ctx context.Context, sourceID string, nam
 }
 
 func (self *skillsTool) executeListInstalled() (string, error) {
-	items, err := skillregistry.ListInstalled()
+	items, err := ListInstalled()
 	if err != nil {
 		return "", fmt.Errorf("listing installed skills: %w", err)
 	}
@@ -160,7 +155,7 @@ func (self *skillsTool) executeListInstalled() (string, error) {
 }
 
 func (self *skillsTool) executeUpdate(ctx context.Context, name string) (string, error) {
-	updated, err := skillregistry.Update(ctx, self.config, name)
+	updated, err := Update(ctx, self.registries, name)
 	if err != nil {
 		return "", fmt.Errorf("updating skills: %w", err)
 	}
@@ -178,7 +173,7 @@ func (self *skillsTool) executeUninstall(name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("name is required for uninstall action")
 	}
-	if err := skillregistry.Uninstall(name); err != nil {
+	if err := Uninstall(name); err != nil {
 		return "", fmt.Errorf("uninstalling skill: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{

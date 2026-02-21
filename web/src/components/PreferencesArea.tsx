@@ -1,20 +1,20 @@
-import React from 'react';
-import { useTranslation } from 'react-i18next';
-import Box from '@mui/material/Box';
-import Container from '@mui/material/Container';
-import MenuItem from '@mui/material/MenuItem';
-import Paper from '@mui/material/Paper';
-import Select from '@mui/material/Select';
-import Slider from '@mui/material/Slider';
-import Typography from '@mui/material/Typography';
-import Switch from '@mui/material/Switch';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import DarkModeIcon from '@mui/icons-material/DarkMode';
-import LightModeIcon from '@mui/icons-material/LightMode';
-import { useAppContext, type ThemeMode } from '../context';
-import type { LanguagePreference } from '../i18n/config';
+import React from "react";
+import { useTranslation } from "react-i18next";
+import Box from "@mui/material/Box";
+import Container from "@mui/material/Container";
+import MenuItem from "@mui/material/MenuItem";
+import Paper from "@mui/material/Paper";
+import Select from "@mui/material/Select";
+import Slider from "@mui/material/Slider";
+import Typography from "@mui/material/Typography";
+import Switch from "@mui/material/Switch";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
+import LightModeIcon from "@mui/icons-material/LightMode";
+import { useAppContext, type ThemeMode } from "../context";
+import type { LanguagePreference } from "../i18n/config";
 
 export default function PreferencesArea() {
   const { t } = useTranslation();
@@ -41,34 +41,37 @@ export default function PreferencesArea() {
   const voiceAvailable = backend.audioCapability;
 
   return (
-    <Box sx={{ flex: 1, overflowY: 'auto' }}>
+    <Box sx={{ flex: 1, overflowY: "auto" }}>
       <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
         <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            {t('settings.preferences')}
+            {t("settings.preferences")}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            {t('settings.preferencesDescription')}
+            {t("settings.preferencesDescription")}
           </Typography>
         </Box>
 
         {/* Theme */}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            {t('settings.language')}
+            {t("settings.language")}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            {t('settings.languageDescription')}
+            {t("settings.languageDescription")}
           </Typography>
           <Select
             value={languagePreference}
-            onChange={(event) => setLanguagePreference(event.target.value as LanguagePreference)}
+            onChange={(event) =>
+              setLanguagePreference(event.target.value as LanguagePreference)
+            }
             size="small"
             sx={{ minWidth: 220 }}
           >
             <MenuItem value="auto">
-              {t('settings.languageAuto', {
-                locale: typeof navigator !== 'undefined' ? navigator.language : 'en',
+              {t("settings.languageAuto", {
+                locale:
+                  typeof navigator !== "undefined" ? navigator.language : "en",
               })}
             </MenuItem>
             <MenuItem value="en">English</MenuItem>
@@ -80,10 +83,10 @@ export default function PreferencesArea() {
         {/* Theme */}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            {t('settings.theme')}
+            {t("settings.theme")}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            {t('settings.themeDescription')}
+            {t("settings.themeDescription")}
           </Typography>
           <ToggleButtonGroup
             value={themeMode}
@@ -93,10 +96,10 @@ export default function PreferencesArea() {
             }}
             size="small"
           >
-            <ToggleButton value="dark" aria-label={t('settings.darkMode')}>
+            <ToggleButton value="dark" aria-label={t("settings.darkMode")}>
               <DarkModeIcon sx={{ fontSize: 18 }} />
             </ToggleButton>
-            <ToggleButton value="light" aria-label={t('settings.lightMode')}>
+            <ToggleButton value="light" aria-label={t("settings.lightMode")}>
               <LightModeIcon sx={{ fontSize: 18 }} />
             </ToggleButton>
           </ToggleButtonGroup>
@@ -105,12 +108,12 @@ export default function PreferencesArea() {
         {/* Display */}
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            {t('settings.display')}
+            {t("settings.display")}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            {t('settings.displayDescription')}
+            {t("settings.displayDescription")}
           </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
             <FormControlLabel
               control={
                 <Switch
@@ -121,13 +124,15 @@ export default function PreferencesArea() {
               }
               label={
                 <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.showToolCalls')}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                    {t("settings.showToolCalls")}
+                  </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {t('settings.showToolCallsDescription')}
+                    {t("settings.showToolCallsDescription")}
                   </Typography>
                 </Box>
               }
-              sx={{ alignItems: 'flex-start', ml: 0 }}
+              sx={{ alignItems: "flex-start", ml: 0 }}
             />
             <FormControlLabel
               control={
@@ -139,13 +144,15 @@ export default function PreferencesArea() {
               }
               label={
                 <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.showTokenUsage')}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                    {t("settings.showTokenUsage")}
+                  </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {t('settings.showTokenUsageDescription')}
+                    {t("settings.showTokenUsageDescription")}
                   </Typography>
                 </Box>
               }
-              sx={{ alignItems: 'flex-start', ml: 0 }}
+              sx={{ alignItems: "flex-start", ml: 0 }}
             />
           </Box>
         </Paper>
@@ -154,12 +161,12 @@ export default function PreferencesArea() {
         {voiceAvailable && (
           <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-              {t('settings.voice')}
+              {t("settings.voice")}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              {t('settings.voiceDescription')}
+              {t("settings.voiceDescription")}
             </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
               <FormControlLabel
                 control={
                   <Switch
@@ -170,25 +177,33 @@ export default function PreferencesArea() {
                 }
                 label={
                   <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.voiceAutoSend')}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {t("settings.voiceAutoSend")}
+                    </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {t('settings.voiceAutoSendDescription')}
+                      {t("settings.voiceAutoSendDescription")}
                     </Typography>
                   </Box>
                 }
-                sx={{ alignItems: 'flex-start', ml: 0 }}
+                sx={{ alignItems: "flex-start", ml: 0 }}
               />
               <Box sx={{ mt: 1 }}>
-                <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{t('settings.ttsVoice')}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+                  {t("settings.ttsVoice")}
+                </Typography>
                 <Select
                   value={ttsVoice}
                   onChange={(event) => setTtsVoice(event.target.value)}
                   size="small"
                   sx={{ minWidth: 140 }}
                 >
-                  {['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'].map((v) => (
-                    <MenuItem key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</MenuItem>
-                  ))}
+                  {["alloy", "echo", "fable", "onyx", "nova", "shimmer"].map(
+                    (v) => (
+                      <MenuItem key={v} value={v}>
+                        {v.charAt(0).toUpperCase() + v.slice(1)}
+                      </MenuItem>
+                    ),
+                  )}
                 </Select>
               </Box>
 
@@ -197,33 +212,54 @@ export default function PreferencesArea() {
                 control={
                   <Switch
                     checked={voiceChimesEnabled}
-                    onChange={(event) => setVoiceChimesEnabled(event.target.checked)}
+                    onChange={(event) =>
+                      setVoiceChimesEnabled(event.target.checked)
+                    }
                     color="primary"
                   />
                 }
                 label={
                   <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('settings.voiceChimes')}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {t("settings.voiceChimes")}
+                    </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {t('settings.voiceChimesDescription')}
+                      {t("settings.voiceChimesDescription")}
                     </Typography>
                   </Box>
                 }
-                sx={{ alignItems: 'flex-start', ml: 0, mt: 1 }}
+                sx={{ alignItems: "flex-start", ml: 0, mt: 1 }}
               />
               {voiceChimesEnabled && (
-                <Box sx={{ pl: 1, mt: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                <Box
+                  sx={{
+                    pl: 1,
+                    mt: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 1.5,
+                  }}
+                >
                   <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>{t('settings.voiceChimesVolume')}</Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: 500, mb: 0.5 }}
+                    >
+                      {t("settings.voiceChimesVolume")}
+                    </Typography>
                     <Slider
                       value={voiceChimesVolume}
-                      onChange={(_event, value) => setVoiceChimesVolume(value as number)}
+                      onChange={(_event, value) =>
+                        setVoiceChimesVolume(value as number)
+                      }
                       min={0}
                       max={1}
                       step={0.05}
                       size="small"
                       valueLabelDisplay="auto"
-                      valueLabelFormat={(value) => `${Math.round(value * 100)}%`}
+                      valueLabelFormat={(value) =>
+                        `${Math.round(value * 100)}%`
+                      }
                       sx={{ maxWidth: 200 }}
                     />
                   </Box>

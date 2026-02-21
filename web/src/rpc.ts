@@ -1,4 +1,10 @@
-import { RequestFrame, ResponseFrame, EventFrame, RPCError, AuthStatusResult } from './types';
+import {
+  RequestFrame,
+  ResponseFrame,
+  EventFrame,
+  RPCError,
+  AuthStatusResult,
+} from "./types";
 
 type EventHandler = (frame: EventFrame) => void;
 
@@ -16,7 +22,7 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getToken(): string {
   const params = new URLSearchParams(window.location.search);
-  return params.get('token') || '';
+  return params.get("token") || "";
 }
 
 export function setEventHandler(handler: EventHandler): void {
@@ -37,7 +43,7 @@ export function connect(onOpen?: () => void): void {
     reconnectTimer = null;
   }
 
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   let url = `${proto}//${window.location.host}/api/v1/websocket`;
   const token = getToken();
   if (token) url += `?token=${encodeURIComponent(token)}`;
@@ -45,15 +51,15 @@ export function connect(onOpen?: () => void): void {
   webSocket = new WebSocket(url);
 
   webSocket.onopen = () => {
-    setStatus('connected');
+    setStatus("connected");
     onOpen?.();
   };
 
   webSocket.onclose = () => {
-    setStatus('disconnected - reconnecting...');
+    setStatus("disconnected - reconnecting...");
     // Reject all pending RPCs
     for (const [id, pending] of pendingCalls) {
-      pending.reject({ code: -1, message: 'disconnected' });
+      pending.reject({ code: -1, message: "disconnected" });
       pendingCalls.delete(id);
     }
     reconnectTimer = setTimeout(() => connect(onOpen), 2000);
@@ -63,7 +69,7 @@ export function connect(onOpen?: () => void): void {
 
   webSocket.onmessage = (e) => {
     const frame = JSON.parse(e.data as string);
-    if (frame.type === 'res') {
+    if (frame.type === "res") {
       const response = frame as ResponseFrame;
       const pending = pendingCalls.get(response.id);
       if (pending) {
@@ -71,19 +77,24 @@ export function connect(onOpen?: () => void): void {
         if (response.ok) {
           pending.resolve(response.payload);
         } else {
-          pending.reject(response.error || { code: -1, message: 'unknown error' });
+          pending.reject(
+            response.error || { code: -1, message: "unknown error" },
+          );
         }
       }
-    } else if (frame.type === 'event') {
+    } else if (frame.type === "event") {
       eventHandler?.(frame as EventFrame);
     }
   };
 }
 
-export function sendRpc<T = unknown>(method: string, params: unknown): Promise<T> {
+export function sendRpc<T = unknown>(
+  method: string,
+  params: unknown,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
-      reject({ code: -1, message: 'not connected' });
+      reject({ code: -1, message: "not connected" });
       return;
     }
     const id = String(++callId);
@@ -91,7 +102,7 @@ export function sendRpc<T = unknown>(method: string, params: unknown): Promise<T
       resolve: resolve as (payload: unknown) => void,
       reject,
     });
-    const frame: RequestFrame = { type: 'req', id, method, params };
+    const frame: RequestFrame = { type: "req", id, method, params };
     webSocket.send(JSON.stringify(frame));
   });
 }
@@ -111,35 +122,39 @@ export function disconnect(): void {
 // --- REST auth helpers (work before WebSocket is established) ---
 
 export async function authStatus(): Promise<AuthStatusResult> {
-  const response = await fetch('/api/v1/auth/status');
+  const response = await fetch("/api/v1/auth/status");
   if (!response.ok) throw new Error(`auth/status: ${response.status}`);
   return response.json();
 }
 
 export async function authLogin(password: string): Promise<void> {
-  const response = await fetch('/api/v1/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const response = await fetch("/api/v1/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password }),
   });
   if (!response.ok) {
-    const data = await response.json().catch(() => ({ error: { message: 'Login failed' } }));
-    throw new Error(data.error?.message || 'Login failed');
+    const data = await response
+      .json()
+      .catch(() => ({ error: { message: "Login failed" } }));
+    throw new Error(data.error?.message || "Login failed");
   }
 }
 
 export async function authSetup(password: string): Promise<void> {
-  const response = await fetch('/api/v1/auth/setup', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const response = await fetch("/api/v1/auth/setup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password }),
   });
   if (!response.ok) {
-    const data = await response.json().catch(() => ({ error: { message: 'Setup failed' } }));
-    throw new Error(data.error?.message || 'Setup failed');
+    const data = await response
+      .json()
+      .catch(() => ({ error: { message: "Setup failed" } }));
+    throw new Error(data.error?.message || "Setup failed");
   }
 }
 
 export async function authLogout(): Promise<void> {
-  await fetch('/api/v1/auth/logout', { method: 'POST' });
+  await fetch("/api/v1/auth/logout", { method: "POST" });
 }

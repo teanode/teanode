@@ -1,9 +1,10 @@
-package registry
+package skills
 
 import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
 type Index struct {
@@ -45,6 +47,7 @@ type SearchResult struct {
 
 type InstalledSkill struct {
 	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 	Version     string `json:"version"`
 	SourceID    string `json:"sourceId,omitempty"`
 	Publisher   string `json:"publisher,omitempty"`
@@ -53,6 +56,7 @@ type InstalledSkill struct {
 
 type installManifest struct {
 	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 	Version     string `json:"version"`
 	SourceID    string `json:"sourceId"`
 	Publisher   string `json:"publisher"`
@@ -60,7 +64,7 @@ type installManifest struct {
 	InstalledAt int64  `json:"installedAt"`
 }
 
-func fetchIndex(ctx context.Context, source configs.SkillsRegistrySource) (*Index, error) {
+func fetchIndex(ctx context.Context, source configs.SkillsRegistry) (*Index, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source.IndexURL, nil)
 	if err != nil {
 		return nil, err
@@ -83,19 +87,7 @@ func fetchIndex(ctx context.Context, source configs.SkillsRegistrySource) (*Inde
 	return &index, nil
 }
 
-func publisherAllowed(policy configs.SkillsRegistryPolicy, publisher string) bool {
-	if len(policy.AllowPublishers) == 0 {
-		return true
-	}
-	for _, allowed := range policy.AllowPublishers {
-		if allowed == publisher {
-			return true
-		}
-	}
-	return false
-}
-
-func VerifyEntrySignature(entry SkillEntry, source configs.SkillsRegistrySource) error {
+func VerifyEntrySignature(entry SkillEntry, source configs.SkillsRegistry) error {
 	if entry.Signature == "" {
 		return fmt.Errorf("missing signature")
 	}
@@ -108,35 +100,49 @@ func VerifyEntrySignature(entry SkillEntry, source configs.SkillsRegistrySource)
 	}
 	message := []byte(fmt.Sprintf("%s\n%s\n%s\n%s", entry.Name, entry.Version, entry.URL, strings.ToLower(entry.SHA256)))
 	for _, keyText := range source.PublicKeys {
-		keyBytes, decodeErr := base64.StdEncoding.DecodeString(keyText)
-		if decodeErr != nil {
+		publicKey, parseError := parseEd25519PublicKey(keyText)
+		if parseError != nil {
 			continue
 		}
-		if len(keyBytes) != ed25519.PublicKeySize {
-			continue
-		}
-		if ed25519.Verify(ed25519.PublicKey(keyBytes), message, signature) {
+		if ed25519.Verify(publicKey, message, signature) {
 			return nil
 		}
 	}
 	return fmt.Errorf("signature verification failed")
 }
 
-func Search(ctx context.Context, config *configs.SkillsRegistryConfig, query string) ([]SearchResult, error) {
-	if config == nil || !config.Enabled {
+func parseEd25519PublicKey(keyText string) (ed25519.PublicKey, error) {
+	keyBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(keyText))
+	if err != nil {
+		return nil, err
+	}
+
+	// Raw 32-byte Ed25519 public key.
+	if len(keyBytes) == ed25519.PublicKeySize {
+		return ed25519.PublicKey(keyBytes), nil
+	}
+
+	// PKIX/DER SubjectPublicKeyInfo form (commonly copied from PEM body).
+	parsed, err := x509.ParsePKIXPublicKey(keyBytes)
+	if err != nil {
+		return nil, err
+	}
+	publicKey, ok := parsed.(ed25519.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("public key is not ed25519")
+	}
+	return publicKey, nil
+}
+
+func Search(ctx context.Context, registries []configs.SkillsRegistry, query string) ([]SearchResult, error) {
+	if len(registries) == 0 {
 		return nil, nil
 	}
 	query = strings.ToLower(strings.TrimSpace(query))
 	var results []SearchResult
-	for _, source := range config.Sources {
-		if !source.Enabled {
-			continue
-		}
+	for _, source := range registries {
 		index, err := fetchIndex(ctx, source)
 		if err != nil {
-			continue
-		}
-		if !publisherAllowed(config.Policy, index.Publisher) {
 			continue
 		}
 		for _, entry := range index.Skills {
@@ -168,27 +174,21 @@ func Search(ctx context.Context, config *configs.SkillsRegistryConfig, query str
 	return results, nil
 }
 
-func findEntry(ctx context.Context, config *configs.SkillsRegistryConfig, sourceID string, name string, version string) (*SkillEntry, configs.SkillsRegistrySource, string, error) {
-	if config == nil || !config.Enabled {
-		return nil, configs.SkillsRegistrySource{}, "", fmt.Errorf("skills registry is disabled")
+func findEntry(ctx context.Context, registries []configs.SkillsRegistry, sourceID string, name string, version string) (*SkillEntry, configs.SkillsRegistry, string, error) {
+	if len(registries) == 0 {
+		return nil, configs.SkillsRegistry{}, "", fmt.Errorf("skills registry is not configured")
 	}
 
 	var chosen *SkillEntry
-	var chosenSource configs.SkillsRegistrySource
+	var chosenSource configs.SkillsRegistry
 	chosenPublisher := ""
 
-	for _, source := range config.Sources {
-		if !source.Enabled {
-			continue
-		}
+	for _, source := range registries {
 		if sourceID != "" && source.ID != sourceID {
 			continue
 		}
 		index, err := fetchIndex(ctx, source)
 		if err != nil {
-			continue
-		}
-		if !publisherAllowed(config.Policy, index.Publisher) {
 			continue
 		}
 		for _, entry := range index.Skills {
@@ -198,7 +198,7 @@ func findEntry(ctx context.Context, config *configs.SkillsRegistryConfig, source
 			if version != "" && entry.Version != version {
 				continue
 			}
-			if chosen == nil || compareVersions(entry.Version, chosen.Version) > 0 {
+			if chosen == nil || compareRegistryVersions(entry.Version, chosen.Version) > 0 {
 				copyEntry := entry
 				chosen = &copyEntry
 				chosenSource = source
@@ -208,17 +208,17 @@ func findEntry(ctx context.Context, config *configs.SkillsRegistryConfig, source
 	}
 
 	if chosen == nil {
-		return nil, configs.SkillsRegistrySource{}, "", fmt.Errorf("skill not found: %s", name)
+		return nil, configs.SkillsRegistry{}, "", fmt.Errorf("skill not found: %s", name)
 	}
 	return chosen, chosenSource, chosenPublisher, nil
 }
 
-func Install(ctx context.Context, config *configs.SkillsRegistryConfig, sourceID string, name string, version string) (*InstalledSkill, error) {
-	entry, source, publisher, err := findEntry(ctx, config, sourceID, name, version)
+func Install(ctx context.Context, registries []configs.SkillsRegistry, sourceID string, name string, version string) (*InstalledSkill, error) {
+	entry, source, publisher, err := findEntry(ctx, registries, sourceID, name, version)
 	if err != nil {
 		return nil, err
 	}
-	if config.Policy.RequireSignatures {
+	if !source.IgnoreSignatures {
 		if err := VerifyEntrySignature(*entry, source); err != nil {
 			return nil, err
 		}
@@ -265,6 +265,7 @@ func Install(ctx context.Context, config *configs.SkillsRegistryConfig, sourceID
 	}
 	manifest := installManifest{
 		Name:        entry.Name,
+		Description: entry.Description,
 		Version:     entry.Version,
 		SourceID:    source.ID,
 		Publisher:   publisher,
@@ -278,6 +279,7 @@ func Install(ctx context.Context, config *configs.SkillsRegistryConfig, sourceID
 	notifyInstalledSkillsChanged(skillsDirectory)
 	return &InstalledSkill{
 		Name:        entry.Name,
+		Description: entry.Description,
 		Version:     entry.Version,
 		SourceID:    source.ID,
 		Publisher:   publisher,
@@ -322,7 +324,7 @@ func ListInstalled() ([]InstalledSkill, error) {
 			if !isSafePathSegment(version) {
 				continue
 			}
-			if bestVersion == "" || compareVersions(version, bestVersion) > 0 {
+			if bestVersion == "" || compareRegistryVersions(version, bestVersion) > 0 {
 				bestVersion = version
 				bestPath = filepath.Join(root, skillEntry.Name(), version, "manifest.json")
 			}
@@ -335,6 +337,7 @@ func ListInstalled() ([]InstalledSkill, error) {
 		if data, err := os.ReadFile(bestPath); err == nil {
 			var manifest installManifest
 			if json.Unmarshal(data, &manifest) == nil {
+				record.Description = manifest.Description
 				record.SourceID = manifest.SourceID
 				record.Publisher = manifest.Publisher
 				record.InstalledAt = manifest.InstalledAt
@@ -367,7 +370,29 @@ func Uninstall(name string) error {
 	return nil
 }
 
-func Update(ctx context.Context, config *configs.SkillsRegistryConfig, name string) ([]InstalledSkill, error) {
+func writeInstalledFile(directory string, filename string, content []byte) error {
+	file, err := atomicfile.Create(filepath.Join(directory, filename))
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = atomicfile.Discard(file)
+		}
+	}()
+
+	if _, err := file.Write(content); err != nil {
+		return err
+	}
+	if err := atomicfile.Commit(file); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func Update(ctx context.Context, registries []configs.SkillsRegistry, name string) ([]InstalledSkill, error) {
 	installed, err := ListInstalled()
 	if err != nil {
 		return nil, err
@@ -377,18 +402,31 @@ func Update(ctx context.Context, config *configs.SkillsRegistryConfig, name stri
 		if name != "" && item.Name != name {
 			continue
 		}
-		installedItem, installErr := Install(ctx, config, item.SourceID, item.Name, "")
+		registry := findRegistryByID(registries, item.SourceID)
+		if registry != nil && registry.IgnoreUpdates {
+			continue
+		}
+		installedItem, installErr := Install(ctx, registries, item.SourceID, item.Name, "")
 		if installErr != nil {
 			continue
 		}
-		if compareVersions(installedItem.Version, item.Version) > 0 {
+		if compareRegistryVersions(installedItem.Version, item.Version) > 0 {
 			updated = append(updated, *installedItem)
 		}
 	}
 	return updated, nil
 }
 
-func compareVersions(left string, right string) int {
+func findRegistryByID(registries []configs.SkillsRegistry, id string) *configs.SkillsRegistry {
+	for index := range registries {
+		if registries[index].ID == id {
+			return &registries[index]
+		}
+	}
+	return nil
+}
+
+func compareRegistryVersions(left string, right string) int {
 	leftParts := strings.Split(strings.TrimPrefix(left, "v"), ".")
 	rightParts := strings.Split(strings.TrimPrefix(right, "v"), ".")
 	maxLen := len(leftParts)

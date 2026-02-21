@@ -1,11 +1,11 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import type { useBackend } from './hooks/useBackend';
+import React, { createContext, useContext, useState, useCallback } from "react";
+import type { useBackend } from "./hooks/useBackend";
 import {
   LANGUAGE_PREFERENCE_STORAGE_KEY,
   type LanguagePreference,
-} from './i18n/config';
+} from "./i18n/config";
 
-export type ThemeMode = 'dark' | 'light';
+export type ThemeMode = "dark" | "light";
 
 export interface AppContextValue {
   backend: ReturnType<typeof useBackend>;
@@ -34,7 +34,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function useAppContext(): AppContextValue {
   const context = useContext(AppContext);
   if (!context) {
-    throw new Error('useAppContext must be used within AppProvider');
+    throw new Error("useAppContext must be used within AppProvider");
   }
   return context;
 }
@@ -48,69 +48,70 @@ export function AppProvider({
 }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showToolCalls, setShowToolCallsState] = useState(() => {
-    return localStorage.getItem('teanode-show-tools') === 'true';
+    return localStorage.getItem("teanode-show-tools") === "true";
   });
   const [showTokenUsage, setShowTokenUsageState] = useState(() => {
-    return localStorage.getItem('teanode-show-usage') === 'true';
+    return localStorage.getItem("teanode-show-usage") === "true";
   });
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
-    const stored = localStorage.getItem('teanode-theme-mode');
-    return stored === 'light' ? 'light' : 'dark';
+    const stored = localStorage.getItem("teanode-theme-mode");
+    return stored === "light" ? "light" : "dark";
   });
   const [voiceAutoSend, setVoiceAutoSendState] = useState(() => {
-    return localStorage.getItem('teanode-voice-auto-send') !== 'false';
+    return localStorage.getItem("teanode-voice-auto-send") !== "false";
   });
   const [ttsVoice, setTtsVoiceState] = useState(() => {
-    return localStorage.getItem('teanode-voice-tts-voice') || 'alloy';
+    return localStorage.getItem("teanode-voice-tts-voice") || "alloy";
   });
   const [voiceChimesEnabled, setVoiceChimesEnabledState] = useState(() => {
-    return localStorage.getItem('teanode-voice-chimes-enabled') !== 'false';
+    return localStorage.getItem("teanode-voice-chimes-enabled") !== "false";
   });
   const [voiceChimesVolume, setVoiceChimesVolumeState] = useState(() => {
-    const stored = localStorage.getItem('teanode-voice-chimes-volume');
+    const stored = localStorage.getItem("teanode-voice-chimes-volume");
     return stored !== null ? Number(stored) : 0.3;
   });
-  const [languagePreference, setLanguagePreferenceState] = useState<LanguagePreference>(() => {
-    const stored = localStorage.getItem(LANGUAGE_PREFERENCE_STORAGE_KEY);
-    if (stored === 'en') return 'en';
-    if (stored === 'zh') return 'zh';
-    if (stored === 'ja') return 'ja';
-    return 'auto';
-  });
+  const [languagePreference, setLanguagePreferenceState] =
+    useState<LanguagePreference>(() => {
+      const stored = localStorage.getItem(LANGUAGE_PREFERENCE_STORAGE_KEY);
+      if (stored === "en") return "en";
+      if (stored === "zh") return "zh";
+      if (stored === "ja") return "ja";
+      return "auto";
+    });
 
   const setShowToolCalls = useCallback((value: boolean) => {
     setShowToolCallsState(value);
-    localStorage.setItem('teanode-show-tools', String(value));
+    localStorage.setItem("teanode-show-tools", String(value));
   }, []);
 
   const setShowTokenUsage = useCallback((value: boolean) => {
     setShowTokenUsageState(value);
-    localStorage.setItem('teanode-show-usage', String(value));
+    localStorage.setItem("teanode-show-usage", String(value));
   }, []);
 
   const setThemeMode = useCallback((mode: ThemeMode) => {
     setThemeModeState(mode);
-    localStorage.setItem('teanode-theme-mode', mode);
+    localStorage.setItem("teanode-theme-mode", mode);
   }, []);
 
   const setVoiceAutoSend = useCallback((value: boolean) => {
     setVoiceAutoSendState(value);
-    localStorage.setItem('teanode-voice-auto-send', String(value));
+    localStorage.setItem("teanode-voice-auto-send", String(value));
   }, []);
 
   const setTtsVoice = useCallback((voice: string) => {
     setTtsVoiceState(voice);
-    localStorage.setItem('teanode-voice-tts-voice', voice);
+    localStorage.setItem("teanode-voice-tts-voice", voice);
   }, []);
 
   const setVoiceChimesEnabled = useCallback((value: boolean) => {
     setVoiceChimesEnabledState(value);
-    localStorage.setItem('teanode-voice-chimes-enabled', String(value));
+    localStorage.setItem("teanode-voice-chimes-enabled", String(value));
   }, []);
 
   const setVoiceChimesVolume = useCallback((value: number) => {
     setVoiceChimesVolumeState(value);
-    localStorage.setItem('teanode-voice-chimes-volume', String(value));
+    localStorage.setItem("teanode-voice-chimes-volume", String(value));
   }, []);
 
   const setLanguagePreference = useCallback((value: LanguagePreference) => {

@@ -58,6 +58,7 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			cmd.NewGatewayCommand(),
+			cmd.NewRestartCommand(),
 			cmd.NewTerminalCommand(),
 		},
 	}

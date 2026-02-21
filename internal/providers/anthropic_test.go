@@ -982,6 +982,7 @@ func TestAnthropicSSEStreamingContextCancellation(t *testing.T) {
 
 	client := NewAnthropicClient(server.URL, "test-key")
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	stream, err := client.ChatCompletionStream(ctx, ChatRequest{
 		Model:    "claude-sonnet-4-20250514",

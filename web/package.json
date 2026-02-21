@@ -6,7 +6,10 @@
     "dev": "webpack serve --mode development",
     "build": "webpack --mode production",
     "watch": "webpack --mode development --watch",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" webpack.config.js && tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{js,json,ts,tsx,css,html}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{js,json,ts,tsx,css,html}\""
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -30,10 +33,15 @@
     "@types/react-dom": "^19.1.5",
     "copy-webpack-plugin": "^12.0.2",
     "css-loader": "^7.1.2",
+    "eslint": "^9.38.0",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "globals": "^16.4.0",
     "html-webpack-plugin": "^5.6.3",
     "mini-css-extract-plugin": "^2.9.2",
+    "prettier": "^3.8.1",
     "style-loader": "^4.0.0",
     "ts-loader": "^9.5.2",
+    "typescript-eslint": "^8.46.3",
     "typescript": "^5.8.3",
     "vitest": "^4.0.18",
     "webpack": "^5.99.9",

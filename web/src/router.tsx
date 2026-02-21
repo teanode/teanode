@@ -3,30 +3,31 @@ import {
   createRootRoute,
   createRoute,
   redirect,
-} from '@tanstack/react-router';
-import RootLayout from './routes/__root';
-import ConversationsLayout from './routes/conversations/route';
-import ConversationsIndex from './routes/conversations/index';
-import ConversationsAgentLayout from './routes/conversations/$agentId/route';
-import ConversationsNewPage from './routes/conversations/$agentId/index';
-import ConversationsConversationPage from './routes/conversations/$agentId/$conversationId';
-import ConversationsAllPage from './routes/conversations/all';
-import JobsLayout from './routes/jobs/route';
-import JobsIndex from './routes/jobs/index';
-import JobsNewPage from './routes/jobs/new';
-import JobDetailPage from './routes/jobs/$jobId';
-import SettingsLayout from './routes/settings/route';
-import SettingsIndexPage from './routes/settings/index';
-import SettingsSectionPage from './routes/settings/$sectionId';
-import SettingsPreferencesPage from './routes/settings/preferences';
-import SettingsTokenPage from './routes/settings/token';
-import SettingsPasswordPage from './routes/settings/password';
-import SettingsSessionsPage from './routes/settings/sessions';
-import SettingsAgentsPage from './routes/settings/agents';
-import SettingsAgentPage from './routes/settings/agents/$agentId';
-import SettingsJobsPage from './routes/settings/jobs';
-import LoginRoute from './routes/login';
-import SetupRoute from './routes/setup';
+} from "@tanstack/react-router";
+import RootLayout from "./routes/__root";
+import ConversationsLayout from "./routes/conversations/route";
+import ConversationsIndex from "./routes/conversations/index";
+import ConversationsAgentLayout from "./routes/conversations/$agentId/route";
+import ConversationsNewPage from "./routes/conversations/$agentId/index";
+import ConversationsConversationPage from "./routes/conversations/$agentId/$conversationId";
+import ConversationsAllPage from "./routes/conversations/all";
+import JobsLayout from "./routes/jobs/route";
+import JobsIndex from "./routes/jobs/index";
+import JobsNewPage from "./routes/jobs/new";
+import JobDetailPage from "./routes/jobs/$jobId";
+import SettingsLayout from "./routes/settings/route";
+import SettingsIndexPage from "./routes/settings/index";
+import SettingsSectionPage from "./routes/settings/$sectionId";
+import SettingsPreferencesPage from "./routes/settings/preferences";
+import SettingsTokenPage from "./routes/settings/token";
+import SettingsPasswordPage from "./routes/settings/password";
+import SettingsSessionsPage from "./routes/settings/sessions";
+import SettingsAgentsPage from "./routes/settings/agents";
+import SettingsAgentPage from "./routes/settings/agents/$agentId";
+import SettingsJobsPage from "./routes/settings/jobs";
+import SettingsSkillsPage from "./routes/settings/skills";
+import LoginRoute from "./routes/login";
+import SetupRoute from "./routes/setup";
 
 // ── Route tree ──────────────────────────────────────────────────────
 
@@ -37,163 +38,170 @@ const rootRoute = createRootRoute({
 // / → redirect to /conversations
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/',
+  path: "/",
   beforeLoad: () => {
-    throw redirect({ to: '/conversations' });
+    throw redirect({ to: "/conversations" });
   },
 });
 
 // /conversations
 const conversationsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: 'conversations',
+  path: "conversations",
   component: ConversationsLayout,
 });
 
 // /conversations/ (index) → redirect to default agent (handled by component)
 const conversationsIndexRoute = createRoute({
   getParentRoute: () => conversationsRoute,
-  path: '/',
+  path: "/",
   component: ConversationsIndex,
 });
 
 // /conversations/$agentId
 const conversationsAgentRoute = createRoute({
   getParentRoute: () => conversationsRoute,
-  path: '$agentId',
+  path: "$agentId",
   component: ConversationsAgentLayout,
 });
 
 // /conversations/$agentId/ (index) → new conversation page
 const conversationsAgentIndexRoute = createRoute({
   getParentRoute: () => conversationsAgentRoute,
-  path: '/',
+  path: "/",
   component: ConversationsNewPage,
 });
 
 // /conversations/all → browse all conversations across all agents
 const conversationsAllRoute = createRoute({
   getParentRoute: () => conversationsRoute,
-  path: 'all',
+  path: "all",
   component: ConversationsAllPage,
 });
 
 // /conversations/$agentId/$conversationId → active conversation
 const conversationsConversationRoute = createRoute({
   getParentRoute: () => conversationsAgentRoute,
-  path: '$conversationId',
+  path: "$conversationId",
   component: ConversationsConversationPage,
 });
 
 // /jobs
 const jobsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: 'jobs',
+  path: "jobs",
   component: JobsLayout,
 });
 
 // /jobs/ (index)
 const jobsIndexRoute = createRoute({
   getParentRoute: () => jobsRoute,
-  path: '/',
+  path: "/",
   component: JobsIndex,
 });
 
 // /jobs/new
 const jobsNewRoute = createRoute({
   getParentRoute: () => jobsRoute,
-  path: 'new',
+  path: "new",
   component: JobsNewPage,
 });
 
 // /jobs/$jobId
 const jobDetailRoute = createRoute({
   getParentRoute: () => jobsRoute,
-  path: '$jobId',
+  path: "$jobId",
   component: JobDetailPage,
 });
 
 // /settings
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: 'settings',
+  path: "settings",
   component: SettingsLayout,
 });
 
 // /settings/ (index) → redirect to first section
 const settingsIndexRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: '/',
+  path: "/",
   component: SettingsIndexPage,
 });
 
 // /settings/$sectionId → individual config section
 const settingsSectionRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: '$sectionId',
+  path: "$sectionId",
   component: SettingsSectionPage,
 });
 
 // /settings/preferences → client-side preferences
 const settingsPreferencesRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: 'preferences',
+  path: "preferences",
   component: SettingsPreferencesPage,
 });
 
 // /settings/token → auth token management
 const settingsTokenRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: 'token',
+  path: "token",
   component: SettingsTokenPage,
 });
 
 // /settings/password → password management
 const settingsPasswordRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: 'password',
+  path: "password",
   component: SettingsPasswordPage,
 });
 
 // /settings/sessions → login session management
 const settingsSessionsRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: 'sessions',
+  path: "sessions",
   component: SettingsSessionsPage,
 });
 
 // /settings/agents → agent management page
 const settingsAgentsRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: 'agents',
+  path: "agents",
   component: SettingsAgentsPage,
 });
 
 // /settings/jobs → jobs management page
 const settingsJobsRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: 'jobs',
+  path: "jobs",
   component: SettingsJobsPage,
+});
+
+// /settings/skills → skills management page
+const settingsSkillsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "skills",
+  component: SettingsSkillsPage,
 });
 
 // /settings/agents/$agentId → individual agent editor
 const settingsAgentRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: 'agents/$agentId',
+  path: "agents/$agentId",
   component: SettingsAgentPage,
 });
 
 // /login
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: 'login',
+  path: "login",
   component: LoginRoute,
 });
 
 // /setup
 const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: 'setup',
+  path: "setup",
   component: SetupRoute,
 });
 
@@ -206,10 +214,24 @@ const routeTree = rootRoute.addChildren([
   conversationsRoute.addChildren([
     conversationsIndexRoute,
     conversationsAllRoute,
-    conversationsAgentRoute.addChildren([conversationsAgentIndexRoute, conversationsConversationRoute]),
+    conversationsAgentRoute.addChildren([
+      conversationsAgentIndexRoute,
+      conversationsConversationRoute,
+    ]),
   ]),
   jobsRoute.addChildren([jobsIndexRoute, jobsNewRoute, jobDetailRoute]),
-  settingsRoute.addChildren([settingsIndexRoute, settingsPreferencesRoute, settingsTokenRoute, settingsPasswordRoute, settingsSessionsRoute, settingsAgentsRoute, settingsJobsRoute, settingsAgentRoute, settingsSectionRoute]),
+  settingsRoute.addChildren([
+    settingsIndexRoute,
+    settingsPreferencesRoute,
+    settingsTokenRoute,
+    settingsPasswordRoute,
+    settingsSessionsRoute,
+    settingsAgentsRoute,
+    settingsJobsRoute,
+    settingsSkillsRoute,
+    settingsAgentRoute,
+    settingsSectionRoute,
+  ]),
 ]);
 
 // ── Create router ───────────────────────────────────────────────────
@@ -220,7 +242,7 @@ export const router = createRouter({
 
 // ── Type registration ───────────────────────────────────────────────
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;
   }

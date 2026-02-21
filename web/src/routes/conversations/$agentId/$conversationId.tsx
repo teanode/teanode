@@ -1,12 +1,12 @@
-import React, { useEffect, useCallback, useRef, useState } from 'react';
-import { useParams } from '@tanstack/react-router';
-import { useAppContext } from '../../../context';
-import MessageList from '../../../components/MessageList';
-import InputArea from '../../../components/InputArea';
-import VoiceCallBar from '../../../components/VoiceCallBar';
-import { useTTS } from '../../../hooks/useTTS';
-import { useAgentVoiceCall } from './route';
-import type { Attachment } from '../../../types';
+import React, { useEffect, useCallback, useRef, useState } from "react";
+import { useParams } from "@tanstack/react-router";
+import { useAppContext } from "../../../context";
+import MessageList from "../../../components/MessageList";
+import InputArea from "../../../components/InputArea";
+import VoiceCallBar from "../../../components/VoiceCallBar";
+import { useTTS } from "../../../hooks/useTTS";
+import { useAgentVoiceCall } from "./route";
+import type { Attachment } from "../../../types";
 
 /** /conversations/$agentId/$conversationId — active conversation. */
 export default function ConversationsConversationPage() {
@@ -19,7 +19,9 @@ export default function ConversationsConversationPage() {
   const agentName = agent?.name || agentId;
 
   const tts = useTTS(ttsVoice);
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(
+    null,
+  );
 
   const voiceCall = useAgentVoiceCall();
 
@@ -41,7 +43,12 @@ export default function ConversationsConversationPage() {
         backend.switchConversation(conversationId, agentId);
       }
     }
-  }, [conversationId, agentId, backend.conversationId, backend.switchConversation]);
+  }, [
+    conversationId,
+    agentId,
+    backend.conversationId,
+    backend.switchConversation,
+  ]);
 
   // Auto-read: when a final message arrives and user sent via mic, speak the response.
   // Disabled when voice call is active (streaming TTS handles it).
@@ -67,7 +74,7 @@ export default function ConversationsConversationPage() {
     prevMessagesLenRef.current = msgs.length;
     // Find the last assistant message.
     for (let index = msgs.length - 1; index >= 0; index--) {
-      if (msgs[index].type === 'assistant' && msgs[index].content) {
+      if (msgs[index].type === "assistant" && msgs[index].content) {
         tts.speak(msgs[index].content);
         setSpeakingMessageId(msgs[index].id);
         backend.lastSentViaMicRef.current = false;
@@ -81,14 +88,14 @@ export default function ConversationsConversationPage() {
       backend.markTypedSend();
       backend.sendMessage(text, undefined, attachments);
     },
-    [backend.sendMessage, backend.markTypedSend]
+    [backend.sendMessage, backend.markTypedSend],
   );
 
   const handleVoiceMessage = useCallback(
     (text: string) => {
       backend.sendVoiceMessage(text);
     },
-    [backend.sendVoiceMessage]
+    [backend.sendVoiceMessage],
   );
 
   const handleSpeak = useCallback(
@@ -96,7 +103,7 @@ export default function ConversationsConversationPage() {
       setSpeakingMessageId(messageId);
       tts.speak(text);
     },
-    [tts.speak]
+    [tts.speak],
   );
 
   const handleStopSpeaking = useCallback(() => {

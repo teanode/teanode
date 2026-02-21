@@ -5,8 +5,11 @@
  * exercise the pure state-machine logic by simulating the same touch
  * sequence decisions the hook makes internally.
  */
-import { describe, it, expect } from 'vitest';
-import { DEFAULT_EDGE_SWIPE_CONFIG, type EdgeSwipeConfig } from './useEdgeSwipe';
+import { describe, it, expect } from "vitest";
+import {
+  DEFAULT_EDGE_SWIPE_CONFIG,
+  type EdgeSwipeConfig,
+} from "./useEdgeSwipe";
 
 // ── Simulate the gesture state machine extracted from useEdgeSwipe ──
 
@@ -18,7 +21,11 @@ interface TouchPoint {
 class EdgeSwipeSimulation {
   config: EdgeSwipeConfig;
   swipeCount = 0;
-  private tracking: { startX: number; startY: number; triggered: boolean } | null = null;
+  private tracking: {
+    startX: number;
+    startY: number;
+    triggered: boolean;
+  } | null = null;
 
   constructor(config: EdgeSwipeConfig = DEFAULT_EDGE_SWIPE_CONFIG) {
     this.config = config;
@@ -58,17 +65,17 @@ class EdgeSwipeSimulation {
 
 // ── Tests ──────────────────────────────────────────────────────────
 
-describe('edge swipe gesture detection', () => {
-  describe('default config values', () => {
-    it('has sensible defaults', () => {
+describe("edge swipe gesture detection", () => {
+  describe("default config values", () => {
+    it("has sensible defaults", () => {
       expect(DEFAULT_EDGE_SWIPE_CONFIG.edgeWidth).toBe(24);
       expect(DEFAULT_EDGE_SWIPE_CONFIG.minimumDistance).toBe(60);
       expect(DEFAULT_EDGE_SWIPE_CONFIG.maximumVerticalDrift).toBe(50);
     });
   });
 
-  describe('successful swipe detection', () => {
-    it('triggers when swiping right from the left edge', () => {
+  describe("successful swipe detection", () => {
+    it("triggers when swiping right from the left edge", () => {
       const simulation = new EdgeSwipeSimulation();
       simulation.touchStart({ clientX: 10, clientY: 200 });
       simulation.touchMove({ clientX: 80, clientY: 200 });
@@ -76,7 +83,7 @@ describe('edge swipe gesture detection', () => {
       expect(simulation.swipeCount).toBe(1);
     });
 
-    it('triggers when starting exactly at the edge boundary', () => {
+    it("triggers when starting exactly at the edge boundary", () => {
       const simulation = new EdgeSwipeSimulation();
       simulation.touchStart({ clientX: 24, clientY: 100 });
       simulation.touchMove({ clientX: 90, clientY: 100 });
@@ -84,7 +91,7 @@ describe('edge swipe gesture detection', () => {
       expect(simulation.swipeCount).toBe(1);
     });
 
-    it('triggers with slight vertical movement within tolerance', () => {
+    it("triggers with slight vertical movement within tolerance", () => {
       const simulation = new EdgeSwipeSimulation();
       simulation.touchStart({ clientX: 5, clientY: 300 });
       simulation.touchMove({ clientX: 70, clientY: 340 });
@@ -92,7 +99,7 @@ describe('edge swipe gesture detection', () => {
       expect(simulation.swipeCount).toBe(1);
     });
 
-    it('fires only once per gesture even with continued movement', () => {
+    it("fires only once per gesture even with continued movement", () => {
       const simulation = new EdgeSwipeSimulation();
       simulation.touchStart({ clientX: 10, clientY: 200 });
       simulation.touchMove({ clientX: 80, clientY: 200 });
@@ -103,8 +110,8 @@ describe('edge swipe gesture detection', () => {
     });
   });
 
-  describe('rejected gestures', () => {
-    it('ignores touches starting outside the edge zone', () => {
+  describe("rejected gestures", () => {
+    it("ignores touches starting outside the edge zone", () => {
       const simulation = new EdgeSwipeSimulation();
       simulation.touchStart({ clientX: 50, clientY: 200 });
       simulation.touchMove({ clientX: 120, clientY: 200 });
@@ -112,7 +119,7 @@ describe('edge swipe gesture detection', () => {
       expect(simulation.swipeCount).toBe(0);
     });
 
-    it('cancels when vertical drift exceeds threshold', () => {
+    it("cancels when vertical drift exceeds threshold", () => {
       const simulation = new EdgeSwipeSimulation();
       simulation.touchStart({ clientX: 10, clientY: 200 });
       simulation.touchMove({ clientX: 80, clientY: 260 });
@@ -120,7 +127,7 @@ describe('edge swipe gesture detection', () => {
       expect(simulation.swipeCount).toBe(0);
     });
 
-    it('does not trigger for insufficient horizontal distance', () => {
+    it("does not trigger for insufficient horizontal distance", () => {
       const simulation = new EdgeSwipeSimulation();
       simulation.touchStart({ clientX: 10, clientY: 200 });
       simulation.touchMove({ clientX: 40, clientY: 200 });
@@ -128,7 +135,7 @@ describe('edge swipe gesture detection', () => {
       expect(simulation.swipeCount).toBe(0);
     });
 
-    it('resets tracking on touch end', () => {
+    it("resets tracking on touch end", () => {
       const simulation = new EdgeSwipeSimulation();
       simulation.touchStart({ clientX: 10, clientY: 200 });
       simulation.touchEnd();
@@ -138,7 +145,7 @@ describe('edge swipe gesture detection', () => {
       expect(simulation.swipeCount).toBe(0);
     });
 
-    it('ignores leftward swipes from the edge', () => {
+    it("ignores leftward swipes from the edge", () => {
       const simulation = new EdgeSwipeSimulation();
       simulation.touchStart({ clientX: 10, clientY: 200 });
       // Move left — deltaX is negative, never reaches minimumDistance.
@@ -148,8 +155,8 @@ describe('edge swipe gesture detection', () => {
     });
   });
 
-  describe('custom config', () => {
-    it('respects a wider edge activation zone', () => {
+  describe("custom config", () => {
+    it("respects a wider edge activation zone", () => {
       const simulation = new EdgeSwipeSimulation({
         edgeWidth: 50,
         minimumDistance: 60,
@@ -161,7 +168,7 @@ describe('edge swipe gesture detection', () => {
       expect(simulation.swipeCount).toBe(1);
     });
 
-    it('respects a shorter minimum distance', () => {
+    it("respects a shorter minimum distance", () => {
       const simulation = new EdgeSwipeSimulation({
         edgeWidth: 24,
         minimumDistance: 30,
@@ -173,7 +180,7 @@ describe('edge swipe gesture detection', () => {
       expect(simulation.swipeCount).toBe(1);
     });
 
-    it('respects a tighter vertical drift limit', () => {
+    it("respects a tighter vertical drift limit", () => {
       const simulation = new EdgeSwipeSimulation({
         edgeWidth: 24,
         minimumDistance: 60,
@@ -186,8 +193,8 @@ describe('edge swipe gesture detection', () => {
     });
   });
 
-  describe('multiple gestures', () => {
-    it('can detect multiple sequential swipes', () => {
+  describe("multiple gestures", () => {
+    it("can detect multiple sequential swipes", () => {
       const simulation = new EdgeSwipeSimulation();
 
       simulation.touchStart({ clientX: 10, clientY: 200 });

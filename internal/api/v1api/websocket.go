@@ -133,6 +133,8 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleSkillsRegistryList(frame)
 	case "skills.registry.search":
 		self.handleSkillsRegistrySearch(frame)
+	case "skills.local.list":
+		self.handleSkillsLocalList(frame)
 	case "skills.install":
 		self.handleSkillsInstall(frame)
 	case "skills.installed.list":

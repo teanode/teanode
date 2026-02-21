@@ -21,7 +21,7 @@ func (self *unifiProtectTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name: "unifi_protect",
-			Description: "Interact with UniFi Protect camera system. Actions: " +
+			Description: "Interact with UniFi Protect camera system. Always list cameras first to obtain valid camera IDs. Actions: " +
 				"list_cameras (list all cameras, optionally filter by isDoorbell), " +
 				"get_camera (get details for a specific camera by ID or name), " +
 				"get_snapshot (capture a JPEG snapshot from a camera), " +
@@ -298,8 +298,8 @@ func (self *unifiProtectTool) executeSetPrivacyMode(ctx context.Context, cameraI
 	if *enabled {
 		privacyZones = []interface{}{
 			map[string]interface{}{
-				"id":   0,
-				"name": "Privacy",
+				"id":    0,
+				"name":  "Privacy",
 				"color": "#85EFAC",
 				"points": [][]float64{
 					{0, 0},

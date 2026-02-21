@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
-import Typography from '@mui/material/Typography';
-import IconButton from '@mui/material/IconButton';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import CheckIcon from '@mui/icons-material/Check';
-import { highlightJson } from '../markdown';
+import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import CheckIcon from "@mui/icons-material/Check";
+import { highlightJson } from "../markdown";
 
 interface ToolResultProps {
   toolName: string;
@@ -19,15 +19,16 @@ interface MediaInfo {
   format?: string;
 }
 
-const imageFormats = new Set(['png', 'jpeg', 'jpg', 'gif', 'webp']);
+const imageFormats = new Set(["png", "jpeg", "jpg", "gif", "webp"]);
 
 export function detectMedia(content: string): MediaInfo | null {
   try {
     const parsed = JSON.parse(content);
-    if (!parsed || typeof parsed !== 'object' || !parsed.format) return null;
+    if (!parsed || typeof parsed !== "object" || !parsed.format) return null;
     if (!imageFormats.has(parsed.format.toLowerCase())) return null;
     if (parsed.base64) return { base64: parsed.base64, format: parsed.format };
-    if (parsed.mediaId) return { mediaId: parsed.mediaId, format: parsed.format };
+    if (parsed.mediaId)
+      return { mediaId: parsed.mediaId, format: parsed.format };
     return null;
   } catch {
     return null;
@@ -36,10 +37,10 @@ export function detectMedia(content: string): MediaInfo | null {
 
 function escapeHtml(str: string): string {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 export default function ToolResult({ toolName, content }: ToolResultProps) {
@@ -59,18 +60,24 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
       size="small"
       onClick={handleCopy}
       sx={{
-        marginLeft: 'auto',
-        padding: '2px',
-        color: copied ? 'primary.main' : 'text.secondary',
-        '&:hover': { color: copied ? 'primary.main' : 'text.primary' },
+        marginLeft: "auto",
+        padding: "2px",
+        color: copied ? "primary.main" : "text.secondary",
+        "&:hover": { color: copied ? "primary.main" : "text.primary" },
       }}
     >
-      {copied ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 14 }} />}
+      {copied ? (
+        <CheckIcon sx={{ fontSize: 14 }} />
+      ) : (
+        <ContentCopyIcon sx={{ fontSize: 14 }} />
+      )}
     </IconButton>
   );
 
-  const resultBorderColor = (theme: any) => theme.palette.mode === 'dark' ? '#2a3a1a' : '#c5d5a5';
-  const resultBgColor = (theme: any) => theme.palette.mode === 'dark' ? '#161a10' : '#f0f5e5';
+  const resultBorderColor = (theme: any) =>
+    theme.palette.mode === "dark" ? "#2a3a1a" : "#c5d5a5";
+  const resultBgColor = (theme: any) =>
+    theme.palette.mode === "dark" ? "#161a10" : "#f0f5e5";
 
   if (mediaInfo) {
     const source = mediaInfo.base64
@@ -80,33 +87,40 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
     return (
       <Box
         sx={{
-          alignSelf: 'flex-start',
-          maxWidth: '75%',
+          alignSelf: "flex-start",
+          maxWidth: "75%",
           px: 1.5,
           py: 1,
           borderRadius: 1,
-          fontSize: '0.75rem',
+          fontSize: "0.75rem",
           bgcolor: resultBgColor,
           border: 1,
           borderColor: resultBorderColor,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5 }}>
           <Chip
             label={toolName}
             size="small"
             variant="outlined"
             color="primary"
-            sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+            sx={{
+              height: 18,
+              fontSize: "10px",
+              fontWeight: 600,
+              fontFamily: "monospace",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
           />
-          <Typography variant="caption">{t('tool.result')}</Typography>
+          <Typography variant="caption">{t("tool.result")}</Typography>
           {copyButton}
         </Box>
-        <Box sx={{ borderRadius: 0.5, overflow: 'hidden' }}>
+        <Box sx={{ borderRadius: 0.5, overflow: "hidden" }}>
           <img
             src={source}
-            alt={t('tool.outputAlt', { toolName })}
-            style={{ maxWidth: '100%', maxHeight: 400, borderRadius: 4 }}
+            alt={t("tool.outputAlt", { toolName })}
+            style={{ maxWidth: "100%", maxHeight: 400, borderRadius: 4 }}
             loading="lazy"
           />
         </Box>
@@ -127,49 +141,64 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
   return (
     <Box
       sx={{
-        alignSelf: 'flex-start',
-        maxWidth: '75%',
+        alignSelf: "flex-start",
+        maxWidth: "75%",
         px: 1.5,
         py: 1,
         borderRadius: 1,
-        fontSize: '0.75rem',
+        fontSize: "0.75rem",
         bgcolor: resultBgColor,
         border: 1,
         borderColor: resultBorderColor,
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
         <Chip
           label={toolName}
           size="small"
           variant="outlined"
           color="primary"
-          sx={{ height: 18, fontSize: '10px', fontWeight: 600, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+          sx={{
+            height: 18,
+            fontSize: "10px",
+            fontWeight: 600,
+            fontFamily: "monospace",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
         />
-        <Typography variant="caption">{t('tool.result')}</Typography>
+        <Typography variant="caption">{t("tool.result")}</Typography>
         {copyButton}
       </Box>
       <Box
         component="pre"
         sx={{
-          color: 'text.secondary',
-          fontFamily: 'monospace',
-          fontSize: '11px',
+          color: "text.secondary",
+          fontFamily: "monospace",
+          fontSize: "11px",
           mt: 0.5,
           px: 1,
           py: 0.75,
-          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.05)',
+          bgcolor: (theme) =>
+            theme.palette.mode === "dark"
+              ? "rgba(0,0,0,0.15)"
+              : "rgba(0,0,0,0.05)",
           borderRadius: 0.5,
           maxHeight: 160,
-          overflowY: 'auto',
-          overflowX: 'auto',
+          overflowY: "auto",
+          overflowX: "auto",
           m: 0,
         }}
       >
         {isJson ? (
           <code
             className="hljs language-json"
-            style={{ fontSize: '11px', fontFamily: 'monospace', backgroundColor: 'transparent', padding: 0 }}
+            style={{
+              fontSize: "11px",
+              fontFamily: "monospace",
+              backgroundColor: "transparent",
+              padding: 0,
+            }}
             dangerouslySetInnerHTML={{ __html: inner }}
           />
         ) : (

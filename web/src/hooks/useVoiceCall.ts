@@ -1,15 +1,19 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { useStreamingTTS } from './useStreamingTTS';
-import { useChimePlayer, type ChimeConfig } from './useChimePlayer';
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useStreamingTTS } from "./useStreamingTTS";
+import { useChimePlayer, type ChimeConfig } from "./useChimePlayer";
 
 const VOICE_CALL_PROMPT =
-  'The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational — 1–3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists.';
+  "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational — 1–3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists.";
 
 /** Split accumulated text into complete sentences and a remainder. */
-function extractCompleteSentences(text: string): { sentences: string[]; remainder: string } {
+function extractCompleteSentences(text: string): {
+  sentences: string[];
+  remainder: string;
+} {
   // Match sentence-ending punctuation: ASCII (.!?) followed by whitespace/end,
   // or CJK punctuation (。！？) which doesn't require trailing whitespace.
-  const abbreviations = /(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|approx|Inc|Ltd|Corp|U\.S|U\.K|e\.g|i\.e)\.\s*$/;
+  const abbreviations =
+    /(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|approx|Inc|Ltd|Corp|U\.S|U\.K|e\.g|i\.e)\.\s*$/;
   const sentenceBoundary = /[.!?](?:\s|$)|[。！？]/;
   const sentences: string[] = [];
   let remainder = text;
@@ -55,12 +59,12 @@ function pcmToWav(samples: Float32Array, sampleRate: number): Blob {
   const view = new DataView(buffer);
 
   // RIFF header
-  writeString(view, 0, 'RIFF');
+  writeString(view, 0, "RIFF");
   view.setUint32(4, 36 + dataSize, true);
-  writeString(view, 8, 'WAVE');
+  writeString(view, 8, "WAVE");
 
   // fmt chunk
-  writeString(view, 12, 'fmt ');
+  writeString(view, 12, "fmt ");
   view.setUint32(16, 16, true); // chunk size
   view.setUint16(20, 1, true); // PCM format
   view.setUint16(22, numChannels, true);
@@ -70,7 +74,7 @@ function pcmToWav(samples: Float32Array, sampleRate: number): Blob {
   view.setUint16(34, bitsPerSample, true);
 
   // data chunk
-  writeString(view, 36, 'data');
+  writeString(view, 36, "data");
   view.setUint32(40, dataSize, true);
 
   // Write PCM samples (clamp to int16 range)
@@ -81,7 +85,7 @@ function pcmToWav(samples: Float32Array, sampleRate: number): Blob {
     offset += 2;
   }
 
-  return new Blob([buffer], { type: 'audio/wav' });
+  return new Blob([buffer], { type: "audio/wav" });
 }
 
 function writeString(view: DataView, offset: number, value: string): void {
@@ -92,7 +96,11 @@ function writeString(view: DataView, offset: number, value: string): void {
 
 export interface UseVoiceCallOptions {
   sendRpc: <T = unknown>(method: string, params: unknown) => Promise<T>;
-  sendVoiceMessage: (text: string, model?: string, systemPromptSuffix?: string) => void;
+  sendVoiceMessage: (
+    text: string,
+    model?: string,
+    systemPromptSuffix?: string,
+  ) => void;
   abortRun: () => void;
   isRunning: boolean;
   isStreaming: boolean;
@@ -142,17 +150,30 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
-  const [ttsAudioContext, setTtsAudioContext] = useState<AudioContext | null>(null);
+  const [ttsAudioContext, setTtsAudioContext] = useState<AudioContext | null>(
+    null,
+  );
   const [callError, setCallError] = useState<string | null>(null);
 
   // Refs for mutable state across callbacks
-  const vadRef = useRef<{ destroy: () => void; pause: () => void; start: () => void; receive: (node: AudioNode) => void } | null>(null);
+  const vadRef = useRef<{
+    destroy: () => void;
+    pause: () => void;
+    start: () => void;
+    receive: (node: AudioNode) => void;
+  } | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const waitingToneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const interruptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+  const waitingToneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+  const interruptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const interruptedRef = useRef(false);
   const isCallActiveRef = useRef(false);
@@ -174,7 +195,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     // Pause VAD while the chime plays to prevent echo feedback on iOS
     // (speaker output leaks back through the mic, VAD re-detects as speech).
     vadRef.current?.pause();
-    chimePlayer.play('agentDone');
+    chimePlayer.play("agentDone");
     setTimeout(() => {
       if (isCallActiveRef.current) vadRef.current?.start();
     }, 300);
@@ -197,7 +218,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
       setTtsAudioContext(audioContext);
-      if (audioContext.state === 'suspended') {
+      if (audioContext.state === "suspended") {
         await audioContext.resume();
       }
 
@@ -221,12 +242,15 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       sourceNodeRef.current = sourceNode;
 
       // Use AudioNodeVAD (not MicVAD) so we control the AudioContext lifecycle.
-      const { AudioNodeVAD } = await import('@ricky0123/vad-web');
+      const { AudioNodeVAD } = await import("@ricky0123/vad-web");
 
       const vad = await AudioNodeVAD.new(audioContext, {
         ortConfig: (ort) => {
-          ort.env.wasm.wasmPaths = '/';
-          if (typeof crossOriginIsolated !== 'undefined' && !crossOriginIsolated) {
+          ort.env.wasm.wasmPaths = "/";
+          if (
+            typeof crossOriginIsolated !== "undefined" &&
+            !crossOriginIsolated
+          ) {
             ort.env.wasm.numThreads = 1;
           }
         },
@@ -241,7 +265,8 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
             clearTimeout(interruptTimeoutRef.current);
           }
           interruptTimeoutRef.current = setTimeout(() => {
-            if (!isCallActiveRef.current || !pendingInterruptRef.current) return;
+            if (!isCallActiveRef.current || !pendingInterruptRef.current)
+              return;
             const startedAt = speechStartTimeRef.current;
             if (!startedAt || Date.now() - startedAt < MIN_INTERRUPT_MS) return;
 
@@ -266,7 +291,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
           // Pause VAD while the chime plays to prevent echo feedback on iOS
           // (speaker output leaks back through the mic, VAD detects it as speech).
           vadRef.current?.pause();
-          chimePlayer.play('inputCaptured');
+          chimePlayer.play("inputCaptured");
           setTimeout(() => {
             if (isCallActiveRef.current) vadRef.current?.start();
           }, 300);
@@ -274,11 +299,11 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
           // Convert PCM to WAV and transcribe
           const wavBlob = pcmToWav(audioData, 16000);
           const formData = new FormData();
-          formData.append('file', wavBlob, 'audio.wav');
+          formData.append("file", wavBlob, "audio.wav");
 
           try {
-            const response = await fetch('/api/v1/audio/transcribe', {
-              method: 'POST',
+            const response = await fetch("/api/v1/audio/transcribe", {
+              method: "POST",
               body: formData,
             });
             if (!response.ok) return;
@@ -294,7 +319,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
             // Send as voice message with voice mode system prompt
             sendVoiceMessage(text, undefined, VOICE_CALL_PROMPT);
           } catch (error) {
-            console.error('Voice call transcription error:', error);
+            console.error("Voice call transcription error:", error);
           }
         },
         positiveSpeechThreshold: 0.8,
@@ -308,15 +333,17 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       vadRef.current = vad;
 
       // Signal that the call is ready to accept speech.
-      chimePlayer.play('agentDone');
+      chimePlayer.play("agentDone");
 
       // Request WakeLock (progressive enhancement)
       try {
-        if ('wakeLock' in navigator) {
-          const lock = await navigator.wakeLock.request('screen');
+        if ("wakeLock" in navigator) {
+          const lock = await navigator.wakeLock.request("screen");
           wakeLockRef.current = lock;
         }
-      } catch { /* WakeLock not available */ }
+      } catch {
+        /* WakeLock not available */
+      }
 
       // Start duration timer
       setCallDuration(0);
@@ -329,7 +356,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       setIsCallActive(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('Failed to start voice call:', message, error);
+      console.error("Failed to start voice call:", message, error);
       setCallError(message);
       setIsConnecting(false);
       // Cleanup on failure
@@ -413,14 +440,17 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     const tracks = streamRef.current.getAudioTracks();
     setIsMuted((previous) => {
       const newMuted = !previous;
-      tracks.forEach((track) => { track.enabled = !newMuted; });
+      tracks.forEach((track) => {
+        track.enabled = !newMuted;
+      });
       return newMuted;
     });
   }, []);
 
   // Monitor stream text for sentence extraction and TTS enqueueing
   useEffect(() => {
-    if (!isCallActiveRef.current || !isStreaming || interruptedRef.current) return;
+    if (!isCallActiveRef.current || !isStreaming || interruptedRef.current)
+      return;
 
     // Detect stream text reset (new message in a multi-message response):
     // if streamText is shorter than what we previously tracked, the backend
@@ -452,7 +482,8 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         if (remainder.trim()) {
           streamingTTS.enqueueSentence(remainder.trim());
         }
-        sentencesEnqueuedRef.current = sentences.length + (remainder.trim() ? 1 : 0);
+        sentencesEnqueuedRef.current =
+          sentences.length + (remainder.trim() ? 1 : 0);
       }
     }
     wasStreamingRef.current = isStreaming;
@@ -473,9 +504,9 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
 
     if (shouldPlayWaitingTone) {
       if (!waitingToneIntervalRef.current) {
-        chimePlayer.play('agentWaiting');
+        chimePlayer.play("agentWaiting");
         waitingToneIntervalRef.current = setInterval(() => {
-          if (isCallActiveRef.current) chimePlayer.play('agentWaiting');
+          if (isCallActiveRef.current) chimePlayer.play("agentWaiting");
         }, 2200);
       }
       return;
@@ -485,29 +516,38 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       clearInterval(waitingToneIntervalRef.current);
       waitingToneIntervalRef.current = null;
     }
-  }, [isCallActive, isRunning, isUserSpeaking, streamingTTS.isPlaying, chimePlayer]);
+  }, [
+    isCallActive,
+    isRunning,
+    isUserSpeaking,
+    streamingTTS.isPlaying,
+    chimePlayer,
+  ]);
 
   // Re-acquire WakeLock when returning from background
   useEffect(() => {
     if (!isCallActive) return;
 
     const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === "visible") {
         // Resume AudioContext (iOS suspends it when backgrounded)
-        if (audioContextRef.current?.state === 'suspended') {
+        if (audioContextRef.current?.state === "suspended") {
           audioContextRef.current.resume().catch(() => {});
         }
         // Re-acquire WakeLock
-        if (!wakeLockRef.current && 'wakeLock' in navigator) {
+        if (!wakeLockRef.current && "wakeLock" in navigator) {
           try {
-            wakeLockRef.current = await navigator.wakeLock.request('screen');
-          } catch { /* ignore */ }
+            wakeLockRef.current = await navigator.wakeLock.request("screen");
+          } catch {
+            /* ignore */
+          }
         }
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [isCallActive]);
 
   // Cleanup on unmount
@@ -517,12 +557,16 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         // Force cleanup without state updates
         if (sourceNodeRef.current) sourceNodeRef.current.disconnect();
         if (vadRef.current) vadRef.current.destroy();
-        if (streamRef.current) streamRef.current.getTracks().forEach((track) => track.stop());
+        if (streamRef.current)
+          streamRef.current.getTracks().forEach((track) => track.stop());
         if (audioContextRef.current) audioContextRef.current.close();
         if (wakeLockRef.current) wakeLockRef.current.release().catch(() => {});
-        if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
-        if (waitingToneIntervalRef.current) clearInterval(waitingToneIntervalRef.current);
-        if (interruptTimeoutRef.current) clearTimeout(interruptTimeoutRef.current);
+        if (durationIntervalRef.current)
+          clearInterval(durationIntervalRef.current);
+        if (waitingToneIntervalRef.current)
+          clearInterval(waitingToneIntervalRef.current);
+        if (interruptTimeoutRef.current)
+          clearTimeout(interruptTimeoutRef.current);
       }
     };
   }, []);

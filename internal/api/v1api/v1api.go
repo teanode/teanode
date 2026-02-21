@@ -25,7 +25,7 @@ type synthesisToken struct {
 
 // v1Api is the v1 API component. It implements web.Component.
 type v1Api struct {
-	gateway gw.Gateway
+	gateway         gw.Gateway
 	onSkillsChanged func()
 
 	// Per-IP rate limiter for auth endpoints (login, setup).

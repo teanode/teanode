@@ -41,10 +41,8 @@ import (
 	"github.com/teanode/teanode/internal/tools/homeassistant"
 	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/shell"
-	skilltools "github.com/teanode/teanode/internal/tools/skills"
 	"github.com/teanode/teanode/internal/tools/unifiprotect"
 	"github.com/teanode/teanode/internal/tools/workspace"
-	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/version"
 	"github.com/teanode/teanode/internal/watcher"
@@ -54,99 +52,6 @@ import (
 
 // ErrRestart is returned from the gateway command when a restart was requested.
 var ErrRestart = errors.New("restart requested")
-
-const skillsAutoUpdateJobID = "skills-auto-update"
-
-func ensureSkillsAutoUpdateJob(scheduler *jobs.Scheduler, configuration *configs.Config) {
-	if scheduler == nil || configuration == nil || configuration.SkillsRegistry == nil {
-		return
-	}
-	updates := configuration.SkillsRegistry.Updates
-	schedule := updates.ResolvedSchedule()
-
-	// Ensure in-memory jobs are loaded before checking for existing IDs.
-	if err := scheduler.Reload(); err != nil {
-		log.Warningf("cannot reload jobs before ensuring skills auto-update job: %v", err)
-		return
-	}
-
-	var existing *jobs.Job
-	for _, job := range scheduler.List() {
-		if job.ID == skillsAutoUpdateJobID {
-			jobCopy := job
-			existing = &jobCopy
-			break
-		}
-	}
-
-	if !updates.AutoUpdateEnabled {
-		if existing != nil && existing.Enabled {
-			existing.Enabled = false
-			if err := scheduler.UpdateAndReload(*existing); err != nil {
-				log.Warningf("failed to disable skills auto-update job: %v", err)
-			}
-		}
-		return
-	}
-
-	if schedule == "" {
-		log.Warningf("skills auto-update enabled but no scheduleJob set")
-		return
-	}
-	if _, err := cronexpr.Parse(schedule); err != nil {
-		log.Warningf("invalid skills auto-update cron %q: %v", schedule, err)
-		return
-	}
-
-	desiredMessage := "Run the skills tool with action=update to update all installed registry skills. " +
-		"Return a concise summary of updated skills (or say none were updated)."
-	defaultAgentID := configuration.ResolveDefaultAgent()
-	if defaultAgentID == "" {
-		defaultAgentID = configs.DefaultAgentID
-	}
-	if existing != nil {
-		updated := false
-		if existing.Schedule != schedule {
-			existing.Schedule = schedule
-			updated = true
-		}
-		if !existing.Enabled {
-			existing.Enabled = true
-			updated = true
-		}
-		if existing.Message != desiredMessage {
-			existing.Message = desiredMessage
-			updated = true
-		}
-		if existing.AgentID != defaultAgentID {
-			existing.AgentID = defaultAgentID
-			updated = true
-		}
-		if updated {
-			if err := scheduler.UpdateAndReload(*existing); err != nil {
-				log.Warningf("failed to update skills auto-update job: %v", err)
-				return
-			}
-			log.Infof("updated skills auto-update job (%s) schedule=%q", skillsAutoUpdateJobID, schedule)
-		}
-		return
-	}
-
-	autoUpdateJob := jobs.Job{
-		ID:        skillsAutoUpdateJobID,
-		Name:      "Skills Auto Update",
-		Schedule:  schedule,
-		Message:   desiredMessage,
-		AgentID:   defaultAgentID,
-		Enabled:   true,
-		CreatedAt: time.Now().UnixMilli(),
-	}
-	if err := scheduler.CreateAndReload(autoUpdateJob); err != nil {
-		log.Warningf("failed to create skills auto-update job: %v", err)
-		return
-	}
-	log.Infof("created default skills auto-update job (%s) schedule=%q", skillsAutoUpdateJobID, schedule)
-}
 
 func NewGatewayCommand() *cli.Command {
 	return &cli.Command{
@@ -164,6 +69,15 @@ func NewGatewayCommand() *cli.Command {
 			if err := configs.EnsureDirectories(); err != nil {
 				return err
 			}
+			pidGuard, err := acquireGatewayPIDGuard()
+			if err != nil {
+				return err
+			}
+			defer func() {
+				if err := pidGuard.Release(); err != nil {
+					log.Errorf("failed to release gateway pid file: %v", err)
+				}
+			}()
 
 			// Load config.
 			configuration, err := configs.Load()
@@ -289,7 +203,7 @@ func NewGatewayCommand() *cli.Command {
 				datetime.RegisterTools(tools)
 				homeassistant.RegisterTools(tools, configuration.Tools.HomeAssistant)
 				unifiprotect.RegisterTools(tools, configuration.Tools.UniFiProtect)
-				skilltools.RegisterTools(tools, configuration.SkillsRegistry, reloadSkills)
+				skills.RegisterTools(tools, configuration.SkillsRegistries, reloadSkills)
 				agents.RegisterConversationTools(tools, conversations, providers, configuration)
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)
@@ -325,7 +239,6 @@ func NewGatewayCommand() *cli.Command {
 				return err
 			}
 			scheduler = jobs.NewScheduler(jobStore, agentRegistry)
-			ensureSkillsAutoUpdateJob(scheduler, configuration)
 
 			// Create a runner for each configured agents.
 			for _, agentConfig := range configuration.ResolveAgents() {
@@ -545,7 +458,6 @@ func NewGatewayCommand() *cli.Command {
 
 				gateway.SetConfig(newConfiguration)
 				gateway.InvalidateModelsCache()
-				ensureSkillsAutoUpdateJob(scheduler, newConfiguration)
 				reloadAgents()
 				describer.Notify()
 				log.Info("config reloaded successfully")

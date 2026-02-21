@@ -1,6 +1,12 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { connect, disconnect, sendRpc, setEventHandler, setStatusHandler } from '../rpc';
-import type { EventFrame, ConnectResult } from '../types';
+import { useEffect, useRef, useCallback } from "react";
+import {
+  connect,
+  disconnect,
+  sendRpc,
+  setEventHandler,
+  setStatusHandler,
+} from "../rpc";
+import type { EventFrame, ConnectResult } from "../types";
 
 interface UseWebSocketOptions {
   onEvent: (frame: EventFrame) => void;
@@ -8,7 +14,11 @@ interface UseWebSocketOptions {
   onStatusChange: (status: string) => void;
 }
 
-export function useWebSocket({ onEvent, onConnect, onStatusChange }: UseWebSocketOptions) {
+export function useWebSocket({
+  onEvent,
+  onConnect,
+  onStatusChange,
+}: UseWebSocketOptions) {
   const onEventRef = useRef(onEvent);
   const onConnectRef = useRef(onConnect);
   const onStatusRef = useRef(onStatusChange);
@@ -22,7 +32,7 @@ export function useWebSocket({ onEvent, onConnect, onStatusChange }: UseWebSocke
     setStatusHandler((status) => onStatusRef.current(status));
 
     connect(() => {
-      sendRpc<ConnectResult>('connect', {})
+      sendRpc<ConnectResult>("connect", {})
         .then((response) => onConnectRef.current(response))
         .catch(() => {});
     });
@@ -32,9 +42,12 @@ export function useWebSocket({ onEvent, onConnect, onStatusChange }: UseWebSocke
     };
   }, []);
 
-  const rpc = useCallback(<T = unknown>(method: string, params: unknown): Promise<T> => {
-    return sendRpc<T>(method, params);
-  }, []);
+  const rpc = useCallback(
+    <T = unknown>(method: string, params: unknown): Promise<T> => {
+      return sendRpc<T>(method, params);
+    },
+    [],
+  );
 
   return { sendRpc: rpc };
 }

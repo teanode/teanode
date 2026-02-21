@@ -3,8 +3,8 @@ package skills
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -56,7 +56,7 @@ func TestExecuteListRegistryNilConfig(t *testing.T) {
 }
 
 func TestExecuteInstallRequiresName(t *testing.T) {
-	tool := &skillsTool{config: &configs.SkillsRegistryConfig{Enabled: true}}
+	tool := &skillsTool{registries: []configs.SkillsRegistry{{ID: "source"}}}
 	_, err := tool.Execute(context.Background(), `{"action":"install"}`)
 	if err == nil {
 		t.Fatal("expected error when name missing")
@@ -105,12 +105,7 @@ func TestExecuteUpdateNoChangesDoesNotCallSkillsChangedCallback(t *testing.T) {
 
 	var callbackCalls int32
 	tool := &skillsTool{
-		config: &configs.SkillsRegistryConfig{
-			Enabled: true,
-			Sources: []configs.SkillsRegistrySource{
-				{ID: "source", Enabled: true},
-			},
-		},
+		registries: []configs.SkillsRegistry{{ID: "source"}},
 		onSkillsChanged: func() {
 			atomic.AddInt32(&callbackCalls, 1)
 		},
@@ -155,17 +150,11 @@ func TestExecuteInstallCallsSkillsChangedCallback(t *testing.T) {
 
 	var callbackCalls int32
 	tool := &skillsTool{
-		config: &configs.SkillsRegistryConfig{
-			Enabled: true,
-			Sources: []configs.SkillsRegistrySource{
-				{
-					ID:       "source",
-					Enabled:  true,
-					IndexURL: serverURL + "/index.json",
-				},
-			},
-			Policy: configs.SkillsRegistryPolicy{
-				RequireSignatures: false,
+		registries: []configs.SkillsRegistry{
+			{
+				ID:               "source",
+				IndexURL:         serverURL + "/index.json",
+				IgnoreSignatures: true,
 			},
 		},
 		onSkillsChanged: func() {

@@ -1,6 +1,6 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback } from "react";
 
-export type ChimeType = 'inputCaptured' | 'agentDone' | 'agentWaiting';
+export type ChimeType = "inputCaptured" | "agentDone" | "agentWaiting";
 
 export interface ChimeConfig {
   enabled: boolean;
@@ -17,7 +17,10 @@ export interface UseChimePlayerReturn {
 }
 
 /** Default tone parameters for each chime type. */
-const TONE_PARAMS: Record<ChimeType, { frequency: number; durationSeconds: number; rampMs: number }> = {
+const TONE_PARAMS: Record<
+  ChimeType,
+  { frequency: number; durationSeconds: number; rampMs: number }
+> = {
   inputCaptured: { frequency: 880, durationSeconds: 0.08, rampMs: 10 },
   agentDone: { frequency: 660, durationSeconds: 0.12, rampMs: 15 },
   agentWaiting: { frequency: 520, durationSeconds: 0.1, rampMs: 12 },
@@ -48,7 +51,7 @@ export function useChimePlayer(config: ChimeConfig): UseChimePlayerReturn {
     if (!enabled || volume <= 0) return;
 
     const context = audioContextRef.current;
-    if (!context || context.state === 'closed') return;
+    if (!context || context.state === "closed") return;
     playTone(context, type, volume);
   }, []);
 
@@ -56,12 +59,16 @@ export function useChimePlayer(config: ChimeConfig): UseChimePlayerReturn {
 }
 
 /** Synthesize a short sine tone directly on the AudioContext. */
-function playTone(context: AudioContext, type: ChimeType, volume: number): void {
+function playTone(
+  context: AudioContext,
+  type: ChimeType,
+  volume: number,
+): void {
   const { frequency, durationSeconds, rampMs } = TONE_PARAMS[type];
   const now = context.currentTime;
 
   const oscillator = context.createOscillator();
-  oscillator.type = 'sine';
+  oscillator.type = "sine";
   oscillator.frequency.value = frequency;
 
   const gainNode = context.createGain();

@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import Box from '@mui/material/Box';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemText from '@mui/material/ListItemText';
-import Divider from '@mui/material/Divider';
-import LogoutIcon from '@mui/icons-material/Logout';
-import { authLogout } from '../rpc';
-import type { SchemaSection, ConfigSchemaResult } from '../types';
-import type { useBackend } from '../hooks/useBackend';
-import { getSectionTitle } from '../schemaLocalization';
-import SidebarSectionTitle from './SidebarSectionTitle';
+import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import Box from "@mui/material/Box";
+import List from "@mui/material/List";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemText from "@mui/material/ListItemText";
+import Divider from "@mui/material/Divider";
+import LogoutIcon from "@mui/icons-material/Logout";
+import { authLogout } from "../rpc";
+import type { SchemaSection, ConfigSchemaResult } from "../types";
+import type { useBackend } from "../hooks/useBackend";
+import { getSectionTitle } from "../schemaLocalization";
+import SidebarSectionTitle from "./SidebarSectionTitle";
 
 interface SettingsNavProps {
   backend: ReturnType<typeof useBackend>;
@@ -18,60 +18,98 @@ interface SettingsNavProps {
   onNavigate: (path: string) => void;
 }
 
-export default function SettingsNav({ backend, activeSectionId, onNavigate }: SettingsNavProps) {
+export default function SettingsNav({
+  backend,
+  activeSectionId,
+  onNavigate,
+}: SettingsNavProps) {
   const { t } = useTranslation();
   const [sections, setSections] = useState<SchemaSection[]>([]);
 
   useEffect(() => {
     if (backend.connected && sections.length === 0) {
-      backend.sendRpc<ConfigSchemaResult>('config.schema', {})
-        .then((result) => setSections(result.schema?.['x-sections'] || []))
-        .catch((error) => console.error('config.schema:', error));
+      backend
+        .sendRpc<ConfigSchemaResult>("config.schema", {})
+        .then((result) => setSections(result.schema?.["x-sections"] || []))
+        .catch((error) => console.error("config.schema:", error));
     }
   }, [backend.connected, backend.sendRpc, sections.length]);
 
   return (
     <>
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 1 }}>
+      <Box sx={{ flex: 1, overflowY: "auto", p: 1 }}>
         <List disablePadding>
           <ListItemButton
             dense
-            onClick={() => onNavigate('/settings/agents')}
+            onClick={() => onNavigate("/settings/agents")}
             sx={{
               borderRadius: 1,
               mb: 0.25,
-              ...(activeSectionId === 'agents'
-                ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+              ...(activeSectionId === "agents"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
                 : {}),
             }}
           >
             <ListItemText
-              primary={t('settings.agents')}
+              primary={t("settings.agents")}
               primaryTypographyProps={{
-                variant: 'caption',
-                fontSize: '13px',
-                color: activeSectionId === 'agents' ? '#fff' : 'text.secondary',
+                variant: "caption",
+                fontSize: "13px",
+                color: activeSectionId === "agents" ? "#fff" : "text.secondary",
               }}
             />
           </ListItemButton>
 
           <ListItemButton
             dense
-            onClick={() => onNavigate('/settings/jobs')}
+            onClick={() => onNavigate("/settings/jobs")}
             sx={{
               borderRadius: 1,
               mb: 0.25,
-              ...(activeSectionId === 'jobs'
-                ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+              ...(activeSectionId === "jobs"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
                 : {}),
             }}
           >
             <ListItemText
-              primary={t('settings.jobs')}
+              primary={t("settings.jobs")}
               primaryTypographyProps={{
-                variant: 'caption',
-                fontSize: '13px',
-                color: activeSectionId === 'jobs' ? '#fff' : 'text.secondary',
+                variant: "caption",
+                fontSize: "13px",
+                color: activeSectionId === "jobs" ? "#fff" : "text.secondary",
+              }}
+            />
+          </ListItemButton>
+
+          <ListItemButton
+            dense
+            onClick={() => onNavigate("/settings/skills")}
+            sx={{
+              borderRadius: 1,
+              mb: 0.25,
+              ...(activeSectionId === "skills"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
+                : {}),
+            }}
+          >
+            <ListItemText
+              primary={t("settings.skills")}
+              primaryTypographyProps={{
+                variant: "caption",
+                fontSize: "13px",
+                color: activeSectionId === "skills" ? "#fff" : "text.secondary",
               }}
             />
           </ListItemButton>
@@ -79,63 +117,77 @@ export default function SettingsNav({ backend, activeSectionId, onNavigate }: Se
           <SidebarSectionTitle>Security</SidebarSectionTitle>
           <ListItemButton
             dense
-            onClick={() => onNavigate('/settings/sessions')}
+            onClick={() => onNavigate("/settings/sessions")}
             sx={{
               borderRadius: 1,
               mb: 0.25,
-              ...(activeSectionId === 'sessions'
-                ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+              ...(activeSectionId === "sessions"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
                 : {}),
             }}
           >
             <ListItemText
-              primary={t('auth.sessions')}
+              primary={t("auth.sessions")}
               primaryTypographyProps={{
-                variant: 'caption',
-                fontSize: '13px',
-                color: activeSectionId === 'sessions' ? '#fff' : 'text.secondary',
+                variant: "caption",
+                fontSize: "13px",
+                color:
+                  activeSectionId === "sessions" ? "#fff" : "text.secondary",
               }}
             />
           </ListItemButton>
 
           <ListItemButton
             dense
-            onClick={() => onNavigate('/settings/password')}
+            onClick={() => onNavigate("/settings/password")}
             sx={{
               borderRadius: 1,
               mb: 0.25,
-              ...(activeSectionId === 'password'
-                ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+              ...(activeSectionId === "password"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
                 : {}),
             }}
           >
             <ListItemText
-              primary={t('auth.passwordTitle')}
+              primary={t("auth.passwordTitle")}
               primaryTypographyProps={{
-                variant: 'caption',
-                fontSize: '13px',
-                color: activeSectionId === 'password' ? '#fff' : 'text.secondary',
+                variant: "caption",
+                fontSize: "13px",
+                color:
+                  activeSectionId === "password" ? "#fff" : "text.secondary",
               }}
             />
           </ListItemButton>
 
           <ListItemButton
             dense
-            onClick={() => onNavigate('/settings/token')}
+            onClick={() => onNavigate("/settings/token")}
             sx={{
               borderRadius: 1,
               mb: 0.25,
-              ...(activeSectionId === 'token'
-                ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+              ...(activeSectionId === "token"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
                 : {}),
             }}
           >
             <ListItemText
-              primary={t('auth.tokenTitle')}
+              primary={t("auth.tokenTitle")}
               primaryTypographyProps={{
-                variant: 'caption',
-                fontSize: '13px',
-                color: activeSectionId === 'token' ? '#fff' : 'text.secondary',
+                variant: "caption",
+                fontSize: "13px",
+                color: activeSectionId === "token" ? "#fff" : "text.secondary",
               }}
             />
           </ListItemButton>
@@ -143,21 +195,26 @@ export default function SettingsNav({ backend, activeSectionId, onNavigate }: Se
           <SidebarSectionTitle>Settings</SidebarSectionTitle>
           <ListItemButton
             dense
-            onClick={() => onNavigate('/settings/preferences')}
+            onClick={() => onNavigate("/settings/preferences")}
             sx={{
               borderRadius: 1,
               mb: 0.25,
-              ...(activeSectionId === 'preferences'
-                ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+              ...(activeSectionId === "preferences"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
                 : {}),
             }}
           >
             <ListItemText
-              primary={t('settings.preferences')}
+              primary={t("settings.preferences")}
               primaryTypographyProps={{
-                variant: 'caption',
-                fontSize: '13px',
-                color: activeSectionId === 'preferences' ? '#fff' : 'text.secondary',
+                variant: "caption",
+                fontSize: "13px",
+                color:
+                  activeSectionId === "preferences" ? "#fff" : "text.secondary",
               }}
             />
           </ListItemButton>
@@ -173,16 +230,20 @@ export default function SettingsNav({ backend, activeSectionId, onNavigate }: Se
                   borderRadius: 1,
                   mb: 0.25,
                   ...(isActive
-                    ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+                    ? {
+                        bgcolor: "accentDim",
+                        color: "#fff",
+                        "&:hover": { bgcolor: "accentDim" },
+                      }
                     : {}),
                 }}
               >
                 <ListItemText
                   primary={getSectionTitle(t, section)}
                   primaryTypographyProps={{
-                    variant: 'caption',
-                    fontSize: '13px',
-                    color: isActive ? '#fff' : 'text.secondary',
+                    variant: "caption",
+                    fontSize: "13px",
+                    color: isActive ? "#fff" : "text.secondary",
                   }}
                 />
               </ListItemButton>
@@ -195,16 +256,18 @@ export default function SettingsNav({ backend, activeSectionId, onNavigate }: Se
       <Box sx={{ p: 1 }}>
         <ListItemButton
           dense
-          onClick={() => { authLogout().then(() => window.location.reload()); }}
+          onClick={() => {
+            authLogout().then(() => window.location.reload());
+          }}
           sx={{ borderRadius: 1 }}
         >
-          <LogoutIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />
+          <LogoutIcon sx={{ fontSize: 14, mr: 0.5, color: "text.secondary" }} />
           <ListItemText
-            primary={t('auth.logout')}
+            primary={t("auth.logout")}
             primaryTypographyProps={{
-              variant: 'caption',
-              fontSize: '13px',
-              color: 'text.secondary',
+              variant: "caption",
+              fontSize: "13px",
+              color: "text.secondary",
             }}
           />
         </ListItemButton>

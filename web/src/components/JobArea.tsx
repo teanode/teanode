@@ -1,19 +1,30 @@
-import React, { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import Box from '@mui/material/Box';
-import Container from '@mui/material/Container';
-import Typography from '@mui/material/Typography';
-import Chip from '@mui/material/Chip';
-import type { Job, JobCreateParams, JobUpdateParams, ModelInfo, AgentInfo } from '../types';
-import JobForm from './JobForm';
-import ConfirmDialog from './ConfirmDialog';
+import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import Box from "@mui/material/Box";
+import Container from "@mui/material/Container";
+import Typography from "@mui/material/Typography";
+import Chip from "@mui/material/Chip";
+import type {
+  Job,
+  JobCreateParams,
+  JobUpdateParams,
+  ModelInfo,
+  AgentInfo,
+} from "../types";
+import JobForm from "./JobForm";
+import ConfirmDialog from "./ConfirmDialog";
 
-function relativeTime(ms: number, t: (key: string, options?: Record<string, unknown>) => string): string {
+function relativeTime(
+  ms: number,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
   const diff = Date.now() - ms;
-  if (diff < 60_000) return t('jobs.justNow');
-  if (diff < 3_600_000) return t('jobs.minutesAgo', { count: Math.floor(diff / 60_000) });
-  if (diff < 86_400_000) return t('jobs.hoursAgo', { count: Math.floor(diff / 3_600_000) });
-  return t('jobs.daysAgo', { count: Math.floor(diff / 86_400_000) });
+  if (diff < 60_000) return t("jobs.justNow");
+  if (diff < 3_600_000)
+    return t("jobs.minutesAgo", { count: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000)
+    return t("jobs.hoursAgo", { count: Math.floor(diff / 3_600_000) });
+  return t("jobs.daysAgo", { count: Math.floor(diff / 86_400_000) });
 }
 
 interface JobAreaProps {
@@ -50,17 +61,21 @@ export default function JobArea({
     onLoad();
   }, [onLoad]);
 
-  const fallbackAgentId = agents.length > 0 ? agents[0].id : 'main';
+  const fallbackAgentId = agents.length > 0 ? agents[0].id : "main";
 
   if (creating) {
     return (
-      <Box sx={{ flex: 1, overflowY: 'auto' }}>
+      <Box sx={{ flex: 1, overflowY: "auto" }}>
         <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
           <JobForm
             models={models}
             agents={agents}
             onSave={(data) => {
-              const params: JobCreateParams = { name: data.name, schedule: data.schedule, message: data.message };
+              const params: JobCreateParams = {
+                name: data.name,
+                schedule: data.schedule,
+                message: data.message,
+              };
               if (data.model) params.model = data.model;
               if (data.agentId) params.agentId = data.agentId;
               onCreate(params).catch(() => {});
@@ -74,8 +89,17 @@ export default function JobArea({
 
   if (!job) {
     return (
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Typography variant="body2" color="text.secondary">{t('jobs.selectOrCreate')}</Typography>
+      <Box
+        sx={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Typography variant="body2" color="text.secondary">
+          {t("jobs.selectOrCreate")}
+        </Typography>
       </Box>
     );
   }
@@ -83,9 +107,9 @@ export default function JobArea({
   const effectiveAgentId = job.agentId || fallbackAgentId;
 
   return (
-    <Box sx={{ flex: 1, overflowY: 'auto' }}>
+    <Box sx={{ flex: 1, overflowY: "auto" }}>
       <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <JobForm
             key={job.id}
             initial={job}
@@ -94,83 +118,121 @@ export default function JobArea({
             onSave={(data) => {
               const params: JobUpdateParams = { id: job.id };
               if (data.name !== job.name) params.name = data.name;
-              if (data.schedule !== job.schedule) params.schedule = data.schedule;
+              if (data.schedule !== job.schedule)
+                params.schedule = data.schedule;
               if (data.message !== job.message) params.message = data.message;
-              if (data.model !== (job.model || '')) params.model = data.model;
-              if (data.agentId !== (job.agentId || '')) params.agentId = data.agentId;
+              if (data.model !== (job.model || "")) params.model = data.model;
+              if (data.agentId !== (job.agentId || ""))
+                params.agentId = data.agentId;
               onUpdate(params).catch(() => {});
             }}
           />
 
           {/* Actions */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
             {!job.oneShot && (
               <Typography
                 variant="body2"
                 color="primary"
-                sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                onClick={() => onTrigger(job.id).then(() => onViewAgentConversation(effectiveAgentId, job.conversationId || undefined))}
+                sx={{
+                  cursor: "pointer",
+                  "&:hover": { textDecoration: "underline" },
+                }}
+                onClick={() =>
+                  onTrigger(job.id).then(() =>
+                    onViewAgentConversation(
+                      effectiveAgentId,
+                      job.conversationId || undefined,
+                    ),
+                  )
+                }
               >
-                {t('jobs.runNow')}
+                {t("jobs.runNow")}
               </Typography>
             )}
             <Typography
               variant="body2"
               color="primary"
-              sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-              onClick={() => onViewAgentConversation(effectiveAgentId, job.conversationId || undefined)}
+              sx={{
+                cursor: "pointer",
+                "&:hover": { textDecoration: "underline" },
+              }}
+              onClick={() =>
+                onViewAgentConversation(
+                  effectiveAgentId,
+                  job.conversationId || undefined,
+                )
+              }
             >
-              {t('jobs.viewHistory')}
+              {t("jobs.viewHistory")}
             </Typography>
             {!job.oneShot && (
               <Typography
                 variant="body2"
                 color="primary"
-                sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                sx={{
+                  cursor: "pointer",
+                  "&:hover": { textDecoration: "underline" },
+                }}
                 onClick={() => onUpdate({ id: job.id, enabled: !job.enabled })}
               >
-                {job.enabled ? t('jobs.disableJob') : t('jobs.enableJob')}
+                {job.enabled ? t("jobs.disableJob") : t("jobs.enableJob")}
               </Typography>
             )}
             <Typography
               variant="body2"
               color="primary"
-              sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+              sx={{
+                cursor: "pointer",
+                "&:hover": { textDecoration: "underline" },
+              }}
               onClick={() => setDeleteConfirm(true)}
             >
-              {t('common.delete')}
+              {t("common.delete")}
             </Typography>
           </Box>
 
           <ConfirmDialog
             open={deleteConfirm}
-            title={t('common.delete')}
-            message={t('jobs.deleteConfirm', { name: job.name })}
-            confirmLabel={t('common.delete')}
+            title={t("common.delete")}
+            message={t("jobs.deleteConfirm", { name: job.name })}
+            confirmLabel={t("common.delete")}
             onConfirm={() => onDelete(job.id)}
             onClose={() => setDeleteConfirm(false)}
           />
 
           {/* Last run info */}
-          <Box sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{t('jobs.lastRun')}</Typography>
+          <Box sx={{ borderTop: 1, borderColor: "divider", pt: 1.5 }}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mb: 1 }}
+            >
+              {t("jobs.lastRun")}
+            </Typography>
             {job.lastRun ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="body2">{relativeTime(job.lastRun, t)}</Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Typography variant="body2">
+                    {relativeTime(job.lastRun, t)}
+                  </Typography>
                   <Chip
                     label={job.lastStatus}
                     size="small"
-                    color={job.lastStatus === 'success' ? 'success' : 'error'}
-                    sx={{ height: 20, fontSize: '10px' }}
+                    color={job.lastStatus === "success" ? "success" : "error"}
+                    sx={{ height: 20, fontSize: "10px" }}
                   />
                 </Box>
                 {job.lastError && (
-                  <Typography variant="caption" color="error.main">{job.lastError}</Typography>
+                  <Typography variant="caption" color="error.main">
+                    {job.lastError}
+                  </Typography>
                 )}
               </Box>
             ) : (
-              <Typography variant="body2" color="text.secondary">{t('jobs.neverRun')}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {t("jobs.neverRun")}
+              </Typography>
             )}
           </Box>
         </Box>
