@@ -19,7 +19,7 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		return
 	}
 
-	if self.getActiveVoiceSession() != nil {
+	if isVoiceStartConflict(self.getActiveVoiceSession()) {
 		self.sendError(frame.ID, 409, "voice session already active")
 		return
 	}
@@ -79,7 +79,7 @@ func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) {
 		}
 	}
 	session := self.getActiveVoiceSession()
-	if session == nil {
+	if isVoiceEndNotFound(session) {
 		self.sendError(frame.ID, 404, "no active voice session")
 		return
 	}
@@ -147,4 +147,12 @@ func applyVoiceDefaults(params *voiceStartParams) {
 	if params.AudioOut.Channels == 0 {
 		params.AudioOut.Channels = 1
 	}
+}
+
+func isVoiceStartConflict(active *voice.Session) bool {
+	return active != nil
+}
+
+func isVoiceEndNotFound(active *voice.Session) bool {
+	return active == nil
 }
