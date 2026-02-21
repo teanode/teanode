@@ -37,11 +37,11 @@ In practice, most agent behavior is driven by configuration (agent JSON in the w
 
 ## Skills (`internal/skills`)
 
-Skills are declarative, YAML-defined bundles of tools and prompts that extend what an agent can do without changing Go code.
+Skills are declarative, markdown frontmatter-defined bundles of tools and prompts that extend what an agent can do without changing Go code.
 
 High-level flow:
 
-1. TeaNode loads all skill definitions (YAML files) from the configured skills directory (for the default gateway this is typically `~/.teanode/skills/`, but it can be overridden via the `--dir` flag or config).
+1. TeaNode loads all skill definitions (markdown `.md` files) from the configured skills directory (for the default gateway this is typically `~/.teanode/skills/`, but it can be overridden via the `--dir` flag or config).
 2. Each skill defines a set of tools (shell or HTTP) and an optional prompt.
 3. When an agent is created, it can be configured to enable one or more skills.
 4. The agent surfaces the skill tools to the LLM as regular function tools, and includes the skill prompt in its system prompt when active.
@@ -49,8 +49,8 @@ High-level flow:
 Important files:
 
 - `types.go` – core structs for skills and tools (`SkillDefinition`, `ToolDefinition`).
-- `loader.go` – loads and validates YAML skill files:
-  - Reads `*.yaml` from the skills directory.
+- `loader.go` – loads and validates markdown skill files:
+  - Reads `*.md` from the skills directory.
   - Validates required fields (e.g. shell `command`, HTTP `url`).
   - Logs and skips malformed entries instead of failing the whole process.
 - `register.go` – registers loaded skills and their tools in the global tool registry.
@@ -63,12 +63,10 @@ Important files:
 
 A minimal example of a skill (conceptual, see `skills.examples/` for real files):
 
-```yaml
+```md
+---
 name: git-helper
-description: High-level Git helper commands.
-prompt: |
-  You have tools for inspecting and modifying a local Git repository.
-  Prefer these tools over running arbitrary shell commands.
+.description: High-level Git helper commands.
 tools:
   - name: git_status
     description: Show current Git status.
@@ -80,10 +78,13 @@ tools:
     type: shell
     command: git remote -v
     timeout: 5s
+---
+
+You have tools for inspecting and modifying a local Git repository.
+Prefer these tools over running arbitrary shell commands.
 ```
 
 This keeps responsibilities clean:
 
 - `internal/tools` implements low-level primitives (shell, HTTP, filesystem, etc.).
-- `internal/skills` composes those primitives into higher-level, domain-specific capabilities.
-- `internal/agents` exposes both primitives and skills to the LLM via the tool-calling interface.
+- `internal/skills` composes those primitives into higher-level, reusable skills that can be shared across agents and workspaces.

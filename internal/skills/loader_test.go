@@ -27,10 +27,10 @@ func TestLoadAllEmptyDirectory(t *testing.T) {
 	}
 }
 
-func TestLoadAllSkipsNonYAMLFiles(t *testing.T) {
+func TestLoadAllSkipsNonMarkdownFiles(t *testing.T) {
 	directory := t.TempDir()
-	os.WriteFile(filepath.Join(directory, "readme.txt"), []byte("not a skill"), 0644)
-	os.WriteFile(filepath.Join(directory, "config.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(directory, "readme.txt"), []byte("not a skill"), 0644)
+	_ = os.WriteFile(filepath.Join(directory, "legacy.yaml"), []byte("name: legacy"), 0644)
 
 	skills, err := LoadAll(directory)
 	if err != nil {
@@ -43,7 +43,7 @@ func TestLoadAllSkipsNonYAMLFiles(t *testing.T) {
 
 func TestLoadAllSkipsSubdirectories(t *testing.T) {
 	directory := t.TempDir()
-	os.MkdirAll(filepath.Join(directory, "subdir.yaml"), 0755)
+	_ = os.MkdirAll(filepath.Join(directory, "subdir.md"), 0755)
 
 	skills, err := LoadAll(directory)
 	if err != nil {
@@ -56,17 +56,19 @@ func TestLoadAllSkipsSubdirectories(t *testing.T) {
 
 func TestLoadAllShellSkill(t *testing.T) {
 	directory := t.TempDir()
-	content := `
+	content := `---
 name: sysinfo
 description: System information tools
-prompt: Use these tools to inspect the system.
 tools:
   - name: uptime
     description: Show system uptime
     type: shell
     command: ["uptime"]
+---
+
+Use these tools to inspect the system.
 `
-	os.WriteFile(filepath.Join(directory, "sysinfo.yaml"), []byte(content), 0644)
+	_ = os.WriteFile(filepath.Join(directory, "sysinfo.md"), []byte(content), 0644)
 
 	skills, err := LoadAll(directory)
 	if err != nil {
@@ -99,9 +101,9 @@ tools:
 	}
 }
 
-func TestLoadAllHTTPSkill(t *testing.T) {
+func TestLoadAllHTTPSkillWithEmptyBody(t *testing.T) {
 	directory := t.TempDir()
-	content := `
+	content := `---
 name: weather
 tools:
   - name: get_weather
@@ -112,8 +114,8 @@ tools:
     headers:
       Authorization: "Bearer secret"
     timeout: 10
-`
-	os.WriteFile(filepath.Join(directory, "weather.yaml"), []byte(content), 0644)
+---`
+	_ = os.WriteFile(filepath.Join(directory, "weather.md"), []byte(content), 0644)
 
 	skills, err := LoadAll(directory)
 	if err != nil {
@@ -121,6 +123,9 @@ tools:
 	}
 	if len(skills) != 1 {
 		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if skills[0].Prompt != "" {
+		t.Errorf("prompt = %q, want empty", skills[0].Prompt)
 	}
 	tool := skills[0].Tools[0]
 	if tool.Type != "http" {
@@ -142,14 +147,15 @@ tools:
 
 func TestLoadAllSkipsMissingName(t *testing.T) {
 	directory := t.TempDir()
-	content := `
+	content := `---
 tools:
   - name: test
     description: test tool
     type: shell
     command: ["echo"]
+---
 `
-	os.WriteFile(filepath.Join(directory, "noname.yaml"), []byte(content), 0644)
+	_ = os.WriteFile(filepath.Join(directory, "noname.md"), []byte(content), 0644)
 
 	skills, err := LoadAll(directory)
 	if err != nil {
@@ -160,22 +166,22 @@ tools:
 	}
 }
 
-func TestLoadAllSkipsInvalidYAML(t *testing.T) {
+func TestLoadAllSkipsInvalidMarkdownFrontmatter(t *testing.T) {
 	directory := t.TempDir()
-	os.WriteFile(filepath.Join(directory, "bad.yaml"), []byte("{{{{not yaml"), 0644)
+	_ = os.WriteFile(filepath.Join(directory, "bad.md"), []byte("name: bad\n---"), 0644)
 
 	skills, err := LoadAll(directory)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if skills != nil {
-		t.Errorf("expected nil for invalid YAML, got %v", skills)
+		t.Errorf("expected nil for invalid markdown frontmatter, got %v", skills)
 	}
 }
 
 func TestLoadAllFiltersInvalidTools(t *testing.T) {
 	directory := t.TempDir()
-	content := `
+	content := `---
 name: mixed
 tools:
   - name: good
@@ -195,8 +201,10 @@ tools:
   - name: bad_type
     description: unknown type
     type: ftp
+---
+Prompt text.
 `
-	os.WriteFile(filepath.Join(directory, "mixed.yaml"), []byte(content), 0644)
+	_ = os.WriteFile(filepath.Join(directory, "mixed.md"), []byte(content), 0644)
 
 	skills, err := LoadAll(directory)
 	if err != nil {
@@ -215,14 +223,15 @@ tools:
 
 func TestLoadAllSkipsSkillWithNoValidTools(t *testing.T) {
 	directory := t.TempDir()
-	content := `
+	content := `---
 name: broken
 tools:
   - name: bad
     description: unknown type
     type: ftp
+---
 `
-	os.WriteFile(filepath.Join(directory, "broken.yaml"), []byte(content), 0644)
+	_ = os.WriteFile(filepath.Join(directory, "broken.md"), []byte(content), 0644)
 
 	skills, err := LoadAll(directory)
 	if err != nil {
@@ -235,24 +244,28 @@ tools:
 
 func TestLoadAllMultipleFiles(t *testing.T) {
 	directory := t.TempDir()
-	skill1 := `
+	skill1 := `---
 name: alpha
 tools:
   - name: tool_a
     description: tool A
     type: shell
     command: ["echo", "a"]
+---
+alpha prompt
 `
-	skill2 := `
+	skill2 := `---
 name: beta
 tools:
   - name: tool_b
     description: tool B
     type: http
     url: "http://example.com"
+---
+beta prompt
 `
-	os.WriteFile(filepath.Join(directory, "alpha.yaml"), []byte(skill1), 0644)
-	os.WriteFile(filepath.Join(directory, "beta.yaml"), []byte(skill2), 0644)
+	_ = os.WriteFile(filepath.Join(directory, "alpha.md"), []byte(skill1), 0644)
+	_ = os.WriteFile(filepath.Join(directory, "beta.md"), []byte(skill2), 0644)
 
 	skills, err := LoadAll(directory)
 	if err != nil {
@@ -268,6 +281,78 @@ tools:
 	}
 	if !names["alpha"] || !names["beta"] {
 		t.Errorf("expected alpha and beta, got %v", names)
+	}
+}
+
+func TestLoadAllInstalledSkillsAndLocalPrecedence(t *testing.T) {
+	directory := t.TempDir()
+
+	local := `---
+name: git
+tools:
+  - name: local_tool
+    description: local
+    type: shell
+    command: ["echo", "local"]
+---
+local prompt
+`
+	installedOld := `---
+name: weather
+tools:
+  - name: weather_old
+    description: old
+    type: http
+    url: "https://old.example"
+---
+old
+`
+	installedNew := `---
+name: weather
+tools:
+  - name: weather_new
+    description: new
+    type: http
+    url: "https://new.example"
+---
+new
+`
+	installedConflict := `---
+name: git
+tools:
+  - name: installed_tool
+    description: installed
+    type: shell
+    command: ["echo", "installed"]
+---
+installed prompt
+`
+
+	_ = os.WriteFile(filepath.Join(directory, "git.md"), []byte(local), 0644)
+	_ = os.MkdirAll(filepath.Join(directory, ".installed", "weather", "1.0.0"), 0755)
+	_ = os.MkdirAll(filepath.Join(directory, ".installed", "weather", "1.2.0"), 0755)
+	_ = os.MkdirAll(filepath.Join(directory, ".installed", "git", "9.9.9"), 0755)
+	_ = os.WriteFile(filepath.Join(directory, ".installed", "weather", "1.0.0", "skill.md"), []byte(installedOld), 0644)
+	_ = os.WriteFile(filepath.Join(directory, ".installed", "weather", "1.2.0", "skill.md"), []byte(installedNew), 0644)
+	_ = os.WriteFile(filepath.Join(directory, ".installed", "git", "9.9.9", "skill.md"), []byte(installedConflict), 0644)
+
+	skills, err := LoadAll(directory)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(skills) != 2 {
+		t.Fatalf("expected 2 skills (local git + installed weather), got %d", len(skills))
+	}
+
+	byName := map[string]SkillDefinition{}
+	for _, skill := range skills {
+		byName[skill.Name] = skill
+	}
+	if byName["git"].Tools[0].Name != "local_tool" {
+		t.Fatalf("expected local git skill to win, got %q", byName["git"].Tools[0].Name)
+	}
+	if byName["weather"].Tools[0].Name != "weather_new" {
+		t.Fatalf("expected newest installed version, got %q", byName["weather"].Tools[0].Name)
 	}
 }
 

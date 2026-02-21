@@ -1,6 +1,6 @@
 package skills
 
-// SkillDefinition is the YAML structure of a skill file.
+// SkillDefinition is the frontmatter structure of a markdown skill file.
 type SkillDefinition struct {
 	Name        string           `json:"name" yaml:"name"`
 	Description string           `json:"description,omitempty" yaml:"description,omitempty"`

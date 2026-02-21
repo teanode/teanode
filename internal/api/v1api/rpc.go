@@ -12,6 +12,7 @@ import (
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/skills"
+	skillregistry "github.com/teanode/teanode/internal/skills/registry"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/version"
@@ -997,4 +998,137 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"ok": true,
 	})
+}
+
+// --- Skills Registry RPC handlers ---
+
+func (self *webSocketConnection) handleSkillsRegistryList(frame requestFrame) {
+	configuration := self.api.gateway.Config()
+	registry := configuration.SkillsRegistry
+	if registry == nil {
+		self.sendResponse(frame.ID, map[string]interface{}{
+			"enabled": false,
+			"sources": []interface{}{},
+		})
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"enabled": registry.Enabled,
+		"policy":  registry.Policy,
+		"updates": registry.Updates,
+		"sources": registry.Sources,
+	})
+}
+
+type skillsRegistrySearchParameters struct {
+	Query string `json:"query,omitempty"`
+}
+
+func (self *webSocketConnection) handleSkillsRegistrySearch(frame requestFrame) {
+	var parameters skillsRegistrySearchParameters
+	if frame.Params != nil {
+		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+			self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+			return
+		}
+	}
+	results, err := skillregistry.Search(context.Background(), self.api.gateway.Config().SkillsRegistry, parameters.Query)
+	if err != nil {
+		self.sendError(frame.ID, 500, "searching registry: "+err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"results": results,
+	})
+}
+
+type skillsInstallParameters struct {
+	SourceID string `json:"sourceId,omitempty"`
+	Name     string `json:"name"`
+	Version  string `json:"version,omitempty"`
+}
+
+func (self *webSocketConnection) handleSkillsInstall(frame requestFrame) {
+	var parameters skillsInstallParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.Name == "" {
+		self.sendError(frame.ID, 400, "name is required")
+		return
+	}
+	installed, err := skillregistry.Install(context.Background(), self.api.gateway.Config().SkillsRegistry, parameters.SourceID, parameters.Name, parameters.Version)
+	if err != nil {
+		self.sendError(frame.ID, 500, "install failed: "+err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"installed": installed,
+	})
+	if self.api.onSkillsChanged != nil {
+		self.api.onSkillsChanged()
+	}
+}
+
+func (self *webSocketConnection) handleSkillsInstalledList(frame requestFrame) {
+	installed, err := skillregistry.ListInstalled()
+	if err != nil {
+		self.sendError(frame.ID, 500, "listing installed skills: "+err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"skills": installed,
+	})
+}
+
+type skillsUninstallParameters struct {
+	Name string `json:"name"`
+}
+
+func (self *webSocketConnection) handleSkillsUninstall(frame requestFrame) {
+	var parameters skillsUninstallParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.Name == "" {
+		self.sendError(frame.ID, 400, "name is required")
+		return
+	}
+	if err := skillregistry.Uninstall(parameters.Name); err != nil {
+		self.sendError(frame.ID, 500, "uninstall failed: "+err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"uninstalled": true,
+	})
+	if self.api.onSkillsChanged != nil {
+		self.api.onSkillsChanged()
+	}
+}
+
+type skillsUpdateParameters struct {
+	Name string `json:"name,omitempty"`
+}
+
+func (self *webSocketConnection) handleSkillsUpdate(frame requestFrame) {
+	var parameters skillsUpdateParameters
+	if frame.Params != nil {
+		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+			self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+			return
+		}
+	}
+	updated, err := skillregistry.Update(context.Background(), self.api.gateway.Config().SkillsRegistry, parameters.Name)
+	if err != nil {
+		self.sendError(frame.ID, 500, "update failed: "+err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"updated": updated,
+	})
+	if len(updated) > 0 && self.api.onSkillsChanged != nil {
+		self.api.onSkillsChanged()
+	}
 }

@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/util/screenbuffer"
@@ -60,8 +59,6 @@ func NewTerminalCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
-			log := logging.MustGetLogger("cmd")
-
 			// Determine child command: --command flag, positional args, $SHELL, or bash.
 			var shellArguments []string
 			if commandFlag := command.String("command"); commandFlag != "" {
@@ -158,7 +155,7 @@ func NewTerminalCommand() *cli.Command {
 			}
 			name := command.String("name")
 			shellCommand := strings.Join(shellArguments, " ")
-			go connectGateway(ctx, gatewayUrl, token, name, shellCommand, master, buffer, log)
+			go connectGateway(ctx, gatewayUrl, token, name, shellCommand, master, buffer)
 
 			// Wait for child to exit.
 			child.Wait()
@@ -177,7 +174,7 @@ func currentTerminalSize() (rows, cols uint16) {
 	return defaultTerminalRows, defaultTerminalCols
 }
 
-func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand string, master *os.File, buffer *screenbuffer.Buffer, log *logging.Logger) {
+func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand string, master *os.File, buffer *screenbuffer.Buffer) {
 	parsedUrl, err := url.Parse(gatewayUrl)
 	if err != nil {
 		log.Errorf("terminal: invalid gateway URL: %v", err)
@@ -192,7 +189,7 @@ func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand s
 	parsedUrl.RawQuery = query.Encode()
 
 	for {
-		serveGatewayConnection(ctx, parsedUrl.String(), shellCommand, master, buffer, log)
+		serveGatewayConnection(ctx, parsedUrl.String(), shellCommand, master, buffer)
 
 		// Wait before reconnecting, or exit if context is cancelled.
 		select {
@@ -204,7 +201,7 @@ func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand s
 	}
 }
 
-func serveGatewayConnection(ctx context.Context, url string, shellCommand string, master *os.File, buffer *screenbuffer.Buffer, log *logging.Logger) {
+func serveGatewayConnection(ctx context.Context, url string, shellCommand string, master *os.File, buffer *screenbuffer.Buffer) {
 	connection, _, err := websocket.DefaultDialer.DialContext(ctx, url, nil)
 	if err != nil {
 		log.Errorf("terminal: gateway connect failed: %v", err)

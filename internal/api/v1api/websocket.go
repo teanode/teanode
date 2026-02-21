@@ -129,6 +129,18 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleAuthRegenerateToken(frame)
 	case "auth.changePassword":
 		self.handleAuthChangePassword(frame)
+	case "skills.registry.list":
+		self.handleSkillsRegistryList(frame)
+	case "skills.registry.search":
+		self.handleSkillsRegistrySearch(frame)
+	case "skills.install":
+		self.handleSkillsInstall(frame)
+	case "skills.installed.list":
+		self.handleSkillsInstalledList(frame)
+	case "skills.uninstall":
+		self.handleSkillsUninstall(frame)
+	case "skills.update":
+		self.handleSkillsUpdate(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

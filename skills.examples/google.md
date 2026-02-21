@@ -1,3 +1,4 @@
+---
 name: google-extras
 description: Additional Google Workspace tools via gogcli for services not covered by built-in tools (Keep, Docs, Sheets, etc.)
 tools:
@@ -38,3 +39,4 @@ tools:
           type: string
           description: Note body text
       required: ["title", "body"]
+---

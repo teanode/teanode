@@ -223,13 +223,14 @@ func (self *Config) ResolveSummarizerConfig() SummarizerConfig {
 }
 
 type Config struct {
-	Gateway      GatewayConfig      `json:"gateway,omitempty" yaml:"gateway,omitempty"`
-	Models       ModelsConfig       `json:"models,omitempty" yaml:"models,omitempty"`
-	Tools        ToolsConfig        `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Integrations IntegrationsConfig `json:"integrations,omitempty" yaml:"integrations,omitempty"`
-	Summarizer   *SummarizerConfig  `json:"summarizer,omitempty" yaml:"summarizer,omitempty"`
-	Channels     ChannelsConfig     `json:"channels,omitempty" yaml:"channels,omitempty"`
-	Agents       []AgentConfig      `json:"-" yaml:"-"`
+	Gateway        GatewayConfig         `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Models         ModelsConfig          `json:"models,omitempty" yaml:"models,omitempty"`
+	Tools          ToolsConfig           `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Integrations   IntegrationsConfig    `json:"integrations,omitempty" yaml:"integrations,omitempty"`
+	Summarizer     *SummarizerConfig     `json:"summarizer,omitempty" yaml:"summarizer,omitempty"`
+	SkillsRegistry *SkillsRegistryConfig `json:"skillsRegistry,omitempty" yaml:"skillsRegistry,omitempty"`
+	Channels       ChannelsConfig        `json:"channels,omitempty" yaml:"channels,omitempty"`
+	Agents         []AgentConfig         `json:"-" yaml:"-"`
 }
 
 type IntegrationsConfig struct {
@@ -257,6 +258,128 @@ type DiscordConfig struct {
 type TelegramConfig struct {
 	Token        string  `json:"token,omitempty" yaml:"token,omitempty"`
 	AllowedUsers []int64 `json:"allowedUsers,omitempty" yaml:"allowedUsers,omitempty"` // Telegram user IDs
+}
+
+type SkillsRegistryConfig struct {
+	Enabled bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Sources []SkillsRegistrySource `json:"sources,omitempty" yaml:"sources,omitempty"`
+	Policy  SkillsRegistryPolicy   `json:"policy,omitempty" yaml:"policy,omitempty"`
+	Updates SkillsRegistryUpdates  `json:"updates,omitempty" yaml:"updates,omitempty"`
+}
+
+func (self *SkillsRegistryConfig) UnmarshalJSON(data []byte) error {
+	type rawSkillsRegistryConfig struct {
+		Enabled *bool                  `json:"enabled,omitempty"`
+		Sources []SkillsRegistrySource `json:"sources,omitempty"`
+		Policy  SkillsRegistryPolicy   `json:"policy,omitempty"`
+		Updates SkillsRegistryUpdates  `json:"updates,omitempty"`
+	}
+	var raw rawSkillsRegistryConfig
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	self.Enabled = true
+	if raw.Enabled != nil {
+		self.Enabled = *raw.Enabled
+	}
+	self.Sources = raw.Sources
+	self.Policy = raw.Policy
+	self.Updates = raw.Updates
+	return nil
+}
+
+func (self *SkillsRegistryConfig) UnmarshalYAML(value *yaml.Node) error {
+	type rawSkillsRegistryConfig struct {
+		Enabled *bool                  `yaml:"enabled,omitempty"`
+		Sources []SkillsRegistrySource `yaml:"sources,omitempty"`
+		Policy  SkillsRegistryPolicy   `yaml:"policy,omitempty"`
+		Updates SkillsRegistryUpdates  `yaml:"updates,omitempty"`
+	}
+	var raw rawSkillsRegistryConfig
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	self.Enabled = true
+	if raw.Enabled != nil {
+		self.Enabled = *raw.Enabled
+	}
+	self.Sources = raw.Sources
+	self.Policy = raw.Policy
+	self.Updates = raw.Updates
+	return nil
+}
+
+type SkillsRegistrySource struct {
+	ID         string   `json:"id,omitempty" yaml:"id,omitempty"`
+	Publisher  string   `json:"publisher,omitempty" yaml:"publisher,omitempty"`
+	IndexURL   string   `json:"indexUrl,omitempty" yaml:"indexUrl,omitempty"`
+	Enabled    bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Priority   int      `json:"priority,omitempty" yaml:"priority,omitempty"`
+	PublicKeys []string `json:"publicKeys,omitempty" yaml:"publicKeys,omitempty"`
+}
+
+func (self *SkillsRegistrySource) UnmarshalJSON(data []byte) error {
+	type rawSkillsRegistrySource struct {
+		ID         string   `json:"id,omitempty"`
+		Publisher  string   `json:"publisher,omitempty"`
+		IndexURL   string   `json:"indexUrl,omitempty"`
+		Enabled    *bool    `json:"enabled,omitempty"`
+		Priority   int      `json:"priority,omitempty"`
+		PublicKeys []string `json:"publicKeys,omitempty"`
+	}
+	var raw rawSkillsRegistrySource
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	self.ID = raw.ID
+	self.Publisher = raw.Publisher
+	self.IndexURL = raw.IndexURL
+	self.Enabled = true
+	if raw.Enabled != nil {
+		self.Enabled = *raw.Enabled
+	}
+	self.Priority = raw.Priority
+	self.PublicKeys = raw.PublicKeys
+	return nil
+}
+
+func (self *SkillsRegistrySource) UnmarshalYAML(value *yaml.Node) error {
+	type rawSkillsRegistrySource struct {
+		ID         string   `yaml:"id,omitempty"`
+		Publisher  string   `yaml:"publisher,omitempty"`
+		IndexURL   string   `yaml:"indexUrl,omitempty"`
+		Enabled    *bool    `yaml:"enabled,omitempty"`
+		Priority   int      `yaml:"priority,omitempty"`
+		PublicKeys []string `yaml:"publicKeys,omitempty"`
+	}
+	var raw rawSkillsRegistrySource
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	self.ID = raw.ID
+	self.Publisher = raw.Publisher
+	self.IndexURL = raw.IndexURL
+	self.Enabled = true
+	if raw.Enabled != nil {
+		self.Enabled = *raw.Enabled
+	}
+	self.Priority = raw.Priority
+	self.PublicKeys = raw.PublicKeys
+	return nil
+}
+
+type SkillsRegistryPolicy struct {
+	RequireSignatures bool     `json:"requireSignatures,omitempty" yaml:"requireSignatures,omitempty"`
+	AllowPublishers   []string `json:"allowPublishers,omitempty" yaml:"allowPublishers,omitempty"`
+}
+
+type SkillsRegistryUpdates struct {
+	AutoUpdateEnabled bool   `json:"autoUpdateEnabled,omitempty" yaml:"autoUpdateEnabled,omitempty"`
+	ScheduleJob       string `json:"scheduleJob,omitempty" yaml:"scheduleJob,omitempty"`
+}
+
+func (self SkillsRegistryUpdates) ResolvedSchedule() string {
+	return self.ScheduleJob
 }
 
 type ToolsConfig struct {
@@ -971,6 +1094,26 @@ func defaults() *Config {
 			ContextWindow: schemaInt(configDefaults, "models.contextWindow"),
 			DefaultLimits: DefaultAgentLimits,
 		},
+		SkillsRegistry: &SkillsRegistryConfig{
+			Enabled: true,
+			Sources: []SkillsRegistrySource{
+				{
+					ID:        "teanode-official",
+					Publisher: "github.com/teanode/teanode-skills",
+					IndexURL:  "https://raw.githubusercontent.com/teanode/teanode-skills/main/index.json",
+					Enabled:   true,
+					Priority:  100,
+				},
+			},
+			Policy: SkillsRegistryPolicy{
+				RequireSignatures: true,
+				AllowPublishers:   []string{"github.com/teanode/teanode-skills"},
+			},
+			Updates: SkillsRegistryUpdates{
+				AutoUpdateEnabled: true,
+				ScheduleJob:       "0 */6 * * *",
+			},
+		},
 	}
 }
 
@@ -999,6 +1142,19 @@ func applyDefaults(configuration *Config) {
 		configuration.Models.ContextWindow = fallback.Models.ContextWindow
 	}
 	configuration.Models.DefaultLimits = mergeLimits(fallback.Models.DefaultLimits, configuration.Models.DefaultLimits)
+
+	if configuration.SkillsRegistry == nil {
+		configuration.SkillsRegistry = fallback.SkillsRegistry
+	}
+	if len(configuration.SkillsRegistry.Sources) == 0 {
+		configuration.SkillsRegistry.Sources = fallback.SkillsRegistry.Sources
+	}
+	if len(configuration.SkillsRegistry.Policy.AllowPublishers) == 0 {
+		configuration.SkillsRegistry.Policy.AllowPublishers = fallback.SkillsRegistry.Policy.AllowPublishers
+	}
+	if configuration.SkillsRegistry.Updates.ScheduleJob == "" {
+		configuration.SkillsRegistry.Updates.ScheduleJob = fallback.SkillsRegistry.Updates.ScheduleJob
+	}
 }
 
 func applyEnv(configuration *Config) {

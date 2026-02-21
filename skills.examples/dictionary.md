@@ -1,3 +1,4 @@
+---
 name: dictionary
 description: English dictionary lookup
 tools:
@@ -16,3 +17,4 @@ tools:
           type: string
           description: The English word to look up
       required: ["word"]
+---

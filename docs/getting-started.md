@@ -139,7 +139,7 @@ Depending on your configuration, TeaNode may also expose a web UI bundled from t
 If you want to modify or extend TeaNode itself, useful docs are:
 
 - `docs/architecture.md` – top-level layout and request flow.
-- `docs/agents-and-skills.md` – how agents run and how YAML-defined skills work.
+- `docs/agents-and-skills.md` – how agents run and how markdown frontmatter-defined skills work.
 - `docs/conversations.md` – how conversations are stored (JSONL-based store).
 - `docs/jobs.md` – background jobs and reminders.
 
@@ -167,8 +167,8 @@ A few common ways to extend the system:
 
 ### Add a skill (no Go code required)
 
-1. Look at `skills.examples/` for sample YAML files.
-2. Create your own `.yaml` in the configured skills directory (often `~/.teanode/skills/`).
+1. Look at `skills.examples/` for sample markdown skill files.
+2. Create your own `.md` in the configured skills directory (often `~/.teanode/skills/`).
 3. Define one or more `shell` or `http` tools plus an optional `prompt`.
 4. Restart TeaNode or trigger a reload so the new skill is picked up.
 

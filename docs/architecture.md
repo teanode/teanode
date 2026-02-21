@@ -24,7 +24,7 @@ Repository root (key items only):
   - `jobs/` – background jobs and reminders.
   - `media/` – media storage (images/audio) abstraction.
   - `provider/` – model provider abstraction (OpenAI, Anthropic, etc.).
-  - `skills/` – YAML-defined tool/skill bundles.
+  - `skills/` – markdown frontmatter-defined tool/skill bundles.
   - `tools/` – concrete tool implementations (GitLab, GitHub, shell, etc.).
   - `util/` – shared helpers.
   - `version/` – build version information.
@@ -32,7 +32,7 @@ Repository root (key items only):
   - `web/` – static web assets server.
 - `web/` – React/JS frontend source (built into static assets).
 - `docs/` – documentation (this file).
-- `skills.examples/` – example YAML skill definitions.
+- `skills.examples/` – example markdown skill definitions.
 - `config.example.json` – example TeaNode configuration.
 - `Dockerfile`, `docker-compose.yml` – container / deployment setup.
 - `Makefile` – build targets (binary + web assets).
@@ -113,7 +113,7 @@ Tools are wired into the agent layer via `internal/agents/tools.go` so the LLM s
 
 ### Skills
 
-A **skill** is a YAML-defined bundle of one or more tools plus an optional prompt.
+A **skill** is a markdown frontmatter-defined bundle of one or more tools plus an optional prompt.
 
 Key code: `internal/skills/`, `skills.examples/`
 
@@ -138,7 +138,7 @@ Each `ToolDefinition` describes:
 
 `internal/skills/loader.go`:
 
-- Loads all `*.yaml` files from a skills directory.
+- Loads all `*.md` files from a skills directory.
 - Validates them (e.g., `shell` tools must have a command; `http` tools must have a URL).
 - Logs warnings and skips malformed entries instead of failing the whole process.
 
@@ -300,7 +300,7 @@ To extend TeaNode, you can:
   - Register it in the tools registry so the agent can see it.
 
 - **Add a new skill**:
-  - Write a `.yaml` file in the configured skills directory (see `skills.examples`).
+  - Write a `.md` file in the configured skills directory (see `skills.examples`).
   - Define one or more shell/HTTP tools and their parameter schemas.
   - Restart TeaNode or trigger skills reload.
 

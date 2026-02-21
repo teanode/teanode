@@ -564,6 +564,63 @@
           "default": 2000
         }
       }
+    },
+    "skillsRegistry": {
+      "type": "object",
+      "title": "Skills Registry",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "title": "Enabled",
+          "description": "Enable online skill registry features.",
+          "default": true
+        },
+        "sources": {
+          "type": "array",
+          "title": "Sources",
+          "description": "Registry index sources.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "publisher": { "type": "string" },
+              "indexUrl": { "type": "string" },
+              "enabled": { "type": "boolean", "default": true },
+              "priority": { "type": "number", "default": 100 },
+              "publicKeys": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "policy": {
+          "type": "object",
+          "properties": {
+            "requireSignatures": {
+              "type": "boolean",
+              "default": true
+            },
+            "allowPublishers": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "updates": {
+          "type": "object",
+          "properties": {
+            "autoUpdateEnabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "scheduleJob": {
+              "type": "string",
+              "default": "0 */6 * * *"
+            }
+          }
+        }
+      }
     }
   },
   "x-sections": [
@@ -614,6 +671,12 @@
       "description": "Background session summarizer timing and limits.",
       "descriptionKey": "schema.config.sections.summarizer.description",
       "path": "summarizer"
+    },
+    {
+      "id": "skillsRegistry",
+      "title": "Skills Registry",
+      "description": "Online skill registry sources, trust policy, and update behavior.",
+      "path": "skillsRegistry"
     }
   ]
 }

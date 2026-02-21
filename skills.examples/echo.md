@@ -1,3 +1,4 @@
+---
 name: echo
 description: Simple echo tool for testing the skill system
 tools:
@@ -13,3 +14,4 @@ tools:
           type: string
           description: The message to echo back
       required: ["message"]
+---
