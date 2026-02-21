@@ -38,7 +38,10 @@ func RegisterSkillsFiltered(registry *agents.ToolRegistry, skillsDirectory strin
 				registry.Register(&ShellTool{definition: *tool})
 				count++
 			case "http":
-				registry.Register(&HTTPTool{definition: *tool})
+				registry.Register(&HTTPTool{definition: *tool, httpAuthProfiles: skill.HTTPAuth})
+				count++
+			case "workflow":
+				registry.Register(&WorkflowTool{definition: *tool, httpAuthProfiles: skill.HTTPAuth})
 				count++
 			}
 		}

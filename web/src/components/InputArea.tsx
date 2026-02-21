@@ -1,18 +1,18 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useTranslation } from 'react-i18next';
-import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
-import Container from '@mui/material/Container';
-import IconButton from '@mui/material/IconButton';
-import Typography from '@mui/material/Typography';
-import AttachFileRounded from '@mui/icons-material/AttachFileRounded';
-import MicRounded from '@mui/icons-material/MicRounded';
-import PhoneRounded from '@mui/icons-material/PhoneRounded';
-import SendRounded from '@mui/icons-material/SendRounded';
-import StopRounded from '@mui/icons-material/StopRounded';
-import type { Attachment } from '../types';
-import { useAudioRecorder } from '../hooks/useAudioRecorder';
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
+import Container from "@mui/material/Container";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import AttachFileRounded from "@mui/icons-material/AttachFileRounded";
+import MicRounded from "@mui/icons-material/MicRounded";
+import PhoneRounded from "@mui/icons-material/PhoneRounded";
+import SendRounded from "@mui/icons-material/SendRounded";
+import StopRounded from "@mui/icons-material/StopRounded";
+import type { Attachment } from "../types";
+import { useAudioRecorder } from "../hooks/useAudioRecorder";
 
 interface PendingFile {
   file: File;
@@ -21,9 +21,9 @@ interface PendingFile {
 
 async function uploadMedia(file: File): Promise<Attachment> {
   const formData = new FormData();
-  formData.append('file', file);
-  const response = await fetch('/api/v1/media/upload', {
-    method: 'POST',
+  formData.append("file", file);
+  const response = await fetch("/api/v1/media/upload", {
+    method: "POST",
     body: formData,
   });
   if (!response.ok) {
@@ -33,10 +33,10 @@ async function uploadMedia(file: File): Promise<Attachment> {
 }
 
 function isImageFile(file: File): boolean {
-  return file.type.startsWith('image/');
+  return file.type.startsWith("image/");
 }
 
-type VoiceState = 'idle' | 'recording' | 'transcribing';
+type VoiceState = "idle" | "recording" | "transcribing";
 
 interface InputAreaProps {
   agentName: string;
@@ -97,51 +97,72 @@ export default function InputArea({
   const [dragOver, setDragOver] = useState(false);
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;
-  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
 
-  const handleRecordingComplete = useCallback(async (blob: Blob, format: string) => {
-    setVoiceState('transcribing');
-    try {
-      const formData = new FormData();
-      formData.append('file', blob, `audio.${format}`);
-      const response = await fetch('/api/v1/audio/transcribe', {
-        method: 'POST',
-        body: formData,
-      });
-      if (!response.ok) throw new Error(`Transcription failed: ${response.status}`);
-      const result = await response.json();
-      const text = result.text?.trim();
-      if (text) {
-        if (voiceAutoSend && onVoiceMessage) {
-          onVoiceMessage(text);
-        } else {
-          const element = textareaRef.current;
-          if (element) {
-            element.value = text;
-            element.style.height = 'auto';
-            element.style.height = Math.min(element.scrollHeight, 150) + 'px';
-            setHasText(true);
-            element.focus();
+  const handleRecordingComplete = useCallback(
+    async (blob: Blob, format: string) => {
+      setVoiceState("transcribing");
+      try {
+        const formData = new FormData();
+        formData.append("file", blob, `audio.${format}`);
+        const response = await fetch("/api/v1/audio/transcribe", {
+          method: "POST",
+          body: formData,
+        });
+        if (!response.ok)
+          throw new Error(`Transcription failed: ${response.status}`);
+        const result = await response.json();
+        const text = result.text?.trim();
+        if (text) {
+          if (voiceAutoSend && onVoiceMessage) {
+            onVoiceMessage(text);
+          } else {
+            const element = textareaRef.current;
+            if (element) {
+              element.value = text;
+              element.style.height = "auto";
+              element.style.height = Math.min(element.scrollHeight, 150) + "px";
+              setHasText(true);
+              element.focus();
+            }
           }
         }
+      } catch (error) {
+        console.error("Transcription error:", error);
       }
-    } catch (error) {
-      console.error('Transcription error:', error);
-    }
-    setVoiceState('idle');
-  }, [voiceAutoSend, onVoiceMessage]);
+      setVoiceState("idle");
+    },
+    [voiceAutoSend, onVoiceMessage],
+  );
 
-  const { isRecording, isSupported: micSupported, duration, startRecording, stopRecording, cancelRecording } = useAudioRecorder({
+  const {
+    isRecording,
+    isSupported: micSupported,
+    duration,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  } = useAudioRecorder({
     onRecordingComplete: handleRecordingComplete,
   });
 
   // Sync recording state.
   useEffect(() => {
-    if (isRecording) setVoiceState('recording');
+    if (isRecording) setVoiceState("recording");
   }, [isRecording]);
 
-  const showMic = voiceEnabled && micSupported && !hasText && voiceState === 'idle' && !voiceCallActive;
-  const showCallButton = voiceEnabled && !voiceCallActive && voiceState === 'idle' && onStartVoiceCall && !voiceCallConnecting;
+  const showMic =
+    voiceEnabled &&
+    micSupported &&
+    !hasText &&
+    voiceState === "idle" &&
+    !voiceCallActive;
+  const showCallButton =
+    voiceEnabled &&
+    !voiceCallActive &&
+    voiceState === "idle" &&
+    onStartVoiceCall &&
+    !voiceCallConnecting;
   const showCallConnecting = voiceCallConnecting;
 
   // Restore draft when draftKey changes (conversation switch).
@@ -149,10 +170,10 @@ export default function InputArea({
     const element = textareaRef.current;
     if (!element) return;
     const saved = draftKey ? localStorage.getItem(`draft:${draftKey}`) : null;
-    element.value = saved || '';
-    element.style.height = 'auto';
+    element.value = saved || "";
+    element.style.height = "auto";
     if (saved) {
-      element.style.height = Math.min(element.scrollHeight, 150) + 'px';
+      element.style.height = Math.min(element.scrollHeight, 150) + "px";
     }
     setHasText(!!element.value.trim());
     setPendingFiles([]);
@@ -195,11 +216,11 @@ export default function InputArea({
       setUploading(true);
       try {
         const attachments = await Promise.all(
-          pendingFiles.map((pf) => uploadMedia(pf.file))
+          pendingFiles.map((pf) => uploadMedia(pf.file)),
         );
         onSend(text, attachments);
       } catch (err) {
-        console.error('File upload failed:', err);
+        console.error("File upload failed:", err);
         uploadingRef.current = false;
         setUploading(false);
         return;
@@ -214,8 +235,8 @@ export default function InputArea({
       onSend(text);
     }
 
-    element.value = '';
-    element.style.height = 'auto';
+    element.value = "";
+    element.style.height = "auto";
     setHasText(false);
     if (draftKeyRef.current) {
       localStorage.removeItem(`draft:${draftKeyRef.current}`);
@@ -224,19 +245,19 @@ export default function InputArea({
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
-      if (event.key === 'Enter' && !event.shiftKey) {
+      if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         handleSend();
       }
     },
-    [handleSend]
+    [handleSend],
   );
 
   const handleInput = useCallback(() => {
     const element = textareaRef.current;
     if (!element) return;
-    element.style.height = 'auto';
-    element.style.height = Math.min(element.scrollHeight, 150) + 'px';
+    element.style.height = "auto";
+    element.style.height = Math.min(element.scrollHeight, 150) + "px";
     setHasText(!!element.value.trim());
     if (draftKeyRef.current) {
       if (element.value) {
@@ -256,33 +277,44 @@ export default function InputArea({
     setDragOver(false);
   }, []);
 
-  const handleDrop = useCallback((event: React.DragEvent) => {
-    event.preventDefault();
-    setDragOver(false);
-    if (event.dataTransfer.files.length > 0) {
-      addFiles(event.dataTransfer.files);
-    }
-  }, [addFiles]);
+  const handleDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      setDragOver(false);
+      if (event.dataTransfer.files.length > 0) {
+        addFiles(event.dataTransfer.files);
+      }
+    },
+    [addFiles],
+  );
 
-  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files.length > 0) {
-      addFiles(event.target.files);
-      event.target.value = '';
-    }
-  }, [addFiles]);
+  const handleFileChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (event.target.files && event.target.files.length > 0) {
+        addFiles(event.target.files);
+        event.target.value = "";
+      }
+    },
+    [addFiles],
+  );
 
   const hasContent = hasText || pendingFiles.length > 0;
   const showStop = isRunning && !hasContent && !!onAbort;
   const expanded = alwaysExpanded || focused;
 
   // Extract the short model name (after the colon) for display.
-  const displayModel = model ? (model.includes(':') ? model.split(':').slice(1).join(':') : model) : null;
+  const displayModel = model
+    ? model.includes(":")
+      ? model.split(":").slice(1).join(":")
+      : model
+    : null;
 
-  const resolvedPlaceholder = voiceState === 'recording'
-    ? t('settings.listening')
-    : voiceState === 'transcribing'
-      ? t('settings.transcribing')
-      : (placeholder || t('conversations.reply', { agentName }));
+  const resolvedPlaceholder =
+    voiceState === "recording"
+      ? t("settings.listening")
+      : voiceState === "transcribing"
+        ? t("settings.transcribing")
+        : placeholder || t("conversations.reply", { agentName });
 
   const inputBox = (
     <Box
@@ -290,22 +322,22 @@ export default function InputArea({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        bgcolor: 'surface2',
+        display: "flex",
+        flexDirection: "column",
+        bgcolor: "surface2",
         borderRadius: 1.5,
         border: 1,
-        borderColor: dragOver ? 'primary.main' : 'divider',
+        borderColor: dragOver ? "primary.main" : "divider",
         px: 1.5,
         py: 1,
         gap: 0.5,
-        '&:focus-within': {
-          borderColor: 'primary.main',
+        "&:focus-within": {
+          borderColor: "primary.main",
         },
       }}
     >
       {pendingFiles.length > 0 && (
-        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', pb: 0.5 }}>
+        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", pb: 0.5 }}>
           {pendingFiles.map((pf, index) => (
             <Chip
               key={index}
@@ -317,7 +349,12 @@ export default function InputArea({
                   <Box
                     component="img"
                     src={pf.previewUrl}
-                    sx={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }}
+                    sx={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      objectFit: "cover",
+                    }}
                   />
                 ) : undefined
               }
@@ -326,7 +363,7 @@ export default function InputArea({
           ))}
         </Box>
       )}
-      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+      <Box sx={{ display: "flex", alignItems: "center" }}>
         <Box
           component="textarea"
           ref={textareaRef}
@@ -339,31 +376,39 @@ export default function InputArea({
           onBlur={() => setFocused(false)}
           sx={{
             flex: 1,
-            border: 'none',
-            outline: 'none',
-            bgcolor: 'transparent',
-            color: 'text.primary',
-            fontSize: '0.875rem',
-            fontFamily: 'inherit',
+            border: "none",
+            outline: "none",
+            bgcolor: "transparent",
+            color: "text.primary",
+            fontSize: "0.875rem",
+            fontFamily: "inherit",
             lineHeight: 1.5,
-            resize: 'none',
-            overflow: 'auto',
+            resize: "none",
+            overflow: "auto",
             py: 0.5,
-            '&::placeholder': {
-              color: 'text.secondary',
+            "&::placeholder": {
+              color: "text.secondary",
               opacity: 1,
             },
           }}
         />
         {!expanded && (showCallButton || showCallConnecting) && (
-          <Box onMouseDown={(event: React.MouseEvent) => event.preventDefault()} sx={{ flexShrink: 0, ml: 0.5 }}>
+          <Box
+            onMouseDown={(event: React.MouseEvent) => event.preventDefault()}
+            sx={{ flexShrink: 0, ml: 0.5 }}
+          >
             {showCallConnecting ? (
-              <CircularProgress size={18} sx={{ mx: '7px' }} />
+              <CircularProgress size={18} sx={{ mx: "7px" }} />
             ) : (
               <IconButton
                 size="small"
                 onClick={onStartVoiceCall}
-                sx={{ width: 32, height: 32, color: 'text.secondary', '&:hover': { color: 'success.main' } }}
+                sx={{
+                  width: 32,
+                  height: 32,
+                  color: "text.secondary",
+                  "&:hover": { color: "success.main" },
+                }}
               >
                 <PhoneRounded fontSize="small" />
               </IconButton>
@@ -376,53 +421,106 @@ export default function InputArea({
         ref={fileInputRef}
         multiple
         onChange={handleFileChange}
-        style={{ display: 'none' }}
+        style={{ display: "none" }}
       />
-      {(expanded || showStop || pendingFiles.length > 0 || uploading || voiceState !== 'idle') && (
+      {(expanded ||
+        showStop ||
+        pendingFiles.length > 0 ||
+        uploading ||
+        voiceState !== "idle") && (
         <Box
           onMouseDown={(event: React.MouseEvent) => event.preventDefault()}
-          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 0.5,
+          }}
         >
-          {voiceState === 'recording' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 'auto' }}>
-              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'error.main', animation: 'pulse 1.5s infinite', '@keyframes pulse': { '0%, 100%': { opacity: 1 }, '50%': { opacity: 0.4 } } }} />
+          {voiceState === "recording" && (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
+                mr: "auto",
+              }}
+            >
+              <Box
+                sx={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  bgcolor: "error.main",
+                  animation: "pulse 1.5s infinite",
+                  "@keyframes pulse": {
+                    "0%, 100%": { opacity: 1 },
+                    "50%": { opacity: 0.4 },
+                  },
+                }}
+              />
               <Typography variant="caption" color="text.secondary">
-                {Math.floor(duration / 60)}:{String(duration % 60).padStart(2, '0')}
+                {Math.floor(duration / 60)}:
+                {String(duration % 60).padStart(2, "0")}
               </Typography>
             </Box>
           )}
-          {voiceState === 'transcribing' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 'auto' }}>
+          {voiceState === "transcribing" && (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
+                mr: "auto",
+              }}
+            >
               <CircularProgress size={14} />
-              <Typography variant="caption" color="text.secondary">{t('settings.transcribing')}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {t("settings.transcribing")}
+              </Typography>
             </Box>
           )}
           {expanded && modelPicker}
-          {!modelPicker && displayModel && expanded && voiceState === 'idle' && (
-            <Box
-              component="span"
-              sx={{
-                fontSize: '0.75rem',
-                color: 'text.secondary',
-              }}
-            >
-              {displayModel}
-            </Box>
-          )}
-          {expanded && voiceState === 'idle' && (
+          {!modelPicker &&
+            displayModel &&
+            expanded &&
+            voiceState === "idle" && (
+              <Box
+                component="span"
+                sx={{
+                  fontSize: "0.75rem",
+                  color: "text.secondary",
+                }}
+              >
+                {displayModel}
+              </Box>
+            )}
+          {expanded && voiceState === "idle" && (
             <IconButton
               size="small"
               onClick={() => fileInputRef.current?.click()}
-              sx={{ flexShrink: 0, width: 32, height: 32, color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+              sx={{
+                flexShrink: 0,
+                width: 32,
+                height: 32,
+                color: "text.secondary",
+                "&:hover": { color: "primary.main" },
+              }}
             >
               <AttachFileRounded fontSize="small" />
             </IconButton>
           )}
-          {expanded && showMic && voiceState === 'idle' && (
+          {expanded && showMic && voiceState === "idle" && (
             <IconButton
               size="small"
               onClick={startRecording}
-              sx={{ flexShrink: 0, width: 32, height: 32, color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+              sx={{
+                flexShrink: 0,
+                width: 32,
+                height: 32,
+                color: "text.secondary",
+                "&:hover": { color: "primary.main" },
+              }}
             >
               <MicRounded fontSize="small" />
             </IconButton>
@@ -431,12 +529,18 @@ export default function InputArea({
             <IconButton
               size="small"
               onClick={onStartVoiceCall}
-              sx={{ flexShrink: 0, width: 32, height: 32, color: 'text.secondary', '&:hover': { color: 'success.main' } }}
+              sx={{
+                flexShrink: 0,
+                width: 32,
+                height: 32,
+                color: "text.secondary",
+                "&:hover": { color: "success.main" },
+              }}
             >
               <PhoneRounded fontSize="small" />
             </IconButton>
           )}
-          {voiceState === 'recording' ? (
+          {voiceState === "recording" ? (
             <IconButton
               size="small"
               color="error"
@@ -445,20 +549,32 @@ export default function InputArea({
             >
               <StopRounded fontSize="small" />
             </IconButton>
-          ) : (expanded || showStop) && (
-            <IconButton
-              size="small"
-              color={showStop ? 'error' : 'primary'}
-              onClick={showStop ? onAbort : handleSend}
-              disabled={uploading || voiceState === 'transcribing' || (!showStop && !hasContent)}
-              sx={{
-                flexShrink: 0,
-                width: 32,
-                height: 32,
-              }}
-            >
-              {uploading ? <CircularProgress size={16} color="primary" /> : showStop ? <StopRounded fontSize="small" /> : <SendRounded fontSize="small" />}
-            </IconButton>
+          ) : (
+            (expanded || showStop) && (
+              <IconButton
+                size="small"
+                color={showStop ? "error" : "primary"}
+                onClick={showStop ? onAbort : handleSend}
+                disabled={
+                  uploading ||
+                  voiceState === "transcribing" ||
+                  (!showStop && !hasContent)
+                }
+                sx={{
+                  flexShrink: 0,
+                  width: 32,
+                  height: 32,
+                }}
+              >
+                {uploading ? (
+                  <CircularProgress size={16} color="primary" />
+                ) : showStop ? (
+                  <StopRounded fontSize="small" />
+                ) : (
+                  <SendRounded fontSize="small" />
+                )}
+              </IconButton>
+            )
           )}
         </Box>
       )}

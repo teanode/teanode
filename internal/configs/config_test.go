@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // withTempDir sets the config directory to a temp dir and restores it on cleanup.
@@ -54,6 +56,62 @@ func TestDefaultSummarizerConfig(t *testing.T) {
 	}
 	if DefaultSummarizerConfig.MaxMessageChars != 2000 {
 		t.Errorf("MaxMessageChars = %d, want 2000", DefaultSummarizerConfig.MaxMessageChars)
+	}
+}
+
+func TestDefaultSkillsRegistryConfig(t *testing.T) {
+	configuration := defaults()
+	if len(configuration.SkillsRegistries) != 1 {
+		t.Fatalf("expected 1 default source, got %d", len(configuration.SkillsRegistries))
+	}
+	source := configuration.SkillsRegistries[0]
+	if source.Publisher != "github.com/teanode/teanode-skills" {
+		t.Errorf("publisher = %q, want github.com/teanode/teanode-skills", source.Publisher)
+	}
+	if source.IndexURL != "https://raw.githubusercontent.com/teanode/teanode-skills/main/index.json" {
+		t.Errorf("indexUrl = %q, unexpected", source.IndexURL)
+	}
+}
+
+func TestSkillsRegistriesDecode(t *testing.T) {
+	var configuration Config
+	input := []byte(`
+skillsRegistries:
+  - id: custom
+    publisher: github.com/example/skills
+    indexUrl: https://example.invalid/index.json
+    ignoreSignatures: true
+    ignoreUpdates: true
+`)
+	if err := yaml.Unmarshal(input, &configuration); err != nil {
+		t.Fatalf("yaml unmarshal failed: %v", err)
+	}
+	if len(configuration.SkillsRegistries) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(configuration.SkillsRegistries))
+	}
+	if !configuration.SkillsRegistries[0].IgnoreSignatures {
+		t.Fatal("ignoreSignatures should decode as true")
+	}
+	if !configuration.SkillsRegistries[0].IgnoreUpdates {
+		t.Fatal("ignoreUpdates should decode as true")
+	}
+}
+
+func TestSecretsDecode(t *testing.T) {
+	var configuration Config
+	input := []byte(`
+secrets:
+  API_TOKEN: abc123
+  PROTECT_KEY: xyz789
+`)
+	if err := yaml.Unmarshal(input, &configuration); err != nil {
+		t.Fatalf("yaml unmarshal failed: %v", err)
+	}
+	if configuration.Secrets["API_TOKEN"] != "abc123" {
+		t.Fatalf("API_TOKEN decode mismatch: %q", configuration.Secrets["API_TOKEN"])
+	}
+	if configuration.Secrets["PROTECT_KEY"] != "xyz789" {
+		t.Fatalf("PROTECT_KEY decode mismatch: %q", configuration.Secrets["PROTECT_KEY"])
 	}
 }
 
@@ -426,6 +484,7 @@ func TestPathHelpers(t *testing.T) {
 		{"SkillsDirectory", SkillsDirectory, filepath.Join(directory, "skills")},
 		{"ModelsFile", ModelsFile, filepath.Join(directory, "models.yaml")},
 		{"MediaDirectory", MediaDirectory, filepath.Join(directory, "media")},
+		{"GatewayPIDFile", GatewayPIDFile, filepath.Join(directory, "gateway.pid")},
 		{"StateFile", StateFile, filepath.Join(directory, "state.yaml")},
 	}
 	for _, testCase := range tests {

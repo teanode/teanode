@@ -1,12 +1,12 @@
-import React, { useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
-import Box from '@mui/material/Box';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemText from '@mui/material/ListItemText';
-import Typography from '@mui/material/Typography';
+import React, { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import Box from "@mui/material/Box";
+import List from "@mui/material/List";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemText from "@mui/material/ListItemText";
+import Typography from "@mui/material/Typography";
 
-import type { Job } from '../types';
+import type { Job } from "../types";
 
 interface JobNavProps {
   jobs: Job[];
@@ -23,7 +23,12 @@ function sortJobs(jobs: Job[]): Job[] {
   });
 }
 
-export default function JobNav({ jobs, viewingJobId, isNewPage, onNavigate }: JobNavProps) {
+export default function JobNav({
+  jobs,
+  viewingJobId,
+  isNewPage,
+  onNavigate,
+}: JobNavProps) {
   const { t } = useTranslation();
 
   const { enabledJobs, disabledJobs } = useMemo(() => {
@@ -50,25 +55,31 @@ export default function JobNav({ jobs, viewingJobId, isNewPage, onNavigate }: Jo
           borderRadius: 1,
           mb: 0.25,
           ...(active
-            ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+            ? {
+                bgcolor: "accentDim",
+                color: "#fff",
+                "&:hover": { bgcolor: "accentDim" },
+              }
             : {}),
         }}
       >
         <ListItemText
           primary={job.name}
-          secondary={job.runAt ? new Date(job.runAt).toLocaleString() : job.schedule}
+          secondary={
+            job.runAt ? new Date(job.runAt).toLocaleString() : job.schedule
+          }
           primaryTypographyProps={{
-            variant: 'caption',
-            fontSize: '13px',
+            variant: "caption",
+            fontSize: "13px",
             noWrap: true,
             title: job.name,
-            color: active ? '#fff' : 'text.secondary',
+            color: active ? "#fff" : "text.secondary",
           }}
           secondaryTypographyProps={{
-            variant: 'caption',
-            fontSize: '10px',
-            sx: { fontFamily: 'monospace' },
-            color: active ? 'rgba(255,255,255,0.7)' : 'text.disabled',
+            variant: "caption",
+            fontSize: "10px",
+            sx: { fontFamily: "monospace" },
+            color: active ? "rgba(255,255,255,0.7)" : "text.disabled",
           }}
         />
       </ListItemButton>
@@ -76,38 +87,53 @@ export default function JobNav({ jobs, viewingJobId, isNewPage, onNavigate }: Jo
   }
 
   return (
-    <Box sx={{ flex: 1, overflowY: 'auto', p: 1 }}>
+    <Box sx={{ flex: 1, overflowY: "auto", p: 1 }}>
       <List disablePadding>
         <ListItemButton
           dense
-          onClick={() => onNavigate('/jobs/new')}
+          onClick={() => onNavigate("/jobs/new")}
           sx={{
             borderRadius: 1,
             mb: 0.25,
             ...(isNewPage
-              ? { bgcolor: 'accentDim', color: '#fff', '&:hover': { bgcolor: 'accentDim' } }
+              ? {
+                  bgcolor: "accentDim",
+                  color: "#fff",
+                  "&:hover": { bgcolor: "accentDim" },
+                }
               : {}),
           }}
         >
           <ListItemText
-            primary={t('jobs.newJob')}
-            secondary={t('jobs.schedulePeriodicJobs')}
+            primary={t("jobs.newJob")}
+            secondary={t("jobs.schedulePeriodicJobs")}
             primaryTypographyProps={{
-              variant: 'caption',
-              fontSize: '13px',
-              color: isNewPage ? '#fff' : 'primary.main',
+              variant: "caption",
+              fontSize: "13px",
+              color: isNewPage ? "#fff" : "primary.main",
             }}
             secondaryTypographyProps={{
-              variant: 'caption',
-              fontSize: '10px',
+              variant: "caption",
+              fontSize: "10px",
             }}
           />
         </ListItemButton>
 
         {enabledJobs.length > 0 && (
           <>
-            <Typography variant="overline" sx={{ display: 'block', px: 1.25, mt: 1, mb: 0.25, fontSize: '10px', color: 'text.secondary', letterSpacing: '0.08em' }}>
-              {t('jobs.activeSection')}
+            <Typography
+              variant="overline"
+              sx={{
+                display: "block",
+                px: 1.25,
+                mt: 1,
+                mb: 0.25,
+                fontSize: "10px",
+                color: "text.secondary",
+                letterSpacing: "0.08em",
+              }}
+            >
+              {t("jobs.activeSection")}
             </Typography>
             {enabledJobs.map(renderJobItem)}
           </>
@@ -115,8 +141,19 @@ export default function JobNav({ jobs, viewingJobId, isNewPage, onNavigate }: Jo
 
         {disabledJobs.length > 0 && (
           <>
-            <Typography variant="overline" sx={{ display: 'block', px: 1.25, mt: 1, mb: 0.25, fontSize: '10px', color: 'text.secondary', letterSpacing: '0.08em' }}>
-              {t('jobs.inactiveSection')}
+            <Typography
+              variant="overline"
+              sx={{
+                display: "block",
+                px: 1.25,
+                mt: 1,
+                mb: 0.25,
+                fontSize: "10px",
+                color: "text.secondary",
+                letterSpacing: "0.08em",
+              }}
+            >
+              {t("jobs.inactiveSection")}
             </Typography>
             {disabledJobs.map(renderJobItem)}
           </>

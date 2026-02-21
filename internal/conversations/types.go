@@ -78,10 +78,10 @@ func NewSummaryMessage(summary string, timestamp int64) Message {
 // ContentBlock represents a single block within a multi-part message content array.
 type ContentBlock struct {
 	Type     string `json:"type"`               // "text" or "attachment"
-	Text     string `json:"text,omitempty"`      // for type="text"
-	MediaID  string `json:"mediaId,omitempty"`   // for type="attachment"
-	Format   string `json:"format,omitempty"`    // for type="attachment"
-	Filename string `json:"filename,omitempty"`  // for type="attachment"
+	Text     string `json:"text,omitempty"`     // for type="text"
+	MediaID  string `json:"mediaId,omitempty"`  // for type="attachment"
+	Format   string `json:"format,omitempty"`   // for type="attachment"
+	Filename string `json:"filename,omitempty"` // for type="attachment"
 }
 
 // Attachment represents a file attached to a user message.

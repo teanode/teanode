@@ -223,13 +223,15 @@ func (self *Config) ResolveSummarizerConfig() SummarizerConfig {
 }
 
 type Config struct {
-	Gateway      GatewayConfig      `json:"gateway,omitempty" yaml:"gateway,omitempty"`
-	Models       ModelsConfig       `json:"models,omitempty" yaml:"models,omitempty"`
-	Tools        ToolsConfig        `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Integrations IntegrationsConfig `json:"integrations,omitempty" yaml:"integrations,omitempty"`
-	Summarizer   *SummarizerConfig  `json:"summarizer,omitempty" yaml:"summarizer,omitempty"`
-	Channels     ChannelsConfig     `json:"channels,omitempty" yaml:"channels,omitempty"`
-	Agents       []AgentConfig      `json:"-" yaml:"-"`
+	Gateway          GatewayConfig      `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Models           ModelsConfig       `json:"models,omitempty" yaml:"models,omitempty"`
+	Tools            ToolsConfig        `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Secrets          map[string]string  `json:"secrets,omitempty" yaml:"secrets,omitempty"`
+	Integrations     IntegrationsConfig `json:"integrations,omitempty" yaml:"integrations,omitempty"`
+	Summarizer       *SummarizerConfig  `json:"summarizer,omitempty" yaml:"summarizer,omitempty"`
+	SkillsRegistries []SkillsRegistry   `json:"skillsRegistries,omitempty" yaml:"skillsRegistries,omitempty"`
+	Channels         ChannelsConfig     `json:"channels,omitempty" yaml:"channels,omitempty"`
+	Agents           []AgentConfig      `json:"-" yaml:"-"`
 }
 
 type IntegrationsConfig struct {
@@ -257,6 +259,15 @@ type DiscordConfig struct {
 type TelegramConfig struct {
 	Token        string  `json:"token,omitempty" yaml:"token,omitempty"`
 	AllowedUsers []int64 `json:"allowedUsers,omitempty" yaml:"allowedUsers,omitempty"` // Telegram user IDs
+}
+
+type SkillsRegistry struct {
+	ID               string   `json:"id,omitempty" yaml:"id,omitempty"`
+	Publisher        string   `json:"publisher,omitempty" yaml:"publisher,omitempty"`
+	IndexURL         string   `json:"indexUrl,omitempty" yaml:"indexUrl,omitempty"`
+	PublicKeys       []string `json:"publicKeys,omitempty" yaml:"publicKeys,omitempty"`
+	IgnoreSignatures bool     `json:"ignoreSignatures,omitempty" yaml:"ignoreSignatures,omitempty"`
+	IgnoreUpdates    bool     `json:"ignoreUpdates,omitempty" yaml:"ignoreUpdates,omitempty"`
 }
 
 type ToolsConfig struct {
@@ -665,6 +676,15 @@ func SessionsDirectory() (string, error) {
 	return filepath.Join(directory, "sessions"), nil
 }
 
+// GatewayPIDFile returns the gateway process PID file path (~/.teanode/gateway.pid).
+func GatewayPIDFile() (string, error) {
+	directory, err := Directory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, "gateway.pid"), nil
+}
+
 // TrashDirectory returns the trash directory (~/.teanode/.trash).
 func TrashDirectory() (string, error) {
 	directory, err := Directory()
@@ -971,6 +991,16 @@ func defaults() *Config {
 			ContextWindow: schemaInt(configDefaults, "models.contextWindow"),
 			DefaultLimits: DefaultAgentLimits,
 		},
+		SkillsRegistries: []SkillsRegistry{
+			{
+				ID:        "teanode-official",
+				Publisher: "github.com/teanode/teanode-skills",
+				IndexURL:  "https://raw.githubusercontent.com/teanode/teanode-skills/main/index.json",
+				PublicKeys: []string{
+					"lPFKUpWbq3G1EykDv6SvsAACW0W/FZUaPiRyFlmEfj4=",
+				},
+			},
+		},
 	}
 }
 
@@ -999,6 +1029,10 @@ func applyDefaults(configuration *Config) {
 		configuration.Models.ContextWindow = fallback.Models.ContextWindow
 	}
 	configuration.Models.DefaultLimits = mergeLimits(fallback.Models.DefaultLimits, configuration.Models.DefaultLimits)
+
+	if len(configuration.SkillsRegistries) == 0 {
+		configuration.SkillsRegistries = fallback.SkillsRegistries
+	}
 }
 
 func applyEnv(configuration *Config) {

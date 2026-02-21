@@ -25,7 +25,8 @@ type synthesisToken struct {
 
 // v1Api is the v1 API component. It implements web.Component.
 type v1Api struct {
-	gateway gw.Gateway
+	gateway         gw.Gateway
+	onSkillsChanged func()
 
 	// Per-IP rate limiter for auth endpoints (login, setup).
 	authBucketsMutex sync.Mutex
@@ -37,9 +38,10 @@ type v1Api struct {
 }
 
 // New creates a new v1 API wired to the given Gateway.
-func New(gateway gw.Gateway) *v1Api {
+func New(gateway gw.Gateway, onSkillsChanged func()) *v1Api {
 	return &v1Api{
 		gateway:         gateway,
+		onSkillsChanged: onSkillsChanged,
 		authBuckets:     make(map[string]*ratelimit.Bucket),
 		synthesisTokens: make(map[string]synthesisToken),
 	}

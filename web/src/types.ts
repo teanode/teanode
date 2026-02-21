@@ -1,14 +1,14 @@
 // WebSocket RPC frame types (mirrors Go internal/types/types.go)
 
 export interface RequestFrame {
-  type: 'req';
+  type: "req";
   id: string;
   method: string;
   params?: unknown;
 }
 
 export interface ResponseFrame {
-  type: 'res';
+  type: "res";
   id: string;
   ok: boolean;
   payload?: unknown;
@@ -16,7 +16,7 @@ export interface ResponseFrame {
 }
 
 export interface EventFrame {
-  type: 'event';
+  type: "event";
   event: string;
   payload?: unknown;
 }
@@ -130,7 +130,7 @@ export interface ToolCall {
 }
 
 export interface Message {
-  role: 'user' | 'assistant' | 'system' | 'tool';
+  role: "user" | "assistant" | "system" | "tool";
   content: string | null;
   timestamp?: number;
   stopReason?: string;
@@ -145,15 +145,15 @@ export interface Message {
 // Conversation event payloads (server-pushed via WebSocket)
 
 export type ConversationEventState =
-  | 'user_message'
-  | 'queued'
-  | 'delta'
-  | 'tool_call'
-  | 'tool_result'
-  | 'title'
-  | 'final'
-  | 'error'
-  | 'aborted';
+  | "user_message"
+  | "queued"
+  | "delta"
+  | "tool_call"
+  | "tool_result"
+  | "title"
+  | "final"
+  | "error"
+  | "aborted";
 
 export interface ConversationEvent {
   state: ConversationEventState;
@@ -241,14 +241,14 @@ export interface JsonSchemaProperty {
   items?: JsonSchemaProperty;
   properties?: Record<string, JsonSchemaProperty>;
   additionalProperties?: JsonSchemaProperty;
-  'x-placeholder'?: string;
-  'x-placeholderKey'?: string;
-  'x-widget'?: string;
-  'x-suggest'?: string;
-  'x-enumLabels'?: Record<string, string>;
-  'x-enumLabelKeys'?: Record<string, string>;
-  'x-titleKey'?: string;
-  'x-descriptionKey'?: string;
+  "x-placeholder"?: string;
+  "x-placeholderKey"?: string;
+  "x-widget"?: string;
+  "x-suggest"?: string;
+  "x-enumLabels"?: Record<string, string>;
+  "x-enumLabelKeys"?: Record<string, string>;
+  "x-titleKey"?: string;
+  "x-descriptionKey"?: string;
 }
 
 export interface SchemaSection {
@@ -259,13 +259,13 @@ export interface SchemaSection {
   descriptionKey?: string;
   path?: string;
   properties?: string[];
-  'x-titleKey'?: string;
-  'x-descriptionKey'?: string;
+  "x-titleKey"?: string;
+  "x-descriptionKey"?: string;
 }
 
 export interface ConfigSchema {
   properties: Record<string, JsonSchemaProperty>;
-  'x-sections': SchemaSection[];
+  "x-sections": SchemaSection[];
 }
 
 export interface ConfigSchemaResult {
@@ -342,11 +342,11 @@ export interface Attachment {
 // Display message types for the UI
 
 export type DisplayMessageType =
-  | 'user'
-  | 'assistant'
-  | 'tool-invoke'
-  | 'tool-result'
-  | 'usage';
+  | "user"
+  | "assistant"
+  | "tool-invoke"
+  | "tool-result"
+  | "usage";
 
 export interface DisplayMessage {
   id: string;
@@ -355,6 +355,6 @@ export interface DisplayMessage {
   toolName?: string;
   usage?: Usage;
   timestamp?: number; // ms since epoch
-  runId?: string;     // associates message with a run for queuing
+  runId?: string; // associates message with a run for queuing
   attachments?: Attachment[];
 }

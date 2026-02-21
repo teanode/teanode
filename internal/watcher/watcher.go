@@ -23,7 +23,7 @@ type Watcher struct {
 	stopChannel chan struct{}
 
 	OnConfigReload func() // called when config.yaml changes
-	OnSkillsReload func() // called when skills/*.yaml changes
+	OnSkillsReload func() // called when skills markdown or installed skills change
 	OnJobsReload   func() // called when jobs/*.md changes
 	OnAgentsReload func() // called when agents/*/config.yaml changes
 }
@@ -52,8 +52,8 @@ func (self *Watcher) Start() error {
 	// Watch the skills directory if it exists.
 	skillsDirectory := filepath.Join(self.directory, "skills")
 	if info, err := os.Stat(skillsDirectory); err == nil && info.IsDir() {
-		if err := notifier.Add(skillsDirectory); err != nil {
-			log.Warningf("cannot watch skills dir: %v", err)
+		if err := self.addWatchRecursive(notifier, skillsDirectory); err != nil {
+			log.Warningf("cannot watch skills tree: %v", err)
 		}
 	}
 
@@ -135,6 +135,7 @@ func (self *Watcher) run(notifier *fsnotify.Watcher) {
 			name := filepath.Base(event.Name)
 			eventDirectory := filepath.Dir(event.Name)
 			agentsDirectory := filepath.Join(self.directory, "agents")
+			skillsDirectory := filepath.Join(self.directory, "skills")
 
 			if name == "config.yaml" && eventDirectory == self.directory {
 				log.Infof("config.yaml changed, scheduling reload")
@@ -142,18 +143,29 @@ func (self *Watcher) run(notifier *fsnotify.Watcher) {
 			} else if strings.HasSuffix(name, ".md") && eventDirectory == filepath.Join(self.directory, "jobs") {
 				log.Infof("job changed (%s), scheduling reload", name)
 				debounce("jobs", self.OnJobsReload)
-			} else if strings.HasSuffix(name, ".yaml") && eventDirectory == filepath.Join(self.directory, "skills") {
+			} else if strings.HasSuffix(name, ".md") && strings.HasPrefix(event.Name, skillsDirectory+string(filepath.Separator)) {
 				log.Infof("skills changed (%s), scheduling reload", name)
 				debounce("skills", self.OnSkillsReload)
 			} else if name == "config.yaml" && strings.HasPrefix(eventDirectory, agentsDirectory+string(filepath.Separator)) {
 				log.Infof("agent config changed (%s), scheduling reload", filepath.Base(eventDirectory))
 				debounce("agents", self.OnAgentsReload)
+			} else if strings.HasPrefix(event.Name, filepath.Join(skillsDirectory, ".installed")+string(filepath.Separator)) {
+				log.Infof("installed skills changed (%s), scheduling reload", name)
+				debounce("skills", self.OnSkillsReload)
 			} else if eventDirectory == agentsDirectory && event.Op&fsnotify.Create != 0 {
 				// New agent subdirectory created — start watching it.
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 					if err := notifier.Add(event.Name); err != nil {
 						log.Warningf("cannot watch new agent subdir %s: %v", name, err)
 					}
+				}
+			} else if (eventDirectory == skillsDirectory || strings.HasPrefix(eventDirectory, skillsDirectory+string(filepath.Separator))) && event.Op&fsnotify.Create != 0 {
+				// New skills subdirectory created — start watching it (including nested dirs).
+				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+					if err := self.addWatchRecursive(notifier, event.Name); err != nil {
+						log.Warningf("cannot watch new skills subdir %s: %v", name, err)
+					}
+					debounce("skills", self.OnSkillsReload)
 				}
 			} else if eventDirectory == agentsDirectory && event.Op&fsnotify.Remove != 0 {
 				// Agent subdirectory removed — trigger reload.
@@ -167,4 +179,19 @@ func (self *Watcher) run(notifier *fsnotify.Watcher) {
 			log.Errorf("watcher error: %v", err)
 		}
 	}
+}
+
+func (self *Watcher) addWatchRecursive(notifier *fsnotify.Watcher, root string) error {
+	return filepath.WalkDir(root, func(path string, directoryEntry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if directoryEntry == nil || !directoryEntry.IsDir() {
+			return nil
+		}
+		if addErr := notifier.Add(path); addErr != nil {
+			log.Warningf("cannot watch dir %s: %v", path, addErr)
+		}
+		return nil
+	})
 }

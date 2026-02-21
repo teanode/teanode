@@ -12,11 +12,11 @@
  *   2. It does NOT fire when stopAndClear() is called (barge-in).
  *   3. It does NOT fire when no audio was actually played (all items errored).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from "vitest";
 
 // ── Reproduce the queue state machine from useStreamingTTS ───────
 
-type ItemStatus = 'pending' | 'fetching' | 'ready' | 'playing' | 'done';
+type ItemStatus = "pending" | "fetching" | "ready" | "playing" | "done";
 
 interface QueueItem {
   text: string;
@@ -34,14 +34,14 @@ class TTSQueueSimulation {
   enqueue(text: string): void {
     if (!this.active) this.playedAny = false;
     this.active = true;
-    this.queue.push({ text, status: 'pending' });
+    this.queue.push({ text, status: "pending" });
   }
 
   /** Simulate successful fetch for an item. */
   fetchComplete(index: number, token: string): void {
     const item = this.queue[index];
-    if (!item || item.status !== 'pending') return;
-    item.status = 'ready';
+    if (!item || item.status !== "pending") return;
+    item.status = "ready";
     item.audioToken = token;
     // If this is the play-head item, start playing.
     if (this.active && this.playIndex === index) {
@@ -53,7 +53,7 @@ class TTSQueueSimulation {
   fetchError(index: number): void {
     const item = this.queue[index];
     if (!item) return;
-    item.status = 'done';
+    item.status = "done";
     this.playIndex++;
     this.tryPlayNext();
   }
@@ -61,15 +61,15 @@ class TTSQueueSimulation {
   /** Mark item as playing. */
   private startPlaying(index: number): void {
     const item = this.queue[index];
-    if (!item || item.status !== 'ready') return;
-    item.status = 'playing';
+    if (!item || item.status !== "ready") return;
+    item.status = "playing";
     this.playedAny = true;
   }
 
   /** Simulate audio 'ended' event for the current item. */
   audioEnded(): void {
     const item = this.queue[this.playIndex];
-    if (item) item.status = 'done';
+    if (item) item.status = "done";
     this.playIndex++;
     this.tryPlayNext();
   }
@@ -84,7 +84,7 @@ class TTSQueueSimulation {
       return;
     }
     const item = this.queue[this.playIndex];
-    if (item.status === 'ready') {
+    if (item.status === "ready") {
       this.startPlaying(this.playIndex);
     }
   }
@@ -100,34 +100,34 @@ class TTSQueueSimulation {
 
 // ── Tests ────────────────────────────────────────────────────────
 
-describe('useStreamingTTS onTurnComplete state machine', () => {
-  it('fires onTurnComplete when queue drains after normal playback', () => {
+describe("useStreamingTTS onTurnComplete state machine", () => {
+  it("fires onTurnComplete when queue drains after normal playback", () => {
     const simulation = new TTSQueueSimulation();
-    simulation.enqueue('Hello.');
-    simulation.fetchComplete(0, 'tok1');
+    simulation.enqueue("Hello.");
+    simulation.fetchComplete(0, "tok1");
     simulation.audioEnded();
 
     expect(simulation.turnCompleteCount).toBe(1);
   });
 
-  it('fires onTurnComplete after multiple items play through', () => {
+  it("fires onTurnComplete after multiple items play through", () => {
     const simulation = new TTSQueueSimulation();
-    simulation.enqueue('First.');
-    simulation.enqueue('Second.');
+    simulation.enqueue("First.");
+    simulation.enqueue("Second.");
 
-    simulation.fetchComplete(0, 'tok1');
+    simulation.fetchComplete(0, "tok1");
     simulation.audioEnded(); // First done, second not ready yet
-    simulation.fetchComplete(1, 'tok2');
+    simulation.fetchComplete(1, "tok2");
     // After fetch completes for item at playIndex, it auto-starts.
     simulation.audioEnded(); // Second done
 
     expect(simulation.turnCompleteCount).toBe(1);
   });
 
-  it('does NOT fire onTurnComplete on stopAndClear (barge-in)', () => {
+  it("does NOT fire onTurnComplete on stopAndClear (barge-in)", () => {
     const simulation = new TTSQueueSimulation();
-    simulation.enqueue('Hello.');
-    simulation.fetchComplete(0, 'tok1');
+    simulation.enqueue("Hello.");
+    simulation.fetchComplete(0, "tok1");
 
     // Barge-in before audio ends.
     simulation.stopAndClear();
@@ -135,21 +135,21 @@ describe('useStreamingTTS onTurnComplete state machine', () => {
     expect(simulation.turnCompleteCount).toBe(0);
   });
 
-  it('does NOT fire onTurnComplete when all items error (no audio played)', () => {
+  it("does NOT fire onTurnComplete when all items error (no audio played)", () => {
     const simulation = new TTSQueueSimulation();
-    simulation.enqueue('Hello.');
+    simulation.enqueue("Hello.");
     simulation.fetchError(0);
 
     expect(simulation.turnCompleteCount).toBe(0);
     expect(simulation.playedAny).toBe(false);
   });
 
-  it('fires onTurnComplete even if some items errored but at least one played', () => {
+  it("fires onTurnComplete even if some items errored but at least one played", () => {
     const simulation = new TTSQueueSimulation();
-    simulation.enqueue('First.');
-    simulation.enqueue('Second.');
+    simulation.enqueue("First.");
+    simulation.enqueue("Second.");
 
-    simulation.fetchComplete(0, 'tok1');
+    simulation.fetchComplete(0, "tok1");
     simulation.audioEnded(); // First done
     simulation.fetchError(1); // Second errors
 
@@ -157,17 +157,17 @@ describe('useStreamingTTS onTurnComplete state machine', () => {
     expect(simulation.turnCompleteCount).toBe(1);
   });
 
-  it('resets playedAny on new turn after stopAndClear', () => {
+  it("resets playedAny on new turn after stopAndClear", () => {
     const simulation = new TTSQueueSimulation();
-    simulation.enqueue('Hello.');
-    simulation.fetchComplete(0, 'tok1');
+    simulation.enqueue("Hello.");
+    simulation.fetchComplete(0, "tok1");
     simulation.audioEnded();
     expect(simulation.turnCompleteCount).toBe(1);
 
     // New turn after barge-in.
     simulation.stopAndClear();
-    simulation.enqueue('New turn.');
-    simulation.fetchComplete(0, 'tok2');
+    simulation.enqueue("New turn.");
+    simulation.fetchComplete(0, "tok2");
     simulation.audioEnded();
 
     expect(simulation.turnCompleteCount).toBe(2);

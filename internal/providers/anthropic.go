@@ -33,13 +33,13 @@ func NewAnthropicClient(baseUrl, apiKey string) *AnthropicClient {
 // --- Anthropic API types ---
 
 type anthropicRequest struct {
-	Model       string                  `json:"model"`
-	Messages    []anthropicMessage      `json:"messages"`
-	System      json.RawMessage         `json:"system,omitempty"`
-	MaxTokens   int                     `json:"max_tokens"`
-	Temperature *float64                `json:"temperature,omitempty"`
-	Tools       []anthropicToolDef      `json:"tools,omitempty"`
-	Stream      bool                    `json:"stream,omitempty"`
+	Model       string             `json:"model"`
+	Messages    []anthropicMessage `json:"messages"`
+	System      json.RawMessage    `json:"system,omitempty"`
+	MaxTokens   int                `json:"max_tokens"`
+	Temperature *float64           `json:"temperature,omitempty"`
+	Tools       []anthropicToolDef `json:"tools,omitempty"`
+	Stream      bool               `json:"stream,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -70,9 +70,9 @@ type anthropicCacheControl struct {
 }
 
 type anthropicToolDef struct {
-	Name         string                `json:"name"`
-	Description  string                `json:"description,omitempty"`
-	InputSchema  interface{}           `json:"input_schema"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description,omitempty"`
+	InputSchema  interface{}            `json:"input_schema"`
 	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
@@ -131,8 +131,8 @@ type anthropicDelta struct {
 // --- System content block type ---
 
 type anthropicSystemBlock struct {
-	Type         string                `json:"type"`
-	Text         string                `json:"text"`
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text"`
 	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 

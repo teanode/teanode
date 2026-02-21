@@ -129,8 +129,8 @@ func (self *homeAssistantTool) executeListEntities(ctx context.Context, domain s
 	}
 
 	type entitySummary struct {
-		EntityID   string `json:"entity_id"`
-		State      string `json:"state"`
+		EntityID     string `json:"entity_id"`
+		State        string `json:"state"`
 		FriendlyName string `json:"friendly_name,omitempty"`
 	}
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from "react";
 
 /** Thresholds for detecting a left-edge swipe gesture. */
 export interface EdgeSwipeConfig {
@@ -90,16 +90,41 @@ export function useEdgeSwipe(
     // Passive listeners so we don't block the browser's scroll handling.
     const options: AddEventListenerOptions = { passive: true };
 
-    element.addEventListener('touchstart', handleTouchStart as EventListener, options);
-    element.addEventListener('touchmove', handleTouchMove as EventListener, options);
-    element.addEventListener('touchend', handleTouchEnd as EventListener, options);
-    element.addEventListener('touchcancel', handleTouchEnd as EventListener, options);
+    element.addEventListener(
+      "touchstart",
+      handleTouchStart as EventListener,
+      options,
+    );
+    element.addEventListener(
+      "touchmove",
+      handleTouchMove as EventListener,
+      options,
+    );
+    element.addEventListener(
+      "touchend",
+      handleTouchEnd as EventListener,
+      options,
+    );
+    element.addEventListener(
+      "touchcancel",
+      handleTouchEnd as EventListener,
+      options,
+    );
 
     return () => {
-      element.removeEventListener('touchstart', handleTouchStart as EventListener);
-      element.removeEventListener('touchmove', handleTouchMove as EventListener);
-      element.removeEventListener('touchend', handleTouchEnd as EventListener);
-      element.removeEventListener('touchcancel', handleTouchEnd as EventListener);
+      element.removeEventListener(
+        "touchstart",
+        handleTouchStart as EventListener,
+      );
+      element.removeEventListener(
+        "touchmove",
+        handleTouchMove as EventListener,
+      );
+      element.removeEventListener("touchend", handleTouchEnd as EventListener);
+      element.removeEventListener(
+        "touchcancel",
+        handleTouchEnd as EventListener,
+      );
     };
   }, [enabled, targetRef, handleTouchStart, handleTouchMove, handleTouchEnd]);
 }

@@ -12,9 +12,8 @@ import (
 
 func TestRegisterSkills(t *testing.T) {
 	directory := t.TempDir()
-	content := `
+	content := `---
 name: deploy
-prompt: Use deploy tools carefully.
 tools:
   - name: deploy_status
     description: Check deployment status
@@ -24,8 +23,10 @@ tools:
     description: Call deploy API
     type: http
     url: "http://example.com/deploy"
+---
+Use deploy tools carefully.
 `
-	os.WriteFile(filepath.Join(directory, "deploy.yaml"), []byte(content), 0644)
+	os.WriteFile(filepath.Join(directory, "deploy.md"), []byte(content), 0644)
 
 	registry := agents.NewToolRegistry()
 	prompt := RegisterSkills(registry, directory)
@@ -46,35 +47,38 @@ tools:
 
 func TestRegisterSkillsFiltered(t *testing.T) {
 	directory := t.TempDir()
-	skill1 := `
+	skill1 := `---
 name: alpha
-prompt: Alpha instructions.
 tools:
   - name: alpha_tool
     description: Alpha
     type: shell
     command: ["echo", "alpha"]
+---
+Alpha instructions.
 `
-	skill2 := `
+	skill2 := `---
 name: beta
-prompt: Beta instructions.
 tools:
   - name: beta_tool
     description: Beta
     type: shell
     command: ["echo", "beta"]
+---
+Beta instructions.
 `
-	skill3 := `
+	skill3 := `---
 name: gamma
 tools:
   - name: gamma_tool
     description: Gamma
     type: shell
     command: ["echo", "gamma"]
+---
 `
-	os.WriteFile(filepath.Join(directory, "alpha.yaml"), []byte(skill1), 0644)
-	os.WriteFile(filepath.Join(directory, "beta.yaml"), []byte(skill2), 0644)
-	os.WriteFile(filepath.Join(directory, "gamma.yaml"), []byte(skill3), 0644)
+	os.WriteFile(filepath.Join(directory, "alpha.md"), []byte(skill1), 0644)
+	os.WriteFile(filepath.Join(directory, "beta.md"), []byte(skill2), 0644)
+	os.WriteFile(filepath.Join(directory, "gamma.md"), []byte(skill3), 0644)
 
 	t.Run("nil allow list loads all", func(t *testing.T) {
 		registry := agents.NewToolRegistry()
@@ -157,24 +161,26 @@ func TestRegisterSkillsNonExistentDirectory(t *testing.T) {
 
 func TestNames(t *testing.T) {
 	directory := t.TempDir()
-	skill1 := `
+	skill1 := `---
 name: deploy
 tools:
   - name: deploy_tool
     description: Deploy
     type: shell
     command: ["echo"]
+---
 `
-	skill2 := `
+	skill2 := `---
 name: monitor
 tools:
   - name: monitor_tool
     description: Monitor
     type: http
     url: "http://example.com"
+---
 `
-	os.WriteFile(filepath.Join(directory, "deploy.yaml"), []byte(skill1), 0644)
-	os.WriteFile(filepath.Join(directory, "monitor.yaml"), []byte(skill2), 0644)
+	os.WriteFile(filepath.Join(directory, "deploy.md"), []byte(skill1), 0644)
+	os.WriteFile(filepath.Join(directory, "monitor.md"), []byte(skill2), 0644)
 
 	names := Names(directory)
 	if len(names) != 2 {

@@ -1,8 +1,6 @@
+---
 name: weather
 description: Weather information via wttr.in
-prompt: >-
-  You can check the weather using the get_weather tool. It returns a concise
-  weather summary for any city.
 tools:
   - name: get_weather
     description: Get current weather for a location
@@ -19,3 +17,7 @@ tools:
           type: string
           description: "City name or location (e.g. 'London', 'New+York', 'Tokyo')"
       required: ["location"]
+---
+
+You can check the weather using the get_weather tool. It returns a concise
+weather summary for any city.

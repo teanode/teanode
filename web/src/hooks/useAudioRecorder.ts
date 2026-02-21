@@ -1,20 +1,21 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect } from "react";
 
 const MAX_DURATION = 120; // 2 minutes
 
 function detectMimeType(): string {
-  if (typeof MediaRecorder === 'undefined') return '';
-  if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return 'audio/webm;codecs=opus';
-  if (MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm';
-  if (MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
-  return '';
+  if (typeof MediaRecorder === "undefined") return "";
+  if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus"))
+    return "audio/webm;codecs=opus";
+  if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+  if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
+  return "";
 }
 
 function formatFromMime(mime: string): string {
-  if (mime.startsWith('audio/webm')) return 'webm';
-  if (mime.startsWith('audio/mp4')) return 'mp4';
-  if (mime.startsWith('audio/mpeg')) return 'mp3';
-  return 'webm';
+  if (mime.startsWith("audio/webm")) return "webm";
+  if (mime.startsWith("audio/mp4")) return "mp4";
+  if (mime.startsWith("audio/mpeg")) return "mp3";
+  return "webm";
 }
 
 interface UseAudioRecorderOptions {
@@ -30,14 +31,18 @@ export interface UseAudioRecorderReturn {
   cancelRecording: () => void;
 }
 
-export function useAudioRecorder({ onRecordingComplete }: UseAudioRecorderOptions): UseAudioRecorderReturn {
+export function useAudioRecorder({
+  onRecordingComplete,
+}: UseAudioRecorderOptions): UseAudioRecorderReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [duration, setDuration] = useState(0);
   const [isSupported] = useState(() => {
-    return typeof navigator !== 'undefined' &&
+    return (
+      typeof navigator !== "undefined" &&
       !!navigator.mediaDevices?.getUserMedia &&
-      typeof MediaRecorder !== 'undefined' &&
-      detectMimeType() !== '';
+      typeof MediaRecorder !== "undefined" &&
+      detectMimeType() !== ""
+    );
   });
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -105,7 +110,10 @@ export function useAudioRecorder({ onRecordingComplete }: UseAudioRecorderOption
   }, [isSupported, cleanup]);
 
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !== "inactive"
+    ) {
       cancelledRef.current = false;
       mediaRecorderRef.current.stop();
     }
@@ -113,7 +121,10 @@ export function useAudioRecorder({ onRecordingComplete }: UseAudioRecorderOption
 
   const cancelRecording = useCallback(() => {
     cancelledRef.current = true;
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !== "inactive"
+    ) {
       mediaRecorderRef.current.stop();
     } else {
       cleanup();
@@ -124,7 +135,10 @@ export function useAudioRecorder({ onRecordingComplete }: UseAudioRecorderOption
   useEffect(() => {
     return () => {
       cancelledRef.current = true;
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state !== "inactive"
+      ) {
         mediaRecorderRef.current.stop();
       } else {
         cleanup();
@@ -132,5 +146,12 @@ export function useAudioRecorder({ onRecordingComplete }: UseAudioRecorderOption
     };
   }, [cleanup]);
 
-  return { isRecording, isSupported, duration, startRecording, stopRecording, cancelRecording };
+  return {
+    isRecording,
+    isSupported,
+    duration,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  };
 }

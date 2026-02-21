@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/api/v1api"
 	"github.com/teanode/teanode/internal/channels/discord"
@@ -65,13 +64,20 @@ func NewGatewayCommand() *cli.Command {
 				Usage:   "port to listen on (overrides config)",
 			},
 		},
-		Action: func(ctx context.Context, cmd *cli.Command) error {
-			log := logging.MustGetLogger("cmd")
-
+		Action: func(ctx context.Context, command *cli.Command) error {
 			// Ensure base directories exist.
 			if err := configs.EnsureDirectories(); err != nil {
 				return err
 			}
+			pidGuard, err := acquireGatewayPIDGuard()
+			if err != nil {
+				return err
+			}
+			defer func() {
+				if err := pidGuard.Release(); err != nil {
+					log.Errorf("failed to release gateway pid file: %v", err)
+				}
+			}()
 
 			// Load config.
 			configuration, err := configs.Load()
@@ -80,8 +86,8 @@ func NewGatewayCommand() *cli.Command {
 			}
 
 			// CLI flag overrides config.
-			if cmd.IsSet("port") {
-				configuration.Gateway.Port = int(cmd.Int("port"))
+			if command.IsSet("port") {
+				configuration.Gateway.Port = int(command.Int("port"))
 			}
 
 			// Load security config (token + password hash).
@@ -170,6 +176,8 @@ func NewGatewayCommand() *cli.Command {
 			// It is assigned after runners are created, but tools are never called until
 			// bots and the API server start, which happens after assignment.
 			var gateway gw.Gateway
+			var reloadSkills func()
+			var scheduler *jobs.Scheduler
 
 			// buildToolsForAgent creates a fresh tool registry for the given agents.
 			buildToolsForAgent := func(
@@ -195,6 +203,8 @@ func NewGatewayCommand() *cli.Command {
 				datetime.RegisterTools(tools)
 				homeassistant.RegisterTools(tools, configuration.Tools.HomeAssistant)
 				unifiprotect.RegisterTools(tools, configuration.Tools.UniFiProtect)
+				skills.RegisterTools(tools, configuration.SkillsRegistries, reloadSkills)
+				skills.SetRuntimeSecrets(configuration.Secrets)
 				agents.RegisterConversationTools(tools, conversations, providers, configuration)
 				if scheduler != nil {
 					jobs.RegisterTools(tools, scheduler)
@@ -206,13 +216,30 @@ func NewGatewayCommand() *cli.Command {
 				tools.ApplyFilter(agentConfig.Tools)
 				return tools, skillPrompts
 			}
+			reloadSkills = func() {
+				log.Info("hot-reloading skills")
+				agentRegistry.ForEach(func(agentId string, runner *agents.Runner) {
+					currentConfig, currentProviders, _, _, _ := runner.Snapshot()
+					agentConfig := currentConfig.AgentByID(agentId)
+					if agentConfig == nil {
+						return
+					}
+					workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentId)
+					if err != nil {
+						return
+					}
+					tools, skillPrompts := buildToolsForAgent(currentConfig, *agentConfig, workspaceDirectory, runner.Conversations, scheduler)
+					runner.Reconfigure(currentConfig, currentProviders, tools, skillPrompts)
+				})
+				log.Info("skills reloaded successfully")
+			}
 
 			// Set up job scheduler (needs agent registry).
 			jobStore, err := jobs.NewStore()
 			if err != nil {
 				return err
 			}
-			scheduler := jobs.NewScheduler(jobStore, agentRegistry)
+			scheduler = jobs.NewScheduler(jobStore, agentRegistry)
 
 			// Create a runner for each configured agents.
 			for _, agentConfig := range configuration.ResolveAgents() {
@@ -258,7 +285,7 @@ func NewGatewayCommand() *cli.Command {
 			describer := agents.NewDescriber(agentRegistry)
 
 			gateway = gw.New(configuration, securityConfig, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore, sessionStore)
-			api := v1api.New(gateway)
+			api := v1api.New(gateway, reloadSkills)
 			frontendComponent := frontend.New()
 
 			agentRegistry.SetCreateAgentFunc(func(agentConfig configs.AgentConfig) error {
@@ -426,8 +453,8 @@ func NewGatewayCommand() *cli.Command {
 					return
 				}
 				// Preserve CLI port override.
-				if cmd.IsSet("port") {
-					newConfiguration.Gateway.Port = int(cmd.Int("port"))
+				if command.IsSet("port") {
+					newConfiguration.Gateway.Port = int(command.Int("port"))
 				}
 
 				gateway.SetConfig(newConfiguration)
@@ -445,8 +472,8 @@ func NewGatewayCommand() *cli.Command {
 					return
 				}
 				// Preserve CLI port override.
-				if cmd.IsSet("port") {
-					newConfiguration.Gateway.Port = int(cmd.Int("port"))
+				if command.IsSet("port") {
+					newConfiguration.Gateway.Port = int(command.Int("port"))
 				}
 				gateway.SetConfig(newConfiguration)
 				reloadAgents()
@@ -454,23 +481,7 @@ func NewGatewayCommand() *cli.Command {
 				log.Info("agents reloaded successfully")
 			}
 
-			fileWatcher.OnSkillsReload = func() {
-				log.Info("hot-reloading skills")
-				agentRegistry.ForEach(func(agentId string, runner *agents.Runner) {
-					currentConfig, currentProviders, _, _, _ := runner.Snapshot()
-					agentConfig := currentConfig.AgentByID(agentId)
-					if agentConfig == nil {
-						return
-					}
-					workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentId)
-					if err != nil {
-						return
-					}
-					tools, skillPrompts := buildToolsForAgent(currentConfig, *agentConfig, workspaceDirectory, runner.Conversations, scheduler)
-					runner.Reconfigure(currentConfig, currentProviders, tools, skillPrompts)
-				})
-				log.Info("skills reloaded successfully")
-			}
+			fileWatcher.OnSkillsReload = reloadSkills
 
 			fileWatcher.OnJobsReload = func() {
 				log.Info("hot-reloading jobs")

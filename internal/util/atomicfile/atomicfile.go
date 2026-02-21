@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/op/go-logging"
@@ -19,11 +19,11 @@ var (
 )
 
 func Create(filename string) (*os.File, error) {
-	directory := path.Dir(filename)
+	directory := filepath.Dir(filename)
 	if err := os.MkdirAll(directory, 0755); err != nil {
 		return nil, err
 	}
-	tempFilename := path.Join(directory, fmt.Sprintf(".%s.%s~", path.Base(filename), security.NewULID()))
+	tempFilename := filepath.Join(directory, fmt.Sprintf(".%s.%s~", filepath.Base(filename), security.NewULID()))
 	log.Debugf("creating temp file at: %s", tempFilename)
 	return os.Create(tempFilename)
 }
@@ -33,23 +33,23 @@ func CommitAs(file *os.File, filename string) error {
 		return err
 	}
 	log.Debugf("committing file: %s", filename)
-	return os.Rename(file.Name(), filename)
+	return renameReplace(file.Name(), filename)
 }
 
 func Commit(file *os.File) error {
 	tempFilename := file.Name()
-	parts := strings.Split(path.Base(tempFilename), ".")
+	parts := strings.Split(filepath.Base(tempFilename), ".")
 	if len(parts) < 3 || parts[0] != "" || !strings.HasSuffix(parts[len(parts)-1], "~") {
 		return ErrInvalidFile
 	}
-	filename := path.Join(path.Dir(tempFilename), strings.Join(parts[1:len(parts)-1], "."))
+	filename := filepath.Join(filepath.Dir(tempFilename), strings.Join(parts[1:len(parts)-1], "."))
 	return CommitAs(file, filename)
 }
 
 func Discard(file *os.File) error {
 	file.Close()
 	tempFilename := file.Name()
-	parts := strings.Split(path.Base(tempFilename), ".")
+	parts := strings.Split(filepath.Base(tempFilename), ".")
 	if len(parts) < 3 || parts[0] != "" || !strings.HasSuffix(parts[len(parts)-1], "~") {
 		return ErrInvalidFile
 	}

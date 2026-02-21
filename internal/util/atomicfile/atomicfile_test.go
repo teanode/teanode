@@ -2,7 +2,7 @@ package atomicfile
 
 import (
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 )
 
@@ -11,7 +11,7 @@ func TestCommit(t *testing.T) {
 
 	tempDirectory := t.TempDir()
 
-	filename := path.Join(tempDirectory, "atomicfile.txt")
+	filename := filepath.Join(tempDirectory, "atomicfile.txt")
 	file, err := Create(filename)
 	if err != nil {
 		t.Fatalf("failed to create file: %s", err)
@@ -39,8 +39,8 @@ func TestCommitAs(t *testing.T) {
 
 	tempDirectory := t.TempDir()
 
-	filename := path.Join(tempDirectory, "atomicfile.txt")
-	filename2 := path.Join(tempDirectory, "atomicfile2.txt")
+	filename := filepath.Join(tempDirectory, "atomicfile.txt")
+	filename2 := filepath.Join(tempDirectory, "atomicfile2.txt")
 	file, err := Create(filename)
 	if err != nil {
 		t.Fatalf("failed to create file: %s", err)
@@ -74,7 +74,7 @@ func TestDiscard(t *testing.T) {
 
 	tempDirectory := t.TempDir()
 
-	filename := path.Join(tempDirectory, "atomicfile.txt")
+	filename := filepath.Join(tempDirectory, "atomicfile.txt")
 	file, err := Create(filename)
 	if err != nil {
 		t.Fatalf("failed to create file: %s", err)
@@ -102,7 +102,7 @@ func TestCommitAfterClose(t *testing.T) {
 
 	tempDirectory := t.TempDir()
 
-	filename := path.Join(tempDirectory, "atomicfile.txt")
+	filename := filepath.Join(tempDirectory, "atomicfile.txt")
 	file, err := Create(filename)
 	if err != nil {
 		t.Fatalf("failed to create file: %s", err)
@@ -133,7 +133,7 @@ func TestWriteFile(t *testing.T) {
 
 	tempDirectory := t.TempDir()
 
-	filename := path.Join(tempDirectory, "atomicfile.txt")
+	filename := filepath.Join(tempDirectory, "atomicfile.txt")
 	if err := WriteFile(filename, []byte("test\n")); err != nil {
 		t.Fatalf("failed to create file: %s", err)
 	}

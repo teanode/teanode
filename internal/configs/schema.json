@@ -564,6 +564,58 @@
           "default": 2000
         }
       }
+    },
+    "skillsRegistries": {
+      "type": "array",
+      "title": "Skills Registries",
+      "description": "Online skill registries used for browsing and installing skills.",
+      "x-widget": "skillsRegistries",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Registry ID",
+            "description": "Unique identifier used when selecting a specific registry source."
+          },
+          "publisher": {
+            "type": "string",
+            "title": "Publisher",
+            "description": "Publisher identity expected in the registry index (e.g. github.com/teanode/teanode-skills)."
+          },
+          "indexUrl": {
+            "type": "string",
+            "title": "Index URL",
+            "description": "HTTP(S) URL to the registry index.json."
+          },
+          "publicKeys": {
+            "type": "array",
+            "title": "Public Keys",
+            "description": "Allowed Ed25519 public keys (base64 raw or base64 PKIX DER) for signature verification.",
+            "items": { "type": "string" }
+          },
+          "ignoreSignatures": {
+            "type": "boolean",
+            "title": "Ignore Signatures",
+            "description": "If true, skip signature verification for this registry.",
+            "default": false
+          },
+          "ignoreUpdates": {
+            "type": "boolean",
+            "title": "Ignore Updates",
+            "description": "If true, this registry is skipped by bulk update checks.",
+            "default": false
+          }
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "title": "Secrets",
+      "description": "Named secrets available to skills via {{secret:NAME}} templates.",
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   },
   "x-sections": [
@@ -614,6 +666,12 @@
       "description": "Background session summarizer timing and limits.",
       "descriptionKey": "schema.config.sections.summarizer.description",
       "path": "summarizer"
+    },
+    {
+      "id": "skillsRegistries",
+      "title": "Skills Registries",
+      "description": "Online skill registry sources.",
+      "properties": ["skillsRegistries"]
     }
   ]
 }
