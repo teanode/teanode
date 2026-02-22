@@ -70,6 +70,8 @@ type Session struct {
 	canceledRuns       map[string]struct{}
 	pendingTurns       []PendingTurn
 	maxPendingTurns    int
+	explicitAudioBuf   []byte
+	speechReady        bool
 
 	outSeq atomic.Uint64
 	inSeq  atomic.Uint64
@@ -411,4 +413,31 @@ func (self *Session) DropOldestPendingTurn(_ string) (PendingTurn, bool) {
 	dropped := self.pendingTurns[0]
 	self.pendingTurns = self.pendingTurns[1:]
 	return dropped, true
+}
+
+func (self *Session) accumulateExplicitAudio(frame []byte) {
+	if len(frame) == 0 {
+		return
+	}
+	self.stateMu.Lock()
+	self.explicitAudioBuf = append(self.explicitAudioBuf, frame...)
+	self.stateMu.Unlock()
+}
+
+func (self *Session) setSpeechReady(ready bool) {
+	self.stateMu.Lock()
+	self.speechReady = ready
+	self.stateMu.Unlock()
+}
+
+func (self *Session) IsSpeechReady() bool {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.speechReady
+}
+
+func (self *Session) ExplicitAudioLen() int {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return len(self.explicitAudioBuf)
 }

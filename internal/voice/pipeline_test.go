@@ -112,7 +112,7 @@ func (self *pipelineMockDeps) abortCount() int {
 	return len(self.abortCalls)
 }
 
-func newPipelineSession(text string) (*Session, *pipelineMockDeps) {
+func newPipelineSessionWithFeatures(text string, features Features) (*Session, *pipelineMockDeps) {
 	deps := &pipelineMockDeps{
 		registry: &pipelineMockProviderRegistry{
 			transcriber: &pipelineMockTranscriber{text: text},
@@ -125,7 +125,7 @@ func newPipelineSession(text string) (*Session, *pipelineMockDeps) {
 		"",
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 16000, Channels: 1},
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 24000, Channels: 1},
-		Features{BargeIn: true},
+		features,
 		deps,
 		nil,
 		nil,
@@ -133,7 +133,11 @@ func newPipelineSession(text string) (*Session, *pipelineMockDeps) {
 	return s, deps
 }
 
-func newPipelineSessionWithEvents(text string) (*Session, *pipelineMockDeps, *eventRecorder) {
+func newPipelineSession(text string) (*Session, *pipelineMockDeps) {
+	return newPipelineSessionWithFeatures(text, Features{BargeIn: true, ServerVAD: true, ServerTurn: true})
+}
+
+func newPipelineSessionWithEventsAndFeatures(text string, features Features) (*Session, *pipelineMockDeps, *eventRecorder) {
 	rec := &eventRecorder{}
 	deps := &pipelineMockDeps{
 		registry: &pipelineMockProviderRegistry{
@@ -147,12 +151,16 @@ func newPipelineSessionWithEvents(text string) (*Session, *pipelineMockDeps, *ev
 		"",
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 16000, Channels: 1},
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 24000, Channels: 1},
-		Features{BargeIn: true},
+		features,
 		deps,
 		rec.append,
 		nil,
 	)
 	return s, deps, rec
+}
+
+func newPipelineSessionWithEvents(text string) (*Session, *pipelineMockDeps, *eventRecorder) {
+	return newPipelineSessionWithEventsAndFeatures(text, Features{BargeIn: true, ServerVAD: true, ServerTurn: true})
 }
 
 func makePCMFrame(sample int16, samples int) []byte {
@@ -312,6 +320,81 @@ func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 	waitFor(t, 500*time.Millisecond, func() bool {
 		return deps.abortCount() == 0 && s.GetCurrentResponseId() == ""
 	})
+
+	close(s.doneCh)
+	select {
+	case <-finished:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("audioInputLoop did not stop after done")
+	}
+}
+
+func TestAudioInputLoop_ServerVADFalse(t *testing.T) {
+	s, _, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
+		ServerVAD:  false,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+
+	finished := make(chan struct{})
+	go func() {
+		s.audioInputLoop()
+		close(finished)
+	}()
+
+	loud := makePCMFrame(12000, 320)
+	for i := 0; i < 100; i++ {
+		s.audioInCh <- loud
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if event := rec.findTurnEvent("speech_started"); event != nil {
+		t.Fatal("speech_started should not be emitted when ServerVAD=false")
+	}
+	if event := rec.findTurnEvent("speech_ended"); event != nil {
+		t.Fatal("speech_ended should not be emitted when ServerVAD=false")
+	}
+	if s.ExplicitAudioLen() == 0 {
+		t.Fatal("expected explicit audio buffer to accumulate when ServerVAD=false")
+	}
+
+	close(s.doneCh)
+	select {
+	case <-finished:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("audioInputLoop did not stop after done")
+	}
+}
+
+func TestAudioInputLoop_ServerTurnFalse(t *testing.T) {
+	s, deps, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
+		ServerVAD:  true,
+		ServerTurn: false,
+		BargeIn:    true,
+	})
+
+	finished := make(chan struct{})
+	go func() {
+		s.audioInputLoop()
+		close(finished)
+	}()
+
+	loud := makePCMFrame(12000, 320)
+	quiet := makePCMFrame(0, 320)
+	for i := 0; i < 12; i++ {
+		s.audioInCh <- loud
+	}
+	for i := 0; i < 25; i++ {
+		s.audioInCh <- quiet
+	}
+
+	waitFor(t, 500*time.Millisecond, func() bool { return s.IsSpeechReady() })
+	if deps.sendCount() != 0 {
+		t.Fatalf("expected no automatic SendMessage when ServerTurn=false, got %d", deps.sendCount())
+	}
+	if event := rec.findTurnEvent("turn_committed"); event != nil {
+		t.Fatal("turn_committed should not be emitted when ServerTurn=false")
+	}
 
 	close(s.doneCh)
 	select {

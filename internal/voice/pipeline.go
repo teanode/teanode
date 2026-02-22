@@ -25,12 +25,21 @@ func (self *Session) audioInputLoop() {
 	vad := &VADState{}
 	var speechBuf []byte
 	preSpeech := make([][]byte, 0, vadPreRollFrames)
+	denoiseWarned := false
 
 	for {
 		select {
 		case <-self.doneCh:
 			return
 		case frame := <-self.audioInCh:
+			if self.Features.ServerDenoise && !denoiseWarned {
+				pipelineLog.Warningf("voice server_denoise requested but not implemented")
+				denoiseWarned = true
+			}
+			if !self.Features.ServerVAD {
+				self.accumulateExplicitAudio(frame)
+				continue
+			}
 			if !vad.IsSpeaking {
 				cp := append([]byte(nil), frame...)
 				preSpeech = append(preSpeech, cp)
@@ -77,6 +86,10 @@ func (self *Session) audioInputLoop() {
 					VADScore:    score,
 					AudioSeqRef: self.inSeq.Load(),
 				})
+				if !self.Features.ServerTurn {
+					self.setSpeechReady(true)
+					continue
+				}
 				captured := append([]byte(nil), speechBuf...)
 				speechBuf = speechBuf[:0]
 				if len(captured) < minCommittedTurnBytes {

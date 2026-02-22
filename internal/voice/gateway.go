@@ -64,3 +64,8 @@ type VoiceTranscribeResponse struct {
 type VoiceSynthesizer interface {
 	SynthesizePCM(ctx context.Context, text, voice string, sampleRateHz int) ([]byte, error)
 }
+
+// AudioDenoiser is a placeholder capability for future server-side denoise.
+type AudioDenoiser interface {
+	Denoise(ctx context.Context, pcm []byte, sampleRateHz int, channels int) ([]byte, error)
+}
