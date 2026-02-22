@@ -101,3 +101,94 @@ Started: 2026-02-22T21:56:22Z
       PASS `go test -race ./internal/voice/...`
       PASS `go test -race ./internal/api/v1api/...`
   - Next: advance to Wave 1 and start P0.1 + P0.2 in parallel (P0.3 after P0.2).
+- 2026-02-22T22:01:51Z
+  - Wave: 1
+  - Task: P0.1
+  - Status: in_progress
+  - Branch: codex/p0-1-deterministic-providers
+  - Commit: n/a
+  - Validations: pending
+  - Next: implement deterministic + named provider lookup and tests.
+
+- 2026-02-22T22:01:51Z
+  - Wave: 1
+  - Task: P0.2
+  - Status: in_progress
+  - Branch: codex/p0-2-feature-flags
+  - Commit: n/a
+  - Validations: pending
+  - Next: enforce ServerVAD/ServerTurn/ServerDenoise runtime branching.
+- 2026-02-22T22:10:13Z
+  - Wave: 1
+  - Task: P0.1
+  - Status: complete
+  - Branch: codex/p0-1-deterministic-providers
+  - Commit: 3e9ec2e
+  - Validations: |
+      PASS `go test -race ./internal/providers/... -run TestFindTranscriber`
+      PASS `go test -race ./internal/providers/...`
+      PASS `go build ./...`
+  - Next: integrate P0.1 to pipeline; continue P0.2 implementation.
+- 2026-02-22T22:12:09Z
+  - Wave: 1
+  - Task: P0.2
+  - Status: complete
+  - Branch: codex/p0-2-feature-flags
+  - Commit: 5259f1a
+  - Validations: |
+      PASS `go test -race ./internal/voice/... -run TestAudioInputLoop_ServerVAD`
+      PASS `go test -race ./internal/voice/... -run TestAudioInputLoop_ServerTurn`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go build ./...`
+  - Next: merge P0.1/P0.2 to pipeline, then execute P0.3 from a new branch based on pipeline.
+- 2026-02-22T22:13:21Z
+  - Wave: 1
+  - Task: P0.3
+  - Status: in_progress
+  - Branch: codex/p0-3-functional-commit
+  - Commit: n/a
+  - Validations: pending
+  - Next: implement InputCommit buffered-audio commit path and reason propagation.
+- 2026-02-22T22:16:04Z
+  - Wave: 1
+  - Task: P0.3
+  - Status: complete
+  - Branch: codex/p0-3-functional-commit
+  - Commit: 6858c1a
+  - Validations: |
+      PASS `go test -race ./internal/voice/... -run TestInputCommit`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go build ./...`
+  - Next: merge P0.3 to pipeline and run Wave 1 gate block.
+- 2026-02-22T22:13:05Z
+  - Wave: 1
+  - Task: integrate
+  - Status: complete
+  - Branch: pipeline
+  - Commit: c3921f9, 71e026d
+  - Validations: P0.1 and P0.2 merged in required order
+  - Next: execute P0.3 from pipeline.
+
+- 2026-02-22T22:16:20Z
+  - Wave: 1
+  - Task: integrate
+  - Status: complete
+  - Branch: pipeline
+  - Commit: 47f1d39
+  - Validations: P0.3 merged
+  - Next: run full Wave 1 gate.
+
+- 2026-02-22T22:19:15Z
+  - Wave: 1
+  - Task: gate
+  - Status: passed
+  - Branch: pipeline
+  - Commit: 47f1d39
+  - Validations: |
+      PASS `go build ./...`
+      PASS `go vet ./...`
+      PASS `go test -race ./internal/providers/...`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go test -race ./internal/api/v1api/...`
+      PASS `make test-voice-e2e-smoke` (required local gateway on 127.0.0.1:8833)
+  - Next: advance to Wave 2 (L1.3 observer telemetry).

@@ -1,4 +1,4 @@
-current_wave: 1
+current_wave: 2
 tasks:
   - id: S1
     wave: 0
@@ -21,30 +21,30 @@ tasks:
   - id: P0.1
     wave: 1
     branch: codex/p0-1-deterministic-providers
-    status: pending
-    started_at: ""
-    finished_at: ""
-    commit: ""
-    validations_passed: false
-    notes: ""
+    status: complete
+    started_at: "2026-02-22T22:01:51Z"
+    finished_at: "2026-02-22T22:10:13Z"
+    commit: "3e9ec2e"
+    validations_passed: true
+    notes: "Deterministic order + named provider lookup + voice config preference implemented."
   - id: P0.2
     wave: 1
     branch: codex/p0-2-feature-flags
-    status: pending
-    started_at: ""
-    finished_at: ""
-    commit: ""
-    validations_passed: false
-    notes: ""
+    status: complete
+    started_at: "2026-02-22T22:01:51Z"
+    finished_at: "2026-02-22T22:12:09Z"
+    commit: "5259f1a"
+    validations_passed: true
+    notes: "ServerVAD/ServerTurn runtime branches enforced; denoise stub warning added."
   - id: P0.3
     wave: 1
     branch: codex/p0-3-functional-commit
-    status: pending
-    started_at: ""
-    finished_at: ""
-    commit: ""
-    validations_passed: false
-    notes: ""
+    status: complete
+    started_at: "2026-02-22T22:13:21Z"
+    finished_at: "2026-02-22T22:16:04Z"
+    commit: "6858c1a"
+    validations_passed: true
+    notes: "InputCommit now flushes explicit audio buffer and runs transcription/send path."
   - id: L1.3
     wave: 2
     branch: codex/l1-3-observer-telemetry
@@ -137,7 +137,7 @@ wave_gates:
       - "go test -race ./internal/api/v1api/..."
     summary: "PASSED after unblock fix: added internal/frontend/static/index.html. go build/go vet and race tests for providers/voice/api all passed."
   - wave: 1
-    status: pending
+    status: passed
     commands:
       - "go build ./..."
       - "go vet ./..."
@@ -145,7 +145,7 @@ wave_gates:
       - "go test -race ./internal/voice/..."
       - "go test -race ./internal/api/v1api/..."
       - "make test-voice-e2e-smoke"
-    summary: ""
+    summary: "PASSED: build/vet/race tests green; make test-voice-e2e-smoke passed with local gateway running on 127.0.0.1:8833."
   - wave: 2
     status: pending
     commands:
@@ -220,4 +220,4 @@ wave_gates:
     commands:
       - "docs validation only"
     summary: ""
-last_updated: "2026-02-22T22:01:16Z"
+last_updated: "2026-02-22T22:19:15Z"
