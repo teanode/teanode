@@ -34,6 +34,8 @@ export interface VoiceSessionRuntime {
     mediaStream: MediaStream,
   ) => Promise<void>;
   stop: () => void;
+  interruptPlayback: () => void;
+  resumePlayback: () => void;
   isUserSpeaking: boolean;
   isPlaying: boolean;
   isSynthesizing: boolean;
@@ -61,6 +63,7 @@ export function useVoiceSession(
   const inputFramesSentRef = useRef(0);
   const outputFramesRecvRef = useRef(0);
   const lastVoiceDetectedAtRef = useRef(0);
+  const dropIncomingAudioRef = useRef(false);
 
   const resampleTo16k = useCallback(
     (input: Float32Array, inputRate: number): Float32Array => {
@@ -132,6 +135,9 @@ export function useVoiceSession(
 
   const handleAudioOutFrame = useCallback(
     (pcmBytes: Uint8Array) => {
+      if (dropIncomingAudioRef.current) {
+        return;
+      }
       const context = audioContextRef.current;
       if (!context || pcmBytes.byteLength < 2) {
         return;
@@ -218,6 +224,7 @@ export function useVoiceSession(
   const start = useCallback(
     async (audioContext: AudioContext, mediaStream: MediaStream) => {
       audioContextRef.current = audioContext;
+      dropIncomingAudioRef.current = false;
       inputFramesSentRef.current = 0;
       outputFramesRecvRef.current = 0;
 
@@ -357,13 +364,31 @@ export function useVoiceSession(
     }
 
     handleFlush();
+    dropIncomingAudioRef.current = false;
     pendingInputSamplesRef.current = new Float32Array(0);
     setIsUserSpeaking(false);
   }, [handleFlush, sendRpc]);
+
+  const interruptPlayback = useCallback(() => {
+    dropIncomingAudioRef.current = true;
+    handleFlush();
+  }, [handleFlush]);
+
+  const resumePlayback = useCallback(() => {
+    dropIncomingAudioRef.current = false;
+  }, []);
 
   useEffect(() => {
     return () => stop();
   }, [stop]);
 
-  return { start, stop, isUserSpeaking, isPlaying, isSynthesizing };
+  return {
+    start,
+    stop,
+    interruptPlayback,
+    resumePlayback,
+    isUserSpeaking,
+    isPlaying,
+    isSynthesizing,
+  };
 }

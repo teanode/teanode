@@ -24,16 +24,16 @@ func TestVADSilenceNoEvents(t *testing.T) {
 	}
 }
 
-func TestVADStartsAtFrameTen(t *testing.T) {
+func TestVADStartsAtFrameFive(t *testing.T) {
 	v := &VADState{}
 	loud := makeFrame(12000, 320)
-	for i := 1; i <= 10; i++ {
+	for i := 1; i <= 5; i++ {
 		started, _, _ := v.ProcessFrame(loud)
-		if i < 10 && started {
+		if i < 5 && started {
 			t.Fatalf("started too early at frame %d", i)
 		}
-		if i == 10 && !started {
-			t.Fatalf("expected start at frame 10")
+		if i == 5 && !started {
+			t.Fatalf("expected start at frame 5")
 		}
 	}
 }
@@ -42,7 +42,7 @@ func TestVADEndsAfterSixteenRedemptionFrames(t *testing.T) {
 	v := &VADState{}
 	loud := makeFrame(12000, 320)
 	silence := makeFrame(0, 320)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 5; i++ {
 		v.ProcessFrame(loud)
 	}
 	for i := 1; i <= 16; i++ {

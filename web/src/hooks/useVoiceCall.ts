@@ -91,6 +91,8 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const {
     start: startVoiceSession,
     stop: stopVoiceSession,
+    interruptPlayback,
+    resumePlayback,
     isUserSpeaking,
     isPlaying,
     isSynthesizing,
@@ -173,6 +175,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       if (type === "response.started") {
         setIsAgentBusy(false);
         pendingAgentDoneChimeRef.current = false;
+        resumePlayback();
         return;
       }
       if (type !== "turn.event" || !payload) return;
@@ -184,9 +187,20 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       } else if (event === "turn_queued") {
         setIsAgentBusy(true);
         playWaitingChime();
+      } else if (event === "barge_in_triggered") {
+        // Stop current playback immediately and ignore stale in-flight audio
+        // until the next response starts.
+        interruptPlayback();
       }
     });
-  }, [chimePlayer, isCallActive, onVoiceMessage, playWaitingChime]);
+  }, [
+    chimePlayer,
+    interruptPlayback,
+    isCallActive,
+    onVoiceMessage,
+    playWaitingChime,
+    resumePlayback,
+  ]);
 
   useEffect(() => {
     if (!isCallActive) return;
