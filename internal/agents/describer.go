@@ -109,7 +109,7 @@ func (self *Describer) describeAgent(ctx context.Context, agentId string, runner
 		return
 	}
 
-	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts := runner.Snapshot()
+	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts, profile := runner.Snapshot()
 
 	qualifiedModel := configuration.AgentModel(agentId)
 	if qualifiedModel == "" {
@@ -122,7 +122,7 @@ func (self *Describer) describeAgent(ctx context.Context, agentId string, runner
 	}
 
 	limits := configuration.ResolveModelLimits(qualifiedModel)
-	systemPrompt := BuildSystemPrompt(configuration, agentId, workspaceDirectory, skillPrompts, limits.MaxWorkspaceFileChars)
+	systemPrompt := BuildSystemPrompt(configuration, agentId, workspaceDirectory, skillPrompts, limits.MaxWorkspaceFileChars, profile)
 
 	toolNames := []string{}
 	if tools != nil {

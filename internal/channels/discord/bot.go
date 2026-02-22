@@ -130,10 +130,13 @@ func (self *discordStreamPreview) Delete() {
 
 // discordSubscribedRun tracks streaming state for a run received via Subscriber events.
 type discordSubscribedRun struct {
-	preview      *discordStreamPreview
-	channelId    string
-	pendingMedia []*media.MediaContent
-	mediaMutex   sync.Mutex
+	preview         *discordStreamPreview
+	channelId       string
+	origin          string
+	originSessionId string
+	triggerText     string
+	pendingMedia    []*media.MediaContent
+	mediaMutex      sync.Mutex
 }
 
 // Bot manages a Discord bot that forwards messages to the agents.
@@ -233,39 +236,57 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 
 	switch state {
 	case "user_message":
-		// Only handle runs from automated sources (e.g. scheduler). Interactive
-		// sources (webui, discord, telegram) already have their own display.
-		origin, _ := payloadMap["origin"].(string)
-		if origin != "" {
-			return
-		}
-
 		// Only forward events for the currently active agent.
 		agentId, _ := payloadMap["agentId"].(string)
 		if agentId != self.agentRegistry.DefaultID() {
 			return
 		}
 
-		// Show the triggering message so the user has context.
+		origin, _ := payloadMap["origin"].(string)
 		triggerText, _ := payloadMap["text"].(string)
-		if triggerText != "" {
-			self.discord.ChannelMessageSend(channelId, "> "+strings.ReplaceAll(triggerText, "\n", "\n> "))
+
+		if origin == "" {
+			// Scheduled/automated runs: stream live into Discord.
+			if triggerText != "" {
+				self.discord.ChannelMessageSend(channelId, "> "+strings.ReplaceAll(triggerText, "\n", "\n> "))
+			}
+			preview := newDiscordStreamPreview(self.discord, channelId)
+			self.subscribedRunsMutex.Lock()
+			self.subscribedRuns[runId] = &discordSubscribedRun{
+				preview:     preview,
+				channelId:   channelId,
+				origin:      origin,
+				triggerText: triggerText,
+			}
+			self.subscribedRunsMutex.Unlock()
+			self.discord.ChannelTyping(channelId)
+			return
 		}
 
-		preview := newDiscordStreamPreview(self.discord, channelId)
+		if origin != "webui" {
+			return
+		}
+
+		originSessionId, _ := payloadMap["originSessionId"].(string)
+		if originSessionId == "" {
+			return
+		}
+
+		// WebUI runs are only delivered to Discord if the originating web session disconnects.
 		self.subscribedRunsMutex.Lock()
 		self.subscribedRuns[runId] = &discordSubscribedRun{
-			preview:   preview,
-			channelId: channelId,
+			channelId:       channelId,
+			origin:          origin,
+			originSessionId: originSessionId,
+			triggerText:     triggerText,
 		}
 		self.subscribedRunsMutex.Unlock()
-		self.discord.ChannelTyping(channelId)
 
 	case "delta":
 		self.subscribedRunsMutex.Lock()
 		subscribedRun := self.subscribedRuns[runId]
 		self.subscribedRunsMutex.Unlock()
-		if subscribedRun != nil {
+		if subscribedRun != nil && subscribedRun.preview != nil {
 			text, _ := payloadMap["text"].(string)
 			subscribedRun.preview.Update(text)
 		}
@@ -274,7 +295,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		self.subscribedRunsMutex.Lock()
 		subscribedRun := self.subscribedRuns[runId]
 		self.subscribedRunsMutex.Unlock()
-		if subscribedRun != nil {
+		if subscribedRun != nil && subscribedRun.preview != nil {
 			subscribedRun.preview.Reset()
 			self.discord.ChannelTyping(subscribedRun.channelId)
 		}
@@ -301,7 +322,6 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 			return
 		}
 
-		previewMessageId, _ := subscribedRun.preview.Stop()
 		finalText, _ := payloadMap["text"].(string)
 
 		// Send collected media as file attachments.
@@ -318,23 +338,35 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 			})
 		}
 
-		// Reuse preview message or send new.
-		if previewMessageId != "" {
-			firstChunk := finalText
-			remaining := ""
-			if len(finalText) > maxDiscordMessageLen {
-				cut := strings.LastIndex(finalText[:maxDiscordMessageLen], "\n")
-				if cut < maxDiscordMessageLen/2 {
-					cut = maxDiscordMessageLen
+		// Scheduled/automated runs stream via preview and always post final output.
+		if subscribedRun.preview != nil {
+			previewMessageId, _ := subscribedRun.preview.Stop()
+			if previewMessageId != "" {
+				firstChunk := finalText
+				remaining := ""
+				if len(finalText) > maxDiscordMessageLen {
+					cut := strings.LastIndex(finalText[:maxDiscordMessageLen], "\n")
+					if cut < maxDiscordMessageLen/2 {
+						cut = maxDiscordMessageLen
+					}
+					firstChunk = finalText[:cut]
+					remaining = finalText[cut:]
 				}
-				firstChunk = finalText[:cut]
-				remaining = finalText[cut:]
+				self.discord.ChannelMessageEdit(subscribedRun.channelId, previewMessageId, firstChunk)
+				if remaining != "" {
+					self.sendChunked(subscribedRun.channelId, remaining)
+				}
+			} else {
+				self.sendChunked(subscribedRun.channelId, finalText)
 			}
-			self.discord.ChannelMessageEdit(subscribedRun.channelId, previewMessageId, firstChunk)
-			if remaining != "" {
-				self.sendChunked(subscribedRun.channelId, remaining)
+			return
+		}
+
+		// WebUI fallback: only notify when the originating web session is disconnected.
+		if subscribedRun.origin == "webui" && !self.gateway.IsSessionConnected(subscribedRun.originSessionId) {
+			if subscribedRun.triggerText != "" {
+				self.discord.ChannelMessageSend(subscribedRun.channelId, "WebUI response ready:\n> "+strings.ReplaceAll(subscribedRun.triggerText, "\n", "\n> "))
 			}
-		} else {
 			self.sendChunked(subscribedRun.channelId, finalText)
 		}
 
@@ -347,14 +379,22 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 			return
 		}
 
-		subscribedRun.preview.Stop()
-		subscribedRun.preview.Delete()
-		if state == "error" {
+		if subscribedRun.preview != nil {
+			subscribedRun.preview.Stop()
+			subscribedRun.preview.Delete()
+		}
+		if state == "error" && subscribedRun.preview != nil {
 			errorText, _ := payloadMap["error"].(string)
 			if errorText == "" {
 				errorText = "An error occurred while processing the request."
 			}
 			self.discord.ChannelMessageSend(subscribedRun.channelId, "Sorry, an error occurred: "+errorText)
+		} else if state == "error" && subscribedRun.origin == "webui" && !self.gateway.IsSessionConnected(subscribedRun.originSessionId) {
+			errorText, _ := payloadMap["error"].(string)
+			if errorText == "" {
+				errorText = "An error occurred while processing the request."
+			}
+			self.discord.ChannelMessageSend(subscribedRun.channelId, "WebUI run failed: "+errorText)
 		}
 	}
 }

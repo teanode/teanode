@@ -159,6 +159,7 @@ export default function InputArea({
     !voiceCallActive;
   const showCallButton =
     voiceEnabled &&
+    !isRunning &&
     !voiceCallActive &&
     voiceState === "idle" &&
     onStartVoiceCall &&

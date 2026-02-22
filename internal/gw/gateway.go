@@ -40,6 +40,7 @@ type activeRun struct {
 type gateway struct {
 	config         *configs.Config
 	securityConfig *configs.SecurityConfig
+	profile        *configs.Profile
 	agentRegistry  *agents.AgentRegistry
 	browserRelay   *relaybrowser.Relay
 	terminalRelay  *terminals.Relay
@@ -52,6 +53,7 @@ type gateway struct {
 	subscribers      map[Subscriber]struct{}
 	// map[voice.VoiceSubscriber]*voiceSubscriberBridge
 	voiceSubscriberBridges sync.Map
+	sessionsConnected      map[string]int // sessionId -> active websocket connection count
 
 	activeRunsMutex sync.Mutex
 	activeRuns      map[string]*activeRun // conversationId -> activeRun
@@ -71,8 +73,28 @@ type gateway struct {
 func (self *gateway) Config() *configs.Config                 { return self.config }
 func (self *gateway) SetConfig(configuration *configs.Config) { self.config = configuration }
 func (self *gateway) SecurityConfig() *configs.SecurityConfig { return self.securityConfig }
+func (self *gateway) Profile() *configs.Profile {
+	if self.profile == nil {
+		return nil
+	}
+	clone := *self.profile
+	return &clone
+}
 func (self *gateway) SetSecurityConfig(securityConfig *configs.SecurityConfig) {
 	self.securityConfig = securityConfig
+}
+func (self *gateway) SetProfile(profile *configs.Profile) {
+	if profile == nil {
+		self.profile = nil
+		return
+	}
+	clone := *profile
+	self.profile = &clone
+
+	// Ensure all runners observe the latest profile for subsequent prompts.
+	self.agentRegistry.ForEach(func(_ string, runner *agents.Runner) {
+		runner.SetProfile(&clone)
+	})
 }
 
 // --- Subsystem access ---
@@ -85,6 +107,39 @@ func (self *gateway) BrowserRelay() *relaybrowser.Relay    { return self.browser
 func (self *gateway) TerminalRelay() *terminals.Relay      { return self.terminalRelay }
 func (self *gateway) SessionStore() *sessions.Store        { return self.sessionStore }
 
+func (self *gateway) MarkSessionConnected(sessionId string) {
+	if sessionId == "" {
+		return
+	}
+	self.subscribersMutex.Lock()
+	self.sessionsConnected[sessionId]++
+	self.subscribersMutex.Unlock()
+}
+
+func (self *gateway) MarkSessionDisconnected(sessionId string) {
+	if sessionId == "" {
+		return
+	}
+	self.subscribersMutex.Lock()
+	if count, ok := self.sessionsConnected[sessionId]; ok {
+		if count <= 1 {
+			delete(self.sessionsConnected, sessionId)
+		} else {
+			self.sessionsConnected[sessionId] = count - 1
+		}
+	}
+	self.subscribersMutex.Unlock()
+}
+
+func (self *gateway) IsSessionConnected(sessionId string) bool {
+	if sessionId == "" {
+		return false
+	}
+	self.subscribersMutex.RLock()
+	defer self.subscribersMutex.RUnlock()
+	return self.sessionsConnected[sessionId] > 0
+}
+
 // --- Domain operations ---
 
 // ProviderRegistry returns the provider registry from the default runner.
@@ -93,7 +148,7 @@ func (self *gateway) ProviderRegistry() *providers.Registry {
 	if runner == nil {
 		return nil
 	}
-	_, providerRegistry, _, _, _ := runner.Snapshot()
+	_, providerRegistry, _, _, _, _ := runner.Snapshot()
 	return providerRegistry
 }
 
@@ -140,7 +195,7 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.Mod
 	if defaultRunner == nil {
 		return nil, fmt.Errorf("no default agent runner")
 	}
-	_, providerRegistry, _, _, _ := defaultRunner.Snapshot()
+	_, providerRegistry, _, _, _, _ := defaultRunner.Snapshot()
 	providerNames := providerRegistry.ProviderNames()
 
 	// Try loading from disk cache.
@@ -254,7 +309,7 @@ func (self *gateway) NewConversation(agentId, model string) string {
 			qualifiedModel = self.config.AgentModel(agentId)
 		}
 		if qualifiedModel != "" {
-			_, providerRegistry, _, _, _ := runner.Snapshot()
+			_, providerRegistry, _, _, _, _ := runner.Snapshot()
 			resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, providerRegistry.DefaultProvider())
 			if err := runner.Conversations.Create(conversationId, resolvedProvider, qualifiedModel); err != nil {
 				log.Errorf("creating conversation file: %v", err)
@@ -342,6 +397,9 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	}
 	if parameters.Origin != "" {
 		userMessagePayload["origin"] = parameters.Origin
+	}
+	if parameters.OriginSessionID != "" {
+		userMessagePayload["originSessionId"] = parameters.OriginSessionID
 	}
 	if len(parameters.Attachments) > 0 {
 		userMessagePayload["attachments"] = parameters.Attachments
@@ -574,6 +632,9 @@ func (self *gateway) resolveSessionMaxAge() time.Duration {
 
 // checkBearerToken checks for a valid bearer token in the Authorization header or query param.
 func (self *gateway) checkBearerToken(request *http.Request) bool {
+	if self.securityConfig == nil {
+		return false
+	}
 	token := self.securityConfig.Token
 	if token == "" {
 		return false
@@ -630,6 +691,13 @@ func (self *gateway) AuthMiddleware() web.Middleware {
 				return
 			}
 
+			// 3b. Profile read endpoint: allow unauthenticated GET during setup flow only.
+			passwordConfigured := self.securityConfig != nil && self.securityConfig.Password != ""
+			if path == "/api/v1/profile" && request.Method == http.MethodGet && !passwordConfigured {
+				next.ServeHTTP(writer, request)
+				return
+			}
+
 			// 4. Media GET endpoints: always allow (LLM providers fetch images).
 			if strings.HasPrefix(path, "/api/v1/media/") && request.Method == "GET" {
 				next.ServeHTTP(writer, request)
@@ -658,6 +726,16 @@ func (self *gateway) AuthMiddleware() web.Middleware {
 
 			// 4d. Agent avatar endpoints: requires session or bearer auth.
 			if strings.HasPrefix(path, "/api/v1/agents/") && strings.HasSuffix(path, "/avatar") {
+				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
+					next.ServeHTTP(writer, request)
+					return
+				}
+				web.WriteError(writer, web.ErrUnauthorized)
+				return
+			}
+
+			// 4e. Profile settings endpoints: requires session or bearer auth.
+			if path == "/api/v1/profile" || path == "/api/v1/profile/avatar" {
 				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
 					next.ServeHTTP(writer, request)
 					return

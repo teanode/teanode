@@ -35,6 +35,7 @@ type Runner struct {
 	MediaStore         *media.Store
 	WorkspaceDirectory string
 	SkillPrompts       string
+	Profile            *configs.Profile
 
 	// contextWindows maps "provider:model" -> context window size.
 	contextWindows sync.Map
@@ -54,11 +55,27 @@ func (self *Runner) Reconfigure(config *configs.Config, providerRegistry *provid
 	self.SkillPrompts = skillPrompts
 }
 
+// SetProfile updates the profile used for system prompt personalization.
+func (self *Runner) SetProfile(profile *configs.Profile) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	if profile == nil {
+		self.Profile = nil
+		return
+	}
+	clone := *profile
+	self.Profile = &clone
+}
+
 // Snapshot captures the runner's current state under the read lock.
-func (self *Runner) Snapshot() (config *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, workspaceDirectory string, skillPrompts string) {
+func (self *Runner) Snapshot() (config *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, workspaceDirectory string, skillPrompts string, profile *configs.Profile) {
 	self.mutex.RLock()
 	defer self.mutex.RUnlock()
-	return self.Config, self.Providers, self.Tools, self.WorkspaceDirectory, self.SkillPrompts
+	if self.Profile != nil {
+		clone := *self.Profile
+		profile = &clone
+	}
+	return self.Config, self.Providers, self.Tools, self.WorkspaceDirectory, self.SkillPrompts, profile
 }
 
 // SetModels populates the context window map for models from a given provider.
@@ -170,7 +187,7 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 // (streaming), and appends the assistant response. Loops when the LLM requests tool calls.
 func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
 	// Snapshot mutable fields so in-progress runs aren't affected by hot-reloads.
-	configuration, providerRegistry, tools, _, _ := self.Snapshot()
+	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts, profile := self.Snapshot()
 
 	runId := security.NewULID()
 	now := time.Now().UnixMilli()
@@ -240,7 +257,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		log.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
 
 		// Build messages for the LLM.
-		llmMessages := self.buildMessages(history, limits, params.SystemPromptSuffix)
+		llmMessages := self.buildMessages(history, limits, params.SystemPromptSuffix, configuration, workspaceDirectory, skillPrompts, profile)
 
 		// Tier 1: truncate old tool results.
 		llmMessages = truncateOldToolResults(llmMessages, limits.MinKeepMessages, limits.MaxToolResultChars)
@@ -523,8 +540,8 @@ func repairToolArgs(input string) string {
 
 // buildMessages converts conversation history into LLM messages.
 // It scans backward for the last context_summary message and skips everything before it.
-func (self *Runner) buildMessages(history []conversations.Message, limits configs.AgentLimits, systemPromptSuffix string) []providers.ChatMessage {
-	systemPrompt := BuildSystemPrompt(self.Config, self.AgentID, self.WorkspaceDirectory, self.SkillPrompts, limits.MaxWorkspaceFileChars)
+func (self *Runner) buildMessages(history []conversations.Message, limits configs.AgentLimits, systemPromptSuffix string, configuration *configs.Config, workspaceDirectory string, skillPrompts string, profile *configs.Profile) []providers.ChatMessage {
+	systemPrompt := BuildSystemPrompt(configuration, self.AgentID, workspaceDirectory, skillPrompts, limits.MaxWorkspaceFileChars, profile)
 	if systemPromptSuffix != "" {
 		systemPrompt += "\n\n" + systemPromptSuffix
 	}

@@ -30,6 +30,7 @@ type SendMessageParameters struct {
 	Model              string
 	OriginID           string                     // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
 	Origin             string                     // source of the message (e.g. "webui", "discord", "telegram"); empty for automated sources like the scheduler
+	OriginSessionID    string                     // source session identifier (used for disconnect-aware notifications)
 	Attachments        []conversations.Attachment // file attachments
 	SystemPromptSuffix string                     // optional; appended to system prompt for this run only
 }
@@ -92,6 +93,8 @@ type Gateway interface {
 	SetConfig(configuration *configs.Config)
 	SecurityConfig() *configs.SecurityConfig
 	SetSecurityConfig(securityConfig *configs.SecurityConfig)
+	Profile() *configs.Profile
+	SetProfile(profile *configs.Profile)
 
 	// Subsystem access
 	AgentRegistry() *agents.AgentRegistry
@@ -136,6 +139,11 @@ type Gateway interface {
 		sendBinary func([]byte),
 	) (*voice.Session, error)
 
+	// Connection tracking
+	MarkSessionConnected(sessionId string)
+	MarkSessionDisconnected(sessionId string)
+	IsSessionConnected(sessionId string) bool
+
 	// Session store access
 	SessionStore() *sessions.Store
 
@@ -155,6 +163,7 @@ type Gateway interface {
 func New(
 	configuration *configs.Config,
 	securityConfig *configs.SecurityConfig,
+	profile *configs.Profile,
 	agentRegistry *agents.AgentRegistry,
 	browserRelay *relaybrowser.Relay,
 	terminalRelay *terminals.Relay,
@@ -164,18 +173,20 @@ func New(
 	sessionStore *sessions.Store,
 ) Gateway {
 	return &gateway{
-		config:           configuration,
-		securityConfig:   securityConfig,
-		agentRegistry:    agentRegistry,
-		browserRelay:     browserRelay,
-		terminalRelay:    terminalRelay,
-		scheduler:        scheduler,
-		summarizer:       summarizer,
-		mediaStore:       mediaStore,
-		sessionStore:     sessionStore,
-		subscribers:      make(map[Subscriber]struct{}),
-		activeRuns:       make(map[string]*activeRun),
-		runIndex:         make(map[string]string),
-		lifecycleChannel: make(chan LifecycleAction, 1),
+		config:            configuration,
+		securityConfig:    securityConfig,
+		profile:           profile,
+		agentRegistry:     agentRegistry,
+		browserRelay:      browserRelay,
+		terminalRelay:     terminalRelay,
+		scheduler:         scheduler,
+		summarizer:        summarizer,
+		mediaStore:        mediaStore,
+		sessionStore:      sessionStore,
+		subscribers:       make(map[Subscriber]struct{}),
+		sessionsConnected: make(map[string]int),
+		activeRuns:        make(map[string]*activeRun),
+		runIndex:          make(map[string]string),
+		lifecycleChannel:  make(chan LifecycleAction, 1),
 	}
 }

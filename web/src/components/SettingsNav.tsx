@@ -41,6 +41,32 @@ export default function SettingsNav({
         <List disablePadding>
           <ListItemButton
             dense
+            onClick={() => onNavigate("/settings/profile")}
+            sx={{
+              borderRadius: 1,
+              mb: 0.25,
+              ...(activeSectionId === "profile"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
+                : {}),
+            }}
+          >
+            <ListItemText
+              primary={t("settings.profile")}
+              primaryTypographyProps={{
+                variant: "caption",
+                fontSize: "13px",
+                color:
+                  activeSectionId === "profile" ? "#fff" : "text.secondary",
+              }}
+            />
+          </ListItemButton>
+
+          <ListItemButton
+            dense
             onClick={() => onNavigate("/settings/agents")}
             sx={{
               borderRadius: 1,
@@ -85,6 +111,32 @@ export default function SettingsNav({
                 variant: "caption",
                 fontSize: "13px",
                 color: activeSectionId === "jobs" ? "#fff" : "text.secondary",
+              }}
+            />
+          </ListItemButton>
+
+          <ListItemButton
+            dense
+            onClick={() => onNavigate("/settings/projects")}
+            sx={{
+              borderRadius: 1,
+              mb: 0.25,
+              ...(activeSectionId === "projects"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
+                : {}),
+            }}
+          >
+            <ListItemText
+              primary={t("settings.projects")}
+              primaryTypographyProps={{
+                variant: "caption",
+                fontSize: "13px",
+                color:
+                  activeSectionId === "projects" ? "#fff" : "text.secondary",
               }}
             />
           </ListItemButton>

@@ -3,6 +3,7 @@ package v1api
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/teanode/teanode/internal/agents"
@@ -10,6 +11,7 @@ import (
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/jobs"
+	projectstore "github.com/teanode/teanode/internal/projects"
 	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/util/cronexpr"
@@ -176,6 +178,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 		Model:              parameters.Model,
 		OriginID:           parameters.OriginID,
 		Origin:             "webui",
+		OriginSessionID:    self.sessionId,
 		Attachments:        parameters.Attachments,
 		SystemPromptSuffix: parameters.SystemPromptSuffix,
 	}, nil)
@@ -537,7 +540,7 @@ func (self *webSocketConnection) handleAgentsConfigSchema(frame requestFrame) {
 	// Collect tool names from the default runner.
 	runner := self.api.gateway.AgentRegistry().Default()
 	if runner != nil {
-		_, _, tools, _, _ := runner.Snapshot()
+		_, _, tools, _, _, _ := runner.Snapshot()
 		if tools != nil {
 			suggestions["tool"] = tools.Names()
 		}
@@ -996,6 +999,183 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"ok": true,
+	})
+}
+
+func profileToRPCPayload(profile *configs.Profile) map[string]interface{} {
+	payload := map[string]interface{}{
+		"name":      profile.Name,
+		"biography": profile.Bio,
+	}
+	if strings.TrimSpace(profile.AvatarMediaID) != "" {
+		payload["avatarMediaId"] = profile.AvatarMediaID
+	}
+	return payload
+}
+
+func (self *webSocketConnection) handleProfileGet(frame requestFrame) {
+	profile, err := self.api.loadProfile()
+	if err != nil {
+		self.sendError(frame.ID, 500, "failed to load profile")
+		return
+	}
+	self.sendResponse(frame.ID, profileToRPCPayload(profile))
+}
+
+type profileUpdateParameters struct {
+	Name      string `json:"name"`
+	Biography string `json:"biography"`
+}
+
+func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) {
+	var parameters profileUpdateParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+
+	existing, err := self.api.loadProfile()
+	if err != nil {
+		self.sendError(frame.ID, 500, "failed to load profile")
+		return
+	}
+
+	profile := &configs.Profile{
+		Name:          strings.TrimSpace(parameters.Name),
+		Bio:           parameters.Biography,
+		AvatarMediaID: strings.TrimSpace(existing.AvatarMediaID),
+	}
+	if err := configs.SaveProfileOverwriteBio(profile); err != nil {
+		self.sendError(frame.ID, 500, "failed to save profile")
+		return
+	}
+	persisted, err := self.api.loadProfile()
+	if err != nil {
+		self.sendError(frame.ID, 500, "failed to load profile")
+		return
+	}
+
+	self.sendResponse(frame.ID, profileToRPCPayload(persisted))
+}
+
+func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
+	mediaStore := self.api.gateway.MediaStore()
+	if mediaStore == nil {
+		self.sendError(frame.ID, 500, "media store not available")
+		return
+	}
+	profile, err := self.api.loadProfile()
+	if err != nil {
+		self.sendError(frame.ID, 500, "failed to load profile")
+		return
+	}
+
+	oldAvatarMediaID := profile.AvatarMediaID
+	profile.AvatarMediaID = ""
+	if err := configs.SaveProfile(profile); err != nil {
+		self.sendError(frame.ID, 500, "failed to save profile")
+		return
+	}
+	persisted, err := self.api.loadProfile()
+	if err != nil {
+		self.sendError(frame.ID, 500, "failed to load profile")
+		return
+	}
+	if oldAvatarMediaID != "" {
+		_ = mediaStore.Delete(oldAvatarMediaID)
+	}
+
+	self.sendResponse(frame.ID, profileToRPCPayload(persisted))
+}
+
+// --- Projects RPC handlers ---
+
+func (self *webSocketConnection) handleProjectsList(frame requestFrame) {
+	items, err := projectstore.List()
+	if err != nil {
+		self.sendError(frame.ID, 500, "listing projects: "+err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"projects": items,
+	})
+}
+
+type projectsCreateParameters struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Purpose     string `json:"purpose,omitempty"`
+}
+
+func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
+	var parameters projectsCreateParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.Name == "" {
+		self.sendError(frame.ID, 400, "name is required")
+		return
+	}
+	item, err := projectstore.Create(parameters.Name, parameters.Description, parameters.Purpose)
+	if err != nil {
+		self.sendError(frame.ID, 500, "creating project: "+err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"project": item,
+	})
+}
+
+type projectsRenameParameters struct {
+	ProjectID string `json:"projectId"`
+	Name      string `json:"name"`
+}
+
+func (self *webSocketConnection) handleProjectsRename(frame requestFrame) {
+	var parameters projectsRenameParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.ProjectID == "" {
+		self.sendError(frame.ID, 400, "projectId is required")
+		return
+	}
+	if parameters.Name == "" {
+		self.sendError(frame.ID, 400, "name is required")
+		return
+	}
+	item, err := projectstore.Rename(parameters.ProjectID, parameters.Name)
+	if err != nil {
+		self.sendError(frame.ID, 500, "renaming project: "+err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"project": item,
+	})
+}
+
+type projectsDeleteParameters struct {
+	ProjectID string `json:"projectId"`
+}
+
+func (self *webSocketConnection) handleProjectsDelete(frame requestFrame) {
+	var parameters projectsDeleteParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.ProjectID == "" {
+		self.sendError(frame.ID, 400, "projectId is required")
+		return
+	}
+	if err := projectstore.Delete(parameters.ProjectID); err != nil {
+		self.sendError(frame.ID, 500, "deleting project: "+err.Error())
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"deleted": true,
 	})
 }
 
