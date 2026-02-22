@@ -21,6 +21,7 @@ import MessageBubble from "./MessageBubble";
 import ToolInvoke from "./ToolInvoke";
 import ToolResult, { detectMedia } from "./ToolResult";
 import UsageIndicator from "./UsageIndicator";
+import ConversationAvatar from "./ConversationAvatar";
 
 interface MessageListProps {
   messages: DisplayMessage[];
@@ -33,6 +34,10 @@ interface MessageListProps {
   hasMoreHistory?: boolean;
   loadingOlderMessages?: boolean;
   onLoadOlderMessages?: () => void;
+  agentName?: string;
+  agentAvatarMediaId?: string;
+  userName?: string;
+  userAvatarMediaId?: string;
   voiceEnabled?: boolean;
   speakingMessageId?: string | null;
   onSpeak?: (messageId: string, text: string) => void;
@@ -115,6 +120,10 @@ export default function MessageList({
   hasMoreHistory,
   loadingOlderMessages,
   onLoadOlderMessages,
+  agentName,
+  agentAvatarMediaId,
+  userName,
+  userAvatarMediaId,
   voiceEnabled,
   speakingMessageId,
   onSpeak,
@@ -125,6 +134,9 @@ export default function MessageList({
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const atBottomRef = useRef(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  const normalizedUserFallback = (userName || "You").trim() || "You";
+  const normalizedAgentFallback = (agentName || "Agent").trim() || "Agent";
 
   const items = useMemo(
     () => buildItems(messages, t, showToolCalls, showTokenUsage),
@@ -253,6 +265,8 @@ export default function MessageList({
               content={message.content}
               timestamp={message.timestamp}
               attachments={message.attachments}
+              avatarMediaId={userAvatarMediaId}
+              avatarFallback={normalizedUserFallback}
             />
           </Container>
         );
@@ -274,13 +288,17 @@ export default function MessageList({
               <Box
                 sx={{
                   alignSelf: "flex-start",
-                  px: 1.5,
+                  px: 0.25,
                   py: 0.5,
                   display: "flex",
                   alignItems: "center",
-                  gap: 1,
+                  gap: 0.75,
                 }}
               >
+                <ConversationAvatar
+                  avatarMediaId={agentAvatarMediaId}
+                  fallback={normalizedAgentFallback}
+                />
                 <CircularProgress size={12} color="primary" />
                 <Typography
                   variant="caption"
@@ -306,13 +324,17 @@ export default function MessageList({
               <Box
                 sx={{
                   alignSelf: "flex-start",
-                  px: 1.5,
+                  px: 0.25,
                   py: 0.5,
                   display: "flex",
                   alignItems: "center",
-                  gap: 1,
+                  gap: 0.75,
                 }}
               >
+                <ConversationAvatar
+                  avatarMediaId={agentAvatarMediaId}
+                  fallback={normalizedAgentFallback}
+                />
                 <HourglassEmptyRounded sx={{ fontSize: 12 }} color="disabled" />
                 <Typography
                   variant="caption"
@@ -338,6 +360,8 @@ export default function MessageList({
               isStreaming={isStreamingMessage}
               streamText={isStreamingMessage ? streamText : undefined}
               timestamp={message.timestamp}
+              avatarMediaId={agentAvatarMediaId}
+              avatarFallback={normalizedAgentFallback}
               voiceEnabled={voiceEnabled}
               isSpeakingThis={speakingMessageId === message.id}
               onSpeak={(text) => onSpeak?.(message.id, text)}
@@ -380,17 +404,21 @@ export default function MessageList({
       return <div />;
     },
     [
-      lastStreamingAssistantId,
       activeRunId,
-      isStreaming,
+      agentAvatarMediaId,
       isRunning,
-      streamText,
-      toolActivity,
-      t,
-      voiceEnabled,
-      speakingMessageId,
+      isStreaming,
+      lastStreamingAssistantId,
+      normalizedAgentFallback,
+      normalizedUserFallback,
       onSpeak,
       onStopSpeaking,
+      speakingMessageId,
+      streamText,
+      t,
+      toolActivity,
+      userAvatarMediaId,
+      voiceEnabled,
     ],
   );
 

@@ -6,7 +6,8 @@ import InputArea from "../../../components/InputArea";
 import VoiceCallBar from "../../../components/VoiceCallBar";
 import { useTts } from "../../../hooks/useTts";
 import { useAgentVoiceCall } from "./route";
-import type { Attachment } from "../../../types";
+import { profileGetRpc } from "../../../rpc";
+import type { Attachment, Profile } from "../../../types";
 
 /** /conversations/$agentId/$conversationId — active conversation. */
 export default function ConversationsConversationPage() {
@@ -17,6 +18,11 @@ export default function ConversationsConversationPage() {
   const { backend, voiceAutoSend, ttsVoice } = useAppContext();
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;
+  const [profile, setProfile] = useState<Profile>({
+    name: "",
+    bio: "",
+    avatarMediaId: "",
+  });
 
   const tts = useTts(ttsVoice);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(
@@ -24,6 +30,21 @@ export default function ConversationsConversationPage() {
   );
 
   const voiceCall = useAgentVoiceCall();
+
+  // Load current user profile for message avatar display.
+  useEffect(() => {
+    if (!backend.connected) return;
+    let mounted = true;
+    profileGetRpc()
+      .then((loaded) => {
+        if (!mounted) return;
+        setProfile(loaded);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [backend.connected]);
 
   // Clear speaking state when TTS stops.
   const prevSpeaking = useRef(false);
@@ -124,6 +145,10 @@ export default function ConversationsConversationPage() {
         hasMoreHistory={backend.hasMoreHistory}
         loadingOlderMessages={backend.loadingOlderMessages}
         onLoadOlderMessages={backend.loadOlderMessages}
+        agentName={agentName}
+        agentAvatarMediaId={agent?.avatarMediaId}
+        userName={profile.name || "You"}
+        userAvatarMediaId={profile.avatarMediaId || undefined}
         voiceEnabled={backend.audioCapability && !voiceCall.isCallActive}
         speakingMessageId={speakingMessageId}
         onSpeak={handleSpeak}

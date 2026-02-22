@@ -1,0 +1,132 @@
+package gw
+
+import (
+	"context"
+	"testing"
+
+	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/providers"
+)
+
+type testProvider struct{}
+
+func (self *testProvider) ChatCompletion(_ context.Context, _ providers.ChatRequest) (*providers.ChatResponse, error) {
+	return &providers.ChatResponse{}, nil
+}
+
+func (self *testProvider) ChatCompletionStream(_ context.Context, request providers.ChatRequest) (<-chan providers.StreamEvent, error) {
+	events := make(chan providers.StreamEvent, 2)
+	go func() {
+		defer close(events)
+		events <- providers.StreamEvent{
+			Chunk: &providers.StreamChunk{
+				Model: request.Model,
+				Choices: []providers.StreamChoice{
+					{
+						Delta:        providers.ChatDelta{Content: "ok"},
+						FinishReason: "stop",
+					},
+				},
+				Usage: &providers.UsageInfo{
+					PromptTokens:     1,
+					CompletionTokens: 1,
+					TotalTokens:      2,
+				},
+			},
+		}
+		events <- providers.StreamEvent{Done: true}
+	}()
+	return events, nil
+}
+
+func (self *testProvider) ListModels(_ context.Context) ([]providers.ModelInfo, error) {
+	return []providers.ModelInfo{{ID: "test-model"}}, nil
+}
+
+func newTestGateway(t *testing.T) (*gateway, *agents.AgentRegistry, string) {
+	t.Helper()
+	t.Setenv("TEANODE_DIR", t.TempDir())
+
+	agentId := configs.DefaultAgentID
+	config := &configs.Config{
+		Models: configs.ModelsConfig{
+			Default: "mock:test-model",
+		},
+	}
+	providerRegistry := providers.NewRegistry("mock")
+	providerRegistry.Register("mock", &testProvider{})
+	runner := &agents.Runner{
+		AgentID:       agentId,
+		Providers:     providerRegistry,
+		Conversations: conversations.NewStore(t.TempDir()),
+		Config:        config,
+	}
+
+	agentRegistry := agents.NewAgentRegistry()
+	agentRegistry.Register(agentId, runner)
+	agentRegistry.SetDefault(agentId)
+
+	instance := New(config, nil, nil, agentRegistry, nil, nil, nil, nil, nil, nil)
+	return instance.(*gateway), agentRegistry, agentId
+}
+
+func waitRun(t *testing.T, handle *RunHandle) {
+	t.Helper()
+	<-handle.Done
+	if outcome := handle.Outcome(); outcome.Error != nil {
+		t.Fatalf("run error: %v", outcome.Error)
+	}
+}
+
+func TestSendMessageAutoCreateDoesNotOverwriteExistingDefaultConversation(t *testing.T) {
+	gateway, agentRegistry, agentId := newTestGateway(t)
+
+	existingDefaultConversationId := gateway.NewConversation(agentId, "")
+
+	handle := gateway.SendMessage(context.Background(), SendMessageParameters{
+		AgentID:        agentId,
+		ConversationID: "",
+		Message:        "hello",
+		Origin:         "webui",
+	}, nil)
+	waitRun(t, handle)
+
+	if handle.ConversationID == existingDefaultConversationId {
+		t.Fatalf("auto-created conversation id = existing default %q; want new conversation id", existingDefaultConversationId)
+	}
+	if got := agentRegistry.DefaultConversationID(agentId); got != existingDefaultConversationId {
+		t.Fatalf("default conversation id = %q, want %q", got, existingDefaultConversationId)
+	}
+}
+
+func TestSendMessageAutoCreateSetsDefaultWhenUnset(t *testing.T) {
+	gateway, agentRegistry, agentId := newTestGateway(t)
+
+	handle := gateway.SendMessage(context.Background(), SendMessageParameters{
+		AgentID:        agentId,
+		ConversationID: "",
+		Message:        "hello",
+		Origin:         "webui",
+	}, nil)
+	waitRun(t, handle)
+
+	if got := agentRegistry.DefaultConversationID(agentId); got != handle.ConversationID {
+		t.Fatalf("default conversation id = %q, want %q", got, handle.ConversationID)
+	}
+}
+
+func TestNewConversationReplacesDefaultConversation(t *testing.T) {
+	gateway, agentRegistry, agentId := newTestGateway(t)
+
+	firstConversationId := gateway.NewConversation(agentId, "")
+	secondConversationId := gateway.NewConversation(agentId, "")
+
+	if secondConversationId == firstConversationId {
+		t.Fatalf("second conversation id = first conversation id %q; want different id", firstConversationId)
+	}
+	if got := agentRegistry.DefaultConversationID(agentId); got != secondConversationId {
+		t.Fatalf("default conversation id = %q, want %q", got, secondConversationId)
+	}
+}

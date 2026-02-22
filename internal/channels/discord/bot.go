@@ -201,6 +201,21 @@ func (self *Bot) Stop() {
 	}
 }
 
+func (self *Bot) shouldForwardDisconnectedWebUI(agentId, conversationId, originSessionId string) bool {
+	if originSessionId == "" {
+		return false
+	}
+	defaultAgentId := self.agentRegistry.DefaultID()
+	if agentId != defaultAgentId {
+		return false
+	}
+	defaultConversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
+	if defaultConversationId == "" || conversationId == "" {
+		return false
+	}
+	return conversationId == defaultConversationId
+}
+
 // OnEvent implements gw.Subscriber. It handles conversation events for runs
 // not initiated by this bot (e.g. scheduled jobs), streaming them to the appropriate channel.
 func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
@@ -236,8 +251,8 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 
 	switch state {
 	case "user_message":
-		// Only forward events for the currently active agent.
 		agentId, _ := payloadMap["agentId"].(string)
+		// Only forward events for the default agent.
 		if agentId != self.agentRegistry.DefaultID() {
 			return
 		}
@@ -268,7 +283,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		}
 
 		originSessionId, _ := payloadMap["originSessionId"].(string)
-		if originSessionId == "" {
+		if !self.shouldForwardDisconnectedWebUI(agentId, conversationId, originSessionId) {
 			return
 		}
 

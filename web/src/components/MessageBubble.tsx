@@ -10,6 +10,7 @@ import StopRounded from "@mui/icons-material/StopRounded";
 import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
 import { renderMarkdown } from "../markdown";
 import type { Attachment } from "../types";
+import ConversationAvatar from "./ConversationAvatar";
 
 interface MessageBubbleProps {
   role: "user" | "assistant";
@@ -18,6 +19,8 @@ interface MessageBubbleProps {
   streamText?: string;
   timestamp?: number;
   attachments?: Attachment[];
+  avatarMediaId?: string;
+  avatarFallback?: string;
   voiceEnabled?: boolean;
   isSpeakingThis?: boolean;
   onSpeak?: (text: string) => void;
@@ -93,6 +96,8 @@ export default function MessageBubble({
   streamText,
   timestamp,
   attachments,
+  avatarMediaId,
+  avatarFallback,
   voiceEnabled,
   isSpeakingThis,
   onSpeak,
@@ -251,19 +256,74 @@ export default function MessageBubble({
     </IconButton>
   ) : null;
 
+  if (isUser) {
+    return (
+      <Box
+        className="message-row"
+        sx={{
+          display: "flex",
+          flexDirection: "row-reverse",
+          alignItems: "flex-end",
+          gap: 0.75,
+          alignSelf: "flex-end",
+          maxWidth: "100%",
+        }}
+      >
+        <ConversationAvatar
+          avatarMediaId={avatarMediaId}
+          fallback={avatarFallback || "U"}
+        />
+        {bubble}
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 0.25,
+            flexShrink: 0,
+          }}
+        >
+          {speakerElement}
+          {timeElement}
+        </Box>
+      </Box>
+    );
+  }
+
   return (
     <Box
       className="message-row"
       sx={{
         display: "flex",
-        flexDirection: isUser ? "row-reverse" : "row",
         alignItems: "flex-end",
-        gap: 1,
-        alignSelf: isUser ? "flex-end" : "flex-start",
+        gap: 0.75,
+        alignSelf: "flex-start",
         maxWidth: "100%",
       }}
     >
-      {bubble}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "flex-end",
+          gap: 0.75,
+          minWidth: 0,
+          maxWidth: "100%",
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "flex-end",
+            transform: "translateY(-1px)",
+          }}
+        >
+          <ConversationAvatar
+            avatarMediaId={avatarMediaId}
+            fallback={avatarFallback || "A"}
+          />
+        </Box>
+        {bubble}
+      </Box>
       <Box
         sx={{
           display: "flex",

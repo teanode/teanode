@@ -298,24 +298,29 @@ func (self *gateway) SetDefaultConversationIfUnset(agentId, conversationId strin
 	return changed
 }
 
-func (self *gateway) NewConversation(agentId, model string) string {
-	conversationId := self.agentRegistry.NewConversation(agentId)
-
+func (self *gateway) createConversationFile(agentId, conversationId, model string) {
 	// Resolve model and create conversation file with provider/model in the header.
 	runner := self.ResolveRunner(agentId)
-	if runner != nil {
-		qualifiedModel := model
-		if qualifiedModel == "" {
-			qualifiedModel = self.config.AgentModel(agentId)
-		}
-		if qualifiedModel != "" {
-			_, providerRegistry, _, _, _, _ := runner.Snapshot()
-			resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, providerRegistry.DefaultProvider())
-			if err := runner.Conversations.Create(conversationId, resolvedProvider, qualifiedModel); err != nil {
-				log.Errorf("creating conversation file: %v", err)
-			}
-		}
+	if runner == nil {
+		return
 	}
+	qualifiedModel := model
+	if qualifiedModel == "" {
+		qualifiedModel = self.config.AgentModel(agentId)
+	}
+	if qualifiedModel == "" {
+		return
+	}
+	_, providerRegistry, _, _, _, _ := runner.Snapshot()
+	resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, providerRegistry.DefaultProvider())
+	if err := runner.Conversations.Create(conversationId, resolvedProvider, qualifiedModel); err != nil {
+		log.Errorf("creating conversation file: %v", err)
+	}
+}
+
+func (self *gateway) NewConversation(agentId, model string) string {
+	conversationId := self.agentRegistry.NewConversation(agentId)
+	self.createConversationFile(agentId, conversationId, model)
 
 	self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
 		"agentId":               agentId,
@@ -365,7 +370,9 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	// Resolve or create conversation.
 	conversationId := parameters.ConversationID
 	if conversationId == "" {
-		conversationId = self.NewConversation(resolvedAgentId, parameters.Model)
+		conversationId = security.NewULID()
+		self.createConversationFile(resolvedAgentId, conversationId, parameters.Model)
+		self.SetDefaultConversationIfUnset(resolvedAgentId, conversationId)
 	} else {
 		self.SetDefaultConversationIfUnset(resolvedAgentId, conversationId)
 	}
@@ -829,7 +836,9 @@ func (self *gateway) StartVoiceSession(
 	if conversationId == "" {
 		// Start a fresh conversation when the client omits conversation_id.
 		// This avoids cross-session context bleed between separate voice calls.
-		conversationId = self.NewConversation(agentId, "")
+		conversationId = security.NewULID()
+		self.createConversationFile(agentId, conversationId, "")
+		self.SetDefaultConversationIfUnset(agentId, conversationId)
 	}
 	sessionId := security.NewULID()
 	adapter := &voiceGatewayAdapter{gw: self}
