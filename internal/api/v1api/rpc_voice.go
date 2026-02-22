@@ -49,6 +49,7 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		ServerVAD:     parameters.Features.ServerVAD,
 		ServerTurn:    parameters.Features.ServerTurn,
 		ServerDenoise: parameters.Features.ServerDenoise,
+		SileroVAD:     parameters.Features.SileroVAD,
 		BargeIn:       parameters.Features.BargeIn,
 	}
 

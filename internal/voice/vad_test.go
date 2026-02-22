@@ -14,7 +14,7 @@ func makeFrame(sample int16, samples int) []byte {
 }
 
 func TestVADSilenceNoEvents(t *testing.T) {
-	v := &VADState{}
+	v := &EnergyVAD{}
 	silence := makeFrame(0, 320)
 	for i := 0; i < 20; i++ {
 		started, ended, _ := v.ProcessFrame(silence)
@@ -25,7 +25,7 @@ func TestVADSilenceNoEvents(t *testing.T) {
 }
 
 func TestVADStartsAtFrameTen(t *testing.T) {
-	v := &VADState{}
+	v := &EnergyVAD{}
 	loud := makeFrame(12000, 320)
 	for i := 1; i <= 10; i++ {
 		started, _, _ := v.ProcessFrame(loud)
@@ -39,7 +39,7 @@ func TestVADStartsAtFrameTen(t *testing.T) {
 }
 
 func TestVADEndsAfterSixteenRedemptionFrames(t *testing.T) {
-	v := &VADState{}
+	v := &EnergyVAD{}
 	loud := makeFrame(12000, 320)
 	silence := makeFrame(0, 320)
 	for i := 0; i < 10; i++ {

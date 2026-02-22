@@ -22,6 +22,7 @@ type Features struct {
 	ServerVAD     bool `json:"server_vad"`
 	ServerTurn    bool `json:"server_turn"`
 	ServerDenoise bool `json:"server_denoise"`
+	SileroVAD     bool `json:"silero_vad,omitempty"`
 	BargeIn       bool `json:"barge_in"`
 }
 

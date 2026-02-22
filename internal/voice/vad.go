@@ -13,22 +13,27 @@ const (
 	vadRedemptionFrames  = 16
 )
 
-// VADState tracks simple energy-based speech state.
-type VADState struct {
+// VADAnalyzer is the runtime speech boundary detector used by the pipeline.
+type VADAnalyzer interface {
+	ProcessFrame(pcm []byte) (started bool, ended bool, score float64)
+}
+
+// EnergyVAD tracks simple energy-based speech state.
+type EnergyVAD struct {
 	IsSpeaking      bool
 	speechFrames    int
 	redemptionCount int
 }
 
 // Reset clears all transient VAD counters.
-func (v *VADState) Reset() {
+func (v *EnergyVAD) Reset() {
 	v.IsSpeaking = false
 	v.speechFrames = 0
 	v.redemptionCount = 0
 }
 
 // ProcessFrame processes one s16le frame and returns (started, ended, rms).
-func (v *VADState) ProcessFrame(pcm []byte) (bool, bool, float64) {
+func (v *EnergyVAD) ProcessFrame(pcm []byte) (bool, bool, float64) {
 	rms := rmsS16LE(pcm)
 
 	started := false

@@ -22,10 +22,18 @@ const (
 const voiceCallPromptSuffix = "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists."
 
 func (self *Session) audioInputLoop() {
-	vad := &VADState{}
+	var vad VADAnalyzer = &EnergyVAD{}
+	if self.Features.SileroVAD {
+		if silero, err := NewSileroVAD(sileroEndpoint()); err == nil {
+			vad = silero
+		} else {
+			pipelineLog.Warningf("voice silero_vad init failed, falling back to energy vad: %v", err)
+		}
+	}
 	var speechBuf []byte
 	preSpeech := make([][]byte, 0, vadPreRollFrames)
 	denoiseWarned := false
+	speaking := false
 
 	for {
 		select {
@@ -40,7 +48,7 @@ func (self *Session) audioInputLoop() {
 				self.accumulateExplicitAudio(frame)
 				continue
 			}
-			if !vad.IsSpeaking {
+			if !speaking {
 				cp := append([]byte(nil), frame...)
 				preSpeech = append(preSpeech, cp)
 				if len(preSpeech) > vadPreRollFrames {
@@ -49,6 +57,7 @@ func (self *Session) audioInputLoop() {
 			}
 			started, ended, score := vad.ProcessFrame(frame)
 			if started {
+				speaking = true
 				turnId := self.newTurnId()
 				self.startNewTurn(turnId)
 				nowMs := time.Now().UnixMilli()
@@ -74,7 +83,7 @@ func (self *Session) audioInputLoop() {
 				}
 			}
 
-			if vad.IsSpeaking {
+			if speaking {
 				// Current frame is already included when speech just started via pre-roll.
 				if !started {
 					speechBuf = append(speechBuf, frame...)
@@ -82,6 +91,7 @@ func (self *Session) audioInputLoop() {
 			}
 
 			if ended {
+				speaking = false
 				turnId := self.GetCurrentTurnId()
 				nowMs := time.Now().UnixMilli()
 				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnId(), len(speechBuf), self.inSeq.Load(), score)

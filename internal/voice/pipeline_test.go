@@ -495,3 +495,35 @@ func TestInputCommit_RaceCondition(t *testing.T) {
 		t.Fatalf("expected at most one send after concurrent commits, got %d", deps.sendCount())
 	}
 }
+
+func TestSileroVAD_FallbackOnInitError(t *testing.T) {
+	t.Setenv("TEANODE_SILERO_URL", "://invalid-endpoint")
+	s, _, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		SileroVAD:  true,
+		BargeIn:    true,
+	})
+
+	finished := make(chan struct{})
+	go func() {
+		s.audioInputLoop()
+		close(finished)
+	}()
+
+	loud := makeFrame(12000, 320)
+	for i := 0; i < 12; i++ {
+		s.audioInCh <- loud
+	}
+
+	waitFor(t, 500*time.Millisecond, func() bool {
+		return rec.findTurnEvent("speech_started") != nil
+	})
+
+	close(s.doneCh)
+	select {
+	case <-finished:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("audioInputLoop did not stop after done")
+	}
+}
