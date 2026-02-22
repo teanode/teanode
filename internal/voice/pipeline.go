@@ -14,7 +14,6 @@ var pipelineLog = logging.MustGetLogger("voice.pipeline")
 const (
 	minCommittedTurnBytes  = 19200 // ~600ms at 16kHz mono s16le
 	minCommittedTextRunes  = 8
-	bargeInTriggerMinScore = 0.1
 	maxResponseStartDelay  = 2 * time.Second
 )
 
@@ -40,7 +39,7 @@ func (self *Session) audioInputLoop() {
 					VADScore:    score,
 					AudioSeqRef: self.inSeq.Load(),
 				})
-				if self.Features.BargeIn && score >= bargeInTriggerMinScore && (self.GetCurrentRunId() != "" || self.GetCurrentResponseId() != "") {
+				if self.Features.BargeIn && (self.GetCurrentRunId() != "" || self.GetCurrentResponseId() != "") {
 					self.triggerBargeIn()
 				}
 			}
@@ -358,12 +357,9 @@ func (self *Session) effectivePromptSuffix() string {
 }
 
 func (self *Session) transcriptionPrompt() string {
-	last := strings.TrimSpace(self.GetLastCommittedTranscript())
-	base := "This is a live voice conversation transcription. Transcribe literally and preserve question words and place names exactly."
-	if last == "" {
-		return base
-	}
-	return base + " Prior user utterance context: " + last
+	// Keep STT unprompted to avoid model-side semantic "helpfulness" that can
+	// drift from literal user speech.
+	return ""
 }
 
 func (self *Session) enqueueTranscriptTurn(turnId, text string) {

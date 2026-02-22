@@ -931,11 +931,16 @@ export function useBackend() {
     }
   }, []);
 
+  const handleStatusChange = useCallback((nextStatus: string) => {
+    setStatus(nextStatus);
+    setConnected(nextStatus === "connected");
+  }, []);
+
   const { sendRpc, sendBinary, onBinaryMessage, onVoiceMessage } =
     useWebSocket({
       onEvent: handleEvent,
       onConnect: handleConnect,
-      onStatusChange: setStatus,
+      onStatusChange: handleStatusChange,
     });
 
   sendRpcRef.current = sendRpc;

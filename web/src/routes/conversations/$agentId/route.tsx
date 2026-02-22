@@ -50,6 +50,7 @@ export default function ConversationsAgentLayout() {
     isRunning: backend.isRunning,
     isStreaming: backend.isStreaming,
     streamText: backend.streamText,
+    connected: backend.connected,
     ttsVoice,
     conversationId: backend.conversationId,
     agentId,

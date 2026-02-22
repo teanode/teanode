@@ -2,6 +2,9 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useChimePlayer, type ChimeConfig } from "./useChimePlayer";
 import { useVoiceSession } from "./useVoiceSession";
 
+const AGENT_WAITING_CHIME_MS = 3200;
+const AGENT_WAITING_CHIME_MIN_GAP_MS = 1400;
+
 export interface UseVoiceCallOptions {
   sendRpc: <T = unknown>(method: string, params: unknown) => Promise<T>;
   sendBinary: (data: ArrayBuffer | Uint8Array) => void;
@@ -18,6 +21,7 @@ export interface UseVoiceCallOptions {
   isRunning: boolean;
   isStreaming: boolean;
   streamText: string;
+  connected: boolean;
   ttsVoice: string;
   conversationId: string | null;
   agentId: string;
@@ -46,6 +50,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     onBinaryMessage,
     onVoiceMessage,
     isRunning,
+    connected,
     conversationId,
     agentId,
     chimeConfig,
@@ -66,13 +71,23 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const waitingToneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
+  const lastWaitingChimeAtRef = useRef(0);
   const interruptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const endCallRef = useRef<() => void>(() => {});
+  const pendingAgentDoneChimeRef = useRef(false);
 
   const chimePlayer = useChimePlayer(chimeConfig);
+  const playWaitingChime = useCallback(() => {
+    const now = Date.now();
+    if (now - lastWaitingChimeAtRef.current < AGENT_WAITING_CHIME_MIN_GAP_MS) {
+      return;
+    }
+    lastWaitingChimeAtRef.current = now;
+    chimePlayer.play("agentWaiting");
+  }, [chimePlayer]);
   const {
     start: startVoiceSession,
     stop: stopVoiceSession,
@@ -152,11 +167,12 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       if (typeof type !== "string") return;
       if (type === "response.completed") {
         setIsAgentBusy(false);
-        chimePlayer.play("agentDone");
+        pendingAgentDoneChimeRef.current = true;
         return;
       }
       if (type === "response.started") {
         setIsAgentBusy(false);
+        pendingAgentDoneChimeRef.current = false;
         return;
       }
       if (type !== "turn.event" || !payload) return;
@@ -164,11 +180,27 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       if (event === "turn_committed") {
         setIsAgentBusy(true);
         chimePlayer.play("inputCaptured");
+        playWaitingChime();
       } else if (event === "turn_queued") {
         setIsAgentBusy(true);
+        playWaitingChime();
       }
     });
-  }, [chimePlayer, isCallActive, onVoiceMessage]);
+  }, [chimePlayer, isCallActive, onVoiceMessage, playWaitingChime]);
+
+  useEffect(() => {
+    if (!isCallActive) return;
+    if (!pendingAgentDoneChimeRef.current) return;
+    if (isPlaying || isSynthesizing) return;
+    pendingAgentDoneChimeRef.current = false;
+    chimePlayer.play("agentDone");
+  }, [chimePlayer, isCallActive, isPlaying, isSynthesizing]);
+
+  useEffect(() => {
+    if (!isCallActive || isConnecting || connected) return;
+    setCallError("Connection lost. Call ended.");
+    endCallRef.current();
+  }, [connected, isCallActive, isConnecting]);
 
   useEffect(() => {
     const shouldPlayWaiting = isCallActive && (isAgentBusy || isRunning);
@@ -180,10 +212,9 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       return;
     }
     if (!waitingToneIntervalRef.current) {
-      chimePlayer.play("agentWaiting");
       waitingToneIntervalRef.current = setInterval(() => {
-        chimePlayer.play("agentWaiting");
-      }, 2500);
+        playWaitingChime();
+      }, AGENT_WAITING_CHIME_MS);
     }
     return () => {
       if (waitingToneIntervalRef.current) {
@@ -191,13 +222,14 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         waitingToneIntervalRef.current = null;
       }
     };
-  }, [chimePlayer, isAgentBusy, isCallActive, isRunning]);
+  }, [isAgentBusy, isCallActive, isRunning, playWaitingChime]);
 
   const endCall = useCallback(() => {
     setIsCallActive(false);
     setIsMuted(false);
     setCallDuration(0);
     setIsAgentBusy(false);
+    pendingAgentDoneChimeRef.current = false;
 
     stopVoiceSession();
 

@@ -238,7 +238,7 @@ export function useVoiceSession(
         features: {
           server_vad: true,
           server_turn: true,
-          server_denoise: false,
+          server_denoise: true,
           barge_in: true,
         },
         client: { platform: "web", app_version: "1.0.0" },

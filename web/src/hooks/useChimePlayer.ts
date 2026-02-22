@@ -23,7 +23,7 @@ const TONE_PARAMS: Record<
 > = {
   inputCaptured: { frequency: 880, durationSeconds: 0.08, rampMs: 10 },
   agentDone: { frequency: 660, durationSeconds: 0.12, rampMs: 15 },
-  agentWaiting: { frequency: 520, durationSeconds: 0.1, rampMs: 12 },
+  agentWaiting: { frequency: 440, durationSeconds: 0.16, rampMs: 24 },
 };
 
 /**
