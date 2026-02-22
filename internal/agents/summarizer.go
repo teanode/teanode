@@ -175,7 +175,7 @@ func (self *Summarizer) summarizeConversation(
 	header *conversations.Header,
 	messages []conversations.Message,
 ) {
-	configuration, providerRegistry, _, _, _ := runner.Snapshot()
+	configuration, providerRegistry, _, _, _, _ := runner.Snapshot()
 	resolved := self.resolveConfig()
 
 	// If conversation has been compacted, only consider messages after the

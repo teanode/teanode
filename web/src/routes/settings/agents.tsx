@@ -14,44 +14,22 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import Avatar from "@mui/material/Avatar";
-import IconButton from "@mui/material/IconButton";
-import CircularProgress from "@mui/material/CircularProgress";
 import Tooltip from "@mui/material/Tooltip";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import StarOutlineIcon from "@mui/icons-material/StarOutline";
 import StarIcon from "@mui/icons-material/Star";
+import IconButton from "@mui/material/IconButton";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import AvatarUploadButton from "../../components/AvatarUploadButton";
 import AgentEditor, {
   type AgentEditorHandle,
 } from "../../components/AgentEditor";
 import { useAppContext } from "../../context";
 import { useAgents } from "../../hooks/useAgents";
+import { removeAgentAvatar, uploadAgentAvatar } from "../../rpc";
 import type { AgentConfig } from "../../types";
-
-async function uploadAgentAvatar(agentId: string, file: File): Promise<void> {
-  const formData = new FormData();
-  formData.append("file", file);
-  const response = await fetch(
-    `/api/v1/agents/${encodeURIComponent(agentId)}/avatar`,
-    {
-      method: "POST",
-      body: formData,
-    },
-  );
-  if (!response.ok) throw new Error(await response.text());
-}
-
-async function removeAgentAvatar(agentId: string): Promise<void> {
-  const response = await fetch(
-    `/api/v1/agents/${encodeURIComponent(agentId)}/avatar`,
-    {
-      method: "DELETE",
-    },
-  );
-  if (!response.ok) throw new Error(await response.text());
-}
 
 export default function SettingsAgentsPage() {
   const { t } = useTranslation();
@@ -69,7 +47,6 @@ export default function SettingsAgentsPage() {
   const [dirtyByAgent, setDirtyByAgent] = useState<Record<string, boolean>>({});
   const [nameByAgent, setNameByAgent] = useState<Record<string, string>>({});
   const editorRefs = useRef<Record<string, AgentEditorHandle | null>>({});
-  const avatarInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
     if (backend.connected) {
@@ -124,10 +101,8 @@ export default function SettingsAgentsPage() {
     setPendingDelete(null);
   }, [pendingDelete, agentsHook, backend]);
 
-  const handleAvatarInput = useCallback(
-    async (agentId: string, event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
+  const handleAvatarUpload = useCallback(
+    async (agentId: string, file: File) => {
       setAvatarBusyAgentId(agentId);
       try {
         await uploadAgentAvatar(agentId, file);
@@ -137,7 +112,6 @@ export default function SettingsAgentsPage() {
         console.error("avatar upload failed:", error);
       } finally {
         setAvatarBusyAgentId(null);
-        event.target.value = "";
       }
     },
     [agentsHook, backend],
@@ -181,18 +155,6 @@ export default function SettingsAgentsPage() {
     );
   }, []);
 
-  const handleAvatarClick = useCallback(
-    (agent: AgentConfig) => {
-      if (avatarBusyAgentId === agent.id) return;
-      if (agent.avatarMediaId) {
-        void handleAvatarDelete(agent.id);
-        return;
-      }
-      avatarInputRefs.current[agent.id]?.click();
-    },
-    [avatarBusyAgentId, handleAvatarDelete],
-  );
-
   return (
     <Box sx={{ flex: 1, overflowY: "auto" }}>
       <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
@@ -230,57 +192,12 @@ export default function SettingsAgentsPage() {
                       minWidth: 0,
                     }}
                   >
-                    <IconButton
-                      onClick={() => handleAvatarClick(agent)}
-                      sx={{ p: 0, borderRadius: "50%" }}
-                      disabled={avatarBusy}
-                    >
-                      <Box sx={{ position: "relative" }}>
-                        <Avatar
-                          src={
-                            agent.avatarMediaId
-                              ? `/api/v1/media/${agent.avatarMediaId}`
-                              : undefined
-                          }
-                          sx={{ width: 48, height: 48 }}
-                        >
-                          {avatarBusy ? (
-                            <CircularProgress size={18} />
-                          ) : (
-                            initial
-                          )}
-                        </Avatar>
-                        {!avatarBusy && agent.avatarMediaId && (
-                          <Box
-                            sx={{
-                              position: "absolute",
-                              right: -2,
-                              bottom: -2,
-                              width: 18,
-                              height: 18,
-                              borderRadius: "50%",
-                              bgcolor: "error.main",
-                              color: "common.white",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              border: 1,
-                              borderColor: "background.paper",
-                            }}
-                          >
-                            <DeleteOutlineIcon sx={{ fontSize: 12 }} />
-                          </Box>
-                        )}
-                      </Box>
-                    </IconButton>
-                    <input
-                      hidden
-                      type="file"
-                      accept="image/*"
-                      ref={(input) => {
-                        avatarInputRefs.current[agent.id] = input;
-                      }}
-                      onChange={(event) => handleAvatarInput(agent.id, event)}
+                    <AvatarUploadButton
+                      avatarMediaId={agent.avatarMediaId}
+                      fallback={initial}
+                      busy={avatarBusy}
+                      onUpload={(file) => handleAvatarUpload(agent.id, file)}
+                      onRemove={() => handleAvatarDelete(agent.id)}
                     />
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <TextField

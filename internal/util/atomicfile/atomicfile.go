@@ -36,6 +36,16 @@ func CommitAs(file *os.File, filename string) error {
 	return renameReplace(file.Name(), filename)
 }
 
+func CommitAsWithMode(file *os.File, filename string, mode os.FileMode) error {
+	if err := file.Chmod(mode); err != nil {
+		return err
+	}
+	if err := CommitAs(file, filename); err != nil {
+		return err
+	}
+	return os.Chmod(filename, mode)
+}
+
 func Commit(file *os.File) error {
 	tempFilename := file.Name()
 	parts := strings.Split(filepath.Base(tempFilename), ".")
@@ -44,6 +54,16 @@ func Commit(file *os.File) error {
 	}
 	filename := filepath.Join(filepath.Dir(tempFilename), strings.Join(parts[1:len(parts)-1], "."))
 	return CommitAs(file, filename)
+}
+
+func CommitWithMode(file *os.File, mode os.FileMode) error {
+	tempFilename := file.Name()
+	parts := strings.Split(filepath.Base(tempFilename), ".")
+	if len(parts) < 3 || parts[0] != "" || !strings.HasSuffix(parts[len(parts)-1], "~") {
+		return ErrInvalidFile
+	}
+	filename := filepath.Join(filepath.Dir(tempFilename), strings.Join(parts[1:len(parts)-1], "."))
+	return CommitAsWithMode(file, filename, mode)
 }
 
 func Discard(file *os.File) error {
@@ -75,4 +95,20 @@ func WriteFile(filename string, content []byte) error {
 		return err
 	}
 	return Commit(file)
+}
+
+// WriteFileWithMode writes a file atomically and enforces the target mode after
+// commit. This is intended for sensitive files such as auth/security material.
+func WriteFileWithMode(filename string, content []byte, mode os.FileMode) error {
+	file, err := Create(filename)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = Discard(file)
+	}()
+	if _, err := file.Write(content); err != nil {
+		return err
+	}
+	return CommitWithMode(file, mode)
 }

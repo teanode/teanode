@@ -153,6 +153,7 @@ export default function ConversationsNewPage() {
               draftKey="new"
               placeholder={t("conversations.startConversation", { agentName })}
               autoFocus
+              isRunning={backend.isRunning}
               modelPicker={modelPicker}
               bare
               alwaysExpanded

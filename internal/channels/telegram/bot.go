@@ -215,10 +215,13 @@ func telegramRetryAfter(err error) int {
 
 // telegramSubscribedRun tracks streaming state for a run received via Subscriber events.
 type telegramSubscribedRun struct {
-	preview      *telegramStreamPreview
-	chatId       int64
-	pendingMedia []*media.MediaContent
-	mediaMutex   sync.Mutex
+	preview         *telegramStreamPreview
+	chatId          int64
+	origin          string
+	originSessionId string
+	triggerText     string
+	pendingMedia    []*media.MediaContent
+	mediaMutex      sync.Mutex
 }
 
 // Bot manages a Telegram bot that forwards messages to the agents.
@@ -333,41 +336,59 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 
 	switch state {
 	case "user_message":
-		// Only handle runs from automated sources (e.g. scheduler). Interactive
-		// sources (webui, discord, telegram) already have their own display.
-		origin, _ := payloadMap["origin"].(string)
-		if origin != "" {
-			return
-		}
-
 		// Only forward events for the currently active agent.
 		agentId, _ := payloadMap["agentId"].(string)
 		if agentId != self.agentRegistry.DefaultID() {
 			return
 		}
 
-		// Show the triggering message so the user has context.
+		origin, _ := payloadMap["origin"].(string)
 		triggerText, _ := payloadMap["text"].(string)
-		if triggerText != "" {
-			contextMessage := tgbotapi.NewMessage(chatId, "> "+strings.ReplaceAll(triggerText, "\n", "\n> "))
-			self.api.Send(contextMessage)
+
+		if origin == "" {
+			// Scheduled/automated runs: stream live into Telegram.
+			if triggerText != "" {
+				contextMessage := tgbotapi.NewMessage(chatId, "> "+strings.ReplaceAll(triggerText, "\n", "\n> "))
+				self.api.Send(contextMessage)
+			}
+			preview := newTelegramStreamPreview(self.api, chatId, 0)
+			self.subscribedRunsMutex.Lock()
+			self.subscribedRuns[runId] = &telegramSubscribedRun{
+				preview:     preview,
+				chatId:      chatId,
+				origin:      origin,
+				triggerText: triggerText,
+			}
+			self.subscribedRunsMutex.Unlock()
+			action := tgbotapi.NewChatAction(chatId, tgbotapi.ChatTyping)
+			self.api.Send(action)
+			return
 		}
 
-		preview := newTelegramStreamPreview(self.api, chatId, 0)
+		if origin != "webui" {
+			return
+		}
+
+		originSessionId, _ := payloadMap["originSessionId"].(string)
+		if originSessionId == "" {
+			return
+		}
+
+		// WebUI runs are only delivered to Telegram if the originating web session disconnects.
 		self.subscribedRunsMutex.Lock()
 		self.subscribedRuns[runId] = &telegramSubscribedRun{
-			preview: preview,
-			chatId:  chatId,
+			chatId:          chatId,
+			origin:          origin,
+			originSessionId: originSessionId,
+			triggerText:     triggerText,
 		}
 		self.subscribedRunsMutex.Unlock()
-		action := tgbotapi.NewChatAction(chatId, tgbotapi.ChatTyping)
-		self.api.Send(action)
 
 	case "delta":
 		self.subscribedRunsMutex.Lock()
 		subscribedRun := self.subscribedRuns[runId]
 		self.subscribedRunsMutex.Unlock()
-		if subscribedRun != nil {
+		if subscribedRun != nil && subscribedRun.preview != nil {
 			text, _ := payloadMap["text"].(string)
 			subscribedRun.preview.Update(text)
 		}
@@ -376,7 +397,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		self.subscribedRunsMutex.Lock()
 		subscribedRun := self.subscribedRuns[runId]
 		self.subscribedRunsMutex.Unlock()
-		if subscribedRun != nil {
+		if subscribedRun != nil && subscribedRun.preview != nil {
 			subscribedRun.preview.Reset()
 			action := tgbotapi.NewChatAction(subscribedRun.chatId, tgbotapi.ChatTyping)
 			self.api.Send(action)
@@ -404,7 +425,6 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 			return
 		}
 
-		previewMessageId, _ := subscribedRun.preview.Stop()
 		finalText, _ := payloadMap["text"].(string)
 
 		// Send collected media as photo attachments.
@@ -420,28 +440,41 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 			}
 		}
 
-		// Reuse preview message or send new.
-		if previewMessageId != 0 {
-			firstChunk := finalText
-			remaining := ""
-			if len(finalText) > maxTelegramMessageLen {
-				cut := strings.LastIndex(finalText[:maxTelegramMessageLen], "\n")
-				if cut < maxTelegramMessageLen/2 {
-					cut = maxTelegramMessageLen
+		// Scheduled/automated runs stream via preview and always post final output.
+		if subscribedRun.preview != nil {
+			previewMessageId, _ := subscribedRun.preview.Stop()
+			if previewMessageId != 0 {
+				firstChunk := finalText
+				remaining := ""
+				if len(finalText) > maxTelegramMessageLen {
+					cut := strings.LastIndex(finalText[:maxTelegramMessageLen], "\n")
+					if cut < maxTelegramMessageLen/2 {
+						cut = maxTelegramMessageLen
+					}
+					firstChunk = finalText[:cut]
+					remaining = finalText[cut:]
 				}
-				firstChunk = finalText[:cut]
-				remaining = finalText[cut:]
+				edit := tgbotapi.NewEditMessageText(subscribedRun.chatId, previewMessageId, firstChunk)
+				edit.ParseMode = "Markdown"
+				if _, editError := self.api.Send(edit); editError != nil {
+					edit.ParseMode = ""
+					self.api.Send(edit)
+				}
+				if remaining != "" {
+					self.sendChunked(subscribedRun.chatId, 0, remaining)
+				}
+			} else {
+				self.sendChunked(subscribedRun.chatId, 0, finalText)
 			}
-			edit := tgbotapi.NewEditMessageText(subscribedRun.chatId, previewMessageId, firstChunk)
-			edit.ParseMode = "Markdown"
-			if _, editError := self.api.Send(edit); editError != nil {
-				edit.ParseMode = ""
-				self.api.Send(edit)
+			return
+		}
+
+		// WebUI fallback: only notify when the originating web session is disconnected.
+		if subscribedRun.origin == "webui" && !self.gateway.IsSessionConnected(subscribedRun.originSessionId) {
+			if subscribedRun.triggerText != "" {
+				contextMessage := tgbotapi.NewMessage(subscribedRun.chatId, "WebUI response ready:\n> "+strings.ReplaceAll(subscribedRun.triggerText, "\n", "\n> "))
+				self.api.Send(contextMessage)
 			}
-			if remaining != "" {
-				self.sendChunked(subscribedRun.chatId, 0, remaining)
-			}
-		} else {
 			self.sendChunked(subscribedRun.chatId, 0, finalText)
 		}
 
@@ -454,14 +487,23 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 			return
 		}
 
-		subscribedRun.preview.Stop()
-		subscribedRun.preview.Delete()
-		if state == "error" {
+		if subscribedRun.preview != nil {
+			subscribedRun.preview.Stop()
+			subscribedRun.preview.Delete()
+		}
+		if state == "error" && subscribedRun.preview != nil {
 			errorText, _ := payloadMap["error"].(string)
 			if errorText == "" {
 				errorText = "An error occurred while processing the request."
 			}
 			msg := tgbotapi.NewMessage(subscribedRun.chatId, "Sorry, an error occurred: "+errorText)
+			self.api.Send(msg)
+		} else if state == "error" && subscribedRun.origin == "webui" && !self.gateway.IsSessionConnected(subscribedRun.originSessionId) {
+			errorText, _ := payloadMap["error"].(string)
+			if errorText == "" {
+				errorText = "An error occurred while processing the request."
+			}
+			msg := tgbotapi.NewMessage(subscribedRun.chatId, "WebUI run failed: "+errorText)
 			self.api.Send(msg)
 		}
 	}

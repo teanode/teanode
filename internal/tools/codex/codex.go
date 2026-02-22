@@ -134,7 +134,8 @@ func (self *codexTool) Definition() providers.ToolDefinition {
 			Name: "codex",
 			Description: "Delegate complex coding tasks to Codex running in headless mode. " +
 				"Codex can autonomously read/edit files, run commands, and reason about code. " +
-				"Actions: run (start a new task), resume (continue a previous session), list_sessions (list tracked sessions).",
+				"Actions: run (start a new task; when a tracked session exists, prefer resume unless forceNewSession=true), " +
+				"resume (continue a previous session), list_sessions (list tracked sessions).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -150,6 +151,10 @@ func (self *codexTool) Definition() providers.ToolDefinition {
 					"sessionId": map[string]interface{}{
 						"type":        "string",
 						"description": "Session ID to resume (required for resume action).",
+					},
+					"forceNewSession": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Only for run action. Set true to intentionally create a new session when one already exists.",
 					},
 					"systemPrompt": map[string]interface{}{
 						"type":        "string",
@@ -229,6 +234,7 @@ func (self *codexTool) Execute(ctx context.Context, rawArguments string) (string
 		Action           string `json:"action"`
 		Prompt           string `json:"prompt"`
 		SessionID        string `json:"sessionId"`
+		ForceNewSession  bool   `json:"forceNewSession"`
 		SystemPrompt     string `json:"systemPrompt"`
 		WorkingDirectory string `json:"workingDirectory"`
 		TimeoutSeconds   int    `json:"timeoutSeconds"`
@@ -239,7 +245,7 @@ func (self *codexTool) Execute(ctx context.Context, rawArguments string) (string
 
 	switch arguments.Action {
 	case "run":
-		return self.executeRun(ctx, arguments.Prompt, arguments.SystemPrompt, arguments.WorkingDirectory, arguments.TimeoutSeconds)
+		return self.executeRun(ctx, arguments.Prompt, arguments.SystemPrompt, arguments.WorkingDirectory, arguments.TimeoutSeconds, arguments.ForceNewSession)
 	case "resume":
 		return self.executeResume(ctx, arguments.SessionID, arguments.Prompt, arguments.SystemPrompt, arguments.WorkingDirectory, arguments.TimeoutSeconds)
 	case "list_sessions":
@@ -249,13 +255,22 @@ func (self *codexTool) Execute(ctx context.Context, rawArguments string) (string
 	}
 }
 
-func (self *codexTool) executeRun(ctx context.Context, prompt, systemPrompt, workingDirectory string, timeoutSeconds int) (string, error) {
+func (self *codexTool) executeRun(ctx context.Context, prompt, systemPrompt, workingDirectory string, timeoutSeconds int, forceNewSession bool) (string, error) {
 	if prompt == "" {
 		return "", fmt.Errorf("prompt is required for run action")
+	}
+	if self.hasTrackedSessions() && !forceNewSession {
+		return "", fmt.Errorf("existing session(s) detected — use action=resume with sessionId (see list_sessions), or set forceNewSession=true to start a new session")
 	}
 
 	commandArguments := self.buildArguments(prompt, "", systemPrompt)
 	return self.executeCommand(ctx, commandArguments, workingDirectory, timeoutSeconds)
+}
+
+func (self *codexTool) hasTrackedSessions() bool {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return len(self.sessions) > 0
 }
 
 func (self *codexTool) executeResume(ctx context.Context, sessionID, prompt, systemPrompt, workingDirectory string, timeoutSeconds int) (string, error) {

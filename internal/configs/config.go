@@ -133,7 +133,7 @@ const DefaultAgentID = "main"
 type AgentConfig struct {
 	ID     string   `json:"id" yaml:"id"`                             // unique; "main" is default
 	Name   string   `json:"name,omitempty" yaml:"name,omitempty"`     // friendly display name
-	Model  string   `json:"model,omitempty" yaml:"model,omitempty"`   // qualified model override (e.g. "openai:gpt-5.1")
+	Model  string   `json:"model,omitempty" yaml:"model,omitempty"`   // qualified model override (e.g. "openai:gpt-5.2")
 	Skills []string `json:"skills,omitempty" yaml:"skills,omitempty"` // skill allow list (nil = all)
 	Tools  []string `json:"tools,omitempty" yaml:"tools,omitempty"`   // tool allow list (nil = all)
 }
@@ -364,7 +364,7 @@ type ProviderConfig struct {
 type ModelsConfig struct {
 	Default         string             `json:"default,omitempty" yaml:"default,omitempty"`
 	SummarizerModel string             `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"` // model for title + summary generation; defaults to Default
-	ContextWindow   int                `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; default 128000
+	ContextWindow   int                `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`     // max tokens; defaults from model lookup when unset
 	DefaultLimits   AgentLimits        `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`     // default runtime limits applied to all models
 	Limits          ModelRuntimeLimits `json:"limits,omitempty" yaml:"limits,omitempty"`                   // per-model runtime limits
 	Providers       []ProviderConfig   `json:"providers,omitempty" yaml:"providers,omitempty"`
@@ -649,6 +649,15 @@ func SkillsDirectory() (string, error) {
 	return filepath.Join(directory, "skills"), nil
 }
 
+// ProjectsDirectory returns the projects directory (~/.teanode/projects).
+func ProjectsDirectory() (string, error) {
+	directory, err := Directory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, "projects"), nil
+}
+
 // ModelsFile returns the path to the models cache file (~/.teanode/models.yaml).
 func ModelsFile() (string, error) {
 	directory, err := Directory()
@@ -709,7 +718,7 @@ func EnsureDirectories() error {
 	if err != nil {
 		return err
 	}
-	for _, sub := range []string{"conversations", "workspaces", "skills", "media", "agents", "jobs", "sessions", ".trash"} {
+	for _, sub := range []string{"conversations", "workspaces", "skills", "projects", "media", "agents", "jobs", "sessions", ".trash"} {
 		if err := os.MkdirAll(filepath.Join(directory, sub), 0755); err != nil {
 			return fmt.Errorf("creating directories: %w", err)
 		}
@@ -976,6 +985,7 @@ func Save(configuration *Config) error {
 
 func defaults() *Config {
 	configDefaults := parseSchemaDefaults(configSchemaJSON)
+	defaultModel := "openai:gpt-5.2"
 	return &Config{
 		Gateway: GatewayConfig{
 			Port: schemaInt(configDefaults, "gateway.port"),
@@ -987,8 +997,8 @@ func defaults() *Config {
 			},
 		},
 		Models: ModelsConfig{
-			Default:       "openai:gpt-5.1",
-			ContextWindow: schemaInt(configDefaults, "models.contextWindow"),
+			Default:       defaultModel,
+			ContextWindow: defaultContextWindowForModel(defaultModel),
 			DefaultLimits: DefaultAgentLimits,
 		},
 		SkillsRegistries: []SkillsRegistry{
@@ -1026,13 +1036,48 @@ func applyDefaults(configuration *Config) {
 		}
 	}
 	if configuration.Models.ContextWindow <= 0 {
-		configuration.Models.ContextWindow = fallback.Models.ContextWindow
+		configuration.Models.ContextWindow = defaultContextWindowForModel(configuration.Models.Default)
 	}
 	configuration.Models.DefaultLimits = mergeLimits(fallback.Models.DefaultLimits, configuration.Models.DefaultLimits)
 
 	if len(configuration.SkillsRegistries) == 0 {
 		configuration.SkillsRegistries = fallback.SkillsRegistries
 	}
+}
+
+// Model context windows keyed by bare model name (provider-agnostic).
+// Example: both "openai:gpt-5.2" and "openrouter:gpt-5.2" resolve via "gpt-5.2".
+var modelContextWindowDefaults = map[string]int{
+	// OpenAI API model pages
+	"gpt-5.2":       400000,
+	"gpt-5.2-codex": 400000,
+	"gpt-4.1":       1047576,
+	"gpt-4.1-mini":  1047576,
+	"gpt-4o":        128000,
+	"gpt-4o-mini":   128000,
+
+	// Anthropic model overview (default context; 1M is beta for select models with header)
+	"claude-opus-4-6":   200000,
+	"claude-sonnet-4-5": 200000,
+	"claude-haiku-4-5":  200000,
+
+	// Gemini API model pages
+	"google/gemini-2.5-pro":        1048576,
+	"google/gemini-2.5-flash":      1048576,
+	"google/gemini-2.5-flash-lite": 1048576,
+}
+
+func defaultContextWindowForModel(model string) int {
+	const fallbackContextWindow = 128000
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return fallbackContextWindow
+	}
+	_, bareModel := providers.ParseQualifiedModel(model, "openai")
+	if contextWindow, ok := modelContextWindowDefaults[bareModel]; ok {
+		return contextWindow
+	}
+	return fallbackContextWindow
 }
 
 func applyEnv(configuration *Config) {

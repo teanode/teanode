@@ -71,6 +71,7 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 		sub.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
 		sub.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
 		sub.Handle("/agents/{id}/avatar", web.HandlerFunc(self.handleAgentAvatar))
+		sub.Handle("/profile/avatar", web.HandlerFunc(self.handleProfileAvatar))
 	}
 
 	sub.Handle("/audio/transcribe", web.HandlerFunc(self.handleAudioTranscribe))
@@ -78,5 +79,6 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 	sub.Handle("/audio/stream", web.HandlerFunc(self.handleAudioStream))
 
 	sub.Handle("/chat/completions", web.HandlerFunc(self.handleChatCompletions))
+	sub.Handle("/profile", web.HandlerFunc(self.handleProfile))
 	return nil
 }

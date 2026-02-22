@@ -3,6 +3,7 @@ package v1api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/teanode/teanode/internal/configs"
@@ -57,6 +58,7 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 
 	var body struct {
 		Password string `json:"password"`
+		Name     string `json:"name"`
 	}
 	if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 		return web.Error(400, "invalid request body")
@@ -70,11 +72,21 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 		return web.Error(500, "failed to hash password")
 	}
 
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = configs.OSUsername()
+	}
+	profile := &configs.Profile{Name: name}
+	if err := configs.SaveProfile(profile); err != nil {
+		return web.Error(500, "failed to save profile")
+	}
+
 	// Update in-memory and save to security.yaml.
 	securityConfig.Password = string(hash)
 	if err := configs.SaveSecurity(securityConfig); err != nil {
 		return web.Error(500, "failed to save security config")
 	}
+	self.gateway.SetProfile(profile)
 
 	// Auto-create a session for the user.
 	maxAge := resolveMaxAge(self.gateway.Config())

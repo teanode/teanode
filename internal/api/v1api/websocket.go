@@ -36,6 +36,8 @@ func (self *webSocketConnection) OnEvent(eventType gw.EventType, payload interfa
 
 func (self *webSocketConnection) serve() {
 	defer self.connection.Close()
+	self.api.gateway.MarkSessionConnected(self.sessionId)
+	defer self.api.gateway.MarkSessionDisconnected(self.sessionId)
 	self.api.gateway.Subscribe(self)
 	defer self.api.gateway.Unsubscribe(self)
 
@@ -129,6 +131,12 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleAuthRegenerateToken(frame)
 	case "auth.changePassword":
 		self.handleAuthChangePassword(frame)
+	case "profile.get":
+		self.handleProfileGet(frame)
+	case "profile.update":
+		self.handleProfileUpdate(frame)
+	case "profile.avatar.remove":
+		self.handleProfileAvatarRemove(frame)
 	case "skills.registry.list":
 		self.handleSkillsRegistryList(frame)
 	case "skills.registry.search":
@@ -145,6 +153,14 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleSkillsUpdate(frame)
 	case "skills.setEnabled":
 		self.handleSkillsSetEnabled(frame)
+	case "projects.list":
+		self.handleProjectsList(frame)
+	case "projects.create":
+		self.handleProjectsCreate(frame)
+	case "projects.rename":
+		self.handleProjectsRename(frame)
+	case "projects.delete":
+		self.handleProjectsDelete(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

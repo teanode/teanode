@@ -19,12 +19,14 @@ import SettingsLayout from "./routes/settings/route";
 import SettingsIndexPage from "./routes/settings/index";
 import SettingsSectionPage from "./routes/settings/$sectionId";
 import SettingsPreferencesPage from "./routes/settings/preferences";
+import SettingsProfilePage from "./routes/settings/profile";
 import SettingsTokenPage from "./routes/settings/token";
 import SettingsPasswordPage from "./routes/settings/password";
 import SettingsSessionsPage from "./routes/settings/sessions";
 import SettingsAgentsPage from "./routes/settings/agents";
 import SettingsAgentPage from "./routes/settings/agents/$agentId";
 import SettingsJobsPage from "./routes/settings/jobs";
+import SettingsProjectsPage from "./routes/settings/projects";
 import SettingsSkillsPage from "./routes/settings/skills";
 import LoginRoute from "./routes/login";
 import SetupRoute from "./routes/setup";
@@ -136,6 +138,13 @@ const settingsSectionRoute = createRoute({
 });
 
 // /settings/preferences → client-side preferences
+const settingsProfileRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "profile",
+  component: SettingsProfilePage,
+});
+
+// /settings/preferences → client-side preferences
 const settingsPreferencesRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "preferences",
@@ -175,6 +184,13 @@ const settingsJobsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "jobs",
   component: SettingsJobsPage,
+});
+
+// /settings/projects → projects management page
+const settingsProjectsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "projects",
+  component: SettingsProjectsPage,
 });
 
 // /settings/skills → skills management page
@@ -222,12 +238,14 @@ const routeTree = rootRoute.addChildren([
   jobsRoute.addChildren([jobsIndexRoute, jobsNewRoute, jobDetailRoute]),
   settingsRoute.addChildren([
     settingsIndexRoute,
+    settingsProfileRoute,
     settingsPreferencesRoute,
     settingsTokenRoute,
     settingsPasswordRoute,
     settingsSessionsRoute,
     settingsAgentsRoute,
     settingsJobsRoute,
+    settingsProjectsRoute,
     settingsSkillsRoute,
     settingsAgentRoute,
     settingsSectionRoute,

@@ -91,7 +91,7 @@ func CompactConversation(
 // definitions. This enables prompt cache hits when the summarizer model matches
 // the main model.
 func (self *Runner) CompactConversation(ctx context.Context, conversationId string) (*CompactResult, error) {
-	configuration, providerRegistry, tools, _, _ := self.Snapshot()
+	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts, profile := self.Snapshot()
 
 	// Load conversation history.
 	history, err := self.Conversations.Load(conversationId)
@@ -109,7 +109,7 @@ func (self *Runner) CompactConversation(ctx context.Context, conversationId stri
 	limits := configuration.ResolveModelLimits(qualifiedModel)
 
 	// Build messages via the same pipeline used for normal runs.
-	llmMessages := self.buildMessages(history, limits, "")
+	llmMessages := self.buildMessages(history, limits, "", configuration, workspaceDirectory, skillPrompts, profile)
 
 	// Build tool definitions.
 	var toolDefs []providers.ToolDefinition
