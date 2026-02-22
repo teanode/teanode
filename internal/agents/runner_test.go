@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -169,13 +170,16 @@ func TestRunnerRunAbort(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	gotChunk := make(chan struct{})
+	done := make(chan struct{})
+	var closeChunk sync.Once
 	go func() {
+		defer close(done)
 		runner.Run(ctx, RunParams{
 			ConversationID: "abort-test",
 			Message:        "abort me",
 		}, &RunCallbacks{
 			OnTextDelta: func(text string) {
-				close(gotChunk)
+				closeChunk.Do(func() { close(gotChunk) })
 			},
 		})
 	}()
@@ -183,6 +187,7 @@ func TestRunnerRunAbort(t *testing.T) {
 	// Wait for first chunk, then cancel.
 	<-gotChunk
 	cancel()
+	<-done
 }
 
 // mockToolCallServer simulates an LLM that makes a tool call then responds with text.
