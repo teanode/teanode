@@ -16,8 +16,6 @@ func withTempConfigDirectory(t *testing.T) string {
 }
 
 func TestLoadProfile_MissingFileFallsBackToOSUsername(t *testing.T) {
-	t.Parallel()
-
 	withTempConfigDirectory(t)
 
 	profile, err := LoadProfile()
@@ -30,8 +28,6 @@ func TestLoadProfile_MissingFileFallsBackToOSUsername(t *testing.T) {
 }
 
 func TestLoadProfile_EmptyNameFallsBackToOSUsername(t *testing.T) {
-	t.Parallel()
-
 	directory := withTempConfigDirectory(t)
 	content := strings.Join([]string{
 		"---",
@@ -60,8 +56,6 @@ func TestLoadProfile_EmptyNameFallsBackToOSUsername(t *testing.T) {
 }
 
 func TestSaveProfileAndLoadProfile(t *testing.T) {
-	t.Parallel()
-
 	withTempConfigDirectory(t)
 	input := &Profile{
 		Name:          "Alice",
@@ -107,8 +101,6 @@ func TestSaveProfileAndLoadProfile(t *testing.T) {
 }
 
 func TestSaveProfile_EmptyNameFallsBackToOSUsername(t *testing.T) {
-	t.Parallel()
-
 	withTempConfigDirectory(t)
 	input := &Profile{
 		Name: "   ",
@@ -128,8 +120,6 @@ func TestSaveProfile_EmptyNameFallsBackToOSUsername(t *testing.T) {
 }
 
 func TestLoadProfile_DoesNotReadLegacyProfileYAML(t *testing.T) {
-	t.Parallel()
-
 	directory := withTempConfigDirectory(t)
 	data := []byte("name: Legacy Name\nbio: legacy bio\navatarMediaId: legacy_media\n")
 	if err := os.WriteFile(filepath.Join(directory, "profile.yaml"), data, 0644); err != nil {
@@ -152,8 +142,6 @@ func TestLoadProfile_DoesNotReadLegacyProfileYAML(t *testing.T) {
 }
 
 func TestSaveProfile_PreservesUnknownFrontMatterKeys(t *testing.T) {
-	t.Parallel()
-
 	directory := withTempConfigDirectory(t)
 	content := strings.Join([]string{
 		"---",
@@ -185,8 +173,6 @@ func TestSaveProfile_PreservesUnknownFrontMatterKeys(t *testing.T) {
 }
 
 func TestSaveProfile_PreservesExistingBioByDefault(t *testing.T) {
-	t.Parallel()
-
 	withTempConfigDirectory(t)
 	if err := SaveProfileOverwriteBio(&Profile{Name: "Alice", Bio: "# Existing"}); err != nil {
 		t.Fatalf("SaveProfileOverwriteBio failed: %v", err)
@@ -209,8 +195,6 @@ func TestSaveProfile_PreservesExistingBioByDefault(t *testing.T) {
 }
 
 func TestSaveProfileOverwriteBio_ClearsBio(t *testing.T) {
-	t.Parallel()
-
 	withTempConfigDirectory(t)
 	if err := SaveProfileOverwriteBio(&Profile{Name: "Alice", Bio: "# Existing"}); err != nil {
 		t.Fatalf("SaveProfileOverwriteBio failed: %v", err)
@@ -230,8 +214,6 @@ func TestSaveProfileOverwriteBio_ClearsBio(t *testing.T) {
 }
 
 func TestSaveProfile_Writes0600Permissions(t *testing.T) {
-	t.Parallel()
-
 	directory := withTempConfigDirectory(t)
 	if err := SaveProfile(&Profile{Name: "Alice", Bio: "# Bio\n- bullet"}); err != nil {
 		t.Fatalf("SaveProfile failed: %v", err)
@@ -247,8 +229,6 @@ func TestSaveProfile_Writes0600Permissions(t *testing.T) {
 }
 
 func TestLoadProfile_MarkdownBioRoundTrip(t *testing.T) {
-	t.Parallel()
-
 	withTempConfigDirectory(t)
 	input := &Profile{
 		Name: "Alice",
