@@ -168,7 +168,10 @@ export async function authLogin(password: string): Promise<void> {
   }
 }
 
-export async function authSetup(password: string, name?: string): Promise<void> {
+export async function authSetup(
+  password: string,
+  name?: string,
+): Promise<void> {
   const response = await apiFetch("/api/v1/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

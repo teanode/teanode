@@ -237,9 +237,9 @@ const routeTree = rootRoute.addChildren([
   ]),
   jobsRoute.addChildren([jobsIndexRoute, jobsNewRoute, jobDetailRoute]),
   settingsRoute.addChildren([
-  settingsIndexRoute,
-  settingsProfileRoute,
-  settingsPreferencesRoute,
+    settingsIndexRoute,
+    settingsProfileRoute,
+    settingsPreferencesRoute,
     settingsTokenRoute,
     settingsPasswordRoute,
     settingsSessionsRoute,
