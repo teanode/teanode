@@ -12,9 +12,9 @@ import (
 var pipelineLog = logging.MustGetLogger("voice.pipeline")
 
 const (
-	minCommittedTurnBytes  = 19200 // ~600ms at 16kHz mono s16le
-	minCommittedTextRunes  = 8
-	maxResponseStartDelay  = 2 * time.Second
+	minCommittedTurnBytes = 19200 // ~600ms at 16kHz mono s16le
+	minCommittedTextRunes = 8
+	maxResponseStartDelay = 2 * time.Second
 )
 
 const voiceCallPromptSuffix = "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists."
