@@ -182,11 +182,43 @@ func (self *Session) HandleInputBinaryFrame(raw []byte) error {
 }
 
 // InputCommit allows push-to-talk sessions to flush buffered input turn.
-func (self *Session) InputCommit() {
+func (self *Session) InputCommit(reason string) {
+	turnId := self.GetCurrentTurnId()
+	if turnId == "" {
+		turnId = self.newTurnId()
+		self.startNewTurn(turnId)
+	}
+	audio := self.takeExplicitAudio()
+	if len(audio) == 0 {
+		self.sendVoiceEvent("turn.event", turnEventPayload{
+			TurnID: turnId,
+			Event:  "turn_dropped",
+			Reason: "dropped_empty_audio",
+		})
+		return
+	}
+	if len(audio) < minCommittedTurnBytes {
+		self.sendVoiceEvent("turn.event", turnEventPayload{
+			TurnID: turnId,
+			Event:  "turn_dropped",
+			Reason: "dropped_too_short_audio",
+		})
+		return
+	}
+
 	self.sendVoiceEvent("turn.event", turnEventPayload{
-		TurnID: self.GetCurrentTurnId(),
-		Event:  "turn_committed",
+		TurnID: turnId,
+		Event:  "input_committed",
+		Reason: reason,
 	})
+	self.setSpeechReady(false)
+	if !self.TryStartTurnTranscription(turnId) {
+		return
+	}
+	go func(tid string, captured []byte) {
+		defer self.FinishTurnTranscription(tid)
+		self.transcribeAndSend(tid, captured)
+	}(turnId, audio)
 }
 
 // CancelResponse aborts current response generation and playback.
@@ -440,4 +472,15 @@ func (self *Session) ExplicitAudioLen() int {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return len(self.explicitAudioBuf)
+}
+
+func (self *Session) takeExplicitAudio() []byte {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	if len(self.explicitAudioBuf) == 0 {
+		return nil
+	}
+	captured := append([]byte(nil), self.explicitAudioBuf...)
+	self.explicitAudioBuf = self.explicitAudioBuf[:0]
+	return captured
 }

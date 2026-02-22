@@ -143,7 +143,7 @@ func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) {
 		return
 	}
 	log.Infof("voice.input.commit session=%s reason=%s", session.ID, parameters.Reason)
-	session.InputCommit()
+	session.InputCommit(parameters.Reason)
 	self.sendResponse(frame.ID, map[string]any{"committed": true})
 }
 

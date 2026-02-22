@@ -403,3 +403,95 @@ func TestAudioInputLoop_ServerTurnFalse(t *testing.T) {
 		t.Fatal("audioInputLoop did not stop after done")
 	}
 }
+
+func TestInputCommit_FullPipeline(t *testing.T) {
+	s, deps, rec := newPipelineSessionWithEventsAndFeatures("hello from commit", Features{
+		ServerVAD:  false,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	s.accumulateExplicitAudio(makePCMFrame(12000, 8000)) // 500 ms
+
+	s.InputCommit("push_to_talk")
+	waitFor(t, 500*time.Millisecond, func() bool { return deps.sendCount() == 1 })
+
+	if rec.findTurnEvent("input_committed") == nil {
+		t.Fatal("expected input_committed event")
+	}
+	if deps.sendCount() != 1 {
+		t.Fatalf("expected one send after input commit, got %d", deps.sendCount())
+	}
+}
+
+func TestInputCommit_EmptyBuffer(t *testing.T) {
+	s, deps, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
+		ServerVAD:  false,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+
+	s.InputCommit("push_to_talk")
+	time.Sleep(50 * time.Millisecond)
+
+	if deps.sendCount() != 0 {
+		t.Fatalf("expected no send for empty commit, got %d", deps.sendCount())
+	}
+	ev := rec.findTurnEvent("turn_dropped")
+	if ev == nil {
+		t.Fatal("expected turn_dropped event")
+	}
+	payload := ev["payload"].(turnEventPayload)
+	if payload.Reason != "dropped_empty_audio" {
+		t.Fatalf("expected dropped_empty_audio reason, got %q", payload.Reason)
+	}
+}
+
+func TestInputCommit_TooShort(t *testing.T) {
+	s, deps, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
+		ServerVAD:  false,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	s.accumulateExplicitAudio(makePCMFrame(12000, 1600)) // 100 ms
+
+	s.InputCommit("push_to_talk")
+	time.Sleep(50 * time.Millisecond)
+
+	if deps.sendCount() != 0 {
+		t.Fatalf("expected no send for short commit, got %d", deps.sendCount())
+	}
+	ev := rec.findTurnEvent("turn_dropped")
+	if ev == nil {
+		t.Fatal("expected turn_dropped event")
+	}
+	payload := ev["payload"].(turnEventPayload)
+	if payload.Reason != "dropped_too_short_audio" {
+		t.Fatalf("expected dropped_too_short_audio reason, got %q", payload.Reason)
+	}
+}
+
+func TestInputCommit_RaceCondition(t *testing.T) {
+	s, deps, _ := newPipelineSessionWithEventsAndFeatures("race commit", Features{
+		ServerVAD:  false,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	s.accumulateExplicitAudio(makePCMFrame(12000, 8000))
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		s.InputCommit("push_to_talk")
+	}()
+	go func() {
+		defer wg.Done()
+		s.InputCommit("push_to_talk")
+	}()
+	wg.Wait()
+
+	waitFor(t, 500*time.Millisecond, func() bool { return deps.sendCount() >= 1 || s.HasPendingTurns() })
+	if deps.sendCount() > 1 {
+		t.Fatalf("expected at most one send after concurrent commits, got %d", deps.sendCount())
+	}
+}
