@@ -256,20 +256,20 @@ func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 	}
 }
 
-func TestTranscribeTooShortTextEmitsDroppedReason(t *testing.T) {
-	s, deps, rec := newPipelineSessionWithEvents("ok")
-	s.transcribeAndSend("turn-short", makePCMFrame(12000, 320))
+func TestTranscribeEmptyTextEmitsDroppedReason(t *testing.T) {
+	s, deps, rec := newPipelineSessionWithEvents("   ")
+	s.transcribeAndSend("turn-empty", makePCMFrame(12000, 320))
 
 	if deps.sendCount() != 0 {
-		t.Fatalf("expected no send for short transcript, got %d", deps.sendCount())
+		t.Fatalf("expected no send for empty transcript, got %d", deps.sendCount())
 	}
 	ev := rec.findTurnEvent("turn_dropped")
 	if ev == nil {
 		t.Fatal("expected turn_dropped event")
 	}
 	payload := ev["payload"].(turnEventPayload)
-	if payload.Reason != "dropped_too_short_text" {
-		t.Fatalf("expected dropped_too_short_text reason, got %q", payload.Reason)
+	if payload.Reason != "dropped_empty_transcript" {
+		t.Fatalf("expected dropped_empty_transcript reason, got %q", payload.Reason)
 	}
 }
 

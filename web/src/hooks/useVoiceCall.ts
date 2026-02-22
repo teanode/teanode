@@ -4,7 +4,6 @@ import { useVoiceSession } from "./useVoiceSession";
 
 const AGENT_WAITING_CHIME_MS = 3200;
 const AGENT_WAITING_CHIME_MIN_GAP_MS = 1400;
-const LOCAL_BARGE_IN_MIN_GAP_MS = 1200;
 
 export interface UseVoiceCallOptions {
   sendRpc: <T = unknown>(method: string, params: unknown) => Promise<T>;
@@ -50,7 +49,6 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     sendBinary,
     onBinaryMessage,
     onVoiceMessage,
-    abortRun,
     isRunning,
     connected,
     conversationId,
@@ -80,7 +78,6 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const endCallRef = useRef<() => void>(() => {});
   const pendingAgentDoneChimeRef = useRef(false);
-  const lastLocalBargeInAtRef = useRef(0);
 
   const chimePlayer = useChimePlayer(chimeConfig);
   const playWaitingChime = useCallback(() => {
@@ -218,25 +215,6 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     setCallError("Connection lost. Call ended.");
     endCallRef.current();
   }, [connected, isCallActive, isConnecting]);
-
-  useEffect(() => {
-    if (!isCallActive || !isUserSpeaking) return;
-    if (!isPlaying && !isSynthesizing) return;
-    const now = Date.now();
-    if (now - lastLocalBargeInAtRef.current < LOCAL_BARGE_IN_MIN_GAP_MS) {
-      return;
-    }
-    lastLocalBargeInAtRef.current = now;
-    interruptPlayback();
-    abortRun();
-  }, [
-    abortRun,
-    interruptPlayback,
-    isCallActive,
-    isPlaying,
-    isSynthesizing,
-    isUserSpeaking,
-  ]);
 
   useEffect(() => {
     const shouldPlayWaiting = isCallActive && (isAgentBusy || isRunning);

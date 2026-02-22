@@ -12,9 +12,11 @@ import (
 var pipelineLog = logging.MustGetLogger("voice.pipeline")
 
 const (
-	minCommittedTurnBytes = 19200 // ~600ms at 16kHz mono s16le
-	minCommittedTextRunes = 8
-	maxResponseStartDelay = 2 * time.Second
+	minCommittedTurnBytes  = 6400 // ~200ms at 16kHz mono s16le
+	minCommittedTextRunes  = 1
+	bargeInTriggerMinScore = 0.06
+	maxResponseStartDelay  = 2 * time.Second
+	vadPreRollFrames       = 8 // keep ~160ms leading context so first words aren't clipped
 )
 
 const voiceCallPromptSuffix = "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists."
@@ -22,16 +24,29 @@ const voiceCallPromptSuffix = "The user is in a live voice call with you. Their 
 func (self *Session) audioInputLoop() {
 	vad := &VADState{}
 	var speechBuf []byte
+	preSpeech := make([][]byte, 0, vadPreRollFrames)
 
 	for {
 		select {
 		case <-self.doneCh:
 			return
 		case frame := <-self.audioInCh:
+			if !vad.IsSpeaking {
+				cp := append([]byte(nil), frame...)
+				preSpeech = append(preSpeech, cp)
+				if len(preSpeech) > vadPreRollFrames {
+					preSpeech = preSpeech[1:]
+				}
+			}
 			started, ended, score := vad.ProcessFrame(frame)
 			if started {
 				turnId := self.newTurnId()
 				self.startNewTurn(turnId)
+				speechBuf = speechBuf[:0]
+				for _, buffered := range preSpeech {
+					speechBuf = append(speechBuf, buffered...)
+				}
+				preSpeech = preSpeech[:0]
 				pipelineLog.Infof("voice speech_started: session=%s turn=%s seq_ref=%d score=%.4f", self.ID, turnId, self.inSeq.Load(), score)
 				self.sendVoiceEvent("turn.event", turnEventPayload{
 					TurnID:      turnId,
@@ -39,13 +54,18 @@ func (self *Session) audioInputLoop() {
 					VADScore:    score,
 					AudioSeqRef: self.inSeq.Load(),
 				})
-				if self.Features.BargeIn && (self.GetCurrentRunId() != "" || self.GetCurrentResponseId() != "") {
+				if self.Features.BargeIn &&
+					score >= bargeInTriggerMinScore &&
+					(self.GetCurrentRunId() != "" || self.GetCurrentResponseId() != "") {
 					self.triggerBargeIn()
 				}
 			}
 
 			if vad.IsSpeaking {
-				speechBuf = append(speechBuf, frame...)
+				// Current frame is already included when speech just started via pre-roll.
+				if !started {
+					speechBuf = append(speechBuf, frame...)
+				}
 			}
 
 			if ended {
