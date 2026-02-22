@@ -192,3 +192,46 @@ Started: 2026-02-22T21:56:22Z
       PASS `go test -race ./internal/api/v1api/...`
       PASS `make test-voice-e2e-smoke` (required local gateway on 127.0.0.1:8833)
   - Next: advance to Wave 2 (L1.3 observer telemetry).
+- 2026-02-22T22:26:11Z
+  - Wave: 2
+  - Task: L1.3
+  - Status: in_progress
+  - Branch: codex/l1-3-observer-telemetry
+  - Commit: n/a
+  - Validations: pending
+  - Next: add turn observer + metrics emission and wire into voicee2e report path.
+- 2026-02-22T22:30:25Z
+  - Wave: 2
+  - Task: L1.3
+  - Status: complete
+  - Branch: codex/l1-3-observer-telemetry
+  - Commit: 8e911e9
+  - Validations: |
+      PASS `go test -race ./internal/voice/... -run TestMetricsObserver`
+      PASS `go test -race ./internal/voice/... -run TestNotifyObservers`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go test ./test/voicee2e/...`
+      PASS `go build ./...`
+  - Next: integrate L1.3 to pipeline and run Wave 2 gate.
+- 2026-02-22T22:30:48Z
+  - Wave: 2
+  - Task: integrate
+  - Status: complete
+  - Branch: pipeline
+  - Commit: fde72b1
+  - Validations: L1.3 merged
+  - Next: run Wave 2 gate commands.
+
+- 2026-02-22T22:33:59Z
+  - Wave: 2
+  - Task: gate
+  - Status: passed
+  - Branch: pipeline
+  - Commit: fde72b1
+  - Validations: |
+      PASS `go build ./...`
+      PASS `go vet ./...`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave2.json` (required escalated local websocket access)
+      PASS metrics checks: turn.metrics count=3; complete-turn non-zero timestamp sets=3
+  - Next: advance to Wave 3 parallel tasks L1.1 and L1.4.
