@@ -56,6 +56,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
+  const [isAgentBusy, setIsAgentBusy] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -150,21 +151,28 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       const payload = message.payload as Record<string, unknown> | undefined;
       if (typeof type !== "string") return;
       if (type === "response.completed") {
+        setIsAgentBusy(false);
         chimePlayer.play("agentDone");
+        return;
+      }
+      if (type === "response.started") {
+        setIsAgentBusy(false);
         return;
       }
       if (type !== "turn.event" || !payload) return;
       const event = payload.event;
       if (event === "turn_committed") {
+        setIsAgentBusy(true);
         chimePlayer.play("inputCaptured");
       } else if (event === "turn_queued") {
-        chimePlayer.play("agentWaiting");
+        setIsAgentBusy(true);
       }
     });
   }, [chimePlayer, isCallActive, onVoiceMessage]);
 
   useEffect(() => {
-    if (!isCallActive || !isRunning) {
+    const shouldPlayWaiting = isCallActive && (isAgentBusy || isRunning);
+    if (!shouldPlayWaiting) {
       if (waitingToneIntervalRef.current) {
         clearInterval(waitingToneIntervalRef.current);
         waitingToneIntervalRef.current = null;
@@ -172,6 +180,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       return;
     }
     if (!waitingToneIntervalRef.current) {
+      chimePlayer.play("agentWaiting");
       waitingToneIntervalRef.current = setInterval(() => {
         chimePlayer.play("agentWaiting");
       }, 2500);
@@ -182,12 +191,13 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         waitingToneIntervalRef.current = null;
       }
     };
-  }, [chimePlayer, isCallActive, isRunning]);
+  }, [chimePlayer, isAgentBusy, isCallActive, isRunning]);
 
   const endCall = useCallback(() => {
     setIsCallActive(false);
     setIsMuted(false);
     setCallDuration(0);
+    setIsAgentBusy(false);
 
     stopVoiceSession();
 

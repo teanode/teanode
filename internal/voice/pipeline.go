@@ -104,7 +104,14 @@ func (self *Session) llmEventForwarder() {
 		case event := <-sub.eventCh:
 			state, _ := event["state"].(string)
 			text, _ := event["text"].(string)
-			if runId, _ := event["runId"].(string); runId != "" && (state == "queued" || state == "delta") {
+			runId, _ := event["runId"].(string)
+			if runId != "" && self.IsRunCanceled(runId) {
+				if state == "final" || state == "aborted" || state == "error" {
+					self.ClearCanceledRun(runId)
+				}
+				continue
+			}
+			if runId != "" && (state == "queued" || state == "delta") {
 				self.SetCurrentRunId(runId)
 			}
 			if state == "queued" || state == "final" || state == "error" || state == "aborted" {
@@ -150,6 +157,7 @@ func (self *Session) llmEventForwarder() {
 				}
 				// Response stream is complete; allow next transcript to commit a new run.
 				self.ClearCurrentRun()
+				self.ClearCanceledRun(runId)
 				streamText = ""
 				sentencesEnqueued = 0
 				sawDelta = false
@@ -396,17 +404,41 @@ func (self *Session) commitNextPendingTurn() {
 func (self *Session) triggerBargeIn() {
 	self.bargeInOnce.Do(func() {
 		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunId(), self.GetCurrentResponseId())
+		runId := self.GetCurrentRunId()
+		self.MarkRunCanceled(runId)
 		if prev := self.SwapTTSCancel(nil); prev != nil {
 			prev()
 		}
+		self.drainTTSQueue()
+		self.drainAudioOutQueue()
 		self.trySendFlushFrame()
-		if runId := self.GetCurrentRunId(); runId != "" && self.deps != nil {
+		if runId != "" && self.deps != nil {
 			self.deps.AbortRun(runId)
 		}
 		self.ClearCurrentRun()
 		self.ClearCurrentResponse()
 		self.sendVoiceEvent("turn.event", turnEventPayload{Event: "barge_in_triggered"})
 	})
+}
+
+func (self *Session) drainTTSQueue() {
+	for {
+		select {
+		case <-self.ttsInCh:
+		default:
+			return
+		}
+	}
+}
+
+func (self *Session) drainAudioOutQueue() {
+	for {
+		select {
+		case <-self.audioOutCh:
+		default:
+			return
+		}
+	}
 }
 
 func (self *Session) startNewTurn(turnId string) {

@@ -96,6 +96,8 @@ export function useVoiceSession(
     const next = outputQueueRef.current.shift();
     if (!next) {
       setIsPlaying(false);
+      // Normal end-of-response path: queue drained without an explicit flush.
+      setIsSynthesizing(false);
       return;
     }
     const source = context.createBufferSource();

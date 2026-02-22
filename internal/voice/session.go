@@ -67,6 +67,7 @@ type Session struct {
 	ttsCancel          func()
 	transcribeInFlight map[string]struct{}
 	committedTurns     map[string]struct{}
+	canceledRuns       map[string]struct{}
 	pendingTurns       []PendingTurn
 	maxPendingTurns    int
 
@@ -101,6 +102,7 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 		sendBinaryFn:       sendBinary,
 		transcribeInFlight: make(map[string]struct{}),
 		committedTurns:     make(map[string]struct{}),
+		canceledRuns:       make(map[string]struct{}),
 		maxPendingTurns:    defaultMaxPendingTurns,
 		audioInCh:          make(chan []byte, defaultAudioInBufferFrames),
 		ttsInCh:            make(chan string, defaultTtsSentenceBuffer),
@@ -329,6 +331,34 @@ func (self *Session) MarkTurnCommitted(turnId string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.committedTurns[turnId] = struct{}{}
+}
+
+func (self *Session) MarkRunCanceled(runId string) {
+	if runId == "" {
+		return
+	}
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	self.canceledRuns[runId] = struct{}{}
+}
+
+func (self *Session) IsRunCanceled(runId string) bool {
+	if runId == "" {
+		return false
+	}
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	_, exists := self.canceledRuns[runId]
+	return exists
+}
+
+func (self *Session) ClearCanceledRun(runId string) {
+	if runId == "" {
+		return
+	}
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	delete(self.canceledRuns, runId)
 }
 
 func (self *Session) EnqueuePendingTurn(turnId, text string) (dropped *PendingTurn, queueDepth int) {

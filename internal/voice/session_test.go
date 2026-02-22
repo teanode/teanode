@@ -85,6 +85,44 @@ func TestTriggerBargeInNonBlocking(t *testing.T) {
 	}
 }
 
+func TestTriggerBargeInClearsQueuedSpeechAndQueuesFlush(t *testing.T) {
+	s := newTestSession()
+	s.SetCurrentRunId("run-1")
+	s.SetCurrentResponseId("resp-1")
+
+	s.ttsInCh <- "old sentence"
+	s.ttsInCh <- ""
+	s.audioOutCh <- []byte{1}
+	s.audioOutCh <- []byte{2}
+
+	s.triggerBargeIn()
+
+	if got := len(s.ttsInCh); got != 0 {
+		t.Fatalf("expected empty tts queue after barge-in, got %d", got)
+	}
+	if got := len(s.audioOutCh); got != 1 {
+		t.Fatalf("expected only flush frame queued after barge-in, got %d items", got)
+	}
+
+	frame := <-s.audioOutCh
+	parsed, err := ParseBinaryAudioFrame(frame)
+	if err != nil {
+		t.Fatalf("expected valid binary frame, got error: %v", err)
+	}
+	if parsed.FrameType != FrameTypeFlush {
+		t.Fatalf("expected flush frame type, got %d", parsed.FrameType)
+	}
+	if s.GetCurrentRunId() != "" {
+		t.Fatal("expected run id cleared after barge-in")
+	}
+	if s.GetCurrentResponseId() != "" {
+		t.Fatal("expected response id cleared after barge-in")
+	}
+	if !s.IsRunCanceled("run-1") {
+		t.Fatal("expected interrupted run tracked as canceled")
+	}
+}
+
 func TestPendingTurnQueueFIFOAndOverflow(t *testing.T) {
 	s := newTestSession()
 	s.maxPendingTurns = 2
