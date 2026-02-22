@@ -2,6 +2,9 @@ import { useEffect, useRef, useCallback } from "react";
 import {
   connect,
   disconnect,
+  onBinaryMessage,
+  onVoiceMessage,
+  sendBinary,
   sendRpc,
   setEventHandler,
   setStatusHandler,
@@ -49,5 +52,5 @@ export function useWebSocket({
     [],
   );
 
-  return { sendRpc: rpc };
+  return { sendRpc: rpc, sendBinary, onBinaryMessage, onVoiceMessage };
 }

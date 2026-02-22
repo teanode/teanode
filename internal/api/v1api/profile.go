@@ -114,7 +114,7 @@ func (self *v1Api) handleProfileAvatar(writer http.ResponseWriter, request *http
 			return web.Error(500, "failed to save avatar: "+err.Error())
 		}
 
-		oldAvatarMediaID := profile.AvatarMediaID
+		oldAvatarMediaId := profile.AvatarMediaID
 		profile.AvatarMediaID = saved.MediaID
 		if err := configs.SaveProfile(profile); err != nil {
 			return web.Error(500, "failed to save profile")
@@ -123,8 +123,8 @@ func (self *v1Api) handleProfileAvatar(writer http.ResponseWriter, request *http
 		if err != nil {
 			return web.Error(500, "failed to load profile")
 		}
-		if oldAvatarMediaID != "" && oldAvatarMediaID != saved.MediaID {
-			_ = mediaStore.Delete(oldAvatarMediaID)
+		if oldAvatarMediaId != "" && oldAvatarMediaId != saved.MediaID {
+			_ = mediaStore.Delete(oldAvatarMediaId)
 		}
 
 		setNoStoreHeaders(writer)
@@ -132,7 +132,7 @@ func (self *v1Api) handleProfileAvatar(writer http.ResponseWriter, request *http
 		return json.NewEncoder(writer).Encode(persisted)
 
 	case http.MethodDelete:
-		oldAvatarMediaID := profile.AvatarMediaID
+		oldAvatarMediaId := profile.AvatarMediaID
 		profile.AvatarMediaID = ""
 		if err := configs.SaveProfile(profile); err != nil {
 			return web.Error(500, "failed to save profile")
@@ -141,8 +141,8 @@ func (self *v1Api) handleProfileAvatar(writer http.ResponseWriter, request *http
 		if err != nil {
 			return web.Error(500, "failed to load profile")
 		}
-		if oldAvatarMediaID != "" {
-			_ = mediaStore.Delete(oldAvatarMediaID)
+		if oldAvatarMediaId != "" {
+			_ = mediaStore.Delete(oldAvatarMediaId)
 		}
 		setNoStoreHeaders(writer)
 		writer.Header().Set("Content-Type", "application/json")

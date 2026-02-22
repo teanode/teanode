@@ -269,8 +269,8 @@ func (self *claudeCodeTool) hasTrackedSessions() bool {
 	return len(self.sessions) > 0
 }
 
-func (self *claudeCodeTool) executeResume(ctx context.Context, sessionID, prompt, systemPrompt, workingDirectory string, timeoutSeconds int) (string, error) {
-	if sessionID == "" {
+func (self *claudeCodeTool) executeResume(ctx context.Context, sessionId, prompt, systemPrompt, workingDirectory string, timeoutSeconds int) (string, error) {
+	if sessionId == "" {
 		return "", fmt.Errorf("sessionId is required for resume action")
 	}
 	if prompt == "" {
@@ -278,13 +278,13 @@ func (self *claudeCodeTool) executeResume(ctx context.Context, sessionID, prompt
 	}
 
 	self.mutex.Lock()
-	_, exists := self.sessions[sessionID]
+	_, exists := self.sessions[sessionId]
 	self.mutex.Unlock()
 	if !exists {
-		return "", fmt.Errorf("unknown session %q — use list_sessions to see tracked sessions, or use run to start a new session", sessionID)
+		return "", fmt.Errorf("unknown session %q — use list_sessions to see tracked sessions, or use run to start a new session", sessionId)
 	}
 
-	commandArguments := self.buildArguments(prompt, sessionID, systemPrompt)
+	commandArguments := self.buildArguments(prompt, sessionId, systemPrompt)
 	return self.executeCommand(ctx, commandArguments, workingDirectory, timeoutSeconds)
 }
 
@@ -306,11 +306,11 @@ func (self *claudeCodeTool) executeListSessions() (string, error) {
 	return string(result), nil
 }
 
-func (self *claudeCodeTool) buildArguments(prompt, sessionID, systemPrompt string) []string {
+func (self *claudeCodeTool) buildArguments(prompt, sessionId, systemPrompt string) []string {
 	arguments := []string{"-p", prompt, "--output-format", "json"}
 
-	if sessionID != "" {
-		arguments = append(arguments, "--resume", sessionID)
+	if sessionId != "" {
+		arguments = append(arguments, "--resume", sessionId)
 	}
 
 	if self.model != "" {
@@ -427,15 +427,15 @@ func (self *claudeCodeTool) parseOutput(stdout, stderr []byte, exitCode int, dur
 	return string(result), nil
 }
 
-func (self *claudeCodeTool) trackSession(sessionID string) {
+func (self *claudeCodeTool) trackSession(sessionId string) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
 	now := time.Now()
-	session, exists := self.sessions[sessionID]
+	session, exists := self.sessions[sessionId]
 	if !exists {
-		self.sessions[sessionID] = &sessionInfo{
-			SessionID:  sessionID,
+		self.sessions[sessionId] = &sessionInfo{
+			SessionID:  sessionId,
 			CreatedAt:  now,
 			LastUsedAt: now,
 			TurnCount:  1,

@@ -12,7 +12,7 @@ import (
 	"github.com/teanode/teanode/internal/util/security"
 )
 
-var validAgentIDPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
+var validAgentIdPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 // RegisterInterAgentTools adds agent_list and agent_message tools to the registry.
 func RegisterInterAgentTools(registry *ToolRegistry, selfAgentId string, agentRegistry *AgentRegistry, configuration *configs.Config) {
@@ -96,7 +96,7 @@ func (self *agentCreateTool) Execute(_ context.Context, rawArguments string) (st
 	if arguments.AgentID == "" || arguments.Name == "" {
 		return "", fmt.Errorf("agentId and name are required")
 	}
-	if !validAgentIDPattern.MatchString(arguments.AgentID) {
+	if !validAgentIdPattern.MatchString(arguments.AgentID) {
 		return "", fmt.Errorf("invalid agentId %q: use lowercase letters, numbers, hyphens, and underscores", arguments.AgentID)
 	}
 	if self.agentRegistry.Get(arguments.AgentID) != nil {

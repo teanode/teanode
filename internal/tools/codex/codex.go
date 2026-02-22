@@ -273,8 +273,8 @@ func (self *codexTool) hasTrackedSessions() bool {
 	return len(self.sessions) > 0
 }
 
-func (self *codexTool) executeResume(ctx context.Context, sessionID, prompt, systemPrompt, workingDirectory string, timeoutSeconds int) (string, error) {
-	if sessionID == "" {
+func (self *codexTool) executeResume(ctx context.Context, sessionId, prompt, systemPrompt, workingDirectory string, timeoutSeconds int) (string, error) {
+	if sessionId == "" {
 		return "", fmt.Errorf("sessionId is required for resume action")
 	}
 	if prompt == "" {
@@ -282,13 +282,13 @@ func (self *codexTool) executeResume(ctx context.Context, sessionID, prompt, sys
 	}
 
 	self.mutex.Lock()
-	_, exists := self.sessions[sessionID]
+	_, exists := self.sessions[sessionId]
 	self.mutex.Unlock()
 	if !exists {
-		return "", fmt.Errorf("unknown session %q — use list_sessions to see tracked sessions, or use run to start a new session", sessionID)
+		return "", fmt.Errorf("unknown session %q — use list_sessions to see tracked sessions, or use run to start a new session", sessionId)
 	}
 
-	commandArguments := self.buildArguments(prompt, sessionID, systemPrompt)
+	commandArguments := self.buildArguments(prompt, sessionId, systemPrompt)
 	return self.executeCommand(ctx, commandArguments, workingDirectory, timeoutSeconds)
 }
 
@@ -308,13 +308,13 @@ func (self *codexTool) executeListSessions() (string, error) {
 	return string(result), nil
 }
 
-func (self *codexTool) buildArguments(prompt, sessionID, systemPrompt string) []string {
+func (self *codexTool) buildArguments(prompt, sessionId, systemPrompt string) []string {
 	if systemPrompt != "" {
 		prompt = fmt.Sprintf("Additional system instructions:\n%s\n\nUser request:\n%s", systemPrompt, prompt)
 	}
 
 	arguments := []string{"exec"}
-	if sessionID != "" {
+	if sessionId != "" {
 		arguments = append(arguments, "resume")
 	}
 
@@ -326,8 +326,8 @@ func (self *codexTool) buildArguments(prompt, sessionID, systemPrompt string) []
 	if len(self.extraArgs) > 0 {
 		arguments = append(arguments, self.extraArgs...)
 	}
-	if sessionID != "" {
-		arguments = append(arguments, sessionID)
+	if sessionId != "" {
+		arguments = append(arguments, sessionId)
 	}
 	arguments = append(arguments, prompt)
 
@@ -426,15 +426,15 @@ func (self *codexTool) parseOutput(stdout, stderr []byte, exitCode int, duration
 	return string(result), nil
 }
 
-func (self *codexTool) trackSession(sessionID string) {
+func (self *codexTool) trackSession(sessionId string) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
 	now := time.Now()
-	session, exists := self.sessions[sessionID]
+	session, exists := self.sessions[sessionId]
 	if !exists {
-		self.sessions[sessionID] = &sessionInfo{
-			SessionID:  sessionID,
+		self.sessions[sessionId] = &sessionInfo{
+			SessionID:  sessionId,
 			CreatedAt:  now,
 			LastUsedAt: now,
 			TurnCount:  1,

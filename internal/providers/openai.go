@@ -440,6 +440,9 @@ func (self *Client) Transcribe(ctx context.Context, req TranscribeRequest) (*Tra
 	if req.Language != "" {
 		writer.WriteField("language", req.Language)
 	}
+	if req.Prompt != "" {
+		writer.WriteField("prompt", req.Prompt)
+	}
 	writer.Close()
 
 	log.Debugf("POST %s/audio/transcriptions format=%s", self.baseUrl, ext)

@@ -8,6 +8,8 @@ import {
 } from "./types";
 
 type EventHandler = (frame: EventFrame) => void;
+type BinaryHandler = (data: ArrayBuffer) => void;
+type VoiceMessageHandler = (message: Record<string, unknown>) => void;
 
 interface PendingCall {
   resolve: (payload: unknown) => void;
@@ -20,6 +22,8 @@ const pendingCalls: Map<string, PendingCall> = new Map();
 let eventHandler: EventHandler | null = null;
 let onStatusChange: ((status: string) => void) | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const binaryHandlers: BinaryHandler[] = [];
+const voiceMessageHandlers: VoiceMessageHandler[] = [];
 
 function getToken(): string {
   const params = new URLSearchParams(window.location.search);
@@ -78,11 +82,13 @@ export function connect(onOpen?: () => void): void {
   webSocket = new WebSocket(url);
 
   webSocket.onopen = () => {
+    console.debug("[voice][ws] open");
     setStatus("connected");
     onOpen?.();
   };
 
   webSocket.onclose = () => {
+    console.debug("[voice][ws] close");
     setStatus("disconnected - reconnecting...");
     // Reject all pending RPCs
     for (const [id, pending] of pendingCalls) {
@@ -94,8 +100,39 @@ export function connect(onOpen?: () => void): void {
 
   webSocket.onerror = () => {};
 
-  webSocket.onmessage = (e) => {
+  webSocket.onmessage = async (e) => {
+    if (e.data instanceof ArrayBuffer) {
+      console.debug("[voice][ws] binary message", { bytes: e.data.byteLength });
+      for (const handler of binaryHandlers) handler(e.data);
+      return;
+    }
+    if (e.data instanceof Blob) {
+      const data = await e.data.arrayBuffer();
+      console.debug("[voice][ws] binary blob message", {
+        bytes: data.byteLength,
+      });
+      for (const handler of binaryHandlers) handler(data);
+      return;
+    }
+
     const frame = JSON.parse(e.data as string);
+    console.debug("[voice][ws] text message", {
+      type: frame.type,
+      id: frame.id,
+      event: frame.event,
+    });
+    if (
+      typeof frame === "object" &&
+      frame !== null &&
+      frame.v === 1 &&
+      typeof frame.type === "string"
+    ) {
+      for (const handler of voiceMessageHandlers) {
+        handler(frame as Record<string, unknown>);
+      }
+      return;
+    }
+
     if (frame.type === "res") {
       const response = frame as ResponseFrame;
       const pending = pendingCalls.get(response.id);
@@ -130,6 +167,7 @@ export function sendRpc<T = unknown>(
       reject,
     });
     const frame: RequestFrame = { type: "req", id, method, params };
+    console.debug("[voice][ws] send rpc", { method, id });
     webSocket.send(JSON.stringify(frame));
   });
 }
@@ -144,6 +182,38 @@ export function disconnect(): void {
     webSocket.close();
     webSocket = null;
   }
+}
+
+export function sendBinary(data: ArrayBuffer | Uint8Array): void {
+  if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
+    console.debug("[voice][ws] drop binary send: socket not open");
+    return;
+  }
+  if (data instanceof Uint8Array) {
+    console.debug("[voice][ws] send binary", { bytes: data.byteLength });
+    webSocket.send(
+      data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+    );
+    return;
+  }
+  console.debug("[voice][ws] send binary", { bytes: data.byteLength });
+  webSocket.send(data);
+}
+
+export function onBinaryMessage(handler: BinaryHandler): () => void {
+  binaryHandlers.push(handler);
+  return () => {
+    const idx = binaryHandlers.indexOf(handler);
+    if (idx >= 0) binaryHandlers.splice(idx, 1);
+  };
+}
+
+export function onVoiceMessage(handler: VoiceMessageHandler): () => void {
+  voiceMessageHandlers.push(handler);
+  return () => {
+    const idx = voiceMessageHandlers.indexOf(handler);
+    if (idx >= 0) voiceMessageHandlers.splice(idx, 1);
+  };
 }
 
 // --- REST auth helpers (work before WebSocket is established) ---

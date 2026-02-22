@@ -1004,7 +1004,7 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 	})
 }
 
-func profileToRPCPayload(profile *configs.Profile) map[string]interface{} {
+func profileToRpcPayload(profile *configs.Profile) map[string]interface{} {
 	payload := map[string]interface{}{
 		"name":      profile.Name,
 		"biography": profile.Bio,
@@ -1021,7 +1021,7 @@ func (self *webSocketConnection) handleProfileGet(frame requestFrame) {
 		self.sendError(frame.ID, 500, "failed to load profile")
 		return
 	}
-	self.sendResponse(frame.ID, profileToRPCPayload(profile))
+	self.sendResponse(frame.ID, profileToRpcPayload(profile))
 }
 
 type profileUpdateParameters struct {
@@ -1057,7 +1057,7 @@ func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) {
 		return
 	}
 
-	self.sendResponse(frame.ID, profileToRPCPayload(persisted))
+	self.sendResponse(frame.ID, profileToRpcPayload(persisted))
 }
 
 func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
@@ -1072,7 +1072,7 @@ func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
 		return
 	}
 
-	oldAvatarMediaID := profile.AvatarMediaID
+	oldAvatarMediaId := profile.AvatarMediaID
 	profile.AvatarMediaID = ""
 	if err := configs.SaveProfile(profile); err != nil {
 		self.sendError(frame.ID, 500, "failed to save profile")
@@ -1083,11 +1083,11 @@ func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
 		self.sendError(frame.ID, 500, "failed to load profile")
 		return
 	}
-	if oldAvatarMediaID != "" {
-		_ = mediaStore.Delete(oldAvatarMediaID)
+	if oldAvatarMediaId != "" {
+		_ = mediaStore.Delete(oldAvatarMediaId)
 	}
 
-	self.sendResponse(frame.ID, profileToRPCPayload(persisted))
+	self.sendResponse(frame.ID, profileToRpcPayload(persisted))
 }
 
 // --- Projects RPC handlers ---
@@ -1109,7 +1109,7 @@ type projectsCreateParameters struct {
 	Purpose     string `json:"purpose,omitempty"`
 }
 
-func projectRPCError(err error, operation string) (int, string) {
+func projectRpcError(err error, operation string) (int, string) {
 	message := strings.TrimSpace(err.Error())
 	lower := strings.ToLower(message)
 	if errors.Is(err, os.ErrNotExist) {
@@ -1123,7 +1123,6 @@ func projectRPCError(err error, operation string) (int, string) {
 	}
 	return 500, operation + ": " + message
 }
-
 func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 	var parameters projectsCreateParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
@@ -1136,7 +1135,7 @@ func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 	}
 	item, err := projectstore.Create(parameters.Name, parameters.Description, parameters.Purpose)
 	if err != nil {
-		code, message := projectRPCError(err, "creating project")
+		code, message := projectRpcError(err, "creating project")
 		self.sendError(frame.ID, code, message)
 		return
 	}
@@ -1166,7 +1165,7 @@ func (self *webSocketConnection) handleProjectsRename(frame requestFrame) {
 	}
 	item, err := projectstore.Rename(parameters.ProjectID, parameters.Name)
 	if err != nil {
-		code, message := projectRPCError(err, "renaming project")
+		code, message := projectRpcError(err, "renaming project")
 		self.sendError(frame.ID, code, message)
 		return
 	}
@@ -1190,7 +1189,7 @@ func (self *webSocketConnection) handleProjectsDelete(frame requestFrame) {
 		return
 	}
 	if err := projectstore.Delete(parameters.ProjectID); err != nil {
-		code, message := projectRPCError(err, "deleting project")
+		code, message := projectRpcError(err, "deleting project")
 		self.sendError(frame.ID, code, message)
 		return
 	}

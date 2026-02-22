@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/voice"
 )
 
 // webSocketConnection manages a single WebSocket connection.
@@ -19,6 +20,9 @@ type webSocketConnection struct {
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time
+
+	activeVoiceMu      sync.RWMutex
+	activeVoiceSession *voice.Session
 }
 
 func newWebSocketConnection(connection *websocket.Conn, api *v1Api, sessionId string) *webSocketConnection {
@@ -40,9 +44,15 @@ func (self *webSocketConnection) serve() {
 	defer self.api.gateway.MarkSessionDisconnected(self.sessionId)
 	self.api.gateway.Subscribe(self)
 	defer self.api.gateway.Unsubscribe(self)
+	defer func() {
+		if sess := self.getActiveVoiceSession(); sess != nil {
+			sess.Close()
+			self.clearActiveVoiceSession(sess)
+		}
+	}()
 
 	for {
-		_, rawMessage, err := self.connection.ReadMessage()
+		messageType, rawMessage, err := self.connection.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				log.Errorf("ws read error: %v", err)
@@ -50,9 +60,21 @@ func (self *webSocketConnection) serve() {
 			return
 		}
 
+		if messageType == websocket.BinaryMessage {
+			sess := self.getActiveVoiceSession()
+			if sess == nil {
+				log.Warningf("ws binary frame dropped: no active voice session, bytes=%d", len(rawMessage))
+				continue
+			}
+			if err := sess.HandleInputBinaryFrame(rawMessage); err != nil {
+				log.Warningf("invalid voice binary frame: %v", err)
+			}
+			continue
+		}
+
 		var frame requestFrame
 		if err := json.Unmarshal(rawMessage, &frame); err != nil {
-			self.sendError(frame.ID, 400, "invalid frame")
+			self.sendError("", 400, "invalid frame")
 			continue
 		}
 
@@ -153,6 +175,14 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleSkillsUpdate(frame)
 	case "skills.setEnabled":
 		self.handleSkillsSetEnabled(frame)
+	case "voice.start":
+		self.handleVoiceStart(frame)
+	case "voice.end":
+		self.handleVoiceEnd(frame)
+	case "voice.response.cancel":
+		self.handleVoiceResponseCancel(frame)
+	case "voice.input.commit":
+		self.handleVoiceInputCommit(frame)
 	case "projects.list":
 		self.handleProjectsList(frame)
 	case "projects.create":
@@ -197,5 +227,37 @@ func (self *webSocketConnection) writeJSON(value interface{}) {
 	defer self.writeMutex.Unlock()
 	if err := self.connection.WriteJSON(value); err != nil {
 		log.Errorf("ws write error: %v", err)
+	}
+}
+
+func (self *webSocketConnection) writeBinary(data []byte) {
+	self.writeMutex.Lock()
+	defer self.writeMutex.Unlock()
+	if err := self.connection.WriteMessage(websocket.BinaryMessage, data); err != nil {
+		log.Errorf("ws binary write error: %v", err)
+	}
+}
+
+func (self *webSocketConnection) getActiveVoiceSession() *voice.Session {
+	self.activeVoiceMu.RLock()
+	defer self.activeVoiceMu.RUnlock()
+	return self.activeVoiceSession
+}
+
+func (self *webSocketConnection) setActiveVoiceSession(session *voice.Session) bool {
+	self.activeVoiceMu.Lock()
+	defer self.activeVoiceMu.Unlock()
+	if self.activeVoiceSession != nil {
+		return false
+	}
+	self.activeVoiceSession = session
+	return true
+}
+
+func (self *webSocketConnection) clearActiveVoiceSession(session *voice.Session) {
+	self.activeVoiceMu.Lock()
+	defer self.activeVoiceMu.Unlock()
+	if self.activeVoiceSession == session {
+		self.activeVoiceSession = nil
 	}
 }

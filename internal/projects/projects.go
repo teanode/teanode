@@ -18,7 +18,7 @@ import (
 
 const defaultProjectDocumentName = "PROJECT.md"
 
-var validProjectIDPattern = regexp.MustCompile(`(?i)^[0-9a-hjkmnp-tv-z]{26}$`)
+var validProjectIdPattern = regexp.MustCompile(`(?i)^[0-9a-hjkmnp-tv-z]{26}$`)
 
 // Metadata stores persistent project metadata at ~/.teanode/projects/<projectId>.yaml.
 type Metadata struct {
@@ -32,32 +32,32 @@ func Directory() (string, error) {
 	return configs.ProjectsDirectory()
 }
 
-func MetadataPath(projectID string) (string, error) {
-	return metadataPath(projectID)
+func MetadataPath(projectId string) (string, error) {
+	return metadataPath(projectId)
 }
 
-func WorkspaceDirectory(projectID string) (string, error) {
-	return workspaceDirectory(projectID)
+func WorkspaceDirectory(projectId string) (string, error) {
+	return workspaceDirectory(projectId)
 }
 
-func ValidateProjectID(projectID string) error {
-	projectID = strings.TrimSpace(projectID)
-	if !validProjectIDPattern.MatchString(projectID) {
-		return fmt.Errorf("invalid projectId: %s", projectID)
+func ValidateProjectID(projectId string) error {
+	projectId = strings.TrimSpace(projectId)
+	if !validProjectIdPattern.MatchString(projectId) {
+		return fmt.Errorf("invalid projectId: %s", projectId)
 	}
 	return nil
 }
 
-func normalizeProjectID(projectID string) (string, error) {
-	projectID = strings.TrimSpace(projectID)
-	if err := ValidateProjectID(projectID); err != nil {
+func normalizeProjectId(projectId string) (string, error) {
+	projectId = strings.TrimSpace(projectId)
+	if err := ValidateProjectID(projectId); err != nil {
 		return "", err
 	}
-	return strings.ToLower(projectID), nil
+	return strings.ToLower(projectId), nil
 }
 
-func metadataPath(projectID string) (string, error) {
-	normalizedProjectID, err := normalizeProjectID(projectID)
+func metadataPath(projectId string) (string, error) {
+	normalizedProjectId, err := normalizeProjectId(projectId)
 	if err != nil {
 		return "", err
 	}
@@ -65,11 +65,11 @@ func metadataPath(projectID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(directory, normalizedProjectID+".yaml"), nil
+	return filepath.Join(directory, normalizedProjectId+".yaml"), nil
 }
 
-func workspaceDirectory(projectID string) (string, error) {
-	normalizedProjectID, err := normalizeProjectID(projectID)
+func workspaceDirectory(projectId string) (string, error) {
+	normalizedProjectId, err := normalizeProjectId(projectId)
 	if err != nil {
 		return "", err
 	}
@@ -77,11 +77,11 @@ func workspaceDirectory(projectID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(directory, normalizedProjectID), nil
+	return filepath.Join(directory, normalizedProjectId), nil
 }
 
-func safeProjectPath(projectID, relPath string) (string, string, error) {
-	workspace, err := workspaceDirectory(projectID)
+func safeProjectPath(projectId, relPath string) (string, string, error) {
+	workspace, err := workspaceDirectory(projectId)
 	if err != nil {
 		return "", "", err
 	}
@@ -196,12 +196,12 @@ func List() ([]Metadata, error) {
 	return items, nil
 }
 
-func Get(projectID string) (*Metadata, error) {
-	normalizedProjectID, err := normalizeProjectID(projectID)
+func Get(projectId string) (*Metadata, error) {
+	normalizedProjectId, err := normalizeProjectId(projectId)
 	if err != nil {
 		return nil, err
 	}
-	path, err := metadataPath(projectID)
+	path, err := metadataPath(projectId)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func Get(projectID string) (*Metadata, error) {
 		return nil, err
 	}
 	if metadata.ID == "" {
-		metadata.ID = normalizedProjectID
+		metadata.ID = normalizedProjectId
 	} else {
 		metadata.ID = strings.ToLower(metadata.ID)
 	}
@@ -222,11 +222,11 @@ func Get(projectID string) (*Metadata, error) {
 }
 
 func Save(metadata Metadata) error {
-	normalizedProjectID, err := normalizeProjectID(metadata.ID)
+	normalizedProjectId, err := normalizeProjectId(metadata.ID)
 	if err != nil {
 		return err
 	}
-	metadata.ID = normalizedProjectID
+	metadata.ID = normalizedProjectId
 	if strings.TrimSpace(metadata.Name) == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -290,8 +290,8 @@ func Create(name, description, purpose string) (*Metadata, error) {
 	return &metadata, nil
 }
 
-func Rename(projectID, name string) (*Metadata, error) {
-	metadata, err := Get(projectID)
+func Rename(projectId, name string) (*Metadata, error) {
+	metadata, err := Get(projectId)
 	if err != nil {
 		return nil, err
 	}
@@ -307,12 +307,12 @@ func Rename(projectID, name string) (*Metadata, error) {
 	return metadata, nil
 }
 
-func Delete(projectID string) error {
-	workspace, err := workspaceDirectory(projectID)
+func Delete(projectId string) error {
+	workspace, err := workspaceDirectory(projectId)
 	if err != nil {
 		return err
 	}
-	metadata, err := metadataPath(projectID)
+	metadata, err := metadataPath(projectId)
 	if err != nil {
 		return err
 	}
@@ -351,8 +351,8 @@ func Delete(projectID string) error {
 	return nil
 }
 
-func Touch(projectID string) error {
-	metadata, err := Get(projectID)
+func Touch(projectId string) error {
+	metadata, err := Get(projectId)
 	if err != nil {
 		return err
 	}
@@ -360,8 +360,8 @@ func Touch(projectID string) error {
 	return Save(*metadata)
 }
 
-func ListFiles(projectID string) ([]string, error) {
-	workspace, err := workspaceDirectory(projectID)
+func ListFiles(projectId string) ([]string, error) {
+	workspace, err := workspaceDirectory(projectId)
 	if err != nil {
 		return nil, err
 	}
@@ -392,8 +392,8 @@ func ListFiles(projectID string) ([]string, error) {
 	return files, nil
 }
 
-func ReadFile(projectID, path string) (string, error) {
-	_, full, err := safeProjectPath(projectID, path)
+func ReadFile(projectId, path string) (string, error) {
+	_, full, err := safeProjectPath(projectId, path)
 	if err != nil {
 		return "", err
 	}
@@ -404,19 +404,19 @@ func ReadFile(projectID, path string) (string, error) {
 	return string(data), nil
 }
 
-func WriteFile(projectID, path, content string) error {
-	_, full, err := safeProjectPath(projectID, path)
+func WriteFile(projectId, path, content string) error {
+	_, full, err := safeProjectPath(projectId, path)
 	if err != nil {
 		return err
 	}
 	if err := atomicfile.WriteFile(full, []byte(content)); err != nil {
 		return fmt.Errorf("writing file: %w", err)
 	}
-	return Touch(projectID)
+	return Touch(projectId)
 }
 
-func AppendFile(projectID, path, content string) error {
-	_, full, err := safeProjectPath(projectID, path)
+func AppendFile(projectId, path, content string) error {
+	_, full, err := safeProjectPath(projectId, path)
 	if err != nil {
 		return err
 	}
@@ -431,7 +431,7 @@ func AppendFile(projectID, path, content string) error {
 	if _, err := file.WriteString(content + "\n"); err != nil {
 		return fmt.Errorf("appending file: %w", err)
 	}
-	return Touch(projectID)
+	return Touch(projectId)
 }
 
 type SearchMatch struct {
@@ -440,14 +440,14 @@ type SearchMatch struct {
 	Text string `json:"text"`
 }
 
-func SearchFiles(projectID, query string, maxResults int) ([]SearchMatch, error) {
+func SearchFiles(projectId, query string, maxResults int) ([]SearchMatch, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query is required")
 	}
 	if maxResults <= 0 {
 		maxResults = 10
 	}
-	workspace, err := workspaceDirectory(projectID)
+	workspace, err := workspaceDirectory(projectId)
 	if err != nil {
 		return nil, err
 	}
@@ -492,8 +492,8 @@ func SearchFiles(projectID, query string, maxResults int) ([]SearchMatch, error)
 	return matches, nil
 }
 
-func DeleteFile(projectID, path string) error {
-	workspace, full, err := safeProjectPath(projectID, path)
+func DeleteFile(projectId, path string) error {
+	workspace, full, err := safeProjectPath(projectId, path)
 	if err != nil {
 		return err
 	}
@@ -532,15 +532,15 @@ func DeleteFile(projectID, path string) error {
 		os.Remove(directory)
 		directory = filepath.Dir(directory)
 	}
-	return Touch(projectID)
+	return Touch(projectId)
 }
 
-func MoveFile(projectID, fromPath, toPath string) error {
-	_, source, err := safeProjectPath(projectID, fromPath)
+func MoveFile(projectId, fromPath, toPath string) error {
+	_, source, err := safeProjectPath(projectId, fromPath)
 	if err != nil {
 		return err
 	}
-	workspace, target, err := safeProjectPath(projectID, toPath)
+	workspace, target, err := safeProjectPath(projectId, toPath)
 	if err != nil {
 		return err
 	}
@@ -570,7 +570,7 @@ func MoveFile(projectID, fromPath, toPath string) error {
 		os.Remove(directory)
 		directory = filepath.Dir(directory)
 	}
-	return Touch(projectID)
+	return Touch(projectId)
 }
 
 func isPathInsideDirectory(path, directory string) bool {

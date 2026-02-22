@@ -1,8 +1,11 @@
 package gw
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +24,7 @@ import (
 	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/voice"
 	"github.com/teanode/teanode/internal/web"
 	"gopkg.in/yaml.v3"
 )
@@ -45,9 +49,11 @@ type gateway struct {
 	mediaStore     *media.Store
 	sessionStore   *sessions.Store
 
-	subscribersMutex  sync.RWMutex
-	subscribers       map[Subscriber]struct{}
-	sessionsConnected map[string]int // sessionId -> active websocket connection count
+	subscribersMutex sync.RWMutex
+	subscribers      map[Subscriber]struct{}
+	// map[voice.VoiceSubscriber]*voiceSubscriberBridge
+	voiceSubscriberBridges sync.Map
+	sessionsConnected      map[string]int // sessionId -> active websocket connection count
 
 	activeRunsMutex sync.Mutex
 	activeRuns      map[string]*activeRun // conversationId -> activeRun
@@ -624,7 +630,7 @@ func (self *gateway) resolveSessionMaxAge() time.Duration {
 	return 14 * 24 * time.Hour
 }
 
-// checkBearerToken checks for a valid bearer token in the Authorization header or query param.
+// checkBearerToken checks for a valid bearer token in the Authorization header.
 func (self *gateway) checkBearerToken(request *http.Request) bool {
 	if self.securityConfig == nil {
 		return false
@@ -635,9 +641,6 @@ func (self *gateway) checkBearerToken(request *http.Request) bool {
 	}
 	auth := request.Header.Get("Authorization")
 	if auth == "Bearer "+token {
-		return true
-	}
-	if request.URL.Query().Get("token") == token {
 		return true
 	}
 	return false
@@ -748,9 +751,9 @@ func (self *gateway) AuthMiddleware() web.Middleware {
 				return
 			}
 
-			// 6. Websocket api: accept only session cookie.
+			// 6. Websocket api: accept session cookie or bearer token.
 			if path == "/api/v1/websocket" {
-				if self.checkSessionCookie(request) {
+				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
 					next.ServeHTTP(writer, request)
 					return
 				}
@@ -809,4 +812,233 @@ func (self *gateway) ListenAddress() string {
 		host = "0.0.0.0"
 	}
 	return net.JoinHostPort(host, fmt.Sprintf("%d", self.config.Gateway.Port))
+}
+
+// StartVoiceSession creates a voice session bound to this gateway instance.
+func (self *gateway) StartVoiceSession(
+	conversationId, agentId string,
+	promptSuffix string,
+	audioIn, audioOut voice.AudioFormat,
+	features voice.Features,
+	sendJson func(interface{}),
+	sendBinary func([]byte),
+) (*voice.Session, error) {
+	if agentId == "" {
+		agentId = self.DefaultAgentID()
+	}
+	if conversationId == "" {
+		// Start a fresh conversation when the client omits conversation_id.
+		// This avoids cross-session context bleed between separate voice calls.
+		conversationId = self.NewConversation(agentId, "")
+	}
+	sessionId := security.NewULID()
+	adapter := &voiceGatewayAdapter{gw: self}
+	return voice.NewSession(sessionId, conversationId, agentId, promptSuffix, audioIn, audioOut, features, adapter, sendJson, sendBinary), nil
+}
+
+type voiceGatewayAdapter struct {
+	gw *gateway
+}
+
+func (self *voiceGatewayAdapter) SendMessage(ctx context.Context, parameters voice.VoiceSendMessageParams) voice.VoiceRunHandle {
+	handle := self.gw.SendMessage(ctx, SendMessageParameters{
+		AgentID:            parameters.AgentID,
+		ConversationID:     parameters.ConversationID,
+		Message:            parameters.Message,
+		Model:              parameters.Model,
+		SystemPromptSuffix: parameters.SystemPromptSuffix,
+		Origin:             "voice",
+	}, nil)
+	if handle == nil {
+		done := make(chan struct{})
+		close(done)
+		return voice.VoiceRunHandle{Done: done}
+	}
+	return voice.VoiceRunHandle{
+		RunID:          handle.RunID,
+		ConversationID: handle.ConversationID,
+		Done:           handle.Done,
+	}
+}
+
+func (self *voiceGatewayAdapter) AbortRun(runId string) bool {
+	return self.gw.AbortRun(runId)
+}
+
+func (self *voiceGatewayAdapter) Subscribe(sub voice.VoiceSubscriber) {
+	bridge := &voiceSubscriberBridge{sub: sub}
+	self.gw.voiceSubscriberBridges.Store(sub, bridge)
+	self.gw.Subscribe(bridge)
+}
+
+func (self *voiceGatewayAdapter) Unsubscribe(sub voice.VoiceSubscriber) {
+	value, ok := self.gw.voiceSubscriberBridges.LoadAndDelete(sub)
+	if !ok {
+		return
+	}
+	bridge, ok := value.(*voiceSubscriberBridge)
+	if !ok {
+		return
+	}
+	self.gw.Unsubscribe(bridge)
+}
+
+func (self *voiceGatewayAdapter) NewConversation(agentId, model string) string {
+	return self.gw.NewConversation(agentId, model)
+}
+
+func (self *voiceGatewayAdapter) DefaultAgentID() string {
+	return self.gw.DefaultAgentID()
+}
+
+func (self *voiceGatewayAdapter) ProviderRegistry() voice.VoiceProviderRegistry {
+	reg := self.gw.ProviderRegistry()
+	if reg == nil {
+		return nil
+	}
+	return &voiceProviderRegistryAdapter{registry: reg}
+}
+
+type voiceSubscriberBridge struct {
+	sub voice.VoiceSubscriber
+}
+
+func (self *voiceSubscriberBridge) OnEvent(et EventType, payload interface{}) {
+	self.sub.OnVoiceEvent(string(et), payload)
+}
+
+type voiceProviderRegistryAdapter struct {
+	registry *providers.Registry
+}
+
+func (self *voiceProviderRegistryAdapter) FindTranscriber() (voice.VoiceTranscriber, string, bool) {
+	transcriber, provider, ok := self.registry.FindTranscriber()
+	if !ok {
+		return nil, "", false
+	}
+	return &voiceTranscriberAdapter{transcriber: transcriber}, provider, true
+}
+
+func (self *voiceProviderRegistryAdapter) FindSynthesizer() (voice.VoiceSynthesizer, string, bool) {
+	synth, provider, ok := self.registry.FindSynthesizer()
+	if !ok {
+		return nil, "", false
+	}
+	return &voiceSynthesizerAdapter{synthesizer: synth}, provider, true
+}
+
+type voiceTranscriberAdapter struct {
+	transcriber providers.AudioTranscriber
+}
+
+func (self *voiceTranscriberAdapter) Transcribe(ctx context.Context, request voice.VoiceTranscribeRequest) (*voice.VoiceTranscribeResponse, error) {
+	result, err := self.transcriber.Transcribe(ctx, providers.TranscribeRequest{
+		Audio:    bytes.NewReader(request.Audio),
+		Format:   request.Format,
+		Language: request.Language,
+		Prompt:   request.Prompt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &voice.VoiceTranscribeResponse{Text: result.Text}, nil
+}
+
+type voiceSynthesizerAdapter struct {
+	synthesizer providers.AudioSynthesizer
+}
+
+func (self *voiceSynthesizerAdapter) SynthesizePCM(ctx context.Context, text, voiceName string, _ int) ([]byte, error) {
+	result, err := self.synthesizer.Synthesize(ctx, providers.SynthesizeRequest{
+		Text:   text,
+		Voice:  voiceName,
+		Format: "wav",
+		Speed:  1.0,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer result.Audio.Close()
+
+	wavData, err := io.ReadAll(result.Audio)
+	if err != nil {
+		return nil, err
+	}
+	return wavToPCM16LE(wavData)
+}
+
+func wavToPCM16LE(wavData []byte) ([]byte, error) {
+	if len(wavData) < 44 {
+		return nil, fmt.Errorf("wav payload too short")
+	}
+	if string(wavData[0:4]) != "RIFF" || string(wavData[8:12]) != "WAVE" {
+		return nil, fmt.Errorf("invalid wav header")
+	}
+	var (
+		audioFormat   uint16
+		channels      uint16
+		bitsPerSample uint16
+	)
+	for i := 12; i+8 <= len(wavData); {
+		chunkId := string(wavData[i : i+4])
+		chunkSize := int(binary.LittleEndian.Uint32(wavData[i+4 : i+8]))
+		chunkStart := i + 8
+		chunkEnd := chunkStart + chunkSize
+		if chunkEnd > len(wavData) {
+			break
+		}
+		if chunkId == "fmt " && chunkSize >= 16 {
+			audioFormat = binary.LittleEndian.Uint16(wavData[chunkStart : chunkStart+2])
+			channels = binary.LittleEndian.Uint16(wavData[chunkStart+2 : chunkStart+4])
+			bitsPerSample = binary.LittleEndian.Uint16(wavData[chunkStart+14 : chunkStart+16])
+		}
+		if chunkId == "data" {
+			if audioFormat != 1 {
+				return nil, fmt.Errorf("unsupported wav format: %d", audioFormat)
+			}
+			if channels != 1 {
+				return nil, fmt.Errorf("unsupported wav channels: %d", channels)
+			}
+			if bitsPerSample != 16 {
+				return nil, fmt.Errorf("unsupported wav bits per sample: %d", bitsPerSample)
+			}
+			return append([]byte(nil), wavData[chunkStart:chunkEnd]...), nil
+		}
+		i = chunkEnd
+		if i%2 == 1 {
+			i++
+		}
+	}
+
+	// Fallback parser: some providers return non-standard RIFF chunk sizes.
+	dataOffset := 12
+	for dataOffset+8 <= len(wavData) {
+		idx := bytes.Index(wavData[dataOffset:], []byte("data"))
+		if idx < 0 {
+			break
+		}
+		header := dataOffset + idx
+		if header+8 > len(wavData) {
+			break
+		}
+		chunkSize := int(binary.LittleEndian.Uint32(wavData[header+4 : header+8]))
+		chunkStart := header + 8
+		if chunkStart >= len(wavData) {
+			break
+		}
+		chunkEnd := chunkStart + chunkSize
+		if chunkEnd > len(wavData) {
+			chunkEnd = len(wavData)
+		}
+		pcm := append([]byte(nil), wavData[chunkStart:chunkEnd]...)
+		if len(pcm)%2 == 1 {
+			pcm = pcm[:len(pcm)-1]
+		}
+		if len(pcm) > 0 {
+			return pcm, nil
+		}
+		dataOffset = chunkStart
+	}
+
+	return nil, fmt.Errorf("wav data chunk not found")
 }

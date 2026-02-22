@@ -42,11 +42,15 @@ export default function ConversationsAgentLayout() {
 
   const voiceCall = useVoiceCall({
     sendRpc: backend.sendRpc,
+    sendBinary: backend.sendBinary,
+    onBinaryMessage: backend.onBinaryMessage,
+    onVoiceMessage: backend.onVoiceMessage,
     sendVoiceMessage: backend.sendVoiceMessage,
     abortRun: backend.abortRun,
     isRunning: backend.isRunning,
     isStreaming: backend.isStreaming,
     streamText: backend.streamText,
+    connected: backend.connected,
     ttsVoice,
     conversationId: backend.conversationId,
     agentId,
