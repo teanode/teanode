@@ -3,6 +3,7 @@ package atomicfile
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -140,5 +141,57 @@ func TestWriteFile(t *testing.T) {
 
 	if _, err := os.Stat(filename); err != nil {
 		t.Fatalf("file does not exist after commit: %s", err)
+	}
+}
+
+func TestWriteFileWithMode(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("file mode bits are not portable on windows")
+	}
+
+	tempDirectory := t.TempDir()
+	filename := filepath.Join(tempDirectory, "atomicfile.txt")
+
+	if err := WriteFileWithMode(filename, []byte("secret\n"), 0600); err != nil {
+		t.Fatalf("failed to write file: %s", err)
+	}
+
+	info, err := os.Stat(filename)
+	if err != nil {
+		t.Fatalf("failed to stat file: %s", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("file mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
+func TestCommitWithMode(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("file mode bits are not portable on windows")
+	}
+
+	tempDirectory := t.TempDir()
+	filename := filepath.Join(tempDirectory, "atomicfile.txt")
+	file, err := Create(filename)
+	if err != nil {
+		t.Fatalf("failed to create file: %s", err)
+	}
+	if _, err := file.Write([]byte("secret\n")); err != nil {
+		t.Fatalf("failed to write file: %s", err)
+	}
+	if err := CommitWithMode(file, 0600); err != nil {
+		t.Fatalf("failed to commit file: %s", err)
+	}
+
+	info, err := os.Stat(filename)
+	if err != nil {
+		t.Fatalf("failed to stat file: %s", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("file mode = %o, want 600", info.Mode().Perm())
 	}
 }

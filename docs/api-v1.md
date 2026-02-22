@@ -33,6 +33,17 @@ Planned enhancements (see `TODO.md` under **Features**):
   - Provider reachability.
   - Potentially other core subsystems.
 
+### `GET /api/v1/profile` and `PUT /api/v1/profile`
+
+- **Purpose:** Read and update user profile data used by the frontend and prompt personalization.
+- **Backed by:** `internal/api/v1api/profile.go` and `internal/configs/profile.go`.
+- **Behavior:**
+  - `GET` returns the current profile.
+  - `PUT` updates profile fields (`name`, `bio`, `avatarMediaId`).
+  - `name` falls back to the OS username when missing/empty.
+  - `bio` is treated as raw markdown text.
+  - Profile persistence is `~/.teanode/profile.md` with YAML front matter metadata (`name`, `avatarMediaId`) and markdown body for biography.
+
 ## Relationship to Internals
 
 - The v1 API is a thin HTTP layer over:

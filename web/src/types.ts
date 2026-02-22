@@ -26,6 +26,12 @@ export interface RPCError {
   message: string;
 }
 
+export interface Profile {
+  name: string;
+  bio?: string;
+  avatarMediaId?: string;
+}
+
 // Agent types
 
 export interface AgentInfo {

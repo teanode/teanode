@@ -57,5 +57,5 @@ func SaveSecurity(config *SecurityConfig) error {
 	if err != nil {
 		return fmt.Errorf("marshalling security config: %w", err)
 	}
-	return atomicfile.WriteFile(securityFile, data)
+	return atomicfile.WriteFileWithMode(securityFile, data, 0600)
 }

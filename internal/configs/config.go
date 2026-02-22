@@ -649,6 +649,15 @@ func SkillsDirectory() (string, error) {
 	return filepath.Join(directory, "skills"), nil
 }
 
+// ProjectsDirectory returns the projects directory (~/.teanode/projects).
+func ProjectsDirectory() (string, error) {
+	directory, err := Directory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, "projects"), nil
+}
+
 // ModelsFile returns the path to the models cache file (~/.teanode/models.yaml).
 func ModelsFile() (string, error) {
 	directory, err := Directory()
@@ -709,7 +718,7 @@ func EnsureDirectories() error {
 	if err != nil {
 		return err
 	}
-	for _, sub := range []string{"conversations", "workspaces", "skills", "media", "agents", "jobs", "sessions", ".trash"} {
+	for _, sub := range []string{"conversations", "workspaces", "skills", "projects", "media", "agents", "jobs", "sessions", ".trash"} {
 		if err := os.MkdirAll(filepath.Join(directory, sub), 0755); err != nil {
 			return fmt.Errorf("creating directories: %w", err)
 		}

@@ -177,7 +177,7 @@ func (self *agentListTool) Execute(_ context.Context, _ string) (string, error) 
 		}
 		entry["model"] = self.configuration.AgentModel(agentId)
 		if runner := self.agentRegistry.Get(agentId); runner != nil {
-			_, _, tools, _, _ := runner.Snapshot()
+			_, _, tools, _, _, _ := runner.Snapshot()
 			entry["tools"] = tools.Names()
 		}
 		if agentId == self.selfAgentId {

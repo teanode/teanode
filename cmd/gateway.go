@@ -39,6 +39,7 @@ import (
 	"github.com/teanode/teanode/internal/tools/gitlab"
 	"github.com/teanode/teanode/internal/tools/google"
 	"github.com/teanode/teanode/internal/tools/homeassistant"
+	"github.com/teanode/teanode/internal/tools/projects"
 	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/shell"
 	"github.com/teanode/teanode/internal/tools/unifiprotect"
@@ -92,6 +93,10 @@ func NewGatewayCommand() *cli.Command {
 
 			// Load security config (token + password hash).
 			securityConfig, err := configs.LoadSecurity()
+			if err != nil {
+				return err
+			}
+			profile, err := configs.LoadProfile()
 			if err != nil {
 				return err
 			}
@@ -189,6 +194,7 @@ func NewGatewayCommand() *cli.Command {
 			) (*agents.ToolRegistry, string) {
 				tools := agents.NewToolRegistry()
 				workspace.RegisterTools(tools, workspaceDirectory)
+				projects.RegisterTools(tools)
 				browsers.RegisterBrowserTools(tools, browser)
 				terminals.RegisterTerminalTools(tools, terminalRelay)
 				search.RegisterTools(tools, configuration.Tools.BraveAPIKey)
@@ -219,7 +225,7 @@ func NewGatewayCommand() *cli.Command {
 			reloadSkills = func() {
 				log.Info("hot-reloading skills")
 				agentRegistry.ForEach(func(agentId string, runner *agents.Runner) {
-					currentConfig, currentProviders, _, _, _ := runner.Snapshot()
+					currentConfig, currentProviders, _, _, _, _ := runner.Snapshot()
 					agentConfig := currentConfig.AgentByID(agentId)
 					if agentConfig == nil {
 						return
@@ -271,6 +277,7 @@ func NewGatewayCommand() *cli.Command {
 					MediaStore:         mediaStore,
 					WorkspaceDirectory: workspaceDirectory,
 					SkillPrompts:       skillPrompts,
+					Profile:            profile,
 				}
 				agentRegistry.Register(agentConfig.ID, runner)
 			}
@@ -284,7 +291,7 @@ func NewGatewayCommand() *cli.Command {
 			summarizer := agents.NewSummarizer(agentRegistry, configuration)
 			describer := agents.NewDescriber(agentRegistry)
 
-			gateway = gw.New(configuration, securityConfig, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore, sessionStore)
+			gateway = gw.New(configuration, securityConfig, profile, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore, sessionStore)
 			api := v1api.New(gateway, reloadSkills)
 			frontendComponent := frontend.New()
 
@@ -332,6 +339,7 @@ func NewGatewayCommand() *cli.Command {
 					MediaStore:         mediaStore,
 					WorkspaceDirectory: workspaceDirectory,
 					SkillPrompts:       skillPrompts,
+					Profile:            gateway.Profile(),
 				})
 				describer.Notify()
 
@@ -430,6 +438,7 @@ func NewGatewayCommand() *cli.Command {
 							MediaStore:         mediaStore,
 							WorkspaceDirectory: workspaceDirectory,
 							SkillPrompts:       skillPrompts,
+							Profile:            gateway.Profile(),
 						}
 						agentRegistry.Register(agentConfig.ID, runner)
 						continue

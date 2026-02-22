@@ -15,6 +15,7 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
+	projectstore "github.com/teanode/teanode/internal/projects"
 	"github.com/teanode/teanode/internal/providers"
 )
 
@@ -305,7 +306,7 @@ func TestBuildSystemPromptWithWorkspace(t *testing.T) {
 	// Write workspace files.
 	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte("Be extra helpful"), 0644)
 
-	prompt := BuildSystemPrompt(configuration, "", workspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars)
+	prompt := BuildSystemPrompt(configuration, "", workspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
 
 	// AGENT.md should be embedded in the system prompt (rarely changes).
 	if !strings.Contains(prompt, "Be extra helpful") {
@@ -326,7 +327,7 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 	configuration := &configs.Config{}
 
 	// Empty workspace dir — no files loaded.
-	prompt := BuildSystemPrompt(configuration, "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars)
+	prompt := BuildSystemPrompt(configuration, "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
 	if !strings.Contains(prompt, "TeaNode") {
 		t.Error("prompt should contain TeaNode identifier")
 	}
@@ -351,7 +352,7 @@ func TestBuildSystemPromptUsesAgentIdentity(t *testing.T) {
 			{ID: "custom", Name: "Custom Assistant"},
 		},
 	}
-	prompt := BuildSystemPrompt(configuration, "custom", "/some/dir", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars)
+	prompt := BuildSystemPrompt(configuration, "custom", "/some/dir", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
 	if !strings.Contains(prompt, "You are 'Custom Assistant' (agent: custom).") {
 		t.Error("prompt should contain agent identity suffix")
 	}
@@ -368,12 +369,32 @@ func TestBuildSystemPromptTruncation(t *testing.T) {
 	big := strings.Repeat("x", 10000)
 	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte(big), 0644)
 
-	prompt := BuildSystemPrompt(configuration, "", workspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars)
+	prompt := BuildSystemPrompt(configuration, "", workspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
 	if strings.Contains(prompt, strings.Repeat("x", 10000)) {
 		t.Error("prompt should have truncated the large file")
 	}
 	if !strings.Contains(prompt, "... (truncated)") {
 		t.Error("prompt should indicate truncation")
+	}
+}
+
+func TestBuildSystemPromptIncludesRecentProjects(t *testing.T) {
+	configs.SetDirectory(t.TempDir())
+	t.Cleanup(func() { configs.SetDirectory("") })
+
+	if _, err := projectstore.Create("Roadmap", "Plan roadmap milestones", ""); err != nil {
+		t.Fatalf("project create: %v", err)
+	}
+	if _, err := projectstore.Create("Research", "Collect and summarize findings", ""); err != nil {
+		t.Fatalf("project create: %v", err)
+	}
+
+	prompt := BuildSystemPrompt(&configs.Config{}, "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	if !strings.Contains(prompt, "Recent Projects") {
+		t.Error("prompt should include recent projects section")
+	}
+	if !strings.Contains(prompt, "Roadmap") || !strings.Contains(prompt, "Research") {
+		t.Error("prompt should include project names")
 	}
 }
 

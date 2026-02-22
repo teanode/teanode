@@ -7,10 +7,12 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"text/template"
 	"time"
 
 	"github.com/teanode/teanode/internal/configs"
+	projectstore "github.com/teanode/teanode/internal/projects"
 	"github.com/teanode/teanode/internal/version"
 )
 
@@ -27,17 +29,21 @@ type systemPromptData struct {
 	Date          string
 	Timezone      string
 	Username      string
+	ProfileName   string
+	ProfileBio    string
 	HomeDirectory string
 	AgentContent  string
 	MemoryContent string
 	SkillsContent string
 	SkillPrompts  string
+	ProjectList   string
+	ProjectLimit  int
 }
 
 // BuildSystemPrompt generates the system prompt for an agent run.
 // If workspaceDirectory is non-empty, workspace files are loaded and injected.
 // maxWorkspaceFileChars controls the per-file truncation limit.
-func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceDirectory string, skillPrompts string, maxWorkspaceFileChars int) string {
+func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceDirectory string, skillPrompts string, maxWorkspaceFileChars int, profile *configs.Profile) string {
 	// Resolve the identity line.
 	identityLine := resolveIdentityLine(configuration, agentId)
 
@@ -48,6 +54,14 @@ func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceD
 	}
 
 	now := time.Now()
+
+	resolvedProfile := profile
+	if resolvedProfile == nil {
+		if loaded, err := configs.LoadProfile(); err == nil {
+			resolvedProfile = loaded
+		}
+	}
+
 	data := systemPromptData{
 		IdentityLine:  identityLine,
 		Version:       version.Version(),
@@ -56,6 +70,12 @@ func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceD
 		Username:      username,
 		HomeDirectory: homeDir,
 		SkillPrompts:  skillPrompts,
+		ProjectLimit:  8,
+		ProjectList:   loadProjectList(8),
+	}
+	if resolvedProfile != nil {
+		data.ProfileName = strings.TrimSpace(resolvedProfile.Name)
+		data.ProfileBio = resolvedProfile.Bio
 	}
 
 	if workspaceDirectory != "" {
@@ -70,6 +90,33 @@ func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceD
 		return defaultIdentityLine
 	}
 	return buffer.String()
+}
+
+func loadProjectList(limit int) string {
+	items, err := projectstore.List()
+	if err != nil || len(items) == 0 {
+		return ""
+	}
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		description := strings.TrimSpace(item.Description)
+		if description == "" {
+			description = "No description available."
+		}
+		updatedAt := "unknown"
+		if item.UpdatedAt > 0 {
+			updatedAt = time.UnixMilli(item.UpdatedAt).Format(time.RFC3339)
+		}
+		lines = append(lines, fmt.Sprintf("- %s (projectId: %s, updatedAt: %s): %s", name, item.ID, updatedAt, description))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // resolveIdentityLine determines the identity line for the system prompt.

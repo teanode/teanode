@@ -482,6 +482,7 @@ func TestPathHelpers(t *testing.T) {
 		{"JobsDirectory", JobsDirectory, filepath.Join(directory, "jobs")},
 		{"AgentsDirectory", AgentsDirectory, filepath.Join(directory, "agents")},
 		{"SkillsDirectory", SkillsDirectory, filepath.Join(directory, "skills")},
+		{"ProjectsDirectory", ProjectsDirectory, filepath.Join(directory, "projects")},
 		{"ModelsFile", ModelsFile, filepath.Join(directory, "models.yaml")},
 		{"MediaDirectory", MediaDirectory, filepath.Join(directory, "media")},
 		{"GatewayPIDFile", GatewayPIDFile, filepath.Join(directory, "gateway.pid")},
@@ -532,7 +533,7 @@ func TestEnsureDirectories(t *testing.T) {
 		t.Fatalf("EnsureDirectories() error: %v", err)
 	}
 
-	expectedSubdirectories := []string{"conversations", "workspaces", "skills", "media", "agents", "jobs", "sessions", ".trash"}
+	expectedSubdirectories := []string{"conversations", "workspaces", "skills", "projects", "media", "agents", "jobs", "sessions", ".trash"}
 	for _, subdirectory := range expectedSubdirectories {
 		path := filepath.Join(directory, subdirectory)
 		info, err := os.Stat(path)

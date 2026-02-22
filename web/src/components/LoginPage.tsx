@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -7,7 +7,7 @@ import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import Logo from "./Logo";
-import { authLogin, authSetup } from "../rpc";
+import { authLogin, authSetup, profileGet } from "../rpc";
 
 interface LoginPageProps {
   mode: "login" | "setup";
@@ -16,10 +16,28 @@ interface LoginPageProps {
 
 export default function LoginPage({ mode, onSuccess }: LoginPageProps) {
   const { t } = useTranslation();
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (mode !== "setup") return;
+    let cancelled = false;
+    profileGet()
+      .then((profile) => {
+        if (cancelled) return;
+        const loaded = (profile.name || "").trim();
+        if (loaded) {
+          setName((current) => (current.trim() ? current : loaded));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [mode]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -39,7 +57,7 @@ export default function LoginPage({ mode, onSuccess }: LoginPageProps) {
     setLoading(true);
     try {
       if (mode === "setup") {
-        await authSetup(password);
+        await authSetup(password, name.trim() || undefined);
       } else {
         await authLogin(password);
       }
@@ -93,15 +111,27 @@ export default function LoginPage({ mode, onSuccess }: LoginPageProps) {
           </Alert>
         )}
 
+        {mode === "setup" && (
+          <TextField
+            fullWidth
+            label={t("auth.name")}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+            autoComplete="name"
+            sx={{ mb: 2 }}
+          />
+        )}
+
         <TextField
           fullWidth
           type="password"
           label={t("auth.password")}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          autoFocus
           autoComplete={mode === "setup" ? "new-password" : "current-password"}
           sx={{ mb: 2 }}
+          autoFocus={mode !== "setup"}
         />
 
         {mode === "setup" && (

@@ -4,6 +4,7 @@ import {
   EventFrame,
   RPCError,
   AuthStatusResult,
+  Profile,
 } from "./types";
 
 type EventHandler = (frame: EventFrame) => void;
@@ -23,6 +24,32 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 function getToken(): string {
   const params = new URLSearchParams(window.location.search);
   return params.get("token") || "";
+}
+
+export function withToken(path: string): string {
+  const token = getToken();
+  if (!token) return path;
+  if (/[?&]token=/.test(path)) return path;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}token=${encodeURIComponent(token)}`;
+}
+
+function buildAuthHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return headers;
+}
+
+export async function apiFetch(
+  input: string,
+  init?: RequestInit,
+): Promise<Response> {
+  return fetch(withToken(input), {
+    credentials: "same-origin",
+    ...init,
+    headers: buildAuthHeaders(init?.headers),
+  });
 }
 
 export function setEventHandler(handler: EventHandler): void {
@@ -122,13 +149,13 @@ export function disconnect(): void {
 // --- REST auth helpers (work before WebSocket is established) ---
 
 export async function authStatus(): Promise<AuthStatusResult> {
-  const response = await fetch("/api/v1/auth/status");
+  const response = await apiFetch("/api/v1/auth/status");
   if (!response.ok) throw new Error(`auth/status: ${response.status}`);
   return response.json();
 }
 
 export async function authLogin(password: string): Promise<void> {
-  const response = await fetch("/api/v1/auth/login", {
+  const response = await apiFetch("/api/v1/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password }),
@@ -141,11 +168,11 @@ export async function authLogin(password: string): Promise<void> {
   }
 }
 
-export async function authSetup(password: string): Promise<void> {
-  const response = await fetch("/api/v1/auth/setup", {
+export async function authSetup(password: string, name?: string): Promise<void> {
+  const response = await apiFetch("/api/v1/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, name }),
   });
   if (!response.ok) {
     const data = await response
@@ -156,5 +183,110 @@ export async function authSetup(password: string): Promise<void> {
 }
 
 export async function authLogout(): Promise<void> {
-  await fetch("/api/v1/auth/logout", { method: "POST" });
+  await apiFetch("/api/v1/auth/logout", { method: "POST" });
 }
+
+export async function profileGet(): Promise<Profile> {
+  const response = await apiFetch("/api/v1/profile", { cache: "no-store" });
+  if (!response.ok) throw new Error(`profile: ${response.status}`);
+  return response.json();
+}
+
+export async function profileUpdate(profile: Profile): Promise<Profile> {
+  const response = await apiFetch("/api/v1/profile", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: profile.name,
+      bio: profile.bio || "",
+    }),
+  });
+  if (!response.ok) {
+    const data = await response
+      .json()
+      .catch(() => ({ error: { message: "Failed to save profile" } }));
+    throw new Error(data.error?.message || "Failed to save profile");
+  }
+  return response.json();
+}
+
+interface RpcProfile {
+  name: string;
+  biography: string;
+  avatarMediaId?: string;
+}
+
+function fromRpcProfile(profile: RpcProfile): Profile {
+  return {
+    name: profile.name || "",
+    bio: profile.biography || "",
+    avatarMediaId: profile.avatarMediaId || "",
+  };
+}
+
+export async function profileGetRpc(): Promise<Profile> {
+  const response = await sendRpc<RpcProfile>("profile.get", {});
+  return fromRpcProfile(response);
+}
+
+export async function profileUpdateRpc(profile: Profile): Promise<Profile> {
+  const response = await sendRpc<RpcProfile>("profile.update", {
+    name: profile.name,
+    biography: profile.bio || "",
+  });
+  return fromRpcProfile(response);
+}
+
+export async function uploadAgentAvatar(
+  agentId: string,
+  file: File,
+): Promise<void> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiFetch(
+    `/api/v1/agents/${encodeURIComponent(agentId)}/avatar`,
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
+  if (!response.ok) throw new Error(await response.text());
+}
+
+export async function removeAgentAvatar(agentId: string): Promise<void> {
+  const response = await apiFetch(
+    `/api/v1/agents/${encodeURIComponent(agentId)}/avatar`,
+    {
+      method: "DELETE",
+    },
+  );
+  if (!response.ok) throw new Error(await response.text());
+}
+
+export async function uploadProfileAvatar(file: File): Promise<Profile> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiFetch("/api/v1/profile/avatar", {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function removeProfileAvatar(): Promise<Profile> {
+  const response = await apiFetch("/api/v1/profile/avatar", {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function removeProfileAvatarRpc(): Promise<Profile> {
+  const response = await sendRpc<RpcProfile>("profile.avatar.remove", {});
+  return fromRpcProfile(response);
+}
+
+// Backward-compatible aliases.
+export const getProfile = profileGet;
+export const updateProfile = profileUpdate;
