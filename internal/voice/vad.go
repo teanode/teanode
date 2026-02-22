@@ -9,7 +9,7 @@ const (
 	// Tuned to reduce false positives and self-interruptions from playback leakage.
 	vadPositiveThreshold = 0.04
 	vadNegativeThreshold = 0.02
-	vadMinSpeechFrames   = 5
+	vadMinSpeechFrames   = 10
 	vadRedemptionFrames  = 16
 )
 
