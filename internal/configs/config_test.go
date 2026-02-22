@@ -954,11 +954,11 @@ func TestLoad_AppliesDefaults(t *testing.T) {
 	if loaded.Gateway.Bind != "loopback" {
 		t.Errorf("Bind = %q, want loopback (default)", loaded.Gateway.Bind)
 	}
-	if loaded.Models.Default != "openai:gpt-5.1" {
-		t.Errorf("Default = %q, want openai:gpt-5.1 (default)", loaded.Models.Default)
+	if loaded.Models.Default != "openai:gpt-5.2" {
+		t.Errorf("Default = %q, want openai:gpt-5.2 (default)", loaded.Models.Default)
 	}
-	if loaded.Models.ContextWindow != 128000 {
-		t.Errorf("ContextWindow = %d, want 128000 (default)", loaded.Models.ContextWindow)
+	if loaded.Models.ContextWindow != 400000 {
+		t.Errorf("ContextWindow = %d, want 400000 (default for openai:gpt-5.2)", loaded.Models.ContextWindow)
 	}
 	if loaded.Models.DefaultLimits != DefaultAgentLimits {
 		t.Errorf("DefaultLimits = %+v, want %+v", loaded.Models.DefaultLimits, DefaultAgentLimits)
@@ -1033,14 +1033,79 @@ func TestApplyDefaults_FillsZeroValues(t *testing.T) {
 	if configuration.Gateway.Bind != "loopback" {
 		t.Errorf("Bind = %q, want loopback", configuration.Gateway.Bind)
 	}
-	if configuration.Models.Default != "openai:gpt-5.1" {
-		t.Errorf("Default = %q, want openai:gpt-5.1", configuration.Models.Default)
+	if configuration.Models.Default != "openai:gpt-5.2" {
+		t.Errorf("Default = %q, want openai:gpt-5.2", configuration.Models.Default)
 	}
-	if configuration.Models.ContextWindow != 128000 {
-		t.Errorf("ContextWindow = %d, want 128000", configuration.Models.ContextWindow)
+	if configuration.Models.ContextWindow != 400000 {
+		t.Errorf("ContextWindow = %d, want 400000 (default for openai:gpt-5.2)", configuration.Models.ContextWindow)
 	}
 	if configuration.Models.DefaultLimits != DefaultAgentLimits {
 		t.Errorf("DefaultLimits = %+v, want %+v", configuration.Models.DefaultLimits, DefaultAgentLimits)
+	}
+}
+
+func TestApplyDefaults_ContextWindowUsesModelLookup(t *testing.T) {
+	configuration := &Config{
+		Models: ModelsConfig{
+			Default: "openai:gpt-5.2",
+		},
+	}
+	applyDefaults(configuration)
+
+	if configuration.Models.ContextWindow != 400000 {
+		t.Errorf("ContextWindow = %d, want 400000 for openai:gpt-5.2", configuration.Models.ContextWindow)
+	}
+}
+
+func TestApplyDefaults_ContextWindowFallsBackForUnknownModel(t *testing.T) {
+	configuration := &Config{
+		Models: ModelsConfig{
+			Default: "openai:unknown-model",
+		},
+	}
+	applyDefaults(configuration)
+
+	if configuration.Models.ContextWindow != 128000 {
+		t.Errorf("ContextWindow = %d, want fallback 128000 for unknown model", configuration.Models.ContextWindow)
+	}
+}
+
+func TestDefaultContextWindowForModel_KnownPopularModels(t *testing.T) {
+	tests := []struct {
+		model string
+		want  int
+	}{
+		{model: "openai:gpt-5.2", want: 400000},
+		{model: "openai:gpt-4.1", want: 1047576},
+		{model: "openai:gpt-4o", want: 128000},
+		{model: "anthropic:claude-sonnet-4-5", want: 200000},
+		{model: "openrouter:google/gemini-2.5-pro", want: 1048576},
+	}
+
+	for _, testCase := range tests {
+		got := defaultContextWindowForModel(testCase.model)
+		if got != testCase.want {
+			t.Errorf("defaultContextWindowForModel(%q) = %d, want %d", testCase.model, got, testCase.want)
+		}
+	}
+}
+
+func TestDefaultContextWindowForModel_ProviderAgnostic(t *testing.T) {
+	tests := []struct {
+		model string
+		want  int
+	}{
+		{model: "openai:gpt-5.2", want: 400000},
+		{model: "openrouter:gpt-5.2", want: 400000},
+		{model: "anthropic:gpt-5.2", want: 400000},
+		{model: "openrouter:google/gemini-2.5-flash", want: 1048576},
+	}
+
+	for _, testCase := range tests {
+		got := defaultContextWindowForModel(testCase.model)
+		if got != testCase.want {
+			t.Errorf("defaultContextWindowForModel(%q) = %d, want %d", testCase.model, got, testCase.want)
+		}
 	}
 }
 
