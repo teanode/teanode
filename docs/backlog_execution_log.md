@@ -80,3 +80,11 @@ Started: 2026-02-22T21:56:22Z
       PASS `go test -race ./internal/voice/...` -> ok github.com/teanode/teanode/internal/voice
       PASS `go test -race ./internal/api/v1api/...` -> ok github.com/teanode/teanode/internal/api/v1api
   - Next: stop wave advancement; fix frontend embed/static artifact issue, then re-run Wave 0 gate.
+- 2026-02-22T21:59:48Z
+  - Wave: 0
+  - Task: orchestrator-checkpoint
+  - Status: complete
+  - Branch: pipeline
+  - Commit: de3166b
+  - Validations: state/log persisted in git
+  - Next: unblock gate by restoring `internal/frontend/static` embed inputs, then re-run Wave 0 gate.
