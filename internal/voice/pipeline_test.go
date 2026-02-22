@@ -240,7 +240,7 @@ func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 	}()
 
 	loud := makePCMFrame(12000, 320)
-	for i := 0; i < 7; i++ {
+	for i := 0; i < 10; i++ {
 		s.audioInCh <- loud
 	}
 
@@ -305,7 +305,7 @@ func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 	}()
 
 	loud := makePCMFrame(12000, 320)
-	for i := 0; i < 7; i++ {
+	for i := 0; i < 10; i++ {
 		s.audioInCh <- loud
 	}
 

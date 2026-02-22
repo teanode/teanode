@@ -7,9 +7,9 @@ import (
 
 const (
 	// Tuned to reduce false positives and self-interruptions from playback leakage.
-	vadPositiveThreshold = 0.025
-	vadNegativeThreshold = 0.012
-	vadMinSpeechFrames   = 7
+	vadPositiveThreshold = 0.04
+	vadNegativeThreshold = 0.02
+	vadMinSpeechFrames   = 10
 	vadRedemptionFrames  = 16
 )
 

@@ -14,7 +14,7 @@ var pipelineLog = logging.MustGetLogger("voice.pipeline")
 const (
 	minCommittedTurnBytes  = 19200 // ~600ms at 16kHz mono s16le
 	minCommittedTextRunes  = 8
-	bargeInTriggerMinScore = 0.06
+	bargeInTriggerMinScore = 0.1
 	maxResponseStartDelay  = 2 * time.Second
 )
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/voice"
 	"github.com/teanode/teanode/test/voicee2e/internal/model"
 )
@@ -21,7 +23,7 @@ type rpcRequest struct {
 	Type   string      `json:"type"`
 	ID     string      `json:"id"`
 	Method string      `json:"method"`
-	Params interface{} `json:"parameters,omitempty"`
+	Params interface{} `json:"params,omitempty"`
 }
 
 type rpcResponse struct {
@@ -87,11 +89,18 @@ func (self *Client) SetPromptSuffix(value string) {
 }
 
 func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) ([]model.TimelineEvent, error) {
+	debugEnabled := voiceE2eDebugEnabled()
+
 	wsUrl, err := toWebSocketUrl(self.gatewayUrl)
 	if err != nil {
 		return nil, err
 	}
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsUrl, http.Header{})
+	headers := http.Header{}
+	if token := resolveGatewayToken(); token != "" {
+		headers.Set("Authorization", "Bearer "+token)
+	}
+	debugf(debugEnabled, "dial websocket url=%s auth_header=%t", wsUrl, headers.Get("Authorization") != "")
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsUrl, headers)
 	if err != nil {
 		return nil, fmt.Errorf("dial websocket: %w", err)
 	}
@@ -105,8 +114,12 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	timeline := make([]model.TimelineEvent, 0, 256)
 	var timelineMu sync.Mutex
 	var seq atomic.Uint64
+	var responseStartedCount atomic.Int32
 
 	record := func(event model.TimelineEvent) {
+		if event.Type == model.EventResponseStarted {
+			responseStartedCount.Add(1)
+		}
 		timelineMu.Lock()
 		timeline = append(timeline, event)
 		timelineMu.Unlock()
@@ -117,6 +130,7 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 		for {
 			msgType, data, readErr := conn.ReadMessage()
 			if readErr != nil {
+				debugf(debugEnabled, "read message error: %v", readErr)
 				readerDone <- readErr
 				return
 			}
@@ -142,6 +156,7 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 				if err := json.Unmarshal(data, &response); err != nil {
 					continue
 				}
+				debugf(debugEnabled, "rpc response id=%s ok=%t", response.ID, response.OK)
 				waitersMu.Lock()
 				waiter, ok := waiters[response.ID]
 				waitersMu.Unlock()
@@ -156,6 +171,7 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 				if err := json.Unmarshal(data, &env); err != nil {
 					continue
 				}
+				debugf(debugEnabled, "voice envelope type=%s session=%s", env.Type, env.SessionID)
 				convertVoiceEnvelope(record, now, env)
 				continue
 			}
@@ -166,6 +182,7 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 					continue
 				}
 				if frame.Event == "conversation" {
+					debugf(debugEnabled, "conversation event")
 					convertConversationEvent(record, now, frame.Payload)
 				}
 			}
@@ -184,7 +201,8 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 			waitersMu.Unlock()
 		}()
 
-		request := rpcRequest{Type: "request", ID: id, Method: method, Params: parameters}
+		request := rpcRequest{Type: "req", ID: id, Method: method, Params: parameters}
+		debugf(debugEnabled, "send rpc method=%s id=%s", method, id)
 		if err := conn.WriteJSON(request); err != nil {
 			return err
 		}
@@ -224,10 +242,31 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	if err := sendRpc("voice.start", start); err != nil {
 		return nil, err
 	}
+	debugf(debugEnabled, "voice.start acknowledged")
 
 	base := filepath.Join("test", "voicee2e", "fixtures")
 	frameSeq := uint64(1)
-	for _, step := range scenario.Audio {
+	maxResponseWait := time.Duration(scenario.Expect.MaxResponseLatencyMS) * time.Millisecond
+	if maxResponseWait <= 0 {
+		maxResponseWait = 5 * time.Second
+	}
+	waitForResponseStarted := func(beforeCount int32) error {
+		deadline := time.Now().Add(maxResponseWait)
+		for time.Now().Before(deadline) {
+			if responseStartedCount.Load() > beforeCount {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case err := <-readerDone:
+				return err
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+		return nil
+	}
+	for index, step := range scenario.Audio {
 		if step.DelayBeforeMS > 0 {
 			select {
 			case <-ctx.Done():
@@ -240,15 +279,17 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 			return nil, fmt.Errorf("load fixture %s: %w", step.Fixture, err)
 		}
 		for len(pcm) > 0 {
-			chunk := pcm
-			if len(chunk) > 640 {
-				chunk = pcm[:640]
-			} else if len(chunk) < 640 {
+			readLen := len(pcm)
+			if readLen > 640 {
+				readLen = 640
+			}
+			chunk := pcm[:readLen]
+			if readLen < 640 {
 				padding := make([]byte, 640)
 				copy(padding, chunk)
 				chunk = padding
 			}
-			pcm = pcm[len(chunk):]
+			pcm = pcm[readLen:]
 			frame := voice.EncodeBinaryAudioFrame(voice.BinaryAudioFrame{
 				FrameType:   voice.FrameTypeAudioIn,
 				Seq:         frameSeq,
@@ -273,9 +314,20 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 			case <-time.After(time.Duration(step.DelayAfterMS) * time.Millisecond):
 			}
 		}
+
+		hasNext := index+1 < len(scenario.Audio)
+		nextStepExpectsBargeIn := hasNext && scenario.Audio[index+1].ExpectBargeIn
+		shouldWaitForResponse := !hasNext || (!step.ExpectBargeIn && !nextStepExpectsBargeIn)
+		if shouldWaitForResponse {
+			beforeCount := responseStartedCount.Load()
+			if err := waitForResponseStarted(beforeCount); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	_ = sendRpc("voice.end", map[string]any{})
+	debugf(debugEnabled, "voice.end sent")
 	_ = conn.Close()
 
 	timelineMu.Lock()
@@ -304,7 +356,31 @@ func toWebSocketUrl(gateway string) (string, error) {
 	if !strings.HasSuffix(u.Path, "/api/v1/websocket") {
 		u.Path = strings.TrimSuffix(u.Path, "/") + "/api/v1/websocket"
 	}
+
 	return u.String(), nil
+}
+
+func resolveGatewayToken() string {
+	if token, exists := os.LookupEnv("TEANODE_GATEWAY_TOKEN"); exists {
+		return strings.TrimSpace(token)
+	}
+	securityConfig, err := configs.LoadSecurity()
+	if err != nil || securityConfig == nil {
+		return ""
+	}
+	return strings.TrimSpace(securityConfig.Token)
+}
+
+func voiceE2eDebugEnabled() bool {
+	value := strings.TrimSpace(os.Getenv("VOICE_E2E_DEBUG"))
+	return value == "1" || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
+}
+
+func debugf(enabled bool, format string, args ...interface{}) {
+	if !enabled {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "[voicee2e] "+format+"\n", args...)
 }
 
 func convertConversationEvent(record func(model.TimelineEvent), now time.Time, payload json.RawMessage) {

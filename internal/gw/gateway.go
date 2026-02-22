@@ -643,9 +643,6 @@ func (self *gateway) checkBearerToken(request *http.Request) bool {
 	if auth == "Bearer "+token {
 		return true
 	}
-	if request.URL.Query().Get("token") == token {
-		return true
-	}
 	return false
 }
 
@@ -754,9 +751,9 @@ func (self *gateway) AuthMiddleware() web.Middleware {
 				return
 			}
 
-			// 6. Websocket api: accept only session cookie.
+			// 6. Websocket api: accept session cookie or bearer token.
 			if path == "/api/v1/websocket" {
-				if self.checkSessionCookie(request) {
+				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
 					next.ServeHTTP(writer, request)
 					return
 				}

@@ -8,6 +8,9 @@ const FRAME_HEADER_BYTES = 18;
 const INPUT_FRAME_SAMPLES = 320; // 20ms @ 16kHz
 const PROCESSOR_BUFFER_SIZE = 1024; // Must be 0 or power-of-two in [256..16384]
 const INPUT_SAMPLE_RATE_HZ = 16000;
+const CLIENT_SPEECH_RMS_THRESHOLD = 0.03;
+const CLIENT_SPEECH_MAX_ABS_THRESHOLD = 0.12;
+const CLIENT_SPEECH_HANGOVER_MS = 350;
 
 type BinarySender = (data: ArrayBuffer | Uint8Array) => void;
 type BinarySubscriber = (handler: (data: ArrayBuffer) => void) => () => void;
@@ -268,12 +271,23 @@ export function useVoiceSession(
         while (offset + INPUT_FRAME_SAMPLES <= combined.length) {
           const chunk = combined.subarray(offset, offset + INPUT_FRAME_SAMPLES);
           const pcm = new Int16Array(INPUT_FRAME_SAMPLES);
+          let sumSquares = 0;
+          let maxAbs = 0;
           for (let i = 0; i < INPUT_FRAME_SAMPLES; i++) {
             const sample = Math.max(-1, Math.min(1, chunk[i]));
-            if (!sawVoice && Math.abs(sample) > 0.015) {
+            const abs = Math.abs(sample);
+            if (abs > maxAbs) maxAbs = abs;
+            sumSquares += sample * sample;
+            pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+          }
+          if (!sawVoice) {
+            const rms = Math.sqrt(sumSquares / INPUT_FRAME_SAMPLES);
+            if (
+              rms >= CLIENT_SPEECH_RMS_THRESHOLD ||
+              maxAbs >= CLIENT_SPEECH_MAX_ABS_THRESHOLD
+            ) {
               sawVoice = true;
             }
-            pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
           }
           sendBinary(encodeInputFrame(pcm));
           inputFramesSentRef.current += 1;
@@ -292,7 +306,10 @@ export function useVoiceSession(
         if (sawVoice) {
           lastVoiceDetectedAtRef.current = now;
           setIsUserSpeaking(true);
-        } else if (now - lastVoiceDetectedAtRef.current > 250) {
+        } else if (
+          now - lastVoiceDetectedAtRef.current >
+          CLIENT_SPEECH_HANGOVER_MS
+        ) {
           setIsUserSpeaking(false);
         }
       };

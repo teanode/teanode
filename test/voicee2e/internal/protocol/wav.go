@@ -44,6 +44,7 @@ func parsePCM16WAV(raw []byte) ([]int16, int, int, error) {
 	var channels int
 	var bitsPerSample int
 	var pcm []byte
+	var fillerPCM []byte
 	for offset+8 <= len(raw) {
 		chunkId := string(raw[offset : offset+4])
 		chunkSize := int(binary.LittleEndian.Uint32(raw[offset+4 : offset+8]))
@@ -70,6 +71,10 @@ func parsePCM16WAV(raw []byte) ([]int16, int, int, error) {
 			bitsPerSample = int(binary.LittleEndian.Uint16(data[14:16]))
 		case "data":
 			pcm = append([]byte(nil), data...)
+		case "FLLR":
+			// Some fixture generators may store PCM payload in a vendor-specific
+			// filler chunk while leaving data size as zero.
+			fillerPCM = append([]byte(nil), data...)
 		}
 	}
 	if channels <= 0 || sampleRate <= 0 {
@@ -79,7 +84,10 @@ func parsePCM16WAV(raw []byte) ([]int16, int, int, error) {
 		return nil, 0, 0, fmt.Errorf("unsupported bits per sample: %d", bitsPerSample)
 	}
 	if len(pcm) == 0 {
-		return nil, 0, 0, errors.New("missing wav data chunk")
+		if len(fillerPCM) == 0 {
+			return nil, 0, 0, errors.New("missing wav data chunk")
+		}
+		pcm = fillerPCM
 	}
 	if len(pcm)%2 != 0 {
 		return nil, 0, 0, errors.New("invalid pcm data size")

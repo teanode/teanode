@@ -185,9 +185,9 @@ Set initial thresholds and tighten over iterations.
 ## 8. CI/CD Integration
 
 Add targets:
-- `make voice-e2e` (local full matrix)
-- `make voice-e2e-smoke` (fast subset)
-- `make voice-e2e-compare PROMPT_A=... PROMPT_B=...`
+- `make test-voice-e2e` (local full matrix)
+- `make test-voice-e2e-smoke` (fast subset)
+- `make test-voice-e2e-compare PROMPT_A=... PROMPT_B=...`
 
 CI gating suggestion:
 - PR smoke gate: S1 + S5 mandatory pass.

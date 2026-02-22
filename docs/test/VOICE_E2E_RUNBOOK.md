@@ -11,19 +11,19 @@
 ### Smoke
 
 ```bash
-make voice-e2e-smoke
+make test-voice-e2e-smoke
 ```
 
 ### Full matrix
 
 ```bash
-make voice-e2e
+make test-voice-e2e
 ```
 
 ### Prompt compare
 
 ```bash
-make voice-e2e-compare PROMPT_A=test/voicee2e/prompts/v1_baseline.txt PROMPT_B=test/voicee2e/prompts/v2_on_topic.txt
+make test-voice-e2e-compare PROMPT_A=test/voicee2e/prompts/v1_baseline.txt PROMPT_B=test/voicee2e/prompts/v2_on_topic.txt
 ```
 
 ## Direct CLI examples

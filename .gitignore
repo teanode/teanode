@@ -10,3 +10,7 @@
 # Frontend build artifacts (webpack output into backend embed dir)
 /internal/frontend/static/
 
+# Voice e2e generated reports
+/test/voicee2e/reports/*.json
+/test/voicee2e/reports/*.md
+!/test/voicee2e/reports/baseline-sample.json

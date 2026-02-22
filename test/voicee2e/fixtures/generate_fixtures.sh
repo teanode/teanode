@@ -3,13 +3,26 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if ! command -v say >/dev/null 2>&1; then
-  echo "error: 'say' command is required (macOS)" >&2
-  exit 1
-fi
-if ! command -v afconvert >/dev/null 2>&1; then
-  echo "error: 'afconvert' command is required (macOS)" >&2
-  exit 1
+OS="$(uname -s)"
+tts_backend=""
+
+if [[ "$OS" == "Darwin" ]]; then
+  if ! command -v say >/dev/null 2>&1; then
+    echo "error: 'say' command is required on macOS" >&2
+    exit 1
+  fi
+  if ! command -v afconvert >/dev/null 2>&1; then
+    echo "error: 'afconvert' command is required on macOS" >&2
+    exit 1
+  fi
+  tts_backend="macos"
+else
+  if command -v espeak >/dev/null 2>&1 && command -v ffmpeg >/dev/null 2>&1; then
+    tts_backend="linux"
+  else
+    echo "error: on Linux, both 'espeak' and 'ffmpeg' are required" >&2
+    exit 1
+  fi
 fi
 
 tmp="$(mktemp -d)"
@@ -19,9 +32,17 @@ trap cleanup EXIT
 gen() {
   local out="$1"
   local text="$2"
-  local aiff="$tmp/${out%.wav}.aiff"
-  say -o "$aiff" "$text"
-  afconvert "$aiff" "$ROOT_DIR/$out" -f WAVE -d LEI16@16000 -c 1 >/dev/null
+  local out_path="$ROOT_DIR/$out"
+  if [[ "$tts_backend" == "macos" ]]; then
+    local aiff="$tmp/${out%.wav}.aiff"
+    say -o "$aiff" "$text"
+    afconvert "$aiff" "$out_path" -f WAVE -d LEI16@16000 -c 1 >/dev/null
+  else
+    # Generate deterministic mono PCM16/16k WAV for fixture consumption.
+    local wav_tmp="$tmp/${out%.wav}.wav"
+    espeak -w "$wav_tmp" "$text"
+    ffmpeg -loglevel error -y -i "$wav_tmp" -ac 1 -ar 16000 -sample_fmt s16 "$out_path"
+  fi
   echo "generated $ROOT_DIR/$out"
 }
 

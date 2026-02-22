@@ -102,3 +102,39 @@ func TestAuthMiddleware_ProfileAvatarRequiresAuth(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
 	}
 }
+
+func TestAuthMiddleware_WebSocketAllowsBearerToken(t *testing.T) {
+	t.Parallel()
+
+	g := &gateway{
+		config:         &configs.Config{},
+		securityConfig: &configs.SecurityConfig{Password: "set", Token: "token123"},
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/websocket", nil)
+	request.Header.Set("Authorization", "Bearer token123")
+	response := runThroughAuthMiddleware(g, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("websocket status = %d, want %d", response.Code, http.StatusNoContent)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket?token=token123", nil)
+	response = runThroughAuthMiddleware(g, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("websocket query-token status = %d, want %d", response.Code, http.StatusNoContent)
+	}
+}
+
+func TestAuthMiddleware_WebSocketRequiresAuth(t *testing.T) {
+	t.Parallel()
+
+	g := &gateway{
+		config:         &configs.Config{},
+		securityConfig: &configs.SecurityConfig{Password: "set", Token: "token123"},
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/websocket", nil)
+	response := runThroughAuthMiddleware(g, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+}
