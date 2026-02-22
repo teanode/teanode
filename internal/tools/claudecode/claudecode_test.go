@@ -212,6 +212,55 @@ func TestRunMissingPrompt(testing *testing.T) {
 	}
 }
 
+func TestRunRequiresResumeWhenSessionExists(testing *testing.T) {
+	runner, _ := mockRunner("", "", 0, nil)
+	tool := &claudeCodeTool{
+		binaryPath:   "/usr/bin/claude",
+		allowedTools: DefaultAllowedTools,
+		timeout:      defaultTimeout,
+		runner:       runner,
+		sessions: map[string]*sessionInfo{
+			"existing-session": {SessionID: "existing-session"},
+		},
+	}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "run",
+		"prompt": "Do something",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err == nil || !strings.Contains(err.Error(), "existing session(s) detected") {
+		testing.Errorf("expected existing session guidance error, got: %v", err)
+	}
+}
+
+func TestRunAllowsForceNewSessionWhenSessionExists(testing *testing.T) {
+	claudeOutput := `{"result":"Started fresh","session_id":"new-session","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
+	runner, calls := mockRunner(claudeOutput, "", 0, nil)
+	tool := &claudeCodeTool{
+		binaryPath:   "/usr/bin/claude",
+		allowedTools: DefaultAllowedTools,
+		timeout:      defaultTimeout,
+		runner:       runner,
+		sessions: map[string]*sessionInfo{
+			"existing-session": {SessionID: "existing-session"},
+		},
+	}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action":          "run",
+		"prompt":          "Start a new task",
+		"forceNewSession": true,
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+	if len(*calls) != 1 {
+		testing.Fatalf("expected 1 call, got %d", len(*calls))
+	}
+}
+
 // --- resume action tests ---
 
 func TestResumeKnownSession(testing *testing.T) {
@@ -388,11 +437,18 @@ func TestListSessionsAfterRuns(testing *testing.T) {
 	}
 
 	// Run two tasks.
-	for _, prompt := range []string{"Task 1", "Task 2"} {
+	for index, prompt := range []string{"Task 1", "Task 2"} {
 		arguments, _ := json.Marshal(map[string]interface{}{
 			"action": "run",
 			"prompt": prompt,
 		})
+		if index == 1 {
+			arguments, _ = json.Marshal(map[string]interface{}{
+				"action":          "run",
+				"prompt":          prompt,
+				"forceNewSession": true,
+			})
+		}
 		_, err := tool.Execute(context.Background(), string(arguments))
 		if err != nil {
 			testing.Fatalf("unexpected error: %v", err)
