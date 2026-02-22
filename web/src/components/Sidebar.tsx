@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import Box from "@mui/material/Box";
@@ -27,10 +27,14 @@ export default function Sidebar() {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
 
-  const activeView: "conversations" | "settings" =
+  const routeActiveView: "conversations" | "settings" =
     pathname.startsWith("/settings") || pathname.startsWith("/jobs")
       ? "settings"
       : "conversations";
+  const [sidebarViewOverride, setSidebarViewOverride] = useState<
+    "conversations" | "settings" | null
+  >(null);
+  const activeView = sidebarViewOverride || routeActiveView;
 
   const isAllConversationsPage = pathname === "/conversations/all";
 
@@ -93,6 +97,7 @@ export default function Sidebar() {
 
   function handleNavigate(path: string) {
     navigate({ to: path });
+    setSidebarViewOverride(null);
     setMobileSidebarOpen(false);
   }
 
@@ -136,14 +141,9 @@ export default function Sidebar() {
             size="small"
             onClick={() => {
               if (activeView === "settings") {
-                const agentId = viewingAgentId || fallbackAgentId;
-                handleNavigate(
-                  viewingConversationId
-                    ? `/conversations/${agentId}/${viewingConversationId}`
-                    : `/conversations/${agentId}`,
-                );
+                setSidebarViewOverride("conversations");
               } else {
-                handleNavigate("/settings");
+                setSidebarViewOverride("settings");
               }
             }}
           >
