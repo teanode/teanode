@@ -3,6 +3,8 @@ package v1api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"strings"
 	"time"
 
@@ -1107,6 +1109,20 @@ type projectsCreateParameters struct {
 	Purpose     string `json:"purpose,omitempty"`
 }
 
+func projectRPCError(err error, operation string) (int, string) {
+	message := strings.TrimSpace(err.Error())
+	lower := strings.ToLower(message)
+	if errors.Is(err, os.ErrNotExist) {
+		return 404, operation + ": not found"
+	}
+	if strings.Contains(lower, "not found") {
+		return 404, operation + ": " + message
+	}
+	if strings.Contains(lower, "invalid projectid") || strings.Contains(lower, "name is required") {
+		return 400, operation + ": " + message
+	}
+	return 500, operation + ": " + message
+}
 func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 	var parameters projectsCreateParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
@@ -1119,7 +1135,8 @@ func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 	}
 	item, err := projectstore.Create(parameters.Name, parameters.Description, parameters.Purpose)
 	if err != nil {
-		self.sendError(frame.ID, 500, "creating project: "+err.Error())
+		code, message := projectRPCError(err, "creating project")
+		self.sendError(frame.ID, code, message)
 		return
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
@@ -1148,7 +1165,8 @@ func (self *webSocketConnection) handleProjectsRename(frame requestFrame) {
 	}
 	item, err := projectstore.Rename(parameters.ProjectID, parameters.Name)
 	if err != nil {
-		self.sendError(frame.ID, 500, "renaming project: "+err.Error())
+		code, message := projectRPCError(err, "renaming project")
+		self.sendError(frame.ID, code, message)
 		return
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
@@ -1171,7 +1189,8 @@ func (self *webSocketConnection) handleProjectsDelete(frame requestFrame) {
 		return
 	}
 	if err := projectstore.Delete(parameters.ProjectID); err != nil {
-		self.sendError(frame.ID, 500, "deleting project: "+err.Error())
+		code, message := projectRPCError(err, "deleting project")
+		self.sendError(frame.ID, code, message)
 		return
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{

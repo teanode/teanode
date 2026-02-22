@@ -28,19 +28,20 @@ function formatUpdated(updatedAt?: number): string {
 export default function SettingsProjectsPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
+  const { sendRpc, connected } = backend;
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
-  const [nameByProjectId, setNameByProjectId] = useState<Record<string, string>>(
-    {},
-  );
+  const [nameByProjectId, setNameByProjectId] = useState<
+    Record<string, string>
+  >({});
   const [busyProjectId, setBusyProjectId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProjectEntry | null>(null);
   const [statusText, setStatusText] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
 
   const loadProjects = useCallback(async () => {
-    if (!backend.connected) return;
+    if (!connected) return;
     try {
-      const result = await backend.sendRpc<{ projects: ProjectEntry[] }>(
+      const result = await sendRpc<{ projects: ProjectEntry[] }>(
         "projects.list",
         {},
       );
@@ -48,7 +49,7 @@ export default function SettingsProjectsPage() {
     } catch (error) {
       console.error("projects.list:", error);
     }
-  }, [backend]);
+  }, [connected, sendRpc]);
 
   useEffect(() => {
     void loadProjects();
@@ -69,7 +70,7 @@ export default function SettingsProjectsPage() {
       setBusyProjectId(project.id);
       setStatusText("");
       try {
-        await backend.sendRpc("projects.rename", {
+        await sendRpc("projects.rename", {
           projectId: project.id,
           name: nextName,
         });
@@ -77,12 +78,14 @@ export default function SettingsProjectsPage() {
         await loadProjects();
       } catch (error) {
         console.error("projects.rename:", error);
-        setStatusText(t("settings.projectRenameFailed", { name: project.name }));
+        setStatusText(
+          t("settings.projectRenameFailed", { name: project.name }),
+        );
       } finally {
         setBusyProjectId(null);
       }
     },
-    [backend, loadProjects, nameByProjectId, t],
+    [loadProjects, nameByProjectId, sendRpc, t],
   );
 
   const confirmDeleteProject = useCallback(async () => {
@@ -90,7 +93,7 @@ export default function SettingsProjectsPage() {
     setBusyProjectId(pendingDelete.id);
     setStatusText("");
     try {
-      await backend.sendRpc("projects.delete", { projectId: pendingDelete.id });
+      await sendRpc("projects.delete", { projectId: pendingDelete.id });
       setStatusText(t("settings.projectDeleted", { name: pendingDelete.name }));
       setPendingDelete(null);
       await loadProjects();
@@ -102,7 +105,7 @@ export default function SettingsProjectsPage() {
     } finally {
       setBusyProjectId(null);
     }
-  }, [backend, loadProjects, pendingDelete, t]);
+  }, [loadProjects, pendingDelete, sendRpc, t]);
 
   const createProject = useCallback(async () => {
     const name = newProjectName.trim();
@@ -110,7 +113,7 @@ export default function SettingsProjectsPage() {
     setBusyProjectId("__create__");
     setStatusText("");
     try {
-      await backend.sendRpc("projects.create", { name });
+      await sendRpc("projects.create", { name });
       setStatusText(t("settings.projectCreated", { name }));
       setNewProjectName("");
       await loadProjects();
@@ -120,7 +123,7 @@ export default function SettingsProjectsPage() {
     } finally {
       setBusyProjectId(null);
     }
-  }, [backend, loadProjects, newProjectName, t]);
+  }, [loadProjects, newProjectName, sendRpc, t]);
 
   return (
     <Box sx={{ flex: 1, overflowY: "auto" }}>
@@ -150,93 +153,93 @@ export default function SettingsProjectsPage() {
           )}
 
           {sortedProjects.map((project) => {
-              const currentName = nameByProjectId[project.id] ?? project.name;
-              const dirty = currentName.trim() !== project.name;
-              const disabled = busyProjectId !== null;
+            const currentName = nameByProjectId[project.id] ?? project.name;
+            const dirty = currentName.trim() !== project.name;
+            const disabled = busyProjectId !== null;
 
-              return (
-                <Paper key={project.id} variant="outlined" sx={{ p: 2 }}>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 1.5,
-                    }}
-                  >
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <TextField
-                        variant="standard"
-                        size="small"
-                        value={currentName}
-                        onChange={(event) =>
-                          setNameByProjectId((previous) => ({
-                            ...previous,
-                            [project.id]: event.target.value,
-                          }))
-                        }
-                        InputProps={{ disableUnderline: true }}
-                        sx={{
-                          width: "100%",
-                          "& .MuiInputBase-input": {
-                            fontSize: "0.95rem",
-                            fontWeight: 600,
-                            py: 0.25,
-                          },
-                        }}
-                      />
-                      {project.description && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: "block", mt: 0.25 }}
-                        >
-                          {project.description}
-                        </Typography>
-                      )}
-                      {project.updatedAt && (
-                        <Typography
-                          variant="caption"
-                          color="text.disabled"
-                          sx={{ display: "block", mt: 0.25 }}
-                        >
-                          {t("settings.projectUpdated", {
-                            updated: formatUpdated(project.updatedAt),
-                          })}
-                        </Typography>
-                      )}
-                    </Box>
-
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Tooltip title={t("common.save")}>
-                        <span>
-                          <IconButton
-                            size="small"
-                            color={dirty ? "primary" : "default"}
-                            disabled={!dirty || disabled}
-                            onClick={() => void renameProject(project)}
-                          >
-                            <SaveOutlinedIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title={t("common.delete")}>
-                        <span>
-                          <IconButton
-                            size="small"
-                            color="error"
-                            disabled={disabled}
-                            onClick={() => setPendingDelete(project)}
-                          >
-                            <DeleteOutlineIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </Box>
+            return (
+              <Paper key={project.id} variant="outlined" sx={{ p: 2 }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 1.5,
+                  }}
+                >
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <TextField
+                      variant="standard"
+                      size="small"
+                      value={currentName}
+                      onChange={(event) =>
+                        setNameByProjectId((previous) => ({
+                          ...previous,
+                          [project.id]: event.target.value,
+                        }))
+                      }
+                      InputProps={{ disableUnderline: true }}
+                      sx={{
+                        width: "100%",
+                        "& .MuiInputBase-input": {
+                          fontSize: "0.95rem",
+                          fontWeight: 600,
+                          py: 0.25,
+                        },
+                      }}
+                    />
+                    {project.description && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ display: "block", mt: 0.25 }}
+                      >
+                        {project.description}
+                      </Typography>
+                    )}
+                    {project.updatedAt && (
+                      <Typography
+                        variant="caption"
+                        color="text.disabled"
+                        sx={{ display: "block", mt: 0.25 }}
+                      >
+                        {t("settings.projectUpdated", {
+                          updated: formatUpdated(project.updatedAt),
+                        })}
+                      </Typography>
+                    )}
                   </Box>
-                </Paper>
-              );
-            })}
+
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <Tooltip title={t("common.save")}>
+                      <span>
+                        <IconButton
+                          size="small"
+                          color={dirty ? "primary" : "default"}
+                          disabled={!dirty || disabled}
+                          onClick={() => void renameProject(project)}
+                        >
+                          <SaveOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title={t("common.delete")}>
+                      <span>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          disabled={disabled}
+                          onClick={() => setPendingDelete(project)}
+                        >
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Box>
+                </Box>
+              </Paper>
+            );
+          })}
 
           <Paper variant="outlined" sx={{ p: 2 }}>
             <Box
@@ -278,7 +281,9 @@ export default function SettingsProjectsPage() {
                     <IconButton
                       size="small"
                       color="primary"
-                      disabled={!newProjectName.trim() || busyProjectId !== null}
+                      disabled={
+                        !newProjectName.trim() || busyProjectId !== null
+                      }
                       onClick={() => void createProject()}
                     >
                       <AddCircleOutlineIcon fontSize="small" />

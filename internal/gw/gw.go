@@ -138,7 +138,6 @@ type Gateway interface {
 		sendJSON func(interface{}),
 		sendBinary func([]byte),
 	) (*voice.Session, error)
-
 	// Connection tracking
 	MarkSessionConnected(sessionId string)
 	MarkSessionDisconnected(sessionId string)
