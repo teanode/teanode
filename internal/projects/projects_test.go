@@ -225,8 +225,8 @@ func TestGetAcceptsUppercaseProjectID(t *testing.T) {
 		t.Fatalf("Create() error: %v", err)
 	}
 
-	uppercaseID := strings.ToUpper(metadata.ID)
-	loaded, err := Get(uppercaseID)
+	uppercaseId := strings.ToUpper(metadata.ID)
+	loaded, err := Get(uppercaseId)
 	if err != nil {
 		t.Fatalf("Get() with uppercase ID error: %v", err)
 	}

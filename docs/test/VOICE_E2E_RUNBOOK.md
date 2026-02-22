@@ -4,7 +4,7 @@
 
 1. Gateway runs locally on `http://127.0.0.1:8833`.
 2. Valid provider credentials are configured for transcription + LLM + TTS.
-3. WAV fixtures exist in `/Users/hao/Projects/teanode-sync-voice-text/test/voicee2e/fixtures/`.
+3. WAV fixtures exist in `test/voicee2e/fixtures/` (repo-relative path).
 
 ## Commands
 

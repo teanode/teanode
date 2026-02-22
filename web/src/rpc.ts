@@ -9,6 +9,7 @@ import {
 
 type EventHandler = (frame: EventFrame) => void;
 type BinaryHandler = (data: ArrayBuffer) => void;
+type VoiceMessageHandler = (message: Record<string, unknown>) => void;
 
 interface PendingCall {
   resolve: (payload: unknown) => void;
@@ -22,6 +23,7 @@ let eventHandler: EventHandler | null = null;
 let onStatusChange: ((status: string) => void) | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const binaryHandlers: BinaryHandler[] = [];
+const voiceMessageHandlers: VoiceMessageHandler[] = [];
 
 function getToken(): string {
   const params = new URLSearchParams(window.location.search);
@@ -119,6 +121,18 @@ export function connect(onOpen?: () => void): void {
       id: frame.id,
       event: frame.event,
     });
+    if (
+      typeof frame === "object" &&
+      frame !== null &&
+      frame.v === 1 &&
+      typeof frame.type === "string"
+    ) {
+      for (const handler of voiceMessageHandlers) {
+        handler(frame as Record<string, unknown>);
+      }
+      return;
+    }
+
     if (frame.type === "res") {
       const response = frame as ResponseFrame;
       const pending = pendingCalls.get(response.id);
@@ -191,6 +205,14 @@ export function onBinaryMessage(handler: BinaryHandler): () => void {
   return () => {
     const idx = binaryHandlers.indexOf(handler);
     if (idx >= 0) binaryHandlers.splice(idx, 1);
+  };
+}
+
+export function onVoiceMessage(handler: VoiceMessageHandler): () => void {
+  voiceMessageHandlers.push(handler);
+  return () => {
+    const idx = voiceMessageHandlers.indexOf(handler);
+    if (idx >= 0) voiceMessageHandlers.splice(idx, 1);
   };
 }
 

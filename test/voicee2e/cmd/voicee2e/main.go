@@ -66,10 +66,10 @@ func compareReports(cfg model.RunnerConfig) error {
 	}
 	var base model.RunReport
 	var cand model.RunReport
-	if err := readJSON(cfg.PromptA, &base); err != nil {
+	if err := readJson(cfg.PromptA, &base); err != nil {
 		return fmt.Errorf("read prompt-a: %w", err)
 	}
-	if err := readJSON(cfg.PromptB, &cand); err != nil {
+	if err := readJson(cfg.PromptB, &cand); err != nil {
 		return fmt.Errorf("read prompt-b: %w", err)
 	}
 	start := time.Now()
@@ -92,7 +92,7 @@ func compareReports(cfg model.RunnerConfig) error {
 	return report.WriteJSON(out, comp)
 }
 
-func readJSON(path string, out any) error {
+func readJson(path string, out any) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return err

@@ -748,7 +748,7 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 
 	var attachments []conversations.Attachment
 	for _, att := range messageAttachments {
-		data, err := downloadURL(att.URL)
+		data, err := downloadUrl(att.URL)
 		if err != nil {
 			log.Errorf("failed to download discord attachment %s: %v", att.Filename, err)
 			continue
@@ -780,8 +780,8 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 	return attachments
 }
 
-// downloadURL fetches data from a URL.
-func downloadURL(url string) ([]byte, error) {
+// downloadUrl fetches data from a URL.
+func downloadUrl(url string) ([]byte, error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("downloading: %w", err)

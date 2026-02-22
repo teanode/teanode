@@ -690,11 +690,11 @@ func (self *Runner) buildMultimodalContent(blocks []conversations.ContentBlock) 
 			}
 		case "attachment":
 			if media.IsImageFormat(block.Format) {
-				imageURL := self.resolveMediaURL(block.MediaID, block.Format)
-				if imageURL != "" {
+				imageUrl := self.resolveMediaUrl(block.MediaID, block.Format)
+				if imageUrl != "" {
 					parts = append(parts, providers.ContentPart{
 						Type:     "image_url",
-						ImageURL: &providers.ImageURLPart{URL: imageURL},
+						ImageURL: &providers.ImageURLPart{URL: imageUrl},
 					})
 				}
 			} else {
@@ -717,8 +717,8 @@ func (self *Runner) buildMultimodalContent(blocks []conversations.ContentBlock) 
 	return parts
 }
 
-// resolveMediaURL returns a base64 data URI for a media file.
-func (self *Runner) resolveMediaURL(mediaId, format string) string {
+// resolveMediaUrl returns a base64 data URI for a media file.
+func (self *Runner) resolveMediaUrl(mediaId, format string) string {
 	if self.MediaStore == nil {
 		return ""
 	}

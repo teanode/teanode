@@ -4,7 +4,7 @@ import { useAppContext } from "../../../context";
 import MessageList from "../../../components/MessageList";
 import InputArea from "../../../components/InputArea";
 import VoiceCallBar from "../../../components/VoiceCallBar";
-import { useTTS } from "../../../hooks/useTTS";
+import { useTts } from "../../../hooks/useTts";
 import { useAgentVoiceCall } from "./route";
 import type { Attachment } from "../../../types";
 
@@ -18,7 +18,7 @@ export default function ConversationsConversationPage() {
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;
 
-  const tts = useTTS(ttsVoice);
+  const tts = useTts(ttsVoice);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(
     null,
   );

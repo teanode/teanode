@@ -27,7 +27,7 @@ type saveProfileOptions struct {
 const (
 	profileFrontMatterDelimiter = "---"
 	profileNameKey              = "name"
-	profileAvatarMediaIDKey     = "avatarMediaId"
+	profileAvatarMediaIdKey     = "avatarMediaId"
 )
 
 // ProfileFile returns the path to ~/.teanode/profile.md.
@@ -81,7 +81,7 @@ func LoadProfile() (*Profile, error) {
 	}
 
 	profile.Name = strings.TrimSpace(frontMatter[profileNameKey])
-	profile.AvatarMediaID = strings.TrimSpace(frontMatter[profileAvatarMediaIDKey])
+	profile.AvatarMediaID = strings.TrimSpace(frontMatter[profileAvatarMediaIdKey])
 	profile.Bio = body
 	if profile.Name == "" {
 		profile.Name = OSUsername()
@@ -135,14 +135,14 @@ func saveProfile(profile *Profile, options saveProfileOptions) error {
 
 	frontMatter := make(map[string]string, len(existingFrontMatter)+2)
 	for key, value := range existingFrontMatter {
-		if key == profileNameKey || key == profileAvatarMediaIDKey {
+		if key == profileNameKey || key == profileAvatarMediaIdKey {
 			continue
 		}
 		frontMatter[key] = value
 	}
 	frontMatter[profileNameKey] = normalized.Name
 	if normalized.AvatarMediaID != "" {
-		frontMatter[profileAvatarMediaIDKey] = normalized.AvatarMediaID
+		frontMatter[profileAvatarMediaIdKey] = normalized.AvatarMediaID
 	}
 
 	data, err := buildProfileMarkdown(frontMatter, normalized.Bio)
@@ -209,10 +209,10 @@ func buildProfileMarkdown(frontMatter map[string]string, body string) ([]byte, e
 		if right == profileNameKey {
 			return false
 		}
-		if left == profileAvatarMediaIDKey {
+		if left == profileAvatarMediaIdKey {
 			return right != profileNameKey
 		}
-		if right == profileAvatarMediaIDKey {
+		if right == profileAvatarMediaIdKey {
 			return false
 		}
 		return left < right

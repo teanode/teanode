@@ -7,7 +7,7 @@ export interface UseTTSReturn {
   isLoading: boolean;
 }
 
-export function useTTS(voice: string): UseTTSReturn {
+export function useTts(voice: string): UseTTSReturn {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);

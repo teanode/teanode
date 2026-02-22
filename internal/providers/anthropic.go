@@ -380,10 +380,10 @@ func (self *AnthropicClient) translateMessage(message ChatMessage) anthropicMess
 // translateImagePart converts an ImageURLPart into an Anthropic image content block.
 // If the URL is a data URI (base64), it emits a base64 source block.
 // Otherwise it emits a URL source block.
-func (self *AnthropicClient) translateImagePart(imageURL ImageURLPart) anthropicContentBlock {
-	if strings.HasPrefix(imageURL.URL, "data:") {
+func (self *AnthropicClient) translateImagePart(imageUrl ImageURLPart) anthropicContentBlock {
+	if strings.HasPrefix(imageUrl.URL, "data:") {
 		// Parse data URI: data:<mediaType>;base64,<data>
-		parts := strings.SplitN(imageURL.URL, ",", 2)
+		parts := strings.SplitN(imageUrl.URL, ",", 2)
 		if len(parts) == 2 {
 			mediaType := strings.TrimPrefix(parts[0], "data:")
 			mediaType = strings.TrimSuffix(mediaType, ";base64")
@@ -401,7 +401,7 @@ func (self *AnthropicClient) translateImagePart(imageURL ImageURLPart) anthropic
 		Type: "image",
 		Source: &anthropicImageSource{
 			Type: "url",
-			URL:  imageURL.URL,
+			URL:  imageUrl.URL,
 		},
 	}
 }

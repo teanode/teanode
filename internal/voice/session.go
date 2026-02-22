@@ -51,7 +51,7 @@ type Session struct {
 	Features       Features
 
 	deps         GatewayDeps
-	sendJSONFn   func(any)
+	sendJsonFn   func(any)
 	sendBinaryFn func([]byte)
 
 	closeOnce   sync.Once
@@ -59,9 +59,9 @@ type Session struct {
 	wg          sync.WaitGroup
 
 	stateMu            sync.RWMutex
-	currentTurnID      string
-	currentRunID       string
-	currentResponseID  string
+	currentTurnId      string
+	currentRunId       string
+	currentResponseId  string
 	lastCommittedText  string
 	runCancel          func()
 	ttsCancel          func()
@@ -81,85 +81,85 @@ type Session struct {
 
 const (
 	defaultAudioInBufferFrames  = 64
-	defaultTTSSentenceBuffer    = 32
+	defaultTtsSentenceBuffer    = 32
 	defaultAudioOutBufferFrames = 128
 	defaultMaxPendingTurns      = 3
 )
 
 // NewSession creates a session with default channel capacities.
-func NewSession(id, conversationID, agentID, promptSuffix string, in, out AudioFormat, features Features, deps GatewayDeps, sendJSON func(any), sendBinary func([]byte)) *Session {
+func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioFormat, features Features, deps GatewayDeps, sendJson func(any), sendBinary func([]byte)) *Session {
 	return &Session{
 		ID:                 id,
-		ConversationID:     conversationID,
-		AgentID:            agentID,
+		ConversationID:     conversationId,
+		AgentID:            agentId,
 		PromptSuffix:       promptSuffix,
 		AudioIn:            in,
 		AudioOut:           out,
 		Features:           features,
 		deps:               deps,
-		sendJSONFn:         sendJSON,
+		sendJsonFn:         sendJson,
 		sendBinaryFn:       sendBinary,
 		transcribeInFlight: make(map[string]struct{}),
 		committedTurns:     make(map[string]struct{}),
 		maxPendingTurns:    defaultMaxPendingTurns,
 		audioInCh:          make(chan []byte, defaultAudioInBufferFrames),
-		ttsInCh:            make(chan string, defaultTTSSentenceBuffer),
+		ttsInCh:            make(chan string, defaultTtsSentenceBuffer),
 		audioOutCh:         make(chan []byte, defaultAudioOutBufferFrames),
 		doneCh:             make(chan struct{}),
 	}
 }
 
 // Start begins session background loops.
-func (s *Session) Start() {
-	pipelineLog.Infof("voice session start: session=%s conv=%s agent=%s", s.ID, s.ConversationID, s.AgentID)
-	s.wg.Add(4)
-	go func() { defer s.wg.Done(); s.audioInputLoop() }()
-	go func() { defer s.wg.Done(); s.llmEventForwarder() }()
-	go func() { defer s.wg.Done(); s.ttsSynthLoop() }()
-	go func() { defer s.wg.Done(); s.audioOutputLoop() }()
+func (self *Session) Start() {
+	pipelineLog.Infof("voice session start: session=%s conv=%s agent=%s", self.ID, self.ConversationID, self.AgentID)
+	self.wg.Add(4)
+	go func() { defer self.wg.Done(); self.audioInputLoop() }()
+	go func() { defer self.wg.Done(); self.llmEventForwarder() }()
+	go func() { defer self.wg.Done(); self.ttsSynthLoop() }()
+	go func() { defer self.wg.Done(); self.audioOutputLoop() }()
 }
 
 // Close stops the session and waits for loop termination.
-func (s *Session) Close() {
-	s.closeOnce.Do(func() {
-		pipelineLog.Infof("voice session close: session=%s", s.ID)
-		if prev := s.SwapRunCancel(nil); prev != nil {
+func (self *Session) Close() {
+	self.closeOnce.Do(func() {
+		pipelineLog.Infof("voice session close: session=%s", self.ID)
+		if prev := self.SwapRunCancel(nil); prev != nil {
 			prev()
 		}
-		if prev := s.SwapTTSCancel(nil); prev != nil {
+		if prev := self.SwapTTSCancel(nil); prev != nil {
 			prev()
 		}
-		close(s.doneCh)
-		s.wg.Wait()
+		close(self.doneCh)
+		self.wg.Wait()
 	})
 }
 
-func (s *Session) NextOutSeq() uint64 {
-	return s.outSeq.Add(1)
+func (self *Session) NextOutSeq() uint64 {
+	return self.outSeq.Add(1)
 }
 
-func (s *Session) enqueueAudioOut(data []byte) bool {
+func (self *Session) enqueueAudioOut(data []byte) bool {
 	select {
-	case s.audioOutCh <- data:
+	case self.audioOutCh <- data:
 		return true
 	default:
-		pipelineLog.Warningf("voice audioOut queue full: session=%s dropped_bytes=%d", s.ID, len(data))
+		pipelineLog.Warningf("voice audioOut queue full: session=%s dropped_bytes=%d", self.ID, len(data))
 		return false
 	}
 }
 
-func (s *Session) enqueueAudioIn(data []byte) bool {
+func (self *Session) enqueueAudioIn(data []byte) bool {
 	select {
-	case s.audioInCh <- data:
+	case self.audioInCh <- data:
 		return true
 	default:
-		pipelineLog.Warningf("voice audioIn queue full: session=%s dropped_bytes=%d", s.ID, len(data))
+		pipelineLog.Warningf("voice audioIn queue full: session=%s dropped_bytes=%d", self.ID, len(data))
 		return false
 	}
 }
 
 // HandleInputBinaryFrame parses a client binary frame and enqueues audio payload.
-func (s *Session) HandleInputBinaryFrame(raw []byte) error {
+func (self *Session) HandleInputBinaryFrame(raw []byte) error {
 	frame, err := ParseBinaryAudioFrame(raw)
 	if err != nil {
 		return err
@@ -167,218 +167,218 @@ func (s *Session) HandleInputBinaryFrame(raw []byte) error {
 	if frame.FrameType != FrameTypeAudioIn {
 		return errors.New("expected audio_in frame")
 	}
-	s.inSeq.Store(frame.Seq)
+	self.inSeq.Store(frame.Seq)
 	if frame.Seq%100 == 0 {
-		pipelineLog.Debugf("voice input frame: session=%s seq=%d payload_bytes=%d", s.ID, frame.Seq, len(frame.Data))
+		pipelineLog.Debugf("voice input frame: session=%s seq=%d payload_bytes=%d", self.ID, frame.Seq, len(frame.Data))
 	}
-	if !s.enqueueAudioIn(frame.Data) {
+	if !self.enqueueAudioIn(frame.Data) {
 		return errors.New("audio input queue full")
 	}
 	return nil
 }
 
 // InputCommit allows push-to-talk sessions to flush buffered input turn.
-func (s *Session) InputCommit() {
-	s.sendVoiceEvent("turn.event", turnEventPayload{
-		TurnID: s.GetCurrentTurnID(),
+func (self *Session) InputCommit() {
+	self.sendVoiceEvent("turn.event", turnEventPayload{
+		TurnID: self.GetCurrentTurnId(),
 		Event:  "turn_committed",
 	})
 }
 
 // CancelResponse aborts current response generation and playback.
-func (s *Session) CancelResponse() {
-	pipelineLog.Infof("voice cancel response: session=%s response=%s run=%s", s.ID, s.GetCurrentResponseID(), s.GetCurrentRunID())
-	s.triggerBargeIn()
+func (self *Session) CancelResponse() {
+	pipelineLog.Infof("voice cancel response: session=%s response=%s run=%s", self.ID, self.GetCurrentResponseId(), self.GetCurrentRunId())
+	self.triggerBargeIn()
 }
 
-func (s *Session) sendVoiceEvent(eventType string, payload interface{}) {
-	if s.sendJSONFn == nil {
+func (self *Session) sendVoiceEvent(eventType string, payload interface{}) {
+	if self.sendJsonFn == nil {
 		return
 	}
-	s.sendJSONFn(map[string]interface{}{
+	self.sendJsonFn(map[string]interface{}{
 		"v":          1,
 		"type":       eventType,
-		"session_id": s.ID,
-		"seq":        s.NextOutSeq(),
+		"session_id": self.ID,
+		"seq":        self.NextOutSeq(),
 		"ts_ms":      time.Now().UnixMilli(),
 		"payload":    payload,
 	})
 }
 
-func (s *Session) GetCurrentTurnID() string {
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
-	return s.currentTurnID
+func (self *Session) GetCurrentTurnId() string {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.currentTurnId
 }
 
-func (s *Session) SetCurrentTurnID(id string) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.currentTurnID = id
+func (self *Session) SetCurrentTurnId(id string) {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	self.currentTurnId = id
 }
 
-func (s *Session) GetCurrentRunID() string {
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
-	return s.currentRunID
+func (self *Session) GetCurrentRunId() string {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.currentRunId
 }
 
-func (s *Session) SetCurrentRunID(id string) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.currentRunID = id
+func (self *Session) SetCurrentRunId(id string) {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	self.currentRunId = id
 }
 
-func (s *Session) ClearCurrentRun() {
-	s.SetCurrentRunID("")
+func (self *Session) ClearCurrentRun() {
+	self.SetCurrentRunId("")
 }
 
-func (s *Session) GetCurrentResponseID() string {
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
-	return s.currentResponseID
+func (self *Session) GetCurrentResponseId() string {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.currentResponseId
 }
 
-func (s *Session) SetCurrentResponseID(id string) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.currentResponseID = id
+func (self *Session) SetCurrentResponseId(id string) {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	self.currentResponseId = id
 }
 
-func (s *Session) ClearCurrentResponse() {
-	s.SetCurrentResponseID("")
+func (self *Session) ClearCurrentResponse() {
+	self.SetCurrentResponseId("")
 }
 
-func (s *Session) GetLastCommittedTranscript() string {
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
-	return s.lastCommittedText
+func (self *Session) GetLastCommittedTranscript() string {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.lastCommittedText
 }
 
-func (s *Session) SetLastCommittedTranscript(text string) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.lastCommittedText = text
+func (self *Session) SetLastCommittedTranscript(text string) {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	self.lastCommittedText = text
 }
 
-func (s *Session) SwapRunCancel(cancelFn func()) (prev func()) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	prev = s.runCancel
-	s.runCancel = cancelFn
+func (self *Session) SwapRunCancel(cancelFn func()) (prev func()) {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	prev = self.runCancel
+	self.runCancel = cancelFn
 	return prev
 }
 
-func (s *Session) SwapTTSCancel(cancelFn func()) (prev func()) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	prev = s.ttsCancel
-	s.ttsCancel = cancelFn
+func (self *Session) SwapTTSCancel(cancelFn func()) (prev func()) {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	prev = self.ttsCancel
+	self.ttsCancel = cancelFn
 	return prev
 }
 
-func (s *Session) newTurnID() string {
+func (self *Session) newTurnId() string {
 	return security.NewULID()
 }
 
-func (s *Session) TryStartTurnTranscription(turnID string) bool {
-	if turnID == "" {
+func (self *Session) TryStartTurnTranscription(turnId string) bool {
+	if turnId == "" {
 		return false
 	}
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	if _, exists := s.committedTurns[turnID]; exists {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	if _, exists := self.committedTurns[turnId]; exists {
 		return false
 	}
-	if _, exists := s.transcribeInFlight[turnID]; exists {
+	if _, exists := self.transcribeInFlight[turnId]; exists {
 		return false
 	}
-	s.transcribeInFlight[turnID] = struct{}{}
+	self.transcribeInFlight[turnId] = struct{}{}
 	return true
 }
 
-func (s *Session) FinishTurnTranscription(turnID string) {
-	if turnID == "" {
+func (self *Session) FinishTurnTranscription(turnId string) {
+	if turnId == "" {
 		return
 	}
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	delete(s.transcribeInFlight, turnID)
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	delete(self.transcribeInFlight, turnId)
 }
 
-func (s *Session) HasTranscriptionInFlight() bool {
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
-	return len(s.transcribeInFlight) > 0
+func (self *Session) HasTranscriptionInFlight() bool {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return len(self.transcribeInFlight) > 0
 }
 
-func (s *Session) IsTurnCommitted(turnID string) bool {
-	if turnID == "" {
+func (self *Session) IsTurnCommitted(turnId string) bool {
+	if turnId == "" {
 		return false
 	}
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
-	_, exists := s.committedTurns[turnID]
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	_, exists := self.committedTurns[turnId]
 	return exists
 }
 
-func (s *Session) MarkTurnCommitted(turnID string) {
-	if turnID == "" {
+func (self *Session) MarkTurnCommitted(turnId string) {
+	if turnId == "" {
 		return
 	}
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.committedTurns[turnID] = struct{}{}
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	self.committedTurns[turnId] = struct{}{}
 }
 
-func (s *Session) EnqueuePendingTurn(turnID, text string) (dropped *PendingTurn, queueDepth int) {
-	if turnID == "" || text == "" {
+func (self *Session) EnqueuePendingTurn(turnId, text string) (dropped *PendingTurn, queueDepth int) {
+	if turnId == "" || text == "" {
 		return nil, 0
 	}
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
 
-	maxPending := s.maxPendingTurns
+	maxPending := self.maxPendingTurns
 	if maxPending <= 0 {
 		maxPending = defaultMaxPendingTurns
 	}
-	if len(s.pendingTurns) >= maxPending {
-		oldest := s.pendingTurns[0]
-		s.pendingTurns = s.pendingTurns[1:]
+	if len(self.pendingTurns) >= maxPending {
+		oldest := self.pendingTurns[0]
+		self.pendingTurns = self.pendingTurns[1:]
 		dropped = &oldest
 	}
-	s.pendingTurns = append(s.pendingTurns, PendingTurn{
-		TurnID:    turnID,
+	self.pendingTurns = append(self.pendingTurns, PendingTurn{
+		TurnID:    turnId,
 		Text:      text,
 		CreatedAt: time.Now(),
 	})
-	return dropped, len(s.pendingTurns)
+	return dropped, len(self.pendingTurns)
 }
 
-func (s *Session) DequeuePendingTurn() (PendingTurn, bool) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	if len(s.pendingTurns) == 0 {
+func (self *Session) DequeuePendingTurn() (PendingTurn, bool) {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	if len(self.pendingTurns) == 0 {
 		return PendingTurn{}, false
 	}
-	next := s.pendingTurns[0]
-	s.pendingTurns = s.pendingTurns[1:]
+	next := self.pendingTurns[0]
+	self.pendingTurns = self.pendingTurns[1:]
 	return next, true
 }
 
-func (s *Session) HasPendingTurns() bool {
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
-	return len(s.pendingTurns) > 0
+func (self *Session) HasPendingTurns() bool {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return len(self.pendingTurns) > 0
 }
 
-func (s *Session) DropOldestPendingTurn(_ string) (PendingTurn, bool) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	if len(s.pendingTurns) == 0 {
+func (self *Session) DropOldestPendingTurn(_ string) (PendingTurn, bool) {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	if len(self.pendingTurns) == 0 {
 		return PendingTurn{}, false
 	}
-	dropped := s.pendingTurns[0]
-	s.pendingTurns = s.pendingTurns[1:]
+	dropped := self.pendingTurns[0]
+	self.pendingTurns = self.pendingTurns[1:]
 	return dropped, true
 }

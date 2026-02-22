@@ -28,7 +28,7 @@ export interface UseStreamingTTSReturn {
   isSynthesizing: boolean;
 }
 
-export function useStreamingTTS(
+export function useStreamingTts(
   options: UseStreamingTTSOptions,
 ): UseStreamingTTSReturn {
   const { voice, audioContext, onTurnComplete } = options;
@@ -114,7 +114,7 @@ export function useStreamingTTS(
     // If not ready yet, playNext will be called again when the fetch completes
   }, [advanceQueue]);
 
-  const fetchTTS = useCallback(
+  const fetchTts = useCallback(
     async (item: QueueItem, index: number) => {
       if (!activeRef.current) return;
       const context = audioContextRef.current;
@@ -183,10 +183,10 @@ export function useStreamingTTS(
     for (let index = 0; index < queue.length && slotsAvailable > 0; index++) {
       if (queue[index].status === "pending") {
         slotsAvailable--;
-        fetchTTS(queue[index], index);
+        fetchTts(queue[index], index);
       }
     }
-  }, [fetchTTS]);
+  }, [fetchTts]);
 
   const enqueueSentence = useCallback(
     (text: string) => {

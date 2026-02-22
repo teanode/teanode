@@ -1,5 +1,5 @@
 /**
- * Tests for the onTurnComplete callback logic in useStreamingTTS.
+ * Tests for the onTurnComplete callback logic in useStreamingTts.
  *
  * Since this hook is tightly coupled to React state, HTMLAudioElement, and
  * fetch(), and the project doesn't have @testing-library/react, these tests
@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from "vitest";
 
-// ── Reproduce the queue state machine from useStreamingTTS ───────
+// ── Reproduce the queue state machine from useStreamingTts ───────
 
 type ItemStatus = "pending" | "fetching" | "ready" | "playing" | "done";
 
@@ -100,7 +100,7 @@ class TTSQueueSimulation {
 
 // ── Tests ────────────────────────────────────────────────────────
 
-describe("useStreamingTTS onTurnComplete state machine", () => {
+describe("useStreamingTts onTurnComplete state machine", () => {
   it("fires onTurnComplete when queue drains after normal playback", () => {
     const simulation = new TTSQueueSimulation();
     simulation.enqueue("Hello.");

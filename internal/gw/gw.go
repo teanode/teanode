@@ -131,11 +131,11 @@ type Gateway interface {
 
 	// Voice session lifecycle
 	StartVoiceSession(
-		conversationID, agentID string,
+		conversationId, agentId string,
 		promptSuffix string,
 		audioIn, audioOut voice.AudioFormat,
 		features voice.Features,
-		sendJSON func(interface{}),
+		sendJson func(interface{}),
 		sendBinary func([]byte),
 	) (*voice.Session, error)
 	// Connection tracking

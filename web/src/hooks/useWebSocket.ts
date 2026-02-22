@@ -3,6 +3,7 @@ import {
   connect,
   disconnect,
   onBinaryMessage,
+  onVoiceMessage,
   sendBinary,
   sendRpc,
   setEventHandler,
@@ -51,5 +52,5 @@ export function useWebSocket({
     [],
   );
 
-  return { sendRpc: rpc, sendBinary, onBinaryMessage };
+  return { sendRpc: rpc, sendBinary, onBinaryMessage, onVoiceMessage };
 }

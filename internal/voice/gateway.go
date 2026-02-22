@@ -4,11 +4,11 @@ import "context"
 
 // GatewayDeps is the minimum gateway surface the voice session depends on.
 type GatewayDeps interface {
-	SendMessage(ctx context.Context, params VoiceSendMessageParams) VoiceRunHandle
-	AbortRun(runID string) bool
+	SendMessage(ctx context.Context, parameters VoiceSendMessageParams) VoiceRunHandle
+	AbortRun(runId string) bool
 	Subscribe(sub VoiceSubscriber)
 	Unsubscribe(sub VoiceSubscriber)
-	NewConversation(agentID, model string) string
+	NewConversation(agentId, model string) string
 	DefaultAgentID() string
 	ProviderRegistry() VoiceProviderRegistry
 }
@@ -42,7 +42,7 @@ type VoiceProviderRegistry interface {
 
 // VoiceTranscriber converts user audio to text.
 type VoiceTranscriber interface {
-	Transcribe(ctx context.Context, req VoiceTranscribeRequest) (*VoiceTranscribeResponse, error)
+	Transcribe(ctx context.Context, request VoiceTranscribeRequest) (*VoiceTranscribeResponse, error)
 }
 
 // VoiceTranscribeRequest is the normalized STT request used in voice.

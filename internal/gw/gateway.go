@@ -819,37 +819,37 @@ func (self *gateway) ListenAddress() string {
 
 // StartVoiceSession creates a voice session bound to this gateway instance.
 func (self *gateway) StartVoiceSession(
-	conversationID, agentID string,
+	conversationId, agentId string,
 	promptSuffix string,
 	audioIn, audioOut voice.AudioFormat,
 	features voice.Features,
-	sendJSON func(interface{}),
+	sendJson func(interface{}),
 	sendBinary func([]byte),
 ) (*voice.Session, error) {
-	if agentID == "" {
-		agentID = self.DefaultAgentID()
+	if agentId == "" {
+		agentId = self.DefaultAgentID()
 	}
-	if conversationID == "" {
+	if conversationId == "" {
 		// Start a fresh conversation when the client omits conversation_id.
 		// This avoids cross-session context bleed between separate voice calls.
-		conversationID = self.NewConversation(agentID, "")
+		conversationId = self.NewConversation(agentId, "")
 	}
-	sessionID := security.NewULID()
+	sessionId := security.NewULID()
 	adapter := &voiceGatewayAdapter{gw: self}
-	return voice.NewSession(sessionID, conversationID, agentID, promptSuffix, audioIn, audioOut, features, adapter, sendJSON, sendBinary), nil
+	return voice.NewSession(sessionId, conversationId, agentId, promptSuffix, audioIn, audioOut, features, adapter, sendJson, sendBinary), nil
 }
 
 type voiceGatewayAdapter struct {
 	gw *gateway
 }
 
-func (v *voiceGatewayAdapter) SendMessage(ctx context.Context, params voice.VoiceSendMessageParams) voice.VoiceRunHandle {
-	handle := v.gw.SendMessage(ctx, SendMessageParameters{
-		AgentID:            params.AgentID,
-		ConversationID:     params.ConversationID,
-		Message:            params.Message,
-		Model:              params.Model,
-		SystemPromptSuffix: params.SystemPromptSuffix,
+func (self *voiceGatewayAdapter) SendMessage(ctx context.Context, parameters voice.VoiceSendMessageParams) voice.VoiceRunHandle {
+	handle := self.gw.SendMessage(ctx, SendMessageParameters{
+		AgentID:            parameters.AgentID,
+		ConversationID:     parameters.ConversationID,
+		Message:            parameters.Message,
+		Model:              parameters.Model,
+		SystemPromptSuffix: parameters.SystemPromptSuffix,
 		Origin:             "voice",
 	}, nil)
 	if handle == nil {
@@ -864,18 +864,18 @@ func (v *voiceGatewayAdapter) SendMessage(ctx context.Context, params voice.Voic
 	}
 }
 
-func (v *voiceGatewayAdapter) AbortRun(runID string) bool {
-	return v.gw.AbortRun(runID)
+func (self *voiceGatewayAdapter) AbortRun(runId string) bool {
+	return self.gw.AbortRun(runId)
 }
 
-func (v *voiceGatewayAdapter) Subscribe(sub voice.VoiceSubscriber) {
+func (self *voiceGatewayAdapter) Subscribe(sub voice.VoiceSubscriber) {
 	bridge := &voiceSubscriberBridge{sub: sub}
-	v.gw.voiceSubscriberBridges.Store(sub, bridge)
-	v.gw.Subscribe(bridge)
+	self.gw.voiceSubscriberBridges.Store(sub, bridge)
+	self.gw.Subscribe(bridge)
 }
 
-func (v *voiceGatewayAdapter) Unsubscribe(sub voice.VoiceSubscriber) {
-	value, ok := v.gw.voiceSubscriberBridges.LoadAndDelete(sub)
+func (self *voiceGatewayAdapter) Unsubscribe(sub voice.VoiceSubscriber) {
+	value, ok := self.gw.voiceSubscriberBridges.LoadAndDelete(sub)
 	if !ok {
 		return
 	}
@@ -883,19 +883,19 @@ func (v *voiceGatewayAdapter) Unsubscribe(sub voice.VoiceSubscriber) {
 	if !ok {
 		return
 	}
-	v.gw.Unsubscribe(bridge)
+	self.gw.Unsubscribe(bridge)
 }
 
-func (v *voiceGatewayAdapter) NewConversation(agentID, model string) string {
-	return v.gw.NewConversation(agentID, model)
+func (self *voiceGatewayAdapter) NewConversation(agentId, model string) string {
+	return self.gw.NewConversation(agentId, model)
 }
 
-func (v *voiceGatewayAdapter) DefaultAgentID() string {
-	return v.gw.DefaultAgentID()
+func (self *voiceGatewayAdapter) DefaultAgentID() string {
+	return self.gw.DefaultAgentID()
 }
 
-func (v *voiceGatewayAdapter) ProviderRegistry() voice.VoiceProviderRegistry {
-	reg := v.gw.ProviderRegistry()
+func (self *voiceGatewayAdapter) ProviderRegistry() voice.VoiceProviderRegistry {
+	reg := self.gw.ProviderRegistry()
 	if reg == nil {
 		return nil
 	}
@@ -906,24 +906,24 @@ type voiceSubscriberBridge struct {
 	sub voice.VoiceSubscriber
 }
 
-func (b *voiceSubscriberBridge) OnEvent(et EventType, payload interface{}) {
-	b.sub.OnVoiceEvent(string(et), payload)
+func (self *voiceSubscriberBridge) OnEvent(et EventType, payload interface{}) {
+	self.sub.OnVoiceEvent(string(et), payload)
 }
 
 type voiceProviderRegistryAdapter struct {
 	registry *providers.Registry
 }
 
-func (a *voiceProviderRegistryAdapter) FindTranscriber() (voice.VoiceTranscriber, string, bool) {
-	transcriber, provider, ok := a.registry.FindTranscriber()
+func (self *voiceProviderRegistryAdapter) FindTranscriber() (voice.VoiceTranscriber, string, bool) {
+	transcriber, provider, ok := self.registry.FindTranscriber()
 	if !ok {
 		return nil, "", false
 	}
 	return &voiceTranscriberAdapter{transcriber: transcriber}, provider, true
 }
 
-func (a *voiceProviderRegistryAdapter) FindSynthesizer() (voice.VoiceSynthesizer, string, bool) {
-	synth, provider, ok := a.registry.FindSynthesizer()
+func (self *voiceProviderRegistryAdapter) FindSynthesizer() (voice.VoiceSynthesizer, string, bool) {
+	synth, provider, ok := self.registry.FindSynthesizer()
 	if !ok {
 		return nil, "", false
 	}
@@ -934,12 +934,12 @@ type voiceTranscriberAdapter struct {
 	transcriber providers.AudioTranscriber
 }
 
-func (a *voiceTranscriberAdapter) Transcribe(ctx context.Context, req voice.VoiceTranscribeRequest) (*voice.VoiceTranscribeResponse, error) {
-	result, err := a.transcriber.Transcribe(ctx, providers.TranscribeRequest{
-		Audio:    bytes.NewReader(req.Audio),
-		Format:   req.Format,
-		Language: req.Language,
-		Prompt:   req.Prompt,
+func (self *voiceTranscriberAdapter) Transcribe(ctx context.Context, request voice.VoiceTranscribeRequest) (*voice.VoiceTranscribeResponse, error) {
+	result, err := self.transcriber.Transcribe(ctx, providers.TranscribeRequest{
+		Audio:    bytes.NewReader(request.Audio),
+		Format:   request.Format,
+		Language: request.Language,
+		Prompt:   request.Prompt,
 	})
 	if err != nil {
 		return nil, err
@@ -951,8 +951,8 @@ type voiceSynthesizerAdapter struct {
 	synthesizer providers.AudioSynthesizer
 }
 
-func (a *voiceSynthesizerAdapter) SynthesizePCM(ctx context.Context, text, voiceName string, _ int) ([]byte, error) {
-	result, err := a.synthesizer.Synthesize(ctx, providers.SynthesizeRequest{
+func (self *voiceSynthesizerAdapter) SynthesizePCM(ctx context.Context, text, voiceName string, _ int) ([]byte, error) {
+	result, err := self.synthesizer.Synthesize(ctx, providers.SynthesizeRequest{
 		Text:   text,
 		Voice:  voiceName,
 		Format: "wav",
@@ -983,19 +983,19 @@ func wavToPCM16LE(wavData []byte) ([]byte, error) {
 		bitsPerSample uint16
 	)
 	for i := 12; i+8 <= len(wavData); {
-		chunkID := string(wavData[i : i+4])
+		chunkId := string(wavData[i : i+4])
 		chunkSize := int(binary.LittleEndian.Uint32(wavData[i+4 : i+8]))
 		chunkStart := i + 8
 		chunkEnd := chunkStart + chunkSize
 		if chunkEnd > len(wavData) {
 			break
 		}
-		if chunkID == "fmt " && chunkSize >= 16 {
+		if chunkId == "fmt " && chunkSize >= 16 {
 			audioFormat = binary.LittleEndian.Uint16(wavData[chunkStart : chunkStart+2])
 			channels = binary.LittleEndian.Uint16(wavData[chunkStart+2 : chunkStart+4])
 			bitsPerSample = binary.LittleEndian.Uint16(wavData[chunkStart+14 : chunkStart+16])
 		}
-		if chunkID == "data" {
+		if chunkId == "data" {
 			if audioFormat != 1 {
 				return nil, fmt.Errorf("unsupported wav format: %d", audioFormat)
 			}

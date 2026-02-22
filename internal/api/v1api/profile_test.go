@@ -97,8 +97,8 @@ func newRPCWebSocketPair(t *testing.T, api *v1Api) (*webSocketConnection, *webso
 		}
 		serverConnectionCh <- connection
 	}))
-	webSocketURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	clientConnection, _, err := websocket.DefaultDialer.Dial(webSocketURL, nil)
+	webSocketUrl := "ws" + strings.TrimPrefix(server.URL, "http")
+	clientConnection, _, err := websocket.DefaultDialer.Dial(webSocketUrl, nil)
 	if err != nil {
 		server.Close()
 		t.Fatalf("failed to dial websocket: %v", err)

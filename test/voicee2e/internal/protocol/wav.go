@@ -45,7 +45,7 @@ func parsePCM16WAV(raw []byte) ([]int16, int, int, error) {
 	var bitsPerSample int
 	var pcm []byte
 	for offset+8 <= len(raw) {
-		chunkID := string(raw[offset : offset+4])
+		chunkId := string(raw[offset : offset+4])
 		chunkSize := int(binary.LittleEndian.Uint32(raw[offset+4 : offset+8]))
 		offset += 8
 		if offset+chunkSize > len(raw) {
@@ -56,7 +56,7 @@ func parsePCM16WAV(raw []byte) ([]int16, int, int, error) {
 		if chunkSize%2 == 1 && offset < len(raw) {
 			offset++
 		}
-		switch chunkID {
+		switch chunkId {
 		case "fmt ":
 			if len(data) < 16 {
 				return nil, 0, 0, errors.New("wav fmt too short")

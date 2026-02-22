@@ -44,6 +44,7 @@ export default function ConversationsAgentLayout() {
     sendRpc: backend.sendRpc,
     sendBinary: backend.sendBinary,
     onBinaryMessage: backend.onBinaryMessage,
+    onVoiceMessage: backend.onVoiceMessage,
     sendVoiceMessage: backend.sendVoiceMessage,
     abortRun: backend.abortRun,
     isRunning: backend.isRunning,

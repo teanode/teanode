@@ -931,11 +931,12 @@ export function useBackend() {
     }
   }, []);
 
-  const { sendRpc, sendBinary, onBinaryMessage } = useWebSocket({
-    onEvent: handleEvent,
-    onConnect: handleConnect,
-    onStatusChange: setStatus,
-  });
+  const { sendRpc, sendBinary, onBinaryMessage, onVoiceMessage } =
+    useWebSocket({
+      onEvent: handleEvent,
+      onConnect: handleConnect,
+      onStatusChange: setStatus,
+    });
 
   sendRpcRef.current = sendRpc;
 
@@ -1434,6 +1435,7 @@ export function useBackend() {
     sendRpc,
     sendBinary,
     onBinaryMessage,
+    onVoiceMessage,
     hasMoreHistory,
     loadingOlderMessages,
     loadOlderMessages,

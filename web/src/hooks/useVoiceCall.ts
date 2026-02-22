@@ -6,6 +6,9 @@ export interface UseVoiceCallOptions {
   sendRpc: <T = unknown>(method: string, params: unknown) => Promise<T>;
   sendBinary: (data: ArrayBuffer | Uint8Array) => void;
   onBinaryMessage: (handler: (data: ArrayBuffer) => void) => () => void;
+  onVoiceMessage: (
+    handler: (message: Record<string, unknown>) => void,
+  ) => () => void;
   sendVoiceMessage: (
     text: string,
     model?: string,
@@ -41,6 +44,8 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     sendRpc,
     sendBinary,
     onBinaryMessage,
+    onVoiceMessage,
+    isRunning,
     conversationId,
     agentId,
     chimeConfig,
@@ -137,6 +142,47 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       }
     }
   }, [chimePlayer, isCallActive, startVoiceSession]);
+
+  useEffect(() => {
+    if (!isCallActive) return;
+    return onVoiceMessage((message) => {
+      const type = message.type;
+      const payload = message.payload as Record<string, unknown> | undefined;
+      if (typeof type !== "string") return;
+      if (type === "response.completed") {
+        chimePlayer.play("agentDone");
+        return;
+      }
+      if (type !== "turn.event" || !payload) return;
+      const event = payload.event;
+      if (event === "turn_committed") {
+        chimePlayer.play("inputCaptured");
+      } else if (event === "turn_queued") {
+        chimePlayer.play("agentWaiting");
+      }
+    });
+  }, [chimePlayer, isCallActive, onVoiceMessage]);
+
+  useEffect(() => {
+    if (!isCallActive || !isRunning) {
+      if (waitingToneIntervalRef.current) {
+        clearInterval(waitingToneIntervalRef.current);
+        waitingToneIntervalRef.current = null;
+      }
+      return;
+    }
+    if (!waitingToneIntervalRef.current) {
+      waitingToneIntervalRef.current = setInterval(() => {
+        chimePlayer.play("agentWaiting");
+      }, 2500);
+    }
+    return () => {
+      if (waitingToneIntervalRef.current) {
+        clearInterval(waitingToneIntervalRef.current);
+        waitingToneIntervalRef.current = null;
+      }
+    };
+  }, [chimePlayer, isCallActive, isRunning]);
 
   const endCall = useCallback(() => {
     setIsCallActive(false);

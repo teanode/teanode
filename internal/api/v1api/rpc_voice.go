@@ -7,24 +7,24 @@ import (
 )
 
 func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
-	var params voiceStartParams
-	if err := json.Unmarshal(frame.Params, &params); err != nil {
-		log.Warningf("voice.start invalid params: %v", err)
+	var parameters voiceStartParams
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		log.Warningf("voice.start invalid parameters: %v", err)
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
 
-	applyVoiceDefaults(&params)
-	if err := validateVoiceAudioFormats(params.AudioIn, params.AudioOut); err != nil {
+	applyVoiceDefaults(&parameters)
+	if err := validateVoiceAudioFormats(parameters.AudioIn, parameters.AudioOut); err != nil {
 		log.Warningf("voice.start format validation failed: %v", err)
 		self.sendError(frame.ID, 400, err.Error())
 		return
 	}
 	log.Infof("voice.start requested: agent=%s conv=%s in=%s/%dHz/%dch out=%s/%dHz/%dch features[vad=%v turn=%v denoise=%v barge=%v]",
-		params.AgentID, params.ConversationID,
-		params.AudioIn.Codec, params.AudioIn.SampleRateHz, params.AudioIn.Channels,
-		params.AudioOut.Codec, params.AudioOut.SampleRateHz, params.AudioOut.Channels,
-		params.Features.ServerVAD, params.Features.ServerTurn, params.Features.ServerDenoise, params.Features.BargeIn,
+		parameters.AgentID, parameters.ConversationID,
+		parameters.AudioIn.Codec, parameters.AudioIn.SampleRateHz, parameters.AudioIn.Channels,
+		parameters.AudioOut.Codec, parameters.AudioOut.SampleRateHz, parameters.AudioOut.Channels,
+		parameters.Features.ServerVAD, parameters.Features.ServerTurn, parameters.Features.ServerDenoise, parameters.Features.BargeIn,
 	)
 
 	if isVoiceStartConflict(self.getActiveVoiceSession()) {
@@ -34,28 +34,28 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 	}
 
 	audioIn := voice.AudioFormat{
-		Codec:        params.AudioIn.Codec,
-		SampleRateHz: params.AudioIn.SampleRateHz,
-		Channels:     params.AudioIn.Channels,
-		FrameMS:      params.AudioIn.FrameMS,
+		Codec:        parameters.AudioIn.Codec,
+		SampleRateHz: parameters.AudioIn.SampleRateHz,
+		Channels:     parameters.AudioIn.Channels,
+		FrameMS:      parameters.AudioIn.FrameMS,
 	}
 	audioOut := voice.AudioFormat{
-		Codec:        params.AudioOut.Codec,
-		SampleRateHz: params.AudioOut.SampleRateHz,
-		Channels:     params.AudioOut.Channels,
-		FrameMS:      params.AudioOut.FrameMS,
+		Codec:        parameters.AudioOut.Codec,
+		SampleRateHz: parameters.AudioOut.SampleRateHz,
+		Channels:     parameters.AudioOut.Channels,
+		FrameMS:      parameters.AudioOut.FrameMS,
 	}
 	features := voice.Features{
-		ServerVAD:     params.Features.ServerVAD,
-		ServerTurn:    params.Features.ServerTurn,
-		ServerDenoise: params.Features.ServerDenoise,
-		BargeIn:       params.Features.BargeIn,
+		ServerVAD:     parameters.Features.ServerVAD,
+		ServerTurn:    parameters.Features.ServerTurn,
+		ServerDenoise: parameters.Features.ServerDenoise,
+		BargeIn:       parameters.Features.BargeIn,
 	}
 
 	session, err := self.api.gateway.StartVoiceSession(
-		params.ConversationID,
-		params.AgentID,
-		params.PromptSuffix,
+		parameters.ConversationID,
+		parameters.AgentID,
+		parameters.PromptSuffix,
 		audioIn,
 		audioOut,
 		features,
@@ -78,16 +78,16 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 	self.sendResponse(frame.ID, voiceSessionReadyPayload{
 		SessionID:      session.ID,
 		ConversationID: session.ConversationID,
-		AudioOut:       params.AudioOut,
-		Features:       params.Features,
+		AudioOut:       parameters.AudioOut,
+		Features:       parameters.Features,
 	})
 }
 
 func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) {
-	var params voiceEndParams
+	var parameters voiceEndParams
 	if len(frame.Params) > 0 {
-		if err := json.Unmarshal(frame.Params, &params); err != nil {
-			log.Warningf("voice.end invalid params: %v", err)
+		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+			log.Warningf("voice.end invalid parameters: %v", err)
 			self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 			return
 		}
@@ -98,8 +98,8 @@ func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) {
 		self.sendError(frame.ID, 404, "no active voice session")
 		return
 	}
-	if params.SessionID != "" && params.SessionID != session.ID {
-		log.Warningf("voice.end session mismatch: requested=%s active=%s", params.SessionID, session.ID)
+	if parameters.SessionID != "" && parameters.SessionID != session.ID {
+		log.Warningf("voice.end session mismatch: requested=%s active=%s", parameters.SessionID, session.ID)
 		self.sendError(frame.ID, 404, "voice session not found")
 		return
 	}
@@ -110,9 +110,9 @@ func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) {
 }
 
 func (self *webSocketConnection) handleVoiceResponseCancel(frame requestFrame) {
-	var params voiceResponseCancelParams
-	if err := json.Unmarshal(frame.Params, &params); err != nil {
-		log.Warningf("voice.response.cancel invalid params: %v", err)
+	var parameters voiceResponseCancelParams
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		log.Warningf("voice.response.cancel invalid parameters: %v", err)
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
@@ -122,16 +122,16 @@ func (self *webSocketConnection) handleVoiceResponseCancel(frame requestFrame) {
 		self.sendError(frame.ID, 404, "no active voice session")
 		return
 	}
-	log.Infof("voice.response.cancel session=%s response=%s reason=%s", session.ID, params.ResponseID, params.Reason)
+	log.Infof("voice.response.cancel session=%s response=%s reason=%s", session.ID, parameters.ResponseID, parameters.Reason)
 	session.CancelResponse()
 	self.sendResponse(frame.ID, map[string]any{"cancelled": true})
 }
 
 func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) {
-	var params voiceInputCommitParams
+	var parameters voiceInputCommitParams
 	if len(frame.Params) > 0 {
-		if err := json.Unmarshal(frame.Params, &params); err != nil {
-			log.Warningf("voice.input.commit invalid params: %v", err)
+		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+			log.Warningf("voice.input.commit invalid parameters: %v", err)
 			self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 			return
 		}
@@ -142,33 +142,33 @@ func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) {
 		self.sendError(frame.ID, 404, "no active voice session")
 		return
 	}
-	log.Infof("voice.input.commit session=%s reason=%s", session.ID, params.Reason)
+	log.Infof("voice.input.commit session=%s reason=%s", session.ID, parameters.Reason)
 	session.InputCommit()
 	self.sendResponse(frame.ID, map[string]any{"committed": true})
 }
 
-func applyVoiceDefaults(params *voiceStartParams) {
-	if params.AudioIn.Codec == "" {
-		params.AudioIn.Codec = "pcm_s16le"
+func applyVoiceDefaults(parameters *voiceStartParams) {
+	if parameters.AudioIn.Codec == "" {
+		parameters.AudioIn.Codec = "pcm_s16le"
 	}
-	if params.AudioIn.SampleRateHz == 0 {
-		params.AudioIn.SampleRateHz = 16000
+	if parameters.AudioIn.SampleRateHz == 0 {
+		parameters.AudioIn.SampleRateHz = 16000
 	}
-	if params.AudioIn.Channels == 0 {
-		params.AudioIn.Channels = 1
+	if parameters.AudioIn.Channels == 0 {
+		parameters.AudioIn.Channels = 1
 	}
-	if params.AudioIn.FrameMS == 0 {
-		params.AudioIn.FrameMS = 20
+	if parameters.AudioIn.FrameMS == 0 {
+		parameters.AudioIn.FrameMS = 20
 	}
 
-	if params.AudioOut.Codec == "" {
-		params.AudioOut.Codec = "pcm_s16le"
+	if parameters.AudioOut.Codec == "" {
+		parameters.AudioOut.Codec = "pcm_s16le"
 	}
-	if params.AudioOut.SampleRateHz == 0 {
-		params.AudioOut.SampleRateHz = 24000
+	if parameters.AudioOut.SampleRateHz == 0 {
+		parameters.AudioOut.SampleRateHz = 24000
 	}
-	if params.AudioOut.Channels == 0 {
-		params.AudioOut.Channels = 1
+	if parameters.AudioOut.Channels == 0 {
+		parameters.AudioOut.Channels = 1
 	}
 }
 

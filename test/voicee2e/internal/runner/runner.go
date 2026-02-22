@@ -18,9 +18,9 @@ type Runner struct {
 	client *protocol.Client
 }
 
-func New(gatewayURL string) *Runner {
+func New(gatewayUrl string) *Runner {
 	return &Runner{
-		client: protocol.NewClient(gatewayURL),
+		client: protocol.NewClient(gatewayUrl),
 	}
 }
 

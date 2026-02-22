@@ -21,7 +21,7 @@ type rpcRequest struct {
 	Type   string      `json:"type"`
 	ID     string      `json:"id"`
 	Method string      `json:"method"`
-	Params interface{} `json:"params,omitempty"`
+	Params interface{} `json:"parameters,omitempty"`
 }
 
 type rpcResponse struct {
@@ -74,24 +74,24 @@ type voiceEnvelope struct {
 }
 
 type Client struct {
-	gatewayURL   string
+	gatewayUrl   string
 	promptSuffix string
 }
 
-func NewClient(gatewayURL string) *Client {
-	return &Client{gatewayURL: gatewayURL}
+func NewClient(gatewayUrl string) *Client {
+	return &Client{gatewayUrl: gatewayUrl}
 }
 
-func (c *Client) SetPromptSuffix(value string) {
-	c.promptSuffix = strings.TrimSpace(value)
+func (self *Client) SetPromptSuffix(value string) {
+	self.promptSuffix = strings.TrimSpace(value)
 }
 
-func (c *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) ([]model.TimelineEvent, error) {
-	wsURL, err := toWebSocketURL(c.gatewayURL)
+func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) ([]model.TimelineEvent, error) {
+	wsUrl, err := toWebSocketUrl(self.gatewayUrl)
 	if err != nil {
 		return nil, err
 	}
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, http.Header{})
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsUrl, http.Header{})
 	if err != nil {
 		return nil, fmt.Errorf("dial websocket: %w", err)
 	}
@@ -138,15 +138,15 @@ func (c *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) (
 			}
 
 			if typ, _ := raw["type"].(string); typ == "res" {
-				var resp rpcResponse
-				if err := json.Unmarshal(data, &resp); err != nil {
+				var response rpcResponse
+				if err := json.Unmarshal(data, &response); err != nil {
 					continue
 				}
 				waitersMu.Lock()
-				waiter, ok := waiters[resp.ID]
+				waiter, ok := waiters[response.ID]
 				waitersMu.Unlock()
 				if ok {
-					waiter.ch <- resp
+					waiter.ch <- response
 				}
 				continue
 			}
@@ -172,7 +172,7 @@ func (c *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) (
 		}
 	}()
 
-	sendRPC := func(method string, params any) error {
+	sendRpc := func(method string, parameters any) error {
 		id := fmt.Sprintf("r-%d", seq.Add(1))
 		wait := responseWaiter{ch: make(chan rpcResponse, 1)}
 		waitersMu.Lock()
@@ -184,8 +184,8 @@ func (c *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) (
 			waitersMu.Unlock()
 		}()
 
-		req := rpcRequest{Type: "req", ID: id, Method: method, Params: params}
-		if err := conn.WriteJSON(req); err != nil {
+		request := rpcRequest{Type: "request", ID: id, Method: method, Params: parameters}
+		if err := conn.WriteJSON(request); err != nil {
 			return err
 		}
 
@@ -194,10 +194,10 @@ func (c *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) (
 			return ctx.Err()
 		case err := <-readerDone:
 			return err
-		case resp := <-wait.ch:
-			if !resp.OK {
-				if resp.Error != nil {
-					return fmt.Errorf("%s failed: %s", method, resp.Error.Message)
+		case response := <-wait.ch:
+			if !response.OK {
+				if response.Error != nil {
+					return fmt.Errorf("%s failed: %s", method, response.Error.Message)
 				}
 				return fmt.Errorf("%s failed", method)
 			}
@@ -208,7 +208,7 @@ func (c *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) (
 	start := voiceStartParams{
 		AgentID:        "main",
 		ConversationID: "",
-		PromptSuffix:   c.promptSuffix,
+		PromptSuffix:   self.promptSuffix,
 	}
 	start.AudioIn.Codec = "pcm_s16le"
 	start.AudioIn.SampleRateHz = 16000
@@ -221,7 +221,7 @@ func (c *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) (
 	start.Features.ServerTurn = true
 	start.Features.ServerDenoise = false
 	start.Features.BargeIn = true
-	if err := sendRPC("voice.start", start); err != nil {
+	if err := sendRpc("voice.start", start); err != nil {
 		return nil, err
 	}
 
@@ -275,7 +275,7 @@ func (c *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) (
 		}
 	}
 
-	_ = sendRPC("voice.end", map[string]any{})
+	_ = sendRpc("voice.end", map[string]any{})
 	_ = conn.Close()
 
 	timelineMu.Lock()
@@ -283,7 +283,7 @@ func (c *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) (
 	return append([]model.TimelineEvent(nil), timeline...), nil
 }
 
-func toWebSocketURL(gateway string) (string, error) {
+func toWebSocketUrl(gateway string) (string, error) {
 	raw := strings.TrimSpace(gateway)
 	if raw == "" {
 		raw = "http://127.0.0.1:8833"
@@ -314,12 +314,12 @@ func convertConversationEvent(record func(model.TimelineEvent), now time.Time, p
 	}
 	state, _ := event["state"].(string)
 	text, _ := event["text"].(string)
-	runID, _ := event["runId"].(string)
+	runId, _ := event["runId"].(string)
 	switch state {
 	case "user_message":
-		record(model.TimelineEvent{At: now, Type: model.EventTranscriptFinal, Text: text, RunID: runID, Raw: event})
+		record(model.TimelineEvent{At: now, Type: model.EventTranscriptFinal, Text: text, RunID: runId, Raw: event})
 	case "delta":
-		record(model.TimelineEvent{At: now, Type: model.EventTTSInput, Text: text, RunID: runID, Raw: event})
+		record(model.TimelineEvent{At: now, Type: model.EventTTSInput, Text: text, RunID: runId, Raw: event})
 	}
 }
 
@@ -345,15 +345,15 @@ func convertVoiceEnvelope(record func(model.TimelineEvent), now time.Time, env v
 		}
 	case "transcript.final":
 		text, _ := payload["text"].(string)
-		turnID, _ := payload["turn_id"].(string)
-		record(model.TimelineEvent{At: now, Type: model.EventTranscriptFinal, SessionID: env.SessionID, TurnID: turnID, Text: text, Raw: payload})
+		turnId, _ := payload["turn_id"].(string)
+		record(model.TimelineEvent{At: now, Type: model.EventTranscriptFinal, SessionID: env.SessionID, TurnID: turnId, Text: text, Raw: payload})
 	case "response.started":
-		responseID, _ := payload["response_id"].(string)
-		turnID, _ := payload["turn_id"].(string)
-		record(model.TimelineEvent{At: now, Type: model.EventResponseStarted, SessionID: env.SessionID, TurnID: turnID, ResponseID: responseID, Raw: payload})
+		responseId, _ := payload["response_id"].(string)
+		turnId, _ := payload["turn_id"].(string)
+		record(model.TimelineEvent{At: now, Type: model.EventResponseStarted, SessionID: env.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
 	case "response.completed":
-		responseID, _ := payload["response_id"].(string)
-		turnID, _ := payload["turn_id"].(string)
-		record(model.TimelineEvent{At: now, Type: model.EventResponseCompleted, SessionID: env.SessionID, TurnID: turnID, ResponseID: responseID, Raw: payload})
+		responseId, _ := payload["response_id"].(string)
+		turnId, _ := payload["turn_id"].(string)
+		record(model.TimelineEvent{At: now, Type: model.EventResponseCompleted, SessionID: env.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
 	}
 }

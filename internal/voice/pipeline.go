@@ -20,28 +20,28 @@ const (
 
 const voiceCallPromptSuffix = "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists."
 
-func (s *Session) audioInputLoop() {
+func (self *Session) audioInputLoop() {
 	vad := &VADState{}
 	var speechBuf []byte
 
 	for {
 		select {
-		case <-s.doneCh:
+		case <-self.doneCh:
 			return
-		case frame := <-s.audioInCh:
+		case frame := <-self.audioInCh:
 			started, ended, score := vad.ProcessFrame(frame)
 			if started {
-				turnID := s.newTurnID()
-				s.startNewTurn(turnID)
-				pipelineLog.Infof("voice speech_started: session=%s turn=%s seq_ref=%d score=%.4f", s.ID, turnID, s.inSeq.Load(), score)
-				s.sendVoiceEvent("turn.event", turnEventPayload{
-					TurnID:      turnID,
+				turnId := self.newTurnId()
+				self.startNewTurn(turnId)
+				pipelineLog.Infof("voice speech_started: session=%s turn=%s seq_ref=%d score=%.4f", self.ID, turnId, self.inSeq.Load(), score)
+				self.sendVoiceEvent("turn.event", turnEventPayload{
+					TurnID:      turnId,
 					Event:       "speech_started",
 					VADScore:    score,
-					AudioSeqRef: s.inSeq.Load(),
+					AudioSeqRef: self.inSeq.Load(),
 				})
-				if s.Features.BargeIn && score >= bargeInTriggerMinScore && (s.GetCurrentRunID() != "" || s.GetCurrentResponseID() != "") {
-					s.triggerBargeIn()
+				if self.Features.BargeIn && score >= bargeInTriggerMinScore && (self.GetCurrentRunId() != "" || self.GetCurrentResponseId() != "") {
+					self.triggerBargeIn()
 				}
 			}
 
@@ -50,48 +50,48 @@ func (s *Session) audioInputLoop() {
 			}
 
 			if ended {
-				turnID := s.GetCurrentTurnID()
-				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", s.ID, s.GetCurrentTurnID(), len(speechBuf), s.inSeq.Load(), score)
-				s.sendVoiceEvent("turn.event", turnEventPayload{
-					TurnID:      turnID,
+				turnId := self.GetCurrentTurnId()
+				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnId(), len(speechBuf), self.inSeq.Load(), score)
+				self.sendVoiceEvent("turn.event", turnEventPayload{
+					TurnID:      turnId,
 					Event:       "speech_ended",
 					VADScore:    score,
-					AudioSeqRef: s.inSeq.Load(),
+					AudioSeqRef: self.inSeq.Load(),
 				})
 				captured := append([]byte(nil), speechBuf...)
 				speechBuf = speechBuf[:0]
 				if len(captured) < minCommittedTurnBytes {
-					pipelineLog.Infof("voice turn ignored (too short): session=%s turn=%s bytes=%d", s.ID, turnID, len(captured))
-					s.sendVoiceEvent("turn.event", turnEventPayload{
-						TurnID: turnID,
+					pipelineLog.Infof("voice turn ignored (too short): session=%s turn=%s bytes=%d", self.ID, turnId, len(captured))
+					self.sendVoiceEvent("turn.event", turnEventPayload{
+						TurnID: turnId,
 						Event:  "turn_dropped",
 						Reason: "dropped_too_short_audio",
 					})
 					continue
 				}
-				if !s.TryStartTurnTranscription(turnID) {
-					pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", s.ID, turnID)
+				if !self.TryStartTurnTranscription(turnId) {
+					pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
 					continue
 				}
 				go func(tid string, audio []byte) {
-					defer s.FinishTurnTranscription(tid)
-					s.transcribeAndSend(tid, audio)
-				}(turnID, captured)
+					defer self.FinishTurnTranscription(tid)
+					self.transcribeAndSend(tid, audio)
+				}(turnId, captured)
 			}
 		}
 	}
 }
 
-func (s *Session) llmEventForwarder() {
-	if s.deps == nil {
+func (self *Session) llmEventForwarder() {
+	if self.deps == nil {
 		return
 	}
 	sub := &conversationEventSubscriber{
-		conversationID: s.ConversationID,
+		conversationId: self.ConversationID,
 		eventCh:        make(chan map[string]interface{}, 128),
 	}
-	s.deps.Subscribe(sub)
-	defer s.deps.Unsubscribe(sub)
+	self.deps.Subscribe(sub)
+	defer self.deps.Unsubscribe(sub)
 
 	streamText := ""
 	sentencesEnqueued := 0
@@ -99,16 +99,16 @@ func (s *Session) llmEventForwarder() {
 
 	for {
 		select {
-		case <-s.doneCh:
+		case <-self.doneCh:
 			return
 		case event := <-sub.eventCh:
 			state, _ := event["state"].(string)
 			text, _ := event["text"].(string)
-			if runID, _ := event["runId"].(string); runID != "" && (state == "queued" || state == "delta") {
-				s.SetCurrentRunID(runID)
+			if runId, _ := event["runId"].(string); runId != "" && (state == "queued" || state == "delta") {
+				self.SetCurrentRunId(runId)
 			}
 			if state == "queued" || state == "final" || state == "error" || state == "aborted" {
-				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", s.ID, s.GetCurrentTurnID(), state, len(text), s.GetCurrentRunID())
+				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", self.ID, self.GetCurrentTurnId(), state, len(text), self.GetCurrentRunId())
 			}
 			if state == "delta" {
 				if text != "" {
@@ -118,12 +118,12 @@ func (s *Session) llmEventForwarder() {
 				newSentences, nextCount := ExtractCompleteSentences(streamText, sentencesEnqueued)
 				sentencesEnqueued = nextCount
 				if len(newSentences) > 0 {
-					pipelineLog.Debugf("voice sentence enqueue: session=%s count=%d total=%d", s.ID, len(newSentences), sentencesEnqueued)
+					pipelineLog.Debugf("voice sentence enqueue: session=%s count=%d total=%d", self.ID, len(newSentences), sentencesEnqueued)
 				}
 				for _, sentence := range newSentences {
 					select {
-					case s.ttsInCh <- sentence:
-					case <-s.doneCh:
+					case self.ttsInCh <- sentence:
+					case <-self.doneCh:
 						return
 					}
 				}
@@ -138,86 +138,86 @@ func (s *Session) llmEventForwarder() {
 				remaining := strings.TrimSpace(FlushRemaining(streamForFlush, sentencesEnqueued))
 				if remaining != "" {
 					select {
-					case s.ttsInCh <- remaining:
-					case <-s.doneCh:
+					case self.ttsInCh <- remaining:
+					case <-self.doneCh:
 						return
 					}
 				}
 				select {
-				case s.ttsInCh <- "":
-				case <-s.doneCh:
+				case self.ttsInCh <- "":
+				case <-self.doneCh:
 					return
 				}
 				// Response stream is complete; allow next transcript to commit a new run.
-				s.ClearCurrentRun()
+				self.ClearCurrentRun()
 				streamText = ""
 				sentencesEnqueued = 0
 				sawDelta = false
-				s.commitNextPendingTurn()
+				self.commitNextPendingTurn()
 			}
 		}
 	}
 }
 
-func (s *Session) ttsSynthLoop() {
+func (self *Session) ttsSynthLoop() {
 	for {
 		select {
-		case <-s.doneCh:
+		case <-self.doneCh:
 			return
-		case sentence := <-s.ttsInCh:
+		case sentence := <-self.ttsInCh:
 			if sentence == "" {
-				pipelineLog.Infof("voice response completed: session=%s response=%s", s.ID, s.GetCurrentResponseID())
-				if rid := s.GetCurrentResponseID(); rid != "" {
-					s.sendVoiceEvent("response.completed", map[string]interface{}{
+				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseId())
+				if rid := self.GetCurrentResponseId(); rid != "" {
+					self.sendVoiceEvent("response.completed", map[string]interface{}{
 						"response_id": rid,
-						"turn_id":     s.GetCurrentTurnID(),
+						"turn_id":     self.GetCurrentTurnId(),
 					})
 				}
-				s.ClearCurrentResponse()
+				self.ClearCurrentResponse()
 				continue
 			}
-			if s.deps == nil {
+			if self.deps == nil {
 				pipelineLog.Warningf("voice synthesis skipped: missing gateway deps")
 				continue
 			}
-			if s.deps.ProviderRegistry() == nil {
+			if self.deps.ProviderRegistry() == nil {
 				pipelineLog.Warningf("voice synthesis skipped: provider registry unavailable")
 				continue
 			}
-			synth, _, ok := s.deps.ProviderRegistry().FindSynthesizer()
+			synth, _, ok := self.deps.ProviderRegistry().FindSynthesizer()
 			if !ok || synth == nil {
 				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
 			}
-			responseID := s.GetCurrentResponseID()
-			if responseID == "" {
+			responseId := self.GetCurrentResponseId()
+			if responseId == "" {
 				// Avoid speaking between two close user utterances while a transcription
 				// is still in-flight for a newer turn.
 				start := time.Now()
-				for s.HasTranscriptionInFlight() && time.Since(start) < maxResponseStartDelay {
+				for self.HasTranscriptionInFlight() && time.Since(start) < maxResponseStartDelay {
 					select {
-					case <-s.doneCh:
+					case <-self.doneCh:
 						return
 					case <-time.After(50 * time.Millisecond):
 					}
 				}
-				responseID = s.newTurnID()
-				s.SetCurrentResponseID(responseID)
-				pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", s.ID, responseID, s.GetCurrentTurnID())
-				s.sendVoiceEvent("response.started", map[string]interface{}{
-					"response_id": responseID,
-					"turn_id":     s.GetCurrentTurnID(),
+				responseId = self.newTurnId()
+				self.SetCurrentResponseId(responseId)
+				pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", self.ID, responseId, self.GetCurrentTurnId())
+				self.sendVoiceEvent("response.started", map[string]interface{}{
+					"response_id": responseId,
+					"turn_id":     self.GetCurrentTurnId(),
 				})
 			}
 
 			ttsCtx, cancel := context.WithCancel(context.Background())
-			prev := s.SwapTTSCancel(cancel)
+			prev := self.SwapTTSCancel(cancel)
 			if prev != nil {
 				prev()
 			}
-			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s text_len=%d text=%q", s.ID, s.GetCurrentResponseID(), s.GetCurrentTurnID(), len(sentence), sentence)
-			audio, err := synth.SynthesizePCM(ttsCtx, sentence, "alloy", s.AudioOut.SampleRateHz)
-			s.SwapTTSCancel(nil)
+			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseId(), self.GetCurrentTurnId(), len(sentence), sentence)
+			audio, err := synth.SynthesizePCM(ttsCtx, sentence, "alloy", self.AudioOut.SampleRateHz)
+			self.SwapTTSCancel(nil)
 			if err != nil {
 				if ttsCtx.Err() != nil {
 					continue
@@ -225,58 +225,58 @@ func (s *Session) ttsSynthLoop() {
 				pipelineLog.Warningf("voice synthesis failed: %v", err)
 				continue
 			}
-			pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", s.ID, s.GetCurrentResponseID(), len(sentence), len(audio))
+			pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", self.ID, self.GetCurrentResponseId(), len(sentence), len(audio))
 			payload := EncodeBinaryAudioFrame(BinaryAudioFrame{
 				FrameType:   FrameTypeAudioOut,
-				Seq:         s.NextOutSeq(),
+				Seq:         self.NextOutSeq(),
 				CaptureTSMs: time.Now().UnixMilli(),
 				DurationMS:  0,
 				Data:        audio,
 			})
-			s.enqueueAudioOut(payload)
+			self.enqueueAudioOut(payload)
 		}
 	}
 }
 
-func (s *Session) audioOutputLoop() {
+func (self *Session) audioOutputLoop() {
 	for {
 		select {
-		case <-s.doneCh:
+		case <-self.doneCh:
 			return
-		case data := <-s.audioOutCh:
-			if s.sendBinaryFn != nil {
-				s.sendBinaryFn(data)
+		case data := <-self.audioOutCh:
+			if self.sendBinaryFn != nil {
+				self.sendBinaryFn(data)
 			}
 		}
 	}
 }
 
-func (s *Session) transcribeAndSend(turnID string, captured []byte) {
+func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 	if len(captured) == 0 {
 		return
 	}
-	if s.deps == nil {
+	if self.deps == nil {
 		pipelineLog.Warningf("voice transcription skipped: missing gateway deps")
 		return
 	}
-	if s.deps.ProviderRegistry() == nil {
+	if self.deps.ProviderRegistry() == nil {
 		pipelineLog.Warningf("voice transcription skipped: provider registry unavailable")
 		return
 	}
-	pipelineLog.Infof("voice transcribe start: session=%s turn=%s bytes=%d", s.ID, turnID, len(captured))
-	transcriber, _, ok := s.deps.ProviderRegistry().FindTranscriber()
+	pipelineLog.Infof("voice transcribe start: session=%s turn=%s bytes=%d", self.ID, turnId, len(captured))
+	transcriber, _, ok := self.deps.ProviderRegistry().FindTranscriber()
 	if !ok || transcriber == nil {
 		pipelineLog.Warningf("voice transcription skipped: no transcriber configured")
 		return
 	}
 
-	wav := PCMToWAV(captured, s.AudioIn.SampleRateHz, s.AudioIn.Channels)
+	wav := PCMToWAV(captured, self.AudioIn.SampleRateHz, self.AudioIn.Channels)
 	result, err := transcriber.Transcribe(context.Background(), VoiceTranscribeRequest{
 		Audio:      wav,
 		Format:     "wav",
-		SampleRate: s.AudioIn.SampleRateHz,
-		Channels:   s.AudioIn.Channels,
-		Prompt:     s.transcriptionPrompt(),
+		SampleRate: self.AudioIn.SampleRateHz,
+		Channels:   self.AudioIn.Channels,
+		Prompt:     self.transcriptionPrompt(),
 	})
 	if err != nil || result == nil {
 		if err != nil {
@@ -288,69 +288,69 @@ func (s *Session) transcribeAndSend(turnID string, captured []byte) {
 	}
 	text := strings.TrimSpace(result.Text)
 	if text == "" {
-		pipelineLog.Infof("voice transcript ignored (empty): session=%s turn=%s", s.ID, turnID)
-		s.sendVoiceEvent("turn.event", turnEventPayload{
-			TurnID: turnID,
+		pipelineLog.Infof("voice transcript ignored (empty): session=%s turn=%s", self.ID, turnId)
+		self.sendVoiceEvent("turn.event", turnEventPayload{
+			TurnID: turnId,
 			Event:  "turn_dropped",
 			Reason: "dropped_empty_transcript",
 		})
 		return
 	}
 	if len([]rune(text)) < minCommittedTextRunes {
-		pipelineLog.Infof("voice transcript ignored (too short): session=%s turn=%s text=%q", s.ID, turnID, text)
-		s.sendVoiceEvent("turn.event", turnEventPayload{
-			TurnID: turnID,
+		pipelineLog.Infof("voice transcript ignored (too short): session=%s turn=%s text=%q", self.ID, turnId, text)
+		self.sendVoiceEvent("turn.event", turnEventPayload{
+			TurnID: turnId,
 			Event:  "turn_dropped",
 			Reason: "dropped_too_short_text",
 		})
 		return
 	}
 	// If an older response already started speaking, interrupt it and prioritize this newer user turn.
-	if s.GetCurrentResponseID() != "" {
-		s.triggerBargeIn()
+	if self.GetCurrentResponseId() != "" {
+		self.triggerBargeIn()
 	}
-	if s.GetCurrentRunID() != "" {
-		s.enqueueTranscriptTurn(turnID, text)
+	if self.GetCurrentRunId() != "" {
+		self.enqueueTranscriptTurn(turnId, text)
 		return
 	}
-	if s.IsTurnCommitted(turnID) {
-		pipelineLog.Infof("voice transcript ignored (already committed): session=%s turn=%s", s.ID, turnID)
+	if self.IsTurnCommitted(turnId) {
+		pipelineLog.Infof("voice transcript ignored (already committed): session=%s turn=%s", self.ID, turnId)
 		return
 	}
-	s.commitVoiceTurn(turnID, text)
+	self.commitVoiceTurn(turnId, text)
 }
 
-func (s *Session) commitVoiceTurn(turnID, text string) {
-	pipelineLog.Infof("voice transcript.final: session=%s turn=%s text_len=%d text=%q", s.ID, turnID, len(text), text)
-	s.SetLastCommittedTranscript(text)
-	s.sendVoiceEvent("transcript.final", map[string]interface{}{
-		"turn_id": turnID,
+func (self *Session) commitVoiceTurn(turnId, text string) {
+	pipelineLog.Infof("voice transcript.final: session=%s turn=%s text_len=%d text=%q", self.ID, turnId, len(text), text)
+	self.SetLastCommittedTranscript(text)
+	self.sendVoiceEvent("transcript.final", map[string]interface{}{
+		"turn_id": turnId,
 		"text":    text,
 	})
-	run := s.deps.SendMessage(context.Background(), VoiceSendMessageParams{
-		AgentID:            s.AgentID,
-		ConversationID:     s.ConversationID,
+	run := self.deps.SendMessage(context.Background(), VoiceSendMessageParams{
+		AgentID:            self.AgentID,
+		ConversationID:     self.ConversationID,
 		Message:            text,
-		SystemPromptSuffix: s.effectivePromptSuffix(),
+		SystemPromptSuffix: self.effectivePromptSuffix(),
 	})
-	s.MarkTurnCommitted(turnID)
-	s.SetCurrentRunID(run.RunID)
-	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", s.ID, turnID, run.RunID)
-	s.sendVoiceEvent("turn.event", turnEventPayload{
-		TurnID: turnID,
+	self.MarkTurnCommitted(turnId)
+	self.SetCurrentRunId(run.RunID)
+	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", self.ID, turnId, run.RunID)
+	self.sendVoiceEvent("turn.event", turnEventPayload{
+		TurnID: turnId,
 		Event:  "turn_committed",
 	})
 }
 
-func (s *Session) effectivePromptSuffix() string {
-	if strings.TrimSpace(s.PromptSuffix) != "" {
-		return s.PromptSuffix
+func (self *Session) effectivePromptSuffix() string {
+	if strings.TrimSpace(self.PromptSuffix) != "" {
+		return self.PromptSuffix
 	}
 	return voiceCallPromptSuffix
 }
 
-func (s *Session) transcriptionPrompt() string {
-	last := strings.TrimSpace(s.GetLastCommittedTranscript())
+func (self *Session) transcriptionPrompt() string {
+	last := strings.TrimSpace(self.GetLastCommittedTranscript())
 	base := "This is a live voice conversation transcription. Transcribe literally and preserve question words and place names exactly."
 	if last == "" {
 		return base
@@ -358,86 +358,86 @@ func (s *Session) transcriptionPrompt() string {
 	return base + " Prior user utterance context: " + last
 }
 
-func (s *Session) enqueueTranscriptTurn(turnID, text string) {
-	dropped, depth := s.EnqueuePendingTurn(turnID, text)
+func (self *Session) enqueueTranscriptTurn(turnId, text string) {
+	dropped, depth := self.EnqueuePendingTurn(turnId, text)
 	if dropped != nil {
-		pipelineLog.Infof("voice turn dropped (queue overflow): session=%s dropped_turn=%s", s.ID, dropped.TurnID)
-		s.sendVoiceEvent("turn.event", turnEventPayload{
+		pipelineLog.Infof("voice turn dropped (queue overflow): session=%s dropped_turn=%s", self.ID, dropped.TurnID)
+		self.sendVoiceEvent("turn.event", turnEventPayload{
 			TurnID:     dropped.TurnID,
 			Event:      "turn_dropped",
 			Reason:     "dropped_queue_overflow",
 			QueueDepth: depth,
 		})
 	}
-	pipelineLog.Infof("voice turn queued (run active): session=%s turn=%s run=%s depth=%d", s.ID, turnID, s.GetCurrentRunID(), depth)
-	s.sendVoiceEvent("turn.event", turnEventPayload{
-		TurnID:     turnID,
+	pipelineLog.Infof("voice turn queued (run active): session=%s turn=%s run=%s depth=%d", self.ID, turnId, self.GetCurrentRunId(), depth)
+	self.sendVoiceEvent("turn.event", turnEventPayload{
+		TurnID:     turnId,
 		Event:      "turn_queued",
 		Reason:     "queued_run_active",
 		QueueDepth: depth,
 	})
 }
 
-func (s *Session) commitNextPendingTurn() {
-	if s.GetCurrentRunID() != "" {
+func (self *Session) commitNextPendingTurn() {
+	if self.GetCurrentRunId() != "" {
 		return
 	}
-	next, ok := s.DequeuePendingTurn()
+	next, ok := self.DequeuePendingTurn()
 	if !ok {
 		return
 	}
-	if next.Text == "" || next.TurnID == "" || s.IsTurnCommitted(next.TurnID) {
+	if next.Text == "" || next.TurnID == "" || self.IsTurnCommitted(next.TurnID) {
 		return
 	}
-	pipelineLog.Infof("voice queued turn draining: session=%s turn=%s", s.ID, next.TurnID)
-	s.commitVoiceTurn(next.TurnID, next.Text)
+	pipelineLog.Infof("voice queued turn draining: session=%s turn=%s", self.ID, next.TurnID)
+	self.commitVoiceTurn(next.TurnID, next.Text)
 }
 
-func (s *Session) triggerBargeIn() {
-	s.bargeInOnce.Do(func() {
-		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", s.ID, s.GetCurrentRunID(), s.GetCurrentResponseID())
-		if prev := s.SwapTTSCancel(nil); prev != nil {
+func (self *Session) triggerBargeIn() {
+	self.bargeInOnce.Do(func() {
+		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunId(), self.GetCurrentResponseId())
+		if prev := self.SwapTTSCancel(nil); prev != nil {
 			prev()
 		}
-		s.trySendFlushFrame()
-		if runID := s.GetCurrentRunID(); runID != "" && s.deps != nil {
-			s.deps.AbortRun(runID)
+		self.trySendFlushFrame()
+		if runId := self.GetCurrentRunId(); runId != "" && self.deps != nil {
+			self.deps.AbortRun(runId)
 		}
-		s.ClearCurrentRun()
-		s.ClearCurrentResponse()
-		s.sendVoiceEvent("turn.event", turnEventPayload{Event: "barge_in_triggered"})
+		self.ClearCurrentRun()
+		self.ClearCurrentResponse()
+		self.sendVoiceEvent("turn.event", turnEventPayload{Event: "barge_in_triggered"})
 	})
 }
 
-func (s *Session) startNewTurn(turnID string) {
-	s.stateMu.Lock()
-	s.currentTurnID = turnID
-	s.bargeInOnce = sync.Once{}
-	s.stateMu.Unlock()
+func (self *Session) startNewTurn(turnId string) {
+	self.stateMu.Lock()
+	self.currentTurnId = turnId
+	self.bargeInOnce = sync.Once{}
+	self.stateMu.Unlock()
 }
 
-func (s *Session) startRun(ctx context.Context, text string) {
+func (self *Session) startRun(ctx context.Context, text string) {
 	_ = ctx
 	_ = text
 }
 
-func (s *Session) trySendFlushFrame() {
-	pipelineLog.Debugf("voice flush frame queued: session=%s", s.ID)
+func (self *Session) trySendFlushFrame() {
+	pipelineLog.Debugf("voice flush frame queued: session=%s", self.ID)
 	payload := EncodeBinaryAudioFrame(BinaryAudioFrame{
 		FrameType:   FrameTypeFlush,
-		Seq:         s.NextOutSeq(),
+		Seq:         self.NextOutSeq(),
 		CaptureTSMs: time.Now().UnixMilli(),
 		DurationMS:  0,
 	})
-	s.enqueueAudioOut(payload)
+	self.enqueueAudioOut(payload)
 }
 
 type conversationEventSubscriber struct {
-	conversationID string
+	conversationId string
 	eventCh        chan map[string]interface{}
 }
 
-func (s *conversationEventSubscriber) OnVoiceEvent(eventType string, payload interface{}) {
+func (self *conversationEventSubscriber) OnVoiceEvent(eventType string, payload interface{}) {
 	if eventType != "conversation" {
 		return
 	}
@@ -445,30 +445,30 @@ func (s *conversationEventSubscriber) OnVoiceEvent(eventType string, payload int
 	if !ok {
 		return
 	}
-	conversationID, _ := eventMap["conversationId"].(string)
-	if conversationID != s.conversationID {
+	conversationId, _ := eventMap["conversationId"].(string)
+	if conversationId != self.conversationId {
 		return
 	}
 	state, _ := eventMap["state"].(string)
 	critical := state == "final" || state == "error" || state == "aborted" || state == "queued"
 	if !critical {
 		select {
-		case s.eventCh <- eventMap:
+		case self.eventCh <- eventMap:
 		default:
 		}
 		return
 	}
 
 	select {
-	case s.eventCh <- eventMap:
+	case self.eventCh <- eventMap:
 	default:
 		// Preserve terminal lifecycle events by making room if queue is saturated by deltas.
 		select {
-		case <-s.eventCh:
+		case <-self.eventCh:
 		default:
 		}
 		select {
-		case s.eventCh <- eventMap:
+		case self.eventCh <- eventMap:
 		default:
 		}
 	}

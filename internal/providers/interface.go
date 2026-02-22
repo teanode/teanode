@@ -53,11 +53,11 @@ type SynthesizeResponse struct {
 // NewProvider creates a Provider for the given type. Supported types:
 // "anthropic" returns an AnthropicClient; everything else returns an
 // OpenAI-compatible Client.
-func NewProvider(providerType, baseURL, apiKey string) Provider {
+func NewProvider(providerType, baseUrl, apiKey string) Provider {
 	switch providerType {
 	case "anthropic":
-		return NewAnthropicClient(baseURL, apiKey)
+		return NewAnthropicClient(baseUrl, apiKey)
 	default:
-		return NewClient(baseURL, apiKey)
+		return NewClient(baseUrl, apiKey)
 	}
 }
