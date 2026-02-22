@@ -88,3 +88,16 @@ Started: 2026-02-22T21:56:22Z
   - Commit: de3166b
   - Validations: state/log persisted in git
   - Next: unblock gate by restoring `internal/frontend/static` embed inputs, then re-run Wave 0 gate.
+- 2026-02-22T22:01:16Z
+  - Wave: 0
+  - Task: gate-retry
+  - Status: passed
+  - Branch: pipeline
+  - Commit: 430cb14
+  - Validations: |
+      PASS `go build ./...`
+      PASS `go vet ./...`
+      PASS `go test -race ./internal/providers/...`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go test -race ./internal/api/v1api/...`
+  - Next: advance to Wave 1 and start P0.1 + P0.2 in parallel (P0.3 after P0.2).

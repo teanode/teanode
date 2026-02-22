@@ -1,4 +1,4 @@
-current_wave: 0
+current_wave: 1
 tasks:
   - id: S1
     wave: 0
@@ -128,14 +128,14 @@ tasks:
     notes: ""
 wave_gates:
   - wave: 0
-    status: failed
+    status: passed
     commands:
       - "go build ./..."
       - "go vet ./..."
       - "go test -race ./internal/providers/..."
       - "go test -race ./internal/voice/..."
       - "go test -race ./internal/api/v1api/..."
-    summary: "FAILED: go build/go vet error at internal/frontend/frontend.go:12 pattern static: no matching files found. tests: providers/voice/api passed with -race."
+    summary: "PASSED after unblock fix: added internal/frontend/static/index.html. go build/go vet and race tests for providers/voice/api all passed."
   - wave: 1
     status: pending
     commands:
@@ -220,4 +220,4 @@ wave_gates:
     commands:
       - "docs validation only"
     summary: ""
-last_updated: "2026-02-22T21:59:48Z"
+last_updated: "2026-02-22T22:01:16Z"
