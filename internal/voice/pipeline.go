@@ -51,6 +51,7 @@ func (self *Session) audioInputLoop() {
 			if started {
 				turnId := self.newTurnId()
 				self.startNewTurn(turnId)
+				nowMs := time.Now().UnixMilli()
 				speechBuf = speechBuf[:0]
 				for _, buffered := range preSpeech {
 					speechBuf = append(speechBuf, buffered...)
@@ -62,6 +63,9 @@ func (self *Session) audioInputLoop() {
 					Event:       "speech_started",
 					VADScore:    score,
 					AudioSeqRef: self.inSeq.Load(),
+				})
+				self.notifyObservers(func(observer TurnObserver) {
+					observer.OnSpeechStarted(turnId, nowMs)
 				})
 				if self.Features.BargeIn &&
 					score >= bargeInTriggerMinScore &&
@@ -79,12 +83,16 @@ func (self *Session) audioInputLoop() {
 
 			if ended {
 				turnId := self.GetCurrentTurnId()
+				nowMs := time.Now().UnixMilli()
 				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnId(), len(speechBuf), self.inSeq.Load(), score)
 				self.sendVoiceEvent("turn.event", turnEventPayload{
 					TurnID:      turnId,
 					Event:       "speech_ended",
 					VADScore:    score,
 					AudioSeqRef: self.inSeq.Load(),
+				})
+				self.notifyObservers(func(observer TurnObserver) {
+					observer.OnSpeechEnded(turnId, nowMs)
 				})
 				if !self.Features.ServerTurn {
 					self.setSpeechReady(true)
@@ -98,6 +106,9 @@ func (self *Session) audioInputLoop() {
 						TurnID: turnId,
 						Event:  "turn_dropped",
 						Reason: "dropped_too_short_audio",
+					})
+					self.notifyObservers(func(observer TurnObserver) {
+						observer.OnTurnDropped(turnId, "dropped_too_short_audio", time.Now().UnixMilli())
 					})
 					continue
 				}
@@ -206,11 +217,16 @@ func (self *Session) ttsSynthLoop() {
 			return
 		case sentence := <-self.ttsInCh:
 			if sentence == "" {
+				nowMs := time.Now().UnixMilli()
 				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseId())
 				if rid := self.GetCurrentResponseId(); rid != "" {
 					self.sendVoiceEvent("response.completed", map[string]interface{}{
 						"response_id": rid,
 						"turn_id":     self.GetCurrentTurnId(),
+					})
+					turnId := self.GetCurrentTurnId()
+					self.notifyObservers(func(observer TurnObserver) {
+						observer.OnResponseCompleted(turnId, rid, nowMs)
 					})
 				}
 				self.ClearCurrentResponse()
@@ -243,10 +259,15 @@ func (self *Session) ttsSynthLoop() {
 				}
 				responseId = self.newTurnId()
 				self.SetCurrentResponseId(responseId)
+				nowMs := time.Now().UnixMilli()
 				pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", self.ID, responseId, self.GetCurrentTurnId())
 				self.sendVoiceEvent("response.started", map[string]interface{}{
 					"response_id": responseId,
 					"turn_id":     self.GetCurrentTurnId(),
+				})
+				turnId := self.GetCurrentTurnId()
+				self.notifyObservers(func(observer TurnObserver) {
+					observer.OnResponseStarted(turnId, responseId, nowMs)
 				})
 			}
 
@@ -334,6 +355,9 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 			Event:  "turn_dropped",
 			Reason: "dropped_empty_transcript",
 		})
+		self.notifyObservers(func(observer TurnObserver) {
+			observer.OnTurnDropped(turnId, "dropped_empty_transcript", time.Now().UnixMilli())
+		})
 		return
 	}
 	if len([]rune(text)) < minCommittedTextRunes {
@@ -342,6 +366,9 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 			TurnID: turnId,
 			Event:  "turn_dropped",
 			Reason: "dropped_too_short_text",
+		})
+		self.notifyObservers(func(observer TurnObserver) {
+			observer.OnTurnDropped(turnId, "dropped_too_short_text", time.Now().UnixMilli())
 		})
 		return
 	}
@@ -361,11 +388,15 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 }
 
 func (self *Session) commitVoiceTurn(turnId, text string) {
+	nowMs := time.Now().UnixMilli()
 	pipelineLog.Infof("voice transcript.final: session=%s turn=%s text_len=%d text=%q", self.ID, turnId, len(text), text)
 	self.SetLastCommittedTranscript(text)
 	self.sendVoiceEvent("transcript.final", map[string]interface{}{
 		"turn_id": turnId,
 		"text":    text,
+	})
+	self.notifyObservers(func(observer TurnObserver) {
+		observer.OnTranscriptFinal(turnId, nowMs)
 	})
 	run := self.deps.SendMessage(context.Background(), VoiceSendMessageParams{
 		AgentID:            self.AgentID,
@@ -379,6 +410,9 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID: turnId,
 		Event:  "turn_committed",
+	})
+	self.notifyObservers(func(observer TurnObserver) {
+		observer.OnTurnCommitted(turnId, time.Now().UnixMilli())
 	})
 }
 
@@ -404,6 +438,9 @@ func (self *Session) enqueueTranscriptTurn(turnId, text string) {
 			Event:      "turn_dropped",
 			Reason:     "dropped_queue_overflow",
 			QueueDepth: depth,
+		})
+		self.notifyObservers(func(observer TurnObserver) {
+			observer.OnTurnDropped(dropped.TurnID, "dropped_queue_overflow", time.Now().UnixMilli())
 		})
 	}
 	pipelineLog.Infof("voice turn queued (run active): session=%s turn=%s run=%s depth=%d", self.ID, turnId, self.GetCurrentRunId(), depth)

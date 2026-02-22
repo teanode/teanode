@@ -57,7 +57,23 @@ const (
 	EventResponseStarted   EventType = "response.started"
 	EventResponseCompleted EventType = "response.completed"
 	EventTTSInput          EventType = "tts.input"
+	EventTurnMetrics       EventType = "turn.metrics"
 )
+
+type TurnMetrics struct {
+	TurnID              string `json:"turn_id,omitempty"`
+	ResponseID          string `json:"response_id,omitempty"`
+	SpeechStartedMS     int64  `json:"speech_started_ms,omitempty"`
+	SpeechEndedMS       int64  `json:"speech_ended_ms,omitempty"`
+	TranscriptFinalMS   int64  `json:"transcript_final_ms,omitempty"`
+	TurnCommittedMS     int64  `json:"turn_committed_ms,omitempty"`
+	ResponseStartedMS   int64  `json:"response_started_ms,omitempty"`
+	ResponseCompletedMS int64  `json:"response_completed_ms,omitempty"`
+	STTMS               int64  `json:"stt_ms,omitempty"`
+	LLMTTFBMS           int64  `json:"llm_ttfb_ms,omitempty"`
+	TTSMS               int64  `json:"tts_ms,omitempty"`
+	E2EMS               int64  `json:"e2e_ms,omitempty"`
+}
 
 type TimelineEvent struct {
 	At         time.Time      `json:"at"`
@@ -81,6 +97,7 @@ type ScenarioResult struct {
 	Failures      []string        `json:"failures,omitempty"`
 	Warnings      []string        `json:"warnings,omitempty"`
 	Metrics       map[string]any  `json:"metrics,omitempty"`
+	TurnMetrics   []TurnMetrics   `json:"turn_metrics,omitempty"`
 	Timeline      []TimelineEvent `json:"timeline,omitempty"`
 	PromptVariant string          `json:"prompt_variant,omitempty"`
 }

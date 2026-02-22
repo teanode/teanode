@@ -431,5 +431,7 @@ func convertVoiceEnvelope(record func(model.TimelineEvent), now time.Time, env v
 		responseId, _ := payload["response_id"].(string)
 		turnId, _ := payload["turn_id"].(string)
 		record(model.TimelineEvent{At: now, Type: model.EventResponseCompleted, SessionID: env.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
+	case "turn.metrics":
+		record(model.TimelineEvent{At: now, Type: model.EventTurnMetrics, SessionID: env.SessionID, Raw: payload})
 	}
 }

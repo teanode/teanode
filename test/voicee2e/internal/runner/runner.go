@@ -87,6 +87,7 @@ func (r *Runner) runScenario(ctx context.Context, scenario model.ScenarioSpec, c
 
 	timeline, runErr := r.client.RunScenario(sctx, scenario)
 	result.Timeline = timeline
+	result.TurnMetrics = collectTurnMetrics(timeline)
 	if runErr != nil {
 		result.Failures = append(result.Failures, fmt.Sprintf("scenario run failed: %v", runErr))
 	}
@@ -104,4 +105,50 @@ func (r *Runner) runScenario(ctx context.Context, scenario model.ScenarioSpec, c
 	result.DurationMS = result.EndedAt.Sub(start).Milliseconds()
 	result.Passed = len(result.Failures) == 0
 	return result
+}
+
+func collectTurnMetrics(timeline []model.TimelineEvent) []model.TurnMetrics {
+	metrics := make([]model.TurnMetrics, 0, 8)
+	for _, event := range timeline {
+		if event.Type != model.EventTurnMetrics {
+			continue
+		}
+		raw := event.Raw
+		metric := model.TurnMetrics{
+			TurnID:              toString(raw["turn_id"]),
+			ResponseID:          toString(raw["response_id"]),
+			SpeechStartedMS:     toInt64(raw["speech_started_ms"]),
+			SpeechEndedMS:       toInt64(raw["speech_ended_ms"]),
+			TranscriptFinalMS:   toInt64(raw["transcript_final_ms"]),
+			TurnCommittedMS:     toInt64(raw["turn_committed_ms"]),
+			ResponseStartedMS:   toInt64(raw["response_started_ms"]),
+			ResponseCompletedMS: toInt64(raw["response_completed_ms"]),
+			STTMS:               toInt64(raw["stt_ms"]),
+			LLMTTFBMS:           toInt64(raw["llm_ttfb_ms"]),
+			TTSMS:               toInt64(raw["tts_ms"]),
+			E2EMS:               toInt64(raw["e2e_ms"]),
+		}
+		metrics = append(metrics, metric)
+	}
+	return metrics
+}
+
+func toInt64(value any) int64 {
+	switch v := value.(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+func toString(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return ""
 }

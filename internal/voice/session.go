@@ -72,6 +72,7 @@ type Session struct {
 	maxPendingTurns    int
 	explicitAudioBuf   []byte
 	speechReady        bool
+	observers          []TurnObserver
 
 	outSeq atomic.Uint64
 	inSeq  atomic.Uint64
@@ -91,7 +92,7 @@ const (
 
 // NewSession creates a session with default channel capacities.
 func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioFormat, features Features, deps GatewayDeps, sendJson func(any), sendBinary func([]byte)) *Session {
-	return &Session{
+	session := &Session{
 		ID:                 id,
 		ConversationID:     conversationId,
 		AgentID:            agentId,
@@ -111,6 +112,12 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 		audioOutCh:         make(chan []byte, defaultAudioOutBufferFrames),
 		doneCh:             make(chan struct{}),
 	}
+	session.observers = []TurnObserver{
+		NewMetricsObserver(func(metric TurnMetrics) {
+			session.sendVoiceEvent("turn.metrics", metric)
+		}),
+	}
+	return session
 }
 
 // Start begins session background loops.
@@ -195,6 +202,9 @@ func (self *Session) InputCommit(reason string) {
 			Event:  "turn_dropped",
 			Reason: "dropped_empty_audio",
 		})
+		self.notifyObservers(func(observer TurnObserver) {
+			observer.OnTurnDropped(turnId, "dropped_empty_audio", time.Now().UnixMilli())
+		})
 		return
 	}
 	if len(audio) < minCommittedTurnBytes {
@@ -202,6 +212,9 @@ func (self *Session) InputCommit(reason string) {
 			TurnID: turnId,
 			Event:  "turn_dropped",
 			Reason: "dropped_too_short_audio",
+		})
+		self.notifyObservers(func(observer TurnObserver) {
+			observer.OnTurnDropped(turnId, "dropped_too_short_audio", time.Now().UnixMilli())
 		})
 		return
 	}
@@ -483,4 +496,16 @@ func (self *Session) takeExplicitAudio() []byte {
 	captured := append([]byte(nil), self.explicitAudioBuf...)
 	self.explicitAudioBuf = self.explicitAudioBuf[:0]
 	return captured
+}
+
+func (self *Session) notifyObservers(fn func(observer TurnObserver)) {
+	if len(self.observers) == 0 {
+		return
+	}
+	for _, observer := range self.observers {
+		if observer == nil {
+			continue
+		}
+		fn(observer)
+	}
 }
