@@ -9,6 +9,8 @@ import (
 type Registry struct {
 	clients         map[string]Provider
 	defaultProvider string
+	transcriberOrder []string
+	synthesizerOrder []string
 }
 
 // NewRegistry creates a provider registry with the given default provider name.
@@ -16,12 +18,23 @@ func NewRegistry(defaultProvider string) *Registry {
 	return &Registry{
 		clients:         make(map[string]Provider),
 		defaultProvider: defaultProvider,
+		transcriberOrder: make([]string, 0),
+		synthesizerOrder: make([]string, 0),
 	}
 }
 
 // Register adds a named provider client.
 func (r *Registry) Register(name string, client Provider) {
+	_, existed := r.clients[name]
 	r.clients[name] = client
+	if !existed {
+		if _, ok := client.(AudioTranscriber); ok {
+			r.transcriberOrder = append(r.transcriberOrder, name)
+		}
+		if _, ok := client.(AudioSynthesizer); ok {
+			r.synthesizerOrder = append(r.synthesizerOrder, name)
+		}
+	}
 }
 
 // Resolve splits a qualified model ID ("provider:model") and returns the
@@ -66,7 +79,11 @@ func QualifyModel(providerName, model string) string {
 
 // FindTranscriber returns the first registered provider that implements AudioTranscriber.
 func (r *Registry) FindTranscriber() (AudioTranscriber, string, bool) {
-	for name, client := range r.clients {
+	for _, name := range r.transcriberOrder {
+		client, exists := r.clients[name]
+		if !exists {
+			continue
+		}
 		if transcriber, ok := client.(AudioTranscriber); ok {
 			return transcriber, name, true
 		}
@@ -76,10 +93,42 @@ func (r *Registry) FindTranscriber() (AudioTranscriber, string, bool) {
 
 // FindSynthesizer returns the first registered provider that implements AudioSynthesizer.
 func (r *Registry) FindSynthesizer() (AudioSynthesizer, string, bool) {
-	for name, client := range r.clients {
+	for _, name := range r.synthesizerOrder {
+		client, exists := r.clients[name]
+		if !exists {
+			continue
+		}
 		if synthesizer, ok := client.(AudioSynthesizer); ok {
 			return synthesizer, name, true
 		}
 	}
 	return nil, "", false
+}
+
+// FindTranscriberByName resolves a named provider and returns it only when the
+// provider supports AudioTranscriber.
+func (r *Registry) FindTranscriberByName(name string) (AudioTranscriber, bool) {
+	client, ok := r.clients[name]
+	if !ok {
+		return nil, false
+	}
+	transcriber, ok := client.(AudioTranscriber)
+	if !ok {
+		return nil, false
+	}
+	return transcriber, true
+}
+
+// FindSynthesizerByName resolves a named provider and returns it only when the
+// provider supports AudioSynthesizer.
+func (r *Registry) FindSynthesizerByName(name string) (AudioSynthesizer, bool) {
+	client, ok := r.clients[name]
+	if !ok {
+		return nil, false
+	}
+	synthesizer, ok := client.(AudioSynthesizer)
+	if !ok {
+		return nil, false
+	}
+	return synthesizer, true
 }

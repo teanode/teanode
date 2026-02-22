@@ -2,7 +2,9 @@ package providers
 
 import (
 	"context"
+	"io"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -21,6 +23,26 @@ func (self *mockProvider) ChatCompletionStream(ctx context.Context, request Chat
 
 func (self *mockProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	return nil, nil
+}
+
+type mockTranscriberProvider struct {
+	mockProvider
+}
+
+func (self *mockTranscriberProvider) Transcribe(ctx context.Context, request TranscribeRequest) (*TranscribeResponse, error) {
+	return &TranscribeResponse{Text: "ok"}, nil
+}
+
+type mockSynthProvider struct {
+	mockProvider
+}
+
+func (self *mockSynthProvider) Synthesize(ctx context.Context, request SynthesizeRequest) (*SynthesizeResponse, error) {
+	return &SynthesizeResponse{
+		Audio:       io.NopCloser(strings.NewReader("audio")),
+		Format:      "wav",
+		ContentType: "audio/wav",
+	}, nil
 }
 
 func TestNewRegistry(t *testing.T) {
@@ -172,5 +194,61 @@ func TestRegistryRegisterOverwrite(t *testing.T) {
 	response, _ := client.ChatCompletion(context.Background(), ChatRequest{})
 	if response.Model != "second" {
 		t.Errorf("expected second provider after overwrite, got %q", response.Model)
+	}
+}
+
+func TestFindTranscriber_Deterministic(t *testing.T) {
+	registry := NewRegistry("openai")
+	registry.Register("openai", &mockProvider{name: "openai"})
+	registry.Register("t1", &mockTranscriberProvider{mockProvider{name: "t1"}})
+	registry.Register("t2", &mockTranscriberProvider{mockProvider{name: "t2"}})
+
+	var firstName string
+	for i := 0; i < 100; i++ {
+		transcriber, name, ok := registry.FindTranscriber()
+		if !ok || transcriber == nil {
+			t.Fatalf("FindTranscriber returned no transcriber at iteration %d", i)
+		}
+		if i == 0 {
+			firstName = name
+		} else if name != firstName {
+			t.Fatalf("FindTranscriber changed selection from %q to %q at iteration %d", firstName, name, i)
+		}
+	}
+}
+
+func TestFindTranscriberByName_Found(t *testing.T) {
+	registry := NewRegistry("openai")
+	registry.Register("t1", &mockTranscriberProvider{mockProvider{name: "t1"}})
+
+	transcriber, ok := registry.FindTranscriberByName("t1")
+	if !ok || transcriber == nil {
+		t.Fatalf("expected named transcriber lookup to succeed")
+	}
+}
+
+func TestFindTranscriberByName_NotFound(t *testing.T) {
+	registry := NewRegistry("openai")
+	registry.Register("openai", &mockProvider{name: "openai"})
+
+	transcriber, ok := registry.FindTranscriberByName("missing")
+	if ok {
+		t.Fatalf("expected lookup miss")
+	}
+	if transcriber != nil {
+		t.Fatalf("expected nil transcriber on miss")
+	}
+}
+
+func TestFindTranscriberByName_WrongCapability(t *testing.T) {
+	registry := NewRegistry("openai")
+	registry.Register("openai", &mockProvider{name: "openai"})
+
+	transcriber, ok := registry.FindTranscriberByName("openai")
+	if ok {
+		t.Fatalf("expected capability mismatch to fail")
+	}
+	if transcriber != nil {
+		t.Fatalf("expected nil transcriber for capability mismatch")
 	}
 }

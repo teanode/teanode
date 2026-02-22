@@ -224,6 +224,7 @@ func (self *Config) ResolveSummarizerConfig() SummarizerConfig {
 
 type Config struct {
 	Gateway          GatewayConfig      `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Voice            VoiceConfig        `json:"voice,omitempty" yaml:"voice,omitempty"`
 	Models           ModelsConfig       `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools            ToolsConfig        `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Secrets          map[string]string  `json:"secrets,omitempty" yaml:"secrets,omitempty"`
@@ -232,6 +233,11 @@ type Config struct {
 	SkillsRegistries []SkillsRegistry   `json:"skillsRegistries,omitempty" yaml:"skillsRegistries,omitempty"`
 	Channels         ChannelsConfig     `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Agents           []AgentConfig      `json:"-" yaml:"-"`
+}
+
+type VoiceConfig struct {
+	TranscriberProvider string `json:"transcriber_provider,omitempty" yaml:"transcriber_provider,omitempty"`
+	SynthProvider       string `json:"synth_provider,omitempty" yaml:"synth_provider,omitempty"`
 }
 
 type IntegrationsConfig struct {

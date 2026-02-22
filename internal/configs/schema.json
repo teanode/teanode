@@ -178,6 +178,24 @@
         }
       }
     },
+    "voice": {
+      "type": "object",
+      "title": "Voice",
+      "properties": {
+        "transcriber_provider": {
+          "type": "string",
+          "title": "Transcriber Provider",
+          "description": "Optional preferred provider name for speech-to-text. Falls back to first available transcriber when unset or invalid.",
+          "x-placeholder": "openai"
+        },
+        "synth_provider": {
+          "type": "string",
+          "title": "Synthesizer Provider",
+          "description": "Optional preferred provider name for text-to-speech. Falls back to first available synthesizer when unset or invalid.",
+          "x-placeholder": "openai"
+        }
+      }
+    },
     "tools": {
       "type": "object",
       "title": "Tools",
@@ -633,6 +651,12 @@
       "description": "HTTP server and authentication settings.",
       "descriptionKey": "schema.config.sections.gateway.description",
       "path": "gateway"
+    },
+    {
+      "id": "voice",
+      "title": "Voice",
+      "description": "Voice provider selection preferences.",
+      "path": "voice"
     },
     {
       "id": "tools",

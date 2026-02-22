@@ -905,7 +905,10 @@ func (self *voiceGatewayAdapter) ProviderRegistry() voice.VoiceProviderRegistry 
 	if reg == nil {
 		return nil
 	}
-	return &voiceProviderRegistryAdapter{registry: reg}
+	return &voiceProviderRegistryAdapter{
+		registry: reg,
+		config:   self.gw.config,
+	}
 }
 
 type voiceSubscriberBridge struct {
@@ -918,9 +921,19 @@ func (self *voiceSubscriberBridge) OnEvent(et EventType, payload interface{}) {
 
 type voiceProviderRegistryAdapter struct {
 	registry *providers.Registry
+	config   *configs.Config
 }
 
 func (self *voiceProviderRegistryAdapter) FindTranscriber() (voice.VoiceTranscriber, string, bool) {
+	if self.config != nil {
+		name := strings.TrimSpace(self.config.Voice.TranscriberProvider)
+		if name != "" {
+			if transcriber, ok := self.registry.FindTranscriberByName(name); ok {
+				return &voiceTranscriberAdapter{transcriber: transcriber}, name, true
+			}
+			log.Warningf("voice transcriber provider %q unavailable or incompatible; falling back to first available transcriber", name)
+		}
+	}
 	transcriber, provider, ok := self.registry.FindTranscriber()
 	if !ok {
 		return nil, "", false
@@ -929,6 +942,15 @@ func (self *voiceProviderRegistryAdapter) FindTranscriber() (voice.VoiceTranscri
 }
 
 func (self *voiceProviderRegistryAdapter) FindSynthesizer() (voice.VoiceSynthesizer, string, bool) {
+	if self.config != nil {
+		name := strings.TrimSpace(self.config.Voice.SynthProvider)
+		if name != "" {
+			if synth, ok := self.registry.FindSynthesizerByName(name); ok {
+				return &voiceSynthesizerAdapter{synthesizer: synth}, name, true
+			}
+			log.Warningf("voice synth provider %q unavailable or incompatible; falling back to first available synthesizer", name)
+		}
+	}
 	synth, provider, ok := self.registry.FindSynthesizer()
 	if !ok {
 		return nil, "", false
