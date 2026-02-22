@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from "react";
 import {
   connect,
   disconnect,
@@ -7,8 +7,8 @@ import {
   sendRpc,
   setEventHandler,
   setStatusHandler,
-} from '../rpc';
-import type { EventFrame, ConnectResult } from '../types';
+} from "../rpc";
+import type { EventFrame, ConnectResult } from "../types";
 
 interface UseWebSocketOptions {
   onEvent: (frame: EventFrame) => void;

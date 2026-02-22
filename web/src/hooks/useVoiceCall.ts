@@ -1,12 +1,16 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { useChimePlayer, type ChimeConfig } from './useChimePlayer';
-import { useVoiceSession } from './useVoiceSession';
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useChimePlayer, type ChimeConfig } from "./useChimePlayer";
+import { useVoiceSession } from "./useVoiceSession";
 
 export interface UseVoiceCallOptions {
   sendRpc: <T = unknown>(method: string, params: unknown) => Promise<T>;
   sendBinary: (data: ArrayBuffer | Uint8Array) => void;
   onBinaryMessage: (handler: (data: ArrayBuffer) => void) => () => void;
-  sendVoiceMessage: (text: string, model?: string, systemPromptSuffix?: string) => void;
+  sendVoiceMessage: (
+    text: string,
+    model?: string,
+    systemPromptSuffix?: string,
+  ) => void;
   abortRun: () => void;
   isRunning: boolean;
   isStreaming: boolean;
@@ -84,7 +88,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
 
     try {
       const audioContext = new AudioContext();
-      if (audioContext.state === 'suspended') {
+      if (audioContext.state === "suspended") {
         await audioContext.resume();
       }
       audioContextRef.current = audioContext;
@@ -102,15 +106,15 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       await startVoiceSession(audioContext, mediaStream);
 
       try {
-        if ('wakeLock' in navigator) {
-          const lock = await navigator.wakeLock.request('screen');
+        if ("wakeLock" in navigator) {
+          const lock = await navigator.wakeLock.request("screen");
           wakeLockRef.current = lock;
         }
       } catch {
         // ignore wake lock failures
       }
 
-      chimePlayer.play('agentDone');
+      chimePlayer.play("agentDone");
       setCallDuration(0);
       durationIntervalRef.current = setInterval(() => {
         setCallDuration((prev) => prev + 1);
@@ -171,8 +175,6 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
 
     chimePlayer.close();
   }, [chimePlayer, stopVoiceSession]);
-
-  endCallRef.current = endCall;
 
   endCallRef.current = endCall;
 
