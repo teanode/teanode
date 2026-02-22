@@ -936,12 +936,13 @@ export function useBackend() {
     setConnected(nextStatus === "connected");
   }, []);
 
-  const { sendRpc, sendBinary, onBinaryMessage, onVoiceMessage } =
-    useWebSocket({
+  const { sendRpc, sendBinary, onBinaryMessage, onVoiceMessage } = useWebSocket(
+    {
       onEvent: handleEvent,
       onConnect: handleConnect,
       onStatusChange: handleStatusChange,
-    });
+    },
+  );
 
   sendRpcRef.current = sendRpc;
 

@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  connect,
-  disconnect,
-  onVoiceMessage,
-  setEventHandler,
-} from "./rpc";
+import { connect, disconnect, onVoiceMessage, setEventHandler } from "./rpc";
 
 class MockWebSocket {
   static readonly OPEN = 1;
@@ -17,7 +12,9 @@ class MockWebSocket {
   onclose: ((event: CloseEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   onmessage:
-    | ((event: MessageEvent<string | ArrayBuffer | Blob>) => void | Promise<void>)
+    | ((
+        event: MessageEvent<string | ArrayBuffer | Blob>,
+      ) => void | Promise<void>)
     | null = null;
 
   constructor(url: string) {

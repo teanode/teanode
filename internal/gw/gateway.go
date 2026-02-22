@@ -630,7 +630,7 @@ func (self *gateway) resolveSessionMaxAge() time.Duration {
 	return 14 * 24 * time.Hour
 }
 
-// checkBearerToken checks for a valid bearer token in the Authorization header or query param.
+// checkBearerToken checks for a valid bearer token in the Authorization header.
 func (self *gateway) checkBearerToken(request *http.Request) bool {
 	if self.securityConfig == nil {
 		return false
