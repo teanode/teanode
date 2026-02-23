@@ -873,6 +873,23 @@ func TestSpeculative_GuardRail_RecentBargeIn(t *testing.T) {
 	}
 }
 
+func TestSpeculative_GuardRail_NoActiveTurn(t *testing.T) {
+	s, deps := newPipelineSessionWithFeatures("unused", Features{
+		ServerVAD:             true,
+		ServerTurn:            true,
+		BargeIn:               true,
+		SpeculativeLLMEnabled: true,
+	})
+	s.maybeStartOrRefreshSpeculativeRun(VoiceTranscribeEvent{
+		Type:       "interim",
+		Text:       "hello this interim transcript is long enough",
+		Confidence: 0.95,
+	})
+	if deps.sendCount() != 0 {
+		t.Fatalf("expected no speculative run without active turn, got %d sends", deps.sendCount())
+	}
+}
+
 func TestSpeculative_Race(t *testing.T) {
 	s, deps := newPipelineSessionWithFeatures("unused", Features{
 		ServerVAD:             true,
@@ -880,6 +897,7 @@ func TestSpeculative_Race(t *testing.T) {
 		BargeIn:               true,
 		SpeculativeLLMEnabled: true,
 	})
+	s.startNewTurn("turn-race")
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
 		wg.Add(1)

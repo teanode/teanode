@@ -526,6 +526,13 @@ func (self *Session) maybeStartOrRefreshSpeculativeRun(event VoiceTranscribeEven
 	if !self.Features.SpeculativeLLMEnabled || self.deps == nil {
 		return
 	}
+	turnId := self.GetCurrentTurnId()
+	if turnId == "" || self.IsTurnCommitted(turnId) {
+		return
+	}
+	if self.GetCurrentResponseId() != "" {
+		return
+	}
 	text := strings.TrimSpace(event.Text)
 	if len([]rune(text)) < speculativeMinRunes {
 		return
