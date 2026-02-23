@@ -7,7 +7,9 @@ import (
 	"image/draw"
 	"image/jpeg"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -25,7 +27,52 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(request *http.Request) bool { return true },
+	CheckOrigin: func(request *http.Request) bool { return false },
+}
+
+func splitHostPortDefault(rawHost string, tls bool) (string, string) {
+	host, port, err := net.SplitHostPort(rawHost)
+	if err == nil {
+		return strings.ToLower(host), port
+	}
+	defaultPort := "80"
+	if tls {
+		defaultPort = "443"
+	}
+	return strings.ToLower(strings.TrimSpace(rawHost)), defaultPort
+}
+
+func sameOriginHost(leftHost string, leftTLS bool, rightHost string, rightTLS bool) bool {
+	leftName, leftPort := splitHostPortDefault(leftHost, leftTLS)
+	rightName, rightPort := splitHostPortDefault(rightHost, rightTLS)
+	return leftName == rightName && leftPort == rightPort
+}
+
+func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
+	origin := strings.TrimSpace(request.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	originURL, err := url.Parse(origin)
+	if err != nil || originURL.Host == "" {
+		return false
+	}
+	originTLS := strings.EqualFold(originURL.Scheme, "https")
+	requestTLS := request.TLS != nil
+	if sameOriginHost(originURL.Host, originTLS, request.Host, requestTLS) {
+		return true
+	}
+
+	publicURL := strings.TrimSpace(self.gateway.Config().Gateway.PublicURL)
+	if publicURL == "" {
+		return false
+	}
+	parsedPublicURL, err := url.Parse(publicURL)
+	if err != nil || parsedPublicURL.Host == "" {
+		return false
+	}
+	publicTLS := strings.EqualFold(parsedPublicURL.Scheme, "https")
+	return sameOriginHost(originURL.Host, originTLS, parsedPublicURL.Host, publicTLS)
 }
 
 func (self *v1Api) handleHealth(writer http.ResponseWriter, request *http.Request) error {
@@ -427,7 +474,11 @@ func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.R
 }
 
 func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Request) {
-	connection, err := upgrader.Upgrade(writer, request, nil)
+	requestUpgrader := upgrader
+	requestUpgrader.CheckOrigin = func(request *http.Request) bool {
+		return self.isWebSocketOriginAllowed(request)
+	}
+	connection, err := requestUpgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		log.Errorf("websocket upgrade error: %v", err)
 		return

@@ -82,8 +82,12 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 	if username == "" {
 		return web.Error(400, "username is required")
 	}
-	if _, _, exists := securityConfig.FindUserByUsername(username); exists {
-		return web.Error(409, "username already exists")
+	securityConfig.Lock()
+	for _, user := range securityConfig.Users {
+		if strings.EqualFold(strings.TrimSpace(user.Username), username) {
+			securityConfig.Unlock()
+			return web.Error(409, "username already exists")
+		}
 	}
 	if securityConfig.Users == nil {
 		securityConfig.Users = map[string]configs.SecurityUser{}
@@ -101,13 +105,16 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 	}
 	profile := &configs.UserProfile{Name: name}
 	if err := configs.SaveUserProfile(userId, profile); err != nil {
+		securityConfig.Unlock()
 		return web.Error(500, "failed to save profile")
 	}
 
 	// Update in-memory and save to security.yaml.
 	if err := configs.SaveSecurity(securityConfig); err != nil {
+		securityConfig.Unlock()
 		return web.Error(500, "failed to save security config")
 	}
+	securityConfig.Unlock()
 	if err := onboarding.InitializeUser(self.gateway, userId); err != nil {
 		return web.Error(500, "failed to initialize user onboarding")
 	}
@@ -163,7 +170,7 @@ func (self *v1Api) handleAuthLogin(writer http.ResponseWriter, request *http.Req
 		return web.Error(401, "invalid credentials")
 	}
 	if match, err := security.VerifyPassword([]byte(user.PasswordHash), body.Password); err != nil || !match {
-		return web.Error(401, "invalid password")
+		return web.Error(401, "invalid credentials")
 	}
 
 	maxAge := resolveMaxAge(self.gateway.Config())

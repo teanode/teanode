@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/teanode/teanode/internal/util/atomicfile"
@@ -14,6 +15,7 @@ import (
 
 // SecurityConfig holds auth data in ~/.teanode/security.yaml.
 type SecurityConfig struct {
+	mutex        sync.RWMutex            `json:"-" yaml:"-"`
 	Users        map[string]SecurityUser `json:"users,omitempty" yaml:"users,omitempty"`
 	ChannelLinks ChannelLinks            `json:"channelLinks,omitempty" yaml:"channelLinks,omitempty"`
 }
@@ -35,6 +37,34 @@ type SecurityToken struct {
 type ChannelLinks struct {
 	Telegram map[string]string `json:"telegram,omitempty" yaml:"telegram,omitempty"` // chatId -> userId
 	Discord  map[string]string `json:"discord,omitempty" yaml:"discord,omitempty"`   // platform userId -> userId
+}
+
+func (self *SecurityConfig) Lock() {
+	if self == nil {
+		return
+	}
+	self.mutex.Lock()
+}
+
+func (self *SecurityConfig) Unlock() {
+	if self == nil {
+		return
+	}
+	self.mutex.Unlock()
+}
+
+func (self *SecurityConfig) RLock() {
+	if self == nil {
+		return
+	}
+	self.mutex.RLock()
+}
+
+func (self *SecurityConfig) RUnlock() {
+	if self == nil {
+		return
+	}
+	self.mutex.RUnlock()
 }
 
 // SecurityFile returns the path to ~/.teanode/security.yaml.
@@ -108,15 +138,22 @@ func (self *SecurityConfig) UserByID(userId string) (SecurityUser, bool) {
 	if self == nil {
 		return SecurityUser{}, false
 	}
+	self.mutex.RLock()
+	defer self.mutex.RUnlock()
 	user, ok := self.Users[userId]
 	return user, ok
 }
 
 func (self *SecurityConfig) FindUserByUsername(username string) (string, SecurityUser, bool) {
+	if self == nil {
+		return "", SecurityUser{}, false
+	}
 	needle := strings.ToLower(strings.TrimSpace(username))
 	if needle == "" {
 		return "", SecurityUser{}, false
 	}
+	self.mutex.RLock()
+	defer self.mutex.RUnlock()
 	for userId, user := range self.Users {
 		if strings.ToLower(strings.TrimSpace(user.Username)) == needle {
 			return userId, user, true
@@ -126,9 +163,14 @@ func (self *SecurityConfig) FindUserByUsername(username string) (string, Securit
 }
 
 func (self *SecurityConfig) FindUserByToken(token string) (string, SecurityUser, int, bool) {
+	if self == nil {
+		return "", SecurityUser{}, -1, false
+	}
 	if strings.TrimSpace(token) == "" {
 		return "", SecurityUser{}, -1, false
 	}
+	self.mutex.RLock()
+	defer self.mutex.RUnlock()
 	for userId, user := range self.Users {
 		for index, tokenEntry := range user.Tokens {
 			if tokenEntry.Token == token {
@@ -144,6 +186,8 @@ func (self *SecurityConfig) LatestToken() string {
 	if self == nil || len(self.Users) == 0 {
 		return ""
 	}
+	self.mutex.RLock()
+	defer self.mutex.RUnlock()
 	userIds := make([]string, 0, len(self.Users))
 	for userId := range self.Users {
 		userIds = append(userIds, userId)
@@ -166,6 +210,8 @@ func (self *SecurityConfig) HasPasswordConfigured() bool {
 	if self == nil {
 		return false
 	}
+	self.mutex.RLock()
+	defer self.mutex.RUnlock()
 	for _, user := range self.Users {
 		if strings.TrimSpace(user.PasswordHash) != "" {
 			return true
@@ -178,6 +224,8 @@ func (self *SecurityConfig) IsAdmin(userId string) bool {
 	if self == nil {
 		return false
 	}
+	self.mutex.RLock()
+	defer self.mutex.RUnlock()
 	user, ok := self.Users[userId]
 	if !ok {
 		return false

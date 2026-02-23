@@ -105,6 +105,7 @@ func NewGatewayCommand() *cli.Command {
 			}
 			// Auto-generate one auth token for any user missing tokens.
 			securityChanged := false
+			securityConfig.Lock()
 			for userId, user := range securityConfig.Users {
 				if len(user.Tokens) > 0 {
 					continue
@@ -118,10 +119,13 @@ func NewGatewayCommand() *cli.Command {
 				securityConfig.Users[userId] = user
 				securityChanged = true
 			}
+			securityConfig.Unlock()
 			if securityChanged {
+				securityConfig.RLock()
 				if err := configs.SaveSecurity(securityConfig); err != nil {
 					log.Errorf("failed to save security config: %v", err)
 				}
+				securityConfig.RUnlock()
 			}
 
 			// Create session store.

@@ -1179,7 +1179,9 @@ func toAuthTokenListItems(tokens []configs.SecurityToken) []authTokenListItem {
 
 func (self *webSocketConnection) handleAuthTokensList(frame requestFrame) {
 	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.RLock()
 	user, ok := securityConfig.Users[self.userId]
+	securityConfig.RUnlock()
 	if !ok {
 		self.sendError(frame.ID, 404, "user not found")
 		return
@@ -1193,8 +1195,10 @@ func (self *webSocketConnection) handleAuthTokensCreate(frame requestFrame) {
 	tokenValue := security.GenerateRandomString(48, security.LowerAlphaNumeric)
 
 	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.Lock()
 	user, ok := securityConfig.Users[self.userId]
 	if !ok {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 404, "user not found")
 		return
 	}
@@ -1207,9 +1211,11 @@ func (self *webSocketConnection) handleAuthTokensCreate(frame requestFrame) {
 	securityConfig.Users[self.userId] = user
 
 	if err := configs.SaveSecurity(securityConfig); err != nil {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 500, "failed to save security config")
 		return
 	}
+	securityConfig.Unlock()
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"token": authTokenListItem{
@@ -1237,8 +1243,10 @@ func (self *webSocketConnection) handleAuthTokensDelete(frame requestFrame) {
 	}
 
 	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.Lock()
 	user, ok := securityConfig.Users[self.userId]
 	if !ok {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 404, "user not found")
 		return
 	}
@@ -1253,6 +1261,7 @@ func (self *webSocketConnection) handleAuthTokensDelete(frame requestFrame) {
 		filtered = append(filtered, token)
 	}
 	if !deleted {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 404, "token not found")
 		return
 	}
@@ -1260,9 +1269,11 @@ func (self *webSocketConnection) handleAuthTokensDelete(frame requestFrame) {
 	user.Tokens = filtered
 	securityConfig.Users[self.userId] = user
 	if err := configs.SaveSecurity(securityConfig); err != nil {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 500, "failed to save security config")
 		return
 	}
+	securityConfig.Unlock()
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"deleted": true,
@@ -1289,8 +1300,10 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 	}
 
 	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.Lock()
 	user, ok := securityConfig.Users[self.userId]
 	if !ok {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 404, "user not found")
 		return
 	}
@@ -1298,11 +1311,13 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 	// If a password is already set, verify the current password.
 	if user.PasswordHash != "" {
 		if parameters.CurrentPassword == "" {
+			securityConfig.Unlock()
 			self.sendError(frame.ID, 400, "current password is required")
 			return
 		}
 		match, err := security.VerifyPassword([]byte(user.PasswordHash), parameters.CurrentPassword)
 		if err != nil || !match {
+			securityConfig.Unlock()
 			self.sendError(frame.ID, 401, "current password is incorrect")
 			return
 		}
@@ -1310,6 +1325,7 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 
 	hash, err := security.HashPassword(parameters.NewPassword)
 	if err != nil {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 500, "failed to hash password")
 		return
 	}
@@ -1317,9 +1333,11 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 	user.PasswordHash = string(hash)
 	securityConfig.Users[self.userId] = user
 	if err := configs.SaveSecurity(securityConfig); err != nil {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 500, "failed to save security config")
 		return
 	}
+	securityConfig.Unlock()
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"ok": true,
@@ -1349,6 +1367,7 @@ func (self *webSocketConnection) handleUsersList(frame requestFrame) {
 		return
 	}
 	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.RLock()
 	items := make([]usersListItem, 0, len(securityConfig.Users))
 	userIds := make([]string, 0, len(securityConfig.Users))
 	for userId := range securityConfig.Users {
@@ -1370,6 +1389,7 @@ func (self *webSocketConnection) handleUsersList(frame requestFrame) {
 		}
 		items = append(items, item)
 	}
+	securityConfig.RUnlock()
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"users": items,
 	})
@@ -1400,15 +1420,19 @@ func (self *webSocketConnection) handleUsersCreate(frame requestFrame) {
 		self.sendError(frame.ID, 400, "password must be at least 8 characters")
 		return
 	}
-	securityConfig := self.api.gateway.SecurityConfig()
-	if _, _, exists := securityConfig.FindUserByUsername(username); exists {
-		self.sendError(frame.ID, 409, "username already exists")
-		return
-	}
 	hash, err := security.HashPassword(parameters.Password)
 	if err != nil {
 		self.sendError(frame.ID, 500, "failed to hash password")
 		return
+	}
+	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.Lock()
+	for _, existingUser := range securityConfig.Users {
+		if strings.EqualFold(strings.TrimSpace(existingUser.Username), username) {
+			securityConfig.Unlock()
+			self.sendError(frame.ID, 409, "username already exists")
+			return
+		}
 	}
 	userId := security.NewULID()
 	securityConfig.Users[userId] = configs.SecurityUser{
@@ -1417,9 +1441,11 @@ func (self *webSocketConnection) handleUsersCreate(frame requestFrame) {
 		PasswordHash: string(hash),
 	}
 	if err := configs.SaveSecurity(securityConfig); err != nil {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 500, "failed to save security config")
 		return
 	}
+	securityConfig.Unlock()
 	name := strings.TrimSpace(parameters.Name)
 	if name == "" {
 		name = username
@@ -1469,7 +1495,9 @@ func (self *webSocketConnection) handleUsersDelete(frame requestFrame) {
 		return
 	}
 	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.Lock()
 	if _, exists := securityConfig.Users[userId]; !exists {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 404, "user not found")
 		return
 	}
@@ -1489,9 +1517,11 @@ func (self *webSocketConnection) handleUsersDelete(frame requestFrame) {
 		}
 	}
 	if err := configs.SaveSecurity(securityConfig); err != nil {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 500, "failed to save security config")
 		return
 	}
+	securityConfig.Unlock()
 
 	if store := self.api.gateway.SessionStore(); store != nil {
 		if sessionList, err := store.List(); err == nil {
@@ -1545,22 +1575,27 @@ func (self *webSocketConnection) handleUsersChangePassword(frame requestFrame) {
 	}
 
 	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.Lock()
 	user, exists := securityConfig.Users[userId]
 	if !exists {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 404, "user not found")
 		return
 	}
 	hash, err := security.HashPassword(parameters.NewPassword)
 	if err != nil {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 500, "failed to hash password")
 		return
 	}
 	user.PasswordHash = string(hash)
 	securityConfig.Users[userId] = user
 	if err := configs.SaveSecurity(securityConfig); err != nil {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 500, "failed to save security config")
 		return
 	}
+	securityConfig.Unlock()
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"ok": true,
 	})
@@ -1594,8 +1629,10 @@ func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) {
 	}
 
 	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.Lock()
 	user, exists := securityConfig.Users[userId]
 	if !exists {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 404, "user not found")
 		return
 	}
@@ -1603,12 +1640,16 @@ func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) {
 	if parameters.Username != nil {
 		nextUsername := strings.TrimSpace(*parameters.Username)
 		if nextUsername == "" {
+			securityConfig.Unlock()
 			self.sendError(frame.ID, 400, "username is required")
 			return
 		}
-		if existingUserId, _, found := securityConfig.FindUserByUsername(nextUsername); found && existingUserId != userId {
-			self.sendError(frame.ID, 409, "username already exists")
-			return
+		for existingUserId, existingUser := range securityConfig.Users {
+			if existingUserId != userId && strings.EqualFold(strings.TrimSpace(existingUser.Username), nextUsername) {
+				securityConfig.Unlock()
+				self.sendError(frame.ID, 409, "username already exists")
+				return
+			}
 		}
 		user.Username = nextUsername
 	}
@@ -1617,11 +1658,13 @@ func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) {
 		nextPassword := *parameters.NewPassword
 		if strings.TrimSpace(nextPassword) != "" {
 			if len(nextPassword) < 8 {
+				securityConfig.Unlock()
 				self.sendError(frame.ID, 400, "new password must be at least 8 characters")
 				return
 			}
 			hash, err := security.HashPassword(nextPassword)
 			if err != nil {
+				securityConfig.Unlock()
 				self.sendError(frame.ID, 500, "failed to hash password")
 				return
 			}
@@ -1631,9 +1674,11 @@ func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) {
 
 	securityConfig.Users[userId] = user
 	if err := configs.SaveSecurity(securityConfig); err != nil {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 500, "failed to save security config")
 		return
 	}
+	securityConfig.Unlock()
 
 	if parameters.Name != nil || parameters.Description != nil {
 		profile, err := self.api.loadProfile(userId)
@@ -1688,17 +1733,21 @@ func (self *webSocketConnection) handleUsersSetRole(frame requestFrame) {
 	}
 
 	securityConfig := self.api.gateway.SecurityConfig()
+	securityConfig.Lock()
 	user, exists := securityConfig.Users[userId]
 	if !exists {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 404, "user not found")
 		return
 	}
 	user.Admin = parameters.Admin
 	securityConfig.Users[userId] = user
 	if err := configs.SaveSecurity(securityConfig); err != nil {
+		securityConfig.Unlock()
 		self.sendError(frame.ID, 500, "failed to save security config")
 		return
 	}
+	securityConfig.Unlock()
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"ok":     true,

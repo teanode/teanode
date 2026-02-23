@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/atomicfile"
@@ -578,18 +579,25 @@ func IsAllowed(name string, allowed []string) bool {
 // --- Directory Functions ---
 
 var overrideDirectory string
+var overrideDirectoryMutex sync.RWMutex
 
 // SetDirectory overrides the data directory. Must be called before any other
 // config functions (EnsureDirs, Load, etc.).
 func SetDirectory(directory string) {
+	overrideDirectoryMutex.Lock()
+	defer overrideDirectoryMutex.Unlock()
 	overrideDirectory = directory
 }
 
 // Directory returns the teanode data directory (default ~/.teanode).
 func Directory() (string, error) {
-	if overrideDirectory != "" {
-		return overrideDirectory, nil
+	overrideDirectoryMutex.RLock()
+	currentOverrideDirectory := overrideDirectory
+	if currentOverrideDirectory != "" {
+		overrideDirectoryMutex.RUnlock()
+		return currentOverrideDirectory, nil
 	}
+	overrideDirectoryMutex.RUnlock()
 	if value := os.Getenv("TEANODE_DIR"); value != "" {
 		return value, nil
 	}
