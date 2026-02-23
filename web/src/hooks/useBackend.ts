@@ -863,6 +863,11 @@ export function useBackend() {
       setCurrentAgentId(initialAgentId);
       currentAgentIdRef.current = initialAgentId;
     }
+    const defaultConversationId = result.defaultConversationId;
+    if (!conversationIdRef.current && defaultConversationId) {
+      setConversationId(defaultConversationId);
+      conversationIdRef.current = defaultConversationId;
+    }
     // Fetch available models
     sendRpcRef
       .current<ModelsListResult>("models.list", {})
@@ -881,8 +886,9 @@ export function useBackend() {
       })
       .catch((error: unknown) => console.error("conversations.list:", error));
 
-    // Reload current conversation's history on (re)connect
-    const key = conversationIdRef.current;
+    // Reload current conversation's history on (re)connect.
+    // If nothing is selected yet, use the server's default conversation.
+    const key = conversationIdRef.current || defaultConversationId;
     if (key) {
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
