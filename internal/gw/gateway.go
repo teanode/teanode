@@ -276,6 +276,9 @@ func (self *gateway) updateRunnerContextWindows(models map[string][]providers.Mo
 // --- Default agent / conversation ---
 
 func (self *gateway) DefaultAgentID() string { return self.agentRegistry.DefaultID() }
+func (self *gateway) DefaultAgentIDForUser(userId string) string {
+	return self.agentRegistry.DefaultIDForUser(userId)
+}
 func (self *gateway) DefaultConversationID(userId, agentId string) string {
 	return self.agentRegistry.DefaultConversationID(userId, agentId)
 }
@@ -285,6 +288,20 @@ func (self *gateway) SetDefaultAgent(agentId string) error {
 	if err == nil {
 		self.Broadcast(EventTypeDefaultAgent, map[string]interface{}{
 			"defaultAgentId": agentId,
+		})
+	}
+	return err
+}
+
+func (self *gateway) SetDefaultAgentForUser(userId, agentId string) error {
+	if userId == "" {
+		return fmt.Errorf("userId is required")
+	}
+	err := self.agentRegistry.SetDefaultAgentForUser(userId, agentId)
+	if err == nil {
+		self.Broadcast(EventTypeDefaultAgent, map[string]interface{}{
+			"defaultAgentId": agentId,
+			"userId":         userId,
 		})
 	}
 	return err

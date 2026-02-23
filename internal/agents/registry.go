@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/teanode/teanode/internal/configs"
@@ -57,9 +58,6 @@ func (self *AgentRegistry) ensureUserStateLocked(userId string) *userRuntimeStat
 	if state.DefaultConversationIds == nil {
 		state.DefaultConversationIds = map[string]string{}
 	}
-	if state.DefaultAgentId == "" {
-		state.DefaultAgentId = self.defaultAgentId
-	}
 	return state
 }
 
@@ -104,6 +102,22 @@ func (self *AgentRegistry) DefaultID() string {
 	return self.defaultAgentId
 }
 
+func (self *AgentRegistry) DefaultIDForUser(userId string) string {
+	if userId == "" {
+		return ""
+	}
+	self.mutex.RLock()
+	defer self.mutex.RUnlock()
+	if state, ok := self.userStates[userId]; ok {
+		if state.DefaultAgentId != "" {
+			if _, exists := self.runners[state.DefaultAgentId]; exists {
+				return state.DefaultAgentId
+			}
+		}
+	}
+	return ""
+}
+
 func (self *AgentRegistry) Default() *Runner {
 	return self.Get(self.DefaultID())
 }
@@ -128,9 +142,20 @@ func (self *AgentRegistry) Reconfigure(agentId string, configuration *configs.Co
 
 func (self *AgentRegistry) ForEach(fn func(agentId string, runner *Runner)) {
 	self.mutex.RLock()
-	defer self.mutex.RUnlock()
+	entries := make([]struct {
+		agentId string
+		runner  *Runner
+	}, 0, len(self.runners))
 	for agentId, runner := range self.runners {
-		fn(agentId, runner)
+		entries = append(entries, struct {
+			agentId string
+			runner  *Runner
+		}{agentId: agentId, runner: runner})
+	}
+	self.mutex.RUnlock()
+
+	for _, entry := range entries {
+		fn(entry.agentId, entry.runner)
 	}
 }
 
@@ -211,7 +236,25 @@ func (self *AgentRegistry) SetDefaultAgent(agentId string) error {
 	return nil
 }
 
+func (self *AgentRegistry) SetDefaultAgentForUser(userId, agentId string) error {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	if _, ok := self.runners[agentId]; !ok {
+		return fmt.Errorf("agent not found: %s", agentId)
+	}
+	state := self.ensureUserStateLocked(userId)
+	if state == nil {
+		return fmt.Errorf("userId is required")
+	}
+	state.DefaultAgentId = agentId
+	self.saveState()
+	return nil
+}
+
 func (self *AgentRegistry) DefaultConversationID(userId, agentId string) string {
+	if strings.TrimSpace(agentId) == "" {
+		return ""
+	}
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	state := self.ensureUserStateLocked(userId)

@@ -140,6 +140,9 @@ type anthropicSystemBlock struct {
 
 // ChatCompletion sends a non-streaming chat completion request.
 func (self *AnthropicClient) ChatCompletion(ctx context.Context, request ChatRequest) (*ChatResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultNonStreamingRequestTimeout)
+	defer cancel()
+
 	anthropicRequest := self.translateRequest(request, false)
 	body, _ := json.Marshal(anthropicRequest)
 
@@ -218,6 +221,9 @@ func (self *AnthropicClient) ChatCompletionStream(ctx context.Context, request C
 // ListModels fetches available models from Anthropic's /v1/models endpoint.
 // On failure, returns a hardcoded list of known Claude models.
 func (self *AnthropicClient) ListModels(ctx context.Context) ([]ModelInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultModelsRequestTimeout)
+	defer cancel()
+
 	httpRequest, err := http.NewRequestWithContext(ctx, "GET", self.baseUrl+"/models", nil)
 	if err != nil {
 		return self.fallbackModels(), nil

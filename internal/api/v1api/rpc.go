@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -24,10 +25,51 @@ import (
 	"github.com/teanode/teanode/internal/version"
 )
 
+func (self *webSocketConnection) ensureDefaultAgentID() (string, error) {
+	agentID := strings.TrimSpace(self.api.gateway.DefaultAgentIDForUser(self.userId))
+	if agentID != "" {
+		return agentID, nil
+	}
+
+	agentConfigs := self.api.gateway.Config().ResolveAgents()
+	if len(agentConfigs) == 0 {
+		return "", fmt.Errorf("no agents configured")
+	}
+
+	candidates := make([]string, 0, len(agentConfigs)+1)
+	resolvedDefault := strings.TrimSpace(self.api.gateway.Config().ResolveDefaultAgent())
+	if resolvedDefault != "" {
+		candidates = append(candidates, resolvedDefault)
+	}
+	for _, agentConfig := range agentConfigs {
+		candidates = append(candidates, strings.TrimSpace(agentConfig.ID))
+	}
+
+	seen := map[string]struct{}{}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, duplicate := seen[candidate]; duplicate {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		if err := self.api.gateway.SetDefaultAgentForUser(self.userId, candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("no available default agent for user %s", self.userId)
+}
+
 // handleConnect: handshake, return capabilities.
 func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	agentConfigs := self.api.gateway.Config().ResolveAgents()
-	defaultAgentId := self.api.gateway.DefaultAgentID()
+	defaultAgentId, err := self.ensureDefaultAgentID()
+	if err != nil {
+		self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
+		return
+	}
 	agentInfos := make([]map[string]interface{}, 0, len(agentConfigs))
 	for _, agentConfig := range agentConfigs {
 		info := map[string]interface{}{
@@ -74,6 +116,11 @@ func (self *webSocketConnection) handleHealth(frame requestFrame) {
 // handleAgentsList: return list of configured agents.
 func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 	agentConfigs := self.api.gateway.Config().ResolveAgents()
+	defaultAgentId, err := self.ensureDefaultAgentID()
+	if err != nil {
+		self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
+		return
+	}
 	agentInfos := make([]map[string]interface{}, 0, len(agentConfigs))
 	for _, agentConfig := range agentConfigs {
 		info := map[string]interface{}{
@@ -90,7 +137,7 @@ func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"agents":         agentInfos,
-		"defaultAgentId": self.api.gateway.DefaultAgentID(),
+		"defaultAgentId": defaultAgentId,
 	})
 }
 
@@ -110,7 +157,7 @@ func (self *webSocketConnection) handleAgentsSetDefault(frame requestFrame) {
 		self.sendError(frame.ID, 400, "agentId is required")
 		return
 	}
-	if err := self.api.gateway.SetDefaultAgent(parameters.AgentID); err != nil {
+	if err := self.api.gateway.SetDefaultAgentForUser(self.userId, parameters.AgentID); err != nil {
 		self.sendError(frame.ID, 404, err.Error())
 		return
 	}
@@ -139,7 +186,12 @@ func (self *webSocketConnection) handleConversationsSetDefault(frame requestFram
 	}
 	agentId := parameters.AgentID
 	if agentId == "" {
-		agentId = self.api.gateway.DefaultAgentID()
+		resolvedDefaultAgentId, err := self.ensureDefaultAgentID()
+		if err != nil {
+			self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
+			return
+		}
+		agentId = resolvedDefaultAgentId
 	}
 	self.api.gateway.SetDefaultConversation(self.userId, agentId, parameters.ConversationID)
 	self.sendResponse(frame.ID, map[string]interface{}{
@@ -170,6 +222,15 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 	if parameters.Message == "" {
 		self.sendError(frame.ID, 400, "message is required")
 		return
+	}
+
+	if parameters.AgentID == "" {
+		resolvedDefaultAgentId, err := self.ensureDefaultAgentID()
+		if err != nil {
+			self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
+			return
+		}
+		parameters.AgentID = resolvedDefaultAgentId
 	}
 
 	runner := self.api.gateway.ResolveRunner(parameters.AgentID)
@@ -216,6 +277,15 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 	if parameters.ConversationID == "" {
 		self.sendError(frame.ID, 400, "conversationId is required")
 		return
+	}
+
+	if parameters.AgentID == "" {
+		resolvedDefaultAgentId, err := self.ensureDefaultAgentID()
+		if err != nil {
+			self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
+			return
+		}
+		parameters.AgentID = resolvedDefaultAgentId
 	}
 
 	runner := self.api.gateway.ResolveRunner(parameters.AgentID)
@@ -302,7 +372,12 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 	// Resolve the agent ID for default-conversation check.
 	resolvedAgentId := parameters.AgentID
 	if resolvedAgentId == "" {
-		resolvedAgentId = self.api.gateway.DefaultAgentID()
+		defaultAgentId, err := self.ensureDefaultAgentID()
+		if err != nil {
+			self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
+			return
+		}
+		resolvedAgentId = defaultAgentId
 	}
 	defaultConversationId := self.api.gateway.DefaultConversationID(self.userId, resolvedAgentId)
 	if parameters.ConversationID == defaultConversationId {
@@ -310,7 +385,7 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 		return
 	}
 
-	if err := self.api.gateway.DeleteConversation(self.userId, parameters.AgentID, parameters.ConversationID); err != nil {
+	if err := self.api.gateway.DeleteConversation(self.userId, resolvedAgentId, parameters.ConversationID); err != nil {
 		self.sendError(frame.ID, 500, "deleting conversation: "+err.Error())
 		return
 	}

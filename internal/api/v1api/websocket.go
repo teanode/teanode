@@ -37,7 +37,26 @@ func newWebSocketConnection(connection *websocket.Conn, api *v1Api, sessionId, u
 
 // OnEvent implements gw.Subscriber. It forwards gateway events to this WebSocket client.
 func (self *webSocketConnection) OnEvent(eventType gw.EventType, payload interface{}) {
+	if !self.shouldDeliverEvent(payload) {
+		return
+	}
 	self.sendEvent(eventType, payload)
+}
+
+func (self *webSocketConnection) shouldDeliverEvent(payload interface{}) bool {
+	message, ok := payload.(map[string]interface{})
+	if !ok {
+		return true
+	}
+	rawUserID, hasUserID := message["userId"]
+	if !hasUserID {
+		return true
+	}
+	eventUserID, ok := rawUserID.(string)
+	if !ok || eventUserID == "" {
+		return true
+	}
+	return eventUserID == self.userId
 }
 
 func (self *webSocketConnection) serve() {

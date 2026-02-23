@@ -112,7 +112,9 @@ type Gateway interface {
 
 	// Default agent / conversation
 	DefaultAgentID() string
+	DefaultAgentIDForUser(userId string) string
 	SetDefaultAgent(agentId string) error
+	SetDefaultAgentForUser(userId, agentId string) error
 	DefaultConversationID(userId, agentId string) string
 	SetDefaultConversation(userId, agentId, conversationId string)
 	SetDefaultConversationIfUnset(userId, agentId, conversationId string) bool
