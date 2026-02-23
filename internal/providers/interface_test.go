@@ -18,6 +18,13 @@ func TestNewProvider_OpenAI(t *testing.T) {
 	}
 }
 
+func TestNewProvider_Deepgram(t *testing.T) {
+	provider := NewProvider("deepgram", "https://api.deepgram.com", "test-key")
+	if _, ok := provider.(*DeepgramClient); !ok {
+		t.Errorf("expected *DeepgramClient, got %T", provider)
+	}
+}
+
 func TestNewProvider_UnknownFallsBackToOpenAI(t *testing.T) {
 	provider := NewProvider("ollama", "http://localhost:11434/v1", "")
 	if _, ok := provider.(*Client); !ok {

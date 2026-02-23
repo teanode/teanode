@@ -941,6 +941,14 @@ func (self *voiceProviderRegistryAdapter) FindTranscriber() (voice.VoiceTranscri
 	return &voiceTranscriberAdapter{transcriber: transcriber}, provider, true
 }
 
+func (self *voiceProviderRegistryAdapter) FindStreamingTranscriber() (voice.VoiceStreamingTranscriber, string, bool) {
+	transcriber, provider, ok := self.registry.FindStreamingTranscriber()
+	if !ok {
+		return nil, "", false
+	}
+	return &voiceStreamingTranscriberAdapter{transcriber: transcriber}, provider, true
+}
+
 func (self *voiceProviderRegistryAdapter) FindSynthesizer() (voice.VoiceSynthesizer, string, bool) {
 	if self.config != nil {
 		name := strings.TrimSpace(self.config.Voice.SynthProvider)
@@ -979,6 +987,10 @@ type voiceSynthesizerAdapter struct {
 	synthesizer providers.AudioSynthesizer
 }
 
+type voiceStreamingTranscriberAdapter struct {
+	transcriber providers.StreamingTranscriber
+}
+
 func (self *voiceSynthesizerAdapter) SynthesizePCM(ctx context.Context, text, voiceName string, _ int) ([]byte, error) {
 	result, err := self.synthesizer.Synthesize(ctx, providers.SynthesizeRequest{
 		Text:   text,
@@ -996,6 +1008,46 @@ func (self *voiceSynthesizerAdapter) SynthesizePCM(ctx context.Context, text, vo
 		return nil, err
 	}
 	return wavToPCM16LE(wavData)
+}
+
+func (self *voiceStreamingTranscriberAdapter) OpenTranscribeStream(ctx context.Context, request voice.VoiceStreamTranscribeRequest) (voice.VoiceTranscribeStream, error) {
+	stream, err := self.transcriber.OpenTranscribeStream(ctx, providers.StreamTranscribeRequest{
+		SampleRate: request.SampleRate,
+		Channels:   request.Channels,
+		Language:   request.Language,
+		Prompt:     request.Prompt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &voiceTranscribeStreamAdapter{stream: stream}, nil
+}
+
+type voiceTranscribeStreamAdapter struct {
+	stream providers.TranscribeStream
+}
+
+func (self *voiceTranscribeStreamAdapter) SendAudio(pcm []byte) error {
+	return self.stream.SendAudio(pcm)
+}
+
+func (self *voiceTranscribeStreamAdapter) Events() <-chan voice.VoiceTranscribeEvent {
+	out := make(chan voice.VoiceTranscribeEvent, 32)
+	go func() {
+		defer close(out)
+		for event := range self.stream.Events() {
+			out <- voice.VoiceTranscribeEvent{
+				Type: event.Type,
+				Text: event.Text,
+				Err:  event.Err,
+			}
+		}
+	}()
+	return out
+}
+
+func (self *voiceTranscribeStreamAdapter) Close() error {
+	return self.stream.Close()
 }
 
 func wavToPCM16LE(wavData []byte) ([]byte, error) {

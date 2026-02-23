@@ -88,6 +88,13 @@ func (self *Session) audioInputLoop() {
 				if !started {
 					speechBuf = append(speechBuf, frame...)
 				}
+				if stream := self.getStreamingTranscribeStream(); stream != nil {
+					if err := stream.SendAudio(frame); err != nil {
+						pipelineLog.Warningf("voice streaming stt send failed, falling back to batch: %v", err)
+						_ = stream.Close()
+						self.setStreamingTranscribeStream(nil)
+					}
+				}
 			}
 
 			if ended {
@@ -126,10 +133,52 @@ func (self *Session) audioInputLoop() {
 					pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
 					continue
 				}
+				if self.getStreamingTranscribeStream() != nil {
+					self.FinishTurnTranscription(turnId)
+					continue
+				}
 				go func(tid string, audio []byte) {
 					defer self.FinishTurnTranscription(tid)
 					self.transcribeAndSend(tid, audio)
 				}(turnId, captured)
+			}
+		}
+	}
+}
+
+func (self *Session) streamingTranscribeLoop() {
+	stream := self.getStreamingTranscribeStream()
+	if stream == nil {
+		return
+	}
+	for {
+		select {
+		case <-self.doneCh:
+			return
+		case event, ok := <-stream.Events():
+			if !ok {
+				self.setStreamingTranscribeStream(nil)
+				return
+			}
+			if event.Err != nil {
+				pipelineLog.Warningf("voice streaming stt failed, falling back to batch: %v", event.Err)
+				_ = stream.Close()
+				self.setStreamingTranscribeStream(nil)
+				return
+			}
+			switch event.Type {
+			case "interim":
+				self.setInterimText(event.Text)
+			case "final":
+				turnId := self.GetCurrentTurnId()
+				if turnId == "" {
+					continue
+				}
+				if !self.TryStartTurnTranscription(turnId) {
+					continue
+				}
+				self.transcribeTextAndSend(turnId, event.Text)
+				self.FinishTurnTranscription(turnId)
 			}
 		}
 	}
@@ -358,6 +407,11 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 		return
 	}
 	text := strings.TrimSpace(result.Text)
+	self.transcribeTextAndSend(turnId, text)
+}
+
+func (self *Session) transcribeTextAndSend(turnId, rawText string) {
+	text := strings.TrimSpace(rawText)
 	if text == "" {
 		pipelineLog.Infof("voice transcript ignored (empty): session=%s turn=%s", self.ID, turnId)
 		self.sendVoiceEvent("turn.event", turnEventPayload{

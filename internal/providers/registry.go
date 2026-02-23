@@ -7,8 +7,8 @@ import (
 
 // Registry holds named provider clients and resolves qualified model IDs.
 type Registry struct {
-	clients         map[string]Provider
-	defaultProvider string
+	clients          map[string]Provider
+	defaultProvider  string
 	transcriberOrder []string
 	synthesizerOrder []string
 }
@@ -16,8 +16,8 @@ type Registry struct {
 // NewRegistry creates a provider registry with the given default provider name.
 func NewRegistry(defaultProvider string) *Registry {
 	return &Registry{
-		clients:         make(map[string]Provider),
-		defaultProvider: defaultProvider,
+		clients:          make(map[string]Provider),
+		defaultProvider:  defaultProvider,
 		transcriberOrder: make([]string, 0),
 		synthesizerOrder: make([]string, 0),
 	}
@@ -29,6 +29,8 @@ func (r *Registry) Register(name string, client Provider) {
 	r.clients[name] = client
 	if !existed {
 		if _, ok := client.(AudioTranscriber); ok {
+			r.transcriberOrder = append(r.transcriberOrder, name)
+		} else if _, ok := client.(StreamingTranscriber); ok {
 			r.transcriberOrder = append(r.transcriberOrder, name)
 		}
 		if _, ok := client.(AudioSynthesizer); ok {
@@ -85,6 +87,20 @@ func (r *Registry) FindTranscriber() (AudioTranscriber, string, bool) {
 			continue
 		}
 		if transcriber, ok := client.(AudioTranscriber); ok {
+			return transcriber, name, true
+		}
+	}
+	return nil, "", false
+}
+
+// FindStreamingTranscriber returns the first registered provider that implements StreamingTranscriber.
+func (r *Registry) FindStreamingTranscriber() (StreamingTranscriber, string, bool) {
+	for _, name := range r.transcriberOrder {
+		client, exists := r.clients[name]
+		if !exists {
+			continue
+		}
+		if transcriber, ok := client.(StreamingTranscriber); ok {
 			return transcriber, name, true
 		}
 	}

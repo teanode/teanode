@@ -17,6 +17,11 @@ type AudioTranscriber interface {
 	Transcribe(ctx context.Context, req TranscribeRequest) (*TranscribeResponse, error)
 }
 
+// StreamingTranscriber is an optional capability interface for real-time STT.
+type StreamingTranscriber interface {
+	OpenTranscribeStream(ctx context.Context, req StreamTranscribeRequest) (TranscribeStream, error)
+}
+
 // AudioSynthesizer is an optional capability interface for text-to-speech.
 type AudioSynthesizer interface {
 	Synthesize(ctx context.Context, req SynthesizeRequest) (*SynthesizeResponse, error)
@@ -33,6 +38,28 @@ type TranscribeRequest struct {
 // TranscribeResponse is the output of speech-to-text.
 type TranscribeResponse struct {
 	Text string
+}
+
+// StreamTranscribeRequest configures a streaming STT session.
+type StreamTranscribeRequest struct {
+	SampleRate int
+	Channels   int
+	Language   string
+	Prompt     string
+}
+
+// TranscribeStreamEvent carries interim/final transcript deltas from a stream.
+type TranscribeStreamEvent struct {
+	Type string // "interim" | "final"
+	Text string
+	Err  error
+}
+
+// TranscribeStream is a duplex audio stream with transcript events.
+type TranscribeStream interface {
+	SendAudio(pcm []byte) error
+	Events() <-chan TranscribeStreamEvent
+	Close() error
 }
 
 // SynthesizeRequest is the input for text-to-speech.
@@ -57,6 +84,8 @@ func NewProvider(providerType, baseUrl, apiKey string) Provider {
 	switch providerType {
 	case "anthropic":
 		return NewAnthropicClient(baseUrl, apiKey)
+	case "deepgram":
+		return NewDeepgramClient(baseUrl, apiKey)
 	default:
 		return NewClient(baseUrl, apiKey)
 	}

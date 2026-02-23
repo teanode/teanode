@@ -18,7 +18,8 @@ func (self *pipelineMockTranscriber) Transcribe(_ context.Context, _ VoiceTransc
 }
 
 type pipelineMockProviderRegistry struct {
-	transcriber VoiceTranscriber
+	transcriber          VoiceTranscriber
+	streamingTranscriber VoiceStreamingTranscriber
 }
 
 func (self *pipelineMockProviderRegistry) FindTranscriber() (VoiceTranscriber, string, bool) {
@@ -28,8 +29,40 @@ func (self *pipelineMockProviderRegistry) FindTranscriber() (VoiceTranscriber, s
 	return self.transcriber, "mock", true
 }
 
+func (self *pipelineMockProviderRegistry) FindStreamingTranscriber() (VoiceStreamingTranscriber, string, bool) {
+	if self.streamingTranscriber == nil {
+		return nil, "", false
+	}
+	return self.streamingTranscriber, "mock-stream", true
+}
+
 func (self *pipelineMockProviderRegistry) FindSynthesizer() (VoiceSynthesizer, string, bool) {
 	return nil, "", false
+}
+
+type pipelineMockStreamingTranscriber struct {
+	stream VoiceTranscribeStream
+}
+
+func (self *pipelineMockStreamingTranscriber) OpenTranscribeStream(context.Context, VoiceStreamTranscribeRequest) (VoiceTranscribeStream, error) {
+	return self.stream, nil
+}
+
+type pipelineMockTranscribeStream struct {
+	events chan VoiceTranscribeEvent
+}
+
+func newPipelineMockTranscribeStream() *pipelineMockTranscribeStream {
+	return &pipelineMockTranscribeStream{events: make(chan VoiceTranscribeEvent, 8)}
+}
+
+func (self *pipelineMockTranscribeStream) SendAudio([]byte) error { return nil }
+func (self *pipelineMockTranscribeStream) Events() <-chan VoiceTranscribeEvent {
+	return self.events
+}
+func (self *pipelineMockTranscribeStream) Close() error {
+	close(self.events)
+	return nil
 }
 
 type pipelineMockDeps struct {
@@ -525,5 +558,61 @@ func TestSileroVAD_FallbackOnInitError(t *testing.T) {
 	case <-finished:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("audioInputLoop did not stop after done")
+	}
+}
+
+func TestStreamingTranscribeLoop_FallbackOnError(t *testing.T) {
+	stream := newPipelineMockTranscribeStream()
+	s, deps, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	if !s.startStreamingTranscriber() {
+		t.Fatal("expected streaming transcriber to start")
+	}
+
+	streamingDone := make(chan struct{})
+	go func() {
+		s.streamingTranscribeLoop()
+		close(streamingDone)
+	}()
+
+	audioDone := make(chan struct{})
+	go func() {
+		s.audioInputLoop()
+		close(audioDone)
+	}()
+
+	loud := makePCMFrame(12000, 320)
+	silence := makePCMFrame(0, 320)
+	for i := 0; i < 12; i++ {
+		s.audioInCh <- loud
+	}
+	stream.events <- VoiceTranscribeEvent{Err: context.DeadlineExceeded}
+	for i := 0; i < 40; i++ {
+		s.audioInCh <- silence
+	}
+
+	waitFor(t, 2*time.Second, func() bool { return deps.sendCount() == 1 })
+	if deps.lastSend().Message != "fallback transcript" {
+		t.Fatalf("unexpected fallback transcript: %q", deps.lastSend().Message)
+	}
+
+	close(s.doneCh)
+	select {
+	case <-audioDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("audioInputLoop did not stop after done")
+	}
+	select {
+	case <-streamingDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("streamingTranscribeLoop did not stop after done")
 	}
 }

@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -73,6 +74,8 @@ type Session struct {
 	maxPendingTurns    int
 	explicitAudioBuf   []byte
 	speechReady        bool
+	streamingSTTStream VoiceTranscribeStream
+	interimText        string
 	observers          []TurnObserver
 
 	outSeq atomic.Uint64
@@ -124,7 +127,12 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 // Start begins session background loops.
 func (self *Session) Start() {
 	pipelineLog.Infof("voice session start: session=%s conv=%s agent=%s", self.ID, self.ConversationID, self.AgentID)
+	streamingEnabled := self.startStreamingTranscriber()
 	self.wg.Add(4)
+	if streamingEnabled {
+		self.wg.Add(1)
+		go func() { defer self.wg.Done(); self.streamingTranscribeLoop() }()
+	}
 	go func() { defer self.wg.Done(); self.audioInputLoop() }()
 	go func() { defer self.wg.Done(); self.llmEventForwarder() }()
 	go func() { defer self.wg.Done(); self.ttsSynthLoop() }()
@@ -140,6 +148,9 @@ func (self *Session) Close() {
 		}
 		if prev := self.SwapTTSCancel(nil); prev != nil {
 			prev()
+		}
+		if stream := self.getStreamingTranscribeStream(); stream != nil {
+			_ = stream.Close()
 		}
 		close(self.doneCh)
 		self.wg.Wait()
@@ -497,6 +508,48 @@ func (self *Session) takeExplicitAudio() []byte {
 	captured := append([]byte(nil), self.explicitAudioBuf...)
 	self.explicitAudioBuf = self.explicitAudioBuf[:0]
 	return captured
+}
+
+func (self *Session) startStreamingTranscriber() bool {
+	if self.deps == nil || self.deps.ProviderRegistry() == nil {
+		return false
+	}
+	streaming, provider, ok := self.deps.ProviderRegistry().FindStreamingTranscriber()
+	if !ok || streaming == nil {
+		return false
+	}
+	stream, err := streaming.OpenTranscribeStream(context.Background(), VoiceStreamTranscribeRequest{
+		SampleRate: self.AudioIn.SampleRateHz,
+		Channels:   self.AudioIn.Channels,
+		Prompt:     self.transcriptionPrompt(),
+	})
+	if err != nil {
+		pipelineLog.Warningf("voice streaming stt open failed, falling back to batch: provider=%s err=%v", provider, err)
+		return false
+	}
+	self.stateMu.Lock()
+	self.streamingSTTStream = stream
+	self.stateMu.Unlock()
+	pipelineLog.Infof("voice streaming stt enabled: session=%s provider=%s", self.ID, provider)
+	return true
+}
+
+func (self *Session) getStreamingTranscribeStream() VoiceTranscribeStream {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.streamingSTTStream
+}
+
+func (self *Session) setStreamingTranscribeStream(stream VoiceTranscribeStream) {
+	self.stateMu.Lock()
+	self.streamingSTTStream = stream
+	self.stateMu.Unlock()
+}
+
+func (self *Session) setInterimText(text string) {
+	self.stateMu.Lock()
+	self.interimText = text
+	self.stateMu.Unlock()
 }
 
 func (self *Session) notifyObservers(fn func(observer TurnObserver)) {

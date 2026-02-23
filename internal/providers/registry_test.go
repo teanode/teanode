@@ -33,6 +33,14 @@ func (self *mockTranscriberProvider) Transcribe(ctx context.Context, request Tra
 	return &TranscribeResponse{Text: "ok"}, nil
 }
 
+type mockStreamingTranscriberProvider struct {
+	mockProvider
+}
+
+func (self *mockStreamingTranscriberProvider) OpenTranscribeStream(ctx context.Context, req StreamTranscribeRequest) (TranscribeStream, error) {
+	return nil, nil
+}
+
 type mockSynthProvider struct {
 	mockProvider
 }
@@ -213,6 +221,26 @@ func TestFindTranscriber_Deterministic(t *testing.T) {
 			firstName = name
 		} else if name != firstName {
 			t.Fatalf("FindTranscriber changed selection from %q to %q at iteration %d", firstName, name, i)
+		}
+	}
+}
+
+func TestFindStreamingTranscriber_Deterministic(t *testing.T) {
+	registry := NewRegistry("openai")
+	registry.Register("openai", &mockProvider{name: "openai"})
+	registry.Register("stream-a", &mockStreamingTranscriberProvider{mockProvider{name: "stream-a"}})
+	registry.Register("stream-b", &mockStreamingTranscriberProvider{mockProvider{name: "stream-b"}})
+
+	var firstName string
+	for i := 0; i < 100; i++ {
+		transcriber, name, ok := registry.FindStreamingTranscriber()
+		if !ok || transcriber == nil {
+			t.Fatalf("FindStreamingTranscriber returned no transcriber at iteration %d", i)
+		}
+		if i == 0 {
+			firstName = name
+		} else if name != firstName {
+			t.Fatalf("FindStreamingTranscriber changed selection from %q to %q at iteration %d", firstName, name, i)
 		}
 	}
 }

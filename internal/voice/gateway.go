@@ -37,6 +37,7 @@ type VoiceSubscriber interface {
 // VoiceProviderRegistry exposes optional voice-capable providers.
 type VoiceProviderRegistry interface {
 	FindTranscriber() (VoiceTranscriber, string, bool)
+	FindStreamingTranscriber() (VoiceStreamingTranscriber, string, bool)
 	FindSynthesizer() (VoiceSynthesizer, string, bool)
 }
 
@@ -58,6 +59,33 @@ type VoiceTranscribeRequest struct {
 // VoiceTranscribeResponse is the normalized STT result.
 type VoiceTranscribeResponse struct {
 	Text string
+}
+
+// VoiceStreamingTranscriber opens a realtime STT stream.
+type VoiceStreamingTranscriber interface {
+	OpenTranscribeStream(ctx context.Context, request VoiceStreamTranscribeRequest) (VoiceTranscribeStream, error)
+}
+
+// VoiceStreamTranscribeRequest configures realtime STT.
+type VoiceStreamTranscribeRequest struct {
+	SampleRate int
+	Channels   int
+	Language   string
+	Prompt     string
+}
+
+// VoiceTranscribeEvent is emitted by realtime STT streams.
+type VoiceTranscribeEvent struct {
+	Type string // "interim" | "final"
+	Text string
+	Err  error
+}
+
+// VoiceTranscribeStream is a duplex voice STT stream.
+type VoiceTranscribeStream interface {
+	SendAudio(pcm []byte) error
+	Events() <-chan VoiceTranscribeEvent
+	Close() error
 }
 
 // VoiceSynthesizer generates speech audio bytes.
