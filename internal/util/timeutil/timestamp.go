@@ -3,7 +3,6 @@ package timeutil
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 const localTimestampLayout = "2006-01-02T15:04:05.000-07:00"
 
 // Timestamp stores a time value serialized as ISO datetime in local timezone.
-// It accepts legacy unix timestamps (seconds or milliseconds) when decoding.
 type Timestamp struct {
 	time.Time
 }
@@ -54,12 +52,7 @@ func (self *Timestamp) UnmarshalJSON(data []byte) error {
 		self.Time = parsed.Time
 		return nil
 	}
-	number, err := strconv.ParseInt(trimmed, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid timestamp: %s", trimmed)
-	}
-	self.Time = fromUnix(number)
-	return nil
+	return fmt.Errorf("invalid timestamp: %s", trimmed)
 }
 
 func (self Timestamp) MarshalYAML() (interface{}, error) {
@@ -74,31 +67,18 @@ func (self *Timestamp) UnmarshalYAML(node *yaml.Node) error {
 		self.Time = time.Time{}
 		return nil
 	}
-	switch node.Tag {
-	case "!!int":
-		number, err := strconv.ParseInt(strings.TrimSpace(node.Value), 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid timestamp integer: %w", err)
-		}
-		self.Time = fromUnix(number)
-		return nil
-	default:
-		parsed, err := Parse(node.Value)
-		if err != nil {
-			return err
-		}
-		self.Time = parsed.Time
-		return nil
+	parsed, err := Parse(node.Value)
+	if err != nil {
+		return err
 	}
+	self.Time = parsed.Time
+	return nil
 }
 
 func Parse(value string) (Timestamp, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return Timestamp{}, nil
-	}
-	if number, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
-		return Timestamp{Time: fromUnix(number)}, nil
 	}
 	layouts := []string{
 		localTimestampLayout,
@@ -112,15 +92,4 @@ func Parse(value string) (Timestamp, error) {
 		}
 	}
 	return Timestamp{}, fmt.Errorf("invalid timestamp: %q", value)
-}
-
-func fromUnix(value int64) time.Time {
-	abs := value
-	if abs < 0 {
-		abs = -abs
-	}
-	if abs >= 1_000_000_000_000 {
-		return time.UnixMilli(value).In(time.Local)
-	}
-	return time.Unix(value, 0).In(time.Local)
 }

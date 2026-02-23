@@ -33,13 +33,13 @@ func main() {
 				Sources: cli.EnvVars("TEANODE_LOG_LEVEL"),
 			},
 		},
-		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
-			if value := cmd.String("dir"); value != "" {
+		Before: func(ctx context.Context, command *cli.Command) (context.Context, error) {
+			if value := command.String("dir"); value != "" {
 				configs.SetDirectory(value)
 			}
 
 			level := logging.INFO
-			if value := cmd.String("log-level"); value != "" {
+			if value := command.String("log-level"); value != "" {
 				parsed, err := logging.LogLevel(strings.ToUpper(value))
 				if err != nil {
 					return ctx, fmt.Errorf("invalid log level %q: %w", value, err)

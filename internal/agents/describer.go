@@ -2,11 +2,11 @@ package agents
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/timeutil"
@@ -144,10 +144,8 @@ func (self *Describer) describeAgent(ctx context.Context, agentId string, runner
 		Messages: []providers.ChatMessage{
 			{Role: "system", Content: systemPrompt},
 			{
-				Role: "user",
-				Content: "Write a plain-text routing description in 1-2 sentences. " +
-					"State your specialty, what tasks should be routed to you, and key tools. " +
-					"Tools: " + toolList,
+				Role:    "user",
+				Content: prompts.DescriberRoutingPromptPrefix + toolList,
 			},
 		},
 	}
@@ -181,8 +179,7 @@ func buildDescriberSystemPrompt(configuration *configs.Config, agentId, workspac
 	agentContent := loadWorkspaceFile(workspaceDirectory, "AGENT.md", maxChars)
 	agentMemory := loadWorkspaceFile(workspaceDirectory, "MEMORY.md", maxChars)
 
-	return fmt.Sprintf(
-		"%s\n\nGenerate a concise self-description for inter-agent task routing.\nUse only plain text.\n\nAGENT.md:\n%s\n\nMEMORY.md:\n%s",
+	return prompts.BuildDescriberSystemPrompt(
 		resolveIdentityLine(configuration, agentId),
 		emptyFallback(agentContent),
 		emptyFallback(agentMemory),

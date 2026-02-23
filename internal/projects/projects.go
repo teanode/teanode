@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/timeutil"
@@ -258,11 +259,9 @@ func initializeProjectFile(workspace string, metadata Metadata, purpose string) 
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	content := "# " + metadata.Name + "\n\n"
-	content += "Project ID: " + metadata.ID + "\n\n"
-	content += "## Description\n\n" + metadata.Description + "\n"
-	if strings.TrimSpace(purpose) != "" {
-		content += "\n## Purpose\n\n" + strings.TrimSpace(purpose) + "\n"
+	content, err := prompts.BuildProjectMarkdown(metadata.Name, metadata.ID, metadata.Description, purpose)
+	if err != nil {
+		return err
 	}
 	return atomicfile.WriteFile(path, []byte(content))
 }

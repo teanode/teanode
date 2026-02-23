@@ -90,8 +90,6 @@ func (self *pipelineMockDeps) AbortRun(runId string) bool {
 
 func (self *pipelineMockDeps) Subscribe(_ VoiceSubscriber)             {}
 func (self *pipelineMockDeps) Unsubscribe(_ VoiceSubscriber)           {}
-func (self *pipelineMockDeps) NewConversation(_, _ string) string      { return "conv" }
-func (self *pipelineMockDeps) DefaultAgentID() string                  { return "agent" }
 func (self *pipelineMockDeps) ProviderRegistry() VoiceProviderRegistry { return self.registry }
 
 func (self *pipelineMockDeps) sendCount() int {
@@ -177,7 +175,7 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 
 func TestTranscribeQueuesWhenRunActive(t *testing.T) {
 	s, deps := newPipelineSession("hello from queued turn")
-	s.SetCurrentRunId("run-active")
+	s.SetCurrentRunID("run-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
 
@@ -191,7 +189,7 @@ func TestTranscribeQueuesWhenRunActive(t *testing.T) {
 
 func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
 	s, deps := newPipelineSession("hello from queued turn")
-	s.SetCurrentRunId("run-active")
+	s.SetCurrentRunID("run-active")
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
 	if !s.HasPendingTurns() {
 		t.Fatal("expected queued turn before drain")
@@ -210,7 +208,7 @@ func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
 	if parameters.SystemPromptSuffix == "" {
 		t.Fatal("expected voice system prompt suffix on committed turn")
 	}
-	if s.GetCurrentRunId() == "" {
+	if s.GetCurrentRunID() == "" {
 		t.Fatal("expected run id set after committing drained turn")
 	}
 }
@@ -231,7 +229,7 @@ func TestCommitVoiceTurnIncludesPromptSuffix(t *testing.T) {
 
 func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 	s, deps := newPipelineSession("unused")
-	s.SetCurrentRunId("run-active")
+	s.SetCurrentRunID("run-active")
 
 	finished := make(chan struct{})
 	go func() {
@@ -245,7 +243,7 @@ func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return deps.abortCount() > 0 && s.GetCurrentRunId() == ""
+		return deps.abortCount() > 0 && s.GetCurrentRunID() == ""
 	})
 
 	close(s.doneCh)
@@ -276,7 +274,7 @@ func TestTranscribeEmptyTextEmitsDroppedReason(t *testing.T) {
 func TestQueueOverflowDropsOldestWithReason(t *testing.T) {
 	s, deps, rec := newPipelineSessionWithEvents("queued transcript text")
 	s.maxPendingTurns = 1
-	s.SetCurrentRunId("run-active")
+	s.SetCurrentRunID("run-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
 	s.transcribeAndSend("turn-2", makePCMFrame(12000, 320))
@@ -296,7 +294,7 @@ func TestQueueOverflowDropsOldestWithReason(t *testing.T) {
 
 func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 	s, deps := newPipelineSession("unused")
-	s.SetCurrentResponseId("response-active")
+	s.SetCurrentResponseID("response-active")
 
 	finished := make(chan struct{})
 	go func() {
@@ -310,7 +308,7 @@ func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return deps.abortCount() == 0 && s.GetCurrentResponseId() == ""
+		return deps.abortCount() == 0 && s.GetCurrentResponseID() == ""
 	})
 
 	close(s.doneCh)

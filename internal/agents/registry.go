@@ -2,19 +2,19 @@ package agents
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"sync"
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
 	"gopkg.in/yaml.v3"
 )
 
 type persistedUserState struct {
-	DefaultAgentId         string            `yaml:"defaultAgentId,omitempty"`
+	DefaultAgentID         string            `yaml:"defaultAgentId,omitempty"`
 	DefaultConversationIds map[string]string `yaml:"defaultConversationIds,omitempty"`
 }
 
@@ -24,17 +24,16 @@ type persistedState struct {
 }
 
 type userRuntimeState struct {
-	DefaultAgentId         string
+	DefaultAgentID         string
 	DefaultConversationIds map[string]string
 }
 
 // AgentRegistry manages multiple named runners (one per agent).
 type AgentRegistry struct {
-	mutex          sync.RWMutex
-	runners        map[string]*Runner // agentId → Runner
-	defaultAgentId string
-	userStates     map[string]*userRuntimeState
-	createAgent    func(agentConfig configs.AgentConfig) error
+	mutex       sync.RWMutex
+	runners     map[string]*Runner // agentId → Runner
+	userStates  map[string]*userRuntimeState
+	createAgent func(agentConfig configs.AgentConfig) error
 }
 
 // NewAgentRegistry creates an empty agent registry.
@@ -47,7 +46,7 @@ func NewAgentRegistry() *AgentRegistry {
 
 func (self *AgentRegistry) ensureUserStateLocked(userId string) *userRuntimeState {
 	if userId == "" {
-		slog.Warn("agent registry requires non-empty userId")
+		log.Warningf("agent registry requires non-empty userId")
 		return nil
 	}
 	state, ok := self.userStates[userId]
@@ -84,42 +83,35 @@ func (self *AgentRegistry) CreateAgent(agentConfig configs.AgentConfig) error {
 	return create(agentConfig)
 }
 
-func (self *AgentRegistry) Get(agentId string) *Runner {
+func (self *AgentRegistry) GetRunner(agentId string) *Runner {
 	self.mutex.RLock()
 	defer self.mutex.RUnlock()
 	return self.runners[agentId]
 }
 
-func (self *AgentRegistry) SetDefault(agentId string) {
+func (self *AgentRegistry) EnsureDefaultAgent(userId string, defaultAgentId string) (string, bool, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	self.defaultAgentId = agentId
-}
 
-func (self *AgentRegistry) DefaultID() string {
-	self.mutex.RLock()
-	defer self.mutex.RUnlock()
-	return self.defaultAgentId
-}
-
-func (self *AgentRegistry) DefaultIDForUser(userId string) string {
-	if userId == "" {
-		return ""
+	state := self.ensureUserStateLocked(userId)
+	if state == nil {
+		return "", false, fmt.Errorf("userId is required")
 	}
-	self.mutex.RLock()
-	defer self.mutex.RUnlock()
-	if state, ok := self.userStates[userId]; ok {
-		if state.DefaultAgentId != "" {
-			if _, exists := self.runners[state.DefaultAgentId]; exists {
-				return state.DefaultAgentId
-			}
+	if state.DefaultAgentID != "" {
+		if _, exists := self.runners[state.DefaultAgentID]; exists {
+			return state.DefaultAgentID, false, nil
 		}
 	}
-	return ""
-}
 
-func (self *AgentRegistry) Default() *Runner {
-	return self.Get(self.DefaultID())
+	if defaultAgentId == "" {
+		return "", false, fmt.Errorf("defaultAgentId is required")
+	}
+	if _, exists := self.runners[defaultAgentId]; !exists {
+		return "", false, fmt.Errorf("agent not found: %s", defaultAgentId)
+	}
+	state.DefaultAgentID = defaultAgentId
+	self.saveState()
+	return defaultAgentId, true, nil
 }
 
 func (self *AgentRegistry) AgentIDs() []string {
@@ -133,7 +125,7 @@ func (self *AgentRegistry) AgentIDs() []string {
 }
 
 func (self *AgentRegistry) Reconfigure(agentId string, configuration *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, skillPrompts string) {
-	runner := self.Get(agentId)
+	runner := self.GetRunner(agentId)
 	if runner == nil {
 		return
 	}
@@ -171,7 +163,7 @@ func (self *AgentRegistry) LoadState() {
 	}
 	var state persistedState
 	if err := yaml.Unmarshal(data, &state); err != nil {
-		slog.Warn("ignoring malformed state file", "path", stateFile, "error", err)
+		log.Warningf("ignoring malformed state file path=%s error=%v", stateFile, err)
 		return
 	}
 	self.mutex.Lock()
@@ -184,9 +176,9 @@ func (self *AgentRegistry) LoadState() {
 		if runtimeState == nil {
 			continue
 		}
-		if userState.DefaultAgentId != "" {
-			if _, ok := self.runners[userState.DefaultAgentId]; ok {
-				runtimeState.DefaultAgentId = userState.DefaultAgentId
+		if userState.DefaultAgentID != "" {
+			if _, ok := self.runners[userState.DefaultAgentID]; ok {
+				runtimeState.DefaultAgentID = userState.DefaultAgentID
 			}
 		}
 		for agentId, conversationId := range userState.DefaultConversationIds {
@@ -211,32 +203,21 @@ func (self *AgentRegistry) saveState() {
 			copyMap[agentId] = conversationId
 		}
 		state.Users[userId] = persistedUserState{
-			DefaultAgentId:         userState.DefaultAgentId,
+			DefaultAgentID:         userState.DefaultAgentID,
 			DefaultConversationIds: copyMap,
 		}
 	}
 	data, err := yaml.Marshal(state)
 	if err != nil {
-		slog.Warn("failed to marshal state", "error", err)
+		log.Warningf("failed to marshal state error=%v", err)
 		return
 	}
-	if err := os.WriteFile(stateFile, data, 0644); err != nil {
-		slog.Warn("failed to write state file", "path", stateFile, "error", err)
+	if err := atomicfile.WriteFile(stateFile, data); err != nil {
+		log.Warningf("failed to write state file path=%s error=%v", stateFile, err)
 	}
 }
 
-func (self *AgentRegistry) SetDefaultAgent(agentId string) error {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	if _, ok := self.runners[agentId]; !ok {
-		return fmt.Errorf("agent not found: %s", agentId)
-	}
-	self.defaultAgentId = agentId
-	self.saveState()
-	return nil
-}
-
-func (self *AgentRegistry) SetDefaultAgentForUser(userId, agentId string) error {
+func (self *AgentRegistry) SetDefaultAgent(userId, agentId string) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	if _, ok := self.runners[agentId]; !ok {
@@ -246,12 +227,12 @@ func (self *AgentRegistry) SetDefaultAgentForUser(userId, agentId string) error 
 	if state == nil {
 		return fmt.Errorf("userId is required")
 	}
-	state.DefaultAgentId = agentId
+	state.DefaultAgentID = agentId
 	self.saveState()
 	return nil
 }
 
-func (self *AgentRegistry) DefaultConversationID(userId, agentId string) string {
+func (self *AgentRegistry) EnsureDefaultConversation(userId, agentId string) string {
 	if strings.TrimSpace(agentId) == "" {
 		return ""
 	}
@@ -296,7 +277,7 @@ func (self *AgentRegistry) SetDefaultConversationIfUnset(userId, agentId, conver
 	return true
 }
 
-func (self *AgentRegistry) NewConversation(userId, agentId string) string {
+func (self *AgentRegistry) NewDefaultConversation(userId, agentId string) string {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	state := self.ensureUserStateLocked(userId)

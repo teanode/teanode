@@ -49,14 +49,14 @@ func NewHeadless(endpoint string) *Headless {
 // page targets, and starts the read loop for ongoing events.
 func (self *Headless) Connect(ctx context.Context) error {
 	// 1. GET /json/version to find the WebSocket debugger URL.
-	versionURL := fmt.Sprintf("http://%s/json/version", self.endpoint)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil)
+	versionUrl := fmt.Sprintf("http://%s/json/version", self.endpoint)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, versionUrl, nil)
 	if err != nil {
 		return fmt.Errorf("headlessbrowser: creating request: %w", err)
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("headlessbrowser: fetching %s: %w", versionURL, err)
+		return fmt.Errorf("headlessbrowser: fetching %s: %w", versionUrl, err)
 	}
 	defer response.Body.Close()
 
@@ -343,7 +343,7 @@ func (self *Headless) DefaultTargetForUser(userId string) (*browsers.ConnectedTa
 		Type:     "page",
 		URL:      "about:blank",
 	})
-	return self.defaultTargetForUserByTargetID(userId, created.TargetID)
+	return self.defaultTargetForUserByTargetId(userId, created.TargetID)
 }
 
 func (self *Headless) TargetByConnectionIDForUser(userId, connectionId string) (*browsers.ConnectedTarget, error) {
@@ -368,7 +368,7 @@ func (self *Headless) AssignTargetToUser(userId, targetId string) {
 	}
 }
 
-func (self *Headless) defaultTargetForUserByTargetID(userId, targetId string) (*browsers.ConnectedTarget, error) {
+func (self *Headless) defaultTargetForUserByTargetId(userId, targetId string) (*browsers.ConnectedTarget, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	for sessionId, target := range self.targets {

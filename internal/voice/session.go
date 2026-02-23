@@ -182,14 +182,14 @@ func (self *Session) HandleInputBinaryFrame(raw []byte) error {
 // InputCommit allows push-to-talk sessions to flush buffered input turn.
 func (self *Session) InputCommit() {
 	self.sendVoiceEvent("turn.event", turnEventPayload{
-		TurnID: self.GetCurrentTurnId(),
+		TurnID: self.GetCurrentTurnID(),
 		Event:  "turn_committed",
 	})
 }
 
 // CancelResponse aborts current response generation and playback.
 func (self *Session) CancelResponse() {
-	pipelineLog.Infof("voice cancel response: session=%s response=%s run=%s", self.ID, self.GetCurrentResponseId(), self.GetCurrentRunId())
+	pipelineLog.Infof("voice cancel response: session=%s response=%s run=%s", self.ID, self.GetCurrentResponseID(), self.GetCurrentRunID())
 	self.triggerBargeIn()
 }
 
@@ -207,54 +207,48 @@ func (self *Session) sendVoiceEvent(eventType string, payload interface{}) {
 	})
 }
 
-func (self *Session) GetCurrentTurnId() string {
+func (self *Session) GetCurrentTurnID() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.currentTurnId
 }
 
-func (self *Session) SetCurrentTurnId(id string) {
+func (self *Session) SetCurrentTurnID(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentTurnId = id
 }
 
-func (self *Session) GetCurrentRunId() string {
+func (self *Session) GetCurrentRunID() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.currentRunId
 }
 
-func (self *Session) SetCurrentRunId(id string) {
+func (self *Session) SetCurrentRunID(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentRunId = id
 }
 
 func (self *Session) ClearCurrentRun() {
-	self.SetCurrentRunId("")
+	self.SetCurrentRunID("")
 }
 
-func (self *Session) GetCurrentResponseId() string {
+func (self *Session) GetCurrentResponseID() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.currentResponseId
 }
 
-func (self *Session) SetCurrentResponseId(id string) {
+func (self *Session) SetCurrentResponseID(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentResponseId = id
 }
 
 func (self *Session) ClearCurrentResponse() {
-	self.SetCurrentResponseId("")
-}
-
-func (self *Session) GetLastCommittedTranscript() string {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
-	return self.lastCommittedText
+	self.SetCurrentResponseID("")
 }
 
 func (self *Session) SetLastCommittedTranscript(text string) {
@@ -400,15 +394,4 @@ func (self *Session) HasPendingTurns() bool {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return len(self.pendingTurns) > 0
-}
-
-func (self *Session) DropOldestPendingTurn(_ string) (PendingTurn, bool) {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
-	if len(self.pendingTurns) == 0 {
-		return PendingTurn{}, false
-	}
-	dropped := self.pendingTurns[0]
-	self.pendingTurns = self.pendingTurns[1:]
-	return dropped, true
 }

@@ -50,7 +50,7 @@ func newTestGateway(t *testing.T) (*gateway, *agents.AgentRegistry, string) {
 	t.Helper()
 	t.Setenv("TEANODE_DIR", t.TempDir())
 
-	agentId := configs.DefaultAgentID
+	agentId := "main"
 	config := &configs.Config{
 		Models: configs.ModelsConfig{
 			Default: "mock:test-model",
@@ -72,7 +72,6 @@ func newTestGateway(t *testing.T) (*gateway, *agents.AgentRegistry, string) {
 
 	agentRegistry := agents.NewAgentRegistry()
 	agentRegistry.Register(agentId, runner)
-	agentRegistry.SetDefault(agentId)
 
 	instance := New(config, nil, agentRegistry, nil, nil, nil, nil, nil, nil)
 	return instance.(*gateway), agentRegistry, agentId
@@ -90,7 +89,7 @@ func TestSendMessageAutoCreateDoesNotOverwriteExistingDefaultConversation(t *tes
 	gateway, agentRegistry, agentId := newTestGateway(t)
 	userId := "user-1"
 
-	existingDefaultConversationId := gateway.NewConversation(userId, agentId, "")
+	existingDefaultConversationId := gateway.NewDefaultConversation(userId, agentId, "")
 
 	handle := gateway.SendMessage(context.Background(), SendMessageParameters{
 		UserContext:    &UserContext{UserID: userId},
@@ -104,7 +103,7 @@ func TestSendMessageAutoCreateDoesNotOverwriteExistingDefaultConversation(t *tes
 	if handle.ConversationID == existingDefaultConversationId {
 		t.Fatalf("auto-created conversation id = existing default %q; want new conversation id", existingDefaultConversationId)
 	}
-	if got := agentRegistry.DefaultConversationID(userId, agentId); got != existingDefaultConversationId {
+	if got := agentRegistry.EnsureDefaultConversation(userId, agentId); got != existingDefaultConversationId {
 		t.Fatalf("default conversation id = %q, want %q", got, existingDefaultConversationId)
 	}
 }
@@ -122,7 +121,7 @@ func TestSendMessageAutoCreateSetsDefaultWhenUnset(t *testing.T) {
 	}, nil)
 	waitRun(t, handle)
 
-	if got := agentRegistry.DefaultConversationID(userId, agentId); got != handle.ConversationID {
+	if got := agentRegistry.EnsureDefaultConversation(userId, agentId); got != handle.ConversationID {
 		t.Fatalf("default conversation id = %q, want %q", got, handle.ConversationID)
 	}
 }
@@ -131,13 +130,13 @@ func TestNewConversationReplacesDefaultConversation(t *testing.T) {
 	gateway, agentRegistry, agentId := newTestGateway(t)
 	userId := "user-1"
 
-	firstConversationId := gateway.NewConversation(userId, agentId, "")
-	secondConversationId := gateway.NewConversation(userId, agentId, "")
+	firstConversationId := gateway.NewDefaultConversation(userId, agentId, "")
+	secondConversationId := gateway.NewDefaultConversation(userId, agentId, "")
 
 	if secondConversationId == firstConversationId {
 		t.Fatalf("second conversation id = first conversation id %q; want different id", firstConversationId)
 	}
-	if got := agentRegistry.DefaultConversationID(userId, agentId); got != secondConversationId {
+	if got := agentRegistry.EnsureDefaultConversation(userId, agentId); got != secondConversationId {
 		t.Fatalf("default conversation id = %q, want %q", got, secondConversationId)
 	}
 }

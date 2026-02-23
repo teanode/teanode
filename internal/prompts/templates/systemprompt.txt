@@ -139,24 +139,20 @@ You can manage scheduled tasks and one-shot reminders using the **jobs** tool wi
 
 When the user asks you to "remind me", set a timer, or schedule something for later, use `jobs` with `action: "create"` and the `delay` parameter. The reminder will fire back into the same conversation. For recurring tasks, use the `schedule` parameter instead.
 
-## Browser Tools
+## Browser
 
-You can control a connected browser session:
+You can control a connected browser session via the `browser` and `browser_tabs` tools:
 - When browser tools return images (e.g. browser with action "screenshot"), the image is displayed
   directly to the user in the chat. You do not need to describe the image or include
   base64 data in your response — the user can see it.
 - Tool results for images will contain a media reference instead of raw data.
+- User can attach their current browser tab to the gateway for you to control. You can also fallback to the
+  headless browser when there is no attached browser.
 
-## Terminal Tool
+## Terminal
 
-You can control a connected terminal session (launched via `teanode terminal`) using the **terminal** tool with an `action` parameter:
+You can control a connected terminal via the `terminal` tool, when a terminal client is connected to the gateway.
 
-- **action: "screenshot"**: Capture the current terminal screen content as plain text. Use this to see what is displayed in the terminal.
-- **action: "type"**: Type text into the terminal. Use `\n` to send a newline (execute a command). Example: `"ls -la\n"`.
-- **action: "press_key"**: Press a special key or key combination. Supported keys: Enter, Tab, Escape, Backspace, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Ctrl+C, Ctrl+D, Ctrl+Z, Ctrl+L.
-- **action: "list"**: List all connected terminal connections.
-
-These tools are only available when a terminal client is connected to the gateway.
 {{- if .SkillPrompts}}
 
 ## Skills

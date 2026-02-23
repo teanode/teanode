@@ -77,7 +77,7 @@ func uploadAvatarRequest(t *testing.T) *http.Request {
 		t.Fatalf("failed to close multipart writer: %v", err)
 	}
 
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/profile/avatar", &body)
+	request := httptest.NewRequest(http.MethodPost, "/internal/test/avatar", &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	return request
 }
@@ -158,7 +158,7 @@ func TestHandleProfileGet_ReadsFromDiskWhenGatewayCacheIsStale(t *testing.T) {
 	}, nil)
 
 	response := httptest.NewRecorder()
-	if err := api.handleProfile(response, httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)); err != nil {
+	if err := api.handleProfile(response, httptest.NewRequest(http.MethodGet, "/internal/test/profile", nil)); err != nil {
 		t.Fatalf("handleProfile GET failed: %v", err)
 	}
 	if response.Code != http.StatusOK {
@@ -191,7 +191,7 @@ func TestProfilePut_PersistsAndLoadsFromNewAPIInstance(t *testing.T) {
 	}, nil)
 
 	putBody := strings.NewReader("{\"name\":\"  Updated Name  \"}")
-	putRequest := httptest.NewRequest(http.MethodPut, "/api/v1/profile", putBody)
+	putRequest := httptest.NewRequest(http.MethodPut, "/internal/test/profile", putBody)
 	response := httptest.NewRecorder()
 	if err := api.handleProfile(response, putRequest); err != nil {
 		t.Fatalf("handleProfile PUT failed: %v", err)
@@ -213,7 +213,7 @@ func TestProfilePut_PersistsAndLoadsFromNewAPIInstance(t *testing.T) {
 		AvatarMediaID: "very_stale_avatar",
 	}, nil)
 	getResponse := httptest.NewRecorder()
-	if err := refreshedApi.handleProfile(getResponse, httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)); err != nil {
+	if err := refreshedApi.handleProfile(getResponse, httptest.NewRequest(http.MethodGet, "/internal/test/profile", nil)); err != nil {
 		t.Fatalf("handleProfile GET failed: %v", err)
 	}
 	if getResponse.Code != http.StatusOK {
@@ -255,7 +255,7 @@ func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 		AvatarMediaID: "",
 	}, mediaStore)
 	getResponse := httptest.NewRecorder()
-	if err := refreshedApi.handleProfile(getResponse, httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)); err != nil {
+	if err := refreshedApi.handleProfile(getResponse, httptest.NewRequest(http.MethodGet, "/internal/test/profile", nil)); err != nil {
 		t.Fatalf("handleProfile GET failed: %v", err)
 	}
 	got := decodeProfileResponse(t, getResponse)
@@ -264,7 +264,7 @@ func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 	}
 
 	deleteResponse := httptest.NewRecorder()
-	if err := refreshedApi.handleProfileAvatar(deleteResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/profile/avatar", nil)); err != nil {
+	if err := refreshedApi.handleProfileAvatar(deleteResponse, httptest.NewRequest(http.MethodDelete, "/internal/test/avatar", nil)); err != nil {
 		t.Fatalf("handleProfileAvatar DELETE failed: %v", err)
 	}
 	removed := decodeProfileResponse(t, deleteResponse)
@@ -277,7 +277,7 @@ func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 		AvatarMediaID: uploaded.AvatarMediaID,
 	}, mediaStore)
 	finalGet := httptest.NewRecorder()
-	if err := afterRemoveApi.handleProfile(finalGet, httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)); err != nil {
+	if err := afterRemoveApi.handleProfile(finalGet, httptest.NewRequest(http.MethodGet, "/internal/test/profile", nil)); err != nil {
 		t.Fatalf("handleProfile GET failed: %v", err)
 	}
 	final := decodeProfileResponse(t, finalGet)

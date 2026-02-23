@@ -452,7 +452,7 @@ func executeShellAction(ctx context.Context, action ActionDefinition, arguments 
 }
 
 func executeHTTPAction(ctx context.Context, action ActionDefinition, arguments map[string]interface{}, httpAuthProfiles map[string]HTTPAuthProfile) (string, error) {
-	targetURL := applyTemplate(action.URL, arguments)
+	targetUrl := applyTemplate(action.URL, arguments)
 	body := applyTemplate(action.Body, arguments)
 	method := action.Method
 	if method == "" {
@@ -465,14 +465,14 @@ func executeHTTPAction(ctx context.Context, action ActionDefinition, arguments m
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	log.Debugf("http %s %s", method, targetURL)
+	log.Debugf("http %s %s", method, targetUrl)
 
 	var bodyReader io.Reader
 	if body != "" {
 		bodyReader = strings.NewReader(body)
 	}
 
-	request, err := http.NewRequestWithContext(runCtx, method, targetURL, bodyReader)
+	request, err := http.NewRequestWithContext(runCtx, method, targetUrl, bodyReader)
 	if err != nil {
 		return "", fmt.Errorf("creating request: %w", err)
 	}

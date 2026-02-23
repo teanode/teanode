@@ -775,14 +775,14 @@ func TestActionsTool_ViewRun(testing *testing.T) {
 	}
 
 	commandArgs := (*calls)[0]
-	foundRunID := false
+	foundRunId := false
 	for _, argument := range commandArgs {
 		if argument == "123" {
-			foundRunID = true
+			foundRunId = true
 			break
 		}
 	}
-	if !foundRunID {
+	if !foundRunId {
 		testing.Errorf("expected run ID in args: %v", commandArgs)
 	}
 }

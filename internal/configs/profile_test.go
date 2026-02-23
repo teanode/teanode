@@ -72,33 +72,6 @@ func TestSaveAndLoadUserProfile_UsesUserYAMLPath(t *testing.T) {
 	}
 }
 
-func TestLoadUserProfile_IgnoresLegacyMarkdownProfile(t *testing.T) {
-	directory := withTempDir(t)
-	legacy := filepath.Join(directory, "users", "user-1.md")
-	if err := os.MkdirAll(filepath.Dir(legacy), 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	content := strings.Join([]string{
-		"---",
-		"name: Legacy Name",
-		"avatarMediaId: legacy_avatar",
-		"---",
-		"",
-		"# Old Bio",
-	}, "\n")
-	if err := os.WriteFile(legacy, []byte(content), 0644); err != nil {
-		t.Fatalf("write legacy profile: %v", err)
-	}
-
-	profile, err := LoadUserProfile("user-1")
-	if err != nil {
-		t.Fatalf("LoadUserProfile failed: %v", err)
-	}
-	if profile.Name != OSUsername() {
-		t.Fatalf("name = %q, want %q", profile.Name, OSUsername())
-	}
-}
-
 func TestSaveUserProfile_Writes0600Permissions(t *testing.T) {
 	directory := withTempDir(t)
 	if err := SaveUserProfile("user-1", &UserProfile{Name: "Alice"}); err != nil {

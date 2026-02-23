@@ -14,12 +14,12 @@ type Provider interface {
 
 // AudioTranscriber is an optional capability interface for speech-to-text.
 type AudioTranscriber interface {
-	Transcribe(ctx context.Context, req TranscribeRequest) (*TranscribeResponse, error)
+	Transcribe(ctx context.Context, request TranscribeRequest) (*TranscribeResponse, error)
 }
 
 // AudioSynthesizer is an optional capability interface for text-to-speech.
 type AudioSynthesizer interface {
-	Synthesize(ctx context.Context, req SynthesizeRequest) (*SynthesizeResponse, error)
+	Synthesize(ctx context.Context, request SynthesizeRequest) (*SynthesizeResponse, error)
 }
 
 // TranscribeRequest is the input for speech-to-text.

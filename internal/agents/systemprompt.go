@@ -2,7 +2,6 @@ package agents
 
 import (
 	"bytes"
-	_ "embed"
 	"fmt"
 	"os"
 	"os/user"
@@ -14,15 +13,11 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	projectstore "github.com/teanode/teanode/internal/projects"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/version"
 )
 
-const defaultIdentityLine = "You are a personal AI assistant running inside TeaNode."
-
-//go:embed systemprompt.txt
-var systemPromptTemplate string
-
-var parsedSystemPrompt = template.Must(template.New("systemprompt").Parse(systemPromptTemplate))
+var parsedSystemPrompt = template.Must(template.New("systemprompt").Parse(prompts.SystemPromptTemplate()))
 
 type systemPromptData struct {
 	IdentityLine            string
@@ -112,7 +107,7 @@ func BuildSystemPrompt(
 	var buffer bytes.Buffer
 	if err := parsedSystemPrompt.Execute(&buffer, data); err != nil {
 		// Fallback: return a minimal prompt if template fails.
-		return defaultIdentityLine
+		return prompts.DefaultIdentityLine
 	}
 	return buffer.String()
 }
@@ -191,7 +186,7 @@ func loadProjectList(limit int) string {
 
 // resolveIdentityLine determines the identity line for the system prompt.
 func resolveIdentityLine(configuration *configs.Config, agentId string) string {
-	return fmt.Sprintf("%s %s", defaultIdentityLine, agentIdentitySuffix(configuration, agentId))
+	return fmt.Sprintf("%s %s", prompts.DefaultIdentityLine, agentIdentitySuffix(configuration, agentId))
 }
 
 // agentIdentitySuffix returns a sentence fragment identifying the agent by name

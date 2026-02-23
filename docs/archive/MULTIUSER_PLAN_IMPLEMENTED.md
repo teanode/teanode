@@ -174,7 +174,7 @@ Implementation approach:
 ### Default conversation semantics
 
 - Move default conversation lookup/set from global-agent to per-user+agent:
-  - `DefaultConversationID(userId, agentId)`
+  - `EnsureDefaultConversation(userId, agentId)`
   - `SetDefaultConversation(userId, agentId, conversationId)`
   - `SetDefaultConversationIfUnset(userId, agentId, conversationId)`
 - Persist to `state.yaml` under `users[userId].defaultConversationIds`.

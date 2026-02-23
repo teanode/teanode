@@ -48,15 +48,15 @@ func (self *webSocketConnection) shouldDeliverEvent(payload interface{}) bool {
 	if !ok {
 		return true
 	}
-	rawUserID, hasUserID := message["userId"]
-	if !hasUserID {
+	rawUserId, hasUserId := message["userId"]
+	if !hasUserId {
 		return true
 	}
-	eventUserID, ok := rawUserID.(string)
-	if !ok || eventUserID == "" {
+	eventUserId, ok := rawUserId.(string)
+	if !ok || eventUserId == "" {
 		return true
 	}
-	return eventUserID == self.userId
+	return eventUserId == self.userId
 }
 
 func (self *webSocketConnection) serve() {

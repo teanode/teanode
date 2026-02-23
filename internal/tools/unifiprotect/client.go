@@ -120,17 +120,17 @@ type Client interface {
 	GetCameras(ctx context.Context) ([]Camera, error)
 
 	// GetSnapshot fetches a JPEG snapshot for a camera by ID.
-	GetSnapshot(ctx context.Context, cameraID string) ([]byte, error)
+	GetSnapshot(ctx context.Context, cameraId string) ([]byte, error)
 
 	// PatchCamera updates camera settings via PATCH (private API only).
-	PatchCamera(ctx context.Context, cameraID string, payload map[string]interface{}) error
+	PatchCamera(ctx context.Context, cameraId string, payload map[string]interface{}) error
 }
 
 // httpClient implements Client using the UniFi Protect API.
 // When apiKey is set, it uses the official integration API v1 with X-API-KEY header.
 // When username/password is set, it uses cookie-based auth with the private API.
 type httpClient struct {
-	baseURL    string
+	baseUrl    string
 	apiKey     string
 	username   string
 	password   string
@@ -156,7 +156,7 @@ func NewHTTPClient(config *configs.UniFiProtectConfig) Client {
 	}
 
 	return &httpClient{
-		baseURL:  strings.TrimRight(config.BaseURL, "/"),
+		baseUrl:  strings.TrimRight(config.BaseURL, "/"),
 		apiKey:   config.APIKey,
 		username: config.Username,
 		password: config.Password,
@@ -190,8 +190,8 @@ func (self *httpClient) login(ctx context.Context) error {
 		return fmt.Errorf("marshaling login payload: %w", err)
 	}
 
-	loginURL := self.baseURL + "/api/auth/login"
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL, bytes.NewReader(loginPayload))
+	loginUrl := self.baseUrl + "/api/auth/login"
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, loginUrl, bytes.NewReader(loginPayload))
 	if err != nil {
 		return fmt.Errorf("creating login request: %w", err)
 	}
@@ -252,7 +252,7 @@ func (self *httpClient) ensureAuthenticated(ctx context.Context) error {
 
 // doRequest executes an HTTP request with the appropriate authentication.
 func (self *httpClient) doRequest(ctx context.Context, method string, path string, body io.Reader, maxBytes int64) ([]byte, int, error) {
-	url := self.baseURL + path
+	url := self.baseUrl + path
 
 	request, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
@@ -363,17 +363,17 @@ func (self *httpClient) getCamerasPrivateAPI(ctx context.Context) ([]Camera, err
 	return cameras, nil
 }
 
-func (self *httpClient) GetSnapshot(ctx context.Context, cameraID string) ([]byte, error) {
+func (self *httpClient) GetSnapshot(ctx context.Context, cameraId string) ([]byte, error) {
 	if self.useIntegrationAPI() {
-		return self.getSnapshotIntegrationAPI(ctx, cameraID)
+		return self.getSnapshotIntegrationAPI(ctx, cameraId)
 	}
-	return self.getSnapshotPrivateAPI(ctx, cameraID)
+	return self.getSnapshotPrivateAPI(ctx, cameraId)
 }
 
 // getSnapshotIntegrationAPI fetches a snapshot via the official integration API v1.
-func (self *httpClient) getSnapshotIntegrationAPI(ctx context.Context, cameraID string) ([]byte, error) {
-	path := fmt.Sprintf("/proxy/protect/integration/v1/cameras/%s/snapshot", cameraID)
-	url := self.baseURL + path
+func (self *httpClient) getSnapshotIntegrationAPI(ctx context.Context, cameraId string) ([]byte, error) {
+	path := fmt.Sprintf("/proxy/protect/integration/v1/cameras/%s/snapshot", cameraId)
+	url := self.baseUrl + path
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -402,13 +402,13 @@ func (self *httpClient) getSnapshotIntegrationAPI(ctx context.Context, cameraID 
 }
 
 // getSnapshotPrivateAPI fetches a snapshot via the private API with cookie auth.
-func (self *httpClient) getSnapshotPrivateAPI(ctx context.Context, cameraID string) ([]byte, error) {
+func (self *httpClient) getSnapshotPrivateAPI(ctx context.Context, cameraId string) ([]byte, error) {
 	if err := self.ensureAuthenticated(ctx); err != nil {
 		return nil, err
 	}
 
-	path := fmt.Sprintf("/proxy/protect/api/cameras/%s/snapshot?force=true", cameraID)
-	url := self.baseURL + path
+	path := fmt.Sprintf("/proxy/protect/api/cameras/%s/snapshot?force=true", cameraId)
+	url := self.baseUrl + path
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -446,7 +446,7 @@ func (self *httpClient) getSnapshotPrivateAPI(ctx context.Context, cameraID stri
 	return data, nil
 }
 
-func (self *httpClient) PatchCamera(ctx context.Context, cameraID string, payload map[string]interface{}) error {
+func (self *httpClient) PatchCamera(ctx context.Context, cameraId string, payload map[string]interface{}) error {
 	if self.useIntegrationAPI() {
 		return fmt.Errorf("camera settings modification requires username/password authentication; the official integration API (apiKey) does not support PATCH operations")
 	}
@@ -456,7 +456,7 @@ func (self *httpClient) PatchCamera(ctx context.Context, cameraID string, payloa
 		return fmt.Errorf("marshaling patch payload: %w", err)
 	}
 
-	path := fmt.Sprintf("/proxy/protect/api/cameras/%s", cameraID)
+	path := fmt.Sprintf("/proxy/protect/api/cameras/%s", cameraId)
 	_, err = self.doAuthenticatedRequest(ctx, http.MethodPatch, path, bytes.NewReader(payloadBytes), maxResponseBytes)
 	return err
 }

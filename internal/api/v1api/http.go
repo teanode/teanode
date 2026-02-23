@@ -16,7 +16,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/providers"
@@ -53,26 +52,26 @@ func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
 	if origin == "" {
 		return true
 	}
-	originURL, err := url.Parse(origin)
-	if err != nil || originURL.Host == "" {
+	originUrl, err := url.Parse(origin)
+	if err != nil || originUrl.Host == "" {
 		return false
 	}
-	originTLS := strings.EqualFold(originURL.Scheme, "https")
+	originTLS := strings.EqualFold(originUrl.Scheme, "https")
 	requestTLS := request.TLS != nil
-	if sameOriginHost(originURL.Host, originTLS, request.Host, requestTLS) {
+	if sameOriginHost(originUrl.Host, originTLS, request.Host, requestTLS) {
 		return true
 	}
 
-	publicURL := strings.TrimSpace(self.gateway.Config().Gateway.PublicURL)
-	if publicURL == "" {
+	publicUrl := strings.TrimSpace(self.gateway.Config().Gateway.PublicURL)
+	if publicUrl == "" {
 		return false
 	}
-	parsedPublicURL, err := url.Parse(publicURL)
-	if err != nil || parsedPublicURL.Host == "" {
+	parsedPublicUrl, err := url.Parse(publicUrl)
+	if err != nil || parsedPublicUrl.Host == "" {
 		return false
 	}
-	publicTLS := strings.EqualFold(parsedPublicURL.Scheme, "https")
-	return sameOriginHost(originURL.Host, originTLS, parsedPublicURL.Host, publicTLS)
+	publicTLS := strings.EqualFold(parsedPublicUrl.Scheme, "https")
+	return sameOriginHost(originUrl.Host, originTLS, parsedPublicUrl.Host, publicTLS)
 }
 
 func (self *v1Api) handleHealth(writer http.ResponseWriter, request *http.Request) error {
@@ -201,103 +200,6 @@ func scaleNearestNeighbor(destination *image.RGBA, source *image.RGBA) {
 			destination.Set(x, y, source.At(srcX, srcY))
 		}
 	}
-}
-
-func (self *v1Api) handleAgentAvatar(writer http.ResponseWriter, request *http.Request) error {
-	agentId := mux.Vars(request)["id"]
-	if agentId == "" {
-		return web.Error(400, "missing agent id")
-	}
-	agentExists := false
-	if agents, err := configs.LoadAgents(); err == nil {
-		for _, agent := range agents {
-			if agent.ID == agentId {
-				agentExists = true
-				break
-			}
-		}
-	}
-	if !agentExists {
-		return web.Error(404, "agent not found")
-	}
-	mediaStore := self.gateway.MediaStore()
-	if mediaStore == nil {
-		return web.Error(500, "media store not available")
-	}
-
-	switch request.Method {
-	case http.MethodPost:
-		request.Body = http.MaxBytesReader(writer, request.Body, maxAvatarUploadSize)
-		if err := request.ParseMultipartForm(maxAvatarUploadSize); err != nil {
-			return web.Error(400, "file too large or invalid multipart form")
-		}
-		file, header, err := request.FormFile("file")
-		if err != nil {
-			return web.Error(400, "missing file field")
-		}
-		defer file.Close()
-		raw, err := io.ReadAll(file)
-		if err != nil {
-			return web.Error(400, "failed to read file")
-		}
-		avatarData, format, err := processAvatarImage(raw)
-		if err != nil {
-			return web.Error(400, "invalid image file")
-		}
-		saved, err := mediaStore.Save(avatarData, format, media.SaveOptions{
-			SourceType:   "agent_avatar",
-			AgentID:      agentId,
-			OriginalName: header.Filename,
-		})
-		if err != nil {
-			return web.Error(500, "failed to save avatar: "+err.Error())
-		}
-
-		state, err := configs.LoadAgentState(agentId)
-		if err != nil {
-			return web.Error(500, "loading agent state: "+err.Error())
-		}
-		oldAvatarMediaId := state.AvatarMediaID
-		state.AvatarMediaID = saved.MediaID
-		if err := configs.SaveAgentState(agentId, state); err != nil {
-			return web.Error(500, "saving agent state: "+err.Error())
-		}
-		if oldAvatarMediaId != "" && oldAvatarMediaId != saved.MediaID {
-			_ = mediaStore.Delete(oldAvatarMediaId)
-		}
-
-		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(map[string]interface{}{
-			"agentId":       agentId,
-			"avatarMediaId": saved.MediaID,
-			"format":        format,
-			"filename":      "avatar.jpg",
-		})
-		return nil
-
-	case http.MethodDelete:
-		state, err := configs.LoadAgentState(agentId)
-		if err != nil {
-			return web.Error(500, "loading agent state: "+err.Error())
-		}
-		oldAvatarMediaId := state.AvatarMediaID
-		state.AvatarMediaID = ""
-		if err := configs.SaveAgentState(agentId, state); err != nil {
-			return web.Error(500, "saving agent state: "+err.Error())
-		}
-		if oldAvatarMediaId != "" {
-			_ = mediaStore.Delete(oldAvatarMediaId)
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(map[string]interface{}{
-			"agentId":       agentId,
-			"avatarMediaId": "",
-			"deleted":       true,
-		})
-		return nil
-	}
-
-	return web.Error(405, "method not allowed")
 }
 
 const maxAudioUploadSize = 25 << 20 // 25 MB (OpenAI Whisper limit)

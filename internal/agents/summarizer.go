@@ -11,6 +11,7 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/deferutil"
 )
@@ -265,7 +266,7 @@ func (self *Summarizer) generateTitleAndSummary(
 		Messages: []providers.ChatMessage{
 			{
 				Role:    "system",
-				Content: "Analyze the following conversation. Output a JSON object with two fields:\n- \"title\": a short title (max 8 words)\n- \"summary\": a 2-4 sentence summary of the main topic, key decisions, and outcomes\n\nOutput only valid JSON, nothing else.",
+				Content: prompts.SummarizerTitleAndSummarySystemPrompt,
 			},
 			{Role: "user", Content: conversationText},
 		},

@@ -14,8 +14,6 @@ func (self *stubDeps) SendMessage(_ interface{}, _ VoiceSendMessageParams) Voice
 func (self *stubDeps) AbortRun(_ string) bool                  { return true }
 func (self *stubDeps) Subscribe(_ VoiceSubscriber)             {}
 func (self *stubDeps) Unsubscribe(_ VoiceSubscriber)           {}
-func (self *stubDeps) NewConversation(_, _ string) string      { return "conv" }
-func (self *stubDeps) DefaultAgentID() string                  { return "agent" }
 func (self *stubDeps) ProviderRegistry() VoiceProviderRegistry { return nil }
 
 func newTestSession() *Session {
@@ -43,12 +41,12 @@ func TestConcurrentStateAccess(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				s.SetCurrentRunId("run")
-				_ = s.GetCurrentRunId()
-				s.SetCurrentResponseId("response")
-				_ = s.GetCurrentResponseId()
-				s.SetCurrentTurnId("turn")
-				_ = s.GetCurrentTurnId()
+				s.SetCurrentRunID("run")
+				_ = s.GetCurrentRunID()
+				s.SetCurrentResponseID("response")
+				_ = s.GetCurrentResponseID()
+				s.SetCurrentTurnID("turn")
+				_ = s.GetCurrentTurnID()
 				s.ClearCurrentRun()
 				s.ClearCurrentResponse()
 			}
@@ -74,7 +72,7 @@ func TestNonBlockingEnqueue(t *testing.T) {
 
 func TestTriggerBargeInNonBlocking(t *testing.T) {
 	s := newTestSession()
-	s.SetCurrentRunId("run-1")
+	s.SetCurrentRunID("run-1")
 	for i := 0; i < cap(s.audioOutCh); i++ {
 		s.audioOutCh <- []byte{1}
 	}
@@ -87,8 +85,8 @@ func TestTriggerBargeInNonBlocking(t *testing.T) {
 
 func TestTriggerBargeInClearsQueuedSpeechAndQueuesFlush(t *testing.T) {
 	s := newTestSession()
-	s.SetCurrentRunId("run-1")
-	s.SetCurrentResponseId("resp-1")
+	s.SetCurrentRunID("run-1")
+	s.SetCurrentResponseID("resp-1")
 
 	s.ttsInCh <- "old sentence"
 	s.ttsInCh <- ""
@@ -112,10 +110,10 @@ func TestTriggerBargeInClearsQueuedSpeechAndQueuesFlush(t *testing.T) {
 	if parsed.FrameType != FrameTypeFlush {
 		t.Fatalf("expected flush frame type, got %d", parsed.FrameType)
 	}
-	if s.GetCurrentRunId() != "" {
+	if s.GetCurrentRunID() != "" {
 		t.Fatal("expected run id cleared after barge-in")
 	}
-	if s.GetCurrentResponseId() != "" {
+	if s.GetCurrentResponseID() != "" {
 		t.Fatal("expected response id cleared after barge-in")
 	}
 	if !s.IsRunCanceled("run-1") {

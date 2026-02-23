@@ -52,6 +52,13 @@
               "x-placeholder": "10",
               "default": 10
             },
+            "minKeepRecentTokens": {
+              "type": "number",
+              "title": "Min Keep Recent Tokens",
+              "description": "Minimum estimated recent-message tokens preserved as raw history during compression.",
+              "x-placeholder": "8000",
+              "default": 8000
+            },
             "maxToolResultChars": {
               "type": "number",
               "title": "Max Tool Result Chars",
@@ -93,6 +100,10 @@
               "minKeepMessages": {
                 "type": "number",
                 "description": "Minimum number of recent messages preserved during truncation and compression."
+              },
+              "minKeepRecentTokens": {
+                "type": "number",
+                "description": "Minimum estimated recent-message tokens preserved as raw history during compression."
               },
               "maxToolResultChars": {
                 "type": "number",
@@ -645,20 +656,6 @@
       "description": "Chat bot integrations.",
       "descriptionKey": "schema.config.sections.channels.description",
       "path": "channels"
-    },
-    {
-      "id": "summarizer",
-      "title": "Summarizer",
-      "titleKey": "schema.config.sections.summarizer.title",
-      "description": "Background session summarizer timing and limits.",
-      "descriptionKey": "schema.config.sections.summarizer.description",
-      "path": "summarizer"
-    },
-    {
-      "id": "skillsRegistries",
-      "title": "Skills Registries",
-      "description": "Online skill registry sources.",
-      "properties": ["skillsRegistries"]
     }
   ]
 }

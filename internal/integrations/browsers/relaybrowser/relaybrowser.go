@@ -47,11 +47,6 @@ func NewRelay() *Relay {
 	}
 }
 
-// HandleWebSocket upgrades the HTTP connection and manages the extension link.
-func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Request) {
-	self.HandleWebSocketForUser(writer, request, "")
-}
-
 // HandleWebSocketForUser upgrades and binds a browser extension connection to one user.
 func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *http.Request, userId string) {
 	userId = strings.TrimSpace(userId)

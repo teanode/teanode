@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -24,9 +25,9 @@ type Scheduler struct {
 	lastCronFire  map[string]time.Time // tracks last fire minute per cron job to avoid duplicates
 	stopChannel   chan struct{}
 
-	Broadcast       func(event string, payload interface{})
-	RunMessage      func(ctx context.Context, userId, agentId, conversationId, message, model string) (runId string, done <-chan struct{}, getError func() error)
-	NewConversation func(userId, agentId, model string) string
+	Broadcast              func(event string, payload interface{})
+	RunMessage             func(ctx context.Context, userId, agentId, conversationId, message, model string) (runId string, done <-chan struct{}, getError func() error)
+	NewDefaultConversation func(userId, agentId, model string) string
 }
 
 // NewScheduler creates a new job scheduler.
@@ -246,23 +247,29 @@ func (self *Scheduler) executeJob(userId string, job Job) {
 	// Resolve the runner for this job's agent.
 	agentId := job.AgentID
 	if agentId == "" {
-		agentId = self.agentRegistry.DefaultID()
+		agentIds := self.agentRegistry.AgentIDs()
+		sort.Strings(agentIds)
+		if len(agentIds) == 0 {
+			log.Errorf("job %s: no agents registered", job.ID)
+			return
+		}
+		agentId = agentIds[0]
 	}
 
-	// Resolve conversation: use stored value if present (backward compat), otherwise use default conversation.
+	// Resolve conversation: use stored value if present, otherwise use default conversation.
 	conversationId := job.ConversationID
 	if conversationId == "" {
-		conversationId = self.agentRegistry.DefaultConversationID(userId, agentId)
+		conversationId = self.agentRegistry.EnsureDefaultConversation(userId, agentId)
 	}
 
 	// If job specifies a model, verify the default conversation is compatible.
-	if job.Model != "" && conversationId != "" && self.NewConversation != nil {
-		runner := self.agentRegistry.Get(agentId)
+	if job.Model != "" && conversationId != "" && self.NewDefaultConversation != nil {
+		runner := self.agentRegistry.GetRunner(agentId)
 		if runner != nil {
 			header, headerError := runner.ConversationsForUser(userId).LoadHeader(conversationId)
 			if headerError == nil && header.Model != job.Model {
 				// Default conversation uses a different model — create a new one.
-				conversationId = self.NewConversation(userId, agentId, job.Model)
+				conversationId = self.NewDefaultConversation(userId, agentId, job.Model)
 				log.Infof("job %s: created new conversation %s (model mismatch: conversation=%s, job=%s)",
 					job.ID, conversationId, header.Model, job.Model)
 			}

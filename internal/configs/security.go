@@ -134,16 +134,6 @@ func SaveSecurity(config *SecurityConfig) error {
 	return atomicfile.WriteFileWithMode(securityFile, data, 0600)
 }
 
-func (self *SecurityConfig) UserByID(userId string) (SecurityUser, bool) {
-	if self == nil {
-		return SecurityUser{}, false
-	}
-	self.mutex.RLock()
-	defer self.mutex.RUnlock()
-	user, ok := self.Users[userId]
-	return user, ok
-}
-
 func (self *SecurityConfig) FindUserByUsername(username string) (string, SecurityUser, bool) {
 	if self == nil {
 		return "", SecurityUser{}, false

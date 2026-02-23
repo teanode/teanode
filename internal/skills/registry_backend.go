@@ -622,7 +622,7 @@ func notifyInstalledSkillsChanged(skillsDirectory string) {
 		return
 	}
 	// Touch a marker file so filesystem watchers pick up installs/updates/removals immediately.
-	_ = os.WriteFile(filepath.Join(root, ".reload"), []byte(strconv.FormatInt(time.Now().UnixMilli(), 10)), 0644)
+	_ = atomicfile.WriteFile(filepath.Join(root, ".reload"), []byte(strconv.FormatInt(time.Now().UnixMilli(), 10)))
 }
 
 func boolPointer(value bool) *bool {

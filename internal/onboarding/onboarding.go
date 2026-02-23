@@ -1,8 +1,9 @@
 package onboarding
 
 import (
-	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -10,17 +11,8 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/providers"
-	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/prompts"
 )
-
-const SeedVersion = 1
-
-type seedMarkerEnvelope struct {
-	Teanode struct {
-		OnboardingSeedVersion int `json:"onboardingSeedVersion"`
-	} `json:"teanode"`
-}
 
 var userInitLocks sync.Map // map[userId]*sync.Mutex
 
@@ -34,7 +26,7 @@ func userInitLock(userId string) *sync.Mutex {
 }
 
 // InitializeUser ensures user directories/workspace and seeds one onboarding
-// conversation if no seed marker exists yet for the user+agent conversation store.
+// assistant message when ONBOARDING.md exists and the user has no user-authored messages yet.
 func InitializeUser(gateway gw.Gateway, userId string) error {
 	userId = strings.TrimSpace(userId)
 	if userId == "" {
@@ -49,122 +41,60 @@ func InitializeUser(gateway gw.Gateway, userId string) error {
 		return fmt.Errorf("ensuring user directories: %w", err)
 	}
 
-	agentId := strings.TrimSpace(gateway.DefaultAgentID())
-	if agentId == "" {
-		agentId = configs.DefaultAgentID
+	agentId, err := gateway.EnsureDefaultAgent(userId)
+	if err != nil {
+		return fmt.Errorf("ensure default agent for user: %w", err)
 	}
+
 	store := gateway.ConversationStore(userId, agentId)
 	if store == nil {
 		return fmt.Errorf("conversation store unavailable")
 	}
 
-	seededConversationId, err := findSeededConversation(store)
+	onboardingExists, err := onboardingExists(userId)
 	if err != nil {
 		return err
 	}
-	if seededConversationId != "" {
-		gateway.SetDefaultConversationIfUnset(userId, agentId, seededConversationId)
+	if !onboardingExists {
 		return nil
 	}
 
-	targetConversationId := security.NewULID()
-	if !gateway.SetDefaultConversationIfUnset(userId, agentId, targetConversationId) {
-		targetConversationId = gateway.DefaultConversationID(userId, agentId)
-	}
-	if strings.TrimSpace(targetConversationId) == "" {
-		return fmt.Errorf("default conversation id is empty")
-	}
-
-	hasSeed, err := conversationHasSeedMarker(store, targetConversationId)
+	hasConversation, err := storeHasAnyConversation(store)
 	if err != nil {
 		return err
 	}
-	if hasSeed {
+	if hasConversation {
 		return nil
 	}
 
-	message := conversations.NewTextMessage("assistant", seedMessageText(), time.Now().UnixMilli())
-	marker := seedMarkerEnvelope{}
-	marker.Teanode.OnboardingSeedVersion = SeedVersion
-	metadata, err := json.Marshal(marker)
-	if err != nil {
-		return fmt.Errorf("marshalling onboarding marker: %w", err)
-	}
-	message.Metadata = metadata
-
-	model := ""
-	provider := ""
-	if configuration := gateway.Config(); configuration != nil {
-		model = configuration.AgentModel(agentId)
-	}
-	if model != "" {
-		if runner := gateway.ResolveRunner(agentId); runner != nil {
-			_, providerRegistry, _, _, _ := runner.Snapshot()
-			if providerRegistry != nil {
-				provider, _ = providers.ParseQualifiedModel(model, providerRegistry.DefaultProvider())
-			}
-		}
-	}
-
-	options := []conversations.AppendOption{}
-	if model != "" {
-		options = append(options, conversations.WithProviderAndModel(provider, model))
-	}
-	if err := store.Append(targetConversationId, message, options...); err != nil {
+	conversationId := gateway.NewDefaultConversation(userId, agentId, "")
+	message := conversations.NewTextMessage("assistant", prompts.OnboardingSeedMessage, time.Now().UnixMilli())
+	if err := store.Append(conversationId, message); err != nil {
 		return fmt.Errorf("seeding onboarding conversation: %w", err)
 	}
 	return nil
 }
 
-func seedMessageText() string {
-	return strings.TrimSpace(`
-Welcome! I can help personalize your TeaNode experience.
-
-To get started, tell me:
-1. What name should I call you?
-2. Do you prefer brief or detailed responses?
-3. What language and timezone should I use?
-4. What are your top goals for using this assistant?
-`)
-}
-
-func findSeededConversation(store *conversations.Store) (string, error) {
-	items, err := store.List()
+func onboardingExists(userId string) (bool, error) {
+	userWorkspaceDirectory, err := configs.UserWorkspaceDirectory(userId)
 	if err != nil {
-		return "", fmt.Errorf("listing conversations: %w", err)
+		return false, fmt.Errorf("resolving user workspace: %w", err)
 	}
-	for _, item := range items {
-		hasSeed, err := conversationHasSeedMarker(store, item.ID)
-		if err != nil {
-			return "", err
-		}
-		if hasSeed {
-			return item.ID, nil
-		}
+	onboardingPath := filepath.Join(userWorkspaceDirectory, "ONBOARDING.md")
+	_, err = os.Stat(onboardingPath)
+	if os.IsNotExist(err) {
+		return false, nil
 	}
-	return "", nil
-}
-
-func conversationHasSeedMarker(store *conversations.Store, conversationId string) (bool, error) {
-	messages, err := store.Load(conversationId)
 	if err != nil {
-		return false, fmt.Errorf("loading conversation %s: %w", conversationId, err)
+		return false, fmt.Errorf("reading ONBOARDING.md: %w", err)
 	}
-	for _, message := range messages {
-		if messageHasSeedMarker(message) {
-			return true, nil
-		}
-	}
-	return false, nil
+	return true, nil
 }
 
-func messageHasSeedMarker(message conversations.Message) bool {
-	if len(message.Metadata) == 0 {
-		return false
+func storeHasAnyConversation(store *conversations.Store) (bool, error) {
+	conversationList, err := store.List()
+	if err != nil {
+		return false, fmt.Errorf("listing conversations: %w", err)
 	}
-	var marker seedMarkerEnvelope
-	if err := json.Unmarshal(message.Metadata, &marker); err != nil {
-		return false
-	}
-	return marker.Teanode.OnboardingSeedVersion > 0
+	return len(conversationList) > 0, nil
 }

@@ -56,7 +56,7 @@ func (self *Session) audioInputLoop() {
 				})
 				if self.Features.BargeIn &&
 					score >= bargeInTriggerMinScore &&
-					(self.GetCurrentRunId() != "" || self.GetCurrentResponseId() != "") {
+					(self.GetCurrentRunID() != "" || self.GetCurrentResponseID() != "") {
 					self.triggerBargeIn()
 				}
 			}
@@ -69,8 +69,8 @@ func (self *Session) audioInputLoop() {
 			}
 
 			if ended {
-				turnId := self.GetCurrentTurnId()
-				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnId(), len(speechBuf), self.inSeq.Load(), score)
+				turnId := self.GetCurrentTurnID()
+				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnID(), len(speechBuf), self.inSeq.Load(), score)
 				self.sendVoiceEvent("turn.event", turnEventPayload{
 					TurnID:      turnId,
 					Event:       "speech_ended",
@@ -131,10 +131,10 @@ func (self *Session) llmEventForwarder() {
 				continue
 			}
 			if runId != "" && (state == "queued" || state == "delta") {
-				self.SetCurrentRunId(runId)
+				self.SetCurrentRunID(runId)
 			}
 			if state == "queued" || state == "final" || state == "error" || state == "aborted" {
-				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", self.ID, self.GetCurrentTurnId(), state, len(text), self.GetCurrentRunId())
+				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", self.ID, self.GetCurrentTurnID(), state, len(text), self.GetCurrentRunID())
 			}
 			if state == "delta" {
 				if text != "" {
@@ -193,11 +193,11 @@ func (self *Session) ttsSynthLoop() {
 			return
 		case sentence := <-self.ttsInCh:
 			if sentence == "" {
-				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseId())
-				if rid := self.GetCurrentResponseId(); rid != "" {
+				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseID())
+				if rid := self.GetCurrentResponseID(); rid != "" {
 					self.sendVoiceEvent("response.completed", map[string]interface{}{
 						"response_id": rid,
-						"turn_id":     self.GetCurrentTurnId(),
+						"turn_id":     self.GetCurrentTurnID(),
 					})
 				}
 				self.ClearCurrentResponse()
@@ -216,7 +216,7 @@ func (self *Session) ttsSynthLoop() {
 				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
 			}
-			responseId := self.GetCurrentResponseId()
+			responseId := self.GetCurrentResponseID()
 			if responseId == "" {
 				// Avoid speaking between two close user utterances while a transcription
 				// is still in-flight for a newer turn.
@@ -229,11 +229,11 @@ func (self *Session) ttsSynthLoop() {
 					}
 				}
 				responseId = self.newTurnId()
-				self.SetCurrentResponseId(responseId)
-				pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", self.ID, responseId, self.GetCurrentTurnId())
+				self.SetCurrentResponseID(responseId)
+				pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", self.ID, responseId, self.GetCurrentTurnID())
 				self.sendVoiceEvent("response.started", map[string]interface{}{
 					"response_id": responseId,
-					"turn_id":     self.GetCurrentTurnId(),
+					"turn_id":     self.GetCurrentTurnID(),
 				})
 			}
 
@@ -242,7 +242,7 @@ func (self *Session) ttsSynthLoop() {
 			if prev != nil {
 				prev()
 			}
-			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseId(), self.GetCurrentTurnId(), len(sentence), sentence)
+			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseID(), self.GetCurrentTurnID(), len(sentence), sentence)
 			audio, err := synth.SynthesizePCM(ttsCtx, sentence, "alloy", self.AudioOut.SampleRateHz)
 			self.SwapTTSCancel(nil)
 			if err != nil {
@@ -252,7 +252,7 @@ func (self *Session) ttsSynthLoop() {
 				pipelineLog.Warningf("voice synthesis failed: %v", err)
 				continue
 			}
-			pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", self.ID, self.GetCurrentResponseId(), len(sentence), len(audio))
+			pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", self.ID, self.GetCurrentResponseID(), len(sentence), len(audio))
 			payload := EncodeBinaryAudioFrame(BinaryAudioFrame{
 				FrameType:   FrameTypeAudioOut,
 				Seq:         self.NextOutSeq(),
@@ -333,10 +333,10 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 		return
 	}
 	// If an older response already started speaking, interrupt it and prioritize this newer user turn.
-	if self.GetCurrentResponseId() != "" {
+	if self.GetCurrentResponseID() != "" {
 		self.triggerBargeIn()
 	}
-	if self.GetCurrentRunId() != "" {
+	if self.GetCurrentRunID() != "" {
 		self.enqueueTranscriptTurn(turnId, text)
 		return
 	}
@@ -361,7 +361,7 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 		SystemPromptSuffix: self.effectivePromptSuffix(),
 	})
 	self.MarkTurnCommitted(turnId)
-	self.SetCurrentRunId(run.RunID)
+	self.SetCurrentRunID(run.RunID)
 	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", self.ID, turnId, run.RunID)
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID: turnId,
@@ -393,7 +393,7 @@ func (self *Session) enqueueTranscriptTurn(turnId, text string) {
 			QueueDepth: depth,
 		})
 	}
-	pipelineLog.Infof("voice turn queued (run active): session=%s turn=%s run=%s depth=%d", self.ID, turnId, self.GetCurrentRunId(), depth)
+	pipelineLog.Infof("voice turn queued (run active): session=%s turn=%s run=%s depth=%d", self.ID, turnId, self.GetCurrentRunID(), depth)
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID:     turnId,
 		Event:      "turn_queued",
@@ -403,7 +403,7 @@ func (self *Session) enqueueTranscriptTurn(turnId, text string) {
 }
 
 func (self *Session) commitNextPendingTurn() {
-	if self.GetCurrentRunId() != "" {
+	if self.GetCurrentRunID() != "" {
 		return
 	}
 	next, ok := self.DequeuePendingTurn()
@@ -419,8 +419,8 @@ func (self *Session) commitNextPendingTurn() {
 
 func (self *Session) triggerBargeIn() {
 	self.bargeInOnce.Do(func() {
-		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunId(), self.GetCurrentResponseId())
-		runId := self.GetCurrentRunId()
+		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunID(), self.GetCurrentResponseID())
+		runId := self.GetCurrentRunID()
 		self.MarkRunCanceled(runId)
 		if prev := self.SwapTTSCancel(nil); prev != nil {
 			prev()
@@ -462,11 +462,6 @@ func (self *Session) startNewTurn(turnId string) {
 	self.currentTurnId = turnId
 	self.bargeInOnce = sync.Once{}
 	self.stateMu.Unlock()
-}
-
-func (self *Session) startRun(ctx context.Context, text string) {
-	_ = ctx
-	_ = text
 }
 
 func (self *Session) trySendFlushFrame() {

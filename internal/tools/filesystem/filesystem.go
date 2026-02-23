@@ -14,6 +14,7 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/trash"
 )
 
@@ -211,7 +212,7 @@ func executeWrite(path, content string) (string, error) {
 	}
 
 	data := []byte(content)
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := atomicfile.WriteFile(path, data); err != nil {
 		return "", fmt.Errorf("writing file: %w", err)
 	}
 

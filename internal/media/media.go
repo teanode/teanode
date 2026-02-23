@@ -202,7 +202,7 @@ func (self *Store) Save(data []byte, format string, options SaveOptions) (Media,
 
 	filename := fmt.Sprintf("%s.%s", mediaId, format)
 	mediaPath := filepath.Join(shardDirectory, filename)
-	if err := os.WriteFile(mediaPath, data, 0644); err != nil {
+	if err := atomicfile.WriteFile(mediaPath, data); err != nil {
 		return Media{}, fmt.Errorf("writing media file: %w", err)
 	}
 

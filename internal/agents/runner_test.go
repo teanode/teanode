@@ -366,7 +366,7 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 
 func TestBuildSystemPromptUsesAgentIdentity(t *testing.T) {
 	configuration := &configs.Config{
-		Agents: []configs.AgentConfig{
+		AgentConfigs: []configs.AgentConfig{
 			{ID: "custom", Name: "Custom Assistant"},
 		},
 	}

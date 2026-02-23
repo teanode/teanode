@@ -143,10 +143,19 @@ export default function MessageList({
   const normalizedUserFallback = (userName || "You").trim() || "You";
   const normalizedAgentFallback = (agentName || "Agent").trim() || "Agent";
 
-  const items = useMemo(
-    () => buildItems(messages, t, showToolCalls, showTokenUsage),
-    [messages, t, showToolCalls, showTokenUsage],
-  );
+  const items = useMemo(() => {
+    const filteredItems = buildItems(messages, t, showToolCalls, showTokenUsage);
+    const hasVisibleMessage = filteredItems.some(
+      (item) => item.kind === "message",
+    );
+    if (hasVisibleMessage || messages.length === 0) {
+      return filteredItems;
+    }
+
+    // If filters hide everything (e.g. a conversation that starts with tool
+    // messages), show the raw timeline so the page never appears empty.
+    return buildItems(messages, t, true, true);
+  }, [messages, t, showToolCalls, showTokenUsage]);
 
   // Only the last assistant message for the active run should show streaming
   // text.  Earlier assistant messages (from before tool call boundaries) have

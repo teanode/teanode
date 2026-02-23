@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
 )
@@ -79,20 +81,31 @@ func (self *v1Api) handleChatCompletions(writer http.ResponseWriter, request *ht
 	// Extract the last user message.
 	lastMessage := chatRequest.Messages[len(chatRequest.Messages)-1]
 
-	if chatRequest.Stream {
-		return self.handleChatCompletionsStream(writer, request, chatRequest, conversationId, lastMessage)
+	userContext := gw.UserFromContext(request.Context())
+	if userContext == nil || strings.TrimSpace(userContext.UserID) == "" {
+		return web.Error(http.StatusUnauthorized, "unauthorized")
 	}
-	return self.handleChatCompletionsSync(writer, chatRequest, conversationId, lastMessage)
-}
-
-func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, request openaiRequest, conversationId string, lastMessage openaiMessage) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	runner := self.gateway.AgentRegistry().Default()
+	userId := strings.TrimSpace(userContext.UserID)
+	agentId, err := self.gateway.EnsureDefaultAgent(userId)
+	if err != nil {
+		return web.Error(500, "resolving default agent: "+err.Error())
+	}
+	runner := self.gateway.GetRunner(agentId)
 	if runner == nil {
 		return web.Error(500, "no default agent configured")
 	}
+
+	if chatRequest.Stream {
+		return self.handleChatCompletionsStream(writer, request, chatRequest, conversationId, lastMessage, runner, userId)
+	}
+	return self.handleChatCompletionsSync(writer, request, chatRequest, conversationId, lastMessage, runner, userId)
+}
+
+func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage, runner *agents.Runner, userId string) error {
+	ctx, cancel := context.WithTimeout(httpRequest.Context(), 5*time.Minute)
+	defer cancel()
+	ctx = agents.ContextWithUserID(ctx, userId)
+	ctx = agents.ContextWithAdmin(ctx, self.gateway.SecurityConfig().IsAdmin(userId))
 
 	result, err := runner.Run(ctx, agents.RunParams{
 		ConversationID: conversationId,
@@ -137,7 +150,7 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, request
 	return nil
 }
 
-func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage) error {
+func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage, runner *agents.Runner, userId string) error {
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
 		return web.Error(500, "streaming not supported")
@@ -149,16 +162,10 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 
 	ctx, cancel := context.WithCancel(httpRequest.Context())
 	defer cancel()
+	ctx = agents.ContextWithUserID(ctx, userId)
+	ctx = agents.ContextWithAdmin(ctx, self.gateway.SecurityConfig().IsAdmin(userId))
 
 	responseId := security.NewULID()
-
-	runner := self.gateway.AgentRegistry().Default()
-	if runner == nil {
-		errData, _ := json.Marshal(map[string]string{"error": "no default agent configured"})
-		fmt.Fprintf(writer, "data: %s\n\n", errData)
-		flusher.Flush()
-		return nil
-	}
 
 	result, err := runner.Run(ctx, agents.RunParams{
 		ConversationID: conversationId,

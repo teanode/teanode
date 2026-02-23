@@ -858,15 +858,29 @@ export function useBackend() {
     if (result.defaultAgentId) {
       setServerDefaultAgentId(result.defaultAgentId);
     }
-    const initialAgentId = result.defaultAgentId;
-    if (initialAgentId && !currentAgentIdRef.current) {
-      setCurrentAgentId(initialAgentId);
-      currentAgentIdRef.current = initialAgentId;
+
+    // Resolve the active agent for reconnect hydration. If the UI already has
+    // one selected, keep it; otherwise fall back to server default.
+    let hydrationAgentId =
+      currentAgentIdRef.current || result.defaultAgentId || "";
+    if (!currentAgentIdRef.current && hydrationAgentId) {
+      setCurrentAgentId(hydrationAgentId);
+      currentAgentIdRef.current = hydrationAgentId;
     }
-    const defaultConversationId = result.defaultConversationId;
-    if (!conversationIdRef.current && defaultConversationId) {
-      setConversationId(defaultConversationId);
-      conversationIdRef.current = defaultConversationId;
+
+    // Resolve default conversation for the active agent (not always the server default agent).
+    const hydrationAgent = result.agents?.find(
+      (agent) => agent.id === hydrationAgentId,
+    );
+    const hydrationDefaultConversationId =
+      hydrationAgent?.defaultConversationId ||
+      (hydrationAgentId === result.defaultAgentId
+        ? result.defaultConversationId
+        : undefined);
+
+    if (!conversationIdRef.current && hydrationDefaultConversationId) {
+      setConversationId(hydrationDefaultConversationId);
+      conversationIdRef.current = hydrationDefaultConversationId;
     }
     // Fetch available models
     sendRpcRef
@@ -888,14 +902,14 @@ export function useBackend() {
 
     // Reload current conversation's history on (re)connect.
     // If nothing is selected yet, use the server's default conversation.
-    const key = conversationIdRef.current || defaultConversationId;
+    const key = conversationIdRef.current || hydrationDefaultConversationId;
     if (key) {
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
       sendRpcRef
         .current<ConversationHistoryResult>("conversations.history", {
           conversationId: key,
-          agentId: currentAgentIdRef.current || undefined,
+          agentId: hydrationAgentId || undefined,
           limit: 50,
         })
         .then((res) => {

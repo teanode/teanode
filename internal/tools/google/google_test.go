@@ -156,19 +156,19 @@ func TestGmailTool_ReadAction(t *testing.T) {
 
 	cmdArgs := (*calls)[0]
 	foundGet := false
-	foundMessageID := false
+	foundMessageId := false
 	for index, arg := range cmdArgs {
 		if arg == "gmail" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "get" {
 			foundGet = true
 		}
 		if arg == "msg123" {
-			foundMessageID = true
+			foundMessageId = true
 		}
 	}
 	if !foundGet {
 		t.Errorf("expected 'gmail get' in args: %v", cmdArgs)
 	}
-	if !foundMessageID {
+	if !foundMessageId {
 		t.Errorf("expected message ID in args: %v", cmdArgs)
 	}
 }
@@ -229,7 +229,7 @@ func TestGmailTool_TrashAction(t *testing.T) {
 	cmdArgs := (*calls)[0]
 	foundThreadModify := false
 	foundAddTrash := false
-	foundID := false
+	foundId := false
 	for index, arg := range cmdArgs {
 		if arg == "thread" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "modify" {
 			foundThreadModify = true
@@ -238,7 +238,7 @@ func TestGmailTool_TrashAction(t *testing.T) {
 			foundAddTrash = true
 		}
 		if arg == "msg789" {
-			foundID = true
+			foundId = true
 		}
 	}
 	if !foundThreadModify {
@@ -247,7 +247,7 @@ func TestGmailTool_TrashAction(t *testing.T) {
 	if !foundAddTrash {
 		t.Errorf("expected '--add TRASH' in args: %v", cmdArgs)
 	}
-	if !foundID {
+	if !foundId {
 		t.Errorf("expected message ID in args: %v", cmdArgs)
 	}
 }
@@ -412,19 +412,19 @@ func TestTasksTool_ListAction(t *testing.T) {
 
 	cmdArgs := (*calls)[0]
 	foundTasksList := false
-	foundListID := false
+	foundListId := false
 	for index, arg := range cmdArgs {
 		if arg == "tasks" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "list" {
 			foundTasksList = true
 		}
 		if arg == "mylist123" {
-			foundListID = true
+			foundListId = true
 		}
 	}
 	if !foundTasksList {
 		t.Errorf("expected 'tasks list' in args: %v", cmdArgs)
 	}
-	if !foundListID {
+	if !foundListId {
 		t.Errorf("expected task list ID as positional arg: %v", cmdArgs)
 	}
 }
@@ -449,7 +449,7 @@ func TestTasksTool_CreateAction(t *testing.T) {
 	hasTitle := false
 	hasNotes := false
 	hasDue := false
-	hasListID := false
+	hasListId := false
 	for index, arg := range cmdArgs {
 		if arg == "--title" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "Buy groceries" {
 			hasTitle = true
@@ -461,7 +461,7 @@ func TestTasksTool_CreateAction(t *testing.T) {
 			hasDue = true
 		}
 		if arg == "mylist123" {
-			hasListID = true
+			hasListId = true
 		}
 	}
 	if !hasTitle {
@@ -473,7 +473,7 @@ func TestTasksTool_CreateAction(t *testing.T) {
 	if !hasDue {
 		t.Error("expected --due in args")
 	}
-	if !hasListID {
+	if !hasListId {
 		t.Errorf("expected task list ID as positional arg: %v", cmdArgs)
 	}
 }
@@ -494,26 +494,26 @@ func TestTasksTool_CompleteAction(t *testing.T) {
 
 	cmdArgs := (*calls)[0]
 	foundComplete := false
-	foundListID := false
-	foundTaskID := false
+	foundListId := false
+	foundTaskId := false
 	for index, arg := range cmdArgs {
 		if arg == "tasks" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "complete" {
 			foundComplete = true
 		}
 		if arg == "mylist123" {
-			foundListID = true
+			foundListId = true
 		}
 		if arg == "task123" {
-			foundTaskID = true
+			foundTaskId = true
 		}
 	}
 	if !foundComplete {
 		t.Errorf("expected 'tasks complete' in args: %v", cmdArgs)
 	}
-	if !foundListID {
+	if !foundListId {
 		t.Errorf("expected task list ID in args: %v", cmdArgs)
 	}
-	if !foundTaskID {
+	if !foundTaskId {
 		t.Errorf("expected task ID in args: %v", cmdArgs)
 	}
 }
@@ -534,26 +534,26 @@ func TestTasksTool_DeleteAction(t *testing.T) {
 
 	cmdArgs := (*calls)[0]
 	foundDelete := false
-	foundListID := false
-	foundTaskID := false
+	foundListId := false
+	foundTaskId := false
 	for index, arg := range cmdArgs {
 		if arg == "tasks" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "delete" {
 			foundDelete = true
 		}
 		if arg == "mylist123" {
-			foundListID = true
+			foundListId = true
 		}
 		if arg == "task456" {
-			foundTaskID = true
+			foundTaskId = true
 		}
 	}
 	if !foundDelete {
 		t.Errorf("expected 'tasks delete' in args: %v", cmdArgs)
 	}
-	if !foundListID {
+	if !foundListId {
 		t.Errorf("expected task list ID in args: %v", cmdArgs)
 	}
-	if !foundTaskID {
+	if !foundTaskId {
 		t.Errorf("expected task ID in args: %v", cmdArgs)
 	}
 }
@@ -661,19 +661,19 @@ func TestDriveTool_InfoAction(t *testing.T) {
 
 	cmdArgs := (*calls)[0]
 	foundGet := false
-	foundFileID := false
+	foundFileId := false
 	for index, arg := range cmdArgs {
 		if arg == "drive" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "get" {
 			foundGet = true
 		}
 		if arg == "file123" {
-			foundFileID = true
+			foundFileId = true
 		}
 	}
 	if !foundGet {
 		t.Errorf("expected 'drive get' in args: %v", cmdArgs)
 	}
-	if !foundFileID {
+	if !foundFileId {
 		t.Errorf("expected file ID in args: %v", cmdArgs)
 	}
 }

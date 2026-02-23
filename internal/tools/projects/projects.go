@@ -280,13 +280,7 @@ func generateDescription(ctx context.Context, name, purpose string) string {
 	userId := agents.UserIDFromContext(ctx)
 	configuration, providerRegistry, _, workspaceDirectory, skillPrompts := runner.Snapshot()
 
-	qualifiedModel := configuration.AgentModel(configuration.ResolveDefaultAgent())
-	if qualifiedModel == "" {
-		qualifiedModel = configuration.AgentModel(configs.DefaultAgentID)
-	}
-	if qualifiedModel == "" {
-		qualifiedModel = configuration.AgentModel(runner.AgentID)
-	}
+	qualifiedModel := configuration.AgentModel(runner.AgentID)
 	if qualifiedModel == "" {
 		return ""
 	}

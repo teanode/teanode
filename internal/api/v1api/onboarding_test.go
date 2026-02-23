@@ -12,20 +12,14 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/onboarding"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/sessions"
 )
-
-type onboardingMarker struct {
-	Teanode struct {
-		OnboardingSeedVersion int `json:"onboardingSeedVersion"`
-	} `json:"teanode"`
-}
 
 func newOnboardingTestAPI(t *testing.T, securityConfig *configs.SecurityConfig) *v1Api {
 	t.Helper()
 	registry := agents.NewAgentRegistry()
-	registry.SetDefault(configs.DefaultAgentID)
+	registry.Register("main", &agents.Runner{AgentID: "main"})
 
 	if securityConfig == nil {
 		securityConfig = &configs.SecurityConfig{Users: map[string]configs.SecurityUser{}}
@@ -37,7 +31,9 @@ func newOnboardingTestAPI(t *testing.T, securityConfig *configs.SecurityConfig) 
 	sessionStore := sessions.NewStore(t.TempDir())
 	return New(
 		gw.New(
-			&configs.Config{},
+			&configs.Config{
+				AgentConfigs: []configs.AgentConfig{{ID: "main", Name: "Tea"}},
+			},
 			securityConfig,
 			registry,
 			nil,
@@ -64,10 +60,7 @@ func assertOnboardingSeeded(t *testing.T, api *v1Api, userId string) {
 		}
 	}
 
-	agentId := api.gateway.DefaultAgentID()
-	if agentId == "" {
-		agentId = configs.DefaultAgentID
-	}
+	agentId := "main"
 	store := api.gateway.ConversationStore(userId, agentId)
 	if store == nil {
 		t.Fatal("conversation store is nil")
@@ -81,7 +74,7 @@ func assertOnboardingSeeded(t *testing.T, api *v1Api, userId string) {
 	}
 	conversationId := conversationList[0].ID
 
-	defaultConversationId := api.gateway.DefaultConversationID(userId, agentId)
+	defaultConversationId := api.gateway.EnsureDefaultConversation(userId, agentId)
 	if defaultConversationId != conversationId {
 		t.Fatalf("default conversation id = %q, want %q", defaultConversationId, conversationId)
 	}
@@ -96,12 +89,11 @@ func assertOnboardingSeeded(t *testing.T, api *v1Api, userId string) {
 	if messages[0].Role != "assistant" {
 		t.Fatalf("first message role = %q, want assistant", messages[0].Role)
 	}
-	var marker onboardingMarker
-	if err := json.Unmarshal(messages[0].Metadata, &marker); err != nil {
-		t.Fatalf("unmarshal onboarding marker: %v", err)
+	if messages[0].ContentText() != prompts.OnboardingSeedMessage {
+		t.Fatalf("first message content = %q, want %q", messages[0].ContentText(), prompts.OnboardingSeedMessage)
 	}
-	if marker.Teanode.OnboardingSeedVersion != onboarding.SeedVersion {
-		t.Fatalf("onboarding seed version = %d, want %d", marker.Teanode.OnboardingSeedVersion, onboarding.SeedVersion)
+	if len(messages[0].Metadata) != 0 {
+		t.Fatal("seeded onboarding message should not contain metadata marker")
 	}
 }
 

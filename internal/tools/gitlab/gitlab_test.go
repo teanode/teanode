@@ -1204,19 +1204,19 @@ func TestPipelinesTool_ViewAction(t *testing.T) {
 
 	commandArgs := (*calls)[0]
 	foundCIGet := false
-	foundPipelineID := false
+	foundPipelineId := false
 	for index, argument := range commandArgs {
 		if argument == "ci" && index+1 < len(commandArgs) && commandArgs[index+1] == "get" {
 			foundCIGet = true
 		}
 		if argument == "--pipeline-id" && index+1 < len(commandArgs) && commandArgs[index+1] == "123" {
-			foundPipelineID = true
+			foundPipelineId = true
 		}
 	}
 	if !foundCIGet {
 		t.Errorf("expected 'ci get' in args: %v", commandArgs)
 	}
-	if !foundPipelineID {
+	if !foundPipelineId {
 		t.Errorf("expected '--pipeline-id 123' in args: %v", commandArgs)
 	}
 }

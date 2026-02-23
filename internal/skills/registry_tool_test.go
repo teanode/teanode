@@ -133,12 +133,12 @@ func TestExecuteInstallCallsSkillsChangedCallback(t *testing.T) {
 	sum := sha256.Sum256(skillBody)
 	digest := hex.EncodeToString(sum[:])
 
-	var serverURL string
+	var serverUrl string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/index.json":
 			writer.Header().Set("content-type", "application/json")
-			_, _ = writer.Write([]byte(`{"publisher":"example","skills":[{"name":"demo","version":"1.0.0","url":"` + serverURL + `/demo.md","sha256":"` + digest + `"}]}`))
+			_, _ = writer.Write([]byte(`{"publisher":"example","skills":[{"name":"demo","version":"1.0.0","url":"` + serverUrl + `/demo.md","sha256":"` + digest + `"}]}`))
 		case "/demo.md":
 			_, _ = writer.Write(skillBody)
 		default:
@@ -146,14 +146,14 @@ func TestExecuteInstallCallsSkillsChangedCallback(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	serverURL = server.URL
+	serverUrl = server.URL
 
 	var callbackCalls int32
 	tool := &skillsTool{
 		registries: []configs.SkillsRegistry{
 			{
 				ID:               "source",
-				IndexURL:         serverURL + "/index.json",
+				IndexURL:         serverUrl + "/index.json",
 				IgnoreSignatures: true,
 			},
 		},

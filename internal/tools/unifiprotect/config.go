@@ -49,11 +49,11 @@ func normalizeCamera(name string) string {
 }
 
 // IsCameraAllowed checks whether a camera is accessible by name or ID.
-func (self *AccessChecker) IsCameraAllowed(cameraID string, cameraName string) bool {
+func (self *AccessChecker) IsCameraAllowed(cameraId string, cameraName string) bool {
 	if self.allowCameraAll {
 		return true
 	}
-	if self.allowedCameras[normalizeCamera(cameraID)] {
+	if self.allowedCameras[normalizeCamera(cameraId)] {
 		return true
 	}
 	if cameraName != "" && self.allowedCameras[normalizeCamera(cameraName)] {

@@ -127,9 +127,9 @@ func (self *gateway) IsSessionConnected(sessionId string) bool {
 
 // --- Domain operations ---
 
-// ProviderRegistry returns the provider registry from the default runner.
+// ProviderRegistry returns the provider registry from the configured default runner.
 func (self *gateway) ProviderRegistry() *providers.Registry {
-	runner := self.agentRegistry.Default()
+	runner := self.GetRunner(self.config.DefaultAgentID())
 	if runner == nil {
 		return nil
 	}
@@ -137,16 +137,9 @@ func (self *gateway) ProviderRegistry() *providers.Registry {
 	return providerRegistry
 }
 
-// ResolveRunner returns the runner for the given agent ID, defaulting to the configured default agents.
-func (self *gateway) ResolveRunner(agentId string) *agents.Runner {
-	if agentId == "" {
-		agentId = self.agentRegistry.DefaultID()
-	}
-	runner := self.agentRegistry.Get(agentId)
-	if runner == nil {
-		runner = self.agentRegistry.Default()
-	}
-	return runner
+// GetRunner returns the runner for the given agent ID.
+func (self *gateway) GetRunner(agentId string) *agents.Runner {
+	return self.agentRegistry.GetRunner(agentId)
 }
 
 func conversationStoreKey(userId, agentId string) string {
@@ -202,8 +195,8 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.Mod
 		return self.models, nil
 	}
 
-	// Use the default runner to resolve the currently configured providers.
-	defaultRunner := self.agentRegistry.Default()
+	// Use the configured default runner to resolve the currently configured providers.
+	defaultRunner := self.GetRunner(self.config.DefaultAgentID())
 	if defaultRunner == nil {
 		return nil, fmt.Errorf("no default agent runner")
 	}
@@ -275,29 +268,28 @@ func (self *gateway) updateRunnerContextWindows(models map[string][]providers.Mo
 
 // --- Default agent / conversation ---
 
-func (self *gateway) DefaultAgentID() string { return self.agentRegistry.DefaultID() }
-func (self *gateway) DefaultAgentIDForUser(userId string) string {
-	return self.agentRegistry.DefaultIDForUser(userId)
-}
-func (self *gateway) DefaultConversationID(userId, agentId string) string {
-	return self.agentRegistry.DefaultConversationID(userId, agentId)
-}
-
-func (self *gateway) SetDefaultAgent(agentId string) error {
-	err := self.agentRegistry.SetDefaultAgent(agentId)
-	if err == nil {
+func (self *gateway) EnsureDefaultAgent(userId string) (string, error) {
+	agentId, assigned, err := self.agentRegistry.EnsureDefaultAgent(userId, self.config.DefaultAgentID())
+	if err != nil {
+		return "", err
+	}
+	if assigned {
 		self.Broadcast(EventTypeDefaultAgent, map[string]interface{}{
 			"defaultAgentId": agentId,
+			"userId":         userId,
 		})
 	}
-	return err
+	return agentId, nil
+}
+func (self *gateway) EnsureDefaultConversation(userId, agentId string) string {
+	return self.agentRegistry.EnsureDefaultConversation(userId, agentId)
 }
 
-func (self *gateway) SetDefaultAgentForUser(userId, agentId string) error {
+func (self *gateway) SetDefaultAgent(userId, agentId string) error {
 	if userId == "" {
 		return fmt.Errorf("userId is required")
 	}
-	err := self.agentRegistry.SetDefaultAgentForUser(userId, agentId)
+	err := self.agentRegistry.SetDefaultAgent(userId, agentId)
 	if err == nil {
 		self.Broadcast(EventTypeDefaultAgent, map[string]interface{}{
 			"defaultAgentId": agentId,
@@ -341,7 +333,7 @@ func (self *gateway) createConversationFile(userId, agentId, conversationId, mod
 		return
 	}
 	// Resolve model and create conversation file with provider/model in the header.
-	runner := self.ResolveRunner(agentId)
+	runner := self.GetRunner(agentId)
 	if runner == nil {
 		return
 	}
@@ -363,12 +355,12 @@ func (self *gateway) createConversationFile(userId, agentId, conversationId, mod
 	}
 }
 
-func (self *gateway) NewConversation(userId, agentId, model string) string {
+func (self *gateway) NewDefaultConversation(userId, agentId, model string) string {
 	if userId == "" {
 		log.Warningf("new conversation requires non-empty userId")
 		return ""
 	}
-	conversationId := self.agentRegistry.NewConversation(userId, agentId)
+	conversationId := self.agentRegistry.NewDefaultConversation(userId, agentId)
 	self.createConversationFile(userId, agentId, conversationId, model)
 
 	self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
@@ -423,9 +415,15 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	// Resolve agent and runner.
 	resolvedAgentId := parameters.AgentID
 	if resolvedAgentId == "" {
-		resolvedAgentId = self.agentRegistry.DefaultID()
+		defaultAgentId, err := self.EnsureDefaultAgent(userId)
+		if err != nil {
+			return &RunHandle{Done: closedDoneChannel(), Outcome: func() *RunOutcome {
+				return &RunOutcome{Error: fmt.Errorf("cannot determine default agent")}
+			}}
+		}
+		resolvedAgentId = defaultAgentId
 	}
-	runner := self.ResolveRunner(resolvedAgentId)
+	runner := self.GetRunner(resolvedAgentId)
 	if runner == nil {
 		return &RunHandle{Done: closedDoneChannel(), Outcome: func() *RunOutcome {
 			return &RunOutcome{Error: fmt.Errorf("agent not found: %s", resolvedAgentId)}
@@ -701,7 +699,7 @@ func (self *gateway) DeleteConversation(userId, agentId, conversationId string) 
 		return fmt.Errorf("cannot delete conversation with active run")
 	}
 
-	if self.ResolveRunner(agentId) == nil {
+	if self.GetRunner(agentId) == nil {
 		return fmt.Errorf("agent not found: %s", agentId)
 	}
 	store := self.ConversationStore(userId, agentId)
@@ -777,8 +775,9 @@ func (self *gateway) StartVoiceSession(
 	if userId == "" {
 		return nil, fmt.Errorf("userId is required")
 	}
-	if agentId == "" {
-		agentId = self.DefaultAgentID()
+	agentId, err := self.EnsureDefaultAgent(userId)
+	if err != nil {
+		return nil, err
 	}
 	if conversationId == "" {
 		// Start a fresh conversation when the client omits conversation_id.
@@ -839,14 +838,6 @@ func (self *voiceGatewayAdapter) Unsubscribe(sub voice.VoiceSubscriber) {
 		return
 	}
 	self.gw.Unsubscribe(bridge)
-}
-
-func (self *voiceGatewayAdapter) NewConversation(agentId, model string) string {
-	return self.gw.NewConversation(self.userId, agentId, model)
-}
-
-func (self *voiceGatewayAdapter) DefaultAgentID() string {
-	return self.gw.DefaultAgentID()
 }
 
 func (self *voiceGatewayAdapter) ProviderRegistry() voice.VoiceProviderRegistry {

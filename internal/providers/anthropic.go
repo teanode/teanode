@@ -546,12 +546,12 @@ func (self *AnthropicClient) readSSE(ctx context.Context, reader io.Reader, even
 	// Track content blocks by index for mapping tool_use deltas.
 	type blockInfo struct {
 		blockType string
-		toolID    string
+		toolId    string
 		toolName  string
 	}
 	blocks := make(map[int]blockInfo)
 
-	var messageID string
+	var messageId string
 	var messageModel string
 	var pendingEvent string
 
@@ -580,14 +580,14 @@ func (self *AnthropicClient) readSSE(ctx context.Context, reader io.Reader, even
 				events <- StreamEvent{Err: fmt.Errorf("parsing message_start: %w", err)}
 				return
 			}
-			messageID = event.Message.ID
+			messageId = event.Message.ID
 			messageModel = event.Message.Model
 
 			// Emit input token usage (including cache metrics) from message_start.
 			if event.Message.Usage.InputTokens > 0 || event.Message.Usage.CacheCreationInputTokens > 0 || event.Message.Usage.CacheReadInputTokens > 0 {
 				events <- StreamEvent{
 					Chunk: &StreamChunk{
-						ID:    messageID,
+						ID:    messageId,
 						Model: messageModel,
 						Usage: &UsageInfo{
 							PromptTokens:             event.Message.Usage.InputTokens,
@@ -606,14 +606,14 @@ func (self *AnthropicClient) readSSE(ctx context.Context, reader io.Reader, even
 			}
 			blocks[event.Index] = blockInfo{
 				blockType: event.ContentBlock.Type,
-				toolID:    event.ContentBlock.ID,
+				toolId:    event.ContentBlock.ID,
 				toolName:  event.ContentBlock.Name,
 			}
 			// For tool_use blocks, emit the initial tool call delta with ID and name.
 			if event.ContentBlock.Type == "tool_use" {
 				events <- StreamEvent{
 					Chunk: &StreamChunk{
-						ID:    messageID,
+						ID:    messageId,
 						Model: messageModel,
 						Choices: []StreamChoice{{
 							Index: 0,
@@ -644,7 +644,7 @@ func (self *AnthropicClient) readSSE(ctx context.Context, reader io.Reader, even
 			case "text":
 				events <- StreamEvent{
 					Chunk: &StreamChunk{
-						ID:    messageID,
+						ID:    messageId,
 						Model: messageModel,
 						Choices: []StreamChoice{{
 							Index: 0,
@@ -657,7 +657,7 @@ func (self *AnthropicClient) readSSE(ctx context.Context, reader io.Reader, even
 			case "tool_use":
 				events <- StreamEvent{
 					Chunk: &StreamChunk{
-						ID:    messageID,
+						ID:    messageId,
 						Model: messageModel,
 						Choices: []StreamChoice{{
 							Index: 0,
@@ -683,7 +683,7 @@ func (self *AnthropicClient) readSSE(ctx context.Context, reader io.Reader, even
 			finishReason := translateStopReason(event.Delta.StopReason)
 			events <- StreamEvent{
 				Chunk: &StreamChunk{
-					ID:    messageID,
+					ID:    messageId,
 					Model: messageModel,
 					Choices: []StreamChoice{{
 						Index:        0,

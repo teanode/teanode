@@ -99,7 +99,7 @@ func (self *agentCreateTool) Execute(_ context.Context, rawArguments string) (st
 	if !validAgentIdPattern.MatchString(arguments.AgentID) {
 		return "", fmt.Errorf("invalid agentId %q: use lowercase letters, numbers, hyphens, and underscores", arguments.AgentID)
 	}
-	if self.agentRegistry.Get(arguments.AgentID) != nil {
+	if self.agentRegistry.GetRunner(arguments.AgentID) != nil {
 		return "", fmt.Errorf("agent %q already exists", arguments.AgentID)
 	}
 
@@ -176,7 +176,7 @@ func (self *agentListTool) Execute(_ context.Context, _ string) (string, error) 
 			entry["description"] = state.Description
 		}
 		entry["model"] = self.configuration.AgentModel(agentId)
-		if runner := self.agentRegistry.Get(agentId); runner != nil {
+		if runner := self.agentRegistry.GetRunner(agentId); runner != nil {
 			_, _, tools, _, _ := runner.Snapshot()
 			entry["tools"] = tools.Names()
 		}
@@ -249,7 +249,7 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 	}
 
 	// Resolve target runner.
-	targetRunner := self.agentRegistry.Get(arguments.AgentID)
+	targetRunner := self.agentRegistry.GetRunner(arguments.AgentID)
 	if targetRunner == nil {
 		return "", fmt.Errorf("agent %q not found", arguments.AgentID)
 	}
@@ -351,7 +351,7 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	}
 
 	// Resolve target runner.
-	targetRunner := self.agentRegistry.Get(targetAgentId)
+	targetRunner := self.agentRegistry.GetRunner(targetAgentId)
 	if targetRunner == nil {
 		return "", fmt.Errorf("agent %q not found", targetAgentId)
 	}

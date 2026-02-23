@@ -441,13 +441,13 @@ func (self *Client) setAuthorizationHeader(request *http.Request) error {
 }
 
 // Transcribe sends audio to the OpenAI Whisper API and returns transcribed text.
-func (self *Client) Transcribe(ctx context.Context, req TranscribeRequest) (*TranscribeResponse, error) {
+func (self *Client) Transcribe(ctx context.Context, request TranscribeRequest) (*TranscribeResponse, error) {
 	// Build multipart form body.
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
 	// Determine file extension for the form field.
-	ext := req.Format
+	ext := request.Format
 	if ext == "" {
 		ext = "webm"
 	}
@@ -455,17 +455,17 @@ func (self *Client) Transcribe(ctx context.Context, req TranscribeRequest) (*Tra
 	if err != nil {
 		return nil, fmt.Errorf("creating form file: %w", err)
 	}
-	if _, err := io.Copy(part, req.Audio); err != nil {
+	if _, err := io.Copy(part, request.Audio); err != nil {
 		return nil, fmt.Errorf("copying audio data: %w", err)
 	}
 
 	writer.WriteField("model", "whisper-1")
 	writer.WriteField("response_format", "json")
-	if req.Language != "" {
-		writer.WriteField("language", req.Language)
+	if request.Language != "" {
+		writer.WriteField("language", request.Language)
 	}
-	if req.Prompt != "" {
-		writer.WriteField("prompt", req.Prompt)
+	if request.Prompt != "" {
+		writer.WriteField("prompt", request.Prompt)
 	}
 	writer.Close()
 
@@ -502,23 +502,23 @@ func (self *Client) Transcribe(ctx context.Context, req TranscribeRequest) (*Tra
 }
 
 // Synthesize sends text to the OpenAI TTS API and returns an audio stream.
-func (self *Client) Synthesize(ctx context.Context, req SynthesizeRequest) (*SynthesizeResponse, error) {
-	voice := req.Voice
+func (self *Client) Synthesize(ctx context.Context, request SynthesizeRequest) (*SynthesizeResponse, error) {
+	voice := request.Voice
 	if voice == "" {
 		voice = "alloy"
 	}
-	format := req.Format
+	format := request.Format
 	if format == "" {
 		format = "mp3"
 	}
-	speed := req.Speed
+	speed := request.Speed
 	if speed <= 0 {
 		speed = 1.0
 	}
 
 	payload := map[string]interface{}{
 		"model":           "tts-1",
-		"input":           req.Text,
+		"input":           request.Text,
 		"voice":           voice,
 		"response_format": format,
 		"speed":           speed,

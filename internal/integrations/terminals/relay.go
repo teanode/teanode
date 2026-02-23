@@ -59,11 +59,6 @@ func NewRelay() *Relay {
 	}
 }
 
-// HandleWebSocket upgrades the HTTP connection and manages the terminal client link.
-func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Request) {
-	self.HandleWebSocketForUser(writer, request, "")
-}
-
 // HandleWebSocketForUser upgrades and binds a terminal connection to one user.
 func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *http.Request, userId string) {
 	id := request.URL.Query().Get("id")
@@ -114,17 +109,6 @@ func (self *Relay) Connected() bool {
 	return len(self.connections) > 0
 }
 
-// Connections returns a snapshot of all connection IDs with machine info.
-func (self *Relay) Connections() []ConnectionInfo {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	out := make([]ConnectionInfo, 0, len(self.connections))
-	for _, tc := range self.connections {
-		out = append(out, ConnectionInfo{ID: tc.id, Machine: tc.machine})
-	}
-	return out
-}
-
 // ConnectionsForUser returns the caller's terminal connections.
 func (self *Relay) ConnectionsForUser(userId string) []ConnectionInfo {
 	self.mutex.Lock()
@@ -139,17 +123,6 @@ func (self *Relay) ConnectionsForUser(userId string) []ConnectionInfo {
 	return out
 }
 
-// DefaultConnection returns the ID of the first connected terminal,
-// providing backwards compatibility when no connectionId is specified.
-func (self *Relay) DefaultConnection() (string, error) {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	for id := range self.connections {
-		return self.connections[id].id, nil
-	}
-	return "", errors.New("terminal client not connected")
-}
-
 // DefaultConnectionForUser returns the first connection for the given user.
 func (self *Relay) DefaultConnectionForUser(userId string) (string, error) {
 	self.mutex.Lock()
@@ -160,54 +133,6 @@ func (self *Relay) DefaultConnectionForUser(userId string) (string, error) {
 		}
 	}
 	return "", errors.New("terminal client not connected")
-}
-
-// SendCommand sends a command to a specific terminal client and waits for the result.
-func (self *Relay) SendCommand(ctx context.Context, connectionId string, method string, parameters interface{}) (json.RawMessage, error) {
-	self.mutex.Lock()
-	var terminal *terminalConnection
-	for _, candidate := range self.connections {
-		if candidate.id == connectionId {
-			terminal = candidate
-			break
-		}
-	}
-	if terminal == nil {
-		self.mutex.Unlock()
-		return nil, fmt.Errorf("terminal connection %q not found", connectionId)
-	}
-	commandId, resultChannel := terminal.pending.Allocate()
-	connection := terminal.connection
-	self.mutex.Unlock()
-
-	message := map[string]interface{}{
-		"id":     commandId,
-		"method": method,
-	}
-	if parameters != nil {
-		message["params"] = parameters
-	}
-	data, err := json.Marshal(message)
-	if err != nil {
-		terminal.pending.Cancel(commandId)
-		return nil, fmt.Errorf("marshal: %w", err)
-	}
-
-	if err := connection.WriteMessage(websocket.TextMessage, data); err != nil {
-		terminal.pending.Cancel(commandId)
-		return nil, fmt.Errorf("write: %w", err)
-	}
-
-	select {
-	case <-ctx.Done():
-		terminal.pending.Cancel(commandId)
-		return nil, ctx.Err()
-	case result := <-resultChannel:
-		if result.Error != "" {
-			return nil, errors.New(result.Error)
-		}
-		return result.Data, nil
-	}
 }
 
 // SendCommandForUser sends a command, enforcing that connectionId belongs to userId.

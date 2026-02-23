@@ -35,7 +35,7 @@ func (self *mockClient) GetCameras(ctx context.Context) ([]Camera, error) {
 	return self.cameras, nil
 }
 
-func (self *mockClient) GetSnapshot(ctx context.Context, cameraID string) ([]byte, error) {
+func (self *mockClient) GetSnapshot(ctx context.Context, cameraId string) ([]byte, error) {
 	if self.getCamerasErr != nil {
 		return nil, self.getCamerasErr
 	}
@@ -45,12 +45,12 @@ func (self *mockClient) GetSnapshot(ctx context.Context, cameraID string) ([]byt
 	return []byte{0xFF, 0xD8, 0xFF, 0xE0}, nil // minimal JPEG header
 }
 
-func (self *mockClient) PatchCamera(ctx context.Context, cameraID string, payload map[string]interface{}) error {
+func (self *mockClient) PatchCamera(ctx context.Context, cameraId string, payload map[string]interface{}) error {
 	if self.patchError != nil {
 		return self.patchError
 	}
 	self.patchCalls = append(self.patchCalls, patchCall{
-		CameraID: cameraID,
+		CameraID: cameraId,
 		Payload:  payload,
 	})
 	return nil

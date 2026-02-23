@@ -14,6 +14,7 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
 )
@@ -677,7 +678,7 @@ func (self *Runner) buildMessages(
 		hasSummary = true
 		messages = append(messages, providers.ChatMessage{
 			Role:    "system",
-			Content: "Previous conversation summary:\n" + history[idx].ContentText(),
+			Content: prompts.PreviousConversationSummaryPrefix + history[idx].ContentText(),
 		})
 		startIndex = idx + 1
 	}

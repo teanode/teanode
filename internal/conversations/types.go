@@ -50,11 +50,6 @@ func (self *Message) ContentText() string {
 	return string(self.Content)
 }
 
-// SetContentText sets the message content to a plain string.
-func (self *Message) SetContentText(text string) {
-	self.Content, _ = json.Marshal(text)
-}
-
 // NewTextMessage creates a message with plain text content.
 func NewTextMessage(role, text string, timestamp int64) Message {
 	content, _ := json.Marshal(text)

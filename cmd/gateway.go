@@ -27,7 +27,6 @@ import (
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
-	"github.com/teanode/teanode/internal/migrations"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/skills"
@@ -69,12 +68,6 @@ func NewGatewayCommand() *cli.Command {
 		Action: func(ctx context.Context, command *cli.Command) error {
 			// Ensure base directories exist.
 			if err := configs.EnsureDirectories(); err != nil {
-				return err
-			}
-			if err := migrations.MigrateMultiUserV2(); err != nil {
-				return err
-			}
-			if err := migrations.MigrateLegacyTrashDirectories(); err != nil {
 				return err
 			}
 			pidGuard, err := acquireGatewayPIDGuard()
@@ -289,7 +282,7 @@ func NewGatewayCommand() *cli.Command {
 			scheduler = jobs.NewScheduler(jobStore, agentRegistry)
 
 			// Create a runner for each configured agents.
-			for _, agentConfig := range configuration.ResolveAgents() {
+			for _, agentConfig := range configuration.Agents() {
 				if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {
 					return err
 				}
@@ -319,8 +312,7 @@ func NewGatewayCommand() *cli.Command {
 				agentRegistry.Register(agentConfig.ID, runner)
 			}
 
-			// Set the default agent ID from config and restore persisted state.
-			agentRegistry.SetDefault(configuration.ResolveDefaultAgent())
+			// Restore persisted per-user state.
 			agentRegistry.LoadState()
 
 			// --- Gateway + API + Frontend ---
@@ -336,7 +328,7 @@ func NewGatewayCommand() *cli.Command {
 				if agentConfig.ID == "" {
 					return errors.New("agent id is required")
 				}
-				if agentRegistry.Get(agentConfig.ID) != nil {
+				if agentRegistry.GetRunner(agentConfig.ID) != nil {
 					return fmt.Errorf("agent already exists: %s", agentConfig.ID)
 				}
 
@@ -356,7 +348,7 @@ func NewGatewayCommand() *cli.Command {
 				}
 				currentConfiguration := gateway.Config()
 				if currentConfiguration.AgentByID(agentConfig.ID) == nil {
-					currentConfiguration.Agents = append(currentConfiguration.Agents, agentConfig)
+					currentConfiguration.AgentConfigs = append(currentConfiguration.AgentConfigs, agentConfig)
 				}
 				currentProviders := buildProviderRegistry(currentConfiguration)
 				tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, nil, scheduler)
@@ -391,8 +383,8 @@ func NewGatewayCommand() *cli.Command {
 			scheduler.Broadcast = func(event string, payload interface{}) {
 				gateway.Broadcast(gw.EventType(event), payload)
 			}
-			scheduler.NewConversation = func(userId, agentId, model string) string {
-				return gateway.NewConversation(userId, agentId, model)
+			scheduler.NewDefaultConversation = func(userId, agentId, model string) string {
+				return gateway.NewDefaultConversation(userId, agentId, model)
 			}
 			scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 				handle := gateway.SendMessage(ctx, gw.SendMessageParameters{
@@ -441,8 +433,8 @@ func NewGatewayCommand() *cli.Command {
 				currentConfiguration := gateway.Config()
 				currentProviders := buildProviderRegistry(currentConfiguration)
 
-				for _, agentConfig := range currentConfiguration.ResolveAgents() {
-					runner := agentRegistry.Get(agentConfig.ID)
+				for _, agentConfig := range currentConfiguration.Agents() {
+					runner := agentRegistry.GetRunner(agentConfig.ID)
 					if runner == nil {
 						// New agent appeared — create it.
 						if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {

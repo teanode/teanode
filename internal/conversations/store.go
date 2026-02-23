@@ -282,16 +282,6 @@ func (self *Store) SetTitleAndSummary(conversationId, title, summary string) err
 	})
 }
 
-// SetProviderAndModel updates the provider and model in a conversation's header.
-func (self *Store) SetProviderAndModel(conversationId, provider, model string) error {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	return self.updateHeaderUnlocked(conversationId, func(header *Header) {
-		header.Provider = provider
-		header.Model = model
-	})
-}
-
 // updateHeaderUnlocked reads the conversation file, applies mutate to the header, rewrites
 // the file, and restores the original modification time. Caller must hold self.mutex.
 func (self *Store) updateHeaderUnlocked(conversationId string, mutate func(*Header)) error {

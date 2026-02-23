@@ -104,21 +104,19 @@ type Gateway interface {
 	TerminalRelay() *terminals.Relay
 
 	// Domain operations
-	ResolveRunner(agentId string) *agents.Runner
+	GetRunner(agentId string) *agents.Runner
 	ConversationStore(userId, agentId string) *conversations.Store
 	ProviderRegistry() *providers.Registry
 	LoadModels(ctx context.Context) (map[string][]providers.ModelInfo, error)
 	InvalidateModelsCache()
 
 	// Default agent / conversation
-	DefaultAgentID() string
-	DefaultAgentIDForUser(userId string) string
-	SetDefaultAgent(agentId string) error
-	SetDefaultAgentForUser(userId, agentId string) error
-	DefaultConversationID(userId, agentId string) string
+	EnsureDefaultAgent(userId string) (string, error)
+	SetDefaultAgent(userId, agentId string) error
+	EnsureDefaultConversation(userId, agentId string) string
 	SetDefaultConversation(userId, agentId, conversationId string)
 	SetDefaultConversationIfUnset(userId, agentId, conversationId string) bool
-	NewConversation(userId, agentId, model string) string
+	NewDefaultConversation(userId, agentId, model string) string
 
 	// Centralized message sending and run management
 	SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle

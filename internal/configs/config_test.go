@@ -32,6 +32,9 @@ func TestDefaultAgentLimits(t *testing.T) {
 	if DefaultAgentLimits.MinKeepMessages != 10 {
 		t.Errorf("MinKeepMessages = %d, want 10", DefaultAgentLimits.MinKeepMessages)
 	}
+	if DefaultAgentLimits.MinKeepRecentTokens != 8000 {
+		t.Errorf("MinKeepRecentTokens = %d, want 8000", DefaultAgentLimits.MinKeepRecentTokens)
+	}
 	if DefaultAgentLimits.MaxToolResultChars != 8000 {
 		t.Errorf("MaxToolResultChars = %d, want 8000", DefaultAgentLimits.MaxToolResultChars)
 	}
@@ -179,10 +182,11 @@ func TestResolveModelLimits_DefaultAndPerModelOverrides(t *testing.T) {
 		Models: ModelsConfig{
 			Default: "openai:gpt-5.1",
 			DefaultLimits: AgentLimits{
-				MaxToolRounds: 123,
+				MaxToolRounds:       123,
+				MinKeepRecentTokens: 9000,
 			},
 			Limits: ModelRuntimeLimits{
-				{Model: "openai:gpt-5.1", AgentLimits: AgentLimits{MinKeepMessages: 5}},
+				{Model: "openai:gpt-5.1", AgentLimits: AgentLimits{MinKeepMessages: 5, MinKeepRecentTokens: 7000}},
 			},
 		},
 	}
@@ -193,6 +197,9 @@ func TestResolveModelLimits_DefaultAndPerModelOverrides(t *testing.T) {
 	}
 	if limits.MinKeepMessages != 5 {
 		t.Errorf("MinKeepMessages = %d, want 5", limits.MinKeepMessages)
+	}
+	if limits.MinKeepRecentTokens != 7000 {
+		t.Errorf("MinKeepRecentTokens = %d, want 7000", limits.MinKeepRecentTokens)
 	}
 	if limits.CompressionThreshold != DefaultAgentLimits.CompressionThreshold {
 		t.Errorf("CompressionThreshold = %f, want default %f", limits.CompressionThreshold, DefaultAgentLimits.CompressionThreshold)
@@ -222,7 +229,7 @@ func TestResolveModelLimits_IgnoresAgentConfig(t *testing.T) {
 				{Model: "openai:gpt-5.1", AgentLimits: AgentLimits{MaxToolRounds: 300}},
 			},
 		},
-		Agents: []AgentConfig{
+		AgentConfigs: []AgentConfig{
 			{ID: "main", Model: "openai:gpt-5.1"},
 		},
 	}
@@ -277,9 +284,9 @@ func TestResolveSummarizerConfig_PartialOverrides(t *testing.T) {
 
 func TestResolveAgents_Configured(t *testing.T) {
 	configuration := &Config{
-		Agents: []AgentConfig{{ID: "alpha"}, {ID: "beta"}},
+		AgentConfigs: []AgentConfig{{ID: "alpha"}, {ID: "beta"}},
 	}
-	agents := configuration.ResolveAgents()
+	agents := configuration.Agents()
 
 	if len(agents) != 2 {
 		t.Fatalf("len(agents) = %d, want 2", len(agents))
@@ -289,21 +296,28 @@ func TestResolveAgents_Configured(t *testing.T) {
 	}
 }
 
-func TestResolveAgents_DefaultMain(t *testing.T) {
+func TestResolveAgents_PanicsWhenEmpty(t *testing.T) {
 	configuration := &Config{}
-	agents := configuration.ResolveAgents()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic when agents are empty")
+		}
+	}()
+	_ = configuration.Agents()
+}
 
-	if len(agents) != 1 {
-		t.Fatalf("len(agents) = %d, want 1", len(agents))
+func TestResolveDefaultAgent_MainPreferred(t *testing.T) {
+	configuration := &Config{
+		AgentConfigs: []AgentConfig{{ID: "alpha"}, {ID: "main"}, {ID: "beta"}},
 	}
-	if agents[0].ID != DefaultAgentID {
-		t.Errorf("agent ID = %q, want %q", agents[0].ID, DefaultAgentID)
+	if defaultAgentId := configuration.DefaultAgentID(); defaultAgentId != "main" {
+		t.Fatalf("DefaultAgentID() = %q, want main", defaultAgentId)
 	}
 }
 
 func TestAgentByID(t *testing.T) {
 	configuration := &Config{
-		Agents: []AgentConfig{{ID: "alpha"}, {ID: "beta"}},
+		AgentConfigs: []AgentConfig{{ID: "alpha"}, {ID: "beta"}},
 	}
 
 	found := configuration.AgentByID("beta")
@@ -320,7 +334,7 @@ func TestAgentByID(t *testing.T) {
 func TestAgentModel(t *testing.T) {
 	configuration := &Config{
 		Models: ModelsConfig{Default: "openai:gpt-5.1"},
-		Agents: []AgentConfig{
+		AgentConfigs: []AgentConfig{
 			{ID: "alpha", Model: "anthropic:claude-4"},
 			{ID: "beta"},
 		},
@@ -337,21 +351,24 @@ func TestAgentModel(t *testing.T) {
 	}
 }
 
-func TestResolveDefaultAgent(t *testing.T) {
+func TestDefaultAgentID(t *testing.T) {
 	t.Run("first agent", func(t *testing.T) {
 		configuration := &Config{
-			Agents: []AgentConfig{{ID: "alpha"}, {ID: "beta"}},
+			AgentConfigs: []AgentConfig{{ID: "alpha"}, {ID: "beta"}},
 		}
-		if result := configuration.ResolveDefaultAgent(); result != "alpha" {
+		if result := configuration.DefaultAgentID(); result != "alpha" {
 			t.Errorf("got %q, want alpha", result)
 		}
 	})
 
-	t.Run("no agents returns DefaultAgentID", func(t *testing.T) {
+	t.Run("no agents panics", func(t *testing.T) {
 		configuration := &Config{}
-		if result := configuration.ResolveDefaultAgent(); result != DefaultAgentID {
-			t.Errorf("got %q, want %q", result, DefaultAgentID)
-		}
+		defer func() {
+			if recover() == nil {
+				t.Fatal("expected panic when agents are empty")
+			}
+		}()
+		_ = configuration.DefaultAgentID()
 	})
 }
 
@@ -534,7 +551,7 @@ func TestEnsureDirectories(t *testing.T) {
 		t.Fatalf("EnsureDirectories() error: %v", err)
 	}
 
-	expectedSubdirectories := []string{"skills", "projects", "media", "agents", "users", "sessions", ".trash", ".backup", ".migrations"}
+	expectedSubdirectories := []string{"skills", "projects", "media", "agents", "users", "sessions", ".trash", ".backup"}
 	for _, subdirectory := range expectedSubdirectories {
 		path := filepath.Join(directory, subdirectory)
 		info, err := os.Stat(path)
@@ -966,66 +983,6 @@ func TestLoadRaw_NoFile(t *testing.T) {
 	}
 }
 
-func TestLoadRaw_LegacyModelLimitsMapMigratesToList(t *testing.T) {
-	directory := withTempDir(t)
-
-	legacy := []byte(`models:
-  default: openai:gpt-5.1
-  limits:
-    openai:gpt-5.1:
-      maxToolRounds: 321
-      minKeepMessages: 7
-    gpt-5.1:
-      maxToolResultChars: 4321
-`)
-	if err := os.WriteFile(filepath.Join(directory, "config.yaml"), legacy, 0644); err != nil {
-		t.Fatalf("WriteFile error: %v", err)
-	}
-
-	loaded, err := LoadRaw()
-	if err != nil {
-		t.Fatalf("LoadRaw() error: %v", err)
-	}
-	if len(loaded.Models.Limits) != 2 {
-		t.Fatalf("len(Models.Limits) = %d, want 2", len(loaded.Models.Limits))
-	}
-
-	byModel := map[string]AgentLimits{}
-	for _, entry := range loaded.Models.Limits {
-		byModel[entry.Model] = entry.AgentLimits
-	}
-	if byModel["openai:gpt-5.1"].MaxToolRounds != 321 {
-		t.Errorf("openai:gpt-5.1 MaxToolRounds = %d, want 321", byModel["openai:gpt-5.1"].MaxToolRounds)
-	}
-	if byModel["openai:gpt-5.1"].MinKeepMessages != 7 {
-		t.Errorf("openai:gpt-5.1 MinKeepMessages = %d, want 7", byModel["openai:gpt-5.1"].MinKeepMessages)
-	}
-	if byModel["gpt-5.1"].MaxToolResultChars != 4321 {
-		t.Errorf("gpt-5.1 MaxToolResultChars = %d, want 4321", byModel["gpt-5.1"].MaxToolResultChars)
-	}
-}
-
-func TestModelRuntimeLimits_UnmarshalJSONLegacyMap(t *testing.T) {
-	var limits ModelRuntimeLimits
-	raw := []byte(`{"openai:gpt-5.1":{"maxToolRounds":222},"gpt-5.1":{"minKeepMessages":4}}`)
-	if err := json.Unmarshal(raw, &limits); err != nil {
-		t.Fatalf("json.Unmarshal error: %v", err)
-	}
-	if len(limits) != 2 {
-		t.Fatalf("len(limits) = %d, want 2", len(limits))
-	}
-	byModel := map[string]AgentLimits{}
-	for _, entry := range limits {
-		byModel[entry.Model] = entry.AgentLimits
-	}
-	if byModel["openai:gpt-5.1"].MaxToolRounds != 222 {
-		t.Errorf("openai:gpt-5.1 MaxToolRounds = %d, want 222", byModel["openai:gpt-5.1"].MaxToolRounds)
-	}
-	if byModel["gpt-5.1"].MinKeepMessages != 4 {
-		t.Errorf("gpt-5.1 MinKeepMessages = %d, want 4", byModel["gpt-5.1"].MinKeepMessages)
-	}
-}
-
 func TestLoad_AppliesDefaults(t *testing.T) {
 	directory := withTempDir(t)
 
@@ -1048,8 +1005,8 @@ func TestLoad_AppliesDefaults(t *testing.T) {
 	if loaded.Models.Default != "openai:gpt-5.2" {
 		t.Errorf("Default = %q, want openai:gpt-5.2 (default)", loaded.Models.Default)
 	}
-	if loaded.Models.ContextWindow != 400000 {
-		t.Errorf("ContextWindow = %d, want 400000 (default for openai:gpt-5.2)", loaded.Models.ContextWindow)
+	if loaded.Models.ContextWindow != 272000 {
+		t.Errorf("ContextWindow = %d, want 272000 (default for openai:gpt-5.2)", loaded.Models.ContextWindow)
 	}
 	if loaded.Models.DefaultLimits != DefaultAgentLimits {
 		t.Errorf("DefaultLimits = %+v, want %+v", loaded.Models.DefaultLimits, DefaultAgentLimits)
@@ -1072,11 +1029,11 @@ func TestLoad_AutoCreatesDefaultAgent(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if len(loaded.Agents) != 1 {
-		t.Fatalf("len(Agents) = %d, want 1", len(loaded.Agents))
+	if len(loaded.AgentConfigs) != 1 {
+		t.Fatalf("len(Agents) = %d, want 1", len(loaded.AgentConfigs))
 	}
-	if loaded.Agents[0].ID != DefaultAgentID {
-		t.Errorf("agent ID = %q, want %q", loaded.Agents[0].ID, DefaultAgentID)
+	if loaded.AgentConfigs[0].ID != "main" {
+		t.Errorf("agent ID = %q, want %q", loaded.AgentConfigs[0].ID, "main")
 	}
 }
 
@@ -1127,8 +1084,8 @@ func TestApplyDefaults_FillsZeroValues(t *testing.T) {
 	if configuration.Models.Default != "openai:gpt-5.2" {
 		t.Errorf("Default = %q, want openai:gpt-5.2", configuration.Models.Default)
 	}
-	if configuration.Models.ContextWindow != 400000 {
-		t.Errorf("ContextWindow = %d, want 400000 (default for openai:gpt-5.2)", configuration.Models.ContextWindow)
+	if configuration.Models.ContextWindow != 272000 {
+		t.Errorf("ContextWindow = %d, want 272000 (default for openai:gpt-5.2)", configuration.Models.ContextWindow)
 	}
 	if configuration.Models.DefaultLimits != DefaultAgentLimits {
 		t.Errorf("DefaultLimits = %+v, want %+v", configuration.Models.DefaultLimits, DefaultAgentLimits)
@@ -1143,8 +1100,8 @@ func TestApplyDefaults_ContextWindowUsesModelLookup(t *testing.T) {
 	}
 	applyDefaults(configuration)
 
-	if configuration.Models.ContextWindow != 400000 {
-		t.Errorf("ContextWindow = %d, want 400000 for openai:gpt-5.2", configuration.Models.ContextWindow)
+	if configuration.Models.ContextWindow != 272000 {
+		t.Errorf("ContextWindow = %d, want 272000 for openai:gpt-5.2", configuration.Models.ContextWindow)
 	}
 }
 
@@ -1166,7 +1123,7 @@ func TestDefaultContextWindowForModel_KnownPopularModels(t *testing.T) {
 		model string
 		want  int
 	}{
-		{model: "openai:gpt-5.2", want: 400000},
+		{model: "openai:gpt-5.2", want: 272000},
 		{model: "openai:gpt-4.1", want: 1047576},
 		{model: "openai:gpt-4o", want: 128000},
 		{model: "anthropic:claude-sonnet-4-5", want: 200000},
@@ -1186,9 +1143,9 @@ func TestDefaultContextWindowForModel_ProviderAgnostic(t *testing.T) {
 		model string
 		want  int
 	}{
-		{model: "openai:gpt-5.2", want: 400000},
-		{model: "openrouter:gpt-5.2", want: 400000},
-		{model: "anthropic:gpt-5.2", want: 400000},
+		{model: "openai:gpt-5.2", want: 272000},
+		{model: "openrouter:gpt-5.2", want: 272000},
+		{model: "anthropic:gpt-5.2", want: 272000},
 		{model: "openrouter:google/gemini-2.5-flash", want: 1048576},
 	}
 
