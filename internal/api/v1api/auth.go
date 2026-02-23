@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/onboarding"
 	"github.com/teanode/teanode/internal/util/ratelimit"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
@@ -106,6 +107,9 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 	// Update in-memory and save to security.yaml.
 	if err := configs.SaveSecurity(securityConfig); err != nil {
 		return web.Error(500, "failed to save security config")
+	}
+	if err := onboarding.InitializeUser(self.gateway, userId); err != nil {
+		return web.Error(500, "failed to initialize user onboarding")
 	}
 	// Auto-create a session for the user.
 	maxAge := resolveMaxAge(self.gateway.Config())

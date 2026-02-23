@@ -477,7 +477,6 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 
 	// Run agent in background goroutine.
 	go func() {
-		defer close(done)
 		defer func() {
 			// Clean up run tracking.
 			self.activeRunsMutex.Lock()
@@ -496,6 +495,10 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			// Fire any deferred lifecycle action now that the run is complete.
 			self.firePendingLifecycle()
 		}()
+		// Signal run completion to callers before cleanup may trigger a deferred
+		// lifecycle action (restart/shutdown). Channel callers (e.g. Telegram)
+		// use this to flush the final response before process restart.
+		defer close(done)
 
 		isAdmin := false
 		if self.securityConfig != nil {

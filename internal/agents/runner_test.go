@@ -443,6 +443,81 @@ func TestBuildSystemPromptIncludesUserWorkspaceFiles(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptIncludesOnboardingOnlyWhenPresent(t *testing.T) {
+	configuration := &configs.Config{}
+	agentWorkspaceDirectory := t.TempDir()
+	userWorkspaceDirectory := t.TempDir()
+
+	withOnboarding := BuildSystemPrompt(configuration, "", "", agentWorkspaceDirectory, userWorkspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	if strings.Contains(withOnboarding, "Onboarding Notes (ONBOARDING.md)") {
+		t.Fatal("prompt should not include ONBOARDING section when file is missing")
+	}
+
+	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "ONBOARDING.md"), []byte("Ask about language and timezone"), 0644); err != nil {
+		t.Fatalf("write ONBOARDING.md: %v", err)
+	}
+
+	withOnboarding = BuildSystemPrompt(configuration, "", "", agentWorkspaceDirectory, userWorkspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	if !strings.Contains(withOnboarding, "Onboarding Notes (ONBOARDING.md)") {
+		t.Fatal("prompt should include ONBOARDING section when file exists")
+	}
+	if !strings.Contains(withOnboarding, "Ask about language and timezone") {
+		t.Fatal("prompt should include ONBOARDING.md content")
+	}
+}
+
+func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
+	configuration := &configs.Config{}
+	userWorkspaceDirectory := t.TempDir()
+	onboardingInstructions := "Collect preferred name, verbosity, language, timezone, and goals."
+	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "ONBOARDING.md"), []byte(onboardingInstructions), 0644); err != nil {
+		t.Fatalf("write ONBOARDING.md: %v", err)
+	}
+
+	history := []conversations.Message{
+		conversations.NewTextMessage("assistant", "Welcome! To get started, tell me your preferred name and timezone.", 1),
+		conversations.NewTextMessage("user", "I'm Alex, PST timezone.", 2),
+	}
+
+	runner := &Runner{AgentID: "default"}
+	messages := runner.buildMessages(
+		history,
+		configs.DefaultAgentLimits,
+		"",
+		configuration,
+		"user-1",
+		"",
+		userWorkspaceDirectory,
+		"",
+		&configs.UserProfile{Name: "Alex"},
+	)
+
+	if len(messages) < 3 {
+		t.Fatalf("expected at least 3 provider messages (system + history), got %d", len(messages))
+	}
+	if messages[0].Role != "system" {
+		t.Fatalf("messages[0].role = %q, want system", messages[0].Role)
+	}
+	systemPrompt := messages[0].ContentText()
+	if !strings.Contains(systemPrompt, "Onboarding Notes (ONBOARDING.md)") {
+		t.Fatal("system prompt should include onboarding section when ONBOARDING.md exists")
+	}
+	if !strings.Contains(systemPrompt, onboardingInstructions) {
+		t.Fatal("system prompt should include ONBOARDING.md content")
+	}
+
+	if messages[1].Role != "assistant" {
+		t.Fatalf("messages[1].role = %q, want assistant", messages[1].Role)
+	}
+	if !strings.Contains(messages[1].ContentText(), "tell me your preferred name and timezone") {
+		t.Fatalf("messages[1] content = %q, expected seeded onboarding question", messages[1].ContentText())
+	}
+
+	if messages[2].Role != "user" {
+		t.Fatalf("messages[2].role = %q, want user", messages[2].Role)
+	}
+}
+
 func TestBuildSystemPromptIncludesOtherUsers(t *testing.T) {
 	configs.SetDirectory(t.TempDir())
 	t.Cleanup(func() { configs.SetDirectory("") })

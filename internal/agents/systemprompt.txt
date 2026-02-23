@@ -51,6 +51,12 @@ Home directory: {{.HomeDirectory}}
 
 {{.UserMemory}}
 {{- end}}
+{{- if .UserOnboarding}}
+
+## Onboarding Notes (ONBOARDING.md)
+
+{{.UserOnboarding}}
+{{- end}}
 {{- if .SkillsContent}}
 
 ## Learned Skills (SKILLS.md)

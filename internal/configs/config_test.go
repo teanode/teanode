@@ -853,7 +853,7 @@ func TestSeedUserWorkspace(t *testing.T) {
 	}
 
 	workspaceDirectory, _ := UserWorkspaceDirectory("user-1")
-	for _, filename := range []string{"USER.md", "MEMORY.md"} {
+	for _, filename := range []string{"USER.md", "ONBOARDING.md", "MEMORY.md"} {
 		path := filepath.Join(workspaceDirectory, filename)
 		info, err := os.Stat(path)
 		if err != nil {
@@ -890,6 +890,38 @@ func TestSeedUserWorkspace_SkipsExisting(t *testing.T) {
 	}
 	if string(data) != "custom user content" {
 		t.Errorf("USER.md was overwritten, got %q", string(data))
+	}
+
+	onboardingPath := filepath.Join(workspaceDirectory, "ONBOARDING.md")
+	if _, err := os.Stat(onboardingPath); err != nil {
+		t.Fatalf("expected ONBOARDING.md to still exist after reseed: %v", err)
+	}
+}
+
+func TestSeedUserWorkspace_DoesNotCreateOnboardingWithoutUserFileCreation(t *testing.T) {
+	withTempDir(t)
+
+	if err := EnsureUserDirectories("user-1"); err != nil {
+		t.Fatalf("EnsureUserDirectories() error: %v", err)
+	}
+
+	workspaceDirectory, _ := UserWorkspaceDirectory("user-1")
+	userPath := filepath.Join(workspaceDirectory, "USER.md")
+	onboardingPath := filepath.Join(workspaceDirectory, "ONBOARDING.md")
+
+	if err := os.Remove(onboardingPath); err != nil {
+		t.Fatalf("remove ONBOARDING.md: %v", err)
+	}
+	if _, err := os.Stat(userPath); err != nil {
+		t.Fatalf("expected USER.md to exist before reseed: %v", err)
+	}
+
+	if err := SeedUserWorkspace("user-1"); err != nil {
+		t.Fatalf("SeedUserWorkspace() error: %v", err)
+	}
+
+	if _, err := os.Stat(onboardingPath); !os.IsNotExist(err) {
+		t.Fatalf("expected ONBOARDING.md to stay absent when USER.md already exists, got err=%v", err)
 	}
 }
 

@@ -671,7 +671,9 @@ func (self *Runner) buildMessages(
 
 	// Find the last context summary and start from there.
 	startIndex := 0
+	hasSummary := false
 	if idx := findLastSummaryIndex(history); idx >= 0 {
+		hasSummary = true
 		messages = append(messages, providers.ChatMessage{
 			Role:    "system",
 			Content: "Previous conversation summary:\n" + history[idx].ContentText(),
@@ -684,7 +686,7 @@ func (self *Runner) buildMessages(
 	// auto-compression), messages from that run follow the summary on disk.
 	// Advance past the next complete LLM turn (an assistant message with a
 	// terminal stopReason) so we start from a clean boundary.
-	if startIndex < len(history) && history[startIndex].Role != "user" {
+	if hasSummary && startIndex < len(history) && history[startIndex].Role != "user" {
 		for startIndex < len(history) {
 			message := history[startIndex]
 			startIndex++
