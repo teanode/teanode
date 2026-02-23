@@ -483,3 +483,27 @@ Started: 2026-02-22T21:56:22Z
       FAIL `DEEPGRAM_API_KEY=<set> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave6.json` -> Passed:5 Failed:1 (`s3_long`: no transcript.final; similarity 0.00 < 0.45)
       SKIP `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave6.json`
   - Next: hold Wave 7+; investigate deterministic `s3_long` transcript starvation under streaming STT and add targeted fix before re-running Wave 6 gate.
+
+- 2026-02-23T03:19:32Z
+  - Wave: 6
+  - Task: gate-retry
+  - Status: in_progress
+  - Branch: pipeline
+  - Commit: 3c581e9
+  - Validations: |
+      PASS `go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -scenario s3_long -out test/voicee2e/reports/w6-s3-check.json` -> Passed:1 Failed:0
+      PASS `go build ./...`
+      PASS `go vet ./...`
+      PASS `go test -race ./internal/voice/...`
+  - Next: rerun full Wave 6 e2e gate and compare.
+
+- 2026-02-23T03:19:32Z
+  - Wave: 6
+  - Task: gate
+  - Status: passed
+  - Branch: pipeline
+  - Commit: 3c581e9
+  - Validations: |
+      PASS `DEEPGRAM_API_KEY=<set> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave6.json` -> Passed:6 Failed:0
+      PASS `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave6.json`
+  - Next: advance to Wave 7 task L2.3 (streaming TTS).

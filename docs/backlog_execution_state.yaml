@@ -1,4 +1,4 @@
-current_wave: 6
+current_wave: 7
 tasks:
   - id: S1
     wave: 0
@@ -95,10 +95,10 @@ tasks:
     branch: codex/l2-1-speculative-llm
     status: complete
     started_at: "2026-02-23T02:21:03Z"
-    finished_at: "2026-02-23T03:01:15Z"
-    commit: "d3605cc"
+    finished_at: "2026-02-23T03:19:32Z"
+    commit: "1c22f3b"
     validations_passed: true
-    notes: "Speculative LLM implemented with gateway cancel path, similarity scoring, guard rails, and streaming fallback fixes. Task branch validations passed; merged to pipeline as 0b239be, 22278b4, 52e027f, 64fe56c, 1a7b7a8."
+    notes: "Speculative LLM implemented with gateway cancel path, similarity scoring, guard rails, and streaming fallback fixes. Final long-turn stability fixes: 98654b0, 902dd21, 1c22f3b. Merged to pipeline through 3c581e9."
   - id: L2.3
     wave: 7
     branch: codex/l2-3-streaming-tts
@@ -183,14 +183,14 @@ wave_gates:
       - "go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave5-legacy.json"
     summary: "PASSED: go build/go vet/go test -race ./internal/voice/... succeeded. Legacy strategy regression run passed 6/6 at test/voicee2e/reports/after-wave5-legacy.json; compare command vs baseline completed."
   - wave: 6
-    status: failed
+    status: passed
     commands:
       - "go build ./..."
       - "go vet ./..."
       - "go test -race ./internal/voice/..."
       - "DEEPGRAM_API_KEY=<key> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://localhost:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave6.json"
       - "go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave6.json"
-    summary: "FAILED after repeated retries: go build/go vet/go test -race ./internal/voice/... passed, but Wave 6 e2e remains 5/6 with deterministic s3_long failure (no transcript.final; similarity 0.00 < 0.45). Compare step skipped while gate failed."
+    summary: "PASSED after long-turn commit-path fixes: go build/go vet/go test -race ./internal/voice/... passed; e2e report test/voicee2e/reports/after-wave6.json is 6/6; compare vs baseline passed."
   - wave: 7
     status: pending
     commands:
@@ -220,4 +220,4 @@ wave_gates:
     commands:
       - "docs validation only"
     summary: ""
-last_updated: "2026-02-23T03:01:15Z"
+last_updated: "2026-02-23T03:19:32Z"
