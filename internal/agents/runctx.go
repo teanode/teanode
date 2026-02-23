@@ -8,6 +8,7 @@ const contextKeyConversationId runContextKey = "conversationId"
 const contextKeySpawnDepth runContextKey = "spawnDepth"
 const contextKeyRunner runContextKey = "runner"
 const contextKeyUserId runContextKey = "userId"
+const contextKeyAdmin runContextKey = "isAdmin"
 
 // DefaultMaxSpawnDepth is the maximum recursion depth for subagent spawning.
 const DefaultMaxSpawnDepth = 5
@@ -54,4 +55,21 @@ func ContextWithUserID(ctx context.Context, userId string) context.Context {
 func UserIDFromContext(ctx context.Context) string {
 	value, _ := ctx.Value(contextKeyUserId).(string)
 	return value
+}
+
+// ContextWithAdmin enriches context with whether the current user is an admin.
+func ContextWithAdmin(ctx context.Context, isAdmin bool) context.Context {
+	return context.WithValue(ctx, contextKeyAdmin, isAdmin)
+}
+
+// IsAdminFromContext returns whether the current user is an admin.
+func IsAdminFromContext(ctx context.Context) bool {
+	value, _ := ctx.Value(contextKeyAdmin).(bool)
+	return value
+}
+
+// AdminFromContext returns admin status and whether it was explicitly set.
+func AdminFromContext(ctx context.Context) (bool, bool) {
+	value, ok := ctx.Value(contextKeyAdmin).(bool)
+	return value, ok
 }

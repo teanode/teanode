@@ -437,6 +437,9 @@ func (self *webSocketConnection) handleModelsList(frame requestFrame) {
 
 // handleConfigSchema: return the config schema for UI form generation.
 func (self *webSocketConnection) handleConfigSchema(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"schema": configs.ConfigSchema(),
 	})
@@ -445,6 +448,9 @@ func (self *webSocketConnection) handleConfigSchema(frame requestFrame) {
 // handleConfigGet: return the raw on-disk config.
 // Only returns user-specified values, not defaults or environment overrides.
 func (self *webSocketConnection) handleConfigGet(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	// Load raw config from disk (no defaults, no env overrides).
 	config, err := configs.LoadRaw()
 	if err != nil {
@@ -465,6 +471,9 @@ type configUpdateParameters struct {
 // handleConfigUpdate: merge a partial config into the raw on-disk config and save.
 // Only user-specified values are persisted; defaults and env overrides are not saved.
 func (self *webSocketConnection) handleConfigUpdate(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters configUpdateParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -543,6 +552,9 @@ func deepMerge(destination map[string]interface{}, source map[string]interface{}
 
 // handleAgentsConfigSchema: return the agent config schema for UI form generation.
 func (self *webSocketConnection) handleAgentsConfigSchema(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	suggestions := map[string][]string{}
 
 	// Collect tool names from the default runner.
@@ -568,6 +580,9 @@ func (self *webSocketConnection) handleAgentsConfigSchema(frame requestFrame) {
 
 // handleAgentsConfigList: return all agent configs from per-agent files.
 func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	agents, err := configs.LoadAgents()
 	if err != nil {
 		self.sendError(frame.ID, 500, "loading agents: "+err.Error())
@@ -609,6 +624,9 @@ type agentsConfigSaveParameters struct {
 
 // handleAgentsConfigSave: save a single agent config to its per-agent file.
 func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters agentsConfigSaveParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -634,6 +652,9 @@ type agentsConfigDeleteParameters struct {
 
 // handleAgentsConfigDelete: delete an agent's config directory.
 func (self *webSocketConnection) handleAgentsConfigDelete(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters agentsConfigDeleteParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -665,6 +686,9 @@ type agentsAvatarSetParameters struct {
 }
 
 func (self *webSocketConnection) handleAgentsAvatarSet(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters agentsAvatarSetParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -712,6 +736,9 @@ type agentsAvatarRemoveParameters struct {
 }
 
 func (self *webSocketConnection) handleAgentsAvatarRemove(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters agentsAvatarRemoveParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -977,11 +1004,18 @@ func (self *webSocketConnection) handleSessionsList(frame requestFrame) {
 		self.sendError(frame.ID, 500, "listing sessions: "+err.Error())
 		return
 	}
-	if sessionList == nil {
-		sessionList = []*sessions.Session{}
+	filteredSessions := make([]*sessions.Session, 0, len(sessionList))
+	for _, session := range sessionList {
+		if session == nil {
+			continue
+		}
+		if session.UserID != self.userId {
+			continue
+		}
+		filteredSessions = append(filteredSessions, session)
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"sessions":         sessionList,
+		"sessions":         filteredSessions,
 		"currentSessionId": self.sessionId,
 	})
 }
@@ -1010,6 +1044,23 @@ func (self *webSocketConnection) handleSessionsRevoke(frame requestFrame) {
 	store := self.api.gateway.SessionStore()
 	if store == nil {
 		self.sendError(frame.ID, 500, "session store not available")
+		return
+	}
+
+	sessionList, err := store.List()
+	if err != nil {
+		self.sendError(frame.ID, 500, "listing sessions: "+err.Error())
+		return
+	}
+	ownsSession := false
+	for _, session := range sessionList {
+		if session != nil && session.ID == parameters.SessionID && session.UserID == self.userId {
+			ownsSession = true
+			break
+		}
+	}
+	if !ownsSession {
+		self.sendError(frame.ID, 404, "session not found: "+parameters.SessionID)
 		return
 	}
 	if err := store.Delete(parameters.SessionID); err != nil {
@@ -1681,6 +1732,9 @@ func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
 // --- Projects RPC handlers ---
 
 func (self *webSocketConnection) handleProjectsList(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	items, err := projectstore.List()
 	if err != nil {
 		self.sendError(frame.ID, 500, "listing projects: "+err.Error())
@@ -1712,6 +1766,9 @@ func projectRpcError(err error, operation string) (int, string) {
 	return 500, operation + ": " + message
 }
 func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters projectsCreateParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -1738,6 +1795,9 @@ type projectsRenameParameters struct {
 }
 
 func (self *webSocketConnection) handleProjectsRename(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters projectsRenameParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -1767,6 +1827,9 @@ type projectsDeleteParameters struct {
 }
 
 func (self *webSocketConnection) handleProjectsDelete(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters projectsDeleteParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -1789,6 +1852,9 @@ func (self *webSocketConnection) handleProjectsDelete(frame requestFrame) {
 // --- Skills Registry RPC handlers ---
 
 func (self *webSocketConnection) handleSkillsRegistryList(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	configuration := self.api.gateway.Config()
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"registries": configuration.SkillsRegistries,
@@ -1800,6 +1866,9 @@ type skillsRegistrySearchParameters struct {
 }
 
 func (self *webSocketConnection) handleSkillsLocalList(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	skillsDirectory, err := configs.SkillsDirectory()
 	if err != nil {
 		self.sendError(frame.ID, 500, "resolving skills directory: "+err.Error())
@@ -1830,6 +1899,9 @@ func (self *webSocketConnection) handleSkillsLocalList(frame requestFrame) {
 }
 
 func (self *webSocketConnection) handleSkillsRegistrySearch(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters skillsRegistrySearchParameters
 	if frame.Params != nil {
 		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
@@ -1854,6 +1926,9 @@ type skillsInstallParameters struct {
 }
 
 func (self *webSocketConnection) handleSkillsInstall(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters skillsInstallParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -1877,6 +1952,9 @@ func (self *webSocketConnection) handleSkillsInstall(frame requestFrame) {
 }
 
 func (self *webSocketConnection) handleSkillsInstalledList(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	installed, err := skills.ListInstalled()
 	if err != nil {
 		self.sendError(frame.ID, 500, "listing installed skills: "+err.Error())
@@ -1892,6 +1970,9 @@ type skillsUninstallParameters struct {
 }
 
 func (self *webSocketConnection) handleSkillsUninstall(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters skillsUninstallParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -1919,6 +2000,9 @@ type skillsSetEnabledParameters struct {
 }
 
 func (self *webSocketConnection) handleSkillsSetEnabled(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters skillsSetEnabledParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -1953,6 +2037,9 @@ type skillsUpdateParameters struct {
 }
 
 func (self *webSocketConnection) handleSkillsUpdate(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
 	var parameters skillsUpdateParameters
 	if frame.Params != nil {
 		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
