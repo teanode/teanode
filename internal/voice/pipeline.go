@@ -80,6 +80,10 @@ func (self *Session) audioInputLoop() {
 						continue
 					}
 					if self.getStreamingTranscribeStream() != nil {
+						fallbackText := strings.TrimSpace(self.getInterimText())
+						if fallbackText != "" {
+							self.handleFinalTranscript(turnId, fallbackText)
+						}
 						self.FinishTurnTranscription(turnId)
 						continue
 					}
