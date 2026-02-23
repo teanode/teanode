@@ -239,8 +239,7 @@ export default function SettingsNav({
               primaryTypographyProps={{
                 variant: "caption",
                 fontSize: "13px",
-                color:
-                  activeSectionId === "tokens" ? "#fff" : "text.secondary",
+                color: activeSectionId === "tokens" ? "#fff" : "text.secondary",
               }}
             />
           </ListItemButton>

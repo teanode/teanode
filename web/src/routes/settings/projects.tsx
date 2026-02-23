@@ -57,20 +57,17 @@ export default function SettingsProjectsPage() {
     void loadProjects();
   }, [loadProjects]);
 
-  const sortedProjects = useMemo(
-    () => {
-      const updatedAtMs = (value?: string) => {
-        if (!value) return 0;
-        const timestamp = Date.parse(value);
-        return Number.isNaN(timestamp) ? 0 : timestamp;
-      };
-      return [...projects].sort(
-        (left, right) =>
-          updatedAtMs(right.updatedAt) - updatedAtMs(left.updatedAt),
-      );
-    },
-    [projects],
-  );
+  const sortedProjects = useMemo(() => {
+    const updatedAtMs = (value?: string) => {
+      if (!value) return 0;
+      const timestamp = Date.parse(value);
+      return Number.isNaN(timestamp) ? 0 : timestamp;
+    };
+    return [...projects].sort(
+      (left, right) =>
+        updatedAtMs(right.updatedAt) - updatedAtMs(left.updatedAt),
+    );
+  }, [projects]);
 
   const renameProject = useCallback(
     async (project: ProjectEntry) => {

@@ -346,7 +346,15 @@ export default function SettingsUsersPage() {
                 mb: 1.5,
               }}
             >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0, flex: 1 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1.5,
+                  minWidth: 0,
+                  flex: 1,
+                }}
+              >
                 <Avatar sx={{ width: 40, height: 40 }}>+</Avatar>
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <TextField
@@ -365,7 +373,13 @@ export default function SettingsUsersPage() {
                       },
                     }}
                   />
-                  <Box sx={{ display: "flex", alignItems: "center", color: "text.secondary" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      color: "text.secondary",
+                    }}
+                  >
                     <Typography variant="caption" sx={{ mr: 0.25 }}>
                       @
                     </Typography>
@@ -374,7 +388,9 @@ export default function SettingsUsersPage() {
                       size="small"
                       placeholder={t("auth.username")}
                       value={createUsername}
-                      onChange={(event) => setCreateUsername(event.target.value)}
+                      onChange={(event) =>
+                        setCreateUsername(event.target.value)
+                      }
                       InputProps={{ disableUnderline: true }}
                       sx={{
                         width: "100%",
@@ -413,7 +429,12 @@ export default function SettingsUsersPage() {
         </Box>
       </Container>
 
-      <Dialog open={!!editingUser} onClose={closeEditModal} fullWidth maxWidth="sm">
+      <Dialog
+        open={!!editingUser}
+        onClose={closeEditModal}
+        fullWidth
+        maxWidth="sm"
+      >
         <DialogTitle>{t("common.edit")}</DialogTitle>
         <DialogContent sx={{ pt: 1.5 }}>
           <Box sx={{ display: "grid", gap: 1.5 }}>

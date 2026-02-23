@@ -201,12 +201,12 @@ func (self *Scheduler) tick(when time.Time) {
 		if !job.Enabled {
 			continue
 		}
-			if job.RunAt > 0 {
-				if nowMilliseconds >= job.RunAt {
-					go self.executeJob(ownedJob.UserID, job)
-				}
-				continue
+		if job.RunAt > 0 {
+			if nowMilliseconds >= job.RunAt {
+				go self.executeJob(ownedJob.UserID, job)
 			}
+			continue
+		}
 		expression, ok := expressions[ownedJob.UserID+":"+job.ID]
 		if !ok {
 			continue

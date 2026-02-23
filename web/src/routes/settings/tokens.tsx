@@ -71,7 +71,9 @@ export default function SettingsTokensPage() {
     if (!pendingDelete) return;
     setError(null);
     try {
-      await backend.sendRpc("auth.tokens.delete", { tokenId: pendingDelete.id });
+      await backend.sendRpc("auth.tokens.delete", {
+        tokenId: pendingDelete.id,
+      });
       setPendingDelete(null);
       loadTokens();
     } catch (err) {
@@ -118,7 +120,9 @@ export default function SettingsTokensPage() {
             const visible = !!visibleByTokenId[token.id];
             return (
               <Paper key={token.id} variant="outlined" sx={{ p: 2 }}>
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
+                <Box
+                  sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}
+                >
                   <TextField
                     label={t("auth.tokensTitle")}
                     type={visible ? "text" : "password"}
@@ -177,14 +181,16 @@ export default function SettingsTokensPage() {
                   >
                     <Box sx={{ minWidth: 0 }}>
                       <Typography variant="caption" color="text.secondary">
-                        {t("auth.tokenCreatedAt")}: {formatDate(token.createdAt)}
+                        {t("auth.tokenCreatedAt")}:{" "}
+                        {formatDate(token.createdAt)}
                       </Typography>
                       <Typography
                         variant="caption"
                         color="text.secondary"
                         sx={{ display: "block" }}
                       >
-                        {t("auth.tokenLastUsedAt")}: {formatDate(token.lastUsedAt)}
+                        {t("auth.tokenLastUsedAt")}:{" "}
+                        {formatDate(token.lastUsedAt)}
                       </Typography>
                     </Box>
                     <Tooltip title={t("common.delete")}>

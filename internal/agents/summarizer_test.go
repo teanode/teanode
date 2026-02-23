@@ -85,4 +85,3 @@ func TestSummarizerSkipsNilConversationStore(t *testing.T) {
 	summarizer := NewSummarizer(registry, &configs.Config{})
 	summarizer.summarizeAll(context.Background())
 }
-
