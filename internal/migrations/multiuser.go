@@ -433,13 +433,28 @@ func migrateLegacyProfileFile(path, userId string) error {
 func parseLegacyProfile(data []byte) *configs.UserProfile {
 	type profileYaml struct {
 		Name          string `yaml:"name"`
+		Description   string `yaml:"description"`
+		Bio           string `yaml:"bio"`
 		AvatarMediaID string `yaml:"avatarMediaId"`
+	}
+	resolveDescription := func(description, bio, body string) string {
+		trimmedDescription := strings.TrimSpace(description)
+		if trimmedDescription != "" {
+			return trimmedDescription
+		}
+		trimmedBio := strings.TrimSpace(bio)
+		if trimmedBio != "" {
+			return trimmedBio
+		}
+		return strings.TrimSpace(body)
 	}
 	var parsed profileYaml
 	if err := yaml.Unmarshal(data, &parsed); err == nil {
-		if strings.TrimSpace(parsed.Name) != "" || strings.TrimSpace(parsed.AvatarMediaID) != "" {
+		description := resolveDescription(parsed.Description, parsed.Bio, "")
+		if strings.TrimSpace(parsed.Name) != "" || strings.TrimSpace(parsed.AvatarMediaID) != "" || description != "" {
 			return &configs.UserProfile{
 				Name:          strings.TrimSpace(parsed.Name),
+				Description:   description,
 				AvatarMediaID: strings.TrimSpace(parsed.AvatarMediaID),
 			}
 		}
@@ -452,14 +467,16 @@ func parseLegacyProfile(data []byte) *configs.UserProfile {
 		if endIndex >= 0 {
 			frontMatter := rest[:endIndex]
 			if err := yaml.Unmarshal([]byte(frontMatter), &parsed); err == nil {
+				description := resolveDescription(parsed.Description, parsed.Bio, rest[endIndex+len("\n---"):])
 				return &configs.UserProfile{
 					Name:          strings.TrimSpace(parsed.Name),
+					Description:   description,
 					AvatarMediaID: strings.TrimSpace(parsed.AvatarMediaID),
 				}
 			}
 		}
 	}
-	return &configs.UserProfile{}
+	return &configs.UserProfile{Description: strings.TrimSpace(content)}
 }
 
 func backupIfExists(path, backupDirectory string) error {

@@ -136,6 +136,13 @@ func TestMigrateMultiUserV2_V1ToV2AndLegacyMoves(t *testing.T) {
 	if _, err := os.Stat(userProfile); err != nil {
 		t.Fatalf("migrated user profile missing: %v", err)
 	}
+	profile, err := configs.LoadUserProfile(userId)
+	if err != nil {
+		t.Fatalf("LoadUserProfile: %v", err)
+	}
+	if profile.Description != "legacy profile" {
+		t.Fatalf("description = %q, want %q", profile.Description, "legacy profile")
+	}
 	if _, err := os.Stat(filepath.Join(root, "projects", "p1", "workspace", "notes.txt")); err != nil {
 		t.Fatalf("migrated project workspace file missing: %v", err)
 	}
