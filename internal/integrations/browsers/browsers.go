@@ -32,6 +32,18 @@ type Browser interface {
 	Connected() bool
 }
 
+// UserScopedBrowser is a Browser that can scope targets by authenticated user.
+type UserScopedBrowser interface {
+	TargetsForUser(userId string) []ConnectedTarget
+	DefaultTargetForUser(userId string) (*ConnectedTarget, error)
+	TargetByConnectionIDForUser(userId, connectionId string) (*ConnectedTarget, error)
+}
+
+// TargetOwnerAssigner can label newly-created targets as belonging to a user.
+type TargetOwnerAssigner interface {
+	AssignTargetToUser(userId, targetId string)
+}
+
 // CompositeBrowser merges multiple Browser backends (e.g. headless + relay)
 // into a single Browser. Targets from all backends are combined, and commands
 // are routed to whichever backend owns the target session.
@@ -89,4 +101,44 @@ func (self *CompositeBrowser) SendCDPCommand(ctx context.Context, method string,
 		}
 	}
 	return nil, fmt.Errorf("no backend found for session %q", sessionId)
+}
+
+func (self *CompositeBrowser) TargetsForUser(userId string) []ConnectedTarget {
+	var allTargets []ConnectedTarget
+	for _, backend := range self.backends {
+		scoped, ok := backend.(UserScopedBrowser)
+		if !ok {
+			continue
+		}
+		allTargets = append(allTargets, scoped.TargetsForUser(userId)...)
+	}
+	return allTargets
+}
+
+func (self *CompositeBrowser) DefaultTargetForUser(userId string) (*ConnectedTarget, error) {
+	for _, backend := range self.backends {
+		scoped, ok := backend.(UserScopedBrowser)
+		if !ok {
+			continue
+		}
+		target, err := scoped.DefaultTargetForUser(userId)
+		if err == nil {
+			return target, nil
+		}
+	}
+	return nil, errors.New("no attached browser tab")
+}
+
+func (self *CompositeBrowser) TargetByConnectionIDForUser(userId, connectionId string) (*ConnectedTarget, error) {
+	for _, backend := range self.backends {
+		scoped, ok := backend.(UserScopedBrowser)
+		if !ok {
+			continue
+		}
+		target, err := scoped.TargetByConnectionIDForUser(userId, connectionId)
+		if err == nil {
+			return target, nil
+		}
+	}
+	return nil, fmt.Errorf("browser connection %q not found", connectionId)
 }

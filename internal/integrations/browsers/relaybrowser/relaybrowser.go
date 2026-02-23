@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,7 @@ var wsUpgrader = websocket.Upgrader{
 
 // relayConnection holds the state for a single extension WebSocket connection.
 type relayConnection struct {
+	userId     string
 	connection *websocket.Conn
 	targets    map[string]*browsers.ConnectedTarget // sessionId -> target
 	pending    *pending.Requests
@@ -47,6 +49,16 @@ func NewRelay() *Relay {
 
 // HandleWebSocket upgrades the HTTP connection and manages the extension link.
 func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Request) {
+	self.HandleWebSocketForUser(writer, request, "")
+}
+
+// HandleWebSocketForUser upgrades and binds a browser extension connection to one user.
+func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *http.Request, userId string) {
+	userId = strings.TrimSpace(userId)
+	if userId == "" {
+		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	conn, err := wsUpgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		log.Errorf("upgrade error: %v", err)
@@ -57,6 +69,7 @@ func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Req
 	self.nextConnection++
 	connectionId := strconv.Itoa(self.nextConnection)
 	rc := &relayConnection{
+		userId:     userId,
 		connection: conn,
 		targets:    make(map[string]*browsers.ConnectedTarget),
 		pending:    pending.NewRequests(),
@@ -66,7 +79,7 @@ func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Req
 	done := rc.done
 	self.mutex.Unlock()
 
-	log.Infof("extension connected id=%s", connectionId)
+	log.Infof("extension connected user=%s id=%s", userId, connectionId)
 
 	go self.pingLoop(connectionId, conn, done)
 	self.readLoop(connectionId, conn, done)
@@ -92,6 +105,22 @@ func (self *Relay) Targets() []browsers.ConnectedTarget {
 	return out
 }
 
+// TargetsForUser returns a snapshot of connected targets for one user.
+func (self *Relay) TargetsForUser(userId string) []browsers.ConnectedTarget {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	var out []browsers.ConnectedTarget
+	for _, rc := range self.connections {
+		if rc.userId != userId {
+			continue
+		}
+		for _, target := range rc.targets {
+			out = append(out, *target)
+		}
+	}
+	return out
+}
+
 // DefaultTarget returns the first connected target, or an error.
 func (self *Relay) DefaultTarget() (*browsers.ConnectedTarget, error) {
 	self.mutex.Lock()
@@ -104,11 +133,41 @@ func (self *Relay) DefaultTarget() (*browsers.ConnectedTarget, error) {
 	return nil, errors.New("no attached browser tab")
 }
 
+// DefaultTargetForUser returns the first connected target for userId.
+func (self *Relay) DefaultTargetForUser(userId string) (*browsers.ConnectedTarget, error) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	for _, rc := range self.connections {
+		if rc.userId != userId {
+			continue
+		}
+		for _, target := range rc.targets {
+			return target, nil
+		}
+	}
+	return nil, errors.New("no attached browser tab")
+}
+
 // TargetByConnectionID looks up a target by its session ID (used as connectionId).
 func (self *Relay) TargetByConnectionID(connectionId string) (*browsers.ConnectedTarget, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	for _, rc := range self.connections {
+		if target, ok := rc.targets[connectionId]; ok {
+			return target, nil
+		}
+	}
+	return nil, fmt.Errorf("browser connection %q not found", connectionId)
+}
+
+// TargetByConnectionIDForUser looks up a target by session ID for a specific user.
+func (self *Relay) TargetByConnectionIDForUser(userId, connectionId string) (*browsers.ConnectedTarget, error) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	for _, rc := range self.connections {
+		if rc.userId != userId {
+			continue
+		}
 		if target, ok := rc.targets[connectionId]; ok {
 			return target, nil
 		}

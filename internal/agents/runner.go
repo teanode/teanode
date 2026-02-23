@@ -175,9 +175,8 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	userId := UserIDFromContext(ctx)
 	isAdmin, hasAdminContext := AdminFromContext(ctx)
 	if !hasAdminContext {
-		// Non-gateway callers/tests may not set user role context.
-		// Default to admin in that case to preserve existing behavior.
-		isAdmin = true
+		// Missing role context defaults to least privilege.
+		isAdmin = false
 	}
 	if strings.TrimSpace(userId) == "" {
 		return nil, fmt.Errorf("userId is required")
@@ -585,6 +584,8 @@ func validateToolAuthorization(toolName, arguments string, isAdmin bool) error {
 	switch toolName {
 	case "shell":
 		return fmt.Errorf("admin access required for shell tool")
+	case "gateway":
+		return fmt.Errorf("admin access required for gateway tool")
 	case "agent_create":
 		return fmt.Errorf("admin access required for agent_create")
 	case "config":

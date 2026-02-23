@@ -662,6 +662,13 @@ func TestValidateToolAuthorizationNonAdminShellDenied(t *testing.T) {
 	}
 }
 
+func TestValidateToolAuthorizationNonAdminGatewayDenied(t *testing.T) {
+	err := validateToolAuthorization("gateway", `{"action":"restart"}`, false)
+	if err == nil || !strings.Contains(err.Error(), "admin access required") {
+		t.Fatalf("expected admin access required error, got: %v", err)
+	}
+}
+
 func TestValidateToolAuthorizationNonAdminFilesystemReadOnly(t *testing.T) {
 	allowedActions := []string{"read", "list", "info"}
 	for _, action := range allowedActions {
