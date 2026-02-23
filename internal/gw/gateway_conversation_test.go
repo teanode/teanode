@@ -162,12 +162,12 @@ func TestDeferredLifecycleFiresAfterRunDone(t *testing.T) {
 	doneClosedAtLifecycle := make(chan bool, 1)
 	go func() {
 		<-gateway.LifecycleChannel()
-			select {
-			case <-handle.Done:
-				doneClosedAtLifecycle <- true
-			default:
-				doneClosedAtLifecycle <- false
-			}
+		select {
+		case <-handle.Done:
+			doneClosedAtLifecycle <- true
+		default:
+			doneClosedAtLifecycle <- false
+		}
 	}()
 
 	select {
