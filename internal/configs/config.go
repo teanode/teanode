@@ -1282,6 +1282,29 @@ func applyEnv(configuration *Config) {
 			})
 		}
 	}
+	if value := os.Getenv("DEEPGRAM_API_KEY"); value != "" {
+		found := false
+		for index := range configuration.Models.Providers {
+			if configuration.Models.Providers[index].Name == "deepgram" {
+				configuration.Models.Providers[index].APIKey = value
+				if configuration.Models.Providers[index].BaseURL == "" {
+					configuration.Models.Providers[index].BaseURL = "https://api.deepgram.com"
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			configuration.Models.Providers = append(configuration.Models.Providers, ProviderConfig{
+				Name:    "deepgram",
+				BaseURL: "https://api.deepgram.com",
+				APIKey:  value,
+			})
+		}
+		if strings.TrimSpace(configuration.Voice.TranscriberProvider) == "" {
+			configuration.Voice.TranscriberProvider = "deepgram"
+		}
+	}
 	if value := os.Getenv("ELEVENLABS_API_KEY"); value != "" {
 		found := false
 		for index := range configuration.Models.Providers {

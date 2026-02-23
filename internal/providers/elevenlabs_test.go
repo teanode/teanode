@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,7 @@ import (
 
 func TestElevenLabsClient_StreamSynthesize(t *testing.T) {
 	upgrader := websocket.Upgrader{}
-	receivedTexts := make(chan string, 2)
+	receivedTexts := make(chan string, 3)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		conn, err := upgrader.Upgrade(writer, request, nil)
 		if err != nil {
@@ -23,7 +24,7 @@ func TestElevenLabsClient_StreamSynthesize(t *testing.T) {
 		}
 		defer conn.Close()
 
-		for i := 0; i < 2; i++ {
+		for i := 0; i < 3; i++ {
 			_, payload, err := conn.ReadMessage()
 			if err != nil {
 				t.Errorf("read message: %v", err)
@@ -39,7 +40,7 @@ func TestElevenLabsClient_StreamSynthesize(t *testing.T) {
 			}
 		}
 
-		_ = conn.WriteMessage(websocket.BinaryMessage, []byte{1, 2, 3})
+		_ = conn.WriteJSON(map[string]any{"audio": base64.StdEncoding.EncodeToString([]byte{1, 2, 3})})
 		_ = conn.WriteMessage(websocket.BinaryMessage, []byte{4, 5})
 		_ = conn.WriteJSON(map[string]any{"isFinal": true})
 	}))
@@ -70,8 +71,9 @@ func TestElevenLabsClient_StreamSynthesize(t *testing.T) {
 
 	first := <-receivedTexts
 	second := <-receivedTexts
-	if first != "hello" || second != " " {
-		t.Fatalf("unexpected sender payloads: %q, %q", first, second)
+	third := <-receivedTexts
+	if first != " " || second != "hello" || third != "" {
+		t.Fatalf("unexpected sender payloads: %q, %q, %q", first, second, third)
 	}
 }
 

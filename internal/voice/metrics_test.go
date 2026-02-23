@@ -15,8 +15,8 @@ func TestMetricsObserver_AllFieldsSet(t *testing.T) {
 	observer.OnSpeechEnded("turn-1", 1200)
 	observer.OnTranscriptFinal("turn-1", 1320)
 	observer.OnTurnCommitted("turn-1", 1330)
+	observer.OnTTSRequested("turn-1", 1470)
 	observer.OnResponseStarted("turn-1", "resp-1", 1500)
-	observer.OnResponseCompleted("turn-1", "resp-1", 1800)
 
 	if captured.TurnID != "turn-1" {
 		t.Fatalf("unexpected turn id %q", captured.TurnID)
@@ -24,7 +24,7 @@ func TestMetricsObserver_AllFieldsSet(t *testing.T) {
 	if captured.ResponseID != "resp-1" {
 		t.Fatalf("unexpected response id %q", captured.ResponseID)
 	}
-	if captured.SpeechStartedMS == 0 || captured.SpeechEndedMS == 0 || captured.TranscriptFinalMS == 0 || captured.TurnCommittedMS == 0 || captured.ResponseStartedMS == 0 || captured.ResponseCompletedMS == 0 {
+	if captured.SpeechStartedMS == 0 || captured.SpeechEndedMS == 0 || captured.TranscriptFinalMS == 0 || captured.TurnCommittedMS == 0 || captured.ResponseStartedMS == 0 {
 		t.Fatalf("expected all timestamps to be set: %+v", captured)
 	}
 	if captured.STTMS != 120 {
@@ -33,10 +33,10 @@ func TestMetricsObserver_AllFieldsSet(t *testing.T) {
 	if captured.LLMTTFBMS != 170 {
 		t.Fatalf("unexpected llm_ttfb_ms: %d", captured.LLMTTFBMS)
 	}
-	if captured.TTSMS != 300 {
+	if captured.TTSMS != 30 {
 		t.Fatalf("unexpected tts_ms: %d", captured.TTSMS)
 	}
-	if captured.E2EMS != 600 {
+	if captured.E2EMS != 300 {
 		t.Fatalf("unexpected e2e_ms: %d", captured.E2EMS)
 	}
 }

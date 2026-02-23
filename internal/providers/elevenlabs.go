@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -85,13 +86,19 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, req Synthesi
 		defer closeConn()
 
 		if err := conn.WriteJSON(map[string]any{
+			"text": " ",
+		}); err != nil {
+			out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs write init: %w", err)}
+			return
+		}
+		if err := conn.WriteJSON(map[string]any{
 			"text":                   req.Text,
 			"try_trigger_generation": true,
 		}); err != nil {
 			out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs write text: %w", err)}
 			return
 		}
-		if err := conn.WriteJSON(map[string]any{"text": " "}); err != nil {
+		if err := conn.WriteJSON(map[string]any{"text": ""}); err != nil {
 			out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs write end: %w", err)}
 			return
 		}
@@ -118,10 +125,27 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, req Synthesi
 			}
 			if msgType == websocket.TextMessage {
 				var envelope struct {
+					Audio   string `json:"audio"`
 					IsFinal bool `json:"isFinal"`
 				}
-				if err := json.Unmarshal(payload, &envelope); err == nil && envelope.IsFinal {
-					return
+				if err := json.Unmarshal(payload, &envelope); err == nil {
+					if strings.TrimSpace(envelope.Audio) != "" {
+						audio, decodeErr := base64.StdEncoding.DecodeString(envelope.Audio)
+						if decodeErr != nil {
+							out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs decode audio: %w", decodeErr)}
+							return
+						}
+						if len(audio) > 0 {
+							select {
+							case <-ctx.Done():
+								return
+							case out <- SynthesizeChunk{Audio: audio}:
+							}
+						}
+					}
+					if envelope.IsFinal {
+						return
+					}
 				}
 			}
 		}

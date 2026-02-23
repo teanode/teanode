@@ -108,6 +108,8 @@ func deepgramListenURL(baseURL string, req StreamTranscribeRequest) (string, err
 	query.Set("channels", fmt.Sprintf("%d", channels))
 	query.Set("interim_results", "true")
 	query.Set("endpointing", "false")
+	query.Set("punctuate", "true")
+	query.Set("smart_format", "true")
 	if text := strings.TrimSpace(req.Language); text != "" {
 		query.Set("language", text)
 	}

@@ -16,6 +16,7 @@ type TurnMetrics struct {
 	LLMTTFBMS           int64  `json:"llm_ttfb_ms,omitempty"`
 	TTSMS               int64  `json:"tts_ms,omitempty"`
 	E2EMS               int64  `json:"e2e_ms,omitempty"`
+	ttsRequestedMS      int64
 }
 
 type MetricsObserver struct {
@@ -64,30 +65,31 @@ func (self *MetricsObserver) OnTurnCommitted(turnId string, tsMs int64) {
 	self.get(turnId).TurnCommittedMS = tsMs
 }
 
-func (self *MetricsObserver) OnResponseStarted(turnId string, responseId string, tsMs int64) {
+func (self *MetricsObserver) OnTTSRequested(turnId string, tsMs int64) {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	metric := self.get(turnId)
-	metric.ResponseID = responseId
-	metric.ResponseStartedMS = tsMs
+	if metric.ttsRequestedMS == 0 {
+		metric.ttsRequestedMS = tsMs
+	}
 }
 
-func (self *MetricsObserver) OnResponseCompleted(turnId string, responseId string, tsMs int64) {
+func (self *MetricsObserver) OnResponseStarted(turnId string, responseId string, tsMs int64) {
 	self.mu.Lock()
 	metric := self.get(turnId)
 	metric.ResponseID = responseId
-	metric.ResponseCompletedMS = tsMs
+	metric.ResponseStartedMS = tsMs
 	if metric.SpeechEndedMS > 0 && metric.TranscriptFinalMS > 0 {
 		metric.STTMS = metric.TranscriptFinalMS - metric.SpeechEndedMS
 	}
 	if metric.TurnCommittedMS > 0 && metric.ResponseStartedMS > 0 {
 		metric.LLMTTFBMS = metric.ResponseStartedMS - metric.TurnCommittedMS
 	}
-	if metric.ResponseStartedMS > 0 && metric.ResponseCompletedMS > 0 {
-		metric.TTSMS = metric.ResponseCompletedMS - metric.ResponseStartedMS
+	if metric.ttsRequestedMS > 0 {
+		metric.TTSMS = metric.ResponseStartedMS - metric.ttsRequestedMS
 	}
-	if metric.SpeechEndedMS > 0 && metric.ResponseCompletedMS > 0 {
-		metric.E2EMS = metric.ResponseCompletedMS - metric.SpeechEndedMS
+	if metric.SpeechEndedMS > 0 && metric.ResponseStartedMS > 0 {
+		metric.E2EMS = metric.ResponseStartedMS - metric.SpeechEndedMS
 	}
 	final := *metric
 	delete(self.turns, turnId)
@@ -96,6 +98,14 @@ func (self *MetricsObserver) OnResponseCompleted(turnId string, responseId strin
 	if self.emit != nil {
 		self.emit(final)
 	}
+}
+
+func (self *MetricsObserver) OnResponseCompleted(turnId string, responseId string, tsMs int64) {
+	self.mu.Lock()
+	metric := self.get(turnId)
+	metric.ResponseID = responseId
+	metric.ResponseCompletedMS = tsMs
+	self.mu.Unlock()
 }
 
 func (self *MetricsObserver) OnTurnDropped(turnId string, _ string, _ int64) {

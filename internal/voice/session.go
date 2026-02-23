@@ -1,7 +1,9 @@
 package voice
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,10 +21,13 @@ type AudioFormat struct {
 
 // Features defines enabled voice pipeline features.
 type Features struct {
-	ServerVAD     bool `json:"server_vad"`
-	ServerTurn    bool `json:"server_turn"`
-	ServerDenoise bool `json:"server_denoise"`
-	BargeIn       bool `json:"barge_in"`
+	ServerVAD             bool   `json:"server_vad"`
+	ServerTurn            bool   `json:"server_turn"`
+	ServerDenoise         bool   `json:"server_denoise"`
+	SileroVAD             bool   `json:"silero_vad,omitempty"`
+	BargeIn               bool   `json:"barge_in"`
+	TurnStrategy          string `json:"turn_strategy,omitempty"`
+	SpeculativeLLMEnabled bool   `json:"speculative_llm_enabled,omitempty"`
 }
 
 type turnEventPayload struct {
@@ -62,14 +67,30 @@ type Session struct {
 	currentTurnId      string
 	currentRunId       string
 	currentResponseId  string
+	currentResponseTurnID string
 	lastCommittedText  string
 	runCancel          func()
 	ttsCancel          func()
 	transcribeInFlight map[string]struct{}
 	committedTurns     map[string]struct{}
 	canceledRuns       map[string]struct{}
+	runTurn            map[string]string
 	pendingTurns       []PendingTurn
 	maxPendingTurns    int
+	explicitAudioBuf   []byte
+	speechReady        bool
+	streamingSTTStream VoiceTranscribeStream
+	interimText        string
+	interimBestText    string
+	strategy           TurnStrategy
+	speechStartedAt    time.Time
+	lastBargeInAt      time.Time
+	observers          []TurnObserver
+
+	speculativeMu        sync.Mutex
+	speculativeRunId     string
+	speculativeText      string
+	speculativeStartedAt time.Time
 
 	outSeq atomic.Uint64
 	inSeq  atomic.Uint64
@@ -89,7 +110,7 @@ const (
 
 // NewSession creates a session with default channel capacities.
 func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioFormat, features Features, deps GatewayDeps, sendJson func(any), sendBinary func([]byte)) *Session {
-	return &Session{
+	session := &Session{
 		ID:                 id,
 		ConversationID:     conversationId,
 		AgentID:            agentId,
@@ -103,18 +124,34 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 		transcribeInFlight: make(map[string]struct{}),
 		committedTurns:     make(map[string]struct{}),
 		canceledRuns:       make(map[string]struct{}),
+		runTurn:            make(map[string]string),
 		maxPendingTurns:    defaultMaxPendingTurns,
 		audioInCh:          make(chan []byte, defaultAudioInBufferFrames),
 		ttsInCh:            make(chan string, defaultTtsSentenceBuffer),
 		audioOutCh:         make(chan []byte, defaultAudioOutBufferFrames),
 		doneCh:             make(chan struct{}),
+		strategy:           LegacyStrategy{},
 	}
+	if strings.EqualFold(features.TurnStrategy, "balanced") {
+		session.strategy = BalancedStrategy{}
+	}
+	session.observers = []TurnObserver{
+		NewMetricsObserver(func(metric TurnMetrics) {
+			session.sendVoiceEvent("turn.metrics", metric)
+		}),
+	}
+	return session
 }
 
 // Start begins session background loops.
 func (self *Session) Start() {
 	pipelineLog.Infof("voice session start: session=%s conv=%s agent=%s", self.ID, self.ConversationID, self.AgentID)
+	streamingEnabled := self.startStreamingTranscriber()
 	self.wg.Add(4)
+	if streamingEnabled {
+		self.wg.Add(1)
+		go func() { defer self.wg.Done(); self.streamingTranscribeLoop() }()
+	}
 	go func() { defer self.wg.Done(); self.audioInputLoop() }()
 	go func() { defer self.wg.Done(); self.llmEventForwarder() }()
 	go func() { defer self.wg.Done(); self.ttsSynthLoop() }()
@@ -130,6 +167,9 @@ func (self *Session) Close() {
 		}
 		if prev := self.SwapTTSCancel(nil); prev != nil {
 			prev()
+		}
+		if stream := self.getStreamingTranscribeStream(); stream != nil {
+			_ = stream.Close()
 		}
 		close(self.doneCh)
 		self.wg.Wait()
@@ -180,16 +220,54 @@ func (self *Session) HandleInputBinaryFrame(raw []byte) error {
 }
 
 // InputCommit allows push-to-talk sessions to flush buffered input turn.
-func (self *Session) InputCommit() {
+func (self *Session) InputCommit(reason string) {
+	turnId := self.GetCurrentTurnId()
+	if turnId == "" {
+		turnId = self.newTurnId()
+		self.startNewTurn(turnId)
+	}
+	audio := self.takeExplicitAudio()
+	if len(audio) == 0 {
+		self.sendVoiceEvent("turn.event", turnEventPayload{
+			TurnID: turnId,
+			Event:  "turn_dropped",
+			Reason: "dropped_empty_audio",
+		})
+		self.notifyObservers(func(observer TurnObserver) {
+			observer.OnTurnDropped(turnId, "dropped_empty_audio", time.Now().UnixMilli())
+		})
+		return
+	}
+	if len(audio) < minCommittedTurnBytes {
+		self.sendVoiceEvent("turn.event", turnEventPayload{
+			TurnID: turnId,
+			Event:  "turn_dropped",
+			Reason: "dropped_too_short_audio",
+		})
+		self.notifyObservers(func(observer TurnObserver) {
+			observer.OnTurnDropped(turnId, "dropped_too_short_audio", time.Now().UnixMilli())
+		})
+		return
+	}
+
 	self.sendVoiceEvent("turn.event", turnEventPayload{
-		TurnID: self.GetCurrentTurnID(),
-		Event:  "turn_committed",
+		TurnID: turnId,
+		Event:  "input_committed",
+		Reason: reason,
 	})
+	self.setSpeechReady(false)
+	if !self.TryStartTurnTranscription(turnId) {
+		return
+	}
+	go func(tid string, captured []byte) {
+		defer self.FinishTurnTranscription(tid)
+		self.transcribeAndSend(tid, captured)
+	}(turnId, audio)
 }
 
 // CancelResponse aborts current response generation and playback.
 func (self *Session) CancelResponse() {
-	pipelineLog.Infof("voice cancel response: session=%s response=%s run=%s", self.ID, self.GetCurrentResponseID(), self.GetCurrentRunID())
+	pipelineLog.Infof("voice cancel response: session=%s response=%s run=%s", self.ID, self.GetCurrentResponseId(), self.GetCurrentRunId())
 	self.triggerBargeIn()
 }
 
@@ -207,48 +285,120 @@ func (self *Session) sendVoiceEvent(eventType string, payload interface{}) {
 	})
 }
 
-func (self *Session) GetCurrentTurnID() string {
+func (self *Session) GetCurrentTurnId() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.currentTurnId
 }
 
-func (self *Session) SetCurrentTurnID(id string) {
+func (self *Session) SetCurrentTurnId(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentTurnId = id
 }
 
-func (self *Session) GetCurrentRunID() string {
+func (self *Session) GetCurrentTurnID() string {
+	return self.GetCurrentTurnId()
+}
+
+func (self *Session) SetCurrentTurnID(id string) {
+	self.SetCurrentTurnId(id)
+}
+
+func (self *Session) GetCurrentRunId() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.currentRunId
 }
 
-func (self *Session) SetCurrentRunID(id string) {
+func (self *Session) SetCurrentRunId(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentRunId = id
 }
 
-func (self *Session) ClearCurrentRun() {
-	self.SetCurrentRunID("")
+func (self *Session) GetCurrentRunID() string {
+	return self.GetCurrentRunId()
 }
 
-func (self *Session) GetCurrentResponseID() string {
+func (self *Session) SetCurrentRunID(id string) {
+	self.SetCurrentRunId(id)
+}
+
+func (self *Session) ClearCurrentRun() {
+	self.SetCurrentRunId("")
+}
+
+func (self *Session) MapRunToTurn(runId, turnId string) {
+	if runId == "" || turnId == "" {
+		return
+	}
+	self.stateMu.Lock()
+	self.runTurn[runId] = turnId
+	self.stateMu.Unlock()
+}
+
+func (self *Session) TurnIDForRun(runId string) string {
+	if runId == "" {
+		return ""
+	}
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.runTurn[runId]
+}
+
+func (self *Session) ClearRunTurn(runId string) {
+	if runId == "" {
+		return
+	}
+	self.stateMu.Lock()
+	delete(self.runTurn, runId)
+	self.stateMu.Unlock()
+}
+
+func (self *Session) GetCurrentResponseId() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.currentResponseId
 }
 
-func (self *Session) SetCurrentResponseID(id string) {
+func (self *Session) SetCurrentResponseId(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentResponseId = id
+	if id == "" {
+		self.currentResponseTurnID = ""
+	}
+}
+
+func (self *Session) GetCurrentResponseID() string {
+	return self.GetCurrentResponseId()
+}
+
+func (self *Session) SetCurrentResponseID(id string) {
+	self.SetCurrentResponseId(id)
 }
 
 func (self *Session) ClearCurrentResponse() {
-	self.SetCurrentResponseID("")
+	self.SetCurrentResponseId("")
+}
+
+func (self *Session) GetCurrentResponseTurnID() string {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.currentResponseTurnID
+}
+
+func (self *Session) SetCurrentResponseTurnID(turnId string) {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	self.currentResponseTurnID = turnId
+}
+
+func (self *Session) GetLastCommittedTranscript() string {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.lastCommittedText
 }
 
 func (self *Session) SetLastCommittedTranscript(text string) {
@@ -394,4 +544,180 @@ func (self *Session) HasPendingTurns() bool {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return len(self.pendingTurns) > 0
+}
+
+func (self *Session) DropOldestPendingTurn(_ string) (PendingTurn, bool) {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	if len(self.pendingTurns) == 0 {
+		return PendingTurn{}, false
+	}
+	dropped := self.pendingTurns[0]
+	self.pendingTurns = self.pendingTurns[1:]
+	return dropped, true
+}
+
+func (self *Session) accumulateExplicitAudio(frame []byte) {
+	if len(frame) == 0 {
+		return
+	}
+	self.stateMu.Lock()
+	self.explicitAudioBuf = append(self.explicitAudioBuf, frame...)
+	self.stateMu.Unlock()
+}
+
+func (self *Session) setSpeechReady(ready bool) {
+	self.stateMu.Lock()
+	self.speechReady = ready
+	self.stateMu.Unlock()
+}
+
+func (self *Session) IsSpeechReady() bool {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.speechReady
+}
+
+func (self *Session) ExplicitAudioLen() int {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return len(self.explicitAudioBuf)
+}
+
+func (self *Session) takeExplicitAudio() []byte {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	if len(self.explicitAudioBuf) == 0 {
+		return nil
+	}
+	captured := append([]byte(nil), self.explicitAudioBuf...)
+	self.explicitAudioBuf = self.explicitAudioBuf[:0]
+	return captured
+}
+
+func (self *Session) startStreamingTranscriber() bool {
+	if self.deps == nil || self.deps.ProviderRegistry() == nil {
+		return false
+	}
+	streaming, provider, ok := self.deps.ProviderRegistry().FindStreamingTranscriber()
+	if !ok || streaming == nil {
+		return false
+	}
+	stream, err := streaming.OpenTranscribeStream(context.Background(), VoiceStreamTranscribeRequest{
+		SampleRate: self.AudioIn.SampleRateHz,
+		Channels:   self.AudioIn.Channels,
+		Prompt:     self.transcriptionPrompt(),
+	})
+	if err != nil {
+		pipelineLog.Warningf("voice streaming stt open failed, falling back to batch: provider=%s err=%v", provider, err)
+		return false
+	}
+	self.stateMu.Lock()
+	self.streamingSTTStream = stream
+	self.stateMu.Unlock()
+	pipelineLog.Infof("voice streaming stt enabled: session=%s provider=%s", self.ID, provider)
+	return true
+}
+
+func (self *Session) getStreamingTranscribeStream() VoiceTranscribeStream {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.streamingSTTStream
+}
+
+func (self *Session) setStreamingTranscribeStream(stream VoiceTranscribeStream) {
+	self.stateMu.Lock()
+	self.streamingSTTStream = stream
+	self.stateMu.Unlock()
+}
+
+func (self *Session) setInterimText(text string) {
+	self.stateMu.Lock()
+	self.interimText = text
+	if len([]rune(strings.TrimSpace(text))) >= len([]rune(strings.TrimSpace(self.interimBestText))) {
+		self.interimBestText = text
+	}
+	self.stateMu.Unlock()
+}
+
+func (self *Session) getInterimText() string {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.interimText
+}
+
+func (self *Session) getBestInterimText() string {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	if strings.TrimSpace(self.interimBestText) != "" {
+		return self.interimBestText
+	}
+	return self.interimText
+}
+
+func (self *Session) setSpeechStartedAt(ts time.Time) {
+	self.stateMu.Lock()
+	self.speechStartedAt = ts
+	self.stateMu.Unlock()
+}
+
+func (self *Session) setLastBargeInAt(ts time.Time) {
+	self.stateMu.Lock()
+	self.lastBargeInAt = ts
+	self.stateMu.Unlock()
+}
+
+func (self *Session) recentBargeInWithin(window time.Duration) bool {
+	self.stateMu.RLock()
+	last := self.lastBargeInAt
+	self.stateMu.RUnlock()
+	if last.IsZero() {
+		return false
+	}
+	return time.Since(last) < window
+}
+
+func (self *Session) speechDurationMs(now time.Time) int {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	if self.speechStartedAt.IsZero() {
+		return 0
+	}
+	return int(now.Sub(self.speechStartedAt).Milliseconds())
+}
+
+func (self *Session) notifyObservers(fn func(observer TurnObserver)) {
+	if len(self.observers) == 0 {
+		return
+	}
+	for _, observer := range self.observers {
+		if observer == nil {
+			continue
+		}
+		fn(observer)
+	}
+}
+
+func (self *Session) getSpeculativeRun() (runId, text string, startedAt time.Time) {
+	self.speculativeMu.Lock()
+	defer self.speculativeMu.Unlock()
+	return self.speculativeRunId, self.speculativeText, self.speculativeStartedAt
+}
+
+func (self *Session) setSpeculativeRun(runId, text string, startedAt time.Time) {
+	self.speculativeMu.Lock()
+	self.speculativeRunId = runId
+	self.speculativeText = text
+	self.speculativeStartedAt = startedAt
+	self.speculativeMu.Unlock()
+}
+
+func (self *Session) clearSpeculativeRun() (runId string) {
+	self.speculativeMu.Lock()
+	runId = self.speculativeRunId
+	self.speculativeRunId = ""
+	self.speculativeText = ""
+	self.speculativeStartedAt = time.Time{}
+	self.speculativeMu.Unlock()
+	return runId
 }
