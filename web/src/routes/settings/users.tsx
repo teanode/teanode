@@ -30,7 +30,6 @@ export default function SettingsUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [createUsername, setCreateUsername] = useState("");
   const [createName, setCreateName] = useState("");
-  const [createDescription, setCreateDescription] = useState("");
   const [createdCredentials, setCreatedCredentials] = useState<{
     username: string;
     password: string;
@@ -85,7 +84,6 @@ export default function SettingsUsersPage() {
       await backend.sendRpc("users.create", {
         username: createUsername.trim(),
         name: createName.trim() || undefined,
-        description: createDescription.trim() || undefined,
         password: generatedPassword,
       });
       setCreatedCredentials({
@@ -94,20 +92,11 @@ export default function SettingsUsersPage() {
       });
       setCreateUsername("");
       setCreateName("");
-      setCreateDescription("");
       loadUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create user");
     }
-  }, [
-    backend,
-    createDescription,
-    createName,
-    createUsername,
-    generatePassword,
-    loadUsers,
-    t,
-  ]);
+  }, [backend, createName, createUsername, generatePassword, loadUsers, t]);
 
   const deleteUser = useCallback(async () => {
     if (!pendingDelete) return;
@@ -410,15 +399,6 @@ export default function SettingsUsersPage() {
                 </IconButton>
               </Tooltip>
             </Box>
-            <TextField
-              size="small"
-              multiline
-              minRows={2}
-              placeholder={t("settings.userDescription")}
-              value={createDescription}
-              onChange={(event) => setCreateDescription(event.target.value)}
-              sx={{ mt: 0.5 }}
-            />
           </Paper>
 
           {error && (

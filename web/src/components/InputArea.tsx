@@ -13,6 +13,7 @@ import SendRounded from "@mui/icons-material/SendRounded";
 import StopRounded from "@mui/icons-material/StopRounded";
 import type { Attachment } from "../types";
 import { useAudioRecorder } from "../hooks/useAudioRecorder";
+import { parseClipboardImages } from "./inputAreaPaste";
 
 interface PendingFile {
   file: File;
@@ -299,6 +300,16 @@ export default function InputArea({
     [addFiles],
   );
 
+  const handlePaste = useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const { imageFiles, hasText } = parseClipboardImages(event.clipboardData);
+      if (imageFiles.length === 0) return;
+      if (!hasText) event.preventDefault();
+      addFiles(imageFiles);
+    },
+    [addFiles],
+  );
+
   const hasContent = hasText || pendingFiles.length > 0;
   const showStop = isRunning && !hasContent && !!onAbort;
   const expanded = alwaysExpanded || focused;
@@ -373,6 +384,7 @@ export default function InputArea({
           rows={1}
           onKeyDown={handleKeyDown}
           onInput={handleInput}
+          onPaste={handlePaste}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           sx={{
