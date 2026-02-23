@@ -310,34 +310,34 @@ export default function SettingsNav({
 
           {backend.isAdmin &&
             sections.map((section) => {
-            const isActive = activeSectionId === section.id;
-            return (
-              <ListItemButton
-                key={section.id}
-                dense
-                onClick={() => onNavigate(`/settings/${section.id}`)}
-                sx={{
-                  borderRadius: 1,
-                  mb: 0.25,
-                  ...(isActive
-                    ? {
-                        bgcolor: "accentDim",
-                        color: "#fff",
-                        "&:hover": { bgcolor: "accentDim" },
-                      }
-                    : {}),
-                }}
-              >
-                <ListItemText
-                  primary={getSectionTitle(t, section)}
-                  primaryTypographyProps={{
-                    variant: "caption",
-                    fontSize: "13px",
-                    color: isActive ? "#fff" : "text.secondary",
+              const isActive = activeSectionId === section.id;
+              return (
+                <ListItemButton
+                  key={section.id}
+                  dense
+                  onClick={() => onNavigate(`/settings/${section.id}`)}
+                  sx={{
+                    borderRadius: 1,
+                    mb: 0.25,
+                    ...(isActive
+                      ? {
+                          bgcolor: "accentDim",
+                          color: "#fff",
+                          "&:hover": { bgcolor: "accentDim" },
+                        }
+                      : {}),
                   }}
-                />
+                >
+                  <ListItemText
+                    primary={getSectionTitle(t, section)}
+                    primaryTypographyProps={{
+                      variant: "caption",
+                      fontSize: "13px",
+                      color: isActive ? "#fff" : "text.secondary",
+                    }}
+                  />
                 </ListItemButton>
-            );
+              );
             })}
         </List>
       </Box>
