@@ -12,11 +12,16 @@ import (
 var pipelineLog = logging.MustGetLogger("voice.pipeline")
 
 const (
-	minCommittedTurnBytes  = 6400 // ~200ms at 16kHz mono s16le
-	minCommittedTextRunes  = 1
-	bargeInTriggerMinScore = 0.06
-	maxResponseStartDelay  = 2 * time.Second
-	vadPreRollFrames       = 8 // keep ~160ms leading context so first words aren't clipped
+	minCommittedTurnBytes        = 6400 // ~200ms at 16kHz mono s16le
+	minCommittedTextRunes        = 1
+	bargeInTriggerMinScore       = 0.06
+	maxResponseStartDelay        = 2 * time.Second
+	vadPreRollFrames             = 8 // keep ~160ms leading context so first words aren't clipped
+	speculativeMinRunes          = 20
+	speculativeMinConfidence     = 0.80
+	speculativeSimilarityMin     = 0.80
+	speculativeRecentBargeWindow = 500 * time.Millisecond
+	speculativeMaxAge            = 3 * time.Second
 )
 
 const voiceCallPromptSuffix = "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists."
@@ -231,6 +236,7 @@ func (self *Session) streamingTranscribeLoop() {
 			switch event.Type {
 			case "interim":
 				self.setInterimText(event.Text)
+				self.maybeStartOrRefreshSpeculativeRun(event)
 			case "final":
 				turnId := self.GetCurrentTurnId()
 				if turnId == "" {
@@ -239,7 +245,7 @@ func (self *Session) streamingTranscribeLoop() {
 				if !self.TryStartTurnTranscription(turnId) {
 					continue
 				}
-				self.transcribeTextAndSend(turnId, event.Text)
+				self.handleFinalTranscript(turnId, event.Text)
 				self.FinishTurnTranscription(turnId)
 			}
 		}
@@ -516,6 +522,113 @@ func (self *Session) transcribeTextAndSend(turnId, rawText string) {
 	self.commitVoiceTurn(turnId, text)
 }
 
+func (self *Session) maybeStartOrRefreshSpeculativeRun(event VoiceTranscribeEvent) {
+	if !self.Features.SpeculativeLLMEnabled || self.deps == nil {
+		return
+	}
+	text := strings.TrimSpace(event.Text)
+	if len([]rune(text)) < speculativeMinRunes {
+		return
+	}
+	confidence := event.Confidence
+	if confidence == 0 {
+		confidence = 1
+	}
+	if confidence < speculativeMinConfidence {
+		return
+	}
+	if self.recentBargeInWithin(speculativeRecentBargeWindow) {
+		return
+	}
+	if self.HasTranscriptionInFlight() {
+		return
+	}
+
+	now := time.Now()
+	specRunId, specText, specStartedAt := self.getSpeculativeRun()
+	if specRunId != "" && now.Sub(specStartedAt) > speculativeMaxAge {
+		self.cancelSpeculativeRun(specRunId)
+		specRunId = ""
+		specText = ""
+	}
+
+	if specRunId == "" {
+		if self.GetCurrentRunId() != "" {
+			return
+		}
+		self.startSpeculativeRun(text)
+		return
+	}
+
+	if textSimilarity(text, specText) < speculativeSimilarityMin {
+		self.cancelSpeculativeRun(specRunId)
+		self.startSpeculativeRun(text)
+	}
+}
+
+func (self *Session) handleFinalTranscript(turnId, rawText string) {
+	text := strings.TrimSpace(rawText)
+	specRunId, specText, _ := self.getSpeculativeRun()
+	if specRunId == "" {
+		self.transcribeTextAndSend(turnId, text)
+		return
+	}
+	if textSimilarity(text, specText) >= speculativeSimilarityMin {
+		self.promoteSpeculativeRun(turnId, text, specRunId)
+		return
+	}
+	self.cancelSpeculativeRun(specRunId)
+	self.transcribeTextAndSend(turnId, text)
+}
+
+func (self *Session) startSpeculativeRun(text string) {
+	run := self.deps.SendMessage(context.Background(), VoiceSendMessageParams{
+		AgentID:            self.AgentID,
+		ConversationID:     self.ConversationID,
+		Message:            text,
+		SystemPromptSuffix: self.effectivePromptSuffix(),
+		IsSpeculative:      true,
+	})
+	if strings.TrimSpace(run.RunID) == "" {
+		return
+	}
+	self.setSpeculativeRun(run.RunID, text, time.Now())
+	pipelineLog.Debugf("voice speculative run started: session=%s run=%s text_len=%d", self.ID, run.RunID, len(text))
+}
+
+func (self *Session) cancelSpeculativeRun(runId string) {
+	if runId == "" {
+		return
+	}
+	self.clearSpeculativeRun()
+	self.MarkRunCanceled(runId)
+	self.deps.CancelRun(runId)
+	pipelineLog.Debugf("voice speculative run cancelled: session=%s run=%s", self.ID, runId)
+}
+
+func (self *Session) promoteSpeculativeRun(turnId, text, runId string) {
+	nowMs := time.Now().UnixMilli()
+	self.clearSpeculativeRun()
+	self.SetLastCommittedTranscript(text)
+	self.sendVoiceEvent("transcript.final", map[string]interface{}{
+		"turn_id": turnId,
+		"text":    text,
+	})
+	self.notifyObservers(func(observer TurnObserver) {
+		observer.OnTranscriptFinal(turnId, nowMs)
+	})
+	self.MarkTurnCommitted(turnId)
+	self.SetCurrentRunId(runId)
+	self.sendVoiceEvent("turn.event", turnEventPayload{
+		TurnID: turnId,
+		Event:  "turn_committed",
+	})
+	self.notifyObservers(func(observer TurnObserver) {
+		observer.OnTurnCommitted(turnId, time.Now().UnixMilli())
+	})
+	pipelineLog.Infof("voice speculative run promoted: session=%s turn=%s run=%s", self.ID, turnId, runId)
+}
+
 func (self *Session) commitVoiceTurn(turnId, text string) {
 	nowMs := time.Now().UnixMilli()
 	pipelineLog.Infof("voice transcript.final: session=%s turn=%s text_len=%d text=%q", self.ID, turnId, len(text), text)
@@ -599,6 +712,11 @@ func (self *Session) commitNextPendingTurn() {
 func (self *Session) triggerBargeIn() {
 	self.bargeInOnce.Do(func() {
 		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunId(), self.GetCurrentResponseId())
+		self.setLastBargeInAt(time.Now())
+		if speculativeRunId := self.clearSpeculativeRun(); speculativeRunId != "" && self.deps != nil {
+			self.MarkRunCanceled(speculativeRunId)
+			self.deps.CancelRun(speculativeRunId)
+		}
 		runId := self.GetCurrentRunId()
 		self.MarkRunCanceled(runId)
 		if prev := self.SwapTTSCancel(nil); prev != nil {

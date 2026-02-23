@@ -50,9 +50,10 @@ type StreamTranscribeRequest struct {
 
 // TranscribeStreamEvent carries interim/final transcript deltas from a stream.
 type TranscribeStreamEvent struct {
-	Type string // "interim" | "final"
-	Text string
-	Err  error
+	Type       string // "interim" | "final"
+	Text       string
+	Confidence float64
+	Err        error
 }
 
 // TranscribeStream is a duplex audio stream with transcript events.

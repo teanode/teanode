@@ -33,6 +33,7 @@ type SendMessageParameters struct {
 	OriginSessionID    string                     // source session identifier (used for disconnect-aware notifications)
 	Attachments        []conversations.Attachment // file attachments
 	SystemPromptSuffix string                     // optional; appended to system prompt for this run only
+	IsSpeculative      bool
 }
 
 // RunHandle is returned by SendMessage and allows the caller to wait for completion.
@@ -121,6 +122,7 @@ type Gateway interface {
 	// Centralized message sending and run management
 	SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle
 	AbortRun(runId string) bool
+	CancelRun(runId string) bool
 	GetActiveRun(conversationId string) string
 	DeleteConversation(agentId, conversationId string) error
 

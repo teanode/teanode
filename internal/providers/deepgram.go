@@ -166,7 +166,8 @@ func (self *deepgramStream) readLoop() {
 			IsFinal bool   `json:"is_final"`
 			Channel struct {
 				Alternatives []struct {
-					Transcript string `json:"transcript"`
+					Transcript string  `json:"transcript"`
+					Confidence float64 `json:"confidence"`
 				} `json:"alternatives"`
 			} `json:"channel"`
 		}
@@ -190,7 +191,11 @@ func (self *deepgramStream) readLoop() {
 		select {
 		case <-self.done:
 			return
-		case self.events <- TranscribeStreamEvent{Type: eventType, Text: text}:
+		case self.events <- TranscribeStreamEvent{
+			Type:       eventType,
+			Text:       text,
+			Confidence: envelope.Channel.Alternatives[0].Confidence,
+		}:
 		}
 	}
 }

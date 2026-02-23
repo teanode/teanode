@@ -6,6 +6,7 @@ import "context"
 type GatewayDeps interface {
 	SendMessage(ctx context.Context, parameters VoiceSendMessageParams) VoiceRunHandle
 	AbortRun(runId string) bool
+	CancelRun(runId string)
 	Subscribe(sub VoiceSubscriber)
 	Unsubscribe(sub VoiceSubscriber)
 	NewConversation(agentId, model string) string
@@ -20,6 +21,7 @@ type VoiceSendMessageParams struct {
 	Message            string
 	Model              string
 	SystemPromptSuffix string
+	IsSpeculative      bool
 }
 
 // VoiceRunHandle is a simplified run-handle used by voice.
@@ -76,9 +78,10 @@ type VoiceStreamTranscribeRequest struct {
 
 // VoiceTranscribeEvent is emitted by realtime STT streams.
 type VoiceTranscribeEvent struct {
-	Type string // "interim" | "final"
-	Text string
-	Err  error
+	Type       string // "interim" | "final"
+	Text       string
+	Confidence float64
+	Err        error
 }
 
 // VoiceTranscribeStream is a duplex voice STT stream.

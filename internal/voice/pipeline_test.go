@@ -87,11 +87,12 @@ func (self *scriptedTurnStrategy) ShouldCommitTurn(TurnContext) bool {
 }
 
 type pipelineMockDeps struct {
-	mu         sync.Mutex
-	runCounter int
-	sendCalls  []VoiceSendMessageParams
-	abortCalls []string
-	registry   VoiceProviderRegistry
+	mu          sync.Mutex
+	runCounter  int
+	sendCalls   []VoiceSendMessageParams
+	abortCalls  []string
+	cancelCalls []string
+	registry    VoiceProviderRegistry
 }
 
 type eventRecorder struct {
@@ -150,6 +151,12 @@ func (self *pipelineMockDeps) AbortRun(runId string) bool {
 	return true
 }
 
+func (self *pipelineMockDeps) CancelRun(runId string) {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+	self.cancelCalls = append(self.cancelCalls, runId)
+}
+
 func (self *pipelineMockDeps) Subscribe(_ VoiceSubscriber)             {}
 func (self *pipelineMockDeps) Unsubscribe(_ VoiceSubscriber)           {}
 func (self *pipelineMockDeps) NewConversation(_, _ string) string      { return "conv" }
@@ -172,6 +179,12 @@ func (self *pipelineMockDeps) abortCount() int {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	return len(self.abortCalls)
+}
+
+func (self *pipelineMockDeps) cancelCount() int {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+	return len(self.cancelCalls)
 }
 
 func newPipelineSessionWithFeatures(text string, features Features) (*Session, *pipelineMockDeps) {
@@ -729,5 +742,160 @@ func TestStreamingTranscribeLoop_FallbackOnError(t *testing.T) {
 	case <-streamingDone:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("streamingTranscribeLoop did not stop after done")
+	}
+}
+
+func TestSpeculative_Promoted(t *testing.T) {
+	stream := newPipelineMockTranscribeStream()
+	s, deps, _ := newPipelineSessionWithEventsAndFeatures("unused", Features{
+		ServerVAD:             true,
+		ServerTurn:            true,
+		BargeIn:               true,
+		SpeculativeLLMEnabled: true,
+	})
+	registry := deps.registry.(*pipelineMockProviderRegistry)
+	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	if !s.startStreamingTranscriber() {
+		t.Fatal("expected streaming transcriber")
+	}
+	s.startNewTurn("turn-spec")
+
+	done := make(chan struct{})
+	go func() {
+		s.streamingTranscribeLoop()
+		close(done)
+	}()
+
+	interim := "hello world this is a speculative interim transcript"
+	stream.events <- VoiceTranscribeEvent{Type: "interim", Text: interim, Confidence: 0.9}
+	waitFor(t, time.Second, func() bool { return deps.sendCount() == 1 })
+	if !deps.lastSend().IsSpeculative {
+		t.Fatal("expected first send to be speculative")
+	}
+
+	stream.events <- VoiceTranscribeEvent{Type: "final", Text: interim}
+	waitFor(t, time.Second, func() bool {
+		return s.GetCurrentRunId() == "run-1" && s.IsTurnCommitted("turn-spec")
+	})
+	if deps.sendCount() != 1 {
+		t.Fatalf("expected exactly one send on speculative promotion, got %d", deps.sendCount())
+	}
+
+	close(s.doneCh)
+	_ = stream.Close()
+	select {
+	case <-done:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("streamingTranscribeLoop did not stop")
+	}
+}
+
+func TestSpeculative_Cancelled_Diverged(t *testing.T) {
+	stream := newPipelineMockTranscribeStream()
+	s, deps, _ := newPipelineSessionWithEventsAndFeatures("unused", Features{
+		ServerVAD:             true,
+		ServerTurn:            true,
+		BargeIn:               true,
+		SpeculativeLLMEnabled: true,
+	})
+	registry := deps.registry.(*pipelineMockProviderRegistry)
+	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	if !s.startStreamingTranscriber() {
+		t.Fatal("expected streaming transcriber")
+	}
+	s.startNewTurn("turn-spec")
+
+	done := make(chan struct{})
+	go func() {
+		s.streamingTranscribeLoop()
+		close(done)
+	}()
+
+	stream.events <- VoiceTranscribeEvent{
+		Type:       "interim",
+		Text:       "hello friend this is a speculative transcript",
+		Confidence: 0.95,
+	}
+	waitFor(t, time.Second, func() bool { return deps.sendCount() == 1 })
+
+	stream.events <- VoiceTranscribeEvent{
+		Type: "final",
+		Text: "goodbye world this final transcript diverges strongly",
+	}
+	waitFor(t, time.Second, func() bool { return deps.sendCount() == 2 })
+	if deps.cancelCount() == 0 {
+		t.Fatal("expected speculative run cancellation on divergence")
+	}
+	if deps.lastSend().IsSpeculative {
+		t.Fatal("expected final committed send to be non-speculative")
+	}
+
+	close(s.doneCh)
+	_ = stream.Close()
+	select {
+	case <-done:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("streamingTranscribeLoop did not stop")
+	}
+}
+
+func TestSpeculative_CancelledOnBargeIn(t *testing.T) {
+	s, deps := newPipelineSessionWithFeatures("unused", Features{
+		ServerVAD:             true,
+		ServerTurn:            true,
+		BargeIn:               true,
+		SpeculativeLLMEnabled: true,
+	})
+	s.startSpeculativeRun("hello this interim transcript is long enough")
+	waitFor(t, time.Second, func() bool { return deps.sendCount() == 1 })
+
+	s.triggerBargeIn()
+	if deps.cancelCount() != 1 {
+		t.Fatalf("expected speculative cancel on barge-in, got %d", deps.cancelCount())
+	}
+}
+
+func TestSpeculative_GuardRail_RecentBargeIn(t *testing.T) {
+	s, deps := newPipelineSessionWithFeatures("unused", Features{
+		ServerVAD:             true,
+		ServerTurn:            true,
+		BargeIn:               true,
+		SpeculativeLLMEnabled: true,
+	})
+	s.setLastBargeInAt(time.Now())
+	s.maybeStartOrRefreshSpeculativeRun(VoiceTranscribeEvent{
+		Type:       "interim",
+		Text:       "hello this interim transcript is long enough",
+		Confidence: 0.95,
+	})
+	if deps.sendCount() != 0 {
+		t.Fatalf("expected no speculative run after recent barge-in, got %d sends", deps.sendCount())
+	}
+}
+
+func TestSpeculative_Race(t *testing.T) {
+	s, deps := newPipelineSessionWithFeatures("unused", Features{
+		ServerVAD:             true,
+		ServerTurn:            true,
+		BargeIn:               true,
+		SpeculativeLLMEnabled: true,
+	})
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				s.maybeStartOrRefreshSpeculativeRun(VoiceTranscribeEvent{
+					Type:       "interim",
+					Text:       fmt.Sprintf("hello speculative message from goroutine %d iteration %d", i, j),
+					Confidence: 0.95,
+				})
+			}
+		}(i)
+	}
+	wg.Wait()
+	if deps.sendCount() == 0 {
+		t.Fatal("expected at least one speculative send")
 	}
 }

@@ -595,6 +595,11 @@ func (self *gateway) AbortRun(runId string) bool {
 	return true
 }
 
+// CancelRun cancels a run without any voice-side barge-in signaling.
+func (self *gateway) CancelRun(runId string) bool {
+	return self.AbortRun(runId)
+}
+
 // GetActiveRun returns the active run ID for a conversation, or empty string if none.
 func (self *gateway) GetActiveRun(conversationId string) string {
 	self.activeRunsMutex.Lock()
@@ -844,6 +849,11 @@ func (self *gateway) StartVoiceSession(
 	if strings.TrimSpace(features.TurnStrategy) == "" && self.config != nil {
 		features.TurnStrategy = strings.TrimSpace(self.config.Voice.TurnStrategy)
 	}
+	if self.config != nil && self.config.Voice.SpeculativeLLMEnabled != nil {
+		features.SpeculativeLLMEnabled = *self.config.Voice.SpeculativeLLMEnabled
+	} else {
+		features.SpeculativeLLMEnabled = true
+	}
 	adapter := &voiceGatewayAdapter{gw: self}
 	return voice.NewSession(sessionId, conversationId, agentId, promptSuffix, audioIn, audioOut, features, adapter, sendJson, sendBinary), nil
 }
@@ -859,6 +869,7 @@ func (self *voiceGatewayAdapter) SendMessage(ctx context.Context, parameters voi
 		Message:            parameters.Message,
 		Model:              parameters.Model,
 		SystemPromptSuffix: parameters.SystemPromptSuffix,
+		IsSpeculative:      parameters.IsSpeculative,
 		Origin:             "voice",
 	}, nil)
 	if handle == nil {
@@ -875,6 +886,10 @@ func (self *voiceGatewayAdapter) SendMessage(ctx context.Context, parameters voi
 
 func (self *voiceGatewayAdapter) AbortRun(runId string) bool {
 	return self.gw.AbortRun(runId)
+}
+
+func (self *voiceGatewayAdapter) CancelRun(runId string) {
+	_ = self.gw.CancelRun(runId)
 }
 
 func (self *voiceGatewayAdapter) Subscribe(sub voice.VoiceSubscriber) {
@@ -1040,9 +1055,10 @@ func (self *voiceTranscribeStreamAdapter) Events() <-chan voice.VoiceTranscribeE
 		defer close(out)
 		for event := range self.stream.Events() {
 			out <- voice.VoiceTranscribeEvent{
-				Type: event.Type,
-				Text: event.Text,
-				Err:  event.Err,
+				Type:       event.Type,
+				Text:       event.Text,
+				Confidence: event.Confidence,
+				Err:        event.Err,
 			}
 		}
 	}()

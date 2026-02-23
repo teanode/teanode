@@ -21,12 +21,13 @@ type AudioFormat struct {
 
 // Features defines enabled voice pipeline features.
 type Features struct {
-	ServerVAD     bool   `json:"server_vad"`
-	ServerTurn    bool   `json:"server_turn"`
-	ServerDenoise bool   `json:"server_denoise"`
-	SileroVAD     bool   `json:"silero_vad,omitempty"`
-	BargeIn       bool   `json:"barge_in"`
-	TurnStrategy  string `json:"turn_strategy,omitempty"`
+	ServerVAD             bool   `json:"server_vad"`
+	ServerTurn            bool   `json:"server_turn"`
+	ServerDenoise         bool   `json:"server_denoise"`
+	SileroVAD             bool   `json:"silero_vad,omitempty"`
+	BargeIn               bool   `json:"barge_in"`
+	TurnStrategy          string `json:"turn_strategy,omitempty"`
+	SpeculativeLLMEnabled bool   `json:"speculative_llm_enabled,omitempty"`
 }
 
 type turnEventPayload struct {
@@ -80,7 +81,13 @@ type Session struct {
 	interimText        string
 	strategy           TurnStrategy
 	speechStartedAt    time.Time
+	lastBargeInAt      time.Time
 	observers          []TurnObserver
+
+	speculativeMu        sync.Mutex
+	speculativeRunId     string
+	speculativeText      string
+	speculativeStartedAt time.Time
 
 	outSeq atomic.Uint64
 	inSeq  atomic.Uint64
@@ -572,6 +579,22 @@ func (self *Session) setSpeechStartedAt(ts time.Time) {
 	self.stateMu.Unlock()
 }
 
+func (self *Session) setLastBargeInAt(ts time.Time) {
+	self.stateMu.Lock()
+	self.lastBargeInAt = ts
+	self.stateMu.Unlock()
+}
+
+func (self *Session) recentBargeInWithin(window time.Duration) bool {
+	self.stateMu.RLock()
+	last := self.lastBargeInAt
+	self.stateMu.RUnlock()
+	if last.IsZero() {
+		return false
+	}
+	return time.Since(last) < window
+}
+
 func (self *Session) speechDurationMs(now time.Time) int {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
@@ -591,4 +614,28 @@ func (self *Session) notifyObservers(fn func(observer TurnObserver)) {
 		}
 		fn(observer)
 	}
+}
+
+func (self *Session) getSpeculativeRun() (runId, text string, startedAt time.Time) {
+	self.speculativeMu.Lock()
+	defer self.speculativeMu.Unlock()
+	return self.speculativeRunId, self.speculativeText, self.speculativeStartedAt
+}
+
+func (self *Session) setSpeculativeRun(runId, text string, startedAt time.Time) {
+	self.speculativeMu.Lock()
+	self.speculativeRunId = runId
+	self.speculativeText = text
+	self.speculativeStartedAt = startedAt
+	self.speculativeMu.Unlock()
+}
+
+func (self *Session) clearSpeculativeRun() (runId string) {
+	self.speculativeMu.Lock()
+	runId = self.speculativeRunId
+	self.speculativeRunId = ""
+	self.speculativeText = ""
+	self.speculativeStartedAt = time.Time{}
+	self.speculativeMu.Unlock()
+	return runId
 }

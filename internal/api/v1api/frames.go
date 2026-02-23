@@ -54,12 +54,13 @@ type voiceAudioFormat struct {
 }
 
 type voiceFeatures struct {
-	ServerVAD     bool   `json:"server_vad"`
-	ServerTurn    bool   `json:"server_turn"`
-	ServerDenoise bool   `json:"server_denoise"`
-	SileroVAD     bool   `json:"silero_vad,omitempty"`
-	BargeIn       bool   `json:"barge_in"`
-	TurnStrategy  string `json:"turn_strategy,omitempty"`
+	ServerVAD             bool   `json:"server_vad"`
+	ServerTurn            bool   `json:"server_turn"`
+	ServerDenoise         bool   `json:"server_denoise"`
+	SileroVAD             bool   `json:"silero_vad,omitempty"`
+	BargeIn               bool   `json:"barge_in"`
+	TurnStrategy          string `json:"turn_strategy,omitempty"`
+	SpeculativeLLMEnabled bool   `json:"speculative_llm_enabled,omitempty"`
 }
 
 type voiceClientInfo struct {
