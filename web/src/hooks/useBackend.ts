@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type {
   Attachment,
   Conversation,
@@ -279,6 +279,8 @@ export function useBackend() {
   const [currentAgentId, setCurrentAgentId] = useState<string>("");
   const [serverDefaultAgentId, setServerDefaultAgentId] = useState<string>("");
   const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(true);
+  const [hasConnectedOnce, setHasConnectedOnce] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [conversationModel, setConversationModel] = useState<string | null>(
@@ -308,6 +310,11 @@ export function useBackend() {
   const pendingEventsRef = useRef<EventFrame[]>([]);
   const runQueueRef = useRef<string[]>([]); // ordered run IDs: [active, queued1, queued2, ...]
   const selfOriginIdsRef = useRef<Set<string>>(new Set()); // origin IDs for self-sent messages
+  const hasConnectedOnceRef = useRef(hasConnectedOnce);
+  hasConnectedOnceRef.current = hasConnectedOnce;
+  const disconnectGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // Pagination state
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
@@ -832,7 +839,13 @@ export function useBackend() {
   >(null!);
 
   const handleConnect = useCallback((result: ConnectResult) => {
+    if (disconnectGraceTimerRef.current) {
+      clearTimeout(disconnectGraceTimerRef.current);
+      disconnectGraceTimerRef.current = null;
+    }
+    setConnecting(false);
     setConnected(true);
+    setHasConnectedOnce(true);
     setIsAdmin(!!result.isAdmin);
     setCurrentUserId(result.userId || "");
     setAudioCapability(result.capabilities?.includes("audio") ?? false);
@@ -937,7 +950,40 @@ export function useBackend() {
 
   const handleStatusChange = useCallback((nextStatus: string) => {
     setStatus(nextStatus);
-    setConnected(nextStatus === "connected");
+    if (nextStatus === "connected") {
+      if (disconnectGraceTimerRef.current) {
+        clearTimeout(disconnectGraceTimerRef.current);
+        disconnectGraceTimerRef.current = null;
+      }
+      setConnecting(false);
+      setConnected(true);
+      return;
+    }
+
+    setConnecting(true);
+
+    // On first load, expose disconnect immediately so root can keep blocking.
+    if (!hasConnectedOnceRef.current) {
+      setConnected(false);
+      return;
+    }
+
+    // iOS Safari may emit very short disconnects during app visibility changes.
+    // Keep UI stable unless disconnection persists past a short grace period.
+    if (disconnectGraceTimerRef.current) return;
+    disconnectGraceTimerRef.current = setTimeout(() => {
+      setConnected(false);
+      disconnectGraceTimerRef.current = null;
+    }, 1500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (disconnectGraceTimerRef.current) {
+        clearTimeout(disconnectGraceTimerRef.current);
+        disconnectGraceTimerRef.current = null;
+      }
+    };
   }, []);
 
   const { sendRpc, sendBinary, onBinaryMessage, onVoiceMessage } = useWebSocket(
@@ -1425,6 +1471,8 @@ export function useBackend() {
     agents,
     currentAgentId,
     connected,
+    connecting,
+    hasConnectedOnce,
     isAdmin,
     currentUserId,
     currentRunId: currentRunIdRef.current,

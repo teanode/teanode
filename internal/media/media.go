@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/trash"
@@ -343,7 +344,11 @@ func (self *Store) Scan(filter func(MediaMetadata) bool) ([]MediaMetadata, error
 		if _, hasMedia := mediaFiles[entry.mediaId]; !hasMedia {
 			// Orphan metadata without a media file — clean up.
 			metaPath := filepath.Join(entry.directory, entry.mediaId+metaSuffix)
-			if err := trash.Move(metaPath, self.trashDirectory()); err != nil && !os.IsNotExist(err) {
+			trashDirectory, trashError := self.trashDirectory()
+			if trashError != nil {
+				continue
+			}
+			if err := trash.Move(metaPath, trashDirectory); err != nil && !os.IsNotExist(err) {
 				continue
 			}
 			continue
@@ -371,7 +376,10 @@ func (self *Store) Delete(mediaId string) error {
 	if err != nil {
 		return err
 	}
-	trashDirectory := self.trashDirectory()
+	trashDirectory, err := self.trashDirectory()
+	if err != nil {
+		return err
+	}
 
 	if _, err := os.Stat(mediaPath); err == nil {
 		if err := trash.Move(mediaPath, trashDirectory); err != nil {
@@ -394,11 +402,12 @@ func (self *Store) Delete(mediaId string) error {
 	return nil
 }
 
-func (self *Store) trashDirectory() string {
-	if filepath.Base(self.directory) == "media" {
-		return filepath.Join(filepath.Dir(self.directory), ".trash")
+func (self *Store) trashDirectory() (string, error) {
+	trashDirectory, err := configs.TrashDirectory()
+	if err != nil {
+		return "", fmt.Errorf("resolving trash directory: %w", err)
 	}
-	return filepath.Join(self.directory, ".trash")
+	return trashDirectory, nil
 }
 
 // findMediaFileInDirectory searches a single directory for a media file

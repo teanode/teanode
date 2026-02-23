@@ -52,6 +52,7 @@ interface InputAreaProps {
   bare?: boolean;
   /** When true, the toolbar is always visible (not gated by focus). */
   alwaysExpanded?: boolean;
+  connected?: boolean;
   /** Whether voice input is available (audio-capable provider configured). */
   voiceEnabled?: boolean;
   /** Whether to auto-send after transcription. */
@@ -78,6 +79,7 @@ export default function InputArea({
   modelPicker,
   bare,
   alwaysExpanded,
+  connected = true,
   voiceEnabled,
   voiceAutoSend,
   voiceCallActive,
@@ -208,6 +210,7 @@ export default function InputArea({
 
   const handleSend = useCallback(async () => {
     if (uploadingRef.current) return;
+    if (!connected) return;
     const element = textareaRef.current;
     if (!element) return;
     const text = element.value.trim();
@@ -243,7 +246,7 @@ export default function InputArea({
     if (draftKeyRef.current) {
       localStorage.removeItem(`draft:${draftKeyRef.current}`);
     }
-  }, [onSend, pendingFiles]);
+  }, [connected, onSend, pendingFiles]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
@@ -312,6 +315,7 @@ export default function InputArea({
 
   const hasContent = hasText || pendingFiles.length > 0;
   const showStop = isRunning && !hasContent && !!onAbort;
+  const sendDisabled = !showStop && !connected;
   const expanded = alwaysExpanded || focused;
 
   // Extract the short model name (after the colon) for display.
@@ -571,6 +575,7 @@ export default function InputArea({
                 disabled={
                   uploading ||
                   voiceState === "transcribing" ||
+                  sendDisabled ||
                   (!showStop && !hasContent)
                 }
                 sx={{

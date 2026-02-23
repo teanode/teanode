@@ -22,8 +22,11 @@ const pendingCalls: Map<string, PendingCall> = new Map();
 let eventHandler: EventHandler | null = null;
 let onStatusChange: ((status: string) => void) | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let shouldReconnect = false;
+let connectOpenHandler: (() => void) | undefined;
 const binaryHandlers: BinaryHandler[] = [];
 const voiceMessageHandlers: VoiceMessageHandler[] = [];
+const RECONNECT_DELAY_MS = 1200;
 
 function getToken(): string {
   const params = new URLSearchParams(window.location.search);
@@ -68,39 +71,89 @@ function setStatus(status: string): void {
   onStatusChange?.(status);
 }
 
-export function connect(onOpen?: () => void): void {
+function clearReconnectTimer(): void {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+}
+
+function rejectPendingCalls(message: string): void {
+  for (const [id, pending] of pendingCalls) {
+    pending.reject({ code: -1, message });
+    pendingCalls.delete(id);
+  }
+}
+
+function canAttemptConnectNow(): boolean {
+  // iOS often suspends sockets while backgrounded; wait for visibility/focus.
+  if (
+    typeof document !== "undefined" &&
+    document.visibilityState === "hidden"
+  ) {
+    setStatus("disconnected - waiting for app focus...");
+    return false;
+  }
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    setStatus("offline - waiting for network...");
+    return false;
+  }
+  return true;
+}
+
+function scheduleReconnect(): void {
+  if (!shouldReconnect || reconnectTimer) return;
+  if (!canAttemptConnectNow()) return;
+
+  setStatus("disconnected - reconnecting...");
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    openSocket();
+  }, RECONNECT_DELAY_MS);
+}
+
+function openSocket(): void {
+  if (!shouldReconnect) return;
+  if (!canAttemptConnectNow()) return;
+  if (
+    webSocket &&
+    (webSocket.readyState === WebSocket.OPEN ||
+      webSocket.readyState === WebSocket.CONNECTING)
+  ) {
+    return;
+  }
+
+  clearReconnectTimer();
+  setStatus("connecting...");
 
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   let url = `${proto}//${window.location.host}/api/v1/websocket`;
   const token = getToken();
   if (token) url += `?token=${encodeURIComponent(token)}`;
 
-  webSocket = new WebSocket(url);
+  const socket = new WebSocket(url);
+  webSocket = socket;
 
-  webSocket.onopen = () => {
+  socket.onopen = () => {
     console.debug("[voice][ws] open");
     setStatus("connected");
-    onOpen?.();
+    connectOpenHandler?.();
   };
 
-  webSocket.onclose = () => {
+  socket.onclose = () => {
     console.debug("[voice][ws] close");
-    setStatus("disconnected - reconnecting...");
-    // Reject all pending RPCs
-    for (const [id, pending] of pendingCalls) {
-      pending.reject({ code: -1, message: "disconnected" });
-      pendingCalls.delete(id);
-    }
-    reconnectTimer = setTimeout(() => connect(onOpen), 2000);
+    rejectPendingCalls("disconnected");
+    if (webSocket === socket) webSocket = null;
+    scheduleReconnect();
   };
 
-  webSocket.onerror = () => {};
+  socket.onerror = () => {
+    if (socket.readyState !== WebSocket.OPEN) {
+      setStatus("connection error - reconnecting...");
+    }
+  };
 
-  webSocket.onmessage = async (e) => {
+  socket.onmessage = async (e) => {
     if (e.data instanceof ArrayBuffer) {
       console.debug("[voice][ws] binary message", { bytes: e.data.byteLength });
       for (const handler of binaryHandlers) handler(e.data);
@@ -152,6 +205,17 @@ export function connect(onOpen?: () => void): void {
   };
 }
 
+export function connect(onOpen?: () => void): void {
+  shouldReconnect = true;
+  connectOpenHandler = onOpen;
+  openSocket();
+}
+
+export function reconnect(): void {
+  if (!shouldReconnect) return;
+  openSocket();
+}
+
 export function sendRpc<T = unknown>(
   method: string,
   params: unknown,
@@ -173,15 +237,14 @@ export function sendRpc<T = unknown>(
 }
 
 export function disconnect(): void {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
+  shouldReconnect = false;
+  clearReconnectTimer();
   if (webSocket) {
     webSocket.onclose = null;
     webSocket.close();
     webSocket = null;
   }
+  rejectPendingCalls("disconnected");
 }
 
 export function sendBinary(data: ArrayBuffer | Uint8Array): void {
