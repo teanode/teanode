@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,6 +14,9 @@ import (
 
 const describerRefreshInterval = 24 * time.Hour
 const describerCheckInterval = 5 * time.Minute
+const describerRequestTimeout = 25 * time.Second
+const describerMaxTokens = 120
+const describerMaxWorkspaceChars = 4000
 
 // Describer runs a background loop that periodically refreshes agent self-descriptions.
 type Describer struct {
@@ -110,9 +114,12 @@ func (self *Describer) describeAgent(ctx context.Context, agentId string, runner
 		return
 	}
 
-	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts := runner.Snapshot()
+	configuration, providerRegistry, tools, workspaceDirectory, _ := runner.Snapshot()
 
-	qualifiedModel := configuration.AgentModel(agentId)
+	qualifiedModel := strings.TrimSpace(configuration.Models.SummarizerModel)
+	if qualifiedModel == "" {
+		qualifiedModel = configuration.AgentModel(agentId)
+	}
 	if qualifiedModel == "" {
 		return
 	}
@@ -123,31 +130,32 @@ func (self *Describer) describeAgent(ctx context.Context, agentId string, runner
 	}
 
 	limits := configuration.ResolveModelLimits(qualifiedModel)
-	systemPrompt := BuildSystemPrompt(configuration, agentId, "", workspaceDirectory, "", skillPrompts, limits.MaxWorkspaceFileChars, nil)
+	systemPrompt := buildDescriberSystemPrompt(configuration, agentId, workspaceDirectory, limits.MaxWorkspaceFileChars)
 
 	toolNames := []string{}
 	if tools != nil {
 		toolNames = tools.Names()
 	}
-	toolList := "none"
-	if len(toolNames) > 0 {
-		toolList = strings.Join(toolNames, ", ")
-	}
+	toolList := summarizeToolNames(toolNames, 20)
 
 	request := providers.ChatRequest{
-		Model: bareModel,
+		Model:     bareModel,
+		MaxTokens: describerMaxTokens,
 		Messages: []providers.ChatMessage{
 			{Role: "system", Content: systemPrompt},
 			{
 				Role: "user",
-				Content: "Describe yourself to other agents in 1-2 sentences for task routing. " +
-					"Include your specialty, the kinds of tasks you should handle, and notable tools. " +
-					"Use plain text only. Available tools: " + toolList,
+				Content: "Write a plain-text routing description in 1-2 sentences. " +
+					"State your specialty, what tasks should be routed to you, and key tools. " +
+					"Tools: " + toolList,
 			},
 		},
 	}
 
-	response, err := provider.ChatCompletion(ctx, request)
+	requestCtx, cancel := context.WithTimeout(ctx, describerRequestTimeout)
+	defer cancel()
+
+	response, err := provider.ChatCompletion(requestCtx, request)
 	if err != nil || len(response.Choices) == 0 {
 		log.Debugf("describer: failed to describe agent %s: %v", agentId, err)
 		return
@@ -162,4 +170,39 @@ func (self *Describer) describeAgent(ctx context.Context, agentId string, runner
 	if err := configs.SaveAgentState(agentId, state); err != nil {
 		log.Debugf("describer: failed to save agent state for %s: %v", agentId, err)
 	}
+}
+
+func buildDescriberSystemPrompt(configuration *configs.Config, agentId, workspaceDirectory string, maxWorkspaceFileChars int) string {
+	maxChars := maxWorkspaceFileChars
+	if maxChars <= 0 || maxChars > describerMaxWorkspaceChars {
+		maxChars = describerMaxWorkspaceChars
+	}
+
+	agentContent := loadWorkspaceFile(workspaceDirectory, "AGENT.md", maxChars)
+	agentMemory := loadWorkspaceFile(workspaceDirectory, "MEMORY.md", maxChars)
+
+	return fmt.Sprintf(
+		"%s\n\nGenerate a concise self-description for inter-agent task routing.\nUse only plain text.\n\nAGENT.md:\n%s\n\nMEMORY.md:\n%s",
+		resolveIdentityLine(configuration, agentId),
+		emptyFallback(agentContent),
+		emptyFallback(agentMemory),
+	)
+}
+
+func summarizeToolNames(toolNames []string, maxTools int) string {
+	if len(toolNames) == 0 {
+		return "none"
+	}
+	if maxTools <= 0 || len(toolNames) <= maxTools {
+		return strings.Join(toolNames, ", ")
+	}
+	return strings.Join(toolNames[:maxTools], ", ") + ", ..."
+}
+
+func emptyFallback(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "(empty)"
+	}
+	return trimmed
 }

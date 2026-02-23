@@ -38,13 +38,14 @@ type StreamOptions struct {
 
 // ChatRequest is the request body for chat completions.
 type ChatRequest struct {
-	Model         string           `json:"model"`
-	Messages      []ChatMessage    `json:"messages"`
-	Stream        bool             `json:"stream"`
-	StreamOptions *StreamOptions   `json:"stream_options,omitempty"`
-	MaxTokens     int              `json:"max_tokens,omitempty"`
-	Temperature   *float64         `json:"temperature,omitempty"`
-	Tools         []ToolDefinition `json:"tools,omitempty"`
+	Model               string           `json:"model"`
+	Messages            []ChatMessage    `json:"messages"`
+	Stream              bool             `json:"stream"`
+	StreamOptions       *StreamOptions   `json:"stream_options,omitempty"`
+	MaxTokens           int              `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int              `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64         `json:"temperature,omitempty"`
+	Tools               []ToolDefinition `json:"tools,omitempty"`
 }
 
 // ContentPart represents a single part of multimodal message content.
@@ -237,6 +238,10 @@ type ChatDelta struct {
 
 // ChatCompletion sends a non-streaming chat completion request.
 func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*ChatResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultNonStreamingRequestTimeout)
+	defer cancel()
+
+	request.normalizeMaxTokensParam()
 	request.Stream = false
 	body, _ := json.Marshal(request)
 
@@ -280,6 +285,7 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 // when the stream ends or an error occurs. Errors are sent as a chunk
 // with a nil Choices field and the error in a special format.
 func (self *Client) ChatCompletionStream(ctx context.Context, request ChatRequest) (<-chan StreamEvent, error) {
+	request.normalizeMaxTokensParam()
 	request.Stream = true
 	body, _ := json.Marshal(request)
 
@@ -315,6 +321,21 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 	}()
 
 	return events, nil
+}
+
+func (self *ChatRequest) normalizeMaxTokensParam() {
+	if self.MaxCompletionTokens > 0 || self.MaxTokens <= 0 {
+		return
+	}
+	if usesMaxCompletionTokens(self.Model) {
+		self.MaxCompletionTokens = self.MaxTokens
+		self.MaxTokens = 0
+	}
+}
+
+func usesMaxCompletionTokens(model string) bool {
+	lower := strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(lower, "gpt-5")
 }
 
 // StreamEvent wraps either a chunk or an error from the stream.
@@ -367,6 +388,9 @@ type ModelInfo struct {
 
 // ListModels fetches available models from the provider's /models endpoint.
 func (self *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultModelsRequestTimeout)
+	defer cancel()
+
 	httpRequest, err := http.NewRequestWithContext(ctx, "GET", self.baseUrl+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
