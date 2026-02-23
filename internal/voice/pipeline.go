@@ -107,6 +107,10 @@ func (self *Session) audioInputLoop() {
 				speaking = true
 				turnId := self.newTurnId()
 				self.startNewTurn(turnId)
+				_, balanced := self.strategy.(BalancedStrategy)
+				if balanced && self.Features.BargeIn && (self.GetCurrentRunId() != "" || self.GetCurrentResponseId() != "") {
+					self.triggerBargeIn()
+				}
 				self.setSpeechStartedAt(time.Now())
 				candidateActive = false
 				nowMs := time.Now().UnixMilli()

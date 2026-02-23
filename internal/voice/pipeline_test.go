@@ -917,3 +917,33 @@ func TestSpeculative_Race(t *testing.T) {
 		t.Fatal("expected at least one speculative send")
 	}
 }
+
+func TestBalancedStrategy_TriggersBargeInOnSpeechStart(t *testing.T) {
+	s, deps := newPipelineSessionWithFeatures("unused", Features{
+		ServerVAD:    true,
+		ServerTurn:   true,
+		BargeIn:      true,
+		TurnStrategy: "balanced",
+	})
+	s.SetCurrentRunId("run-active")
+
+	finished := make(chan struct{})
+	go func() {
+		s.audioInputLoop()
+		close(finished)
+	}()
+
+	for i := 0; i < 12; i++ {
+		s.audioInCh <- makePCMFrame(12000, 320)
+	}
+	waitFor(t, 500*time.Millisecond, func() bool {
+		return deps.abortCount() > 0 && s.GetCurrentRunId() == ""
+	})
+
+	close(s.doneCh)
+	select {
+	case <-finished:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("audioInputLoop did not stop after done")
+	}
+}
