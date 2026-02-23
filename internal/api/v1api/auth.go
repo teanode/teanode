@@ -2,6 +2,7 @@ package v1api
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -79,6 +80,12 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 	username := strings.TrimSpace(body.Username)
 	if username == "" {
 		return web.Error(400, "username is required")
+	}
+	if _, _, exists := securityConfig.FindUserByUsername(username); exists {
+		return web.Error(409, "username already exists")
+	}
+	if securityConfig.Users == nil {
+		securityConfig.Users = map[string]configs.SecurityUser{}
 	}
 	userId := security.NewULID()
 	securityConfig.Users[userId] = configs.SecurityUser{
@@ -220,6 +227,21 @@ func resolveMaxAge(config *configs.Config) time.Duration {
 	return 14 * 24 * time.Hour
 }
 
+func authBucketKeyForRemoteAddress(remoteAddress string) string {
+	trimmedAddress := strings.TrimSpace(remoteAddress)
+	if trimmedAddress == "" {
+		return "unknown"
+	}
+	host, _, err := net.SplitHostPort(trimmedAddress)
+	if err == nil {
+		trimmedHost := strings.TrimSpace(host)
+		if trimmedHost != "" {
+			return trimmedHost
+		}
+	}
+	return trimmedAddress
+}
+
 // authBucketForRemoteAddress returns the per-IP rate limit bucket for auth endpoints,
 // creating one if it doesn't exist. Allows a burst of 5 requests, refilling
 // at 1 request per 10 seconds.
@@ -227,12 +249,29 @@ func (self *v1Api) authBucketForRemoteAddress(remoteAddress string) *ratelimit.B
 	self.authBucketsMutex.Lock()
 	defer self.authBucketsMutex.Unlock()
 
-	bucket, exists := self.authBuckets[remoteAddress]
-	if !exists {
-		bucket = ratelimit.NewBucketWithQuantumAndInterval(1, 10*time.Second, 5)
-		self.authBuckets[remoteAddress] = bucket
+	const maxAuthBucketEntries = 2048
+	const staleEntryDuration = 24 * time.Hour
+
+	now := time.Now()
+	if len(self.authBuckets) > maxAuthBucketEntries {
+		staleBefore := now.Add(-staleEntryDuration)
+		for key, entry := range self.authBuckets {
+			if entry.lastSeen.Before(staleBefore) {
+				delete(self.authBuckets, key)
+			}
+		}
 	}
-	return bucket
+
+	key := authBucketKeyForRemoteAddress(remoteAddress)
+	entry, exists := self.authBuckets[key]
+	if !exists {
+		entry = &authBucketEntry{
+			bucket: ratelimit.NewBucketWithQuantumAndInterval(1, 10*time.Second, 5),
+		}
+		self.authBuckets[key] = entry
+	}
+	entry.lastSeen = now
+	return entry.bucket
 }
 
 // checkAuthRateLimit consumes one token from the per-IP auth bucket.

@@ -23,6 +23,11 @@ type synthesisToken struct {
 	ExpiresAt time.Time
 }
 
+type authBucketEntry struct {
+	bucket   *ratelimit.Bucket
+	lastSeen time.Time
+}
+
 // v1Api is the v1 API component. It implements web.Component.
 type v1Api struct {
 	gateway         gw.Gateway
@@ -30,7 +35,7 @@ type v1Api struct {
 
 	// Per-IP rate limiter for auth endpoints (login, setup).
 	authBucketsMutex sync.Mutex
-	authBuckets      map[string]*ratelimit.Bucket
+	authBuckets      map[string]*authBucketEntry
 
 	// Pending TTS synthesis requests keyed by token.
 	synthesisTokensMutex sync.Mutex
@@ -42,7 +47,7 @@ func New(gateway gw.Gateway, onSkillsChanged func()) *v1Api {
 	return &v1Api{
 		gateway:         gateway,
 		onSkillsChanged: onSkillsChanged,
-		authBuckets:     make(map[string]*ratelimit.Bucket),
+		authBuckets:     make(map[string]*authBucketEntry),
 		synthesisTokens: make(map[string]synthesisToken),
 	}
 }

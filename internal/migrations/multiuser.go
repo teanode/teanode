@@ -431,11 +431,11 @@ func migrateLegacyProfileFile(path, userId string) error {
 }
 
 func parseLegacyProfile(data []byte) *configs.UserProfile {
-	type profileYAML struct {
+	type profileYaml struct {
 		Name          string `yaml:"name"`
 		AvatarMediaID string `yaml:"avatarMediaId"`
 	}
-	var parsed profileYAML
+	var parsed profileYaml
 	if err := yaml.Unmarshal(data, &parsed); err == nil {
 		if strings.TrimSpace(parsed.Name) != "" || strings.TrimSpace(parsed.AvatarMediaID) != "" {
 			return &configs.UserProfile{
