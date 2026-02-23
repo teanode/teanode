@@ -87,11 +87,14 @@ function rejectPendingCalls(message: string): void {
 
 function canAttemptConnectNow(): boolean {
   // iOS often suspends sockets while backgrounded; wait for visibility/focus.
-  if (document.visibilityState === "hidden") {
+  if (
+    typeof document !== "undefined" &&
+    document.visibilityState === "hidden"
+  ) {
     setStatus("disconnected - waiting for app focus...");
     return false;
   }
-  if (navigator.onLine === false) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
     setStatus("offline - waiting for network...");
     return false;
   }

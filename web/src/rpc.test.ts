@@ -93,6 +93,7 @@ describe("rpc voice message routing", () => {
         search: "",
       },
     });
+    vi.stubGlobal("document", {} as Document);
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     const statusHandler = vi.fn();
     setStatusHandler(statusHandler);
