@@ -307,13 +307,16 @@ func (self *Session) ttsSynthLoop() {
 			responseId := self.GetCurrentResponseId()
 			if responseId == "" {
 				// Avoid speaking between two close user utterances while a transcription
-				// is still in-flight for a newer turn.
-				start := time.Now()
-				for self.HasTranscriptionInFlight() && time.Since(start) < maxResponseStartDelay {
-					select {
-					case <-self.doneCh:
-						return
-					case <-time.After(50 * time.Millisecond):
+				// is still in-flight for a newer turn. For streaming STT, this guard can
+				// delay response.started beyond scenario latency budgets, so skip it.
+				if self.getStreamingTranscribeStream() == nil {
+					start := time.Now()
+					for self.HasTranscriptionInFlight() && time.Since(start) < maxResponseStartDelay {
+						select {
+						case <-self.doneCh:
+							return
+						case <-time.After(50 * time.Millisecond):
+						}
 					}
 				}
 				responseId = self.newTurnId()
