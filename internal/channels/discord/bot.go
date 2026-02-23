@@ -158,6 +158,8 @@ type Bot struct {
 	// Subscriber-driven streaming state.
 	subscribedRunsMutex sync.Mutex
 	subscribedRuns      map[string]*discordSubscribedRun // runId -> state
+	userChannelsMutex   sync.RWMutex
+	userChannels        map[string]string // userId -> channelId
 }
 
 // New creates a new Discord bot that dynamically resolves the default agent and conversation from the registry.
@@ -169,6 +171,7 @@ func New(discordConfig *configs.DiscordConfig, agentRegistry *agents.AgentRegist
 		modelOverrides:      make(map[string]string),
 		activeConversations: make(map[string]struct{}),
 		subscribedRuns:      make(map[string]*discordSubscribedRun),
+		userChannels:        make(map[string]string),
 	}
 }
 
@@ -201,15 +204,21 @@ func (self *Bot) Stop() {
 	}
 }
 
-func (self *Bot) shouldForwardDisconnectedWebUI(agentId, conversationId, originSessionId string) bool {
+func (self *Bot) shouldForwardDisconnectedSession(userId, agentId, conversationId, originSessionId string) bool {
 	if originSessionId == "" {
 		return false
 	}
-	defaultAgentId := self.agentRegistry.DefaultID()
+	if userId == "" {
+		return false
+	}
+	defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
+	if err != nil {
+		return false
+	}
 	if agentId != defaultAgentId {
 		return false
 	}
-	defaultConversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
+	defaultConversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
 	if defaultConversationId == "" || conversationId == "" {
 		return false
 	}
@@ -243,8 +252,8 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		return
 	}
 
-	// Use the single persisted channel ID.
-	channelId := self.agentRegistry.DiscordChannelID()
+	userId, _ := payloadMap["userId"].(string)
+	channelId := self.channelIdForUser(userId)
 	if channelId == "" {
 		return
 	}
@@ -253,7 +262,8 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 	case "user_message":
 		agentId, _ := payloadMap["agentId"].(string)
 		// Only forward events for the default agent.
-		if agentId != self.agentRegistry.DefaultID() {
+		defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
+		if err != nil || agentId != defaultAgentId {
 			return
 		}
 
@@ -283,11 +293,11 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		}
 
 		originSessionId, _ := payloadMap["originSessionId"].(string)
-		if !self.shouldForwardDisconnectedWebUI(agentId, conversationId, originSessionId) {
+		if !self.shouldForwardDisconnectedSession(userId, agentId, conversationId, originSessionId) {
 			return
 		}
 
-		// WebUI runs are only delivered to Discord if the originating web session disconnects.
+		// Session runs are only delivered to Discord if the originating web session disconnects.
 		self.subscribedRunsMutex.Lock()
 		self.subscribedRuns[runId] = &discordSubscribedRun{
 			channelId:       channelId,
@@ -377,11 +387,8 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 			return
 		}
 
-		// WebUI fallback: only notify when the originating web session is disconnected.
+		// Session fallback: only notify when the originating web session is disconnected.
 		if subscribedRun.origin == "webui" && !self.gateway.IsSessionConnected(subscribedRun.originSessionId) {
-			if subscribedRun.triggerText != "" {
-				self.discord.ChannelMessageSend(subscribedRun.channelId, "WebUI response ready:\n> "+strings.ReplaceAll(subscribedRun.triggerText, "\n", "\n> "))
-			}
 			self.sendChunked(subscribedRun.channelId, finalText)
 		}
 
@@ -409,7 +416,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 			if errorText == "" {
 				errorText = "An error occurred while processing the request."
 			}
-			self.discord.ChannelMessageSend(subscribedRun.channelId, "WebUI run failed: "+errorText)
+			self.discord.ChannelMessageSend(subscribedRun.channelId, "Session run failed: "+errorText)
 		}
 	}
 }
@@ -454,24 +461,25 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		}
 	}
 
-	// Check allowed users.
-	if !self.isUserAllowed(event.Author.ID) {
-		return
-	}
-
 	// Check for slash commands.
+	userId := self.linkedUserIdForDiscordUser(event.Author.ID)
+	if userId == "" {
+		discordSession.ChannelMessageSend(event.ChannelID, unlinkedDiscordMessage(event.Author.ID))
+		return
+	}
+	self.setChannelForUser(userId, event.ChannelID)
+
 	if name, arguments, ok := slashcommands.Parse(content); ok {
-		self.handleCommand(discordSession, event, name, arguments)
+		self.handleCommand(userId, discordSession, event, name, arguments)
 		return
 	}
 
-	defaultAgentId := self.agentRegistry.DefaultID()
-	runner := self.agentRegistry.Get(defaultAgentId)
-	if runner == nil {
+	defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
+	if err != nil {
 		discordSession.ChannelMessageSend(event.ChannelID, "No default agent available.")
 		return
 	}
-	conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
+	conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
 
 	// Check if there's already an active run for this conversation.
 	if self.gateway.GetActiveRun(conversationId) != "" {
@@ -485,14 +493,36 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		attachments = self.extractAttachments(event.Attachments)
 	}
 
-	go self.handleMessage(conversationId, defaultAgentId, event.ChannelID, content, attachments)
+	go self.handleMessage(userId, conversationId, defaultAgentId, event.ChannelID, content, attachments)
 }
 
-func (self *Bot) handleMessage(conversationId, agentId, channelId, message string, attachments []conversations.Attachment) {
-	defer deferutil.Recover()
+func unlinkedDiscordMessage(discordUserId string) string {
+	securityFile := "~/.teanode/security.yaml"
+	if path, err := configs.SecurityFile(); err == nil && strings.TrimSpace(path) != "" {
+		securityFile = path
+	}
+	return fmt.Sprintf(
+		"Your Discord account is not linked to a TeaNode user yet.\n\n"+
+			"Link it by editing `%s` and adding:\n"+
+			"channelLinks:\n"+
+			"  discord:\n"+
+			"    \"%s\": \"<userId>\"\n\n"+
+			"`<userId>` must exist under `users:` in the same file.\n"+
+			"Example:\n"+
+			"users:\n"+
+			"  user-1:\n"+
+			"    username: alice\n"+
+			"channelLinks:\n"+
+			"  discord:\n"+
+			"    \"%s\": \"user-1\"",
+		securityFile,
+		discordUserId,
+		discordUserId,
+	)
+}
 
-	// Persist channel ID for subscriber-driven routing (e.g. scheduled jobs).
-	self.agentRegistry.SetDiscordChannelID(channelId)
+func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, message string, attachments []conversations.Attachment) {
+	defer deferutil.Recover()
 
 	// Mark this conversation as actively handled by us.
 	self.activeConversationsMutex.Lock()
@@ -534,6 +564,7 @@ func (self *Bot) handleMessage(conversationId, agentId, channelId, message strin
 	}
 
 	handle := self.gateway.SendMessage(context.Background(), gw.SendMessageParameters{
+		UserContext:    &gw.UserContext{UserID: userId},
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
@@ -600,33 +631,37 @@ func (self *Bot) getModel(channelId string) string {
 	return self.modelOverrides[channelId]
 }
 
-func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *discordgo.MessageCreate, name, arguments string) {
+func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session, messageEvent *discordgo.MessageCreate, name, arguments string) {
 	channelId := messageEvent.ChannelID
 	var reply string
 
-	defaultAgentId := self.agentRegistry.DefaultID()
-	runner := self.agentRegistry.Get(defaultAgentId)
+	defaultAgentId, defaultError := self.gateway.EnsureDefaultAgent(userId)
+	if defaultError != nil {
+		discordSession.ChannelMessageSend(channelId, "No default agent available.")
+		return
+	}
+	runner := self.agentRegistry.GetRunner(defaultAgentId)
 
 	switch name {
 	case "new":
-		conversationId := self.gateway.NewConversation(defaultAgentId, "")
+		conversationId := self.gateway.NewDefaultConversation(userId, defaultAgentId, "")
 		reply = fmt.Sprintf("New conversation started. (`%s`)", conversationId)
 
 	case "reset", "clear":
-		conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
 		// Abort active run if any.
 		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
 			self.gateway.AbortRun(activeRunId)
 		}
-		if err := self.gateway.DeleteConversation(defaultAgentId, conversationId); err != nil {
+		if err := self.gateway.DeleteConversation(userId, defaultAgentId, conversationId); err != nil {
 			reply = fmt.Sprintf("Error clearing conversation: %v", err)
 		} else {
-			newConversationId := self.gateway.NewConversation(defaultAgentId, "")
+			newConversationId := self.gateway.NewDefaultConversation(userId, defaultAgentId, "")
 			reply = fmt.Sprintf("Conversation cleared. New conversation started. (`%s`)", newConversationId)
 		}
 
 	case "stop":
-		conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
 		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
 			self.gateway.AbortRun(activeRunId)
 			reply = "Run cancelled."
@@ -662,16 +697,16 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 			}
 			reply = strings.Join(lines, "\n")
 		} else {
-			if err := self.gateway.SetDefaultAgent(arguments); err != nil {
+			if err := self.gateway.SetDefaultAgent(userId, arguments); err != nil {
 				reply = fmt.Sprintf("Error: %v", err)
 			} else {
-				newConversationId := self.agentRegistry.DefaultConversationID(arguments)
+				newConversationId := self.agentRegistry.EnsureDefaultConversation(userId, arguments)
 				reply = fmt.Sprintf("Switched to agent `%s`. (conversation: `%s`)", arguments, newConversationId)
 			}
 		}
 
 	case "status":
-		conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
 		model := self.getModel(channelId)
 		if model == "" && runner != nil {
 			model = runner.Config.Models.Default
@@ -688,9 +723,10 @@ func (self *Bot) handleCommand(discordSession *discordgo.Session, messageEvent *
 		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
 
 	case "compact":
-		conversationId := self.agentRegistry.DefaultConversationID(defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
 		if runner != nil {
-			result, err := runner.CompactConversation(context.Background(), conversationId)
+			contextWithUserId := agents.ContextWithUserID(context.Background(), userId)
+			result, err := runner.CompactConversation(contextWithUserId, conversationId)
 			if err != nil {
 				reply = fmt.Sprintf("Error compacting: %v", err)
 			} else {
@@ -741,16 +777,27 @@ func (self *Bot) sendChunked(channelId, text string) {
 	}
 }
 
-func (self *Bot) isUserAllowed(userId string) bool {
-	if len(self.config.AllowedUsers) == 0 {
-		return true
+func (self *Bot) linkedUserIdForDiscordUser(discordUserId string) string {
+	securityConfig := self.gateway.SecurityConfig()
+	if securityConfig == nil || securityConfig.ChannelLinks.Discord == nil {
+		return ""
 	}
-	for _, id := range self.config.AllowedUsers {
-		if id == userId {
-			return true
-		}
+	return securityConfig.ChannelLinks.Discord[discordUserId]
+}
+
+func (self *Bot) setChannelForUser(userId, channelId string) {
+	if userId == "" || channelId == "" {
+		return
 	}
-	return false
+	self.userChannelsMutex.Lock()
+	self.userChannels[userId] = channelId
+	self.userChannelsMutex.Unlock()
+}
+
+func (self *Bot) channelIdForUser(userId string) string {
+	self.userChannelsMutex.RLock()
+	defer self.userChannelsMutex.RUnlock()
+	return self.userChannels[userId]
 }
 
 // extractAttachments downloads files attached to a Discord message and saves
@@ -797,13 +844,13 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 
 // downloadUrl fetches data from a URL.
 func downloadUrl(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+	response, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("downloading: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download returned status %d", resp.StatusCode)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download returned status %d", response.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	return io.ReadAll(response.Body)
 }

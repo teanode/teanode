@@ -22,8 +22,11 @@ const pendingCalls: Map<string, PendingCall> = new Map();
 let eventHandler: EventHandler | null = null;
 let onStatusChange: ((status: string) => void) | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let shouldReconnect = false;
+let connectOpenHandler: (() => void) | undefined;
 const binaryHandlers: BinaryHandler[] = [];
 const voiceMessageHandlers: VoiceMessageHandler[] = [];
+const RECONNECT_DELAY_MS = 1200;
 
 function getToken(): string {
   const params = new URLSearchParams(window.location.search);
@@ -68,39 +71,89 @@ function setStatus(status: string): void {
   onStatusChange?.(status);
 }
 
-export function connect(onOpen?: () => void): void {
+function clearReconnectTimer(): void {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+}
+
+function rejectPendingCalls(message: string): void {
+  for (const [id, pending] of pendingCalls) {
+    pending.reject({ code: -1, message });
+    pendingCalls.delete(id);
+  }
+}
+
+function canAttemptConnectNow(): boolean {
+  // iOS often suspends sockets while backgrounded; wait for visibility/focus.
+  if (
+    typeof document !== "undefined" &&
+    document.visibilityState === "hidden"
+  ) {
+    setStatus("disconnected - waiting for app focus...");
+    return false;
+  }
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    setStatus("offline - waiting for network...");
+    return false;
+  }
+  return true;
+}
+
+function scheduleReconnect(): void {
+  if (!shouldReconnect || reconnectTimer) return;
+  if (!canAttemptConnectNow()) return;
+
+  setStatus("disconnected - reconnecting...");
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    openSocket();
+  }, RECONNECT_DELAY_MS);
+}
+
+function openSocket(): void {
+  if (!shouldReconnect) return;
+  if (!canAttemptConnectNow()) return;
+  if (
+    webSocket &&
+    (webSocket.readyState === WebSocket.OPEN ||
+      webSocket.readyState === WebSocket.CONNECTING)
+  ) {
+    return;
+  }
+
+  clearReconnectTimer();
+  setStatus("connecting...");
 
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   let url = `${proto}//${window.location.host}/api/v1/websocket`;
   const token = getToken();
   if (token) url += `?token=${encodeURIComponent(token)}`;
 
-  webSocket = new WebSocket(url);
+  const socket = new WebSocket(url);
+  webSocket = socket;
 
-  webSocket.onopen = () => {
+  socket.onopen = () => {
     console.debug("[voice][ws] open");
     setStatus("connected");
-    onOpen?.();
+    connectOpenHandler?.();
   };
 
-  webSocket.onclose = () => {
+  socket.onclose = () => {
     console.debug("[voice][ws] close");
-    setStatus("disconnected - reconnecting...");
-    // Reject all pending RPCs
-    for (const [id, pending] of pendingCalls) {
-      pending.reject({ code: -1, message: "disconnected" });
-      pendingCalls.delete(id);
-    }
-    reconnectTimer = setTimeout(() => connect(onOpen), 2000);
+    rejectPendingCalls("disconnected");
+    if (webSocket === socket) webSocket = null;
+    scheduleReconnect();
   };
 
-  webSocket.onerror = () => {};
+  socket.onerror = () => {
+    if (socket.readyState !== WebSocket.OPEN) {
+      setStatus("connection error - reconnecting...");
+    }
+  };
 
-  webSocket.onmessage = async (e) => {
+  socket.onmessage = async (e) => {
     if (e.data instanceof ArrayBuffer) {
       console.debug("[voice][ws] binary message", { bytes: e.data.byteLength });
       for (const handler of binaryHandlers) handler(e.data);
@@ -152,6 +205,17 @@ export function connect(onOpen?: () => void): void {
   };
 }
 
+export function connect(onOpen?: () => void): void {
+  shouldReconnect = true;
+  connectOpenHandler = onOpen;
+  openSocket();
+}
+
+export function reconnect(): void {
+  if (!shouldReconnect) return;
+  openSocket();
+}
+
 export function sendRpc<T = unknown>(
   method: string,
   params: unknown,
@@ -173,15 +237,14 @@ export function sendRpc<T = unknown>(
 }
 
 export function disconnect(): void {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
+  shouldReconnect = false;
+  clearReconnectTimer();
   if (webSocket) {
     webSocket.onclose = null;
     webSocket.close();
     webSocket = null;
   }
+  rejectPendingCalls("disconnected");
 }
 
 export function sendBinary(data: ArrayBuffer | Uint8Array): void {
@@ -224,11 +287,14 @@ export async function authStatus(): Promise<AuthStatusResult> {
   return response.json();
 }
 
-export async function authLogin(password: string): Promise<void> {
+export async function authLogin(
+  username: string,
+  password: string,
+): Promise<void> {
   const response = await apiFetch("/api/v1/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ username, password }),
   });
   if (!response.ok) {
     const data = await response
@@ -239,13 +305,14 @@ export async function authLogin(password: string): Promise<void> {
 }
 
 export async function authSetup(
+  username: string,
   password: string,
   name?: string,
 ): Promise<void> {
   const response = await apiFetch("/api/v1/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password, name }),
+    body: JSON.stringify({ username, password, name }),
   });
   if (!response.ok) {
     const data = await response
@@ -259,40 +326,16 @@ export async function authLogout(): Promise<void> {
   await apiFetch("/api/v1/auth/logout", { method: "POST" });
 }
 
-export async function profileGet(): Promise<Profile> {
-  const response = await apiFetch("/api/v1/profile", { cache: "no-store" });
-  if (!response.ok) throw new Error(`profile: ${response.status}`);
-  return response.json();
-}
-
-export async function profileUpdate(profile: Profile): Promise<Profile> {
-  const response = await apiFetch("/api/v1/profile", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: profile.name,
-      bio: profile.bio || "",
-    }),
-  });
-  if (!response.ok) {
-    const data = await response
-      .json()
-      .catch(() => ({ error: { message: "Failed to save profile" } }));
-    throw new Error(data.error?.message || "Failed to save profile");
-  }
-  return response.json();
-}
-
 interface RpcProfile {
   name: string;
-  biography: string;
+  description?: string;
   avatarMediaId?: string;
 }
 
 function fromRpcProfile(profile: RpcProfile): Profile {
   return {
     name: profile.name || "",
-    bio: profile.biography || "",
+    description: profile.description || "",
     avatarMediaId: profile.avatarMediaId || "",
   };
 }
@@ -302,10 +345,17 @@ export async function profileGetRpc(): Promise<Profile> {
   return fromRpcProfile(response);
 }
 
-export async function profileUpdateRpc(profile: Profile): Promise<Profile> {
+export async function profileUpdateRpc(
+  profile: Partial<Profile>,
+): Promise<Profile> {
   const response = await sendRpc<RpcProfile>("profile.update", {
-    name: profile.name,
-    biography: profile.bio || "",
+    ...(profile.name !== undefined ? { name: profile.name } : {}),
+    ...(profile.description !== undefined
+      ? { description: profile.description }
+      : {}),
+    ...(profile.avatarMediaId !== undefined
+      ? { avatarMediaId: profile.avatarMediaId }
+      : {}),
   });
   return fromRpcProfile(response);
 }
@@ -316,43 +366,42 @@ export async function uploadAgentAvatar(
 ): Promise<void> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await apiFetch(
-    `/api/v1/agents/${encodeURIComponent(agentId)}/avatar`,
-    {
-      method: "POST",
-      body: formData,
-    },
-  );
+  const response = await apiFetch("/api/v1/media/upload", {
+    method: "POST",
+    body: formData,
+  });
   if (!response.ok) throw new Error(await response.text());
+  const uploaded = (await response.json()) as { mediaId?: string };
+  if (!uploaded.mediaId) {
+    throw new Error("Upload failed: missing mediaId");
+  }
+  await sendRpc("agents.avatar.set", {
+    id: agentId,
+    avatarMediaId: uploaded.mediaId,
+  });
 }
 
 export async function removeAgentAvatar(agentId: string): Promise<void> {
-  const response = await apiFetch(
-    `/api/v1/agents/${encodeURIComponent(agentId)}/avatar`,
-    {
-      method: "DELETE",
-    },
-  );
-  if (!response.ok) throw new Error(await response.text());
+  await sendRpc("agents.avatar.remove", { id: agentId });
 }
 
 export async function uploadProfileAvatar(file: File): Promise<Profile> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await apiFetch("/api/v1/profile/avatar", {
+  const response = await apiFetch("/api/v1/media/upload", {
     method: "POST",
     body: formData,
   });
   if (!response.ok) throw new Error(await response.text());
-  return response.json();
+  const uploaded = (await response.json()) as { mediaId?: string };
+  if (!uploaded.mediaId) {
+    throw new Error("Upload failed: missing mediaId");
+  }
+  return profileUpdateRpc({ avatarMediaId: uploaded.mediaId });
 }
 
 export async function removeProfileAvatar(): Promise<Profile> {
-  const response = await apiFetch("/api/v1/profile/avatar", {
-    method: "DELETE",
-  });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
+  return profileUpdateRpc({ avatarMediaId: "" });
 }
 
 export async function removeProfileAvatarRpc(): Promise<Profile> {
@@ -361,5 +410,5 @@ export async function removeProfileAvatarRpc(): Promise<Profile> {
 }
 
 // Backward-compatible aliases.
-export const getProfile = profileGet;
-export const updateProfile = profileUpdate;
+export const getProfile = profileGetRpc;
+export const updateProfile = profileUpdateRpc;

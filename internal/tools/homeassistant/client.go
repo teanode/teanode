@@ -22,13 +22,13 @@ type Client interface {
 	GetStates(ctx context.Context) ([]EntityState, error)
 
 	// GetState returns the state of a single entity (GET /api/states/{entity_id}).
-	GetState(ctx context.Context, entityID string) (*EntityState, error)
+	GetState(ctx context.Context, entityId string) (*EntityState, error)
 
 	// CallService invokes a HA service (POST /api/services/{domain}/{service}).
 	CallService(ctx context.Context, domain string, service string, data map[string]interface{}) (json.RawMessage, error)
 
 	// GetHistory returns history for an entity (GET /api/history/period/{start}).
-	GetHistory(ctx context.Context, entityID string, hours int) (json.RawMessage, error)
+	GetHistory(ctx context.Context, entityId string, hours int) (json.RawMessage, error)
 
 	// GetConfig returns the HA instance configuration (GET /api/config).
 	GetConfig(ctx context.Context) (json.RawMessage, error)
@@ -45,18 +45,18 @@ type EntityState struct {
 
 // httpClient implements Client using the Home Assistant REST API over HTTP.
 type httpClient struct {
-	baseURL    string
+	baseUrl    string
 	token      string
 	httpClient *http.Client
 }
 
 // NewHTTPClient creates a new HTTP-based Home Assistant client.
-func NewHTTPClient(baseURL string, token string, timeoutSeconds int) Client {
+func NewHTTPClient(baseUrl string, token string, timeoutSeconds int) Client {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = defaultTimeoutSeconds
 	}
 	return &httpClient{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseUrl: strings.TrimRight(baseUrl, "/"),
 		token:   token,
 		httpClient: &http.Client{
 			Timeout: time.Duration(timeoutSeconds) * time.Second,
@@ -65,7 +65,7 @@ func NewHTTPClient(baseURL string, token string, timeoutSeconds int) Client {
 }
 
 func (self *httpClient) doRequest(ctx context.Context, method string, path string, body io.Reader) ([]byte, error) {
-	url := self.baseURL + path
+	url := self.baseUrl + path
 
 	request, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
@@ -106,8 +106,8 @@ func (self *httpClient) GetStates(ctx context.Context) ([]EntityState, error) {
 	return states, nil
 }
 
-func (self *httpClient) GetState(ctx context.Context, entityID string) (*EntityState, error) {
-	data, err := self.doRequest(ctx, http.MethodGet, "/api/states/"+entityID, nil)
+func (self *httpClient) GetState(ctx context.Context, entityId string) (*EntityState, error) {
+	data, err := self.doRequest(ctx, http.MethodGet, "/api/states/"+entityId, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -132,12 +132,12 @@ func (self *httpClient) CallService(ctx context.Context, domain string, service 
 	return json.RawMessage(responseData), nil
 }
 
-func (self *httpClient) GetHistory(ctx context.Context, entityID string, hours int) (json.RawMessage, error) {
+func (self *httpClient) GetHistory(ctx context.Context, entityId string, hours int) (json.RawMessage, error) {
 	if hours <= 0 {
 		hours = 1
 	}
 	start := time.Now().Add(-time.Duration(hours) * time.Hour).UTC().Format(time.RFC3339)
-	path := fmt.Sprintf("/api/history/period/%s?filter_entity_id=%s&minimal_response", start, entityID)
+	path := fmt.Sprintf("/api/history/period/%s?filter_entity_id=%s&minimal_response", start, entityId)
 
 	data, err := self.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {

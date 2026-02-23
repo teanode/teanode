@@ -656,3 +656,73 @@ func TestOpenAINonStreamingWithTools(t *testing.T) {
 		t.Errorf("tool call name = %q", toolCall.Function.Name)
 	}
 }
+
+func TestOpenAIMaxTokensUsesMaxCompletionTokensForGpt5(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		var payload map[string]interface{}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("invalid request body: %v", err)
+		}
+
+		if _, exists := payload["max_tokens"]; exists {
+			t.Error("did not expect max_tokens for gpt-5 model")
+		}
+		if got, ok := payload["max_completion_tokens"].(float64); !ok || int(got) != 123 {
+			t.Errorf("max_completion_tokens = %v, want 123", payload["max_completion_tokens"])
+		}
+
+		writer.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(writer).Encode(ChatResponse{
+			ID:      "chatcmpl-gpt5",
+			Model:   "gpt-5",
+			Choices: []Choice{{Message: ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-key")
+	_, err := client.ChatCompletion(context.Background(), ChatRequest{
+		Model:     "gpt-5",
+		MaxTokens: 123,
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletion: %v", err)
+	}
+}
+
+func TestOpenAIMaxTokensStaysLegacyForNonGpt5(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		var payload map[string]interface{}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("invalid request body: %v", err)
+		}
+
+		if got, ok := payload["max_tokens"].(float64); !ok || int(got) != 77 {
+			t.Errorf("max_tokens = %v, want 77", payload["max_tokens"])
+		}
+		if _, exists := payload["max_completion_tokens"]; exists {
+			t.Error("did not expect max_completion_tokens for non-gpt-5 model")
+		}
+
+		writer.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(writer).Encode(ChatResponse{
+			ID:      "chatcmpl-gpt4o",
+			Model:   "gpt-4o",
+			Choices: []Choice{{Message: ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-key")
+	_, err := client.ChatCompletion(context.Background(), ChatRequest{
+		Model:     "gpt-4o",
+		MaxTokens: 77,
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletion: %v", err)
+	}
+}

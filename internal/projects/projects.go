@@ -7,11 +7,12 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/util/timeutil"
 	"github.com/teanode/teanode/internal/util/trash"
 	"gopkg.in/yaml.v3"
 )
@@ -20,12 +21,12 @@ const defaultProjectDocumentName = "PROJECT.md"
 
 var validProjectIdPattern = regexp.MustCompile(`(?i)^[0-9a-hjkmnp-tv-z]{26}$`)
 
-// Metadata stores persistent project metadata at ~/.teanode/projects/<projectId>.yaml.
+// Metadata stores persistent project metadata at ~/.teanode/projects/<projectId>/project.yaml.
 type Metadata struct {
-	ID          string `json:"id" yaml:"id"`
-	Name        string `json:"name" yaml:"name"`
-	Description string `json:"description" yaml:"description"`
-	UpdatedAt   int64  `json:"updatedAt" yaml:"updatedAt"`
+	ID          string             `json:"id" yaml:"id"`
+	Name        string             `json:"name" yaml:"name"`
+	Description string             `json:"description" yaml:"description"`
+	UpdatedAt   timeutil.Timestamp `json:"updatedAt" yaml:"updatedAt"`
 }
 
 func Directory() (string, error) {
@@ -57,6 +58,14 @@ func normalizeProjectId(projectId string) (string, error) {
 }
 
 func metadataPath(projectId string) (string, error) {
+	directory, err := projectDirectory(projectId)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, "project.yaml"), nil
+}
+
+func projectDirectory(projectId string) (string, error) {
 	normalizedProjectId, err := normalizeProjectId(projectId)
 	if err != nil {
 		return "", err
@@ -65,7 +74,7 @@ func metadataPath(projectId string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(directory, normalizedProjectId+".yaml"), nil
+	return filepath.Join(directory, normalizedProjectId), nil
 }
 
 func workspaceDirectory(projectId string) (string, error) {
@@ -77,7 +86,7 @@ func workspaceDirectory(projectId string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(directory, normalizedProjectId), nil
+	return filepath.Join(directory, normalizedProjectId, "workspace"), nil
 }
 
 func safeProjectPath(projectId, relPath string) (string, string, error) {
@@ -110,8 +119,8 @@ func ensureDirectory() (string, error) {
 	return directory, nil
 }
 
-func nowMillis() int64 {
-	return time.Now().UnixMilli()
+func nowTimestamp() timeutil.Timestamp {
+	return timeutil.Now()
 }
 
 func writeMetadata(path string, metadata Metadata) error {
@@ -126,11 +135,10 @@ func writeMetadata(path string, metadata Metadata) error {
 }
 
 type metadataDisk struct {
-	ID            string `yaml:"id"`
-	Name          string `yaml:"name"`
-	Description   string `yaml:"description"`
-	UpdatedAt     int64  `yaml:"updatedAt"`
-	LegacyUpdated int64  `yaml:"updated"`
+	ID          string             `yaml:"id"`
+	Name        string             `yaml:"name"`
+	Description string             `yaml:"description"`
+	UpdatedAt   timeutil.Timestamp `yaml:"updatedAt"`
 }
 
 func decodeMetadata(data []byte) (Metadata, error) {
@@ -138,15 +146,11 @@ func decodeMetadata(data []byte) (Metadata, error) {
 	if err := yaml.Unmarshal(data, &disk); err != nil {
 		return Metadata{}, fmt.Errorf("parsing metadata: %w", err)
 	}
-	updatedAt := disk.UpdatedAt
-	if updatedAt <= 0 {
-		updatedAt = disk.LegacyUpdated
-	}
 	return Metadata{
 		ID:          disk.ID,
 		Name:        disk.Name,
 		Description: disk.Description,
-		UpdatedAt:   updatedAt,
+		UpdatedAt:   disk.UpdatedAt,
 	}, nil
 }
 
@@ -165,10 +169,10 @@ func List() ([]Metadata, error) {
 
 	items := make([]Metadata, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(directory, entry.Name())
+		path := filepath.Join(directory, entry.Name(), "project.yaml")
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -176,9 +180,6 @@ func List() ([]Metadata, error) {
 		metadata, err := decodeMetadata(data)
 		if err != nil {
 			continue
-		}
-		if metadata.ID == "" {
-			metadata.ID = strings.TrimSuffix(entry.Name(), ".yaml")
 		}
 		metadata.ID = strings.ToLower(metadata.ID)
 		if metadata.ID == "" || strings.TrimSpace(metadata.Name) == "" {
@@ -188,10 +189,10 @@ func List() ([]Metadata, error) {
 	}
 
 	sort.Slice(items, func(i, j int) bool {
-		if items[i].UpdatedAt == items[j].UpdatedAt {
+		if items[i].UpdatedAt.Time.Equal(items[j].UpdatedAt.Time) {
 			return items[i].Name < items[j].Name
 		}
-		return items[i].UpdatedAt > items[j].UpdatedAt
+		return items[i].UpdatedAt.Time.After(items[j].UpdatedAt.Time)
 	})
 	return items, nil
 }
@@ -230,17 +231,27 @@ func Save(metadata Metadata) error {
 	if strings.TrimSpace(metadata.Name) == "" {
 		return fmt.Errorf("name is required")
 	}
-	if metadata.UpdatedAt <= 0 {
-		metadata.UpdatedAt = nowMillis()
+	if metadata.UpdatedAt.IsZero() {
+		metadata.UpdatedAt = nowTimestamp()
 	}
 	if _, err := ensureDirectory(); err != nil {
 		return err
+	}
+	projectDir, err := projectDirectory(metadata.ID)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		return fmt.Errorf("creating project directory: %w", err)
 	}
 	path, err := metadataPath(metadata.ID)
 	if err != nil {
 		return err
 	}
-	return writeMetadata(path, metadata)
+	if err := writeMetadata(path, metadata); err != nil {
+		return err
+	}
+	return nil
 }
 
 func initializeProjectFile(workspace string, metadata Metadata, purpose string) error {
@@ -248,11 +259,9 @@ func initializeProjectFile(workspace string, metadata Metadata, purpose string) 
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	content := "# " + metadata.Name + "\n\n"
-	content += "Project ID: " + metadata.ID + "\n\n"
-	content += "## Description\n\n" + metadata.Description + "\n"
-	if strings.TrimSpace(purpose) != "" {
-		content += "\n## Purpose\n\n" + strings.TrimSpace(purpose) + "\n"
+	content, err := prompts.BuildProjectMarkdown(metadata.Name, metadata.ID, metadata.Description, purpose)
+	if err != nil {
+		return err
 	}
 	return atomicfile.WriteFile(path, []byte(content))
 }
@@ -272,7 +281,7 @@ func Create(name, description, purpose string) (*Metadata, error) {
 		ID:          security.NewULID(),
 		Name:        name,
 		Description: description,
-		UpdatedAt:   nowMillis(),
+		UpdatedAt:   nowTimestamp(),
 	}
 	workspace, err := workspaceDirectory(metadata.ID)
 	if err != nil {
@@ -300,7 +309,7 @@ func Rename(projectId, name string) (*Metadata, error) {
 		return nil, fmt.Errorf("name is required")
 	}
 	metadata.Name = name
-	metadata.UpdatedAt = nowMillis()
+	metadata.UpdatedAt = nowTimestamp()
 	if err := Save(*metadata); err != nil {
 		return nil, err
 	}
@@ -316,7 +325,6 @@ func Delete(projectId string) error {
 	if err != nil {
 		return err
 	}
-
 	root, err := configs.Directory()
 	if err != nil {
 		return err
@@ -356,7 +364,7 @@ func Touch(projectId string) error {
 	if err != nil {
 		return err
 	}
-	metadata.UpdatedAt = nowMillis()
+	metadata.UpdatedAt = nowTimestamp()
 	return Save(*metadata)
 }
 

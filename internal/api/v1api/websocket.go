@@ -17,6 +17,7 @@ type webSocketConnection struct {
 	api        *v1Api
 	writeMutex sync.Mutex
 	sessionId  string
+	userId     string
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time
@@ -25,17 +26,37 @@ type webSocketConnection struct {
 	activeVoiceSession *voice.Session
 }
 
-func newWebSocketConnection(connection *websocket.Conn, api *v1Api, sessionId string) *webSocketConnection {
+func newWebSocketConnection(connection *websocket.Conn, api *v1Api, sessionId, userId string) *webSocketConnection {
 	return &webSocketConnection{
 		connection: connection,
 		api:        api,
 		sessionId:  sessionId,
+		userId:     userId,
 	}
 }
 
 // OnEvent implements gw.Subscriber. It forwards gateway events to this WebSocket client.
 func (self *webSocketConnection) OnEvent(eventType gw.EventType, payload interface{}) {
+	if !self.shouldDeliverEvent(payload) {
+		return
+	}
 	self.sendEvent(eventType, payload)
+}
+
+func (self *webSocketConnection) shouldDeliverEvent(payload interface{}) bool {
+	message, ok := payload.(map[string]interface{})
+	if !ok {
+		return true
+	}
+	rawUserId, hasUserId := message["userId"]
+	if !hasUserId {
+		return true
+	}
+	eventUserId, ok := rawUserId.(string)
+	if !ok || eventUserId == "" {
+		return true
+	}
+	return eventUserId == self.userId
 }
 
 func (self *webSocketConnection) serve() {
@@ -139,6 +160,10 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleAgentsConfigSave(frame)
 	case "agents.config.delete":
 		self.handleAgentsConfigDelete(frame)
+	case "agents.avatar.set":
+		self.handleAgentsAvatarSet(frame)
+	case "agents.avatar.remove":
+		self.handleAgentsAvatarRemove(frame)
 	case "agents.setDefault":
 		self.handleAgentsSetDefault(frame)
 	case "conversations.setDefault":
@@ -147,12 +172,26 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleSessionsList(frame)
 	case "sessions.revoke":
 		self.handleSessionsRevoke(frame)
-	case "auth.getToken":
-		self.handleAuthGetToken(frame)
-	case "auth.regenerateToken":
-		self.handleAuthRegenerateToken(frame)
+	case "auth.tokens.list":
+		self.handleAuthTokensList(frame)
+	case "auth.tokens.create":
+		self.handleAuthTokensCreate(frame)
+	case "auth.tokens.delete":
+		self.handleAuthTokensDelete(frame)
 	case "auth.changePassword":
 		self.handleAuthChangePassword(frame)
+	case "users.list":
+		self.handleUsersList(frame)
+	case "users.create":
+		self.handleUsersCreate(frame)
+	case "users.delete":
+		self.handleUsersDelete(frame)
+	case "users.changePassword":
+		self.handleUsersChangePassword(frame)
+	case "users.update":
+		self.handleUsersUpdate(frame)
+	case "users.setRole":
+		self.handleUsersSetRole(frame)
 	case "profile.get":
 		self.handleProfileGet(frame)
 	case "profile.update":

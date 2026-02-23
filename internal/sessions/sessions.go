@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/trash"
@@ -19,6 +20,7 @@ import (
 // Session represents a single authenticated browser session.
 type Session struct {
 	ID         string    `json:"id" yaml:"id"`
+	UserID     string    `json:"userId" yaml:"userId"`
 	CreatedAt  time.Time `json:"createdAt" yaml:"createdAt"`
 	ExpiresAt  time.Time `json:"expiresAt" yaml:"expiresAt"`
 	UserAgent  string    `json:"userAgent" yaml:"userAgent"`
@@ -38,13 +40,14 @@ func NewStore(directory string) *Store {
 }
 
 // Create generates a new session and writes it to disk.
-func (self *Store) Create(userAgent, remoteAddr string, maxAge time.Duration) (*Session, error) {
+func (self *Store) Create(userId, userAgent, remoteAddr string, maxAge time.Duration) (*Session, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
 	now := time.Now()
 	session := &Session{
 		ID:         security.NewULID(),
+		UserID:     userId,
 		CreatedAt:  now,
 		ExpiresAt:  now.Add(maxAge),
 		UserAgent:  userAgent,
@@ -167,12 +170,17 @@ func (self *Store) writeSession(session *Session) error {
 }
 
 func (self *Store) moveToTrash(path string) error {
-	return trash.Move(path, self.trashDirectory())
+	trashDirectory, err := self.trashDirectory()
+	if err != nil {
+		return err
+	}
+	return trash.Move(path, trashDirectory)
 }
 
-func (self *Store) trashDirectory() string {
-	if filepath.Base(self.directory) == "sessions" {
-		return filepath.Join(filepath.Dir(self.directory), ".trash")
+func (self *Store) trashDirectory() (string, error) {
+	trashDirectory, err := configs.TrashDirectory()
+	if err != nil {
+		return "", fmt.Errorf("resolving trash directory: %w", err)
 	}
-	return filepath.Join(self.directory, ".trash")
+	return trashDirectory, nil
 }

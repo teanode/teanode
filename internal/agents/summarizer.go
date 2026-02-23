@@ -3,12 +3,15 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/deferutil"
 )
@@ -107,20 +110,61 @@ func (self *Summarizer) loop(ctx context.Context) {
 }
 
 func (self *Summarizer) summarizeAll(ctx context.Context) {
+	userIds := self.listUserIds()
+	if len(userIds) == 0 {
+		return
+	}
 	self.registry.ForEach(func(agentId string, runner *Runner) {
 		if ctx.Err() != nil {
 			return
 		}
-		self.summarizeAgent(ctx, agentId, runner)
+		for _, userId := range userIds {
+			if ctx.Err() != nil {
+				return
+			}
+			self.summarizeAgent(ctx, userId, agentId, runner)
+		}
 	})
 }
 
-func (self *Summarizer) summarizeAgent(ctx context.Context, agentId string, runner *Runner) {
+func (self *Summarizer) listUserIds() []string {
+	usersDirectory, err := configs.UsersDirectory()
+	if err != nil {
+		return nil
+	}
+	entries, err := os.ReadDir(usersDirectory)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return nil
+	}
+	userIds := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		userId := strings.TrimSpace(entry.Name())
+		if userId == "" {
+			continue
+		}
+		userIds = append(userIds, userId)
+	}
+	sort.Strings(userIds)
+	return userIds
+}
+
+func (self *Summarizer) summarizeAgent(ctx context.Context, userId, agentId string, runner *Runner) {
 	resolved := self.resolveConfig()
 
-	conversations, err := runner.Conversations.List()
+	store := runner.ConversationsForUser(userId)
+	if store == nil {
+		log.Debugf("summarizer: conversation store unavailable for user %s agent %s", userId, agentId)
+		return
+	}
+	conversations, err := store.List()
 	if err != nil {
-		log.Debugf("summarizer: failed to list conversations for agent %s: %v", agentId, err)
+		log.Debugf("summarizer: failed to list conversations for user %s agent %s: %v", userId, agentId, err)
 		return
 	}
 
@@ -133,7 +177,7 @@ func (self *Summarizer) summarizeAgent(ctx context.Context, agentId string, runn
 		}
 
 		// Check if summary is already up-to-date.
-		header, err := runner.Conversations.LoadHeader(conversationInfo.ID)
+		header, err := store.LoadHeader(conversationInfo.ID)
 		if err != nil {
 			continue
 		}
@@ -155,7 +199,7 @@ func (self *Summarizer) summarizeAgent(ctx context.Context, agentId string, runn
 		}
 
 		// Load messages to check minimum count and generate summary.
-		messages, err := runner.Conversations.Load(conversationInfo.ID)
+		messages, err := store.Load(conversationInfo.ID)
 		if err != nil {
 			log.Debugf("summarizer: failed to load conversation %s: %v", conversationInfo.ID, err)
 			continue
@@ -164,18 +208,19 @@ func (self *Summarizer) summarizeAgent(ctx context.Context, agentId string, runn
 			continue
 		}
 
-		self.summarizeConversation(ctx, runner, conversationInfo.ID, header, messages)
+		self.summarizeConversation(ctx, runner, store, conversationInfo.ID, header, messages)
 	}
 }
 
 func (self *Summarizer) summarizeConversation(
 	ctx context.Context,
 	runner *Runner,
+	store *conversations.Store,
 	conversationId string,
 	header *conversations.Header,
 	messages []conversations.Message,
 ) {
-	configuration, providerRegistry, _, _, _, _ := runner.Snapshot()
+	configuration, providerRegistry, _, _, _ := runner.Snapshot()
 	resolved := self.resolveConfig()
 
 	// If conversation has been compacted, only consider messages after the
@@ -205,14 +250,14 @@ func (self *Summarizer) summarizeConversation(
 	}
 
 	// Always generate both title and summary together.
-	self.generateTitleAndSummary(ctx, provider, bareModel, runner, conversationId, conversationText)
+	self.generateTitleAndSummary(ctx, provider, bareModel, store, conversationId, conversationText)
 }
 
 func (self *Summarizer) generateTitleAndSummary(
 	ctx context.Context,
 	provider providers.Provider,
 	bareModel string,
-	runner *Runner,
+	store *conversations.Store,
 	conversationId string,
 	conversationText string,
 ) {
@@ -221,7 +266,7 @@ func (self *Summarizer) generateTitleAndSummary(
 		Messages: []providers.ChatMessage{
 			{
 				Role:    "system",
-				Content: "Analyze the following conversation. Output a JSON object with two fields:\n- \"title\": a short title (max 8 words)\n- \"summary\": a 2-4 sentence summary of the main topic, key decisions, and outcomes\n\nOutput only valid JSON, nothing else.",
+				Content: prompts.SummarizerTitleAndSummarySystemPrompt,
 			},
 			{Role: "user", Content: conversationText},
 		},
@@ -256,7 +301,7 @@ func (self *Summarizer) generateTitleAndSummary(
 		result.Title = time.Now().Format("Jan 2, 2006 3:04 PM")
 	}
 
-	if err := runner.Conversations.SetTitleAndSummary(conversationId, result.Title, result.Summary); err != nil {
+	if err := store.SetTitleAndSummary(conversationId, result.Title, result.Summary); err != nil {
 		log.Debugf("summarizer: failed to save title+summary for conversation %s: %v", conversationId, err)
 		return
 	}

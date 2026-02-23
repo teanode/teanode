@@ -162,12 +162,12 @@ func (self *unifiProtectTool) executeListCameras(ctx context.Context, isDoorbell
 	})
 }
 
-func (self *unifiProtectTool) executeGetCamera(ctx context.Context, cameraID string) (string, error) {
-	if cameraID == "" {
+func (self *unifiProtectTool) executeGetCamera(ctx context.Context, cameraId string) (string, error) {
+	if cameraId == "" {
 		return "", fmt.Errorf("cameraId is required for get_camera action")
 	}
 
-	camera, err := self.resolveCamera(ctx, cameraID)
+	camera, err := self.resolveCamera(ctx, cameraId)
 	if err != nil {
 		return "", err
 	}
@@ -178,12 +178,12 @@ func (self *unifiProtectTool) executeGetCamera(ctx context.Context, cameraID str
 	})
 }
 
-func (self *unifiProtectTool) executeGetSnapshot(ctx context.Context, cameraID string) (string, error) {
-	if cameraID == "" {
+func (self *unifiProtectTool) executeGetSnapshot(ctx context.Context, cameraId string) (string, error) {
+	if cameraId == "" {
 		return "", fmt.Errorf("cameraId is required for get_snapshot action")
 	}
 
-	camera, err := self.resolveCamera(ctx, cameraID)
+	camera, err := self.resolveCamera(ctx, cameraId)
 	if err != nil {
 		return "", err
 	}
@@ -201,18 +201,18 @@ func (self *unifiProtectTool) executeGetSnapshot(ctx context.Context, cameraID s
 	})
 }
 
-func (self *unifiProtectTool) executeSetStatusLight(ctx context.Context, cameraID string, enabled *bool) (string, error) {
+func (self *unifiProtectTool) executeSetStatusLight(ctx context.Context, cameraId string, enabled *bool) (string, error) {
 	if err := self.checkWriteAction("set_status_light"); err != nil {
 		return "", err
 	}
-	if cameraID == "" {
+	if cameraId == "" {
 		return "", fmt.Errorf("cameraId is required for set_status_light action")
 	}
 	if enabled == nil {
 		return "", fmt.Errorf("enabled is required for set_status_light action")
 	}
 
-	camera, err := self.resolveCamera(ctx, cameraID)
+	camera, err := self.resolveCamera(ctx, cameraId)
 	if err != nil {
 		return "", err
 	}
@@ -235,11 +235,11 @@ func (self *unifiProtectTool) executeSetStatusLight(ctx context.Context, cameraI
 	})
 }
 
-func (self *unifiProtectTool) executeSetRecordingMode(ctx context.Context, cameraID string, recordingMode string) (string, error) {
+func (self *unifiProtectTool) executeSetRecordingMode(ctx context.Context, cameraId string, recordingMode string) (string, error) {
 	if err := self.checkWriteAction("set_recording_mode"); err != nil {
 		return "", err
 	}
-	if cameraID == "" {
+	if cameraId == "" {
 		return "", fmt.Errorf("cameraId is required for set_recording_mode action")
 	}
 	if recordingMode == "" {
@@ -253,7 +253,7 @@ func (self *unifiProtectTool) executeSetRecordingMode(ctx context.Context, camer
 		return "", fmt.Errorf("recordingMode must be one of: always, never, detections; got %q", recordingMode)
 	}
 
-	camera, err := self.resolveCamera(ctx, cameraID)
+	camera, err := self.resolveCamera(ctx, cameraId)
 	if err != nil {
 		return "", err
 	}
@@ -276,18 +276,18 @@ func (self *unifiProtectTool) executeSetRecordingMode(ctx context.Context, camer
 	})
 }
 
-func (self *unifiProtectTool) executeSetPrivacyMode(ctx context.Context, cameraID string, enabled *bool) (string, error) {
+func (self *unifiProtectTool) executeSetPrivacyMode(ctx context.Context, cameraId string, enabled *bool) (string, error) {
 	if err := self.checkWriteAction("set_privacy_mode"); err != nil {
 		return "", err
 	}
-	if cameraID == "" {
+	if cameraId == "" {
 		return "", fmt.Errorf("cameraId is required for set_privacy_mode action")
 	}
 	if enabled == nil {
 		return "", fmt.Errorf("enabled is required for set_privacy_mode action")
 	}
 
-	camera, err := self.resolveCamera(ctx, cameraID)
+	camera, err := self.resolveCamera(ctx, cameraId)
 	if err != nil {
 		return "", err
 	}

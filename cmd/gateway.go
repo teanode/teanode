@@ -96,18 +96,29 @@ func NewGatewayCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			profile, err := configs.LoadProfile()
-			if err != nil {
-				return err
+			// Auto-generate one auth token for any user missing tokens.
+			securityChanged := false
+			securityConfig.Lock()
+			for userId, user := range securityConfig.Users {
+				if len(user.Tokens) > 0 {
+					continue
+				}
+				generated := security.GenerateRandomString(48, security.LowerAlphaNumeric)
+				user.Tokens = append(user.Tokens, configs.SecurityToken{
+					ID:        security.NewULID(),
+					Token:     generated,
+					CreatedAt: time.Now(),
+				})
+				securityConfig.Users[userId] = user
+				securityChanged = true
 			}
-
-			// Auto-generate auth token if not set.
-			if securityConfig.Token == "" {
-				securityConfig.Token = security.GenerateRandomString(48, security.LowerAlphaNumeric)
-				log.Infof("auto-generated auth token: %s", securityConfig.Token)
+			securityConfig.Unlock()
+			if securityChanged {
+				securityConfig.RLock()
 				if err := configs.SaveSecurity(securityConfig); err != nil {
 					log.Errorf("failed to save security config: %v", err)
 				}
+				securityConfig.RUnlock()
 			}
 
 			// Create session store.
@@ -183,6 +194,29 @@ func NewGatewayCommand() *cli.Command {
 			var gateway gw.Gateway
 			var reloadSkills func()
 			var scheduler *jobs.Scheduler
+			var conversationStoresMutex sync.Mutex
+			conversationStores := map[string]*conversations.Store{}
+			resolveConversationStore := func(userId, agentId string) *conversations.Store {
+				if userId == "" || agentId == "" {
+					return nil
+				}
+				key := userId + ":" + agentId
+				conversationStoresMutex.Lock()
+				defer conversationStoresMutex.Unlock()
+				if store, ok := conversationStores[key]; ok {
+					return store
+				}
+				directory, err := configs.UserAgentConversationsDirectory(userId, agentId)
+				if err != nil {
+					return nil
+				}
+				if err := os.MkdirAll(directory, 0755); err != nil {
+					return nil
+				}
+				store := conversations.NewStore(directory)
+				conversationStores[key] = store
+				return store
+			}
 
 			// buildToolsForAgent creates a fresh tool registry for the given agents.
 			buildToolsForAgent := func(
@@ -225,7 +259,7 @@ func NewGatewayCommand() *cli.Command {
 			reloadSkills = func() {
 				log.Info("hot-reloading skills")
 				agentRegistry.ForEach(func(agentId string, runner *agents.Runner) {
-					currentConfig, currentProviders, _, _, _, _ := runner.Snapshot()
+					currentConfig, currentProviders, _, _, _ := runner.Snapshot()
 					agentConfig := currentConfig.AgentByID(agentId)
 					if agentConfig == nil {
 						return
@@ -234,7 +268,7 @@ func NewGatewayCommand() *cli.Command {
 					if err != nil {
 						return
 					}
-					tools, skillPrompts := buildToolsForAgent(currentConfig, *agentConfig, workspaceDirectory, runner.Conversations, scheduler)
+					tools, skillPrompts := buildToolsForAgent(currentConfig, *agentConfig, workspaceDirectory, nil, scheduler)
 					runner.Reconfigure(currentConfig, currentProviders, tools, skillPrompts)
 				})
 				log.Info("skills reloaded successfully")
@@ -248,7 +282,7 @@ func NewGatewayCommand() *cli.Command {
 			scheduler = jobs.NewScheduler(jobStore, agentRegistry)
 
 			// Create a runner for each configured agents.
-			for _, agentConfig := range configuration.ResolveAgents() {
+			for _, agentConfig := range configuration.Agents() {
 				if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {
 					return err
 				}
@@ -260,30 +294,25 @@ func NewGatewayCommand() *cli.Command {
 				if err != nil {
 					return err
 				}
-				conversationsDirectory, err := configs.AgentConversationsDirectory(agentConfig.ID)
-				if err != nil {
-					return err
-				}
-				conversations := conversations.NewStore(conversationsDirectory)
-
-				tools, skillPrompts := buildToolsForAgent(configuration, agentConfig, workspaceDirectory, conversations, scheduler)
+				tools, skillPrompts := buildToolsForAgent(configuration, agentConfig, workspaceDirectory, nil, scheduler)
 
 				runner := &agents.Runner{
-					AgentID:            agentConfig.ID,
-					Providers:          providers,
-					Conversations:      conversations,
+					AgentID:              agentConfig.ID,
+					Providers:            providers,
+					ResolveConversations: resolveConversationStore,
+					ResolveUserProfile: func(userId string) (*configs.UserProfile, error) {
+						return configs.LoadUserProfile(userId)
+					},
 					Config:             configuration,
 					Tools:              tools,
 					MediaStore:         mediaStore,
 					WorkspaceDirectory: workspaceDirectory,
 					SkillPrompts:       skillPrompts,
-					Profile:            profile,
 				}
 				agentRegistry.Register(agentConfig.ID, runner)
 			}
 
-			// Set the default agent ID from config and restore persisted state.
-			agentRegistry.SetDefault(configuration.ResolveDefaultAgent())
+			// Restore persisted per-user state.
 			agentRegistry.LoadState()
 
 			// --- Gateway + API + Frontend ---
@@ -291,7 +320,7 @@ func NewGatewayCommand() *cli.Command {
 			summarizer := agents.NewSummarizer(agentRegistry, configuration)
 			describer := agents.NewDescriber(agentRegistry)
 
-			gateway = gw.New(configuration, securityConfig, profile, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore, sessionStore)
+			gateway = gw.New(configuration, securityConfig, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore, sessionStore)
 			api := v1api.New(gateway, reloadSkills)
 			frontendComponent := frontend.New()
 
@@ -299,7 +328,7 @@ func NewGatewayCommand() *cli.Command {
 				if agentConfig.ID == "" {
 					return errors.New("agent id is required")
 				}
-				if agentRegistry.Get(agentConfig.ID) != nil {
+				if agentRegistry.GetRunner(agentConfig.ID) != nil {
 					return fmt.Errorf("agent already exists: %s", agentConfig.ID)
 				}
 
@@ -317,29 +346,25 @@ func NewGatewayCommand() *cli.Command {
 				if err != nil {
 					return err
 				}
-				conversationsDirectory, err := configs.AgentConversationsDirectory(agentConfig.ID)
-				if err != nil {
-					return err
-				}
-				conversationStore := conversations.NewStore(conversationsDirectory)
-
 				currentConfiguration := gateway.Config()
 				if currentConfiguration.AgentByID(agentConfig.ID) == nil {
-					currentConfiguration.Agents = append(currentConfiguration.Agents, agentConfig)
+					currentConfiguration.AgentConfigs = append(currentConfiguration.AgentConfigs, agentConfig)
 				}
 				currentProviders := buildProviderRegistry(currentConfiguration)
-				tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, conversationStore, scheduler)
+				tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, nil, scheduler)
 
 				agentRegistry.Register(agentConfig.ID, &agents.Runner{
-					AgentID:            agentConfig.ID,
-					Providers:          currentProviders,
-					Conversations:      conversationStore,
+					AgentID:              agentConfig.ID,
+					Providers:            currentProviders,
+					ResolveConversations: resolveConversationStore,
+					ResolveUserProfile: func(userId string) (*configs.UserProfile, error) {
+						return configs.LoadUserProfile(userId)
+					},
 					Config:             currentConfiguration,
 					Tools:              tools,
 					MediaStore:         mediaStore,
 					WorkspaceDirectory: workspaceDirectory,
 					SkillPrompts:       skillPrompts,
-					Profile:            gateway.Profile(),
 				})
 				describer.Notify()
 
@@ -358,11 +383,12 @@ func NewGatewayCommand() *cli.Command {
 			scheduler.Broadcast = func(event string, payload interface{}) {
 				gateway.Broadcast(gw.EventType(event), payload)
 			}
-			scheduler.NewConversation = func(agentId, model string) string {
-				return gateway.NewConversation(agentId, model)
+			scheduler.NewDefaultConversation = func(userId, agentId, model string) string {
+				return gateway.NewDefaultConversation(userId, agentId, model)
 			}
-			scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+			scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 				handle := gateway.SendMessage(ctx, gw.SendMessageParameters{
+					UserContext:    &gw.UserContext{UserID: userId},
 					AgentID:        agentId,
 					ConversationID: conversationId,
 					Message:        message,
@@ -407,8 +433,8 @@ func NewGatewayCommand() *cli.Command {
 				currentConfiguration := gateway.Config()
 				currentProviders := buildProviderRegistry(currentConfiguration)
 
-				for _, agentConfig := range currentConfiguration.ResolveAgents() {
-					runner := agentRegistry.Get(agentConfig.ID)
+				for _, agentConfig := range currentConfiguration.Agents() {
+					runner := agentRegistry.GetRunner(agentConfig.ID)
 					if runner == nil {
 						// New agent appeared — create it.
 						if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {
@@ -423,22 +449,19 @@ func NewGatewayCommand() *cli.Command {
 						if err != nil {
 							continue
 						}
-						conversationsDirectory, err := configs.AgentConversationsDirectory(agentConfig.ID)
-						if err != nil {
-							continue
-						}
-						conversations := conversations.NewStore(conversationsDirectory)
-						tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, conversations, scheduler)
+						tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, nil, scheduler)
 						runner = &agents.Runner{
-							AgentID:            agentConfig.ID,
-							Providers:          currentProviders,
-							Conversations:      conversations,
+							AgentID:              agentConfig.ID,
+							Providers:            currentProviders,
+							ResolveConversations: resolveConversationStore,
+							ResolveUserProfile: func(userId string) (*configs.UserProfile, error) {
+								return configs.LoadUserProfile(userId)
+							},
 							Config:             currentConfiguration,
 							Tools:              tools,
 							MediaStore:         mediaStore,
 							WorkspaceDirectory: workspaceDirectory,
 							SkillPrompts:       skillPrompts,
-							Profile:            gateway.Profile(),
 						}
 						agentRegistry.Register(agentConfig.ID, runner)
 						continue
@@ -449,7 +472,7 @@ func NewGatewayCommand() *cli.Command {
 					if err != nil {
 						continue
 					}
-					tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, runner.Conversations, scheduler)
+					tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, nil, scheduler)
 					runner.Reconfigure(currentConfiguration, currentProviders, tools, skillPrompts)
 				}
 			}

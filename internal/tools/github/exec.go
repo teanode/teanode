@@ -18,12 +18,12 @@ type commandRunner func(ctx context.Context, name string, args ...string) ([]byt
 
 // defaultRunner executes commands via os/exec.
 func defaultRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	command := exec.CommandContext(ctx, name, args...)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	command.Stdout = &stdout
+	command.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := command.Run(); err != nil {
 		// Return stderr content as the error message for better diagnostics.
 		if stderr.Len() > 0 {
 			return nil, fmt.Errorf("%s", stderr.String())

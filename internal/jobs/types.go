@@ -1,5 +1,11 @@
 package jobs
 
+// OwnedJob pairs a job with its owning user account.
+type OwnedJob struct {
+	UserID string `json:"userId"`
+	Job    Job    `json:"job"`
+}
+
 // Job represents a scheduled job.
 type Job struct {
 	ID             string `json:"id" yaml:"id"`

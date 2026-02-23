@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
@@ -78,8 +79,19 @@ func (self *listConversationsTool) Execute(ctx context.Context, rawArguments str
 	}
 
 	currentConversationId := ConversationIDFromContext(ctx)
+	userId := strings.TrimSpace(UserIDFromContext(ctx))
 
-	allConversations, err := self.conversations.List()
+	store := self.conversations
+	if runner := RunnerFromContext(ctx); runner != nil {
+		if userId == "" {
+			return "", fmt.Errorf("userId is required")
+		}
+		store = runner.ConversationsForUser(userId)
+	}
+	if store == nil {
+		return "", fmt.Errorf("conversation store is not configured")
+	}
+	allConversations, err := store.List()
 	if err != nil {
 		return "", fmt.Errorf("listing conversations: %w", err)
 	}
@@ -158,14 +170,20 @@ func (self *compactConversationTool) Execute(ctx context.Context, rawArguments s
 		return "", fmt.Errorf("no default conversation")
 	}
 
-	// Prefer the runner's cache-aware compaction when available.
+	// Resolve the current user's conversation store when runner context is available.
+	userId := strings.TrimSpace(UserIDFromContext(ctx))
+	store := self.conversations
+	if runner := RunnerFromContext(ctx); runner != nil && userId != "" {
+		store = runner.ConversationsForUser(userId)
+	}
+	if store == nil {
+		return "", fmt.Errorf("conversation store is not configured")
+	}
+
+	// Use the standalone compactor against the resolved user-scoped store.
 	var compactResult *CompactResult
 	var err error
-	if runner := RunnerFromContext(ctx); runner != nil {
-		compactResult, err = runner.CompactConversation(ctx, conversationId)
-	} else {
-		compactResult, err = CompactConversation(ctx, self.conversations, self.providers, self.config, conversationId)
-	}
+	compactResult, err = CompactConversation(ctx, store, self.providers, self.config, conversationId)
 	if err != nil {
 		return "", err
 	}

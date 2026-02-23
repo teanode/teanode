@@ -7,14 +7,16 @@ import (
 	"image/draw"
 	"image/jpeg"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
@@ -24,7 +26,52 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(request *http.Request) bool { return true },
+	CheckOrigin: func(request *http.Request) bool { return false },
+}
+
+func splitHostPortDefault(rawHost string, tls bool) (string, string) {
+	host, port, err := net.SplitHostPort(rawHost)
+	if err == nil {
+		return strings.ToLower(host), port
+	}
+	defaultPort := "80"
+	if tls {
+		defaultPort = "443"
+	}
+	return strings.ToLower(strings.TrimSpace(rawHost)), defaultPort
+}
+
+func sameOriginHost(leftHost string, leftTLS bool, rightHost string, rightTLS bool) bool {
+	leftName, leftPort := splitHostPortDefault(leftHost, leftTLS)
+	rightName, rightPort := splitHostPortDefault(rightHost, rightTLS)
+	return leftName == rightName && leftPort == rightPort
+}
+
+func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
+	origin := strings.TrimSpace(request.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	originUrl, err := url.Parse(origin)
+	if err != nil || originUrl.Host == "" {
+		return false
+	}
+	originTLS := strings.EqualFold(originUrl.Scheme, "https")
+	requestTLS := request.TLS != nil
+	if sameOriginHost(originUrl.Host, originTLS, request.Host, requestTLS) {
+		return true
+	}
+
+	publicUrl := strings.TrimSpace(self.gateway.Config().Gateway.PublicURL)
+	if publicUrl == "" {
+		return false
+	}
+	parsedPublicUrl, err := url.Parse(publicUrl)
+	if err != nil || parsedPublicUrl.Host == "" {
+		return false
+	}
+	publicTLS := strings.EqualFold(parsedPublicUrl.Scheme, "https")
+	return sameOriginHost(originUrl.Host, originTLS, parsedPublicUrl.Host, publicTLS)
 }
 
 func (self *v1Api) handleHealth(writer http.ResponseWriter, request *http.Request) error {
@@ -153,103 +200,6 @@ func scaleNearestNeighbor(destination *image.RGBA, source *image.RGBA) {
 			destination.Set(x, y, source.At(srcX, srcY))
 		}
 	}
-}
-
-func (self *v1Api) handleAgentAvatar(writer http.ResponseWriter, request *http.Request) error {
-	agentId := mux.Vars(request)["id"]
-	if agentId == "" {
-		return web.Error(400, "missing agent id")
-	}
-	agentExists := false
-	if agents, err := configs.LoadAgents(); err == nil {
-		for _, agent := range agents {
-			if agent.ID == agentId {
-				agentExists = true
-				break
-			}
-		}
-	}
-	if !agentExists {
-		return web.Error(404, "agent not found")
-	}
-	mediaStore := self.gateway.MediaStore()
-	if mediaStore == nil {
-		return web.Error(500, "media store not available")
-	}
-
-	switch request.Method {
-	case http.MethodPost:
-		request.Body = http.MaxBytesReader(writer, request.Body, maxAvatarUploadSize)
-		if err := request.ParseMultipartForm(maxAvatarUploadSize); err != nil {
-			return web.Error(400, "file too large or invalid multipart form")
-		}
-		file, header, err := request.FormFile("file")
-		if err != nil {
-			return web.Error(400, "missing file field")
-		}
-		defer file.Close()
-		raw, err := io.ReadAll(file)
-		if err != nil {
-			return web.Error(400, "failed to read file")
-		}
-		avatarData, format, err := processAvatarImage(raw)
-		if err != nil {
-			return web.Error(400, "invalid image file")
-		}
-		saved, err := mediaStore.Save(avatarData, format, media.SaveOptions{
-			SourceType:   "agent_avatar",
-			AgentID:      agentId,
-			OriginalName: header.Filename,
-		})
-		if err != nil {
-			return web.Error(500, "failed to save avatar: "+err.Error())
-		}
-
-		state, err := configs.LoadAgentState(agentId)
-		if err != nil {
-			return web.Error(500, "loading agent state: "+err.Error())
-		}
-		oldAvatarMediaId := state.AvatarMediaID
-		state.AvatarMediaID = saved.MediaID
-		if err := configs.SaveAgentState(agentId, state); err != nil {
-			return web.Error(500, "saving agent state: "+err.Error())
-		}
-		if oldAvatarMediaId != "" && oldAvatarMediaId != saved.MediaID {
-			_ = mediaStore.Delete(oldAvatarMediaId)
-		}
-
-		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(map[string]interface{}{
-			"agentId":       agentId,
-			"avatarMediaId": saved.MediaID,
-			"format":        format,
-			"filename":      "avatar.jpg",
-		})
-		return nil
-
-	case http.MethodDelete:
-		state, err := configs.LoadAgentState(agentId)
-		if err != nil {
-			return web.Error(500, "loading agent state: "+err.Error())
-		}
-		oldAvatarMediaId := state.AvatarMediaID
-		state.AvatarMediaID = ""
-		if err := configs.SaveAgentState(agentId, state); err != nil {
-			return web.Error(500, "saving agent state: "+err.Error())
-		}
-		if oldAvatarMediaId != "" {
-			_ = mediaStore.Delete(oldAvatarMediaId)
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(map[string]interface{}{
-			"agentId":       agentId,
-			"avatarMediaId": "",
-			"deleted":       true,
-		})
-		return nil
-	}
-
-	return web.Error(405, "method not allowed")
 }
 
 const maxAudioUploadSize = 25 << 20 // 25 MB (OpenAI Whisper limit)
@@ -426,7 +376,11 @@ func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.R
 }
 
 func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Request) {
-	connection, err := upgrader.Upgrade(writer, request, nil)
+	requestUpgrader := upgrader
+	requestUpgrader.CheckOrigin = func(request *http.Request) bool {
+		return self.isWebSocketOriginAllowed(request)
+	}
+	connection, err := requestUpgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		log.Errorf("websocket upgrade error: %v", err)
 		return
@@ -435,6 +389,13 @@ func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Req
 	if cookie, err := request.Cookie("session"); err == nil {
 		sessionId = cookie.Value
 	}
-	webSocketConnection := newWebSocketConnection(connection, self, sessionId)
+	userId := ""
+	if userContext := gw.UserFromContext(request.Context()); userContext != nil {
+		userId = userContext.UserID
+		if userContext.SessionID != "" {
+			sessionId = userContext.SessionID
+		}
+	}
+	webSocketConnection := newWebSocketConnection(connection, self, sessionId, userId)
 	webSocketConnection.serve()
 }

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/trash"
@@ -281,16 +282,6 @@ func (self *Store) SetTitleAndSummary(conversationId, title, summary string) err
 	})
 }
 
-// SetProviderAndModel updates the provider and model in a conversation's header.
-func (self *Store) SetProviderAndModel(conversationId, provider, model string) error {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	return self.updateHeaderUnlocked(conversationId, func(header *Header) {
-		header.Provider = provider
-		header.Model = model
-	})
-}
-
 // updateHeaderUnlocked reads the conversation file, applies mutate to the header, rewrites
 // the file, and restores the original modification time. Caller must hold self.mutex.
 func (self *Store) updateHeaderUnlocked(conversationId string, mutate func(*Header)) error {
@@ -349,7 +340,11 @@ func (self *Store) Delete(conversationId string) error {
 	} else if err != nil {
 		return err
 	}
-	return trash.Move(path, self.trashDirectory())
+	trashDirectory, err := self.trashDirectory()
+	if err != nil {
+		return err
+	}
+	return trash.Move(path, trashDirectory)
 }
 
 // PageResult holds a page of messages plus pagination metadata.
@@ -406,13 +401,10 @@ func (self *Store) path(conversationId string) (string, error) {
 	return filepath.Join(self.directory, conversationId+".jsonl"), nil
 }
 
-func (self *Store) trashDirectory() string {
-	parent := filepath.Dir(self.directory)
-	if filepath.Base(parent) == "conversations" {
-		return filepath.Join(filepath.Dir(parent), ".trash")
+func (self *Store) trashDirectory() (string, error) {
+	trashDirectory, err := configs.TrashDirectory()
+	if err != nil {
+		return "", fmt.Errorf("resolving trash directory: %w", err)
 	}
-	if filepath.Base(self.directory) == "conversations" {
-		return filepath.Join(parent, ".trash")
-	}
-	return filepath.Join(self.directory, ".trash")
+	return trashDirectory, nil
 }

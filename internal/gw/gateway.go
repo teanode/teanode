@@ -7,15 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"sync"
 	"time"
 
-	"strings"
-
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
@@ -25,7 +23,6 @@ import (
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/voice"
-	"github.com/teanode/teanode/internal/web"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,11 +33,16 @@ type activeRun struct {
 	runner *agents.Runner
 }
 
+func closedDoneChannel() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
+}
+
 // gateway is the unexported concrete implementation of Gateway.
 type gateway struct {
 	config         *configs.Config
 	securityConfig *configs.SecurityConfig
-	profile        *configs.Profile
 	agentRegistry  *agents.AgentRegistry
 	browserRelay   *relaybrowser.Relay
 	terminalRelay  *terminals.Relay
@@ -66,6 +68,9 @@ type gateway struct {
 	lifecycleChannel       chan LifecycleAction
 	pendingLifecycleMutex  sync.Mutex
 	pendingLifecycleAction *LifecycleAction
+
+	conversationStoresMutex sync.Mutex
+	conversationStores      map[string]*conversations.Store // userId:agentId -> store
 }
 
 // --- Configuration access ---
@@ -73,28 +78,8 @@ type gateway struct {
 func (self *gateway) Config() *configs.Config                 { return self.config }
 func (self *gateway) SetConfig(configuration *configs.Config) { self.config = configuration }
 func (self *gateway) SecurityConfig() *configs.SecurityConfig { return self.securityConfig }
-func (self *gateway) Profile() *configs.Profile {
-	if self.profile == nil {
-		return nil
-	}
-	clone := *self.profile
-	return &clone
-}
 func (self *gateway) SetSecurityConfig(securityConfig *configs.SecurityConfig) {
 	self.securityConfig = securityConfig
-}
-func (self *gateway) SetProfile(profile *configs.Profile) {
-	if profile == nil {
-		self.profile = nil
-		return
-	}
-	clone := *profile
-	self.profile = &clone
-
-	// Ensure all runners observe the latest profile for subsequent prompts.
-	self.agentRegistry.ForEach(func(_ string, runner *agents.Runner) {
-		runner.SetProfile(&clone)
-	})
 }
 
 // --- Subsystem access ---
@@ -142,26 +127,46 @@ func (self *gateway) IsSessionConnected(sessionId string) bool {
 
 // --- Domain operations ---
 
-// ProviderRegistry returns the provider registry from the default runner.
+// ProviderRegistry returns the provider registry from the configured default runner.
 func (self *gateway) ProviderRegistry() *providers.Registry {
-	runner := self.agentRegistry.Default()
+	runner := self.GetRunner(self.config.DefaultAgentID())
 	if runner == nil {
 		return nil
 	}
-	_, providerRegistry, _, _, _, _ := runner.Snapshot()
+	_, providerRegistry, _, _, _ := runner.Snapshot()
 	return providerRegistry
 }
 
-// ResolveRunner returns the runner for the given agent ID, defaulting to the configured default agents.
-func (self *gateway) ResolveRunner(agentId string) *agents.Runner {
-	if agentId == "" {
-		agentId = self.agentRegistry.DefaultID()
+// GetRunner returns the runner for the given agent ID.
+func (self *gateway) GetRunner(agentId string) *agents.Runner {
+	return self.agentRegistry.GetRunner(agentId)
+}
+
+func conversationStoreKey(userId, agentId string) string {
+	return userId + ":" + agentId
+}
+
+func (self *gateway) ConversationStore(userId, agentId string) *conversations.Store {
+	if userId == "" {
+		log.Warningf("conversation store requires non-empty userId")
+		return nil
 	}
-	runner := self.agentRegistry.Get(agentId)
-	if runner == nil {
-		runner = self.agentRegistry.Default()
+	key := conversationStoreKey(userId, agentId)
+	self.conversationStoresMutex.Lock()
+	defer self.conversationStoresMutex.Unlock()
+	if store, ok := self.conversationStores[key]; ok {
+		return store
 	}
-	return runner
+	directory, err := configs.UserAgentConversationsDirectory(userId, agentId)
+	if err != nil {
+		return nil
+	}
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return nil
+	}
+	store := conversations.NewStore(directory)
+	self.conversationStores[key] = store
+	return store
 }
 
 // modelsCache is the YAML structure written to ~/.teanode/models.yaml.
@@ -190,12 +195,12 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.Mod
 		return self.models, nil
 	}
 
-	// Use the default runner to resolve the currently configured providers.
-	defaultRunner := self.agentRegistry.Default()
+	// Use the configured default runner to resolve the currently configured providers.
+	defaultRunner := self.GetRunner(self.config.DefaultAgentID())
 	if defaultRunner == nil {
 		return nil, fmt.Errorf("no default agent runner")
 	}
-	_, providerRegistry, _, _, _, _ := defaultRunner.Snapshot()
+	_, providerRegistry, _, _, _ := defaultRunner.Snapshot()
 	providerNames := providerRegistry.ProviderNames()
 
 	// Try loading from disk cache.
@@ -263,44 +268,72 @@ func (self *gateway) updateRunnerContextWindows(models map[string][]providers.Mo
 
 // --- Default agent / conversation ---
 
-func (self *gateway) DefaultAgentID() string { return self.agentRegistry.DefaultID() }
-func (self *gateway) DefaultConversationID(agentId string) string {
-	return self.agentRegistry.DefaultConversationID(agentId)
+func (self *gateway) EnsureDefaultAgent(userId string) (string, error) {
+	agentId, assigned, err := self.agentRegistry.EnsureDefaultAgent(userId, self.config.DefaultAgentID())
+	if err != nil {
+		return "", err
+	}
+	if assigned {
+		self.Broadcast(EventTypeDefaultAgent, map[string]interface{}{
+			"defaultAgentId": agentId,
+			"userId":         userId,
+		})
+	}
+	return agentId, nil
+}
+func (self *gateway) EnsureDefaultConversation(userId, agentId string) string {
+	return self.agentRegistry.EnsureDefaultConversation(userId, agentId)
 }
 
-func (self *gateway) SetDefaultAgent(agentId string) error {
-	err := self.agentRegistry.SetDefaultAgent(agentId)
+func (self *gateway) SetDefaultAgent(userId, agentId string) error {
+	if userId == "" {
+		return fmt.Errorf("userId is required")
+	}
+	err := self.agentRegistry.SetDefaultAgent(userId, agentId)
 	if err == nil {
 		self.Broadcast(EventTypeDefaultAgent, map[string]interface{}{
-			"defaultAgentId":        agentId,
-			"defaultConversationId": self.agentRegistry.DefaultConversationID(agentId),
+			"defaultAgentId": agentId,
+			"userId":         userId,
 		})
 	}
 	return err
 }
 
-func (self *gateway) SetDefaultConversation(agentId, conversationId string) {
-	self.agentRegistry.SetDefaultConversation(agentId, conversationId)
+func (self *gateway) SetDefaultConversation(userId, agentId, conversationId string) {
+	if userId == "" {
+		log.Warningf("set default conversation requires non-empty userId")
+		return
+	}
+	self.agentRegistry.SetDefaultConversation(userId, agentId, conversationId)
 	self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
 		"agentId":               agentId,
 		"defaultConversationId": conversationId,
+		"userId":                userId,
 	})
 }
 
-func (self *gateway) SetDefaultConversationIfUnset(agentId, conversationId string) bool {
-	changed := self.agentRegistry.SetDefaultConversationIfUnset(agentId, conversationId)
+func (self *gateway) SetDefaultConversationIfUnset(userId, agentId, conversationId string) bool {
+	if userId == "" {
+		log.Warningf("set default conversation-if-unset requires non-empty userId")
+		return false
+	}
+	changed := self.agentRegistry.SetDefaultConversationIfUnset(userId, agentId, conversationId)
 	if changed {
 		self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
 			"agentId":               agentId,
 			"defaultConversationId": conversationId,
+			"userId":                userId,
 		})
 	}
 	return changed
 }
 
-func (self *gateway) createConversationFile(agentId, conversationId, model string) {
+func (self *gateway) createConversationFile(userId, agentId, conversationId, model string) {
+	if userId == "" {
+		return
+	}
 	// Resolve model and create conversation file with provider/model in the header.
-	runner := self.ResolveRunner(agentId)
+	runner := self.GetRunner(agentId)
 	if runner == nil {
 		return
 	}
@@ -311,20 +344,29 @@ func (self *gateway) createConversationFile(agentId, conversationId, model strin
 	if qualifiedModel == "" {
 		return
 	}
-	_, providerRegistry, _, _, _, _ := runner.Snapshot()
+	_, providerRegistry, _, _, _ := runner.Snapshot()
 	resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, providerRegistry.DefaultProvider())
-	if err := runner.Conversations.Create(conversationId, resolvedProvider, qualifiedModel); err != nil {
+	store := self.ConversationStore(userId, agentId)
+	if store == nil {
+		return
+	}
+	if err := store.Create(conversationId, resolvedProvider, qualifiedModel); err != nil {
 		log.Errorf("creating conversation file: %v", err)
 	}
 }
 
-func (self *gateway) NewConversation(agentId, model string) string {
-	conversationId := self.agentRegistry.NewConversation(agentId)
-	self.createConversationFile(agentId, conversationId, model)
+func (self *gateway) NewDefaultConversation(userId, agentId, model string) string {
+	if userId == "" {
+		log.Warningf("new conversation requires non-empty userId")
+		return ""
+	}
+	conversationId := self.agentRegistry.NewDefaultConversation(userId, agentId)
+	self.createConversationFile(userId, agentId, conversationId, model)
 
 	self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
 		"agentId":               agentId,
 		"defaultConversationId": conversationId,
+		"userId":                userId,
 	})
 	return conversationId
 }
@@ -360,21 +402,47 @@ func (self *gateway) Broadcast(eventType EventType, payload interface{}) {
 // a run ID, tracks the run, broadcasts all events, merges caller callbacks, and cleans
 // up on completion. Returns a RunHandle immediately so the caller can wait or proceed.
 func (self *gateway) SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle {
+	userId := ""
+	if parameters.UserContext != nil {
+		userId = parameters.UserContext.UserID
+	}
+	if userId == "" {
+		return &RunHandle{Done: closedDoneChannel(), Outcome: func() *RunOutcome {
+			return &RunOutcome{Error: fmt.Errorf("userId is required")}
+		}}
+	}
+
 	// Resolve agent and runner.
 	resolvedAgentId := parameters.AgentID
 	if resolvedAgentId == "" {
-		resolvedAgentId = self.agentRegistry.DefaultID()
+		defaultAgentId, err := self.EnsureDefaultAgent(userId)
+		if err != nil {
+			return &RunHandle{Done: closedDoneChannel(), Outcome: func() *RunOutcome {
+				return &RunOutcome{Error: fmt.Errorf("cannot determine default agent")}
+			}}
+		}
+		resolvedAgentId = defaultAgentId
 	}
-	runner := self.ResolveRunner(resolvedAgentId)
+	runner := self.GetRunner(resolvedAgentId)
+	if runner == nil {
+		return &RunHandle{Done: closedDoneChannel(), Outcome: func() *RunOutcome {
+			return &RunOutcome{Error: fmt.Errorf("agent not found: %s", resolvedAgentId)}
+		}}
+	}
+	if self.ConversationStore(userId, resolvedAgentId) == nil {
+		return &RunHandle{Done: closedDoneChannel(), Outcome: func() *RunOutcome {
+			return &RunOutcome{Error: fmt.Errorf("conversation store not available")}
+		}}
+	}
 
 	// Resolve or create conversation.
 	conversationId := parameters.ConversationID
 	if conversationId == "" {
 		conversationId = security.NewULID()
-		self.createConversationFile(resolvedAgentId, conversationId, parameters.Model)
-		self.SetDefaultConversationIfUnset(resolvedAgentId, conversationId)
+		self.createConversationFile(userId, resolvedAgentId, conversationId, parameters.Model)
+		self.SetDefaultConversationIfUnset(userId, resolvedAgentId, conversationId)
 	} else {
-		self.SetDefaultConversationIfUnset(resolvedAgentId, conversationId)
+		self.SetDefaultConversationIfUnset(userId, resolvedAgentId, conversationId)
 	}
 
 	// Generate run ID and create cancellable context.
@@ -397,6 +465,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 		"runId":          runId,
 		"conversationId": conversationId,
 		"agentId":        resolvedAgentId,
+		"userId":         userId,
 		"text":           parameters.Message,
 	}
 	if parameters.OriginID != "" {
@@ -419,11 +488,10 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	var outcome RunOutcome
 
 	// Build merged callbacks (broadcast + caller).
-	mergedCallbacks := self.buildMergedCallbacks(runId, conversationId, resolvedAgentId, callerCallbacks)
+	mergedCallbacks := self.buildMergedCallbacks(runId, conversationId, resolvedAgentId, userId, callerCallbacks)
 
 	// Run agent in background goroutine.
 	go func() {
-		defer close(done)
 		defer func() {
 			// Clean up run tracking.
 			self.activeRunsMutex.Lock()
@@ -442,7 +510,17 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			// Fire any deferred lifecycle action now that the run is complete.
 			self.firePendingLifecycle()
 		}()
+		// Signal run completion to callers before cleanup may trigger a deferred
+		// lifecycle action (restart/shutdown). Channel callers (e.g. Telegram)
+		// use this to flush the final response before process restart.
+		defer close(done)
 
+		isAdmin := false
+		if self.securityConfig != nil {
+			isAdmin = self.securityConfig.IsAdmin(userId)
+		}
+		runContext = agents.ContextWithUserID(runContext, userId)
+		runContext = agents.ContextWithAdmin(runContext, isAdmin)
 		result, err := runner.Run(runContext, agents.RunParams{
 			ConversationID:     conversationId,
 			Message:            parameters.Message,
@@ -460,6 +538,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 					"runId":          runId,
 					"conversationId": conversationId,
 					"agentId":        resolvedAgentId,
+					"userId":         userId,
 				})
 			} else {
 				self.Broadcast(EventTypeConversation, map[string]interface{}{
@@ -467,6 +546,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 					"runId":          runId,
 					"conversationId": conversationId,
 					"agentId":        resolvedAgentId,
+					"userId":         userId,
 					"error":          err.Error(),
 				})
 			}
@@ -483,6 +563,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			"runId":          runId,
 			"conversationId": conversationId,
 			"agentId":        resolvedAgentId,
+			"userId":         userId,
 			"text":           result.Response,
 			"model":          result.Model,
 			"stopReason":     result.StopReason,
@@ -506,7 +587,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 
 // buildMergedCallbacks creates RunCallbacks that both broadcast events (using the
 // "conversation" event name consistently) and call the caller's optional callbacks.
-func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string, callerCallbacks *agents.RunCallbacks) *agents.RunCallbacks {
+func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId, userId string, callerCallbacks *agents.RunCallbacks) *agents.RunCallbacks {
 	// Notify summarizer on first text delta so untitled conversations get a title
 	// while tool-call loops are still running.
 	var notifyOnce sync.Once
@@ -518,6 +599,7 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string,
 				"runId":          runId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
+				"userId":         userId,
 			})
 			if callerCallbacks != nil && callerCallbacks.OnQueued != nil {
 				callerCallbacks.OnQueued()
@@ -534,6 +616,7 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string,
 				"runId":          runId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
+				"userId":         userId,
 				"text":           text,
 			})
 			if self.summarizer != nil {
@@ -549,6 +632,7 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string,
 				"runId":          runId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
+				"userId":         userId,
 				"toolName":       toolName,
 				"arguments":      arguments,
 			})
@@ -562,6 +646,7 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId string,
 				"runId":          runId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
+				"userId":         userId,
 				"toolName":       toolName,
 				"result":         result,
 			})
@@ -614,169 +699,26 @@ func (self *gateway) GetActiveRun(conversationId string) string {
 // --- Delete conversation ---
 
 // DeleteConversation deletes a conversation if it's not actively running.
-func (self *gateway) DeleteConversation(agentId, conversationId string) error {
+func (self *gateway) DeleteConversation(userId, agentId, conversationId string) error {
 	// Check not active.
 	if self.GetActiveRun(conversationId) != "" {
 		return fmt.Errorf("cannot delete conversation with active run")
 	}
 
-	runner := self.ResolveRunner(agentId)
-	if runner == nil {
+	if self.GetRunner(agentId) == nil {
 		return fmt.Errorf("agent not found: %s", agentId)
 	}
+	store := self.ConversationStore(userId, agentId)
+	if store == nil {
+		return fmt.Errorf("conversation store not found")
+	}
 
-	if err := runner.Conversations.Delete(conversationId); err != nil {
+	if err := store.Delete(conversationId); err != nil {
 		return err
 	}
 
 	self.Broadcast(EventTypeConversations, nil)
 	return nil
-}
-
-// --- Auth middleware ---
-
-// resolveSessionMaxAge returns the session max age from config, defaulting to 14 days.
-func (self *gateway) resolveSessionMaxAge() time.Duration {
-	if self.config.Gateway.Auth != nil && self.config.Gateway.Auth.SessionMaxAgeDays > 0 {
-		return time.Duration(self.config.Gateway.Auth.SessionMaxAgeDays) * 24 * time.Hour
-	}
-	return 14 * 24 * time.Hour
-}
-
-// checkBearerToken checks for a valid bearer token in the Authorization header.
-func (self *gateway) checkBearerToken(request *http.Request) bool {
-	if self.securityConfig == nil {
-		return false
-	}
-	token := self.securityConfig.Token
-	if token == "" {
-		return false
-	}
-	auth := request.Header.Get("Authorization")
-	if auth == "Bearer "+token {
-		return true
-	}
-	return false
-}
-
-// checkSessionCookie checks for a valid session cookie.
-func (self *gateway) checkSessionCookie(request *http.Request) bool {
-	if self.sessionStore == nil {
-		return false
-	}
-	cookie, err := request.Cookie("session")
-	if err != nil || cookie.Value == "" {
-		return false
-	}
-	session := self.sessionStore.Get(cookie.Value)
-	if session == nil {
-		return false
-	}
-	// Renew session asynchronously (throttled to once per hour inside Touch).
-	go self.sessionStore.Touch(session.ID, self.resolveSessionMaxAge())
-	return true
-}
-
-// AuthMiddleware returns a web.Middleware that enforces token/session auth.
-func (self *gateway) AuthMiddleware() web.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			path := request.URL.Path
-
-			// 1. Non-/api/ paths (frontend static files): always allow.
-			if !strings.HasPrefix(path, "/api/") {
-				next.ServeHTTP(writer, request)
-				return
-			}
-
-			// 2. Health endpoint: always allow.
-			if path == "/api/v1/health" {
-				next.ServeHTTP(writer, request)
-				return
-			}
-
-			// 3. Auth endpoints: always allow.
-			if strings.HasPrefix(path, "/api/v1/auth/") {
-				next.ServeHTTP(writer, request)
-				return
-			}
-
-			// 3b. Profile read endpoint: allow unauthenticated GET during setup flow only.
-			passwordConfigured := self.securityConfig != nil && self.securityConfig.Password != ""
-			if path == "/api/v1/profile" && request.Method == http.MethodGet && !passwordConfigured {
-				next.ServeHTTP(writer, request)
-				return
-			}
-
-			// 4. Media GET endpoints: always allow (LLM providers fetch images).
-			if strings.HasPrefix(path, "/api/v1/media/") && request.Method == "GET" {
-				next.ServeHTTP(writer, request)
-				return
-			}
-
-			// 4b. Media upload: requires session or bearer auth.
-			if path == "/api/v1/media/upload" {
-				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
-					next.ServeHTTP(writer, request)
-					return
-				}
-				web.WriteError(writer, web.ErrUnauthorized)
-				return
-			}
-
-			// 4c. Audio endpoints: requires session or bearer auth.
-			if strings.HasPrefix(path, "/api/v1/audio/") {
-				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
-					next.ServeHTTP(writer, request)
-					return
-				}
-				web.WriteError(writer, web.ErrUnauthorized)
-				return
-			}
-
-			// 4d. Agent avatar endpoints: requires session or bearer auth.
-			if strings.HasPrefix(path, "/api/v1/agents/") && strings.HasSuffix(path, "/avatar") {
-				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
-					next.ServeHTTP(writer, request)
-					return
-				}
-				web.WriteError(writer, web.ErrUnauthorized)
-				return
-			}
-
-			// 4e. Profile settings endpoints: requires session or bearer auth.
-			if path == "/api/v1/profile" || path == "/api/v1/profile/avatar" {
-				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
-					next.ServeHTTP(writer, request)
-					return
-				}
-				web.WriteError(writer, web.ErrUnauthorized)
-				return
-			}
-
-			// 5. Machine endpoints: token-only auth.
-			if path == "/api/v1/browser" || path == "/api/v1/terminal" || path == "/api/v1/chat/completions" {
-				if self.checkBearerToken(request) {
-					next.ServeHTTP(writer, request)
-					return
-				}
-				web.WriteError(writer, web.ErrUnauthorized)
-				return
-			}
-
-			// 6. Websocket api: accept session cookie or bearer token.
-			if path == "/api/v1/websocket" {
-				if self.checkSessionCookie(request) || self.checkBearerToken(request) {
-					next.ServeHTTP(writer, request)
-					return
-				}
-				web.WriteError(writer, web.ErrUnauthorized)
-				return
-			}
-
-			web.WriteError(writer, web.ErrUnauthorized)
-		})
-	}
 }
 
 // --- Lifecycle controls ---
@@ -829,22 +771,26 @@ func (self *gateway) ListenAddress() string {
 
 // StartVoiceSession creates a voice session bound to this gateway instance.
 func (self *gateway) StartVoiceSession(
-	conversationId, agentId string,
+	userId, conversationId, agentId string,
 	promptSuffix string,
 	audioIn, audioOut voice.AudioFormat,
 	features voice.Features,
 	sendJson func(interface{}),
 	sendBinary func([]byte),
 ) (*voice.Session, error) {
-	if agentId == "" {
-		agentId = self.DefaultAgentID()
+	if userId == "" {
+		return nil, fmt.Errorf("userId is required")
+	}
+	agentId, err := self.EnsureDefaultAgent(userId)
+	if err != nil {
+		return nil, err
 	}
 	if conversationId == "" {
 		// Start a fresh conversation when the client omits conversation_id.
 		// This avoids cross-session context bleed between separate voice calls.
 		conversationId = security.NewULID()
-		self.createConversationFile(agentId, conversationId, "")
-		self.SetDefaultConversationIfUnset(agentId, conversationId)
+		self.createConversationFile(userId, agentId, conversationId, "")
+		self.SetDefaultConversationIfUnset(userId, agentId, conversationId)
 	}
 	sessionId := security.NewULID()
 	if strings.TrimSpace(features.TurnStrategy) == "" && self.config != nil {
@@ -855,16 +801,18 @@ func (self *gateway) StartVoiceSession(
 	} else {
 		features.SpeculativeLLMEnabled = true
 	}
-	adapter := &voiceGatewayAdapter{gw: self}
+	adapter := &voiceGatewayAdapter{gw: self, userId: userId}
 	return voice.NewSession(sessionId, conversationId, agentId, promptSuffix, audioIn, audioOut, features, adapter, sendJson, sendBinary), nil
 }
 
 type voiceGatewayAdapter struct {
-	gw *gateway
+	gw     *gateway
+	userId string
 }
 
 func (self *voiceGatewayAdapter) SendMessage(ctx context.Context, parameters voice.VoiceSendMessageParams) voice.VoiceRunHandle {
 	handle := self.gw.SendMessage(ctx, SendMessageParameters{
+		UserContext:        &UserContext{UserID: self.userId},
 		AgentID:            parameters.AgentID,
 		ConversationID:     parameters.ConversationID,
 		Message:            parameters.Message,
@@ -910,14 +858,6 @@ func (self *voiceGatewayAdapter) Unsubscribe(sub voice.VoiceSubscriber) {
 		return
 	}
 	self.gw.Unsubscribe(bridge)
-}
-
-func (self *voiceGatewayAdapter) NewConversation(agentId, model string) string {
-	return self.gw.NewConversation(agentId, model)
-}
-
-func (self *voiceGatewayAdapter) DefaultAgentID() string {
-	return self.gw.DefaultAgentID()
 }
 
 func (self *voiceGatewayAdapter) ProviderRegistry() voice.VoiceProviderRegistry {

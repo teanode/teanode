@@ -74,8 +74,8 @@ func TestTouchBumpsUpdatedOnWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error after write: %v", err)
 	}
-	if afterWrite.UpdatedAt <= before {
-		t.Fatalf("updatedAt after write = %d, want > %d", afterWrite.UpdatedAt, before)
+	if !afterWrite.UpdatedAt.Time.After(before.Time) {
+		t.Fatalf("updatedAt after write = %s, want > %s", afterWrite.UpdatedAt.String(), before.String())
 	}
 
 	time.Sleep(2 * time.Millisecond)
@@ -86,8 +86,8 @@ func TestTouchBumpsUpdatedOnWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error after append: %v", err)
 	}
-	if afterAppend.UpdatedAt <= afterWrite.UpdatedAt {
-		t.Fatalf("updatedAt after append = %d, want > %d", afterAppend.UpdatedAt, afterWrite.UpdatedAt)
+	if !afterAppend.UpdatedAt.Time.After(afterWrite.UpdatedAt.Time) {
+		t.Fatalf("updatedAt after append = %s, want > %s", afterAppend.UpdatedAt.String(), afterWrite.UpdatedAt.String())
 	}
 
 	time.Sleep(2 * time.Millisecond)
@@ -98,8 +98,8 @@ func TestTouchBumpsUpdatedOnWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error after move: %v", err)
 	}
-	if afterMove.UpdatedAt <= afterAppend.UpdatedAt {
-		t.Fatalf("updatedAt after move = %d, want > %d", afterMove.UpdatedAt, afterAppend.UpdatedAt)
+	if !afterMove.UpdatedAt.Time.After(afterAppend.UpdatedAt.Time) {
+		t.Fatalf("updatedAt after move = %s, want > %s", afterMove.UpdatedAt.String(), afterAppend.UpdatedAt.String())
 	}
 
 	time.Sleep(2 * time.Millisecond)
@@ -110,8 +110,8 @@ func TestTouchBumpsUpdatedOnWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error after delete: %v", err)
 	}
-	if afterDelete.UpdatedAt <= afterMove.UpdatedAt {
-		t.Fatalf("updatedAt after delete = %d, want > %d", afterDelete.UpdatedAt, afterMove.UpdatedAt)
+	if !afterDelete.UpdatedAt.Time.After(afterMove.UpdatedAt.Time) {
+		t.Fatalf("updatedAt after delete = %s, want > %s", afterDelete.UpdatedAt.String(), afterMove.UpdatedAt.String())
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/trash"
@@ -201,7 +202,7 @@ func (self *Store) Save(data []byte, format string, options SaveOptions) (Media,
 
 	filename := fmt.Sprintf("%s.%s", mediaId, format)
 	mediaPath := filepath.Join(shardDirectory, filename)
-	if err := os.WriteFile(mediaPath, data, 0644); err != nil {
+	if err := atomicfile.WriteFile(mediaPath, data); err != nil {
 		return Media{}, fmt.Errorf("writing media file: %w", err)
 	}
 
@@ -302,7 +303,7 @@ func collectScanEntries(directory string, name string, mediaFiles map[string]sca
 	}
 }
 
-// Scan walks the media directory (including shard subdirectories) and returns
+// Scan walks shard subdirectories in the media directory and returns
 // metadata for all files matching the filter. Files with a sidecar but no
 // corresponding media file (orphan metadata) are cleaned up. Media files
 // without sidecars are skipped (they will get synthesized on next Load/Open).
@@ -317,14 +318,6 @@ func (self *Store) Scan(filter func(MediaMetadata) bool) ([]MediaMetadata, error
 
 	mediaFiles := make(map[string]scanMediaEntry)
 	var metaFiles []scanMetaEntry
-
-	// Collect from top-level files (legacy flat layout).
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		collectScanEntries(self.directory, entry.Name(), mediaFiles, &metaFiles)
-	}
 
 	// Collect from shard subdirectories.
 	for _, entry := range entries {
@@ -351,7 +344,11 @@ func (self *Store) Scan(filter func(MediaMetadata) bool) ([]MediaMetadata, error
 		if _, hasMedia := mediaFiles[entry.mediaId]; !hasMedia {
 			// Orphan metadata without a media file — clean up.
 			metaPath := filepath.Join(entry.directory, entry.mediaId+metaSuffix)
-			if err := trash.Move(metaPath, self.trashDirectory()); err != nil && !os.IsNotExist(err) {
+			trashDirectory, trashError := self.trashDirectory()
+			if trashError != nil {
+				continue
+			}
+			if err := trash.Move(metaPath, trashDirectory); err != nil && !os.IsNotExist(err) {
 				continue
 			}
 			continue
@@ -373,14 +370,16 @@ func (self *Store) Scan(filter func(MediaMetadata) bool) ([]MediaMetadata, error
 	return results, nil
 }
 
-// Delete removes both the media file and its metadata sidecar from whichever
-// location they reside in (sharded or flat).
+// Delete removes both the sharded media file and its metadata sidecar.
 func (self *Store) Delete(mediaId string) error {
 	mediaPath, _, err := self.findMediaFile(mediaId)
 	if err != nil {
 		return err
 	}
-	trashDirectory := self.trashDirectory()
+	trashDirectory, err := self.trashDirectory()
+	if err != nil {
+		return err
+	}
 
 	if _, err := os.Stat(mediaPath); err == nil {
 		if err := trash.Move(mediaPath, trashDirectory); err != nil {
@@ -403,11 +402,12 @@ func (self *Store) Delete(mediaId string) error {
 	return nil
 }
 
-func (self *Store) trashDirectory() string {
-	if filepath.Base(self.directory) == "media" {
-		return filepath.Join(filepath.Dir(self.directory), ".trash")
+func (self *Store) trashDirectory() (string, error) {
+	trashDirectory, err := configs.TrashDirectory()
+	if err != nil {
+		return "", fmt.Errorf("resolving trash directory: %w", err)
 	}
-	return filepath.Join(self.directory, ".trash")
+	return trashDirectory, nil
 }
 
 // findMediaFileInDirectory searches a single directory for a media file
@@ -427,13 +427,9 @@ func findMediaFileInDirectory(directory string, mediaId string) (string, string,
 	return "", "", false
 }
 
-// findMediaFile locates a media file by checking the sharded path first,
-// then falling back to the legacy flat layout.
+// findMediaFile locates a sharded media file by ID.
 func (self *Store) findMediaFile(mediaId string) (string, string, error) {
 	if path, format, found := findMediaFileInDirectory(self.shardedDirectory(mediaId), mediaId); found {
-		return path, format, nil
-	}
-	if path, format, found := findMediaFileInDirectory(self.directory, mediaId); found {
 		return path, format, nil
 	}
 	return "", "", fmt.Errorf("media not found: %s", mediaId)
@@ -463,7 +459,7 @@ func writeMetadataToPath(metaPath string, metadata MediaMetadata) error {
 
 // loadOrSynthesizeMetadata loads the sidecar from the same directory as the
 // media file, or synthesizes and writes minimal metadata if the sidecar is
-// missing (lazy hydration for legacy files).
+// missing.
 func (self *Store) loadOrSynthesizeMetadata(mediaId string, format string, mediaPath string) (MediaMetadata, error) {
 	metaPath := filepath.Join(filepath.Dir(mediaPath), mediaId+metaSuffix)
 	metadata, err := readMetadataFromPath(metaPath)

@@ -65,6 +65,16 @@ func (self *stubTool) Execute(_ context.Context, _ string) (string, error) {
 	return "ok", nil
 }
 
+func testResolveUserProfile(_ string) (*configs.UserProfile, error) {
+	return &configs.UserProfile{Name: "Test User"}, nil
+}
+
+func testResolveConversations(store *conversations.Store) func(userId, agentId string) *conversations.Store {
+	return func(userId, agentId string) *conversations.Store {
+		return store
+	}
+}
+
 func TestRunnerRun(t *testing.T) {
 	mockResponse := "Hello! How can I help you today?"
 	server := mockOpenAIServer(mockResponse)
@@ -83,13 +93,14 @@ func TestRunnerRun(t *testing.T) {
 	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		Providers:     mockRegistry(provider),
-		Conversations: store,
-		Config:        configuration,
+		Providers:            mockRegistry(provider),
+		ResolveConversations: testResolveConversations(store),
+		ResolveUserProfile:   testResolveUserProfile,
+		Config:               configuration,
 	}
 
 	var chunks []string
-	result, err := runner.Run(context.Background(), RunParams{
+	result, err := runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
 		ConversationID: "test-run",
 		Message:        "hi",
 	}, &RunCallbacks{
@@ -162,12 +173,13 @@ func TestRunnerRunAbort(t *testing.T) {
 	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		Providers:     mockRegistry(provider),
-		Conversations: store,
-		Config:        configuration,
+		Providers:            mockRegistry(provider),
+		ResolveConversations: testResolveConversations(store),
+		ResolveUserProfile:   testResolveUserProfile,
+		Config:               configuration,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ContextWithUserID(context.Background(), "user-1"))
 
 	gotChunk := make(chan struct{})
 	done := make(chan struct{})
@@ -242,14 +254,15 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	tools.Register(&stubTool{name: "workspace"})
 
 	runner := &Runner{
-		Providers:     mockRegistry(provider),
-		Conversations: store,
-		Config:        configuration,
-		Tools:         tools,
+		Providers:            mockRegistry(provider),
+		ResolveConversations: testResolveConversations(store),
+		ResolveUserProfile:   testResolveUserProfile,
+		Config:               configuration,
+		Tools:                tools,
 	}
 
 	var toolCalls []string
-	result, err := runner.Run(context.Background(), RunParams{
+	result, err := runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
 		ConversationID: "tool-test",
 		Message:        "remember hello",
 	}, &RunCallbacks{
@@ -311,7 +324,7 @@ func TestBuildSystemPromptWithWorkspace(t *testing.T) {
 	// Write workspace files.
 	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte("Be extra helpful"), 0644)
 
-	prompt := BuildSystemPrompt(configuration, "", workspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := BuildSystemPrompt(configuration, "", "", workspaceDirectory, "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
 
 	// AGENT.md should be embedded in the system prompt (rarely changes).
 	if !strings.Contains(prompt, "Be extra helpful") {
@@ -332,7 +345,7 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 	configuration := &configs.Config{}
 
 	// Empty workspace dir — no files loaded.
-	prompt := BuildSystemPrompt(configuration, "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := BuildSystemPrompt(configuration, "", "", "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
 	if !strings.Contains(prompt, "TeaNode") {
 		t.Error("prompt should contain TeaNode identifier")
 	}
@@ -353,11 +366,11 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 
 func TestBuildSystemPromptUsesAgentIdentity(t *testing.T) {
 	configuration := &configs.Config{
-		Agents: []configs.AgentConfig{
+		AgentConfigs: []configs.AgentConfig{
 			{ID: "custom", Name: "Custom Assistant"},
 		},
 	}
-	prompt := BuildSystemPrompt(configuration, "custom", "/some/dir", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := BuildSystemPrompt(configuration, "custom", "", "/some/dir", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
 	if !strings.Contains(prompt, "You are 'Custom Assistant' (agent: custom).") {
 		t.Error("prompt should contain agent identity suffix")
 	}
@@ -374,7 +387,7 @@ func TestBuildSystemPromptTruncation(t *testing.T) {
 	big := strings.Repeat("x", 10000)
 	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte(big), 0644)
 
-	prompt := BuildSystemPrompt(configuration, "", workspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := BuildSystemPrompt(configuration, "", "", workspaceDirectory, "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
 	if strings.Contains(prompt, strings.Repeat("x", 10000)) {
 		t.Error("prompt should have truncated the large file")
 	}
@@ -394,12 +407,140 @@ func TestBuildSystemPromptIncludesRecentProjects(t *testing.T) {
 		t.Fatalf("project create: %v", err)
 	}
 
-	prompt := BuildSystemPrompt(&configs.Config{}, "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := BuildSystemPrompt(&configs.Config{}, "", "", "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
 	if !strings.Contains(prompt, "Recent Projects") {
 		t.Error("prompt should include recent projects section")
 	}
 	if !strings.Contains(prompt, "Roadmap") || !strings.Contains(prompt, "Research") {
 		t.Error("prompt should include project names")
+	}
+}
+
+func TestBuildSystemPromptIncludesUserWorkspaceFiles(t *testing.T) {
+	agentWorkspaceDirectory := t.TempDir()
+	userWorkspaceDirectory := t.TempDir()
+	configuration := &configs.Config{}
+
+	if err := os.WriteFile(filepath.Join(agentWorkspaceDirectory, "AGENT.md"), []byte("Agent operating notes"), 0644); err != nil {
+		t.Fatalf("write AGENT.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "USER.md"), []byte("Preferred name: Alex"), 0644); err != nil {
+		t.Fatalf("write USER.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "MEMORY.md"), []byte("Likes concise summaries"), 0644); err != nil {
+		t.Fatalf("write user MEMORY.md: %v", err)
+	}
+
+	prompt := BuildSystemPrompt(configuration, "", "", agentWorkspaceDirectory, userWorkspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	if !strings.Contains(prompt, "Agent operating notes") {
+		t.Error("prompt should include AGENT.md content")
+	}
+	if !strings.Contains(prompt, "User Profile (USER.md)") || !strings.Contains(prompt, "Preferred name: Alex") {
+		t.Error("prompt should include USER.md section content")
+	}
+	if !strings.Contains(prompt, "User Long-term Memory (MEMORY.md)") || !strings.Contains(prompt, "Likes concise summaries") {
+		t.Error("prompt should include user MEMORY.md section content")
+	}
+}
+
+func TestBuildSystemPromptIncludesOnboardingOnlyWhenPresent(t *testing.T) {
+	configuration := &configs.Config{}
+	agentWorkspaceDirectory := t.TempDir()
+	userWorkspaceDirectory := t.TempDir()
+
+	withOnboarding := BuildSystemPrompt(configuration, "", "", agentWorkspaceDirectory, userWorkspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	if strings.Contains(withOnboarding, "Onboarding Notes (ONBOARDING.md)") {
+		t.Fatal("prompt should not include ONBOARDING section when file is missing")
+	}
+
+	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "ONBOARDING.md"), []byte("Ask about language and timezone"), 0644); err != nil {
+		t.Fatalf("write ONBOARDING.md: %v", err)
+	}
+
+	withOnboarding = BuildSystemPrompt(configuration, "", "", agentWorkspaceDirectory, userWorkspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	if !strings.Contains(withOnboarding, "Onboarding Notes (ONBOARDING.md)") {
+		t.Fatal("prompt should include ONBOARDING section when file exists")
+	}
+	if !strings.Contains(withOnboarding, "Ask about language and timezone") {
+		t.Fatal("prompt should include ONBOARDING.md content")
+	}
+}
+
+func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
+	configuration := &configs.Config{}
+	userWorkspaceDirectory := t.TempDir()
+	onboardingInstructions := "Collect preferred name, verbosity, language, timezone, and goals."
+	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "ONBOARDING.md"), []byte(onboardingInstructions), 0644); err != nil {
+		t.Fatalf("write ONBOARDING.md: %v", err)
+	}
+
+	history := []conversations.Message{
+		conversations.NewTextMessage("assistant", "Welcome! To get started, tell me your preferred name and timezone.", 1),
+		conversations.NewTextMessage("user", "I'm Alex, PST timezone.", 2),
+	}
+
+	runner := &Runner{AgentID: "default"}
+	messages := runner.buildMessages(
+		history,
+		configs.DefaultAgentLimits,
+		"",
+		configuration,
+		"user-1",
+		"",
+		userWorkspaceDirectory,
+		"",
+		&configs.UserProfile{Name: "Alex"},
+	)
+
+	if len(messages) < 3 {
+		t.Fatalf("expected at least 3 provider messages (system + history), got %d", len(messages))
+	}
+	if messages[0].Role != "system" {
+		t.Fatalf("messages[0].role = %q, want system", messages[0].Role)
+	}
+	systemPrompt := messages[0].ContentText()
+	if !strings.Contains(systemPrompt, "Onboarding Notes (ONBOARDING.md)") {
+		t.Fatal("system prompt should include onboarding section when ONBOARDING.md exists")
+	}
+	if !strings.Contains(systemPrompt, onboardingInstructions) {
+		t.Fatal("system prompt should include ONBOARDING.md content")
+	}
+
+	if messages[1].Role != "assistant" {
+		t.Fatalf("messages[1].role = %q, want assistant", messages[1].Role)
+	}
+	if !strings.Contains(messages[1].ContentText(), "tell me your preferred name and timezone") {
+		t.Fatalf("messages[1] content = %q, expected seeded onboarding question", messages[1].ContentText())
+	}
+
+	if messages[2].Role != "user" {
+		t.Fatalf("messages[2].role = %q, want user", messages[2].Role)
+	}
+}
+
+func TestBuildSystemPromptIncludesOtherUsers(t *testing.T) {
+	configs.SetDirectory(t.TempDir())
+	t.Cleanup(func() { configs.SetDirectory("") })
+
+	securityConfig := &configs.SecurityConfig{
+		Users: map[string]configs.SecurityUser{
+			"user-1": {Username: "alice", Admin: true},
+			"user-2": {Username: "bob"},
+		},
+	}
+	if err := configs.SaveSecurity(securityConfig); err != nil {
+		t.Fatalf("SaveSecurity failed: %v", err)
+	}
+
+	prompt := BuildSystemPrompt(&configs.Config{}, "", "", "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	if !strings.Contains(prompt, "Other Users") {
+		t.Error("prompt should include other users section")
+	}
+	if !strings.Contains(prompt, "alice") || !strings.Contains(prompt, "bob") {
+		t.Error("prompt should list usernames from security config")
+	}
+	if !strings.Contains(prompt, "role: admin") {
+		t.Error("prompt should indicate admin users")
 	}
 }
 
@@ -420,13 +561,14 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		Providers:     mockRegistry(provider),
-		Conversations: store,
-		Config:        configuration,
+		Providers:            mockRegistry(provider),
+		ResolveConversations: testResolveConversations(store),
+		ResolveUserProfile:   testResolveUserProfile,
+		Config:               configuration,
 	}
 
 	// First run: creates the conversation and locks it to "mock:mock-model".
-	_, err := runner.Run(context.Background(), RunParams{
+	_, err := runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
 		ConversationID: "mismatch-test",
 		Message:        "hello",
 	}, nil)
@@ -435,7 +577,7 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	}
 
 	// Second run: same conversation, explicitly different model — should error.
-	_, err = runner.Run(context.Background(), RunParams{
+	_, err = runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
 		ConversationID: "mismatch-test",
 		Message:        "hello again",
 		Model:          "mock:other-model",
@@ -458,12 +600,13 @@ func TestRunnerNoModelError(t *testing.T) {
 	}
 
 	runner := &Runner{
-		Providers:     providers.NewRegistry("mock"),
-		Conversations: store,
-		Config:        configuration,
+		Providers:            providers.NewRegistry("mock"),
+		ResolveConversations: testResolveConversations(store),
+		ResolveUserProfile:   testResolveUserProfile,
+		Config:               configuration,
 	}
 
-	_, err := runner.Run(context.Background(), RunParams{
+	_, err := runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
 		ConversationID: "no-model-test",
 		Message:        "hello",
 	}, nil)
@@ -472,5 +615,74 @@ func TestRunnerNoModelError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no model configured") {
 		t.Errorf("expected 'no model configured' error, got: %v", err)
+	}
+}
+
+func TestRunnerRunRequiresUserID(t *testing.T) {
+	directory := t.TempDir()
+	store := conversations.NewStore(directory)
+	runner := &Runner{
+		ResolveConversations: testResolveConversations(store),
+		ResolveUserProfile:   testResolveUserProfile,
+		Config:               &configs.Config{},
+		Providers:            providers.NewRegistry("mock"),
+	}
+
+	_, err := runner.Run(context.Background(), RunParams{
+		ConversationID: "missing-user-id",
+		Message:        "hello",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "userId is required") {
+		t.Fatalf("expected userId required error, got: %v", err)
+	}
+}
+
+func TestRunnerRunRequiresResolveUserProfile(t *testing.T) {
+	directory := t.TempDir()
+	store := conversations.NewStore(directory)
+	runner := &Runner{
+		ResolveConversations: testResolveConversations(store),
+		Config:               &configs.Config{},
+		Providers:            providers.NewRegistry("mock"),
+	}
+
+	_, err := runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
+		ConversationID: "missing-resolver",
+		Message:        "hello",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "ResolveUserProfile is required") {
+		t.Fatalf("expected ResolveUserProfile required error, got: %v", err)
+	}
+}
+
+func TestValidateToolAuthorizationNonAdminShellDenied(t *testing.T) {
+	err := validateToolAuthorization("shell", `{"command":"ls -la"}`, false)
+	if err == nil || !strings.Contains(err.Error(), "admin access required") {
+		t.Fatalf("expected admin access required error, got: %v", err)
+	}
+}
+
+func TestValidateToolAuthorizationNonAdminGatewayDenied(t *testing.T) {
+	err := validateToolAuthorization("gateway", `{"action":"restart"}`, false)
+	if err == nil || !strings.Contains(err.Error(), "admin access required") {
+		t.Fatalf("expected admin access required error, got: %v", err)
+	}
+}
+
+func TestValidateToolAuthorizationNonAdminFilesystemReadOnly(t *testing.T) {
+	allowedActions := []string{"read", "list", "info"}
+	for _, action := range allowedActions {
+		err := validateToolAuthorization("filesystem", `{"action":"`+action+`","path":"/tmp/x"}`, false)
+		if err != nil {
+			t.Fatalf("expected filesystem.%s allowed for non-admin, got: %v", action, err)
+		}
+	}
+
+	deniedActions := []string{"write", "mkdir", "delete", "move"}
+	for _, action := range deniedActions {
+		err := validateToolAuthorization("filesystem", `{"action":"`+action+`","path":"/tmp/x"}`, false)
+		if err == nil {
+			t.Fatalf("expected filesystem.%s denied for non-admin", action)
+		}
 	}
 }

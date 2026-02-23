@@ -25,13 +25,13 @@ func acquireGatewayPIDGuard() (*gatewayPIDGuard, error) {
 		return nil, err
 	}
 
-	existingPID, err := readPIDFile(pidFile)
+	existingPid, err := readPIDFile(pidFile)
 	switch {
 	case err == nil:
-		if processExists(existingPID) {
-			return nil, fmt.Errorf("gateway already running (pid %d)", existingPID)
+		if processExists(existingPid) {
+			return nil, fmt.Errorf("gateway already running (pid %d)", existingPid)
 		}
-		log.Warningf("removing stale gateway pid file at %s (pid %d not running)", pidFile, existingPID)
+		log.Warningf("removing stale gateway pid file at %s (pid %d not running)", pidFile, existingPid)
 		if err := os.Remove(pidFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("remove stale gateway pid file: %w", err)
 		}
@@ -46,18 +46,18 @@ func acquireGatewayPIDGuard() (*gatewayPIDGuard, error) {
 		return nil, fmt.Errorf("read gateway pid file: %w", err)
 	}
 
-	currentPID := os.Getpid()
-	if err := atomicfile.WriteFile(pidFile, []byte(strconv.Itoa(currentPID)+"\n")); err != nil {
+	currentPid := os.Getpid()
+	if err := atomicfile.WriteFile(pidFile, []byte(strconv.Itoa(currentPid)+"\n")); err != nil {
 		return nil, fmt.Errorf("write gateway pid file: %w", err)
 	}
-	return &gatewayPIDGuard{path: pidFile, pid: currentPID}, nil
+	return &gatewayPIDGuard{path: pidFile, pid: currentPid}, nil
 }
 
 func (self *gatewayPIDGuard) Release() error {
-	currentPID, err := readPIDFile(self.path)
+	currentPid, err := readPIDFile(self.path)
 	switch {
 	case err == nil:
-		if currentPID != self.pid {
+		if currentPid != self.pid {
 			return nil
 		}
 	case errors.Is(err, os.ErrNotExist):

@@ -14,6 +14,7 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
 )
@@ -26,16 +27,16 @@ type conversationState struct {
 
 // Runner orchestrates: load conversation -> build prompt -> call LLM -> save response.
 type Runner struct {
-	mutex              sync.RWMutex
-	AgentID            string
-	Providers          *providers.Registry
-	Conversations      *conversations.Store
-	Config             *configs.Config
-	Tools              *ToolRegistry
-	MediaStore         *media.Store
-	WorkspaceDirectory string
-	SkillPrompts       string
-	Profile            *configs.Profile
+	mutex                sync.RWMutex
+	AgentID              string
+	Providers            *providers.Registry
+	ResolveConversations func(userId, agentId string) *conversations.Store
+	ResolveUserProfile   func(userId string) (*configs.UserProfile, error)
+	Config               *configs.Config
+	Tools                *ToolRegistry
+	MediaStore           *media.Store
+	WorkspaceDirectory   string
+	SkillPrompts         string
 
 	// contextWindows maps "provider:model" -> context window size.
 	contextWindows sync.Map
@@ -55,27 +56,11 @@ func (self *Runner) Reconfigure(config *configs.Config, providerRegistry *provid
 	self.SkillPrompts = skillPrompts
 }
 
-// SetProfile updates the profile used for system prompt personalization.
-func (self *Runner) SetProfile(profile *configs.Profile) {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	if profile == nil {
-		self.Profile = nil
-		return
-	}
-	clone := *profile
-	self.Profile = &clone
-}
-
 // Snapshot captures the runner's current state under the read lock.
-func (self *Runner) Snapshot() (config *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, workspaceDirectory string, skillPrompts string, profile *configs.Profile) {
+func (self *Runner) Snapshot() (config *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, workspaceDirectory string, skillPrompts string) {
 	self.mutex.RLock()
 	defer self.mutex.RUnlock()
-	if self.Profile != nil {
-		clone := *self.Profile
-		profile = &clone
-	}
-	return self.Config, self.Providers, self.Tools, self.WorkspaceDirectory, self.SkillPrompts, profile
+	return self.Config, self.Providers, self.Tools, self.WorkspaceDirectory, self.SkillPrompts
 }
 
 // SetModels populates the context window map for models from a given provider.
@@ -191,7 +176,34 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 // (streaming), and appends the assistant response. Loops when the LLM requests tool calls.
 func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
 	// Snapshot mutable fields so in-progress runs aren't affected by hot-reloads.
-	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts, profile := self.Snapshot()
+	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts := self.Snapshot()
+	userId := UserIDFromContext(ctx)
+	isAdmin, hasAdminContext := AdminFromContext(ctx)
+	if !hasAdminContext {
+		// Missing role context defaults to least privilege.
+		isAdmin = false
+	}
+	if strings.TrimSpace(userId) == "" {
+		return nil, fmt.Errorf("userId is required")
+	}
+	userWorkspaceDirectory := ""
+	if resolvedUserWorkspaceDirectory, resolveErr := configs.UserWorkspaceDirectory(userId); resolveErr == nil {
+		userWorkspaceDirectory = resolvedUserWorkspaceDirectory
+	}
+	if self.ResolveUserProfile == nil {
+		return nil, fmt.Errorf("ResolveUserProfile is required")
+	}
+	profile, err := self.ResolveUserProfile(userId)
+	if err != nil {
+		return nil, fmt.Errorf("resolving user profile for %q: %w", userId, err)
+	}
+	if profile == nil {
+		return nil, fmt.Errorf("user profile is required for user %q", userId)
+	}
+	conversationStore := self.conversationStore(userId)
+	if conversationStore == nil {
+		return nil, fmt.Errorf("conversation store is not configured")
+	}
 
 	runId := security.NewULID()
 	now := time.Now().UnixMilli()
@@ -209,7 +221,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	}
 
 	// Validate provider/model alignment with existing conversation.
-	header, headerError := self.Conversations.LoadHeader(params.ConversationID)
+	header, headerError := conversationStore.LoadHeader(params.ConversationID)
 	if headerError == nil && header.Model != "" {
 		// Existing conversation with a locked model.
 		if params.Model != "" && params.Model != header.Model {
@@ -239,13 +251,13 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	} else {
 		userMessage = conversations.NewTextMessage("user", params.Message, now)
 	}
-	if err := self.Conversations.Append(params.ConversationID, userMessage,
+	if err := conversationStore.Append(params.ConversationID, userMessage,
 		conversations.WithProviderAndModel(resolvedProvider, qualifiedModel)); err != nil {
 		return nil, fmt.Errorf("saving user message: %w", err)
 	}
 
 	// 3. Load full conversation history.
-	history, err := self.Conversations.Load(params.ConversationID)
+	history, err := conversationStore.Load(params.ConversationID)
 	if err != nil {
 		return nil, fmt.Errorf("loading conversation: %w", err)
 	}
@@ -261,7 +273,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		log.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
 
 		// Build messages for the LLM.
-		llmMessages := self.buildMessages(history, limits, params.SystemPromptSuffix, configuration, workspaceDirectory, skillPrompts, profile)
+		llmMessages := self.buildMessages(history, limits, params.SystemPromptSuffix, configuration, userId, workspaceDirectory, userWorkspaceDirectory, skillPrompts, profile)
 
 		// Voice context budget: prune oldest turns when MaxContextTokens is set.
 		if params.MaxContextTokens > 0 {
@@ -410,7 +422,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			assistantMessage.ToolCalls, _ = json.Marshal(toolCalls)
 		}
 
-		if err := self.Conversations.Append(params.ConversationID, assistantMessage); err != nil {
+		if err := conversationStore.Append(params.ConversationID, assistantMessage); err != nil {
 			return nil, fmt.Errorf("saving assistant message: %w", err)
 		}
 		history = append(history, assistantMessage)
@@ -439,6 +451,19 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			}
 
 			arguments := repairToolArgs(toolCall.Function.Arguments)
+			if authorizationErr := validateToolAuthorization(toolCall.Function.Name, arguments, isAdmin); authorizationErr != nil {
+				result := "error: " + authorizationErr.Error()
+				log.Debugf("tool denied id=%s name=%s err=%v", toolCall.ID, toolCall.Function.Name, authorizationErr)
+				if callbacks != nil && callbacks.OnToolResult != nil {
+					callbacks.OnToolResult(toolCall.Function.Name, result)
+				}
+				toolMessage := conversations.NewToolMessage(toolCall.ID, toolCall.Function.Name, result, time.Now().UnixMilli())
+				if err := conversationStore.Append(params.ConversationID, toolMessage); err != nil {
+					return nil, fmt.Errorf("saving tool denial: %w", err)
+				}
+				history = append(history, toolMessage)
+				continue
+			}
 			workItems = append(workItems, toolWorkItem{
 				toolCall:  toolCall,
 				tool:      tool,
@@ -515,7 +540,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			}
 
 			toolMessage := conversations.NewToolMessage(item.toolCall.ID, item.toolCall.Function.Name, storedResult, time.Now().UnixMilli())
-			if err := self.Conversations.Append(params.ConversationID, toolMessage); err != nil {
+			if err := conversationStore.Append(params.ConversationID, toolMessage); err != nil {
 				return nil, fmt.Errorf("saving tool result: %w", err)
 			}
 			history = append(history, toolMessage)
@@ -534,6 +559,21 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	}, nil
 }
 
+func (self *Runner) conversationStore(userId string) *conversations.Store {
+	self.mutex.RLock()
+	resolver := self.ResolveConversations
+	self.mutex.RUnlock()
+	if resolver == nil {
+		return nil
+	}
+	return resolver(userId, self.AgentID)
+}
+
+// ConversationsForUser resolves the conversation store for a user.
+func (self *Runner) ConversationsForUser(userId string) *conversations.Store {
+	return self.conversationStore(userId)
+}
+
 // repairToolArgs attempts to fix malformed JSON from the LLM.
 // It only runs the repair if the JSON is actually invalid.
 func repairToolArgs(input string) string {
@@ -547,10 +587,90 @@ func repairToolArgs(input string) string {
 	return fixed
 }
 
+func validateToolAuthorization(toolName, arguments string, isAdmin bool) error {
+	if isAdmin {
+		return nil
+	}
+	switch toolName {
+	case "shell":
+		return fmt.Errorf("admin access required for shell tool")
+	case "gateway":
+		return fmt.Errorf("admin access required for gateway tool")
+	case "agent_create":
+		return fmt.Errorf("admin access required for agent_create")
+	case "config":
+		action := parseToolAction(arguments)
+		if action == "set" {
+			return fmt.Errorf("admin access required for config.set")
+		}
+	case "projects":
+		action := parseToolAction(arguments)
+		if action != "list" && action != "info" {
+			if action == "" {
+				return fmt.Errorf("admin access required for projects management actions")
+			}
+			return fmt.Errorf("admin access required for projects.%s", action)
+		}
+	case "project_workspace":
+		action := parseToolAction(arguments)
+		if action != "list" && action != "read" && action != "search" {
+			if action == "" {
+				return fmt.Errorf("admin access required for project_workspace management actions")
+			}
+			return fmt.Errorf("admin access required for project_workspace.%s", action)
+		}
+	case "skills":
+		action := parseToolAction(arguments)
+		if action != "list_registry" && action != "search" && action != "list_installed" {
+			if action == "" {
+				return fmt.Errorf("admin access required for skills management actions")
+			}
+			return fmt.Errorf("admin access required for skills.%s", action)
+		}
+	case "filesystem":
+		action := parseToolAction(arguments)
+		if action != "read" && action != "list" && action != "info" {
+			if action == "" {
+				return fmt.Errorf("admin access required for filesystem write actions")
+			}
+			return fmt.Errorf("admin access required for filesystem.%s", action)
+		}
+	}
+	return nil
+}
+
+func parseToolAction(arguments string) string {
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(arguments), &payload); err != nil {
+		return ""
+	}
+	action, _ := payload["action"].(string)
+	return strings.TrimSpace(strings.ToLower(action))
+}
+
 // buildMessages converts conversation history into LLM messages.
 // It scans backward for the last context_summary message and skips everything before it.
-func (self *Runner) buildMessages(history []conversations.Message, limits configs.AgentLimits, systemPromptSuffix string, configuration *configs.Config, workspaceDirectory string, skillPrompts string, profile *configs.Profile) []providers.ChatMessage {
-	systemPrompt := BuildSystemPrompt(configuration, self.AgentID, workspaceDirectory, skillPrompts, limits.MaxWorkspaceFileChars, profile)
+func (self *Runner) buildMessages(
+	history []conversations.Message,
+	limits configs.AgentLimits,
+	systemPromptSuffix string,
+	configuration *configs.Config,
+	currentUserId string,
+	agentWorkspaceDirectory string,
+	userWorkspaceDirectory string,
+	skillPrompts string,
+	profile *configs.UserProfile,
+) []providers.ChatMessage {
+	systemPrompt := BuildSystemPrompt(
+		configuration,
+		self.AgentID,
+		currentUserId,
+		agentWorkspaceDirectory,
+		userWorkspaceDirectory,
+		skillPrompts,
+		limits.MaxWorkspaceFileChars,
+		profile,
+	)
 	if systemPromptSuffix != "" {
 		systemPrompt += "\n\n" + systemPromptSuffix
 	}
@@ -562,10 +682,12 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 
 	// Find the last context summary and start from there.
 	startIndex := 0
+	hasSummary := false
 	if idx := findLastSummaryIndex(history); idx >= 0 {
+		hasSummary = true
 		messages = append(messages, providers.ChatMessage{
 			Role:    "system",
-			Content: "Previous conversation summary:\n" + history[idx].ContentText(),
+			Content: prompts.PreviousConversationSummaryPrefix + history[idx].ContentText(),
 		})
 		startIndex = idx + 1
 	}
@@ -575,7 +697,7 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 	// auto-compression), messages from that run follow the summary on disk.
 	// Advance past the next complete LLM turn (an assistant message with a
 	// terminal stopReason) so we start from a clean boundary.
-	if startIndex < len(history) && history[startIndex].Role != "user" {
+	if hasSummary && startIndex < len(history) && history[startIndex].Role != "user" {
 		for startIndex < len(history) {
 			message := history[startIndex]
 			startIndex++
@@ -637,8 +759,8 @@ func (self *Runner) buildMessages(history []conversations.Message, limits config
 // not reject the request.
 func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatMessage {
 	for i := len(messages) - 1; i >= 0; i-- {
-		msg := messages[i]
-		if msg.Role != "assistant" || len(msg.ToolCalls) == 0 {
+		message := messages[i]
+		if message.Role != "assistant" || len(message.ToolCalls) == 0 {
 			continue
 		}
 
@@ -657,7 +779,7 @@ func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatM
 
 		// Append synthetic results for any unanswered tool calls.
 		var synthetic []providers.ChatMessage
-		for _, tc := range msg.ToolCalls {
+		for _, tc := range message.ToolCalls {
 			if !answered[tc.ID] {
 				synthetic = append(synthetic, providers.ChatMessage{
 					Role:       "tool",

@@ -425,7 +425,7 @@ func resolveGatewayToken() string {
 	if err != nil || securityConfig == nil {
 		return ""
 	}
-	return strings.TrimSpace(securityConfig.Token)
+	return securityConfig.LatestToken()
 }
 
 func voiceE2eDebugEnabled() bool {

@@ -81,16 +81,16 @@ func NewAccessChecker(config *configs.HomeAssistantConfig) *AccessChecker {
 }
 
 // DomainOf extracts the domain prefix from an entity ID (e.g. "light" from "light.living_room").
-func DomainOf(entityID string) string {
-	if index := strings.Index(entityID, "."); index > 0 {
-		return entityID[:index]
+func DomainOf(entityId string) string {
+	if index := strings.Index(entityId, "."); index > 0 {
+		return entityId[:index]
 	}
-	return entityID
+	return entityId
 }
 
 // IsEntityAllowed checks whether a specific entity is accessible.
-func (self *AccessChecker) IsEntityAllowed(entityID string) bool {
-	domain := DomainOf(entityID)
+func (self *AccessChecker) IsEntityAllowed(entityId string) bool {
+	domain := DomainOf(entityId)
 
 	// Blocked domains always take priority.
 	if self.blockedDomains[domain] {
@@ -99,7 +99,7 @@ func (self *AccessChecker) IsEntityAllowed(entityID string) bool {
 
 	// If an explicit entity allowlist is configured, only those entities pass.
 	if len(self.allowedEntities) > 0 {
-		return self.allowedEntities[entityID]
+		return self.allowedEntities[entityId]
 	}
 
 	// Otherwise check the domain allowlist.

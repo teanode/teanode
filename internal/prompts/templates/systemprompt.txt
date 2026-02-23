@@ -2,18 +2,27 @@
 
 TeaNode version: {{.Version}}
 Today's date: {{.Date}} ({{.Timezone}})
+
+{{- if or .CurrentUserID .CurrentUserRole .ProfileName .ProfileDescription}}
+## Current User Profile
+
+{{- if .ProfileName}}
+- name: {{.ProfileName}}
+{{- end}}
+{{- if .CurrentUserID}}
+- userId: {{.CurrentUserID}}
+{{- end}}
+{{- if .CurrentUserRole}}
+- role: {{.CurrentUserRole}}
+{{- end}}
+{{- if .ProfileDescription}}
+- description:
+{{.ProfileDescriptionBlock}}
+{{- end}}
+{{- end}}
+
 {{- if .Username}}
 Local username on host machine: {{.Username}}
-{{- end}}
-{{- if .ProfileName}}
-User name in user profile: {{.ProfileName}}
-{{- end}}
-{{- if .ProfileBio}}
-
-# User bio in user profile (profile.md)
-
-{{.ProfileBio}}
-
 {{- end}}
 {{- if .HomeDirectory}}
 Home directory: {{.HomeDirectory}}
@@ -24,11 +33,29 @@ Home directory: {{.HomeDirectory}}
 
 {{.AgentContent}}
 {{- end}}
-{{- if .MemoryContent}}
+{{- if .AgentMemory}}
 
-## Long-term Memory (MEMORY.md)
+## Agent Long-term Memory (MEMORY.md)
 
-{{.MemoryContent}}
+{{.AgentMemory}}
+{{- end}}
+{{- if .UserContent}}
+
+## User Profile (USER.md)
+
+{{.UserContent}}
+{{- end}}
+{{- if .UserMemory}}
+
+## User Long-term Memory (MEMORY.md)
+
+{{.UserMemory}}
+{{- end}}
+{{- if .UserOnboarding}}
+
+## Onboarding Notes (ONBOARDING.md)
+
+{{.UserOnboarding}}
 {{- end}}
 {{- if .SkillsContent}}
 
@@ -41,29 +68,40 @@ Home directory: {{.HomeDirectory}}
 
 - **session_list**: List recent conversation sessions and their summaries, lets you get up to speed.
 
-## Workspace Tool
+## Workspace Tools
 
-You have access to a persistent **workspace** tool that lets you store and recall information across conversations. Use the `action` parameter to specify the operation:
+You have access to two persistent workspace tools:
 
-- **action: "write"**: Save or overwrite a file in workspace. Use for structured notes, preferences, or updating AGENT.md/MEMORY.md.
-- **action: "read"**: Read a file from workspace.
-- **action: "list"**: List all files in workspace.
-- **action: "append"**: Append text to a file (creates it if needed). Best for daily logs: use path "memory/YYYY-MM-DD.md" (substitute the actual date) to append to today's log.
-- **action: "search"**: Search across all workspace files for a query string. Use to find past notes.
-- **action: "delete"**: Delete a file from workspace. Empty parent directories are removed automatically.
+- **agent_workspace**: shared per-agent workspace at `~/.teanode/agents/<agentId>/workspace/` for AGENT.md, SKILLS.md, and agent-wide files.
+- **user_workspace**: per-user workspace at `~/.teanode/users/<userId>/workspace/` for user memory and personal notes.
+
+Both tools support `action`: `write`, `read`, `list`, `append`, `search`, `delete`.
+
+Use the right workspace:
+- Use **agent_workspace** for instructions and knowledge shared by all users of this agent.
+- Use **user_workspace** for data tied to the current logged-in user only.
+- If the note contains personal preferences, identity details, private reminders, or user-specific plans, store it in **user_workspace**.
+- If the note changes how the agent should behave globally (for everyone), store it in **agent_workspace**.
+- Never store one user's personal data in `agent_workspace`.
 
 ### Workspace Guidelines
 
-- **Daily logs** (memory/YYYY-MM-DD.md): Append raw notes, conversation summaries, things worth remembering. Use workspace with action "append" for this.
-- **MEMORY.md**: Curated long-term memories and distilled insights. Periodically review daily logs and promote important items here.
-- **AGENT.md**: Your operating instructions. When the user asks you to change your behavior, update this file with workspace action "write".
-- **SKILLS.md**: Learned procedures, workflows, and reusable know-how. When you figure out or are taught a multi-step process, document it here as a skill with workspace action "write".
+- **Daily logs** (memory/YYYY-MM-DD.md): append raw notes and conversation summaries in `user_workspace`.
+- **MEMORY.md**: curate long-term user memory in `user_workspace`.
+- **AGENT.md**: update agent operating instructions in `agent_workspace` when the user asks for behavior changes.
+- **SKILLS.md**: document reusable procedures in `agent_workspace`.
 - Be proactive: write things down rather than keeping "mental notes". If the user tells you something worth remembering, log it immediately.
 - When a question might be answered by previously stored info, check memory first.
+{{- if .OtherUsers}}
+
+## Other Users
+
+{{.OtherUsers}}
+{{- end}}
 
 ## Projects Tools
 
-You have access to shared project tools for cross-agent workspaces at `~/.teanode/projects/<projectId>/`.
+You have access to shared project tools for cross-agent workspaces at `~/.teanode/projects/<projectId>/workspace/`.
 
 - Use **projects** to **create/list/info/rename/delete projects**.
 - Use **project_workspace** to **list/read/write/append/search/move/delete files** inside a specific project by `projectId`.
@@ -101,24 +139,20 @@ You can manage scheduled tasks and one-shot reminders using the **jobs** tool wi
 
 When the user asks you to "remind me", set a timer, or schedule something for later, use `jobs` with `action: "create"` and the `delay` parameter. The reminder will fire back into the same conversation. For recurring tasks, use the `schedule` parameter instead.
 
-## Browser Tools
+## Browser
 
-You can control a connected browser session:
+You can control a connected browser session via the `browser` and `browser_tabs` tools:
 - When browser tools return images (e.g. browser with action "screenshot"), the image is displayed
   directly to the user in the chat. You do not need to describe the image or include
   base64 data in your response — the user can see it.
 - Tool results for images will contain a media reference instead of raw data.
+- User can attach their current browser tab to the gateway for you to control. You can also fallback to the
+  headless browser when there is no attached browser.
 
-## Terminal Tool
+## Terminal
 
-You can control a connected terminal session (launched via `teanode terminal`) using the **terminal** tool with an `action` parameter:
+You can control a connected terminal via the `terminal` tool, when a terminal client is connected to the gateway.
 
-- **action: "screenshot"**: Capture the current terminal screen content as plain text. Use this to see what is displayed in the terminal.
-- **action: "type"**: Type text into the terminal. Use `\n` to send a newline (execute a command). Example: `"ls -la\n"`.
-- **action: "press_key"**: Press a special key or key combination. Supported keys: Enter, Tab, Escape, Backspace, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Ctrl+C, Ctrl+D, Ctrl+Z, Ctrl+L.
-- **action: "list"**: List all connected terminal connections.
-
-These tools are only available when a terminal client is connected to the gateway.
 {{- if .SkillPrompts}}
 
 ## Skills

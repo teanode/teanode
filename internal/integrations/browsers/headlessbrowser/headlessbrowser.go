@@ -25,6 +25,8 @@ type Headless struct {
 	endpoint      string // host:port of the CDP debugger
 	connection    *websocket.Conn
 	targets       map[string]*browsers.ConnectedTarget // sessionId -> target
+	sessionOwners map[string]string                    // sessionId -> userId
+	targetOwners  map[string]string                    // targetId -> userId
 	pending       *pending.Requests
 	mutex         sync.Mutex
 	writeMutex    sync.Mutex // serializes WebSocket writes (gorilla requires this)
@@ -35,9 +37,11 @@ type Headless struct {
 // NewHeadless creates a new headless browser client for the given endpoint.
 func NewHeadless(endpoint string) *Headless {
 	return &Headless{
-		endpoint: endpoint,
-		targets:  make(map[string]*browsers.ConnectedTarget),
-		pending:  pending.NewRequests(),
+		endpoint:      endpoint,
+		targets:       make(map[string]*browsers.ConnectedTarget),
+		sessionOwners: make(map[string]string),
+		targetOwners:  make(map[string]string),
+		pending:       pending.NewRequests(),
 	}
 }
 
@@ -45,14 +49,14 @@ func NewHeadless(endpoint string) *Headless {
 // page targets, and starts the read loop for ongoing events.
 func (self *Headless) Connect(ctx context.Context) error {
 	// 1. GET /json/version to find the WebSocket debugger URL.
-	versionURL := fmt.Sprintf("http://%s/json/version", self.endpoint)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil)
+	versionUrl := fmt.Sprintf("http://%s/json/version", self.endpoint)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, versionUrl, nil)
 	if err != nil {
 		return fmt.Errorf("headlessbrowser: creating request: %w", err)
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("headlessbrowser: fetching %s: %w", versionURL, err)
+		return fmt.Errorf("headlessbrowser: fetching %s: %w", versionUrl, err)
 	}
 	defer response.Body.Close()
 
@@ -168,6 +172,8 @@ func (self *Headless) Close() {
 		self.connection = nil
 	}
 	self.targets = make(map[string]*browsers.ConnectedTarget)
+	self.sessionOwners = make(map[string]string)
+	self.targetOwners = make(map[string]string)
 	self.pending.RejectAll("headless connection closed")
 }
 
@@ -275,6 +281,103 @@ func (self *Headless) TargetByConnectionID(connectionId string) (*browsers.Conne
 		return nil, fmt.Errorf("browser connection %q not found", connectionId)
 	}
 	return target, nil
+}
+
+func (self *Headless) TargetsForUser(userId string) []browsers.ConnectedTarget {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	out := make([]browsers.ConnectedTarget, 0)
+	for sessionId, target := range self.targets {
+		if self.sessionOwners[sessionId] != userId {
+			continue
+		}
+		out = append(out, *target)
+	}
+	return out
+}
+
+func (self *Headless) DefaultTargetForUser(userId string) (*browsers.ConnectedTarget, error) {
+	self.mutex.Lock()
+	for sessionId, target := range self.targets {
+		if self.sessionOwners[sessionId] == userId {
+			copyTarget := *target
+			self.mutex.Unlock()
+			return &copyTarget, nil
+		}
+	}
+	for sessionId, target := range self.targets {
+		if self.sessionOwners[sessionId] == "" {
+			self.sessionOwners[sessionId] = userId
+			self.targetOwners[target.TargetID] = userId
+			copyTarget := *target
+			self.mutex.Unlock()
+			return &copyTarget, nil
+		}
+	}
+	connected := self.connection != nil
+	self.mutex.Unlock()
+
+	if !connected {
+		return nil, errors.New("headless browser not connected")
+	}
+
+	// No available tab for this user; create one and bind ownership.
+	createContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	createResult, err := self.sendBrowserCommand(createContext, "Target.createTarget", map[string]interface{}{
+		"url": "about:blank",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating user tab: %w", err)
+	}
+	var created struct {
+		TargetID string `json:"targetId"`
+	}
+	if err := json.Unmarshal(createResult, &created); err != nil || created.TargetID == "" {
+		return nil, errors.New("failed to create headless browser tab")
+	}
+
+	self.AssignTargetToUser(userId, created.TargetID)
+	self.attachTarget(createContext, targetInfo{
+		TargetID: created.TargetID,
+		Type:     "page",
+		URL:      "about:blank",
+	})
+	return self.defaultTargetForUserByTargetId(userId, created.TargetID)
+}
+
+func (self *Headless) TargetByConnectionIDForUser(userId, connectionId string) (*browsers.ConnectedTarget, error) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	target, ok := self.targets[connectionId]
+	if !ok || self.sessionOwners[connectionId] != userId {
+		return nil, fmt.Errorf("browser connection %q not found", connectionId)
+	}
+	copyTarget := *target
+	return &copyTarget, nil
+}
+
+func (self *Headless) AssignTargetToUser(userId, targetId string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.targetOwners[targetId] = userId
+	for sessionId, target := range self.targets {
+		if target.TargetID == targetId {
+			self.sessionOwners[sessionId] = userId
+		}
+	}
+}
+
+func (self *Headless) defaultTargetForUserByTargetId(userId, targetId string) (*browsers.ConnectedTarget, error) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	for sessionId, target := range self.targets {
+		if target.TargetID == targetId && self.sessionOwners[sessionId] == userId {
+			copyTarget := *target
+			return &copyTarget, nil
+		}
+	}
+	return nil, errors.New("no attached browser tab")
 }
 
 // SendCDPCommand sends a CDP command to a specific target session.
@@ -406,6 +509,7 @@ func (self *Headless) attachTarget(ctx context.Context, info targetInfo) {
 		Title:     info.Title,
 		Source:    "headless",
 	}
+	self.sessionOwners[attachResponse.SessionID] = self.targetOwners[info.TargetID]
 	self.mutex.Unlock()
 
 	log.Infof("attached to target %s session=%s url=%s", info.TargetID, attachResponse.SessionID, info.URL)
@@ -478,6 +582,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 					Title:     payload.TargetInfo.Title,
 					Source:    "headless",
 				}
+				self.sessionOwners[payload.SessionID] = self.targetOwners[payload.TargetInfo.TargetID]
 				log.Infof("target attached (event) session=%s url=%s", payload.SessionID, payload.TargetInfo.URL)
 			}
 			self.mutex.Unlock()
@@ -489,6 +594,10 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 		}
 		if json.Unmarshal(params, &payload) == nil && payload.SessionID != "" {
 			self.mutex.Lock()
+			if target, ok := self.targets[payload.SessionID]; ok {
+				delete(self.targetOwners, target.TargetID)
+			}
+			delete(self.sessionOwners, payload.SessionID)
 			delete(self.targets, payload.SessionID)
 			self.mutex.Unlock()
 			log.Infof("target detached session=%s", payload.SessionID)
@@ -547,6 +656,8 @@ func (self *Headless) onDisconnect(connection *websocket.Conn) {
 	}
 	self.connection = nil
 	self.targets = make(map[string]*browsers.ConnectedTarget)
+	self.sessionOwners = make(map[string]string)
+	self.targetOwners = make(map[string]string)
 	self.pending.RejectAll("headless connection lost")
 
 	log.Info("disconnected")

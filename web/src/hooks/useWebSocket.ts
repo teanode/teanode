@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import {
   connect,
   disconnect,
+  reconnect,
   onBinaryMessage,
   onVoiceMessage,
   sendBinary,
@@ -40,7 +41,19 @@ export function useWebSocket({
         .catch(() => {});
     });
 
+    const handleAppResume = () => reconnect();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") reconnect();
+    };
+
+    window.addEventListener("focus", handleAppResume);
+    window.addEventListener("online", handleAppResume);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
+      window.removeEventListener("focus", handleAppResume);
+      window.removeEventListener("online", handleAppResume);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       disconnect();
     };
   }, []);

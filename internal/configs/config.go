@@ -7,39 +7,32 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/util/timeutil"
 	"github.com/teanode/teanode/internal/util/trash"
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed default_agent.md
-var defaultAgentMD string
-
-//go:embed default_memory.md
-var defaultMemoryMD string
-
-//go:embed default_skills.md
-var defaultSkillsMD string
-
 //go:embed schema.json
-var configSchemaJSON []byte
+var configSchemaJson []byte
 
 //go:embed agent_schema.json
-var agentSchemaJSON []byte
+var agentSchemaJson []byte
 
 // ConfigSchema returns the embedded config schema JSON for UI form generation.
 func ConfigSchema() json.RawMessage {
-	return json.RawMessage(configSchemaJSON)
+	return json.RawMessage(configSchemaJson)
 }
 
 // AgentConfigSchema returns the embedded agent config schema JSON for UI form generation.
 func AgentConfigSchema() json.RawMessage {
-	return json.RawMessage(agentSchemaJSON)
+	return json.RawMessage(agentSchemaJson)
 }
 
 // --- Schema-driven defaults ---
@@ -47,9 +40,9 @@ func AgentConfigSchema() json.RawMessage {
 // parseSchemaDefaults extracts dot-path→default pairs from a JSON Schema.
 // It recursively walks the "properties" tree, building dot-paths from the
 // nesting structure, and collects every "default" value it encounters.
-func parseSchemaDefaults(schemaJSON []byte) map[string]interface{} {
+func parseSchemaDefaults(schemaJson []byte) map[string]interface{} {
 	var schema map[string]interface{}
-	json.Unmarshal(schemaJSON, &schema)
+	json.Unmarshal(schemaJson, &schema)
 	defaults := make(map[string]interface{})
 	if properties, ok := schema["properties"].(map[string]interface{}); ok {
 		collectDefaults(properties, "", defaults)
@@ -106,12 +99,13 @@ func schemaString(defaults map[string]interface{}, key string) string {
 }
 
 func init() {
-	configDefaults := parseSchemaDefaults(configSchemaJSON)
+	configDefaults := parseSchemaDefaults(configSchemaJson)
 
 	DefaultAgentLimits = AgentLimits{
 		MaxToolRounds:         schemaInt(configDefaults, "models.defaultLimits.maxToolRounds"),
 		CompressionThreshold:  schemaFloat64(configDefaults, "models.defaultLimits.compressionThreshold"),
 		MinKeepMessages:       schemaInt(configDefaults, "models.defaultLimits.minKeepMessages"),
+		MinKeepRecentTokens:   schemaInt(configDefaults, "models.defaultLimits.minKeepRecentTokens"),
 		MaxToolResultChars:    schemaInt(configDefaults, "models.defaultLimits.maxToolResultChars"),
 		MaxWorkspaceFileChars: schemaInt(configDefaults, "models.defaultLimits.maxWorkspaceFileChars"),
 	}
@@ -126,9 +120,6 @@ func init() {
 	}
 }
 
-// DefaultAgentID is the ID of the default agent when no agents are configured.
-const DefaultAgentID = "main"
-
 // AgentConfig defines a single agent in the multi-agent system.
 type AgentConfig struct {
 	ID     string   `json:"id" yaml:"id"`                             // unique; "main" is default
@@ -141,9 +132,9 @@ type AgentConfig struct {
 // AgentState stores derived runtime metadata for an agent.
 // Persisted at ~/.teanode/agents/<agentId>/state.yaml.
 type AgentState struct {
-	Description          string `json:"description,omitempty" yaml:"description,omitempty"`
-	DescriptionUpdatedAt int64  `json:"descriptionUpdatedAt,omitempty" yaml:"descriptionUpdatedAt,omitempty"`
-	AvatarMediaID        string `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
+	Description          string             `json:"description,omitempty" yaml:"description,omitempty"`
+	DescriptionUpdatedAt timeutil.Timestamp `json:"descriptionUpdatedAt,omitempty" yaml:"descriptionUpdatedAt,omitempty"`
+	AvatarMediaID        string             `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
 }
 
 // AgentLimits holds resolved runtime limits for an agent.
@@ -151,6 +142,7 @@ type AgentLimits struct {
 	MaxToolRounds         int     `json:"maxToolRounds,omitempty" yaml:"maxToolRounds,omitempty"`
 	CompressionThreshold  float64 `json:"compressionThreshold,omitempty" yaml:"compressionThreshold,omitempty"`
 	MinKeepMessages       int     `json:"minKeepMessages,omitempty" yaml:"minKeepMessages,omitempty"`
+	MinKeepRecentTokens   int     `json:"minKeepRecentTokens,omitempty" yaml:"minKeepRecentTokens,omitempty"`
 	MaxToolResultChars    int     `json:"maxToolResultChars,omitempty" yaml:"maxToolResultChars,omitempty"`
 	MaxWorkspaceFileChars int     `json:"maxWorkspaceFileChars,omitempty" yaml:"maxWorkspaceFileChars,omitempty"`
 }
@@ -169,6 +161,9 @@ func mergeLimits(base, overrides AgentLimits) AgentLimits {
 	}
 	if overrides.MinKeepMessages > 0 {
 		merged.MinKeepMessages = overrides.MinKeepMessages
+	}
+	if overrides.MinKeepRecentTokens > 0 {
+		merged.MinKeepRecentTokens = overrides.MinKeepRecentTokens
 	}
 	if overrides.MaxToolResultChars > 0 {
 		merged.MaxToolResultChars = overrides.MaxToolResultChars
@@ -232,7 +227,7 @@ type Config struct {
 	Summarizer       *SummarizerConfig  `json:"summarizer,omitempty" yaml:"summarizer,omitempty"`
 	SkillsRegistries []SkillsRegistry   `json:"skillsRegistries,omitempty" yaml:"skillsRegistries,omitempty"`
 	Channels         ChannelsConfig     `json:"channels,omitempty" yaml:"channels,omitempty"`
-	Agents           []AgentConfig      `json:"-" yaml:"-"`
+	AgentConfigs     []AgentConfig      `json:"-" yaml:"-"`
 }
 
 type VoiceConfig struct {
@@ -260,13 +255,11 @@ type ChannelsConfig struct {
 }
 
 type DiscordConfig struct {
-	Token        string   `json:"token,omitempty" yaml:"token,omitempty"`
-	AllowedUsers []string `json:"allowedUsers,omitempty" yaml:"allowedUsers,omitempty"` // Discord user IDs
+	Token string `json:"token,omitempty" yaml:"token,omitempty"`
 }
 
 type TelegramConfig struct {
-	Token        string  `json:"token,omitempty" yaml:"token,omitempty"`
-	AllowedUsers []int64 `json:"allowedUsers,omitempty" yaml:"allowedUsers,omitempty"` // Telegram user IDs
+	Token string `json:"token,omitempty" yaml:"token,omitempty"`
 }
 
 type SkillsRegistry struct {
@@ -384,8 +377,7 @@ type ModelRuntimeLimitEntry struct {
 	AgentLimits `json:",inline" yaml:",inline"`
 }
 
-// ModelRuntimeLimits supports both the current list format and a legacy map
-// format keyed by model name.
+// ModelRuntimeLimits stores per-model runtime limits as a list.
 type ModelRuntimeLimits []ModelRuntimeLimitEntry
 
 func (self *ModelRuntimeLimits) UnmarshalJSON(data []byte) error {
@@ -396,35 +388,10 @@ func (self *ModelRuntimeLimits) UnmarshalJSON(data []byte) error {
 	}
 
 	var list []ModelRuntimeLimitEntry
-	if err := json.Unmarshal(data, &list); err == nil {
-		*self = list
-		return nil
-	}
-
-	// Backward compatibility:
-	// models.limits:
-	//   "provider:model":
-	//     maxToolRounds: 200
-	var legacy map[string]ModelRuntimeLimitEntry
-	if err := json.Unmarshal(data, &legacy); err != nil {
+	if err := json.Unmarshal(data, &list); err != nil {
 		return err
 	}
-
-	models := make([]string, 0, len(legacy))
-	for model := range legacy {
-		models = append(models, model)
-	}
-	sort.Strings(models)
-
-	converted := make(ModelRuntimeLimits, 0, len(models))
-	for _, model := range models {
-		entry := legacy[model]
-		if entry.Model == "" {
-			entry.Model = model
-		}
-		converted = append(converted, entry)
-	}
-	*self = converted
+	*self = list
 	return nil
 }
 
@@ -435,38 +402,14 @@ func (self *ModelRuntimeLimits) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	var list []ModelRuntimeLimitEntry
-	if err := value.Decode(&list); err == nil {
-		*self = list
-		return nil
-	}
-
-	// Backward compatibility for map format.
-	var legacy map[string]ModelRuntimeLimitEntry
-	if err := value.Decode(&legacy); err != nil {
+	if err := value.Decode(&list); err != nil {
 		return err
 	}
-
-	models := make([]string, 0, len(legacy))
-	for model := range legacy {
-		models = append(models, model)
-	}
-	sort.Strings(models)
-
-	converted := make(ModelRuntimeLimits, 0, len(models))
-	for _, model := range models {
-		entry := legacy[model]
-		if entry.Model == "" {
-			entry.Model = model
-		}
-		converted = append(converted, entry)
-	}
-	*self = converted
+	*self = list
 	return nil
 }
 
-// ResolvedProviders returns the providers list. If the Providers field is
-// populated it is returned directly; otherwise a single-entry list is
-// synthesized from the legacy Provider/BaseURL/APIKey fields.
+// ResolvedProviders returns the providers list.
 func (self *ModelsConfig) ResolvedProviders() []ProviderConfig {
 	return self.Providers
 }
@@ -489,20 +432,32 @@ func (self *ModelsConfig) DefaultProviderName() string {
 
 // --- Agent Config Helpers ---
 
-// ResolveAgents returns the configured agents, or a default single "main" agent
-// if no agents are explicitly configured.
-func (self *Config) ResolveAgents() []AgentConfig {
-	if len(self.Agents) > 0 {
-		return self.Agents
+// Agents returns the configured agents.
+// It panics when no agents are configured because Load is expected to auto-create
+// the default main agent.
+func (self *Config) Agents() []AgentConfig {
+	if len(self.AgentConfigs) == 0 {
+		panic("config has no agents; Load must create default main agent")
 	}
-	return []AgentConfig{{ID: DefaultAgentID, Name: "Tea"}}
+	return self.AgentConfigs
+}
+
+// DefaultAgentID returns the effective default agent ID.
+// The first configured agent's ID is used.
+func (self *Config) DefaultAgentID() string {
+	for _, agent := range self.Agents() {
+		if agent.ID == "main" {
+			return agent.ID
+		}
+	}
+	return self.Agents()[0].ID
 }
 
 // AgentByID returns the agent config for the given ID, or nil if not found.
 func (self *Config) AgentByID(agentId string) *AgentConfig {
-	for index := range self.Agents {
-		if self.Agents[index].ID == agentId {
-			return &self.Agents[index]
+	for index := range self.AgentConfigs {
+		if self.AgentConfigs[index].ID == agentId {
+			return &self.AgentConfigs[index]
 		}
 	}
 	return nil
@@ -553,16 +508,6 @@ func (self *Config) ResolveModelLimits(model string) AgentLimits {
 	return limits
 }
 
-// ResolveDefaultAgent returns the effective default agent ID.
-// The first configured agent's ID is used.
-// If no agents are configured, DefaultAgentID is returned as a fallback.
-func (self *Config) ResolveDefaultAgent() string {
-	if len(self.Agents) > 0 {
-		return self.Agents[0].ID
-	}
-	return DefaultAgentID
-}
-
 // IsAllowed checks whether a name is present in an allow list.
 // A nil or empty list means everything is allowed (preserving defaults).
 // Only an explicitly populated list restricts access.
@@ -581,18 +526,25 @@ func IsAllowed(name string, allowed []string) bool {
 // --- Directory Functions ---
 
 var overrideDirectory string
+var overrideDirectoryMutex sync.RWMutex
 
 // SetDirectory overrides the data directory. Must be called before any other
 // config functions (EnsureDirs, Load, etc.).
 func SetDirectory(directory string) {
+	overrideDirectoryMutex.Lock()
+	defer overrideDirectoryMutex.Unlock()
 	overrideDirectory = directory
 }
 
 // Directory returns the teanode data directory (default ~/.teanode).
 func Directory() (string, error) {
-	if overrideDirectory != "" {
-		return overrideDirectory, nil
+	overrideDirectoryMutex.RLock()
+	currentOverrideDirectory := overrideDirectory
+	if currentOverrideDirectory != "" {
+		overrideDirectoryMutex.RUnlock()
+		return currentOverrideDirectory, nil
 	}
+	overrideDirectoryMutex.RUnlock()
 	if value := os.Getenv("TEANODE_DIR"); value != "" {
 		return value, nil
 	}
@@ -601,15 +553,6 @@ func Directory() (string, error) {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
 	return filepath.Join(home, ".teanode"), nil
-}
-
-// JobsDirectory returns the path to the jobs directory (~/.teanode/jobs/).
-func JobsDirectory() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "jobs"), nil
 }
 
 // AgentsDirectory returns the agents config directory (~/.teanode/agents/).
@@ -621,22 +564,77 @@ func AgentsDirectory() (string, error) {
 	return filepath.Join(directory, "agents"), nil
 }
 
-// AgentWorkspaceDirectory returns the workspace directory for an agent (~/.teanode/workspaces/<agentId>/).
+// AgentWorkspaceDirectory returns the workspace directory for an agent (~/.teanode/agents/<agentId>/workspace/).
 func AgentWorkspaceDirectory(agentId string) (string, error) {
-	directory, err := Directory()
+	agentsDirectory, err := AgentsDirectory()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(directory, "workspaces", agentId), nil
+	return filepath.Join(agentsDirectory, agentId, "workspace"), nil
 }
 
-// AgentConversationsDirectory returns the conversations directory for an agent (~/.teanode/conversations/<agentId>/).
-func AgentConversationsDirectory(agentId string) (string, error) {
+// UsersDirectory returns the users directory (~/.teanode/users).
+func UsersDirectory() (string, error) {
 	directory, err := Directory()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(directory, "conversations", agentId), nil
+	return filepath.Join(directory, "users"), nil
+}
+
+// UserDirectory returns the directory for a specific user (~/.teanode/users/<userId>).
+func UserDirectory(userId string) (string, error) {
+	usersDirectory, err := UsersDirectory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(usersDirectory, userId), nil
+}
+
+// UserWorkspaceDirectory returns the workspace directory for a specific user (~/.teanode/users/<userId>/workspace).
+func UserWorkspaceDirectory(userId string) (string, error) {
+	userDirectory, err := UserDirectory(userId)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(userDirectory, "workspace"), nil
+}
+
+// UserConversationsDirectory returns the conversations root for a specific user (~/.teanode/users/<userId>/conversations).
+func UserConversationsDirectory(userId string) (string, error) {
+	userDirectory, err := UserDirectory(userId)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(userDirectory, "conversations"), nil
+}
+
+// UserJobsDirectory returns the jobs directory for a specific user (~/.teanode/users/<userId>/jobs).
+func UserJobsDirectory(userId string) (string, error) {
+	userDirectory, err := UserDirectory(userId)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(userDirectory, "jobs"), nil
+}
+
+// UserAgentConversationsDirectory returns a user+agent conversation directory
+// (~/.teanode/users/<userId>/conversations/<agentId>).
+func UserAgentConversationsDirectory(userId, agentId string) (string, error) {
+	userConversationsDirectory, err := UserConversationsDirectory(userId)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(userConversationsDirectory, agentId), nil
+}
+
+// UserProfileFile returns the profile path for a specific user (~/.teanode/users/<userId>/user.yaml).
+func UserProfileFile(userId string) (string, error) {
+	userDirectory, err := UserDirectory(userId)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(userDirectory, "user.yaml"), nil
 }
 
 // AgentStateFile returns the path to the agent state file (~/.teanode/agents/<agentId>/state.yaml).
@@ -726,7 +724,7 @@ func EnsureDirectories() error {
 	if err != nil {
 		return err
 	}
-	for _, sub := range []string{"conversations", "workspaces", "skills", "projects", "media", "agents", "jobs", "sessions", ".trash"} {
+	for _, sub := range []string{"skills", "projects", "media", "agents", "users", "sessions", ".trash", ".backup"} {
 		if err := os.MkdirAll(filepath.Join(directory, sub), 0755); err != nil {
 			return fmt.Errorf("creating directories: %w", err)
 		}
@@ -734,24 +732,54 @@ func EnsureDirectories() error {
 	return nil
 }
 
-// EnsureAgentDirectories creates the workspace and conversations directories for an agent.
+// EnsureAgentDirectories creates the workspace directory for an agent.
 func EnsureAgentDirectories(agentId string) error {
 	workspaceDirectory, err := AgentWorkspaceDirectory(agentId)
-	if err != nil {
-		return err
-	}
-	conversationsDirectory, err := AgentConversationsDirectory(agentId)
 	if err != nil {
 		return err
 	}
 	for _, directory := range []string{
 		workspaceDirectory,
 		filepath.Join(workspaceDirectory, "memory"),
-		conversationsDirectory,
 	} {
 		if err := os.MkdirAll(directory, 0755); err != nil {
 			return fmt.Errorf("creating agent directory %s: %w", directory, err)
 		}
+	}
+	return nil
+}
+
+// EnsureUserDirectories creates the standard multi-user directories.
+func EnsureUserDirectories(userId string) error {
+	userDirectory, err := UserDirectory(userId)
+	if err != nil {
+		return err
+	}
+	workspaceDirectory, err := UserWorkspaceDirectory(userId)
+	if err != nil {
+		return err
+	}
+	conversationsDirectory, err := UserConversationsDirectory(userId)
+	if err != nil {
+		return err
+	}
+	jobsDirectory, err := UserJobsDirectory(userId)
+	if err != nil {
+		return err
+	}
+	for _, directory := range []string{
+		userDirectory,
+		workspaceDirectory,
+		filepath.Join(workspaceDirectory, "memory"),
+		conversationsDirectory,
+		jobsDirectory,
+	} {
+		if err := os.MkdirAll(directory, 0755); err != nil {
+			return fmt.Errorf("creating user directory %s: %w", directory, err)
+		}
+	}
+	if err := SeedUserWorkspace(userId); err != nil {
+		return err
 	}
 	return nil
 }
@@ -765,9 +793,9 @@ func SeedAgentWorkspace(agentId string) error {
 	}
 
 	seeds := map[string]string{
-		"AGENT.md":  defaultAgentMD,
-		"MEMORY.md": defaultMemoryMD,
-		"SKILLS.md": defaultSkillsMD,
+		"AGENT.md":  prompts.DefaultAgentMarkdown(),
+		"MEMORY.md": prompts.DefaultMemoryMarkdown(),
+		"SKILLS.md": prompts.DefaultSkillsMarkdown(),
 	}
 	for name, content := range seeds {
 		path := filepath.Join(workspaceDirectory, name)
@@ -775,6 +803,41 @@ func SeedAgentWorkspace(agentId string) error {
 			if err := atomicfile.WriteFile(path, []byte(content)); err != nil {
 				return fmt.Errorf("seeding %s: %w", name, err)
 			}
+		}
+	}
+	return nil
+}
+
+// SeedUserWorkspace writes default user files in the user's workspace directory.
+// ONBOARDING.md is only created when USER.md is created in the same operation.
+func SeedUserWorkspace(userId string) error {
+	workspaceDirectory, err := UserWorkspaceDirectory(userId)
+	if err != nil {
+		return err
+	}
+
+	userMdPath := filepath.Join(workspaceDirectory, "USER.md")
+	userCreated := false
+	if _, err := os.Stat(userMdPath); os.IsNotExist(err) {
+		if err := atomicfile.WriteFile(userMdPath, []byte(prompts.DefaultUserMarkdown())); err != nil {
+			return fmt.Errorf("seeding USER.md: %w", err)
+		}
+		userCreated = true
+	}
+
+	if userCreated {
+		onboardingPath := filepath.Join(workspaceDirectory, "ONBOARDING.md")
+		if _, err := os.Stat(onboardingPath); os.IsNotExist(err) {
+			if err := atomicfile.WriteFile(onboardingPath, []byte(prompts.DefaultOnboardingMarkdown())); err != nil {
+				return fmt.Errorf("seeding ONBOARDING.md: %w", err)
+			}
+		}
+	}
+
+	memoryPath := filepath.Join(workspaceDirectory, "MEMORY.md")
+	if _, err := os.Stat(memoryPath); os.IsNotExist(err) {
+		if err := atomicfile.WriteFile(memoryPath, []byte(prompts.DefaultMemoryMarkdown())); err != nil {
+			return fmt.Errorf("seeding MEMORY.md: %w", err)
 		}
 	}
 	return nil
@@ -894,16 +957,28 @@ func DeleteAgent(agentId string) error {
 	if err != nil {
 		return err
 	}
-	conversationsDirectory, err := AgentConversationsDirectory(agentId)
-	if err != nil {
-		return err
-	}
 	trashDirectory, err := TrashDirectory()
 	if err != nil {
 		return err
 	}
 
-	for _, path := range []string{agentDirectory, workspaceDirectory, conversationsDirectory} {
+	paths := []string{agentDirectory, workspaceDirectory}
+	usersDirectory, err := UsersDirectory()
+	if err != nil {
+		return err
+	}
+	userEntries, err := os.ReadDir(usersDirectory)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, userEntry := range userEntries {
+		if !userEntry.IsDir() {
+			continue
+		}
+		paths = append(paths, filepath.Join(usersDirectory, userEntry.Name(), "conversations", agentId))
+	}
+
+	for _, path := range paths {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			continue
 		} else if err != nil {
@@ -967,13 +1042,13 @@ func Load() (*Config, error) {
 	}
 	if len(agents) == 0 {
 		// Auto-create the default main agent.
-		defaultAgent := AgentConfig{ID: DefaultAgentID, Name: "Tea"}
+		defaultAgent := AgentConfig{ID: "main", Name: "Tea"}
 		if err := SaveAgent(defaultAgent); err != nil {
 			return nil, fmt.Errorf("saving default agent: %w", err)
 		}
 		agents = []AgentConfig{defaultAgent}
 	}
-	configuration.Agents = agents
+	configuration.AgentConfigs = agents
 
 	return configuration, nil
 }
@@ -992,7 +1067,7 @@ func Save(configuration *Config) error {
 }
 
 func defaults() *Config {
-	configDefaults := parseSchemaDefaults(configSchemaJSON)
+	configDefaults := parseSchemaDefaults(configSchemaJson)
 	defaultModel := "openai:gpt-5.2"
 	return &Config{
 		Gateway: GatewayConfig{
@@ -1057,12 +1132,12 @@ func applyDefaults(configuration *Config) {
 // Example: both "openai:gpt-5.2" and "openrouter:gpt-5.2" resolve via "gpt-5.2".
 var modelContextWindowDefaults = map[string]int{
 	// OpenAI API model pages
-	"gpt-5.2":       400000,
-	"gpt-5.2-codex": 400000,
-	"gpt-4.1":       1047576,
-	"gpt-4.1-mini":  1047576,
-	"gpt-4o":        128000,
-	"gpt-4o-mini":   128000,
+	"gpt-5.2":      272000,
+	"gpt-5.1":      272000,
+	"gpt-4.1":      1047576,
+	"gpt-4.1-mini": 1047576,
+	"gpt-4o":       128000,
+	"gpt-4o-mini":  128000,
 
 	// Anthropic model overview (default context; 1M is beta for select models with header)
 	"claude-opus-4-6":   200000,

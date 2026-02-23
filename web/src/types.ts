@@ -28,7 +28,7 @@ export interface RPCError {
 
 export interface Profile {
   name: string;
-  bio?: string;
+  description?: string;
   avatarMediaId?: string;
 }
 
@@ -50,6 +50,8 @@ export interface ConnectResult {
   agents: AgentInfo[];
   defaultAgentId: string;
   defaultConversationId?: string;
+  isAdmin?: boolean;
+  userId?: string;
 }
 
 export interface AgentsSetDefaultResult {
@@ -321,6 +323,24 @@ export interface AgentConfigSchemaResult {
 export interface AuthStatusResult {
   passwordSet: boolean;
   authenticated: boolean;
+  isAdmin?: boolean;
+}
+
+export interface AuthTokenInfo {
+  id: string;
+  token: string;
+  createdAt?: string;
+  lastUsedAt?: string;
+}
+
+export interface UserInfo {
+  id: string;
+  username: string;
+  admin: boolean;
+  hasPassword: boolean;
+  name?: string;
+  description?: string;
+  avatarMediaId?: string;
 }
 
 export interface SessionInfo {

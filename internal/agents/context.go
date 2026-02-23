@@ -9,19 +9,81 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 )
 
 const defaultContextWindow = 128000
+const defaultSummaryChunkTokens = 12000
+const defaultSummaryMaxMessageChars = 2000
+const defaultSummaryOversizedMessageTokens = 8000
+const defaultHardClearToolMultiplier = 4
+const defaultHardClearedToolPlaceholder = "[Old tool result content cleared due to context limits]"
+
+type criticalFacts struct {
+	Decisions       []string `json:"decisions"`
+	Todos           []string `json:"todos"`
+	Constraints     []string `json:"constraints"`
+	UserPreferences []string `json:"userPreferences"`
+	OpenQuestions   []string `json:"openQuestions"`
+}
+
+type structuredSummary struct {
+	Summary       string        `json:"summary"`
+	CriticalFacts criticalFacts `json:"criticalFacts"`
+}
 
 // estimateTokens returns a rough token count using a character heuristic.
 func estimateTokens(text string) int {
 	return (len(text) + 3) / 4
 }
 
+func stripDetailsFields(value interface{}) interface{} {
+	switch typedValue := value.(type) {
+	case map[string]interface{}:
+		sanitized := make(map[string]interface{}, len(typedValue))
+		for key, item := range typedValue {
+			if strings.EqualFold(key, "details") {
+				continue
+			}
+			sanitized[key] = stripDetailsFields(item)
+		}
+		return sanitized
+	case []interface{}:
+		sanitized := make([]interface{}, len(typedValue))
+		for index, item := range typedValue {
+			sanitized[index] = stripDetailsFields(item)
+		}
+		return sanitized
+	default:
+		return value
+	}
+}
+
+func sanitizeToolResultForCompaction(text string) string {
+	trimmedText := strings.TrimSpace(text)
+	if trimmedText == "" || !json.Valid([]byte(trimmedText)) {
+		return text
+	}
+	var parsed interface{}
+	if err := json.Unmarshal([]byte(trimmedText), &parsed); err != nil {
+		return text
+	}
+	sanitized := stripDetailsFields(parsed)
+	serialized, err := json.Marshal(sanitized)
+	if err != nil {
+		return text
+	}
+	return string(serialized)
+}
+
 // estimateMessageTokens estimates the token count for a single ChatMessage.
 func estimateMessageTokens(message providers.ChatMessage) int {
-	tokens := estimateTokens(message.ContentText()) + 4 // role + overhead
+	contentText := message.ContentText()
+	if message.Role == "tool" {
+		contentText = sanitizeToolResultForCompaction(contentText)
+	}
+	tokens := estimateTokens(contentText) + 4 // role + overhead
 	for _, toolCall := range message.ToolCalls {
 		tokens += estimateTokens(toolCall.Function.Name) + estimateTokens(toolCall.Function.Arguments) + 4
 	}
@@ -44,8 +106,32 @@ func estimateToolDefsTokens(tools []providers.ToolDefinition) int {
 	return tokens
 }
 
-// truncateOldToolResults caps old tool-result message content at maxChars.
-// Messages in the last minKeep are preserved intact.
+func trimToolResultText(text string, maxChars int) string {
+	if maxChars <= 0 || len(text) <= maxChars {
+		return text
+	}
+	headChars := int(float64(maxChars) * 0.75)
+	if headChars <= 0 {
+		headChars = maxChars / 2
+	}
+	if headChars >= maxChars {
+		headChars = maxChars / 2
+	}
+	tailChars := maxChars - headChars
+	if tailChars < 0 {
+		tailChars = 0
+	}
+	head := text[:headChars]
+	tail := ""
+	if tailChars > 0 {
+		tail = text[len(text)-tailChars:]
+	}
+	return fmt.Sprintf("%s\n...\n%s\n... (truncated)", head, tail)
+}
+
+// truncateOldToolResults applies a two-tier pruning strategy for old tool results:
+// soft-trim large results and hard-clear very large results. Messages in the last
+// minKeep are preserved intact.
 func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxChars int) []providers.ChatMessage {
 	if len(messages) <= minKeep {
 		return messages
@@ -54,9 +140,18 @@ func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxCh
 
 	result := make([]providers.ChatMessage, len(messages))
 	copy(result, messages)
+	hardLimitChars := maxChars * defaultHardClearToolMultiplier
 	for index := 0; index < boundary; index++ {
-		if text, ok := result[index].Content.(string); ok && result[index].Role == "tool" && len(text) > maxChars {
-			result[index].Content = text[:maxChars] + "\n... (truncated)"
+		text, ok := result[index].Content.(string)
+		if !ok || result[index].Role != "tool" {
+			continue
+		}
+		if maxChars > 0 && len(text) > hardLimitChars {
+			result[index].Content = defaultHardClearedToolPlaceholder
+			continue
+		}
+		if maxChars > 0 && len(text) > maxChars {
+			result[index].Content = trimToolResultText(text, maxChars)
 		}
 	}
 	return result
@@ -99,6 +194,27 @@ func findKeepBoundary(messages []providers.ChatMessage, minKeep int) int {
 	}
 
 	return index
+}
+
+// expandKeepBoundaryForRecentTokens moves the keep boundary earlier (smaller index)
+// until at least minKeepRecentTokens are preserved in the tail. Expects messages to
+// include the system prompt at index 0; keepIdx is an absolute index into messages.
+func expandKeepBoundaryForRecentTokens(messages []providers.ChatMessage, keepIdx int, minKeepRecentTokens int) int {
+	if minKeepRecentTokens <= 0 {
+		return keepIdx
+	}
+	if keepIdx < 1 || keepIdx >= len(messages) {
+		return keepIdx
+	}
+	keptTokens := 0
+	for index := keepIdx; index < len(messages); index++ {
+		keptTokens += estimateMessageTokens(messages[index])
+	}
+	for keepIdx > 1 && keptTokens < minKeepRecentTokens {
+		keepIdx--
+		keptTokens += estimateMessageTokens(messages[keepIdx])
+	}
+	return keepIdx
 }
 
 // findLastSummaryIndex returns the index of the last context_summary message
@@ -164,6 +280,9 @@ func chatMessagesText(messages []providers.ChatMessage, maxTotalChars int, maxMe
 		}
 
 		content := messages[i].ContentText()
+		if messages[i].Role == "tool" {
+			content = sanitizeToolResultForCompaction(content)
+		}
 		if maxMessageChars > 0 && len(content) > maxMessageChars {
 			content = content[:maxMessageChars] + "..."
 		}
@@ -186,6 +305,283 @@ func chatMessagesText(messages []providers.ChatMessage, maxTotalChars int, maxMe
 	}
 
 	return strings.Join(lines, "")
+}
+
+func normalizeFactLines(lines []string) []string {
+	seen := make(map[string]struct{}, len(lines))
+	normalized := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
+			continue
+		}
+		normalizedKey := strings.ToLower(trimmedLine)
+		if _, exists := seen[normalizedKey]; exists {
+			continue
+		}
+		seen[normalizedKey] = struct{}{}
+		normalized = append(normalized, trimmedLine)
+	}
+	if len(normalized) > 8 {
+		return normalized[:8]
+	}
+	return normalized
+}
+
+func normalizeStructuredSummary(summary structuredSummary) structuredSummary {
+	summary.Summary = strings.TrimSpace(summary.Summary)
+	summary.CriticalFacts.Decisions = normalizeFactLines(summary.CriticalFacts.Decisions)
+	summary.CriticalFacts.Todos = normalizeFactLines(summary.CriticalFacts.Todos)
+	summary.CriticalFacts.Constraints = normalizeFactLines(summary.CriticalFacts.Constraints)
+	summary.CriticalFacts.UserPreferences = normalizeFactLines(summary.CriticalFacts.UserPreferences)
+	summary.CriticalFacts.OpenQuestions = normalizeFactLines(summary.CriticalFacts.OpenQuestions)
+	return summary
+}
+
+func appendFactSection(builder *strings.Builder, title string, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	builder.WriteString(title)
+	builder.WriteString(":\n")
+	for _, line := range lines {
+		builder.WriteString("- ")
+		builder.WriteString(line)
+		builder.WriteString("\n")
+	}
+}
+
+func formatStructuredSummary(summary structuredSummary) string {
+	normalizedSummary := normalizeStructuredSummary(summary)
+	if normalizedSummary.Summary == "" {
+		normalizedSummary.Summary = "Context summary unavailable."
+	}
+	var builder strings.Builder
+	builder.WriteString(normalizedSummary.Summary)
+
+	hasCriticalFacts := len(normalizedSummary.CriticalFacts.Decisions) > 0 ||
+		len(normalizedSummary.CriticalFacts.Todos) > 0 ||
+		len(normalizedSummary.CriticalFacts.Constraints) > 0 ||
+		len(normalizedSummary.CriticalFacts.UserPreferences) > 0 ||
+		len(normalizedSummary.CriticalFacts.OpenQuestions) > 0
+	if !hasCriticalFacts {
+		return builder.String()
+	}
+
+	builder.WriteString("\n\nCritical facts:\n")
+	appendFactSection(&builder, "Decisions", normalizedSummary.CriticalFacts.Decisions)
+	appendFactSection(&builder, "Todos", normalizedSummary.CriticalFacts.Todos)
+	appendFactSection(&builder, "Constraints", normalizedSummary.CriticalFacts.Constraints)
+	appendFactSection(&builder, "User preferences", normalizedSummary.CriticalFacts.UserPreferences)
+	appendFactSection(&builder, "Open questions", normalizedSummary.CriticalFacts.OpenQuestions)
+	return strings.TrimSpace(builder.String())
+}
+
+func mergeStructuredSummaries(baseSummary, incomingSummary structuredSummary) structuredSummary {
+	mergedSummary := structuredSummary{
+		Summary: incomingSummary.Summary,
+		CriticalFacts: criticalFacts{
+			Decisions:       append(append([]string{}, baseSummary.CriticalFacts.Decisions...), incomingSummary.CriticalFacts.Decisions...),
+			Todos:           append(append([]string{}, baseSummary.CriticalFacts.Todos...), incomingSummary.CriticalFacts.Todos...),
+			Constraints:     append(append([]string{}, baseSummary.CriticalFacts.Constraints...), incomingSummary.CriticalFacts.Constraints...),
+			UserPreferences: append(append([]string{}, baseSummary.CriticalFacts.UserPreferences...), incomingSummary.CriticalFacts.UserPreferences...),
+			OpenQuestions:   append(append([]string{}, baseSummary.CriticalFacts.OpenQuestions...), incomingSummary.CriticalFacts.OpenQuestions...),
+		},
+	}
+	if strings.TrimSpace(mergedSummary.Summary) == "" {
+		mergedSummary.Summary = baseSummary.Summary
+	}
+	return normalizeStructuredSummary(mergedSummary)
+}
+
+func parseStructuredSummaryResponse(rawText string) structuredSummary {
+	trimmedText := strings.TrimSpace(rawText)
+	parsedSummary := structuredSummary{}
+	if trimmedText == "" {
+		return parsedSummary
+	}
+
+	if strings.HasPrefix(trimmedText, "```") {
+		trimmedText = strings.TrimPrefix(trimmedText, "```json")
+		trimmedText = strings.TrimPrefix(trimmedText, "```")
+		trimmedText = strings.TrimSuffix(trimmedText, "```")
+		trimmedText = strings.TrimSpace(trimmedText)
+	}
+
+	if json.Unmarshal([]byte(trimmedText), &parsedSummary) == nil {
+		return normalizeStructuredSummary(parsedSummary)
+	}
+	if startIndex := strings.Index(trimmedText, "{"); startIndex >= 0 {
+		if endIndex := strings.LastIndex(trimmedText, "}"); endIndex > startIndex {
+			candidate := strings.TrimSpace(trimmedText[startIndex : endIndex+1])
+			if json.Unmarshal([]byte(candidate), &parsedSummary) == nil {
+				return normalizeStructuredSummary(parsedSummary)
+			}
+		}
+	}
+
+	return structuredSummary{Summary: strings.TrimSpace(rawText)}
+}
+
+func summarizeChunk(
+	ctx context.Context,
+	provider providers.Provider,
+	model string,
+	chunkText string,
+	previousSummary string,
+	focus string,
+) (structuredSummary, error) {
+	if strings.TrimSpace(chunkText) == "" {
+		return structuredSummary{}, nil
+	}
+
+	userPrompt := prompts.BuildStructuredSummaryUserPrompt(previousSummary, focus, chunkText)
+
+	summaryRequest := providers.ChatRequest{
+		Model: model,
+		Messages: []providers.ChatMessage{
+			{
+				Role:    "system",
+				Content: prompts.StructuredSummarySystemPrompt,
+			},
+			{
+				Role:    "user",
+				Content: userPrompt,
+			},
+		},
+	}
+	response, err := provider.ChatCompletion(ctx, summaryRequest)
+	if err != nil {
+		return structuredSummary{}, err
+	}
+	if len(response.Choices) == 0 {
+		return structuredSummary{}, fmt.Errorf("empty summary response")
+	}
+	content := strings.TrimSpace(response.Choices[0].Message.ContentText())
+	if content == "" {
+		return structuredSummary{}, fmt.Errorf("empty summary content")
+	}
+	return parseStructuredSummaryResponse(content), nil
+}
+
+func splitMessagesByTokenBudget(messages []providers.ChatMessage, maxTokens int) [][]providers.ChatMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+	if maxTokens <= 0 {
+		maxTokens = defaultSummaryChunkTokens
+	}
+	chunks := make([][]providers.ChatMessage, 0, 4)
+	currentChunk := make([]providers.ChatMessage, 0, 16)
+	currentTokens := 0
+	for _, message := range messages {
+		messageTokens := estimateMessageTokens(message)
+		if len(currentChunk) > 0 && currentTokens+messageTokens > maxTokens {
+			chunks = append(chunks, currentChunk)
+			currentChunk = make([]providers.ChatMessage, 0, 16)
+			currentTokens = 0
+		}
+		currentChunk = append(currentChunk, message)
+		currentTokens += messageTokens
+	}
+	if len(currentChunk) > 0 {
+		chunks = append(chunks, currentChunk)
+	}
+	return chunks
+}
+
+func summarizeMessagesInStages(
+	ctx context.Context,
+	provider providers.Provider,
+	model string,
+	messages []providers.ChatMessage,
+	contextWindow int,
+	focus string,
+) (structuredSummary, error) {
+	if len(messages) == 0 {
+		return structuredSummary{Summary: prompts.NoPriorHistorySummary}, nil
+	}
+
+	chunkBudgetTokens := contextWindow / 3
+	if chunkBudgetTokens < 2000 {
+		chunkBudgetTokens = 2000
+	}
+	if chunkBudgetTokens > defaultSummaryChunkTokens {
+		chunkBudgetTokens = defaultSummaryChunkTokens
+	}
+
+	chunks := splitMessagesByTokenBudget(messages, chunkBudgetTokens)
+	if len(chunks) == 0 {
+		return structuredSummary{Summary: prompts.NoPriorHistorySummary}, nil
+	}
+
+	mergedSummary := structuredSummary{}
+	for _, chunk := range chunks {
+		chunkText := chatMessagesText(chunk, 0, defaultSummaryMaxMessageChars)
+		chunkSummary, err := summarizeChunk(ctx, provider, model, chunkText, formatStructuredSummary(mergedSummary), focus)
+		if err != nil {
+			return structuredSummary{}, err
+		}
+		mergedSummary = mergeStructuredSummaries(mergedSummary, chunkSummary)
+	}
+	return normalizeStructuredSummary(mergedSummary), nil
+}
+
+func buildLastMessagesFallback(messages []providers.ChatMessage) structuredSummary {
+	if len(messages) == 0 {
+		return structuredSummary{Summary: prompts.NoPriorHistorySummary}
+	}
+	tailCount := 8
+	if len(messages) < tailCount {
+		tailCount = len(messages)
+	}
+	tailMessages := messages[len(messages)-tailCount:]
+	fallbackText := strings.TrimSpace(chatMessagesText(tailMessages, 4000, 500))
+	if fallbackText == "" {
+		fallbackText = "Recent context unavailable."
+	}
+	return structuredSummary{
+		Summary: "Context summary degraded due to size limits. Preserved recent turns:\n" + fallbackText,
+	}
+}
+
+func summarizeMessagesWithFallback(
+	ctx context.Context,
+	provider providers.Provider,
+	model string,
+	messages []providers.ChatMessage,
+	contextWindow int,
+	focus string,
+) structuredSummary {
+	fullSummary, err := summarizeMessagesInStages(ctx, provider, model, messages, contextWindow, focus)
+	if err == nil && strings.TrimSpace(fullSummary.Summary) != "" {
+		return fullSummary
+	}
+	log.Debugf("summary full pass failed, retrying without oversized messages: %v", err)
+
+	oversizedThreshold := defaultSummaryOversizedMessageTokens
+	if contextWindow > 0 && contextWindow/4 < oversizedThreshold {
+		oversizedThreshold = contextWindow / 4
+	}
+	if oversizedThreshold < 2000 {
+		oversizedThreshold = 2000
+	}
+	filteredMessages := make([]providers.ChatMessage, 0, len(messages))
+	for _, message := range messages {
+		if estimateMessageTokens(message) > oversizedThreshold {
+			continue
+		}
+		filteredMessages = append(filteredMessages, message)
+	}
+	if len(filteredMessages) > 0 {
+		partialSummary, partialErr := summarizeMessagesInStages(ctx, provider, model, filteredMessages, contextWindow, focus)
+		if partialErr == nil && strings.TrimSpace(partialSummary.Summary) != "" {
+			return partialSummary
+		}
+		log.Debugf("summary partial pass failed, falling back to deterministic summary: %v", partialErr)
+	}
+
+	return buildLastMessagesFallback(messages)
 }
 
 // compressContext checks whether the estimated token count exceeds the
@@ -220,6 +616,7 @@ func (self *Runner) compressContext(
 	// Find the split point: keep system prompt (index 0) + recent messages.
 	// messages[0] is always the system prompt.
 	keepIdx := findKeepBoundary(messages[1:], limits.MinKeepMessages) + 1 // +1 for system prompt offset
+	keepIdx = expandKeepBoundaryForRecentTokens(messages, keepIdx, limits.MinKeepRecentTokens)
 	if keepIdx <= 1 {
 		// Nothing to compress.
 		return messages, nil
@@ -238,68 +635,24 @@ func (self *Runner) compressContext(
 	if resolveErr != nil {
 		return messages, fmt.Errorf("resolving summary model %q: %w", summaryQualifiedModel, resolveErr)
 	}
-
-	// Try to reuse the cached message prefix: send messages[0:keepIdx] + tool defs
-	// + a summarization instruction. This lets the provider cache the system prompt
-	// and tool definitions rather than building a fresh request.
-	summarizeInstruction := providers.ChatMessage{
-		Role:    "user",
-		Content: "Summarize the preceding conversation into a concise summary (max 500 words). Preserve key facts, decisions, tool results, and user preferences. Focus on information needed to continue the conversation naturally.",
-	}
-
-	// Estimate whether the prefix + instruction + output buffer fits.
-	prefixTokens := 0
-	for _, msg := range messages[:keepIdx] {
-		prefixTokens += estimateMessageTokens(msg)
-	}
-	prefixTokens += estimateToolDefsTokens(toolDefs)
-	prefixTokens += estimateMessageTokens(summarizeInstruction) + 2000 // output buffer
-
-	var summaryRequest providers.ChatRequest
-	if prefixTokens < contextWindow {
-		// Reuse the cached prefix: system prompt + conversation history + summarize instruction.
-		reusedMessages := make([]providers.ChatMessage, 0, keepIdx+1)
-		reusedMessages = append(reusedMessages, messages[:keepIdx]...)
-		reusedMessages = append(reusedMessages, summarizeInstruction)
-		summaryRequest = providers.ChatRequest{
-			Model:    summaryBareModel,
-			Messages: reusedMessages,
-			Tools:    toolDefs,
-		}
-		log.Debugf("context compression: reusing %d message prefix with tools", keepIdx)
-	} else {
-		// Fallback: serialize to text (prefix too large for context window).
-		summaryInput := chatMessagesText(toSummarize, 0, 2000)
-		summaryRequest = providers.ChatRequest{
-			Model: summaryBareModel,
-			Messages: []providers.ChatMessage{
-				{
-					Role:    "system",
-					Content: "Summarize the following conversation into a concise summary (max 500 words). Preserve key facts, decisions, tool results, and user preferences. Focus on information needed to continue the conversation naturally.",
-				},
-				{
-					Role:    "user",
-					Content: summaryInput,
-				},
-			},
-		}
-		log.Debugf("context compression: falling back to text serialization (prefix %d tokens > context %d)", prefixTokens, contextWindow)
-	}
-
-	var summaryText string
-	response, err := summaryClient.ChatCompletion(ctx, summaryRequest)
-	if err != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.ContentText()) == "" {
-		// Fallback: drop old messages without summary.
-		log.Debugf("context summarization failed, falling back to drop: %v", err)
-		summaryText = fmt.Sprintf("[Earlier conversation with %d messages was dropped due to context limits]", len(toSummarize))
-	} else {
-		summaryText = strings.TrimSpace(response.Choices[0].Message.ContentText())
-	}
+	summaryText := formatStructuredSummary(
+		summarizeMessagesWithFallback(
+			ctx,
+			summaryClient,
+			summaryBareModel,
+			toSummarize,
+			contextWindow,
+			prompts.StructuredSummaryDefaultFocus,
+		),
+	)
 
 	// Persist summary to conversation.
 	summaryMessage := conversations.NewSummaryMessage(summaryText, time.Now().UnixMilli())
-	if err := self.Conversations.Append(conversationId, summaryMessage); err != nil {
-		log.Debugf("failed to persist context summary: %v", err)
+	store := self.ConversationsForUser(UserIDFromContext(ctx))
+	if store != nil {
+		if appendError := store.Append(conversationId, summaryMessage); appendError != nil {
+			log.Debugf("failed to persist context summary: %v", appendError)
+		}
 	}
 
 	// Build compressed messages: system prompt + summary + kept messages.
@@ -307,7 +660,7 @@ func (self *Runner) compressContext(
 	compressed = append(compressed, messages[0]) // system prompt
 	compressed = append(compressed, providers.ChatMessage{
 		Role:    "system",
-		Content: "Previous conversation summary:\n" + summaryText,
+		Content: prompts.PreviousConversationSummaryPrefix + summaryText,
 	})
 	compressed = append(compressed, messages[keepIdx:]...)
 

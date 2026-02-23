@@ -12,80 +12,26 @@ import (
 var pipelineLog = logging.MustGetLogger("voice.pipeline")
 
 const (
-	minCommittedTurnBytes        = 6400 // ~200ms at 16kHz mono s16le
-	minCommittedTextRunes        = 1
-	bargeInTriggerMinScore       = 0.06
-	maxResponseStartDelay        = 2 * time.Second
-	vadPreRollFrames             = 8 // keep ~160ms leading context so first words aren't clipped
-	speculativeMinRunes          = 8
-	speculativeMinConfidence     = 0.30
-	speculativeSimilarityMin     = 0.70
-	speculativeRecentBargeWindow = 500 * time.Millisecond
-	speculativeMaxAge            = 3 * time.Second
-	streamingFinalGracePeriod    = 75 * time.Millisecond
-	streamingWeakInterimWait     = 75 * time.Millisecond
-	// voiceMaxContextTokens is the estimated-token budget for voice LLM requests.
-	// Uses len(text)/4 approximation. Keeps recent turns within a 16k window so
-	// long sessions do not balloon the prompt beyond model context limits.
-	voiceMaxContextTokens = 16000
+	minCommittedTurnBytes  = 6400 // ~200ms at 16kHz mono s16le
+	minCommittedTextRunes  = 1
+	bargeInTriggerMinScore = 0.06
+	maxResponseStartDelay  = 2 * time.Second
+	vadPreRollFrames       = 8 // keep ~160ms leading context so first words aren't clipped
 )
 
 const voiceCallPromptSuffix = "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists."
 
 func (self *Session) audioInputLoop() {
-	var vad VADAnalyzer = &EnergyVAD{}
-	if self.Features.SileroVAD {
-		if silero, err := NewSileroVAD(sileroEndpoint()); err == nil {
-			vad = silero
-		} else {
-			pipelineLog.Warningf("voice silero_vad init failed, falling back to energy vad: %v", err)
-		}
-	}
+	vad := &VADState{}
 	var speechBuf []byte
 	preSpeech := make([][]byte, 0, vadPreRollFrames)
-	denoiseWarned := false
-	speaking := false
-	candidateActive := false
-	pendingCommitTurnID := ""
-	var pendingCommitAudio []byte
-	pendingSilenceMs := 0
-	frameDurationMs := self.AudioIn.FrameMS
-	if frameDurationMs <= 0 {
-		frameDurationMs = 20
-	}
 
 	for {
 		select {
 		case <-self.doneCh:
 			return
 		case frame := <-self.audioInCh:
-			var preRollFrames [][]byte
-			if self.Features.ServerDenoise && !denoiseWarned {
-				pipelineLog.Warningf("voice server_denoise requested but not implemented")
-				denoiseWarned = true
-			}
-			if !self.Features.ServerVAD {
-				self.accumulateExplicitAudio(frame)
-				continue
-			}
-			if pendingCommitTurnID != "" {
-				pendingSilenceMs += frameDurationMs
-				if self.strategy == nil {
-					self.strategy = LegacyStrategy{}
-				}
-				if self.strategy.ShouldCommitTurn(TurnContext{
-					SilenceDurationMs: pendingSilenceMs,
-					InterimText:       self.getInterimText(),
-				}) {
-					turnId := pendingCommitTurnID
-					captured := append([]byte(nil), pendingCommitAudio...)
-					pendingCommitTurnID = ""
-					pendingCommitAudio = nil
-					pendingSilenceMs = 0
-					self.commitCapturedTurn(turnId, captured)
-				}
-			}
-			if !speaking {
+			if !vad.IsSpeaking {
 				cp := append([]byte(nil), frame...)
 				preSpeech = append(preSpeech, cp)
 				if len(preSpeech) > vadPreRollFrames {
@@ -94,21 +40,12 @@ func (self *Session) audioInputLoop() {
 			}
 			started, ended, score := vad.ProcessFrame(frame)
 			if started {
-				speaking = true
 				turnId := self.newTurnId()
 				self.startNewTurn(turnId)
-				_, balanced := self.strategy.(BalancedStrategy)
-				if balanced && self.Features.BargeIn && (self.GetCurrentRunId() != "" || self.GetCurrentResponseId() != "") {
-					self.triggerBargeIn()
-				}
-				self.setSpeechStartedAt(time.Now())
-				candidateActive = false
-				nowMs := time.Now().UnixMilli()
 				speechBuf = speechBuf[:0]
 				for _, buffered := range preSpeech {
 					speechBuf = append(speechBuf, buffered...)
 				}
-				preRollFrames = append(preRollFrames, preSpeech...)
 				preSpeech = preSpeech[:0]
 				pipelineLog.Infof("voice speech_started: session=%s turn=%s seq_ref=%d score=%.4f", self.ID, turnId, self.inSeq.Load(), score)
 				self.sendVoiceEvent("turn.event", turnEventPayload{
@@ -117,96 +54,31 @@ func (self *Session) audioInputLoop() {
 					VADScore:    score,
 					AudioSeqRef: self.inSeq.Load(),
 				})
-				self.notifyObservers(func(observer TurnObserver) {
-					observer.OnSpeechStarted(turnId, nowMs)
-				})
+				if self.Features.BargeIn &&
+					score >= bargeInTriggerMinScore &&
+					(self.GetCurrentRunID() != "" || self.GetCurrentResponseID() != "") {
+					self.triggerBargeIn()
+				}
 			}
 
-			if speaking {
+			if vad.IsSpeaking {
 				// Current frame is already included when speech just started via pre-roll.
 				if !started {
 					speechBuf = append(speechBuf, frame...)
 				}
-				if stream := self.getStreamingTranscribeStream(); stream != nil {
-					sendStreamFrame := func(data []byte) bool {
-						if err := stream.SendAudio(data); err != nil {
-							pipelineLog.Warningf("voice streaming stt send failed, falling back to batch: %v", err)
-							_ = stream.Close()
-							self.setStreamingTranscribeStream(nil)
-							return false
-						}
-						return true
-					}
-					if started && len(preRollFrames) > 0 {
-						for _, buffered := range preRollFrames {
-							if !sendStreamFrame(buffered) {
-								break
-							}
-						}
-					} else {
-						_ = sendStreamFrame(frame)
-					}
-				}
-				runActive := self.GetCurrentRunId() != ""
-				responseActive := self.GetCurrentResponseId() != ""
-				if self.Features.BargeIn && (runActive || responseActive) {
-					if self.strategy == nil {
-						self.strategy = LegacyStrategy{}
-					}
-					decision := self.strategy.EvaluateBargeIn(TurnContext{
-						VADScore:         score,
-						SpeechDurationMs: self.speechDurationMs(time.Now()),
-						RunActive:        runActive,
-						ResponseActive:   responseActive,
-						InterimText:      self.getInterimText(),
-					})
-					switch decision {
-					case TurnDecisionTrigger:
-						candidateActive = false
-						self.triggerBargeIn()
-					case TurnDecisionCandidate:
-						if !candidateActive {
-							candidateActive = true
-							self.sendVoiceEvent("turn.event", turnEventPayload{
-								TurnID:   self.GetCurrentTurnId(),
-								Event:    "barge_in_candidate",
-								VADScore: score,
-							})
-						}
-					default:
-						if candidateActive {
-							candidateActive = false
-							self.sendVoiceEvent("turn.event", turnEventPayload{
-								TurnID:   self.GetCurrentTurnId(),
-								Event:    "barge_in_suppressed",
-								VADScore: score,
-							})
-						}
-					}
-				}
 			}
 
 			if ended {
-				speaking = false
-				turnId := self.GetCurrentTurnId()
-				nowMs := time.Now().UnixMilli()
-				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnId(), len(speechBuf), self.inSeq.Load(), score)
+				turnId := self.GetCurrentTurnID()
+				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnID(), len(speechBuf), self.inSeq.Load(), score)
 				self.sendVoiceEvent("turn.event", turnEventPayload{
 					TurnID:      turnId,
 					Event:       "speech_ended",
 					VADScore:    score,
 					AudioSeqRef: self.inSeq.Load(),
 				})
-				self.notifyObservers(func(observer TurnObserver) {
-					observer.OnSpeechEnded(turnId, nowMs)
-				})
-				if !self.Features.ServerTurn {
-					self.setSpeechReady(true)
-					continue
-				}
 				captured := append([]byte(nil), speechBuf...)
 				speechBuf = speechBuf[:0]
-				candidateActive = false
 				if len(captured) < minCommittedTurnBytes {
 					pipelineLog.Infof("voice turn ignored (too short): session=%s turn=%s bytes=%d", self.ID, turnId, len(captured))
 					self.sendVoiceEvent("turn.event", turnEventPayload{
@@ -214,171 +86,19 @@ func (self *Session) audioInputLoop() {
 						Event:  "turn_dropped",
 						Reason: "dropped_too_short_audio",
 					})
-					self.notifyObservers(func(observer TurnObserver) {
-						observer.OnTurnDropped(turnId, "dropped_too_short_audio", time.Now().UnixMilli())
-					})
 					continue
 				}
-				if self.strategy == nil {
-					self.strategy = LegacyStrategy{}
-				}
-				if self.strategy.ShouldCommitTurn(TurnContext{
-					SilenceDurationMs: 0,
-					InterimText:       self.getInterimText(),
-				}) {
-					self.commitCapturedTurn(turnId, captured)
+				if !self.TryStartTurnTranscription(turnId) {
+					pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
 					continue
 				}
-				pendingCommitTurnID = turnId
-				pendingCommitAudio = captured
-				pendingSilenceMs = 0
+				go func(tid string, audio []byte) {
+					defer self.FinishTurnTranscription(tid)
+					self.transcribeAndSend(tid, audio)
+				}(turnId, captured)
 			}
 		}
 	}
-}
-
-func (self *Session) streamingTranscribeLoop() {
-	stream := self.getStreamingTranscribeStream()
-	if stream == nil {
-		return
-	}
-	for {
-		select {
-		case <-self.doneCh:
-			return
-		case event, ok := <-stream.Events():
-			if !ok {
-				self.setStreamingTranscribeStream(nil)
-				return
-			}
-			if event.Err != nil {
-				pipelineLog.Warningf("voice streaming stt failed, falling back to batch: %v", event.Err)
-				_ = stream.Close()
-				self.setStreamingTranscribeStream(nil)
-				return
-			}
-			switch event.Type {
-			case "interim":
-				self.setInterimText(event.Text)
-				self.maybeStartOrRefreshSpeculativeRun(event)
-			case "final":
-				turnId := self.GetCurrentTurnId()
-				if turnId == "" {
-					continue
-				}
-				self.setInterimText(event.Text)
-				specRunId, _, _ := self.getSpeculativeRun()
-				if specRunId == "" {
-					// Buffer final streaming text and commit on turn-end path to avoid
-					// locking in an early partial final when additional words arrive.
-					continue
-				}
-				if self.IsTurnCommitted(turnId) {
-					continue
-				}
-				self.handleFinalTranscript(turnId, event.Text)
-			}
-		}
-	}
-}
-
-func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
-	if self.getStreamingTranscribeStream() != nil {
-		deadline := time.Now().Add(streamingFinalGracePeriod)
-		for time.Now().Before(deadline) {
-			if self.IsTurnCommitted(turnId) {
-				return
-			}
-			select {
-			case <-self.doneCh:
-				return
-			case <-time.After(25 * time.Millisecond):
-			}
-		}
-		if self.IsTurnCommitted(turnId) {
-			return
-		}
-		if !self.TryStartTurnTranscription(turnId) {
-			pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
-			return
-		}
-		fallbackText := strings.TrimSpace(self.getBestInterimText())
-		fallbackText = normalizeStreamingFallbackText(fallbackText, self.GetLastCommittedTranscript())
-		if isTooWeakForCommit(fallbackText) {
-			weakDeadline := time.Now().Add(streamingWeakInterimWait)
-			for time.Now().Before(weakDeadline) {
-				if self.IsTurnCommitted(turnId) {
-					return
-				}
-				candidate := strings.TrimSpace(self.getBestInterimText())
-				candidate = normalizeStreamingFallbackText(candidate, self.GetLastCommittedTranscript())
-				if !isTooWeakForCommit(candidate) {
-					fallbackText = candidate
-					break
-				}
-				select {
-				case <-self.doneCh:
-					return
-				case <-time.After(25 * time.Millisecond):
-				}
-			}
-			if isTooWeakForCommit(fallbackText) {
-				fallbackText = ""
-			}
-		}
-		if fallbackText != "" {
-			self.handleFinalTranscript(turnId, fallbackText)
-		} else {
-			self.transcribeAndSend(turnId, captured)
-		}
-		self.FinishTurnTranscription(turnId)
-		return
-	}
-	if !self.TryStartTurnTranscription(turnId) {
-		pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
-		return
-	}
-	go func(tid string, audio []byte) {
-		defer self.FinishTurnTranscription(tid)
-		self.transcribeAndSend(tid, audio)
-	}(turnId, captured)
-}
-
-func normalizeStreamingFallbackText(text, lastCommitted string) string {
-	trimmed := strings.TrimSpace(text)
-	last := strings.TrimSpace(lastCommitted)
-	if trimmed == "" || last == "" {
-		return trimmed
-	}
-	candidates := []string{
-		last,
-		strings.TrimSuffix(last, "?"),
-	}
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, candidate) {
-			suffix := strings.TrimSpace(strings.TrimPrefix(trimmed, candidate))
-			suffix = strings.TrimLeft(suffix, " ,.!?;:-")
-			if suffix != "" {
-				return suffix
-			}
-		}
-	}
-	return trimmed
-}
-
-func isTooWeakForCommit(text string) bool {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return true
-	}
-	words := len(strings.Fields(trimmed))
-	if words < 4 {
-		return true
-	}
-	return len([]rune(trimmed)) < 16
 }
 
 func (self *Session) llmEventForwarder() {
@@ -411,10 +131,10 @@ func (self *Session) llmEventForwarder() {
 				continue
 			}
 			if runId != "" && (state == "queued" || state == "delta") {
-				self.SetCurrentRunId(runId)
+				self.SetCurrentRunID(runId)
 			}
 			if state == "queued" || state == "final" || state == "error" || state == "aborted" {
-				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", self.ID, self.GetCurrentTurnId(), state, len(text), self.GetCurrentRunId())
+				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", self.ID, self.GetCurrentTurnID(), state, len(text), self.GetCurrentRunID())
 			}
 			if state == "delta" {
 				if text != "" {
@@ -456,7 +176,6 @@ func (self *Session) llmEventForwarder() {
 				}
 				// Response stream is complete; allow next transcript to commit a new run.
 				self.ClearCurrentRun()
-				self.ClearRunTurn(runId)
 				self.ClearCanceledRun(runId)
 				streamText = ""
 				sentencesEnqueued = 0
@@ -474,19 +193,11 @@ func (self *Session) ttsSynthLoop() {
 			return
 		case sentence := <-self.ttsInCh:
 			if sentence == "" {
-				nowMs := time.Now().UnixMilli()
-				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseId())
-				if rid := self.GetCurrentResponseId(); rid != "" {
-					turnId := self.GetCurrentResponseTurnID()
-					if turnId == "" {
-						turnId = self.GetCurrentTurnId()
-					}
+				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseID())
+				if rid := self.GetCurrentResponseID(); rid != "" {
 					self.sendVoiceEvent("response.completed", map[string]interface{}{
 						"response_id": rid,
-						"turn_id":     turnId,
-					})
-					self.notifyObservers(func(observer TurnObserver) {
-						observer.OnResponseCompleted(turnId, rid, nowMs)
+						"turn_id":     self.GetCurrentTurnID(),
 					})
 				}
 				self.ClearCurrentResponse()
@@ -505,86 +216,51 @@ func (self *Session) ttsSynthLoop() {
 				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
 			}
-			hadResponse := self.GetCurrentResponseId() != ""
-			responseStarted := hadResponse
+			responseId := self.GetCurrentResponseID()
+			if responseId == "" {
+				// Avoid speaking between two close user utterances while a transcription
+				// is still in-flight for a newer turn.
+				start := time.Now()
+				for self.HasTranscriptionInFlight() && time.Since(start) < maxResponseStartDelay {
+					select {
+					case <-self.doneCh:
+						return
+					case <-time.After(50 * time.Millisecond):
+					}
+				}
+				responseId = self.newTurnId()
+				self.SetCurrentResponseID(responseId)
+				pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", self.ID, responseId, self.GetCurrentTurnID())
+				self.sendVoiceEvent("response.started", map[string]interface{}{
+					"response_id": responseId,
+					"turn_id":     self.GetCurrentTurnID(),
+				})
+			}
 
 			ttsCtx, cancel := context.WithCancel(context.Background())
 			prev := self.SwapTTSCancel(cancel)
 			if prev != nil {
 				prev()
 			}
-			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseId(), self.GetCurrentTurnId(), len(sentence), sentence)
-			chunks, err := synth.SynthesizePCMStream(ttsCtx, sentence, "alloy", self.AudioOut.SampleRateHz)
+			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseID(), self.GetCurrentTurnID(), len(sentence), sentence)
+			audio, err := synth.SynthesizePCM(ttsCtx, sentence, "alloy", self.AudioOut.SampleRateHz)
+			self.SwapTTSCancel(nil)
 			if err != nil {
-				cancel()
-				self.SwapTTSCancel(nil)
 				if ttsCtx.Err() != nil {
 					continue
 				}
 				pipelineLog.Warningf("voice synthesis failed: %v", err)
 				continue
 			}
-			if !responseStarted {
-				turnId := self.TurnIDForRun(self.GetCurrentRunId())
-				if turnId == "" {
-					turnId = self.GetCurrentTurnId()
-				}
-				nowMs := time.Now().UnixMilli()
-				self.notifyObservers(func(observer TurnObserver) {
-					observer.OnTTSRequested(turnId, nowMs)
-				})
-			}
-			for audio := range chunks {
-				if len(audio) == 0 {
-					continue
-				}
-				if !responseStarted {
-					// Avoid speaking between two close user utterances while a transcription
-					// is still in-flight for a newer turn. For streaming STT, this guard can
-					// delay response.started beyond scenario latency budgets, so skip it.
-					if self.getStreamingTranscribeStream() == nil {
-						start := time.Now()
-						for self.HasTranscriptionInFlight() && time.Since(start) < maxResponseStartDelay {
-							select {
-							case <-self.doneCh:
-								return
-							case <-time.After(50 * time.Millisecond):
-							}
-						}
-					}
-					responseId := self.GetCurrentResponseId()
-					if responseId == "" {
-						responseId = self.newTurnId()
-						self.SetCurrentResponseId(responseId)
-					}
-					turnId := self.TurnIDForRun(self.GetCurrentRunId())
-					if turnId == "" {
-						turnId = self.GetCurrentTurnId()
-					}
-					self.SetCurrentResponseTurnID(turnId)
-					nowMs := time.Now().UnixMilli()
-					pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", self.ID, responseId, turnId)
-					self.sendVoiceEvent("response.started", map[string]interface{}{
-						"response_id": responseId,
-						"turn_id":     turnId,
-					})
-					self.notifyObservers(func(observer TurnObserver) {
-						observer.OnResponseStarted(turnId, responseId, nowMs)
-					})
-					responseStarted = true
-				}
-				pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", self.ID, self.GetCurrentResponseId(), len(sentence), len(audio))
-				payload := EncodeBinaryAudioFrame(BinaryAudioFrame{
-					FrameType:   FrameTypeAudioOut,
-					Seq:         self.NextOutSeq(),
-					CaptureTSMs: time.Now().UnixMilli(),
-					DurationMS:  0,
-					Data:        audio,
-				})
-				self.enqueueAudioOut(payload)
-			}
-			cancel()
-			self.SwapTTSCancel(nil)
+			pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", self.ID, self.GetCurrentResponseID(), len(sentence), len(audio))
+			payload := EncodeBinaryAudioFrame(BinaryAudioFrame{
+				FrameType:   FrameTypeAudioOut,
+				Seq:         self.NextOutSeq(),
+				CaptureTSMs: time.Now().UnixMilli(),
+				DurationMS:  0,
+				Data:        audio,
+			})
+			self.enqueueAudioOut(payload)
 		}
 	}
 }
@@ -638,20 +314,12 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 		return
 	}
 	text := strings.TrimSpace(result.Text)
-	self.transcribeTextAndSend(turnId, text)
-}
-
-func (self *Session) transcribeTextAndSend(turnId, rawText string) {
-	text := strings.TrimSpace(rawText)
 	if text == "" {
 		pipelineLog.Infof("voice transcript ignored (empty): session=%s turn=%s", self.ID, turnId)
 		self.sendVoiceEvent("turn.event", turnEventPayload{
 			TurnID: turnId,
 			Event:  "turn_dropped",
 			Reason: "dropped_empty_transcript",
-		})
-		self.notifyObservers(func(observer TurnObserver) {
-			observer.OnTurnDropped(turnId, "dropped_empty_transcript", time.Now().UnixMilli())
 		})
 		return
 	}
@@ -662,16 +330,13 @@ func (self *Session) transcribeTextAndSend(turnId, rawText string) {
 			Event:  "turn_dropped",
 			Reason: "dropped_too_short_text",
 		})
-		self.notifyObservers(func(observer TurnObserver) {
-			observer.OnTurnDropped(turnId, "dropped_too_short_text", time.Now().UnixMilli())
-		})
 		return
 	}
 	// If an older response already started speaking, interrupt it and prioritize this newer user turn.
-	if self.GetCurrentResponseId() != "" {
+	if self.GetCurrentResponseID() != "" {
 		self.triggerBargeIn()
 	}
-	if self.GetCurrentRunId() != "" {
+	if self.GetCurrentRunID() != "" {
 		self.enqueueTranscriptTurn(turnId, text)
 		return
 	}
@@ -682,150 +347,25 @@ func (self *Session) transcribeTextAndSend(turnId, rawText string) {
 	self.commitVoiceTurn(turnId, text)
 }
 
-func (self *Session) maybeStartOrRefreshSpeculativeRun(event VoiceTranscribeEvent) {
-	if !self.Features.SpeculativeLLMEnabled || self.deps == nil {
-		return
-	}
-	turnId := self.GetCurrentTurnId()
-	if turnId == "" || self.IsTurnCommitted(turnId) {
-		return
-	}
-	if self.GetCurrentResponseId() != "" {
-		return
-	}
-	text := strings.TrimSpace(event.Text)
-	if len([]rune(text)) < speculativeMinRunes {
-		return
-	}
-	confidence := event.Confidence
-	if confidence == 0 {
-		confidence = 1
-	}
-	if confidence < speculativeMinConfidence {
-		return
-	}
-	if self.recentBargeInWithin(speculativeRecentBargeWindow) {
-		return
-	}
-	if self.HasTranscriptionInFlight() {
-		return
-	}
-
-	now := time.Now()
-	specRunId, specText, specStartedAt := self.getSpeculativeRun()
-	if specRunId != "" && now.Sub(specStartedAt) > speculativeMaxAge {
-		self.cancelSpeculativeRun(specRunId)
-		specRunId = ""
-		specText = ""
-	}
-
-	if specRunId == "" {
-		if self.GetCurrentRunId() != "" {
-			return
-		}
-		self.startSpeculativeRun(text)
-		return
-	}
-
-	if textSimilarity(text, specText) < speculativeSimilarityMin {
-		self.cancelSpeculativeRun(specRunId)
-		self.startSpeculativeRun(text)
-	}
-}
-
-func (self *Session) handleFinalTranscript(turnId, rawText string) {
-	text := strings.TrimSpace(rawText)
-	specRunId, specText, _ := self.getSpeculativeRun()
-	if specRunId == "" {
-		self.transcribeTextAndSend(turnId, text)
-		return
-	}
-	if textSimilarity(text, specText) >= speculativeSimilarityMin {
-		self.promoteSpeculativeRun(turnId, text, specRunId)
-		return
-	}
-	self.cancelSpeculativeRun(specRunId)
-	self.transcribeTextAndSend(turnId, text)
-}
-
-func (self *Session) startSpeculativeRun(text string) {
-	run := self.deps.SendMessage(context.Background(), VoiceSendMessageParams{
-		AgentID:            self.AgentID,
-		ConversationID:     self.ConversationID,
-		Message:            text,
-		SystemPromptSuffix: self.effectivePromptSuffix(),
-		IsSpeculative:      true,
-		MaxContextTokens:   voiceMaxContextTokens,
-	})
-	if strings.TrimSpace(run.RunID) == "" {
-		return
-	}
-	self.setSpeculativeRun(run.RunID, text, time.Now())
-	pipelineLog.Debugf("voice speculative run started: session=%s run=%s text_len=%d", self.ID, run.RunID, len(text))
-}
-
-func (self *Session) cancelSpeculativeRun(runId string) {
-	if runId == "" {
-		return
-	}
-	self.clearSpeculativeRun()
-	self.MarkRunCanceled(runId)
-	self.deps.CancelRun(runId)
-	pipelineLog.Debugf("voice speculative run cancelled: session=%s run=%s", self.ID, runId)
-}
-
-func (self *Session) promoteSpeculativeRun(turnId, text, runId string) {
-	nowMs := time.Now().UnixMilli()
-	self.clearSpeculativeRun()
-	self.SetLastCommittedTranscript(text)
-	self.sendVoiceEvent("transcript.final", map[string]interface{}{
-		"turn_id": turnId,
-		"text":    text,
-	})
-	self.notifyObservers(func(observer TurnObserver) {
-		observer.OnTranscriptFinal(turnId, nowMs)
-	})
-	self.MarkTurnCommitted(turnId)
-	self.SetCurrentRunId(runId)
-	self.MapRunToTurn(runId, turnId)
-	self.sendVoiceEvent("turn.event", turnEventPayload{
-		TurnID: turnId,
-		Event:  "turn_committed",
-	})
-	self.notifyObservers(func(observer TurnObserver) {
-		observer.OnTurnCommitted(turnId, time.Now().UnixMilli())
-	})
-	pipelineLog.Infof("voice speculative run promoted: session=%s turn=%s run=%s", self.ID, turnId, runId)
-}
-
 func (self *Session) commitVoiceTurn(turnId, text string) {
-	nowMs := time.Now().UnixMilli()
 	pipelineLog.Infof("voice transcript.final: session=%s turn=%s text_len=%d text=%q", self.ID, turnId, len(text), text)
 	self.SetLastCommittedTranscript(text)
 	self.sendVoiceEvent("transcript.final", map[string]interface{}{
 		"turn_id": turnId,
 		"text":    text,
 	})
-	self.notifyObservers(func(observer TurnObserver) {
-		observer.OnTranscriptFinal(turnId, nowMs)
-	})
 	run := self.deps.SendMessage(context.Background(), VoiceSendMessageParams{
 		AgentID:            self.AgentID,
 		ConversationID:     self.ConversationID,
 		Message:            text,
 		SystemPromptSuffix: self.effectivePromptSuffix(),
-		MaxContextTokens:   voiceMaxContextTokens,
 	})
 	self.MarkTurnCommitted(turnId)
-	self.SetCurrentRunId(run.RunID)
-	self.MapRunToTurn(run.RunID, turnId)
+	self.SetCurrentRunID(run.RunID)
 	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", self.ID, turnId, run.RunID)
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID: turnId,
 		Event:  "turn_committed",
-	})
-	self.notifyObservers(func(observer TurnObserver) {
-		observer.OnTurnCommitted(turnId, time.Now().UnixMilli())
 	})
 }
 
@@ -852,11 +392,8 @@ func (self *Session) enqueueTranscriptTurn(turnId, text string) {
 			Reason:     "dropped_queue_overflow",
 			QueueDepth: depth,
 		})
-		self.notifyObservers(func(observer TurnObserver) {
-			observer.OnTurnDropped(dropped.TurnID, "dropped_queue_overflow", time.Now().UnixMilli())
-		})
 	}
-	pipelineLog.Infof("voice turn queued (run active): session=%s turn=%s run=%s depth=%d", self.ID, turnId, self.GetCurrentRunId(), depth)
+	pipelineLog.Infof("voice turn queued (run active): session=%s turn=%s run=%s depth=%d", self.ID, turnId, self.GetCurrentRunID(), depth)
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID:     turnId,
 		Event:      "turn_queued",
@@ -866,7 +403,7 @@ func (self *Session) enqueueTranscriptTurn(turnId, text string) {
 }
 
 func (self *Session) commitNextPendingTurn() {
-	if self.GetCurrentRunId() != "" {
+	if self.GetCurrentRunID() != "" {
 		return
 	}
 	next, ok := self.DequeuePendingTurn()
@@ -882,13 +419,8 @@ func (self *Session) commitNextPendingTurn() {
 
 func (self *Session) triggerBargeIn() {
 	self.bargeInOnce.Do(func() {
-		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunId(), self.GetCurrentResponseId())
-		self.setLastBargeInAt(time.Now())
-		if speculativeRunId := self.clearSpeculativeRun(); speculativeRunId != "" && self.deps != nil {
-			self.MarkRunCanceled(speculativeRunId)
-			self.deps.CancelRun(speculativeRunId)
-		}
-		runId := self.GetCurrentRunId()
+		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunID(), self.GetCurrentResponseID())
+		runId := self.GetCurrentRunID()
 		self.MarkRunCanceled(runId)
 		if prev := self.SwapTTSCancel(nil); prev != nil {
 			prev()
@@ -928,15 +460,8 @@ func (self *Session) drainAudioOutQueue() {
 func (self *Session) startNewTurn(turnId string) {
 	self.stateMu.Lock()
 	self.currentTurnId = turnId
-	self.interimText = ""
-	self.interimBestText = ""
 	self.bargeInOnce = sync.Once{}
 	self.stateMu.Unlock()
-}
-
-func (self *Session) startRun(ctx context.Context, text string) {
-	_ = ctx
-	_ = text
 }
 
 func (self *Session) trySendFlushFrame() {

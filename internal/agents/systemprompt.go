@@ -2,48 +2,60 @@ package agents
 
 import (
 	"bytes"
-	_ "embed"
 	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/teanode/teanode/internal/configs"
 	projectstore "github.com/teanode/teanode/internal/projects"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/version"
 )
 
-const defaultIdentityLine = "You are a personal AI assistant running inside TeaNode."
-
-//go:embed systemprompt.txt
-var systemPromptTemplate string
-
-var parsedSystemPrompt = template.Must(template.New("systemprompt").Parse(systemPromptTemplate))
+var parsedSystemPrompt = template.Must(template.New("systemprompt").Parse(prompts.SystemPromptTemplate()))
 
 type systemPromptData struct {
-	IdentityLine  string
-	Version       string
-	Date          string
-	Timezone      string
-	Username      string
-	ProfileName   string
-	ProfileBio    string
-	HomeDirectory string
-	AgentContent  string
-	MemoryContent string
-	SkillsContent string
-	SkillPrompts  string
-	ProjectList   string
-	ProjectLimit  int
+	IdentityLine            string
+	Version                 string
+	Date                    string
+	Timezone                string
+	Username                string
+	CurrentUserID           string
+	CurrentUserRole         string
+	ProfileName             string
+	ProfileDescription      string
+	ProfileDescriptionBlock string
+	HomeDirectory           string
+	AgentContent            string
+	AgentMemory             string
+	UserContent             string
+	UserMemory              string
+	UserOnboarding          string
+	SkillsContent           string
+	SkillPrompts            string
+	ProjectList             string
+	ProjectLimit            int
+	OtherUsers              string
 }
 
 // BuildSystemPrompt generates the system prompt for an agent run.
 // If workspaceDirectory is non-empty, workspace files are loaded and injected.
 // maxWorkspaceFileChars controls the per-file truncation limit.
-func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceDirectory string, skillPrompts string, maxWorkspaceFileChars int, profile *configs.Profile) string {
+func BuildSystemPrompt(
+	configuration *configs.Config,
+	agentId string,
+	currentUserId string,
+	agentWorkspaceDirectory string,
+	userWorkspaceDirectory string,
+	skillPrompts string,
+	maxWorkspaceFileChars int,
+	profile *configs.UserProfile,
+) string {
 	// Resolve the identity line.
 	identityLine := resolveIdentityLine(configuration, agentId)
 
@@ -55,41 +67,94 @@ func BuildSystemPrompt(configuration *configs.Config, agentId string, workspaceD
 
 	now := time.Now()
 
-	resolvedProfile := profile
-	if resolvedProfile == nil {
-		if loaded, err := configs.LoadProfile(); err == nil {
-			resolvedProfile = loaded
-		}
-	}
-
 	data := systemPromptData{
 		IdentityLine:  identityLine,
 		Version:       version.Version(),
 		Date:          now.Format("2006-01-02"),
 		Timezone:      now.Format("MST"),
 		Username:      username,
+		CurrentUserID: strings.TrimSpace(currentUserId),
 		HomeDirectory: homeDir,
 		SkillPrompts:  skillPrompts,
 		ProjectLimit:  8,
 		ProjectList:   loadProjectList(8),
 	}
-	if resolvedProfile != nil {
-		data.ProfileName = strings.TrimSpace(resolvedProfile.Name)
-		data.ProfileBio = resolvedProfile.Bio
+
+	if securityConfig, err := configs.LoadSecurity(); err == nil && securityConfig != nil {
+		data.CurrentUserRole = "user"
+		if securityConfig.IsAdmin(data.CurrentUserID) {
+			data.CurrentUserRole = "admin"
+		}
+		data.OtherUsers = loadOtherUsers(securityConfig, data.CurrentUserID)
+	}
+	if profile != nil {
+		data.ProfileName = strings.TrimSpace(profile.Name)
+		data.ProfileDescription = strings.TrimSpace(profile.Description)
+		data.ProfileDescriptionBlock = formatPromptMultiline(data.ProfileDescription, "  ")
 	}
 
-	if workspaceDirectory != "" {
-		data.AgentContent = loadWorkspaceFile(workspaceDirectory, "AGENT.md", maxWorkspaceFileChars)
-		data.MemoryContent = loadWorkspaceFile(workspaceDirectory, "MEMORY.md", maxWorkspaceFileChars)
-		data.SkillsContent = loadWorkspaceFile(workspaceDirectory, "SKILLS.md", maxWorkspaceFileChars)
+	if agentWorkspaceDirectory != "" {
+		data.AgentContent = loadWorkspaceFile(agentWorkspaceDirectory, "AGENT.md", maxWorkspaceFileChars)
+		data.AgentMemory = loadWorkspaceFile(agentWorkspaceDirectory, "MEMORY.md", maxWorkspaceFileChars)
+		data.SkillsContent = loadWorkspaceFile(agentWorkspaceDirectory, "SKILLS.md", maxWorkspaceFileChars)
+	}
+	if userWorkspaceDirectory != "" {
+		data.UserContent = loadWorkspaceFile(userWorkspaceDirectory, "USER.md", maxWorkspaceFileChars)
+		data.UserMemory = loadWorkspaceFile(userWorkspaceDirectory, "MEMORY.md", maxWorkspaceFileChars)
+		data.UserOnboarding = loadWorkspaceFile(userWorkspaceDirectory, "ONBOARDING.md", maxWorkspaceFileChars)
 	}
 
 	var buffer bytes.Buffer
 	if err := parsedSystemPrompt.Execute(&buffer, data); err != nil {
 		// Fallback: return a minimal prompt if template fails.
-		return defaultIdentityLine
+		return prompts.DefaultIdentityLine
 	}
 	return buffer.String()
+}
+
+func loadOtherUsers(securityConfig *configs.SecurityConfig, currentUserId string) string {
+	if securityConfig == nil || len(securityConfig.Users) == 0 {
+		return ""
+	}
+	userIds := make([]string, 0, len(securityConfig.Users))
+	for userId := range securityConfig.Users {
+		if userId == currentUserId {
+			continue
+		}
+		userIds = append(userIds, userId)
+	}
+	if len(userIds) == 0 {
+		return ""
+	}
+	sort.Strings(userIds)
+	lines := make([]string, 0, len(userIds))
+	for _, userId := range userIds {
+		user := securityConfig.Users[userId]
+		username := strings.TrimSpace(user.Username)
+		role := "user"
+		if user.Admin {
+			role = "admin"
+		}
+		description := "No description provided."
+		if profile, err := configs.LoadUserProfile(userId); err == nil {
+			if parsed := strings.TrimSpace(profile.Description); parsed != "" {
+				description = parsed
+			}
+		}
+		lines = append(lines, fmt.Sprintf("- %s (userId: %s, role: %s)\n  description:\n%s", username, userId, role, formatPromptMultiline(description, "    ")))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatPromptMultiline(text, indent string) string {
+	if strings.TrimSpace(text) == "" {
+		return indent
+	}
+	lines := strings.Split(text, "\n")
+	for index := range lines {
+		lines[index] = indent + strings.TrimRight(lines[index], " \t")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func loadProjectList(limit int) string {
@@ -111,8 +176,8 @@ func loadProjectList(limit int) string {
 			description = "No description available."
 		}
 		updatedAt := "unknown"
-		if item.UpdatedAt > 0 {
-			updatedAt = time.UnixMilli(item.UpdatedAt).Format(time.RFC3339)
+		if !item.UpdatedAt.IsZero() {
+			updatedAt = item.UpdatedAt.String()
 		}
 		lines = append(lines, fmt.Sprintf("- %s (projectId: %s, updatedAt: %s): %s", name, item.ID, updatedAt, description))
 	}
@@ -121,7 +186,7 @@ func loadProjectList(limit int) string {
 
 // resolveIdentityLine determines the identity line for the system prompt.
 func resolveIdentityLine(configuration *configs.Config, agentId string) string {
-	return fmt.Sprintf("%s %s", defaultIdentityLine, agentIdentitySuffix(configuration, agentId))
+	return fmt.Sprintf("%s %s", prompts.DefaultIdentityLine, agentIdentitySuffix(configuration, agentId))
 }
 
 // agentIdentitySuffix returns a sentence fragment identifying the agent by name

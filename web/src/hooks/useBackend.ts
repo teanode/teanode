@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type {
   Attachment,
   Conversation,
@@ -279,6 +279,10 @@ export function useBackend() {
   const [currentAgentId, setCurrentAgentId] = useState<string>("");
   const [serverDefaultAgentId, setServerDefaultAgentId] = useState<string>("");
   const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(true);
+  const [hasConnectedOnce, setHasConnectedOnce] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
   const [conversationModel, setConversationModel] = useState<string | null>(
     null,
   );
@@ -306,6 +310,11 @@ export function useBackend() {
   const pendingEventsRef = useRef<EventFrame[]>([]);
   const runQueueRef = useRef<string[]>([]); // ordered run IDs: [active, queued1, queued2, ...]
   const selfOriginIdsRef = useRef<Set<string>>(new Set()); // origin IDs for self-sent messages
+  const hasConnectedOnceRef = useRef(hasConnectedOnce);
+  hasConnectedOnceRef.current = hasConnectedOnce;
+  const disconnectGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // Pagination state
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
@@ -830,7 +839,15 @@ export function useBackend() {
   >(null!);
 
   const handleConnect = useCallback((result: ConnectResult) => {
+    if (disconnectGraceTimerRef.current) {
+      clearTimeout(disconnectGraceTimerRef.current);
+      disconnectGraceTimerRef.current = null;
+    }
+    setConnecting(false);
     setConnected(true);
+    setHasConnectedOnce(true);
+    setIsAdmin(!!result.isAdmin);
+    setCurrentUserId(result.userId || "");
     setAudioCapability(result.capabilities?.includes("audio") ?? false);
     if (result.defaultModel) {
       setDefaultModel(result.defaultModel);
@@ -841,10 +858,29 @@ export function useBackend() {
     if (result.defaultAgentId) {
       setServerDefaultAgentId(result.defaultAgentId);
     }
-    const initialAgentId = result.defaultAgentId;
-    if (initialAgentId && !currentAgentIdRef.current) {
-      setCurrentAgentId(initialAgentId);
-      currentAgentIdRef.current = initialAgentId;
+
+    // Resolve the active agent for reconnect hydration. If the UI already has
+    // one selected, keep it; otherwise fall back to server default.
+    let hydrationAgentId =
+      currentAgentIdRef.current || result.defaultAgentId || "";
+    if (!currentAgentIdRef.current && hydrationAgentId) {
+      setCurrentAgentId(hydrationAgentId);
+      currentAgentIdRef.current = hydrationAgentId;
+    }
+
+    // Resolve default conversation for the active agent (not always the server default agent).
+    const hydrationAgent = result.agents?.find(
+      (agent) => agent.id === hydrationAgentId,
+    );
+    const hydrationDefaultConversationId =
+      hydrationAgent?.defaultConversationId ||
+      (hydrationAgentId === result.defaultAgentId
+        ? result.defaultConversationId
+        : undefined);
+
+    if (!conversationIdRef.current && hydrationDefaultConversationId) {
+      setConversationId(hydrationDefaultConversationId);
+      conversationIdRef.current = hydrationDefaultConversationId;
     }
     // Fetch available models
     sendRpcRef
@@ -864,15 +900,16 @@ export function useBackend() {
       })
       .catch((error: unknown) => console.error("conversations.list:", error));
 
-    // Reload current conversation's history on (re)connect
-    const key = conversationIdRef.current;
+    // Reload current conversation's history on (re)connect.
+    // If nothing is selected yet, use the server's default conversation.
+    const key = conversationIdRef.current || hydrationDefaultConversationId;
     if (key) {
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
       sendRpcRef
         .current<ConversationHistoryResult>("conversations.history", {
           conversationId: key,
-          agentId: currentAgentIdRef.current || undefined,
+          agentId: hydrationAgentId || undefined,
           limit: 50,
         })
         .then((res) => {
@@ -933,7 +970,40 @@ export function useBackend() {
 
   const handleStatusChange = useCallback((nextStatus: string) => {
     setStatus(nextStatus);
-    setConnected(nextStatus === "connected");
+    if (nextStatus === "connected") {
+      if (disconnectGraceTimerRef.current) {
+        clearTimeout(disconnectGraceTimerRef.current);
+        disconnectGraceTimerRef.current = null;
+      }
+      setConnecting(false);
+      setConnected(true);
+      return;
+    }
+
+    setConnecting(true);
+
+    // On first load, expose disconnect immediately so root can keep blocking.
+    if (!hasConnectedOnceRef.current) {
+      setConnected(false);
+      return;
+    }
+
+    // iOS Safari may emit very short disconnects during app visibility changes.
+    // Keep UI stable unless disconnection persists past a short grace period.
+    if (disconnectGraceTimerRef.current) return;
+    disconnectGraceTimerRef.current = setTimeout(() => {
+      setConnected(false);
+      disconnectGraceTimerRef.current = null;
+    }, 1500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (disconnectGraceTimerRef.current) {
+        clearTimeout(disconnectGraceTimerRef.current);
+        disconnectGraceTimerRef.current = null;
+      }
+    };
   }, []);
 
   const { sendRpc, sendBinary, onBinaryMessage, onVoiceMessage } = useWebSocket(
@@ -1421,6 +1491,10 @@ export function useBackend() {
     agents,
     currentAgentId,
     connected,
+    connecting,
+    hasConnectedOnce,
+    isAdmin,
+    currentUserId,
     currentRunId: currentRunIdRef.current,
     conversationModel,
     serverDefaultAgentId,

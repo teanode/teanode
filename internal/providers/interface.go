@@ -14,7 +14,7 @@ type Provider interface {
 
 // AudioTranscriber is an optional capability interface for speech-to-text.
 type AudioTranscriber interface {
-	Transcribe(ctx context.Context, req TranscribeRequest) (*TranscribeResponse, error)
+	Transcribe(ctx context.Context, request TranscribeRequest) (*TranscribeResponse, error)
 }
 
 // StreamingTranscriber is an optional capability interface for real-time STT.
@@ -24,7 +24,7 @@ type StreamingTranscriber interface {
 
 // AudioSynthesizer is an optional capability interface for text-to-speech.
 type AudioSynthesizer interface {
-	Synthesize(ctx context.Context, req SynthesizeRequest) (*SynthesizeResponse, error)
+	Synthesize(ctx context.Context, request SynthesizeRequest) (*SynthesizeResponse, error)
 }
 
 // StreamingAudioSynthesizer is an optional capability for chunked TTS.

@@ -15,7 +15,7 @@ import (
 
 type mockClient struct {
 	states      []EntityState
-	stateByID   map[string]*EntityState
+	stateById   map[string]*EntityState
 	serviceResp json.RawMessage
 	historyResp json.RawMessage
 	configResp  json.RawMessage
@@ -38,14 +38,14 @@ func (self *mockClient) GetStates(ctx context.Context) ([]EntityState, error) {
 	return self.states, nil
 }
 
-func (self *mockClient) GetState(ctx context.Context, entityID string) (*EntityState, error) {
+func (self *mockClient) GetState(ctx context.Context, entityId string) (*EntityState, error) {
 	if self.err != nil {
 		return nil, self.err
 	}
-	if state, exists := self.stateByID[entityID]; exists {
+	if state, exists := self.stateById[entityId]; exists {
 		return state, nil
 	}
-	return nil, fmt.Errorf("Home Assistant returned HTTP 404 for GET /api/states/%s", entityID)
+	return nil, fmt.Errorf("Home Assistant returned HTTP 404 for GET /api/states/%s", entityId)
 }
 
 func (self *mockClient) CallService(ctx context.Context, domain string, service string, data map[string]interface{}) (json.RawMessage, error) {
@@ -63,7 +63,7 @@ func (self *mockClient) CallService(ctx context.Context, domain string, service 
 	return json.RawMessage(`[]`), nil
 }
 
-func (self *mockClient) GetHistory(ctx context.Context, entityID string, hours int) (json.RawMessage, error) {
+func (self *mockClient) GetHistory(ctx context.Context, entityId string, hours int) (json.RawMessage, error) {
 	if self.err != nil {
 		return nil, self.err
 	}
@@ -85,7 +85,7 @@ func (self *mockClient) GetConfig(ctx context.Context) (json.RawMessage, error) 
 
 func newMockClient() *mockClient {
 	return &mockClient{
-		stateByID: make(map[string]*EntityState),
+		stateById: make(map[string]*EntityState),
 	}
 }
 
@@ -238,7 +238,7 @@ func TestAccessChecker_NilConfig(testing *testing.T) {
 
 func TestDomainOf(testing *testing.T) {
 	tests := []struct {
-		entityID string
+		entityId string
 		want     string
 	}{
 		{"light.living_room", "light"},
@@ -249,9 +249,9 @@ func TestDomainOf(testing *testing.T) {
 		{"", ""},
 	}
 	for _, testCase := range tests {
-		got := DomainOf(testCase.entityID)
+		got := DomainOf(testCase.entityId)
 		if got != testCase.want {
-			testing.Errorf("DomainOf(%q) = %q, want %q", testCase.entityID, got, testCase.want)
+			testing.Errorf("DomainOf(%q) = %q, want %q", testCase.entityId, got, testCase.want)
 		}
 	}
 }
@@ -370,7 +370,7 @@ func TestListEntities_ClientError(testing *testing.T) {
 
 func TestGetState_Basic(testing *testing.T) {
 	client := newMockClient()
-	client.stateByID["light.living_room"] = &EntityState{
+	client.stateById["light.living_room"] = &EntityState{
 		EntityID:   "light.living_room",
 		State:      "on",
 		Attributes: map[string]interface{}{"brightness": float64(255)},

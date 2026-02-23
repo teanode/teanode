@@ -9,8 +9,6 @@ type GatewayDeps interface {
 	CancelRun(runId string)
 	Subscribe(sub VoiceSubscriber)
 	Unsubscribe(sub VoiceSubscriber)
-	NewConversation(agentId, model string) string
-	DefaultAgentID() string
 	ProviderRegistry() VoiceProviderRegistry
 }
 

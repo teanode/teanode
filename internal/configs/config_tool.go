@@ -94,7 +94,7 @@ func (self *ConfigTool) executeGet() (string, error) {
 
 	// Parse the embedded schema for password field discovery.
 	var schema map[string]interface{}
-	if err := json.Unmarshal(configSchemaJSON, &schema); err != nil {
+	if err := json.Unmarshal(configSchemaJson, &schema); err != nil {
 		return "", fmt.Errorf("parsing schema: %w", err)
 	}
 

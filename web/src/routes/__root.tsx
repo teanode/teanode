@@ -27,7 +27,7 @@ export default function RootLayout() {
     return <Outlet />;
   }
 
-  if (!backend.connected) {
+  if (!backend.hasConnectedOnce && (backend.connecting || !backend.connected)) {
     return (
       <Box
         sx={{

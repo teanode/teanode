@@ -8,6 +8,7 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 )
 
@@ -15,6 +16,26 @@ import (
 type CompactResult struct {
 	SummarizedMessages int `json:"summarizedMessages"`
 	SummaryLength      int `json:"summaryLength"`
+}
+
+func conversationMessagesToChatMessages(messages []conversations.Message) []providers.ChatMessage {
+	chatMessages := make([]providers.ChatMessage, 0, len(messages))
+	for _, message := range messages {
+		role := strings.TrimSpace(message.Role)
+		if role == "" {
+			continue
+		}
+		chatMessage := providers.ChatMessage{
+			Role:    role,
+			Content: message.ContentText(),
+		}
+		if message.Role == "tool" {
+			chatMessage.Name = message.ToolName
+			chatMessage.ToolCallID = message.ToolCallID
+		}
+		chatMessages = append(chatMessages, chatMessage)
+	}
+	return chatMessages
 }
 
 // CompactConversation summarizes all messages in a conversation and appends
@@ -36,9 +57,6 @@ func CompactConversation(
 		return nil, fmt.Errorf("conversation is empty")
 	}
 
-	// Build text from all messages.
-	conversationText := messagesText(messages, 0, 2000)
-
 	// Resolve summarizer model.
 	qualifiedModel := configuration.Models.Default
 	if configuration.Models.SummarizerModel != "" {
@@ -50,27 +68,16 @@ func CompactConversation(
 		return nil, fmt.Errorf("resolving summary model %q: %w", qualifiedModel, err)
 	}
 
-	summaryRequest := providers.ChatRequest{
-		Model: bareModel,
-		Messages: []providers.ChatMessage{
-			{
-				Role:    "system",
-				Content: "Summarize the following conversation into a concise summary (max 500 words). Preserve key facts, decisions, tool results, and user preferences. Focus on information needed to continue the conversation naturally.",
-			},
-			{
-				Role:    "user",
-				Content: conversationText,
-			},
-		},
-	}
-
-	var summaryText string
-	response, err := provider.ChatCompletion(ctx, summaryRequest)
-	if err != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.ContentText()) == "" {
-		summaryText = fmt.Sprintf("[Earlier conversation with %d messages was dropped due to compaction]", len(messages))
-	} else {
-		summaryText = strings.TrimSpace(response.Choices[0].Message.ContentText())
-	}
+	summaryText := formatStructuredSummary(
+		summarizeMessagesWithFallback(
+			ctx,
+			provider,
+			bareModel,
+			conversationMessagesToChatMessages(messages),
+			defaultContextWindow,
+			prompts.StructuredSummaryDefaultFocus,
+		),
+	)
 
 	// Persist summary to conversation.
 	summaryMessage := conversations.NewSummaryMessage(summaryText, time.Now().UnixMilli())
@@ -91,10 +98,28 @@ func CompactConversation(
 // definitions. This enables prompt cache hits when the summarizer model matches
 // the main model.
 func (self *Runner) CompactConversation(ctx context.Context, conversationId string) (*CompactResult, error) {
-	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts, profile := self.Snapshot()
+	configuration, providerRegistry, _, workspaceDirectory, skillPrompts := self.Snapshot()
+	userId := UserIDFromContext(ctx)
+	if strings.TrimSpace(userId) == "" {
+		return nil, fmt.Errorf("userId is required")
+	}
+	if self.ResolveUserProfile == nil {
+		return nil, fmt.Errorf("ResolveUserProfile is required")
+	}
+	profile, err := self.ResolveUserProfile(userId)
+	if err != nil {
+		return nil, fmt.Errorf("resolving user profile for %q: %w", userId, err)
+	}
+	if profile == nil {
+		return nil, fmt.Errorf("user profile is required for user %q", userId)
+	}
+	store := self.ConversationsForUser(userId)
+	if store == nil {
+		return nil, fmt.Errorf("conversation store is not configured")
+	}
 
 	// Load conversation history.
-	history, err := self.Conversations.Load(conversationId)
+	history, err := store.Load(conversationId)
 	if err != nil {
 		return nil, fmt.Errorf("loading conversation: %w", err)
 	}
@@ -103,26 +128,17 @@ func (self *Runner) CompactConversation(ctx context.Context, conversationId stri
 	}
 
 	qualifiedModel := configuration.AgentModel(self.AgentID)
-	if header, headerErr := self.Conversations.LoadHeader(conversationId); headerErr == nil && header.Model != "" {
+	if header, headerErr := store.LoadHeader(conversationId); headerErr == nil && header.Model != "" {
 		qualifiedModel = header.Model
 	}
 	limits := configuration.ResolveModelLimits(qualifiedModel)
-
-	// Build messages via the same pipeline used for normal runs.
-	llmMessages := self.buildMessages(history, limits, "", configuration, workspaceDirectory, skillPrompts, profile)
-
-	// Build tool definitions.
-	var toolDefs []providers.ToolDefinition
-	if tools != nil {
-		toolDefs = tools.Definitions()
+	userWorkspaceDirectory := ""
+	if resolvedUserWorkspaceDirectory, resolveErr := configs.UserWorkspaceDirectory(userId); resolveErr == nil {
+		userWorkspaceDirectory = resolvedUserWorkspaceDirectory
 	}
 
-	// Append summarization instruction.
-	llmMessages = append(llmMessages, providers.ChatMessage{
-		Role:    "user",
-		Content: "Summarize the preceding conversation into a concise summary (max 500 words). Preserve key facts, decisions, tool results, and user preferences. Focus on information needed to continue the conversation naturally.",
-	})
-
+	// Build messages via the same pipeline used for normal runs.
+	llmMessages := self.buildMessages(history, limits, "", configuration, userId, workspaceDirectory, userWorkspaceDirectory, skillPrompts, profile)
 	// Resolve summarizer model.
 	qualifiedModel = configuration.Models.Default
 	if configuration.Models.SummarizerModel != "" {
@@ -134,23 +150,27 @@ func (self *Runner) CompactConversation(ctx context.Context, conversationId stri
 		return nil, fmt.Errorf("resolving summary model %q: %w", qualifiedModel, err)
 	}
 
-	summaryRequest := providers.ChatRequest{
-		Model:    bareModel,
-		Messages: llmMessages,
-		Tools:    toolDefs,
+	contextWindow := self.lookupContextWindow(qualifiedModel)
+	if contextWindow <= 0 {
+		contextWindow = configuration.Models.ContextWindow
 	}
-
-	var summaryText string
-	response, err := provider.ChatCompletion(ctx, summaryRequest)
-	if err != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.ContentText()) == "" {
-		summaryText = fmt.Sprintf("[Earlier conversation with %d messages was dropped due to compaction]", len(history))
-	} else {
-		summaryText = strings.TrimSpace(response.Choices[0].Message.ContentText())
+	if contextWindow <= 0 {
+		contextWindow = defaultContextWindow
 	}
+	summaryText := formatStructuredSummary(
+		summarizeMessagesWithFallback(
+			ctx,
+			provider,
+			bareModel,
+			llmMessages,
+			contextWindow,
+			prompts.StructuredSummaryDefaultFocus,
+		),
+	)
 
 	// Persist summary to conversation.
 	summaryMessage := conversations.NewSummaryMessage(summaryText, time.Now().UnixMilli())
-	if err := self.Conversations.Append(conversationId, summaryMessage); err != nil {
+	if err := store.Append(conversationId, summaryMessage); err != nil {
 		return nil, fmt.Errorf("saving summary: %w", err)
 	}
 
