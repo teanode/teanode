@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/providers"
 )
 
@@ -202,6 +204,19 @@ func (self *claudeCodeTool) Definition() providers.ToolDefinition {
 						"type":        "integer",
 						"description": "Number of output tokens used.",
 					},
+					"workingDirectory": map[string]interface{}{
+						"type":        "string",
+						"description": "Working directory used for this Claude Code invocation.",
+					},
+					"resume": map[string]interface{}{
+						"type":        "object",
+						"description": "Canonical payload to continue this session in a later claude_code tool call.",
+						"properties": map[string]interface{}{
+							"action":           map[string]interface{}{"type": "string"},
+							"sessionId":        map[string]interface{}{"type": "string"},
+							"workingDirectory": map[string]interface{}{"type": "string"},
+						},
+					},
 					"timedOut": map[string]interface{}{
 						"type":        "boolean",
 						"description": "Whether the command timed out.",
@@ -245,7 +260,7 @@ func (self *claudeCodeTool) Execute(ctx context.Context, rawArguments string) (s
 	case "resume":
 		return self.executeResume(ctx, arguments.SessionID, arguments.Prompt, arguments.SystemPrompt, arguments.WorkingDirectory, arguments.TimeoutSeconds)
 	case "list_sessions":
-		return self.executeListSessions()
+		return self.executeListSessions(ctx)
 	default:
 		return "", fmt.Errorf("unknown claude_code action: %q (valid: run, resume, list_sessions)", arguments.Action)
 	}
@@ -277,18 +292,23 @@ func (self *claudeCodeTool) executeResume(ctx context.Context, sessionId, prompt
 		return "", fmt.Errorf("prompt is required for resume action")
 	}
 
-	self.mutex.Lock()
-	_, exists := self.sessions[sessionId]
-	self.mutex.Unlock()
-	if !exists {
-		return "", fmt.Errorf("unknown session %q — use list_sessions to see tracked sessions, or use run to start a new session", sessionId)
-	}
-
 	commandArguments := self.buildArguments(prompt, sessionId, systemPrompt)
 	return self.executeCommand(ctx, commandArguments, workingDirectory, timeoutSeconds)
 }
 
-func (self *claudeCodeTool) executeListSessions() (string, error) {
+func (self *claudeCodeTool) executeListSessions(ctx context.Context) (string, error) {
+	if store := self.resolveConversationStore(ctx); store != nil {
+		sessions, err := self.loadSessionsFromConversationStore(store)
+		if err == nil {
+			result, marshalErr := json.Marshal(map[string]interface{}{"sessions": sessions})
+			if marshalErr != nil {
+				return "", fmt.Errorf("marshaling sessions: %w", marshalErr)
+			}
+			return string(result), nil
+		}
+		log.Debugf("list_sessions: failed to load from conversation history, falling back to in-memory sessions: %v", err)
+	}
+
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
@@ -296,6 +316,12 @@ func (self *claudeCodeTool) executeListSessions() (string, error) {
 	for _, session := range self.sessions {
 		sessionList = append(sessionList, *session)
 	}
+	sort.Slice(sessionList, func(left, right int) bool {
+		if !sessionList[left].LastUsedAt.Equal(sessionList[right].LastUsedAt) {
+			return sessionList[left].LastUsedAt.After(sessionList[right].LastUsedAt)
+		}
+		return sessionList[left].SessionID < sessionList[right].SessionID
+	})
 
 	result, err := json.Marshal(map[string]interface{}{
 		"sessions": sessionList,
@@ -304,6 +330,94 @@ func (self *claudeCodeTool) executeListSessions() (string, error) {
 		return "", fmt.Errorf("marshaling sessions: %w", err)
 	}
 	return string(result), nil
+}
+
+func (self *claudeCodeTool) resolveConversationStore(ctx context.Context) *conversations.Store {
+	runner := agents.RunnerFromContext(ctx)
+	if runner == nil {
+		return nil
+	}
+	userId := agents.UserIDFromContext(ctx)
+	if userId == "" {
+		return nil
+	}
+	return runner.ConversationsForUser(userId)
+}
+
+func (self *claudeCodeTool) loadSessionsFromConversationStore(store *conversations.Store) ([]sessionInfo, error) {
+	conversationList, err := store.List()
+	if err != nil {
+		return nil, fmt.Errorf("listing conversations: %w", err)
+	}
+
+	sessionsById := make(map[string]*sessionInfo)
+	for _, conversation := range conversationList {
+		messages, loadError := store.Load(conversation.ID)
+		if loadError != nil {
+			log.Debugf("list_sessions: skipping conversation %q (load error: %v)", conversation.ID, loadError)
+			continue
+		}
+		for _, message := range messages {
+			if message.Role != "tool" || message.ToolName != "claude_code" {
+				continue
+			}
+			sessionId := extractSessionIdFromToolResult(message.ContentText())
+			if sessionId == "" {
+				continue
+			}
+
+			timestamp := time.UnixMilli(message.Timestamp)
+			existing := sessionsById[sessionId]
+			if existing == nil {
+				sessionsById[sessionId] = &sessionInfo{
+					SessionID:  sessionId,
+					CreatedAt:  timestamp,
+					LastUsedAt: timestamp,
+					TurnCount:  1,
+				}
+				continue
+			}
+			if timestamp.Before(existing.CreatedAt) {
+				existing.CreatedAt = timestamp
+			}
+			if timestamp.After(existing.LastUsedAt) {
+				existing.LastUsedAt = timestamp
+			}
+			existing.TurnCount++
+		}
+	}
+
+	sessionList := make([]sessionInfo, 0, len(sessionsById))
+	for _, session := range sessionsById {
+		sessionList = append(sessionList, *session)
+	}
+	sort.Slice(sessionList, func(left, right int) bool {
+		if !sessionList[left].LastUsedAt.Equal(sessionList[right].LastUsedAt) {
+			return sessionList[left].LastUsedAt.After(sessionList[right].LastUsedAt)
+		}
+		return sessionList[left].SessionID < sessionList[right].SessionID
+	})
+	return sessionList, nil
+}
+
+func extractSessionIdFromToolResult(result string) string {
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		return ""
+	}
+
+	if sessionId, ok := payload["sessionId"].(string); ok && sessionId != "" {
+		return sessionId
+	}
+	if sessionId, ok := payload["session_id"].(string); ok && sessionId != "" {
+		return sessionId
+	}
+	if resume, ok := payload["resume"].(map[string]interface{}); ok {
+		if sessionId, ok := resume["sessionId"].(string); ok && sessionId != "" {
+			return sessionId
+		}
+	}
+	return ""
 }
 
 func (self *claudeCodeTool) buildArguments(prompt, sessionId, systemPrompt string) []string {
@@ -368,7 +482,7 @@ func (self *claudeCodeTool) executeCommand(ctx context.Context, commandArguments
 	}
 
 	// Try to parse Claude Code's JSON output.
-	return self.parseOutput(stdout, stderr, exitCode, duration, timedOut)
+	return self.parseOutput(stdout, stderr, exitCode, duration, timedOut, workingDirectory)
 }
 
 // claudeCodeOutput represents the JSON output from `claude -p --output-format json`.
@@ -381,7 +495,7 @@ type claudeCodeOutput struct {
 	NumOutputTokens int     `json:"num_output_tokens"`
 }
 
-func (self *claudeCodeTool) parseOutput(stdout, stderr []byte, exitCode int, duration float64, timedOut bool) (string, error) {
+func (self *claudeCodeTool) parseOutput(stdout, stderr []byte, exitCode int, duration float64, timedOut bool, workingDirectory string) (string, error) {
 	var parsed claudeCodeOutput
 	if err := json.Unmarshal(stdout, &parsed); err != nil {
 		// Fallback: return raw stdout as result if JSON parsing fails.
@@ -393,11 +507,12 @@ func (self *claudeCodeTool) parseOutput(stdout, stderr []byte, exitCode int, dur
 		}
 
 		result, marshalError := json.Marshal(map[string]interface{}{
-			"result":   rawResult,
-			"isError":  exitCode != 0,
-			"duration": duration,
-			"exitCode": exitCode,
-			"timedOut": timedOut,
+			"result":           rawResult,
+			"isError":          exitCode != 0,
+			"duration":         duration,
+			"exitCode":         exitCode,
+			"timedOut":         timedOut,
+			"workingDirectory": workingDirectory,
 		})
 		if marshalError != nil {
 			return "", fmt.Errorf("marshaling fallback result: %w", marshalError)
@@ -410,17 +525,27 @@ func (self *claudeCodeTool) parseOutput(stdout, stderr []byte, exitCode int, dur
 		self.trackSession(parsed.SessionID)
 	}
 
-	result, err := json.Marshal(map[string]interface{}{
-		"sessionId":    parsed.SessionID,
-		"result":       parsed.Result,
-		"isError":      parsed.IsError,
-		"duration":     duration,
-		"exitCode":     exitCode,
-		"costUsd":      parsed.CostUSD,
-		"inputTokens":  parsed.NumInputTokens,
-		"outputTokens": parsed.NumOutputTokens,
-		"timedOut":     timedOut,
-	})
+	response := map[string]interface{}{
+		"sessionId":        parsed.SessionID,
+		"result":           parsed.Result,
+		"isError":          parsed.IsError,
+		"duration":         duration,
+		"exitCode":         exitCode,
+		"costUsd":          parsed.CostUSD,
+		"inputTokens":      parsed.NumInputTokens,
+		"outputTokens":     parsed.NumOutputTokens,
+		"timedOut":         timedOut,
+		"workingDirectory": workingDirectory,
+	}
+	if parsed.SessionID != "" {
+		response["resume"] = map[string]interface{}{
+			"action":           "resume",
+			"sessionId":        parsed.SessionID,
+			"workingDirectory": workingDirectory,
+		}
+	}
+
+	result, err := json.Marshal(response)
 	if err != nil {
 		return "", fmt.Errorf("marshaling result: %w", err)
 	}

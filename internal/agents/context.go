@@ -249,8 +249,8 @@ func (self *Runner) compressContext(
 
 	// Estimate whether the prefix + instruction + output buffer fits.
 	prefixTokens := 0
-	for _, msg := range messages[:keepIdx] {
-		prefixTokens += estimateMessageTokens(msg)
+	for _, message := range messages[:keepIdx] {
+		prefixTokens += estimateMessageTokens(message)
 	}
 	prefixTokens += estimateToolDefsTokens(toolDefs)
 	prefixTokens += estimateMessageTokens(summarizeInstruction) + 2000 // output buffer
@@ -298,8 +298,11 @@ func (self *Runner) compressContext(
 
 	// Persist summary to conversation.
 	summaryMessage := conversations.NewSummaryMessage(summaryText, time.Now().UnixMilli())
-	if err := self.Conversations.Append(conversationId, summaryMessage); err != nil {
-		log.Debugf("failed to persist context summary: %v", err)
+	store := self.ConversationsForUser(UserIDFromContext(ctx))
+	if store != nil {
+		if err := store.Append(conversationId, summaryMessage); err != nil {
+			log.Debugf("failed to persist context summary: %v", err)
+		}
 	}
 
 	// Build compressed messages: system prompt + summary + kept messages.

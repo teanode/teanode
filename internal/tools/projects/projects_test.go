@@ -9,6 +9,7 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	projectstore "github.com/teanode/teanode/internal/projects"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 func withTempDir(t *testing.T) {
@@ -37,9 +38,9 @@ func TestProjectsToolCreateAndWrite(t *testing.T) {
 	}
 	var created struct {
 		Project struct {
-			ID        string `json:"id"`
-			Name      string `json:"name"`
-			UpdatedAt int64  `json:"updatedAt"`
+			ID        string             `json:"id"`
+			Name      string             `json:"name"`
+			UpdatedAt timeutil.Timestamp `json:"updatedAt"`
 		} `json:"project"`
 	}
 	if err := json.Unmarshal([]byte(result), &created); err != nil {
@@ -61,8 +62,8 @@ func TestProjectsToolCreateAndWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get project metadata: %v", err)
 	}
-	if metadata.UpdatedAt <= created.Project.UpdatedAt {
-		t.Fatalf("updatedAt = %d, want > %d", metadata.UpdatedAt, created.Project.UpdatedAt)
+	if !metadata.UpdatedAt.Time.After(created.Project.UpdatedAt.Time) {
+		t.Fatalf("updatedAt = %s, want > %s", metadata.UpdatedAt.String(), created.Project.UpdatedAt.String())
 	}
 }
 

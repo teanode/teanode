@@ -21,11 +21,11 @@ export default function SettingsProfilePage() {
   const { t } = useTranslation();
   const [profile, setProfile] = useState<Profile>({
     name: "",
-    bio: "",
+    description: "",
     avatarMediaId: "",
   });
   const [name, setName] = useState("");
-  const [bio, setBio] = useState("");
+  const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -38,7 +38,7 @@ export default function SettingsProfilePage() {
       .then((loaded) => {
         setProfile(loaded);
         setName(loaded.name || "");
-        setBio(loaded.bio || "");
+        setDescription(loaded.description || "");
       })
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load profile"),
@@ -47,12 +47,11 @@ export default function SettingsProfilePage() {
   }, []);
 
   const normalizedName = name.trim();
-  const normalizedBio = bio.trim();
   const dirty = useMemo(
     () =>
       normalizedName !== (profile.name || "").trim() ||
-      normalizedBio !== (profile.bio || "").trim(),
-    [normalizedName, normalizedBio, profile.name, profile.bio],
+      description.trim() !== (profile.description || "").trim(),
+    [description, normalizedName, profile.description, profile.name],
   );
 
   async function handleSave() {
@@ -66,11 +65,11 @@ export default function SettingsProfilePage() {
     try {
       const saved = await profileUpdateRpc({
         name: normalizedName,
-        bio: normalizedBio,
+        description: description.trim(),
       });
       setProfile(saved);
       setName(saved.name || "");
-      setBio(saved.bio || "");
+      setDescription(saved.description || "");
       setSuccess(t("settings.profileSaved"));
     } catch (err) {
       setError(
@@ -180,13 +179,11 @@ export default function SettingsProfilePage() {
                 }}
               />
             </Box>
-
             <TextField
-              label={t("settings.profileBio")}
-              value={bio}
-              onChange={(event) => setBio(event.target.value)}
               size="small"
-              fullWidth
+              label={t("settings.userDescription")}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
               multiline
               minRows={3}
             />

@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/teanode/teanode/internal/util/timeutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -479,7 +481,6 @@ func TestPathHelpers(t *testing.T) {
 		function func() (string, error)
 		expected string
 	}{
-		{"JobsDirectory", JobsDirectory, filepath.Join(directory, "jobs")},
 		{"AgentsDirectory", AgentsDirectory, filepath.Join(directory, "agents")},
 		{"SkillsDirectory", SkillsDirectory, filepath.Join(directory, "skills")},
 		{"ProjectsDirectory", ProjectsDirectory, filepath.Join(directory, "projects")},
@@ -505,16 +506,16 @@ func TestPathHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AgentWorkspaceDirectory error: %v", err)
 	}
-	if workspaceDirectory != filepath.Join(directory, "workspaces", "alpha") {
-		t.Errorf("AgentWorkspaceDirectory = %q, want %q", workspaceDirectory, filepath.Join(directory, "workspaces", "alpha"))
+	if workspaceDirectory != filepath.Join(directory, "agents", "alpha", "workspace") {
+		t.Errorf("AgentWorkspaceDirectory = %q, want %q", workspaceDirectory, filepath.Join(directory, "agents", "alpha", "workspace"))
 	}
 
-	conversationsDirectory, err := AgentConversationsDirectory("alpha")
+	userJobsDirectory, err := UserJobsDirectory("u-1")
 	if err != nil {
-		t.Fatalf("AgentConversationsDirectory error: %v", err)
+		t.Fatalf("UserJobsDirectory error: %v", err)
 	}
-	if conversationsDirectory != filepath.Join(directory, "conversations", "alpha") {
-		t.Errorf("AgentConversationsDirectory = %q, want %q", conversationsDirectory, filepath.Join(directory, "conversations", "alpha"))
+	if userJobsDirectory != filepath.Join(directory, "users", "u-1", "jobs") {
+		t.Errorf("UserJobsDirectory = %q, want %q", userJobsDirectory, filepath.Join(directory, "users", "u-1", "jobs"))
 	}
 
 	agentStateFile, err := AgentStateFile("alpha")
@@ -533,7 +534,7 @@ func TestEnsureDirectories(t *testing.T) {
 		t.Fatalf("EnsureDirectories() error: %v", err)
 	}
 
-	expectedSubdirectories := []string{"conversations", "workspaces", "skills", "projects", "media", "agents", "jobs", "sessions", ".trash"}
+	expectedSubdirectories := []string{"skills", "projects", "media", "agents", "users", "sessions", ".trash", ".backup", ".migrations"}
 	for _, subdirectory := range expectedSubdirectories {
 		path := filepath.Join(directory, subdirectory)
 		info, err := os.Stat(path)
@@ -545,6 +546,11 @@ func TestEnsureDirectories(t *testing.T) {
 			t.Errorf("%q is not a directory", subdirectory)
 		}
 	}
+
+	legacyJobsPath := filepath.Join(directory, "jobs")
+	if _, err := os.Stat(legacyJobsPath); !os.IsNotExist(err) {
+		t.Errorf("legacy jobs directory should not be created: %s", legacyJobsPath)
+	}
 }
 
 func TestEnsureAgentDirectories(t *testing.T) {
@@ -555,9 +561,8 @@ func TestEnsureAgentDirectories(t *testing.T) {
 	}
 
 	expectedPaths := []string{
-		filepath.Join(directory, "workspaces", "alpha"),
-		filepath.Join(directory, "workspaces", "alpha", "memory"),
-		filepath.Join(directory, "conversations", "alpha"),
+		filepath.Join(directory, "agents", "alpha", "workspace"),
+		filepath.Join(directory, "agents", "alpha", "workspace", "memory"),
 	}
 	for _, path := range expectedPaths {
 		info, err := os.Stat(path)
@@ -616,13 +621,13 @@ func TestLoadAndSaveAgentState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAgentState() error: %v", err)
 	}
-	if state.Description != "" || state.DescriptionUpdatedAt != 0 {
+	if state.Description != "" || !state.DescriptionUpdatedAt.IsZero() {
 		t.Fatalf("expected empty state, got %+v", state)
 	}
 
 	want := &AgentState{
 		Description:          "Specializes in code review and refactoring.",
-		DescriptionUpdatedAt: 123456789,
+		DescriptionUpdatedAt: timeutil.Timestamp{Time: time.UnixMilli(123456789)},
 	}
 	if err := SaveAgentState("alpha", want); err != nil {
 		t.Fatalf("SaveAgentState() error: %v", err)
@@ -635,8 +640,8 @@ func TestLoadAndSaveAgentState(t *testing.T) {
 	if got.Description != want.Description {
 		t.Errorf("Description = %q, want %q", got.Description, want.Description)
 	}
-	if got.DescriptionUpdatedAt != want.DescriptionUpdatedAt {
-		t.Errorf("DescriptionUpdatedAt = %d, want %d", got.DescriptionUpdatedAt, want.DescriptionUpdatedAt)
+	if !got.DescriptionUpdatedAt.Time.Equal(want.DescriptionUpdatedAt.Time.In(time.Local)) {
+		t.Errorf("DescriptionUpdatedAt = %s, want %s", got.DescriptionUpdatedAt.String(), want.DescriptionUpdatedAt.String())
 	}
 }
 
@@ -726,11 +731,16 @@ func TestDeleteAgent(t *testing.T) {
 	if err := EnsureAgentDirectories("alpha"); err != nil {
 		t.Fatalf("EnsureAgentDirectories() error: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, "workspaces", "alpha", "notes.md"), []byte("workspace note"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, "agents", "alpha", "workspace", "notes.md"), []byte("workspace note"), 0644); err != nil {
 		t.Fatalf("WriteFile workspace: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, "conversations", "alpha", "conversation-1.jsonl"), []byte("hello"), 0644); err != nil {
-		t.Fatalf("WriteFile conversation: %v", err)
+	for _, userId := range []string{"user-1", "user-2"} {
+		if err := os.MkdirAll(filepath.Join(directory, "users", userId, "conversations", "alpha"), 0755); err != nil {
+			t.Fatalf("MkdirAll conversation: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "users", userId, "conversations", "alpha", "conversation-1.jsonl"), []byte("hello"), 0644); err != nil {
+			t.Fatalf("WriteFile conversation: %v", err)
+		}
 	}
 
 	if err := DeleteAgent("alpha"); err != nil {
@@ -746,8 +756,9 @@ func TestDeleteAgent(t *testing.T) {
 	}
 	for _, path := range []string{
 		filepath.Join(directory, "agents", "alpha"),
-		filepath.Join(directory, "workspaces", "alpha"),
-		filepath.Join(directory, "conversations", "alpha"),
+		filepath.Join(directory, "agents", "alpha", "workspace"),
+		filepath.Join(directory, "users", "user-1", "conversations", "alpha"),
+		filepath.Join(directory, "users", "user-2", "conversations", "alpha"),
 	} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("expected %q to be deleted, stat err=%v", path, err)
@@ -762,8 +773,8 @@ func TestDeleteAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadDir trash: %v", err)
 	}
-	if len(entries) < 3 {
-		t.Fatalf("expected at least 3 trashed entries for agent delete, got %d", len(entries))
+	if len(entries) < 2 {
+		t.Fatalf("expected at least 2 trashed entries for agent delete, got %d", len(entries))
 	}
 }
 
@@ -831,6 +842,54 @@ func TestSeedAgentWorkspace_SkipsExisting(t *testing.T) {
 	}
 	if string(data) != "custom content" {
 		t.Errorf("AGENT.md was overwritten, got %q", string(data))
+	}
+}
+
+func TestSeedUserWorkspace(t *testing.T) {
+	withTempDir(t)
+
+	if err := EnsureUserDirectories("user-1"); err != nil {
+		t.Fatalf("EnsureUserDirectories() error: %v", err)
+	}
+
+	workspaceDirectory, _ := UserWorkspaceDirectory("user-1")
+	for _, filename := range []string{"USER.md", "MEMORY.md"} {
+		path := filepath.Join(workspaceDirectory, filename)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Errorf("expected file %q not found: %v", filename, err)
+			continue
+		}
+		if info.Size() == 0 {
+			t.Errorf("expected file %q to have content", filename)
+		}
+	}
+}
+
+func TestSeedUserWorkspace_SkipsExisting(t *testing.T) {
+	withTempDir(t)
+
+	if err := EnsureUserDirectories("user-1"); err != nil {
+		t.Fatalf("EnsureUserDirectories() error: %v", err)
+	}
+
+	workspaceDirectory, _ := UserWorkspaceDirectory("user-1")
+	customContent := []byte("custom user content")
+	userMdPath := filepath.Join(workspaceDirectory, "USER.md")
+	if err := os.WriteFile(userMdPath, customContent, 0644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	if err := SeedUserWorkspace("user-1"); err != nil {
+		t.Fatalf("SeedUserWorkspace() error: %v", err)
+	}
+
+	data, err := os.ReadFile(userMdPath)
+	if err != nil {
+		t.Fatalf("ReadFile error: %v", err)
+	}
+	if string(data) != "custom user content" {
+		t.Errorf("USER.md was overwritten, got %q", string(data))
 	}
 }
 

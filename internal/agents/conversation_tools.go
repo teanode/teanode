@@ -79,7 +79,11 @@ func (self *listConversationsTool) Execute(ctx context.Context, rawArguments str
 
 	currentConversationId := ConversationIDFromContext(ctx)
 
-	allConversations, err := self.conversations.List()
+	store := self.conversations
+	if runner := RunnerFromContext(ctx); runner != nil {
+		store = runner.ConversationsForUser(UserIDFromContext(ctx))
+	}
+	allConversations, err := store.List()
 	if err != nil {
 		return "", fmt.Errorf("listing conversations: %w", err)
 	}

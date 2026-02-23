@@ -487,12 +487,6 @@
               "title": "Bot Token",
               "description": "Discord bot token.",
               "format": "password"
-            },
-            "allowedUsers": {
-              "type": "array",
-              "title": "Allowed Users",
-              "description": "Discord user IDs allowed to interact with the bot.",
-              "items": { "type": "string" }
             }
           }
         },
@@ -505,12 +499,6 @@
               "title": "Bot Token",
               "description": "Telegram bot token.",
               "format": "password"
-            },
-            "allowedUsers": {
-              "type": "array",
-              "title": "Allowed Users",
-              "description": "Telegram user IDs allowed to interact with the bot.",
-              "items": { "type": "string" }
             }
           }
         }

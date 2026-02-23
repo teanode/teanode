@@ -224,11 +224,14 @@ export async function authStatus(): Promise<AuthStatusResult> {
   return response.json();
 }
 
-export async function authLogin(password: string): Promise<void> {
+export async function authLogin(
+  username: string,
+  password: string,
+): Promise<void> {
   const response = await apiFetch("/api/v1/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ username, password }),
   });
   if (!response.ok) {
     const data = await response
@@ -239,13 +242,14 @@ export async function authLogin(password: string): Promise<void> {
 }
 
 export async function authSetup(
+  username: string,
   password: string,
   name?: string,
 ): Promise<void> {
   const response = await apiFetch("/api/v1/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password, name }),
+    body: JSON.stringify({ username, password, name }),
   });
   if (!response.ok) {
     const data = await response
@@ -259,40 +263,16 @@ export async function authLogout(): Promise<void> {
   await apiFetch("/api/v1/auth/logout", { method: "POST" });
 }
 
-export async function profileGet(): Promise<Profile> {
-  const response = await apiFetch("/api/v1/profile", { cache: "no-store" });
-  if (!response.ok) throw new Error(`profile: ${response.status}`);
-  return response.json();
-}
-
-export async function profileUpdate(profile: Profile): Promise<Profile> {
-  const response = await apiFetch("/api/v1/profile", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: profile.name,
-      bio: profile.bio || "",
-    }),
-  });
-  if (!response.ok) {
-    const data = await response
-      .json()
-      .catch(() => ({ error: { message: "Failed to save profile" } }));
-    throw new Error(data.error?.message || "Failed to save profile");
-  }
-  return response.json();
-}
-
 interface RpcProfile {
   name: string;
-  biography: string;
+  description?: string;
   avatarMediaId?: string;
 }
 
 function fromRpcProfile(profile: RpcProfile): Profile {
   return {
     name: profile.name || "",
-    bio: profile.biography || "",
+    description: profile.description || "",
     avatarMediaId: profile.avatarMediaId || "",
   };
 }
@@ -302,10 +282,17 @@ export async function profileGetRpc(): Promise<Profile> {
   return fromRpcProfile(response);
 }
 
-export async function profileUpdateRpc(profile: Profile): Promise<Profile> {
+export async function profileUpdateRpc(
+  profile: Partial<Profile>,
+): Promise<Profile> {
   const response = await sendRpc<RpcProfile>("profile.update", {
-    name: profile.name,
-    biography: profile.bio || "",
+    ...(profile.name !== undefined ? { name: profile.name } : {}),
+    ...(profile.description !== undefined
+      ? { description: profile.description }
+      : {}),
+    ...(profile.avatarMediaId !== undefined
+      ? { avatarMediaId: profile.avatarMediaId }
+      : {}),
   });
   return fromRpcProfile(response);
 }
@@ -316,43 +303,42 @@ export async function uploadAgentAvatar(
 ): Promise<void> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await apiFetch(
-    `/api/v1/agents/${encodeURIComponent(agentId)}/avatar`,
-    {
-      method: "POST",
-      body: formData,
-    },
-  );
+  const response = await apiFetch("/api/v1/media/upload", {
+    method: "POST",
+    body: formData,
+  });
   if (!response.ok) throw new Error(await response.text());
+  const uploaded = (await response.json()) as { mediaId?: string };
+  if (!uploaded.mediaId) {
+    throw new Error("Upload failed: missing mediaId");
+  }
+  await sendRpc("agents.avatar.set", {
+    id: agentId,
+    avatarMediaId: uploaded.mediaId,
+  });
 }
 
 export async function removeAgentAvatar(agentId: string): Promise<void> {
-  const response = await apiFetch(
-    `/api/v1/agents/${encodeURIComponent(agentId)}/avatar`,
-    {
-      method: "DELETE",
-    },
-  );
-  if (!response.ok) throw new Error(await response.text());
+  await sendRpc("agents.avatar.remove", { id: agentId });
 }
 
 export async function uploadProfileAvatar(file: File): Promise<Profile> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await apiFetch("/api/v1/profile/avatar", {
+  const response = await apiFetch("/api/v1/media/upload", {
     method: "POST",
     body: formData,
   });
   if (!response.ok) throw new Error(await response.text());
-  return response.json();
+  const uploaded = (await response.json()) as { mediaId?: string };
+  if (!uploaded.mediaId) {
+    throw new Error("Upload failed: missing mediaId");
+  }
+  return profileUpdateRpc({ avatarMediaId: uploaded.mediaId });
 }
 
 export async function removeProfileAvatar(): Promise<Profile> {
-  const response = await apiFetch("/api/v1/profile/avatar", {
-    method: "DELETE",
-  });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
+  return profileUpdateRpc({ avatarMediaId: "" });
 }
 
 export async function removeProfileAvatarRpc(): Promise<Profile> {
@@ -361,5 +347,5 @@ export async function removeProfileAvatarRpc(): Promise<Profile> {
 }
 
 // Backward-compatible aliases.
-export const getProfile = profileGet;
-export const updateProfile = profileUpdate;
+export const getProfile = profileGetRpc;
+export const updateProfile = profileUpdateRpc;

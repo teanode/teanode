@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
@@ -435,6 +436,13 @@ func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Req
 	if cookie, err := request.Cookie("session"); err == nil {
 		sessionId = cookie.Value
 	}
-	webSocketConnection := newWebSocketConnection(connection, self, sessionId)
+	userId := ""
+	if userContext := gw.UserFromContext(request.Context()); userContext != nil {
+		userId = userContext.UserID
+		if userContext.SessionID != "" {
+			sessionId = userContext.SessionID
+		}
+	}
+	webSocketConnection := newWebSocketConnection(connection, self, sessionId, userId)
 	webSocketConnection.serve()
 }

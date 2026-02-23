@@ -107,24 +107,29 @@ func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string,
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
 
+	userId := agents.UserIDFromContext(ctx)
+	if userId == "" {
+		return "", fmt.Errorf("authenticated user context is required")
+	}
+
 	switch arguments.Action {
 	case "list":
-		return self.executeList()
+		return self.executeList(userId)
 	case "create":
-		return self.executeCreate(ctx, arguments.Name, arguments.Schedule, arguments.Message, arguments.Model, arguments.AgentID, arguments.Delay, arguments.OneShot)
+		return self.executeCreate(ctx, userId, arguments.Name, arguments.Schedule, arguments.Message, arguments.Model, arguments.AgentID, arguments.Delay, arguments.OneShot)
 	case "update":
-		return self.executeUpdate(arguments.ID, arguments.Name, arguments.Schedule, arguments.Message, arguments.Model, arguments.Enabled)
+		return self.executeUpdate(userId, arguments.ID, arguments.Name, arguments.Schedule, arguments.Message, arguments.Model, arguments.Enabled)
 	case "delete":
-		return self.executeDelete(arguments.ID)
+		return self.executeDelete(userId, arguments.ID)
 	case "trigger":
-		return self.executeTrigger(arguments.ID)
+		return self.executeTrigger(userId, arguments.ID)
 	default:
 		return "", fmt.Errorf("unknown jobs action: %s", arguments.Action)
 	}
 }
 
-func (self *jobsTool) executeList() (string, error) {
-	jobs := self.scheduler.List()
+func (self *jobsTool) executeList(userId string) (string, error) {
+	jobs := self.scheduler.List(userId)
 	result, _ := json.Marshal(map[string]interface{}{
 		"action": "list",
 		"jobs":   jobs,
@@ -132,7 +137,7 @@ func (self *jobsTool) executeList() (string, error) {
 	return string(result), nil
 }
 
-func (self *jobsTool) executeCreate(ctx context.Context, name string, schedule string, message string, model string, agentId string, delay string, oneShot *bool) (string, error) {
+func (self *jobsTool) executeCreate(ctx context.Context, userId string, name string, schedule string, message string, model string, agentId string, delay string, oneShot *bool) (string, error) {
 	if name == "" || message == "" {
 		return "", fmt.Errorf("name and message are required")
 	}
@@ -187,11 +192,8 @@ func (self *jobsTool) executeCreate(ctx context.Context, name string, schedule s
 		CreatedAt:      time.Now().UnixMilli(),
 	}
 
-	if err := self.scheduler.store.Create(job); err != nil {
+	if err := self.scheduler.CreateAndReload(userId, job); err != nil {
 		return "", fmt.Errorf("creating job: %w", err)
-	}
-	if err := self.scheduler.Reload(); err != nil {
-		return "", fmt.Errorf("reloading scheduler: %w", err)
 	}
 
 	response := map[string]interface{}{
@@ -210,13 +212,13 @@ func (self *jobsTool) executeCreate(ctx context.Context, name string, schedule s
 	return string(result), nil
 }
 
-func (self *jobsTool) executeUpdate(id string, name string, schedule string, message string, model string, enabled *bool) (string, error) {
+func (self *jobsTool) executeUpdate(userId, id string, name string, schedule string, message string, model string, enabled *bool) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
 
 	// Find existing job.
-	jobs := self.scheduler.List()
+	jobs := self.scheduler.List(userId)
 	var job *Job
 	for index := range jobs {
 		if jobs[index].ID == id {
@@ -247,11 +249,8 @@ func (self *jobsTool) executeUpdate(id string, name string, schedule string, mes
 		job.Enabled = *enabled
 	}
 
-	if err := self.scheduler.store.Update(*job); err != nil {
+	if err := self.scheduler.UpdateAndReload(userId, *job); err != nil {
 		return "", fmt.Errorf("updating job: %w", err)
-	}
-	if err := self.scheduler.Reload(); err != nil {
-		return "", fmt.Errorf("reloading scheduler: %w", err)
 	}
 
 	result, _ := json.Marshal(map[string]interface{}{
@@ -263,16 +262,13 @@ func (self *jobsTool) executeUpdate(id string, name string, schedule string, mes
 	return string(result), nil
 }
 
-func (self *jobsTool) executeDelete(id string) (string, error) {
+func (self *jobsTool) executeDelete(userId, id string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
 
-	if err := self.scheduler.store.Delete(id); err != nil {
+	if err := self.scheduler.DeleteAndReload(userId, id); err != nil {
 		return "", fmt.Errorf("deleting job: %w", err)
-	}
-	if err := self.scheduler.Reload(); err != nil {
-		return "", fmt.Errorf("reloading scheduler: %w", err)
 	}
 
 	result, _ := json.Marshal(map[string]interface{}{
@@ -283,12 +279,12 @@ func (self *jobsTool) executeDelete(id string) (string, error) {
 	return string(result), nil
 }
 
-func (self *jobsTool) executeTrigger(id string) (string, error) {
+func (self *jobsTool) executeTrigger(userId, id string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
 
-	if err := self.scheduler.Trigger(id); err != nil {
+	if err := self.scheduler.Trigger(userId, id); err != nil {
 		return "", err
 	}
 

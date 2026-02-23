@@ -20,7 +20,6 @@ export default function ConversationsConversationPage() {
   const agentName = agent?.name || agentId;
   const [profile, setProfile] = useState<Profile>({
     name: "",
-    bio: "",
     avatarMediaId: "",
   });
 

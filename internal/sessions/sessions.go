@@ -19,6 +19,7 @@ import (
 // Session represents a single authenticated browser session.
 type Session struct {
 	ID         string    `json:"id" yaml:"id"`
+	UserID     string    `json:"userId" yaml:"userId"`
 	CreatedAt  time.Time `json:"createdAt" yaml:"createdAt"`
 	ExpiresAt  time.Time `json:"expiresAt" yaml:"expiresAt"`
 	UserAgent  string    `json:"userAgent" yaml:"userAgent"`
@@ -38,13 +39,14 @@ func NewStore(directory string) *Store {
 }
 
 // Create generates a new session and writes it to disk.
-func (self *Store) Create(userAgent, remoteAddr string, maxAge time.Duration) (*Session, error) {
+func (self *Store) Create(userId, userAgent, remoteAddr string, maxAge time.Duration) (*Session, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
 	now := time.Now()
 	session := &Session{
 		ID:         security.NewULID(),
+		UserID:     userId,
 		CreatedAt:  now,
 		ExpiresAt:  now.Add(maxAge),
 		UserAgent:  userAgent,

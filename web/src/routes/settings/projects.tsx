@@ -17,12 +17,14 @@ interface ProjectEntry {
   id: string;
   name: string;
   description?: string;
-  updatedAt?: number;
+  updatedAt?: string;
 }
 
-function formatUpdated(updatedAt?: number): string {
+function formatUpdated(updatedAt?: string): string {
   if (!updatedAt) return "";
-  return new Date(updatedAt).toLocaleString();
+  const timestamp = Date.parse(updatedAt);
+  if (Number.isNaN(timestamp)) return updatedAt;
+  return new Date(timestamp).toLocaleString();
 }
 
 export default function SettingsProjectsPage() {
@@ -56,10 +58,17 @@ export default function SettingsProjectsPage() {
   }, [loadProjects]);
 
   const sortedProjects = useMemo(
-    () =>
-      [...projects].sort(
-        (left, right) => (right.updatedAt || 0) - (left.updatedAt || 0),
-      ),
+    () => {
+      const updatedAtMs = (value?: string) => {
+        if (!value) return 0;
+        const timestamp = Date.parse(value);
+        return Number.isNaN(timestamp) ? 0 : timestamp;
+      };
+      return [...projects].sort(
+        (left, right) =>
+          updatedAtMs(right.updatedAt) - updatedAtMs(left.updatedAt),
+      );
+    },
     [projects],
   );
 

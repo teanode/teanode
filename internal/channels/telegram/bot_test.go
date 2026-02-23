@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/teanode/teanode/internal/agents"
@@ -12,20 +13,37 @@ func TestShouldForwardDisconnectedWebUI(t *testing.T) {
 
 	registry := agents.NewAgentRegistry()
 	registry.SetDefault(configs.DefaultAgentID)
-	registry.SetDefaultConversation(configs.DefaultAgentID, "default-conversation")
+	registry.SetDefaultConversation("user-1", configs.DefaultAgentID, "default-conversation")
 
 	bot := &Bot{agentRegistry: registry}
 
-	if !bot.shouldForwardDisconnectedWebUI(configs.DefaultAgentID, "default-conversation", "session-1") {
+	if !bot.shouldForwardDisconnectedSession("user-1", configs.DefaultAgentID, "default-conversation", "session-1") {
 		t.Fatal("expected default agent/default conversation to be eligible for disconnected WebUI forwarding")
 	}
-	if bot.shouldForwardDisconnectedWebUI("other-agent", "default-conversation", "session-1") {
+	if bot.shouldForwardDisconnectedSession("user-1", "other-agent", "default-conversation", "session-1") {
 		t.Fatal("expected non-default agent to be rejected")
 	}
-	if bot.shouldForwardDisconnectedWebUI(configs.DefaultAgentID, "other-conversation", "session-1") {
+	if bot.shouldForwardDisconnectedSession("user-1", configs.DefaultAgentID, "other-conversation", "session-1") {
 		t.Fatal("expected non-default conversation to be rejected")
 	}
-	if bot.shouldForwardDisconnectedWebUI(configs.DefaultAgentID, "default-conversation", "") {
+	if bot.shouldForwardDisconnectedSession("user-1", configs.DefaultAgentID, "default-conversation", "") {
 		t.Fatal("expected missing origin session to be rejected")
+	}
+}
+
+func TestUnlinkedTelegramMessage(t *testing.T) {
+	t.Setenv("TEANODE_DIR", t.TempDir())
+	message := unlinkedTelegramMessage("12345")
+	for _, want := range []string{
+		"not linked",
+		"security.yaml",
+		"channelLinks:",
+		"telegram:",
+		"\"12345\": \"<userId>\"",
+		"users:",
+	} {
+		if !strings.Contains(strings.ToLower(message), strings.ToLower(want)) {
+			t.Fatalf("message missing %q: %s", want, message)
+		}
 	}
 }

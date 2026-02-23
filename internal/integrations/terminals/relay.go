@@ -60,7 +60,8 @@ func NewRelay() *Relay {
 func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Request) {
 	id := request.URL.Query().Get("id")
 	if id == "" {
-		id = "default"
+		http.Error(writer, "missing terminal connection id", http.StatusBadRequest)
+		return
 	}
 
 	websocketConnection, err := wsUpgrader.Upgrade(writer, request, nil)

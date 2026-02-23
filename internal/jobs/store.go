@@ -15,37 +15,79 @@ import (
 )
 
 // Store provides thread-safe persistence for scheduled jobs.
-// Each job is stored as a markdown file at ~/.teanode/jobs/<jobId>.md
+// Each job is stored as a markdown file at ~/.teanode/users/<userId>/jobs/<jobId>.md
 // with YAML frontmatter for metadata and the message as the body.
 type Store struct {
-	directory string
-	mutex     sync.Mutex
+	usersDirectory string
+	mutex          sync.Mutex
 }
 
-// NewStore creates a Store that persists to ~/.teanode/jobs/.
+// NewStore creates a Store that persists under ~/.teanode/users/*/jobs/.
 func NewStore() (*Store, error) {
-	directory, err := configs.JobsDirectory()
+	usersDirectory, err := configs.UsersDirectory()
 	if err != nil {
 		return nil, err
 	}
-	return &Store{directory: directory}, nil
+	return &Store{usersDirectory: usersDirectory}, nil
 }
 
 // Load reads all jobs from the jobs directory.
 // Returns empty slice if the directory doesn't exist or is empty.
 func (self *Store) Load() ([]Job, error) {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	return self.loadLocked()
+	ownedJobs, err := self.LoadOwned()
+	if err != nil {
+		return nil, err
+	}
+	jobs := make([]Job, 0, len(ownedJobs))
+	for _, ownedJob := range ownedJobs {
+		jobs = append(jobs, ownedJob.Job)
+	}
+	return jobs, nil
 }
 
-func (self *Store) loadLocked() ([]Job, error) {
-	entries, err := os.ReadDir(self.directory)
+// LoadOwned reads all jobs and keeps owner information from users/*/jobs/.
+func (self *Store) LoadOwned() ([]OwnedJob, error) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.loadOwnedLocked()
+}
+
+func (self *Store) loadOwnedLocked() ([]OwnedJob, error) {
+	users, err := os.ReadDir(self.usersDirectory)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("reading jobs directory: %w", err)
+		return nil, fmt.Errorf("reading users directory: %w", err)
+	}
+
+	var jobs []OwnedJob
+	for _, userEntry := range users {
+		if !userEntry.IsDir() {
+			continue
+		}
+		userId := userEntry.Name()
+		userJobs, err := self.loadUserJobsLocked(userId)
+		if err != nil {
+			log.Errorf("reading jobs for user %s: %v", userId, err)
+			continue
+		}
+		jobs = append(jobs, userJobs...)
+	}
+	return jobs, nil
+}
+
+func (self *Store) loadUserJobsLocked(userId string) ([]OwnedJob, error) {
+	directory, err := self.userJobsDirectory(userId)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(directory)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading jobs directory for user %s: %w", userId, err)
 	}
 
 	var jobs []Job
@@ -54,45 +96,47 @@ func (self *Store) loadLocked() ([]Job, error) {
 			continue
 		}
 		id := strings.TrimSuffix(entry.Name(), ".md")
-		job, err := self.readJobFile(id)
+		job, err := self.readJobFile(directory, id)
 		if err != nil {
-			log.Errorf("reading job file %s: %v", entry.Name(), err)
+			log.Errorf("reading job file %s for user %s: %v", entry.Name(), userId, err)
 			continue
 		}
 		jobs = append(jobs, job)
 	}
-	return jobs, nil
+	ownedJobs := make([]OwnedJob, 0, len(jobs))
+	for _, job := range jobs {
+		ownedJobs = append(ownedJobs, OwnedJob{UserID: userId, Job: job})
+	}
+	return ownedJobs, nil
 }
 
 // Save writes the full job list to disk, replacing all existing files.
-func (self *Store) Save(jobs []Job) error {
+func (self *Store) Save(jobs []OwnedJob) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	return self.saveLocked(jobs)
 }
 
-func (self *Store) saveLocked(jobs []Job) error {
+func (self *Store) saveLocked(jobs []OwnedJob) error {
 	trashDirectory, err := configs.TrashDirectory()
 	if err != nil {
 		return err
 	}
 
-	// Remove all existing .md files.
-	entries, err := os.ReadDir(self.directory)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("reading jobs directory: %w", err)
+	// Remove all existing job markdown files across users/*/jobs/.
+	existingJobFiles, err := self.listAllJobFilesLocked()
+	if err != nil {
+		return err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
-			if err := trash.Move(filepath.Join(self.directory, entry.Name()), trashDirectory); err != nil {
-				return fmt.Errorf("moving old job file to trash: %w", err)
-			}
+	for _, path := range existingJobFiles {
+		if err := trash.Move(path, trashDirectory); err != nil {
+			return fmt.Errorf("moving old job file to trash: %w", err)
 		}
 	}
 
 	// Write each job as a separate file.
-	for _, job := range jobs {
-		if err := self.writeJobFile(job); err != nil {
+	for _, ownedJob := range jobs {
+		if err := self.writeJobFile(ownedJob.UserID, ownedJob.Job); err != nil {
 			return err
 		}
 	}
@@ -100,30 +144,47 @@ func (self *Store) saveLocked(jobs []Job) error {
 }
 
 // Create writes a new job file.
-func (self *Store) Create(job Job) error {
+func (self *Store) Create(userId string, job Job) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	return self.writeJobFile(job)
+	if strings.TrimSpace(userId) == "" {
+		return fmt.Errorf("userId is required")
+	}
+	return self.writeJobFile(userId, job)
 }
 
 // Update replaces a job file by ID.
-func (self *Store) Update(job Job) error {
+func (self *Store) Update(userId string, job Job) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
+	if strings.TrimSpace(userId) == "" {
+		return fmt.Errorf("userId is required")
+	}
 
-	path := filepath.Join(self.directory, job.ID+".md")
+	directory, err := self.userJobsDirectory(userId)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(directory, job.ID+".md")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Errorf("job not found: %s", job.ID)
 	}
-	return self.writeJobFile(job)
+	return self.writeJobFile(userId, job)
 }
 
 // Delete removes a job file by ID.
-func (self *Store) Delete(id string) error {
+func (self *Store) Delete(userId, id string) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
+	if strings.TrimSpace(userId) == "" {
+		return fmt.Errorf("userId is required")
+	}
 
-	path := filepath.Join(self.directory, id+".md")
+	directory, err := self.userJobsDirectory(userId)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(directory, id+".md")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Errorf("job not found: %s", id)
 	}
@@ -135,8 +196,8 @@ func (self *Store) Delete(id string) error {
 }
 
 // readJobFile parses a single job markdown file.
-func (self *Store) readJobFile(id string) (Job, error) {
-	data, err := os.ReadFile(filepath.Join(self.directory, id+".md"))
+func (self *Store) readJobFile(directory, id string) (Job, error) {
+	data, err := os.ReadFile(filepath.Join(directory, id+".md"))
 	if err != nil {
 		return Job{}, err
 	}
@@ -144,9 +205,55 @@ func (self *Store) readJobFile(id string) (Job, error) {
 }
 
 // writeJobFile writes a single job as a markdown file with YAML frontmatter.
-func (self *Store) writeJobFile(job Job) error {
+func (self *Store) writeJobFile(userId string, job Job) error {
+	directory, err := self.userJobsDirectory(userId)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return err
+	}
 	data := formatJobMarkdown(job)
-	return atomicfile.WriteFile(filepath.Join(self.directory, job.ID+".md"), data)
+	return atomicfile.WriteFile(filepath.Join(directory, job.ID+".md"), data)
+}
+
+func (self *Store) userJobsDirectory(userId string) (string, error) {
+	return configs.UserJobsDirectory(userId)
+}
+
+func (self *Store) listAllJobFilesLocked() ([]string, error) {
+	users, err := os.ReadDir(self.usersDirectory)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading users directory: %w", err)
+	}
+
+	var paths []string
+	for _, userEntry := range users {
+		if !userEntry.IsDir() {
+			continue
+		}
+		directory, err := self.userJobsDirectory(userEntry.Name())
+		if err != nil {
+			return nil, err
+		}
+		entries, err := os.ReadDir(directory)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading jobs directory for user %s: %w", userEntry.Name(), err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+				continue
+			}
+			paths = append(paths, filepath.Join(directory, entry.Name()))
+		}
+	}
+	return paths, nil
 }
 
 // parseJobMarkdown parses a markdown file with YAML frontmatter into a Job.

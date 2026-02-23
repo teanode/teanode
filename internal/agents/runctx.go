@@ -7,6 +7,7 @@ type runContextKey string
 const contextKeyConversationId runContextKey = "conversationId"
 const contextKeySpawnDepth runContextKey = "spawnDepth"
 const contextKeyRunner runContextKey = "runner"
+const contextKeyUserId runContextKey = "userId"
 
 // DefaultMaxSpawnDepth is the maximum recursion depth for subagent spawning.
 const DefaultMaxSpawnDepth = 5
@@ -41,5 +42,16 @@ func contextWithRunner(ctx context.Context, runner *Runner) context.Context {
 // RunnerFromContext returns the Runner from the context, or nil.
 func RunnerFromContext(ctx context.Context) *Runner {
 	value, _ := ctx.Value(contextKeyRunner).(*Runner)
+	return value
+}
+
+// ContextWithUserID enriches context with the authenticated user id.
+func ContextWithUserID(ctx context.Context, userId string) context.Context {
+	return context.WithValue(ctx, contextKeyUserId, userId)
+}
+
+// UserIDFromContext returns the authenticated user id, or "".
+func UserIDFromContext(ctx context.Context) string {
+	value, _ := ctx.Value(contextKeyUserId).(string)
 	return value
 }

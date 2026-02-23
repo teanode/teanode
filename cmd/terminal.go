@@ -50,7 +50,6 @@ func NewTerminalCommand() *cli.Command {
 				Name:    "name",
 				Aliases: []string{"n"},
 				Usage:   "connection name for identifying this terminal",
-				Value:   "default",
 			},
 			&cli.StringFlag{
 				Name:    "command",
@@ -150,10 +149,13 @@ func NewTerminalCommand() *cli.Command {
 			// Default token from security.yaml if --token is not provided.
 			if token == "" {
 				if securityConfig, err := configs.LoadSecurity(); err == nil {
-					token = securityConfig.Token
+					token = securityConfig.LatestToken()
 				}
 			}
-			name := command.String("name")
+			name := strings.TrimSpace(command.String("name"))
+			if name == "" {
+				name = defaultTerminalConnectionId()
+			}
 			shellCommand := strings.Join(shellArguments, " ")
 			go connectGateway(ctx, gatewayUrl, token, name, shellCommand, master, buffer)
 
@@ -162,6 +164,15 @@ func NewTerminalCommand() *cli.Command {
 			return nil
 		},
 	}
+}
+
+func defaultTerminalConnectionId() string {
+	hostname, _ := os.Hostname()
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		hostname = "host"
+	}
+	return fmt.Sprintf("%s@%s:%d", configs.OSUsername(), hostname, os.Getpid())
 }
 
 func currentTerminalSize() (rows, cols uint16) {

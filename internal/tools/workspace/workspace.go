@@ -16,8 +16,23 @@ import (
 )
 
 // RegisterTools adds memory tools to the registry.
-func RegisterTools(registry *agents.ToolRegistry, memoryDirectory string) {
-	registry.Register(&workspaceTool{directory: memoryDirectory})
+func RegisterTools(registry *agents.ToolRegistry, agentWorkspaceDirectory string) {
+	registry.Register(newWorkspaceTool(
+		"agent_workspace",
+		"Persistent per-agent workspace storage shared by users of this agent.",
+		func(context.Context) (string, error) { return agentWorkspaceDirectory, nil },
+	))
+	registry.Register(newWorkspaceTool(
+		"user_workspace",
+		"Persistent per-user workspace storage for user-specific memory and notes.",
+		func(ctx context.Context) (string, error) {
+			userId := agents.UserIDFromContext(ctx)
+			if userId == "" {
+				return "", fmt.Errorf("missing user context")
+			}
+			return configs.UserWorkspaceDirectory(userId)
+		},
+	))
 }
 
 // safePath resolves a relative path inside memoryDirectory and rejects traversal.
@@ -35,14 +50,26 @@ func safePath(memoryDirectory, rel string) (string, error) {
 
 // --- workspace (consolidated) ---
 
-type workspaceTool struct{ directory string }
+type workspaceTool struct {
+	name             string
+	description      string
+	resolveDirectory func(ctx context.Context) (string, error)
+}
+
+func newWorkspaceTool(name, description string, resolveDirectory func(ctx context.Context) (string, error)) *workspaceTool {
+	return &workspaceTool{
+		name:             name,
+		description:      description,
+		resolveDirectory: resolveDirectory,
+	}
+}
 
 func (self *workspaceTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
 		Function: providers.FunctionSpec{
-			Name: "workspace",
-			Description: "Persistent workspace storage. Actions: read (read a file), write (create/overwrite a file), " +
+			Name: self.name,
+			Description: self.description + " Actions: read (read a file), write (create/overwrite a file), " +
 				"list (list all files), append (append to a file), search (search across files), delete (delete a file).",
 			Parameters: map[string]interface{}{
 				"type": "object",
@@ -113,26 +140,31 @@ func (self *workspaceTool) Execute(ctx context.Context, rawArguments string) (st
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
 
+	directory, err := self.resolveDirectory(ctx)
+	if err != nil {
+		return "", err
+	}
+
 	switch arguments.Action {
 	case "read":
-		return self.executeRead(arguments.Path)
+		return self.executeRead(directory, arguments.Path)
 	case "write":
-		return self.executeWrite(arguments.Path, arguments.Content)
+		return self.executeWrite(directory, arguments.Path, arguments.Content)
 	case "list":
-		return self.executeList()
+		return self.executeList(directory)
 	case "append":
-		return self.executeAppend(arguments.Path, arguments.Content)
+		return self.executeAppend(directory, arguments.Path, arguments.Content)
 	case "search":
-		return self.executeSearch(arguments.Query, arguments.MaxResults)
+		return self.executeSearch(directory, arguments.Query, arguments.MaxResults)
 	case "delete":
-		return self.executeDelete(arguments.Path)
+		return self.executeDelete(directory, arguments.Path)
 	default:
 		return "", fmt.Errorf("unknown workspace action: %s", arguments.Action)
 	}
 }
 
-func (self *workspaceTool) executeRead(path string) (string, error) {
-	full, err := safePath(self.directory, path)
+func (self *workspaceTool) executeRead(directory, path string) (string, error) {
+	full, err := safePath(directory, path)
 	if err != nil {
 		return "", err
 	}
@@ -147,8 +179,8 @@ func (self *workspaceTool) executeRead(path string) (string, error) {
 	return string(output), nil
 }
 
-func (self *workspaceTool) executeWrite(path string, content string) (string, error) {
-	full, err := safePath(self.directory, path)
+func (self *workspaceTool) executeWrite(directory, path string, content string) (string, error) {
+	full, err := safePath(directory, path)
 	if err != nil {
 		return "", err
 	}
@@ -162,14 +194,14 @@ func (self *workspaceTool) executeWrite(path string, content string) (string, er
 	return string(output), nil
 }
 
-func (self *workspaceTool) executeList() (string, error) {
+func (self *workspaceTool) executeList(directory string) (string, error) {
 	var files []string
-	err := filepath.Walk(self.directory, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if !info.IsDir() {
-			relative, _ := filepath.Rel(self.directory, path)
+			relative, _ := filepath.Rel(directory, path)
 			files = append(files, relative)
 		}
 		return nil
@@ -187,8 +219,8 @@ func (self *workspaceTool) executeList() (string, error) {
 	return string(output), nil
 }
 
-func (self *workspaceTool) executeAppend(path string, content string) (string, error) {
-	full, err := safePath(self.directory, path)
+func (self *workspaceTool) executeAppend(directory, path string, content string) (string, error) {
+	full, err := safePath(directory, path)
 	if err != nil {
 		return "", err
 	}
@@ -210,7 +242,7 @@ func (self *workspaceTool) executeAppend(path string, content string) (string, e
 	return string(output), nil
 }
 
-func (self *workspaceTool) executeSearch(query string, maxResults int) (string, error) {
+func (self *workspaceTool) executeSearch(directory, query string, maxResults int) (string, error) {
 	if query == "" {
 		return "", fmt.Errorf("query is required")
 	}
@@ -226,7 +258,7 @@ func (self *workspaceTool) executeSearch(query string, maxResults int) (string, 
 	}
 	var matches []matchEntry
 
-	err := filepath.Walk(self.directory, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // skip errors
 		}
@@ -240,7 +272,7 @@ func (self *workspaceTool) executeSearch(query string, maxResults int) (string, 
 		if err != nil {
 			return nil
 		}
-		relative, _ := filepath.Rel(self.directory, path)
+		relative, _ := filepath.Rel(directory, path)
 		lines := strings.Split(string(data), "\n")
 		for index, line := range lines {
 			if len(matches) >= maxResults {
@@ -270,8 +302,8 @@ func (self *workspaceTool) executeSearch(query string, maxResults int) (string, 
 	return string(output), nil
 }
 
-func (self *workspaceTool) executeDelete(path string) (string, error) {
-	full, err := safePath(self.directory, path)
+func (self *workspaceTool) executeDelete(directory, path string) (string, error) {
+	full, err := safePath(directory, path)
 	if err != nil {
 		return "", err
 	}
@@ -300,14 +332,14 @@ func (self *workspaceTool) executeDelete(path string) (string, error) {
 		}
 	}
 	// Remove empty parent directories up to the workspace root.
-	directory := filepath.Dir(full)
-	for directory != self.directory {
-		entries, err := os.ReadDir(directory)
+	currentDirectory := filepath.Dir(full)
+	for currentDirectory != directory {
+		entries, err := os.ReadDir(currentDirectory)
 		if err != nil || len(entries) > 0 {
 			break
 		}
-		os.Remove(directory)
-		directory = filepath.Dir(directory)
+		os.Remove(currentDirectory)
+		currentDirectory = filepath.Dir(currentDirectory)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":  "delete",

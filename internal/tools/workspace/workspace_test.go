@@ -3,10 +3,13 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/configs"
 )
 
 func TestWorkspaceTools(t *testing.T) {
@@ -16,9 +19,9 @@ func TestWorkspaceTools(t *testing.T) {
 
 	ctx := context.Background()
 
-	tool := registry.Get("workspace")
+	tool := registry.Get("agent_workspace")
 	if tool == nil {
-		t.Fatal("workspace not registered")
+		t.Fatal("agent_workspace not registered")
 	}
 
 	// Test list on empty dir.
@@ -98,9 +101,9 @@ func TestWorkspaceAppendTool(t *testing.T) {
 
 	ctx := context.Background()
 
-	tool := registry.Get("workspace")
+	tool := registry.Get("agent_workspace")
 	if tool == nil {
-		t.Fatal("workspace not registered")
+		t.Fatal("agent_workspace not registered")
 	}
 
 	// Append to a new file.
@@ -158,9 +161,9 @@ func TestWorkspaceSearchTool(t *testing.T) {
 
 	ctx := context.Background()
 
-	tool := registry.Get("workspace")
+	tool := registry.Get("agent_workspace")
 	if tool == nil {
-		t.Fatal("workspace not registered")
+		t.Fatal("agent_workspace not registered")
 	}
 
 	// Write some files.
@@ -246,5 +249,42 @@ func TestWorkspaceSearchTool(t *testing.T) {
 	}
 	if len(searchResult.Matches) != 1 {
 		t.Errorf("expected 1 result, got %d: %+v", len(searchResult.Matches), searchResult.Matches)
+	}
+}
+
+func TestUserWorkspaceTool(t *testing.T) {
+	base := t.TempDir()
+	configs.SetDirectory(base)
+	defer configs.SetDirectory("")
+
+	registry := agents.NewToolRegistry()
+	RegisterTools(registry, filepath.Join(base, "agents", "alpha", "workspace"))
+
+	userTool := registry.Get("user_workspace")
+	if userTool == nil {
+		t.Fatal("user_workspace not registered")
+	}
+
+	ctx := agents.ContextWithUserID(context.Background(), "user-1")
+	if _, err := userTool.Execute(ctx, `{"action":"append","path":"memory/2026-02-23.md","content":"remember this"}`); err != nil {
+		t.Fatalf("user_workspace append: %v", err)
+	}
+
+	result, err := userTool.Execute(ctx, `{"action":"read","path":"memory/2026-02-23.md"}`)
+	if err != nil {
+		t.Fatalf("user_workspace read: %v", err)
+	}
+	var payload struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(result), &payload); err != nil {
+		t.Fatalf("unmarshal read payload: %v", err)
+	}
+	if !strings.Contains(payload.Content, "remember this") {
+		t.Fatalf("unexpected content: %q", payload.Content)
+	}
+
+	if _, err := os.Stat(filepath.Join(base, "users", "user-1", "workspace", "memory", "2026-02-23.md")); err != nil {
+		t.Fatalf("expected file in user workspace: %v", err)
 	}
 }

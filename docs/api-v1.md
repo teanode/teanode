@@ -39,10 +39,10 @@ Planned enhancements (see `TODO.md` under **Features**):
 - **Backed by:** `internal/api/v1api/profile.go` and `internal/configs/profile.go`.
 - **Behavior:**
   - `GET` returns the current profile.
-  - `PUT` updates profile fields (`name`, `bio`, `avatarMediaId`).
+  - `PUT` updates profile fields (`name`, `avatarMediaId`).
   - `name` falls back to the OS username when missing/empty.
-  - `bio` is treated as raw markdown text.
-  - Profile persistence is `~/.teanode/profile.md` with YAML front matter metadata (`name`, `avatarMediaId`) and markdown body for biography.
+  - Profile persistence is `~/.teanode/users/<userId>/user.yaml`.
+  - Profile bio is not persisted; long-form user memory belongs in `~/.teanode/users/<userId>/workspace/MEMORY.md`.
 
 ## Relationship to Internals
 

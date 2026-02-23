@@ -221,11 +221,11 @@ export default function SettingsNav({
 
           <ListItemButton
             dense
-            onClick={() => onNavigate("/settings/token")}
+            onClick={() => onNavigate("/settings/tokens")}
             sx={{
               borderRadius: 1,
               mb: 0.25,
-              ...(activeSectionId === "token"
+              ...(activeSectionId === "tokens"
                 ? {
                     bgcolor: "accentDim",
                     color: "#fff",
@@ -235,14 +235,43 @@ export default function SettingsNav({
             }}
           >
             <ListItemText
-              primary={t("auth.tokenTitle")}
+              primary={t("auth.tokensTitle")}
               primaryTypographyProps={{
                 variant: "caption",
                 fontSize: "13px",
-                color: activeSectionId === "token" ? "#fff" : "text.secondary",
+                color:
+                  activeSectionId === "tokens" ? "#fff" : "text.secondary",
               }}
             />
           </ListItemButton>
+
+          {backend.isAdmin && (
+            <ListItemButton
+              dense
+              onClick={() => onNavigate("/settings/users")}
+              sx={{
+                borderRadius: 1,
+                mb: 0.25,
+                ...(activeSectionId === "users"
+                  ? {
+                      bgcolor: "accentDim",
+                      color: "#fff",
+                      "&:hover": { bgcolor: "accentDim" },
+                    }
+                  : {}),
+              }}
+            >
+              <ListItemText
+                primary={t("settings.users")}
+                primaryTypographyProps={{
+                  variant: "caption",
+                  fontSize: "13px",
+                  color:
+                    activeSectionId === "users" ? "#fff" : "text.secondary",
+                }}
+              />
+            </ListItemButton>
+          )}
 
           <SidebarSectionTitle>Settings</SidebarSectionTitle>
           <ListItemButton
