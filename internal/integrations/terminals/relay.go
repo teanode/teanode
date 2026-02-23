@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,8 @@ var wsUpgrader = websocket.Upgrader{
 
 // terminalConnection holds the state for a single named terminal connection.
 type terminalConnection struct {
+	id         string
+	userId     string
 	connection *websocket.Conn
 	pending    *pending.Requests
 	done       chan struct{}
@@ -58,9 +61,19 @@ func NewRelay() *Relay {
 
 // HandleWebSocket upgrades the HTTP connection and manages the terminal client link.
 func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Request) {
+	self.HandleWebSocketForUser(writer, request, "")
+}
+
+// HandleWebSocketForUser upgrades and binds a terminal connection to one user.
+func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *http.Request, userId string) {
 	id := request.URL.Query().Get("id")
 	if id == "" {
 		http.Error(writer, "missing terminal connection id", http.StatusBadRequest)
+		return
+	}
+	userId = strings.TrimSpace(userId)
+	if userId == "" {
+		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -70,25 +83,28 @@ func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Req
 		return
 	}
 
+	connectionKey := userId + ":" + id
 	self.mutex.Lock()
-	// If a connection with this ID already exists, replace it.
-	if existing, ok := self.connections[id]; ok {
+	// If a connection with this user+id already exists, replace it.
+	if existing, ok := self.connections[connectionKey]; ok {
 		existing.connection.Close()
 		existing.pending.RejectAll("connection replaced")
 	}
 	terminal := &terminalConnection{
+		id:         id,
+		userId:     userId,
 		connection: websocketConnection,
 		pending:    pending.NewRequests(),
 		done:       make(chan struct{}),
 	}
-	self.connections[id] = terminal
+	self.connections[connectionKey] = terminal
 	done := terminal.done
 	self.mutex.Unlock()
 
-	log.Infof("terminal: client connected id=%s", id)
+	log.Infof("terminal: client connected user=%s id=%s", userId, id)
 
-	go self.pingLoop(id, websocketConnection, done)
-	self.readLoop(id, websocketConnection, done)
+	go self.pingLoop(connectionKey, websocketConnection, done)
+	self.readLoop(connectionKey, websocketConnection, done)
 }
 
 // Connected reports whether at least one terminal client is connected.
@@ -103,8 +119,22 @@ func (self *Relay) Connections() []ConnectionInfo {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	out := make([]ConnectionInfo, 0, len(self.connections))
-	for id, tc := range self.connections {
-		out = append(out, ConnectionInfo{ID: id, Machine: tc.machine})
+	for _, tc := range self.connections {
+		out = append(out, ConnectionInfo{ID: tc.id, Machine: tc.machine})
+	}
+	return out
+}
+
+// ConnectionsForUser returns the caller's terminal connections.
+func (self *Relay) ConnectionsForUser(userId string) []ConnectionInfo {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	out := make([]ConnectionInfo, 0)
+	for _, tc := range self.connections {
+		if tc.userId != userId {
+			continue
+		}
+		out = append(out, ConnectionInfo{ID: tc.id, Machine: tc.machine})
 	}
 	return out
 }
@@ -115,7 +145,19 @@ func (self *Relay) DefaultConnection() (string, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	for id := range self.connections {
-		return id, nil
+		return self.connections[id].id, nil
+	}
+	return "", errors.New("terminal client not connected")
+}
+
+// DefaultConnectionForUser returns the first connection for the given user.
+func (self *Relay) DefaultConnectionForUser(userId string) (string, error) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	for _, tc := range self.connections {
+		if tc.userId == userId {
+			return tc.id, nil
+		}
 	}
 	return "", errors.New("terminal client not connected")
 }
@@ -123,8 +165,14 @@ func (self *Relay) DefaultConnection() (string, error) {
 // SendCommand sends a command to a specific terminal client and waits for the result.
 func (self *Relay) SendCommand(ctx context.Context, connectionId string, method string, parameters interface{}) (json.RawMessage, error) {
 	self.mutex.Lock()
-	terminal, ok := self.connections[connectionId]
-	if !ok {
+	var terminal *terminalConnection
+	for _, candidate := range self.connections {
+		if candidate.id == connectionId {
+			terminal = candidate
+			break
+		}
+	}
+	if terminal == nil {
 		self.mutex.Unlock()
 		return nil, fmt.Errorf("terminal connection %q not found", connectionId)
 	}
@@ -162,9 +210,57 @@ func (self *Relay) SendCommand(ctx context.Context, connectionId string, method 
 	}
 }
 
-func (self *Relay) readLoop(id string, connection *websocket.Conn, done chan struct{}) {
+// SendCommandForUser sends a command, enforcing that connectionId belongs to userId.
+func (self *Relay) SendCommandForUser(ctx context.Context, userId, connectionId string, method string, parameters interface{}) (json.RawMessage, error) {
+	self.mutex.Lock()
+	var terminal *terminalConnection
+	for _, candidate := range self.connections {
+		if candidate.userId == userId && candidate.id == connectionId {
+			terminal = candidate
+			break
+		}
+	}
+	if terminal == nil {
+		self.mutex.Unlock()
+		return nil, fmt.Errorf("terminal connection %q not found", connectionId)
+	}
+	commandId, resultChannel := terminal.pending.Allocate()
+	connection := terminal.connection
+	self.mutex.Unlock()
+
+	message := map[string]interface{}{
+		"id":     commandId,
+		"method": method,
+	}
+	if parameters != nil {
+		message["params"] = parameters
+	}
+	data, err := json.Marshal(message)
+	if err != nil {
+		terminal.pending.Cancel(commandId)
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+
+	if err := connection.WriteMessage(websocket.TextMessage, data); err != nil {
+		terminal.pending.Cancel(commandId)
+		return nil, fmt.Errorf("write: %w", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		terminal.pending.Cancel(commandId)
+		return nil, ctx.Err()
+	case result := <-resultChannel:
+		if result.Error != "" {
+			return nil, errors.New(result.Error)
+		}
+		return result.Data, nil
+	}
+}
+
+func (self *Relay) readLoop(connectionKey string, connection *websocket.Conn, done chan struct{}) {
 	defer func() {
-		self.onDisconnect(id, connection)
+		self.onDisconnect(connectionKey, connection)
 		close(done)
 	}()
 
@@ -194,18 +290,18 @@ func (self *Relay) readLoop(id string, connection *websocket.Conn, done chan str
 			var info MachineInfo
 			if json.Unmarshal(frame.Params, &info) == nil {
 				self.mutex.Lock()
-				if tc, ok := self.connections[id]; ok {
+				if tc, ok := self.connections[connectionKey]; ok {
 					tc.machine = info
 				}
 				self.mutex.Unlock()
-				log.Infof("terminal: attach id=%s host=%s user=%s tz=%s", id, info.Hostname, info.Username, info.Timezone)
+				log.Infof("terminal: attach key=%s host=%s user=%s tz=%s", connectionKey, info.Hostname, info.Username, info.Timezone)
 			}
 			continue
 		}
 
 		if frame.ID != nil && (frame.Result != nil || frame.Error != nil) {
 			self.mutex.Lock()
-			terminal, ok := self.connections[id]
+			terminal, ok := self.connections[connectionKey]
 			self.mutex.Unlock()
 			if ok {
 				result := pending.Result{Data: frame.Result}
@@ -219,7 +315,7 @@ func (self *Relay) readLoop(id string, connection *websocket.Conn, done chan str
 	}
 }
 
-func (self *Relay) pingLoop(id string, connection *websocket.Conn, done chan struct{}) {
+func (self *Relay) pingLoop(connectionKey string, connection *websocket.Conn, done chan struct{}) {
 	defer deferutil.Recover()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -237,17 +333,17 @@ func (self *Relay) pingLoop(id string, connection *websocket.Conn, done chan str
 	}
 }
 
-func (self *Relay) onDisconnect(id string, connection *websocket.Conn) {
+func (self *Relay) onDisconnect(connectionKey string, connection *websocket.Conn) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
-	terminal, ok := self.connections[id]
+	terminal, ok := self.connections[connectionKey]
 	if !ok || terminal.connection != connection {
 		return
 	}
 
 	terminal.pending.RejectAll("terminal client disconnected")
-	delete(self.connections, id)
+	delete(self.connections, connectionKey)
 
-	log.Infof("terminal: client disconnected id=%s", id)
+	log.Infof("terminal: client disconnected user=%s id=%s", terminal.userId, terminal.id)
 }

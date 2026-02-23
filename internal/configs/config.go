@@ -27,6 +27,9 @@ var defaultMemoryMd string
 //go:embed default_user.md
 var defaultUserMd string
 
+//go:embed default_onboarding.md
+var defaultOnboardingMd string
+
 //go:embed default_skills.md
 var defaultSkillsMd string
 
@@ -850,24 +853,36 @@ func SeedAgentWorkspace(agentId string) error {
 	return nil
 }
 
-// SeedUserWorkspace writes default USER.md and MEMORY.md if they don't exist
-// in the user's workspace directory.
+// SeedUserWorkspace writes default user files in the user's workspace directory.
+// ONBOARDING.md is only created when USER.md is created in the same operation.
 func SeedUserWorkspace(userId string) error {
 	workspaceDirectory, err := UserWorkspaceDirectory(userId)
 	if err != nil {
 		return err
 	}
 
-	seeds := map[string]string{
-		"USER.md":   defaultUserMd,
-		"MEMORY.md": defaultMemoryMd,
+	userMdPath := filepath.Join(workspaceDirectory, "USER.md")
+	userCreated := false
+	if _, err := os.Stat(userMdPath); os.IsNotExist(err) {
+		if err := atomicfile.WriteFile(userMdPath, []byte(defaultUserMd)); err != nil {
+			return fmt.Errorf("seeding USER.md: %w", err)
+		}
+		userCreated = true
 	}
-	for name, content := range seeds {
-		path := filepath.Join(workspaceDirectory, name)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			if err := atomicfile.WriteFile(path, []byte(content)); err != nil {
-				return fmt.Errorf("seeding %s: %w", name, err)
+
+	if userCreated {
+		onboardingPath := filepath.Join(workspaceDirectory, "ONBOARDING.md")
+		if _, err := os.Stat(onboardingPath); os.IsNotExist(err) {
+			if err := atomicfile.WriteFile(onboardingPath, []byte(defaultOnboardingMd)); err != nil {
+				return fmt.Errorf("seeding ONBOARDING.md: %w", err)
 			}
+		}
+	}
+
+	memoryPath := filepath.Join(workspaceDirectory, "MEMORY.md")
+	if _, err := os.Stat(memoryPath); os.IsNotExist(err) {
+		if err := atomicfile.WriteFile(memoryPath, []byte(defaultMemoryMd)); err != nil {
+			return fmt.Errorf("seeding MEMORY.md: %w", err)
 		}
 	}
 	return nil

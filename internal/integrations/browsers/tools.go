@@ -16,17 +16,25 @@ func RegisterBrowserTools(registry *agents.ToolRegistry, browser Browser) {
 	registry.Register(&browserTabsTool{browser: browser})
 }
 
-// resolveSessionId returns the sessionId for the given connectionId,
-// or falls back to the default target's session ID.
-func resolveSessionId(browser Browser, connectionId string) (string, error) {
+// resolveSessionId returns the sessionId for the given user and connectionId,
+// or falls back to the user's default target's session ID.
+func resolveSessionId(ctx context.Context, browser Browser, connectionId string) (string, error) {
+	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
+	if userId == "" {
+		return "", fmt.Errorf("missing user context")
+	}
+	scopedBrowser, ok := browser.(UserScopedBrowser)
+	if !ok {
+		return "", fmt.Errorf("browser backend does not support user scoping")
+	}
 	if connectionId != "" {
-		target, err := browser.TargetByConnectionID(connectionId)
+		target, err := scopedBrowser.TargetByConnectionIDForUser(userId, connectionId)
 		if err != nil {
 			return "", err
 		}
 		return target.SessionID, nil
 	}
-	target, err := browser.DefaultTarget()
+	target, err := scopedBrowser.DefaultTargetForUser(userId)
 	if err != nil {
 		return "", err
 	}
@@ -133,7 +141,7 @@ func (self *browserTool) Execute(ctx context.Context, rawArguments string) (stri
 }
 
 func (self *browserTool) executeNavigate(ctx context.Context, connectionId string, url string) (string, error) {
-	sessionId, err := resolveSessionId(self.browser, connectionId)
+	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +156,7 @@ func (self *browserTool) executeNavigate(ctx context.Context, connectionId strin
 }
 
 func (self *browserTool) executeScreenshot(ctx context.Context, connectionId string) (string, error) {
-	sessionId, err := resolveSessionId(self.browser, connectionId)
+	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
 	if err != nil {
 		return "", err
 	}
@@ -172,7 +180,7 @@ func (self *browserTool) executeScreenshot(ctx context.Context, connectionId str
 }
 
 func (self *browserTool) executeSnapshot(ctx context.Context, connectionId string) (string, error) {
-	sessionId, err := resolveSessionId(self.browser, connectionId)
+	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
 	if err != nil {
 		return "", err
 	}
@@ -191,7 +199,7 @@ func (self *browserTool) executeSnapshot(ctx context.Context, connectionId strin
 }
 
 func (self *browserTool) executeClick(ctx context.Context, connectionId string, x *float64, y *float64, selector string) (string, error) {
-	sessionId, err := resolveSessionId(self.browser, connectionId)
+	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
 	if err != nil {
 		return "", err
 	}
@@ -230,7 +238,7 @@ func (self *browserTool) executeClick(ctx context.Context, connectionId string, 
 }
 
 func (self *browserTool) executeType(ctx context.Context, connectionId string, text string, selector string) (string, error) {
-	sessionId, err := resolveSessionId(self.browser, connectionId)
+	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
 	if err != nil {
 		return "", err
 	}
@@ -257,7 +265,7 @@ func (self *browserTool) executeType(ctx context.Context, connectionId string, t
 }
 
 func (self *browserTool) executePressKey(ctx context.Context, connectionId string, key string) (string, error) {
-	sessionId, err := resolveSessionId(self.browser, connectionId)
+	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
 	if err != nil {
 		return "", err
 	}
@@ -289,7 +297,7 @@ func (self *browserTool) executePressKey(ctx context.Context, connectionId strin
 }
 
 func (self *browserTool) executeEvaluate(ctx context.Context, connectionId string, expression string) (string, error) {
-	sessionId, err := resolveSessionId(self.browser, connectionId)
+	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
 	if err != nil {
 		return "", err
 	}
@@ -372,7 +380,11 @@ func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (
 
 	switch arguments.Action {
 	case "list":
-		return self.executeList()
+		userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
+		if userId == "" {
+			return "", fmt.Errorf("missing user context")
+		}
+		return self.executeList(userId)
 	case "open":
 		return self.executeOpen(ctx, arguments.URL)
 	case "close":
@@ -384,8 +396,12 @@ func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (
 	}
 }
 
-func (self *browserTabsTool) executeList() (string, error) {
-	targets := self.browser.Targets()
+func (self *browserTabsTool) executeList(userId string) (string, error) {
+	scopedBrowser, ok := self.browser.(UserScopedBrowser)
+	if !ok {
+		return "", fmt.Errorf("browser backend does not support user scoping")
+	}
+	targets := scopedBrowser.TargetsForUser(userId)
 	type entry struct {
 		TargetID     string `json:"targetId"`
 		Title        string `json:"title"`
@@ -412,7 +428,7 @@ func (self *browserTabsTool) executeOpen(ctx context.Context, url string) (strin
 		url = "about:blank"
 	}
 
-	sessionId, err := resolveSessionId(self.browser, "")
+	sessionId, err := resolveSessionId(ctx, self.browser, "")
 	if err != nil {
 		return "", err
 	}
@@ -426,6 +442,10 @@ func (self *browserTabsTool) executeOpen(ctx context.Context, url string) (strin
 		TargetID string `json:"targetId"`
 	}
 	json.Unmarshal(result, &response)
+	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
+	if assigner, ok := self.browser.(TargetOwnerAssigner); ok && userId != "" && response.TargetID != "" {
+		assigner.AssignTargetToUser(userId, response.TargetID)
+	}
 	out, _ := json.Marshal(map[string]string{
 		"targetId": response.TargetID,
 		"url":      url,
@@ -434,7 +454,32 @@ func (self *browserTabsTool) executeOpen(ctx context.Context, url string) (strin
 }
 
 func (self *browserTabsTool) executeClose(ctx context.Context, targetId string) (string, error) {
-	sessionId, err := resolveSessionId(self.browser, "")
+	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
+	if userId == "" {
+		return "", fmt.Errorf("missing user context")
+	}
+	scopedBrowser, ok := self.browser.(UserScopedBrowser)
+	if !ok {
+		return "", fmt.Errorf("browser backend does not support user scoping")
+	}
+	if targetId == "" {
+		target, err := scopedBrowser.DefaultTargetForUser(userId)
+		if err != nil {
+			return "", err
+		}
+		targetId = target.TargetID
+	}
+	allowed := false
+	for _, target := range scopedBrowser.TargetsForUser(userId) {
+		if target.TargetID == targetId {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return "", fmt.Errorf("targetId %q not found", targetId)
+	}
+	sessionId, err := resolveSessionId(ctx, self.browser, "")
 	if err != nil {
 		return "", err
 	}
@@ -454,8 +499,26 @@ func (self *browserTabsTool) executeActivate(ctx context.Context, targetId strin
 	if targetId == "" {
 		return "", fmt.Errorf("targetId is required for activate action")
 	}
+	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
+	if userId == "" {
+		return "", fmt.Errorf("missing user context")
+	}
+	scopedBrowser, ok := self.browser.(UserScopedBrowser)
+	if !ok {
+		return "", fmt.Errorf("browser backend does not support user scoping")
+	}
+	allowed := false
+	for _, target := range scopedBrowser.TargetsForUser(userId) {
+		if target.TargetID == targetId {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return "", fmt.Errorf("targetId %q not found", targetId)
+	}
 
-	sessionId, err := resolveSessionId(self.browser, "")
+	sessionId, err := resolveSessionId(ctx, self.browser, "")
 	if err != nil {
 		return "", err
 	}

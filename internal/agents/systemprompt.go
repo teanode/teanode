@@ -40,6 +40,7 @@ type systemPromptData struct {
 	AgentMemory             string
 	UserContent             string
 	UserMemory              string
+	UserOnboarding          string
 	SkillsContent           string
 	SkillPrompts            string
 	ProjectList             string
@@ -105,6 +106,7 @@ func BuildSystemPrompt(
 	if userWorkspaceDirectory != "" {
 		data.UserContent = loadWorkspaceFile(userWorkspaceDirectory, "USER.md", maxWorkspaceFileChars)
 		data.UserMemory = loadWorkspaceFile(userWorkspaceDirectory, "MEMORY.md", maxWorkspaceFileChars)
+		data.UserOnboarding = loadWorkspaceFile(userWorkspaceDirectory, "ONBOARDING.md", maxWorkspaceFileChars)
 	}
 
 	var buffer bytes.Buffer

@@ -175,9 +175,8 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	userId := UserIDFromContext(ctx)
 	isAdmin, hasAdminContext := AdminFromContext(ctx)
 	if !hasAdminContext {
-		// Non-gateway callers/tests may not set user role context.
-		// Default to admin in that case to preserve existing behavior.
-		isAdmin = true
+		// Missing role context defaults to least privilege.
+		isAdmin = false
 	}
 	if strings.TrimSpace(userId) == "" {
 		return nil, fmt.Errorf("userId is required")
@@ -585,6 +584,8 @@ func validateToolAuthorization(toolName, arguments string, isAdmin bool) error {
 	switch toolName {
 	case "shell":
 		return fmt.Errorf("admin access required for shell tool")
+	case "gateway":
+		return fmt.Errorf("admin access required for gateway tool")
 	case "agent_create":
 		return fmt.Errorf("admin access required for agent_create")
 	case "config":
@@ -671,7 +672,9 @@ func (self *Runner) buildMessages(
 
 	// Find the last context summary and start from there.
 	startIndex := 0
+	hasSummary := false
 	if idx := findLastSummaryIndex(history); idx >= 0 {
+		hasSummary = true
 		messages = append(messages, providers.ChatMessage{
 			Role:    "system",
 			Content: "Previous conversation summary:\n" + history[idx].ContentText(),
@@ -684,7 +687,7 @@ func (self *Runner) buildMessages(
 	// auto-compression), messages from that run follow the summary on disk.
 	// Advance past the next complete LLM turn (an assistant message with a
 	// terminal stopReason) so we start from a clean boundary.
-	if startIndex < len(history) && history[startIndex].Role != "user" {
+	if hasSummary && startIndex < len(history) && history[startIndex].Role != "user" {
 		for startIndex < len(history) {
 			message := history[startIndex]
 			startIndex++

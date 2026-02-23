@@ -3,6 +3,7 @@ package gw
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
@@ -138,5 +139,49 @@ func TestNewConversationReplacesDefaultConversation(t *testing.T) {
 	}
 	if got := agentRegistry.DefaultConversationID(userId, agentId); got != secondConversationId {
 		t.Fatalf("default conversation id = %q, want %q", got, secondConversationId)
+	}
+}
+
+func TestDeferredLifecycleFiresAfterRunDone(t *testing.T) {
+	gateway, _, agentId := newTestGateway(t)
+	userId := "user-1"
+
+	// Use an unbuffered channel so we can observe run completion state at the
+	// exact instant the deferred lifecycle action is delivered.
+	gateway.lifecycleChannel = make(chan LifecycleAction)
+	gateway.ScheduleLifecycle(LifecycleRestart)
+
+	handle := gateway.SendMessage(context.Background(), SendMessageParameters{
+		UserContext:    &UserContext{UserID: userId},
+		AgentID:        agentId,
+		ConversationID: "",
+		Message:        "restart after response",
+		Origin:         "telegram",
+	}, nil)
+
+	doneClosedAtLifecycle := make(chan bool, 1)
+	go func() {
+		<-gateway.LifecycleChannel()
+		select {
+		case <-handle.Done:
+			doneClosedAtLifecycle <- true
+		default:
+			doneClosedAtLifecycle <- false
+		}
+	}()
+
+	select {
+	case closed := <-doneClosedAtLifecycle:
+		if !closed {
+			t.Fatalf("run done channel was not closed before deferred lifecycle fired")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for deferred lifecycle action")
+	}
+
+	// Ensure run completed successfully.
+	<-handle.Done
+	if outcome := handle.Outcome(); outcome.Error != nil {
+		t.Fatalf("run error: %v", outcome.Error)
 	}
 }

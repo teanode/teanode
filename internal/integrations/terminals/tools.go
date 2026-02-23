@@ -15,12 +15,12 @@ func RegisterTerminalTools(registry *agents.ToolRegistry, relay *Relay) {
 	registry.Register(&terminalTool{relay: relay})
 }
 
-// resolveConnectionId returns the connectionId from args or falls back to the default.
-func resolveConnectionId(relay *Relay, connectionId string) (string, error) {
+// resolveConnectionId returns the connectionId from args or falls back to the user's default.
+func resolveConnectionId(relay *Relay, userId, connectionId string) (string, error) {
 	if connectionId != "" {
 		return connectionId, nil
 	}
-	return relay.DefaultConnection()
+	return relay.DefaultConnectionForUser(userId)
 }
 
 // --- terminal (consolidated) ---
@@ -78,7 +78,7 @@ func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (str
 
 	switch arguments.Action {
 	case "list":
-		return self.executeList()
+		return self.executeList(ctx)
 	case "screenshot":
 		return self.executeScreenshot(ctx, arguments.ConnectionID)
 	case "type":
@@ -90,8 +90,12 @@ func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (str
 	}
 }
 
-func (self *terminalTool) executeList() (string, error) {
-	connections := self.relay.Connections()
+func (self *terminalTool) executeList(ctx context.Context) (string, error) {
+	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
+	if userId == "" {
+		return "", fmt.Errorf("missing user context")
+	}
+	connections := self.relay.ConnectionsForUser(userId)
 	type entry struct {
 		ID               string `json:"id"`
 		Hostname         string `json:"hostname,omitempty"`
@@ -120,11 +124,15 @@ func (self *terminalTool) executeList() (string, error) {
 }
 
 func (self *terminalTool) executeScreenshot(ctx context.Context, connectionId string) (string, error) {
-	resolvedId, err := resolveConnectionId(self.relay, connectionId)
+	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
+	if userId == "" {
+		return "", fmt.Errorf("missing user context")
+	}
+	resolvedId, err := resolveConnectionId(self.relay, userId, connectionId)
 	if err != nil {
 		return "", err
 	}
-	result, err := self.relay.SendCommand(ctx, resolvedId, "screenshot", nil)
+	result, err := self.relay.SendCommandForUser(ctx, userId, resolvedId, "screenshot", nil)
 	if err != nil {
 		return "", err
 	}
@@ -139,11 +147,15 @@ func (self *terminalTool) executeScreenshot(ctx context.Context, connectionId st
 }
 
 func (self *terminalTool) executeType(ctx context.Context, connectionId string, text string) (string, error) {
-	resolvedId, err := resolveConnectionId(self.relay, connectionId)
+	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
+	if userId == "" {
+		return "", fmt.Errorf("missing user context")
+	}
+	resolvedId, err := resolveConnectionId(self.relay, userId, connectionId)
 	if err != nil {
 		return "", err
 	}
-	_, err = self.relay.SendCommand(ctx, resolvedId, "write", map[string]interface{}{
+	_, err = self.relay.SendCommandForUser(ctx, userId, resolvedId, "write", map[string]interface{}{
 		"data": text,
 	})
 	if err != nil {
@@ -158,11 +170,15 @@ func (self *terminalTool) executePressKey(ctx context.Context, connectionId stri
 	if !ok {
 		return "", fmt.Errorf("unknown key: %s", key)
 	}
-	resolvedId, err := resolveConnectionId(self.relay, connectionId)
+	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
+	if userId == "" {
+		return "", fmt.Errorf("missing user context")
+	}
+	resolvedId, err := resolveConnectionId(self.relay, userId, connectionId)
 	if err != nil {
 		return "", err
 	}
-	_, err = self.relay.SendCommand(ctx, resolvedId, "write", map[string]interface{}{
+	_, err = self.relay.SendCommandForUser(ctx, userId, resolvedId, "write", map[string]interface{}{
 		"data": seq,
 	})
 	if err != nil {

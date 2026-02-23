@@ -20,6 +20,7 @@ type Message struct {
 	Role       string          `json:"role"`      // "user" | "assistant" | "system" | "tool"
 	Content    json.RawMessage `json:"content"`   // string or []ContentBlock
 	Timestamp  int64           `json:"timestamp"` // ms since epoch
+	Metadata   json.RawMessage `json:"metadata,omitempty"`
 	StopReason string          `json:"stopReason,omitempty"`
 	Usage      *Usage          `json:"usage,omitempty"`
 	Model      string          `json:"model,omitempty"`

@@ -2,6 +2,7 @@
 package v1api
 
 import (
+	"net/http"
 	"sync"
 	"time"
 
@@ -67,10 +68,10 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 	sub.HandleFunc("/websocket", self.handleWebSocket)
 
 	if self.gateway.BrowserRelay() != nil {
-		sub.HandleFunc("/browser", self.gateway.BrowserRelay().HandleWebSocket)
+		sub.HandleFunc("/browser", self.handleBrowserWebSocket)
 	}
 	if self.gateway.TerminalRelay() != nil {
-		sub.HandleFunc("/terminal", self.gateway.TerminalRelay().HandleWebSocket)
+		sub.HandleFunc("/terminal", self.handleTerminalWebSocket)
 	}
 	if self.gateway.MediaStore() != nil {
 		sub.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
@@ -83,4 +84,22 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 
 	sub.Handle("/chat/completions", web.HandlerFunc(self.handleChatCompletions))
 	return nil
+}
+
+func (self *v1Api) handleBrowserWebSocket(writer http.ResponseWriter, request *http.Request) {
+	userContext := gw.UserFromContext(request.Context())
+	if userContext == nil || userContext.UserID == "" {
+		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	self.gateway.BrowserRelay().HandleWebSocketForUser(writer, request, userContext.UserID)
+}
+
+func (self *v1Api) handleTerminalWebSocket(writer http.ResponseWriter, request *http.Request) {
+	userContext := gw.UserFromContext(request.Context())
+	if userContext == nil || userContext.UserID == "" {
+		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	self.gateway.TerminalRelay().HandleWebSocketForUser(writer, request, userContext.UserID)
 }

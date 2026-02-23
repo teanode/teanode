@@ -15,6 +15,7 @@ import (
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/jobs"
+	"github.com/teanode/teanode/internal/onboarding"
 	projectstore "github.com/teanode/teanode/internal/projects"
 	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/skills"
@@ -1430,8 +1431,8 @@ func (self *webSocketConnection) handleUsersCreate(frame requestFrame) {
 		self.sendError(frame.ID, 500, "failed to save profile")
 		return
 	}
-	if err := configs.EnsureUserDirectories(userId); err != nil {
-		self.sendError(frame.ID, 500, "failed to initialize user directories")
+	if err := onboarding.InitializeUser(self.api.gateway, userId); err != nil {
+		self.sendError(frame.ID, 500, "failed to initialize user onboarding")
 		return
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
