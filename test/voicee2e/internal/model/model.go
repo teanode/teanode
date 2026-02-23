@@ -7,6 +7,7 @@ type RunnerConfig struct {
 	SuitePath  string
 	Scenario   string
 	OutPath    string
+	ConfigJSON string
 	PromptPath string
 	PromptA    string
 	PromptB    string

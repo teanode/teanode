@@ -28,6 +28,10 @@ func Compute(events []model.TimelineEvent) map[string]any {
 			}
 		case model.EventResponseStarted:
 			metrics["response_count"] = metrics["response_count"].(int64) + 1
+		case model.EventTurnCommitted:
+			// In voice mode, a committed turn means response generation has started
+			// even if downstream audio start events arrive after scenario cutoff.
+			metrics["response_count"] = metrics["response_count"].(int64) + 1
 		case model.EventBargeInTriggered:
 			metrics["barge_in_count"] = metrics["barge_in_count"].(int64) + 1
 		case model.EventTTSInput:

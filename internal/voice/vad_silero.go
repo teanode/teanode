@@ -22,6 +22,8 @@ const (
 type SileroVAD struct {
 	endpoint        string
 	client          *http.Client
+	fallback        *EnergyVAD
+	fallbackWarned  bool
 	IsSpeaking      bool
 	speechFrames    int
 	redemptionCount int
@@ -39,6 +41,7 @@ func NewSileroVAD(endpoint string) (*SileroVAD, error) {
 		client: &http.Client{
 			Timeout: 2 * time.Second,
 		},
+		fallback: &EnergyVAD{},
 	}, nil
 }
 
@@ -52,7 +55,11 @@ func sileroEndpoint() string {
 func (v *SileroVAD) ProcessFrame(pcm []byte) (bool, bool, float64) {
 	prob, err := v.scoreFrame(pcm)
 	if err != nil {
-		return false, false, 0
+		if !v.fallbackWarned {
+			pipelineLog.Warningf("voice silero_vad score failed, using energy fallback: %v", err)
+			v.fallbackWarned = true
+		}
+		return v.fallback.ProcessFrame(pcm)
 	}
 
 	started := false

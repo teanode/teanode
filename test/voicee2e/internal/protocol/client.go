@@ -62,6 +62,7 @@ type voiceStartParams struct {
 		ServerVAD     bool `json:"server_vad"`
 		ServerTurn    bool `json:"server_turn"`
 		ServerDenoise bool `json:"server_denoise"`
+		SileroVAD     bool `json:"silero_vad,omitempty"`
 		BargeIn       bool `json:"barge_in"`
 	} `json:"features"`
 }
@@ -78,6 +79,7 @@ type voiceEnvelope struct {
 type Client struct {
 	gatewayUrl   string
 	promptSuffix string
+	configJSON   string
 }
 
 func NewClient(gatewayUrl string) *Client {
@@ -86,6 +88,10 @@ func NewClient(gatewayUrl string) *Client {
 
 func (self *Client) SetPromptSuffix(value string) {
 	self.promptSuffix = strings.TrimSpace(value)
+}
+
+func (self *Client) SetConfigJSON(value string) {
+	self.configJSON = strings.TrimSpace(value)
 }
 
 func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) ([]model.TimelineEvent, error) {
@@ -115,6 +121,7 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	var timelineMu sync.Mutex
 	var seq atomic.Uint64
 	var responseStartedCount atomic.Int32
+	responseStartedByRun := map[string]bool{}
 
 	record := func(event model.TimelineEvent) {
 		if event.Type == model.EventResponseStarted {
@@ -182,6 +189,16 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 					continue
 				}
 				if frame.Event == "conversation" {
+					var payload map[string]any
+					if err := json.Unmarshal(frame.Payload, &payload); err == nil {
+						state, _ := payload["state"].(string)
+						text, _ := payload["text"].(string)
+						runId, _ := payload["runId"].(string)
+						if state == "delta" && strings.TrimSpace(text) != "" && runId != "" && !responseStartedByRun[runId] {
+							responseStartedByRun[runId] = true
+							record(model.TimelineEvent{At: now, Type: model.EventResponseStarted, RunID: runId, Raw: payload})
+						}
+					}
 					debugf(debugEnabled, "conversation event")
 					convertConversationEvent(record, now, frame.Payload)
 				}
@@ -239,6 +256,9 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	start.Features.ServerTurn = true
 	start.Features.ServerDenoise = false
 	start.Features.BargeIn = true
+	if self.configJSON != "" {
+		self.applyConfig(&start)
+	}
 	if err := sendRpc("voice.start", start); err != nil {
 		return nil, err
 	}
@@ -333,6 +353,36 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	timelineMu.Lock()
 	defer timelineMu.Unlock()
 	return append([]model.TimelineEvent(nil), timeline...), nil
+}
+
+func (self *Client) applyConfig(start *voiceStartParams) {
+	var cfg struct {
+		Features struct {
+			ServerVAD     *bool `json:"server_vad"`
+			ServerTurn    *bool `json:"server_turn"`
+			ServerDenoise *bool `json:"server_denoise"`
+			SileroVAD     *bool `json:"silero_vad"`
+			BargeIn       *bool `json:"barge_in"`
+		} `json:"features"`
+	}
+	if err := json.Unmarshal([]byte(self.configJSON), &cfg); err != nil {
+		return
+	}
+	if cfg.Features.ServerVAD != nil {
+		start.Features.ServerVAD = *cfg.Features.ServerVAD
+	}
+	if cfg.Features.ServerTurn != nil {
+		start.Features.ServerTurn = *cfg.Features.ServerTurn
+	}
+	if cfg.Features.ServerDenoise != nil {
+		start.Features.ServerDenoise = *cfg.Features.ServerDenoise
+	}
+	if cfg.Features.SileroVAD != nil {
+		start.Features.SileroVAD = *cfg.Features.SileroVAD
+	}
+	if cfg.Features.BargeIn != nil {
+		start.Features.BargeIn = *cfg.Features.BargeIn
+	}
 }
 
 func toWebSocketUrl(gateway string) (string, error) {

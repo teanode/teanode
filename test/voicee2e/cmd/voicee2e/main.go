@@ -20,6 +20,7 @@ func main() {
 	flag.StringVar(&cfg.SuitePath, "suite", "test/voicee2e/scenarios/suite.yaml", "Path to suite YAML")
 	flag.StringVar(&cfg.Scenario, "scenario", "", "Run only one scenario ID")
 	flag.StringVar(&cfg.OutPath, "out", "", "Output JSON report path")
+	flag.StringVar(&cfg.ConfigJSON, "config", "", "Inline JSON config overrides (e.g. feature flags)")
 	flag.StringVar(&cfg.PromptPath, "prompt", "", "Prompt variant file path")
 	flag.BoolVar(&cfg.Compare, "compare", false, "Compare mode")
 	flag.StringVar(&cfg.PromptA, "prompt-a", "", "Prompt A report JSON path")

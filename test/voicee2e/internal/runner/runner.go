@@ -41,6 +41,7 @@ func (r *Runner) RunSuite(ctx context.Context, cfg model.RunnerConfig) (*model.R
 		}
 		r.client.SetPromptSuffix(strings.TrimSpace(string(raw)))
 	}
+	r.client.SetConfigJSON(cfg.ConfigJSON)
 
 	results := make([]model.ScenarioResult, 0, len(suite.Scenarios))
 	for _, scenario := range suite.Scenarios {
