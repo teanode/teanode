@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 func TestIsSafePathSegment(t *testing.T) {
@@ -105,7 +107,7 @@ func TestListInstalledReadsManifestMetadata(t *testing.T) {
 		Version:     "1.0.0",
 		SourceID:    "registry",
 		Publisher:   "Example",
-		InstalledAt: 12345,
+		InstalledAt: timeutil.Timestamp{Time: time.UnixMilli(12345)},
 	}
 	manifestBytes, _ := json.Marshal(manifest)
 	if err := os.WriteFile(filepath.Join(installDirectory, "manifest.json"), manifestBytes, 0644); err != nil {
@@ -128,8 +130,8 @@ func TestListInstalledReadsManifestMetadata(t *testing.T) {
 	if installed[0].Publisher != "Example" {
 		t.Fatalf("publisher = %q, want Example", installed[0].Publisher)
 	}
-	if installed[0].InstalledAt != 12345 {
-		t.Fatalf("installedAt = %d, want 12345", installed[0].InstalledAt)
+	if installed[0].InstalledAt.Time.UnixMilli() != 12345 {
+		t.Fatalf("installedAt = %d, want 12345", installed[0].InstalledAt.Time.UnixMilli())
 	}
 }
 

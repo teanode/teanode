@@ -24,6 +24,7 @@ var log = logging.MustGetLogger("gateway")
 
 // SendMessageParameters are the parameters for sending a message through the gateway.
 type SendMessageParameters struct {
+	UserContext        *UserContext
 	AgentID            string
 	ConversationID     string // empty = auto-create
 	Message            string
@@ -93,8 +94,6 @@ type Gateway interface {
 	SetConfig(configuration *configs.Config)
 	SecurityConfig() *configs.SecurityConfig
 	SetSecurityConfig(securityConfig *configs.SecurityConfig)
-	Profile() *configs.Profile
-	SetProfile(profile *configs.Profile)
 
 	// Subsystem access
 	AgentRegistry() *agents.AgentRegistry
@@ -106,6 +105,7 @@ type Gateway interface {
 
 	// Domain operations
 	ResolveRunner(agentId string) *agents.Runner
+	ConversationStore(userId, agentId string) *conversations.Store
 	ProviderRegistry() *providers.Registry
 	LoadModels(ctx context.Context) (map[string][]providers.ModelInfo, error)
 	InvalidateModelsCache()
@@ -113,16 +113,16 @@ type Gateway interface {
 	// Default agent / conversation
 	DefaultAgentID() string
 	SetDefaultAgent(agentId string) error
-	DefaultConversationID(agentId string) string
-	SetDefaultConversation(agentId, conversationId string)
-	SetDefaultConversationIfUnset(agentId, conversationId string) bool
-	NewConversation(agentId, model string) string
+	DefaultConversationID(userId, agentId string) string
+	SetDefaultConversation(userId, agentId, conversationId string)
+	SetDefaultConversationIfUnset(userId, agentId, conversationId string) bool
+	NewConversation(userId, agentId, model string) string
 
 	// Centralized message sending and run management
 	SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle
 	AbortRun(runId string) bool
 	GetActiveRun(conversationId string) string
-	DeleteConversation(agentId, conversationId string) error
+	DeleteConversation(userId, agentId, conversationId string) error
 
 	// Event broadcasting via subscriber pattern
 	Subscribe(subscriber Subscriber)
@@ -131,7 +131,7 @@ type Gateway interface {
 
 	// Voice session lifecycle
 	StartVoiceSession(
-		conversationId, agentId string,
+		userId, conversationId, agentId string,
 		promptSuffix string,
 		audioIn, audioOut voice.AudioFormat,
 		features voice.Features,
@@ -162,7 +162,6 @@ type Gateway interface {
 func New(
 	configuration *configs.Config,
 	securityConfig *configs.SecurityConfig,
-	profile *configs.Profile,
 	agentRegistry *agents.AgentRegistry,
 	browserRelay *relaybrowser.Relay,
 	terminalRelay *terminals.Relay,
@@ -172,20 +171,20 @@ func New(
 	sessionStore *sessions.Store,
 ) Gateway {
 	return &gateway{
-		config:            configuration,
-		securityConfig:    securityConfig,
-		profile:           profile,
-		agentRegistry:     agentRegistry,
-		browserRelay:      browserRelay,
-		terminalRelay:     terminalRelay,
-		scheduler:         scheduler,
-		summarizer:        summarizer,
-		mediaStore:        mediaStore,
-		sessionStore:      sessionStore,
-		subscribers:       make(map[Subscriber]struct{}),
-		sessionsConnected: make(map[string]int),
-		activeRuns:        make(map[string]*activeRun),
-		runIndex:          make(map[string]string),
-		lifecycleChannel:  make(chan LifecycleAction, 1),
+		config:             configuration,
+		securityConfig:     securityConfig,
+		agentRegistry:      agentRegistry,
+		browserRelay:       browserRelay,
+		terminalRelay:      terminalRelay,
+		scheduler:          scheduler,
+		summarizer:         summarizer,
+		mediaStore:         mediaStore,
+		sessionStore:       sessionStore,
+		subscribers:        make(map[Subscriber]struct{}),
+		sessionsConnected:  make(map[string]int),
+		activeRuns:         make(map[string]*activeRun),
+		runIndex:           make(map[string]string),
+		lifecycleChannel:   make(chan LifecycleAction, 1),
+		conversationStores: make(map[string]*conversations.Store),
 	}
 }

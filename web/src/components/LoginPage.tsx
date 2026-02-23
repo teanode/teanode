@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -7,7 +7,7 @@ import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import Logo from "./Logo";
-import { authLogin, authSetup, profileGet } from "../rpc";
+import { authLogin, authSetup } from "../rpc";
 
 interface LoginPageProps {
   mode: "login" | "setup";
@@ -16,34 +16,22 @@ interface LoginPageProps {
 
 export default function LoginPage({ mode, onSuccess }: LoginPageProps) {
   const { t } = useTranslation();
+  const [username, setUsername] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (mode !== "setup") return;
-    let cancelled = false;
-    profileGet()
-      .then((profile) => {
-        if (cancelled) return;
-        const loaded = (profile.name || "").trim();
-        if (loaded) {
-          setName((current) => (current.trim() ? current : loaded));
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [mode]);
-
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
 
     if (mode === "setup") {
+      if (!username.trim()) {
+        setError(t("auth.usernameRequired"));
+        return;
+      }
       if (password.length < 8) {
         setError(t("auth.passwordMinLength"));
         return;
@@ -52,14 +40,17 @@ export default function LoginPage({ mode, onSuccess }: LoginPageProps) {
         setError(t("auth.passwordsDoNotMatch"));
         return;
       }
+    } else if (!username.trim()) {
+      setError(t("auth.usernameRequired"));
+      return;
     }
 
     setLoading(true);
     try {
       if (mode === "setup") {
-        await authSetup(password, name.trim() || undefined);
+        await authSetup(username.trim(), password, name.trim() || undefined);
       } else {
-        await authLogin(password);
+        await authLogin(username.trim(), password);
       }
       onSuccess();
     } catch (err) {
@@ -111,13 +102,22 @@ export default function LoginPage({ mode, onSuccess }: LoginPageProps) {
           </Alert>
         )}
 
+        <TextField
+          fullWidth
+          label={t("auth.username")}
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          autoFocus
+          autoComplete="username"
+          sx={{ mb: 2 }}
+        />
+
         {mode === "setup" && (
           <TextField
             fullWidth
             label={t("auth.name")}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            autoFocus
             autoComplete="name"
             sx={{ mb: 2 }}
           />
@@ -131,7 +131,6 @@ export default function LoginPage({ mode, onSuccess }: LoginPageProps) {
           onChange={(e) => setPassword(e.target.value)}
           autoComplete={mode === "setup" ? "new-password" : "current-password"}
           sx={{ mb: 2 }}
-          autoFocus={mode !== "setup"}
         />
 
         {mode === "setup" && (

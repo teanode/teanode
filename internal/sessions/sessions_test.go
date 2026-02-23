@@ -25,13 +25,16 @@ func TestCreate(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "sessions")
 	store := NewStore(directory)
 
-	session, err := store.Create("Mozilla/5.0", "192.168.1.1", 24*time.Hour)
+	session, err := store.Create("user-1", "Mozilla/5.0", "192.168.1.1", 24*time.Hour)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	if session.ID == "" {
 		t.Error("expected non-empty session ID")
+	}
+	if session.UserID != "user-1" {
+		t.Errorf("UserID = %q, want %q", session.UserID, "user-1")
 	}
 	if session.UserAgent != "Mozilla/5.0" {
 		t.Errorf("UserAgent = %q, want %q", session.UserAgent, "Mozilla/5.0")
@@ -65,6 +68,9 @@ func TestCreate(t *testing.T) {
 	if persisted.ID != session.ID {
 		t.Errorf("persisted ID = %q, want %q", persisted.ID, session.ID)
 	}
+	if persisted.UserID != session.UserID {
+		t.Errorf("persisted UserID = %q, want %q", persisted.UserID, session.UserID)
+	}
 	if persisted.UserAgent != session.UserAgent {
 		t.Errorf("persisted UserAgent = %q, want %q", persisted.UserAgent, session.UserAgent)
 	}
@@ -73,11 +79,11 @@ func TestCreate(t *testing.T) {
 func TestCreate_MultipleSessionsHaveUniqueIDs(t *testing.T) {
 	store := NewStore(t.TempDir())
 
-	first, err := store.Create("agent-1", "10.0.0.1", time.Hour)
+	first, err := store.Create("user-1", "agent-1", "10.0.0.1", time.Hour)
 	if err != nil {
 		t.Fatalf("Create first: %v", err)
 	}
-	second, err := store.Create("agent-2", "10.0.0.2", time.Hour)
+	second, err := store.Create("user-1", "agent-2", "10.0.0.2", time.Hour)
 	if err != nil {
 		t.Fatalf("Create second: %v", err)
 	}
@@ -90,7 +96,7 @@ func TestCreate_MultipleSessionsHaveUniqueIDs(t *testing.T) {
 func TestGet_ExistingSession(t *testing.T) {
 	store := NewStore(t.TempDir())
 
-	created, err := store.Create("Chrome", "127.0.0.1", time.Hour)
+	created, err := store.Create("user-1", "Chrome", "127.0.0.1", time.Hour)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -101,6 +107,9 @@ func TestGet_ExistingSession(t *testing.T) {
 	}
 	if retrieved.ID != created.ID {
 		t.Errorf("ID = %q, want %q", retrieved.ID, created.ID)
+	}
+	if retrieved.UserID != "user-1" {
+		t.Errorf("UserID = %q, want %q", retrieved.UserID, "user-1")
 	}
 	if retrieved.UserAgent != created.UserAgent {
 		t.Errorf("UserAgent = %q, want %q", retrieved.UserAgent, created.UserAgent)
@@ -275,7 +284,7 @@ func TestTouch_NonexistentSession(t *testing.T) {
 func TestDelete_ExistingSession(t *testing.T) {
 	store := NewStore(t.TempDir())
 
-	session, err := store.Create("Chrome", "127.0.0.1", time.Hour)
+	session, err := store.Create("user-1", "Chrome", "127.0.0.1", time.Hour)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -327,11 +336,11 @@ func TestList_NonexistentDirectory(t *testing.T) {
 func TestList_MultipleSessions(t *testing.T) {
 	store := NewStore(t.TempDir())
 
-	first, err := store.Create("Agent-A", "10.0.0.1", time.Hour)
+	first, err := store.Create("user-1", "Agent-A", "10.0.0.1", time.Hour)
 	if err != nil {
 		t.Fatalf("Create first: %v", err)
 	}
-	second, err := store.Create("Agent-B", "10.0.0.2", time.Hour)
+	second, err := store.Create("user-1", "Agent-B", "10.0.0.2", time.Hour)
 	if err != nil {
 		t.Fatalf("Create second: %v", err)
 	}
@@ -362,7 +371,7 @@ func TestList_FiltersExpiredSessions(t *testing.T) {
 	store := NewStore(directory)
 
 	// Create a valid session via the store.
-	valid, err := store.Create("Valid", "10.0.0.1", time.Hour)
+	valid, err := store.Create("user-1", "Valid", "10.0.0.1", time.Hour)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -407,7 +416,7 @@ func TestList_SkipsNonYAMLFiles(t *testing.T) {
 	store := NewStore(directory)
 
 	// Create a valid session.
-	_, err := store.Create("Valid", "10.0.0.1", time.Hour)
+	_, err := store.Create("user-1", "Valid", "10.0.0.1", time.Hour)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -430,7 +439,7 @@ func TestList_SkipsSubdirectories(t *testing.T) {
 	directory := t.TempDir()
 	store := NewStore(directory)
 
-	_, err := store.Create("Valid", "10.0.0.1", time.Hour)
+	_, err := store.Create("user-1", "Valid", "10.0.0.1", time.Hour)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -453,7 +462,7 @@ func TestList_SkipsMalformedYAML(t *testing.T) {
 	directory := t.TempDir()
 	store := NewStore(directory)
 
-	_, err := store.Create("Valid", "10.0.0.1", time.Hour)
+	_, err := store.Create("user-1", "Valid", "10.0.0.1", time.Hour)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -475,11 +484,11 @@ func TestList_SkipsMalformedYAML(t *testing.T) {
 func TestDelete_ThenList(t *testing.T) {
 	store := NewStore(t.TempDir())
 
-	first, err := store.Create("Agent-A", "10.0.0.1", time.Hour)
+	first, err := store.Create("user-1", "Agent-A", "10.0.0.1", time.Hour)
 	if err != nil {
 		t.Fatalf("Create first: %v", err)
 	}
-	second, err := store.Create("Agent-B", "10.0.0.2", time.Hour)
+	second, err := store.Create("user-1", "Agent-B", "10.0.0.2", time.Hour)
 	if err != nil {
 		t.Fatalf("Create second: %v", err)
 	}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 type Index struct {
@@ -46,24 +47,24 @@ type SearchResult struct {
 }
 
 type InstalledSkill struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Version     string `json:"version"`
-	Enabled     bool   `json:"enabled"`
-	SourceID    string `json:"sourceId,omitempty"`
-	Publisher   string `json:"publisher,omitempty"`
-	InstalledAt int64  `json:"installedAt,omitempty"`
+	Name        string             `json:"name"`
+	Description string             `json:"description,omitempty"`
+	Version     string             `json:"version"`
+	Enabled     bool               `json:"enabled"`
+	SourceID    string             `json:"sourceId,omitempty"`
+	Publisher   string             `json:"publisher,omitempty"`
+	InstalledAt timeutil.Timestamp `json:"installedAt,omitempty"`
 }
 
 type installManifest struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Version     string `json:"version"`
-	Enabled     *bool  `json:"enabled,omitempty"`
-	SourceID    string `json:"sourceId"`
-	Publisher   string `json:"publisher"`
-	Digest      string `json:"digest"`
-	InstalledAt int64  `json:"installedAt"`
+	Name        string             `json:"name"`
+	Description string             `json:"description,omitempty"`
+	Version     string             `json:"version"`
+	Enabled     *bool              `json:"enabled,omitempty"`
+	SourceID    string             `json:"sourceId"`
+	Publisher   string             `json:"publisher"`
+	Digest      string             `json:"digest"`
+	InstalledAt timeutil.Timestamp `json:"installedAt"`
 }
 
 func fetchIndex(ctx context.Context, source configs.SkillsRegistry) (*Index, error) {
@@ -273,7 +274,7 @@ func Install(ctx context.Context, registries []configs.SkillsRegistry, sourceId 
 		SourceID:    source.ID,
 		Publisher:   publisher,
 		Digest:      digest,
-		InstalledAt: time.Now().UnixMilli(),
+		InstalledAt: timeutil.Now(),
 	}
 	manifestBytes, _ := json.MarshalIndent(manifest, "", "  ")
 	if err := writeInstalledFile(installDir, "manifest.json", manifestBytes); err != nil {
@@ -461,7 +462,7 @@ func Update(ctx context.Context, registries []configs.SkillsRegistry, name strin
 		if name != "" && item.Name != name {
 			continue
 		}
-		registry := findRegistryByID(registries, item.SourceID)
+		registry := findRegistryById(registries, item.SourceID)
 		if registry != nil && registry.IgnoreUpdates {
 			continue
 		}
@@ -476,7 +477,7 @@ func Update(ctx context.Context, registries []configs.SkillsRegistry, name strin
 	return updated, nil
 }
 
-func findRegistryByID(registries []configs.SkillsRegistry, id string) *configs.SkillsRegistry {
+func findRegistryById(registries []configs.SkillsRegistry, id string) *configs.SkillsRegistry {
 	for index := range registries {
 		if registries[index].ID == id {
 			return &registries[index]

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/web"
 )
@@ -17,20 +18,21 @@ func setNoStoreHeaders(writer http.ResponseWriter) {
 	writer.Header().Set("Expires", "0")
 }
 
-func (self *v1Api) loadProfile() (*configs.Profile, error) {
-	// Disk is the authoritative source of truth for profile settings.
-	loaded, err := configs.LoadProfile()
-	if err != nil {
-		return nil, err
+func requestUserId(request *http.Request) string {
+	if userContext := gw.UserFromContext(request.Context()); userContext != nil {
+		return userContext.UserID
 	}
-	self.gateway.SetProfile(loaded)
-	return loaded, nil
+	return ""
+}
+
+func (self *v1Api) loadProfile(userId string) (*configs.UserProfile, error) {
+	return configs.LoadUserProfile(userId)
 }
 
 func (self *v1Api) handleProfile(writer http.ResponseWriter, request *http.Request) error {
 	switch request.Method {
 	case http.MethodGet:
-		profile, err := self.loadProfile()
+		profile, err := self.loadProfile(requestUserId(request))
 		if err != nil {
 			return web.Error(500, "failed to load profile")
 		}
@@ -39,30 +41,37 @@ func (self *v1Api) handleProfile(writer http.ResponseWriter, request *http.Reque
 		return json.NewEncoder(writer).Encode(profile)
 	case http.MethodPut:
 		var body struct {
-			Name          string `json:"name"`
-			Bio           string `json:"bio"`
-			AvatarMediaID string `json:"avatarMediaId"`
+			Name          *string `json:"name,omitempty"`
+			Description   *string `json:"description,omitempty"`
+			AvatarMediaID *string `json:"avatarMediaId,omitempty"`
 		}
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			return web.Error(400, "invalid request body")
 		}
-		existing, err := self.loadProfile()
+		userId := requestUserId(request)
+		existing, err := self.loadProfile(userId)
 		if err != nil {
 			return web.Error(500, "failed to load profile")
 		}
 
-		profile := &configs.Profile{
-			Name:          strings.TrimSpace(body.Name),
-			Bio:           body.Bio,
-			AvatarMediaID: strings.TrimSpace(body.AvatarMediaID),
+		profile := &configs.UserProfile{
+			Name:          strings.TrimSpace(existing.Name),
+			Description:   strings.TrimSpace(existing.Description),
+			AvatarMediaID: strings.TrimSpace(existing.AvatarMediaID),
 		}
-		if profile.AvatarMediaID == "" {
-			profile.AvatarMediaID = strings.TrimSpace(existing.AvatarMediaID)
+		if body.Name != nil {
+			profile.Name = strings.TrimSpace(*body.Name)
 		}
-		if err := configs.SaveProfileOverwriteBio(profile); err != nil {
+		if body.Description != nil {
+			profile.Description = strings.TrimSpace(*body.Description)
+		}
+		if body.AvatarMediaID != nil {
+			profile.AvatarMediaID = strings.TrimSpace(*body.AvatarMediaID)
+		}
+		if err := configs.SaveUserProfile(userId, profile); err != nil {
 			return web.Error(500, "failed to save profile")
 		}
-		persisted, err := self.loadProfile()
+		persisted, err := self.loadProfile(userId)
 		if err != nil {
 			return web.Error(500, "failed to load profile")
 		}
@@ -80,7 +89,8 @@ func (self *v1Api) handleProfileAvatar(writer http.ResponseWriter, request *http
 	if mediaStore == nil {
 		return web.Error(500, "media store not available")
 	}
-	profile, err := self.loadProfile()
+	userId := requestUserId(request)
+	profile, err := self.loadProfile(userId)
 	if err != nil {
 		return web.Error(500, "failed to load profile")
 	}
@@ -116,10 +126,10 @@ func (self *v1Api) handleProfileAvatar(writer http.ResponseWriter, request *http
 
 		oldAvatarMediaId := profile.AvatarMediaID
 		profile.AvatarMediaID = saved.MediaID
-		if err := configs.SaveProfile(profile); err != nil {
+		if err := configs.SaveUserProfile(userId, profile); err != nil {
 			return web.Error(500, "failed to save profile")
 		}
-		persisted, err := self.loadProfile()
+		persisted, err := self.loadProfile(userId)
 		if err != nil {
 			return web.Error(500, "failed to load profile")
 		}
@@ -134,10 +144,10 @@ func (self *v1Api) handleProfileAvatar(writer http.ResponseWriter, request *http
 	case http.MethodDelete:
 		oldAvatarMediaId := profile.AvatarMediaID
 		profile.AvatarMediaID = ""
-		if err := configs.SaveProfile(profile); err != nil {
+		if err := configs.SaveUserProfile(userId, profile); err != nil {
 			return web.Error(500, "failed to save profile")
 		}
-		persisted, err := self.loadProfile()
+		persisted, err := self.loadProfile(userId)
 		if err != nil {
 			return web.Error(500, "failed to load profile")
 		}

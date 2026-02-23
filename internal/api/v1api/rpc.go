@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/util/trash"
 	"github.com/teanode/teanode/internal/version"
 )
 
@@ -29,7 +31,7 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	for _, agentConfig := range agentConfigs {
 		info := map[string]interface{}{
 			"id":                    agentConfig.ID,
-			"defaultConversationId": self.api.gateway.DefaultConversationID(agentConfig.ID),
+			"defaultConversationId": self.api.gateway.DefaultConversationID(self.userId, agentConfig.ID),
 		}
 		if agentConfig.Name != "" {
 			info["name"] = agentConfig.Name
@@ -55,7 +57,9 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 		"defaultModel":          config.Models.Default,
 		"agents":                agentInfos,
 		"defaultAgentId":        defaultAgentId,
-		"defaultConversationId": self.api.gateway.DefaultConversationID(defaultAgentId),
+		"defaultConversationId": self.api.gateway.DefaultConversationID(self.userId, defaultAgentId),
+		"isAdmin":               self.api.gateway.SecurityConfig().IsAdmin(self.userId),
+		"userId":                self.userId,
 	})
 }
 
@@ -73,7 +77,7 @@ func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 	for _, agentConfig := range agentConfigs {
 		info := map[string]interface{}{
 			"id":                    agentConfig.ID,
-			"defaultConversationId": self.api.gateway.DefaultConversationID(agentConfig.ID),
+			"defaultConversationId": self.api.gateway.DefaultConversationID(self.userId, agentConfig.ID),
 		}
 		if agentConfig.Name != "" {
 			info["name"] = agentConfig.Name
@@ -111,7 +115,7 @@ func (self *webSocketConnection) handleAgentsSetDefault(frame requestFrame) {
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"defaultAgentId":        parameters.AgentID,
-		"defaultConversationId": self.api.gateway.DefaultConversationID(parameters.AgentID),
+		"defaultConversationId": self.api.gateway.DefaultConversationID(self.userId, parameters.AgentID),
 	})
 }
 
@@ -136,7 +140,7 @@ func (self *webSocketConnection) handleConversationsSetDefault(frame requestFram
 	if agentId == "" {
 		agentId = self.api.gateway.DefaultAgentID()
 	}
-	self.api.gateway.SetDefaultConversation(agentId, parameters.ConversationID)
+	self.api.gateway.SetDefaultConversation(self.userId, agentId, parameters.ConversationID)
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"defaultAgentId":        agentId,
 		"defaultConversationId": parameters.ConversationID,
@@ -174,6 +178,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 	}
 
 	handle := self.api.gateway.SendMessage(context.Background(), gw.SendMessageParameters{
+		UserContext:        &gw.UserContext{UserID: self.userId, SessionID: self.sessionId, AuthMethod: gw.AuthMethodSession},
 		AgentID:            parameters.AgentID,
 		ConversationID:     parameters.ConversationID,
 		Message:            parameters.Message,
@@ -223,7 +228,8 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 		limit = 50
 	}
 
-	page, err := runner.Conversations.LoadPage(parameters.ConversationID, limit, parameters.BeforeIndex)
+	store := runner.ConversationsForUser(self.userId)
+	page, err := store.LoadPage(parameters.ConversationID, limit, parameters.BeforeIndex)
 	if err != nil {
 		self.sendError(frame.ID, 500, "loading conversation: "+err.Error())
 		return
@@ -240,7 +246,7 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 		response["activeRunId"] = activeRunId
 	}
 	// Include conversation's locked provider/model from the header.
-	if header, headerError := runner.Conversations.LoadHeader(parameters.ConversationID); headerError == nil {
+	if header, headerError := store.LoadHeader(parameters.ConversationID); headerError == nil {
 		if header.Provider != "" {
 			response["provider"] = header.Provider
 		}
@@ -297,13 +303,13 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 	if resolvedAgentId == "" {
 		resolvedAgentId = self.api.gateway.DefaultAgentID()
 	}
-	defaultConversationId := self.api.gateway.DefaultConversationID(resolvedAgentId)
+	defaultConversationId := self.api.gateway.DefaultConversationID(self.userId, resolvedAgentId)
 	if parameters.ConversationID == defaultConversationId {
 		self.sendError(frame.ID, 409, "cannot delete the default conversation")
 		return
 	}
 
-	if err := self.api.gateway.DeleteConversation(parameters.AgentID, parameters.ConversationID); err != nil {
+	if err := self.api.gateway.DeleteConversation(self.userId, parameters.AgentID, parameters.ConversationID); err != nil {
 		self.sendError(frame.ID, 500, "deleting conversation: "+err.Error())
 		return
 	}
@@ -333,7 +339,7 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 			self.sendError(frame.ID, 404, "agent not found: "+parameters.AgentID)
 			return
 		}
-		conversations, err := runner.Conversations.List()
+		conversations, err := runner.ConversationsForUser(self.userId).List()
 		if err != nil {
 			self.sendError(frame.ID, 500, "listing conversations: "+err.Error())
 			return
@@ -360,7 +366,7 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 
 	var allConversations []conversationWithAgent
 	self.api.gateway.AgentRegistry().ForEach(func(agentId string, runner *agents.Runner) {
-		conversations, err := runner.Conversations.List()
+		conversations, err := runner.ConversationsForUser(self.userId).List()
 		if err != nil {
 			return
 		}
@@ -542,7 +548,7 @@ func (self *webSocketConnection) handleAgentsConfigSchema(frame requestFrame) {
 	// Collect tool names from the default runner.
 	runner := self.api.gateway.AgentRegistry().Default()
 	if runner != nil {
-		_, _, tools, _, _, _ := runner.Snapshot()
+		_, _, tools, _, _ := runner.Snapshot()
 		if tools != nil {
 			suggestions["tool"] = tools.Names()
 		}
@@ -653,6 +659,95 @@ func (self *webSocketConnection) handleAgentsConfigDelete(frame requestFrame) {
 	})
 }
 
+type agentsAvatarSetParameters struct {
+	ID            string `json:"id"`
+	AvatarMediaID string `json:"avatarMediaId"`
+}
+
+func (self *webSocketConnection) handleAgentsAvatarSet(frame requestFrame) {
+	var parameters agentsAvatarSetParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	agentId := strings.TrimSpace(parameters.ID)
+	avatarMediaId := strings.TrimSpace(parameters.AvatarMediaID)
+	if agentId == "" {
+		self.sendError(frame.ID, 400, "id is required")
+		return
+	}
+	if avatarMediaId == "" {
+		self.sendError(frame.ID, 400, "avatarMediaId is required")
+		return
+	}
+
+	if self.api.gateway.Config().AgentByID(agentId) == nil {
+		self.sendError(frame.ID, 404, "agent not found")
+		return
+	}
+
+	state, err := configs.LoadAgentState(agentId)
+	if err != nil {
+		self.sendError(frame.ID, 500, "loading agent state: "+err.Error())
+		return
+	}
+	oldAvatarMediaId := strings.TrimSpace(state.AvatarMediaID)
+	state.AvatarMediaID = avatarMediaId
+	if err := configs.SaveAgentState(agentId, state); err != nil {
+		self.sendError(frame.ID, 500, "saving agent state: "+err.Error())
+		return
+	}
+	if oldAvatarMediaId != "" && oldAvatarMediaId != avatarMediaId && self.api.gateway.MediaStore() != nil {
+		_ = self.api.gateway.MediaStore().Delete(oldAvatarMediaId)
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"ok":            true,
+		"avatarMediaId": avatarMediaId,
+	})
+}
+
+type agentsAvatarRemoveParameters struct {
+	ID string `json:"id"`
+}
+
+func (self *webSocketConnection) handleAgentsAvatarRemove(frame requestFrame) {
+	var parameters agentsAvatarRemoveParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	agentId := strings.TrimSpace(parameters.ID)
+	if agentId == "" {
+		self.sendError(frame.ID, 400, "id is required")
+		return
+	}
+	if self.api.gateway.Config().AgentByID(agentId) == nil {
+		self.sendError(frame.ID, 404, "agent not found")
+		return
+	}
+
+	state, err := configs.LoadAgentState(agentId)
+	if err != nil {
+		self.sendError(frame.ID, 500, "loading agent state: "+err.Error())
+		return
+	}
+	oldAvatarMediaId := strings.TrimSpace(state.AvatarMediaID)
+	state.AvatarMediaID = ""
+	if err := configs.SaveAgentState(agentId, state); err != nil {
+		self.sendError(frame.ID, 500, "saving agent state: "+err.Error())
+		return
+	}
+	if oldAvatarMediaId != "" && self.api.gateway.MediaStore() != nil {
+		_ = self.api.gateway.MediaStore().Delete(oldAvatarMediaId)
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"ok":            true,
+		"avatarMediaId": "",
+	})
+}
+
 // --- Jobs RPC handlers ---
 
 // handleJobsList: list all jobs.
@@ -662,7 +757,7 @@ func (self *webSocketConnection) handleJobsList(frame requestFrame) {
 		return
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"jobs": self.api.gateway.Scheduler().List(),
+		"jobs": self.api.gateway.Scheduler().List(self.userId),
 	})
 }
 
@@ -716,7 +811,7 @@ func (self *webSocketConnection) handleJobsCreate(frame requestFrame) {
 		CreatedAt:      time.Now().UnixMilli(),
 	}
 
-	if err := self.api.gateway.Scheduler().CreateAndReload(job); err != nil {
+	if err := self.api.gateway.Scheduler().CreateAndReload(self.userId, job); err != nil {
 		self.sendError(frame.ID, 500, "creating job: "+err.Error())
 		return
 	}
@@ -755,7 +850,7 @@ func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) {
 	}
 
 	// Find existing job.
-	allJobs := self.api.gateway.Scheduler().List()
+	allJobs := self.api.gateway.Scheduler().List(self.userId)
 	var job *jobs.Job
 	for index := range allJobs {
 		if allJobs[index].ID == parameters.ID {
@@ -792,7 +887,7 @@ func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) {
 		job.ConversationID = "" // resolved at execution time from default conversation
 	}
 
-	if err := self.api.gateway.Scheduler().UpdateAndReload(*job); err != nil {
+	if err := self.api.gateway.Scheduler().UpdateAndReload(self.userId, *job); err != nil {
 		self.sendError(frame.ID, 500, "updating job: "+err.Error())
 		return
 	}
@@ -824,7 +919,7 @@ func (self *webSocketConnection) handleJobsDelete(frame requestFrame) {
 		return
 	}
 
-	if err := self.api.gateway.Scheduler().DeleteAndReload(parameters.ID); err != nil {
+	if err := self.api.gateway.Scheduler().DeleteAndReload(self.userId, parameters.ID); err != nil {
 		self.sendError(frame.ID, 500, "deleting job: "+err.Error())
 		return
 	}
@@ -856,7 +951,7 @@ func (self *webSocketConnection) handleJobsTrigger(frame requestFrame) {
 		return
 	}
 
-	if err := self.api.gateway.Scheduler().Trigger(parameters.ID); err != nil {
+	if err := self.api.gateway.Scheduler().Trigger(self.userId, parameters.ID); err != nil {
 		self.sendError(frame.ID, 500, "triggering job: "+err.Error())
 		return
 	}
@@ -929,12 +1024,60 @@ func (self *webSocketConnection) handleSessionsRevoke(frame requestFrame) {
 
 // --- Auth RPC handlers ---
 
-// handleAuthRegenerateToken generates a new random auth token, saves it, and returns it.
-func (self *webSocketConnection) handleAuthRegenerateToken(frame requestFrame) {
-	token := security.GenerateRandomString(48, security.LowerAlphaNumeric)
+type authTokenListItem struct {
+	ID         string     `json:"id"`
+	Token      string     `json:"token"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+}
+
+func toAuthTokenListItems(tokens []configs.SecurityToken) []authTokenListItem {
+	items := make([]authTokenListItem, 0, len(tokens))
+	for _, token := range tokens {
+		if strings.TrimSpace(token.ID) == "" || strings.TrimSpace(token.Token) == "" {
+			continue
+		}
+		items = append(items, authTokenListItem{
+			ID:         token.ID,
+			Token:      token.Token,
+			CreatedAt:  token.CreatedAt,
+			LastUsedAt: token.LastUsedAt,
+		})
+	}
+	sort.Slice(items, func(left, right int) bool {
+		return items[left].CreatedAt.After(items[right].CreatedAt)
+	})
+	return items
+}
+
+func (self *webSocketConnection) handleAuthTokensList(frame requestFrame) {
+	securityConfig := self.api.gateway.SecurityConfig()
+	user, ok := securityConfig.Users[self.userId]
+	if !ok {
+		self.sendError(frame.ID, 404, "user not found")
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"tokens": toAuthTokenListItems(user.Tokens),
+	})
+}
+
+func (self *webSocketConnection) handleAuthTokensCreate(frame requestFrame) {
+	tokenValue := security.GenerateRandomString(48, security.LowerAlphaNumeric)
 
 	securityConfig := self.api.gateway.SecurityConfig()
-	securityConfig.Token = token
+	user, ok := securityConfig.Users[self.userId]
+	if !ok {
+		self.sendError(frame.ID, 404, "user not found")
+		return
+	}
+	created := configs.SecurityToken{
+		ID:        security.NewULID(),
+		Token:     tokenValue,
+		CreatedAt: time.Now(),
+	}
+	user.Tokens = append(user.Tokens, created)
+	securityConfig.Users[self.userId] = user
 
 	if err := configs.SaveSecurity(securityConfig); err != nil {
 		self.sendError(frame.ID, 500, "failed to save security config")
@@ -942,15 +1085,61 @@ func (self *webSocketConnection) handleAuthRegenerateToken(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"token": token,
+		"token": authTokenListItem{
+			ID:        created.ID,
+			Token:     created.Token,
+			CreatedAt: created.CreatedAt,
+		},
 	})
 }
 
-// handleAuthGetToken returns the current auth token.
-func (self *webSocketConnection) handleAuthGetToken(frame requestFrame) {
+type authTokensDeleteParameters struct {
+	TokenID string `json:"tokenId"`
+}
+
+func (self *webSocketConnection) handleAuthTokensDelete(frame requestFrame) {
+	var parameters authTokensDeleteParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	tokenId := strings.TrimSpace(parameters.TokenID)
+	if tokenId == "" {
+		self.sendError(frame.ID, 400, "tokenId is required")
+		return
+	}
+
 	securityConfig := self.api.gateway.SecurityConfig()
+	user, ok := securityConfig.Users[self.userId]
+	if !ok {
+		self.sendError(frame.ID, 404, "user not found")
+		return
+	}
+
+	filtered := make([]configs.SecurityToken, 0, len(user.Tokens))
+	deleted := false
+	for _, token := range user.Tokens {
+		if token.ID == tokenId {
+			deleted = true
+			continue
+		}
+		filtered = append(filtered, token)
+	}
+	if !deleted {
+		self.sendError(frame.ID, 404, "token not found")
+		return
+	}
+
+	user.Tokens = filtered
+	securityConfig.Users[self.userId] = user
+	if err := configs.SaveSecurity(securityConfig); err != nil {
+		self.sendError(frame.ID, 500, "failed to save security config")
+		return
+	}
+
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"token": securityConfig.Token,
+		"deleted": true,
+		"tokenId": tokenId,
 	})
 }
 
@@ -973,14 +1162,19 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 	}
 
 	securityConfig := self.api.gateway.SecurityConfig()
+	user, ok := securityConfig.Users[self.userId]
+	if !ok {
+		self.sendError(frame.ID, 404, "user not found")
+		return
+	}
 
 	// If a password is already set, verify the current password.
-	if securityConfig.Password != "" {
+	if user.PasswordHash != "" {
 		if parameters.CurrentPassword == "" {
 			self.sendError(frame.ID, 400, "current password is required")
 			return
 		}
-		match, err := security.VerifyPassword([]byte(securityConfig.Password), parameters.CurrentPassword)
+		match, err := security.VerifyPassword([]byte(user.PasswordHash), parameters.CurrentPassword)
 		if err != nil || !match {
 			self.sendError(frame.ID, 401, "current password is incorrect")
 			return
@@ -993,7 +1187,8 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 		return
 	}
 
-	securityConfig.Password = string(hash)
+	user.PasswordHash = string(hash)
+	securityConfig.Users[self.userId] = user
 	if err := configs.SaveSecurity(securityConfig); err != nil {
 		self.sendError(frame.ID, 500, "failed to save security config")
 		return
@@ -1004,10 +1199,393 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 	})
 }
 
-func profileToRpcPayload(profile *configs.Profile) map[string]interface{} {
+func (self *webSocketConnection) requireAdmin(frame requestFrame) bool {
+	if !self.api.gateway.SecurityConfig().IsAdmin(self.userId) {
+		self.sendError(frame.ID, 403, "admin access required")
+		return false
+	}
+	return true
+}
+
+type usersListItem struct {
+	ID            string `json:"id"`
+	Username      string `json:"username"`
+	Admin         bool   `json:"admin"`
+	HasPassword   bool   `json:"hasPassword"`
+	Name          string `json:"name,omitempty"`
+	Description   string `json:"description,omitempty"`
+	AvatarMediaID string `json:"avatarMediaId,omitempty"`
+}
+
+func (self *webSocketConnection) handleUsersList(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
+	securityConfig := self.api.gateway.SecurityConfig()
+	items := make([]usersListItem, 0, len(securityConfig.Users))
+	userIds := make([]string, 0, len(securityConfig.Users))
+	for userId := range securityConfig.Users {
+		userIds = append(userIds, userId)
+	}
+	sort.Strings(userIds)
+	for _, userId := range userIds {
+		user := securityConfig.Users[userId]
+		item := usersListItem{
+			ID:          userId,
+			Username:    user.Username,
+			Admin:       user.Admin,
+			HasPassword: strings.TrimSpace(user.PasswordHash) != "",
+		}
+		if profile, err := self.api.loadProfile(userId); err == nil {
+			item.Name = strings.TrimSpace(profile.Name)
+			item.Description = strings.TrimSpace(profile.Description)
+			item.AvatarMediaID = strings.TrimSpace(profile.AvatarMediaID)
+		}
+		items = append(items, item)
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"users": items,
+	})
+}
+
+type usersCreateParameters struct {
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+func (self *webSocketConnection) handleUsersCreate(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
+	var parameters usersCreateParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	username := strings.TrimSpace(parameters.Username)
+	if username == "" {
+		self.sendError(frame.ID, 400, "username is required")
+		return
+	}
+	if len(parameters.Password) < 8 {
+		self.sendError(frame.ID, 400, "password must be at least 8 characters")
+		return
+	}
+	securityConfig := self.api.gateway.SecurityConfig()
+	if _, _, exists := securityConfig.FindUserByUsername(username); exists {
+		self.sendError(frame.ID, 409, "username already exists")
+		return
+	}
+	hash, err := security.HashPassword(parameters.Password)
+	if err != nil {
+		self.sendError(frame.ID, 500, "failed to hash password")
+		return
+	}
+	userId := security.NewULID()
+	securityConfig.Users[userId] = configs.SecurityUser{
+		Username:     username,
+		Admin:        false,
+		PasswordHash: string(hash),
+	}
+	if err := configs.SaveSecurity(securityConfig); err != nil {
+		self.sendError(frame.ID, 500, "failed to save security config")
+		return
+	}
+	name := strings.TrimSpace(parameters.Name)
+	if name == "" {
+		name = username
+	}
+	if err := configs.SaveUserProfile(userId, &configs.UserProfile{
+		Name:        name,
+		Description: strings.TrimSpace(parameters.Description),
+	}); err != nil {
+		self.sendError(frame.ID, 500, "failed to save profile")
+		return
+	}
+	if err := configs.EnsureUserDirectories(userId); err != nil {
+		self.sendError(frame.ID, 500, "failed to initialize user directories")
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"user": usersListItem{
+			ID:          userId,
+			Username:    username,
+			Admin:       false,
+			HasPassword: true,
+			Name:        name,
+		},
+	})
+}
+
+type usersDeleteParameters struct {
+	UserID string `json:"userId"`
+}
+
+func (self *webSocketConnection) handleUsersDelete(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
+	var parameters usersDeleteParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	userId := strings.TrimSpace(parameters.UserID)
+	if userId == "" {
+		self.sendError(frame.ID, 400, "userId is required")
+		return
+	}
+	if userId == self.userId {
+		self.sendError(frame.ID, 400, "cannot delete the current user")
+		return
+	}
+	securityConfig := self.api.gateway.SecurityConfig()
+	if _, exists := securityConfig.Users[userId]; !exists {
+		self.sendError(frame.ID, 404, "user not found")
+		return
+	}
+	delete(securityConfig.Users, userId)
+	if securityConfig.ChannelLinks.Telegram != nil {
+		for chatId, linkedUserId := range securityConfig.ChannelLinks.Telegram {
+			if linkedUserId == userId {
+				delete(securityConfig.ChannelLinks.Telegram, chatId)
+			}
+		}
+	}
+	if securityConfig.ChannelLinks.Discord != nil {
+		for discordUserId, linkedUserId := range securityConfig.ChannelLinks.Discord {
+			if linkedUserId == userId {
+				delete(securityConfig.ChannelLinks.Discord, discordUserId)
+			}
+		}
+	}
+	if err := configs.SaveSecurity(securityConfig); err != nil {
+		self.sendError(frame.ID, 500, "failed to save security config")
+		return
+	}
+
+	if store := self.api.gateway.SessionStore(); store != nil {
+		if sessionList, err := store.List(); err == nil {
+			for _, session := range sessionList {
+				if session.UserID == userId {
+					_ = store.Delete(session.ID)
+				}
+			}
+		}
+	}
+
+	if userDirectory, err := configs.UserDirectory(userId); err == nil {
+		if _, statErr := os.Stat(userDirectory); statErr == nil {
+			if trashDirectory, trashErr := configs.TrashDirectory(); trashErr == nil {
+				_ = trash.Move(userDirectory, trashDirectory)
+			}
+		}
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"deleted": true,
+	})
+}
+
+type usersChangePasswordParameters struct {
+	UserID      string `json:"userId"`
+	NewPassword string `json:"newPassword"`
+}
+
+func (self *webSocketConnection) handleUsersChangePassword(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
+	var parameters usersChangePasswordParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	userId := strings.TrimSpace(parameters.UserID)
+	if userId == "" {
+		self.sendError(frame.ID, 400, "userId is required")
+		return
+	}
+	if userId == self.userId {
+		self.sendError(frame.ID, 400, "use auth.changePassword for current user")
+		return
+	}
+	if len(parameters.NewPassword) < 8 {
+		self.sendError(frame.ID, 400, "new password must be at least 8 characters")
+		return
+	}
+
+	securityConfig := self.api.gateway.SecurityConfig()
+	user, exists := securityConfig.Users[userId]
+	if !exists {
+		self.sendError(frame.ID, 404, "user not found")
+		return
+	}
+	hash, err := security.HashPassword(parameters.NewPassword)
+	if err != nil {
+		self.sendError(frame.ID, 500, "failed to hash password")
+		return
+	}
+	user.PasswordHash = string(hash)
+	securityConfig.Users[userId] = user
+	if err := configs.SaveSecurity(securityConfig); err != nil {
+		self.sendError(frame.ID, 500, "failed to save security config")
+		return
+	}
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"ok": true,
+	})
+}
+
+type usersUpdateParameters struct {
+	UserID      string  `json:"userId"`
+	Username    *string `json:"username,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+	NewPassword *string `json:"newPassword,omitempty"`
+}
+
+func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
+	var parameters usersUpdateParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	userId := strings.TrimSpace(parameters.UserID)
+	if userId == "" {
+		self.sendError(frame.ID, 400, "userId is required")
+		return
+	}
+	if userId == self.userId {
+		self.sendError(frame.ID, 400, "cannot update the current user from users list")
+		return
+	}
+
+	securityConfig := self.api.gateway.SecurityConfig()
+	user, exists := securityConfig.Users[userId]
+	if !exists {
+		self.sendError(frame.ID, 404, "user not found")
+		return
+	}
+
+	if parameters.Username != nil {
+		nextUsername := strings.TrimSpace(*parameters.Username)
+		if nextUsername == "" {
+			self.sendError(frame.ID, 400, "username is required")
+			return
+		}
+		if existingUserId, _, found := securityConfig.FindUserByUsername(nextUsername); found && existingUserId != userId {
+			self.sendError(frame.ID, 409, "username already exists")
+			return
+		}
+		user.Username = nextUsername
+	}
+
+	if parameters.NewPassword != nil {
+		nextPassword := *parameters.NewPassword
+		if strings.TrimSpace(nextPassword) != "" {
+			if len(nextPassword) < 8 {
+				self.sendError(frame.ID, 400, "new password must be at least 8 characters")
+				return
+			}
+			hash, err := security.HashPassword(nextPassword)
+			if err != nil {
+				self.sendError(frame.ID, 500, "failed to hash password")
+				return
+			}
+			user.PasswordHash = string(hash)
+		}
+	}
+
+	securityConfig.Users[userId] = user
+	if err := configs.SaveSecurity(securityConfig); err != nil {
+		self.sendError(frame.ID, 500, "failed to save security config")
+		return
+	}
+
+	if parameters.Name != nil || parameters.Description != nil {
+		profile, err := self.api.loadProfile(userId)
+		if err != nil {
+			self.sendError(frame.ID, 500, "failed to load profile")
+			return
+		}
+		profileName := strings.TrimSpace(profile.Name)
+		if parameters.Name != nil {
+			profileName = strings.TrimSpace(*parameters.Name)
+			if profileName == "" {
+				profileName = user.Username
+			}
+		}
+		profile.Name = profileName
+		if parameters.Description != nil {
+			profile.Description = strings.TrimSpace(*parameters.Description)
+		}
+		if err := configs.SaveUserProfile(userId, profile); err != nil {
+			self.sendError(frame.ID, 500, "failed to save profile")
+			return
+		}
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"ok": true,
+	})
+}
+
+type usersSetRoleParameters struct {
+	UserID string `json:"userId"`
+	Admin  bool   `json:"admin"`
+}
+
+func (self *webSocketConnection) handleUsersSetRole(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
+	var parameters usersSetRoleParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	userId := strings.TrimSpace(parameters.UserID)
+	if userId == "" {
+		self.sendError(frame.ID, 400, "userId is required")
+		return
+	}
+	if userId == self.userId {
+		self.sendError(frame.ID, 400, "cannot change the current user's role")
+		return
+	}
+
+	securityConfig := self.api.gateway.SecurityConfig()
+	user, exists := securityConfig.Users[userId]
+	if !exists {
+		self.sendError(frame.ID, 404, "user not found")
+		return
+	}
+	user.Admin = parameters.Admin
+	securityConfig.Users[userId] = user
+	if err := configs.SaveSecurity(securityConfig); err != nil {
+		self.sendError(frame.ID, 500, "failed to save security config")
+		return
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"ok":     true,
+		"userId": userId,
+		"admin":  parameters.Admin,
+	})
+}
+
+func profileToRpcPayload(profile *configs.UserProfile) map[string]interface{} {
 	payload := map[string]interface{}{
-		"name":      profile.Name,
-		"biography": profile.Bio,
+		"name": profile.Name,
+	}
+	if strings.TrimSpace(profile.Description) != "" {
+		payload["description"] = profile.Description
 	}
 	if strings.TrimSpace(profile.AvatarMediaID) != "" {
 		payload["avatarMediaId"] = profile.AvatarMediaID
@@ -1016,7 +1594,7 @@ func profileToRpcPayload(profile *configs.Profile) map[string]interface{} {
 }
 
 func (self *webSocketConnection) handleProfileGet(frame requestFrame) {
-	profile, err := self.api.loadProfile()
+	profile, err := self.api.loadProfile(self.userId)
 	if err != nil {
 		self.sendError(frame.ID, 500, "failed to load profile")
 		return
@@ -1025,8 +1603,9 @@ func (self *webSocketConnection) handleProfileGet(frame requestFrame) {
 }
 
 type profileUpdateParameters struct {
-	Name      string `json:"name"`
-	Biography string `json:"biography"`
+	Name          *string `json:"name,omitempty"`
+	Description   *string `json:"description,omitempty"`
+	AvatarMediaID *string `json:"avatarMediaId,omitempty"`
 }
 
 func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) {
@@ -1036,22 +1615,31 @@ func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) {
 		return
 	}
 
-	existing, err := self.api.loadProfile()
+	existing, err := self.api.loadProfile(self.userId)
 	if err != nil {
 		self.sendError(frame.ID, 500, "failed to load profile")
 		return
 	}
 
-	profile := &configs.Profile{
-		Name:          strings.TrimSpace(parameters.Name),
-		Bio:           parameters.Biography,
+	profile := &configs.UserProfile{
+		Name:          strings.TrimSpace(existing.Name),
+		Description:   strings.TrimSpace(existing.Description),
 		AvatarMediaID: strings.TrimSpace(existing.AvatarMediaID),
 	}
-	if err := configs.SaveProfileOverwriteBio(profile); err != nil {
+	if parameters.Name != nil {
+		profile.Name = strings.TrimSpace(*parameters.Name)
+	}
+	if parameters.Description != nil {
+		profile.Description = strings.TrimSpace(*parameters.Description)
+	}
+	if parameters.AvatarMediaID != nil {
+		profile.AvatarMediaID = strings.TrimSpace(*parameters.AvatarMediaID)
+	}
+	if err := configs.SaveUserProfile(self.userId, profile); err != nil {
 		self.sendError(frame.ID, 500, "failed to save profile")
 		return
 	}
-	persisted, err := self.api.loadProfile()
+	persisted, err := self.api.loadProfile(self.userId)
 	if err != nil {
 		self.sendError(frame.ID, 500, "failed to load profile")
 		return
@@ -1066,7 +1654,7 @@ func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
 		self.sendError(frame.ID, 500, "media store not available")
 		return
 	}
-	profile, err := self.api.loadProfile()
+	profile, err := self.api.loadProfile(self.userId)
 	if err != nil {
 		self.sendError(frame.ID, 500, "failed to load profile")
 		return
@@ -1074,11 +1662,11 @@ func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
 
 	oldAvatarMediaId := profile.AvatarMediaID
 	profile.AvatarMediaID = ""
-	if err := configs.SaveProfile(profile); err != nil {
+	if err := configs.SaveUserProfile(self.userId, profile); err != nil {
 		self.sendError(frame.ID, 500, "failed to save profile")
 		return
 	}
-	persisted, err := self.api.loadProfile()
+	persisted, err := self.api.loadProfile(self.userId)
 	if err != nil {
 		self.sendError(frame.ID, 500, "failed to load profile")
 		return

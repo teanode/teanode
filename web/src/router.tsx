@@ -20,10 +20,11 @@ import SettingsIndexPage from "./routes/settings/index";
 import SettingsSectionPage from "./routes/settings/$sectionId";
 import SettingsPreferencesPage from "./routes/settings/preferences";
 import SettingsProfilePage from "./routes/settings/profile";
-import SettingsTokenPage from "./routes/settings/token";
+import SettingsTokensPage from "./routes/settings/tokens";
 import SettingsPasswordPage from "./routes/settings/password";
 import SettingsSessionsPage from "./routes/settings/sessions";
 import SettingsAgentsPage from "./routes/settings/agents";
+import SettingsUsersPage from "./routes/settings/users";
 import SettingsAgentPage from "./routes/settings/agents/$agentId";
 import SettingsJobsPage from "./routes/settings/jobs";
 import SettingsProjectsPage from "./routes/settings/projects";
@@ -151,11 +152,11 @@ const settingsPreferencesRoute = createRoute({
   component: SettingsPreferencesPage,
 });
 
-// /settings/token → auth token management
-const settingsTokenRoute = createRoute({
+// /settings/tokens → auth token management
+const settingsTokensRoute = createRoute({
   getParentRoute: () => settingsRoute,
-  path: "token",
-  component: SettingsTokenPage,
+  path: "tokens",
+  component: SettingsTokensPage,
 });
 
 // /settings/password → password management
@@ -184,6 +185,13 @@ const settingsJobsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "jobs",
   component: SettingsJobsPage,
+});
+
+// /settings/users → users management page (admin only)
+const settingsUsersRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "users",
+  component: SettingsUsersPage,
 });
 
 // /settings/projects → projects management page
@@ -240,10 +248,11 @@ const routeTree = rootRoute.addChildren([
     settingsIndexRoute,
     settingsProfileRoute,
     settingsPreferencesRoute,
-    settingsTokenRoute,
+    settingsTokensRoute,
     settingsPasswordRoute,
     settingsSessionsRoute,
     settingsAgentsRoute,
+    settingsUsersRoute,
     settingsJobsRoute,
     settingsProjectsRoute,
     settingsSkillsRoute,

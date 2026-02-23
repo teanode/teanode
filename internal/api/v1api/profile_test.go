@@ -28,13 +28,12 @@ func withTempConfigDirectory(t *testing.T) string {
 	return directory
 }
 
-func newTestAPI(t *testing.T, cachedProfile *configs.Profile, mediaStore *media.Store) *v1Api {
+func newTestApi(t *testing.T, _ *configs.UserProfile, mediaStore *media.Store) *v1Api {
 	t.Helper()
 	return New(
 		gw.New(
 			&configs.Config{},
 			&configs.SecurityConfig{},
-			cachedProfile,
 			agents.NewAgentRegistry(),
 			nil,
 			nil,
@@ -47,9 +46,9 @@ func newTestAPI(t *testing.T, cachedProfile *configs.Profile, mediaStore *media.
 	)
 }
 
-func decodeProfileResponse(t *testing.T, recorder *httptest.ResponseRecorder) configs.Profile {
+func decodeProfileResponse(t *testing.T, recorder *httptest.ResponseRecorder) configs.UserProfile {
 	t.Helper()
-	var profile configs.Profile
+	var profile configs.UserProfile
 	if err := json.Unmarshal(recorder.Body.Bytes(), &profile); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -104,7 +103,7 @@ func newRPCWebSocketPair(t *testing.T, api *v1Api) (*webSocketConnection, *webso
 		t.Fatalf("failed to dial websocket: %v", err)
 	}
 	serverConnection := <-serverConnectionCh
-	connection := newWebSocketConnection(serverConnection, api, "test-session")
+	connection := newWebSocketConnection(serverConnection, api, "test-session", "user-1")
 	cleanup := func() {
 		_ = clientConnection.Close()
 		_ = serverConnection.Close()
@@ -127,7 +126,6 @@ func readRPCResponse(t *testing.T, connection *websocket.Conn) responseFrame {
 
 type rpcProfileResponsePayload struct {
 	Name          string `json:"name"`
-	Biography     string `json:"biography"`
 	AvatarMediaID string `json:"avatarMediaId"`
 }
 
@@ -146,18 +144,16 @@ func decodeRPCProfilePayload(t *testing.T, payload interface{}) rpcProfileRespon
 
 func TestHandleProfileGet_ReadsFromDiskWhenGatewayCacheIsStale(t *testing.T) {
 	withTempConfigDirectory(t)
-	persisted := &configs.Profile{
+	persisted := &configs.UserProfile{
 		Name:          "Disk Name",
-		Bio:           "Disk Bio",
 		AvatarMediaID: "disk_avatar",
 	}
-	if err := configs.SaveProfile(persisted); err != nil {
-		t.Fatalf("SaveProfile failed: %v", err)
+	if err := configs.SaveUserProfile("", persisted); err != nil {
+		t.Fatalf("SaveUserProfile failed: %v", err)
 	}
 
-	api := newTestAPI(t, &configs.Profile{
+	api := newTestApi(t, &configs.UserProfile{
 		Name:          "Stale Name",
-		Bio:           "Stale Bio",
 		AvatarMediaID: "stale_avatar",
 	}, nil)
 
@@ -173,37 +169,28 @@ func TestHandleProfileGet_ReadsFromDiskWhenGatewayCacheIsStale(t *testing.T) {
 	}
 
 	got := decodeProfileResponse(t, response)
-	if got.Name != persisted.Name || got.Bio != persisted.Bio || got.AvatarMediaID != persisted.AvatarMediaID {
+	if got.Name != persisted.Name || got.AvatarMediaID != persisted.AvatarMediaID {
 		t.Fatalf("response profile = %+v, want %+v", got, *persisted)
 	}
 
-	cached := api.gateway.Profile()
-	if cached == nil {
-		t.Fatal("gateway profile cache is nil")
-	}
-	if cached.Name != persisted.Name || cached.Bio != persisted.Bio || cached.AvatarMediaID != persisted.AvatarMediaID {
-		t.Fatalf("gateway cache = %+v, want %+v", *cached, *persisted)
-	}
 }
 
 func TestProfilePut_PersistsAndLoadsFromNewAPIInstance(t *testing.T) {
 	withTempConfigDirectory(t)
-	initial := &configs.Profile{
+	initial := &configs.UserProfile{
 		Name:          "Before",
-		Bio:           "Before Bio",
 		AvatarMediaID: "avatar_before",
 	}
-	if err := configs.SaveProfile(initial); err != nil {
-		t.Fatalf("SaveProfile failed: %v", err)
+	if err := configs.SaveUserProfile("", initial); err != nil {
+		t.Fatalf("SaveUserProfile failed: %v", err)
 	}
 
-	api := newTestAPI(t, &configs.Profile{
+	api := newTestApi(t, &configs.UserProfile{
 		Name:          "Stale",
-		Bio:           "Stale Bio",
 		AvatarMediaID: "stale_avatar",
 	}, nil)
 
-	putBody := strings.NewReader("{\"name\":\"  Updated Name  \",\"bio\":\"# Updated Bio\\n\\n- line one\"}")
+	putBody := strings.NewReader("{\"name\":\"  Updated Name  \"}")
 	putRequest := httptest.NewRequest(http.MethodPut, "/api/v1/profile", putBody)
 	response := httptest.NewRecorder()
 	if err := api.handleProfile(response, putRequest); err != nil {
@@ -214,20 +201,19 @@ func TestProfilePut_PersistsAndLoadsFromNewAPIInstance(t *testing.T) {
 	}
 
 	updated := decodeProfileResponse(t, response)
-	if updated.Name != "Updated Name" || updated.Bio != "# Updated Bio\n\n- line one" {
-		t.Fatalf("updated profile = %+v, want trimmed name and raw markdown bio", updated)
+	if updated.Name != "Updated Name" {
+		t.Fatalf("updated profile = %+v, want trimmed name", updated)
 	}
 	if updated.AvatarMediaID != initial.AvatarMediaID {
 		t.Fatalf("avatarMediaId = %q, want %q", updated.AvatarMediaID, initial.AvatarMediaID)
 	}
 
-	refreshedAPI := newTestAPI(t, &configs.Profile{
+	refreshedApi := newTestApi(t, &configs.UserProfile{
 		Name:          "Very Stale",
-		Bio:           "Very Stale Bio",
 		AvatarMediaID: "very_stale_avatar",
 	}, nil)
 	getResponse := httptest.NewRecorder()
-	if err := refreshedAPI.handleProfile(getResponse, httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)); err != nil {
+	if err := refreshedApi.handleProfile(getResponse, httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)); err != nil {
 		t.Fatalf("handleProfile GET failed: %v", err)
 	}
 	if getResponse.Code != http.StatusOK {
@@ -235,21 +221,20 @@ func TestProfilePut_PersistsAndLoadsFromNewAPIInstance(t *testing.T) {
 	}
 
 	got := decodeProfileResponse(t, getResponse)
-	if got.Name != "Updated Name" || got.Bio != "# Updated Bio\n\n- line one" || got.AvatarMediaID != initial.AvatarMediaID {
+	if got.Name != "Updated Name" || got.AvatarMediaID != initial.AvatarMediaID {
 		t.Fatalf("profile after new api instance = %+v, want updated persisted values", got)
 	}
 }
 
 func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 	withTempConfigDirectory(t)
-	if err := configs.SaveProfile(&configs.Profile{Name: "Alice"}); err != nil {
-		t.Fatalf("SaveProfile failed: %v", err)
+	if err := configs.SaveUserProfile("", &configs.UserProfile{Name: "Alice"}); err != nil {
+		t.Fatalf("SaveUserProfile failed: %v", err)
 	}
 
 	mediaStore := media.NewStore(t.TempDir())
-	api := newTestAPI(t, &configs.Profile{
+	api := newTestApi(t, &configs.UserProfile{
 		Name:          "Stale Alice",
-		Bio:           "Stale Bio",
 		AvatarMediaID: "stale_avatar",
 	}, mediaStore)
 
@@ -265,13 +250,12 @@ func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 		t.Fatal("avatarMediaId should not be empty after upload")
 	}
 
-	refreshedAPI := newTestAPI(t, &configs.Profile{
+	refreshedApi := newTestApi(t, &configs.UserProfile{
 		Name:          "Very Stale Alice",
-		Bio:           "Very Stale Bio",
 		AvatarMediaID: "",
 	}, mediaStore)
 	getResponse := httptest.NewRecorder()
-	if err := refreshedAPI.handleProfile(getResponse, httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)); err != nil {
+	if err := refreshedApi.handleProfile(getResponse, httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)); err != nil {
 		t.Fatalf("handleProfile GET failed: %v", err)
 	}
 	got := decodeProfileResponse(t, getResponse)
@@ -280,7 +264,7 @@ func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 	}
 
 	deleteResponse := httptest.NewRecorder()
-	if err := refreshedAPI.handleProfileAvatar(deleteResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/profile/avatar", nil)); err != nil {
+	if err := refreshedApi.handleProfileAvatar(deleteResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/profile/avatar", nil)); err != nil {
 		t.Fatalf("handleProfileAvatar DELETE failed: %v", err)
 	}
 	removed := decodeProfileResponse(t, deleteResponse)
@@ -288,13 +272,12 @@ func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 		t.Fatalf("avatarMediaId after remove = %q, want empty", removed.AvatarMediaID)
 	}
 
-	afterRemoveAPI := newTestAPI(t, &configs.Profile{
+	afterRemoveApi := newTestApi(t, &configs.UserProfile{
 		Name:          "Stale Again",
-		Bio:           "Stale Again Bio",
 		AvatarMediaID: uploaded.AvatarMediaID,
 	}, mediaStore)
 	finalGet := httptest.NewRecorder()
-	if err := afterRemoveAPI.handleProfile(finalGet, httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)); err != nil {
+	if err := afterRemoveApi.handleProfile(finalGet, httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)); err != nil {
 		t.Fatalf("handleProfile GET failed: %v", err)
 	}
 	final := decodeProfileResponse(t, finalGet)
@@ -305,18 +288,16 @@ func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 
 func TestWebSocketProfileRPCMethods(t *testing.T) {
 	withTempConfigDirectory(t)
-	initial := &configs.Profile{
+	initial := &configs.UserProfile{
 		Name:          "Disk Name",
-		Bio:           "Disk Bio",
 		AvatarMediaID: "avatar_initial",
 	}
-	if err := configs.SaveProfile(initial); err != nil {
-		t.Fatalf("SaveProfile failed: %v", err)
+	if err := configs.SaveUserProfile("user-1", initial); err != nil {
+		t.Fatalf("SaveUserProfile failed: %v", err)
 	}
 
-	api := newTestAPI(t, &configs.Profile{
+	api := newTestApi(t, &configs.UserProfile{
 		Name:          "Stale Name",
-		Bio:           "Stale Bio",
 		AvatarMediaID: "stale_avatar",
 	}, media.NewStore(t.TempDir()))
 	connection, clientConnection, cleanup := newRPCWebSocketPair(t, api)
@@ -329,8 +310,8 @@ func TestWebSocketProfileRPCMethods(t *testing.T) {
 			t.Fatalf("response ok = false, error = %+v", response.Error)
 		}
 		payload := decodeRPCProfilePayload(t, response.Payload)
-		if payload.Name != initial.Name || payload.Biography != initial.Bio || payload.AvatarMediaID != initial.AvatarMediaID {
-			t.Fatalf("payload = %+v, want name/biography/avatar from persisted profile", payload)
+		if payload.Name != initial.Name || payload.AvatarMediaID != initial.AvatarMediaID {
+			t.Fatalf("payload = %+v, want name/avatar from persisted profile", payload)
 		}
 	})
 
@@ -339,25 +320,25 @@ func TestWebSocketProfileRPCMethods(t *testing.T) {
 			Type:   "req",
 			ID:     "2",
 			Method: "profile.update",
-			Params: json.RawMessage("{\"name\":\"  Updated Name  \",\"biography\":\"# Updated Bio\\n\\n- line one\"}"),
+			Params: json.RawMessage("{\"name\":\"  Updated Name  \"}"),
 		})
 		response := readRPCResponse(t, clientConnection)
 		if !response.OK {
 			t.Fatalf("response ok = false, error = %+v", response.Error)
 		}
 		payload := decodeRPCProfilePayload(t, response.Payload)
-		if payload.Name != "Updated Name" || payload.Biography != "# Updated Bio\n\n- line one" {
-			t.Fatalf("payload = %+v, want trimmed name and raw markdown biography", payload)
+		if payload.Name != "Updated Name" {
+			t.Fatalf("payload = %+v, want trimmed name", payload)
 		}
 		if payload.AvatarMediaID != initial.AvatarMediaID {
 			t.Fatalf("avatarMediaId = %q, want %q", payload.AvatarMediaID, initial.AvatarMediaID)
 		}
 
-		persisted, err := configs.LoadProfile()
+		persisted, err := configs.LoadUserProfile("user-1")
 		if err != nil {
-			t.Fatalf("LoadProfile failed: %v", err)
+			t.Fatalf("LoadUserProfile failed: %v", err)
 		}
-		if persisted.Name != "Updated Name" || persisted.Bio != "# Updated Bio\n\n- line one" || persisted.AvatarMediaID != initial.AvatarMediaID {
+		if persisted.Name != "Updated Name" || persisted.AvatarMediaID != initial.AvatarMediaID {
 			t.Fatalf("persisted profile = %+v, want updated values with original avatar", *persisted)
 		}
 	})
@@ -378,9 +359,9 @@ func TestWebSocketProfileRPCMethods(t *testing.T) {
 			t.Fatalf("avatarMediaId = %q, want empty", payload.AvatarMediaID)
 		}
 
-		persisted, err := configs.LoadProfile()
+		persisted, err := configs.LoadUserProfile("user-1")
 		if err != nil {
-			t.Fatalf("LoadProfile failed: %v", err)
+			t.Fatalf("LoadUserProfile failed: %v", err)
 		}
 		if persisted.AvatarMediaID != "" {
 			t.Fatalf("persisted avatarMediaId = %q, want empty", persisted.AvatarMediaID)

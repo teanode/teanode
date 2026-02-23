@@ -277,7 +277,8 @@ func generateDescription(ctx context.Context, name, purpose string) string {
 	if runner == nil {
 		return ""
 	}
-	configuration, providerRegistry, _, workspaceDirectory, skillPrompts, profile := runner.Snapshot()
+	userId := agents.UserIDFromContext(ctx)
+	configuration, providerRegistry, _, workspaceDirectory, skillPrompts := runner.Snapshot()
 
 	qualifiedModel := configuration.AgentModel(configuration.ResolveDefaultAgent())
 	if qualifiedModel == "" {
@@ -295,7 +296,22 @@ func generateDescription(ctx context.Context, name, purpose string) string {
 	}
 
 	limits := configuration.ResolveModelLimits(qualifiedModel)
-	systemPrompt := agents.BuildSystemPrompt(configuration, runner.AgentID, workspaceDirectory, skillPrompts, limits.MaxWorkspaceFileChars, profile)
+	userWorkspaceDirectory := ""
+	if strings.TrimSpace(userId) != "" {
+		if resolvedUserWorkspaceDirectory, resolveErr := configs.UserWorkspaceDirectory(userId); resolveErr == nil {
+			userWorkspaceDirectory = resolvedUserWorkspaceDirectory
+		}
+	}
+	systemPrompt := agents.BuildSystemPrompt(
+		configuration,
+		runner.AgentID,
+		userId,
+		workspaceDirectory,
+		userWorkspaceDirectory,
+		skillPrompts,
+		limits.MaxWorkspaceFileChars,
+		nil,
+	)
 
 	request := providers.ChatRequest{
 		Model: bareModel,

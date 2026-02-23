@@ -91,10 +91,28 @@ func CompactConversation(
 // definitions. This enables prompt cache hits when the summarizer model matches
 // the main model.
 func (self *Runner) CompactConversation(ctx context.Context, conversationId string) (*CompactResult, error) {
-	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts, profile := self.Snapshot()
+	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts := self.Snapshot()
+	userId := UserIDFromContext(ctx)
+	if strings.TrimSpace(userId) == "" {
+		return nil, fmt.Errorf("userId is required")
+	}
+	if self.ResolveUserProfile == nil {
+		return nil, fmt.Errorf("ResolveUserProfile is required")
+	}
+	profile, err := self.ResolveUserProfile(userId)
+	if err != nil {
+		return nil, fmt.Errorf("resolving user profile for %q: %w", userId, err)
+	}
+	if profile == nil {
+		return nil, fmt.Errorf("user profile is required for user %q", userId)
+	}
+	store := self.ConversationsForUser(userId)
+	if store == nil {
+		return nil, fmt.Errorf("conversation store is not configured")
+	}
 
 	// Load conversation history.
-	history, err := self.Conversations.Load(conversationId)
+	history, err := store.Load(conversationId)
 	if err != nil {
 		return nil, fmt.Errorf("loading conversation: %w", err)
 	}
@@ -103,13 +121,17 @@ func (self *Runner) CompactConversation(ctx context.Context, conversationId stri
 	}
 
 	qualifiedModel := configuration.AgentModel(self.AgentID)
-	if header, headerErr := self.Conversations.LoadHeader(conversationId); headerErr == nil && header.Model != "" {
+	if header, headerErr := store.LoadHeader(conversationId); headerErr == nil && header.Model != "" {
 		qualifiedModel = header.Model
 	}
 	limits := configuration.ResolveModelLimits(qualifiedModel)
+	userWorkspaceDirectory := ""
+	if resolvedUserWorkspaceDirectory, resolveErr := configs.UserWorkspaceDirectory(userId); resolveErr == nil {
+		userWorkspaceDirectory = resolvedUserWorkspaceDirectory
+	}
 
 	// Build messages via the same pipeline used for normal runs.
-	llmMessages := self.buildMessages(history, limits, "", configuration, workspaceDirectory, skillPrompts, profile)
+	llmMessages := self.buildMessages(history, limits, "", configuration, userId, workspaceDirectory, userWorkspaceDirectory, skillPrompts, profile)
 
 	// Build tool definitions.
 	var toolDefs []providers.ToolDefinition
@@ -150,7 +172,7 @@ func (self *Runner) CompactConversation(ctx context.Context, conversationId stri
 
 	// Persist summary to conversation.
 	summaryMessage := conversations.NewSummaryMessage(summaryText, time.Now().UnixMilli())
-	if err := self.Conversations.Append(conversationId, summaryMessage); err != nil {
+	if err := store.Append(conversationId, summaryMessage); err != nil {
 		return nil, fmt.Errorf("saving summary: %w", err)
 	}
 

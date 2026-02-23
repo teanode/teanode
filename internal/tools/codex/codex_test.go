@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/teanode/teanode/internal/conversations"
 )
 
 // mockRunner returns a commandRunner that records calls and returns canned output.
@@ -117,6 +119,16 @@ func TestRunWithValidJSON(testing *testing.T) {
 	}
 	if parsed["timedOut"] != false {
 		testing.Errorf("expected timedOut false, got %v", parsed["timedOut"])
+	}
+	resume, ok := parsed["resume"].(map[string]interface{})
+	if !ok {
+		testing.Fatalf("expected resume payload, got: %v", parsed["resume"])
+	}
+	if resume["action"] != "resume" {
+		testing.Errorf("expected resume.action 'resume', got %v", resume["action"])
+	}
+	if resume["sessionId"] != "abc-123" {
+		testing.Errorf("expected resume.sessionId 'abc-123', got %v", resume["sessionId"])
 	}
 
 	// Verify command was called correctly.
@@ -306,16 +318,16 @@ func TestResumeKnownSession(testing *testing.T) {
 	}
 	commandArguments := (*calls)[0].Arguments
 	foundResume := false
-	foundSessionID := false
+	foundSessionId := false
 	for _, argument := range commandArguments {
 		if argument == "resume" {
 			foundResume = true
 		}
 		if argument == "abc-123" {
-			foundSessionID = true
+			foundSessionId = true
 		}
 	}
-	if !foundResume || !foundSessionID {
+	if !foundResume || !foundSessionId {
 		testing.Errorf("expected 'exec resume ... abc-123 ...' in args: %v", commandArguments)
 	}
 
@@ -328,8 +340,9 @@ func TestResumeKnownSession(testing *testing.T) {
 	}
 }
 
-func TestResumeUnknownSession(testing *testing.T) {
-	runner, _ := mockRunner("", "", 0, nil)
+func TestResumeWithoutTrackedSession(testing *testing.T) {
+	codexOutput := `{"result":"Continued anyway","session_id":"nonexistent","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
+	runner, calls := mockRunner(codexOutput, "", 0, nil)
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
 		allowedTools: DefaultAllowedTools,
@@ -343,9 +356,34 @@ func TestResumeUnknownSession(testing *testing.T) {
 		"sessionId": "nonexistent",
 		"prompt":    "Continue",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err == nil || !strings.Contains(err.Error(), "unknown session") {
-		testing.Errorf("expected 'unknown session' error, got: %v", err)
+	result, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+	if len(*calls) != 1 {
+		testing.Fatalf("expected 1 call, got %d", len(*calls))
+	}
+	commandArguments := (*calls)[0].Arguments
+	foundResume := false
+	foundSessionId := false
+	for _, argument := range commandArguments {
+		if argument == "resume" {
+			foundResume = true
+		}
+		if argument == "nonexistent" {
+			foundSessionId = true
+		}
+	}
+	if !foundResume || !foundSessionId {
+		testing.Errorf("expected resume args for explicit session ID, got: %v", commandArguments)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		testing.Fatalf("result is not valid JSON: %v", err)
+	}
+	if parsed["sessionId"] != "nonexistent" {
+		testing.Errorf("expected sessionId 'nonexistent', got %v", parsed["sessionId"])
 	}
 }
 
@@ -480,6 +518,53 @@ func TestListSessionsAfterRuns(testing *testing.T) {
 	}
 }
 
+func TestLoadSessionsFromConversationStore(testing *testing.T) {
+	store := conversations.NewStore(testing.TempDir())
+	tool := &codexTool{}
+
+	t1 := time.Now().Add(-2 * time.Hour).UnixMilli()
+	t2 := time.Now().Add(-time.Hour).UnixMilli()
+	t3 := time.Now().UnixMilli()
+
+	if err := store.Append("c1", conversations.NewToolMessage("tc1", "codex", `{"sessionId":"s1","result":"one"}`, t1)); err != nil {
+		testing.Fatalf("append c1/tc1: %v", err)
+	}
+	if err := store.Append("c1", conversations.NewToolMessage("tc2", "codex", `{"resume":{"sessionId":"s1"}}`, t2)); err != nil {
+		testing.Fatalf("append c1/tc2: %v", err)
+	}
+	if err := store.Append("c2", conversations.NewToolMessage("tc3", "codex", `{"sessionId":"s2","result":"two"}`, t3)); err != nil {
+		testing.Fatalf("append c2/tc3: %v", err)
+	}
+	if err := store.Append("c2", conversations.NewToolMessage("tc4", "other_tool", `{"sessionId":"ignored"}`, t3)); err != nil {
+		testing.Fatalf("append c2/tc4: %v", err)
+	}
+
+	sessions, err := tool.loadSessionsFromConversationStore(store)
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 2 {
+		testing.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+	if sessions[0].SessionID != "s2" {
+		testing.Errorf("expected newest session first to be s2, got %q", sessions[0].SessionID)
+	}
+
+	var s1 *sessionInfo
+	for index := range sessions {
+		if sessions[index].SessionID == "s1" {
+			s1 = &sessions[index]
+			break
+		}
+	}
+	if s1 == nil {
+		testing.Fatalf("expected session s1 in results: %+v", sessions)
+	}
+	if s1.TurnCount != 2 {
+		testing.Errorf("expected s1 turnCount 2, got %d", s1.TurnCount)
+	}
+}
+
 // --- argument building tests ---
 
 func TestBuildArgumentsBasic(testing *testing.T) {
@@ -534,19 +619,19 @@ func TestBuildArgumentsWithResume(testing *testing.T) {
 	arguments := tool.buildArguments("Continue", "session-xyz", "")
 
 	foundResumeSubcommand := false
-	foundSessionID := false
+	foundSessionId := false
 	for index, argument := range arguments {
 		if argument == "resume" {
 			foundResumeSubcommand = true
 		}
 		if argument == "session-xyz" {
-			foundSessionID = true
+			foundSessionId = true
 		}
-		if foundResumeSubcommand && foundSessionID && index > 0 {
+		if foundResumeSubcommand && foundSessionId && index > 0 {
 			break
 		}
 	}
-	if !foundResumeSubcommand || !foundSessionID {
+	if !foundResumeSubcommand || !foundSessionId {
 		testing.Errorf("expected 'exec resume ... session-xyz ...' in args: %v", arguments)
 	}
 }

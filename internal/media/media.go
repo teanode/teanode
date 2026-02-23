@@ -302,7 +302,7 @@ func collectScanEntries(directory string, name string, mediaFiles map[string]sca
 	}
 }
 
-// Scan walks the media directory (including shard subdirectories) and returns
+// Scan walks shard subdirectories in the media directory and returns
 // metadata for all files matching the filter. Files with a sidecar but no
 // corresponding media file (orphan metadata) are cleaned up. Media files
 // without sidecars are skipped (they will get synthesized on next Load/Open).
@@ -317,14 +317,6 @@ func (self *Store) Scan(filter func(MediaMetadata) bool) ([]MediaMetadata, error
 
 	mediaFiles := make(map[string]scanMediaEntry)
 	var metaFiles []scanMetaEntry
-
-	// Collect from top-level files (legacy flat layout).
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		collectScanEntries(self.directory, entry.Name(), mediaFiles, &metaFiles)
-	}
 
 	// Collect from shard subdirectories.
 	for _, entry := range entries {
@@ -373,8 +365,7 @@ func (self *Store) Scan(filter func(MediaMetadata) bool) ([]MediaMetadata, error
 	return results, nil
 }
 
-// Delete removes both the media file and its metadata sidecar from whichever
-// location they reside in (sharded or flat).
+// Delete removes both the sharded media file and its metadata sidecar.
 func (self *Store) Delete(mediaId string) error {
 	mediaPath, _, err := self.findMediaFile(mediaId)
 	if err != nil {
@@ -427,13 +418,9 @@ func findMediaFileInDirectory(directory string, mediaId string) (string, string,
 	return "", "", false
 }
 
-// findMediaFile locates a media file by checking the sharded path first,
-// then falling back to the legacy flat layout.
+// findMediaFile locates a sharded media file by ID.
 func (self *Store) findMediaFile(mediaId string) (string, string, error) {
 	if path, format, found := findMediaFileInDirectory(self.shardedDirectory(mediaId), mediaId); found {
-		return path, format, nil
-	}
-	if path, format, found := findMediaFileInDirectory(self.directory, mediaId); found {
 		return path, format, nil
 	}
 	return "", "", fmt.Errorf("media not found: %s", mediaId)
@@ -463,7 +450,7 @@ func writeMetadataToPath(metaPath string, metadata MediaMetadata) error {
 
 // loadOrSynthesizeMetadata loads the sidecar from the same directory as the
 // media file, or synthesizes and writes minimal metadata if the sidecar is
-// missing (lazy hydration for legacy files).
+// missing.
 func (self *Store) loadOrSynthesizeMetadata(mediaId string, format string, mediaPath string) (MediaMetadata, error) {
 	metaPath := filepath.Join(filepath.Dir(mediaPath), mediaId+metaSuffix)
 	metadata, err := readMetadataFromPath(metaPath)

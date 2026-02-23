@@ -114,73 +114,19 @@ func TestSaveAndLoadMetadata(t *testing.T) {
 	}
 }
 
-func TestLoadLegacyFlatLayout(t *testing.T) {
-	t.Parallel()
-	directory := t.TempDir()
-	store := NewStore(directory)
-
-	// Place a media file + sidecar at the top level (legacy flat layout).
-	mediaId := "01aryz6dfw3jqftg2s41cyb8a3"
-	mediaContent := []byte("legacy flat data")
-	if err := os.WriteFile(filepath.Join(directory, mediaId+".png"), mediaContent, 0644); err != nil {
-		t.Fatalf("creating legacy media file: %v", err)
-	}
-	legacyMeta := MediaMetadata{MediaID: mediaId, Format: "png", SizeBytes: int64(len(mediaContent))}
-	encoded, _ := json.Marshal(legacyMeta)
-	if err := os.WriteFile(filepath.Join(directory, mediaId+metaSuffix), encoded, 0644); err != nil {
-		t.Fatalf("creating legacy meta file: %v", err)
-	}
-
-	// Load should find the flat-layout file.
-	data, metadata, err := store.Load(mediaId)
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-	if string(data) != string(mediaContent) {
-		t.Errorf("data mismatch: got %q, want %q", data, mediaContent)
-	}
-	if metadata.MediaID != mediaId {
-		t.Errorf("metadata mediaId = %q, want %q", metadata.MediaID, mediaId)
-	}
-	if metadata.Format != "png" {
-		t.Errorf("metadata format = %q, want %q", metadata.Format, "png")
-	}
-}
-
-func TestOpenLegacyFlatLayout(t *testing.T) {
-	t.Parallel()
-	directory := t.TempDir()
-	store := NewStore(directory)
-
-	mediaId := "01aryz6dfw3jqftg2s41cyb8a3"
-	mediaContent := []byte("legacy open data")
-	if err := os.WriteFile(filepath.Join(directory, mediaId+".jpeg"), mediaContent, 0644); err != nil {
-		t.Fatalf("creating legacy file: %v", err)
-	}
-
-	mediaFile, err := store.Open(mediaId)
-	if err != nil {
-		t.Fatalf("Open failed: %v", err)
-	}
-	defer mediaFile.File.Close()
-
-	if mediaFile.Format != "jpeg" {
-		t.Errorf("format = %q, want %q", mediaFile.Format, "jpeg")
-	}
-	if mediaFile.Metadata.MediaID != mediaId {
-		t.Errorf("metadata mediaId = %q, want %q", mediaFile.Metadata.MediaID, mediaId)
-	}
-}
-
 func TestLazyMetadataHydration(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
 	store := NewStore(directory)
 
-	// Create a legacy media file without a sidecar (flat layout).
+	// Create a sharded media file without a sidecar.
 	mediaId := "01aryz6dfw3jqftg2s41cyb8a3"
+	shardDirectory := filepath.Join(directory, shardKey(mediaId))
+	if err := os.MkdirAll(shardDirectory, 0755); err != nil {
+		t.Fatalf("creating shard dir: %v", err)
+	}
 	mediaContent := []byte("legacy image data")
-	mediaPath := filepath.Join(directory, mediaId+".png")
+	mediaPath := filepath.Join(shardDirectory, mediaId+".png")
 	if err := os.WriteFile(mediaPath, mediaContent, 0644); err != nil {
 		t.Fatalf("creating legacy file: %v", err)
 	}
@@ -207,7 +153,7 @@ func TestLazyMetadataHydration(t *testing.T) {
 	}
 
 	// The sidecar should now exist in the same directory as the media file.
-	sidecarPath := filepath.Join(directory, mediaId+metaSuffix)
+	sidecarPath := filepath.Join(shardDirectory, mediaId+metaSuffix)
 	if _, err := os.Stat(sidecarPath); err != nil {
 		t.Errorf("sidecar not written after lazy hydration: %v", err)
 	}
@@ -234,89 +180,6 @@ func TestLazyMetadataHydration(t *testing.T) {
 	}
 	if loadedMetadata.Format != "png" {
 		t.Errorf("LoadMetadata format = %q, want %q", loadedMetadata.Format, "png")
-	}
-}
-
-func TestLazyMetadataHydrationInShardDirectory(t *testing.T) {
-	t.Parallel()
-	directory := t.TempDir()
-	store := NewStore(directory)
-
-	// Create a media file in the shard directory WITHOUT a sidecar.
-	mediaId := "01aryz6dfw3jqftg2s41cyb8a3"
-	shard := shardKey(mediaId)
-	shardDirectory := filepath.Join(directory, shard)
-	if err := os.MkdirAll(shardDirectory, 0755); err != nil {
-		t.Fatalf("creating shard dir: %v", err)
-	}
-	mediaContent := []byte("sharded no-meta data")
-	if err := os.WriteFile(filepath.Join(shardDirectory, mediaId+".png"), mediaContent, 0644); err != nil {
-		t.Fatalf("creating sharded file: %v", err)
-	}
-
-	// Load should find the file in the shard dir and synthesize metadata there.
-	data, metadata, err := store.Load(mediaId)
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-	if string(data) != string(mediaContent) {
-		t.Error("data mismatch")
-	}
-	if metadata.Format != "png" {
-		t.Errorf("format = %q, want %q", metadata.Format, "png")
-	}
-
-	// Sidecar should be written into the shard directory, not the top level.
-	if _, err := os.Stat(filepath.Join(shardDirectory, mediaId+metaSuffix)); err != nil {
-		t.Error("sidecar should exist in shard directory after lazy hydration")
-	}
-	if _, err := os.Stat(filepath.Join(directory, mediaId+metaSuffix)); !os.IsNotExist(err) {
-		t.Error("sidecar should NOT exist at the top level")
-	}
-}
-
-func TestScanBothFlatAndShardedFiles(t *testing.T) {
-	t.Parallel()
-	directory := t.TempDir()
-	store := NewStore(directory)
-
-	// Create a legacy flat file with sidecar.
-	flatId := "01flat0000000000000000flat"
-	flatContent := []byte("flat data")
-	if err := os.WriteFile(filepath.Join(directory, flatId+".png"), flatContent, 0644); err != nil {
-		t.Fatalf("creating flat media: %v", err)
-	}
-	flatMeta := MediaMetadata{MediaID: flatId, Format: "png", SizeBytes: int64(len(flatContent)), SourceType: "legacy"}
-	encoded, _ := json.Marshal(flatMeta)
-	if err := os.WriteFile(filepath.Join(directory, flatId+metaSuffix), encoded, 0644); err != nil {
-		t.Fatalf("creating flat meta: %v", err)
-	}
-
-	// Save a new file (goes to shard dir).
-	saved, err := store.Save([]byte("sharded data"), "jpeg", SaveOptions{SourceType: "tool"})
-	if err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
-
-	// Scan should see both.
-	all, err := store.Scan(nil)
-	if err != nil {
-		t.Fatalf("Scan failed: %v", err)
-	}
-	if len(all) != 2 {
-		t.Fatalf("Scan returned %d items, want 2", len(all))
-	}
-
-	// Verify both IDs are present.
-	found := map[string]bool{}
-	for _, metadata := range all {
-		found[metadata.MediaID] = true
-	}
-	if !found[flatId] {
-		t.Error("Scan did not find flat-layout file")
-	}
-	if !found[saved.MediaID] {
-		t.Error("Scan did not find sharded file")
 	}
 }
 
@@ -367,40 +230,6 @@ func TestScanFiltering(t *testing.T) {
 	}
 	if len(pngs) != 1 {
 		t.Errorf("Scan png returned %d items, want 1", len(pngs))
-	}
-}
-
-func TestScanOrphanCleanup(t *testing.T) {
-	t.Parallel()
-	directory := t.TempDir()
-	store := NewStore(directory)
-
-	// Create an orphan metadata sidecar at the top level with no corresponding media file.
-	orphanId := "01orphan000000000000000000"
-	orphanMeta := MediaMetadata{MediaID: orphanId, Format: "png"}
-	encoded, _ := json.Marshal(orphanMeta)
-	orphanPath := filepath.Join(directory, orphanId+metaSuffix)
-	if err := os.WriteFile(orphanPath, encoded, 0644); err != nil {
-		t.Fatalf("writing orphan: %v", err)
-	}
-
-	// Also create a valid pair via Save (goes to shard dir).
-	_, err := store.Save([]byte("valid data"), "png", SaveOptions{})
-	if err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
-
-	results, err := store.Scan(nil)
-	if err != nil {
-		t.Fatalf("Scan failed: %v", err)
-	}
-	if len(results) != 1 {
-		t.Errorf("Scan returned %d items, want 1 (orphan should be excluded)", len(results))
-	}
-
-	// Orphan sidecar should have been cleaned up.
-	if _, err := os.Stat(orphanPath); !os.IsNotExist(err) {
-		t.Error("orphan metadata sidecar should have been removed")
 	}
 }
 
@@ -471,38 +300,6 @@ func TestDeleteShardedFile(t *testing.T) {
 	}
 	if _, err := os.Stat(metaPath); !os.IsNotExist(err) {
 		t.Error("meta file should not exist after delete")
-	}
-}
-
-func TestDeleteLegacyFlatFile(t *testing.T) {
-	t.Parallel()
-	directory := t.TempDir()
-	store := NewStore(directory)
-
-	// Place a media file + sidecar at the top level (legacy flat).
-	mediaId := "01legacy00000000000000flat"
-	mediaContent := []byte("legacy delete data")
-	mediaPath := filepath.Join(directory, mediaId+".png")
-	metaPath := filepath.Join(directory, mediaId+metaSuffix)
-	if err := os.WriteFile(mediaPath, mediaContent, 0644); err != nil {
-		t.Fatalf("creating flat media: %v", err)
-	}
-	flatMeta := MediaMetadata{MediaID: mediaId, Format: "png"}
-	encoded, _ := json.Marshal(flatMeta)
-	if err := os.WriteFile(metaPath, encoded, 0644); err != nil {
-		t.Fatalf("creating flat meta: %v", err)
-	}
-
-	// Delete should find and remove the flat-layout files.
-	if err := store.Delete(mediaId); err != nil {
-		t.Fatalf("Delete failed: %v", err)
-	}
-
-	if _, err := os.Stat(mediaPath); !os.IsNotExist(err) {
-		t.Error("flat media file should not exist after delete")
-	}
-	if _, err := os.Stat(metaPath); !os.IsNotExist(err) {
-		t.Error("flat meta file should not exist after delete")
 	}
 }
 

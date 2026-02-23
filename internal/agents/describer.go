@@ -8,6 +8,7 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 const describerRefreshInterval = 24 * time.Hour
@@ -93,10 +94,10 @@ func (self *Describer) shouldRefresh(state *configs.AgentState) bool {
 	if state == nil || strings.TrimSpace(state.Description) == "" {
 		return true
 	}
-	if state.DescriptionUpdatedAt <= 0 {
+	if state.DescriptionUpdatedAt.IsZero() {
 		return true
 	}
-	return time.Since(time.UnixMilli(state.DescriptionUpdatedAt)) >= describerRefreshInterval
+	return time.Since(state.DescriptionUpdatedAt.Time) >= describerRefreshInterval
 }
 
 func (self *Describer) describeAgent(ctx context.Context, agentId string, runner *Runner) {
@@ -109,7 +110,7 @@ func (self *Describer) describeAgent(ctx context.Context, agentId string, runner
 		return
 	}
 
-	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts, profile := runner.Snapshot()
+	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts := runner.Snapshot()
 
 	qualifiedModel := configuration.AgentModel(agentId)
 	if qualifiedModel == "" {
@@ -122,7 +123,7 @@ func (self *Describer) describeAgent(ctx context.Context, agentId string, runner
 	}
 
 	limits := configuration.ResolveModelLimits(qualifiedModel)
-	systemPrompt := BuildSystemPrompt(configuration, agentId, workspaceDirectory, skillPrompts, limits.MaxWorkspaceFileChars, profile)
+	systemPrompt := BuildSystemPrompt(configuration, agentId, "", workspaceDirectory, "", skillPrompts, limits.MaxWorkspaceFileChars, nil)
 
 	toolNames := []string{}
 	if tools != nil {
@@ -157,7 +158,7 @@ func (self *Describer) describeAgent(ctx context.Context, agentId string, runner
 	}
 
 	state.Description = description
-	state.DescriptionUpdatedAt = time.Now().UnixMilli()
+	state.DescriptionUpdatedAt = timeutil.Now()
 	if err := configs.SaveAgentState(agentId, state); err != nil {
 		log.Debugf("describer: failed to save agent state for %s: %v", agentId, err)
 	}

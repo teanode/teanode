@@ -177,7 +177,7 @@ func (self *agentListTool) Execute(_ context.Context, _ string) (string, error) 
 		}
 		entry["model"] = self.configuration.AgentModel(agentId)
 		if runner := self.agentRegistry.Get(agentId); runner != nil {
-			_, _, tools, _, _, _ := runner.Snapshot()
+			_, _, tools, _, _ := runner.Snapshot()
 			entry["tools"] = tools.Names()
 		}
 		if agentId == self.selfAgentId {
@@ -377,7 +377,9 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	result, err := targetRunner.Run(childContext, runParams, nil)
 
 	// Always clean up the ephemeral conversation, even on error.
-	_ = targetRunner.Conversations.Delete(conversationId)
+	if store := targetRunner.ConversationsForUser(UserIDFromContext(ctx)); store != nil {
+		_ = store.Delete(conversationId)
+	}
 
 	if err != nil {
 		return "", fmt.Errorf("subagent %q run failed: %w", targetAgentId, err)

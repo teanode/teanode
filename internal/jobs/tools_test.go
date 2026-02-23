@@ -10,8 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 )
+
+func testUserContext() context.Context {
+	return agents.ContextWithUserID(context.Background(), "user-1")
+}
 
 // newTestTool creates a jobsTool with a scheduler backed by a temp-dir Store.
 func newTestTool(t *testing.T) *jobsTool {
@@ -20,7 +25,7 @@ func newTestTool(t *testing.T) *jobsTool {
 	configs.SetDirectory(directory)
 	t.Cleanup(func() { configs.SetDirectory("") })
 
-	jobsDirectory := filepath.Join(directory, "jobs")
+	jobsDirectory := filepath.Join(directory, "users", "user-1", "jobs")
 	if err := os.MkdirAll(jobsDirectory, 0755); err != nil {
 		t.Fatalf("creating jobs directory: %v", err)
 	}
@@ -32,7 +37,7 @@ func newTestTool(t *testing.T) *jobsTool {
 	scheduler := NewScheduler(store, nil)
 
 	// Wire up a no-op RunMessage so Trigger works.
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		channel := make(chan struct{})
 		close(channel)
 		return "run-1", channel, func() error { return nil }
@@ -88,7 +93,7 @@ func TestJobsTool_Definition(t *testing.T) {
 func TestExecute_List_Empty(t *testing.T) {
 	tool := newTestTool(t)
 
-	result, err := tool.Execute(context.Background(), `{"action":"list"}`)
+	result, err := tool.Execute(testUserContext(), `{"action":"list"}`)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
@@ -114,11 +119,11 @@ func TestExecute_List_WithJobs(t *testing.T) {
 
 	// Create a job directly in the store.
 	job := sampleJob("job-alpha", "Alpha")
-	if err := tool.scheduler.CreateAndReload(job); err != nil {
+	if err := tool.scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
-	result, err := tool.Execute(context.Background(), `{"action":"list"}`)
+	result, err := tool.Execute(testUserContext(), `{"action":"list"}`)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
@@ -139,7 +144,7 @@ func TestExecute_Create_WithSchedule(t *testing.T) {
 	tool := newTestTool(t)
 
 	arguments := `{"action":"create","name":"Morning Report","schedule":"0 9 * * 1-5","message":"Generate report"}`
-	result, err := tool.Execute(context.Background(), arguments)
+	result, err := tool.Execute(testUserContext(), arguments)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
@@ -162,7 +167,7 @@ func TestExecute_Create_WithSchedule(t *testing.T) {
 	}
 
 	// Verify job was persisted.
-	jobs := tool.scheduler.List()
+	jobs := tool.scheduler.List("user-1")
 	if len(jobs) != 1 {
 		t.Fatalf("expected 1 job in scheduler, got %d", len(jobs))
 	}
@@ -180,7 +185,7 @@ func TestExecute_Create_WithDelay(t *testing.T) {
 	tool := newTestTool(t)
 
 	arguments := `{"action":"create","name":"Reminder","delay":"1h","message":"Check in"}`
-	result, err := tool.Execute(context.Background(), arguments)
+	result, err := tool.Execute(testUserContext(), arguments)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
@@ -193,7 +198,7 @@ func TestExecute_Create_WithDelay(t *testing.T) {
 		t.Error("firesAt should be set for delay jobs")
 	}
 
-	jobs := tool.scheduler.List()
+	jobs := tool.scheduler.List("user-1")
 	if len(jobs) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(jobs))
 	}
@@ -216,7 +221,7 @@ func TestExecute_Create_WithDelay(t *testing.T) {
 func TestExecute_Create_MissingName(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"create","schedule":"* * * * *","message":"hello"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"create","schedule":"* * * * *","message":"hello"}`)
 	if err == nil {
 		t.Fatal("expected error for missing name")
 	}
@@ -228,7 +233,7 @@ func TestExecute_Create_MissingName(t *testing.T) {
 func TestExecute_Create_MissingMessage(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"create","name":"test","schedule":"* * * * *"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"create","name":"test","schedule":"* * * * *"}`)
 	if err == nil {
 		t.Fatal("expected error for missing message")
 	}
@@ -237,7 +242,7 @@ func TestExecute_Create_MissingMessage(t *testing.T) {
 func TestExecute_Create_BothScheduleAndDelay(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"create","name":"test","message":"hi","schedule":"* * * * *","delay":"1h"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"create","name":"test","message":"hi","schedule":"* * * * *","delay":"1h"}`)
 	if err == nil {
 		t.Fatal("expected error for both schedule and delay")
 	}
@@ -249,7 +254,7 @@ func TestExecute_Create_BothScheduleAndDelay(t *testing.T) {
 func TestExecute_Create_NeitherScheduleNorDelay(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"create","name":"test","message":"hi"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"create","name":"test","message":"hi"}`)
 	if err == nil {
 		t.Fatal("expected error for neither schedule nor delay")
 	}
@@ -258,7 +263,7 @@ func TestExecute_Create_NeitherScheduleNorDelay(t *testing.T) {
 func TestExecute_Create_InvalidSchedule(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"create","name":"test","message":"hi","schedule":"not valid"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"create","name":"test","message":"hi","schedule":"not valid"}`)
 	if err == nil {
 		t.Fatal("expected error for invalid schedule")
 	}
@@ -270,7 +275,7 @@ func TestExecute_Create_InvalidSchedule(t *testing.T) {
 func TestExecute_Create_InvalidDelay(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"create","name":"test","message":"hi","delay":"not-a-duration"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"create","name":"test","message":"hi","delay":"not-a-duration"}`)
 	if err == nil {
 		t.Fatal("expected error for invalid delay")
 	}
@@ -282,7 +287,7 @@ func TestExecute_Create_InvalidDelay(t *testing.T) {
 func TestExecute_Create_DelayTooShort(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"create","name":"test","message":"hi","delay":"30s"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"create","name":"test","message":"hi","delay":"30s"}`)
 	if err == nil {
 		t.Fatal("expected error for delay < 1 minute")
 	}
@@ -298,12 +303,12 @@ func TestExecute_Update(t *testing.T) {
 
 	// Create a job first.
 	job := sampleJob("job-alpha", "Alpha")
-	if err := tool.scheduler.CreateAndReload(job); err != nil {
+	if err := tool.scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	arguments := `{"action":"update","id":"job-alpha","name":"Alpha Updated","message":"new message"}`
-	result, err := tool.Execute(context.Background(), arguments)
+	result, err := tool.Execute(testUserContext(), arguments)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
@@ -316,7 +321,7 @@ func TestExecute_Update(t *testing.T) {
 		t.Errorf("success = %v, want true", parsed["success"])
 	}
 
-	jobs := tool.scheduler.List()
+	jobs := tool.scheduler.List("user-1")
 	if jobs[0].Name != "Alpha Updated" {
 		t.Errorf("Name = %q, want 'Alpha Updated'", jobs[0].Name)
 	}
@@ -325,7 +330,7 @@ func TestExecute_Update(t *testing.T) {
 func TestExecute_Update_MissingID(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"update","name":"test"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"update","name":"test"}`)
 	if err == nil {
 		t.Fatal("expected error for missing id")
 	}
@@ -337,7 +342,7 @@ func TestExecute_Update_MissingID(t *testing.T) {
 func TestExecute_Update_NotFound(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"update","id":"nonexistent","name":"test"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"update","id":"nonexistent","name":"test"}`)
 	if err == nil {
 		t.Fatal("expected error for nonexistent job")
 	}
@@ -350,28 +355,28 @@ func TestExecute_Update_EnableDisable(t *testing.T) {
 	tool := newTestTool(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := tool.scheduler.CreateAndReload(job); err != nil {
+	if err := tool.scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	// Disable the job.
-	_, err := tool.Execute(context.Background(), `{"action":"update","id":"job-alpha","enabled":false}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"update","id":"job-alpha","enabled":false}`)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	jobs := tool.scheduler.List()
+	jobs := tool.scheduler.List("user-1")
 	if jobs[0].Enabled {
 		t.Error("job should be disabled")
 	}
 
 	// Re-enable.
-	_, err = tool.Execute(context.Background(), `{"action":"update","id":"job-alpha","enabled":true}`)
+	_, err = tool.Execute(testUserContext(), `{"action":"update","id":"job-alpha","enabled":true}`)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	jobs = tool.scheduler.List()
+	jobs = tool.scheduler.List("user-1")
 	if !jobs[0].Enabled {
 		t.Error("job should be enabled")
 	}
@@ -381,11 +386,11 @@ func TestExecute_Update_InvalidSchedule(t *testing.T) {
 	tool := newTestTool(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := tool.scheduler.CreateAndReload(job); err != nil {
+	if err := tool.scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
-	_, err := tool.Execute(context.Background(), `{"action":"update","id":"job-alpha","schedule":"bad cron"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"update","id":"job-alpha","schedule":"bad cron"}`)
 	if err == nil {
 		t.Fatal("expected error for invalid schedule")
 	}
@@ -397,11 +402,11 @@ func TestExecute_Delete(t *testing.T) {
 	tool := newTestTool(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := tool.scheduler.CreateAndReload(job); err != nil {
+	if err := tool.scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
-	result, err := tool.Execute(context.Background(), `{"action":"delete","id":"job-alpha"}`)
+	result, err := tool.Execute(testUserContext(), `{"action":"delete","id":"job-alpha"}`)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
@@ -414,7 +419,7 @@ func TestExecute_Delete(t *testing.T) {
 		t.Errorf("success = %v, want true", parsed["success"])
 	}
 
-	jobs := tool.scheduler.List()
+	jobs := tool.scheduler.List("user-1")
 	if len(jobs) != 0 {
 		t.Errorf("expected 0 jobs after delete, got %d", len(jobs))
 	}
@@ -423,7 +428,7 @@ func TestExecute_Delete(t *testing.T) {
 func TestExecute_Delete_MissingID(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"delete"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"delete"}`)
 	if err == nil {
 		t.Fatal("expected error for missing id")
 	}
@@ -432,7 +437,7 @@ func TestExecute_Delete_MissingID(t *testing.T) {
 func TestExecute_Delete_NotFound(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"delete","id":"nonexistent"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"delete","id":"nonexistent"}`)
 	if err == nil {
 		t.Fatal("expected error for nonexistent job")
 	}
@@ -444,13 +449,13 @@ func TestExecute_Trigger(t *testing.T) {
 	tool := newTestTool(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := tool.scheduler.CreateAndReload(job); err != nil {
+	if err := tool.scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	var mutex sync.Mutex
 	triggered := false
-	tool.scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	tool.scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		mutex.Lock()
 		triggered = true
 		mutex.Unlock()
@@ -459,7 +464,7 @@ func TestExecute_Trigger(t *testing.T) {
 		return "run-1", channel, func() error { return nil }
 	}
 
-	result, err := tool.Execute(context.Background(), `{"action":"trigger","id":"job-alpha"}`)
+	result, err := tool.Execute(testUserContext(), `{"action":"trigger","id":"job-alpha"}`)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
@@ -485,7 +490,7 @@ func TestExecute_Trigger(t *testing.T) {
 func TestExecute_Trigger_MissingID(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"trigger"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"trigger"}`)
 	if err == nil {
 		t.Fatal("expected error for missing id")
 	}
@@ -494,7 +499,7 @@ func TestExecute_Trigger_MissingID(t *testing.T) {
 func TestExecute_Trigger_NotFound(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"trigger","id":"nonexistent"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"trigger","id":"nonexistent"}`)
 	if err == nil {
 		t.Fatal("expected error for nonexistent job")
 	}
@@ -505,7 +510,7 @@ func TestExecute_Trigger_NotFound(t *testing.T) {
 func TestExecute_UnknownAction(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{"action":"frobnicate"}`)
+	_, err := tool.Execute(testUserContext(), `{"action":"frobnicate"}`)
 	if err == nil {
 		t.Fatal("expected error for unknown action")
 	}
@@ -519,7 +524,7 @@ func TestExecute_UnknownAction(t *testing.T) {
 func TestExecute_InvalidJSON(t *testing.T) {
 	tool := newTestTool(t)
 
-	_, err := tool.Execute(context.Background(), `{bad json}`)
+	_, err := tool.Execute(testUserContext(), `{bad json}`)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -531,12 +536,12 @@ func TestExecute_Create_WithModelAndAgent(t *testing.T) {
 	tool := newTestTool(t)
 
 	arguments := `{"action":"create","name":"Special","schedule":"0 * * * *","message":"do it","model":"anthropic:claude-4","agentId":"research"}`
-	_, err := tool.Execute(context.Background(), arguments)
+	_, err := tool.Execute(testUserContext(), arguments)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	jobs := tool.scheduler.List()
+	jobs := tool.scheduler.List("user-1")
 	if len(jobs) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(jobs))
 	}
@@ -555,12 +560,12 @@ func TestExecute_Create_OneShotOverride(t *testing.T) {
 
 	// Create with schedule but oneShot=true.
 	arguments := `{"action":"create","name":"OneTime Cron","schedule":"0 9 * * *","message":"once","oneShot":true}`
-	_, err := tool.Execute(context.Background(), arguments)
+	_, err := tool.Execute(testUserContext(), arguments)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	jobs := tool.scheduler.List()
+	jobs := tool.scheduler.List("user-1")
 	if !jobs[0].OneShot {
 		t.Error("oneShot should be true when explicitly set")
 	}

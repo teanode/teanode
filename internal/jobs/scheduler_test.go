@@ -20,7 +20,7 @@ func newTestScheduler(t *testing.T) *Scheduler {
 	configs.SetDirectory(directory)
 	t.Cleanup(func() { configs.SetDirectory("") })
 
-	jobsDirectory := filepath.Join(directory, "jobs")
+	jobsDirectory := filepath.Join(directory, "users", "user-1", "jobs")
 	if err := os.MkdirAll(jobsDirectory, 0755); err != nil {
 		t.Fatalf("creating jobs directory: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestReload_LoadsFromStore(t *testing.T) {
 
 	// Create jobs directly in the store.
 	job := sampleJob("job-alpha", "Alpha")
-	if err := scheduler.store.Create(job); err != nil {
+	if err := scheduler.store.Create("user-1", job); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 
@@ -60,7 +60,7 @@ func TestReload_LoadsFromStore(t *testing.T) {
 		t.Fatalf("Reload error: %v", err)
 	}
 
-	jobs := scheduler.List()
+	jobs := scheduler.List("user-1")
 	if len(jobs) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(jobs))
 	}
@@ -88,7 +88,7 @@ func TestReload_BuildsExpressionCache(t *testing.T) {
 	oneShotJob.Enabled = true
 
 	for _, job := range []Job{enabledJob, disabledJob, oneShotJob} {
-		if err := scheduler.store.Create(job); err != nil {
+		if err := scheduler.store.Create("user-1", job); err != nil {
 			t.Fatalf("Create(%s) error: %v", job.ID, err)
 		}
 	}
@@ -98,13 +98,13 @@ func TestReload_BuildsExpressionCache(t *testing.T) {
 	}
 
 	// Only enabled cron jobs should have cached expressions.
-	if _, ok := scheduler.expressions["job-enabled"]; !ok {
+	if _, ok := scheduler.expressions["user-1:job-enabled"]; !ok {
 		t.Error("expected expression for enabled cron job")
 	}
-	if _, ok := scheduler.expressions["job-disabled"]; ok {
+	if _, ok := scheduler.expressions["user-1:job-disabled"]; ok {
 		t.Error("disabled job should not have a cached expression")
 	}
-	if _, ok := scheduler.expressions["job-oneshot"]; ok {
+	if _, ok := scheduler.expressions["user-1:job-oneshot"]; ok {
 		t.Error("one-shot (RunAt) job should not have a cached expression")
 	}
 }
@@ -116,7 +116,7 @@ func TestReload_SkipsBadSchedule(t *testing.T) {
 	badJob.Schedule = "not a cron expression"
 	badJob.Enabled = true
 
-	if err := scheduler.store.Create(badJob); err != nil {
+	if err := scheduler.store.Create("user-1", badJob); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 
@@ -125,7 +125,7 @@ func TestReload_SkipsBadSchedule(t *testing.T) {
 		t.Fatalf("Reload error: %v", err)
 	}
 
-	if _, ok := scheduler.expressions["job-bad"]; ok {
+	if _, ok := scheduler.expressions["user-1:job-bad"]; ok {
 		t.Error("bad schedule should not have a cached expression")
 	}
 }
@@ -133,20 +133,42 @@ func TestReload_SkipsBadSchedule(t *testing.T) {
 func TestList_ReturnsCopy(t *testing.T) {
 	scheduler := newTestScheduler(t)
 
-	if err := scheduler.store.Create(sampleJob("job-alpha", "Alpha")); err != nil {
+	if err := scheduler.store.Create("user-1", sampleJob("job-alpha", "Alpha")); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 	if err := scheduler.Reload(); err != nil {
 		t.Fatalf("Reload error: %v", err)
 	}
 
-	list := scheduler.List()
+	list := scheduler.List("user-1")
 	list[0].Name = "Mutated"
 
 	// The scheduler's internal copy should not be affected.
-	internal := scheduler.List()
+	internal := scheduler.List("user-1")
 	if internal[0].Name == "Mutated" {
 		t.Error("List() did not return a copy — mutation leaked to internal state")
+	}
+}
+
+func TestList_FiltersByUser(t *testing.T) {
+	scheduler := newTestScheduler(t)
+
+	userOneJob := sampleJob("job-user-1", "User One")
+	userTwoJob := sampleJob("job-user-2", "User Two")
+	if err := scheduler.CreateAndReload("user-1", userOneJob); err != nil {
+		t.Fatalf("CreateAndReload(user-1) error: %v", err)
+	}
+	if err := scheduler.CreateAndReload("user-2", userTwoJob); err != nil {
+		t.Fatalf("CreateAndReload(user-2) error: %v", err)
+	}
+
+	userOneJobs := scheduler.List("user-1")
+	if len(userOneJobs) != 1 || userOneJobs[0].ID != "job-user-1" {
+		t.Fatalf("user-1 jobs = %+v, want only job-user-1", userOneJobs)
+	}
+	userTwoJobs := scheduler.List("user-2")
+	if len(userTwoJobs) != 1 || userTwoJobs[0].ID != "job-user-2" {
+		t.Fatalf("user-2 jobs = %+v, want only job-user-2", userTwoJobs)
 	}
 }
 
@@ -156,11 +178,11 @@ func TestCreateAndReload(t *testing.T) {
 	scheduler := newTestScheduler(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
-	jobs := scheduler.List()
+	jobs := scheduler.List("user-1")
 	if len(jobs) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(jobs))
 	}
@@ -173,16 +195,16 @@ func TestUpdateAndReload(t *testing.T) {
 	scheduler := newTestScheduler(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	job.Name = "Alpha Updated"
-	if err := scheduler.UpdateAndReload(job); err != nil {
+	if err := scheduler.UpdateAndReload("user-1", job); err != nil {
 		t.Fatalf("UpdateAndReload error: %v", err)
 	}
 
-	jobs := scheduler.List()
+	jobs := scheduler.List("user-1")
 	if jobs[0].Name != "Alpha Updated" {
 		t.Errorf("Name = %q, want 'Alpha Updated'", jobs[0].Name)
 	}
@@ -191,15 +213,15 @@ func TestUpdateAndReload(t *testing.T) {
 func TestDeleteAndReload(t *testing.T) {
 	scheduler := newTestScheduler(t)
 
-	if err := scheduler.CreateAndReload(sampleJob("job-alpha", "Alpha")); err != nil {
+	if err := scheduler.CreateAndReload("user-1", sampleJob("job-alpha", "Alpha")); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
-	if err := scheduler.DeleteAndReload("job-alpha"); err != nil {
+	if err := scheduler.DeleteAndReload("user-1", "job-alpha"); err != nil {
 		t.Fatalf("DeleteAndReload error: %v", err)
 	}
 
-	jobs := scheduler.List()
+	jobs := scheduler.List("user-1")
 	if len(jobs) != 0 {
 		t.Errorf("expected 0 jobs after delete, got %d", len(jobs))
 	}
@@ -210,7 +232,7 @@ func TestDeleteAndReload(t *testing.T) {
 func TestTrigger_NotFound(t *testing.T) {
 	scheduler := newTestScheduler(t)
 
-	err := scheduler.Trigger("nonexistent")
+	err := scheduler.Trigger("user-1", "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for triggering nonexistent job")
 	}
@@ -220,7 +242,7 @@ func TestTrigger_ExecutesJob(t *testing.T) {
 	scheduler := newTestScheduler(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
@@ -228,7 +250,7 @@ func TestTrigger_ExecutesJob(t *testing.T) {
 	var triggeredMessage string
 	done := make(chan struct{})
 
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		mutex.Lock()
 		triggeredMessage = message
 		mutex.Unlock()
@@ -237,7 +259,7 @@ func TestTrigger_ExecutesJob(t *testing.T) {
 		return "run-1", channel, func() error { return nil }
 	}
 
-	if err := scheduler.Trigger("job-alpha"); err != nil {
+	if err := scheduler.Trigger("user-1", "job-alpha"); err != nil {
 		t.Fatalf("Trigger error: %v", err)
 	}
 
@@ -265,13 +287,13 @@ func TestTick_CronJobMatches(t *testing.T) {
 	// We'll use "* * * * *" to match every minute.
 	job := sampleJob("job-every-minute", "Every Minute")
 	job.Schedule = "* * * * *"
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	var mutex sync.Mutex
 	executedJobs := []string{}
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		mutex.Lock()
 		executedJobs = append(executedJobs, message)
 		mutex.Unlock()
@@ -302,13 +324,13 @@ func TestTick_CronJobDoesNotMatch(t *testing.T) {
 	// Schedule: minute 0, hour 9 — only matches at 09:00.
 	job := sampleJob("job-9am", "Nine AM")
 	job.Schedule = "0 9 * * *"
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	var mutex sync.Mutex
 	executedCount := 0
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		mutex.Lock()
 		executedCount++
 		mutex.Unlock()
@@ -335,12 +357,12 @@ func TestTick_DisabledJobSkipped(t *testing.T) {
 	job := sampleJob("job-disabled", "Disabled")
 	job.Schedule = "* * * * *"
 	job.Enabled = false
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	executedCount := 0
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		executedCount++
 		channel := make(chan struct{})
 		close(channel)
@@ -366,13 +388,13 @@ func TestTick_OneShotRunAt_Fires(t *testing.T) {
 	job.RunAt = tickTime.Add(-time.Minute).UnixMilli() // 1 minute ago
 	job.OneShot = true
 	job.Enabled = true
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	var mutex sync.Mutex
 	var executedMessage string
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		mutex.Lock()
 		executedMessage = message
 		mutex.Unlock()
@@ -401,12 +423,12 @@ func TestTick_OneShotRunAt_NotYet(t *testing.T) {
 	job.RunAt = tickTime.Add(time.Hour).UnixMilli() // 1 hour from now
 	job.OneShot = true
 	job.Enabled = true
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	executedCount := 0
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		executedCount++
 		channel := make(chan struct{})
 		close(channel)
@@ -427,23 +449,23 @@ func TestExecuteJob_SuccessUpdatesStatus(t *testing.T) {
 	scheduler := newTestScheduler(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		channel := make(chan struct{})
 		close(channel)
 		return "run-1", channel, func() error { return nil }
 	}
 
-	scheduler.executeJob(job)
+	scheduler.executeJob("user-1", job)
 
 	// Reload to check persisted status.
 	if err := scheduler.Reload(); err != nil {
 		t.Fatalf("Reload error: %v", err)
 	}
-	jobs := scheduler.List()
+	jobs := scheduler.List("user-1")
 	if len(jobs) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(jobs))
 	}
@@ -462,22 +484,22 @@ func TestExecuteJob_ErrorUpdatesStatus(t *testing.T) {
 	scheduler := newTestScheduler(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		channel := make(chan struct{})
 		close(channel)
 		return "run-1", channel, func() error { return fmt.Errorf("provider timeout") }
 	}
 
-	scheduler.executeJob(job)
+	scheduler.executeJob("user-1", job)
 
 	if err := scheduler.Reload(); err != nil {
 		t.Fatalf("Reload error: %v", err)
 	}
-	jobs := scheduler.List()
+	jobs := scheduler.List("user-1")
 	if jobs[0].LastStatus != "error" {
 		t.Errorf("LastStatus = %q, want error", jobs[0].LastStatus)
 	}
@@ -493,7 +515,7 @@ func TestExecuteJob_OneShotDisablesAndDeletes(t *testing.T) {
 	job.OneShot = true
 	job.RunAt = time.Now().Add(-time.Minute).UnixMilli()
 	job.Enabled = true
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
@@ -501,19 +523,19 @@ func TestExecuteJob_OneShotDisablesAndDeletes(t *testing.T) {
 	scheduler.Broadcast = func(event string, payload interface{}) {
 		broadcastCalled = true
 	}
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		channel := make(chan struct{})
 		close(channel)
 		return "run-1", channel, func() error { return nil }
 	}
 
-	scheduler.executeJob(job)
+	scheduler.executeJob("user-1", job)
 
 	// One-shot jobs should be deleted from the store after execution.
 	if err := scheduler.Reload(); err != nil {
 		t.Fatalf("Reload error: %v", err)
 	}
-	jobs := scheduler.List()
+	jobs := scheduler.List("user-1")
 	if len(jobs) != 0 {
 		t.Errorf("expected 0 jobs after one-shot execution, got %d", len(jobs))
 	}
@@ -526,12 +548,12 @@ func TestExecuteJob_NoRunMessageCallback(t *testing.T) {
 	scheduler := newTestScheduler(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	// RunMessage is nil — executeJob should return early without panic.
-	scheduler.executeJob(job) // Should not panic.
+	scheduler.executeJob("user-1", job) // Should not panic.
 }
 
 // --- 7. Start / Stop ---
@@ -556,14 +578,14 @@ func TestTick_MultipleJobs(t *testing.T) {
 	for _, name := range []string{"alpha", "beta"} {
 		job := sampleJob("job-"+name, name)
 		job.Schedule = "* * * * *"
-		if err := scheduler.CreateAndReload(job); err != nil {
+		if err := scheduler.CreateAndReload("user-1", job); err != nil {
 			t.Fatalf("CreateAndReload(%s) error: %v", name, err)
 		}
 	}
 
 	var mutex sync.Mutex
 	executedMessages := map[string]bool{}
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		mutex.Lock()
 		executedMessages[message] = true
 		mutex.Unlock()
@@ -595,13 +617,13 @@ func TestTick_CronDeduplication_SameMinute(t *testing.T) {
 
 	job := sampleJob("job-dedup", "Dedup")
 	job.Schedule = "* * * * *"
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	var mutex sync.Mutex
 	executedCount := 0
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		mutex.Lock()
 		executedCount++
 		mutex.Unlock()
@@ -629,13 +651,13 @@ func TestTick_CronDeduplication_DifferentMinutes(t *testing.T) {
 
 	job := sampleJob("job-dedup2", "Dedup2")
 	job.Schedule = "* * * * *"
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	var mutex sync.Mutex
 	executedCount := 0
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		mutex.Lock()
 		executedCount++
 		mutex.Unlock()
@@ -665,13 +687,13 @@ func TestTick_OneShotRunAt_NotDeduplicatedByCronLogic(t *testing.T) {
 	job.RunAt = tickTime.Add(-time.Minute).UnixMilli()
 	job.OneShot = true
 	job.Enabled = true
-	if err := scheduler.CreateAndReload(job); err != nil {
+	if err := scheduler.CreateAndReload("user-1", job); err != nil {
 		t.Fatalf("CreateAndReload error: %v", err)
 	}
 
 	var mutex sync.Mutex
 	executedCount := 0
-	scheduler.RunMessage = func(ctx context.Context, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+	scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 		mutex.Lock()
 		executedCount++
 		mutex.Unlock()

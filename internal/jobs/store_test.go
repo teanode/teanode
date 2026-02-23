@@ -9,15 +9,15 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 )
 
-// withJobsDir sets the config directory to a temp dir, ensures the jobs
-// subdirectory exists, and returns a Store pointing at it.
+// withJobsDir sets the config directory to a temp dir, ensures a per-user jobs
+// subdirectory exists, and returns a Store.
 func withJobsDir(t *testing.T) *Store {
 	t.Helper()
 	directory := t.TempDir()
 	configs.SetDirectory(directory)
 	t.Cleanup(func() { configs.SetDirectory("") })
 
-	jobsDirectory := filepath.Join(directory, "jobs")
+	jobsDirectory := filepath.Join(directory, "users", "user-1", "jobs")
 	if err := os.MkdirAll(jobsDirectory, 0755); err != nil {
 		t.Fatalf("creating jobs directory: %v", err)
 	}
@@ -76,15 +76,15 @@ func TestLoad_EmptyDirectory(t *testing.T) {
 
 func TestLoad_NonExistentDirectory(t *testing.T) {
 	directory := t.TempDir()
-	// Point to a directory that does NOT have a "jobs" subdirectory.
-	store := &Store{directory: filepath.Join(directory, "nonexistent", "jobs")}
+	// Point to a directory that does NOT have a "users" subdirectory.
+	store := &Store{usersDirectory: filepath.Join(directory, "nonexistent", "users")}
 
 	jobs, err := store.Load()
 	if err != nil {
 		t.Fatalf("Load error: %v", err)
 	}
-	if jobs != nil {
-		t.Errorf("expected nil for non-existent directory, got %v", jobs)
+	if len(jobs) != 0 {
+		t.Errorf("expected empty list for non-existent directory, got %v", jobs)
 	}
 }
 
@@ -102,7 +102,7 @@ func TestCreate_And_Load(t *testing.T) {
 	job.LastStatus = "success"
 	job.ConversationID = "conv-123"
 
-	if err := store.Create(job); err != nil {
+	if err := store.Create("user-1", job); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 
@@ -162,7 +162,7 @@ func TestCreate_Multiple(t *testing.T) {
 	store := withJobsDir(t)
 
 	for _, name := range []string{"alpha", "beta", "gamma"} {
-		if err := store.Create(sampleJob("job-"+name, name)); err != nil {
+		if err := store.Create("user-1", sampleJob("job-"+name, name)); err != nil {
 			t.Fatalf("Create(%s) error: %v", name, err)
 		}
 	}
@@ -192,14 +192,14 @@ func TestUpdate(t *testing.T) {
 	store := withJobsDir(t)
 
 	job := sampleJob("job-alpha", "Alpha")
-	if err := store.Create(job); err != nil {
+	if err := store.Create("user-1", job); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 
 	job.Name = "Alpha Updated"
 	job.Message = "Updated message"
 	job.Enabled = false
-	if err := store.Update(job); err != nil {
+	if err := store.Update("user-1", job); err != nil {
 		t.Fatalf("Update error: %v", err)
 	}
 
@@ -225,7 +225,7 @@ func TestUpdate_NotFound(t *testing.T) {
 	store := withJobsDir(t)
 
 	job := sampleJob("nonexistent", "Ghost")
-	err := store.Update(job)
+	err := store.Update("user-1", job)
 	if err == nil {
 		t.Fatal("expected error for updating nonexistent job, got nil")
 	}
@@ -239,14 +239,14 @@ func TestUpdate_NotFound(t *testing.T) {
 func TestDelete(t *testing.T) {
 	store := withJobsDir(t)
 
-	if err := store.Create(sampleJob("job-alpha", "Alpha")); err != nil {
+	if err := store.Create("user-1", sampleJob("job-alpha", "Alpha")); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
-	if err := store.Create(sampleJob("job-beta", "Beta")); err != nil {
+	if err := store.Create("user-1", sampleJob("job-beta", "Beta")); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 
-	if err := store.Delete("job-alpha"); err != nil {
+	if err := store.Delete("user-1", "job-alpha"); err != nil {
 		t.Fatalf("Delete error: %v", err)
 	}
 
@@ -265,7 +265,7 @@ func TestDelete(t *testing.T) {
 func TestDelete_NotFound(t *testing.T) {
 	store := withJobsDir(t)
 
-	err := store.Delete("nonexistent")
+	err := store.Delete("user-1", "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for deleting nonexistent job, got nil")
 	}
@@ -280,16 +280,16 @@ func TestSave_ReplacesAll(t *testing.T) {
 	store := withJobsDir(t)
 
 	// Create two jobs individually.
-	if err := store.Create(sampleJob("job-alpha", "Alpha")); err != nil {
+	if err := store.Create("user-1", sampleJob("job-alpha", "Alpha")); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
-	if err := store.Create(sampleJob("job-beta", "Beta")); err != nil {
+	if err := store.Create("user-1", sampleJob("job-beta", "Beta")); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 
 	// Replace with a single different job.
 	replacement := sampleJob("job-gamma", "Gamma")
-	if err := store.Save([]Job{replacement}); err != nil {
+	if err := store.Save([]OwnedJob{{UserID: "user-1", Job: replacement}}); err != nil {
 		t.Fatalf("Save error: %v", err)
 	}
 
@@ -308,11 +308,11 @@ func TestSave_ReplacesAll(t *testing.T) {
 func TestSave_EmptyList(t *testing.T) {
 	store := withJobsDir(t)
 
-	if err := store.Create(sampleJob("job-alpha", "Alpha")); err != nil {
+	if err := store.Create("user-1", sampleJob("job-alpha", "Alpha")); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 
-	if err := store.Save([]Job{}); err != nil {
+	if err := store.Save([]OwnedJob{}); err != nil {
 		t.Fatalf("Save error: %v", err)
 	}
 
@@ -331,15 +331,19 @@ func TestLoad_SkipsNonMarkdownFiles(t *testing.T) {
 	store := withJobsDir(t)
 
 	// Create a valid job.
-	if err := store.Create(sampleJob("job-alpha", "Alpha")); err != nil {
+	if err := store.Create("user-1", sampleJob("job-alpha", "Alpha")); err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
 
 	// Add a non-.md file and a subdirectory.
-	if err := os.WriteFile(filepath.Join(store.directory, "notes.txt"), []byte("not a job"), 0644); err != nil {
+	jobsDirectory, err := configs.UserJobsDirectory("user-1")
+	if err != nil {
+		t.Fatalf("UserJobsDirectory error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(jobsDirectory, "notes.txt"), []byte("not a job"), 0644); err != nil {
 		t.Fatalf("WriteFile error: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(store.directory, "subdir"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(jobsDirectory, "subdir"), 0755); err != nil {
 		t.Fatalf("MkdirAll error: %v", err)
 	}
 

@@ -279,6 +279,8 @@ export function useBackend() {
   const [currentAgentId, setCurrentAgentId] = useState<string>("");
   const [serverDefaultAgentId, setServerDefaultAgentId] = useState<string>("");
   const [connected, setConnected] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
   const [conversationModel, setConversationModel] = useState<string | null>(
     null,
   );
@@ -831,6 +833,8 @@ export function useBackend() {
 
   const handleConnect = useCallback((result: ConnectResult) => {
     setConnected(true);
+    setIsAdmin(!!result.isAdmin);
+    setCurrentUserId(result.userId || "");
     setAudioCapability(result.capabilities?.includes("audio") ?? false);
     if (result.defaultModel) {
       setDefaultModel(result.defaultModel);
@@ -1421,6 +1425,8 @@ export function useBackend() {
     agents,
     currentAgentId,
     connected,
+    isAdmin,
+    currentUserId,
     currentRunId: currentRunIdRef.current,
     conversationModel,
     serverDefaultAgentId,

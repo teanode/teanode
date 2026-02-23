@@ -30,7 +30,7 @@ interface InstalledSkill {
   enabled?: boolean;
   sourceId?: string;
   publisher?: string;
-  installedAt?: number;
+  installedAt?: string;
 }
 
 type UpdateIndicatorState = "idle" | "loading" | "success";
