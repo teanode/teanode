@@ -120,12 +120,12 @@ tasks:
   - id: DOCS
     wave: 9
     branch: codex/docs-runbook-update
-    status: pending
-    started_at: ""
-    finished_at: ""
+    status: complete
+    started_at: "2026-02-23T23:10:00Z"
+    finished_at: "2026-02-23T23:20:00Z"
     commit: ""
-    validations_passed: false
-    notes: ""
+    validations_passed: true
+    notes: "Wrote docs/runbook-voice-pipeline.md (config reference, rollback switches, observability guide, incident playbook) and docs/VOICE_PIPELINE_CHANGES.md (per-milestone changelog P0/L1/L2)."
 wave_gates:
   - wave: 0
     status: passed
@@ -216,8 +216,8 @@ wave_gates:
       - "go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/final-legacy.json"
     summary: "PASSED: build/vet/race tests all green; final e2e 6/6 pass (s1=0.43 s2=0.90 s3=0.86 s4=0.72 s5=0.92 s6=0.64); compare vs baseline passed; legacy strategy regression 6/6 pass; legacy compare vs baseline passed. tts_ms p50=214ms (ElevenLabs flash_v2_5)."
   - wave: 9
-    status: pending
+    status: passed
     commands:
       - "docs validation only"
-    summary: ""
-last_updated: "2026-02-23T23:10:00Z"
+    summary: "PASSED: docs/runbook-voice-pipeline.md and docs/VOICE_PIPELINE_CHANGES.md written; build/vet clean."
+last_updated: "2026-02-23T23:20:00Z"
