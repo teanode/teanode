@@ -392,3 +392,94 @@ Started: 2026-02-22T21:56:22Z
       PASS `DEEPGRAM_API_KEY=<set> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave4.json` -> Passed:6 Failed:0
       PASS `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave4.json`
   - Next: advance to Wave 5 (L2.2 turn strategy abstraction).
+
+- 2026-02-23T01:58:16Z
+  - Wave: 5
+  - Task: L2.2
+  - Status: in_progress
+  - Branch: codex/l2-2-turn-strategy
+  - Commit: n/a
+  - Validations: pending
+  - Next: add TurnStrategy abstraction, BalancedStrategy behavior, and integrate strategy decisions into audioInputLoop.
+
+- 2026-02-23T02:15:02Z
+  - Wave: 5
+  - Task: L2.2
+  - Status: complete
+  - Branch: codex/l2-2-turn-strategy
+  - Commit: 670ecf1
+  - Validations: |
+      PASS `go test -race ./internal/voice/...`
+      PASS `go test ./test/voicee2e/...`
+      PASS `go build ./...`
+  - Next: integrate L2.2 into pipeline and run Wave 5 gate.
+
+- 2026-02-23T02:15:28Z
+  - Wave: 5
+  - Task: integrate
+  - Status: complete
+  - Branch: pipeline
+  - Commit: dce1c91
+  - Validations: L2.2 cherry-picked from task branch
+  - Next: execute Wave 5 gate commands.
+
+- 2026-02-23T02:19:34Z
+  - Wave: 5
+  - Task: gate
+  - Status: passed
+  - Branch: pipeline
+  - Commit: dce1c91
+  - Validations: |
+      PASS `go build ./...`
+      PASS `go vet ./...`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -config '{"voice":{"turn_strategy":"legacy"}}' -out test/voicee2e/reports/after-wave5-legacy.json` -> Passed:6 Failed:0
+      PASS `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave5-legacy.json`
+  - Next: advance to Wave 6 (L2.1 speculative LLM).
+
+- 2026-02-23T02:21:03Z
+  - Wave: 6
+  - Task: L2.1
+  - Status: in_progress
+  - Branch: codex/l2-1-speculative-llm
+  - Commit: n/a
+  - Validations: pending
+  - Next: implement speculative LLM flow (interim start/divergence cancel/final promote), add similarity utility and tests.
+
+- 2026-02-23T03:01:15Z
+  - Wave: 6
+  - Task: L2.1
+  - Status: complete
+  - Branch: codex/l2-1-speculative-llm
+  - Commit: d3605cc
+  - Validations: |
+      PASS `go test -race ./internal/voice/... -run TestSimilarity`
+      PASS `go test -race ./internal/voice/... -run TestSpeculative`
+      PASS `go build ./...`
+      PASS `go test ./internal/gw/...`
+      PASS `go test ./internal/providers/...`
+      PASS `go test ./internal/api/v1api/...`
+  - Next: run Wave 6 integration gate on pipeline.
+
+- 2026-02-23T03:01:15Z
+  - Wave: 6
+  - Task: integrate
+  - Status: complete
+  - Branch: pipeline
+  - Commit: 1a7b7a8
+  - Validations: L2.1 series cherry-picked from task branch (`0b239be`, `22278b4`, `52e027f`, `64fe56c`, `1a7b7a8`).
+  - Next: execute Wave 6 gate commands.
+
+- 2026-02-23T03:01:15Z
+  - Wave: 6
+  - Task: gate
+  - Status: failed
+  - Branch: pipeline
+  - Commit: 1a7b7a8
+  - Validations: |
+      PASS `go build ./...`
+      PASS `go vet ./...`
+      PASS `go test -race ./internal/voice/...`
+      FAIL `DEEPGRAM_API_KEY=<set> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave6.json` -> Passed:5 Failed:1 (`s3_long`: no transcript.final; similarity 0.00 < 0.45)
+      SKIP `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave6.json`
+  - Next: hold Wave 7+; investigate deterministic `s3_long` transcript starvation under streaming STT and add targeted fix before re-running Wave 6 gate.
