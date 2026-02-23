@@ -154,6 +154,7 @@ export default function ConversationsNewPage() {
               placeholder={t("conversations.startConversation", { agentName })}
               autoFocus
               isRunning={backend.isRunning}
+              connected={backend.connected && !backend.connecting}
               modelPicker={modelPicker}
               bare
               alwaysExpanded

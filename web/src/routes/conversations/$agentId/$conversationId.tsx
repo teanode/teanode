@@ -166,6 +166,7 @@ export default function ConversationsConversationPage() {
       ) : (
         <InputArea
           isRunning={backend.isRunning}
+          connected={backend.connected && !backend.connecting}
           agentName={agentName}
           draftKey={conversationId}
           model={backend.conversationModel}

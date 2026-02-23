@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/trash"
@@ -169,12 +170,17 @@ func (self *Store) writeSession(session *Session) error {
 }
 
 func (self *Store) moveToTrash(path string) error {
-	return trash.Move(path, self.trashDirectory())
+	trashDirectory, err := self.trashDirectory()
+	if err != nil {
+		return err
+	}
+	return trash.Move(path, trashDirectory)
 }
 
-func (self *Store) trashDirectory() string {
-	if filepath.Base(self.directory) == "sessions" {
-		return filepath.Join(filepath.Dir(self.directory), ".trash")
+func (self *Store) trashDirectory() (string, error) {
+	trashDirectory, err := configs.TrashDirectory()
+	if err != nil {
+		return "", fmt.Errorf("resolving trash directory: %w", err)
 	}
-	return filepath.Join(self.directory, ".trash")
+	return trashDirectory, nil
 }

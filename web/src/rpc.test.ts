@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connect, disconnect, onVoiceMessage, setEventHandler } from "./rpc";
+import {
+  connect,
+  disconnect,
+  onVoiceMessage,
+  reconnect,
+  setEventHandler,
+  setStatusHandler,
+} from "./rpc";
 
 class MockWebSocket {
+  static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSED = 3;
   static instances: MockWebSocket[] = [];
@@ -75,5 +83,51 @@ describe("rpc voice message routing", () => {
     expect(eventHandler).not.toHaveBeenCalled();
 
     offVoice();
+  });
+
+  it("waits to reconnect while page is hidden and reconnects on visibility", () => {
+    vi.stubGlobal("window", {
+      location: {
+        protocol: "http:",
+        host: "localhost:8833",
+        search: "",
+      },
+    });
+    vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+    const statusHandler = vi.fn();
+    setStatusHandler(statusHandler);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    connect();
+    expect(MockWebSocket.instances).toHaveLength(0);
+    expect(statusHandler).toHaveBeenLastCalledWith(
+      "disconnected - waiting for app focus...",
+    );
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    reconnect();
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("does not open duplicate sockets while already connected", () => {
+    vi.stubGlobal("window", {
+      location: {
+        protocol: "http:",
+        host: "localhost:8833",
+        search: "",
+      },
+    });
+    vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+
+    connect();
+    connect();
+
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 });

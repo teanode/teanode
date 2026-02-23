@@ -74,6 +74,9 @@ func NewGatewayCommand() *cli.Command {
 			if err := migrations.MigrateMultiUserV2(); err != nil {
 				return err
 			}
+			if err := migrations.MigrateLegacyTrashDirectories(); err != nil {
+				return err
+			}
 			pidGuard, err := acquireGatewayPIDGuard()
 			if err != nil {
 				return err
