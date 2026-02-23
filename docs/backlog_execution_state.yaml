@@ -1,4 +1,4 @@
-current_wave: 3
+current_wave: 4
 tasks:
   - id: S1
     wave: 0
@@ -57,30 +57,30 @@ tasks:
   - id: L1.1
     wave: 3
     branch: codex/l1-1-silero-vad
-    status: pending
-    started_at: ""
-    finished_at: ""
-    commit: ""
-    validations_passed: false
-    notes: ""
+    status: complete
+    started_at: "2026-02-22T22:34:37Z"
+    finished_at: "2026-02-22T22:45:36Z"
+    commit: "db3f790"
+    validations_passed: true
+    notes: "VADAnalyzer abstraction + Silero sidecar VAD + fallback path implemented."
   - id: L1.4
     wave: 3
     branch: codex/l1-4-client-audio-gate
-    status: pending
-    started_at: ""
-    finished_at: ""
-    commit: ""
-    validations_passed: false
-    notes: ""
+    status: complete
+    started_at: "2026-02-22T22:34:37Z"
+    finished_at: "2026-02-22T22:45:36Z"
+    commit: "4aa253f"
+    validations_passed: true
+    notes: "Client gate lowered to silence-floor thresholds; built static index kept per user decision."
   - id: L1.2
     wave: 4
     branch: codex/l1-2-deepgram-streaming-stt
-    status: pending
-    started_at: ""
-    finished_at: ""
-    commit: ""
-    validations_passed: false
-    notes: ""
+    status: complete
+    started_at: "2026-02-22T23:18:25Z"
+    finished_at: "2026-02-23T01:24:03Z"
+    commit: "d20c494"
+    validations_passed: true
+    notes: "Implemented StreamingTranscriber interfaces + Deepgram client + voice pipeline streaming loop. Task branch validations passed; cherry-picked to pipeline as f3986a4."
   - id: L2.2
     wave: 5
     branch: codex/l2-2-turn-strategy
@@ -155,16 +155,16 @@ wave_gates:
       - "go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://localhost:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave2.json"
     summary: "PASSED: build/vet/voice race tests succeeded. e2e report generated at test/voicee2e/reports/after-wave2.json; turn.metrics count=3 and complete-turn timestamp sets present=3."
   - wave: 3
-    status: pending
+    status: passed
     commands:
       - "go build ./..."
       - "go vet ./..."
       - "go test -race ./internal/voice/..."
       - "go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://localhost:8833 -suite test/voicee2e/scenarios/suite.yaml -config '{\"features\":{\"silero_vad\":true}}' -out test/voicee2e/reports/after-wave3.json"
       - "go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave3.json"
-    summary: ""
+    summary: "PASSED: go build/go vet/go test -race ./internal/voice/... green. Wave3 e2e with silero config passed after restarting stale gateway process and using 127.0.0.1 websocket endpoint. Missing baseline.json recovered via setup command; compare against test/voicee2e/reports/baseline.json completed."
   - wave: 4
-    status: pending
+    status: failed
     commands:
       - "go build ./..."
       - "go vet ./..."
@@ -172,7 +172,7 @@ wave_gates:
       - "go test -race ./internal/providers/..."
       - "DEEPGRAM_API_KEY=<key> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://localhost:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave4.json"
       - "go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave4.json"
-    summary: ""
+    summary: "FAILED/BLOCKED: PASS go build/go vet/go test -race ./internal/voice/..././internal/providers/... on pipeline after integrating L1.2 (f3986a4). Required Deepgram e2e gate command could not be executed as specified because DEEPGRAM_API_KEY is unset in the environment."
   - wave: 5
     status: pending
     commands:
@@ -220,4 +220,4 @@ wave_gates:
     commands:
       - "docs validation only"
     summary: ""
-last_updated: "2026-02-22T22:33:59Z"
+last_updated: "2026-02-23T01:24:03Z"

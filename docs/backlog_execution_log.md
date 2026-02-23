@@ -235,3 +235,135 @@ Started: 2026-02-22T21:56:22Z
       PASS `go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave2.json` (required escalated local websocket access)
       PASS metrics checks: turn.metrics count=3; complete-turn non-zero timestamp sets=3
   - Next: advance to Wave 3 parallel tasks L1.1 and L1.4.
+- 2026-02-22T22:34:37Z
+  - Wave: 3
+  - Task: L1.1
+  - Status: in_progress
+  - Branch: codex/l1-1-silero-vad
+  - Commit: n/a
+  - Validations: pending
+  - Next: implement VAD analyzer abstraction + Silero path + fallback behavior.
+
+- 2026-02-22T22:34:37Z
+  - Wave: 3
+  - Task: L1.4
+  - Status: in_progress
+  - Branch: codex/l1-4-client-audio-gate
+  - Commit: n/a
+  - Validations: pending
+  - Next: refine ScriptProcessor/level gate thresholds in web hook.
+- 2026-02-22T22:45:36Z
+  - Wave: 3
+  - Task: L1.1
+  - Status: complete
+  - Branch: codex/l1-1-silero-vad
+  - Commit: db3f790
+  - Validations: |
+      PASS `go test -race ./internal/voice/... -run TestEnergyVAD`
+      PASS `go test -race ./internal/voice/... -run TestSileroVAD`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go build ./...`
+  - Next: merge to pipeline and run Wave 3 gate.
+
+- 2026-02-22T22:45:36Z
+  - Wave: 3
+  - Task: L1.4
+  - Status: complete
+  - Branch: codex/l1-4-client-audio-gate
+  - Commit: 4aa253f
+  - Validations: |
+      PASS `npm run build` (warnings only)
+  - Next: merge to pipeline and run Wave 3 gate.
+
+- 2026-02-22T23:03:09Z
+  - Wave: 3
+  - Task: gate
+  - Status: failed
+  - Branch: pipeline
+  - Commit: 6f4423d
+  - Validations: |
+      PASS `go build ./...`
+      PASS `go vet ./...`
+      PASS `go test -race ./internal/voice/...`
+      FAIL `go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://localhost:8833 -suite test/voicee2e/scenarios/suite.yaml -config '{"features":{"silero_vad":true}}' -out test/voicee2e/reports/after-wave3.json` -> websocket denied (`dial tcp [::1]:8833: operation not permitted`)
+  - Next: rerun Wave 3 e2e gate using `127.0.0.1` and escalated local websocket access.
+
+- 2026-02-22T23:07:48Z
+  - Wave: 3
+  - Task: gate
+  - Status: failed
+  - Branch: pipeline
+  - Commit: 6f4423d
+  - Validations: |
+      FAIL `go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -config '{"features":{"silero_vad":true}}' -out test/voicee2e/reports/after-wave3.json` -> Passed:0 Failed:6 (no transcript.final/response.started)
+      Diagnostic: gateway process was stale from pre-fix build; restarted gateway from current pipeline.
+  - Next: rerun Wave 3 e2e gate against restarted gateway.
+
+- 2026-02-22T23:11:21Z
+  - Wave: 3
+  - Task: gate
+  - Status: in_progress
+  - Branch: pipeline
+  - Commit: 6f4423d
+  - Validations: |
+      RETRY `go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -config '{"features":{"silero_vad":true}}' -out test/voicee2e/reports/after-wave3.json` -> Passed:5 Failed:1 (`s1_short` missing response.started)
+  - Next: rerun once to determine transient vs deterministic failure.
+
+- 2026-02-22T23:12:49Z
+  - Wave: 3
+  - Task: gate
+  - Status: in_progress
+  - Branch: pipeline
+  - Commit: 6f4423d
+  - Validations: |
+      PASS `go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -config '{"features":{"silero_vad":true}}' -out test/voicee2e/reports/after-wave3.json` -> Passed:6 Failed:0
+      FAIL (initial) baseline generation `... -out test/voicee2e/reports/baseline.json` -> Passed:5 Failed:1 (first-scenario timeout)
+      PASS baseline retry `... -out test/voicee2e/reports/baseline.json` -> Passed:6 Failed:0
+      PASS `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave3.json`
+  - Next: mark Wave 3 gate passed and advance to Wave 4 task L1.2.
+
+- 2026-02-22T23:18:25Z
+  - Wave: 4
+  - Task: L1.2
+  - Status: in_progress
+  - Branch: codex/l1-2-deepgram-streaming-stt
+  - Commit: n/a
+  - Validations: pending
+  - Next: create Wave 4 worktree/branch and implement streaming STT interfaces and pipeline integration.
+
+- 2026-02-23T01:20:32Z
+  - Wave: 4
+  - Task: L1.2
+  - Status: complete
+  - Branch: codex/l1-2-deepgram-streaming-stt
+  - Commit: d20c494
+  - Validations: |
+      PASS `go test -race ./internal/providers/...`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go test ./test/voicee2e/...`
+      PASS `go build ./...`
+  - Next: integrate L1.2 into pipeline and execute Wave 4 gate.
+
+- 2026-02-23T01:21:03Z
+  - Wave: 4
+  - Task: integrate
+  - Status: complete
+  - Branch: pipeline
+  - Commit: f3986a4
+  - Validations: L1.2 cherry-picked from task branch
+  - Next: run Wave 4 gate commands.
+
+- 2026-02-23T01:24:03Z
+  - Wave: 4
+  - Task: gate
+  - Status: failed
+  - Branch: pipeline
+  - Commit: f3986a4
+  - Validations: |
+      PASS `go build ./...`
+      PASS `go vet ./...`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go test -race ./internal/providers/...`
+      BLOCKED `DEEPGRAM_API_KEY=<key> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://localhost:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave4.json` -> `DEEPGRAM_API_KEY` is unset in environment
+      SKIP `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave4.json` (no after-wave4 report)
+  - Next: set `DEEPGRAM_API_KEY`, rerun Wave 4 gate e2e + compare, then continue to Wave 5 only if gate passes.
