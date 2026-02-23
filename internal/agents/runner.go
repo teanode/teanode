@@ -173,6 +173,12 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	// Snapshot mutable fields so in-progress runs aren't affected by hot-reloads.
 	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts := self.Snapshot()
 	userId := UserIDFromContext(ctx)
+	isAdmin, hasAdminContext := AdminFromContext(ctx)
+	if !hasAdminContext {
+		// Non-gateway callers/tests may not set user role context.
+		// Default to admin in that case to preserve existing behavior.
+		isAdmin = true
+	}
 	if strings.TrimSpace(userId) == "" {
 		return nil, fmt.Errorf("userId is required")
 	}
@@ -436,6 +442,19 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			}
 
 			arguments := repairToolArgs(toolCall.Function.Arguments)
+			if authorizationErr := validateToolAuthorization(toolCall.Function.Name, arguments, isAdmin); authorizationErr != nil {
+				result := "error: " + authorizationErr.Error()
+				log.Debugf("tool denied id=%s name=%s err=%v", toolCall.ID, toolCall.Function.Name, authorizationErr)
+				if callbacks != nil && callbacks.OnToolResult != nil {
+					callbacks.OnToolResult(toolCall.Function.Name, result)
+				}
+				toolMessage := conversations.NewToolMessage(toolCall.ID, toolCall.Function.Name, result, time.Now().UnixMilli())
+				if err := conversationStore.Append(params.ConversationID, toolMessage); err != nil {
+					return nil, fmt.Errorf("saving tool denial: %w", err)
+				}
+				history = append(history, toolMessage)
+				continue
+			}
 			workItems = append(workItems, toolWorkItem{
 				toolCall:  toolCall,
 				tool:      tool,
@@ -557,6 +576,65 @@ func repairToolArgs(input string) string {
 		return input
 	}
 	return fixed
+}
+
+func validateToolAuthorization(toolName, arguments string, isAdmin bool) error {
+	if isAdmin {
+		return nil
+	}
+	switch toolName {
+	case "shell":
+		return fmt.Errorf("admin access required for shell tool")
+	case "agent_create":
+		return fmt.Errorf("admin access required for agent_create")
+	case "config":
+		action := parseToolAction(arguments)
+		if action == "set" {
+			return fmt.Errorf("admin access required for config.set")
+		}
+	case "projects":
+		action := parseToolAction(arguments)
+		if action != "list" && action != "info" {
+			if action == "" {
+				return fmt.Errorf("admin access required for projects management actions")
+			}
+			return fmt.Errorf("admin access required for projects.%s", action)
+		}
+	case "project_workspace":
+		action := parseToolAction(arguments)
+		if action != "list" && action != "read" && action != "search" {
+			if action == "" {
+				return fmt.Errorf("admin access required for project_workspace management actions")
+			}
+			return fmt.Errorf("admin access required for project_workspace.%s", action)
+		}
+	case "skills":
+		action := parseToolAction(arguments)
+		if action != "list_registry" && action != "search" && action != "list_installed" {
+			if action == "" {
+				return fmt.Errorf("admin access required for skills management actions")
+			}
+			return fmt.Errorf("admin access required for skills.%s", action)
+		}
+	case "filesystem":
+		action := parseToolAction(arguments)
+		if action != "read" && action != "list" && action != "info" {
+			if action == "" {
+				return fmt.Errorf("admin access required for filesystem write actions")
+			}
+			return fmt.Errorf("admin access required for filesystem.%s", action)
+		}
+	}
+	return nil
+}
+
+func parseToolAction(arguments string) string {
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(arguments), &payload); err != nil {
+		return ""
+	}
+	action, _ := payload["action"].(string)
+	return strings.TrimSpace(strings.ToLower(action))
 }
 
 // buildMessages converts conversation history into LLM messages.

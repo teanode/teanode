@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/providers"
 )
 
@@ -35,6 +36,10 @@ func (self *ShellTool) Definition() providers.ToolDefinition {
 }
 
 func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	isAdmin, hasAdminContext := agents.AdminFromContext(ctx)
+	if hasAdminContext && !isAdmin {
+		return "", fmt.Errorf("admin access required for shell skill tool")
+	}
 	arguments := parseArguments(rawArguments)
 	if err := validateRequiredArguments(self.definition.Parameters, arguments); err != nil {
 		return "", err
@@ -216,6 +221,10 @@ func executeActionStep(ctx context.Context, step ActionDefinition, fullName stri
 	for attempts = 1; attempts <= maxAttempts; attempts++ {
 		switch step.Type {
 		case "shell":
+			isAdmin, hasAdminContext := agents.AdminFromContext(ctx)
+			if hasAdminContext && !isAdmin {
+				return nil, fmt.Errorf("admin access required for shell skill actions")
+			}
 			workflowInput, _ := json.Marshal(contextData)
 			rawOutput, err = executeShellAction(ctx, step, contextData, string(workflowInput))
 		case "http":

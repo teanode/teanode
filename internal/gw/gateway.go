@@ -497,7 +497,12 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			self.firePendingLifecycle()
 		}()
 
+		isAdmin := false
+		if self.securityConfig != nil {
+			isAdmin = self.securityConfig.IsAdmin(userId)
+		}
 		runContext = agents.ContextWithUserID(runContext, userId)
+		runContext = agents.ContextWithAdmin(runContext, isAdmin)
 		result, err := runner.Run(runContext, agents.RunParams{
 			ConversationID:     conversationId,
 			Message:            parameters.Message,

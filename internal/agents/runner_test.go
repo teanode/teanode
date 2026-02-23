@@ -579,3 +579,28 @@ func TestRunnerRunRequiresResolveUserProfile(t *testing.T) {
 		t.Fatalf("expected ResolveUserProfile required error, got: %v", err)
 	}
 }
+
+func TestValidateToolAuthorizationNonAdminShellDenied(t *testing.T) {
+	err := validateToolAuthorization("shell", `{"command":"ls -la"}`, false)
+	if err == nil || !strings.Contains(err.Error(), "admin access required") {
+		t.Fatalf("expected admin access required error, got: %v", err)
+	}
+}
+
+func TestValidateToolAuthorizationNonAdminFilesystemReadOnly(t *testing.T) {
+	allowedActions := []string{"read", "list", "info"}
+	for _, action := range allowedActions {
+		err := validateToolAuthorization("filesystem", `{"action":"`+action+`","path":"/tmp/x"}`, false)
+		if err != nil {
+			t.Fatalf("expected filesystem.%s allowed for non-admin, got: %v", action, err)
+		}
+	}
+
+	deniedActions := []string{"write", "mkdir", "delete", "move"}
+	for _, action := range deniedActions {
+		err := validateToolAuthorization("filesystem", `{"action":"`+action+`","path":"/tmp/x"}`, false)
+		if err == nil {
+			t.Fatalf("expected filesystem.%s denied for non-admin", action)
+		}
+	}
+}

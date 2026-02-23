@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/teanode/teanode/internal/agents"
 )
 
 func TestParseArguments(t *testing.T) {
@@ -966,4 +968,32 @@ func TestToolOutputSchemaValidation(t *testing.T) {
 			t.Fatalf("expected output schema validation error, got: %v", err)
 		}
 	})
+}
+
+func TestShellSkillToolsDeniedForNonAdmin(t *testing.T) {
+	tool := &ShellTool{definition: ToolDefinition{
+		Name:    "echo",
+		Type:    "shell",
+		Command: []string{"echo", "ok"},
+	}}
+	nonAdminContext := agents.ContextWithAdmin(context.Background(), false)
+	_, err := tool.Execute(nonAdminContext, "{}")
+	if err == nil || !strings.Contains(err.Error(), "admin access required") {
+		t.Fatalf("expected admin access required error, got: %v", err)
+	}
+}
+
+func TestWorkflowShellStepsDeniedForNonAdmin(t *testing.T) {
+	tool := &WorkflowTool{definition: ToolDefinition{
+		Name: "workflow_shell",
+		Type: "workflow",
+		Steps: []ActionDefinition{
+			{Name: "echo", Type: "shell", Command: []string{"echo", "ok"}},
+		},
+	}}
+	nonAdminContext := agents.ContextWithAdmin(context.Background(), false)
+	_, err := tool.Execute(nonAdminContext, "{}")
+	if err == nil || !strings.Contains(err.Error(), "admin access required") {
+		t.Fatalf("expected admin access required error, got: %v", err)
+	}
 }
