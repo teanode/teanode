@@ -172,7 +172,7 @@ wave_gates:
       - "go test -race ./internal/providers/..."
       - "DEEPGRAM_API_KEY=<key> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://localhost:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave4.json"
       - "go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave4.json"
-    summary: "FAILED/BLOCKED: PASS go build/go vet/go test -race ./internal/voice/..././internal/providers/... on pipeline after integrating L1.2 (f3986a4). Required Deepgram e2e gate command could not be executed as specified because DEEPGRAM_API_KEY is unset in the environment."
+    summary: "FAILED: With DEEPGRAM_API_KEY set from ~/.zshrc, Wave 4 Deepgram e2e executed but remains 5/6 pass (s1_short missing response.started). Compare command against baseline ran successfully. Build/vet/race checks are green; gate remains failed due scenario regression."
   - wave: 5
     status: pending
     commands:
@@ -220,4 +220,4 @@ wave_gates:
     commands:
       - "docs validation only"
     summary: ""
-last_updated: "2026-02-23T01:24:03Z"
+last_updated: "2026-02-23T01:44:10Z"

@@ -367,3 +367,15 @@ Started: 2026-02-22T21:56:22Z
       BLOCKED `DEEPGRAM_API_KEY=<key> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://localhost:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave4.json` -> `DEEPGRAM_API_KEY` is unset in environment
       SKIP `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave4.json` (no after-wave4 report)
   - Next: set `DEEPGRAM_API_KEY`, rerun Wave 4 gate e2e + compare, then continue to Wave 5 only if gate passes.
+
+- 2026-02-23T01:44:10Z
+  - Wave: 4
+  - Task: gate-retry
+  - Status: failed
+  - Branch: pipeline
+  - Commit: f3986a4
+  - Validations: |
+      FAIL `DEEPGRAM_API_KEY=<set> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave4.json` -> Passed:5 Failed:1 (`s1_short` no response.started)
+      FAIL retry of same command -> Passed:5 Failed:1 (same scenario)
+      PASS `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave4.json`
+  - Next: stop wave advancement; investigate L1.2 short-utterance regression path and fix before rerunning Wave 4 gate.
