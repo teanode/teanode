@@ -22,6 +22,9 @@ type VoiceSendMessageParams struct {
 	Model              string
 	SystemPromptSuffix string
 	IsSpeculative      bool
+	// MaxContextTokens caps how many estimated tokens of conversation history
+	// are included in the LLM request. Zero means no voice-specific cap.
+	MaxContextTokens int
 }
 
 // VoiceRunHandle is a simplified run-handle used by voice.

@@ -34,6 +34,10 @@ type SendMessageParameters struct {
 	Attachments        []conversations.Attachment // file attachments
 	SystemPromptSuffix string                     // optional; appended to system prompt for this run only
 	IsSpeculative      bool
+	// MaxContextTokens caps how many estimated tokens of conversation history
+	// are forwarded to the LLM for this request. Zero means no cap beyond the
+	// model's native context window. Used by voice to enforce a per-session budget.
+	MaxContextTokens int
 }
 
 // RunHandle is returned by SendMessage and allows the caller to wait for completion.

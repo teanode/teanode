@@ -103,6 +103,10 @@ type RunParams struct {
 	Model              string // override config default
 	Attachments        []conversations.Attachment
 	SystemPromptSuffix string // optional; appended to system prompt for this run only
+	// MaxContextTokens limits conversation history forwarded to the LLM using a
+	// len(text)/4 token approximation. Zero means no additional limit beyond the
+	// model's native context window. Used by voice to cap the 16k budget.
+	MaxContextTokens int
 }
 
 // RunResult holds the result of a completed agent run.
@@ -258,6 +262,11 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 
 		// Build messages for the LLM.
 		llmMessages := self.buildMessages(history, limits, params.SystemPromptSuffix, configuration, workspaceDirectory, skillPrompts, profile)
+
+		// Voice context budget: prune oldest turns when MaxContextTokens is set.
+		if params.MaxContextTokens > 0 {
+			llmMessages = pruneVoiceContext(llmMessages, params.MaxContextTokens)
+		}
 
 		// Tier 1: truncate old tool results.
 		llmMessages = truncateOldToolResults(llmMessages, limits.MinKeepMessages, limits.MaxToolResultChars)
@@ -730,4 +739,97 @@ func (self *Runner) resolveMediaUrl(mediaId, format string) string {
 	mimeType := media.MimeType(metadata.Format)
 	encoded := base64.StdEncoding.EncodeToString(data)
 	return "data:" + mimeType + ";base64," + encoded
+}
+
+// pruneVoiceContext trims conversation history to fit within a token budget.
+// It uses len(text)/4 as a byte-level token approximation (no tokenizer required).
+//
+// Policy:
+//   - The system prompt (index 0) is always kept.
+//   - The last 2 non-system messages are always kept regardless of budget.
+//   - Remaining messages are included newest-first until the budget is exhausted.
+//   - Oldest user+assistant pairs are dropped together when the budget is exceeded.
+//
+// A DEBUG log is emitted whenever messages are pruned.
+func pruneVoiceContext(messages []providers.ChatMessage, maxTokens int) []providers.ChatMessage {
+	if len(messages) == 0 || maxTokens <= 0 {
+		return messages
+	}
+
+	estimateTokens := func(m providers.ChatMessage) int {
+		switch c := m.Content.(type) {
+		case string:
+			return len(c)/4 + 1
+		default:
+			return 1
+		}
+	}
+
+	// Separate the system prompt from conversation messages.
+	systemMessages := make([]providers.ChatMessage, 0, 2)
+	convMessages := make([]providers.ChatMessage, 0, len(messages))
+	for _, m := range messages {
+		if m.Role == "system" {
+			systemMessages = append(systemMessages, m)
+		} else {
+			convMessages = append(convMessages, m)
+		}
+	}
+
+	// Compute tokens consumed by system messages (always kept).
+	systemTokens := 0
+	for _, m := range systemMessages {
+		systemTokens += estimateTokens(m)
+	}
+
+	remaining := maxTokens - systemTokens
+	if remaining <= 0 {
+		// System prompt alone exceeds budget — return as-is.
+		return messages
+	}
+
+	// Always keep the last 2 conversation messages.
+	minKeep := 2
+	if len(convMessages) <= minKeep {
+		return messages
+	}
+
+	guaranteed := convMessages[len(convMessages)-minKeep:]
+	candidates := convMessages[:len(convMessages)-minKeep]
+
+	// Count tokens in guaranteed messages.
+	for _, m := range guaranteed {
+		remaining -= estimateTokens(m)
+	}
+
+	// Walk candidates newest-first and include as many as fit.
+	kept := make([]providers.ChatMessage, 0, len(candidates))
+	for i := len(candidates) - 1; i >= 0; i-- {
+		t := estimateTokens(candidates[i])
+		if remaining-t < 0 {
+			break
+		}
+		remaining -= t
+		kept = append(kept, candidates[i])
+	}
+
+	dropped := len(candidates) - len(kept)
+	if dropped == 0 {
+		return messages
+	}
+
+	// Reverse kept (we built it newest-first).
+	for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
+		kept[i], kept[j] = kept[j], kept[i]
+	}
+
+	keptTotal := len(systemMessages) + len(kept) + len(guaranteed)
+	estimatedKept := maxTokens - remaining
+	log.Debugf("voice context pruned: kept=%d dropped=%d estimated_tokens=%d", keptTotal, dropped, estimatedKept)
+
+	result := make([]providers.ChatMessage, 0, keptTotal)
+	result = append(result, systemMessages...)
+	result = append(result, kept...)
+	result = append(result, guaranteed...)
+	return result
 }

@@ -449,6 +449,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			Model:              parameters.Model,
 			Attachments:        parameters.Attachments,
 			SystemPromptSuffix: parameters.SystemPromptSuffix,
+			MaxContextTokens:   parameters.MaxContextTokens,
 		}, mergedCallbacks)
 
 		if err != nil {
@@ -870,6 +871,7 @@ func (self *voiceGatewayAdapter) SendMessage(ctx context.Context, parameters voi
 		Model:              parameters.Model,
 		SystemPromptSuffix: parameters.SystemPromptSuffix,
 		IsSpeculative:      parameters.IsSpeculative,
+		MaxContextTokens:   parameters.MaxContextTokens,
 		Origin:             "voice",
 	}, nil)
 	if handle == nil {
