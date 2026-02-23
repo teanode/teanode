@@ -507,3 +507,54 @@ Started: 2026-02-22T21:56:22Z
       PASS `DEEPGRAM_API_KEY=<set> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave6.json` -> Passed:6 Failed:0
       PASS `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave6.json`
   - Next: advance to Wave 7 task L2.3 (streaming TTS).
+
+- 2026-02-23T03:22:10Z
+  - Wave: 7
+  - Task: L2.3
+  - Status: in_progress
+  - Branch: codex/l2-3-streaming-tts
+  - Commit: n/a
+  - Validations: pending
+  - Next: create Wave 7 worktree/branch and implement streaming TTS scope (providers/interface, providers/elevenlabs, voice/gateway, voice/pipeline ttsSynthLoop, gw adapter).
+
+- 2026-02-23T04:25:32Z
+  - Wave: 7
+  - Task: L2.3
+  - Status: complete
+  - Branch: codex/l2-3-streaming-tts
+  - Commit: daa37f5
+  - Validations: |
+      PASS `go test -race ./internal/providers/... -run TestElevenLabsClient`
+      PASS `go test -race ./internal/voice/... -run TestTTSSynthLoop`
+      PASS `go test -race ./internal/voice/... -run TestBargeIn_CancelsTTSStream`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go test -race ./internal/providers/...`
+      PASS `go test ./internal/gw/...`
+      PASS `go build ./...`
+  - Next: integrate to pipeline and run Wave 7 gate.
+
+- 2026-02-23T04:25:32Z
+  - Wave: 7
+  - Task: integrate
+  - Status: complete
+  - Branch: pipeline
+  - Commit: 83af5e7
+  - Validations: L2.3 cherry-picked from task branch.
+  - Next: execute Wave 7 gate commands.
+
+- 2026-02-23T04:25:32Z
+  - Wave: 7
+  - Task: gate
+  - Status: failed
+  - Branch: pipeline
+  - Commit: 83af5e7
+  - Validations: |
+      PASS `go build ./...`
+      PASS `go vet ./...`
+      PASS `go test -race ./internal/voice/...`
+      PASS `go test -race ./internal/providers/...`
+      PASS `DEEPGRAM_API_KEY=<set> ELEVENLABS_API_KEY=<set> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://127.0.0.1:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave7.json` -> Passed:6 Failed:0
+      PASS `go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave7.json`
+      KPI `tts_ms p50 <= 100ms` -> MET (1ms)
+      KPI `e2e_ms p50 <= 700ms` -> NOT MET (5439ms)
+  - Next: stop wave advancement; investigate LLM latency path for Level 2 p50 target before Wave 8.

@@ -102,12 +102,12 @@ tasks:
   - id: L2.3
     wave: 7
     branch: codex/l2-3-streaming-tts
-    status: pending
-    started_at: ""
-    finished_at: ""
-    commit: ""
-    validations_passed: false
-    notes: ""
+    status: complete
+    started_at: "2026-02-23T03:22:10Z"
+    finished_at: "2026-02-23T04:25:32Z"
+    commit: "daa37f5"
+    validations_passed: true
+    notes: "Implemented streaming TTS interfaces, ElevenLabs websocket client, gateway adapter stream fallback, ttsSynthLoop chunk streaming/cancel semantics, and ELEVENLABS_API_KEY config mapping. Cherry-picked to pipeline as 83af5e7."
   - id: L2.4
     wave: 8
     branch: codex/l2-4-context-window
@@ -192,7 +192,7 @@ wave_gates:
       - "go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave6.json"
     summary: "PASSED after long-turn commit-path fixes: go build/go vet/go test -race ./internal/voice/... passed; e2e report test/voicee2e/reports/after-wave6.json is 6/6; compare vs baseline passed."
   - wave: 7
-    status: pending
+    status: failed
     commands:
       - "go build ./..."
       - "go vet ./..."
@@ -200,7 +200,7 @@ wave_gates:
       - "go test -race ./internal/providers/..."
       - "DEEPGRAM_API_KEY=<key> ELEVENLABS_API_KEY=<key> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://localhost:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave7.json"
       - "go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave7.json"
-    summary: ""
+    summary: "FAILED KPI gate despite command pass: build/vet/race checks passed; e2e report test/voicee2e/reports/after-wave7.json is 6/6 and compare passed; threshold check tts_ms p50<=100ms MET (1ms) but e2e_ms p50<=700ms NOT MET (5439ms)."
   - wave: 8
     status: pending
     commands:
@@ -220,4 +220,4 @@ wave_gates:
     commands:
       - "docs validation only"
     summary: ""
-last_updated: "2026-02-23T03:19:32Z"
+last_updated: "2026-02-23T04:25:32Z"
