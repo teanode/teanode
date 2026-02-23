@@ -1,4 +1,4 @@
-current_wave: 4
+current_wave: 5
 tasks:
   - id: S1
     wave: 0
@@ -164,7 +164,7 @@ wave_gates:
       - "go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave3.json"
     summary: "PASSED: go build/go vet/go test -race ./internal/voice/... green. Wave3 e2e with silero config passed after restarting stale gateway process and using 127.0.0.1 websocket endpoint. Missing baseline.json recovered via setup command; compare against test/voicee2e/reports/baseline.json completed."
   - wave: 4
-    status: failed
+    status: passed
     commands:
       - "go build ./..."
       - "go vet ./..."
@@ -172,7 +172,7 @@ wave_gates:
       - "go test -race ./internal/providers/..."
       - "DEEPGRAM_API_KEY=<key> go run ./test/voicee2e/cmd/voicee2e/main.go -gateway-url http://localhost:8833 -suite test/voicee2e/scenarios/suite.yaml -out test/voicee2e/reports/after-wave4.json"
       - "go run ./test/voicee2e/cmd/voicee2e/main.go --compare --prompt-a test/voicee2e/reports/baseline.json --prompt-b test/voicee2e/reports/after-wave4.json"
-    summary: "FAILED: With DEEPGRAM_API_KEY set from ~/.zshrc, Wave 4 Deepgram e2e executed but remains 5/6 pass (s1_short missing response.started). Compare command against baseline ran successfully. Build/vet/race checks are green; gate remains failed due scenario regression."
+    summary: "PASSED after gate fix/retry: build/vet/race checks green and Deepgram e2e now 6/6 pass at test/voicee2e/reports/after-wave4.json. Compare command against baseline completed."
   - wave: 5
     status: pending
     commands:
@@ -220,4 +220,4 @@ wave_gates:
     commands:
       - "docs validation only"
     summary: ""
-last_updated: "2026-02-23T01:44:10Z"
+last_updated: "2026-02-23T01:55:43Z"
