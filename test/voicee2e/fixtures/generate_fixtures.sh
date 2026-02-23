@@ -46,11 +46,11 @@ gen() {
   echo "generated $ROOT_DIR/$out"
 }
 
-gen "short_hello.wav" "Hello, can you summarize what we changed?"
+gen "short_hello.wav" "Hello can you summarize what we changed"
 gen "medium_question.wav" "I have two follow up questions about the voice pipeline and testing."
-gen "long_explanation.wav" "Let me explain the issue in detail and then ask for a concrete next step to improve quality."
-gen "mt_turn1.wav" "First question, what changed in the latest patch?"
-gen "mt_turn2.wav" "Second question, how do I test this end to end?"
+gen "long_explanation.wav" "I want to walk through what went wrong with the pipeline rollout and then ask what we should prioritize fixing first."
+gen "mt_turn1.wav" "First question what changed in the latest patch"
+gen "mt_turn2.wav" "Second question how do I test this end to end"
 gen "interrupt_q1.wav" "Explain what this service does."
 gen "interrupt_followup.wav" "Stop and tell me only the top risk."
 gen "rapid_seed.wav" "Summarize the current status."
