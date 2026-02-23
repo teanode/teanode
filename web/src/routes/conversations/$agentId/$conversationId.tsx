@@ -27,6 +27,7 @@ export default function ConversationsConversationPage() {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(
     null,
   );
+  const [inputFocused, setInputFocused] = useState(false);
 
   const voiceCall = useAgentVoiceCall();
 
@@ -152,6 +153,8 @@ export default function ConversationsConversationPage() {
         speakingMessageId={speakingMessageId}
         onSpeak={handleSpeak}
         onStopSpeaking={handleStopSpeaking}
+        showAbortOnStatusLine={backend.isRunning && !inputFocused}
+        onAbort={backend.abortRun}
       />
       {voiceCall.isCallActive ? (
         <VoiceCallBar
@@ -177,6 +180,8 @@ export default function ConversationsConversationPage() {
           onStartVoiceCall={voiceCall.startCall}
           onSend={handleSend}
           onAbort={backend.abortRun}
+          onFocusChange={setInputFocused}
+          showAbortInCollapsedInput={false}
           onVoiceMessage={handleVoiceMessage}
         />
       )}

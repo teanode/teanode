@@ -65,6 +65,10 @@ interface InputAreaProps {
   onStartVoiceCall?: () => void;
   onSend: (text: string, attachments?: Attachment[]) => void;
   onAbort?: () => void;
+  /** Called when input focus changes. */
+  onFocusChange?: (focused: boolean) => void;
+  /** Whether abort should render in collapsed (not focused) input toolbar. */
+  showAbortInCollapsedInput?: boolean;
   /** Called when voice-transcribed text should be auto-sent. */
   onVoiceMessage?: (text: string) => void;
 }
@@ -87,6 +91,8 @@ export default function InputArea({
   onStartVoiceCall,
   onSend,
   onAbort,
+  onFocusChange,
+  showAbortInCollapsedInput = true,
   onVoiceMessage,
 }: InputAreaProps) {
   const { t } = useTranslation();
@@ -153,6 +159,16 @@ export default function InputArea({
   useEffect(() => {
     if (isRecording) setVoiceState("recording");
   }, [isRecording]);
+
+  useEffect(() => {
+    onFocusChange?.(focused);
+  }, [focused, onFocusChange]);
+
+  useEffect(() => {
+    return () => {
+      onFocusChange?.(false);
+    };
+  }, [onFocusChange]);
 
   const showMic =
     voiceEnabled &&
@@ -314,9 +330,10 @@ export default function InputArea({
   );
 
   const hasContent = hasText || pendingFiles.length > 0;
-  const showStop = isRunning && !hasContent && !!onAbort;
-  const sendDisabled = !showStop && !connected;
   const expanded = alwaysExpanded || focused;
+  const showStop = isRunning && !hasContent && !!onAbort;
+  const showStopInInput = showStop && (expanded || showAbortInCollapsedInput);
+  const sendDisabled = !showStop && !connected;
 
   // Extract the short model name (after the colon) for display.
   const displayModel = model
@@ -441,7 +458,7 @@ export default function InputArea({
         style={{ display: "none" }}
       />
       {(expanded ||
-        showStop ||
+        showStopInInput ||
         pendingFiles.length > 0 ||
         uploading ||
         voiceState !== "idle") && (
@@ -567,16 +584,20 @@ export default function InputArea({
               <StopRounded fontSize="small" />
             </IconButton>
           ) : (
-            (expanded || showStop) && (
+            (expanded || showStopInInput) && (
               <IconButton
                 size="small"
-                color={showStop ? "error" : "primary"}
-                onClick={showStop ? onAbort : handleSend}
+                color={showStopInInput ? "error" : "primary"}
+                onClick={showStopInInput ? onAbort : handleSend}
+                aria-label={
+                  showStopInInput ? t("common.cancel") : "Send message"
+                }
+                title={showStopInInput ? t("common.cancel") : "Send message"}
                 disabled={
                   uploading ||
                   voiceState === "transcribing" ||
                   sendDisabled ||
-                  (!showStop && !hasContent)
+                  (!showStopInInput && !hasContent)
                 }
                 sx={{
                   flexShrink: 0,
@@ -586,7 +607,7 @@ export default function InputArea({
               >
                 {uploading ? (
                   <CircularProgress size={16} color="primary" />
-                ) : showStop ? (
+                ) : showStopInInput ? (
                   <StopRounded fontSize="small" />
                 ) : (
                   <SendRounded fontSize="small" />

@@ -15,6 +15,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import HourglassEmptyRounded from "@mui/icons-material/HourglassEmptyRounded";
 import KeyboardArrowDownRounded from "@mui/icons-material/KeyboardArrowDownRounded";
+import StopRounded from "@mui/icons-material/StopRounded";
 import type { DisplayMessage } from "../types";
 import { useAppContext } from "../context";
 import MessageBubble from "./MessageBubble";
@@ -42,6 +43,8 @@ interface MessageListProps {
   speakingMessageId?: string | null;
   onSpeak?: (messageId: string, text: string) => void;
   onStopSpeaking?: () => void;
+  showAbortOnStatusLine?: boolean;
+  onAbort?: () => void;
 }
 
 const VIRTUAL_START = 1_000_000;
@@ -128,6 +131,8 @@ export default function MessageList({
   speakingMessageId,
   onSpeak,
   onStopSpeaking,
+  showAbortOnStatusLine,
+  onAbort,
 }: MessageListProps) {
   const { t } = useTranslation();
   const { showToolCalls, showTokenUsage } = useAppContext();
@@ -293,22 +298,47 @@ export default function MessageList({
                   display: "flex",
                   alignItems: "center",
                   gap: 0.75,
+                  width: "100%",
                 }}
               >
-                <ConversationAvatar
-                  avatarMediaId={agentAvatarMediaId}
-                  fallback={normalizedAgentFallback}
-                />
-                <CircularProgress size={12} color="primary" />
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ fontStyle: "italic" }}
+                <Box
+                  sx={{
+                    minWidth: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.75,
+                    flex: 1,
+                  }}
                 >
-                  {toolActivity
-                    ? t("conversations.callingTool", { toolName: toolActivity })
-                    : t("conversations.thinking")}
-                </Typography>
+                  <ConversationAvatar
+                    avatarMediaId={agentAvatarMediaId}
+                    fallback={normalizedAgentFallback}
+                  />
+                  <CircularProgress size={12} color="primary" />
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontStyle: "italic" }}
+                  >
+                    {toolActivity
+                      ? t("conversations.callingTool", {
+                          toolName: toolActivity,
+                        })
+                      : t("conversations.thinking")}
+                  </Typography>
+                </Box>
+                {showAbortOnStatusLine && onAbort && (
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={onAbort}
+                    aria-label={t("common.cancel")}
+                    title={t("common.cancel")}
+                    sx={{ flexShrink: 0, width: 28, height: 28 }}
+                  >
+                    <StopRounded sx={{ fontSize: 16 }} />
+                  </IconButton>
+                )}
               </Box>
             </Container>
           );
@@ -417,6 +447,8 @@ export default function MessageList({
       streamText,
       t,
       toolActivity,
+      showAbortOnStatusLine,
+      onAbort,
       userAvatarMediaId,
       voiceEnabled,
     ],
