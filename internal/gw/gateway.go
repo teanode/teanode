@@ -1028,6 +1028,47 @@ func (self *voiceSynthesizerAdapter) SynthesizePCM(ctx context.Context, text, vo
 	return wavToPCM16LE(wavData)
 }
 
+func (self *voiceSynthesizerAdapter) SynthesizePCMStream(ctx context.Context, text, voiceName string, sampleRateHz int) (<-chan []byte, error) {
+	if streaming, ok := self.synthesizer.(providers.StreamingAudioSynthesizer); ok {
+		chunks, err := streaming.SynthesizeStream(ctx, providers.SynthesizeStreamRequest{
+			Text:         text,
+			Voice:        voiceName,
+			SampleRateHz: sampleRateHz,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out := make(chan []byte, 32)
+		go func() {
+			defer close(out)
+			for chunk := range chunks {
+				if chunk.Err != nil {
+					log.Warningf("voice streaming synthesis chunk error: %v", chunk.Err)
+					return
+				}
+				if len(chunk.Audio) == 0 {
+					continue
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case out <- chunk.Audio:
+				}
+			}
+		}()
+		return out, nil
+	}
+
+	pcm, err := self.SynthesizePCM(ctx, text, voiceName, sampleRateHz)
+	if err != nil {
+		return nil, err
+	}
+	out := make(chan []byte, 1)
+	out <- pcm
+	close(out)
+	return out, nil
+}
+
 func (self *voiceStreamingTranscriberAdapter) OpenTranscribeStream(ctx context.Context, request voice.VoiceStreamTranscribeRequest) (voice.VoiceTranscribeStream, error) {
 	stream, err := self.transcriber.OpenTranscribeStream(ctx, providers.StreamTranscribeRequest{
 		SampleRate: request.SampleRate,

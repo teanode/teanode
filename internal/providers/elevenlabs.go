@@ -1,0 +1,172 @@
+package providers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+
+	"github.com/gorilla/websocket"
+)
+
+const defaultElevenLabsBaseURL = "https://api.elevenlabs.io"
+
+// ElevenLabsClient provides streaming TTS while satisfying the Provider interface.
+type ElevenLabsClient struct {
+	baseURL string
+	apiKey  string
+	dialer  *websocket.Dialer
+}
+
+// NewElevenLabsClient creates an ElevenLabs provider.
+func NewElevenLabsClient(baseURL, apiKey string) *ElevenLabsClient {
+	return &ElevenLabsClient{
+		baseURL: strings.TrimSpace(baseURL),
+		apiKey:  strings.TrimSpace(apiKey),
+		dialer:  websocket.DefaultDialer,
+	}
+}
+
+// ChatCompletion is unsupported for ElevenLabs.
+func (self *ElevenLabsClient) ChatCompletion(_ context.Context, _ ChatRequest) (*ChatResponse, error) {
+	return nil, fmt.Errorf("elevenlabs does not support chat completion")
+}
+
+// ChatCompletionStream is unsupported for ElevenLabs.
+func (self *ElevenLabsClient) ChatCompletionStream(_ context.Context, _ ChatRequest) (<-chan StreamEvent, error) {
+	return nil, fmt.Errorf("elevenlabs does not support chat completion stream")
+}
+
+// ListModels returns an empty list for ElevenLabs in this integration.
+func (self *ElevenLabsClient) ListModels(_ context.Context) ([]ModelInfo, error) {
+	return []ModelInfo{}, nil
+}
+
+// Synthesize is intentionally unsupported; voice path uses streaming synthesis.
+func (self *ElevenLabsClient) Synthesize(_ context.Context, _ SynthesizeRequest) (*SynthesizeResponse, error) {
+	return nil, fmt.Errorf("elevenlabs batch synthesis is unsupported in this integration")
+}
+
+// SynthesizeStream opens an ElevenLabs websocket stream and emits PCM chunks.
+func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, req SynthesizeStreamRequest) (<-chan SynthesizeChunk, error) {
+	if strings.TrimSpace(self.apiKey) == "" {
+		return nil, fmt.Errorf("elevenlabs api key is required")
+	}
+	streamURL, err := elevenLabsStreamURL(self.baseURL, req.Voice, req.SampleRateHz)
+	if err != nil {
+		return nil, err
+	}
+
+	headers := http.Header{}
+	headers.Set("xi-api-key", self.apiKey)
+	conn, _, err := self.dialer.DialContext(ctx, streamURL, headers)
+	if err != nil {
+		return nil, fmt.Errorf("open elevenlabs stream: %w", err)
+	}
+
+	out := make(chan SynthesizeChunk, 32)
+	closeOnce := sync.Once{}
+	closeConn := func() {
+		closeOnce.Do(func() {
+			_ = conn.Close()
+		})
+	}
+
+	go func() {
+		<-ctx.Done()
+		closeConn()
+	}()
+
+	go func() {
+		defer close(out)
+		defer closeConn()
+
+		if err := conn.WriteJSON(map[string]any{
+			"text":                   req.Text,
+			"try_trigger_generation": true,
+		}); err != nil {
+			out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs write text: %w", err)}
+			return
+		}
+		if err := conn.WriteJSON(map[string]any{"text": " "}); err != nil {
+			out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs write end: %w", err)}
+			return
+		}
+
+		for {
+			msgType, payload, err := conn.ReadMessage()
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs read: %w", err)}
+				return
+			}
+			if msgType == websocket.BinaryMessage {
+				if len(payload) == 0 {
+					continue
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case out <- SynthesizeChunk{Audio: payload}:
+				}
+				continue
+			}
+			if msgType == websocket.TextMessage {
+				var envelope struct {
+					IsFinal bool `json:"isFinal"`
+				}
+				if err := json.Unmarshal(payload, &envelope); err == nil && envelope.IsFinal {
+					return
+				}
+			}
+		}
+	}()
+
+	return out, nil
+}
+
+func elevenLabsStreamURL(baseURL, voice string, sampleRateHz int) (string, error) {
+	base := strings.TrimSpace(baseURL)
+	if base == "" {
+		base = defaultElevenLabsBaseURL
+	}
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("parse elevenlabs base url: %w", err)
+	}
+	switch parsed.Scheme {
+	case "https":
+		parsed.Scheme = "wss"
+	case "http":
+		parsed.Scheme = "ws"
+	case "wss", "ws":
+	default:
+		return "", fmt.Errorf("unsupported elevenlabs scheme: %s", parsed.Scheme)
+	}
+
+	voiceID := resolveElevenLabsVoiceID(voice)
+	parsed.Path = fmt.Sprintf("/v1/text-to-speech/%s/stream-input", voiceID)
+	query := parsed.Query()
+	query.Set("model_id", "eleven_flash_v2_5")
+	if sampleRateHz == 24000 || sampleRateHz == 0 {
+		query.Set("output_format", "pcm_24000")
+	} else {
+		query.Set("output_format", "pcm_16000")
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+func resolveElevenLabsVoiceID(voice string) string {
+	switch strings.ToLower(strings.TrimSpace(voice)) {
+	case "", "alloy", "default":
+		return "EXAVITQu4vr4xnSDxMaL"
+	default:
+		return strings.TrimSpace(voice)
+	}
+}

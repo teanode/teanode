@@ -27,6 +27,11 @@ type AudioSynthesizer interface {
 	Synthesize(ctx context.Context, req SynthesizeRequest) (*SynthesizeResponse, error)
 }
 
+// StreamingAudioSynthesizer is an optional capability for chunked TTS.
+type StreamingAudioSynthesizer interface {
+	SynthesizeStream(ctx context.Context, req SynthesizeStreamRequest) (<-chan SynthesizeChunk, error)
+}
+
 // TranscribeRequest is the input for speech-to-text.
 type TranscribeRequest struct {
 	Audio    io.Reader
@@ -71,6 +76,19 @@ type SynthesizeRequest struct {
 	Speed  float64 // 0.25–4.0, default 1.0
 }
 
+// SynthesizeStreamRequest is the input for streaming text-to-speech.
+type SynthesizeStreamRequest struct {
+	Text         string
+	Voice        string
+	SampleRateHz int
+}
+
+// SynthesizeChunk carries one streaming audio chunk or an error.
+type SynthesizeChunk struct {
+	Audio []byte
+	Err   error
+}
+
 // SynthesizeResponse is the output of text-to-speech.
 type SynthesizeResponse struct {
 	Audio       io.ReadCloser
@@ -87,6 +105,8 @@ func NewProvider(providerType, baseUrl, apiKey string) Provider {
 		return NewAnthropicClient(baseUrl, apiKey)
 	case "deepgram":
 		return NewDeepgramClient(baseUrl, apiKey)
+	case "elevenlabs":
+		return NewElevenLabsClient(baseUrl, apiKey)
 	default:
 		return NewClient(baseUrl, apiKey)
 	}

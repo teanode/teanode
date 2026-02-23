@@ -1207,6 +1207,29 @@ func applyEnv(configuration *Config) {
 			})
 		}
 	}
+	if value := os.Getenv("ELEVENLABS_API_KEY"); value != "" {
+		found := false
+		for index := range configuration.Models.Providers {
+			if configuration.Models.Providers[index].Name == "elevenlabs" {
+				configuration.Models.Providers[index].APIKey = value
+				if configuration.Models.Providers[index].BaseURL == "" {
+					configuration.Models.Providers[index].BaseURL = "https://api.elevenlabs.io"
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			configuration.Models.Providers = append(configuration.Models.Providers, ProviderConfig{
+				Name:    "elevenlabs",
+				BaseURL: "https://api.elevenlabs.io",
+				APIKey:  value,
+			})
+		}
+		if strings.TrimSpace(configuration.Voice.SynthProvider) == "" {
+			configuration.Voice.SynthProvider = "elevenlabs"
+		}
+	}
 	if value := os.Getenv("TEANODE_PUBLIC_URL"); value != "" {
 		configuration.Gateway.PublicURL = value
 	}

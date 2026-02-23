@@ -396,34 +396,8 @@ func (self *Session) ttsSynthLoop() {
 				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
 			}
-			responseId := self.GetCurrentResponseId()
-			if responseId == "" {
-				// Avoid speaking between two close user utterances while a transcription
-				// is still in-flight for a newer turn. For streaming STT, this guard can
-				// delay response.started beyond scenario latency budgets, so skip it.
-				if self.getStreamingTranscribeStream() == nil {
-					start := time.Now()
-					for self.HasTranscriptionInFlight() && time.Since(start) < maxResponseStartDelay {
-						select {
-						case <-self.doneCh:
-							return
-						case <-time.After(50 * time.Millisecond):
-						}
-					}
-				}
-				responseId = self.newTurnId()
-				self.SetCurrentResponseId(responseId)
-				nowMs := time.Now().UnixMilli()
-				pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", self.ID, responseId, self.GetCurrentTurnId())
-				self.sendVoiceEvent("response.started", map[string]interface{}{
-					"response_id": responseId,
-					"turn_id":     self.GetCurrentTurnId(),
-				})
-				turnId := self.GetCurrentTurnId()
-				self.notifyObservers(func(observer TurnObserver) {
-					observer.OnResponseStarted(turnId, responseId, nowMs)
-				})
-			}
+			hadResponse := self.GetCurrentResponseId() != ""
+			responseStarted := hadResponse
 
 			ttsCtx, cancel := context.WithCancel(context.Background())
 			prev := self.SwapTTSCancel(cancel)
@@ -431,24 +405,63 @@ func (self *Session) ttsSynthLoop() {
 				prev()
 			}
 			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseId(), self.GetCurrentTurnId(), len(sentence), sentence)
-			audio, err := synth.SynthesizePCM(ttsCtx, sentence, "alloy", self.AudioOut.SampleRateHz)
-			self.SwapTTSCancel(nil)
+			chunks, err := synth.SynthesizePCMStream(ttsCtx, sentence, "alloy", self.AudioOut.SampleRateHz)
 			if err != nil {
+				cancel()
+				self.SwapTTSCancel(nil)
 				if ttsCtx.Err() != nil {
 					continue
 				}
 				pipelineLog.Warningf("voice synthesis failed: %v", err)
 				continue
 			}
-			pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", self.ID, self.GetCurrentResponseId(), len(sentence), len(audio))
-			payload := EncodeBinaryAudioFrame(BinaryAudioFrame{
-				FrameType:   FrameTypeAudioOut,
-				Seq:         self.NextOutSeq(),
-				CaptureTSMs: time.Now().UnixMilli(),
-				DurationMS:  0,
-				Data:        audio,
-			})
-			self.enqueueAudioOut(payload)
+			for audio := range chunks {
+				if len(audio) == 0 {
+					continue
+				}
+				if !responseStarted {
+					// Avoid speaking between two close user utterances while a transcription
+					// is still in-flight for a newer turn. For streaming STT, this guard can
+					// delay response.started beyond scenario latency budgets, so skip it.
+					if self.getStreamingTranscribeStream() == nil {
+						start := time.Now()
+						for self.HasTranscriptionInFlight() && time.Since(start) < maxResponseStartDelay {
+							select {
+							case <-self.doneCh:
+								return
+							case <-time.After(50 * time.Millisecond):
+							}
+						}
+					}
+					responseId := self.GetCurrentResponseId()
+					if responseId == "" {
+						responseId = self.newTurnId()
+						self.SetCurrentResponseId(responseId)
+					}
+					nowMs := time.Now().UnixMilli()
+					pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", self.ID, responseId, self.GetCurrentTurnId())
+					self.sendVoiceEvent("response.started", map[string]interface{}{
+						"response_id": responseId,
+						"turn_id":     self.GetCurrentTurnId(),
+					})
+					turnId := self.GetCurrentTurnId()
+					self.notifyObservers(func(observer TurnObserver) {
+						observer.OnResponseStarted(turnId, responseId, nowMs)
+					})
+					responseStarted = true
+				}
+				pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", self.ID, self.GetCurrentResponseId(), len(sentence), len(audio))
+				payload := EncodeBinaryAudioFrame(BinaryAudioFrame{
+					FrameType:   FrameTypeAudioOut,
+					Seq:         self.NextOutSeq(),
+					CaptureTSMs: time.Now().UnixMilli(),
+					DurationMS:  0,
+					Data:        audio,
+				})
+				self.enqueueAudioOut(payload)
+			}
+			cancel()
+			self.SwapTTSCancel(nil)
 		}
 	}
 }

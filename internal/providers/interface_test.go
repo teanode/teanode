@@ -25,6 +25,13 @@ func TestNewProvider_Deepgram(t *testing.T) {
 	}
 }
 
+func TestNewProvider_ElevenLabs(t *testing.T) {
+	provider := NewProvider("elevenlabs", "https://api.elevenlabs.io", "test-key")
+	if _, ok := provider.(*ElevenLabsClient); !ok {
+		t.Errorf("expected *ElevenLabsClient, got %T", provider)
+	}
+}
+
 func TestNewProvider_UnknownFallsBackToOpenAI(t *testing.T) {
 	provider := NewProvider("ollama", "http://localhost:11434/v1", "")
 	if _, ok := provider.(*Client); !ok {

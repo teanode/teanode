@@ -20,6 +20,7 @@ func (self *pipelineMockTranscriber) Transcribe(_ context.Context, _ VoiceTransc
 type pipelineMockProviderRegistry struct {
 	transcriber          VoiceTranscriber
 	streamingTranscriber VoiceStreamingTranscriber
+	synthesizer          VoiceSynthesizer
 }
 
 func (self *pipelineMockProviderRegistry) FindTranscriber() (VoiceTranscriber, string, bool) {
@@ -37,7 +38,10 @@ func (self *pipelineMockProviderRegistry) FindStreamingTranscriber() (VoiceStrea
 }
 
 func (self *pipelineMockProviderRegistry) FindSynthesizer() (VoiceSynthesizer, string, bool) {
-	return nil, "", false
+	if self.synthesizer == nil {
+		return nil, "", false
+	}
+	return self.synthesizer, "mock-tts", true
 }
 
 type pipelineMockStreamingTranscriber struct {
@@ -46,6 +50,30 @@ type pipelineMockStreamingTranscriber struct {
 
 func (self *pipelineMockStreamingTranscriber) OpenTranscribeStream(context.Context, VoiceStreamTranscribeRequest) (VoiceTranscribeStream, error) {
 	return self.stream, nil
+}
+
+type pipelineMockSynthesizer struct {
+	synthesizeFn       func(context.Context, string, string, int) ([]byte, error)
+	synthesizeStreamFn func(context.Context, string, string, int) (<-chan []byte, error)
+}
+
+func (self *pipelineMockSynthesizer) SynthesizePCM(ctx context.Context, text, voice string, sampleRateHz int) ([]byte, error) {
+	if self.synthesizeFn != nil {
+		return self.synthesizeFn(ctx, text, voice, sampleRateHz)
+	}
+	return nil, nil
+}
+
+func (self *pipelineMockSynthesizer) SynthesizePCMStream(ctx context.Context, text, voice string, sampleRateHz int) (<-chan []byte, error) {
+	if self.synthesizeStreamFn != nil {
+		return self.synthesizeStreamFn(ctx, text, voice, sampleRateHz)
+	}
+	out := make(chan []byte, 1)
+	if audio, err := self.SynthesizePCM(ctx, text, voice, sampleRateHz); err == nil && len(audio) > 0 {
+		out <- audio
+	}
+	close(out)
+	return out, nil
 }
 
 type pipelineMockTranscribeStream struct {
@@ -742,6 +770,149 @@ func TestStreamingTranscribeLoop_FallbackOnError(t *testing.T) {
 	case <-streamingDone:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("streamingTranscribeLoop did not stop after done")
+	}
+}
+
+func TestTTSSynthLoop_StreamingPath(t *testing.T) {
+	s, deps := newPipelineSessionWithFeatures("unused", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+	registry.synthesizer = &pipelineMockSynthesizer{
+		synthesizeStreamFn: func(context.Context, string, string, int) (<-chan []byte, error) {
+			out := make(chan []byte, 2)
+			out <- []byte{1, 2}
+			out <- []byte{3}
+			close(out)
+			return out, nil
+		},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		s.ttsSynthLoop()
+		close(done)
+	}()
+
+	s.ttsInCh <- "hello"
+	waitFor(t, time.Second, func() bool { return len(s.audioOutCh) >= 2 })
+
+	frame1 := <-s.audioOutCh
+	frame2 := <-s.audioOutCh
+	parsed1, err := ParseBinaryAudioFrame(frame1)
+	if err != nil || len(parsed1.Data) != 2 {
+		t.Fatalf("unexpected first audio frame: err=%v len=%d", err, len(parsed1.Data))
+	}
+	parsed2, err := ParseBinaryAudioFrame(frame2)
+	if err != nil || len(parsed2.Data) != 1 {
+		t.Fatalf("unexpected second audio frame: err=%v len=%d", err, len(parsed2.Data))
+	}
+
+	close(s.doneCh)
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("ttsSynthLoop did not stop after done")
+	}
+}
+
+func TestTTSSynthLoop_BatchFallback(t *testing.T) {
+	s, deps := newPipelineSessionWithFeatures("unused", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+	registry.synthesizer = &pipelineMockSynthesizer{
+		synthesizeFn: func(context.Context, string, string, int) ([]byte, error) {
+			return []byte{9, 8, 7}, nil
+		},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		s.ttsSynthLoop()
+		close(done)
+	}()
+
+	s.ttsInCh <- "hello"
+	waitFor(t, time.Second, func() bool { return len(s.audioOutCh) >= 1 })
+	frame := <-s.audioOutCh
+	parsed, err := ParseBinaryAudioFrame(frame)
+	if err != nil {
+		t.Fatalf("parse frame: %v", err)
+	}
+	if len(parsed.Data) != 3 {
+		t.Fatalf("expected one batch fallback chunk, got %d bytes", len(parsed.Data))
+	}
+
+	close(s.doneCh)
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("ttsSynthLoop did not stop after done")
+	}
+}
+
+func TestBargeIn_CancelsTTSStream(t *testing.T) {
+	s, deps := newPipelineSessionWithFeatures("unused", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+
+	started := make(chan struct{})
+	streamDone := make(chan struct{})
+	registry.synthesizer = &pipelineMockSynthesizer{
+		synthesizeStreamFn: func(ctx context.Context, _ string, _ string, _ int) (<-chan []byte, error) {
+			out := make(chan []byte)
+			go func() {
+				close(started)
+				defer close(streamDone)
+				<-ctx.Done()
+				close(out)
+			}()
+			return out, nil
+		},
+	}
+
+	loopDone := make(chan struct{})
+	go func() {
+		s.ttsSynthLoop()
+		close(loopDone)
+	}()
+
+	s.SetCurrentResponseId("resp-active")
+	s.ttsInCh <- "streaming sentence"
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("stream did not start")
+	}
+	s.triggerBargeIn()
+	select {
+	case <-streamDone:
+	case <-time.After(time.Second):
+		t.Fatal("stream goroutine did not exit after barge-in")
+	}
+
+	close(s.doneCh)
+	select {
+	case <-loopDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("ttsSynthLoop did not stop after done")
 	}
 }
 

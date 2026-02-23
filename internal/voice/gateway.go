@@ -94,6 +94,7 @@ type VoiceTranscribeStream interface {
 // VoiceSynthesizer generates speech audio bytes.
 type VoiceSynthesizer interface {
 	SynthesizePCM(ctx context.Context, text, voice string, sampleRateHz int) ([]byte, error)
+	SynthesizePCMStream(ctx context.Context, text, voice string, sampleRateHz int) (<-chan []byte, error)
 }
 
 // AudioDenoiser is a placeholder capability for future server-side denoise.
