@@ -991,3 +991,12 @@ func TestBalancedStrategy_TriggersBargeInOnSpeechStart(t *testing.T) {
 		t.Fatal("audioInputLoop did not stop after done")
 	}
 }
+
+func TestStartNewTurn_ClearsInterimText(t *testing.T) {
+	s, _ := newPipelineSession("unused")
+	s.setInterimText("stale interim")
+	s.startNewTurn("turn-new")
+	if got := s.getInterimText(); got != "" {
+		t.Fatalf("expected interim text reset on new turn, got %q", got)
+	}
+}

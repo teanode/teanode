@@ -785,6 +785,7 @@ func (self *Session) drainAudioOutQueue() {
 func (self *Session) startNewTurn(turnId string) {
 	self.stateMu.Lock()
 	self.currentTurnId = turnId
+	self.interimText = ""
 	self.bargeInOnce = sync.Once{}
 	self.stateMu.Unlock()
 }
