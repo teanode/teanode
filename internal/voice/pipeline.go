@@ -75,24 +75,7 @@ func (self *Session) audioInputLoop() {
 					pendingCommitTurnID = ""
 					pendingCommitAudio = nil
 					pendingSilenceMs = 0
-					if !self.TryStartTurnTranscription(turnId) {
-						pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
-						continue
-					}
-					if self.getStreamingTranscribeStream() != nil {
-						fallbackText := strings.TrimSpace(self.getInterimText())
-						if fallbackText != "" {
-							self.handleFinalTranscript(turnId, fallbackText)
-						} else {
-							self.transcribeAndSend(turnId, captured)
-						}
-						self.FinishTurnTranscription(turnId)
-						continue
-					}
-					go func(tid string, audio []byte) {
-						defer self.FinishTurnTranscription(tid)
-						self.transcribeAndSend(tid, audio)
-					}(turnId, captured)
+					self.commitCapturedTurn(turnId, captured)
 				}
 			}
 			if !speaking {
@@ -215,15 +198,14 @@ func (self *Session) audioInputLoop() {
 					})
 					continue
 				}
-				if self.getStreamingTranscribeStream() != nil && strings.TrimSpace(self.getInterimText()) == "" {
-					if !self.TryStartTurnTranscription(turnId) {
-						pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
-						continue
-					}
-					go func(tid string, audio []byte) {
-						defer self.FinishTurnTranscription(tid)
-						self.transcribeAndSend(tid, audio)
-					}(turnId, captured)
+				if self.strategy == nil {
+					self.strategy = LegacyStrategy{}
+				}
+				if self.strategy.ShouldCommitTurn(TurnContext{
+					SilenceDurationMs: 0,
+					InterimText:       self.getInterimText(),
+				}) {
+					self.commitCapturedTurn(turnId, captured)
 					continue
 				}
 				pendingCommitTurnID = turnId
@@ -271,6 +253,27 @@ func (self *Session) streamingTranscribeLoop() {
 			}
 		}
 	}
+}
+
+func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
+	if !self.TryStartTurnTranscription(turnId) {
+		pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
+		return
+	}
+	if self.getStreamingTranscribeStream() != nil {
+		fallbackText := strings.TrimSpace(self.getInterimText())
+		if fallbackText != "" {
+			self.handleFinalTranscript(turnId, fallbackText)
+		} else {
+			self.transcribeAndSend(turnId, captured)
+		}
+		self.FinishTurnTranscription(turnId)
+		return
+	}
+	go func(tid string, audio []byte) {
+		defer self.FinishTurnTranscription(tid)
+		self.transcribeAndSend(tid, audio)
+	}(turnId, captured)
 }
 
 func (self *Session) llmEventForwarder() {
