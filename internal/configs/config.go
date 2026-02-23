@@ -238,6 +238,7 @@ type Config struct {
 type VoiceConfig struct {
 	TranscriberProvider string `json:"transcriber_provider,omitempty" yaml:"transcriber_provider,omitempty"`
 	SynthProvider       string `json:"synth_provider,omitempty" yaml:"synth_provider,omitempty"`
+	TurnStrategy        string `json:"turn_strategy,omitempty" yaml:"turn_strategy,omitempty"`
 }
 
 type IntegrationsConfig struct {

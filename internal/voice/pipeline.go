@@ -34,6 +34,14 @@ func (self *Session) audioInputLoop() {
 	preSpeech := make([][]byte, 0, vadPreRollFrames)
 	denoiseWarned := false
 	speaking := false
+	candidateActive := false
+	pendingCommitTurnID := ""
+	var pendingCommitAudio []byte
+	pendingSilenceMs := 0
+	frameDurationMs := self.AudioIn.FrameMS
+	if frameDurationMs <= 0 {
+		frameDurationMs = 20
+	}
 
 	for {
 		select {
@@ -48,6 +56,34 @@ func (self *Session) audioInputLoop() {
 				self.accumulateExplicitAudio(frame)
 				continue
 			}
+			if pendingCommitTurnID != "" {
+				pendingSilenceMs += frameDurationMs
+				if self.strategy == nil {
+					self.strategy = LegacyStrategy{}
+				}
+				if self.strategy.ShouldCommitTurn(TurnContext{
+					SilenceDurationMs: pendingSilenceMs,
+					InterimText:       self.getInterimText(),
+				}) {
+					turnId := pendingCommitTurnID
+					captured := append([]byte(nil), pendingCommitAudio...)
+					pendingCommitTurnID = ""
+					pendingCommitAudio = nil
+					pendingSilenceMs = 0
+					if !self.TryStartTurnTranscription(turnId) {
+						pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
+						continue
+					}
+					if self.getStreamingTranscribeStream() != nil {
+						self.FinishTurnTranscription(turnId)
+						continue
+					}
+					go func(tid string, audio []byte) {
+						defer self.FinishTurnTranscription(tid)
+						self.transcribeAndSend(tid, audio)
+					}(turnId, captured)
+				}
+			}
 			if !speaking {
 				cp := append([]byte(nil), frame...)
 				preSpeech = append(preSpeech, cp)
@@ -60,6 +96,8 @@ func (self *Session) audioInputLoop() {
 				speaking = true
 				turnId := self.newTurnId()
 				self.startNewTurn(turnId)
+				self.setSpeechStartedAt(time.Now())
+				candidateActive = false
 				nowMs := time.Now().UnixMilli()
 				speechBuf = speechBuf[:0]
 				for _, buffered := range preSpeech {
@@ -76,11 +114,6 @@ func (self *Session) audioInputLoop() {
 				self.notifyObservers(func(observer TurnObserver) {
 					observer.OnSpeechStarted(turnId, nowMs)
 				})
-				if self.Features.BargeIn &&
-					score >= bargeInTriggerMinScore &&
-					(self.GetCurrentRunId() != "" || self.GetCurrentResponseId() != "") {
-					self.triggerBargeIn()
-				}
 			}
 
 			if speaking {
@@ -93,6 +126,43 @@ func (self *Session) audioInputLoop() {
 						pipelineLog.Warningf("voice streaming stt send failed, falling back to batch: %v", err)
 						_ = stream.Close()
 						self.setStreamingTranscribeStream(nil)
+					}
+				}
+				runActive := self.GetCurrentRunId() != ""
+				responseActive := self.GetCurrentResponseId() != ""
+				if self.Features.BargeIn && (runActive || responseActive) {
+					if self.strategy == nil {
+						self.strategy = LegacyStrategy{}
+					}
+					decision := self.strategy.EvaluateBargeIn(TurnContext{
+						VADScore:         score,
+						SpeechDurationMs: self.speechDurationMs(time.Now()),
+						RunActive:        runActive,
+						ResponseActive:   responseActive,
+						InterimText:      self.getInterimText(),
+					})
+					switch decision {
+					case TurnDecisionTrigger:
+						candidateActive = false
+						self.triggerBargeIn()
+					case TurnDecisionCandidate:
+						if !candidateActive {
+							candidateActive = true
+							self.sendVoiceEvent("turn.event", turnEventPayload{
+								TurnID:   self.GetCurrentTurnId(),
+								Event:    "barge_in_candidate",
+								VADScore: score,
+							})
+						}
+					default:
+						if candidateActive {
+							candidateActive = false
+							self.sendVoiceEvent("turn.event", turnEventPayload{
+								TurnID:   self.GetCurrentTurnId(),
+								Event:    "barge_in_suppressed",
+								VADScore: score,
+							})
+						}
 					}
 				}
 			}
@@ -117,6 +187,7 @@ func (self *Session) audioInputLoop() {
 				}
 				captured := append([]byte(nil), speechBuf...)
 				speechBuf = speechBuf[:0]
+				candidateActive = false
 				if len(captured) < minCommittedTurnBytes {
 					pipelineLog.Infof("voice turn ignored (too short): session=%s turn=%s bytes=%d", self.ID, turnId, len(captured))
 					self.sendVoiceEvent("turn.event", turnEventPayload{
@@ -129,18 +200,9 @@ func (self *Session) audioInputLoop() {
 					})
 					continue
 				}
-				if !self.TryStartTurnTranscription(turnId) {
-					pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
-					continue
-				}
-				if self.getStreamingTranscribeStream() != nil {
-					self.FinishTurnTranscription(turnId)
-					continue
-				}
-				go func(tid string, audio []byte) {
-					defer self.FinishTurnTranscription(tid)
-					self.transcribeAndSend(tid, audio)
-				}(turnId, captured)
+				pendingCommitTurnID = turnId
+				pendingCommitAudio = captured
+				pendingSilenceMs = 0
 			}
 		}
 	}

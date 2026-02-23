@@ -59,11 +59,12 @@ type voiceStartParams struct {
 		Channels     int    `json:"channels"`
 	} `json:"audio_out"`
 	Features struct {
-		ServerVAD     bool `json:"server_vad"`
-		ServerTurn    bool `json:"server_turn"`
-		ServerDenoise bool `json:"server_denoise"`
-		SileroVAD     bool `json:"silero_vad,omitempty"`
-		BargeIn       bool `json:"barge_in"`
+		ServerVAD     bool   `json:"server_vad"`
+		ServerTurn    bool   `json:"server_turn"`
+		ServerDenoise bool   `json:"server_denoise"`
+		SileroVAD     bool   `json:"silero_vad,omitempty"`
+		BargeIn       bool   `json:"barge_in"`
+		TurnStrategy  string `json:"turn_strategy,omitempty"`
 	} `json:"features"`
 }
 
@@ -364,6 +365,9 @@ func (self *Client) applyConfig(start *voiceStartParams) {
 			SileroVAD     *bool `json:"silero_vad"`
 			BargeIn       *bool `json:"barge_in"`
 		} `json:"features"`
+		Voice struct {
+			TurnStrategy string `json:"turn_strategy"`
+		} `json:"voice"`
 	}
 	if err := json.Unmarshal([]byte(self.configJSON), &cfg); err != nil {
 		return
@@ -382,6 +386,9 @@ func (self *Client) applyConfig(start *voiceStartParams) {
 	}
 	if cfg.Features.BargeIn != nil {
 		start.Features.BargeIn = *cfg.Features.BargeIn
+	}
+	if text := strings.TrimSpace(cfg.Voice.TurnStrategy); text != "" {
+		start.Features.TurnStrategy = text
 	}
 }
 

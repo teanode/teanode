@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,11 +21,12 @@ type AudioFormat struct {
 
 // Features defines enabled voice pipeline features.
 type Features struct {
-	ServerVAD     bool `json:"server_vad"`
-	ServerTurn    bool `json:"server_turn"`
-	ServerDenoise bool `json:"server_denoise"`
-	SileroVAD     bool `json:"silero_vad,omitempty"`
-	BargeIn       bool `json:"barge_in"`
+	ServerVAD     bool   `json:"server_vad"`
+	ServerTurn    bool   `json:"server_turn"`
+	ServerDenoise bool   `json:"server_denoise"`
+	SileroVAD     bool   `json:"silero_vad,omitempty"`
+	BargeIn       bool   `json:"barge_in"`
+	TurnStrategy  string `json:"turn_strategy,omitempty"`
 }
 
 type turnEventPayload struct {
@@ -76,6 +78,8 @@ type Session struct {
 	speechReady        bool
 	streamingSTTStream VoiceTranscribeStream
 	interimText        string
+	strategy           TurnStrategy
+	speechStartedAt    time.Time
 	observers          []TurnObserver
 
 	outSeq atomic.Uint64
@@ -115,6 +119,10 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 		ttsInCh:            make(chan string, defaultTtsSentenceBuffer),
 		audioOutCh:         make(chan []byte, defaultAudioOutBufferFrames),
 		doneCh:             make(chan struct{}),
+		strategy:           LegacyStrategy{},
+	}
+	if strings.EqualFold(features.TurnStrategy, "balanced") {
+		session.strategy = BalancedStrategy{}
 	}
 	session.observers = []TurnObserver{
 		NewMetricsObserver(func(metric TurnMetrics) {
@@ -550,6 +558,27 @@ func (self *Session) setInterimText(text string) {
 	self.stateMu.Lock()
 	self.interimText = text
 	self.stateMu.Unlock()
+}
+
+func (self *Session) getInterimText() string {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.interimText
+}
+
+func (self *Session) setSpeechStartedAt(ts time.Time) {
+	self.stateMu.Lock()
+	self.speechStartedAt = ts
+	self.stateMu.Unlock()
+}
+
+func (self *Session) speechDurationMs(now time.Time) int {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	if self.speechStartedAt.IsZero() {
+		return 0
+	}
+	return int(now.Sub(self.speechStartedAt).Milliseconds())
 }
 
 func (self *Session) notifyObservers(fn func(observer TurnObserver)) {

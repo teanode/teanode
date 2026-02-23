@@ -65,6 +65,27 @@ func (self *pipelineMockTranscribeStream) Close() error {
 	return nil
 }
 
+type scriptedTurnStrategy struct {
+	mu            sync.Mutex
+	decisions     []TurnDecision
+	commitAllowed bool
+}
+
+func (self *scriptedTurnStrategy) EvaluateBargeIn(TurnContext) TurnDecision {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+	if len(self.decisions) == 0 {
+		return TurnDecisionIgnore
+	}
+	decision := self.decisions[0]
+	self.decisions = self.decisions[1:]
+	return decision
+}
+
+func (self *scriptedTurnStrategy) ShouldCommitTurn(TurnContext) bool {
+	return self.commitAllowed
+}
+
 type pipelineMockDeps struct {
 	mu         sync.Mutex
 	runCounter int
@@ -96,9 +117,17 @@ func (self *eventRecorder) findTurnEvent(event string) map[string]interface{} {
 		if e["type"] != "turn.event" {
 			continue
 		}
-		payload, _ := e["payload"].(turnEventPayload)
-		if payload.Event == event {
-			return e
+		if payload, ok := e["payload"].(turnEventPayload); ok {
+			if payload.Event == event {
+				return e
+			}
+			continue
+		}
+		if payload, ok := e["payload"].(map[string]interface{}); ok {
+			name, _ := payload["event"].(string)
+			if name == event {
+				return e
+			}
 		}
 	}
 	return nil
@@ -353,6 +382,92 @@ func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 	waitFor(t, 500*time.Millisecond, func() bool {
 		return deps.abortCount() == 0 && s.GetCurrentResponseId() == ""
 	})
+
+	close(s.doneCh)
+	select {
+	case <-finished:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("audioInputLoop did not stop after done")
+	}
+}
+
+func TestBargeInCandidate_EventEmitted(t *testing.T) {
+	s, _, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	s.strategy = &scriptedTurnStrategy{
+		decisions:     []TurnDecision{TurnDecisionCandidate},
+		commitAllowed: true,
+	}
+	s.SetCurrentRunId("run-active")
+
+	finished := make(chan struct{})
+	go func() {
+		s.audioInputLoop()
+		close(finished)
+	}()
+
+	for i := 0; i < 20; i++ {
+		s.audioInCh <- makePCMFrame(12000, 320)
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if rec.findTurnEvent("barge_in_candidate") != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rec.findTurnEvent("barge_in_candidate") == nil {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		t.Fatalf("expected barge_in_candidate event, got events: %#v", rec.events)
+	}
+
+	close(s.doneCh)
+	select {
+	case <-finished:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("audioInputLoop did not stop after done")
+	}
+}
+
+func TestBargeInSuppressed_EventEmitted(t *testing.T) {
+	s, _, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	s.strategy = &scriptedTurnStrategy{
+		decisions:     []TurnDecision{TurnDecisionCandidate, TurnDecisionIgnore},
+		commitAllowed: true,
+	}
+	s.SetCurrentRunId("run-active")
+
+	finished := make(chan struct{})
+	go func() {
+		s.audioInputLoop()
+		close(finished)
+	}()
+
+	for i := 0; i < 20; i++ {
+		s.audioInCh <- makePCMFrame(12000, 320)
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if rec.findTurnEvent("barge_in_suppressed") != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rec.findTurnEvent("barge_in_suppressed") == nil {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		t.Fatalf("expected barge_in_suppressed event, got events: %#v", rec.events)
+	}
 
 	close(s.doneCh)
 	select {

@@ -20,11 +20,11 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		self.sendError(frame.ID, 400, err.Error())
 		return
 	}
-	log.Infof("voice.start requested: agent=%s conv=%s in=%s/%dHz/%dch out=%s/%dHz/%dch features[vad=%v turn=%v denoise=%v barge=%v]",
+	log.Infof("voice.start requested: agent=%s conv=%s in=%s/%dHz/%dch out=%s/%dHz/%dch features[vad=%v turn=%v denoise=%v barge=%v strategy=%s]",
 		parameters.AgentID, parameters.ConversationID,
 		parameters.AudioIn.Codec, parameters.AudioIn.SampleRateHz, parameters.AudioIn.Channels,
 		parameters.AudioOut.Codec, parameters.AudioOut.SampleRateHz, parameters.AudioOut.Channels,
-		parameters.Features.ServerVAD, parameters.Features.ServerTurn, parameters.Features.ServerDenoise, parameters.Features.BargeIn,
+		parameters.Features.ServerVAD, parameters.Features.ServerTurn, parameters.Features.ServerDenoise, parameters.Features.BargeIn, parameters.Features.TurnStrategy,
 	)
 
 	if isVoiceStartConflict(self.getActiveVoiceSession()) {
@@ -51,6 +51,7 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		ServerDenoise: parameters.Features.ServerDenoise,
 		SileroVAD:     parameters.Features.SileroVAD,
 		BargeIn:       parameters.Features.BargeIn,
+		TurnStrategy:  parameters.Features.TurnStrategy,
 	}
 
 	session, err := self.api.gateway.StartVoiceSession(
@@ -80,7 +81,14 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		SessionID:      session.ID,
 		ConversationID: session.ConversationID,
 		AudioOut:       parameters.AudioOut,
-		Features:       parameters.Features,
+		Features: voiceFeatures{
+			ServerVAD:     features.ServerVAD,
+			ServerTurn:    features.ServerTurn,
+			ServerDenoise: features.ServerDenoise,
+			SileroVAD:     features.SileroVAD,
+			BargeIn:       features.BargeIn,
+			TurnStrategy:  features.TurnStrategy,
+		},
 	})
 }
 

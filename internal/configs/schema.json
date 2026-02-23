@@ -193,6 +193,13 @@
           "title": "Synthesizer Provider",
           "description": "Optional preferred provider name for text-to-speech. Falls back to first available synthesizer when unset or invalid.",
           "x-placeholder": "openai"
+        },
+        "turn_strategy": {
+          "type": "string",
+          "title": "Turn Strategy",
+          "description": "Controls barge-in and turn commit policy for voice sessions.",
+          "default": "legacy",
+          "enum": ["legacy", "balanced"]
         }
       }
     },

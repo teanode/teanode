@@ -841,6 +841,9 @@ func (self *gateway) StartVoiceSession(
 		self.SetDefaultConversationIfUnset(agentId, conversationId)
 	}
 	sessionId := security.NewULID()
+	if strings.TrimSpace(features.TurnStrategy) == "" && self.config != nil {
+		features.TurnStrategy = strings.TrimSpace(self.config.Voice.TurnStrategy)
+	}
 	adapter := &voiceGatewayAdapter{gw: self}
 	return voice.NewSession(sessionId, conversationId, agentId, promptSuffix, audioIn, audioOut, features, adapter, sendJson, sendBinary), nil
 }
