@@ -745,6 +745,50 @@ func TestStreamingTranscribeLoop_FallbackOnError(t *testing.T) {
 	}
 }
 
+func TestAudioInputLoop_StreamingNoInterimFallsBackToBatch(t *testing.T) {
+	stream := newPipelineMockTranscribeStream()
+	s, deps, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	if !s.startStreamingTranscriber() {
+		t.Fatal("expected streaming transcriber to start")
+	}
+
+	audioDone := make(chan struct{})
+	go func() {
+		s.audioInputLoop()
+		close(audioDone)
+	}()
+
+	loud := makePCMFrame(12000, 320)
+	silence := makePCMFrame(0, 320)
+	for i := 0; i < 12; i++ {
+		s.audioInCh <- loud
+	}
+	for i := 0; i < 25; i++ {
+		s.audioInCh <- silence
+	}
+
+	waitFor(t, 2*time.Second, func() bool { return deps.sendCount() == 1 })
+	if deps.lastSend().Message != "fallback transcript" {
+		t.Fatalf("unexpected fallback transcript: %q", deps.lastSend().Message)
+	}
+
+	close(s.doneCh)
+	select {
+	case <-audioDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("audioInputLoop did not stop after done")
+	}
+}
+
 func TestSpeculative_Promoted(t *testing.T) {
 	stream := newPipelineMockTranscribeStream()
 	s, deps, _ := newPipelineSessionWithEventsAndFeatures("unused", Features{

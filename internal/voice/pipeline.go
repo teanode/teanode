@@ -215,6 +215,17 @@ func (self *Session) audioInputLoop() {
 					})
 					continue
 				}
+				if self.getStreamingTranscribeStream() != nil && strings.TrimSpace(self.getInterimText()) == "" {
+					if !self.TryStartTurnTranscription(turnId) {
+						pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
+						continue
+					}
+					go func(tid string, audio []byte) {
+						defer self.FinishTurnTranscription(tid)
+						self.transcribeAndSend(tid, audio)
+					}(turnId, captured)
+					continue
+				}
 				pendingCommitTurnID = turnId
 				pendingCommitAudio = captured
 				pendingSilenceMs = 0
