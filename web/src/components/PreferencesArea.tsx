@@ -13,7 +13,11 @@ import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import LightModeIcon from "@mui/icons-material/LightMode";
-import { useAppContext, type ThemeMode } from "../context";
+import {
+  useAppContext,
+  type ThemeMode,
+  type VoiceCallSTTMode,
+} from "../context";
 import type { LanguagePreference } from "../i18n/config";
 
 export default function PreferencesArea() {
@@ -33,6 +37,8 @@ export default function PreferencesArea() {
     setVoiceChimesEnabled,
     voiceChimesVolume,
     setVoiceChimesVolume,
+    voiceCallSttMode,
+    setVoiceCallSttMode,
     languagePreference,
     setLanguagePreference,
     backend,
@@ -205,6 +211,29 @@ export default function PreferencesArea() {
                     ),
                   )}
                 </Select>
+              </Box>
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+                  {t("settings.voiceCallSttMode")}
+                </Typography>
+                <Select
+                  value={voiceCallSttMode}
+                  onChange={(event) =>
+                    setVoiceCallSttMode(event.target.value as VoiceCallSTTMode)
+                  }
+                  size="small"
+                  sx={{ minWidth: 220 }}
+                >
+                  <MenuItem value="server">
+                    {t("settings.voiceCallSttModeServer")}
+                  </MenuItem>
+                  <MenuItem value="client">
+                    {t("settings.voiceCallSttModeClient")}
+                  </MenuItem>
+                </Select>
+                <Typography variant="caption" color="text.secondary">
+                  {t("settings.voiceCallSttModeDescription")}
+                </Typography>
               </Box>
 
               {/* Voice call indicator chimes */}

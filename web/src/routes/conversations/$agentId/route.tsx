@@ -23,8 +23,13 @@ export function useAgentVoiceCall(): UseVoiceCallReturn {
 /** /conversations/$agentId — layout that syncs the current agent and renders child routes. */
 export default function ConversationsAgentLayout() {
   const { agentId } = useParams({ strict: false }) as { agentId: string };
-  const { backend, ttsVoice, voiceChimesEnabled, voiceChimesVolume } =
-    useAppContext();
+  const {
+    backend,
+    ttsVoice,
+    voiceChimesEnabled,
+    voiceChimesVolume,
+    voiceCallSttMode,
+  } = useAppContext();
 
   useEffect(() => {
     if (agentId && agentId !== backend.currentAgentId) {
@@ -52,6 +57,7 @@ export default function ConversationsAgentLayout() {
     streamText: backend.streamText,
     connected: backend.connected,
     ttsVoice,
+    voiceCallSttMode,
     conversationId: backend.conversationId,
     agentId,
     audioCapability: backend.audioCapability,

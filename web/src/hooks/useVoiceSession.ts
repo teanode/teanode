@@ -32,13 +32,19 @@ export interface VoiceSessionRuntime {
   start: (
     audioContext: AudioContext,
     mediaStream: MediaStream,
+    options?: VoiceSessionStartOptions,
   ) => Promise<void>;
   stop: () => void;
   interruptPlayback: () => void;
   resumePlayback: () => void;
+  cancelResponse: (reason?: string) => Promise<void>;
   isUserSpeaking: boolean;
   isPlaying: boolean;
   isSynthesizing: boolean;
+}
+
+export interface VoiceSessionStartOptions {
+  enableServerStt?: boolean;
 }
 
 export function useVoiceSession(
@@ -222,11 +228,17 @@ export function useVoiceSession(
   }, []);
 
   const start = useCallback(
-    async (audioContext: AudioContext, mediaStream: MediaStream) => {
+    async (
+      audioContext: AudioContext,
+      mediaStream: MediaStream,
+      options?: VoiceSessionStartOptions,
+    ) => {
+      const enableServerStt = options?.enableServerStt !== false;
       audioContextRef.current = audioContext;
       dropIncomingAudioRef.current = false;
       inputFramesSentRef.current = 0;
       outputFramesRecvRef.current = 0;
+      setIsUserSpeaking(false);
 
       console.debug("[voice][session] start request", {
         conversationId,
@@ -243,9 +255,9 @@ export function useVoiceSession(
         },
         audio_out: { codec: "pcm_s16le", sample_rate_hz: 24000, channels: 1 },
         features: {
-          server_vad: true,
-          server_turn: true,
-          server_denoise: true,
+          server_vad: enableServerStt,
+          server_turn: enableServerStt,
+          server_denoise: enableServerStt,
           barge_in: true,
         },
         client: { platform: "web", app_version: "1.0.0" },
@@ -255,6 +267,11 @@ export function useVoiceSession(
         session_id: result.session_id,
         conversation_id: result.conversation_id,
       });
+
+      unsubscribeBinaryRef.current = onBinaryMessage(handleBinary);
+      if (!enableServerStt) {
+        return;
+      }
 
       const source = new MediaStreamAudioSourceNode(audioContext, {
         mediaStream,
@@ -325,8 +342,6 @@ export function useVoiceSession(
 
       mediaSourceRef.current = source;
       processorRef.current = processor;
-
-      unsubscribeBinaryRef.current = onBinaryMessage(handleBinary);
     },
     [
       agentId,
@@ -378,6 +393,19 @@ export function useVoiceSession(
     dropIncomingAudioRef.current = false;
   }, []);
 
+  const cancelResponse = useCallback(
+    async (reason?: string) => {
+      if (!sessionIdRef.current) {
+        return;
+      }
+      await sendRpc("voice.response.cancel", {
+        response_id: "",
+        reason: reason || "client_interrupt",
+      });
+    },
+    [sendRpc],
+  );
+
   useEffect(() => {
     return () => stop();
   }, [stop]);
@@ -387,6 +415,7 @@ export function useVoiceSession(
     stop,
     interruptPlayback,
     resumePlayback,
+    cancelResponse,
     isUserSpeaking,
     isPlaying,
     isSynthesizing,
