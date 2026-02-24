@@ -165,21 +165,6 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 	return session
 }
 
-// Start begins session background loops.
-func (self *Session) Start() {
-	pipelineLog.Infof("voice session start: session=%s conv=%s agent=%s", self.ID, self.ConversationID, self.AgentID)
-	streamingEnabled := self.startStreamingTranscriber()
-	self.wg.Add(4)
-	if streamingEnabled {
-		self.wg.Add(1)
-		go func() { defer self.wg.Done(); self.streamingTranscribeLoop() }()
-	}
-	go func() { defer self.wg.Done(); self.audioInputLoop() }()
-	go func() { defer self.wg.Done(); self.llmEventForwarder() }()
-	go func() { defer self.wg.Done(); self.ttsSynthLoop() }()
-	go func() { defer self.wg.Done(); self.audioOutputLoop() }()
-}
-
 // Close stops the session and waits for loop termination.
 func (self *Session) Close() {
 	self.closeOnce.Do(func() {
