@@ -25,11 +25,12 @@
 - Add new package: `internal/store`.
 - Move persistence contracts out of `internal/configs`.
 - Move persistence/domain models into `internal/models`.
-- Keep `internal/configs` as schema/default/environment/CLI resolution logic only (no persistence IO).
+- Move configuration overlay resolution into `internal/configurations` (plural) and keep it independent from store implementations.
 
 Proposed layout:
 
 - `internal/models/*.go`
+- `internal/configurations/*.go`
 - `internal/store/interfaces.go`
 - `internal/store/types.go`
 - `internal/store/errors.go`
@@ -100,7 +101,7 @@ type GatewayConfiguration struct {
 
 type GatewaySecurityConfiguration struct {
 	SessionMaxAgeDays *int
-  ForwarderKey      *string
+	ForwarderKey      *string // intentionally moved under gateway security
 }
 
 type ModelsConfiguration struct {
@@ -324,7 +325,7 @@ type Session struct {
 	RemoteAddress *string
 	ExpiresAt     *time.Time
 	CreatedAt     *time.Time
-	ModifiedAt    *time.Time // also used as last-seen timestamp
+	ModifiedAt    *time.Time
 }
 
 type Media struct {
@@ -387,6 +388,40 @@ type Transaction interface {
 type Option struct {
 	Limit  *uint64
 	Offset *uint64
+}
+
+type ResolveConfigurationOptions struct {
+	CLIFlags            *map[string]string
+	Environment         *map[string]string
+	ApplySchemaDefaults *bool
+}
+
+type WorkspaceSearchOptions struct {
+	Limit          *uint64
+	CaseSensitive  *bool
+	PathPrefix     *string
+	IncludeContent *bool
+}
+
+type WorkspaceSearchResult struct {
+	FileID       *string
+	Scope        *models.Scope
+	ScopeID      *string
+	Path         *string
+	MatchedLines *[]string
+}
+
+type ConversationListOptions struct {
+	UserID  *string
+	AgentID *string
+	Default *bool
+}
+
+type MediaListOptions struct {
+	UserID         *string
+	ConversationID *string
+	Source         *string
+	ToolName       *string
 }
 ```
 
@@ -485,6 +520,7 @@ Configuration resolution outside store:
 ### SessionOperation
 
 - `ListSessions(options *store.Option) ([]models.Session, error)`
+- `CreateSession(session *models.Session, options *store.Option) (*models.Session, error)`
 - `GetSession(sessionID string, options *store.Option) (*models.Session, error)`
 - `ModifySession(sessionID string, modifier func(*models.Session) error, options *store.Option) (*models.Session, error)`
 - `DeleteSession(sessionID string, options *store.Option) error`
@@ -492,7 +528,7 @@ Configuration resolution outside store:
 ### MediaOperation
 
 - `ListMedia(listOptions MediaListOptions, options *store.Option) ([]models.Media, error)`
-- `CreateMedia(content io.ReadCloser, metadata *models.Media, options *store.Option) (*models.Media, error)`
+- `CreateMedia(content io.Reader, metadata *models.Media, options *store.Option) (*models.Media, error)`
 - `GetMedia(mediaID string, options *store.Option) ([]byte, *models.Media, error)`
 - `OpenMedia(mediaID string, options *store.Option) (io.ReadCloser, *models.Media, error)`
 - `ModifyMedia(mediaID string, modifier func(*models.Media) error, options *store.Option) (*models.Media, error)`
@@ -574,7 +610,8 @@ Use typed columns where practical and JSONB for extensible fields.
 - Workspace file tree maps to `workspace_files` keyed by `(scope, scope_id, path)`.
 - Conversation operations map to `conversations`; message operations map to `conversation_messages`.
 - Jobs map to `jobs` with one-shot semantics implied by `run_at`.
-- Sessions map to `sessions`; `modified_at` is used as last-seen timestamp.
+- If both `jobs.run_at` and recurring schedule are present, `run_at` takes priority.
+- Sessions map to `sessions`.
 - Media operations map to `media` metadata plus Postgres large objects for binary content.
 - Postgres large object identifiers remain internal to `internal/store/db` and are not exposed in `models.Media`.
 - Skills operations map to `skills` with full manifest/metadata/prompt payload.
@@ -637,6 +674,7 @@ Key behavior updates:
 - `internal/tools/workspace/*`: replace direct file IO with `WorkspaceOperation`.
 - `internal/conversations/*`, `internal/jobs/*`, `internal/sessions/*`, `internal/media/*`, `internal/skills/*`: switch to store operations.
 - `cmd/gateway.go`: remove watcher bootstrap/wiring; runtime reload is explicit and driven by store-backed writes or explicit command paths.
+- `cmd/terminal.go`: remove token fallback lookup from store/config files; require token via CLI flag or `TEANODE_GATEWAY_TOKEN`.
 
 ## Execution phases
 
@@ -661,24 +699,24 @@ Key behavior updates:
 ### Phase 4: Cutover and cleanup
 
 - Remove legacy `internal/configs` persistence globals.
-- Keep `internal/configs` for config resolution only.
+- Move config resolution ownership to `internal/configurations`; remaining `internal/configs` scope is eliminated or reduced to transitional adapters only.
 - Ensure no non-exception package does direct persistence IO.
 - Remove `internal/watcher` package and all startup/runtime wiring to it.
 
 ## Testing strategy
 
 - Contract tests run against both `fs` and `db` implementations for:
-  - Configuration get/modify and external `ResolveConfiguration` behavior.
+  - Configuration get/modify and `internal/configurations.ResolveConfiguration` behavior.
   - Agent/user/project/token CRUD, including create-time workspace files.
   - Workspace file CRUD/list/search by scope.
   - Conversation + conversation message lifecycle.
   - Job CRUD with recurring and one-shot (`RunAt`) behavior.
-  - Session CRUD including `UserAgent`, `RemoteAddress`, and `ModifiedAt` last-seen semantics.
+  - Session CRUD including `UserAgent` and `RemoteAddress` metadata.
   - Media create/get/open/modify/delete with metadata and stream handling.
   - Skill CRUD with full payload integrity.
   - User lookups (`username`, `telegramChatID`, `discordUserID`) and token lookup by raw token value.
   - Transaction atomicity and rollback behavior.
-- Static CI checks for forbidden direct filesystem APIs outside allowlisted exception paths.
+- CI checks for postgres mode must fail if code writes persistence files under local data directories (for example `~/.teanode` equivalents), including `.trash`.
 
 ## Acceptance criteria
 
