@@ -518,125 +518,6 @@ func IsAllowed(name string, allowed []string) bool {
 	return false
 }
 
-// --- Directory Functions ---
-
-var configDirectory string
-
-// SetDirectory overrides the data directory. Must be called before any other
-// config functions (EnsureDirs, Load, etc.).
-func SetDirectory(directory string) {
-	configDirectory = directory
-}
-
-// Directory returns the teanode data directory (default ~/.teanode).
-func Directory() string {
-	return configDirectory
-}
-
-// AgentsDirectory returns the agents config directory (~/.teanode/agents/).
-func AgentsDirectory() string {
-	return filepath.Join(configDirectory, "agents")
-}
-
-// AgentWorkspaceDirectory returns the workspace directory for an agent (~/.teanode/agents/<agentId>/workspace/).
-func AgentWorkspaceDirectory(agentId string) string {
-	agentsDirectory := AgentsDirectory()
-	return filepath.Join(agentsDirectory, agentId, "workspace")
-}
-
-// UsersDirectory returns the users directory (~/.teanode/users).
-func UsersDirectory() string {
-	return filepath.Join(configDirectory, "users")
-}
-
-// UserDirectory returns the directory for a specific user (~/.teanode/users/<userId>).
-func UserDirectory(userId string) string {
-	usersDirectory := UsersDirectory()
-	return filepath.Join(usersDirectory, userId)
-}
-
-// UserWorkspaceDirectory returns the workspace directory for a specific user (~/.teanode/users/<userId>/workspace).
-func UserWorkspaceDirectory(userId string) string {
-	userDirectory := UserDirectory(userId)
-	return filepath.Join(userDirectory, "workspace")
-}
-
-// UserConversationsDirectory returns the conversations root for a specific user (~/.teanode/users/<userId>/conversations).
-func UserConversationsDirectory(userId string) string {
-	userDirectory := UserDirectory(userId)
-	return filepath.Join(userDirectory, "conversations")
-}
-
-// UserJobsDirectory returns the jobs directory for a specific user (~/.teanode/users/<userId>/jobs).
-func UserJobsDirectory(userId string) string {
-	userDirectory := UserDirectory(userId)
-	return filepath.Join(userDirectory, "jobs")
-}
-
-// UserAgentConversationsDirectory returns a user+agent conversation directory
-// (~/.teanode/users/<userId>/conversations/<agentId>).
-func UserAgentConversationsDirectory(userId, agentId string) string {
-	userConversationsDirectory := UserConversationsDirectory(userId)
-	return filepath.Join(userConversationsDirectory, agentId)
-}
-
-// UserConfigFile returns the config path for a specific user (~/.teanode/users/<userId>/user.yaml).
-func UserConfigFile(userId string) string {
-	userDirectory := UserDirectory(userId)
-	return filepath.Join(userDirectory, "user.yaml")
-}
-
-// UserProfileFile returns the profile path for a specific user (~/.teanode/users/<userId>/user.yaml).
-func UserProfileFile(userId string) string {
-	return UserConfigFile(userId)
-}
-
-// AgentConfigFile returns the path to the agent config file (~/.teanode/agents/<agentId>/agent.yaml).
-func AgentConfigFile(agentId string) string {
-	agentsDirectory := AgentsDirectory()
-	return filepath.Join(agentsDirectory, agentId, "agent.yaml")
-}
-
-// SkillsDirectory returns the skills directory (~/.teanode/skills).
-func SkillsDirectory() string {
-	return filepath.Join(configDirectory, "skills")
-}
-
-// ProjectsDirectory returns the projects directory (~/.teanode/projects).
-func ProjectsDirectory() string {
-	return filepath.Join(configDirectory, "projects")
-}
-
-// ModelsFilename returns the path to the models cache file (~/.teanode/models.yaml).
-func ModelsFilename() string {
-	return filepath.Join(configDirectory, "models.yaml")
-}
-
-// MediaDirectory returns the media directory (~/.teanode/media).
-func MediaDirectory() string {
-	return filepath.Join(configDirectory, "media")
-}
-
-// SessionsDirectory returns the sessions directory (~/.teanode/sessions).
-func SessionsDirectory() string {
-	return filepath.Join(configDirectory, "sessions")
-}
-
-// GatewayPIDFilename returns the gateway process PID file path (~/.teanode/gateway.pid).
-func GatewayPIDFilename() string {
-	return filepath.Join(configDirectory, "gateway.pid")
-}
-
-// TrashDirectory returns the trash directory (~/.teanode/.trash).
-func TrashDirectory() string {
-	return filepath.Join(configDirectory, ".trash")
-}
-
-// StateFilename returns the path to the state file (~/.teanode/state.yaml).
-func StateFilename() string {
-	return filepath.Join(configDirectory, "state.yaml")
-}
-
 // EnsureDirectories creates the base teanode directories if needed.
 func EnsureDirectories() error {
 	for _, sub := range []string{"skills", "projects", "media", "agents", "users", "sessions", ".trash"} {
@@ -778,7 +659,7 @@ func DeleteAgent(agentId string) error {
 // or environment overrides. Returns only what the user explicitly set in the file.
 func LoadRaw() (*Config, error) {
 	configuration := &Config{}
-	data, err := os.ReadFile(filepath.Join(configDirectory, "config.yaml"))
+	data, err := os.ReadFile(ConfigFilename())
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -795,7 +676,7 @@ func LoadRaw() (*Config, error) {
 func Load() (*Config, error) {
 	configuration := defaults()
 
-	data, err := os.ReadFile(filepath.Join(configDirectory, "config.yaml"))
+	data, err := os.ReadFile(ConfigFilename())
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -832,7 +713,7 @@ func Save(configuration *Config) error {
 	if err != nil {
 		return fmt.Errorf("marshalling config: %w", err)
 	}
-	return atomicfile.WriteFile(filepath.Join(configDirectory, "config.yaml"), data)
+	return atomicfile.WriteFile(ConfigFilename(), data)
 }
 
 func defaults() *Config {

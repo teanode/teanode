@@ -22,29 +22,6 @@ type AgentConfig struct {
 	AvatarMediaID        string             `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
 }
 
-func loadAgentConfigFromPath(path string) (*AgentConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	agentConfig := &AgentConfig{}
-	if err := yaml.Unmarshal(data, agentConfig); err != nil {
-		return nil, err
-	}
-	return agentConfig, nil
-}
-
-func saveAgentConfigToPath(path string, agentConfig *AgentConfig) error {
-	if agentConfig == nil {
-		agentConfig = &AgentConfig{}
-	}
-	data, err := yaml.Marshal(agentConfig)
-	if err != nil {
-		return err
-	}
-	return atomicfile.WriteFile(path, data)
-}
-
 // LoadAgentConfigs walks agents/*/agent.yaml and returns all agent configs.
 func LoadAgentConfigs() ([]AgentConfig, error) {
 	agentsDirectory := AgentsDirectory()
@@ -63,13 +40,17 @@ func LoadAgentConfigs() ([]AgentConfig, error) {
 			continue
 		}
 		agentId := entry.Name()
-		path := AgentConfigFile(agentId)
-		agentConfig, err := loadAgentConfigFromPath(path)
+		path := AgentConfigFilename(agentId)
+		data, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
 			return nil, fmt.Errorf("reading agent file %s: %w", agentId, err)
+		}
+		agentConfig := &AgentConfig{}
+		if err := yaml.Unmarshal(data, agentConfig); err != nil {
+			return nil, fmt.Errorf("parsing agent file %s: %w", agentId, err)
 		}
 		agentConfig.ID = agentId
 		agentConfigs = append(agentConfigs, *agentConfig)
@@ -80,12 +61,16 @@ func LoadAgentConfigs() ([]AgentConfig, error) {
 // LoadAgentConfig reads agents/<id>/agent.yaml.
 // Missing files return an empty config with ID set.
 func LoadAgentConfig(agentId string) (*AgentConfig, error) {
-	path := AgentConfigFile(agentId)
-	agentConfig, err := loadAgentConfigFromPath(path)
+	path := AgentConfigFilename(agentId)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &AgentConfig{ID: agentId}, nil
 		}
+		return nil, fmt.Errorf("parsing agent config %s: %w", agentId, err)
+	}
+	agentConfig := &AgentConfig{}
+	if err := yaml.Unmarshal(data, agentConfig); err != nil {
 		return nil, fmt.Errorf("parsing agent config %s: %w", agentId, err)
 	}
 	agentConfig.ID = agentId
@@ -102,10 +87,14 @@ func SaveAgentConfig(agentId string, agentConfig *AgentConfig) error {
 	if err := os.MkdirAll(agentDirectory, 0755); err != nil {
 		return fmt.Errorf("creating agent directory: %w", err)
 	}
-	path := AgentConfigFile(agentId)
+	path := AgentConfigFilename(agentId)
 	copyConfig := *agentConfig
 	copyConfig.ID = agentId
-	if err := saveAgentConfigToPath(path, &copyConfig); err != nil {
+	data, err := yaml.Marshal(&copyConfig)
+	if err != nil {
+		return fmt.Errorf("marshalling agent file %s: %w", agentId, err)
+	}
+	if err := atomicfile.WriteFile(path, data); err != nil {
 		return fmt.Errorf("saving agent file %s: %w", agentId, err)
 	}
 	return nil

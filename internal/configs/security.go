@@ -3,7 +3,6 @@ package configs
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -65,11 +64,6 @@ func (self *SecurityConfig) RUnlock() {
 		return
 	}
 	self.mutex.RUnlock()
-}
-
-// SecurityFilename returns the path to ~/.teanode/security.yaml.
-func SecurityFilename() string {
-	return filepath.Join(configDirectory, "security.yaml")
 }
 
 // LoadSecurity reads and unmarshals security.yaml. Returns an empty config if

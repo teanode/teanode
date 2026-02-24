@@ -17,6 +17,9 @@ func TestLoadUserConfig_MissingFallsBackToOSUsername(t *testing.T) {
 	if profile.Name != OSUsername() {
 		t.Fatalf("name = %q, want %q", profile.Name, OSUsername())
 	}
+	if profile.ID != "user-1" {
+		t.Fatalf("id = %q, want %q", profile.ID, "user-1")
+	}
 	if profile.AvatarMediaID != "" {
 		t.Fatalf("avatarMediaId = %q, want empty", profile.AvatarMediaID)
 	}
@@ -50,6 +53,9 @@ func TestSaveAndLoadUserConfig_UsesUserYAMLPath(t *testing.T) {
 	if !strings.Contains(text, "name: Alice") {
 		t.Fatalf("profile file missing name field: %q", text)
 	}
+	if !strings.Contains(text, "id: user-1") {
+		t.Fatalf("profile file missing id field: %q", text)
+	}
 	if !strings.Contains(text, "avatarMediaId: media_123") {
 		t.Fatalf("profile file missing avatarMediaId field: %q", text)
 	}
@@ -63,6 +69,9 @@ func TestSaveAndLoadUserConfig_UsesUserYAMLPath(t *testing.T) {
 	}
 	if loaded.Name != "Alice" {
 		t.Fatalf("name = %q, want Alice", loaded.Name)
+	}
+	if loaded.ID != "user-1" {
+		t.Fatalf("id = %q, want user-1", loaded.ID)
 	}
 	if loaded.AvatarMediaID != "media_123" {
 		t.Fatalf("avatarMediaId = %q, want media_123", loaded.AvatarMediaID)

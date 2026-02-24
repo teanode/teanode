@@ -13,6 +13,7 @@ import (
 
 // UserConfig stores user-facing identity information.
 type UserConfig struct {
+	ID            string `json:"id" yaml:"id"`
 	Name          string `json:"name" yaml:"name"`
 	Description   string `json:"description,omitempty" yaml:"description,omitempty"`
 	AvatarMediaID string `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
@@ -38,11 +39,11 @@ func OSUsername() string {
 
 // LoadUserConfig reads ~/.teanode/users/<userId>/user.yaml.
 func LoadUserConfig(userId string) (*UserConfig, error) {
-	path := UserConfigFile(strings.TrimSpace(userId))
+	path := UserConfigFilename(userId)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &UserConfig{Name: OSUsername()}, nil
+			return &UserConfig{ID: userId, Name: OSUsername()}, nil
 		}
 		return nil, fmt.Errorf("reading user config: %w", err)
 	}
@@ -55,6 +56,7 @@ func LoadUserConfig(userId string) (*UserConfig, error) {
 	if userConfig.Name == "" {
 		userConfig.Name = OSUsername()
 	}
+	userConfig.ID = userId
 	userConfig.AvatarMediaID = strings.TrimSpace(userConfig.AvatarMediaID)
 	userConfig.Description = strings.TrimSpace(userConfig.Description)
 	return userConfig, nil
@@ -70,12 +72,13 @@ func SaveUserConfig(userId string, userConfig *UserConfig) error {
 		name = OSUsername()
 	}
 	normalized := &UserConfig{
+		ID:            userId,
 		Name:          name,
 		Description:   strings.TrimSpace(userConfig.Description),
 		AvatarMediaID: strings.TrimSpace(userConfig.AvatarMediaID),
 	}
 
-	path := UserConfigFile(strings.TrimSpace(userId))
+	path := UserConfigFilename(userId)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("creating user config directory: %w", err)
 	}

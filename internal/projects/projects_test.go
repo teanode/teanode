@@ -214,10 +214,10 @@ func TestWriteFileRejectsSymlinkDirectoryComponents(t *testing.T) {
 	}
 }
 
-func TestProjectYamlDoesNotPersistIDField(t *testing.T) {
+func TestProjectYamlPersistsIDField(t *testing.T) {
 	withTempDir(t)
 
-	metadata, err := CreateProject("Theta", "No ID field in yaml", "")
+	metadata, err := CreateProject("Theta", "ID field in yaml", "")
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
@@ -230,7 +230,8 @@ func TestProjectYamlDoesNotPersistIDField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readFile(project.yaml) error: %v", err)
 	}
-	if strings.Contains(string(data), "\nid:") || strings.HasPrefix(string(data), "id:") {
-		t.Fatalf("project.yaml should not contain id field, got:\n%s", string(data))
+	want := "id: " + metadata.ID
+	if !strings.Contains(string(data), want) {
+		t.Fatalf("project.yaml missing id field %q, got:\n%s", want, string(data))
 	}
 }

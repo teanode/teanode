@@ -291,7 +291,7 @@ func stripSentinels(partial map[string]interface{}, original map[string]interfac
 // backupConfig copies config.yaml to config.yaml.bak before saving changes.
 // If no config file exists yet, the backup is silently skipped.
 func backupConfig() error {
-	configPath := filepath.Join(configDirectory, "config.yaml")
+	configPath := ConfigFilename()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {

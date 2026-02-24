@@ -3,7 +3,6 @@ package configs
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -20,58 +19,15 @@ type ProjectConfig struct {
 	UpdatedAt   timeutil.Timestamp `json:"updatedAt" yaml:"updatedAt"`
 }
 
-type projectConfigDisk struct {
-	Name        string             `yaml:"name"`
-	Description string             `yaml:"description"`
-	UpdatedAt   timeutil.Timestamp `yaml:"updatedAt"`
-}
-
-func projectDirectory(projectId string) (string, error) {
-	directory := ProjectsDirectory()
-	return filepath.Join(directory, projectId), nil
-}
-
-// ProjectConfigFile returns the project config path (~/.teanode/projects/<projectId>/project.yaml).
-func ProjectConfigFile(projectId string) (string, error) {
-	directory, err := projectDirectory(projectId)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "project.yaml"), nil
-}
-
-func decodeProjectConfig(data []byte) (ProjectConfig, error) {
-	var disk projectConfigDisk
-	if err := yaml.Unmarshal(data, &disk); err != nil {
-		return ProjectConfig{}, fmt.Errorf("parsing project config: %w", err)
-	}
-	return ProjectConfig{
-		Name:        disk.Name,
-		Description: disk.Description,
-		UpdatedAt:   disk.UpdatedAt,
-	}, nil
-}
-
-func encodeProjectConfig(projectConfig ProjectConfig) ([]byte, error) {
-	return yaml.Marshal(projectConfigDisk{
-		Name:        projectConfig.Name,
-		Description: projectConfig.Description,
-		UpdatedAt:   projectConfig.UpdatedAt,
-	})
-}
-
 // LoadProjectConfig reads ~/.teanode/projects/<projectId>/project.yaml.
 func LoadProjectConfig(projectId string) (*ProjectConfig, error) {
-	path, err := ProjectConfigFile(projectId)
-	if err != nil {
-		return nil, err
-	}
+	path := ProjectConfigFilename(projectId)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	projectConfig, err := decodeProjectConfig(data)
-	if err != nil {
+	projectConfig := ProjectConfig{}
+	if err := yaml.Unmarshal(data, &projectConfig); err != nil {
 		return nil, err
 	}
 	projectConfig.ID = projectId
@@ -89,23 +45,17 @@ func SaveProjectConfig(projectId string, projectConfig *ProjectConfig) error {
 	if projectConfig.UpdatedAt.IsZero() {
 		projectConfig.UpdatedAt = timeutil.Now()
 	}
-	directory, err := projectDirectory(projectId)
-	if err != nil {
-		return err
-	}
+	directory := ProjectDirectory(projectId)
 	if err := os.MkdirAll(directory, 0755); err != nil {
 		return fmt.Errorf("creating project directory: %w", err)
 	}
 	copyConfig := *projectConfig
 	copyConfig.ID = projectId
-	payload, err := encodeProjectConfig(copyConfig)
+	payload, err := yaml.Marshal(copyConfig)
 	if err != nil {
 		return fmt.Errorf("marshalling project config: %w", err)
 	}
-	path, err := ProjectConfigFile(projectId)
-	if err != nil {
-		return err
-	}
+	path := ProjectConfigFilename(projectId)
 	if err := atomicfile.WriteFile(path, payload); err != nil {
 		return fmt.Errorf("writing project config: %w", err)
 	}
@@ -129,13 +79,13 @@ func LoadProjectConfigs() ([]ProjectConfig, error) {
 			continue
 		}
 		projectId := strings.ToLower(entry.Name())
-		path := filepath.Join(directory, projectId, "project.yaml")
+		path := ProjectConfigFilename(projectId)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
-		projectConfig, err := decodeProjectConfig(data)
-		if err != nil {
+		projectConfig := ProjectConfig{}
+		if err := yaml.Unmarshal(data, &projectConfig); err != nil {
 			continue
 		}
 		if strings.TrimSpace(projectConfig.Name) == "" {
