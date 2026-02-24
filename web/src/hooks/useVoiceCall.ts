@@ -1,9 +1,51 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useChimePlayer, type ChimeConfig } from "./useChimePlayer";
 import { useVoiceSession } from "./useVoiceSession";
+import type { VoiceCallSTTMode } from "../context";
 
 const AGENT_WAITING_CHIME_MS = 3200;
 const AGENT_WAITING_CHIME_MIN_GAP_MS = 1400;
+const MIN_INTERRUPT_MS = 500;
+const VOICE_CALL_PROMPT =
+  "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists.";
+
+function pcmToWav(samples: Float32Array, sampleRate: number): Blob {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const dataSize = samples.length * (bitsPerSample / 8);
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, "WAVE");
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeString(view, 36, "data");
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let index = 0; index < samples.length; index++) {
+    const sample = Math.max(-1, Math.min(1, samples[index]));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    offset += 2;
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+function writeString(view: DataView, offset: number, value: string): void {
+  for (let index = 0; index < value.length; index++) {
+    view.setUint8(offset + index, value.charCodeAt(index));
+  }
+}
 
 export interface UseVoiceCallOptions {
   sendRpc: <T = unknown>(method: string, params: unknown) => Promise<T>;
@@ -23,6 +65,7 @@ export interface UseVoiceCallOptions {
   streamText: string;
   connected: boolean;
   ttsVoice: string;
+  voiceCallSttMode: VoiceCallSTTMode;
   conversationId: string | null;
   agentId: string;
   audioCapability: boolean;
@@ -49,8 +92,10 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     sendBinary,
     onBinaryMessage,
     onVoiceMessage,
+    sendVoiceMessage,
     isRunning,
     connected,
+    voiceCallSttMode,
     conversationId,
     agentId,
     chimeConfig,
@@ -62,9 +107,17 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const [isMuted, setIsMuted] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
   const [isAgentBusy, setIsAgentBusy] = useState(false);
+  const [isClientUserSpeaking, setIsClientUserSpeaking] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const vadRef = useRef<{
+    destroy: () => void;
+    pause: () => void;
+    start: () => void;
+    receive: (node: AudioNode) => void;
+  } | null>(null);
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
@@ -78,6 +131,9 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const endCallRef = useRef<() => void>(() => {});
   const pendingAgentDoneChimeRef = useRef(false);
+  const isCallActiveRef = useRef(false);
+  const speechStartTimeRef = useRef<number | null>(null);
+  const pendingInterruptRef = useRef(false);
 
   const chimePlayer = useChimePlayer(chimeConfig);
   const playWaitingChime = useCallback(() => {
@@ -93,6 +149,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     stop: stopVoiceSession,
     interruptPlayback,
     resumePlayback,
+    cancelResponse,
     isUserSpeaking,
     isPlaying,
     isSynthesizing,
@@ -126,7 +183,92 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       });
       streamRef.current = mediaStream;
 
-      await startVoiceSession(audioContext, mediaStream);
+      await startVoiceSession(audioContext, mediaStream, {
+        enableServerStt: voiceCallSttMode === "server",
+      });
+      isCallActiveRef.current = true;
+
+      if (voiceCallSttMode === "client") {
+        const sourceNode = new MediaStreamAudioSourceNode(audioContext, {
+          mediaStream,
+        });
+        sourceNodeRef.current = sourceNode;
+        const { AudioNodeVAD } = await import("@ricky0123/vad-web");
+        const vad = await AudioNodeVAD.new(audioContext, {
+          ortConfig: (ort) => {
+            ort.env.wasm.wasmPaths = "/";
+            if (
+              typeof crossOriginIsolated !== "undefined" &&
+              !crossOriginIsolated
+            ) {
+              ort.env.wasm.numThreads = 1;
+            }
+          },
+          onSpeechStart: () => {
+            if (!isCallActiveRef.current) return;
+            setIsClientUserSpeaking(true);
+            speechStartTimeRef.current = Date.now();
+            pendingInterruptRef.current = true;
+            if (interruptTimeoutRef.current) {
+              clearTimeout(interruptTimeoutRef.current);
+            }
+            interruptTimeoutRef.current = setTimeout(() => {
+              if (!isCallActiveRef.current || !pendingInterruptRef.current) {
+                return;
+              }
+              const speechStartTime = speechStartTimeRef.current;
+              if (
+                speechStartTime === null ||
+                Date.now() - speechStartTime < MIN_INTERRUPT_MS
+              ) {
+                return;
+              }
+              interruptPlayback();
+              cancelResponse("client_barge_in").catch(() => {});
+            }, MIN_INTERRUPT_MS);
+          },
+          onSpeechEnd: async (audioData: Float32Array) => {
+            if (!isCallActiveRef.current) return;
+            setIsClientUserSpeaking(false);
+            pendingInterruptRef.current = false;
+            speechStartTimeRef.current = null;
+            if (interruptTimeoutRef.current) {
+              clearTimeout(interruptTimeoutRef.current);
+              interruptTimeoutRef.current = null;
+            }
+            vadRef.current?.pause();
+            chimePlayer.play("inputCaptured");
+            setTimeout(() => {
+              if (isCallActiveRef.current) vadRef.current?.start();
+            }, 300);
+
+            const wavBlob = pcmToWav(audioData, 16000);
+            const formData = new FormData();
+            formData.append("file", wavBlob, "audio.wav");
+
+            try {
+              const response = await fetch("/api/v1/audio/transcribe", {
+                method: "POST",
+                body: formData,
+              });
+              if (!response.ok) return;
+              const result = await response.json();
+              const text = result.text?.trim();
+              if (!text) return;
+              sendVoiceMessage(text, undefined, VOICE_CALL_PROMPT);
+            } catch {
+              // ignore transcription failures
+            }
+          },
+          positiveSpeechThreshold: 0.8,
+          negativeSpeechThreshold: 0.4,
+          minSpeechFrames: 5,
+          redemptionFrames: 12,
+        });
+        vad.receive(sourceNode);
+        vad.start();
+        vadRef.current = vad;
+      }
 
       try {
         if ("wakeLock" in navigator) {
@@ -146,6 +288,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       setIsCallActive(true);
       setIsConnecting(false);
     } catch (error) {
+      isCallActiveRef.current = false;
       const message = error instanceof Error ? error.message : String(error);
       setCallError(message);
       setIsConnecting(false);
@@ -154,12 +297,28 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
       }
+      if (sourceNodeRef.current) {
+        sourceNodeRef.current.disconnect();
+        sourceNodeRef.current = null;
+      }
+      if (vadRef.current) {
+        vadRef.current.destroy();
+        vadRef.current = null;
+      }
       if (audioContextRef.current) {
         audioContextRef.current.close();
         audioContextRef.current = null;
       }
     }
-  }, [chimePlayer, isCallActive, startVoiceSession]);
+  }, [
+    cancelResponse,
+    chimePlayer,
+    interruptPlayback,
+    isCallActive,
+    sendVoiceMessage,
+    startVoiceSession,
+    voiceCallSttMode,
+  ]);
 
   useEffect(() => {
     if (!isCallActive) return;
@@ -239,13 +398,26 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   }, [isAgentBusy, isCallActive, isRunning, playWaitingChime]);
 
   const endCall = useCallback(() => {
+    isCallActiveRef.current = false;
     setIsCallActive(false);
+    setIsClientUserSpeaking(false);
     setIsMuted(false);
     setCallDuration(0);
     setIsAgentBusy(false);
     pendingAgentDoneChimeRef.current = false;
+    pendingInterruptRef.current = false;
+    speechStartTimeRef.current = null;
 
     stopVoiceSession();
+
+    if (sourceNodeRef.current) {
+      sourceNodeRef.current.disconnect();
+      sourceNodeRef.current = null;
+    }
+    if (vadRef.current) {
+      vadRef.current.destroy();
+      vadRef.current = null;
+    }
 
     if (durationIntervalRef.current) {
       clearInterval(durationIntervalRef.current);
@@ -301,7 +473,8 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     isConnecting,
     callDuration,
     isMuted,
-    isUserSpeaking,
+    isUserSpeaking:
+      voiceCallSttMode === "client" ? isClientUserSpeaking : isUserSpeaking,
     isPlaying,
     isSynthesizing,
     callError,

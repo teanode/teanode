@@ -6,6 +6,7 @@ import {
 } from "./i18n/config";
 
 export type ThemeMode = "dark" | "light";
+export type VoiceCallSTTMode = "server" | "client";
 
 export interface AppContextValue {
   backend: ReturnType<typeof useBackend>;
@@ -25,6 +26,8 @@ export interface AppContextValue {
   setVoiceChimesEnabled: (value: boolean) => void;
   voiceChimesVolume: number;
   setVoiceChimesVolume: (value: number) => void;
+  voiceCallSttMode: VoiceCallSTTMode;
+  setVoiceCallSttMode: (value: VoiceCallSTTMode) => void;
   languagePreference: LanguagePreference;
   setLanguagePreference: (value: LanguagePreference) => void;
 }
@@ -70,6 +73,11 @@ export function AppProvider({
     const stored = localStorage.getItem("teanode-voice-chimes-volume");
     return stored !== null ? Number(stored) : 0.3;
   });
+  const [voiceCallSttMode, setVoiceCallSttModeState] =
+    useState<VoiceCallSTTMode>(() => {
+      const stored = localStorage.getItem("teanode-voice-call-stt-mode");
+      return stored === "client" ? "client" : "server";
+    });
   const [languagePreference, setLanguagePreferenceState] =
     useState<LanguagePreference>(() => {
       const stored = localStorage.getItem(LANGUAGE_PREFERENCE_STORAGE_KEY);
@@ -114,6 +122,11 @@ export function AppProvider({
     localStorage.setItem("teanode-voice-chimes-volume", String(value));
   }, []);
 
+  const setVoiceCallSttMode = useCallback((value: VoiceCallSTTMode) => {
+    setVoiceCallSttModeState(value);
+    localStorage.setItem("teanode-voice-call-stt-mode", value);
+  }, []);
+
   const setLanguagePreference = useCallback((value: LanguagePreference) => {
     setLanguagePreferenceState(value);
     localStorage.setItem(LANGUAGE_PREFERENCE_STORAGE_KEY, value);
@@ -139,6 +152,8 @@ export function AppProvider({
         setVoiceChimesEnabled,
         voiceChimesVolume,
         setVoiceChimesVolume,
+        voiceCallSttMode,
+        setVoiceCallSttMode,
         languagePreference,
         setLanguagePreference,
       }}

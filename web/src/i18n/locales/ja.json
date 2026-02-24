@@ -183,7 +183,11 @@
     "transcribing": "文字起こし中...",
     "voiceChimes": "通知チャイム",
     "voiceChimesDescription": "音声の取得時、agent の処理中、発話完了時に短い通知音を再生します",
-    "voiceChimesVolume": "チャイム音量"
+    "voiceChimesVolume": "チャイム音量",
+    "voiceCallSttMode": "音声通話 STT モード",
+    "voiceCallSttModeDescription": "通話中の音声認識をサーバー側かブラウザ側で行うか選択します。通話中の TTS はサーバー側のままです。",
+    "voiceCallSttModeServer": "サーバー側 STT",
+    "voiceCallSttModeClient": "ブラウザ側 STT"
   },
   "auth": {
     "loginTitle": "おかえりなさい",
