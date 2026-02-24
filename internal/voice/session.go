@@ -615,7 +615,7 @@ func (self *Session) startStreamingTranscriber() bool {
 	self.stateMu.Lock()
 	self.streamingSTTStream = stream
 	self.stateMu.Unlock()
-	pipelineLog.Infof("voice streaming stt enabled: session=%s provider=%s", self.ID, provider)
+	pipelineLog.Infof("voice streaming stt enabled: session=%s provider=%s model=%s", self.ID, provider, voiceProviderModelHint("streaming_transcriber", provider))
 	return true
 }
 

@@ -32,6 +32,22 @@ const (
 
 const voiceCallPromptSuffix = "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists."
 
+func voiceProviderModelHint(kind, provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "openai":
+		if kind == "synthesizer" {
+			return "tts-1"
+		}
+		return "whisper-1"
+	case "deepgram":
+		return "nova-2"
+	case "elevenlabs":
+		return "eleven_flash_v2_5"
+	default:
+		return "unknown"
+	}
+}
+
 func (self *Session) audioInputLoop() {
 	var vad VADAnalyzer = &EnergyVAD{}
 	if self.Features.SileroVAD {
@@ -500,7 +516,7 @@ func (self *Session) ttsSynthLoop() {
 				pipelineLog.Warningf("voice synthesis skipped: provider registry unavailable")
 				continue
 			}
-			synth, _, ok := self.deps.ProviderRegistry().FindSynthesizer()
+			synth, synthProvider, ok := self.deps.ProviderRegistry().FindSynthesizer()
 			if !ok || synth == nil {
 				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
@@ -513,8 +529,9 @@ func (self *Session) ttsSynthLoop() {
 			if prev != nil {
 				prev()
 			}
-			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseId(), self.GetCurrentTurnId(), len(sentence), sentence)
-			chunks, err := synth.SynthesizePCMStream(ttsCtx, sentence, "alloy", self.AudioOut.SampleRateHz)
+			voiceName := "alloy"
+			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s provider=%s model=%s voice=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseId(), self.GetCurrentTurnId(), synthProvider, voiceProviderModelHint("synthesizer", synthProvider), voiceName, len(sentence), sentence)
+			chunks, err := synth.SynthesizePCMStream(ttsCtx, sentence, voiceName, self.AudioOut.SampleRateHz)
 			if err != nil {
 				cancel()
 				self.SwapTTSCancel(nil)
@@ -614,12 +631,12 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 		pipelineLog.Warningf("voice transcription skipped: provider registry unavailable")
 		return
 	}
-	pipelineLog.Infof("voice transcribe start: session=%s turn=%s bytes=%d", self.ID, turnId, len(captured))
-	transcriber, _, ok := self.deps.ProviderRegistry().FindTranscriber()
+	transcriber, transcriberProvider, ok := self.deps.ProviderRegistry().FindTranscriber()
 	if !ok || transcriber == nil {
 		pipelineLog.Warningf("voice transcription skipped: no transcriber configured")
 		return
 	}
+	pipelineLog.Infof("voice transcribe start: session=%s turn=%s bytes=%d provider=%s model=%s", self.ID, turnId, len(captured), transcriberProvider, voiceProviderModelHint("transcriber", transcriberProvider))
 
 	wav := PCMToWAV(captured, self.AudioIn.SampleRateHz, self.AudioIn.Channels)
 	result, err := transcriber.Transcribe(context.Background(), VoiceTranscribeRequest{
