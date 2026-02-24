@@ -46,7 +46,6 @@ func (self *Session) audioInputLoop() {
 	vad := VADAnalyzer(&EnergyVAD{})
 	var speechBuf []byte
 	preSpeech := make([][]byte, 0, vadPreRollFrames)
-	denoiseWarned := false
 	speaking := false
 	candidateActive := false
 	pendingCommitTurnID := ""
@@ -63,10 +62,6 @@ func (self *Session) audioInputLoop() {
 			return
 		case frame := <-self.audioInCh:
 			var preRollFrames [][]byte
-			if self.Features.ServerDenoise && !denoiseWarned {
-				pipelineLog.Warningf("voice server_denoise requested but not implemented")
-				denoiseWarned = true
-			}
 			if !self.Features.ServerVAD {
 				self.accumulateExplicitAudio(frame)
 				continue

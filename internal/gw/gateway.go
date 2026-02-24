@@ -797,6 +797,9 @@ func (self *gateway) StartVoiceSession(
 	if strings.TrimSpace(features.TurnStrategy) == "" && self.config != nil {
 		features.TurnStrategy = strings.TrimSpace(self.config.Voice.TurnStrategy)
 	}
+	if self.config != nil && self.config.Voice.BargeIn != nil {
+		features.BargeIn = *self.config.Voice.BargeIn
+	}
 	adapter := &voiceGatewayAdapter{gw: self, userId: userId}
 	return voice.NewSession(sessionId, conversationId, agentId, promptSuffix, audioIn, audioOut, features, adapter, sendJson, sendBinary), nil
 }

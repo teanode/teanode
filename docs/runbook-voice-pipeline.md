@@ -46,16 +46,9 @@ Sent per-session by the client in the `voice.start` WebSocket RPC. Server enforc
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `features.server_vad` | bool | `true` | Enable server-side VAD. If false, client is responsible for framing turns. |
-| `features.server_turn` | bool | `true` | Enable server-side turn detection and commit logic. |
-| `features.server_denoise` | bool | `false` | Enable server-side audio denoising (stub; no-op in current release). |
-| `features.barge_in` | bool | `true` | Enable barge-in interruption: new audio cancels active TTS response. |
-
-### 1.3 Silero VAD (L1.1)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `features.silero_vad` | bool | `false` | Use Silero neural VAD instead of EnergyVAD. Requires the Silero sidecar to be running on `127.0.0.1:9123`. |
+| `features.server_vad` | bool | `true` | Enable server-side VAD. If false, client is responsible for framing turns (push-to-talk mode). |
+| `features.server_turn` | bool | `true` | Enable server-side turn detection and commit logic. If false, client commits turns via `voice.input.commit`. |
+| `features.barge_in` | bool | `true` | Enable barge-in interruption: new speech cancels active TTS response. Can be overridden gateway-wide via `voice.barge_in` in config. |
 
 **EnergyVAD parameters** (compile-time constants, not configurable):
 - `vadPositiveThreshold = 0.04` RMS — frame must exceed this to count as speech.
@@ -67,15 +60,16 @@ Sent per-session by the client in the `voice.start` WebSocket RPC. Server enforc
 > consecutive silence < 320 ms to avoid mid-utterance VAD splits. See
 > `test/voicee2e/fixtures/README.md` for the verification script.
 
-### 1.4 Turn strategy (L2.2)
+### 1.3 Gateway-wide session policy (L2.2)
+
+These fields set gateway-wide defaults for per-session policy. The client may send its own value in `voice.start`; when a config value is set it overrides the client.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `voice.turn_strategy` | string | `"legacy"` | Turn commit strategy. Values: `legacy` (commit after VAD end-of-speech), `balanced` (commit on first strong Deepgram streaming final, with speculative LLM). |
+| `voice.turn_strategy` | string | `"legacy"` | Turn commit strategy. Values: `legacy` (commit after VAD end-of-speech), `balanced` (commit on first strong Deepgram streaming final). |
+| `voice.barge_in` | bool | _(client decides, default `true`)_ | When set, overrides the client's `features.barge_in` for all sessions on this gateway. Useful to enforce a no-interruption policy deployment-wide. |
 
-Set in `voice.start` params by the client, or via the config file for gateway-wide default.
-
-### 1.5 Context window budget (L2.4)
+### 1.4 Context window budget (L2.4)
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -94,11 +88,6 @@ No runtime rollback needed. All new config fields default to the unchanged behav
 (batch Whisper, batch OpenAI TTS, energy VAD). Simply removing the new API keys from the
 config or env reverts to the pre-P0 provider selection.
 
-### L1.1 — Silero VAD
-Set `features.silero_vad = false` in the client `voice.start` params (or update the
-default in the gateway config). The pipeline immediately falls back to `EnergyVAD`.
-No restart required if the client sends the updated feature flag.
-
 ### L1.2 — Deepgram streaming STT
 Remove or unset `DEEPGRAM_API_KEY` and remove the `deepgram` entry from
 `models.providers`. The pipeline auto-falls back to batch Whisper for all new sessions.
@@ -112,10 +101,6 @@ next session; no restart required. Gateway-wide: update `config.yaml` and send `
 Remove or unset `ELEVENLABS_API_KEY` and remove the `elevenlabs` entry from
 `models.providers`. The TTS adapter immediately falls back to batch OpenAI TTS for all
 new synthesis requests. No restart required.
-
-### L2.1 — Speculative LLM
-Speculative LLM is enabled automatically when `turn_strategy = balanced`. To disable:
-set `voice.turn_strategy = legacy` (see L2.2 rollback above).
 
 ### L2.4 — Context window pruning
 Set `MaxContextTokens = 0` in both `VoiceSendMessageParams` call sites in
@@ -154,7 +139,7 @@ Fields:
 | `tts_ms` p50 | ≤ 100 ms | Batch OpenAI TTS |
 | `tts_ms` p50 | ≤ 350 ms | ElevenLabs `eleven_flash_v2_5`; TTFB is structurally 260–329 ms |
 | `llm_ttfb_ms` | no regression | LLM latency is not a target; track for regressions only |
-| `e2e_ms` | informational | Bimodal: speculative turns ~79 ms, non-speculative ~1500 ms+. Use per-scenario `max_response_latency_ms` in `suite.yaml` instead of cross-suite p50. |
+| `e2e_ms` | informational | Use per-scenario `max_response_latency_ms` in `suite.yaml` instead of cross-suite p50. |
 
 ### 3.3 Reading `voicee2e` reports
 
@@ -200,16 +185,7 @@ Sessions fall back to batch Whisper automatically; `stt_ms` spikes to 400–800 
 3. If quota is exhausted, revert to batch OpenAI TTS by unsetting `ELEVENLABS_API_KEY` (see L2.3 rollback). No restart required — takes effect on next session.
 4. `tts_ms` will drop to batch TTS latency (~100 ms p50) after rollback.
 
-### 4.3 Speculative run divergence rate > 20%
-
-**Symptom:** Gateway logs show frequent `voice speculative run cancelled` messages. Users hear the wrong response or experience extra latency from speculation overhead.
-
-**Response:**
-1. Check Deepgram streaming confidence by enabling `VOICE_E2E_DEBUG=1` and reviewing `transcript.interim` confidence values in logs.
-2. If confidence is low (< 0.30), the `speculativeMinConfidence` guard should prevent most speculation. Check `pipeline.go` constants.
-3. Roll back speculative LLM: set `voice.turn_strategy = legacy` (see L2.2 rollback).
-
-### 4.4 Context pruning logs appearing too frequently
+### 4.3 Context pruning logs appearing too frequently
 
 **Symptom:** Gateway DEBUG logs show `voice context pruned: kept=N dropped=M` very often, suggesting the 16k budget is being hit mid-conversation.
 

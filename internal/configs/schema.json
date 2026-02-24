@@ -212,11 +212,10 @@
           "default": "legacy",
           "enum": ["legacy", "balanced"]
         },
-        "speculative_llm_enabled": {
+        "barge_in": {
           "type": "boolean",
-          "title": "Speculative LLM Enabled",
-          "description": "Enable speculative LLM runs on stable interim transcripts for lower latency.",
-          "default": true
+          "title": "Barge-In",
+          "description": "Gateway-wide policy for barge-in interruption. When set, overrides the per-session client value. Unset means the client controls barge-in per session (default: true)."
         }
       }
     },

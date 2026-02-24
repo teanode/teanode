@@ -59,12 +59,10 @@ type voiceStartParams struct {
 		Channels     int    `json:"channels"`
 	} `json:"audio_out"`
 	Features struct {
-		ServerVAD     bool   `json:"server_vad"`
-		ServerTurn    bool   `json:"server_turn"`
-		ServerDenoise bool   `json:"server_denoise"`
-		SileroVAD     bool   `json:"silero_vad,omitempty"`
-		BargeIn       bool   `json:"barge_in"`
-		TurnStrategy  string `json:"turn_strategy,omitempty"`
+		ServerVAD    bool   `json:"server_vad"`
+		ServerTurn   bool   `json:"server_turn"`
+		BargeIn      bool   `json:"barge_in"`
+		TurnStrategy string `json:"turn_strategy,omitempty"`
 	} `json:"features"`
 }
 
@@ -255,7 +253,6 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	start.AudioOut.Channels = 1
 	start.Features.ServerVAD = true
 	start.Features.ServerTurn = true
-	start.Features.ServerDenoise = false
 	start.Features.BargeIn = true
 	if self.configJSON != "" {
 		self.applyConfig(&start)
@@ -359,11 +356,9 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 func (self *Client) applyConfig(start *voiceStartParams) {
 	var cfg struct {
 		Features struct {
-			ServerVAD     *bool `json:"server_vad"`
-			ServerTurn    *bool `json:"server_turn"`
-			ServerDenoise *bool `json:"server_denoise"`
-			SileroVAD     *bool `json:"silero_vad"`
-			BargeIn       *bool `json:"barge_in"`
+			ServerVAD  *bool `json:"server_vad"`
+			ServerTurn *bool `json:"server_turn"`
+			BargeIn    *bool `json:"barge_in"`
 		} `json:"features"`
 		Voice struct {
 			TurnStrategy string `json:"turn_strategy"`
@@ -377,12 +372,6 @@ func (self *Client) applyConfig(start *voiceStartParams) {
 	}
 	if cfg.Features.ServerTurn != nil {
 		start.Features.ServerTurn = *cfg.Features.ServerTurn
-	}
-	if cfg.Features.ServerDenoise != nil {
-		start.Features.ServerDenoise = *cfg.Features.ServerDenoise
-	}
-	if cfg.Features.SileroVAD != nil {
-		start.Features.SileroVAD = *cfg.Features.SileroVAD
 	}
 	if cfg.Features.BargeIn != nil {
 		start.Features.BargeIn = *cfg.Features.BargeIn
