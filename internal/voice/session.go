@@ -21,13 +21,11 @@ type AudioFormat struct {
 
 // Features defines enabled voice pipeline features.
 type Features struct {
-	ServerVAD             bool   `json:"server_vad"`
-	ServerTurn            bool   `json:"server_turn"`
-	ServerDenoise         bool   `json:"server_denoise"`
-	SileroVAD             bool   `json:"silero_vad,omitempty"`
-	BargeIn               bool   `json:"barge_in"`
-	TurnStrategy          string `json:"turn_strategy,omitempty"`
-	SpeculativeLLMEnabled bool   `json:"speculative_llm_enabled,omitempty"`
+	ServerVAD     bool   `json:"server_vad"`
+	ServerTurn    bool   `json:"server_turn"`
+	ServerDenoise bool   `json:"server_denoise"`
+	BargeIn       bool   `json:"barge_in"`
+	TurnStrategy  string `json:"turn_strategy,omitempty"`
 }
 
 type turnEventPayload struct {
@@ -63,34 +61,32 @@ type Session struct {
 	bargeInOnce sync.Once
 	wg          sync.WaitGroup
 
-	stateMu            sync.RWMutex
-	currentTurnId      string
-	currentRunId       string
-	currentResponseId  string
+	stateMu               sync.RWMutex
+	currentTurnId         string
+	currentRunId          string
+	currentResponseId     string
 	currentResponseTurnID string
-	lastCommittedText  string
-	runCancel          func()
-	ttsCancel          func()
-	transcribeInFlight map[string]struct{}
-	committedTurns     map[string]struct{}
-	canceledRuns       map[string]struct{}
-	runTurn            map[string]string
-	pendingTurns       []PendingTurn
-	maxPendingTurns    int
-	explicitAudioBuf   []byte
-	speechReady        bool
-	streamingSTTStream VoiceTranscribeStream
-	interimText        string
-	interimBestText    string
-	strategy           TurnStrategy
-	speechStartedAt    time.Time
-	lastBargeInAt      time.Time
-	observers          []TurnObserver
-
-	speculativeMu        sync.Mutex
-	speculativeRunId     string
-	speculativeText      string
-	speculativeStartedAt time.Time
+	lastCommittedText     string
+	runCancel             func()
+	ttsCancel             func()
+	transcribeInFlight    map[string]struct{}
+	committedTurns        map[string]struct{}
+	canceledRuns          map[string]struct{}
+	runTurn               map[string]string
+	pendingTurns          []PendingTurn
+	maxPendingTurns       int
+	explicitAudioBuf      []byte
+	speechReady           bool
+	streamingSTTStream    VoiceTranscribeStream
+	interimText           string
+	interimBestText       string
+	streamingFinalTurnID  string
+	streamingFinalText    string
+	strategy              TurnStrategy
+	speechStartedAt       time.Time
+	userSpeaking          bool
+	lastBargeInAt         time.Time
+	observers             []TurnObserver
 
 	outSeq atomic.Uint64
 	inSeq  atomic.Uint64
@@ -297,14 +293,6 @@ func (self *Session) SetCurrentTurnId(id string) {
 	self.currentTurnId = id
 }
 
-func (self *Session) GetCurrentTurnID() string {
-	return self.GetCurrentTurnId()
-}
-
-func (self *Session) SetCurrentTurnID(id string) {
-	self.SetCurrentTurnId(id)
-}
-
 func (self *Session) GetCurrentRunId() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
@@ -315,14 +303,6 @@ func (self *Session) SetCurrentRunId(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentRunId = id
-}
-
-func (self *Session) GetCurrentRunID() string {
-	return self.GetCurrentRunId()
-}
-
-func (self *Session) SetCurrentRunID(id string) {
-	self.SetCurrentRunId(id)
 }
 
 func (self *Session) ClearCurrentRun() {
@@ -369,14 +349,6 @@ func (self *Session) SetCurrentResponseId(id string) {
 	if id == "" {
 		self.currentResponseTurnID = ""
 	}
-}
-
-func (self *Session) GetCurrentResponseID() string {
-	return self.GetCurrentResponseId()
-}
-
-func (self *Session) SetCurrentResponseID(id string) {
-	self.SetCurrentResponseId(id)
 }
 
 func (self *Session) ClearCurrentResponse() {
@@ -655,6 +627,25 @@ func (self *Session) getBestInterimText() string {
 	return self.interimText
 }
 
+func (self *Session) setStreamingFinalText(turnId, text string) {
+	self.stateMu.Lock()
+	self.streamingFinalTurnID = turnId
+	self.streamingFinalText = text
+	self.stateMu.Unlock()
+}
+
+func (self *Session) takeStreamingFinalText(turnId string) string {
+	self.stateMu.Lock()
+	defer self.stateMu.Unlock()
+	if self.streamingFinalTurnID != turnId {
+		return ""
+	}
+	text := self.streamingFinalText
+	self.streamingFinalTurnID = ""
+	self.streamingFinalText = ""
+	return text
+}
+
 func (self *Session) setSpeechStartedAt(ts time.Time) {
 	self.stateMu.Lock()
 	self.speechStartedAt = ts
@@ -686,6 +677,18 @@ func (self *Session) speechDurationMs(now time.Time) int {
 	return int(now.Sub(self.speechStartedAt).Milliseconds())
 }
 
+func (self *Session) setUserSpeaking(speaking bool) {
+	self.stateMu.Lock()
+	self.userSpeaking = speaking
+	self.stateMu.Unlock()
+}
+
+func (self *Session) IsUserSpeaking() bool {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.userSpeaking
+}
+
 func (self *Session) notifyObservers(fn func(observer TurnObserver)) {
 	if len(self.observers) == 0 {
 		return
@@ -696,28 +699,4 @@ func (self *Session) notifyObservers(fn func(observer TurnObserver)) {
 		}
 		fn(observer)
 	}
-}
-
-func (self *Session) getSpeculativeRun() (runId, text string, startedAt time.Time) {
-	self.speculativeMu.Lock()
-	defer self.speculativeMu.Unlock()
-	return self.speculativeRunId, self.speculativeText, self.speculativeStartedAt
-}
-
-func (self *Session) setSpeculativeRun(runId, text string, startedAt time.Time) {
-	self.speculativeMu.Lock()
-	self.speculativeRunId = runId
-	self.speculativeText = text
-	self.speculativeStartedAt = startedAt
-	self.speculativeMu.Unlock()
-}
-
-func (self *Session) clearSpeculativeRun() (runId string) {
-	self.speculativeMu.Lock()
-	runId = self.speculativeRunId
-	self.speculativeRunId = ""
-	self.speculativeText = ""
-	self.speculativeStartedAt = time.Time{}
-	self.speculativeMu.Unlock()
-	return runId
 }

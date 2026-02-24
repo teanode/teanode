@@ -10,10 +10,14 @@ import (
 )
 
 type pipelineMockTranscriber struct {
-	text string
+	text  string
+	delay time.Duration
 }
 
 func (self *pipelineMockTranscriber) Transcribe(_ context.Context, _ VoiceTranscribeRequest) (*VoiceTranscribeResponse, error) {
+	if self.delay > 0 {
+		time.Sleep(self.delay)
+	}
 	return &VoiceTranscribeResponse{Text: self.text}, nil
 }
 
@@ -286,7 +290,7 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 
 func TestTranscribeQueuesWhenRunActive(t *testing.T) {
 	s, deps := newPipelineSession("hello from queued turn")
-	s.SetCurrentRunID("run-active")
+	s.SetCurrentRunId("run-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
 
@@ -300,7 +304,7 @@ func TestTranscribeQueuesWhenRunActive(t *testing.T) {
 
 func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
 	s, deps := newPipelineSession("hello from queued turn")
-	s.SetCurrentRunID("run-active")
+	s.SetCurrentRunId("run-active")
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
 	if !s.HasPendingTurns() {
 		t.Fatal("expected queued turn before drain")
@@ -319,7 +323,7 @@ func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
 	if parameters.SystemPromptSuffix == "" {
 		t.Fatal("expected voice system prompt suffix on committed turn")
 	}
-	if s.GetCurrentRunID() == "" {
+	if s.GetCurrentRunId() == "" {
 		t.Fatal("expected run id set after committing drained turn")
 	}
 }
@@ -340,7 +344,7 @@ func TestCommitVoiceTurnIncludesPromptSuffix(t *testing.T) {
 
 func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 	s, deps := newPipelineSession("unused")
-	s.SetCurrentRunID("run-active")
+	s.SetCurrentRunId("run-active")
 
 	finished := make(chan struct{})
 	go func() {
@@ -354,7 +358,7 @@ func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return deps.abortCount() > 0 && s.GetCurrentRunID() == ""
+		return deps.abortCount() > 0 && s.GetCurrentRunId() == ""
 	})
 
 	close(s.doneCh)
@@ -385,7 +389,7 @@ func TestTranscribeEmptyTextEmitsDroppedReason(t *testing.T) {
 func TestQueueOverflowDropsOldestWithReason(t *testing.T) {
 	s, deps, rec := newPipelineSessionWithEvents("queued transcript text")
 	s.maxPendingTurns = 1
-	s.SetCurrentRunID("run-active")
+	s.SetCurrentRunId("run-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
 	s.transcribeAndSend("turn-2", makePCMFrame(12000, 320))
@@ -405,7 +409,7 @@ func TestQueueOverflowDropsOldestWithReason(t *testing.T) {
 
 func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 	s, deps := newPipelineSession("unused")
-	s.SetCurrentResponseID("response-active")
+	s.SetCurrentResponseId("response-active")
 
 	finished := make(chan struct{})
 	go func() {
@@ -419,7 +423,7 @@ func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return deps.abortCount() == 0 && s.GetCurrentResponseID() == ""
+		return deps.abortCount() == 0 && s.GetCurrentResponseId() == ""
 	})
 
 	close(s.doneCh)
@@ -683,38 +687,6 @@ func TestInputCommit_RaceCondition(t *testing.T) {
 	}
 }
 
-func TestSileroVAD_FallbackOnInitError(t *testing.T) {
-	t.Setenv("TEANODE_SILERO_URL", "://invalid-endpoint")
-	s, _, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
-		ServerVAD:  true,
-		ServerTurn: true,
-		SileroVAD:  true,
-		BargeIn:    true,
-	})
-
-	finished := make(chan struct{})
-	go func() {
-		s.audioInputLoop()
-		close(finished)
-	}()
-
-	loud := makeFrame(12000, 320)
-	for i := 0; i < 12; i++ {
-		s.audioInCh <- loud
-	}
-
-	waitFor(t, 500*time.Millisecond, func() bool {
-		return rec.findTurnEvent("speech_started") != nil
-	})
-
-	close(s.doneCh)
-	select {
-	case <-finished:
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("audioInputLoop did not stop after done")
-	}
-}
-
 func TestStreamingTranscribeLoop_FallbackOnError(t *testing.T) {
 	stream := newPipelineMockTranscribeStream()
 	s, deps, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
@@ -860,6 +832,49 @@ func TestTTSSynthLoop_BatchFallback(t *testing.T) {
 	}
 }
 
+func TestTTSSynthLoop_WaitsWhileUserSpeaking(t *testing.T) {
+	s, deps := newPipelineSessionWithFeatures("unused", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+	registry.synthesizer = &pipelineMockSynthesizer{
+		synthesizeStreamFn: func(context.Context, string, string, int) (<-chan []byte, error) {
+			out := make(chan []byte, 1)
+			out <- []byte{1, 2, 3}
+			close(out)
+			return out, nil
+		},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		s.ttsSynthLoop()
+		close(done)
+	}()
+
+	s.setUserSpeaking(true)
+	s.ttsInCh <- "wait until speech ended"
+	time.Sleep(100 * time.Millisecond)
+	if len(s.audioOutCh) != 0 {
+		t.Fatal("expected no TTS audio while user is speaking")
+	}
+
+	s.setUserSpeaking(false)
+	waitFor(t, time.Second, func() bool { return len(s.audioOutCh) > 0 })
+
+	close(s.doneCh)
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("ttsSynthLoop did not stop after done")
+	}
+}
+
 func TestBargeIn_CancelsTTSStream(t *testing.T) {
 	s, deps := newPipelineSessionWithFeatures("unused", Features{
 		ServerVAD:  true,
@@ -958,176 +973,127 @@ func TestAudioInputLoop_StreamingNoInterimFallsBackToBatch(t *testing.T) {
 	}
 }
 
-func TestSpeculative_Promoted(t *testing.T) {
+func TestAudioInputLoop_StreamingFallbackTranscriptionIsNonBlocking(t *testing.T) {
 	stream := newPipelineMockTranscribeStream()
-	s, deps, _ := newPipelineSessionWithEventsAndFeatures("unused", Features{
-		ServerVAD:             true,
-		ServerTurn:            true,
-		BargeIn:               true,
-		SpeculativeLLMEnabled: true,
+	s, deps, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
 	})
-	registry := deps.registry.(*pipelineMockProviderRegistry)
+	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+	mockTranscriber, ok := registry.transcriber.(*pipelineMockTranscriber)
+	if !ok {
+		t.Fatal("expected pipeline mock transcriber")
+	}
+	mockTranscriber.delay = 250 * time.Millisecond
 	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
 	if !s.startStreamingTranscriber() {
-		t.Fatal("expected streaming transcriber")
+		t.Fatal("expected streaming transcriber to start")
 	}
-	s.startNewTurn("turn-spec")
 
-	done := make(chan struct{})
+	// Shrink the input queue so blocking behavior is easy to detect.
+	s.audioInCh = make(chan []byte, 1)
+
+	audioDone := make(chan struct{})
 	go func() {
-		s.streamingTranscribeLoop()
-		close(done)
+		s.audioInputLoop()
+		close(audioDone)
 	}()
 
-	interim := "hello world this is a speculative interim transcript"
-	stream.events <- VoiceTranscribeEvent{Type: "interim", Text: interim, Confidence: 0.9}
-	waitFor(t, time.Second, func() bool { return deps.sendCount() == 1 })
-	if !deps.lastSend().IsSpeculative {
-		t.Fatal("expected first send to be speculative")
+	// First utterance triggers fallback transcription after end-of-speech.
+	loud := makePCMFrame(12000, 320)
+	silence := makePCMFrame(0, 320)
+	for i := 0; i < 12; i++ {
+		s.audioInCh <- loud
+	}
+	for i := 0; i < 25; i++ {
+		s.audioInCh <- silence
 	}
 
-	stream.events <- VoiceTranscribeEvent{Type: "final", Text: interim}
-	waitFor(t, time.Second, func() bool {
-		return s.GetCurrentRunId() == "run-1" && s.IsTurnCommitted("turn-spec")
+	// Keep feeding audio while fallback transcription is in progress.
+	droppedFrames := 0
+	deadline := time.Now().Add(180 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if !s.enqueueAudioIn(loud) {
+			droppedFrames++
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if droppedFrames > 0 {
+		t.Fatalf("expected no dropped audio frames while fallback transcription runs, got %d drops", droppedFrames)
+	}
+
+	waitFor(t, 2*time.Second, func() bool { return deps.sendCount() == 1 })
+
+	close(s.doneCh)
+	select {
+	case <-audioDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("audioInputLoop did not stop after done")
+	}
+}
+
+func TestAudioInputLoop_StreamingInterimFallsBackToBatch(t *testing.T) {
+	stream := newPipelineMockTranscribeStream()
+	s, deps, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
 	})
-	if deps.sendCount() != 1 {
-		t.Fatalf("expected exactly one send on speculative promotion, got %d", deps.sendCount())
+	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	if !s.startStreamingTranscriber() {
+		t.Fatal("expected streaming transcriber to start")
+	}
+
+	streamingDone := make(chan struct{})
+	go func() {
+		s.streamingTranscribeLoop()
+		close(streamingDone)
+	}()
+
+	audioDone := make(chan struct{})
+	go func() {
+		s.audioInputLoop()
+		close(audioDone)
+	}()
+
+	loud := makePCMFrame(12000, 320)
+	silence := makePCMFrame(0, 320)
+	for i := 0; i < 12; i++ {
+		s.audioInCh <- loud
+	}
+	stream.events <- VoiceTranscribeEvent{
+		Type:       "interim",
+		Text:       "interim transcript should not bypass batch",
+		Confidence: 0.95,
+	}
+	for i := 0; i < 25; i++ {
+		s.audioInCh <- silence
+	}
+
+	waitFor(t, 2*time.Second, func() bool { return deps.sendCount() == 1 })
+	if deps.lastSend().Message != "fallback transcript" {
+		t.Fatalf("unexpected transcript source: %q", deps.lastSend().Message)
 	}
 
 	close(s.doneCh)
+	select {
+	case <-audioDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("audioInputLoop did not stop after done")
+	}
 	_ = stream.Close()
 	select {
-	case <-done:
-	case <-time.After(300 * time.Millisecond):
-		t.Fatal("streamingTranscribeLoop did not stop")
-	}
-}
-
-func TestSpeculative_Cancelled_Diverged(t *testing.T) {
-	stream := newPipelineMockTranscribeStream()
-	s, deps, _ := newPipelineSessionWithEventsAndFeatures("unused", Features{
-		ServerVAD:             true,
-		ServerTurn:            true,
-		BargeIn:               true,
-		SpeculativeLLMEnabled: true,
-	})
-	registry := deps.registry.(*pipelineMockProviderRegistry)
-	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
-	if !s.startStreamingTranscriber() {
-		t.Fatal("expected streaming transcriber")
-	}
-	s.startNewTurn("turn-spec")
-
-	done := make(chan struct{})
-	go func() {
-		s.streamingTranscribeLoop()
-		close(done)
-	}()
-
-	stream.events <- VoiceTranscribeEvent{
-		Type:       "interim",
-		Text:       "hello friend this is a speculative transcript",
-		Confidence: 0.95,
-	}
-	waitFor(t, time.Second, func() bool { return deps.sendCount() == 1 })
-
-	stream.events <- VoiceTranscribeEvent{
-		Type: "final",
-		Text: "goodbye world this final transcript diverges strongly",
-	}
-	waitFor(t, time.Second, func() bool { return deps.sendCount() == 2 })
-	if deps.cancelCount() == 0 {
-		t.Fatal("expected speculative run cancellation on divergence")
-	}
-	if deps.lastSend().IsSpeculative {
-		t.Fatal("expected final committed send to be non-speculative")
-	}
-
-	close(s.doneCh)
-	_ = stream.Close()
-	select {
-	case <-done:
-	case <-time.After(300 * time.Millisecond):
-		t.Fatal("streamingTranscribeLoop did not stop")
-	}
-}
-
-func TestSpeculative_CancelledOnBargeIn(t *testing.T) {
-	s, deps := newPipelineSessionWithFeatures("unused", Features{
-		ServerVAD:             true,
-		ServerTurn:            true,
-		BargeIn:               true,
-		SpeculativeLLMEnabled: true,
-	})
-	s.startSpeculativeRun("hello this interim transcript is long enough")
-	waitFor(t, time.Second, func() bool { return deps.sendCount() == 1 })
-
-	s.triggerBargeIn()
-	if deps.cancelCount() != 1 {
-		t.Fatalf("expected speculative cancel on barge-in, got %d", deps.cancelCount())
-	}
-}
-
-func TestSpeculative_GuardRail_RecentBargeIn(t *testing.T) {
-	s, deps := newPipelineSessionWithFeatures("unused", Features{
-		ServerVAD:             true,
-		ServerTurn:            true,
-		BargeIn:               true,
-		SpeculativeLLMEnabled: true,
-	})
-	s.setLastBargeInAt(time.Now())
-	s.maybeStartOrRefreshSpeculativeRun(VoiceTranscribeEvent{
-		Type:       "interim",
-		Text:       "hello this interim transcript is long enough",
-		Confidence: 0.95,
-	})
-	if deps.sendCount() != 0 {
-		t.Fatalf("expected no speculative run after recent barge-in, got %d sends", deps.sendCount())
-	}
-}
-
-func TestSpeculative_GuardRail_NoActiveTurn(t *testing.T) {
-	s, deps := newPipelineSessionWithFeatures("unused", Features{
-		ServerVAD:             true,
-		ServerTurn:            true,
-		BargeIn:               true,
-		SpeculativeLLMEnabled: true,
-	})
-	s.maybeStartOrRefreshSpeculativeRun(VoiceTranscribeEvent{
-		Type:       "interim",
-		Text:       "hello this interim transcript is long enough",
-		Confidence: 0.95,
-	})
-	if deps.sendCount() != 0 {
-		t.Fatalf("expected no speculative run without active turn, got %d sends", deps.sendCount())
-	}
-}
-
-func TestSpeculative_Race(t *testing.T) {
-	s, deps := newPipelineSessionWithFeatures("unused", Features{
-		ServerVAD:             true,
-		ServerTurn:            true,
-		BargeIn:               true,
-		SpeculativeLLMEnabled: true,
-	})
-	s.startNewTurn("turn-race")
-	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			for j := 0; j < 200; j++ {
-				s.maybeStartOrRefreshSpeculativeRun(VoiceTranscribeEvent{
-					Type:       "interim",
-					Text:       fmt.Sprintf("hello speculative message from goroutine %d iteration %d", i, j),
-					Confidence: 0.95,
-				})
-			}
-		}(i)
-	}
-	wg.Wait()
-	if deps.sendCount() == 0 {
-		t.Fatal("expected at least one speculative send")
+	case <-streamingDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("streamingTranscribeLoop did not stop after done")
 	}
 }
 

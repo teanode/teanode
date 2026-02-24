@@ -797,11 +797,6 @@ func (self *gateway) StartVoiceSession(
 	if strings.TrimSpace(features.TurnStrategy) == "" && self.config != nil {
 		features.TurnStrategy = strings.TrimSpace(self.config.Voice.TurnStrategy)
 	}
-	if self.config != nil && self.config.Voice.SpeculativeLLMEnabled != nil {
-		features.SpeculativeLLMEnabled = *self.config.Voice.SpeculativeLLMEnabled
-	} else {
-		features.SpeculativeLLMEnabled = true
-	}
 	adapter := &voiceGatewayAdapter{gw: self, userId: userId}
 	return voice.NewSession(sessionId, conversationId, agentId, promptSuffix, audioIn, audioOut, features, adapter, sendJson, sendBinary), nil
 }
@@ -819,7 +814,6 @@ func (self *voiceGatewayAdapter) SendMessage(ctx context.Context, parameters voi
 		Message:            parameters.Message,
 		Model:              parameters.Model,
 		SystemPromptSuffix: parameters.SystemPromptSuffix,
-		IsSpeculative:      parameters.IsSpeculative,
 		MaxContextTokens:   parameters.MaxContextTokens,
 		Origin:             "voice",
 	}, nil)
