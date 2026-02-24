@@ -3,7 +3,6 @@ package voice
 import (
 	"context"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/op/go-logging"
@@ -94,7 +93,7 @@ func (self *Session) audioInputLoop() {
 				turnId := self.newTurnId()
 				self.startNewTurn(turnId)
 				_, balanced := self.strategy.(BalancedStrategy)
-				if balanced && self.Features.BargeIn && (self.GetCurrentRunId() != "" || self.GetCurrentResponseId() != "") {
+				if balanced && self.Features.BargeIn && self.BargeInIsArmed() {
 					self.triggerBargeIn()
 				}
 				self.setSpeechStartedAt(time.Now())
@@ -119,6 +118,11 @@ func (self *Session) audioInputLoop() {
 			}
 
 			if speaking {
+				// Snapshot per-frame state once to avoid repeated lock acquisitions.
+				currentTurnId := self.GetCurrentTurnId()
+				runActive := self.RunIsActive()
+				responseActive := self.ResponseIsActive()
+
 				// Current frame is already included when speech just started via pre-roll.
 				if !started {
 					speechBuf = append(speechBuf, frame...)
@@ -143,8 +147,6 @@ func (self *Session) audioInputLoop() {
 						_ = sendStreamFrame(frame)
 					}
 				}
-				runActive := self.GetCurrentRunId() != ""
-				responseActive := self.GetCurrentResponseId() != ""
 				if self.Features.BargeIn && (runActive || responseActive) {
 					decision := self.strategy.EvaluateBargeIn(TurnContext{
 						VADScore:         score,
@@ -161,7 +163,7 @@ func (self *Session) audioInputLoop() {
 						if !candidateActive {
 							candidateActive = true
 							self.sendVoiceEvent("turn.event", turnEventPayload{
-								TurnID:   self.GetCurrentTurnId(),
+								TurnID:   currentTurnId,
 								Event:    "barge_in_candidate",
 								VADScore: score,
 							})
@@ -170,7 +172,7 @@ func (self *Session) audioInputLoop() {
 						if candidateActive {
 							candidateActive = false
 							self.sendVoiceEvent("turn.event", turnEventPayload{
-								TurnID:   self.GetCurrentTurnId(),
+								TurnID:   currentTurnId,
 								Event:    "barge_in_suppressed",
 								VADScore: score,
 							})
@@ -271,7 +273,9 @@ func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
 			pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
 			return
 		}
+		self.transcriptionWg.Add(1)
 		go func(tid string, audio []byte) {
+			defer self.transcriptionWg.Done()
 			defer self.FinishTurnTranscription(tid)
 			deadline := time.Now().Add(streamingFinalGracePeriod)
 			for time.Now().Before(deadline) {
@@ -300,7 +304,9 @@ func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
 		pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
 		return
 	}
+	self.transcriptionWg.Add(1)
 	go func(tid string, audio []byte) {
+		defer self.transcriptionWg.Done()
 		defer self.FinishTurnTranscription(tid)
 		self.transcribeAndSend(tid, audio)
 	}(turnId, captured)
@@ -425,11 +431,16 @@ func (self *Session) ttsSynthLoop() {
 				pipelineLog.Warningf("voice synthesis skipped: provider registry unavailable")
 				continue
 			}
-			for self.IsUserSpeaking() {
+			// Wait without polling until the user stops speaking.
+			// getUserSpeakingCh returns an open channel while speaking and nil
+			// when silent; select on a nil channel blocks forever, so we only
+			// enter the select when there is actually something to wait on.
+			if ch := self.getUserSpeakingCh(); ch != nil {
 				select {
 				case <-self.doneCh:
 					return
-				case <-time.After(25 * time.Millisecond):
+				case <-ch:
+					// channel closed by setUserSpeaking(false) — user stopped speaking
 				}
 			}
 			synth, synthProvider, ok := self.deps.ProviderRegistry().FindSynthesizer()
@@ -437,7 +448,7 @@ func (self *Session) ttsSynthLoop() {
 				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
 			}
-			hadResponse := self.GetCurrentResponseId() != ""
+			hadResponse := self.ResponseIsActive()
 			responseStarted := hadResponse
 
 			ttsCtx, cancel := context.WithCancel(context.Background())
@@ -601,10 +612,10 @@ func (self *Session) transcribeTextAndSend(turnId, rawText string) {
 		return
 	}
 	// If an older response already started speaking, interrupt it and prioritize this newer user turn.
-	if self.GetCurrentResponseId() != "" {
+	if self.ResponseIsActive() {
 		self.triggerBargeIn()
 	}
-	if self.GetCurrentRunId() != "" {
+	if self.RunIsActive() {
 		self.enqueueTranscriptTurn(turnId, text)
 		return
 	}
@@ -687,7 +698,7 @@ func (self *Session) enqueueTranscriptTurn(turnId, text string) {
 }
 
 func (self *Session) commitNextPendingTurn() {
-	if self.GetCurrentRunId() != "" {
+	if self.RunIsActive() {
 		return
 	}
 	next, ok := self.DequeuePendingTurn()
@@ -702,24 +713,31 @@ func (self *Session) commitNextPendingTurn() {
 }
 
 func (self *Session) triggerBargeIn() {
-	self.bargeInOnce.Do(func() {
-		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunId(), self.GetCurrentResponseId())
-		self.setLastBargeInAt(time.Now())
-		runId := self.GetCurrentRunId()
-		self.MarkRunCanceled(runId)
-		if prev := self.SwapTTSCancel(nil); prev != nil {
-			prev()
-		}
-		self.drainTTSQueue()
-		self.drainAudioOutQueue()
-		self.trySendFlushFrame()
-		if runId != "" && self.deps != nil {
-			self.deps.AbortRun(runId)
-		}
-		self.ClearCurrentRun()
-		self.ClearCurrentResponse()
-		self.sendVoiceEvent("turn.event", turnEventPayload{Event: "barge_in_triggered"})
-	})
+	// Exactly-once per turn using a generation counter instead of sync.Once.
+	// bargeInFired holds the last generation for which barge-in fired (0 = none).
+	// CAS(gen-1 → gen) succeeds only for the first caller in each generation,
+	// and stale callers from a previous turn will CAS against an already-advanced
+	// fired value and safely return without firing.
+	gen := self.bargeInGen.Load()
+	if !self.bargeInFired.CompareAndSwap(gen-1, gen) {
+		return // already fired for this generation
+	}
+	pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunId(), self.GetCurrentResponseId())
+	self.setLastBargeInAt(time.Now())
+	runId := self.GetCurrentRunId()
+	self.MarkRunCanceled(runId)
+	if prev := self.SwapTTSCancel(nil); prev != nil {
+		prev()
+	}
+	self.drainTTSQueue()
+	self.drainAudioOutQueue()
+	self.trySendFlushFrame()
+	if runId != "" && self.deps != nil {
+		self.deps.AbortRun(runId)
+	}
+	self.ClearCurrentRun()
+	self.ClearCurrentResponse()
+	self.sendVoiceEvent("turn.event", turnEventPayload{Event: "barge_in_triggered"})
 }
 
 func (self *Session) drainTTSQueue() {
@@ -749,8 +767,12 @@ func (self *Session) startNewTurn(turnId string) {
 	self.interimBestText = ""
 	self.streamingFinalTurnID = ""
 	self.streamingFinalText = ""
-	self.bargeInOnce = sync.Once{}
 	self.stateMu.Unlock()
+	// Advance the generation counter. Set bargeInFired to newGen-1 so that the
+	// CAS(gen-1 → gen) in triggerBargeIn succeeds exactly once for this new
+	// generation, regardless of whether the previous generation ever fired.
+	newGen := self.bargeInGen.Add(1)
+	self.bargeInFired.Store(newGen - 1)
 }
 
 func (self *Session) trySendFlushFrame() {

@@ -56,36 +56,59 @@ type Session struct {
 	sendJsonFn   func(any)
 	sendBinaryFn func([]byte)
 
-	closeOnce   sync.Once
-	bargeInOnce sync.Once
-	wg          sync.WaitGroup
+	closeOnce       sync.Once
+	wg              sync.WaitGroup
+	transcriptionWg sync.WaitGroup // tracks goroutines spawned by commitCapturedTurn / InputCommit
 
-	stateMu               sync.RWMutex
-	currentTurnId         string
+	// Barge-in generation: bargeInGen is incremented by startNewTurn each time
+	// a new turn begins. bargeInFired is set to newGen-1 by startNewTurn,
+	// establishing the precondition for triggerBargeIn's CAS(gen-1 → gen).
+	// That CAS succeeds exactly once per generation even under concurrent
+	// callers, eliminating the sync.Once reset race that existed when
+	// startNewTurn wrote bargeInOnce = sync.Once{} under stateMu.
+	// Invariant: bargeInFired == bargeInGen-1 means "not yet fired this turn".
+	// bargeInGen starts at 1; bargeInFired starts at 0, so the first turn's
+	// CAS(0 → 1) works without an explicit startNewTurn call.
+	bargeInGen   atomic.Uint64
+	bargeInFired atomic.Uint64
+
+	stateMu sync.RWMutex // guards all fields below
+
+	// Turn lifecycle: identity and commit tracking.
+	currentTurnId      string
+	pendingTurns       []PendingTurn
+	maxPendingTurns    int
+	committedTurns     map[string]struct{}
+	lastCommittedText  string
+	transcribeInFlight map[string]struct{}
+
+	// Run/response lifecycle: active run and TTS cancellation.
 	currentRunId          string
 	currentResponseId     string
 	currentResponseTurnID string
-	lastCommittedText     string
 	runCancel             func()
 	ttsCancel             func()
-	transcribeInFlight    map[string]struct{}
-	committedTurns        map[string]struct{}
 	canceledRuns          map[string]struct{}
 	runTurn               map[string]string
-	pendingTurns          []PendingTurn
-	maxPendingTurns       int
-	explicitAudioBuf      []byte
-	speechReady           bool
-	streamingSTTStream    VoiceTranscribeStream
-	interimText           string
-	interimBestText       string
-	streamingFinalTurnID  string
-	streamingFinalText    string
-	strategy              TurnStrategy
-	speechStartedAt       time.Time
-	userSpeaking          bool
-	lastBargeInAt         time.Time
-	observers             []TurnObserver
+
+	// Speech boundary: VAD and barge-in state.
+	speechReady     bool
+	speechStartedAt time.Time
+	userSpeaking    bool
+	userSpeakingCh  chan struct{} // open while speaking; closed/nil when silent
+	lastBargeInAt   time.Time
+	strategy        TurnStrategy
+
+	// Streaming STT: live transcription stream and interim results.
+	explicitAudioBuf     []byte
+	streamingSTTStream   VoiceTranscribeStream
+	interimText          string
+	interimBestText      string
+	streamingFinalTurnID string
+	streamingFinalText   string
+
+	// Observers: registered turn lifecycle listeners.
+	observers []TurnObserver
 
 	outSeq atomic.Uint64
 	inSeq  atomic.Uint64
@@ -130,6 +153,10 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 	if strings.EqualFold(features.TurnStrategy, "balanced") {
 		session.strategy = BalancedStrategy{}
 	}
+	// bargeInGen starts at 1; bargeInFired starts at 0 (zero value).
+	// triggerBargeIn fires for gen N via CAS(N-1 → N) on bargeInFired, so
+	// gen=1 fires when fired transitions from 0 to 1.
+	session.bargeInGen.Store(1)
 	session.observers = []TurnObserver{
 		NewMetricsObserver(func(metric TurnMetrics) {
 			session.sendVoiceEvent("turn.metrics", metric)
@@ -168,6 +195,7 @@ func (self *Session) Close() {
 		}
 		close(self.doneCh)
 		self.wg.Wait()
+		self.transcriptionWg.Wait()
 	})
 }
 
@@ -254,7 +282,9 @@ func (self *Session) InputCommit(reason string) {
 	if !self.TryStartTurnTranscription(turnId) {
 		return
 	}
+	self.transcriptionWg.Add(1)
 	go func(tid string, captured []byte) {
+		defer self.transcriptionWg.Done()
 		defer self.FinishTurnTranscription(tid)
 		self.transcribeAndSend(tid, captured)
 	}(turnId, audio)
@@ -679,6 +709,14 @@ func (self *Session) speechDurationMs(now time.Time) int {
 func (self *Session) setUserSpeaking(speaking bool) {
 	self.stateMu.Lock()
 	self.userSpeaking = speaking
+	if speaking {
+		// Create a new open channel; ttsSynthLoop blocks on it.
+		self.userSpeakingCh = make(chan struct{})
+	} else if self.userSpeakingCh != nil {
+		// Close the channel to unblock any waiter; ttsSynthLoop select wakes up.
+		close(self.userSpeakingCh)
+		self.userSpeakingCh = nil
+	}
 	self.stateMu.Unlock()
 }
 
@@ -686,6 +724,33 @@ func (self *Session) IsUserSpeaking() bool {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.userSpeaking
+}
+
+// getUserSpeakingCh returns the current speaking channel under the read lock.
+// An open channel means the user is speaking (caller should wait); a nil channel
+// means the user is silent (caller can proceed).
+func (self *Session) getUserSpeakingCh() chan struct{} {
+	self.stateMu.RLock()
+	defer self.stateMu.RUnlock()
+	return self.userSpeakingCh
+}
+
+// RunIsActive reports whether an LLM run is currently in progress.
+// Use this instead of comparing GetCurrentRunId() to "" directly.
+func (self *Session) RunIsActive() bool {
+	return self.GetCurrentRunId() != ""
+}
+
+// ResponseIsActive reports whether a TTS response is currently being produced.
+// Use this instead of comparing GetCurrentResponseId() to "" directly.
+func (self *Session) ResponseIsActive() bool {
+	return self.GetCurrentResponseId() != ""
+}
+
+// BargeInIsArmed reports whether a barge-in interruption should fire: either a
+// run or a response is active, meaning new speech should cancel the current output.
+func (self *Session) BargeInIsArmed() bool {
+	return self.RunIsActive() || self.ResponseIsActive()
 }
 
 func (self *Session) notifyObservers(fn func(observer TurnObserver)) {
