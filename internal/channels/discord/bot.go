@@ -497,10 +497,6 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 }
 
 func unlinkedDiscordMessage(discordUserId string) string {
-	securityFile := "~/.teanode/security.yaml"
-	if path, err := configs.SecurityFile(); err == nil && strings.TrimSpace(path) != "" {
-		securityFile = path
-	}
 	return fmt.Sprintf(
 		"Your Discord account is not linked to a TeaNode user yet.\n\n"+
 			"Link it by editing `%s` and adding:\n"+
@@ -515,7 +511,7 @@ func unlinkedDiscordMessage(discordUserId string) string {
 			"channelLinks:\n"+
 			"  discord:\n"+
 			"    \"%s\": \"user-1\"",
-		securityFile,
+		configs.SecurityFilename(),
 		discordUserId,
 		discordUserId,
 	)

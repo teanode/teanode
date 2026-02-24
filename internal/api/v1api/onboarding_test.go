@@ -50,10 +50,7 @@ func newOnboardingTestAPI(t *testing.T, securityConfig *configs.SecurityConfig) 
 func assertOnboardingSeeded(t *testing.T, api *v1Api, userId string) {
 	t.Helper()
 
-	workspaceDirectory, err := configs.UserWorkspaceDirectory(userId)
-	if err != nil {
-		t.Fatalf("UserWorkspaceDirectory failed: %v", err)
-	}
+	workspaceDirectory := configs.UserWorkspaceDirectory(userId)
 	for _, filename := range []string{"USER.md", "ONBOARDING.md", "MEMORY.md"} {
 		if _, err := os.Stat(filepath.Join(workspaceDirectory, filename)); err != nil {
 			t.Fatalf("expected %s in workspace: %v", filename, err)

@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-func TestLoadUserProfile_MissingFallsBackToOSUsername(t *testing.T) {
+func TestLoadUserConfig_MissingFallsBackToOSUsername(t *testing.T) {
 	withTempDir(t)
 
-	profile, err := LoadUserProfile("user-1")
+	profile, err := LoadUserConfig("user-1")
 	if err != nil {
-		t.Fatalf("LoadUserProfile failed: %v", err)
+		t.Fatalf("LoadUserConfig failed: %v", err)
 	}
 	if profile.Name != OSUsername() {
 		t.Fatalf("name = %q, want %q", profile.Name, OSUsername())
@@ -22,16 +22,16 @@ func TestLoadUserProfile_MissingFallsBackToOSUsername(t *testing.T) {
 	}
 }
 
-func TestSaveAndLoadUserProfile_UsesUserYAMLPath(t *testing.T) {
+func TestSaveAndLoadUserConfig_UsesUserYAMLPath(t *testing.T) {
 	directory := withTempDir(t)
 
-	input := &UserProfile{
+	input := &UserConfig{
 		Name:          "Alice",
 		Description:   "Loves concise answers",
 		AvatarMediaID: "media_123",
 	}
-	if err := SaveUserProfile("user-1", input); err != nil {
-		t.Fatalf("SaveUserProfile failed: %v", err)
+	if err := SaveUserConfig("user-1", input); err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
 	}
 
 	path := filepath.Join(directory, "users", "user-1", "user.yaml")
@@ -57,9 +57,9 @@ func TestSaveAndLoadUserProfile_UsesUserYAMLPath(t *testing.T) {
 		t.Fatalf("profile file missing description field: %q", text)
 	}
 
-	loaded, err := LoadUserProfile("user-1")
+	loaded, err := LoadUserConfig("user-1")
 	if err != nil {
-		t.Fatalf("LoadUserProfile failed: %v", err)
+		t.Fatalf("LoadUserConfig failed: %v", err)
 	}
 	if loaded.Name != "Alice" {
 		t.Fatalf("name = %q, want Alice", loaded.Name)
@@ -72,10 +72,10 @@ func TestSaveAndLoadUserProfile_UsesUserYAMLPath(t *testing.T) {
 	}
 }
 
-func TestSaveUserProfile_Writes0600Permissions(t *testing.T) {
+func TestSaveUserConfig_Writes0600Permissions(t *testing.T) {
 	directory := withTempDir(t)
-	if err := SaveUserProfile("user-1", &UserProfile{Name: "Alice"}); err != nil {
-		t.Fatalf("SaveUserProfile failed: %v", err)
+	if err := SaveUserConfig("user-1", &UserConfig{Name: "Alice"}); err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
 	}
 	info, err := os.Stat(filepath.Join(directory, "users", "user-1", "user.yaml"))
 	if err != nil {

@@ -28,7 +28,7 @@ func withTempConfigDirectory(t *testing.T) string {
 	return directory
 }
 
-func newTestApi(t *testing.T, _ *configs.UserProfile, mediaStore *media.Store) *v1Api {
+func newTestApi(t *testing.T, _ *configs.UserConfig, mediaStore *media.Store) *v1Api {
 	t.Helper()
 	return New(
 		gw.New(
@@ -46,9 +46,9 @@ func newTestApi(t *testing.T, _ *configs.UserProfile, mediaStore *media.Store) *
 	)
 }
 
-func decodeProfileResponse(t *testing.T, recorder *httptest.ResponseRecorder) configs.UserProfile {
+func decodeProfileResponse(t *testing.T, recorder *httptest.ResponseRecorder) configs.UserConfig {
 	t.Helper()
-	var profile configs.UserProfile
+	var profile configs.UserConfig
 	if err := json.Unmarshal(recorder.Body.Bytes(), &profile); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -144,15 +144,15 @@ func decodeRPCProfilePayload(t *testing.T, payload interface{}) rpcProfileRespon
 
 func TestHandleProfileGet_ReadsFromDiskWhenGatewayCacheIsStale(t *testing.T) {
 	withTempConfigDirectory(t)
-	persisted := &configs.UserProfile{
+	persisted := &configs.UserConfig{
 		Name:          "Disk Name",
 		AvatarMediaID: "disk_avatar",
 	}
-	if err := configs.SaveUserProfile("", persisted); err != nil {
-		t.Fatalf("SaveUserProfile failed: %v", err)
+	if err := configs.SaveUserConfig("", persisted); err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
 	}
 
-	api := newTestApi(t, &configs.UserProfile{
+	api := newTestApi(t, &configs.UserConfig{
 		Name:          "Stale Name",
 		AvatarMediaID: "stale_avatar",
 	}, nil)
@@ -177,15 +177,15 @@ func TestHandleProfileGet_ReadsFromDiskWhenGatewayCacheIsStale(t *testing.T) {
 
 func TestProfilePut_PersistsAndLoadsFromNewAPIInstance(t *testing.T) {
 	withTempConfigDirectory(t)
-	initial := &configs.UserProfile{
+	initial := &configs.UserConfig{
 		Name:          "Before",
 		AvatarMediaID: "avatar_before",
 	}
-	if err := configs.SaveUserProfile("", initial); err != nil {
-		t.Fatalf("SaveUserProfile failed: %v", err)
+	if err := configs.SaveUserConfig("", initial); err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
 	}
 
-	api := newTestApi(t, &configs.UserProfile{
+	api := newTestApi(t, &configs.UserConfig{
 		Name:          "Stale",
 		AvatarMediaID: "stale_avatar",
 	}, nil)
@@ -208,7 +208,7 @@ func TestProfilePut_PersistsAndLoadsFromNewAPIInstance(t *testing.T) {
 		t.Fatalf("avatarMediaId = %q, want %q", updated.AvatarMediaID, initial.AvatarMediaID)
 	}
 
-	refreshedApi := newTestApi(t, &configs.UserProfile{
+	refreshedApi := newTestApi(t, &configs.UserConfig{
 		Name:          "Very Stale",
 		AvatarMediaID: "very_stale_avatar",
 	}, nil)
@@ -228,12 +228,12 @@ func TestProfilePut_PersistsAndLoadsFromNewAPIInstance(t *testing.T) {
 
 func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 	withTempConfigDirectory(t)
-	if err := configs.SaveUserProfile("", &configs.UserProfile{Name: "Alice"}); err != nil {
-		t.Fatalf("SaveUserProfile failed: %v", err)
+	if err := configs.SaveUserConfig("", &configs.UserConfig{Name: "Alice"}); err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
 	}
 
 	mediaStore := media.NewStore(t.TempDir())
-	api := newTestApi(t, &configs.UserProfile{
+	api := newTestApi(t, &configs.UserConfig{
 		Name:          "Stale Alice",
 		AvatarMediaID: "stale_avatar",
 	}, mediaStore)
@@ -250,7 +250,7 @@ func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 		t.Fatal("avatarMediaId should not be empty after upload")
 	}
 
-	refreshedApi := newTestApi(t, &configs.UserProfile{
+	refreshedApi := newTestApi(t, &configs.UserConfig{
 		Name:          "Very Stale Alice",
 		AvatarMediaID: "",
 	}, mediaStore)
@@ -272,7 +272,7 @@ func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 		t.Fatalf("avatarMediaId after remove = %q, want empty", removed.AvatarMediaID)
 	}
 
-	afterRemoveApi := newTestApi(t, &configs.UserProfile{
+	afterRemoveApi := newTestApi(t, &configs.UserConfig{
 		Name:          "Stale Again",
 		AvatarMediaID: uploaded.AvatarMediaID,
 	}, mediaStore)
@@ -288,15 +288,15 @@ func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
 
 func TestWebSocketProfileRPCMethods(t *testing.T) {
 	withTempConfigDirectory(t)
-	initial := &configs.UserProfile{
+	initial := &configs.UserConfig{
 		Name:          "Disk Name",
 		AvatarMediaID: "avatar_initial",
 	}
-	if err := configs.SaveUserProfile("user-1", initial); err != nil {
-		t.Fatalf("SaveUserProfile failed: %v", err)
+	if err := configs.SaveUserConfig("user-1", initial); err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
 	}
 
-	api := newTestApi(t, &configs.UserProfile{
+	api := newTestApi(t, &configs.UserConfig{
 		Name:          "Stale Name",
 		AvatarMediaID: "stale_avatar",
 	}, media.NewStore(t.TempDir()))
@@ -334,9 +334,9 @@ func TestWebSocketProfileRPCMethods(t *testing.T) {
 			t.Fatalf("avatarMediaId = %q, want %q", payload.AvatarMediaID, initial.AvatarMediaID)
 		}
 
-		persisted, err := configs.LoadUserProfile("user-1")
+		persisted, err := configs.LoadUserConfig("user-1")
 		if err != nil {
-			t.Fatalf("LoadUserProfile failed: %v", err)
+			t.Fatalf("LoadUserConfig failed: %v", err)
 		}
 		if persisted.Name != "Updated Name" || persisted.AvatarMediaID != initial.AvatarMediaID {
 			t.Fatalf("persisted profile = %+v, want updated values with original avatar", *persisted)
@@ -359,9 +359,9 @@ func TestWebSocketProfileRPCMethods(t *testing.T) {
 			t.Fatalf("avatarMediaId = %q, want empty", payload.AvatarMediaID)
 		}
 
-		persisted, err := configs.LoadUserProfile("user-1")
+		persisted, err := configs.LoadUserConfig("user-1")
 		if err != nil {
-			t.Fatalf("LoadUserProfile failed: %v", err)
+			t.Fatalf("LoadUserConfig failed: %v", err)
 		}
 		if persisted.AvatarMediaID != "" {
 			t.Fatalf("persisted avatarMediaId = %q, want empty", persisted.AvatarMediaID)

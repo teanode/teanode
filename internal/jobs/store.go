@@ -24,10 +24,7 @@ type Store struct {
 
 // NewStore creates a Store that persists under ~/.teanode/users/*/jobs/.
 func NewStore() (*Store, error) {
-	usersDirectory, err := configs.UsersDirectory()
-	if err != nil {
-		return nil, err
-	}
+	usersDirectory := configs.UsersDirectory()
 	return &Store{usersDirectory: usersDirectory}, nil
 }
 
@@ -118,10 +115,7 @@ func (self *Store) Save(jobs []OwnedJob) error {
 }
 
 func (self *Store) saveLocked(jobs []OwnedJob) error {
-	trashDirectory, err := configs.TrashDirectory()
-	if err != nil {
-		return err
-	}
+	trashDirectory := configs.TrashDirectory()
 
 	// Remove all existing job markdown files across users/*/jobs/.
 	existingJobFiles, err := self.listAllJobFilesLocked()
@@ -188,10 +182,7 @@ func (self *Store) Delete(userId, id string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Errorf("job not found: %s", id)
 	}
-	trashDirectory, err := configs.TrashDirectory()
-	if err != nil {
-		return err
-	}
+	trashDirectory := configs.TrashDirectory()
 	return trash.Move(path, trashDirectory)
 }
 
@@ -218,7 +209,7 @@ func (self *Store) writeJobFile(userId string, job Job) error {
 }
 
 func (self *Store) userJobsDirectory(userId string) (string, error) {
-	return configs.UserJobsDirectory(userId)
+	return configs.UserJobsDirectory(userId), nil
 }
 
 func (self *Store) listAllJobFilesLocked() ([]string, error) {

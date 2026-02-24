@@ -12,11 +12,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	projectstore "github.com/teanode/teanode/internal/projects"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 )
 
@@ -65,8 +65,8 @@ func (self *stubTool) Execute(_ context.Context, _ string) (string, error) {
 	return "ok", nil
 }
 
-func testResolveUserProfile(_ string) (*configs.UserProfile, error) {
-	return &configs.UserProfile{Name: "Test User"}, nil
+func testResolveUserConfig(_ string) (*configs.UserConfig, error) {
+	return &configs.UserConfig{Name: "Test User"}, nil
 }
 
 func testResolveConversations(store *conversations.Store) func(userId, agentId string) *conversations.Store {
@@ -95,7 +95,7 @@ func TestRunnerRun(t *testing.T) {
 	runner := &Runner{
 		Providers:            mockRegistry(provider),
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserProfile:   testResolveUserProfile,
+		ResolveUserConfig:    testResolveUserConfig,
 		Config:               configuration,
 	}
 
@@ -175,7 +175,7 @@ func TestRunnerRunAbort(t *testing.T) {
 	runner := &Runner{
 		Providers:            mockRegistry(provider),
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserProfile:   testResolveUserProfile,
+		ResolveUserConfig:    testResolveUserConfig,
 		Config:               configuration,
 	}
 
@@ -256,7 +256,7 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	runner := &Runner{
 		Providers:            mockRegistry(provider),
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserProfile:   testResolveUserProfile,
+		ResolveUserConfig:    testResolveUserConfig,
 		Config:               configuration,
 		Tools:                tools,
 	}
@@ -324,7 +324,12 @@ func TestBuildSystemPromptWithWorkspace(t *testing.T) {
 	// Write workspace files.
 	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte("Be extra helpful"), 0644)
 
-	prompt := BuildSystemPrompt(configuration, "", "", workspaceDirectory, "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:           configuration,
+		AgentWorkspaceDirectory: workspaceDirectory,
+		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Mode:                    SystemPromptModeFull,
+	})
 
 	// AGENT.md should be embedded in the system prompt (rarely changes).
 	if !strings.Contains(prompt, "Be extra helpful") {
@@ -334,8 +339,7 @@ func TestBuildSystemPromptWithWorkspace(t *testing.T) {
 		t.Error("prompt should have AGENT.md section header")
 	}
 
-	// MEMORY.md and SKILLS.md are NOT in the system prompt — they're injected
-	// as user messages in buildMessages() so they don't break the cache.
+	// MEMORY.md is not inlined in the system prompt.
 	if strings.Contains(prompt, "Long-term Memory") {
 		t.Error("prompt should NOT contain MEMORY.md section (injected as user message)")
 	}
@@ -345,7 +349,11 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 	configuration := &configs.Config{}
 
 	// Empty workspace dir — no files loaded.
-	prompt := BuildSystemPrompt(configuration, "", "", "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:         configuration,
+		MaxWorkspaceFileChars: configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Mode:                  SystemPromptModeFull,
+	})
 	if !strings.Contains(prompt, "TeaNode") {
 		t.Error("prompt should contain TeaNode identifier")
 	}
@@ -353,14 +361,8 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 		t.Error("prompt should mention workspace tool")
 	}
 
-	// Should contain today's date and timezone.
-	today := time.Now().Format("2006-01-02")
-	if !strings.Contains(prompt, today) {
-		t.Errorf("prompt should contain today's date %s", today)
-	}
-	tz := time.Now().Format("MST")
-	if !strings.Contains(prompt, tz) {
-		t.Errorf("prompt should contain timezone %s", tz)
+	if strings.Contains(prompt, "Today's date:") {
+		t.Error("prompt should not include dynamic date/time fields")
 	}
 }
 
@@ -370,7 +372,13 @@ func TestBuildSystemPromptUsesAgentIdentity(t *testing.T) {
 			{ID: "custom", Name: "Custom Assistant"},
 		},
 	}
-	prompt := BuildSystemPrompt(configuration, "custom", "", "/some/dir", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:           configuration,
+		AgentID:                 "custom",
+		AgentWorkspaceDirectory: "/some/dir",
+		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Mode:                    SystemPromptModeFull,
+	})
 	if !strings.Contains(prompt, "You are 'Custom Assistant' (agent: custom).") {
 		t.Error("prompt should contain agent identity suffix")
 	}
@@ -387,7 +395,12 @@ func TestBuildSystemPromptTruncation(t *testing.T) {
 	big := strings.Repeat("x", 10000)
 	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte(big), 0644)
 
-	prompt := BuildSystemPrompt(configuration, "", "", workspaceDirectory, "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:           configuration,
+		AgentWorkspaceDirectory: workspaceDirectory,
+		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Mode:                    SystemPromptModeFull,
+	})
 	if strings.Contains(prompt, strings.Repeat("x", 10000)) {
 		t.Error("prompt should have truncated the large file")
 	}
@@ -400,14 +413,18 @@ func TestBuildSystemPromptIncludesRecentProjects(t *testing.T) {
 	configs.SetDirectory(t.TempDir())
 	t.Cleanup(func() { configs.SetDirectory("") })
 
-	if _, err := projectstore.Create("Roadmap", "Plan roadmap milestones", ""); err != nil {
+	if _, err := projectstore.CreateProject("Roadmap", "Plan roadmap milestones", ""); err != nil {
 		t.Fatalf("project create: %v", err)
 	}
-	if _, err := projectstore.Create("Research", "Collect and summarize findings", ""); err != nil {
+	if _, err := projectstore.CreateProject("Research", "Collect and summarize findings", ""); err != nil {
 		t.Fatalf("project create: %v", err)
 	}
 
-	prompt := BuildSystemPrompt(&configs.Config{}, "", "", "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:         &configs.Config{},
+		MaxWorkspaceFileChars: configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Mode:                  SystemPromptModeFull,
+	})
 	if !strings.Contains(prompt, "Recent Projects") {
 		t.Error("prompt should include recent projects section")
 	}
@@ -431,15 +448,24 @@ func TestBuildSystemPromptIncludesUserWorkspaceFiles(t *testing.T) {
 		t.Fatalf("write user MEMORY.md: %v", err)
 	}
 
-	prompt := BuildSystemPrompt(configuration, "", "", agentWorkspaceDirectory, userWorkspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:           configuration,
+		AgentWorkspaceDirectory: agentWorkspaceDirectory,
+		UserWorkspaceDirectory:  userWorkspaceDirectory,
+		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Mode:                    SystemPromptModeFull,
+	})
 	if !strings.Contains(prompt, "Agent operating notes") {
 		t.Error("prompt should include AGENT.md content")
 	}
 	if !strings.Contains(prompt, "User Profile (USER.md)") || !strings.Contains(prompt, "Preferred name: Alex") {
 		t.Error("prompt should include USER.md section content")
 	}
-	if !strings.Contains(prompt, "User Long-term Memory (MEMORY.md)") || !strings.Contains(prompt, "Likes concise summaries") {
-		t.Error("prompt should include user MEMORY.md section content")
+	if !strings.Contains(prompt, "Recall workflow") {
+		t.Error("prompt should include memory recall workflow guidance")
+	}
+	if strings.Contains(prompt, "User Long-term Memory (MEMORY.md)") {
+		t.Error("prompt should not inline user MEMORY.md content")
 	}
 }
 
@@ -448,7 +474,13 @@ func TestBuildSystemPromptIncludesOnboardingOnlyWhenPresent(t *testing.T) {
 	agentWorkspaceDirectory := t.TempDir()
 	userWorkspaceDirectory := t.TempDir()
 
-	withOnboarding := BuildSystemPrompt(configuration, "", "", agentWorkspaceDirectory, userWorkspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	withOnboarding := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:           configuration,
+		AgentWorkspaceDirectory: agentWorkspaceDirectory,
+		UserWorkspaceDirectory:  userWorkspaceDirectory,
+		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Mode:                    SystemPromptModeFull,
+	})
 	if strings.Contains(withOnboarding, "Onboarding Notes (ONBOARDING.md)") {
 		t.Fatal("prompt should not include ONBOARDING section when file is missing")
 	}
@@ -457,7 +489,13 @@ func TestBuildSystemPromptIncludesOnboardingOnlyWhenPresent(t *testing.T) {
 		t.Fatalf("write ONBOARDING.md: %v", err)
 	}
 
-	withOnboarding = BuildSystemPrompt(configuration, "", "", agentWorkspaceDirectory, userWorkspaceDirectory, "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	withOnboarding = buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:           configuration,
+		AgentWorkspaceDirectory: agentWorkspaceDirectory,
+		UserWorkspaceDirectory:  userWorkspaceDirectory,
+		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Mode:                    SystemPromptModeFull,
+	})
 	if !strings.Contains(withOnboarding, "Onboarding Notes (ONBOARDING.md)") {
 		t.Fatal("prompt should include ONBOARDING section when file exists")
 	}
@@ -484,12 +522,13 @@ func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
 		history,
 		configs.DefaultAgentLimits,
 		"",
+		SystemPromptModeFull,
 		configuration,
 		"user-1",
 		"",
 		userWorkspaceDirectory,
 		"",
-		&configs.UserProfile{Name: "Alex"},
+		&configs.UserConfig{Name: "Alex"},
 	)
 
 	if len(messages) < 3 {
@@ -518,6 +557,114 @@ func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptModeMinimal(t *testing.T) {
+	agentWorkspaceDirectory := t.TempDir()
+	userWorkspaceDirectory := t.TempDir()
+	configuration := &configs.Config{}
+
+	if err := os.WriteFile(filepath.Join(agentWorkspaceDirectory, "AGENT.md"), []byte("Agent instructions"), 0644); err != nil {
+		t.Fatalf("write AGENT.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentWorkspaceDirectory, "SKILLS.md"), []byte("Skill details"), 0644); err != nil {
+		t.Fatalf("write SKILLS.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "USER.md"), []byte("Preferred name: Alex"), 0644); err != nil {
+		t.Fatalf("write USER.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "ONBOARDING.md"), []byte("Ask about timezone"), 0644); err != nil {
+		t.Fatalf("write ONBOARDING.md: %v", err)
+	}
+
+	prompt := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:           configuration,
+		AgentID:                 "default",
+		CurrentUserID:           "user-1",
+		AgentWorkspaceDirectory: agentWorkspaceDirectory,
+		UserWorkspaceDirectory:  userWorkspaceDirectory,
+		SkillPrompts:            "<skill>demo</skill>",
+		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Profile:                 &configs.UserConfig{Name: "Alex", Description: "Prefers concise responses"},
+		Mode:                    SystemPromptModeMinimal,
+	})
+
+	if strings.Contains(prompt, "Current User Profile") {
+		t.Error("minimal mode should omit current user profile section")
+	}
+	if strings.Contains(prompt, "User Profile (USER.md)") {
+		t.Error("minimal mode should omit USER.md section")
+	}
+	if strings.Contains(prompt, "Onboarding Notes (ONBOARDING.md)") {
+		t.Error("minimal mode should omit onboarding section")
+	}
+	if strings.Contains(prompt, "Learned Skills (SKILLS.md)") {
+		t.Error("minimal mode should omit inlined SKILLS.md section")
+	}
+	if strings.Contains(prompt, "## Skills") {
+		t.Error("minimal mode should omit skills prompt section")
+	}
+	if !strings.Contains(prompt, "Operating Instructions (AGENT.md)") {
+		t.Error("minimal mode should keep AGENT.md section")
+	}
+	if !strings.Contains(prompt, "Workspace Tools") {
+		t.Error("minimal mode should keep workspace tool guidance")
+	}
+}
+
+func TestBuildSystemPromptModeNone(t *testing.T) {
+	prompt := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:         &configs.Config{},
+		AgentID:               "default",
+		MaxWorkspaceFileChars: configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Mode:                  SystemPromptModeNone,
+	})
+	if strings.Contains(prompt, "TeaNode version:") {
+		t.Error("none mode should return only identity line")
+	}
+	if !strings.Contains(prompt, prompts.DefaultIdentityLine) {
+		t.Error("none mode should keep identity line")
+	}
+}
+
+func TestBuildSystemPromptStableForSameInputs(t *testing.T) {
+	agentWorkspaceDirectory := t.TempDir()
+	userWorkspaceDirectory := t.TempDir()
+	configuration := &configs.Config{}
+
+	if err := os.WriteFile(filepath.Join(agentWorkspaceDirectory, "AGENT.md"), []byte("Stable agent instructions"), 0644); err != nil {
+		t.Fatalf("write AGENT.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "USER.md"), []byte("Preferred name: Alex"), 0644); err != nil {
+		t.Fatalf("write USER.md: %v", err)
+	}
+
+	promptA := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:           configuration,
+		AgentID:                 "default",
+		CurrentUserID:           "user-1",
+		AgentWorkspaceDirectory: agentWorkspaceDirectory,
+		UserWorkspaceDirectory:  userWorkspaceDirectory,
+		SkillPrompts:            "<skill>demo</skill>",
+		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Profile:                 &configs.UserConfig{Name: "Alex"},
+		Mode:                    SystemPromptModeFull,
+	})
+	promptB := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:           configuration,
+		AgentID:                 "default",
+		CurrentUserID:           "user-1",
+		AgentWorkspaceDirectory: agentWorkspaceDirectory,
+		UserWorkspaceDirectory:  userWorkspaceDirectory,
+		SkillPrompts:            "<skill>demo</skill>",
+		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Profile:                 &configs.UserConfig{Name: "Alex"},
+		Mode:                    SystemPromptModeFull,
+	})
+
+	if promptA != promptB {
+		t.Error("system prompt should be deterministic for identical inputs")
+	}
+}
+
 func TestBuildSystemPromptIncludesOtherUsers(t *testing.T) {
 	configs.SetDirectory(t.TempDir())
 	t.Cleanup(func() { configs.SetDirectory("") })
@@ -532,7 +679,11 @@ func TestBuildSystemPromptIncludesOtherUsers(t *testing.T) {
 		t.Fatalf("SaveSecurity failed: %v", err)
 	}
 
-	prompt := BuildSystemPrompt(&configs.Config{}, "", "", "", "", "", configs.DefaultAgentLimits.MaxWorkspaceFileChars, nil)
+	prompt := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:         &configs.Config{},
+		MaxWorkspaceFileChars: configs.DefaultAgentLimits.MaxWorkspaceFileChars,
+		Mode:                  SystemPromptModeFull,
+	})
 	if !strings.Contains(prompt, "Other Users") {
 		t.Error("prompt should include other users section")
 	}
@@ -563,7 +714,7 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	runner := &Runner{
 		Providers:            mockRegistry(provider),
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserProfile:   testResolveUserProfile,
+		ResolveUserConfig:    testResolveUserConfig,
 		Config:               configuration,
 	}
 
@@ -602,7 +753,7 @@ func TestRunnerNoModelError(t *testing.T) {
 	runner := &Runner{
 		Providers:            providers.NewRegistry("mock"),
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserProfile:   testResolveUserProfile,
+		ResolveUserConfig:    testResolveUserConfig,
 		Config:               configuration,
 	}
 
@@ -623,7 +774,7 @@ func TestRunnerRunRequiresUserID(t *testing.T) {
 	store := conversations.NewStore(directory)
 	runner := &Runner{
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserProfile:   testResolveUserProfile,
+		ResolveUserConfig:    testResolveUserConfig,
 		Config:               &configs.Config{},
 		Providers:            providers.NewRegistry("mock"),
 	}
@@ -637,7 +788,7 @@ func TestRunnerRunRequiresUserID(t *testing.T) {
 	}
 }
 
-func TestRunnerRunRequiresResolveUserProfile(t *testing.T) {
+func TestRunnerRunRequiresResolveUserConfig(t *testing.T) {
 	directory := t.TempDir()
 	store := conversations.NewStore(directory)
 	runner := &Runner{
@@ -650,8 +801,8 @@ func TestRunnerRunRequiresResolveUserProfile(t *testing.T) {
 		ConversationID: "missing-resolver",
 		Message:        "hello",
 	}, nil)
-	if err == nil || !strings.Contains(err.Error(), "ResolveUserProfile is required") {
-		t.Fatalf("expected ResolveUserProfile required error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "ResolveUserConfig is required") {
+		t.Fatalf("expected ResolveUserConfig required error, got: %v", err)
 	}
 }
 

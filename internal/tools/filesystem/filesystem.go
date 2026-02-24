@@ -335,15 +335,9 @@ func executeDelete(path string, recursive bool) (string, error) {
 		}
 	}
 
-	dataDirectory, err := configs.Directory()
-	if err != nil {
-		return "", err
-	}
+	dataDirectory := configs.Directory()
 	if isPathInsideDirectory(path, dataDirectory) {
-		trashDirectory, err := configs.TrashDirectory()
-		if err != nil {
-			return "", err
-		}
+		trashDirectory := configs.TrashDirectory()
 		if err := trash.Move(path, trashDirectory); err != nil {
 			return "", fmt.Errorf("deleting path: %w", err)
 		}

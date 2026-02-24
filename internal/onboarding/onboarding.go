@@ -76,11 +76,9 @@ func InitializeUser(gateway gw.Gateway, userId string) error {
 }
 
 func onboardingExists(userId string) (bool, error) {
-	userWorkspaceDirectory, err := configs.UserWorkspaceDirectory(userId)
-	if err != nil {
-		return false, fmt.Errorf("resolving user workspace: %w", err)
-	}
+	userWorkspaceDirectory := configs.UserWorkspaceDirectory(userId)
 	onboardingPath := filepath.Join(userWorkspaceDirectory, "ONBOARDING.md")
+	var err error
 	_, err = os.Stat(onboardingPath)
 	if os.IsNotExist(err) {
 		return false, nil

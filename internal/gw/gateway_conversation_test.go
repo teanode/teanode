@@ -48,7 +48,7 @@ func (self *testProvider) ListModels(_ context.Context) ([]providers.ModelInfo, 
 
 func newTestGateway(t *testing.T) (*gateway, *agents.AgentRegistry, string) {
 	t.Helper()
-	t.Setenv("TEANODE_DIR", t.TempDir())
+	configs.SetDirectory(t.TempDir())
 
 	agentId := "main"
 	config := &configs.Config{
@@ -64,8 +64,8 @@ func newTestGateway(t *testing.T) (*gateway, *agents.AgentRegistry, string) {
 		ResolveConversations: func(userId, agentId string) *conversations.Store {
 			return conversations.NewStore(t.TempDir())
 		},
-		ResolveUserProfile: func(userId string) (*configs.UserProfile, error) {
-			return &configs.UserProfile{Name: userId}, nil
+		ResolveUserConfig: func(userId string) (*configs.UserConfig, error) {
+			return &configs.UserConfig{Name: userId}, nil
 		},
 		Config: config,
 	}

@@ -22,9 +22,9 @@ func withTempDir(t *testing.T) string {
 func TestCreateListAndProjectFile(t *testing.T) {
 	withTempDir(t)
 
-	metadata, err := Create("Alpha", "", "Build an internal tool")
+	metadata, err := CreateProject("Alpha", "", "Build an internal tool")
 	if err != nil {
-		t.Fatalf("Create() error: %v", err)
+		t.Fatalf("CreateProject() error: %v", err)
 	}
 	if metadata.ID == "" {
 		t.Fatal("project ID should not be empty")
@@ -32,9 +32,9 @@ func TestCreateListAndProjectFile(t *testing.T) {
 	if metadata.Name != "Alpha" {
 		t.Fatalf("name = %q, want Alpha", metadata.Name)
 	}
-	list, err := List()
+	list, err := configs.LoadProjectConfigs()
 	if err != nil {
-		t.Fatalf("List() error: %v", err)
+		t.Fatalf("LoadProjectConfigs() error: %v", err)
 	}
 	if len(list) != 1 {
 		t.Fatalf("len(list) = %d, want 1", len(list))
@@ -43,14 +43,11 @@ func TestCreateListAndProjectFile(t *testing.T) {
 		t.Fatalf("list[0].ID = %q, want %q", list[0].ID, metadata.ID)
 	}
 
-	directory, err := Directory()
-	if err != nil {
-		t.Fatalf("Directory() error: %v", err)
-	}
+	directory := configs.ProjectsDirectory()
 	projectFile := filepath.Join(directory, metadata.ID, defaultProjectDocumentName)
-	content, err := ReadFile(metadata.ID, defaultProjectDocumentName)
+	content, err := readFile(metadata.ID, defaultProjectDocumentName)
 	if err != nil {
-		t.Fatalf("ReadFile(PROJECT.md) error: %v", err)
+		t.Fatalf("readFile(PROJECT.md) error: %v", err)
 	}
 	if content == "" {
 		t.Fatalf("PROJECT.md at %s should not be empty", projectFile)
@@ -60,55 +57,55 @@ func TestCreateListAndProjectFile(t *testing.T) {
 func TestTouchBumpsUpdatedOnWrites(t *testing.T) {
 	withTempDir(t)
 
-	metadata, err := Create("Beta", "Test metadata updates", "")
+	metadata, err := CreateProject("Beta", "Test metadata updates", "")
 	if err != nil {
-		t.Fatalf("Create() error: %v", err)
+		t.Fatalf("CreateProject() error: %v", err)
 	}
 	before := metadata.UpdatedAt
 	time.Sleep(2 * time.Millisecond)
 
-	if err := WriteFile(metadata.ID, "notes.md", "hello"); err != nil {
-		t.Fatalf("WriteFile() error: %v", err)
+	if err := writeFile(metadata.ID, "notes.md", "hello"); err != nil {
+		t.Fatalf("writeFile() error: %v", err)
 	}
-	afterWrite, err := Get(metadata.ID)
+	afterWrite, err := configs.LoadProjectConfig(metadata.ID)
 	if err != nil {
-		t.Fatalf("Get() error after write: %v", err)
+		t.Fatalf("LoadProjectConfig() error after write: %v", err)
 	}
 	if !afterWrite.UpdatedAt.Time.After(before.Time) {
 		t.Fatalf("updatedAt after write = %s, want > %s", afterWrite.UpdatedAt.String(), before.String())
 	}
 
 	time.Sleep(2 * time.Millisecond)
-	if err := AppendFile(metadata.ID, "notes.md", "world"); err != nil {
-		t.Fatalf("AppendFile() error: %v", err)
+	if err := appendFile(metadata.ID, "notes.md", "world"); err != nil {
+		t.Fatalf("appendFile() error: %v", err)
 	}
-	afterAppend, err := Get(metadata.ID)
+	afterAppend, err := configs.LoadProjectConfig(metadata.ID)
 	if err != nil {
-		t.Fatalf("Get() error after append: %v", err)
+		t.Fatalf("LoadProjectConfig() error after append: %v", err)
 	}
 	if !afterAppend.UpdatedAt.Time.After(afterWrite.UpdatedAt.Time) {
 		t.Fatalf("updatedAt after append = %s, want > %s", afterAppend.UpdatedAt.String(), afterWrite.UpdatedAt.String())
 	}
 
 	time.Sleep(2 * time.Millisecond)
-	if err := MoveFile(metadata.ID, "notes.md", "archive/notes.md"); err != nil {
-		t.Fatalf("MoveFile() error: %v", err)
+	if err := moveFile(metadata.ID, "notes.md", "archive/notes.md"); err != nil {
+		t.Fatalf("moveFile() error: %v", err)
 	}
-	afterMove, err := Get(metadata.ID)
+	afterMove, err := configs.LoadProjectConfig(metadata.ID)
 	if err != nil {
-		t.Fatalf("Get() error after move: %v", err)
+		t.Fatalf("LoadProjectConfig() error after move: %v", err)
 	}
 	if !afterMove.UpdatedAt.Time.After(afterAppend.UpdatedAt.Time) {
 		t.Fatalf("updatedAt after move = %s, want > %s", afterMove.UpdatedAt.String(), afterAppend.UpdatedAt.String())
 	}
 
 	time.Sleep(2 * time.Millisecond)
-	if err := DeleteFile(metadata.ID, "archive/notes.md"); err != nil {
-		t.Fatalf("DeleteFile() error: %v", err)
+	if err := deleteFile(metadata.ID, "archive/notes.md"); err != nil {
+		t.Fatalf("deleteFile() error: %v", err)
 	}
-	afterDelete, err := Get(metadata.ID)
+	afterDelete, err := configs.LoadProjectConfig(metadata.ID)
 	if err != nil {
-		t.Fatalf("Get() error after delete: %v", err)
+		t.Fatalf("LoadProjectConfig() error after delete: %v", err)
 	}
 	if !afterDelete.UpdatedAt.Time.After(afterMove.UpdatedAt.Time) {
 		t.Fatalf("updatedAt after delete = %s, want > %s", afterDelete.UpdatedAt.String(), afterMove.UpdatedAt.String())
@@ -117,33 +114,33 @@ func TestTouchBumpsUpdatedOnWrites(t *testing.T) {
 
 func TestRenameAndDelete(t *testing.T) {
 	withTempDir(t)
-	metadata, err := Create("Gamma", "", "")
+	metadata, err := CreateProject("Gamma", "", "")
 	if err != nil {
-		t.Fatalf("Create() error: %v", err)
+		t.Fatalf("CreateProject() error: %v", err)
 	}
 
-	renamed, err := Rename(metadata.ID, "Gamma Prime")
+	renamed, err := RenameProject(metadata.ID, "Gamma Prime")
 	if err != nil {
-		t.Fatalf("Rename() error: %v", err)
+		t.Fatalf("RenameProject() error: %v", err)
 	}
 	if renamed.Name != "Gamma Prime" {
 		t.Fatalf("renamed.Name = %q, want Gamma Prime", renamed.Name)
 	}
 
-	if err := Delete(metadata.ID); err != nil {
-		t.Fatalf("Delete() error: %v", err)
+	if err := DeleteProject(metadata.ID); err != nil {
+		t.Fatalf("DeleteProject() error: %v", err)
 	}
-	if _, err := Get(metadata.ID); err == nil {
-		t.Fatal("Get() should fail after delete")
+	if _, err := configs.LoadProjectConfig(metadata.ID); err == nil {
+		t.Fatal("LoadProjectConfig() should fail after delete")
 	}
 }
 
 func TestReadFileRejectsSymlinkComponents(t *testing.T) {
 	withTempDir(t)
 
-	metadata, err := Create("Delta", "", "")
+	metadata, err := CreateProject("Delta", "", "")
 	if err != nil {
-		t.Fatalf("Create() error: %v", err)
+		t.Fatalf("CreateProject() error: %v", err)
 	}
 
 	workspace, err := WorkspaceDirectory(metadata.ID)
@@ -156,7 +153,7 @@ func TestReadFileRejectsSymlinkComponents(t *testing.T) {
 
 	target := filepath.Join(workspace, "real.md")
 	if err := os.WriteFile(target, []byte("hello"), 0644); err != nil {
-		t.Fatalf("WriteFile() setup error: %v", err)
+		t.Fatalf("writeFile() setup error: %v", err)
 	}
 
 	linkPath := filepath.Join(workspace, "docs", "link.md")
@@ -167,7 +164,7 @@ func TestReadFileRejectsSymlinkComponents(t *testing.T) {
 		t.Fatalf("Symlink() error: %v", err)
 	}
 
-	if _, err := ReadFile(metadata.ID, "docs/link.md"); err == nil {
+	if _, err := readFile(metadata.ID, "docs/link.md"); err == nil {
 		t.Fatal("ReadFile should reject symlink components")
 	}
 }
@@ -175,15 +172,15 @@ func TestReadFileRejectsSymlinkComponents(t *testing.T) {
 func TestFileOperationsDenyPathTraversal(t *testing.T) {
 	withTempDir(t)
 
-	metadata, err := Create("Epsilon", "", "")
+	metadata, err := CreateProject("Epsilon", "", "")
 	if err != nil {
-		t.Fatalf("Create() error: %v", err)
+		t.Fatalf("CreateProject() error: %v", err)
 	}
 
-	if err := WriteFile(metadata.ID, "../escape.txt", "nope"); err == nil {
+	if err := writeFile(metadata.ID, "../escape.txt", "nope"); err == nil {
 		t.Fatal("WriteFile should reject path traversal")
 	}
-	if _, err := ReadFile(metadata.ID, "../escape.txt"); err == nil {
+	if _, err := readFile(metadata.ID, "../escape.txt"); err == nil {
 		t.Fatal("ReadFile should reject path traversal")
 	}
 }
@@ -191,9 +188,9 @@ func TestFileOperationsDenyPathTraversal(t *testing.T) {
 func TestWriteFileRejectsSymlinkDirectoryComponents(t *testing.T) {
 	withTempDir(t)
 
-	metadata, err := Create("Zeta", "", "")
+	metadata, err := CreateProject("Zeta", "", "")
 	if err != nil {
-		t.Fatalf("Create() error: %v", err)
+		t.Fatalf("CreateProject() error: %v", err)
 	}
 
 	workspace, err := WorkspaceDirectory(metadata.ID)
@@ -212,25 +209,28 @@ func TestWriteFileRejectsSymlinkDirectoryComponents(t *testing.T) {
 		t.Fatalf("Symlink() error: %v", err)
 	}
 
-	if err := WriteFile(metadata.ID, "docs/note.md", "hello"); err == nil {
+	if err := writeFile(metadata.ID, "docs/note.md", "hello"); err == nil {
 		t.Fatal("WriteFile should reject symlink components")
 	}
 }
 
-func TestGetAcceptsUppercaseProjectID(t *testing.T) {
+func TestProjectYamlDoesNotPersistIDField(t *testing.T) {
 	withTempDir(t)
 
-	metadata, err := Create("Eta", "", "")
+	metadata, err := CreateProject("Theta", "No ID field in yaml", "")
 	if err != nil {
-		t.Fatalf("Create() error: %v", err)
+		t.Fatalf("CreateProject() error: %v", err)
 	}
 
-	uppercaseId := strings.ToUpper(metadata.ID)
-	loaded, err := Get(uppercaseId)
+	path, err := projectConfigPath(metadata.ID)
 	if err != nil {
-		t.Fatalf("Get() with uppercase ID error: %v", err)
+		t.Fatalf("projectConfigPath() error: %v", err)
 	}
-	if loaded.ID != metadata.ID {
-		t.Fatalf("loaded.ID = %q, want %q", loaded.ID, metadata.ID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("readFile(project.yaml) error: %v", err)
+	}
+	if strings.Contains(string(data), "\nid:") || strings.HasPrefix(string(data), "id:") {
+		t.Fatalf("project.yaml should not contain id field, got:\n%s", string(data))
 	}
 }

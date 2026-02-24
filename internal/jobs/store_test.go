@@ -336,10 +336,7 @@ func TestLoad_SkipsNonMarkdownFiles(t *testing.T) {
 	}
 
 	// Add a non-.md file and a subdirectory.
-	jobsDirectory, err := configs.UserJobsDirectory("user-1")
-	if err != nil {
-		t.Fatalf("UserJobsDirectory error: %v", err)
-	}
+	jobsDirectory := configs.UserJobsDirectory("user-1")
 	if err := os.WriteFile(filepath.Join(jobsDirectory, "notes.txt"), []byte("not a job"), 0644); err != nil {
 		t.Fatalf("WriteFile error: %v", err)
 	}

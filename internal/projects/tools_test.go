@@ -1,4 +1,4 @@
-package projects
+package projects_test
 
 import (
 	"context"
@@ -8,20 +8,21 @@ import (
 
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
-	projectstore "github.com/teanode/teanode/internal/projects"
+	"github.com/teanode/teanode/internal/projects"
 	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
-func withTempDir(t *testing.T) {
+func withTempDirForTools(t *testing.T) {
 	t.Helper()
 	configs.SetDirectory(t.TempDir())
 	t.Cleanup(func() { configs.SetDirectory("") })
 }
 
 func TestProjectsToolCreateAndWrite(t *testing.T) {
-	withTempDir(t)
+	withTempDirForTools(t)
 	registry := agents.NewToolRegistry()
-	RegisterTools(registry)
+	registry.Register(projects.NewProjectsTool())
+	registry.Register(projects.NewProjectWorkspaceTool())
 	projectsTool := registry.Get("projects")
 	workspaceTool := registry.Get("project_workspace")
 	if projectsTool == nil {
@@ -32,7 +33,7 @@ func TestProjectsToolCreateAndWrite(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result, err := projectsTool.Execute(ctx, `{"action":"create","name":"Alpha","purpose":"Track milestones"}`)
+	result, err := projectsTool.Execute(ctx, `{"action":"create","name":"Alpha","description":"Track milestones and shared project decisions","purpose":"Track milestones"}`)
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}
@@ -58,9 +59,16 @@ func TestProjectsToolCreateAndWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write failed: %v", err)
 	}
-	metadata, err := projectstore.Get(created.Project.ID)
+	listedProjects, err := configs.LoadProjectConfigs()
 	if err != nil {
-		t.Fatalf("Get project metadata: %v", err)
+		t.Fatalf("LoadProjectConfigs(): %v", err)
+	}
+	if len(listedProjects) != 1 {
+		t.Fatalf("len(listedProjects) = %d, want 1", len(listedProjects))
+	}
+	metadata := listedProjects[0]
+	if metadata.ID != created.Project.ID {
+		t.Fatalf("metadata.ID = %q, want %q", metadata.ID, created.Project.ID)
 	}
 	if !metadata.UpdatedAt.Time.After(created.Project.UpdatedAt.Time) {
 		t.Fatalf("updatedAt = %s, want > %s", metadata.UpdatedAt.String(), created.Project.UpdatedAt.String())
@@ -68,9 +76,10 @@ func TestProjectsToolCreateAndWrite(t *testing.T) {
 }
 
 func TestProjectsToolListRenameDelete(t *testing.T) {
-	withTempDir(t)
+	withTempDirForTools(t)
 	registry := agents.NewToolRegistry()
-	RegisterTools(registry)
+	registry.Register(projects.NewProjectsTool())
+	registry.Register(projects.NewProjectWorkspaceTool())
 	projectsTool := registry.Get("projects")
 	if projectsTool == nil {
 		t.Fatal("projects tool not registered")
@@ -119,9 +128,10 @@ func TestProjectsToolListRenameDelete(t *testing.T) {
 }
 
 func TestProjectsAndWorkspaceToolActions(t *testing.T) {
-	withTempDir(t)
+	withTempDirForTools(t)
 	registry := agents.NewToolRegistry()
-	RegisterTools(registry)
+	registry.Register(projects.NewProjectsTool())
+	registry.Register(projects.NewProjectWorkspaceTool())
 	projectsTool := registry.Get("projects")
 	workspaceTool := registry.Get("project_workspace")
 	if projectsTool == nil {
@@ -156,5 +166,24 @@ func TestProjectsAndWorkspaceToolActions(t *testing.T) {
 	}
 	if _, err := projectsTool.Execute(ctx, `{"action":"delete","projectId":"`+created.Project.ID+`"}`); err != nil {
 		t.Fatalf("delete failed: %v", err)
+	}
+}
+
+func TestProjectsToolCreateRequiresDescription(t *testing.T) {
+	withTempDirForTools(t)
+	registry := agents.NewToolRegistry()
+	registry.Register(projects.NewProjectsTool())
+	registry.Register(projects.NewProjectWorkspaceTool())
+	projectsTool := registry.Get("projects")
+	if projectsTool == nil {
+		t.Fatal("projects tool not registered")
+	}
+
+	_, err := projectsTool.Execute(context.Background(), `{"action":"create","name":"NoDesc"}`)
+	if err == nil {
+		t.Fatal("expected error when description is missing for create")
+	}
+	if err.Error() != "description is required for create" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

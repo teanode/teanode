@@ -10,7 +10,7 @@ import (
 )
 
 func TestShouldForwardDisconnectedWebUI(t *testing.T) {
-	t.Setenv("TEANODE_DIR", t.TempDir())
+	configs.SetDirectory(t.TempDir())
 
 	registry := agents.NewAgentRegistry()
 	registry.Register("main", &agents.Runner{AgentID: "main"})
@@ -44,7 +44,7 @@ func TestShouldForwardDisconnectedWebUI(t *testing.T) {
 }
 
 func TestUnlinkedDiscordMessage(t *testing.T) {
-	t.Setenv("TEANODE_DIR", t.TempDir())
+	configs.SetDirectory(t.TempDir())
 	message := unlinkedDiscordMessage("98765")
 	for _, want := range []string{
 		"not linked",
