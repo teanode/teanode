@@ -280,3 +280,33 @@ func TestFindTranscriberByName_WrongCapability(t *testing.T) {
 		t.Fatalf("expected nil transcriber for capability mismatch")
 	}
 }
+
+func TestFindStreamingTranscriberByName_Found(t *testing.T) {
+	registry := NewRegistry("openai")
+	registry.Register("stream-a", &mockStreamingTranscriberProvider{mockProvider{name: "stream-a"}})
+
+	transcriber, ok := registry.FindStreamingTranscriberByName("stream-a")
+	if !ok || transcriber == nil {
+		t.Fatalf("expected named streaming transcriber lookup to succeed")
+	}
+}
+
+func TestFindStreamingTranscriberByName_NotFound(t *testing.T) {
+	registry := NewRegistry("openai")
+	registry.Register("openai", &mockProvider{name: "openai"})
+
+	transcriber, ok := registry.FindStreamingTranscriberByName("missing")
+	if ok || transcriber != nil {
+		t.Fatalf("expected missing streaming transcriber lookup to fail")
+	}
+}
+
+func TestFindStreamingTranscriberByName_WrongCapability(t *testing.T) {
+	registry := NewRegistry("openai")
+	registry.Register("openai", &mockProvider{name: "openai"})
+
+	transcriber, ok := registry.FindStreamingTranscriberByName("openai")
+	if ok || transcriber != nil {
+		t.Fatalf("expected non-streaming provider lookup to fail")
+	}
+}

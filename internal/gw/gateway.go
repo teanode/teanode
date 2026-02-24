@@ -885,15 +885,39 @@ type voiceProviderRegistryAdapter struct {
 	config   *configs.Config
 }
 
+const defaultVoiceProvider = "openai"
+
+func (self *voiceProviderRegistryAdapter) preferredTranscriberProvider() (name string, explicit bool) {
+	if self.config == nil {
+		return defaultVoiceProvider, false
+	}
+	name = strings.TrimSpace(self.config.Voice.TranscriberProvider)
+	if name == "" {
+		return defaultVoiceProvider, false
+	}
+	return name, true
+}
+
+func (self *voiceProviderRegistryAdapter) preferredSynthProvider() (name string, explicit bool) {
+	if self.config == nil {
+		return defaultVoiceProvider, false
+	}
+	name = strings.TrimSpace(self.config.Voice.SynthProvider)
+	if name == "" {
+		return defaultVoiceProvider, false
+	}
+	return name, true
+}
+
 func (self *voiceProviderRegistryAdapter) FindTranscriber() (voice.VoiceTranscriber, string, bool) {
-	if self.config != nil {
-		name := strings.TrimSpace(self.config.Voice.TranscriberProvider)
-		if name != "" {
-			if transcriber, ok := self.registry.FindTranscriberByName(name); ok {
-				return &voiceTranscriberAdapter{transcriber: transcriber}, name, true
-			}
-			log.Warningf("voice transcriber provider %q unavailable or incompatible; falling back to first available transcriber", name)
-		}
+	name, explicit := self.preferredTranscriberProvider()
+	if transcriber, ok := self.registry.FindTranscriberByName(name); ok {
+		return &voiceTranscriberAdapter{transcriber: transcriber}, name, true
+	}
+	if explicit {
+		log.Warningf("voice transcriber provider %q unavailable or incompatible; falling back to first available transcriber", name)
+	} else {
+		log.Warningf("voice default transcriber provider %q unavailable; falling back to first available transcriber", name)
 	}
 	transcriber, provider, ok := self.registry.FindTranscriber()
 	if !ok {
@@ -903,6 +927,17 @@ func (self *voiceProviderRegistryAdapter) FindTranscriber() (voice.VoiceTranscri
 }
 
 func (self *voiceProviderRegistryAdapter) FindStreamingTranscriber() (voice.VoiceStreamingTranscriber, string, bool) {
+	name, explicit := self.preferredTranscriberProvider()
+	if transcriber, ok := self.registry.FindStreamingTranscriberByName(name); ok {
+		return &voiceStreamingTranscriberAdapter{transcriber: transcriber}, name, true
+	}
+	if !explicit {
+		// With implicit defaults, do not auto-select another streaming STT provider.
+		// This keeps default STT behavior on the OpenAI batch path unless explicitly configured.
+		log.Infof("voice streaming stt disabled: default transcriber provider %q has no streaming support", name)
+		return nil, "", false
+	}
+	log.Warningf("voice streaming transcriber provider %q unavailable or incompatible; falling back to first available streaming transcriber", name)
 	transcriber, provider, ok := self.registry.FindStreamingTranscriber()
 	if !ok {
 		return nil, "", false
@@ -911,14 +946,14 @@ func (self *voiceProviderRegistryAdapter) FindStreamingTranscriber() (voice.Voic
 }
 
 func (self *voiceProviderRegistryAdapter) FindSynthesizer() (voice.VoiceSynthesizer, string, bool) {
-	if self.config != nil {
-		name := strings.TrimSpace(self.config.Voice.SynthProvider)
-		if name != "" {
-			if synth, ok := self.registry.FindSynthesizerByName(name); ok {
-				return &voiceSynthesizerAdapter{synthesizer: synth}, name, true
-			}
-			log.Warningf("voice synth provider %q unavailable or incompatible; falling back to first available synthesizer", name)
-		}
+	name, explicit := self.preferredSynthProvider()
+	if synth, ok := self.registry.FindSynthesizerByName(name); ok {
+		return &voiceSynthesizerAdapter{synthesizer: synth}, name, true
+	}
+	if explicit {
+		log.Warningf("voice synth provider %q unavailable or incompatible; falling back to first available synthesizer", name)
+	} else {
+		log.Warningf("voice default synth provider %q unavailable; falling back to first available synthesizer", name)
 	}
 	synth, provider, ok := self.registry.FindSynthesizer()
 	if !ok {

@@ -135,6 +135,20 @@ func (r *Registry) FindTranscriberByName(name string) (AudioTranscriber, bool) {
 	return transcriber, true
 }
 
+// FindStreamingTranscriberByName resolves a named provider and returns it only
+// when the provider supports StreamingTranscriber.
+func (r *Registry) FindStreamingTranscriberByName(name string) (StreamingTranscriber, bool) {
+	client, ok := r.clients[name]
+	if !ok {
+		return nil, false
+	}
+	transcriber, ok := client.(StreamingTranscriber)
+	if !ok {
+		return nil, false
+	}
+	return transcriber, true
+}
+
 // FindSynthesizerByName resolves a named provider and returns it only when the
 // provider supports AudioSynthesizer.
 func (r *Registry) FindSynthesizerByName(name string) (AudioSynthesizer, bool) {
