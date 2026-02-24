@@ -103,8 +103,8 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 	if name == "" {
 		name = configs.OSUsername()
 	}
-	profile := &configs.UserProfile{Name: name}
-	if err := configs.SaveUserProfile(userId, profile); err != nil {
+	profile := &configs.UserConfig{Name: name}
+	if err := configs.SaveUserConfig(userId, profile); err != nil {
 		securityConfig.Unlock()
 		return web.Error(500, "failed to save profile")
 	}

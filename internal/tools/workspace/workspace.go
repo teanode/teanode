@@ -30,7 +30,7 @@ func RegisterTools(registry *agents.ToolRegistry, agentWorkspaceDirectory string
 			if userId == "" {
 				return "", fmt.Errorf("missing user context")
 			}
-			return configs.UserWorkspaceDirectory(userId)
+			return configs.UserWorkspaceDirectory(userId), nil
 		},
 	))
 }
@@ -314,15 +314,9 @@ func (self *workspaceTool) executeDelete(directory, path string) (string, error)
 	if info.IsDir() {
 		return "", fmt.Errorf("cannot delete directories, only files")
 	}
-	dataDirectory, err := configs.Directory()
-	if err != nil {
-		return "", err
-	}
+	dataDirectory := configs.Directory()
 	if isPathInsideDirectory(full, dataDirectory) {
-		trashDirectory, err := configs.TrashDirectory()
-		if err != nil {
-			return "", err
-		}
+		trashDirectory := configs.TrashDirectory()
 		if err := trash.Move(full, trashDirectory); err != nil {
 			return "", fmt.Errorf("deleting file: %w", err)
 		}

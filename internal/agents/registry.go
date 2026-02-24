@@ -153,17 +153,14 @@ func (self *AgentRegistry) ForEach(fn func(agentId string, runner *Runner)) {
 
 // LoadState restores per-user default agent and conversation state from ~/.teanode/state.yaml.
 func (self *AgentRegistry) LoadState() {
-	stateFile, err := configs.StateFile()
-	if err != nil {
-		return
-	}
-	data, err := os.ReadFile(stateFile)
+	stateFilename := configs.StateFilename()
+	data, err := os.ReadFile(stateFilename)
 	if err != nil {
 		return
 	}
 	var state persistedState
 	if err := yaml.Unmarshal(data, &state); err != nil {
-		log.Warningf("ignoring malformed state file path=%s error=%v", stateFile, err)
+		log.Warningf("ignoring malformed state file path=%s error=%v", stateFilename, err)
 		return
 	}
 	self.mutex.Lock()
@@ -190,10 +187,7 @@ func (self *AgentRegistry) LoadState() {
 }
 
 func (self *AgentRegistry) saveState() {
-	stateFile, err := configs.StateFile()
-	if err != nil {
-		return
-	}
+	stateFilename := configs.StateFilename()
 	state := persistedState{
 		Users: make(map[string]persistedUserState, len(self.userStates)),
 	}
@@ -212,8 +206,8 @@ func (self *AgentRegistry) saveState() {
 		log.Warningf("failed to marshal state error=%v", err)
 		return
 	}
-	if err := atomicfile.WriteFile(stateFile, data); err != nil {
-		log.Warningf("failed to write state file path=%s error=%v", stateFile, err)
+	if err := atomicfile.WriteFile(stateFilename, data); err != nil {
+		log.Warningf("failed to write state file path=%s error=%v", stateFilename, err)
 	}
 }
 

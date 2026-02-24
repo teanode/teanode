@@ -41,7 +41,7 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 		if agentConfig.Name != "" {
 			info["name"] = agentConfig.Name
 		}
-		if state, err := configs.LoadAgentState(agentConfig.ID); err == nil && state.AvatarMediaID != "" {
+		if state, err := configs.LoadAgentConfig(agentConfig.ID); err == nil && state.AvatarMediaID != "" {
 			info["avatarMediaId"] = state.AvatarMediaID
 		}
 		agentInfos = append(agentInfos, info)
@@ -92,7 +92,7 @@ func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 		if agentConfig.Name != "" {
 			info["name"] = agentConfig.Name
 		}
-		if state, err := configs.LoadAgentState(agentConfig.ID); err == nil && state.AvatarMediaID != "" {
+		if state, err := configs.LoadAgentConfig(agentConfig.ID); err == nil && state.AvatarMediaID != "" {
 			info["avatarMediaId"] = state.AvatarMediaID
 		}
 		agentInfos = append(agentInfos, info)
@@ -604,10 +604,8 @@ func (self *webSocketConnection) handleAgentsConfigSchema(frame requestFrame) {
 	}
 
 	// Collect skill names from the skills directory.
-	skillsDirectory, err := configs.SkillsDirectory()
-	if err == nil {
-		suggestions["skill"] = skills.Names(skillsDirectory)
-	}
+	skillsDirectory := configs.SkillsDirectory()
+	suggestions["skill"] = skills.Names(skillsDirectory)
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"schema":      configs.AgentConfigSchema(),
@@ -620,7 +618,7 @@ func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
 	if !self.requireAdmin(frame) {
 		return
 	}
-	agents, err := configs.LoadAgents()
+	agents, err := configs.LoadAgentConfigs()
 	if err != nil {
 		self.sendError(frame.ID, 500, "loading agents: "+err.Error())
 		return
@@ -643,7 +641,7 @@ func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
 		if len(agentConfig.Skills) > 0 {
 			entry["skills"] = agentConfig.Skills
 		}
-		if state, stateErr := configs.LoadAgentState(agentConfig.ID); stateErr == nil && state.AvatarMediaID != "" {
+		if state, stateErr := configs.LoadAgentConfig(agentConfig.ID); stateErr == nil && state.AvatarMediaID != "" {
 			entry["avatarMediaId"] = state.AvatarMediaID
 		}
 		entries = append(entries, entry)
@@ -673,7 +671,17 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) {
 		self.sendError(frame.ID, 400, "agent id is required")
 		return
 	}
-	if err := configs.SaveAgent(parameters.Agent); err != nil {
+	agentConfig := parameters.Agent
+	if existingConfig, err := configs.LoadAgentConfig(agentConfig.ID); err == nil && existingConfig != nil {
+		if strings.TrimSpace(agentConfig.Description) == "" {
+			agentConfig.Description = existingConfig.Description
+			agentConfig.DescriptionUpdatedAt = existingConfig.DescriptionUpdatedAt
+		}
+		if strings.TrimSpace(agentConfig.AvatarMediaID) == "" {
+			agentConfig.AvatarMediaID = existingConfig.AvatarMediaID
+		}
+	}
+	if err := configs.SaveAgentConfig(agentConfig.ID, &agentConfig); err != nil {
 		self.sendError(frame.ID, 500, "saving agent: "+err.Error())
 		return
 	}
@@ -710,7 +718,7 @@ func (self *webSocketConnection) handleAgentsConfigDelete(frame requestFrame) {
 		self.sendError(frame.ID, 409, "cannot delete the default agent")
 		return
 	}
-	if state, stateErr := configs.LoadAgentState(parameters.ID); stateErr == nil && state.AvatarMediaID != "" && self.api.gateway.MediaStore() != nil {
+	if state, stateErr := configs.LoadAgentConfig(parameters.ID); stateErr == nil && state.AvatarMediaID != "" && self.api.gateway.MediaStore() != nil {
 		_ = self.api.gateway.MediaStore().Delete(state.AvatarMediaID)
 	}
 	if err := configs.DeleteAgent(parameters.ID); err != nil {
@@ -752,14 +760,14 @@ func (self *webSocketConnection) handleAgentsAvatarSet(frame requestFrame) {
 		return
 	}
 
-	state, err := configs.LoadAgentState(agentId)
+	state, err := configs.LoadAgentConfig(agentId)
 	if err != nil {
 		self.sendError(frame.ID, 500, "loading agent state: "+err.Error())
 		return
 	}
 	oldAvatarMediaId := strings.TrimSpace(state.AvatarMediaID)
 	state.AvatarMediaID = avatarMediaId
-	if err := configs.SaveAgentState(agentId, state); err != nil {
+	if err := configs.SaveAgentConfig(agentId, state); err != nil {
 		self.sendError(frame.ID, 500, "saving agent state: "+err.Error())
 		return
 	}
@@ -796,14 +804,14 @@ func (self *webSocketConnection) handleAgentsAvatarRemove(frame requestFrame) {
 		return
 	}
 
-	state, err := configs.LoadAgentState(agentId)
+	state, err := configs.LoadAgentConfig(agentId)
 	if err != nil {
 		self.sendError(frame.ID, 500, "loading agent state: "+err.Error())
 		return
 	}
 	oldAvatarMediaId := strings.TrimSpace(state.AvatarMediaID)
 	state.AvatarMediaID = ""
-	if err := configs.SaveAgentState(agentId, state); err != nil {
+	if err := configs.SaveAgentConfig(agentId, state); err != nil {
 		self.sendError(frame.ID, 500, "saving agent state: "+err.Error())
 		return
 	}
@@ -1416,7 +1424,7 @@ func (self *webSocketConnection) handleUsersCreate(frame requestFrame) {
 	if name == "" {
 		name = username
 	}
-	if err := configs.SaveUserProfile(userId, &configs.UserProfile{
+	if err := configs.SaveUserConfig(userId, &configs.UserConfig{
 		Name:        name,
 		Description: strings.TrimSpace(parameters.Description),
 	}); err != nil {
@@ -1499,12 +1507,10 @@ func (self *webSocketConnection) handleUsersDelete(frame requestFrame) {
 		}
 	}
 
-	if userDirectory, err := configs.UserDirectory(userId); err == nil {
-		if _, statErr := os.Stat(userDirectory); statErr == nil {
-			if trashDirectory, trashErr := configs.TrashDirectory(); trashErr == nil {
-				_ = trash.Move(userDirectory, trashDirectory)
-			}
-		}
+	userDirectory := configs.UserDirectory(userId)
+	if _, statErr := os.Stat(userDirectory); statErr == nil {
+		trashDirectory := configs.TrashDirectory()
+		_ = trash.Move(userDirectory, trashDirectory)
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
@@ -1663,7 +1669,7 @@ func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) {
 		if parameters.Description != nil {
 			profile.Description = strings.TrimSpace(*parameters.Description)
 		}
-		if err := configs.SaveUserProfile(userId, profile); err != nil {
+		if err := configs.SaveUserConfig(userId, profile); err != nil {
 			self.sendError(frame.ID, 500, "failed to save profile")
 			return
 		}
@@ -1722,7 +1728,7 @@ func (self *webSocketConnection) handleUsersSetRole(frame requestFrame) {
 	})
 }
 
-func profileToRpcPayload(profile *configs.UserProfile) map[string]interface{} {
+func profileToRpcPayload(profile *configs.UserConfig) map[string]interface{} {
 	payload := map[string]interface{}{
 		"name": profile.Name,
 	}
@@ -1763,7 +1769,7 @@ func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) {
 		return
 	}
 
-	profile := &configs.UserProfile{
+	profile := &configs.UserConfig{
 		Name:          strings.TrimSpace(existing.Name),
 		Description:   strings.TrimSpace(existing.Description),
 		AvatarMediaID: strings.TrimSpace(existing.AvatarMediaID),
@@ -1777,7 +1783,7 @@ func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) {
 	if parameters.AvatarMediaID != nil {
 		profile.AvatarMediaID = strings.TrimSpace(*parameters.AvatarMediaID)
 	}
-	if err := configs.SaveUserProfile(self.userId, profile); err != nil {
+	if err := configs.SaveUserConfig(self.userId, profile); err != nil {
 		self.sendError(frame.ID, 500, "failed to save profile")
 		return
 	}
@@ -1804,7 +1810,7 @@ func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
 
 	oldAvatarMediaId := profile.AvatarMediaID
 	profile.AvatarMediaID = ""
-	if err := configs.SaveUserProfile(self.userId, profile); err != nil {
+	if err := configs.SaveUserConfig(self.userId, profile); err != nil {
 		self.sendError(frame.ID, 500, "failed to save profile")
 		return
 	}
@@ -1826,7 +1832,7 @@ func (self *webSocketConnection) handleProjectsList(frame requestFrame) {
 	if !self.requireAdmin(frame) {
 		return
 	}
-	items, err := projects.List()
+	items, err := configs.LoadProjectConfigs()
 	if err != nil {
 		self.sendError(frame.ID, 500, "listing projects: "+err.Error())
 		return
@@ -1869,7 +1875,7 @@ func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 		self.sendError(frame.ID, 400, "name is required")
 		return
 	}
-	item, err := projects.Create(parameters.Name, parameters.Description, parameters.Purpose)
+	item, err := projects.CreateProject(parameters.Name, parameters.Description, parameters.Purpose)
 	if err != nil {
 		code, message := projectRpcError(err, "creating project")
 		self.sendError(frame.ID, code, message)
@@ -1902,7 +1908,7 @@ func (self *webSocketConnection) handleProjectsRename(frame requestFrame) {
 		self.sendError(frame.ID, 400, "name is required")
 		return
 	}
-	item, err := projects.Rename(parameters.ProjectID, parameters.Name)
+	item, err := projects.RenameProject(parameters.ProjectID, parameters.Name)
 	if err != nil {
 		code, message := projectRpcError(err, "renaming project")
 		self.sendError(frame.ID, code, message)
@@ -1930,7 +1936,7 @@ func (self *webSocketConnection) handleProjectsDelete(frame requestFrame) {
 		self.sendError(frame.ID, 400, "projectId is required")
 		return
 	}
-	if err := projects.Delete(parameters.ProjectID); err != nil {
+	if err := projects.DeleteProject(parameters.ProjectID); err != nil {
 		code, message := projectRpcError(err, "deleting project")
 		self.sendError(frame.ID, code, message)
 		return
@@ -1960,11 +1966,7 @@ func (self *webSocketConnection) handleSkillsLocalList(frame requestFrame) {
 	if !self.requireAdmin(frame) {
 		return
 	}
-	skillsDirectory, err := configs.SkillsDirectory()
-	if err != nil {
-		self.sendError(frame.ID, 500, "resolving skills directory: "+err.Error())
-		return
-	}
+	skillsDirectory := configs.SkillsDirectory()
 	definitions, err := skills.ListLocal(skillsDirectory)
 	if err != nil {
 		self.sendError(frame.ID, 500, "listing local skills: "+err.Error())

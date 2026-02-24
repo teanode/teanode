@@ -12,13 +12,10 @@ import (
 )
 
 func TestSummarizerSummarizeAllIteratesAllUsersAndAgents(t *testing.T) {
-	t.Setenv("TEANODE_DIR", t.TempDir())
+	configs.SetDirectory(t.TempDir())
 
 	for _, userId := range []string{"user-b", "user-a"} {
-		userDirectory, err := configs.UserDirectory(userId)
-		if err != nil {
-			t.Fatalf("UserDirectory(%q): %v", userId, err)
-		}
+		userDirectory := configs.UserDirectory(userId)
 		if err := os.MkdirAll(userDirectory, 0755); err != nil {
 			t.Fatalf("MkdirAll(%q): %v", userDirectory, err)
 		}
@@ -63,12 +60,9 @@ func TestSummarizerSummarizeAllIteratesAllUsersAndAgents(t *testing.T) {
 }
 
 func TestSummarizerSkipsNilConversationStore(t *testing.T) {
-	t.Setenv("TEANODE_DIR", t.TempDir())
+	configs.SetDirectory(t.TempDir())
 
-	userDirectory, err := configs.UserDirectory("user-1")
-	if err != nil {
-		t.Fatalf("UserDirectory: %v", err)
-	}
+	userDirectory := configs.UserDirectory("user-1")
 	if err := os.MkdirAll(userDirectory, 0755); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", userDirectory, err)
 	}

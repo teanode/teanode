@@ -2,28 +2,38 @@
 package configs
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/atomicfile"
-	"github.com/teanode/teanode/internal/util/timeutil"
 	"github.com/teanode/teanode/internal/util/trash"
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed schema.json
-var configSchemaJson []byte
+//go:embed schema/*.json
+var schemaFiles embed.FS
 
-//go:embed agent_schema.json
-var agentSchemaJson []byte
+var (
+	configSchemaJson        = mustReadSchemaFile("schema/config.schema.json")
+	agentConfigSchemaJson   = mustReadSchemaFile("schema/agentConfig.schema.json")
+	userConfigSchemaJson    = mustReadSchemaFile("schema/userConfig.schema.json")
+	projectConfigSchemaJson = mustReadSchemaFile("schema/projectConfig.schema.json")
+)
+
+func mustReadSchemaFile(path string) []byte {
+	data, err := schemaFiles.ReadFile(path)
+	if err != nil {
+		panic(fmt.Sprintf("loading embedded schema %s: %v", path, err))
+	}
+	return data
+}
 
 // ConfigSchema returns the embedded config schema JSON for UI form generation.
 func ConfigSchema() json.RawMessage {
@@ -32,7 +42,17 @@ func ConfigSchema() json.RawMessage {
 
 // AgentConfigSchema returns the embedded agent config schema JSON for UI form generation.
 func AgentConfigSchema() json.RawMessage {
-	return json.RawMessage(agentSchemaJson)
+	return json.RawMessage(agentConfigSchemaJson)
+}
+
+// UserConfigSchema returns the embedded user config schema JSON for UI form generation.
+func UserConfigSchema() json.RawMessage {
+	return json.RawMessage(userConfigSchemaJson)
+}
+
+// ProjectConfigSchema returns the embedded project config schema JSON for UI form generation.
+func ProjectConfigSchema() json.RawMessage {
+	return json.RawMessage(projectConfigSchemaJson)
 }
 
 // --- Schema-driven defaults ---
@@ -118,23 +138,6 @@ func init() {
 		MaxConversationChars: schemaInt(configDefaults, "summarizer.maxConversationChars"),
 		MaxMessageChars:      schemaInt(configDefaults, "summarizer.maxMessageChars"),
 	}
-}
-
-// AgentConfig defines a single agent in the multi-agent system.
-type AgentConfig struct {
-	ID     string   `json:"id" yaml:"id"`                             // unique; "main" is default
-	Name   string   `json:"name,omitempty" yaml:"name,omitempty"`     // friendly display name
-	Model  string   `json:"model,omitempty" yaml:"model,omitempty"`   // qualified model override (e.g. "openai:gpt-5.2")
-	Skills []string `json:"skills,omitempty" yaml:"skills,omitempty"` // skill allow list (nil = all)
-	Tools  []string `json:"tools,omitempty" yaml:"tools,omitempty"`   // tool allow list (nil = all)
-}
-
-// AgentState stores derived runtime metadata for an agent.
-// Persisted at ~/.teanode/agents/<agentId>/state.yaml.
-type AgentState struct {
-	Description          string             `json:"description,omitempty" yaml:"description,omitempty"`
-	DescriptionUpdatedAt timeutil.Timestamp `json:"descriptionUpdatedAt,omitempty" yaml:"descriptionUpdatedAt,omitempty"`
-	AvatarMediaID        string             `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
 }
 
 // AgentLimits holds resolved runtime limits for an agent.
@@ -515,209 +518,10 @@ func IsAllowed(name string, allowed []string) bool {
 	return false
 }
 
-// --- Directory Functions ---
-
-var overrideDirectory string
-var overrideDirectoryMutex sync.RWMutex
-
-// SetDirectory overrides the data directory. Must be called before any other
-// config functions (EnsureDirs, Load, etc.).
-func SetDirectory(directory string) {
-	overrideDirectoryMutex.Lock()
-	defer overrideDirectoryMutex.Unlock()
-	overrideDirectory = directory
-}
-
-// Directory returns the teanode data directory (default ~/.teanode).
-func Directory() (string, error) {
-	overrideDirectoryMutex.RLock()
-	currentOverrideDirectory := overrideDirectory
-	if currentOverrideDirectory != "" {
-		overrideDirectoryMutex.RUnlock()
-		return currentOverrideDirectory, nil
-	}
-	overrideDirectoryMutex.RUnlock()
-	if value := os.Getenv("TEANODE_DIR"); value != "" {
-		return value, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", err)
-	}
-	return filepath.Join(home, ".teanode"), nil
-}
-
-// AgentsDirectory returns the agents config directory (~/.teanode/agents/).
-func AgentsDirectory() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "agents"), nil
-}
-
-// AgentWorkspaceDirectory returns the workspace directory for an agent (~/.teanode/agents/<agentId>/workspace/).
-func AgentWorkspaceDirectory(agentId string) (string, error) {
-	agentsDirectory, err := AgentsDirectory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(agentsDirectory, agentId, "workspace"), nil
-}
-
-// UsersDirectory returns the users directory (~/.teanode/users).
-func UsersDirectory() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "users"), nil
-}
-
-// UserDirectory returns the directory for a specific user (~/.teanode/users/<userId>).
-func UserDirectory(userId string) (string, error) {
-	usersDirectory, err := UsersDirectory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(usersDirectory, userId), nil
-}
-
-// UserWorkspaceDirectory returns the workspace directory for a specific user (~/.teanode/users/<userId>/workspace).
-func UserWorkspaceDirectory(userId string) (string, error) {
-	userDirectory, err := UserDirectory(userId)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(userDirectory, "workspace"), nil
-}
-
-// UserConversationsDirectory returns the conversations root for a specific user (~/.teanode/users/<userId>/conversations).
-func UserConversationsDirectory(userId string) (string, error) {
-	userDirectory, err := UserDirectory(userId)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(userDirectory, "conversations"), nil
-}
-
-// UserJobsDirectory returns the jobs directory for a specific user (~/.teanode/users/<userId>/jobs).
-func UserJobsDirectory(userId string) (string, error) {
-	userDirectory, err := UserDirectory(userId)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(userDirectory, "jobs"), nil
-}
-
-// UserAgentConversationsDirectory returns a user+agent conversation directory
-// (~/.teanode/users/<userId>/conversations/<agentId>).
-func UserAgentConversationsDirectory(userId, agentId string) (string, error) {
-	userConversationsDirectory, err := UserConversationsDirectory(userId)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(userConversationsDirectory, agentId), nil
-}
-
-// UserProfileFile returns the profile path for a specific user (~/.teanode/users/<userId>/user.yaml).
-func UserProfileFile(userId string) (string, error) {
-	userDirectory, err := UserDirectory(userId)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(userDirectory, "user.yaml"), nil
-}
-
-// AgentStateFile returns the path to the agent state file (~/.teanode/agents/<agentId>/state.yaml).
-func AgentStateFile(agentId string) (string, error) {
-	agentsDirectory, err := AgentsDirectory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(agentsDirectory, agentId, "state.yaml"), nil
-}
-
-// SkillsDirectory returns the skills directory (~/.teanode/skills).
-func SkillsDirectory() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "skills"), nil
-}
-
-// ProjectsDirectory returns the projects directory (~/.teanode/projects).
-func ProjectsDirectory() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "projects"), nil
-}
-
-// ModelsFile returns the path to the models cache file (~/.teanode/models.yaml).
-func ModelsFile() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "models.yaml"), nil
-}
-
-// MediaDirectory returns the media directory (~/.teanode/media).
-func MediaDirectory() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "media"), nil
-}
-
-// SessionsDirectory returns the sessions directory (~/.teanode/sessions).
-func SessionsDirectory() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "sessions"), nil
-}
-
-// GatewayPIDFile returns the gateway process PID file path (~/.teanode/gateway.pid).
-func GatewayPIDFile() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "gateway.pid"), nil
-}
-
-// TrashDirectory returns the trash directory (~/.teanode/.trash).
-func TrashDirectory() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, ".trash"), nil
-}
-
-// StateFile returns the path to the state file (~/.teanode/state.yaml).
-func StateFile() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "state.yaml"), nil
-}
-
 // EnsureDirectories creates the base teanode directories if needed.
 func EnsureDirectories() error {
-	directory, err := Directory()
-	if err != nil {
-		return err
-	}
-	for _, sub := range []string{"skills", "projects", "media", "agents", "users", "sessions", ".trash", ".backup"} {
-		if err := os.MkdirAll(filepath.Join(directory, sub), 0755); err != nil {
+	for _, sub := range []string{"skills", "projects", "media", "agents", "users", "sessions", ".trash"} {
+		if err := os.MkdirAll(filepath.Join(configDirectory, sub), 0755); err != nil {
 			return fmt.Errorf("creating directories: %w", err)
 		}
 	}
@@ -726,10 +530,7 @@ func EnsureDirectories() error {
 
 // EnsureAgentDirectories creates the workspace directory for an agent.
 func EnsureAgentDirectories(agentId string) error {
-	workspaceDirectory, err := AgentWorkspaceDirectory(agentId)
-	if err != nil {
-		return err
-	}
+	workspaceDirectory := AgentWorkspaceDirectory(agentId)
 	for _, directory := range []string{
 		workspaceDirectory,
 		filepath.Join(workspaceDirectory, "memory"),
@@ -743,22 +544,10 @@ func EnsureAgentDirectories(agentId string) error {
 
 // EnsureUserDirectories creates the standard multi-user directories.
 func EnsureUserDirectories(userId string) error {
-	userDirectory, err := UserDirectory(userId)
-	if err != nil {
-		return err
-	}
-	workspaceDirectory, err := UserWorkspaceDirectory(userId)
-	if err != nil {
-		return err
-	}
-	conversationsDirectory, err := UserConversationsDirectory(userId)
-	if err != nil {
-		return err
-	}
-	jobsDirectory, err := UserJobsDirectory(userId)
-	if err != nil {
-		return err
-	}
+	userDirectory := UserDirectory(userId)
+	workspaceDirectory := UserWorkspaceDirectory(userId)
+	conversationsDirectory := UserConversationsDirectory(userId)
+	jobsDirectory := UserJobsDirectory(userId)
 	for _, directory := range []string{
 		userDirectory,
 		workspaceDirectory,
@@ -779,10 +568,7 @@ func EnsureUserDirectories(userId string) error {
 // SeedAgentWorkspace writes default AGENT.md and MEMORY.md if they don't exist
 // in the agent's workspace directory.
 func SeedAgentWorkspace(agentId string) error {
-	workspaceDirectory, err := AgentWorkspaceDirectory(agentId)
-	if err != nil {
-		return err
-	}
+	workspaceDirectory := AgentWorkspaceDirectory(agentId)
 
 	seeds := map[string]string{
 		"AGENT.md":  prompts.DefaultAgentMarkdown(),
@@ -803,10 +589,7 @@ func SeedAgentWorkspace(agentId string) error {
 // SeedUserWorkspace writes default user files in the user's workspace directory.
 // ONBOARDING.md is only created when USER.md is created in the same operation.
 func SeedUserWorkspace(userId string) error {
-	workspaceDirectory, err := UserWorkspaceDirectory(userId)
-	if err != nil {
-		return err
-	}
+	workspaceDirectory := UserWorkspaceDirectory(userId)
 
 	userMdPath := filepath.Join(workspaceDirectory, "USER.md")
 	userCreated := false
@@ -835,130 +618,19 @@ func SeedUserWorkspace(userId string) error {
 	return nil
 }
 
-// --- Per-Agent File Operations ---
-
-// LoadAgents walks agents/*/config.yaml and returns all agent configs.
-func LoadAgents() ([]AgentConfig, error) {
-	agentsDirectory, err := AgentsDirectory()
-	if err != nil {
-		return nil, err
-	}
-
-	entries, err := os.ReadDir(agentsDirectory)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("reading agents directory: %w", err)
-	}
-
-	var agents []AgentConfig
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		configPath := filepath.Join(agentsDirectory, entry.Name(), "config.yaml")
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, fmt.Errorf("reading agent config %s: %w", entry.Name(), err)
-		}
-		var agentConfig AgentConfig
-		if err := yaml.Unmarshal(data, &agentConfig); err != nil {
-			return nil, fmt.Errorf("parsing agent config %s: %w", entry.Name(), err)
-		}
-		// Ensure the ID matches the directory name.
-		agentConfig.ID = entry.Name()
-		agents = append(agents, agentConfig)
-	}
-	return agents, nil
-}
-
-// SaveAgent writes an agent config to agents/<id>/config.yaml atomically.
-func SaveAgent(agentConfig AgentConfig) error {
-	agentsDirectory, err := AgentsDirectory()
-	if err != nil {
-		return err
-	}
-	agentDirectory := filepath.Join(agentsDirectory, agentConfig.ID)
-	if err := os.MkdirAll(agentDirectory, 0755); err != nil {
-		return fmt.Errorf("creating agent directory: %w", err)
-	}
-	data, err := yaml.Marshal(agentConfig)
-	if err != nil {
-		return fmt.Errorf("marshalling agent config: %w", err)
-	}
-	return atomicfile.WriteFile(filepath.Join(agentDirectory, "config.yaml"), data)
-}
-
-// LoadAgentState reads agents/<id>/state.yaml.
-// Missing files return an empty state.
-func LoadAgentState(agentId string) (*AgentState, error) {
-	stateFile, err := AgentStateFile(agentId)
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(stateFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &AgentState{}, nil
-		}
-		return nil, fmt.Errorf("reading agent state %s: %w", agentId, err)
-	}
-	state := &AgentState{}
-	if err := yaml.Unmarshal(data, state); err != nil {
-		return nil, fmt.Errorf("parsing agent state %s: %w", agentId, err)
-	}
-	return state, nil
-}
-
-// SaveAgentState writes agents/<id>/state.yaml atomically.
-func SaveAgentState(agentId string, state *AgentState) error {
-	if state == nil {
-		state = &AgentState{}
-	}
-	agentsDirectory, err := AgentsDirectory()
-	if err != nil {
-		return err
-	}
-	agentDirectory := filepath.Join(agentsDirectory, agentId)
-	if err := os.MkdirAll(agentDirectory, 0755); err != nil {
-		return fmt.Errorf("creating agent directory: %w", err)
-	}
-	data, err := yaml.Marshal(state)
-	if err != nil {
-		return fmt.Errorf("marshalling agent state: %w", err)
-	}
-	stateFile := filepath.Join(agentDirectory, "state.yaml")
-	return atomicfile.WriteFile(stateFile, data)
-}
-
 // DeleteAgent removes the agents/<agentId>/ directory.
 func DeleteAgent(agentId string) error {
-	agentsDirectory, err := AgentsDirectory()
-	if err != nil {
-		return err
-	}
+	agentsDirectory := AgentsDirectory()
 	agentDirectory := filepath.Join(agentsDirectory, agentId)
 	if _, err := os.Stat(agentDirectory); os.IsNotExist(err) {
 		return fmt.Errorf("agent not found: %s", agentId)
 	}
-	workspaceDirectory, err := AgentWorkspaceDirectory(agentId)
-	if err != nil {
-		return err
-	}
-	trashDirectory, err := TrashDirectory()
-	if err != nil {
-		return err
-	}
+	workspaceDirectory := AgentWorkspaceDirectory(agentId)
+	trashDirectory := TrashDirectory()
 
 	paths := []string{agentDirectory, workspaceDirectory}
-	usersDirectory, err := UsersDirectory()
-	if err != nil {
-		return err
-	}
+	usersDirectory := UsersDirectory()
+	var err error
 	userEntries, err := os.ReadDir(usersDirectory)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -986,13 +658,8 @@ func DeleteAgent(agentId string) error {
 // LoadRaw reads config from ~/.teanode/config.yaml without applying defaults
 // or environment overrides. Returns only what the user explicitly set in the file.
 func LoadRaw() (*Config, error) {
-	directory, err := Directory()
-	if err != nil {
-		return nil, err
-	}
-
 	configuration := &Config{}
-	data, err := os.ReadFile(filepath.Join(directory, "config.yaml"))
+	data, err := os.ReadFile(ConfigFilename())
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -1009,12 +676,7 @@ func LoadRaw() (*Config, error) {
 func Load() (*Config, error) {
 	configuration := defaults()
 
-	directory, err := Directory()
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := os.ReadFile(filepath.Join(directory, "config.yaml"))
+	data, err := os.ReadFile(ConfigFilename())
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -1028,14 +690,14 @@ func Load() (*Config, error) {
 	applyEnv(configuration)
 
 	// Load agents from per-agent files.
-	agents, err := LoadAgents()
+	agents, err := LoadAgentConfigs()
 	if err != nil {
 		return nil, fmt.Errorf("loading agents: %w", err)
 	}
 	if len(agents) == 0 {
 		// Auto-create the default main agent.
 		defaultAgent := AgentConfig{ID: "main", Name: "Tea"}
-		if err := SaveAgent(defaultAgent); err != nil {
+		if err := SaveAgentConfig(defaultAgent.ID, &defaultAgent); err != nil {
 			return nil, fmt.Errorf("saving default agent: %w", err)
 		}
 		agents = []AgentConfig{defaultAgent}
@@ -1047,15 +709,11 @@ func Load() (*Config, error) {
 
 // Save writes the config to ~/.teanode/config.yaml atomically.
 func Save(configuration *Config) error {
-	directory, err := Directory()
-	if err != nil {
-		return err
-	}
 	data, err := yaml.Marshal(configuration)
 	if err != nil {
 		return fmt.Errorf("marshalling config: %w", err)
 	}
-	return atomicfile.WriteFile(filepath.Join(directory, "config.yaml"), data)
+	return atomicfile.WriteFile(ConfigFilename(), data)
 }
 
 func defaults() *Config {

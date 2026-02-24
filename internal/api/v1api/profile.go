@@ -25,8 +25,8 @@ func requestUserId(request *http.Request) string {
 	return ""
 }
 
-func (self *v1Api) loadProfile(userId string) (*configs.UserProfile, error) {
-	return configs.LoadUserProfile(userId)
+func (self *v1Api) loadProfile(userId string) (*configs.UserConfig, error) {
+	return configs.LoadUserConfig(userId)
 }
 
 func (self *v1Api) handleProfile(writer http.ResponseWriter, request *http.Request) error {
@@ -54,7 +54,7 @@ func (self *v1Api) handleProfile(writer http.ResponseWriter, request *http.Reque
 			return web.Error(500, "failed to load profile")
 		}
 
-		profile := &configs.UserProfile{
+		profile := &configs.UserConfig{
 			Name:          strings.TrimSpace(existing.Name),
 			Description:   strings.TrimSpace(existing.Description),
 			AvatarMediaID: strings.TrimSpace(existing.AvatarMediaID),
@@ -68,7 +68,7 @@ func (self *v1Api) handleProfile(writer http.ResponseWriter, request *http.Reque
 		if body.AvatarMediaID != nil {
 			profile.AvatarMediaID = strings.TrimSpace(*body.AvatarMediaID)
 		}
-		if err := configs.SaveUserProfile(userId, profile); err != nil {
+		if err := configs.SaveUserConfig(userId, profile); err != nil {
 			return web.Error(500, "failed to save profile")
 		}
 		persisted, err := self.loadProfile(userId)
@@ -126,7 +126,7 @@ func (self *v1Api) handleProfileAvatar(writer http.ResponseWriter, request *http
 
 		oldAvatarMediaId := profile.AvatarMediaID
 		profile.AvatarMediaID = saved.MediaID
-		if err := configs.SaveUserProfile(userId, profile); err != nil {
+		if err := configs.SaveUserConfig(userId, profile); err != nil {
 			return web.Error(500, "failed to save profile")
 		}
 		persisted, err := self.loadProfile(userId)
@@ -144,7 +144,7 @@ func (self *v1Api) handleProfileAvatar(writer http.ResponseWriter, request *http
 	case http.MethodDelete:
 		oldAvatarMediaId := profile.AvatarMediaID
 		profile.AvatarMediaID = ""
-		if err := configs.SaveUserProfile(userId, profile); err != nil {
+		if err := configs.SaveUserConfig(userId, profile); err != nil {
 			return web.Error(500, "failed to save profile")
 		}
 		persisted, err := self.loadProfile(userId)

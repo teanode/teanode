@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/teanode/teanode/internal/configs"
@@ -14,50 +12,15 @@ import (
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/timeutil"
 	"github.com/teanode/teanode/internal/util/trash"
-	"gopkg.in/yaml.v3"
 )
 
 const defaultProjectDocumentName = "PROJECT.md"
-
-var validProjectIdPattern = regexp.MustCompile(`(?i)^[0-9a-hjkmnp-tv-z]{26}$`)
-
-// Metadata stores persistent project metadata at ~/.teanode/projects/<projectId>/project.yaml.
-type Metadata struct {
-	ID          string             `json:"id" yaml:"id"`
-	Name        string             `json:"name" yaml:"name"`
-	Description string             `json:"description" yaml:"description"`
-	UpdatedAt   timeutil.Timestamp `json:"updatedAt" yaml:"updatedAt"`
-}
-
-func Directory() (string, error) {
-	return configs.ProjectsDirectory()
-}
-
-func MetadataPath(projectId string) (string, error) {
-	return metadataPath(projectId)
-}
 
 func WorkspaceDirectory(projectId string) (string, error) {
 	return workspaceDirectory(projectId)
 }
 
-func ValidateProjectID(projectId string) error {
-	projectId = strings.TrimSpace(projectId)
-	if !validProjectIdPattern.MatchString(projectId) {
-		return fmt.Errorf("invalid projectId: %s", projectId)
-	}
-	return nil
-}
-
-func normalizeProjectId(projectId string) (string, error) {
-	projectId = strings.TrimSpace(projectId)
-	if err := ValidateProjectID(projectId); err != nil {
-		return "", err
-	}
-	return strings.ToLower(projectId), nil
-}
-
-func metadataPath(projectId string) (string, error) {
+func projectConfigPath(projectId string) (string, error) {
 	directory, err := projectDirectory(projectId)
 	if err != nil {
 		return "", err
@@ -66,27 +29,13 @@ func metadataPath(projectId string) (string, error) {
 }
 
 func projectDirectory(projectId string) (string, error) {
-	normalizedProjectId, err := normalizeProjectId(projectId)
-	if err != nil {
-		return "", err
-	}
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, normalizedProjectId), nil
+	directory := configs.ProjectsDirectory()
+	return filepath.Join(directory, projectId), nil
 }
 
 func workspaceDirectory(projectId string) (string, error) {
-	normalizedProjectId, err := normalizeProjectId(projectId)
-	if err != nil {
-		return "", err
-	}
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, normalizedProjectId, "workspace"), nil
+	directory := configs.ProjectsDirectory()
+	return filepath.Join(directory, projectId, "workspace"), nil
 }
 
 func safeProjectPath(projectId, relPath string) (string, string, error) {
@@ -108,153 +57,7 @@ func safeProjectPath(projectId, relPath string) (string, string, error) {
 	return workspace, full, nil
 }
 
-func ensureDirectory() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(directory, 0755); err != nil {
-		return "", fmt.Errorf("creating projects directory: %w", err)
-	}
-	return directory, nil
-}
-
-func nowTimestamp() timeutil.Timestamp {
-	return timeutil.Now()
-}
-
-func writeMetadata(path string, metadata Metadata) error {
-	payload, err := yaml.Marshal(metadata)
-	if err != nil {
-		return fmt.Errorf("marshalling metadata: %w", err)
-	}
-	if err := atomicfile.WriteFile(path, payload); err != nil {
-		return fmt.Errorf("writing metadata: %w", err)
-	}
-	return nil
-}
-
-type metadataDisk struct {
-	ID          string             `yaml:"id"`
-	Name        string             `yaml:"name"`
-	Description string             `yaml:"description"`
-	UpdatedAt   timeutil.Timestamp `yaml:"updatedAt"`
-}
-
-func decodeMetadata(data []byte) (Metadata, error) {
-	var disk metadataDisk
-	if err := yaml.Unmarshal(data, &disk); err != nil {
-		return Metadata{}, fmt.Errorf("parsing metadata: %w", err)
-	}
-	return Metadata{
-		ID:          disk.ID,
-		Name:        disk.Name,
-		Description: disk.Description,
-		UpdatedAt:   disk.UpdatedAt,
-	}, nil
-}
-
-func List() ([]Metadata, error) {
-	directory, err := Directory()
-	if err != nil {
-		return nil, err
-	}
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []Metadata{}, nil
-		}
-		return nil, fmt.Errorf("reading projects directory: %w", err)
-	}
-
-	items := make([]Metadata, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		path := filepath.Join(directory, entry.Name(), "project.yaml")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		metadata, err := decodeMetadata(data)
-		if err != nil {
-			continue
-		}
-		metadata.ID = strings.ToLower(metadata.ID)
-		if metadata.ID == "" || strings.TrimSpace(metadata.Name) == "" {
-			continue
-		}
-		items = append(items, metadata)
-	}
-
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].UpdatedAt.Time.Equal(items[j].UpdatedAt.Time) {
-			return items[i].Name < items[j].Name
-		}
-		return items[i].UpdatedAt.Time.After(items[j].UpdatedAt.Time)
-	})
-	return items, nil
-}
-
-func Get(projectId string) (*Metadata, error) {
-	normalizedProjectId, err := normalizeProjectId(projectId)
-	if err != nil {
-		return nil, err
-	}
-	path, err := metadataPath(projectId)
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	metadata, err := decodeMetadata(data)
-	if err != nil {
-		return nil, err
-	}
-	if metadata.ID == "" {
-		metadata.ID = normalizedProjectId
-	} else {
-		metadata.ID = strings.ToLower(metadata.ID)
-	}
-	return &metadata, nil
-}
-
-func Save(metadata Metadata) error {
-	normalizedProjectId, err := normalizeProjectId(metadata.ID)
-	if err != nil {
-		return err
-	}
-	metadata.ID = normalizedProjectId
-	if strings.TrimSpace(metadata.Name) == "" {
-		return fmt.Errorf("name is required")
-	}
-	if metadata.UpdatedAt.IsZero() {
-		metadata.UpdatedAt = nowTimestamp()
-	}
-	if _, err := ensureDirectory(); err != nil {
-		return err
-	}
-	projectDir, err := projectDirectory(metadata.ID)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		return fmt.Errorf("creating project directory: %w", err)
-	}
-	path, err := metadataPath(metadata.ID)
-	if err != nil {
-		return err
-	}
-	if err := writeMetadata(path, metadata); err != nil {
-		return err
-	}
-	return nil
-}
-
-func initializeProjectFile(workspace string, metadata Metadata, purpose string) error {
+func initializeProjectFile(workspace string, metadata configs.ProjectConfig, purpose string) error {
 	path := filepath.Join(workspace, defaultProjectDocumentName)
 	if _, err := os.Stat(path); err == nil {
 		return nil
@@ -266,22 +69,23 @@ func initializeProjectFile(workspace string, metadata Metadata, purpose string) 
 	return atomicfile.WriteFile(path, []byte(content))
 }
 
-func Create(name, description, purpose string) (*Metadata, error) {
+func CreateProject(name, description, purpose string) (*configs.ProjectConfig, error) {
 	name = strings.TrimSpace(name)
 	description = strings.TrimSpace(description)
 	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
 
-	if _, err := ensureDirectory(); err != nil {
-		return nil, err
+	projectsDirectory := configs.ProjectsDirectory()
+	if err := os.MkdirAll(projectsDirectory, 0755); err != nil {
+		return nil, fmt.Errorf("creating projects directory: %w", err)
 	}
 
-	metadata := Metadata{
+	metadata := configs.ProjectConfig{
 		ID:          security.NewULID(),
 		Name:        name,
 		Description: description,
-		UpdatedAt:   nowTimestamp(),
+		UpdatedAt:   timeutil.Now(),
 	}
 	workspace, err := workspaceDirectory(metadata.ID)
 	if err != nil {
@@ -293,14 +97,14 @@ func Create(name, description, purpose string) (*Metadata, error) {
 	if err := initializeProjectFile(workspace, metadata, purpose); err != nil {
 		return nil, fmt.Errorf("initializing PROJECT.md: %w", err)
 	}
-	if err := Save(metadata); err != nil {
+	if err := configs.SaveProjectConfig(metadata.ID, &metadata); err != nil {
 		return nil, err
 	}
 	return &metadata, nil
 }
 
-func Rename(projectId, name string) (*Metadata, error) {
-	metadata, err := Get(projectId)
+func RenameProject(projectId, name string) (*configs.ProjectConfig, error) {
+	metadata, err := configs.LoadProjectConfig(projectId)
 	if err != nil {
 		return nil, err
 	}
@@ -309,30 +113,24 @@ func Rename(projectId, name string) (*Metadata, error) {
 		return nil, fmt.Errorf("name is required")
 	}
 	metadata.Name = name
-	metadata.UpdatedAt = nowTimestamp()
-	if err := Save(*metadata); err != nil {
+	metadata.UpdatedAt = timeutil.Now()
+	if err := configs.SaveProjectConfig(metadata.ID, metadata); err != nil {
 		return nil, err
 	}
 	return metadata, nil
 }
 
-func Delete(projectId string) error {
+func DeleteProject(projectId string) error {
 	workspace, err := workspaceDirectory(projectId)
 	if err != nil {
 		return err
 	}
-	metadata, err := metadataPath(projectId)
+	metadata, err := projectConfigPath(projectId)
 	if err != nil {
 		return err
 	}
-	root, err := configs.Directory()
-	if err != nil {
-		return err
-	}
-	trashDirectory, err := configs.TrashDirectory()
-	if err != nil {
-		return err
-	}
+	root := configs.Directory()
+	trashDirectory := configs.TrashDirectory()
 
 	if _, err := os.Stat(metadata); err == nil {
 		if isPathInsideDirectory(metadata, root) {
@@ -359,16 +157,16 @@ func Delete(projectId string) error {
 	return nil
 }
 
-func Touch(projectId string) error {
-	metadata, err := Get(projectId)
+func touch(projectId string) error {
+	metadata, err := configs.LoadProjectConfig(projectId)
 	if err != nil {
 		return err
 	}
-	metadata.UpdatedAt = nowTimestamp()
-	return Save(*metadata)
+	metadata.UpdatedAt = timeutil.Now()
+	return configs.SaveProjectConfig(metadata.ID, metadata)
 }
 
-func ListFiles(projectId string) ([]string, error) {
+func listFiles(projectId string) ([]string, error) {
 	workspace, err := workspaceDirectory(projectId)
 	if err != nil {
 		return nil, err
@@ -400,7 +198,7 @@ func ListFiles(projectId string) ([]string, error) {
 	return files, nil
 }
 
-func ReadFile(projectId, path string) (string, error) {
+func readFile(projectId, path string) (string, error) {
 	_, full, err := safeProjectPath(projectId, path)
 	if err != nil {
 		return "", err
@@ -412,7 +210,7 @@ func ReadFile(projectId, path string) (string, error) {
 	return string(data), nil
 }
 
-func WriteFile(projectId, path, content string) error {
+func writeFile(projectId, path, content string) error {
 	_, full, err := safeProjectPath(projectId, path)
 	if err != nil {
 		return err
@@ -420,10 +218,10 @@ func WriteFile(projectId, path, content string) error {
 	if err := atomicfile.WriteFile(full, []byte(content)); err != nil {
 		return fmt.Errorf("writing file: %w", err)
 	}
-	return Touch(projectId)
+	return touch(projectId)
 }
 
-func AppendFile(projectId, path, content string) error {
+func appendFile(projectId, path, content string) error {
 	_, full, err := safeProjectPath(projectId, path)
 	if err != nil {
 		return err
@@ -439,16 +237,16 @@ func AppendFile(projectId, path, content string) error {
 	if _, err := file.WriteString(content + "\n"); err != nil {
 		return fmt.Errorf("appending file: %w", err)
 	}
-	return Touch(projectId)
+	return touch(projectId)
 }
 
-type SearchMatch struct {
+type searchMatch struct {
 	Path string `json:"path"`
 	Line int    `json:"line"`
 	Text string `json:"text"`
 }
 
-func SearchFiles(projectId, query string, maxResults int) ([]SearchMatch, error) {
+func searchFiles(projectId, query string, maxResults int) ([]searchMatch, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query is required")
 	}
@@ -461,7 +259,7 @@ func SearchFiles(projectId, query string, maxResults int) ([]SearchMatch, error)
 	}
 
 	queryLower := strings.ToLower(query)
-	matches := []SearchMatch{}
+	matches := []searchMatch{}
 	err = filepath.Walk(workspace, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return nil
@@ -489,7 +287,7 @@ func SearchFiles(projectId, query string, maxResults int) ([]SearchMatch, error)
 				return filepath.SkipAll
 			}
 			if strings.Contains(strings.ToLower(line), queryLower) {
-				matches = append(matches, SearchMatch{Path: rel, Line: index + 1, Text: line})
+				matches = append(matches, searchMatch{Path: rel, Line: index + 1, Text: line})
 			}
 		}
 		return nil
@@ -500,7 +298,7 @@ func SearchFiles(projectId, query string, maxResults int) ([]SearchMatch, error)
 	return matches, nil
 }
 
-func DeleteFile(projectId, path string) error {
+func deleteFile(projectId, path string) error {
 	workspace, full, err := safeProjectPath(projectId, path)
 	if err != nil {
 		return err
@@ -513,15 +311,9 @@ func DeleteFile(projectId, path string) error {
 		return fmt.Errorf("cannot delete directories, only files")
 	}
 
-	root, err := configs.Directory()
-	if err != nil {
-		return err
-	}
+	root := configs.Directory()
 	if isPathInsideDirectory(full, root) {
-		trashDirectory, err := configs.TrashDirectory()
-		if err != nil {
-			return err
-		}
+		trashDirectory := configs.TrashDirectory()
 		if err := trash.Move(full, trashDirectory); err != nil {
 			return fmt.Errorf("deleting file: %w", err)
 		}
@@ -540,10 +332,10 @@ func DeleteFile(projectId, path string) error {
 		os.Remove(directory)
 		directory = filepath.Dir(directory)
 	}
-	return Touch(projectId)
+	return touch(projectId)
 }
 
-func MoveFile(projectId, fromPath, toPath string) error {
+func moveFile(projectId, fromPath, toPath string) error {
 	_, source, err := safeProjectPath(projectId, fromPath)
 	if err != nil {
 		return err
@@ -578,7 +370,7 @@ func MoveFile(projectId, fromPath, toPath string) error {
 		os.Remove(directory)
 		directory = filepath.Dir(directory)
 	}
-	return Touch(projectId)
+	return touch(projectId)
 }
 
 func isPathInsideDirectory(path, directory string) bool {

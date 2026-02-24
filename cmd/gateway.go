@@ -27,6 +27,7 @@ import (
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/projects"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/skills"
@@ -39,7 +40,6 @@ import (
 	"github.com/teanode/teanode/internal/tools/gitlab"
 	"github.com/teanode/teanode/internal/tools/google"
 	"github.com/teanode/teanode/internal/tools/homeassistant"
-	"github.com/teanode/teanode/internal/tools/projects"
 	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/shell"
 	"github.com/teanode/teanode/internal/tools/unifiprotect"
@@ -122,10 +122,7 @@ func NewGatewayCommand() *cli.Command {
 			}
 
 			// Create session store.
-			sessionsDirectory, err := configs.SessionsDirectory()
-			if err != nil {
-				return err
-			}
+			sessionsDirectory := configs.SessionsDirectory()
 			sessionStore := sessions.NewStore(sessionsDirectory)
 
 			// Build provider registry.
@@ -173,15 +170,9 @@ func NewGatewayCommand() *cli.Command {
 
 			terminalRelay := terminals.NewRelay()
 
-			skillsDirectory, err := configs.SkillsDirectory()
-			if err != nil {
-				return err
-			}
+			skillsDirectory := configs.SkillsDirectory()
 
-			mediaDirectory, err := configs.MediaDirectory()
-			if err != nil {
-				return err
-			}
+			mediaDirectory := configs.MediaDirectory()
 			mediaStore := media.NewStore(mediaDirectory)
 
 			// --- Agent Registry: create a runner per agent ---
@@ -206,10 +197,7 @@ func NewGatewayCommand() *cli.Command {
 				if store, ok := conversationStores[key]; ok {
 					return store
 				}
-				directory, err := configs.UserAgentConversationsDirectory(userId, agentId)
-				if err != nil {
-					return nil
-				}
+				directory := configs.UserAgentConversationsDirectory(userId, agentId)
 				if err := os.MkdirAll(directory, 0755); err != nil {
 					return nil
 				}
@@ -228,7 +216,8 @@ func NewGatewayCommand() *cli.Command {
 			) (*agents.ToolRegistry, string) {
 				tools := agents.NewToolRegistry()
 				workspace.RegisterTools(tools, workspaceDirectory)
-				projects.RegisterTools(tools)
+				tools.Register(projects.NewProjectsTool())
+				tools.Register(projects.NewProjectWorkspaceTool())
 				browsers.RegisterBrowserTools(tools, browser)
 				terminals.RegisterTerminalTools(tools, terminalRelay)
 				search.RegisterTools(tools, configuration.Tools.BraveAPIKey)
@@ -264,10 +253,7 @@ func NewGatewayCommand() *cli.Command {
 					if agentConfig == nil {
 						return
 					}
-					workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentId)
-					if err != nil {
-						return
-					}
+					workspaceDirectory := configs.AgentWorkspaceDirectory(agentId)
 					tools, skillPrompts := buildToolsForAgent(currentConfig, *agentConfig, workspaceDirectory, nil, scheduler)
 					runner.Reconfigure(currentConfig, currentProviders, tools, skillPrompts)
 				})
@@ -290,18 +276,15 @@ func NewGatewayCommand() *cli.Command {
 					return err
 				}
 
-				workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentConfig.ID)
-				if err != nil {
-					return err
-				}
+				workspaceDirectory := configs.AgentWorkspaceDirectory(agentConfig.ID)
 				tools, skillPrompts := buildToolsForAgent(configuration, agentConfig, workspaceDirectory, nil, scheduler)
 
 				runner := &agents.Runner{
 					AgentID:              agentConfig.ID,
 					Providers:            providers,
 					ResolveConversations: resolveConversationStore,
-					ResolveUserProfile: func(userId string) (*configs.UserProfile, error) {
-						return configs.LoadUserProfile(userId)
+					ResolveUserConfig: func(userId string) (*configs.UserConfig, error) {
+						return configs.LoadUserConfig(userId)
 					},
 					Config:             configuration,
 					Tools:              tools,
@@ -318,7 +301,6 @@ func NewGatewayCommand() *cli.Command {
 			// --- Gateway + API + Frontend ---
 
 			summarizer := agents.NewSummarizer(agentRegistry, configuration)
-			describer := agents.NewDescriber(agentRegistry)
 
 			gateway = gw.New(configuration, securityConfig, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore, sessionStore)
 			api := v1api.New(gateway, reloadSkills)
@@ -332,7 +314,7 @@ func NewGatewayCommand() *cli.Command {
 					return fmt.Errorf("agent already exists: %s", agentConfig.ID)
 				}
 
-				if err := configs.SaveAgent(agentConfig); err != nil {
+				if err := configs.SaveAgentConfig(agentConfig.ID, &agentConfig); err != nil {
 					return err
 				}
 				if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {
@@ -342,10 +324,7 @@ func NewGatewayCommand() *cli.Command {
 					return err
 				}
 
-				workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentConfig.ID)
-				if err != nil {
-					return err
-				}
+				workspaceDirectory := configs.AgentWorkspaceDirectory(agentConfig.ID)
 				currentConfiguration := gateway.Config()
 				if currentConfiguration.AgentByID(agentConfig.ID) == nil {
 					currentConfiguration.AgentConfigs = append(currentConfiguration.AgentConfigs, agentConfig)
@@ -357,8 +336,8 @@ func NewGatewayCommand() *cli.Command {
 					AgentID:              agentConfig.ID,
 					Providers:            currentProviders,
 					ResolveConversations: resolveConversationStore,
-					ResolveUserProfile: func(userId string) (*configs.UserProfile, error) {
-						return configs.LoadUserProfile(userId)
+					ResolveUserConfig: func(userId string) (*configs.UserConfig, error) {
+						return configs.LoadUserConfig(userId)
 					},
 					Config:             currentConfiguration,
 					Tools:              tools,
@@ -366,7 +345,7 @@ func NewGatewayCommand() *cli.Command {
 					WorkspaceDirectory: workspaceDirectory,
 					SkillPrompts:       skillPrompts,
 				})
-				describer.Notify()
+				summarizer.Notify()
 
 				return nil
 			})
@@ -421,10 +400,7 @@ func NewGatewayCommand() *cli.Command {
 
 			// --- File watcher for hot reloading ---
 
-			dataDirectory, err := configs.Directory()
-			if err != nil {
-				return err
-			}
+			dataDirectory := configs.Directory()
 
 			fileWatcher := watcher.New(dataDirectory)
 
@@ -445,17 +421,14 @@ func NewGatewayCommand() *cli.Command {
 							log.Errorf("failed to seed workspace for new agent %s: %v", agentConfig.ID, err)
 							continue
 						}
-						workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentConfig.ID)
-						if err != nil {
-							continue
-						}
+						workspaceDirectory := configs.AgentWorkspaceDirectory(agentConfig.ID)
 						tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, nil, scheduler)
 						runner = &agents.Runner{
 							AgentID:              agentConfig.ID,
 							Providers:            currentProviders,
 							ResolveConversations: resolveConversationStore,
-							ResolveUserProfile: func(userId string) (*configs.UserProfile, error) {
-								return configs.LoadUserProfile(userId)
+							ResolveUserConfig: func(userId string) (*configs.UserConfig, error) {
+								return configs.LoadUserConfig(userId)
 							},
 							Config:             currentConfiguration,
 							Tools:              tools,
@@ -468,10 +441,7 @@ func NewGatewayCommand() *cli.Command {
 					}
 
 					// Existing agent — rebuild tools and reconfigure.
-					workspaceDirectory, err := configs.AgentWorkspaceDirectory(agentConfig.ID)
-					if err != nil {
-						continue
-					}
+					workspaceDirectory := configs.AgentWorkspaceDirectory(agentConfig.ID)
 					tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, nil, scheduler)
 					runner.Reconfigure(currentConfiguration, currentProviders, tools, skillPrompts)
 				}
@@ -492,7 +462,7 @@ func NewGatewayCommand() *cli.Command {
 				gateway.SetConfig(newConfiguration)
 				gateway.InvalidateModelsCache()
 				reloadAgents()
-				describer.Notify()
+				summarizer.Notify()
 				log.Info("config reloaded successfully")
 			}
 
@@ -509,7 +479,7 @@ func NewGatewayCommand() *cli.Command {
 				}
 				gateway.SetConfig(newConfiguration)
 				reloadAgents()
-				describer.Notify()
+				summarizer.Notify()
 				log.Info("agents reloaded successfully")
 			}
 
@@ -557,7 +527,7 @@ func NewGatewayCommand() *cli.Command {
 				Handler: handler,
 			}
 
-			// Start scheduler, summarizer, and describer.
+			// Start scheduler and summarizer.
 			if scheduler != nil {
 				if err := scheduler.Start(); err != nil {
 					return err
@@ -566,10 +536,6 @@ func NewGatewayCommand() *cli.Command {
 			if summarizer != nil {
 				summarizer.Start()
 			}
-			if describer != nil {
-				describer.Start()
-			}
-
 			// --- Run ---
 
 			var quit bool
@@ -625,9 +591,6 @@ func NewGatewayCommand() *cli.Command {
 
 			if summarizer != nil {
 				summarizer.Stop()
-			}
-			if describer != nil {
-				describer.Stop()
 			}
 			if scheduler != nil {
 				scheduler.Stop()

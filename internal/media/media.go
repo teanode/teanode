@@ -403,10 +403,7 @@ func (self *Store) Delete(mediaId string) error {
 }
 
 func (self *Store) trashDirectory() (string, error) {
-	trashDirectory, err := configs.TrashDirectory()
-	if err != nil {
-		return "", fmt.Errorf("resolving trash directory: %w", err)
-	}
+	trashDirectory := configs.TrashDirectory()
 	return trashDirectory, nil
 }
 

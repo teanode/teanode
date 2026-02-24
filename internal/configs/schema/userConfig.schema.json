@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "title": "ID",
+      "description": "User ID."
+    },
+    "name": {
+      "type": "string",
+      "title": "Name",
+      "description": "Display name for the user."
+    },
+    "description": {
+      "type": "string",
+      "title": "Description",
+      "description": "Background context and preferences for this user."
+    },
+    "avatarMediaId": {
+      "type": "string",
+      "title": "Avatar Media ID",
+      "description": "Optional media id used as the user's avatar."
+    }
+  },
+  "x-sections": [
+    {
+      "id": "general",
+      "title": "General",
+      "properties": ["name", "description"]
+    }
+  ]
+}

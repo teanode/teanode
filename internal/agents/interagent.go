@@ -172,7 +172,7 @@ func (self *agentListTool) Execute(_ context.Context, _ string) (string, error) 
 				entry["name"] = agentConfig.Name
 			}
 		}
-		if state, err := configs.LoadAgentState(agentId); err == nil && state.Description != "" {
+		if state, err := configs.LoadAgentConfig(agentId); err == nil && state.Description != "" {
 			entry["description"] = state.Description
 		}
 		entry["model"] = self.configuration.AgentModel(agentId)
@@ -265,8 +265,9 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 
 	// Run synchronously against the target agent.
 	result, err := targetRunner.Run(ctx, RunParams{
-		ConversationID: conversationId,
-		Message:        prefixedMessage,
+		ConversationID:   conversationId,
+		Message:          prefixedMessage,
+		SystemPromptMode: SystemPromptModeMinimal,
 	}, nil)
 	if err != nil {
 		return "", fmt.Errorf("agent %q run failed: %w", arguments.AgentID, err)
@@ -367,8 +368,9 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 
 	// Run synchronously against the target agent.
 	runParams := RunParams{
-		ConversationID: conversationId,
-		Message:        prefixedTask,
+		ConversationID:   conversationId,
+		Message:          prefixedTask,
+		SystemPromptMode: SystemPromptModeMinimal,
 	}
 	if arguments.Model != "" {
 		runParams.Model = arguments.Model

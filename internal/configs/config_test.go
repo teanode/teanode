@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -449,44 +450,9 @@ func TestDefaultProviderName(t *testing.T) {
 func TestSetDirectoryAndDirectory(t *testing.T) {
 	directory := withTempDir(t)
 
-	result, err := Directory()
-	if err != nil {
-		t.Fatalf("Directory() error: %v", err)
-	}
+	result := Directory()
 	if result != directory {
 		t.Errorf("Directory() = %q, want %q", result, directory)
-	}
-}
-
-func TestDirectory_EnvVar(t *testing.T) {
-	SetDirectory("")
-	t.Cleanup(func() { SetDirectory("") })
-
-	envDirectory := t.TempDir()
-	t.Setenv("TEANODE_DIR", envDirectory)
-
-	result, err := Directory()
-	if err != nil {
-		t.Fatalf("Directory() error: %v", err)
-	}
-	if result != envDirectory {
-		t.Errorf("Directory() = %q, want %q", result, envDirectory)
-	}
-}
-
-func TestDirectory_DefaultHome(t *testing.T) {
-	SetDirectory("")
-	t.Cleanup(func() { SetDirectory("") })
-	t.Setenv("TEANODE_DIR", "")
-
-	result, err := Directory()
-	if err != nil {
-		t.Fatalf("Directory() error: %v", err)
-	}
-	home, _ := os.UserHomeDir()
-	expected := filepath.Join(home, ".teanode")
-	if result != expected {
-		t.Errorf("Directory() = %q, want %q", result, expected)
 	}
 }
 
@@ -495,23 +461,20 @@ func TestPathHelpers(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		function func() (string, error)
+		function func() string
 		expected string
 	}{
 		{"AgentsDirectory", AgentsDirectory, filepath.Join(directory, "agents")},
 		{"SkillsDirectory", SkillsDirectory, filepath.Join(directory, "skills")},
 		{"ProjectsDirectory", ProjectsDirectory, filepath.Join(directory, "projects")},
-		{"ModelsFile", ModelsFile, filepath.Join(directory, "models.yaml")},
+		{"ModelsFilename", ModelsFilename, filepath.Join(directory, "models.yaml")},
 		{"MediaDirectory", MediaDirectory, filepath.Join(directory, "media")},
-		{"GatewayPIDFile", GatewayPIDFile, filepath.Join(directory, "gateway.pid")},
-		{"StateFile", StateFile, filepath.Join(directory, "state.yaml")},
+		{"GatewayPIDFilename", GatewayPIDFilename, filepath.Join(directory, "gateway.pid")},
+		{"StateFilename", StateFilename, filepath.Join(directory, "state.yaml")},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			result, err := testCase.function()
-			if err != nil {
-				t.Fatalf("error: %v", err)
-			}
+			result := testCase.function()
 			if result != testCase.expected {
 				t.Errorf("got %q, want %q", result, testCase.expected)
 			}
@@ -519,28 +482,14 @@ func TestPathHelpers(t *testing.T) {
 	}
 
 	// Agent-specific path helpers.
-	workspaceDirectory, err := AgentWorkspaceDirectory("alpha")
-	if err != nil {
-		t.Fatalf("AgentWorkspaceDirectory error: %v", err)
-	}
+	workspaceDirectory := AgentWorkspaceDirectory("alpha")
 	if workspaceDirectory != filepath.Join(directory, "agents", "alpha", "workspace") {
 		t.Errorf("AgentWorkspaceDirectory = %q, want %q", workspaceDirectory, filepath.Join(directory, "agents", "alpha", "workspace"))
 	}
 
-	userJobsDirectory, err := UserJobsDirectory("u-1")
-	if err != nil {
-		t.Fatalf("UserJobsDirectory error: %v", err)
-	}
+	userJobsDirectory := UserJobsDirectory("u-1")
 	if userJobsDirectory != filepath.Join(directory, "users", "u-1", "jobs") {
 		t.Errorf("UserJobsDirectory = %q, want %q", userJobsDirectory, filepath.Join(directory, "users", "u-1", "jobs"))
-	}
-
-	agentStateFile, err := AgentStateFile("alpha")
-	if err != nil {
-		t.Fatalf("AgentStateFile error: %v", err)
-	}
-	if agentStateFile != filepath.Join(directory, "agents", "alpha", "state.yaml") {
-		t.Errorf("AgentStateFile = %q, want %q", agentStateFile, filepath.Join(directory, "agents", "alpha", "state.yaml"))
 	}
 }
 
@@ -551,7 +500,7 @@ func TestEnsureDirectories(t *testing.T) {
 		t.Fatalf("EnsureDirectories() error: %v", err)
 	}
 
-	expectedSubdirectories := []string{"skills", "projects", "media", "agents", "users", "sessions", ".trash", ".backup"}
+	expectedSubdirectories := []string{"skills", "projects", "media", "agents", "users", "sessions", ".trash"}
 	for _, subdirectory := range expectedSubdirectories {
 		path := filepath.Join(directory, subdirectory)
 		info, err := os.Stat(path)
@@ -595,7 +544,7 @@ func TestEnsureAgentDirectories(t *testing.T) {
 
 // --- 8. Per-Agent File Operations ---
 
-func TestSaveAndLoadAgents(t *testing.T) {
+func TestSaveAndLoadAgentConfigs(t *testing.T) {
 	withTempDir(t)
 
 	if err := EnsureDirectories(); err != nil {
@@ -607,13 +556,13 @@ func TestSaveAndLoadAgents(t *testing.T) {
 		Name:  "Alpha Agent",
 		Model: "openai:gpt-5.1",
 	}
-	if err := SaveAgent(original); err != nil {
-		t.Fatalf("SaveAgent() error: %v", err)
+	if err := SaveAgentConfig(original.ID, &original); err != nil {
+		t.Fatalf("SaveAgentConfig() error: %v", err)
 	}
 
-	agents, err := LoadAgents()
+	agents, err := LoadAgentConfigs()
 	if err != nil {
-		t.Fatalf("LoadAgents() error: %v", err)
+		t.Fatalf("LoadAgentConfigs() error: %v", err)
 	}
 	if len(agents) != 1 {
 		t.Fatalf("len(agents) = %d, want 1", len(agents))
@@ -626,7 +575,7 @@ func TestSaveAndLoadAgents(t *testing.T) {
 	}
 }
 
-func TestLoadAndSaveAgentState(t *testing.T) {
+func TestLoadAndSaveAgentConfig(t *testing.T) {
 	withTempDir(t)
 
 	if err := EnsureDirectories(); err != nil {
@@ -634,25 +583,25 @@ func TestLoadAndSaveAgentState(t *testing.T) {
 	}
 
 	// Missing state file should return an empty state.
-	state, err := LoadAgentState("alpha")
+	state, err := LoadAgentConfig("alpha")
 	if err != nil {
-		t.Fatalf("LoadAgentState() error: %v", err)
+		t.Fatalf("LoadAgentConfig() error: %v", err)
 	}
 	if state.Description != "" || !state.DescriptionUpdatedAt.IsZero() {
 		t.Fatalf("expected empty state, got %+v", state)
 	}
 
-	want := &AgentState{
+	want := &AgentConfig{
 		Description:          "Specializes in code review and refactoring.",
 		DescriptionUpdatedAt: timeutil.Timestamp{Time: time.UnixMilli(123456789)},
 	}
-	if err := SaveAgentState("alpha", want); err != nil {
-		t.Fatalf("SaveAgentState() error: %v", err)
+	if err := SaveAgentConfig("alpha", want); err != nil {
+		t.Fatalf("SaveAgentConfig() error: %v", err)
 	}
 
-	got, err := LoadAgentState("alpha")
+	got, err := LoadAgentConfig("alpha")
 	if err != nil {
-		t.Fatalf("LoadAgentState() error: %v", err)
+		t.Fatalf("LoadAgentConfig() error: %v", err)
 	}
 	if got.Description != want.Description {
 		t.Errorf("Description = %q, want %q", got.Description, want.Description)
@@ -672,19 +621,19 @@ func TestLoadAgents_IDFromDirectoryName(t *testing.T) {
 	// Save with ID "alpha", then the config file will have id: alpha.
 	// But LoadAgents uses the directory name, so if we rename, ID follows dir.
 	agentConfig := AgentConfig{ID: "alpha", Name: "Test"}
-	if err := SaveAgent(agentConfig); err != nil {
-		t.Fatalf("SaveAgent() error: %v", err)
+	if err := SaveAgentConfig(agentConfig.ID, &agentConfig); err != nil {
+		t.Fatalf("SaveAgentConfig() error: %v", err)
 	}
 
 	// Rename directory from alpha to beta.
-	agentsDirectory, _ := AgentsDirectory()
+	agentsDirectory := AgentsDirectory()
 	if err := os.Rename(filepath.Join(agentsDirectory, "alpha"), filepath.Join(agentsDirectory, "beta")); err != nil {
 		t.Fatalf("rename error: %v", err)
 	}
 
-	agents, err := LoadAgents()
+	agents, err := LoadAgentConfigs()
 	if err != nil {
-		t.Fatalf("LoadAgents() error: %v", err)
+		t.Fatalf("LoadAgentConfigs() error: %v", err)
 	}
 	if len(agents) != 1 || agents[0].ID != "beta" {
 		t.Errorf("expected agent ID=beta from directory name, got %v", agents)
@@ -695,44 +644,112 @@ func TestLoadAgents_NoDirectory(t *testing.T) {
 	withTempDir(t)
 	// Don't create agents directory at all.
 
-	agents, err := LoadAgents()
+	agents, err := LoadAgentConfigs()
 	if err != nil {
-		t.Fatalf("LoadAgents() error: %v", err)
+		t.Fatalf("LoadAgentConfigs() error: %v", err)
 	}
 	if agents != nil {
 		t.Errorf("expected nil when agents directory doesn't exist, got %v", agents)
 	}
 }
 
-func TestLoadAgents_SkipsNonDirsAndMissingConfig(t *testing.T) {
+func TestLoadAgents_SkipsNonDirsAndMissingAgentFile(t *testing.T) {
 	withTempDir(t)
 
 	if err := EnsureDirectories(); err != nil {
 		t.Fatalf("EnsureDirectories() error: %v", err)
 	}
-	agentsDirectory, _ := AgentsDirectory()
+	agentsDirectory := AgentsDirectory()
 
 	// Create a regular file (should be skipped).
 	if err := os.WriteFile(filepath.Join(agentsDirectory, "not-a-dir"), []byte("hello"), 0644); err != nil {
 		t.Fatalf("WriteFile error: %v", err)
 	}
 
-	// Create a directory without config.yaml (should be skipped).
+	// Create a directory without agent.yaml (should be skipped).
 	if err := os.MkdirAll(filepath.Join(agentsDirectory, "no-config"), 0755); err != nil {
 		t.Fatalf("MkdirAll error: %v", err)
 	}
 
 	// Create a valid agent.
-	if err := SaveAgent(AgentConfig{ID: "valid", Name: "Valid"}); err != nil {
-		t.Fatalf("SaveAgent() error: %v", err)
+	validAgentConfig := AgentConfig{ID: "valid", Name: "Valid"}
+	if err := SaveAgentConfig(validAgentConfig.ID, &validAgentConfig); err != nil {
+		t.Fatalf("SaveAgentConfig() error: %v", err)
 	}
 
-	agents, err := LoadAgents()
+	agents, err := LoadAgentConfigs()
 	if err != nil {
-		t.Fatalf("LoadAgents() error: %v", err)
+		t.Fatalf("LoadAgentConfigs() error: %v", err)
 	}
 	if len(agents) != 1 || agents[0].ID != "valid" {
 		t.Errorf("expected only the valid agent, got %v", agents)
+	}
+}
+
+func TestSaveAgentAndStateShareSingleAgentFile(t *testing.T) {
+	withTempDir(t)
+
+	if err := EnsureDirectories(); err != nil {
+		t.Fatalf("EnsureDirectories() error: %v", err)
+	}
+
+	agentConfig := AgentConfig{
+		ID:    "alpha",
+		Name:  "Alpha Agent",
+		Model: "openai:gpt-5.1",
+	}
+	if err := SaveAgentConfig(agentConfig.ID, &agentConfig); err != nil {
+		t.Fatalf("SaveAgentConfig() error: %v", err)
+	}
+
+	loadedForUpdate, err := LoadAgentConfig("alpha")
+	if err != nil {
+		t.Fatalf("LoadAgentConfig() before update error: %v", err)
+	}
+	loadedForUpdate.Description = "Primary coding assistant."
+	loadedForUpdate.DescriptionUpdatedAt = timeutil.Timestamp{Time: time.UnixMilli(123456789)}
+	if err := SaveAgentConfig("alpha", loadedForUpdate); err != nil {
+		t.Fatalf("SaveAgentConfig() error: %v", err)
+	}
+
+	agents, err := LoadAgentConfigs()
+	if err != nil {
+		t.Fatalf("LoadAgentConfigs() error: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("len(agents) = %d, want 1", len(agents))
+	}
+	if agents[0].Name != agentConfig.Name {
+		t.Fatalf("agent name changed after saving state: got %q want %q", agents[0].Name, agentConfig.Name)
+	}
+
+	loadedState, err := LoadAgentConfig("alpha")
+	if err != nil {
+		t.Fatalf("LoadAgentConfig() error: %v", err)
+	}
+	if loadedState.Description != loadedForUpdate.Description {
+		t.Fatalf("state description mismatch: got %q want %q", loadedState.Description, loadedForUpdate.Description)
+	}
+
+	updatedAgentConfig := AgentConfig{ID: "alpha", Name: "Renamed Agent", Model: "openai:gpt-5.2"}
+	if existingConfig, err := LoadAgentConfig(updatedAgentConfig.ID); err == nil && existingConfig != nil {
+		if strings.TrimSpace(updatedAgentConfig.Description) == "" {
+			updatedAgentConfig.Description = existingConfig.Description
+			updatedAgentConfig.DescriptionUpdatedAt = existingConfig.DescriptionUpdatedAt
+		}
+		if strings.TrimSpace(updatedAgentConfig.AvatarMediaID) == "" {
+			updatedAgentConfig.AvatarMediaID = existingConfig.AvatarMediaID
+		}
+	}
+	if err := SaveAgentConfig(updatedAgentConfig.ID, &updatedAgentConfig); err != nil {
+		t.Fatalf("SaveAgentConfig() second write error: %v", err)
+	}
+	loadedState, err = LoadAgentConfig("alpha")
+	if err != nil {
+		t.Fatalf("LoadAgentConfig() after second SaveAgent error: %v", err)
+	}
+	if loadedState.Description != loadedForUpdate.Description {
+		t.Fatalf("state description changed after saving config: got %q want %q", loadedState.Description, loadedForUpdate.Description)
 	}
 }
 
@@ -742,8 +759,9 @@ func TestDeleteAgent(t *testing.T) {
 	if err := EnsureDirectories(); err != nil {
 		t.Fatalf("EnsureDirectories() error: %v", err)
 	}
-	if err := SaveAgent(AgentConfig{ID: "alpha"}); err != nil {
-		t.Fatalf("SaveAgent() error: %v", err)
+	agentConfig := AgentConfig{ID: "alpha"}
+	if err := SaveAgentConfig(agentConfig.ID, &agentConfig); err != nil {
+		t.Fatalf("SaveAgentConfig() error: %v", err)
 	}
 	if err := EnsureAgentDirectories("alpha"); err != nil {
 		t.Fatalf("EnsureAgentDirectories() error: %v", err)
@@ -764,9 +782,9 @@ func TestDeleteAgent(t *testing.T) {
 		t.Fatalf("DeleteAgent() error: %v", err)
 	}
 
-	agents, err := LoadAgents()
+	agents, err := LoadAgentConfigs()
 	if err != nil {
-		t.Fatalf("LoadAgents() error: %v", err)
+		t.Fatalf("LoadAgentConfigs() error: %v", err)
 	}
 	if len(agents) != 0 {
 		t.Errorf("expected no agents after delete, got %v", agents)
@@ -782,10 +800,7 @@ func TestDeleteAgent(t *testing.T) {
 		}
 	}
 
-	trashDirectory, err := TrashDirectory()
-	if err != nil {
-		t.Fatalf("TrashDirectory() error: %v", err)
-	}
+	trashDirectory := TrashDirectory()
 	entries, err := os.ReadDir(trashDirectory)
 	if err != nil {
 		t.Fatalf("ReadDir trash: %v", err)
@@ -821,7 +836,7 @@ func TestSeedAgentWorkspace(t *testing.T) {
 		t.Fatalf("SeedAgentWorkspace() error: %v", err)
 	}
 
-	workspaceDirectory, _ := AgentWorkspaceDirectory("alpha")
+	workspaceDirectory := AgentWorkspaceDirectory("alpha")
 	for _, filename := range []string{"AGENT.md", "MEMORY.md", "SKILLS.md"} {
 		path := filepath.Join(workspaceDirectory, filename)
 		info, err := os.Stat(path)
@@ -842,7 +857,7 @@ func TestSeedAgentWorkspace_SkipsExisting(t *testing.T) {
 		t.Fatalf("EnsureAgentDirectories() error: %v", err)
 	}
 
-	workspaceDirectory, _ := AgentWorkspaceDirectory("alpha")
+	workspaceDirectory := AgentWorkspaceDirectory("alpha")
 	customContent := []byte("custom content")
 	agentMDPath := filepath.Join(workspaceDirectory, "AGENT.md")
 	if err := os.WriteFile(agentMDPath, customContent, 0644); err != nil {
@@ -869,7 +884,7 @@ func TestSeedUserWorkspace(t *testing.T) {
 		t.Fatalf("EnsureUserDirectories() error: %v", err)
 	}
 
-	workspaceDirectory, _ := UserWorkspaceDirectory("user-1")
+	workspaceDirectory := UserWorkspaceDirectory("user-1")
 	for _, filename := range []string{"USER.md", "ONBOARDING.md", "MEMORY.md"} {
 		path := filepath.Join(workspaceDirectory, filename)
 		info, err := os.Stat(path)
@@ -890,7 +905,7 @@ func TestSeedUserWorkspace_SkipsExisting(t *testing.T) {
 		t.Fatalf("EnsureUserDirectories() error: %v", err)
 	}
 
-	workspaceDirectory, _ := UserWorkspaceDirectory("user-1")
+	workspaceDirectory := UserWorkspaceDirectory("user-1")
 	customContent := []byte("custom user content")
 	userMdPath := filepath.Join(workspaceDirectory, "USER.md")
 	if err := os.WriteFile(userMdPath, customContent, 0644); err != nil {
@@ -922,7 +937,7 @@ func TestSeedUserWorkspace_DoesNotCreateOnboardingWithoutUserFileCreation(t *tes
 		t.Fatalf("EnsureUserDirectories() error: %v", err)
 	}
 
-	workspaceDirectory, _ := UserWorkspaceDirectory("user-1")
+	workspaceDirectory := UserWorkspaceDirectory("user-1")
 	userPath := filepath.Join(workspaceDirectory, "USER.md")
 	onboardingPath := filepath.Join(workspaceDirectory, "ONBOARDING.md")
 
