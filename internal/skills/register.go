@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"strings"
 
 	"github.com/teanode/teanode/internal/agents"
@@ -9,15 +10,15 @@ import (
 
 // RegisterSkills loads skills from the directory and registers their tools.
 // Returns the combined prompt text from all loaded skills (empty if none).
-func RegisterSkills(registry *agents.ToolRegistry, skillsDirectory string) string {
-	return RegisterSkillsFiltered(registry, skillsDirectory, nil)
+func RegisterSkills(ctx context.Context, registry *agents.ToolRegistry, skillsDirectory string) string {
+	return RegisterSkillsFiltered(ctx, registry, skillsDirectory, nil)
 }
 
 // RegisterSkillsFiltered loads skills from the directory and registers their tools,
 // filtering by the given allow list. A nil list means all skills are loaded.
 // Returns the combined prompt text from all registered skills (empty if none).
-func RegisterSkillsFiltered(registry *agents.ToolRegistry, skillsDirectory string, allowed []string) string {
-	skills, err := LoadAll(skillsDirectory)
+func RegisterSkillsFiltered(ctx context.Context, registry *agents.ToolRegistry, skillsDirectory string, allowed []string) string {
+	skills, err := LoadAll(ctx, skillsDirectory)
 	if err != nil {
 		log.Warningf("failed to load skills: %v", err)
 		return ""
@@ -56,8 +57,8 @@ func RegisterSkillsFiltered(registry *agents.ToolRegistry, skillsDirectory strin
 }
 
 // Names returns the names of all valid skills in the directory.
-func Names(skillsDirectory string) []string {
-	skills, err := LoadAll(skillsDirectory)
+func Names(ctx context.Context, skillsDirectory string) []string {
+	skills, err := LoadAll(ctx, skillsDirectory)
 	if err != nil {
 		return nil
 	}

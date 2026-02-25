@@ -15,9 +15,12 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
-	projectstore "github.com/teanode/teanode/internal/projects"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
+	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
 // mockRegistry creates a single-provider registry for testing.
@@ -65,8 +68,9 @@ func (self *stubTool) Execute(_ context.Context, _ string) (string, error) {
 	return "ok", nil
 }
 
-func testResolveUserConfig(_ string) (*configs.UserConfig, error) {
-	return &configs.UserConfig{Name: "Test User"}, nil
+func testResolveUser(_ string) (*models.User, error) {
+	name := "Test User"
+	return &models.User{ID: "user-1", Username: &name}, nil
 }
 
 func testResolveConversations(store *conversations.Store) func(userId, agentId string) *conversations.Store {
@@ -75,13 +79,64 @@ func testResolveConversations(store *conversations.Store) func(userId, agentId s
 	}
 }
 
+func contextWithUserAndStore(userId string, persistenceStore store.Store) context.Context {
+	ctx := ContextWithUserID(context.Background(), userId)
+	return store.ContextWithStore(ctx, persistenceStore)
+}
+
+type testConversationStore struct {
+	conversationsStore *conversations.Store
+	persistenceStore   store.Store
+}
+
+func newTestConversationStore(testing *testing.T, userId string, agentId string) testConversationStore {
+	testing.Helper()
+	dataDirectory := testing.TempDir()
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: dataDirectory})
+	if openError != nil {
+		testing.Fatalf("opening store: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		testing.Fatalf("migrating store: %v", migrateError)
+	}
+	if transactionError := openedStore.Transaction(func(transaction store.Transaction) error {
+		username := userId
+		admin := false
+		if _, err := transaction.CreateUser(&models.User{
+			ID:       userId,
+			Username: &username,
+			Admin:    &admin,
+		}, nil, nil); err != nil && err != store.ErrAlreadyExists {
+			return err
+		}
+		name := agentId
+		if _, err := transaction.CreateAgent(&models.Agent{
+			ID:   agentId,
+			Name: &name,
+		}, nil, nil); err != nil && err != store.ErrAlreadyExists {
+			return err
+		}
+		return nil
+	}); transactionError != nil {
+		testing.Fatalf("seeding user and agent: %v", transactionError)
+	}
+	testing.Cleanup(func() {
+		_ = openedStore.Close()
+	})
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
+	return testConversationStore{
+		conversationsStore: conversations.NewStore(contextWithStore, userId, agentId),
+		persistenceStore:   openedStore,
+	}
+}
+
 func TestRunnerRun(t *testing.T) {
 	mockResponse := "Hello! How can I help you today?"
 	server := mockOpenAIServer(mockResponse)
 	defer server.Close()
 
-	directory := t.TempDir()
-	store := conversations.NewStore(directory)
+	testStore := newTestConversationStore(t, "user-1", "main")
+	store := testStore.conversationsStore
 	configuration := &configs.Config{
 		Models: configs.ModelsConfig{
 			Default: "mock-model",
@@ -95,12 +150,12 @@ func TestRunnerRun(t *testing.T) {
 	runner := &Runner{
 		Providers:            mockRegistry(provider),
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserConfig:    testResolveUserConfig,
+		ResolveUser:          testResolveUser,
 		Config:               configuration,
 	}
 
 	var chunks []string
-	result, err := runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
+	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
 		ConversationID: "test-run",
 		Message:        "hi",
 	}, &RunCallbacks{
@@ -160,8 +215,8 @@ func TestRunnerRunAbort(t *testing.T) {
 	}))
 	defer server.Close()
 
-	directory := t.TempDir()
-	store := conversations.NewStore(directory)
+	testStore := newTestConversationStore(t, "user-1", "main")
+	store := testStore.conversationsStore
 	configuration := &configs.Config{
 		Models: configs.ModelsConfig{
 			Default: "mock",
@@ -175,11 +230,11 @@ func TestRunnerRunAbort(t *testing.T) {
 	runner := &Runner{
 		Providers:            mockRegistry(provider),
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserConfig:    testResolveUserConfig,
+		ResolveUser:          testResolveUser,
 		Config:               configuration,
 	}
 
-	ctx, cancel := context.WithCancel(ContextWithUserID(context.Background(), "user-1"))
+	ctx, cancel := context.WithCancel(contextWithUserAndStore("user-1", testStore.persistenceStore))
 
 	gotChunk := make(chan struct{})
 	done := make(chan struct{})
@@ -238,8 +293,8 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	server := mockToolCallServer("call-1", "workspace", `{"action":"write","path":"test.txt","content":"hello"}`, "Done! I saved that for you.")
 	defer server.Close()
 
-	directory := t.TempDir()
-	store := conversations.NewStore(directory)
+	testStore := newTestConversationStore(t, "user-1", "main")
+	store := testStore.conversationsStore
 	configuration := &configs.Config{
 		Models: configs.ModelsConfig{
 			Default: "mock-model",
@@ -256,13 +311,13 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	runner := &Runner{
 		Providers:            mockRegistry(provider),
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserConfig:    testResolveUserConfig,
+		ResolveUser:          testResolveUser,
 		Config:               configuration,
 		Tools:                tools,
 	}
 
 	var toolCalls []string
-	result, err := runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
+	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
 		ConversationID: "tool-test",
 		Message:        "remember hello",
 	}, &RunCallbacks{
@@ -410,18 +465,43 @@ func TestBuildSystemPromptTruncation(t *testing.T) {
 }
 
 func TestBuildSystemPromptIncludesRecentProjects(t *testing.T) {
-	configs.SetDirectory(t.TempDir())
-	t.Cleanup(func() { configs.SetDirectory("") })
-
-	if _, err := projectstore.CreateProject("Roadmap", "Plan roadmap milestones", ""); err != nil {
-		t.Fatalf("project create: %v", err)
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
 	}
-	if _, err := projectstore.CreateProject("Research", "Collect and summarize findings", ""); err != nil {
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
+	}
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	t.Cleanup(func() { _ = openedStore.Close() })
+
+	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		roadmapName := "Roadmap"
+		roadmapDescription := "Plan roadmap milestones"
+		researchName := "Research"
+		researchDescription := "Collect and summarize findings"
+		if _, createError := transaction.CreateProject(&models.Project{
+			ID:          "project-roadmap",
+			Name:        ptrto.Value(roadmapName),
+			Description: ptrto.Value(roadmapDescription),
+		}, nil, nil); createError != nil {
+			return createError
+		}
+		if _, createError := transaction.CreateProject(&models.Project{
+			ID:          "project-research",
+			Name:        ptrto.Value(researchName),
+			Description: ptrto.Value(researchDescription),
+		}, nil, nil); createError != nil {
+			return createError
+		}
+		return nil
+	}); err != nil {
 		t.Fatalf("project create: %v", err)
 	}
 
 	prompt := buildSystemPrompt(buildSystemPromptParameters{
 		Configuration:         &configs.Config{},
+		Context:               ctx,
 		MaxWorkspaceFileChars: configs.DefaultAgentLimits.MaxWorkspaceFileChars,
 		Mode:                  SystemPromptModeFull,
 	})
@@ -507,9 +587,31 @@ func TestBuildSystemPromptIncludesOnboardingOnlyWhenPresent(t *testing.T) {
 func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
 	configuration := &configs.Config{}
 	userWorkspaceDirectory := t.TempDir()
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
 	onboardingInstructions := "Collect preferred name, verbosity, language, timezone, and goals."
 	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "ONBOARDING.md"), []byte(onboardingInstructions), 0644); err != nil {
 		t.Fatalf("write ONBOARDING.md: %v", err)
+	}
+	if transactionError := openedStore.Transaction(func(transaction store.Transaction) error {
+		workspaceScope := models.ScopeUser
+		content := []byte(onboardingInstructions)
+		_, createError := transaction.CreateWorkspaceFile(&models.WorkspaceFile{
+			ID:      "workspace-onboarding",
+			Scope:   &workspaceScope,
+			ScopeID: ptrto.Value("user-1"),
+			Path:    ptrto.Value("ONBOARDING.md"),
+			Content: &content,
+		}, nil)
+		return createError
+	}); transactionError != nil {
+		t.Fatalf("creating onboarding workspace file: %v", transactionError)
 	}
 
 	history := []conversations.Message{
@@ -518,7 +620,9 @@ func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
 	}
 
 	runner := &Runner{AgentID: "default"}
+	ctx := store.ContextWithStore(context.Background(), openedStore)
 	messages := runner.buildMessages(
+		ctx,
 		history,
 		configs.DefaultAgentLimits,
 		"",
@@ -528,7 +632,7 @@ func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
 		"",
 		userWorkspaceDirectory,
 		"",
-		&configs.UserConfig{Name: "Alex"},
+		&models.User{ID: "user-1", Username: ptrto.Value("Alex")},
 	)
 
 	if len(messages) < 3 {
@@ -583,7 +687,7 @@ func TestBuildSystemPromptModeMinimal(t *testing.T) {
 		UserWorkspaceDirectory:  userWorkspaceDirectory,
 		SkillPrompts:            "<skill>demo</skill>",
 		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Profile:                 &configs.UserConfig{Name: "Alex", Description: "Prefers concise responses"},
+		Profile:                 &models.User{ID: "user-1", Username: ptrto.Value("Alex"), Description: ptrto.Value("Prefers concise responses")},
 		Mode:                    SystemPromptModeMinimal,
 	})
 
@@ -645,7 +749,7 @@ func TestBuildSystemPromptStableForSameInputs(t *testing.T) {
 		UserWorkspaceDirectory:  userWorkspaceDirectory,
 		SkillPrompts:            "<skill>demo</skill>",
 		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Profile:                 &configs.UserConfig{Name: "Alex"},
+		Profile:                 &models.User{ID: "user-1", Username: ptrto.Value("Alex")},
 		Mode:                    SystemPromptModeFull,
 	})
 	promptB := buildSystemPrompt(buildSystemPromptParameters{
@@ -656,7 +760,7 @@ func TestBuildSystemPromptStableForSameInputs(t *testing.T) {
 		UserWorkspaceDirectory:  userWorkspaceDirectory,
 		SkillPrompts:            "<skill>demo</skill>",
 		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Profile:                 &configs.UserConfig{Name: "Alex"},
+		Profile:                 &models.User{ID: "user-1", Username: ptrto.Value("Alex")},
 		Mode:                    SystemPromptModeFull,
 	})
 
@@ -666,29 +770,50 @@ func TestBuildSystemPromptStableForSameInputs(t *testing.T) {
 }
 
 func TestBuildSystemPromptIncludesOtherUsers(t *testing.T) {
-	configs.SetDirectory(t.TempDir())
-	t.Cleanup(func() { configs.SetDirectory("") })
-
-	securityConfig := &configs.SecurityConfig{
-		Users: map[string]configs.SecurityUser{
-			"user-1": {Username: "alice", Admin: true},
-			"user-2": {Username: "bob"},
-		},
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
 	}
-	if err := configs.SaveSecurity(securityConfig); err != nil {
-		t.Fatalf("SaveSecurity failed: %v", err)
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+
+	if transactionError := openedStore.Transaction(func(transaction store.Transaction) error {
+		aliceUsername := "alice"
+		aliceAdmin := true
+		if _, createError := transaction.CreateUser(&models.User{
+			ID:       "user-1",
+			Username: &aliceUsername,
+			Admin:    &aliceAdmin,
+		}, nil, nil); createError != nil {
+			return createError
+		}
+		bobUsername := "bob"
+		bobAdmin := true
+		_, createError := transaction.CreateUser(&models.User{
+			ID:       "user-2",
+			Username: &bobUsername,
+			Admin:    &bobAdmin,
+		}, nil, nil)
+		return createError
+	}); transactionError != nil {
+		t.Fatalf("seeding users failed: %v", transactionError)
 	}
 
 	prompt := buildSystemPrompt(buildSystemPromptParameters{
+		Context:               ctx,
 		Configuration:         &configs.Config{},
+		CurrentUserID:         "user-1",
 		MaxWorkspaceFileChars: configs.DefaultAgentLimits.MaxWorkspaceFileChars,
 		Mode:                  SystemPromptModeFull,
 	})
 	if !strings.Contains(prompt, "Other Users") {
 		t.Error("prompt should include other users section")
 	}
-	if !strings.Contains(prompt, "alice") || !strings.Contains(prompt, "bob") {
-		t.Error("prompt should list usernames from security config")
+	if !strings.Contains(prompt, "bob") {
+		t.Error("prompt should list usernames from store-backed users")
 	}
 	if !strings.Contains(prompt, "role: admin") {
 		t.Error("prompt should indicate admin users")
@@ -699,8 +824,8 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	server := mockOpenAIServer("first response")
 	defer server.Close()
 
-	directory := t.TempDir()
-	store := conversations.NewStore(directory)
+	testStore := newTestConversationStore(t, "user-1", "main")
+	store := testStore.conversationsStore
 	configuration := &configs.Config{
 		Models: configs.ModelsConfig{
 			Default: "mock-model",
@@ -714,12 +839,12 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	runner := &Runner{
 		Providers:            mockRegistry(provider),
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserConfig:    testResolveUserConfig,
+		ResolveUser:          testResolveUser,
 		Config:               configuration,
 	}
 
 	// First run: creates the conversation and locks it to "mock:mock-model".
-	_, err := runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
+	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
 		ConversationID: "mismatch-test",
 		Message:        "hello",
 	}, nil)
@@ -728,7 +853,7 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	}
 
 	// Second run: same conversation, explicitly different model — should error.
-	_, err = runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
+	_, err = runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
 		ConversationID: "mismatch-test",
 		Message:        "hello again",
 		Model:          "mock:other-model",
@@ -742,8 +867,8 @@ func TestRunnerModelMismatchError(t *testing.T) {
 }
 
 func TestRunnerNoModelError(t *testing.T) {
-	directory := t.TempDir()
-	store := conversations.NewStore(directory)
+	testStore := newTestConversationStore(t, "user-1", "main")
+	store := testStore.conversationsStore
 	configuration := &configs.Config{
 		Models: configs.ModelsConfig{
 			// No default model set.
@@ -753,11 +878,11 @@ func TestRunnerNoModelError(t *testing.T) {
 	runner := &Runner{
 		Providers:            providers.NewRegistry("mock"),
 		ResolveConversations: testResolveConversations(store),
-		ResolveUserConfig:    testResolveUserConfig,
+		ResolveUser:          testResolveUser,
 		Config:               configuration,
 	}
 
-	_, err := runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
+	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
 		ConversationID: "no-model-test",
 		Message:        "hello",
 	}, nil)
@@ -770,16 +895,16 @@ func TestRunnerNoModelError(t *testing.T) {
 }
 
 func TestRunnerRunRequiresUserID(t *testing.T) {
-	directory := t.TempDir()
-	store := conversations.NewStore(directory)
+	testStore := newTestConversationStore(t, "user-1", "main")
+	conversationStore := testStore.conversationsStore
 	runner := &Runner{
-		ResolveConversations: testResolveConversations(store),
-		ResolveUserConfig:    testResolveUserConfig,
+		ResolveConversations: testResolveConversations(conversationStore),
+		ResolveUser:          testResolveUser,
 		Config:               &configs.Config{},
 		Providers:            providers.NewRegistry("mock"),
 	}
 
-	_, err := runner.Run(context.Background(), RunParams{
+	_, err := runner.Run(store.ContextWithStore(context.Background(), testStore.persistenceStore), RunParams{
 		ConversationID: "missing-user-id",
 		Message:        "hello",
 	}, nil)
@@ -788,21 +913,21 @@ func TestRunnerRunRequiresUserID(t *testing.T) {
 	}
 }
 
-func TestRunnerRunRequiresResolveUserConfig(t *testing.T) {
-	directory := t.TempDir()
-	store := conversations.NewStore(directory)
+func TestRunnerRunRequiresResolveUser(t *testing.T) {
+	testStore := newTestConversationStore(t, "user-1", "main")
+	store := testStore.conversationsStore
 	runner := &Runner{
 		ResolveConversations: testResolveConversations(store),
 		Config:               &configs.Config{},
 		Providers:            providers.NewRegistry("mock"),
 	}
 
-	_, err := runner.Run(ContextWithUserID(context.Background(), "user-1"), RunParams{
+	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
 		ConversationID: "missing-resolver",
 		Message:        "hello",
 	}, nil)
-	if err == nil || !strings.Contains(err.Error(), "ResolveUserConfig is required") {
-		t.Fatalf("expected ResolveUserConfig required error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "ResolveUser is required") {
+		t.Fatalf("expected ResolveUser required error, got: %v", err)
 	}
 }
 

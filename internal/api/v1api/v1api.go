@@ -73,10 +73,8 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 	if self.gateway.TerminalRelay() != nil {
 		sub.HandleFunc("/terminal", self.handleTerminalWebSocket)
 	}
-	if self.gateway.MediaStore() != nil {
-		sub.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
-		sub.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
-	}
+	sub.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
+	sub.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
 
 	sub.Handle("/audio/transcribe", web.HandlerFunc(self.handleAudioTranscribe))
 	sub.Handle("/audio/synthesize", web.HandlerFunc(self.handleAudioSynthesize))
@@ -87,19 +85,19 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 }
 
 func (self *v1Api) handleBrowserWebSocket(writer http.ResponseWriter, request *http.Request) {
-	userContext := gw.UserFromContext(request.Context())
-	if userContext == nil || userContext.UserID == "" {
+	user := gw.UserFromContext(request.Context())
+	if user == nil || user.ID == "" {
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	self.gateway.BrowserRelay().HandleWebSocketForUser(writer, request, userContext.UserID)
+	self.gateway.BrowserRelay().HandleWebSocketForUser(writer, request, user.ID)
 }
 
 func (self *v1Api) handleTerminalWebSocket(writer http.ResponseWriter, request *http.Request) {
-	userContext := gw.UserFromContext(request.Context())
-	if userContext == nil || userContext.UserID == "" {
+	user := gw.UserFromContext(request.Context())
+	if user == nil || user.ID == "" {
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	self.gateway.TerminalRelay().HandleWebSocketForUser(writer, request, userContext.UserID)
+	self.gateway.TerminalRelay().HandleWebSocketForUser(writer, request, user.ID)
 }

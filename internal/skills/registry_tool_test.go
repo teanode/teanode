@@ -7,14 +7,34 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
+	"github.com/teanode/teanode/internal/util/ptrto"
 )
+
+func setupSkillBackend(t *testing.T) store.Store {
+	t.Helper()
+	directory := t.TempDir()
+	configs.SetDirectory(directory)
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: directory})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
+	}
+	t.Cleanup(func() {
+		configs.SetDirectory("")
+		_ = openedStore.Close()
+	})
+	return openedStore
+}
 
 func TestRegisterTools(t *testing.T) {
 	registry := agents.NewToolRegistry()
@@ -72,16 +92,18 @@ func TestExecuteUninstallRequiresName(t *testing.T) {
 }
 
 func TestExecuteUninstallCallsSkillsChangedCallback(t *testing.T) {
-	directory := t.TempDir()
-	configs.SetDirectory(directory)
-	t.Cleanup(func() { configs.SetDirectory("") })
-
-	installDirectory := filepath.Join(directory, "skills", ".installed", "demo", "1.0.0")
-	if err := os.MkdirAll(installDirectory, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(installDirectory, "skill.md"), []byte("x"), 0644); err != nil {
-		t.Fatalf("seed file: %v", err)
+	openedStore := setupSkillBackend(t)
+	version := "1.0.0"
+	createError := openedStore.Transaction(func(transaction store.Transaction) error {
+		_, skillCreateError := transaction.CreateSkill(&models.Skill{
+			ID:      "demo",
+			Name:    ptrto.Value("demo"),
+			Version: &version,
+		}, nil)
+		return skillCreateError
+	})
+	if createError != nil {
+		t.Fatalf("creating seeded skill: %v", createError)
 	}
 
 	var callbackCalls int32
@@ -90,7 +112,8 @@ func TestExecuteUninstallCallsSkillsChangedCallback(t *testing.T) {
 			atomic.AddInt32(&callbackCalls, 1)
 		},
 	}
-	if _, err := tool.Execute(context.Background(), `{"action":"uninstall","name":"demo"}`); err != nil {
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	if _, err := tool.Execute(ctx, `{"action":"uninstall","name":"demo"}`); err != nil {
 		t.Fatalf("uninstall failed: %v", err)
 	}
 	if got := atomic.LoadInt32(&callbackCalls); got != 1 {
@@ -99,9 +122,7 @@ func TestExecuteUninstallCallsSkillsChangedCallback(t *testing.T) {
 }
 
 func TestExecuteUpdateNoChangesDoesNotCallSkillsChangedCallback(t *testing.T) {
-	directory := t.TempDir()
-	configs.SetDirectory(directory)
-	t.Cleanup(func() { configs.SetDirectory("") })
+	openedStore := setupSkillBackend(t)
 
 	var callbackCalls int32
 	tool := &skillsTool{
@@ -111,7 +132,8 @@ func TestExecuteUpdateNoChangesDoesNotCallSkillsChangedCallback(t *testing.T) {
 		},
 	}
 
-	result, err := tool.Execute(context.Background(), `{"action":"update"}`)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	result, err := tool.Execute(ctx, `{"action":"update"}`)
 	if err != nil {
 		t.Fatalf("update failed: %v", err)
 	}
@@ -125,9 +147,7 @@ func TestExecuteUpdateNoChangesDoesNotCallSkillsChangedCallback(t *testing.T) {
 }
 
 func TestExecuteInstallCallsSkillsChangedCallback(t *testing.T) {
-	directory := t.TempDir()
-	configs.SetDirectory(directory)
-	t.Cleanup(func() { configs.SetDirectory("") })
+	openedStore := setupSkillBackend(t)
 
 	skillBody := []byte("---\nname: demo\ndescription: demo\ntools:\n  - name: ping\n    type: shell\n    command: [\"echo\", \"ok\"]\n---\nDemo skill")
 	sum := sha256.Sum256(skillBody)
@@ -161,7 +181,8 @@ func TestExecuteInstallCallsSkillsChangedCallback(t *testing.T) {
 			atomic.AddInt32(&callbackCalls, 1)
 		},
 	}
-	if _, err := tool.Execute(context.Background(), `{"action":"install","name":"demo"}`); err != nil {
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	if _, err := tool.Execute(ctx, `{"action":"install","name":"demo"}`); err != nil {
 		t.Fatalf("install failed: %v", err)
 	}
 	if got := atomic.LoadInt32(&callbackCalls); got != 1 {
@@ -170,21 +191,18 @@ func TestExecuteInstallCallsSkillsChangedCallback(t *testing.T) {
 }
 
 func TestExecuteEnableDisableActions(t *testing.T) {
-	directory := t.TempDir()
-	configs.SetDirectory(directory)
-	t.Cleanup(func() { configs.SetDirectory("") })
-
-	installDirectory := filepath.Join(directory, "skills", ".installed", "demo", "1.0.0")
-	if err := os.MkdirAll(installDirectory, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	manifest := installManifest{
-		Name:    "demo",
-		Version: "1.0.0",
-	}
-	manifestBytes, _ := json.Marshal(manifest)
-	if err := os.WriteFile(filepath.Join(installDirectory, "manifest.json"), manifestBytes, 0644); err != nil {
-		t.Fatalf("manifest write: %v", err)
+	openedStore := setupSkillBackend(t)
+	version := "1.0.0"
+	createError := openedStore.Transaction(func(transaction store.Transaction) error {
+		_, skillCreateError := transaction.CreateSkill(&models.Skill{
+			ID:      "demo",
+			Name:    ptrto.Value("demo"),
+			Version: &version,
+		}, nil)
+		return skillCreateError
+	})
+	if createError != nil {
+		t.Fatalf("creating seeded skill: %v", createError)
 	}
 
 	var callbackCalls int32
@@ -194,7 +212,8 @@ func TestExecuteEnableDisableActions(t *testing.T) {
 		},
 	}
 
-	disabledRaw, err := tool.Execute(context.Background(), `{"action":"disable","name":"demo"}`)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	disabledRaw, err := tool.Execute(ctx, `{"action":"disable","name":"demo"}`)
 	if err != nil {
 		t.Fatalf("disable failed: %v", err)
 	}
@@ -209,7 +228,7 @@ func TestExecuteEnableDisableActions(t *testing.T) {
 		t.Fatalf("enabled = %v, want false", disabledPayload["enabled"])
 	}
 
-	enabledRaw, err := tool.Execute(context.Background(), `{"action":"enable","name":"demo"}`)
+	enabledRaw, err := tool.Execute(ctx, `{"action":"enable","name":"demo"}`)
 	if err != nil {
 		t.Fatalf("enable failed: %v", err)
 	}

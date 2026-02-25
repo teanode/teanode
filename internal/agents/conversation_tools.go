@@ -88,9 +88,6 @@ func (self *listConversationsTool) Execute(ctx context.Context, rawArguments str
 		}
 		store = runner.ConversationsForUser(userId)
 	}
-	if store == nil {
-		return "", fmt.Errorf("conversation store is not configured")
-	}
 	allConversations, err := store.List()
 	if err != nil {
 		return "", fmt.Errorf("listing conversations: %w", err)
@@ -175,9 +172,6 @@ func (self *compactConversationTool) Execute(ctx context.Context, rawArguments s
 	store := self.conversations
 	if runner := RunnerFromContext(ctx); runner != nil && userId != "" {
 		store = runner.ConversationsForUser(userId)
-	}
-	if store == nil {
-		return "", fmt.Errorf("conversation store is not configured")
 	}
 
 	// Use the standalone compactor against the resolved user-scoped store.

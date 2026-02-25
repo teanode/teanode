@@ -2,35 +2,61 @@ package v1api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
-	"github.com/teanode/teanode/internal/sessions"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
 )
 
-func newOnboardingTestAPI(t *testing.T, securityConfig *configs.SecurityConfig) *v1Api {
+func newOnboardingTestAPI(t *testing.T, securityConfig *configs.SecurityConfig) (*v1Api, store.Store) {
 	t.Helper()
-	registry := agents.NewAgentRegistry()
-	registry.Register("main", &agents.Runner{AgentID: "main"})
-
 	if securityConfig == nil {
 		securityConfig = &configs.SecurityConfig{Users: map[string]configs.SecurityUser{}}
 	}
 	if securityConfig.Users == nil {
 		securityConfig.Users = map[string]configs.SecurityUser{}
 	}
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: configs.Directory()})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
 
-	sessionStore := sessions.NewStore(t.TempDir())
-	return New(
+	registry := agents.NewAgentRegistry(contextWithStore)
+	registry.Register("main", &agents.Runner{AgentID: "main"})
+	if seedError := openedStore.Transaction(func(transaction store.Transaction) error {
+		for userId, securityUser := range securityConfig.Users {
+			userName := securityUser.Username
+			isAdmin := securityUser.Admin
+			if _, createUserError := transaction.CreateUser(&models.User{
+				ID:       userId,
+				Username: &userName,
+				Admin:    &isAdmin,
+			}, nil, nil); createUserError != nil && createUserError != store.ErrAlreadyExists {
+				return createUserError
+			}
+		}
+		return nil
+	}); seedError != nil {
+		t.Fatalf("seeding security users into store: %v", seedError)
+	}
+
+	api := New(
 		gw.New(
+			contextWithStore,
 			&configs.Config{
 				AgentConfigs: []configs.AgentConfig{{ID: "main", Name: "Tea"}},
 			},
@@ -39,29 +65,28 @@ func newOnboardingTestAPI(t *testing.T, securityConfig *configs.SecurityConfig) 
 			nil,
 			nil,
 			nil,
-			nil,
-			nil,
-			sessionStore,
 		),
 		func() {},
 	)
+	return api, openedStore
 }
 
-func assertOnboardingSeeded(t *testing.T, api *v1Api, userId string) {
+func assertOnboardingSeeded(t *testing.T, api *v1Api, openedStore store.Store, userId string) {
 	t.Helper()
-
-	workspaceDirectory := configs.UserWorkspaceDirectory(userId)
+	workspaceScope := models.ScopeUser
 	for _, filename := range []string{"USER.md", "ONBOARDING.md", "MEMORY.md"} {
-		if _, err := os.Stat(filepath.Join(workspaceDirectory, filename)); err != nil {
-			t.Fatalf("expected %s in workspace: %v", filename, err)
+		fileName := filename
+		getError := openedStore.Transaction(func(transaction store.Transaction) error {
+			_, fileError := transaction.GetWorkspaceFileByPath(workspaceScope, userId, fileName, nil)
+			return fileError
+		})
+		if getError != nil {
+			t.Fatalf("expected %s in workspace: %v", filename, getError)
 		}
 	}
 
 	agentId := "main"
 	store := api.gateway.ConversationStore(userId, agentId)
-	if store == nil {
-		t.Fatal("conversation store is nil")
-	}
 	conversationList, err := store.List()
 	if err != nil {
 		t.Fatalf("list conversations: %v", err)
@@ -96,10 +121,11 @@ func assertOnboardingSeeded(t *testing.T, api *v1Api, userId string) {
 
 func TestAuthSetupSeedsOnboarding(t *testing.T) {
 	withTempConfigDirectory(t)
-	api := newOnboardingTestAPI(t, nil)
+	api, openedStore := newOnboardingTestAPI(t, nil)
 
 	body := bytes.NewBufferString(`{"username":"admin","password":"password123","name":"Admin User"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/setup", body)
+	request = request.WithContext(store.ContextWithStore(request.Context(), openedStore))
 	response := httptest.NewRecorder()
 
 	if err := api.handleAuthSetup(response, request); err != nil {
@@ -109,20 +135,28 @@ func TestAuthSetupSeedsOnboarding(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
 	}
 
-	securityConfig := api.gateway.SecurityConfig()
-	if len(securityConfig.Users) != 1 {
-		t.Fatalf("expected one created user, got %d", len(securityConfig.Users))
-	}
 	var userId string
-	for id := range securityConfig.Users {
-		userId = id
-		break
+	listError := openedStore.Transaction(func(transaction store.Transaction) error {
+		users, getUsersError := transaction.ListUsers(nil)
+		if getUsersError != nil {
+			return getUsersError
+		}
+		for _, user := range users {
+			if user.Admin != nil && *user.Admin {
+				userId = user.ID
+				return nil
+			}
+		}
+		return nil
+	})
+	if listError != nil {
+		t.Fatalf("listing users failed: %v", listError)
 	}
 	if userId == "" {
-		t.Fatal("created user id is empty")
+		t.Fatal("created admin user id is empty")
 	}
 
-	assertOnboardingSeeded(t, api, userId)
+	assertOnboardingSeeded(t, api, openedStore, userId)
 }
 
 func TestUsersCreateSeedsOnboarding(t *testing.T) {
@@ -132,10 +166,16 @@ func TestUsersCreateSeedsOnboarding(t *testing.T) {
 			"user-1": {Username: "admin", Admin: true, PasswordHash: "hash"},
 		},
 	}
-	api := newOnboardingTestAPI(t, securityConfig)
+	api, openedStore := newOnboardingTestAPI(t, securityConfig)
 
-	connection, clientConnection, cleanup := newRPCWebSocketPair(t, api)
+	connection, clientConnection, cleanup := newRPCWebSocketPair(t, api, openedStore)
 	defer cleanup()
+	connectionContext := store.ContextWithStore(context.Background(), openedStore)
+	connection.context = gw.ContextWithUserAndSession(
+		connectionContext,
+		&models.User{ID: "user-1"},
+		&models.Session{ID: "test-session"},
+	)
 
 	request := requestFrame{
 		Type:   "req",
@@ -165,5 +205,5 @@ func TestUsersCreateSeedsOnboarding(t *testing.T) {
 		t.Fatal("users.create response missing user id")
 	}
 
-	assertOnboardingSeeded(t, api, payload.User.ID)
+	assertOnboardingSeeded(t, api, openedStore, payload.User.ID)
 }

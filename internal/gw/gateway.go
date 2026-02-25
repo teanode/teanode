@@ -7,23 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"sync"
-	"time"
 
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
-	"github.com/teanode/teanode/internal/jobs"
-	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/providers"
-	"github.com/teanode/teanode/internal/sessions"
-	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/voice"
-	"gopkg.in/yaml.v3"
 )
 
 // activeRun tracks a running agent invocation with its cancel function.
@@ -41,15 +35,13 @@ func closedDoneChannel() <-chan struct{} {
 
 // gateway is the unexported concrete implementation of Gateway.
 type gateway struct {
+	ctx            context.Context
 	config         *configs.Config
 	securityConfig *configs.SecurityConfig
 	agentRegistry  *agents.AgentRegistry
 	browserRelay   *relaybrowser.Relay
 	terminalRelay  *terminals.Relay
-	scheduler      *jobs.Scheduler
 	summarizer     *agents.Summarizer
-	mediaStore     *media.Store
-	sessionStore   *sessions.Store
 
 	subscribersMutex sync.RWMutex
 	subscribers      map[Subscriber]struct{}
@@ -60,10 +52,6 @@ type gateway struct {
 	activeRunsMutex sync.Mutex
 	activeRuns      map[string]*activeRun // conversationId -> activeRun
 	runIndex        map[string]string     // runId -> conversationId
-
-	modelsMutex sync.RWMutex
-	models      map[string][]providers.ModelInfo // provider name -> models
-	modelsTime  time.Time                        // when cache was populated
 
 	lifecycleChannel       chan LifecycleAction
 	pendingLifecycleMutex  sync.Mutex
@@ -85,12 +73,8 @@ func (self *gateway) SetSecurityConfig(securityConfig *configs.SecurityConfig) {
 // --- Subsystem access ---
 
 func (self *gateway) AgentRegistry() *agents.AgentRegistry { return self.agentRegistry }
-func (self *gateway) Scheduler() *jobs.Scheduler           { return self.scheduler }
-func (self *gateway) Summarizer() *agents.Summarizer       { return self.summarizer }
-func (self *gateway) MediaStore() *media.Store             { return self.mediaStore }
 func (self *gateway) BrowserRelay() *relaybrowser.Relay    { return self.browserRelay }
 func (self *gateway) TerminalRelay() *terminals.Relay      { return self.terminalRelay }
-func (self *gateway) SessionStore() *sessions.Store        { return self.sessionStore }
 
 func (self *gateway) MarkSessionConnected(sessionId string) {
 	if sessionId == "" {
@@ -157,41 +141,13 @@ func (self *gateway) ConversationStore(userId, agentId string) *conversations.St
 	if store, ok := self.conversationStores[key]; ok {
 		return store
 	}
-	directory := configs.UserAgentConversationsDirectory(userId, agentId)
-	if err := os.MkdirAll(directory, 0755); err != nil {
-		return nil
-	}
-	store := conversations.NewStore(directory)
+	store := conversations.NewStore(self.ctx, userId, agentId)
 	self.conversationStores[key] = store
 	return store
 }
 
-// modelsCache is the YAML structure written to ~/.teanode/models.yaml.
-type modelsCache struct {
-	FetchedAt time.Time                        `json:"fetchedAt" yaml:"fetchedAt"`
-	Providers map[string][]providers.ModelInfo `json:"providers" yaml:"providers"`
-}
-
-const modelsCacheMaxAge = 24 * time.Hour
-
 // LoadModels returns the cached models or fetches from each provider's API.
 func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.ModelInfo, error) {
-	self.modelsMutex.RLock()
-	if self.models != nil && time.Since(self.modelsTime) < modelsCacheMaxAge {
-		result := self.models
-		self.modelsMutex.RUnlock()
-		return result, nil
-	}
-	self.modelsMutex.RUnlock()
-
-	self.modelsMutex.Lock()
-	defer self.modelsMutex.Unlock()
-
-	// Double-check after acquiring write lock.
-	if self.models != nil && time.Since(self.modelsTime) < modelsCacheMaxAge {
-		return self.models, nil
-	}
-
 	// Use the configured default runner to resolve the currently configured providers.
 	defaultRunner := self.GetRunner(self.config.DefaultAgentID())
 	if defaultRunner == nil {
@@ -199,17 +155,6 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.Mod
 	}
 	_, providerRegistry, _, _, _ := defaultRunner.Snapshot()
 	providerNames := providerRegistry.ProviderNames()
-
-	// Try loading from disk cache.
-	if data, err := os.ReadFile(configs.ModelsFilename()); err == nil {
-		var cache modelsCache
-		if err := yaml.Unmarshal(data, &cache); err == nil && time.Since(cache.FetchedAt) < modelsCacheMaxAge {
-			self.models = cache.Providers
-			self.modelsTime = cache.FetchedAt
-			self.updateRunnerContextWindows(cache.Providers)
-			return cache.Providers, nil
-		}
-	}
 
 	// Fetch from each provider's API.
 	result := make(map[string][]providers.ModelInfo)
@@ -226,17 +171,6 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.Mod
 		result[name] = models
 	}
 
-	self.models = result
-	self.modelsTime = time.Now()
-
-	// Write to disk cache.
-	cache := modelsCache{FetchedAt: self.modelsTime, Providers: result}
-	if data, err := yaml.Marshal(cache); err == nil {
-		if err := atomicfile.WriteFile(configs.ModelsFilename(), data); err != nil {
-			log.Debugf("failed to write models cache: %v", err)
-		}
-	}
-
 	self.updateRunnerContextWindows(result)
 	return result, nil
 }
@@ -244,10 +178,6 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.Mod
 // InvalidateModelsCache clears the in-memory models cache so the next
 // LoadModels call will re-fetch from disk or API.
 func (self *gateway) InvalidateModelsCache() {
-	self.modelsMutex.Lock()
-	self.models = nil
-	self.modelsTime = time.Time{}
-	self.modelsMutex.Unlock()
 }
 
 func (self *gateway) updateRunnerContextWindows(models map[string][]providers.ModelInfo) {
@@ -339,9 +269,6 @@ func (self *gateway) createConversationFile(userId, agentId, conversationId, mod
 	_, providerRegistry, _, _, _ := runner.Snapshot()
 	resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, providerRegistry.DefaultProvider())
 	store := self.ConversationStore(userId, agentId)
-	if store == nil {
-		return
-	}
 	if err := store.Create(conversationId, resolvedProvider, qualifiedModel); err != nil {
 		log.Errorf("creating conversation file: %v", err)
 	}
@@ -395,8 +322,8 @@ func (self *gateway) Broadcast(eventType EventType, payload interface{}) {
 // up on completion. Returns a RunHandle immediately so the caller can wait or proceed.
 func (self *gateway) SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle {
 	userId := ""
-	if parameters.UserContext != nil {
-		userId = parameters.UserContext.UserID
+	if user := UserFromContext(ctx); user != nil {
+		userId = user.ID
 	}
 	if userId == "" {
 		return &RunHandle{Done: closedDoneChannel(), Outcome: func() *RunOutcome {
@@ -508,11 +435,17 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 		defer close(done)
 
 		isAdmin := false
-		if self.securityConfig != nil {
-			isAdmin = self.securityConfig.IsAdmin(userId)
-		}
+		_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+			user, err := transaction.GetUser(userId, nil)
+			if err != nil {
+				return nil
+			}
+			isAdmin = user.Admin != nil && *user.Admin
+			return nil
+		})
 		runContext = agents.ContextWithUserID(runContext, userId)
 		runContext = agents.ContextWithAdmin(runContext, isAdmin)
+		runContext = store.ContextWithStore(runContext, store.StoreFromContext(self.ctx))
 		result, err := runner.Run(runContext, agents.RunParams{
 			ConversationID:     conversationId,
 			Message:            parameters.Message,
@@ -695,10 +628,6 @@ func (self *gateway) DeleteConversation(userId, agentId, conversationId string) 
 		return fmt.Errorf("agent not found: %s", agentId)
 	}
 	store := self.ConversationStore(userId, agentId)
-	if store == nil {
-		return fmt.Errorf("conversation store not found")
-	}
-
 	if err := store.Delete(conversationId); err != nil {
 		return err
 	}
@@ -757,13 +686,18 @@ func (self *gateway) ListenAddress() string {
 
 // StartVoiceSession creates a voice session bound to this gateway instance.
 func (self *gateway) StartVoiceSession(
-	userId, conversationId, agentId string,
+	ctx context.Context,
+	conversationId, agentId string,
 	promptSuffix string,
 	audioIn, audioOut voice.AudioFormat,
 	features voice.Features,
 	sendJson func(interface{}),
 	sendBinary func([]byte),
 ) (*voice.Session, error) {
+	userId := ""
+	if user := UserFromContext(ctx); user != nil {
+		userId = user.ID
+	}
 	if userId == "" {
 		return nil, fmt.Errorf("userId is required")
 	}
@@ -779,18 +713,18 @@ func (self *gateway) StartVoiceSession(
 		self.SetDefaultConversationIfUnset(userId, agentId, conversationId)
 	}
 	sessionId := security.NewULID()
-	adapter := &voiceGatewayAdapter{gw: self, userId: userId}
+	adapterContext := ctx
+	adapter := &voiceGatewayAdapter{gw: self, ctx: adapterContext}
 	return voice.NewSession(sessionId, conversationId, agentId, promptSuffix, audioIn, audioOut, features, adapter, sendJson, sendBinary), nil
 }
 
 type voiceGatewayAdapter struct {
-	gw     *gateway
-	userId string
+	gw  *gateway
+	ctx context.Context
 }
 
 func (self *voiceGatewayAdapter) SendMessage(ctx context.Context, parameters voice.VoiceSendMessageParams) voice.VoiceRunHandle {
 	handle := self.gw.SendMessage(ctx, SendMessageParameters{
-		UserContext:        &UserContext{UserID: self.userId},
 		AgentID:            parameters.AgentID,
 		ConversationID:     parameters.ConversationID,
 		Message:            parameters.Message,

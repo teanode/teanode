@@ -3,21 +3,30 @@ package workspace
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
 )
 
+func setupWorkspaceStore(t *testing.T) context.Context {
+	t.Helper()
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("open store: %v", openError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	return store.ContextWithStore(context.Background(), openedStore)
+}
+
 func TestWorkspaceTools(t *testing.T) {
+	ctx := setupWorkspaceStore(t)
 	memoryDirectory := t.TempDir()
 	registry := agents.NewToolRegistry()
 	RegisterTools(registry, memoryDirectory)
-
-	ctx := context.Background()
 
 	tool := registry.Get("agent_workspace")
 	if tool == nil {
@@ -95,11 +104,10 @@ func TestWorkspaceTools(t *testing.T) {
 }
 
 func TestWorkspaceAppendTool(t *testing.T) {
+	ctx := setupWorkspaceStore(t)
 	memoryDirectory := t.TempDir()
 	registry := agents.NewToolRegistry()
 	RegisterTools(registry, memoryDirectory)
-
-	ctx := context.Background()
 
 	tool := registry.Get("agent_workspace")
 	if tool == nil {
@@ -155,11 +163,10 @@ func TestWorkspaceAppendTool(t *testing.T) {
 }
 
 func TestWorkspaceSearchTool(t *testing.T) {
+	ctx := setupWorkspaceStore(t)
 	memoryDirectory := t.TempDir()
 	registry := agents.NewToolRegistry()
 	RegisterTools(registry, memoryDirectory)
-
-	ctx := context.Background()
 
 	tool := registry.Get("agent_workspace")
 	if tool == nil {
@@ -253,19 +260,17 @@ func TestWorkspaceSearchTool(t *testing.T) {
 }
 
 func TestUserWorkspaceTool(t *testing.T) {
-	base := t.TempDir()
-	configs.SetDirectory(base)
-	defer configs.SetDirectory("")
+	ctx := setupWorkspaceStore(t)
 
 	registry := agents.NewToolRegistry()
-	RegisterTools(registry, filepath.Join(base, "agents", "alpha", "workspace"))
+	RegisterTools(registry, filepath.Join(t.TempDir(), "agents", "alpha", "workspace"))
 
 	userTool := registry.Get("user_workspace")
 	if userTool == nil {
 		t.Fatal("user_workspace not registered")
 	}
 
-	ctx := agents.ContextWithUserID(context.Background(), "user-1")
+	ctx = agents.ContextWithUserID(ctx, "user-1")
 	if _, err := userTool.Execute(ctx, `{"action":"append","path":"memory/2026-02-23.md","content":"remember this"}`); err != nil {
 		t.Fatalf("user_workspace append: %v", err)
 	}
@@ -282,9 +287,5 @@ func TestUserWorkspaceTool(t *testing.T) {
 	}
 	if !strings.Contains(payload.Content, "remember this") {
 		t.Fatalf("unexpected content: %q", payload.Content)
-	}
-
-	if _, err := os.Stat(filepath.Join(base, "users", "user-1", "workspace", "memory", "2026-02-23.md")); err != nil {
-		t.Fatalf("expected file in user workspace: %v", err)
 	}
 }

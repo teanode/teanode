@@ -17,8 +17,10 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/util/mimetypes"
 	"github.com/teanode/teanode/internal/util/slashcommands"
 )
 
@@ -135,13 +137,14 @@ type discordSubscribedRun struct {
 	origin          string
 	originSessionId string
 	triggerText     string
-	pendingMedia    []*media.MediaContent
+	pendingMedia    []*mimetypes.MediaContent
 	mediaMutex      sync.Mutex
 }
 
 // Bot manages a Discord bot that forwards messages to the agents.
 type Bot struct {
 	config        *configs.DiscordConfig
+	ctx           context.Context
 	agentRegistry *agents.AgentRegistry
 	gateway       gw.Gateway
 	discord       *discordgo.Session
@@ -163,9 +166,10 @@ type Bot struct {
 }
 
 // New creates a new Discord bot that dynamically resolves the default agent and conversation from the registry.
-func New(discordConfig *configs.DiscordConfig, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
+func New(discordConfig *configs.DiscordConfig, ctx context.Context, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
 	return &Bot{
 		config:              discordConfig,
+		ctx:                 ctx,
 		agentRegistry:       agentRegistry,
 		gateway:             gateway,
 		modelOverrides:      make(map[string]string),
@@ -331,7 +335,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil {
 			result, _ := payloadMap["result"].(string)
-			if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+			if detected := mimetypes.DetectMedia(result); detected != nil && detected.Base64 != "" && mimetypes.IsImageFormat(detected.Format) {
 				subscribedRun.mediaMutex.Lock()
 				subscribedRun.pendingMedia = append(subscribedRun.pendingMedia, detected)
 				subscribedRun.mediaMutex.Unlock()
@@ -462,11 +466,12 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 	}
 
 	// Check for slash commands.
-	userId := self.linkedUserIdForDiscordUser(event.Author.ID)
-	if userId == "" {
+	user := self.linkedUserForDiscordUser(event.Author.ID)
+	if user == nil {
 		discordSession.ChannelMessageSend(event.ChannelID, unlinkedDiscordMessage(event.Author.ID))
 		return
 	}
+	userId := user.ID
 	self.setChannelForUser(userId, event.ChannelID)
 
 	if name, arguments, ok := slashcommands.Parse(content); ok {
@@ -493,7 +498,7 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		attachments = self.extractAttachments(event.Attachments)
 	}
 
-	go self.handleMessage(userId, conversationId, defaultAgentId, event.ChannelID, content, attachments)
+	go self.handleMessage(user, conversationId, defaultAgentId, event.ChannelID, content, attachments)
 }
 
 func unlinkedDiscordMessage(discordUserId string) string {
@@ -517,7 +522,7 @@ func unlinkedDiscordMessage(discordUserId string) string {
 	)
 }
 
-func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, message string, attachments []conversations.Attachment) {
+func (self *Bot) handleMessage(user *models.User, conversationId, agentId, channelId, message string, attachments []conversations.Attachment) {
 	defer deferutil.Recover()
 
 	// Mark this conversation as actively handled by us.
@@ -534,7 +539,7 @@ func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, messa
 	// Send typing indicator.
 	self.discord.ChannelTyping(channelId)
 
-	var pendingMedia []*media.MediaContent
+	var pendingMedia []*mimetypes.MediaContent
 	var pendingMediaMutex sync.Mutex
 
 	preview := newDiscordStreamPreview(self.discord, channelId)
@@ -551,7 +556,7 @@ func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, messa
 		},
 		OnToolResult: func(toolName string, result string) {
 			// Collect media for sending as attachments.
-			if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+			if detected := mimetypes.DetectMedia(result); detected != nil && detected.Base64 != "" && mimetypes.IsImageFormat(detected.Format) {
 				pendingMediaMutex.Lock()
 				pendingMedia = append(pendingMedia, detected)
 				pendingMediaMutex.Unlock()
@@ -559,8 +564,8 @@ func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, messa
 		},
 	}
 
-	handle := self.gateway.SendMessage(context.Background(), gw.SendMessageParameters{
-		UserContext:    &gw.UserContext{UserID: userId},
+	runContext := gw.ContextWithUserAndSession(context.Background(), user, nil)
+	handle := self.gateway.SendMessage(runContext, gw.SendMessageParameters{
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
@@ -721,7 +726,7 @@ func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session,
 	case "compact":
 		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
 		if runner != nil {
-			contextWithUserId := agents.ContextWithUserID(context.Background(), userId)
+			contextWithUserId := agents.ContextWithUserID(self.ctx, userId)
 			result, err := runner.CompactConversation(contextWithUserId, conversationId)
 			if err != nil {
 				reply = fmt.Sprintf("Error compacting: %v", err)
@@ -773,12 +778,16 @@ func (self *Bot) sendChunked(channelId, text string) {
 	}
 }
 
-func (self *Bot) linkedUserIdForDiscordUser(discordUserId string) string {
-	securityConfig := self.gateway.SecurityConfig()
-	if securityConfig == nil || securityConfig.ChannelLinks.Discord == nil {
-		return ""
-	}
-	return securityConfig.ChannelLinks.Discord[discordUserId]
+func (self *Bot) linkedUserForDiscordUser(discordUserId string) *models.User {
+	var user *models.User
+	_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		_, foundUser, found := transaction.GetUserByDiscordUserID(discordUserId, nil)
+		if found {
+			user = foundUser
+		}
+		return nil
+	})
+	return user
 }
 
 func (self *Bot) setChannelForUser(userId, channelId string) {
@@ -797,13 +806,8 @@ func (self *Bot) channelIdForUser(userId string) string {
 }
 
 // extractAttachments downloads files attached to a Discord message and saves
-// them to the media store, returning conversation attachment references.
+// them through the configured store, returning conversation attachment references.
 func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttachment) []conversations.Attachment {
-	mediaStore := self.gateway.MediaStore()
-	if mediaStore == nil {
-		return nil
-	}
-
 	var attachments []conversations.Attachment
 	for _, att := range messageAttachments {
 		data, err := downloadUrl(att.URL)
@@ -815,27 +819,42 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 		// Determine format from filename extension, fall back to content type.
 		format := strings.TrimPrefix(filepath.Ext(att.Filename), ".")
 		if format == "" {
-			format = media.FormatFromMimeType(att.ContentType)
+			format = mimetypes.FormatFromMIMEType(att.ContentType)
 		}
 		if format == "" {
 			format = "bin"
 		}
 
-		saved, err := mediaStore.Save(data, format, media.SaveOptions{
-			SourceType:   "discord",
-			OriginalName: att.Filename,
+		contentType := att.ContentType
+		if strings.TrimSpace(contentType) == "" {
+			contentType = mimetypes.MIMETypeFromFormat(format)
+		}
+		var createdMedia *models.Media
+		createError := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+			var saveError error
+			createdMedia, saveError = transaction.CreateMedia(bytes.NewReader(data), &models.Media{
+				Format:       &format,
+				ContentType:  &contentType,
+				Source:       ptrToString("discord"),
+				OriginalName: &att.Filename,
+			}, nil)
+			return saveError
 		})
-		if err != nil {
-			log.Errorf("failed to save discord attachment: %v", err)
+		if createError != nil {
+			log.Errorf("failed to save discord attachment: %v", createError)
 			continue
 		}
 		attachments = append(attachments, conversations.Attachment{
-			MediaID:  saved.MediaID,
+			MediaID:  createdMedia.ID,
 			Format:   format,
 			Filename: att.Filename,
 		})
 	}
 	return attachments
+}
+
+func ptrToString(value string) *string {
+	return &value
 }
 
 // downloadUrl fetches data from a URL.

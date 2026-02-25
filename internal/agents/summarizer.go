@@ -3,8 +3,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -12,11 +10,11 @@ import (
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
-	"github.com/teanode/teanode/internal/projects"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/deferutil"
-	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 const summarizerDescriptionRefreshInterval = 24 * time.Hour
@@ -36,6 +34,7 @@ const (
 // Summarizer runs a background loop that synthesizes titles/summaries/descriptions
 // for conversations, agents, users, and projects.
 type Summarizer struct {
+	ctx                  context.Context
 	registry             *AgentRegistry
 	config               *configs.Config
 	configMutex          sync.RWMutex
@@ -50,8 +49,9 @@ type Summarizer struct {
 }
 
 // NewSummarizer creates a new Summarizer for the given agent registry and configs.
-func NewSummarizer(registry *AgentRegistry, configuration *configs.Config) *Summarizer {
+func NewSummarizer(ctx context.Context, registry *AgentRegistry, configuration *configs.Config) *Summarizer {
 	return &Summarizer{
+		ctx:                    ctx,
 		registry:               registry,
 		config:                 configuration,
 		notify:                 make(chan struct{}, 1),
@@ -175,38 +175,42 @@ func (self *Summarizer) summarizeUsers(ctx context.Context, userIds []string) {
 }
 
 func (self *Summarizer) summarizeProjects(ctx context.Context) {
-	projectConfigs, err := configs.LoadProjectConfigs()
-	if err != nil {
-		log.Debugf("summarizer: failed to list projects: %v", err)
+	projectList := make([]models.Project, 0)
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		projects, err := transaction.ListProjects(nil)
+		if err != nil {
+			return err
+		}
+		projectList = projects
+		return nil
+	}); err != nil {
+		log.Debugf("summarizer: failed to list projects from store: %v", err)
 		return
 	}
-	for _, project := range projectConfigs {
+	for _, project := range projectList {
 		if ctx.Err() != nil {
 			return
 		}
-		self.summarizeProjectDescription(ctx, project)
+		self.summarizeProjectDescriptionModel(ctx, project)
 	}
 }
 
 func (self *Summarizer) listUserIds() []string {
-	usersDirectory := configs.UsersDirectory()
-	entries, err := os.ReadDir(usersDirectory)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+	userIds := make([]string, 0)
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		users, err := transaction.ListUsers(nil)
+		if err != nil {
+			return err
+		}
+		for _, user := range users {
+			userId := strings.TrimSpace(user.ID)
+			if userId != "" {
+				userIds = append(userIds, userId)
+			}
 		}
 		return nil
-	}
-	userIds := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		userId := strings.TrimSpace(entry.Name())
-		if userId == "" {
-			continue
-		}
-		userIds = append(userIds, userId)
+	}); err != nil {
+		return nil
 	}
 	sort.Strings(userIds)
 	return userIds
@@ -216,10 +220,6 @@ func (self *Summarizer) summarizeAgentConversations(ctx context.Context, userId,
 	resolved := self.resolveConfig()
 
 	store := runner.ConversationsForUser(userId)
-	if store == nil {
-		log.Debugf("summarizer: conversation store unavailable for user %s agent %s", userId, agentId)
-		return
-	}
 	conversationList, err := store.List()
 	if err != nil {
 		log.Debugf("summarizer: failed to list conversations for user %s agent %s: %v", userId, agentId, err)
@@ -326,24 +326,35 @@ func (self *Summarizer) summarizeConversationTitleAndSummary(
 }
 
 func (self *Summarizer) summarizeAgentDescription(ctx context.Context, agentId string, runner *Runner) {
-	state, err := configs.LoadAgentConfig(agentId)
-	if err != nil {
-		log.Debugf("summarizer: failed to load agent state for %s: %v", agentId, err)
+	self.summarizeAgentDescriptionModel(ctx, agentId, runner)
+}
+
+func (self *Summarizer) summarizeAgentDescriptionModel(ctx context.Context, agentId string, runner *Runner) {
+	agentDescription := ""
+	var modifiedAt *time.Time
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		agent, err := transaction.GetAgent(agentId, nil)
+		if err != nil {
+			return err
+		}
+		agentDescription = strings.TrimSpace(summarizerValueOrEmptyString(agent.Description))
+		modifiedAt = agent.ModifiedAt
+		return nil
+	}); err != nil {
+		log.Debugf("summarizer: failed to load agent from store for %s: %v", agentId, err)
 		return
 	}
-	if !self.shouldRefreshAgentDescription(state) {
+	if !self.shouldRefreshAgentDescriptionModel(agentDescription, modifiedAt) {
 		return
 	}
 
-	configuration, _, tools, workspaceDirectory, _ := runner.Snapshot()
-
+	configuration, _, tools, _, _ := runner.Snapshot()
 	maxChars := configuration.ResolveModelLimits(configuration.AgentModel(agentId)).MaxWorkspaceFileChars
 	if maxChars <= 0 || maxChars > summarizerDescriptionMaxWorkspaceChars {
 		maxChars = summarizerDescriptionMaxWorkspaceChars
 	}
-	agentContent := emptyFallback(loadWorkspaceFile(workspaceDirectory, "AGENT.md", maxChars))
-	agentMemory := emptyFallback(loadWorkspaceFile(workspaceDirectory, "MEMORY.md", maxChars))
-
+	agentContent := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeAgent, agentId, "AGENT.md", maxChars))
+	agentMemory := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeAgent, agentId, "MEMORY.md", maxChars))
 	systemPrompt := resolveIdentityLine(configuration, agentId) +
 		"\n\nGenerate a concise self-description for inter-agent task routing.\nUse only plain text.\n\nAGENT.md:\n" +
 		agentContent + "\n\nMEMORY.md:\n" + agentMemory
@@ -353,7 +364,6 @@ func (self *Summarizer) summarizeAgentDescription(ctx context.Context, agentId s
 		toolNames = tools.Names()
 	}
 	userPrompt := "Write a plain-text routing description in 1-2 sentences. State your specialty, what tasks should be routed to you, and key tools. Tools: " + summarizeToolNames(toolNames, 20)
-
 	provider, bareModel, ok := self.resolveSynthesisProvider(runner, "")
 	if !ok {
 		return
@@ -362,23 +372,36 @@ func (self *Summarizer) summarizeAgentDescription(ctx context.Context, agentId s
 	if !ok {
 		return
 	}
-
-	state.Description = description
-	state.DescriptionUpdatedAt = timeutil.Now()
-	if err := configs.SaveAgentConfig(agentId, state); err != nil {
-		log.Debugf("summarizer: failed to save agent state for %s: %v", agentId, err)
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		_, err := transaction.ModifyAgent(agentId, func(agent *models.Agent) error {
+			agent.Description = summarizerStringPointer(description)
+			return nil
+		}, nil)
+		return err
+	}); err != nil {
+		log.Debugf("summarizer: failed to save agent description for %s: %v", agentId, err)
 	}
 }
 
 func (self *Summarizer) summarizeUserDescription(ctx context.Context, userId string) {
-	profile, err := configs.LoadUserConfig(userId)
-	if err != nil {
-		log.Debugf("summarizer: failed to load user profile for %s: %v", userId, err)
+	self.summarizeUserDescriptionModel(ctx, userId)
+}
+
+func (self *Summarizer) summarizeUserDescriptionModel(ctx context.Context, userId string) {
+	userDescription := ""
+	sourceUpdatedAt := self.userDescriptionSourceUpdatedAt(userId)
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		user, err := transaction.GetUser(userId, nil)
+		if err != nil {
+			return err
+		}
+		userDescription = strings.TrimSpace(summarizerValueOrEmptyString(user.Description))
+		return nil
+	}); err != nil {
+		log.Debugf("summarizer: failed to load user profile from store for %s: %v", userId, err)
 		return
 	}
-
-	sourceUpdatedAt := self.userDescriptionSourceUpdatedAt(userId)
-	if strings.TrimSpace(profile.Description) != "" {
+	if userDescription != "" {
 		if lastSeen, ok := self.userSourceUpdatedAt[userId]; ok {
 			if !sourceUpdatedAt.After(lastSeen) {
 				return
@@ -394,14 +417,11 @@ func (self *Summarizer) summarizeUserDescription(ctx context.Context, userId str
 		return
 	}
 
-	userWorkspaceDirectory := configs.UserWorkspaceDirectory(userId)
-	userContent := emptyFallback(loadWorkspaceFile(userWorkspaceDirectory, "USER.md", summarizerDescriptionMaxWorkspaceChars))
-	userMemory := emptyFallback(loadWorkspaceFile(userWorkspaceDirectory, "MEMORY.md", summarizerDescriptionMaxWorkspaceChars))
-
+	userContent := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeUser, userId, "USER.md", summarizerDescriptionMaxWorkspaceChars))
+	userMemory := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeUser, userId, "MEMORY.md", summarizerDescriptionMaxWorkspaceChars))
 	systemPrompt := "You generate concise user descriptions for personalization and routing. Use only plain text."
 	userPrompt := "Write a plain-text user description in 1-2 sentences. Include preferences, goals, and relevant constraints.\n\nUSER.md:\n" +
 		userContent + "\n\nMEMORY.md:\n" + userMemory
-
 	provider, bareModel, ok := self.resolveSynthesisProvider(runner, "")
 	if !ok {
 		return
@@ -410,23 +430,34 @@ func (self *Summarizer) summarizeUserDescription(ctx context.Context, userId str
 	if !ok {
 		return
 	}
-
-	profile.Description = description
-	if err := configs.SaveUserConfig(userId, profile); err != nil {
-		log.Debugf("summarizer: failed to save user profile for %s: %v", userId, err)
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		_, err := transaction.ModifyUser(userId, func(user *models.User) error {
+			user.Description = summarizerStringPointer(description)
+			return nil
+		}, nil)
+		return err
+	}); err != nil {
+		log.Debugf("summarizer: failed to save user profile in store for %s: %v", userId, err)
 		return
 	}
 	self.userSourceUpdatedAt[userId] = sourceUpdatedAt
 }
 
-func (self *Summarizer) summarizeProjectDescription(ctx context.Context, project configs.ProjectConfig) {
+func (self *Summarizer) summarizeProjectDescriptionModel(ctx context.Context, project models.Project) {
 	projectId := strings.TrimSpace(project.ID)
 	if projectId == "" {
 		return
 	}
-	updatedAt := project.UpdatedAt.Time
-
-	if strings.TrimSpace(project.Description) != "" {
+	updatedAt := time.Time{}
+	if project.ModifiedAt != nil {
+		updatedAt = *project.ModifiedAt
+	}
+	workspaceUpdatedAt := self.workspaceFileModifiedAt(models.ScopeProject, projectId, "PROJECT.md")
+	if workspaceUpdatedAt.After(updatedAt) {
+		updatedAt = workspaceUpdatedAt
+	}
+	projectDescription := strings.TrimSpace(summarizerValueOrEmptyString(project.Description))
+	if projectDescription != "" {
 		if lastSeen, ok := self.projectSourceUpdatedAt[projectId]; ok {
 			if !updatedAt.After(lastSeen) {
 				return
@@ -442,15 +473,9 @@ func (self *Summarizer) summarizeProjectDescription(ctx context.Context, project
 		return
 	}
 
-	workspaceDirectory, err := projects.WorkspaceDirectory(projectId)
-	if err != nil {
-		return
-	}
-	projectMarkdown := emptyFallback(loadWorkspaceFile(workspaceDirectory, "PROJECT.md", summarizerDescriptionMaxWorkspaceChars))
-
+	projectMarkdown := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeProject, projectId, "PROJECT.md", summarizerDescriptionMaxWorkspaceChars))
 	systemPrompt := "You generate concise project descriptions for routing and discovery. Use only plain text."
 	userPrompt := "Write a plain-text project description in 1-2 sentences. Include what work belongs in this project.\n\nPROJECT.md:\n" + projectMarkdown
-
 	provider, bareModel, ok := self.resolveSynthesisProvider(runner, "")
 	if !ok {
 		return
@@ -459,10 +484,14 @@ func (self *Summarizer) summarizeProjectDescription(ctx context.Context, project
 	if !ok {
 		return
 	}
-
-	project.Description = description
-	if err := configs.SaveProjectConfig(project.ID, &project); err != nil {
-		log.Debugf("summarizer: failed to save project metadata for %s: %v", projectId, err)
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		_, err := transaction.ModifyProject(projectId, func(project *models.Project) error {
+			project.Description = summarizerStringPointer(description)
+			return nil
+		}, nil)
+		return err
+	}); err != nil {
+		log.Debugf("summarizer: failed to save project metadata in store for %s: %v", projectId, err)
 		return
 	}
 	self.projectSourceUpdatedAt[projectId] = updatedAt
@@ -540,21 +569,64 @@ func (self *Summarizer) defaultRunner() *Runner {
 }
 
 func (self *Summarizer) userDescriptionSourceUpdatedAt(userId string) time.Time {
-	userWorkspaceDirectory := configs.UserWorkspaceDirectory(userId)
-	latest := time.Time{}
-	for _, path := range []string{
-		filepath.Join(userWorkspaceDirectory, "USER.md"),
-		filepath.Join(userWorkspaceDirectory, "MEMORY.md"),
-	} {
-		info, statErr := os.Stat(path)
-		if statErr != nil {
-			continue
-		}
-		if info.ModTime().After(latest) {
-			latest = info.ModTime()
-		}
+	userUpdatedAt := self.workspaceFileModifiedAt(models.ScopeUser, userId, "USER.md")
+	memoryUpdatedAt := self.workspaceFileModifiedAt(models.ScopeUser, userId, "MEMORY.md")
+	if memoryUpdatedAt.After(userUpdatedAt) {
+		return memoryUpdatedAt
 	}
-	return latest
+	return userUpdatedAt
+}
+
+func (self *Summarizer) loadWorkspaceFileFromStore(scope models.Scope, scopeId string, relativePath string, maxChars int) string {
+	content := ""
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		file, err := transaction.GetWorkspaceFileByPath(scope, scopeId, relativePath, nil)
+		if err != nil || file.Content == nil {
+			return nil
+		}
+		content = string(*file.Content)
+		return nil
+	}); err != nil {
+		return ""
+	}
+	if len(content) > maxChars {
+		content = content[:maxChars] + "\n... (truncated)"
+	}
+	return content
+}
+
+func (self *Summarizer) workspaceFileModifiedAt(scope models.Scope, scopeId string, relativePath string) time.Time {
+	var modifiedAt time.Time
+	_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		file, err := transaction.GetWorkspaceFileByPath(scope, scopeId, relativePath, nil)
+		if err != nil || file.ModifiedAt == nil {
+			return nil
+		}
+		modifiedAt = *file.ModifiedAt
+		return nil
+	})
+	return modifiedAt
+}
+
+func (self *Summarizer) shouldRefreshAgentDescriptionModel(description string, modifiedAt *time.Time) bool {
+	if strings.TrimSpace(description) == "" {
+		return true
+	}
+	if modifiedAt == nil || modifiedAt.IsZero() {
+		return true
+	}
+	return time.Since(*modifiedAt) >= summarizerDescriptionRefreshInterval
+}
+
+func summarizerStringPointer(value string) *string {
+	return &value
+}
+
+func summarizerValueOrEmptyString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (self *Summarizer) shouldRefreshAgentDescription(state *configs.AgentConfig) bool {

@@ -1,84 +1,57 @@
 package conversations
 
 import (
-	"bufio"
-	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
-	"github.com/teanode/teanode/internal/util/trash"
 )
 
 // Store provides JSONL-based conversation persistence.
 type Store struct {
-	directory string
-	mutex     sync.Mutex // protects file writes
+	ctx     context.Context
+	userId  string
+	agentId string
 }
 
-// NewStore creates a Store that persists conversations under directory.
-func NewStore(directory string) *Store {
-	return &Store{directory: directory}
+// NewStore creates a Store backed by the provided persistence store.
+func NewStore(ctx context.Context, userId string, agentId string) *Store {
+	return &Store{
+		ctx:     ctx,
+		userId:  userId,
+		agentId: agentId,
+	}
 }
 
 // Load reads all messages from a conversation file.
 // Returns empty slice (not error) if the conversation doesn't exist.
 func (self *Store) Load(conversationId string) ([]Message, error) {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
+	return self.loadFromStore(conversationId)
+}
 
-	path, err := self.path(conversationId)
+func (self *Store) loadFromStore(conversationId string) ([]Message, error) {
+	messages := make([]Message, 0)
+	err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		conversationMessages, err := transaction.ListConversationMessages(conversationId, nil)
+		if err != nil {
+			return err
+		}
+		for _, message := range conversationMessages {
+			messages = append(messages, conversationMessageModelToMessage(message))
+		}
+		return nil
+	})
 	if err != nil {
+		if err == store.ErrNotFound {
+			return nil, nil
+		}
 		return nil, err
-	}
-	file, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("open conversation %s: %w", conversationId, err)
-	}
-	defer file.Close()
-
-	var messages []Message
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // up to 1MB lines
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		// Peek at the type field to decide how to parse.
-		var peek struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal([]byte(line), &peek); err != nil {
-			continue // skip malformed lines
-		}
-		if peek.Type == "conversation" || peek.Type == "session" {
-			// Header line — skip for message loading
-			continue
-		}
-
-		var message Message
-		if err := json.Unmarshal([]byte(line), &message); err != nil {
-			continue
-		}
-		if message.Role != "" {
-			messages = append(messages, message)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("reading conversation %s: %w", conversationId, err)
 	}
 	return messages, nil
 }
@@ -86,31 +59,14 @@ func (self *Store) Load(conversationId string) ([]Message, error) {
 // Create creates a new conversation file with just the header line.
 // The header includes the provider and model so the conversation is bound from the start.
 func (self *Store) Create(conversationId, provider, model string) error {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-
-	path, err := self.path(conversationId)
-	if err != nil {
+	return store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		_, err := transaction.CreateConversation(&models.Conversation{
+			ID:      conversationId,
+			UserID:  optionalStringPointer(self.userId),
+			AgentID: optionalStringPointer(self.agentId),
+		}, nil)
 		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("creating conversation dir: %w", err)
-	}
-
-	header := Header{
-		Type:      "conversation",
-		Version:   1,
-		ID:        security.NewULID(),
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Provider:  provider,
-		Model:     model,
-	}
-	headerData, _ := json.Marshal(header)
-	if err := atomicfile.WriteFile(path, append(headerData, '\n')); err != nil {
-		return fmt.Errorf("writing conversation header: %w", err)
-	}
-	return nil
+	})
 }
 
 // AppendOption configures optional behavior for Append.
@@ -132,62 +88,26 @@ func WithProviderAndModel(provider, model string) AppendOption {
 
 // Append writes a message to the conversation file, creating it with a header if needed.
 func (self *Store) Append(conversationId string, message Message, options ...AppendOption) error {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
+	return self.append(conversationId, message)
+}
 
-	var opts appendOptions
-	for _, option := range options {
-		option(&opts)
-	}
-
-	path, err := self.path(conversationId)
-	if err != nil {
+func (self *Store) append(conversationId string, message Message) error {
+	return store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		if _, err := transaction.GetConversation(conversationId, nil); err != nil {
+			if err != store.ErrNotFound {
+				return err
+			}
+			if _, createError := transaction.CreateConversation(&models.Conversation{
+				ID:      conversationId,
+				UserID:  optionalStringPointer(self.userId),
+				AgentID: optionalStringPointer(self.agentId),
+			}, nil); createError != nil {
+				return createError
+			}
+		}
+		_, err := transaction.CreateConversationMessage(messageToConversationMessageModel(conversationId, message), nil)
 		return err
-	}
-
-	// Create file with header if it doesn't exist.
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return fmt.Errorf("creating conversation dir: %w", err)
-		}
-		header := Header{
-			Type:      "conversation",
-			Version:   1,
-			ID:        security.NewULID(),
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Provider:  opts.provider,
-			Model:     opts.model,
-		}
-		headerData, _ := json.Marshal(header)
-		if err := atomicfile.WriteFile(path, append(headerData, '\n')); err != nil {
-			return fmt.Errorf("writing conversation header: %w", err)
-		}
-	} else if opts.provider != "" || opts.model != "" {
-		// Backfill provider/model on existing conversations that don't have them yet.
-		if header, loadError := self.loadHeaderUnlocked(conversationId); loadError == nil && header.Provider == "" && header.Model == "" {
-			self.updateHeaderUnlocked(conversationId, func(header *Header) {
-				header.Provider = opts.provider
-				header.Model = opts.model
-			})
-		}
-	}
-
-	data, err := json.Marshal(message)
-	if err != nil {
-		return fmt.Errorf("marshaling message: %w", err)
-	}
-	data = append(data, '\n')
-
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("opening conversation for append: %w", err)
-	}
-	defer file.Close()
-
-	if _, err := file.Write(data); err != nil {
-		return fmt.Errorf("appending to conversation: %w", err)
-	}
-	return nil
+	})
 }
 
 // Info contains a conversation id and its last activity time.
@@ -202,149 +122,111 @@ type Info struct {
 
 // List returns all conversations, sorted by last modification time (newest first).
 func (self *Store) List() ([]Info, error) {
-	entries, err := os.ReadDir(self.directory)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("listing conversations: %w", err)
-	}
+	return self.listFromStore()
+}
 
-	var conversations []Info
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
-			continue
+func (self *Store) listFromStore() ([]Info, error) {
+	conversations := make([]Info, 0)
+	err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		listOptions := store.ConversationListOptions{
+			UserID:  ptrto.Value(self.userId),
+			AgentID: ptrto.Value(self.agentId),
 		}
-		info, err := entry.Info()
+		items, err := transaction.ListConversations(listOptions, nil)
 		if err != nil {
-			continue
+			return err
 		}
-		conversationInfo := Info{
-			ID:         strings.TrimSuffix(entry.Name(), ".jsonl"),
-			LastActive: info.ModTime().UnixMilli(),
+		conversations = make([]Info, 0, len(items))
+		for _, item := range items {
+			lastActive := int64(0)
+			if item.ModifiedAt != nil {
+				lastActive = item.ModifiedAt.UnixMilli()
+			} else if item.CreatedAt != nil {
+				lastActive = item.CreatedAt.UnixMilli()
+			}
+			conversations = append(conversations, Info{
+				ID:         item.ID,
+				LastActive: lastActive,
+				Title:      valueOrEmptyString(item.Title),
+				Summary:    valueOrEmptyString(item.Summary),
+			})
 		}
-		// Read the header line to extract the title, summary, and provider/model.
-		if header, err := self.LoadHeader(conversationInfo.ID); err == nil {
-			conversationInfo.Title = header.Title
-			conversationInfo.Summary = header.Summary
-			conversationInfo.Provider = header.Provider
-			conversationInfo.Model = header.Model
-		}
-		conversations = append(conversations, conversationInfo)
-	}
-
-	sort.Slice(conversations, func(left, right int) bool {
-		return conversations[left].LastActive > conversations[right].LastActive
+		sort.Slice(conversations, func(leftIndex, rightIndex int) bool {
+			return conversations[leftIndex].LastActive > conversations[rightIndex].LastActive
+		})
+		return nil
 	})
-
-	return conversations, nil
+	return conversations, err
 }
 
 // LoadHeader reads and parses just the first line (header) of a conversation JSONL file.
 func (self *Store) LoadHeader(conversationId string) (*Header, error) {
-	return self.loadHeaderUnlocked(conversationId)
+	return self.loadHeaderFromStore(conversationId)
 }
 
-// loadHeaderUnlocked is the non-locking implementation of LoadHeader.
-func (self *Store) loadHeaderUnlocked(conversationId string) (*Header, error) {
-	path, err := self.path(conversationId)
+func (self *Store) loadHeaderFromStore(conversationId string) (*Header, error) {
+	header := &Header{
+		Type:    "conversation",
+		Version: 1,
+		ID:      conversationId,
+	}
+	err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		conversation, err := transaction.GetConversation(conversationId, nil)
+		if err != nil {
+			return err
+		}
+		header.Title = valueOrEmptyString(conversation.Title)
+		header.Summary = valueOrEmptyString(conversation.Summary)
+		if conversation.ModifiedAt != nil {
+			header.SummarizedAt = conversation.ModifiedAt.UnixMilli()
+			header.Timestamp = conversation.ModifiedAt.UTC().Format(time.RFC3339)
+		}
+		messages, listError := transaction.ListConversationMessages(conversationId, nil)
+		if listError == nil {
+			for index := len(messages) - 1; index >= 0; index-- {
+				modelName := strings.TrimSpace(valueOrEmptyString(messages[index].Model))
+				providerName := strings.TrimSpace(valueOrEmptyString(messages[index].Provider))
+				if header.Model == "" && modelName != "" {
+					header.Model = modelName
+				}
+				if header.Provider == "" && providerName != "" {
+					header.Provider = providerName
+				}
+				if header.Model != "" && header.Provider != "" {
+					break
+				}
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open conversation %s: %w", conversationId, err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	if !scanner.Scan() {
-		return nil, fmt.Errorf("conversation %s: empty file", conversationId)
-	}
-
-	var header Header
-	if err := json.Unmarshal([]byte(scanner.Text()), &header); err != nil {
-		return nil, fmt.Errorf("conversation %s: parsing header: %w", conversationId, err)
-	}
-	return &header, nil
+	return header, nil
 }
 
 // SetTitleAndSummary updates both the title and summary in a conversation's header
 // line in a single write, preserving the file's original modification time.
 func (self *Store) SetTitleAndSummary(conversationId, title, summary string) error {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	return self.updateHeaderUnlocked(conversationId, func(header *Header) {
-		header.Title = title
-		header.Summary = summary
-		header.SummarizedAt = time.Now().UnixMilli()
+	return store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		_, err := transaction.ModifyConversation(conversationId, func(conversation *models.Conversation) error {
+			conversation.Title = ptrto.Value(title)
+			conversation.Summary = ptrto.Value(summary)
+			return nil
+		}, nil)
+		return err
 	})
-}
-
-// updateHeaderUnlocked reads the conversation file, applies mutate to the header, rewrites
-// the file, and restores the original modification time. Caller must hold self.mutex.
-func (self *Store) updateHeaderUnlocked(conversationId string, mutate func(*Header)) error {
-	path, err := self.path(conversationId)
-	if err != nil {
-		return err
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("stat conversation %s: %w", conversationId, err)
-	}
-	originalModTime := info.ModTime()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading conversation %s: %w", conversationId, err)
-	}
-
-	// Split into first line (header) and the rest.
-	index := bytes.IndexByte(data, '\n')
-	if index < 0 {
-		return fmt.Errorf("conversation %s: no newline in file", conversationId)
-	}
-
-	var header Header
-	if err := json.Unmarshal(data[:index], &header); err != nil {
-		return fmt.Errorf("conversation %s: parsing header: %w", conversationId, err)
-	}
-	mutate(&header)
-
-	newHeader, err := json.Marshal(header)
-	if err != nil {
-		return fmt.Errorf("conversation %s: marshaling header: %w", conversationId, err)
-	}
-
-	var buffer bytes.Buffer
-	buffer.Write(newHeader)
-	buffer.Write(data[index:]) // includes the leading '\n' and all remaining lines
-	if err := atomicfile.WriteFile(path, buffer.Bytes()); err != nil {
-		return err
-	}
-
-	// Restore original modification time so LastActive isn't affected.
-	return os.Chtimes(path, originalModTime, originalModTime)
 }
 
 // Delete removes a conversation file.
 func (self *Store) Delete(conversationId string) error {
-	path, err := self.path(conversationId)
-	if err != nil {
+	return store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		err := transaction.DeleteConversation(conversationId, nil)
+		if err == store.ErrNotFound {
+			return nil
+		}
 		return err
-	}
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	trashDirectory, err := self.trashDirectory()
-	if err != nil {
-		return err
-	}
-	return trash.Move(path, trashDirectory)
+	})
 }
 
 // PageResult holds a page of messages plus pagination metadata.
@@ -392,16 +274,146 @@ func (self *Store) LoadPage(conversationId string, limit, beforeIndex int) (*Pag
 	}, nil
 }
 
-var errEmptyConversationId = fmt.Errorf("conversation id must not be empty")
-
-func (self *Store) path(conversationId string) (string, error) {
-	if conversationId == "" {
-		return "", errEmptyConversationId
+func messageToConversationMessageModel(conversationId string, message Message) *models.ConversationMessage {
+	createdAt := time.UnixMilli(message.Timestamp)
+	role := models.Role(message.Role)
+	content := []byte(message.Content)
+	metadata := encodeMetadataForStorage(message)
+	return &models.ConversationMessage{
+		ID:             security.NewULID(),
+		ConversationID: ptrto.Value(conversationId),
+		Role:           &role,
+		Content:        &content,
+		Metadata:       metadata,
+		StopReason:     stopReasonPointer(message.StopReason),
+		Model:          ptrto.Value(message.Model),
+		Provider:       ptrto.Value(message.Provider),
+		ToolCallID:     ptrto.Value(message.ToolCallID),
+		ToolName:       ptrto.Value(message.ToolName),
+		CreatedAt:      &createdAt,
+		ModifiedAt:     &createdAt,
 	}
-	return filepath.Join(self.directory, conversationId+".jsonl"), nil
 }
 
-func (self *Store) trashDirectory() (string, error) {
-	trashDirectory := configs.TrashDirectory()
-	return trashDirectory, nil
+func conversationMessageModelToMessage(message models.ConversationMessage) Message {
+	result := Message{
+		Role:       stringValueOrEmptyRole(message.Role),
+		Content:    []byte{},
+		Timestamp:  0,
+		Metadata:   []byte{},
+		StopReason: stopReasonValueOrEmpty(message.StopReason),
+		Model:      valueOrEmptyString(message.Model),
+		Provider:   valueOrEmptyString(message.Provider),
+		ToolCallID: valueOrEmptyString(message.ToolCallID),
+		ToolName:   valueOrEmptyString(message.ToolName),
+	}
+	if message.Content != nil {
+		result.Content = *message.Content
+	}
+	if message.Metadata != nil {
+		result.Metadata = *message.Metadata
+		decodeMetadataFromStorage(&result)
+	}
+	if message.CreatedAt != nil {
+		result.Timestamp = message.CreatedAt.UnixMilli()
+	}
+	return result
+}
+
+func stopReasonPointer(value string) *models.StopReason {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	stopReason := models.StopReason(trimmed)
+	return &stopReason
+}
+
+func valueOrEmptyString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func stopReasonValueOrEmpty(value *models.StopReason) string {
+	if value == nil {
+		return ""
+	}
+	return string(*value)
+}
+
+func stringValueOrEmptyRole(value *models.Role) string {
+	if value == nil {
+		return ""
+	}
+	return string(*value)
+}
+
+func optionalStringPointer(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return ptrto.Value(trimmed)
+}
+
+func encodeMetadataForStorage(message Message) *[]byte {
+	metadata := message.Metadata
+	if len(message.ToolCalls) == 0 && message.Usage == nil {
+		if len(metadata) == 0 {
+			return nil
+		}
+		metadataCopy := append([]byte(nil), metadata...)
+		return &metadataCopy
+	}
+
+	envelope := map[string]json.RawMessage{}
+	if len(metadata) > 0 {
+		envelope["metadata"] = append([]byte(nil), metadata...)
+	}
+	if len(message.ToolCalls) > 0 {
+		envelope["toolCalls"] = append([]byte(nil), message.ToolCalls...)
+	}
+	if message.Usage != nil {
+		usageBytes, usageError := json.Marshal(message.Usage)
+		if usageError == nil {
+			envelope["usage"] = usageBytes
+		}
+	}
+	if len(envelope) == 0 {
+		return nil
+	}
+	encoded, encodeError := json.Marshal(envelope)
+	if encodeError != nil {
+		if len(metadata) == 0 {
+			return nil
+		}
+		metadataCopy := append([]byte(nil), metadata...)
+		return &metadataCopy
+	}
+	return &encoded
+}
+
+func decodeMetadataFromStorage(message *Message) {
+	if len(message.Metadata) == 0 {
+		return
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(message.Metadata, &envelope); err != nil {
+		return
+	}
+
+	if toolCalls, ok := envelope["toolCalls"]; ok && len(toolCalls) > 0 {
+		message.ToolCalls = append([]byte(nil), toolCalls...)
+	}
+	if usage, ok := envelope["usage"]; ok && len(usage) > 0 {
+		var parsedUsage Usage
+		if usageError := json.Unmarshal(usage, &parsedUsage); usageError == nil {
+			message.Usage = &parsedUsage
+		}
+	}
+	if rawMetadata, ok := envelope["metadata"]; ok {
+		message.Metadata = append([]byte(nil), rawMetadata...)
+	}
 }

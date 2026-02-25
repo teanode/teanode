@@ -1,164 +1,124 @@
 package skills
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/version"
 	"gopkg.in/yaml.v3"
 )
 
 // LoadAll reads all *.md files from skillsDirectory and returns parsed skills.
 // Logs warnings for malformed files and continues.
-func LoadAll(skillsDirectory string) ([]SkillDefinition, error) {
-	entries, err := os.ReadDir(skillsDirectory)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+func LoadAll(ctx context.Context, skillsDirectory string) ([]SkillDefinition, error) {
+	definitions := make([]SkillDefinition, 0)
+	transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		skills, listError := transaction.ListSkills(nil)
+		if listError != nil {
+			return listError
 		}
-		return nil, err
-	}
-
-	var (
-		skills      []SkillDefinition
-		localNames  = map[string]bool{}
-		installedBy = map[string]installedSkill{}
-	)
-
-	loadFile := func(path string, sourceName string) (SkillDefinition, bool) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			log.Warningf("failed to read %s: %v", sourceName, err)
-			return SkillDefinition{}, false
-		}
-
-		var skill SkillDefinition
-		body, err := parseSkillMarkdown(data, &skill)
-		if err != nil {
-			log.Warningf("failed to parse %s: %v", sourceName, err)
-			return SkillDefinition{}, false
-		}
-		// Prompt text comes from markdown body.
-		skill.Prompt = strings.TrimSpace(body)
-
-		if skill.Name == "" {
-			log.Warningf("%s missing name, skipping", sourceName)
-			return SkillDefinition{}, false
-		}
-		if !isRuntimeCompatible(skill.RuntimeMinVersion) {
-			log.Warningf("skill %s requires runtime >= %s, skipping", skill.Name, skill.RuntimeMinVersion)
-			return SkillDefinition{}, false
-		}
-
-		// Validate tools, keeping only valid ones.
-		var validTools []ToolDefinition
-		for _, tool := range skill.Tools {
-			if err := validateTool(tool); err != nil {
-				log.Warningf("skill %s: tool %q invalid: %v", skill.Name, tool.Name, err)
+		for _, skillModel := range skills {
+			if skillModel.Metadata != nil {
+				if enabledValue, exists := (*skillModel.Metadata)["enabled"]; exists {
+					if enabledBool, ok := enabledValue.(bool); ok && !enabledBool {
+						continue
+					}
+				}
+			}
+			definition, convertError := skillModelToDefinition(skillModel)
+			if convertError != nil {
+				log.Warningf("failed to parse skill model %s: %v", skillModel.ID, convertError)
 				continue
 			}
-			validTools = append(validTools, tool)
-		}
-		skill.Tools = validTools
-
-		if len(skill.Tools) == 0 {
-			log.Warningf("skill %s: no valid tools, skipping", skill.Name)
-			return SkillDefinition{}, false
-		}
-		if err := validateHTTPAuthProfiles(skill.HTTPAuth); err != nil {
-			log.Warningf("skill %s: %v", skill.Name, err)
-			return SkillDefinition{}, false
-		}
-		if err := validateSkillAuthReferences(skill); err != nil {
-			log.Warningf("skill %s: %v", skill.Name, err)
-			return SkillDefinition{}, false
-		}
-		return skill, true
-	}
-
-	// Load local top-level skills first.
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-
-		path := filepath.Join(skillsDirectory, entry.Name())
-		skill, ok := loadFile(path, entry.Name())
-		if !ok {
-			continue
-		}
-		skill.IsLocal = true
-		localNames[skill.Name] = true
-		skills = append(skills, skill)
-	}
-
-	// Load installed registry skills from .installed/<name>/<version>/skill.md.
-	installedRoot := filepath.Join(skillsDirectory, ".installed")
-	_ = filepath.WalkDir(installedRoot, func(path string, directoryEntry os.DirEntry, err error) error {
-		if err != nil || directoryEntry == nil || directoryEntry.IsDir() {
-			return nil
-		}
-		if filepath.Base(path) != "skill.md" {
-			return nil
-		}
-		enabled, manifestErr := loadInstalledSkillEnabled(filepath.Dir(path))
-		if manifestErr != nil {
-			log.Warningf("failed to read installed skill manifest for %s: %v", path, manifestErr)
-		}
-		if !enabled {
-			return nil
-		}
-		skill, ok := loadFile(path, path)
-		if !ok {
-			return nil
-		}
-		skill.IsLocal = false
-		if localNames[skill.Name] {
-			return nil
-		}
-
-		version := filepath.Base(filepath.Dir(path))
-		existing, exists := installedBy[skill.Name]
-		if !exists || compareVersions(version, existing.Version) > 0 {
-			installedBy[skill.Name] = installedSkill{Definition: skill, Version: version}
+			if definition.Name == "" {
+				log.Warningf("skill %s missing name, skipping", skillModel.ID)
+				continue
+			}
+			if !isRuntimeCompatible(definition.RuntimeMinVersion) {
+				log.Warningf("skill %s requires runtime >= %s, skipping", definition.Name, definition.RuntimeMinVersion)
+				continue
+			}
+			var validTools []ToolDefinition
+			for _, tool := range definition.Tools {
+				if validationError := validateTool(tool); validationError != nil {
+					log.Warningf("skill %s: tool %q invalid: %v", definition.Name, tool.Name, validationError)
+					continue
+				}
+				validTools = append(validTools, tool)
+			}
+			definition.Tools = validTools
+			if len(definition.Tools) == 0 {
+				log.Warningf("skill %s: no valid tools, skipping", definition.Name)
+				continue
+			}
+			if authValidationError := validateHTTPAuthProfiles(definition.HTTPAuth); authValidationError != nil {
+				log.Warningf("skill %s: %v", definition.Name, authValidationError)
+				continue
+			}
+			if authReferenceError := validateSkillAuthReferences(definition); authReferenceError != nil {
+				log.Warningf("skill %s: %v", definition.Name, authReferenceError)
+				continue
+			}
+			definitions = append(definitions, definition)
 		}
 		return nil
 	})
-
-	for _, installed := range installedBy {
-		skills = append(skills, installed.Definition)
+	if transactionError != nil {
+		return nil, transactionError
 	}
-
-	return skills, nil
+	return definitions, nil
 }
 
-func loadInstalledSkillEnabled(versionDirectory string) (bool, error) {
-	manifestPath := filepath.Join(versionDirectory, "manifest.json")
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return true, nil
+func skillModelToDefinition(skillModel models.Skill) (SkillDefinition, error) {
+	definition := SkillDefinition{}
+	if skillModel.Name != nil && strings.TrimSpace(*skillModel.Name) != "" {
+		definition.Name = strings.TrimSpace(*skillModel.Name)
+	} else if strings.TrimSpace(skillModel.ID) != "" {
+		definition.Name = strings.TrimSpace(skillModel.ID)
+	}
+	definition.Description = strings.TrimSpace(valueOrEmptyString(skillModel.Description))
+	definition.RuntimeMinVersion = strings.TrimSpace(valueOrEmptyString(skillModel.RuntimeMinVersion))
+	if skillModel.Prompt != nil {
+		definition.Prompt = strings.TrimSpace(*skillModel.Prompt)
+	}
+	if skillModel.HTTPAuth != nil {
+		httpAuthData, marshalError := json.Marshal(*skillModel.HTTPAuth)
+		if marshalError != nil {
+			return SkillDefinition{}, marshalError
 		}
-		return true, err
+		if unmarshalError := json.Unmarshal(httpAuthData, &definition.HTTPAuth); unmarshalError != nil {
+			return SkillDefinition{}, unmarshalError
+		}
 	}
-
-	var manifest installManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return true, err
+	if skillModel.Tools != nil {
+		toolsData, marshalError := json.Marshal(*skillModel.Tools)
+		if marshalError != nil {
+			return SkillDefinition{}, marshalError
+		}
+		if unmarshalError := json.Unmarshal(toolsData, &definition.Tools); unmarshalError != nil {
+			return SkillDefinition{}, unmarshalError
+		}
 	}
-	if manifest.Enabled == nil {
-		return true, nil
+	if skillModel.Metadata != nil {
+		if isLocalValue, exists := (*skillModel.Metadata)["isLocal"]; exists {
+			if isLocalBool, ok := isLocalValue.(bool); ok {
+				definition.IsLocal = isLocalBool
+			}
+		}
+		if strings.TrimSpace(definition.Description) == "" {
+			if descriptionValue, exists := (*skillModel.Metadata)["description"]; exists {
+				if descriptionText, ok := descriptionValue.(string); ok {
+					definition.Description = strings.TrimSpace(descriptionText)
+				}
+			}
+		}
 	}
-	return *manifest.Enabled, nil
-}
-
-type installedSkill struct {
-	Definition SkillDefinition
-	Version    string
+	return definition, nil
 }
 
 func parseSkillMarkdown(data []byte, definition *SkillDefinition) (string, error) {

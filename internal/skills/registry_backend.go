@@ -11,14 +11,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
@@ -248,200 +246,204 @@ func Install(ctx context.Context, registries []configs.SkillsRegistry, sourceId 
 	if digest != strings.ToLower(entry.SHA256) {
 		return nil, fmt.Errorf("digest mismatch")
 	}
+	definition := SkillDefinition{}
+	body, parseError := parseSkillMarkdown(data, &definition)
+	if parseError != nil {
+		return nil, parseError
+	}
+	definition.Prompt = strings.TrimSpace(body)
+	if strings.TrimSpace(definition.Name) == "" {
+		definition.Name = strings.TrimSpace(entry.Name)
+	}
+	if strings.TrimSpace(definition.Description) == "" {
+		definition.Description = strings.TrimSpace(entry.Description)
+	}
+	if strings.TrimSpace(definition.Name) == "" {
+		return nil, fmt.Errorf("skill name is required")
+	}
+	toolsData, marshalToolsError := json.Marshal(definition.Tools)
+	if marshalToolsError != nil {
+		return nil, marshalToolsError
+	}
+	tools := make([]map[string]interface{}, 0)
+	if unmarshalToolsError := json.Unmarshal(toolsData, &tools); unmarshalToolsError != nil {
+		return nil, unmarshalToolsError
+	}
+	httpAuthData, marshalHTTPAuthError := json.Marshal(definition.HTTPAuth)
+	if marshalHTTPAuthError != nil {
+		return nil, marshalHTTPAuthError
+	}
+	httpAuth := map[string]interface{}{}
+	if unmarshalHTTPAuthError := json.Unmarshal(httpAuthData, &httpAuth); unmarshalHTTPAuthError != nil {
+		return nil, unmarshalHTTPAuthError
+	}
 
-	skillsDirectory := configs.SkillsDirectory()
-	installDir, err := resolveInstallDir(skillsDirectory, entry.Name, entry.Version)
-	if err != nil {
-		return nil, err
+	now := timeutil.Now()
+	metadata := map[string]interface{}{
+		"description": definition.Description,
+		"enabled":     true,
+		"sourceId":    source.ID,
+		"publisher":   publisher,
+		"digest":      digest,
+		"installedAt": now.String(),
 	}
-	if err := os.MkdirAll(installDir, 0755); err != nil {
-		return nil, err
+	skillStore, closeStore, storeError := openConfiguredSkillStore(ctx)
+	if storeError != nil {
+		return nil, storeError
 	}
-	if err := ensureNoSymlinkComponents(resolveInstalledRoot(skillsDirectory), installDir); err != nil {
-		return nil, err
+	defer closeStore()
+	upsertError := skillStore.Transaction(func(transaction store.Transaction) error {
+		existingSkill, getError := transaction.GetSkill(definition.Name, nil)
+		if getError != nil && getError != store.ErrNotFound {
+			return getError
+		}
+		versionText := strings.TrimSpace(entry.Version)
+		if versionText == "" {
+			versionText = strings.TrimSpace(definition.RuntimeMinVersion)
+		}
+		if versionText == "" {
+			versionText = "0.0.0"
+		}
+		if getError == store.ErrNotFound {
+			_, createError := transaction.CreateSkill(&models.Skill{
+				ID:                definition.Name,
+				Name:              &definition.Name,
+				Description:       &definition.Description,
+				Version:           &versionText,
+				RuntimeMinVersion: &definition.RuntimeMinVersion,
+				HTTPAuth:          &httpAuth,
+				Tools:             &tools,
+				Enabled:           ptrBool(true),
+				Source:            &source.ID,
+				Publisher:         &publisher,
+				Metadata:          &metadata,
+				Prompt:            &definition.Prompt,
+			}, nil)
+			return createError
+		}
+		_, modifyError := transaction.ModifySkill(existingSkill.ID, func(skill *models.Skill) error {
+			skill.Name = &definition.Name
+			skill.Description = &definition.Description
+			skill.Version = &versionText
+			skill.RuntimeMinVersion = &definition.RuntimeMinVersion
+			skill.HTTPAuth = &httpAuth
+			skill.Tools = &tools
+			skill.Enabled = ptrBool(true)
+			skill.Source = &source.ID
+			skill.Publisher = &publisher
+			skill.Metadata = &metadata
+			skill.Prompt = &definition.Prompt
+			return nil
+		}, nil)
+		return modifyError
+	})
+	if upsertError != nil {
+		return nil, upsertError
 	}
-	if err := writeInstalledFile(installDir, "skill.md", data); err != nil {
-		return nil, err
-	}
-	manifest := installManifest{
-		Name:        entry.Name,
-		Description: entry.Description,
-		Version:     entry.Version,
-		Enabled:     boolPointer(true),
-		SourceID:    source.ID,
-		Publisher:   publisher,
-		Digest:      digest,
-		InstalledAt: timeutil.Now(),
-	}
-	manifestBytes, _ := json.MarshalIndent(manifest, "", "  ")
-	if err := writeInstalledFile(installDir, "manifest.json", manifestBytes); err != nil {
-		return nil, err
-	}
-	notifyInstalledSkillsChanged(skillsDirectory)
 	return &InstalledSkill{
-		Name:        entry.Name,
-		Description: entry.Description,
+		Name:        definition.Name,
+		Description: definition.Description,
 		Version:     entry.Version,
 		Enabled:     true,
 		SourceID:    source.ID,
 		Publisher:   publisher,
-		InstalledAt: manifest.InstalledAt,
+		InstalledAt: now,
 	}, nil
 }
 
-func ListInstalled() ([]InstalledSkill, error) {
-	skillsDirectory := configs.SkillsDirectory()
-	root := filepath.Join(skillsDirectory, ".installed")
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
+func ListInstalled(ctx context.Context) ([]InstalledSkill, error) {
+	skillStore, closeStore, storeError := openConfiguredSkillStore(ctx)
+	if storeError != nil {
+		return nil, storeError
 	}
-
-	var installed []InstalledSkill
-	for _, skillEntry := range entries {
-		if !skillEntry.IsDir() {
-			continue
+	defer closeStore()
+	installed := make([]InstalledSkill, 0)
+	listError := skillStore.Transaction(func(transaction store.Transaction) error {
+		skills, getError := transaction.ListSkills(nil)
+		if getError != nil {
+			return getError
 		}
-		if !isSafePathSegment(skillEntry.Name()) {
-			continue
-		}
-		versionEntries, err := os.ReadDir(filepath.Join(root, skillEntry.Name()))
-		if err != nil {
-			continue
-		}
-
-		bestVersion := ""
-		bestPath := ""
-		for _, versionEntry := range versionEntries {
-			if !versionEntry.IsDir() {
-				continue
+		for _, skill := range skills {
+			record := InstalledSkill{
+				Name:    firstNonEmpty(strings.TrimSpace(skill.ID), strings.TrimSpace(valueOrEmptyString(skill.Name))),
+				Version: strings.TrimSpace(valueOrEmptyString(skill.Version)),
+				Enabled: true,
 			}
-			version := versionEntry.Name()
-			if !isSafePathSegment(version) {
-				continue
-			}
-			if bestVersion == "" || compareRegistryVersions(version, bestVersion) > 0 {
-				bestVersion = version
-				bestPath = filepath.Join(root, skillEntry.Name(), version, "manifest.json")
-			}
-		}
-		if bestVersion == "" {
-			continue
-		}
-
-		record := InstalledSkill{Name: skillEntry.Name(), Version: bestVersion, Enabled: true}
-		if data, err := os.ReadFile(bestPath); err == nil {
-			var manifest installManifest
-			if json.Unmarshal(data, &manifest) == nil {
-				record.Description = manifest.Description
-				if manifest.Enabled != nil {
-					record.Enabled = *manifest.Enabled
+			if skill.Metadata != nil {
+				record.Description = metadataString(*skill.Metadata, "description")
+				record.SourceID = metadataString(*skill.Metadata, "sourceId")
+				if record.SourceID == "" {
+					record.SourceID = metadataString(*skill.Metadata, "source")
 				}
-				record.SourceID = manifest.SourceID
-				record.Publisher = manifest.Publisher
-				record.InstalledAt = manifest.InstalledAt
+				record.Publisher = metadataString(*skill.Metadata, "publisher")
+				if record.Publisher == "" {
+					record.Publisher = metadataString(*skill.Metadata, "sourcePublisher")
+				}
+				if enabledValue, ok := (*skill.Metadata)["enabled"].(bool); ok {
+					record.Enabled = enabledValue
+				}
+				installedAtText := metadataString(*skill.Metadata, "installedAt")
+				if installedAtText != "" {
+					if parsedTimestamp, parseError := timeutil.Parse(installedAtText); parseError == nil {
+						record.InstalledAt = parsedTimestamp
+					}
+				}
 			}
+			if record.Description == "" {
+				record.Description = strings.TrimSpace(valueOrEmptyString(skill.Name))
+			}
+			installed = append(installed, record)
 		}
-		installed = append(installed, record)
+		return nil
+	})
+	if listError != nil {
+		return nil, listError
 	}
 	return installed, nil
 }
 
-func SetInstalledSkillEnabled(name string, enabled bool) error {
-	skillsDirectory := configs.SkillsDirectory()
-	if !isSafePathSegment(name) {
-		return fmt.Errorf("invalid skill name")
+func SetInstalledSkillEnabled(ctx context.Context, name string, enabled bool) error {
+	skillStore, closeStore, storeError := openConfiguredSkillStore(ctx)
+	if storeError != nil {
+		return storeError
 	}
-	skillPath, err := resolveInstalledSkillPath(skillsDirectory, name)
-	if err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(skillPath)
-	if err != nil {
-		if os.IsNotExist(err) {
+	defer closeStore()
+	return skillStore.Transaction(func(transaction store.Transaction) error {
+		_, modifyError := transaction.ModifySkill(strings.TrimSpace(name), func(skill *models.Skill) error {
+			metadata := map[string]interface{}{}
+			if skill.Metadata != nil {
+				for key, value := range *skill.Metadata {
+					metadata[key] = value
+				}
+			}
+			metadata["enabled"] = enabled
+			skill.Metadata = &metadata
+			return nil
+		}, nil)
+		if modifyError == store.ErrNotFound {
 			return fmt.Errorf("skill not installed: %s", name)
 		}
-		return err
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() || !isSafePathSegment(entry.Name()) {
-			continue
-		}
-		manifestPath := filepath.Join(skillPath, entry.Name(), "manifest.json")
-
-		var manifest installManifest
-		if data, readErr := os.ReadFile(manifestPath); readErr == nil {
-			if unmarshalErr := json.Unmarshal(data, &manifest); unmarshalErr != nil {
-				return fmt.Errorf("parsing manifest %s: %w", manifestPath, unmarshalErr)
-			}
-		} else if !os.IsNotExist(readErr) {
-			return readErr
-		}
-		if manifest.Name == "" {
-			manifest.Name = name
-		}
-		if manifest.Version == "" {
-			manifest.Version = entry.Name()
-		}
-
-		manifest.Enabled = boolPointer(enabled)
-		manifestBytes, _ := json.MarshalIndent(manifest, "", "  ")
-		if err := writeInstalledFile(filepath.Join(skillPath, entry.Name()), "manifest.json", manifestBytes); err != nil {
-			return err
-		}
-	}
-
-	notifyInstalledSkillsChanged(skillsDirectory)
-	return nil
+		return modifyError
+	})
 }
 
-func Uninstall(name string) error {
-	skillsDirectory := configs.SkillsDirectory()
-	if !isSafePathSegment(name) {
-		return fmt.Errorf("invalid skill name")
+func Uninstall(ctx context.Context, name string) error {
+	skillStore, closeStore, storeError := openConfiguredSkillStore(ctx)
+	if storeError != nil {
+		return storeError
 	}
-	path, err := resolveInstalledSkillPath(skillsDirectory, name)
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	defer closeStore()
+	deleteError := skillStore.Transaction(func(transaction store.Transaction) error {
+		return transaction.DeleteSkill(strings.TrimSpace(name), nil)
+	})
+	if deleteError == store.ErrNotFound {
 		return fmt.Errorf("skill not installed: %s", name)
 	}
-	if err := os.RemoveAll(path); err != nil {
-		return err
-	}
-	notifyInstalledSkillsChanged(skillsDirectory)
-	return nil
-}
-
-func writeInstalledFile(directory string, filename string, content []byte) error {
-	file, err := atomicfile.Create(filepath.Join(directory, filename))
-	if err != nil {
-		return err
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = atomicfile.Discard(file)
-		}
-	}()
-
-	if _, err := file.Write(content); err != nil {
-		return err
-	}
-	if err := atomicfile.Commit(file); err != nil {
-		return err
-	}
-	committed = true
-	return nil
+	return deleteError
 }
 
 func Update(ctx context.Context, registries []configs.SkillsRegistry, name string) ([]InstalledSkill, error) {
-	installed, err := ListInstalled()
+	installed, err := ListInstalled(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -512,107 +514,39 @@ func compareRegistryVersions(left string, right string) int {
 	return 0
 }
 
-func isSafePathSegment(value string) bool {
-	if value == "" || value == "." || value == ".." {
-		return false
-	}
-	if strings.Contains(value, "/") || strings.Contains(value, "\\") {
-		return false
-	}
-	clean := filepath.Clean(value)
-	return clean == value
+func openConfiguredSkillStore(ctx context.Context) (store.Store, func(), error) {
+	skillStore := store.StoreFromContext(ctx)
+	return skillStore, func() {}, nil
 }
 
-func resolveInstalledRoot(skillsDirectory string) string {
-	return filepath.Join(skillsDirectory, ".installed")
+func metadataString(metadata map[string]interface{}, key string) string {
+	value, exists := metadata[key]
+	if !exists {
+		return ""
+	}
+	stringValue, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(stringValue)
 }
 
-func resolveInstalledSkillPath(skillsDirectory, name string) (string, error) {
-	if !isSafePathSegment(name) {
-		return "", fmt.Errorf("invalid skill name")
-	}
-	root := resolveInstalledRoot(skillsDirectory)
-	path := filepath.Join(root, name)
-	if err := ensureWithinRoot(root, path); err != nil {
-		return "", err
-	}
-	if err := ensureNoSymlinkComponents(root, path); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func resolveInstallDir(skillsDirectory, name, version string) (string, error) {
-	if !isSafePathSegment(name) {
-		return "", fmt.Errorf("invalid skill name")
-	}
-	if !isSafePathSegment(version) {
-		return "", fmt.Errorf("invalid skill version")
-	}
-	root := resolveInstalledRoot(skillsDirectory)
-	path := filepath.Join(root, name, version)
-	if err := ensureWithinRoot(root, path); err != nil {
-		return "", err
-	}
-	if err := ensureNoSymlinkComponents(root, path); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func ensureWithinRoot(root string, path string) error {
-	relativePath, err := filepath.Rel(root, path)
-	if err != nil {
-		return err
-	}
-	if relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("invalid path")
-	}
-	return nil
-}
-
-func ensureNoSymlinkComponents(root string, path string) error {
-	info, err := os.Lstat(root)
-	if err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("invalid path")
-	}
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	relativePath, err := filepath.Rel(root, path)
-	if err != nil {
-		return err
-	}
-	current := root
-	for _, part := range strings.Split(relativePath, string(filepath.Separator)) {
-		if part == "" || part == "." {
-			continue
-		}
-		current = filepath.Join(current, part)
-		componentInfo, componentErr := os.Lstat(current)
-		if componentErr != nil {
-			if os.IsNotExist(componentErr) {
-				continue
-			}
-			return componentErr
-		}
-		if componentInfo.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("invalid path")
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
 		}
 	}
-	return nil
+	return ""
 }
 
-func notifyInstalledSkillsChanged(skillsDirectory string) {
-	root := resolveInstalledRoot(skillsDirectory)
-	if err := os.MkdirAll(root, 0755); err != nil {
-		return
+func valueOrEmptyString(value *string) string {
+	if value == nil {
+		return ""
 	}
-	// Touch a marker file so filesystem watchers pick up installs/updates/removals immediately.
-	_ = atomicfile.WriteFile(filepath.Join(root, ".reload"), []byte(strconv.FormatInt(time.Now().UnixMilli(), 10)))
+	return strings.TrimSpace(*value)
 }
 
-func boolPointer(value bool) *bool {
+func ptrBool(value bool) *bool {
 	return &value
 }

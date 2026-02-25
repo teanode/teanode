@@ -81,11 +81,11 @@ func (self *v1Api) handleChatCompletions(writer http.ResponseWriter, request *ht
 	// Extract the last user message.
 	lastMessage := chatRequest.Messages[len(chatRequest.Messages)-1]
 
-	userContext := gw.UserFromContext(request.Context())
-	if userContext == nil || strings.TrimSpace(userContext.UserID) == "" {
+	user := gw.UserFromContext(request.Context())
+	if user == nil || strings.TrimSpace(user.ID) == "" {
 		return web.Error(http.StatusUnauthorized, "unauthorized")
 	}
-	userId := strings.TrimSpace(userContext.UserID)
+	userId := strings.TrimSpace(user.ID)
 	agentId, err := self.gateway.EnsureDefaultAgent(userId)
 	if err != nil {
 		return web.Error(500, "resolving default agent: "+err.Error())

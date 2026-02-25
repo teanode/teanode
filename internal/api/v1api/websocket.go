@@ -1,6 +1,7 @@
 package v1api
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
@@ -15,9 +16,8 @@ import (
 type webSocketConnection struct {
 	connection *websocket.Conn
 	api        *v1Api
+	context    context.Context
 	writeMutex sync.Mutex
-	sessionId  string
-	userId     string
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time
@@ -26,12 +26,11 @@ type webSocketConnection struct {
 	activeVoiceSession *voice.Session
 }
 
-func newWebSocketConnection(connection *websocket.Conn, api *v1Api, sessionId, userId string) *webSocketConnection {
+func newWebSocketConnection(connection *websocket.Conn, api *v1Api, requestContext context.Context) *webSocketConnection {
 	return &webSocketConnection{
 		connection: connection,
 		api:        api,
-		sessionId:  sessionId,
-		userId:     userId,
+		context:    requestContext,
 	}
 }
 
@@ -56,13 +55,16 @@ func (self *webSocketConnection) shouldDeliverEvent(payload interface{}) bool {
 	if !ok || eventUserId == "" {
 		return true
 	}
-	return eventUserId == self.userId
+	return eventUserId == self.userId()
 }
 
 func (self *webSocketConnection) serve() {
 	defer self.connection.Close()
-	self.api.gateway.MarkSessionConnected(self.sessionId)
-	defer self.api.gateway.MarkSessionDisconnected(self.sessionId)
+	sessionId := self.sessionId()
+	if sessionId != "" {
+		self.api.gateway.MarkSessionConnected(sessionId)
+		defer self.api.gateway.MarkSessionDisconnected(sessionId)
+	}
 	self.api.gateway.Subscribe(self)
 	defer self.api.gateway.Unsubscribe(self)
 	defer func() {
@@ -114,6 +116,20 @@ func (self *webSocketConnection) serve() {
 
 		self.dispatch(frame)
 	}
+}
+
+func (self *webSocketConnection) userId() string {
+	if user := gw.UserFromContext(self.context); user != nil {
+		return user.ID
+	}
+	return ""
+}
+
+func (self *webSocketConnection) sessionId() string {
+	if session := gw.SessionFromContext(self.context); session != nil {
+		return session.ID
+	}
+	return ""
 }
 
 func (self *webSocketConnection) dispatch(frame requestFrame) {

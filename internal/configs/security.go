@@ -20,10 +20,11 @@ type SecurityConfig struct {
 }
 
 type SecurityUser struct {
-	Username     string          `json:"username,omitempty" yaml:"username,omitempty"`
-	Admin        bool            `json:"admin,omitempty" yaml:"admin,omitempty"`
-	PasswordHash string          `json:"passwordHash,omitempty" yaml:"passwordHash,omitempty"`
-	Tokens       []SecurityToken `json:"tokens,omitempty" yaml:"tokens,omitempty"`
+	Username       string          `json:"username,omitempty" yaml:"username,omitempty"`
+	Admin          bool            `json:"admin,omitempty" yaml:"admin,omitempty"`
+	PasswordHash   string          `json:"passwordHash,omitempty" yaml:"passwordHash,omitempty"`
+	DefaultAgentID string          `json:"defaultAgentId,omitempty" yaml:"defaultAgentId,omitempty"`
+	Tokens         []SecurityToken `json:"tokens,omitempty" yaml:"tokens,omitempty"`
 }
 
 type SecurityToken struct {

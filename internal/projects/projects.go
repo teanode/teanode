@@ -1,243 +1,248 @@
 package projects
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
-	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
-	"github.com/teanode/teanode/internal/util/timeutil"
-	"github.com/teanode/teanode/internal/util/trash"
 )
 
 const defaultProjectDocumentName = "PROJECT.md"
 
-func WorkspaceDirectory(projectId string) (string, error) {
-	return workspaceDirectory(projectId)
-}
-
-func projectConfigPath(projectId string) (string, error) {
-	directory, err := projectDirectory(projectId)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "project.yaml"), nil
-}
-
-func projectDirectory(projectId string) (string, error) {
-	directory := configs.ProjectsDirectory()
-	return filepath.Join(directory, projectId), nil
-}
-
-func workspaceDirectory(projectId string) (string, error) {
-	directory := configs.ProjectsDirectory()
-	return filepath.Join(directory, projectId, "workspace"), nil
-}
-
-func safeProjectPath(projectId, relPath string) (string, string, error) {
-	workspace, err := workspaceDirectory(projectId)
-	if err != nil {
-		return "", "", err
-	}
-	cleaned := filepath.Clean(relPath)
-	if cleaned == "." || cleaned == "" || filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("invalid path: %s", relPath)
-	}
-	full := filepath.Join(workspace, cleaned)
-	if err := ensureWithinRoot(workspace, full); err != nil {
-		return "", "", fmt.Errorf("path traversal denied: %s", relPath)
-	}
-	if err := ensureNoSymlinkComponents(workspace, full); err != nil {
-		return "", "", err
-	}
-	return workspace, full, nil
-}
-
-func initializeProjectFile(workspace string, metadata configs.ProjectConfig, purpose string) error {
-	path := filepath.Join(workspace, defaultProjectDocumentName)
-	if _, err := os.Stat(path); err == nil {
+func listProjects(ctx context.Context) ([]models.Project, error) {
+	projectModels := make([]models.Project, 0)
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		listedProjects, listError := transaction.ListProjects(nil)
+		if listError != nil {
+			return listError
+		}
+		projectModels = listedProjects
 		return nil
+	}); transactionError != nil {
+		return nil, transactionError
 	}
-	content, err := prompts.BuildProjectMarkdown(metadata.Name, metadata.ID, metadata.Description, purpose)
-	if err != nil {
-		return err
-	}
-	return atomicfile.WriteFile(path, []byte(content))
+	return projectModels, nil
 }
 
-func CreateProject(name, description, purpose string) (*configs.ProjectConfig, error) {
-	name = strings.TrimSpace(name)
-	description = strings.TrimSpace(description)
-	if name == "" {
+func getProject(ctx context.Context, projectId string) (*models.Project, error) {
+	var projectModel *models.Project
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		fetchedProject, getError := transaction.GetProject(projectId, nil)
+		if getError != nil {
+			return getError
+		}
+		projectModel = fetchedProject
+		return nil
+	}); transactionError != nil {
+		return nil, transactionError
+	}
+	return projectModel, nil
+}
+
+func createProject(ctx context.Context, name, description, purpose string) (*models.Project, error) {
+	trimmedName := strings.TrimSpace(name)
+	trimmedDescription := strings.TrimSpace(description)
+	trimmedPurpose := strings.TrimSpace(purpose)
+	if trimmedName == "" {
 		return nil, fmt.Errorf("name is required")
 	}
 
-	projectsDirectory := configs.ProjectsDirectory()
-	if err := os.MkdirAll(projectsDirectory, 0755); err != nil {
-		return nil, fmt.Errorf("creating projects directory: %w", err)
+	var createdProject *models.Project
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		projectId := security.NewULID()
+		seedWorkspaceFiles := make([]models.WorkspaceFile, 0)
+		if trimmedPurpose != "" {
+			projectMarkdown, buildError := prompts.BuildProjectMarkdown(trimmedName, projectId, trimmedDescription, trimmedPurpose)
+			if buildError != nil {
+				return buildError
+			}
+			relativePath := defaultProjectDocumentName
+			contentBytes := []byte(projectMarkdown)
+			seedWorkspaceFiles = append(seedWorkspaceFiles, models.WorkspaceFile{
+				Path:    &relativePath,
+				Content: &contentBytes,
+			})
+		}
+		projectModel, createError := transaction.CreateProject(&models.Project{
+			ID:          projectId,
+			Name:        ptrto.Value(trimmedName),
+			Description: ptrto.Value(trimmedDescription),
+		}, seedWorkspaceFiles, nil)
+		if createError != nil {
+			return createError
+		}
+		createdProject = projectModel
+		return nil
+	}); transactionError != nil {
+		return nil, transactionError
 	}
 
-	metadata := configs.ProjectConfig{
-		ID:          security.NewULID(),
-		Name:        name,
-		Description: description,
-		UpdatedAt:   timeutil.Now(),
-	}
-	workspace, err := workspaceDirectory(metadata.ID)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(workspace, 0755); err != nil {
-		return nil, fmt.Errorf("creating project workspace: %w", err)
-	}
-	if err := initializeProjectFile(workspace, metadata, purpose); err != nil {
-		return nil, fmt.Errorf("initializing PROJECT.md: %w", err)
-	}
-	if err := configs.SaveProjectConfig(metadata.ID, &metadata); err != nil {
-		return nil, err
-	}
-	return &metadata, nil
+	return createdProject, nil
 }
 
-func RenameProject(projectId, name string) (*configs.ProjectConfig, error) {
-	metadata, err := configs.LoadProjectConfig(projectId)
-	if err != nil {
-		return nil, err
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
+func renameProject(ctx context.Context, projectId, name string) (*models.Project, error) {
+	trimmedName := strings.TrimSpace(name)
+	if trimmedName == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	metadata.Name = name
-	metadata.UpdatedAt = timeutil.Now()
-	if err := configs.SaveProjectConfig(metadata.ID, metadata); err != nil {
-		return nil, err
-	}
-	return metadata, nil
-}
 
-func DeleteProject(projectId string) error {
-	workspace, err := workspaceDirectory(projectId)
-	if err != nil {
-		return err
-	}
-	metadata, err := projectConfigPath(projectId)
-	if err != nil {
-		return err
-	}
-	root := configs.Directory()
-	trashDirectory := configs.TrashDirectory()
-
-	if _, err := os.Stat(metadata); err == nil {
-		if isPathInsideDirectory(metadata, root) {
-			if err := trash.Move(metadata, trashDirectory); err != nil {
-				return fmt.Errorf("deleting project metadata: %w", err)
-			}
-		} else {
-			if err := os.Remove(metadata); err != nil {
-				return fmt.Errorf("deleting project metadata: %w", err)
-			}
-		}
-	}
-	if _, err := os.Stat(workspace); err == nil {
-		if isPathInsideDirectory(workspace, root) {
-			if err := trash.Move(workspace, trashDirectory); err != nil {
-				return fmt.Errorf("deleting project workspace: %w", err)
-			}
-		} else {
-			if err := os.RemoveAll(workspace); err != nil {
-				return fmt.Errorf("deleting project workspace: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-func touch(projectId string) error {
-	metadata, err := configs.LoadProjectConfig(projectId)
-	if err != nil {
-		return err
-	}
-	metadata.UpdatedAt = timeutil.Now()
-	return configs.SaveProjectConfig(metadata.ID, metadata)
-}
-
-func listFiles(projectId string) ([]string, error) {
-	workspace, err := workspaceDirectory(projectId)
-	if err != nil {
-		return nil, err
-	}
-	files := []string{}
-	err = filepath.Walk(workspace, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if info.IsDir() {
+	var updatedProject *models.Project
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		projectModel, modifyError := transaction.ModifyProject(projectId, func(projectModel *models.Project) error {
+			projectModel.Name = ptrto.Value(trimmedName)
 			return nil
+		}, nil)
+		if modifyError != nil {
+			return modifyError
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil
-		}
-		rel, err := filepath.Rel(workspace, path)
-		if err != nil {
-			return err
-		}
-		files = append(files, rel)
+		updatedProject = projectModel
 		return nil
+	}); transactionError != nil {
+		return nil, transactionError
+	}
+
+	return updatedProject, nil
+}
+
+func deleteProject(ctx context.Context, projectId string) error {
+	return store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		return transaction.DeleteProject(projectId, nil)
 	})
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
+}
+
+func touch(ctx context.Context, projectId string) error {
+	return store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		_, modifyError := transaction.ModifyProject(projectId, func(projectModel *models.Project) error {
+			now := time.Now()
+			projectModel.ModifiedAt = &now
+			return nil
+		}, nil)
+		return modifyError
+	})
+}
+
+func listFiles(ctx context.Context, projectId string) ([]string, error) {
+	files := make([]string, 0)
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		workspaceFiles, listError := transaction.ListWorkspaceFilesByPath(models.ScopeProject, projectId, "", nil)
+		if listError != nil {
+			return listError
 		}
-		return nil, fmt.Errorf("listing project files: %w", err)
+		files = make([]string, 0, len(workspaceFiles))
+		for _, workspaceFile := range workspaceFiles {
+			path := strings.TrimSpace(valueOrEmptyString(workspaceFile.Path))
+			if path != "" {
+				files = append(files, path)
+			}
+		}
+		sort.Strings(files)
+		return nil
+	}); transactionError != nil {
+		return nil, transactionError
 	}
 	return files, nil
 }
 
-func readFile(projectId, path string) (string, error) {
-	_, full, err := safeProjectPath(projectId, path)
-	if err != nil {
-		return "", err
+func readFile(ctx context.Context, projectId, path string) (string, error) {
+	normalizedPath, normalizeError := normalizeRelativePath(path)
+	if normalizeError != nil {
+		return "", normalizeError
 	}
-	data, err := os.ReadFile(full)
-	if err != nil {
-		return "", fmt.Errorf("reading file: %w", err)
+
+	content := ""
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		workspaceFile, getError := transaction.GetWorkspaceFileByPath(models.ScopeProject, projectId, normalizedPath, nil)
+		if getError != nil {
+			return getError
+		}
+		if workspaceFile.Content == nil {
+			content = ""
+			return nil
+		}
+		content = string(*workspaceFile.Content)
+		return nil
+	}); transactionError != nil {
+		return "", transactionError
 	}
-	return string(data), nil
+	return content, nil
 }
 
-func writeFile(projectId, path, content string) error {
-	_, full, err := safeProjectPath(projectId, path)
-	if err != nil {
-		return err
+func writeFile(ctx context.Context, projectId, path, content string) error {
+	normalizedPath, normalizeError := normalizeRelativePath(path)
+	if normalizeError != nil {
+		return normalizeError
 	}
-	if err := atomicfile.WriteFile(full, []byte(content)); err != nil {
-		return fmt.Errorf("writing file: %w", err)
+
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		contentBytes := []byte(content)
+		_, modifyError := transaction.ModifyWorkspaceFileByPath(models.ScopeProject, projectId, normalizedPath, func(workspaceFile *models.WorkspaceFile) error {
+			workspaceFile.Content = &contentBytes
+			return nil
+		}, nil)
+		if modifyError == nil {
+			return nil
+		}
+		if modifyError != store.ErrNotFound {
+			return modifyError
+		}
+		_, createError := transaction.CreateWorkspaceFile(&models.WorkspaceFile{
+			Scope:   ptrto.Value(models.ScopeProject),
+			ScopeID: ptrto.Value(projectId),
+			Path:    ptrto.Value(normalizedPath),
+			Content: &contentBytes,
+		}, nil)
+		return createError
+	}); transactionError != nil {
+		return transactionError
 	}
-	return touch(projectId)
+
+	return touch(ctx, projectId)
 }
 
-func appendFile(projectId, path, content string) error {
-	_, full, err := safeProjectPath(projectId, path)
-	if err != nil {
-		return err
+func appendFile(ctx context.Context, projectId, path, content string) error {
+	normalizedPath, normalizeError := normalizeRelativePath(path)
+	if normalizeError != nil {
+		return normalizeError
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
-		return fmt.Errorf("creating parent directory: %w", err)
+
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		existingContent := ""
+		workspaceFile, getError := transaction.GetWorkspaceFileByPath(models.ScopeProject, projectId, normalizedPath, nil)
+		if getError == nil && workspaceFile.Content != nil {
+			existingContent = string(*workspaceFile.Content)
+		}
+		nextContent := existingContent + content + "\n"
+		contentBytes := []byte(nextContent)
+		if getError == nil {
+			_, modifyError := transaction.ModifyWorkspaceFileByPath(models.ScopeProject, projectId, normalizedPath, func(existingWorkspaceFile *models.WorkspaceFile) error {
+				existingWorkspaceFile.Content = &contentBytes
+				return nil
+			}, nil)
+			return modifyError
+		}
+		if getError != store.ErrNotFound {
+			return getError
+		}
+		_, createError := transaction.CreateWorkspaceFile(&models.WorkspaceFile{
+			Scope:   ptrto.Value(models.ScopeProject),
+			ScopeID: ptrto.Value(projectId),
+			Path:    ptrto.Value(normalizedPath),
+			Content: &contentBytes,
+		}, nil)
+		return createError
+	}); transactionError != nil {
+		return transactionError
 	}
-	file, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("opening file: %w", err)
-	}
-	defer file.Close()
-	if _, err := file.WriteString(content + "\n"); err != nil {
-		return fmt.Errorf("appending file: %w", err)
-	}
-	return touch(projectId)
+
+	return touch(ctx, projectId)
 }
 
 type searchMatch struct {
@@ -246,197 +251,132 @@ type searchMatch struct {
 	Text string `json:"text"`
 }
 
-func searchFiles(projectId, query string, maxResults int) ([]searchMatch, error) {
+func searchFiles(ctx context.Context, projectId, query string, maxResults int) ([]searchMatch, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query is required")
 	}
 	if maxResults <= 0 {
 		maxResults = 10
 	}
-	workspace, err := workspaceDirectory(projectId)
-	if err != nil {
-		return nil, err
-	}
 
-	queryLower := strings.ToLower(query)
-	matches := []searchMatch{}
-	err = filepath.Walk(workspace, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return nil
+	matches := make([]searchMatch, 0)
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		limit := uint64(maxResults)
+		includeContent := true
+		searchResults, searchError := transaction.SearchWorkspaceFiles(models.ScopeProject, projectId, query, store.WorkspaceSearchOptions{
+			Limit:          &limit,
+			IncludeContent: &includeContent,
+		}, nil)
+		if searchError != nil {
+			return searchError
 		}
-		if info.IsDir() {
-			return nil
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil
-		}
-		if !strings.HasSuffix(path, ".md") && !strings.HasSuffix(path, ".txt") {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		rel, err := filepath.Rel(workspace, path)
-		if err != nil {
-			return nil
-		}
-		lines := strings.Split(string(data), "\n")
-		for index, line := range lines {
-			if len(matches) >= maxResults {
-				return filepath.SkipAll
+		for _, searchResult := range searchResults {
+			path := strings.TrimSpace(valueOrEmptyString(searchResult.Path))
+			if path == "" || (!strings.HasSuffix(path, ".md") && !strings.HasSuffix(path, ".txt")) {
+				continue
 			}
-			if strings.Contains(strings.ToLower(line), queryLower) {
-				matches = append(matches, searchMatch{Path: rel, Line: index + 1, Text: line})
+			matchedLines := valueOrEmptyStringSlice(searchResult.MatchedLines)
+			for index, line := range matchedLines {
+				matches = append(matches, searchMatch{
+					Path: path,
+					Line: index + 1,
+					Text: line,
+				})
+				if len(matches) >= maxResults {
+					return nil
+				}
 			}
 		}
 		return nil
-	})
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("searching project files: %w", err)
+	}); transactionError != nil {
+		return nil, transactionError
 	}
+
 	return matches, nil
 }
 
-func deleteFile(projectId, path string) error {
-	workspace, full, err := safeProjectPath(projectId, path)
-	if err != nil {
-		return err
-	}
-	info, err := os.Stat(full)
-	if err != nil {
-		return fmt.Errorf("file not found: %w", err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("cannot delete directories, only files")
+func deleteFile(ctx context.Context, projectId, path string) error {
+	normalizedPath, normalizeError := normalizeRelativePath(path)
+	if normalizeError != nil {
+		return normalizeError
 	}
 
-	root := configs.Directory()
-	if isPathInsideDirectory(full, root) {
-		trashDirectory := configs.TrashDirectory()
-		if err := trash.Move(full, trashDirectory); err != nil {
-			return fmt.Errorf("deleting file: %w", err)
-		}
-	} else {
-		if err := os.Remove(full); err != nil {
-			return fmt.Errorf("deleting file: %w", err)
-		}
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		return transaction.DeleteWorkspaceFileByPath(models.ScopeProject, projectId, normalizedPath, nil)
+	}); transactionError != nil {
+		return transactionError
 	}
 
-	directory := filepath.Dir(full)
-	for directory != workspace {
-		entries, err := os.ReadDir(directory)
-		if err != nil || len(entries) > 0 {
-			break
-		}
-		os.Remove(directory)
-		directory = filepath.Dir(directory)
-	}
-	return touch(projectId)
+	return touch(ctx, projectId)
 }
 
-func moveFile(projectId, fromPath, toPath string) error {
-	_, source, err := safeProjectPath(projectId, fromPath)
-	if err != nil {
-		return err
+func moveFile(ctx context.Context, projectId, fromPath, toPath string) error {
+	normalizedFromPath, fromError := normalizeRelativePath(fromPath)
+	if fromError != nil {
+		return fromError
 	}
-	workspace, target, err := safeProjectPath(projectId, toPath)
-	if err != nil {
-		return err
+	normalizedToPath, toError := normalizeRelativePath(toPath)
+	if toError != nil {
+		return toError
 	}
-	if source == target {
+	if normalizedFromPath == normalizedToPath {
 		return nil
 	}
-	info, err := os.Stat(source)
-	if err != nil {
-		return fmt.Errorf("source not found: %w", err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("cannot move directories, only files")
-	}
-	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		return fmt.Errorf("creating destination directory: %w", err)
-	}
-	if err := os.Rename(source, target); err != nil {
-		return fmt.Errorf("moving file: %w", err)
-	}
 
-	directory := filepath.Dir(source)
-	for directory != workspace {
-		entries, err := os.ReadDir(directory)
-		if err != nil || len(entries) > 0 {
-			break
+	if transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		sourceFile, getError := transaction.GetWorkspaceFileByPath(models.ScopeProject, projectId, normalizedFromPath, nil)
+		if getError != nil {
+			return getError
 		}
-		os.Remove(directory)
-		directory = filepath.Dir(directory)
-	}
-	return touch(projectId)
-}
-
-func isPathInsideDirectory(path, directory string) bool {
-	absolutePath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-	absoluteDirectory, err := filepath.Abs(directory)
-	if err != nil {
-		return false
-	}
-	relativePath, err := filepath.Rel(absoluteDirectory, absolutePath)
-	if err != nil {
-		return false
-	}
-	return relativePath == "." || (!strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) && relativePath != "..")
-}
-
-func ensureWithinRoot(root string, path string) error {
-	absoluteRoot, err := filepath.Abs(root)
-	if err != nil {
-		return err
-	}
-	absolutePath, err := filepath.Abs(path)
-	if err != nil {
-		return err
-	}
-	relativePath, err := filepath.Rel(absoluteRoot, absolutePath)
-	if err != nil {
-		return err
-	}
-	if relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("invalid path")
-	}
-	return nil
-}
-
-func ensureNoSymlinkComponents(root string, path string) error {
-	info, err := os.Lstat(root)
-	if err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("invalid path")
-	}
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	relativePath, err := filepath.Rel(root, path)
-	if err != nil {
-		return err
-	}
-	current := root
-	for _, part := range strings.Split(relativePath, string(filepath.Separator)) {
-		if part == "" || part == "." {
-			continue
+		contentBytes := []byte{}
+		if sourceFile.Content != nil {
+			contentBytes = append(contentBytes, (*sourceFile.Content)...)
 		}
-		current = filepath.Join(current, part)
-		componentInfo, componentErr := os.Lstat(current)
-		if componentErr != nil {
-			if os.IsNotExist(componentErr) {
-				continue
+		targetPath := normalizedToPath
+		_, createError := transaction.CreateWorkspaceFile(&models.WorkspaceFile{
+			Scope:   ptrto.Value(models.ScopeProject),
+			ScopeID: ptrto.Value(projectId),
+			Path:    &targetPath,
+			Content: &contentBytes,
+		}, nil)
+		if createError != nil {
+			if createError != store.ErrAlreadyExists {
+				return createError
 			}
-			return componentErr
+			_, modifyError := transaction.ModifyWorkspaceFileByPath(models.ScopeProject, projectId, normalizedToPath, func(existingWorkspaceFile *models.WorkspaceFile) error {
+				existingWorkspaceFile.Content = &contentBytes
+				return nil
+			}, nil)
+			if modifyError != nil {
+				return modifyError
+			}
 		}
-		if componentInfo.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("invalid path")
-		}
+		return transaction.DeleteWorkspaceFileByPath(models.ScopeProject, projectId, normalizedFromPath, nil)
+	}); transactionError != nil {
+		return transactionError
 	}
-	return nil
+
+	return touch(ctx, projectId)
+}
+
+func normalizeRelativePath(relativePath string) (string, error) {
+	cleanedPath := filepath.Clean(strings.TrimSpace(relativePath))
+	if cleanedPath == "." || cleanedPath == "" || filepath.IsAbs(cleanedPath) || cleanedPath == ".." || strings.HasPrefix(cleanedPath, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid path: %s", relativePath)
+	}
+	return cleanedPath, nil
+}
+
+func valueOrEmptyString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func valueOrEmptyStringSlice(value *[]string) []string {
+	if value == nil {
+		return []string{}
+	}
+	return *value
 }

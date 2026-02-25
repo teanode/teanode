@@ -301,8 +301,9 @@ func (self *codexTool) executeResume(ctx context.Context, sessionId, prompt, sys
 }
 
 func (self *codexTool) executeListSessions(ctx context.Context) (string, error) {
-	if store := self.resolveConversationStore(ctx); store != nil {
-		sessions, err := self.loadSessionsFromConversationStore(store)
+	conversationStore, storeError := self.resolveConversationStore(ctx)
+	if storeError == nil {
+		sessions, err := self.loadSessionsFromConversationStore(conversationStore)
 		if err == nil {
 			result, marshalErr := json.Marshal(map[string]interface{}{"sessions": sessions})
 			if marshalErr != nil {
@@ -311,6 +312,8 @@ func (self *codexTool) executeListSessions(ctx context.Context) (string, error) 
 			return string(result), nil
 		}
 		log.Debugf("list_sessions: failed to load from conversation history, falling back to in-memory sessions: %v", err)
+	} else {
+		log.Debugf("list_sessions: no conversation store available, falling back to in-memory sessions: %v", storeError)
 	}
 
 	self.mutex.Lock()
@@ -334,16 +337,20 @@ func (self *codexTool) executeListSessions(ctx context.Context) (string, error) 
 	return string(result), nil
 }
 
-func (self *codexTool) resolveConversationStore(ctx context.Context) *conversations.Store {
+func (self *codexTool) resolveConversationStore(ctx context.Context) (*conversations.Store, error) {
 	runner := agents.RunnerFromContext(ctx)
 	if runner == nil {
-		return nil
+		return nil, fmt.Errorf("runner context missing")
 	}
-	userId := agents.UserIDFromContext(ctx)
-	if userId == "" {
-		return nil
+	userID := agents.UserIDFromContext(ctx)
+	if userID == "" {
+		return nil, fmt.Errorf("user context missing")
 	}
-	return runner.ConversationsForUser(userId)
+	conversationStore := runner.ConversationsForUser(userID)
+	if conversationStore == nil {
+		return nil, fmt.Errorf("conversation store missing")
+	}
+	return conversationStore, nil
 }
 
 func (self *codexTool) loadSessionsFromConversationStore(store *conversations.Store) ([]sessionInfo, error) {

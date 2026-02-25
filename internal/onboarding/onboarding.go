@@ -1,17 +1,17 @@
 package onboarding
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
+	"github.com/teanode/teanode/internal/store"
 )
 
 var userInitLocks sync.Map // map[userId]*sync.Mutex
@@ -27,7 +27,7 @@ func userInitLock(userId string) *sync.Mutex {
 
 // InitializeUser ensures user directories/workspace and seeds one onboarding
 // assistant message when ONBOARDING.md exists and the user has no user-authored messages yet.
-func InitializeUser(gateway gw.Gateway, userId string) error {
+func InitializeUser(ctx context.Context, gateway gw.Gateway, userId string) error {
 	userId = strings.TrimSpace(userId)
 	if userId == "" {
 		return fmt.Errorf("userId is required")
@@ -37,8 +37,10 @@ func InitializeUser(gateway gw.Gateway, userId string) error {
 	lock.Lock()
 	defer lock.Unlock()
 
-	if err := configs.EnsureUserDirectories(userId); err != nil {
-		return fmt.Errorf("ensuring user directories: %w", err)
+	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		return seedUserWorkspace(transaction, userId)
+	}); err != nil {
+		return fmt.Errorf("seeding user workspace: %w", err)
 	}
 
 	agentId, err := gateway.EnsureDefaultAgent(userId)
@@ -47,13 +49,10 @@ func InitializeUser(gateway gw.Gateway, userId string) error {
 	}
 
 	store := gateway.ConversationStore(userId, agentId)
-	if store == nil {
-		return fmt.Errorf("conversation store unavailable")
-	}
 
-	onboardingExists, err := onboardingExists(userId)
-	if err != nil {
-		return err
+	onboardingExists, onboardingErr := workspaceFileExists(ctx, models.ScopeUser, userId, "ONBOARDING.md")
+	if onboardingErr != nil {
+		return onboardingErr
 	}
 	if !onboardingExists {
 		return nil
@@ -75,18 +74,48 @@ func InitializeUser(gateway gw.Gateway, userId string) error {
 	return nil
 }
 
-func onboardingExists(userId string) (bool, error) {
-	userWorkspaceDirectory := configs.UserWorkspaceDirectory(userId)
-	onboardingPath := filepath.Join(userWorkspaceDirectory, "ONBOARDING.md")
-	var err error
-	_, err = os.Stat(onboardingPath)
-	if os.IsNotExist(err) {
-		return false, nil
+func seedUserWorkspace(transaction store.Transaction, userId string) error {
+	if _, getError := transaction.GetWorkspaceFileByPath(models.ScopeUser, userId, "USER.md", nil); getError == nil {
+		return nil
 	}
-	if err != nil {
-		return false, fmt.Errorf("reading ONBOARDING.md: %w", err)
+	filesToSeed := []struct {
+		path    string
+		content string
+	}{
+		{path: "USER.md", content: prompts.DefaultUserMarkdown()},
+		{path: "ONBOARDING.md", content: prompts.DefaultOnboardingMarkdown()},
+		{path: "MEMORY.md", content: prompts.DefaultMemoryMarkdown()},
 	}
-	return true, nil
+	scope := models.ScopeUser
+	scopeID := userId
+	for _, fileToSeed := range filesToSeed {
+		if _, err := transaction.GetWorkspaceFileByPath(scope, scopeID, fileToSeed.path, nil); err == nil {
+			continue
+		}
+		content := []byte(fileToSeed.content)
+		relativePath := fileToSeed.path
+		if _, err := transaction.CreateWorkspaceFile(&models.WorkspaceFile{
+			ID:      "",
+			Scope:   &scope,
+			ScopeID: &scopeID,
+			Path:    &relativePath,
+			Content: &content,
+		}, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func workspaceFileExists(ctx context.Context, scope models.Scope, scopeID string, relativePath string) (bool, error) {
+	exists := false
+	err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		if _, getError := transaction.GetWorkspaceFileByPath(scope, scopeID, relativePath, nil); getError == nil {
+			exists = true
+		}
+		return nil
+	})
+	return exists, err
 }
 
 func storeHasAnyConversation(store *conversations.Store) (bool, error) {

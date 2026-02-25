@@ -1,25 +1,37 @@
 package onboarding
 
 import (
-	"os"
-	"path/filepath"
+	"context"
 	"testing"
 
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
 )
 
-func newTestGateway(t *testing.T) gw.Gateway {
+func newTestGateway(t *testing.T) (gw.Gateway, store.Store) {
 	t.Helper()
 	configs.SetDirectory(t.TempDir())
 	t.Cleanup(func() { configs.SetDirectory("") })
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: configs.Directory()})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
 
-	registry := agents.NewAgentRegistry()
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
+	registry := agents.NewAgentRegistry(contextWithStore)
 	registry.Register("main", &agents.Runner{AgentID: "main"})
 	return gw.New(
+		contextWithStore,
 		&configs.Config{
 			AgentConfigs: []configs.AgentConfig{{ID: "main", Name: "Tea"}},
 		},
@@ -28,18 +40,16 @@ func newTestGateway(t *testing.T) gw.Gateway {
 		nil,
 		nil,
 		nil,
-		nil,
-		nil,
-		nil,
-	)
+	), openedStore
 }
 
 func TestInitializeUserIsIdempotent(t *testing.T) {
-	gateway := newTestGateway(t)
+	gateway, openedStore := newTestGateway(t)
 	userId := "user-1"
 	agentId := "main"
 
-	if err := InitializeUser(gateway, userId); err != nil {
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
+	if err := InitializeUser(contextWithStore, gateway, userId); err != nil {
 		t.Fatalf("InitializeUser first call failed: %v", err)
 	}
 	firstDefaultConversationId := gateway.EnsureDefaultConversation(userId, agentId)
@@ -47,7 +57,7 @@ func TestInitializeUserIsIdempotent(t *testing.T) {
 		t.Fatal("expected default conversation id to be set")
 	}
 
-	if err := InitializeUser(gateway, userId); err != nil {
+	if err := InitializeUser(contextWithStore, gateway, userId); err != nil {
 		t.Fatalf("InitializeUser second call failed: %v", err)
 	}
 	secondDefaultConversationId := gateway.EnsureDefaultConversation(userId, agentId)
@@ -83,19 +93,41 @@ func TestInitializeUserIsIdempotent(t *testing.T) {
 }
 
 func TestInitializeUserDoesNotSeedWhenOnboardingMissing(t *testing.T) {
-	gateway := newTestGateway(t)
+	gateway, openedStore := newTestGateway(t)
 	userId := "user-2"
 	agentId := "main"
 
-	if err := configs.EnsureUserDirectories(userId); err != nil {
-		t.Fatalf("EnsureUserDirectories failed: %v", err)
-	}
-	workspaceDirectory := configs.UserWorkspaceDirectory(userId)
-	if err := os.Remove(filepath.Join(workspaceDirectory, "ONBOARDING.md")); err != nil {
-		t.Fatalf("remove ONBOARDING.md failed: %v", err)
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
+	persistenceStore := store.StoreFromContext(contextWithStore)
+	seedError := persistenceStore.Transaction(func(transaction store.Transaction) error {
+		userName := "user-two"
+		userWorkspaceScope := models.ScopeUser
+		userWorkspaceId := userId
+		userMarkdownPath := "USER.md"
+		memoryMarkdownPath := "MEMORY.md"
+		userMarkdownContent := []byte(prompts.DefaultUserMarkdown())
+		memoryMarkdownContent := []byte(prompts.DefaultMemoryMarkdown())
+		_, createUserError := transaction.CreateUser(&models.User{ID: userId, Username: &userName}, []models.WorkspaceFile{
+			{
+				Scope:   &userWorkspaceScope,
+				ScopeID: &userWorkspaceId,
+				Path:    &userMarkdownPath,
+				Content: &userMarkdownContent,
+			},
+			{
+				Scope:   &userWorkspaceScope,
+				ScopeID: &userWorkspaceId,
+				Path:    &memoryMarkdownPath,
+				Content: &memoryMarkdownContent,
+			},
+		}, nil)
+		return createUserError
+	})
+	if seedError != nil {
+		t.Fatalf("seeding user workspace failed: %v", seedError)
 	}
 
-	if err := InitializeUser(gateway, userId); err != nil {
+	if err := InitializeUser(contextWithStore, gateway, userId); err != nil {
 		t.Fatalf("InitializeUser failed: %v", err)
 	}
 
@@ -110,12 +142,19 @@ func TestInitializeUserDoesNotSeedWhenOnboardingMissing(t *testing.T) {
 }
 
 func TestInitializeUserDoesNotSeedWhenUserMessageExists(t *testing.T) {
-	gateway := newTestGateway(t)
+	gateway, openedStore := newTestGateway(t)
 	userId := "user-3"
 	agentId := "main"
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
+	persistenceStore := store.StoreFromContext(contextWithStore)
 
-	if err := configs.EnsureUserDirectories(userId); err != nil {
-		t.Fatalf("EnsureUserDirectories failed: %v", err)
+	seedError := persistenceStore.Transaction(func(transaction store.Transaction) error {
+		userName := "user-three"
+		_, createUserError := transaction.CreateUser(&models.User{ID: userId, Username: &userName}, nil, nil)
+		return createUserError
+	})
+	if seedError != nil {
+		t.Fatalf("seeding user failed: %v", seedError)
 	}
 
 	store := gateway.ConversationStore(userId, agentId)
@@ -125,7 +164,7 @@ func TestInitializeUserDoesNotSeedWhenUserMessageExists(t *testing.T) {
 	}
 	gateway.SetDefaultConversation(userId, agentId, conversationId)
 
-	if err := InitializeUser(gateway, userId); err != nil {
+	if err := InitializeUser(contextWithStore, gateway, userId); err != nil {
 		t.Fatalf("InitializeUser failed: %v", err)
 	}
 

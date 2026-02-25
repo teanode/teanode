@@ -172,8 +172,8 @@ func (self *agentListTool) Execute(_ context.Context, _ string) (string, error) 
 				entry["name"] = agentConfig.Name
 			}
 		}
-		if state, err := configs.LoadAgentConfig(agentId); err == nil && state.Description != "" {
-			entry["description"] = state.Description
+		if description := self.agentRegistry.AgentDescription(agentId); description != "" {
+			entry["description"] = description
 		}
 		entry["model"] = self.configuration.AgentModel(agentId)
 		if runner := self.agentRegistry.GetRunner(agentId); runner != nil {
@@ -379,9 +379,8 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	result, err := targetRunner.Run(childContext, runParams, nil)
 
 	// Always clean up the ephemeral conversation, even on error.
-	if store := targetRunner.ConversationsForUser(UserIDFromContext(ctx)); store != nil {
-		_ = store.Delete(conversationId)
-	}
+	store := targetRunner.ConversationsForUser(UserIDFromContext(ctx))
+	_ = store.Delete(conversationId)
 
 	if err != nil {
 		return "", fmt.Errorf("subagent %q run failed: %w", targetAgentId, err)

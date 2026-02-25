@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
 )
 
 // mockRunner returns a commandRunner that records calls and returns canned output.
@@ -519,7 +521,18 @@ func TestListSessionsAfterRuns(testing *testing.T) {
 }
 
 func TestLoadSessionsFromConversationStore(testing *testing.T) {
-	store := conversations.NewStore(testing.TempDir())
+	dataDirectory := testing.TempDir()
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: dataDirectory})
+	if openError != nil {
+		testing.Fatalf("opening store: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		testing.Fatalf("migrating store: %v", migrateError)
+	}
+	testing.Cleanup(func() {
+		_ = openedStore.Close()
+	})
+	store := conversations.NewStore(store.ContextWithStore(context.Background(), openedStore), "user-1", "agent-1")
 	tool := &codexTool{}
 
 	t1 := time.Now().Add(-2 * time.Hour).UnixMilli()

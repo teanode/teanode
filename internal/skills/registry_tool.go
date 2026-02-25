@@ -86,15 +86,15 @@ func (self *skillsTool) Execute(ctx context.Context, rawArguments string) (strin
 	case "install":
 		return self.executeInstall(ctx, arguments.SourceID, arguments.Name, arguments.Version)
 	case "list_installed":
-		return self.executeListInstalled()
+		return self.executeListInstalled(ctx)
 	case "update":
 		return self.executeUpdate(ctx, arguments.Name)
 	case "uninstall":
-		return self.executeUninstall(arguments.Name)
+		return self.executeUninstall(ctx, arguments.Name)
 	case "enable":
-		return self.executeSetEnabled(arguments.Name, true)
+		return self.executeSetEnabled(ctx, arguments.Name, true)
 	case "disable":
-		return self.executeSetEnabled(arguments.Name, false)
+		return self.executeSetEnabled(ctx, arguments.Name, false)
 	default:
 		return "", fmt.Errorf("unknown skills action: %s", arguments.Action)
 	}
@@ -146,8 +146,8 @@ func (self *skillsTool) executeInstall(ctx context.Context, sourceId string, nam
 	return string(output), nil
 }
 
-func (self *skillsTool) executeListInstalled() (string, error) {
-	items, err := ListInstalled()
+func (self *skillsTool) executeListInstalled(ctx context.Context) (string, error) {
+	items, err := ListInstalled(ctx)
 	if err != nil {
 		return "", fmt.Errorf("listing installed skills: %w", err)
 	}
@@ -173,11 +173,11 @@ func (self *skillsTool) executeUpdate(ctx context.Context, name string) (string,
 	return string(output), nil
 }
 
-func (self *skillsTool) executeUninstall(name string) (string, error) {
+func (self *skillsTool) executeUninstall(ctx context.Context, name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("name is required for uninstall action")
 	}
-	if err := Uninstall(name); err != nil {
+	if err := Uninstall(ctx, name); err != nil {
 		return "", fmt.Errorf("uninstalling skill: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
@@ -191,14 +191,14 @@ func (self *skillsTool) executeUninstall(name string) (string, error) {
 	return string(output), nil
 }
 
-func (self *skillsTool) executeSetEnabled(name string, enabled bool) (string, error) {
+func (self *skillsTool) executeSetEnabled(ctx context.Context, name string, enabled bool) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("name is required for enable/disable action")
 	}
-	if err := SetInstalledSkillEnabled(name, enabled); err != nil {
+	if err := SetInstalledSkillEnabled(ctx, name, enabled); err != nil {
 		return "", fmt.Errorf("setting installed skill enabled state: %w", err)
 	}
-	items, err := ListInstalled()
+	items, err := ListInstalled(ctx)
 	if err != nil {
 		return "", fmt.Errorf("listing installed skills: %w", err)
 	}

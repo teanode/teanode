@@ -1,34 +1,58 @@
 package gw
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/sessions"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
+	"github.com/teanode/teanode/internal/util/ptrto"
+	"github.com/teanode/teanode/internal/util/security"
 )
 
-func testSecurityConfigWithBearer(token string) *configs.SecurityConfig {
-	return &configs.SecurityConfig{
-		Users: map[string]configs.SecurityUser{
-			"user-1": {
-				Username:     "alice",
-				PasswordHash: "set",
-				Tokens: []configs.SecurityToken{
-					{
-						ID:        "token-1",
-						Token:     token,
-						CreatedAt: time.Now(),
-					},
-				},
-			},
-		},
+func testGatewayWithBearer(t *testing.T, token string) *gateway {
+	t.Helper()
+	persistenceStore, err := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	if err != nil {
+		t.Fatalf("opening store: %v", err)
+	}
+	username := "alice"
+	password := "set"
+	admin := true
+	if err := persistenceStore.Transaction(func(transaction store.Transaction) error {
+		if _, err := transaction.CreateUser(&models.User{
+			ID:       "user-1",
+			Username: &username,
+			Password: &password,
+			Admin:    &admin,
+		}, nil, nil); err != nil {
+			return err
+		}
+		tokenValue := token
+		_, err := transaction.CreateToken(&models.Token{
+			ID:     "token-1",
+			UserID: ptrto.Value("user-1"),
+			Token:  &tokenValue,
+		}, nil)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding store: %v", err)
+	}
+	return &gateway{
+		ctx:               store.ContextWithStore(context.Background(), persistenceStore),
+		config:            &configs.Config{},
+		securityConfig:    &configs.SecurityConfig{},
+		sessionsConnected: map[string]int{},
 	}
 }
 
 func runThroughAuthMiddleware(g *gateway, request *http.Request) *httptest.ResponseRecorder {
+	request = request.WithContext(store.ContextWithStore(request.Context(), store.StoreFromContext(g.ctx)))
 	recorder := httptest.NewRecorder()
 	next := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusNoContent)
@@ -38,18 +62,14 @@ func runThroughAuthMiddleware(g *gateway, request *http.Request) *httptest.Respo
 }
 
 func runThroughAuthMiddlewareWithNext(g *gateway, request *http.Request, next http.Handler) *httptest.ResponseRecorder {
+	request = request.WithContext(store.ContextWithStore(request.Context(), store.StoreFromContext(g.ctx)))
 	recorder := httptest.NewRecorder()
 	g.AuthMiddleware()(next).ServeHTTP(recorder, request)
 	return recorder
 }
 
 func TestAuthMiddleware_WebSocketAllowsBearerToken(t *testing.T) {
-	t.Parallel()
-
-	g := &gateway{
-		config:         &configs.Config{},
-		securityConfig: testSecurityConfigWithBearer("token123"),
-	}
+	g := testGatewayWithBearer(t, "token123")
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/websocket", nil)
 	request.Header.Set("Authorization", "Bearer token123")
@@ -66,12 +86,7 @@ func TestAuthMiddleware_WebSocketAllowsBearerToken(t *testing.T) {
 }
 
 func TestAuthMiddleware_WebSocketRequiresAuth(t *testing.T) {
-	t.Parallel()
-
-	g := &gateway{
-		config:         &configs.Config{},
-		securityConfig: testSecurityConfigWithBearer("token123"),
-	}
+	g := testGatewayWithBearer(t, "token123")
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/websocket", nil)
 	response := runThroughAuthMiddleware(g, request)
 	if response.Code != http.StatusUnauthorized {
@@ -80,29 +95,21 @@ func TestAuthMiddleware_WebSocketRequiresAuth(t *testing.T) {
 }
 
 func TestAuthMiddleware_WebSocketBearerSetsUserContext(t *testing.T) {
-	t.Parallel()
-
-	g := &gateway{
-		config:         &configs.Config{},
-		securityConfig: testSecurityConfigWithBearer("token123"),
-	}
+	g := testGatewayWithBearer(t, "token123")
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/websocket", nil)
 	request.Header.Set("Authorization", "Bearer token123")
 
 	next := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		userContext := UserFromContext(request.Context())
-		if userContext == nil {
+		user := UserFromContext(request.Context())
+		if user == nil {
 			t.Fatal("expected user context")
 		}
-		if userContext.UserID != "user-1" {
-			t.Fatalf("user id = %q, want %q", userContext.UserID, "user-1")
+		if user.ID != "user-1" {
+			t.Fatalf("user id = %q, want %q", user.ID, "user-1")
 		}
-		if userContext.AuthMethod != AuthMethodToken {
-			t.Fatalf("auth method = %q, want %q", userContext.AuthMethod, AuthMethodToken)
-		}
-		if userContext.SessionID != "" {
-			t.Fatalf("session id = %q, want empty", userContext.SessionID)
+		if session := SessionFromContext(request.Context()); session != nil {
+			t.Fatalf("session = %+v, want nil", session)
 		}
 		writer.WriteHeader(http.StatusNoContent)
 	})
@@ -114,36 +121,64 @@ func TestAuthMiddleware_WebSocketBearerSetsUserContext(t *testing.T) {
 }
 
 func TestAuthMiddleware_WebSocketSessionSetsUserContext(t *testing.T) {
-	t.Parallel()
-
-	store := sessions.NewStore(t.TempDir())
-	session, err := store.Create("user-1", "test-agent", "127.0.0.1", 24*time.Hour)
+	persistenceStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store: %v", openError)
+	}
+	sessionId := security.NewULID()
+	now := time.Now()
+	expiresAt := now.Add(24 * time.Hour)
+	err := persistenceStore.Transaction(func(transaction store.Transaction) error {
+		username := "alice"
+		password := "set"
+		admin := true
+		if _, createUserError := transaction.CreateUser(&models.User{
+			ID:       "user-1",
+			Username: &username,
+			Password: &password,
+			Admin:    &admin,
+		}, nil, nil); createUserError != nil {
+			return createUserError
+		}
+		_, createError := transaction.CreateSession(&models.Session{
+			ID:            sessionId,
+			UserID:        ptrto.Value("user-1"),
+			UserAgent:     ptrto.Value("test-agent"),
+			RemoteAddress: ptrto.Value("127.0.0.1"),
+			ExpiresAt:     &expiresAt,
+			CreatedAt:     &now,
+			ModifiedAt:    &now,
+		}, nil)
+		return createError
+	})
 	if err != nil {
 		t.Fatalf("creating session: %v", err)
 	}
 
 	g := &gateway{
-		config:         &configs.Config{},
-		securityConfig: &configs.SecurityConfig{},
-		sessionStore:   store,
+		ctx:               store.ContextWithStore(context.Background(), persistenceStore),
+		config:            &configs.Config{},
+		securityConfig:    &configs.SecurityConfig{},
+		sessionsConnected: map[string]int{},
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/websocket", nil)
-	request.AddCookie(&http.Cookie{Name: "session", Value: session.ID})
+	request.AddCookie(&http.Cookie{Name: "session", Value: sessionId})
 
 	next := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		userContext := UserFromContext(request.Context())
-		if userContext == nil {
+		user := UserFromContext(request.Context())
+		if user == nil {
 			t.Fatal("expected user context")
 		}
-		if userContext.UserID != "user-1" {
-			t.Fatalf("user id = %q, want %q", userContext.UserID, "user-1")
+		if user.ID != "user-1" {
+			t.Fatalf("user id = %q, want %q", user.ID, "user-1")
 		}
-		if userContext.AuthMethod != AuthMethodSession {
-			t.Fatalf("auth method = %q, want %q", userContext.AuthMethod, AuthMethodSession)
+		session := SessionFromContext(request.Context())
+		if session == nil {
+			t.Fatal("expected session context")
 		}
-		if userContext.SessionID != session.ID {
-			t.Fatalf("session id = %q, want %q", userContext.SessionID, session.ID)
+		if session.ID != sessionId {
+			t.Fatalf("session id = %q, want %q", session.ID, sessionId)
 		}
 		writer.WriteHeader(http.StatusNoContent)
 	})

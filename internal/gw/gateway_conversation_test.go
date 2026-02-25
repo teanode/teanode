@@ -8,7 +8,10 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
 )
 
 type testProvider struct{}
@@ -49,6 +52,15 @@ func (self *testProvider) ListModels(_ context.Context) ([]providers.ModelInfo, 
 func newTestGateway(t *testing.T) (*gateway, *agents.AgentRegistry, string) {
 	t.Helper()
 	configs.SetDirectory(t.TempDir())
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: configs.Directory()})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
 
 	agentId := "main"
 	config := &configs.Config{
@@ -62,18 +74,18 @@ func newTestGateway(t *testing.T) (*gateway, *agents.AgentRegistry, string) {
 		AgentID:   agentId,
 		Providers: providerRegistry,
 		ResolveConversations: func(userId, agentId string) *conversations.Store {
-			return conversations.NewStore(t.TempDir())
+			return conversations.NewStore(contextWithStore, userId, agentId)
 		},
-		ResolveUserConfig: func(userId string) (*configs.UserConfig, error) {
-			return &configs.UserConfig{Name: userId}, nil
+		ResolveUser: func(userId string) (*models.User, error) {
+			return &models.User{ID: userId, Username: &userId}, nil
 		},
 		Config: config,
 	}
 
-	agentRegistry := agents.NewAgentRegistry()
+	agentRegistry := agents.NewAgentRegistry(contextWithStore)
 	agentRegistry.Register(agentId, runner)
 
-	instance := New(config, nil, agentRegistry, nil, nil, nil, nil, nil, nil)
+	instance := New(contextWithStore, config, nil, agentRegistry, nil, nil, nil)
 	return instance.(*gateway), agentRegistry, agentId
 }
 
@@ -91,8 +103,8 @@ func TestSendMessageAutoCreateDoesNotOverwriteExistingDefaultConversation(t *tes
 
 	existingDefaultConversationId := gateway.NewDefaultConversation(userId, agentId, "")
 
-	handle := gateway.SendMessage(context.Background(), SendMessageParameters{
-		UserContext:    &UserContext{UserID: userId},
+	runContext := ContextWithUserAndSession(context.Background(), &models.User{ID: userId}, nil)
+	handle := gateway.SendMessage(runContext, SendMessageParameters{
 		AgentID:        agentId,
 		ConversationID: "",
 		Message:        "hello",
@@ -112,8 +124,8 @@ func TestSendMessageAutoCreateSetsDefaultWhenUnset(t *testing.T) {
 	gateway, agentRegistry, agentId := newTestGateway(t)
 	userId := "user-1"
 
-	handle := gateway.SendMessage(context.Background(), SendMessageParameters{
-		UserContext:    &UserContext{UserID: userId},
+	runContext := ContextWithUserAndSession(context.Background(), &models.User{ID: userId}, nil)
+	handle := gateway.SendMessage(runContext, SendMessageParameters{
 		AgentID:        agentId,
 		ConversationID: "",
 		Message:        "hello",
@@ -150,8 +162,8 @@ func TestDeferredLifecycleFiresAfterRunDone(t *testing.T) {
 	gateway.lifecycleChannel = make(chan LifecycleAction)
 	gateway.ScheduleLifecycle(LifecycleRestart)
 
-	handle := gateway.SendMessage(context.Background(), SendMessageParameters{
-		UserContext:    &UserContext{UserID: userId},
+	runContext := ContextWithUserAndSession(context.Background(), &models.User{ID: userId}, nil)
+	handle := gateway.SendMessage(runContext, SendMessageParameters{
 		AgentID:        agentId,
 		ConversationID: "",
 		Message:        "restart after response",

@@ -1,9 +1,11 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,9 +15,12 @@ import (
 	"github.com/kaptinlin/jsonrepair"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
-	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/mimetypes"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
@@ -31,10 +36,9 @@ type Runner struct {
 	AgentID              string
 	Providers            *providers.Registry
 	ResolveConversations func(userId, agentId string) *conversations.Store
-	ResolveUserConfig    func(userId string) (*configs.UserConfig, error)
+	ResolveUser          func(userId string) (*models.User, error)
 	Config               *configs.Config
 	Tools                *ToolRegistry
-	MediaStore           *media.Store
 	WorkspaceDirectory   string
 	SkillPrompts         string
 
@@ -184,11 +188,10 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		return nil, fmt.Errorf("userId is required")
 	}
 	userWorkspaceDirectory := ""
-	userWorkspaceDirectory = configs.UserWorkspaceDirectory(userId)
-	if self.ResolveUserConfig == nil {
-		return nil, fmt.Errorf("ResolveUserConfig is required")
+	if self.ResolveUser == nil {
+		return nil, fmt.Errorf("ResolveUser is required")
 	}
-	profile, err := self.ResolveUserConfig(userId)
+	profile, err := self.ResolveUser(userId)
 	if err != nil {
 		return nil, fmt.Errorf("resolving user profile for %q: %w", userId, err)
 	}
@@ -196,9 +199,6 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		return nil, fmt.Errorf("user profile is required for user %q", userId)
 	}
 	conversationStore := self.conversationStore(userId)
-	if conversationStore == nil {
-		return nil, fmt.Errorf("conversation store is not configured")
-	}
 
 	runId := security.NewULID()
 	now := time.Now().UnixMilli()
@@ -268,7 +268,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		log.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
 
 		// Build messages for the LLM.
-		llmMessages := self.buildMessages(history, limits, params.SystemPromptSuffix, params.SystemPromptMode, configuration, userId, workspaceDirectory, userWorkspaceDirectory, skillPrompts, profile)
+		llmMessages := self.buildMessages(ctx, history, limits, params.SystemPromptSuffix, params.SystemPromptMode, configuration, userId, workspaceDirectory, userWorkspaceDirectory, skillPrompts, profile)
 
 		// Tier 1: truncate old tool results.
 		llmMessages = truncateOldToolResults(llmMessages, limits.MinKeepMessages, limits.MaxToolResultChars)
@@ -496,31 +496,38 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 				log.Debugf("tool done id=%s name=%s result_len=%d", item.toolCall.ID, item.toolCall.Function.Name, len(result))
 			}
 
-			// Detect media in tool result. If base64 media is found and we
-			// have a media store, save to disk and create a compact reference
+			// Detect media in tool result. If base64 media is found, save it
+			// to store and create a compact reference
 			// for the conversation file and LLM history, while sending the original
 			// (with base64) to live consumers via OnToolResult.
 			liveResult := result
 			storedResult := result
-			if self.MediaStore != nil {
-				if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
-					rawData, decodeError := base64.StdEncoding.DecodeString(detected.Base64)
-					if decodeError == nil {
-						saved, saveError := self.MediaStore.Save(rawData, detected.Format, media.SaveOptions{
-							SourceType:     "tool",
-							AgentID:        self.AgentID,
-							ConversationID: params.ConversationID,
-							ToolName:       item.toolCall.Function.Name,
-							ToolCallID:     item.toolCall.ID,
+			if detected := mimetypes.DetectMedia(result); detected != nil && detected.Base64 != "" && mimetypes.IsImageFormat(detected.Format) {
+				rawData, decodeError := base64.StdEncoding.DecodeString(detected.Base64)
+				if decodeError == nil {
+					contentType := mimetypes.MIMETypeFromFormat(detected.Format)
+					var createdMedia *models.Media
+					createError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+						var saveError error
+						createdMedia, saveError = transaction.CreateMedia(bytes.NewReader(rawData), &models.Media{
+							UserID:         ptrto.Value(userId),
+							Format:         ptrto.Value(detected.Format),
+							ContentType:    ptrto.Value(contentType),
+							Source:         ptrto.Value("tool"),
+							SourceAgentID:  ptrto.Value(self.AgentID),
+							ConversationID: ptrto.Value(params.ConversationID),
+							ToolName:       ptrto.Value(item.toolCall.Function.Name),
+							ToolCallID:     ptrto.Value(item.toolCall.ID),
+						}, nil)
+						return saveError
+					})
+					if createError == nil {
+						ref, _ := json.Marshal(map[string]interface{}{
+							"mediaId":   createdMedia.ID,
+							"format":    detected.Format,
+							"displayed": true,
 						})
-						if saveError == nil {
-							ref, _ := json.Marshal(map[string]interface{}{
-								"mediaId":   saved.MediaID,
-								"format":    detected.Format,
-								"displayed": true,
-							})
-							storedResult = string(ref)
-						}
+						storedResult = string(ref)
 					}
 				}
 			}
@@ -641,6 +648,7 @@ func parseToolAction(arguments string) string {
 // buildMessages converts conversation history into LLM messages.
 // It scans backward for the last context_summary message and skips everything before it.
 func (self *Runner) buildMessages(
+	ctx context.Context,
 	history []conversations.Message,
 	limits configs.AgentLimits,
 	systemPromptSuffix string,
@@ -650,12 +658,19 @@ func (self *Runner) buildMessages(
 	agentWorkspaceDirectory string,
 	userWorkspaceDirectory string,
 	skillPrompts string,
-	profile *configs.UserConfig,
+	profile *models.User,
 ) []providers.ChatMessage {
+	currentUserRole, otherUsers, projectList := self.resolveSystemPromptContext(ctx, currentUserId, 8)
 	systemPrompt := buildSystemPrompt(buildSystemPromptParameters{
+		Context:                 ctx,
 		Configuration:           configuration,
 		AgentID:                 self.AgentID,
 		CurrentUserID:           currentUserId,
+		CurrentUserRole:         currentUserRole,
+		OtherUsers:              otherUsers,
+		ProjectList:             projectList,
+		AgentWorkspaceScopeID:   self.AgentID,
+		UserWorkspaceScopeID:    currentUserId,
 		AgentWorkspaceDirectory: agentWorkspaceDirectory,
 		UserWorkspaceDirectory:  userWorkspaceDirectory,
 		SkillPrompts:            skillPrompts,
@@ -715,7 +730,7 @@ func (self *Runner) buildMessages(
 		}
 
 		if hasAttachments && message.Role == "user" {
-			chatMessage.Content = self.buildMultimodalContent(blocks)
+			chatMessage.Content = self.buildMultimodalContent(ctx, blocks)
 		} else {
 			chatMessage.Content = message.ContentText()
 		}
@@ -743,6 +758,121 @@ func (self *Runner) buildMessages(
 	messages = fixInterruptedToolCalls(messages)
 
 	return messages
+}
+
+func (self *Runner) resolveSystemPromptContext(ctx context.Context, currentUserId string, projectLimit int) (string, string, string) {
+	if ctx == nil {
+		return "user", "", ""
+	}
+	userRole := "user"
+	users := make([]models.User, 0)
+	projects := make([]models.Project, 0)
+	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		if currentUserId != "" {
+			user, err := transaction.GetUser(currentUserId, nil)
+			if err == nil && user.Admin != nil && *user.Admin {
+				userRole = "admin"
+			}
+		}
+		listedUsers, userListError := transaction.ListUsers(nil)
+		if userListError == nil {
+			users = listedUsers
+		}
+		listedProjects, projectListError := transaction.ListProjects(nil)
+		if projectListError == nil {
+			projects = listedProjects
+		}
+		return nil
+	}); err != nil {
+		return "", "", ""
+	}
+
+	return userRole, self.formatOtherUsersFromStore(users, currentUserId), self.formatProjectListFromStore(projects, projectLimit)
+}
+
+func (self *Runner) formatOtherUsersFromStore(users []models.User, currentUserId string) string {
+	if len(users) == 0 {
+		return ""
+	}
+	filteredUsers := make([]models.User, 0, len(users))
+	for _, user := range users {
+		if strings.TrimSpace(user.ID) == strings.TrimSpace(currentUserId) {
+			continue
+		}
+		filteredUsers = append(filteredUsers, user)
+	}
+	if len(filteredUsers) == 0 {
+		return ""
+	}
+	sort.Slice(filteredUsers, func(leftIndex, rightIndex int) bool {
+		return filteredUsers[leftIndex].ID < filteredUsers[rightIndex].ID
+	})
+	lines := make([]string, 0, len(filteredUsers))
+	for _, user := range filteredUsers {
+		username := strings.TrimSpace(runnerValueOrEmptyString(user.Username))
+		if username == "" {
+			username = user.ID
+		}
+		role := "user"
+		if user.Admin != nil && *user.Admin {
+			role = "admin"
+		}
+		description := strings.TrimSpace(runnerValueOrEmptyString(user.Description))
+		if description == "" {
+			description = "No description provided."
+		}
+		lines = append(lines, fmt.Sprintf("- %s (userId: %s, role: %s)\n  description:\n%s", username, user.ID, role, formatPromptMultiline(description, "    ")))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (self *Runner) formatProjectListFromStore(projects []models.Project, limit int) string {
+	if len(projects) == 0 {
+		return ""
+	}
+	sort.Slice(projects, func(leftIndex, rightIndex int) bool {
+		left := projects[leftIndex]
+		right := projects[rightIndex]
+		leftModifiedAt := time.Time{}
+		rightModifiedAt := time.Time{}
+		if left.ModifiedAt != nil {
+			leftModifiedAt = *left.ModifiedAt
+		}
+		if right.ModifiedAt != nil {
+			rightModifiedAt = *right.ModifiedAt
+		}
+		if leftModifiedAt.Equal(rightModifiedAt) {
+			return strings.TrimSpace(runnerValueOrEmptyString(left.Name)) < strings.TrimSpace(runnerValueOrEmptyString(right.Name))
+		}
+		return leftModifiedAt.After(rightModifiedAt)
+	})
+	if limit > 0 && len(projects) > limit {
+		projects = projects[:limit]
+	}
+	lines := make([]string, 0, len(projects))
+	for _, project := range projects {
+		name := strings.TrimSpace(runnerValueOrEmptyString(project.Name))
+		if name == "" {
+			continue
+		}
+		description := strings.TrimSpace(runnerValueOrEmptyString(project.Description))
+		if description == "" {
+			description = "No description available."
+		}
+		updatedAt := "unknown"
+		if project.ModifiedAt != nil && !project.ModifiedAt.IsZero() {
+			updatedAt = project.ModifiedAt.String()
+		}
+		lines = append(lines, fmt.Sprintf("- %s (projectId: %s, updatedAt: %s): %s", name, project.ID, updatedAt, description))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func runnerValueOrEmptyString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // fixInterruptedToolCalls scans for assistant messages with tool_calls whose
@@ -802,7 +932,7 @@ func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatM
 // buildMultimodalContent converts conversation ContentBlocks into provider ContentParts.
 // Image attachments are sent as image_url parts with base64 data URIs.
 // Non-image attachments are included as text references.
-func (self *Runner) buildMultimodalContent(blocks []conversations.ContentBlock) []providers.ContentPart {
+func (self *Runner) buildMultimodalContent(ctx context.Context, blocks []conversations.ContentBlock) []providers.ContentPart {
 	var parts []providers.ContentPart
 
 	for _, block := range blocks {
@@ -812,8 +942,8 @@ func (self *Runner) buildMultimodalContent(blocks []conversations.ContentBlock) 
 				parts = append(parts, providers.ContentPart{Type: "text", Text: block.Text})
 			}
 		case "attachment":
-			if media.IsImageFormat(block.Format) {
-				imageUrl := self.resolveMediaUrl(block.MediaID, block.Format)
+			if mimetypes.IsImageFormat(block.Format) {
+				imageUrl := self.resolveMediaUrl(ctx, block.MediaID)
 				if imageUrl != "" {
 					parts = append(parts, providers.ContentPart{
 						Type:     "image_url",
@@ -841,16 +971,22 @@ func (self *Runner) buildMultimodalContent(blocks []conversations.ContentBlock) 
 }
 
 // resolveMediaUrl returns a base64 data URI for a media file.
-func (self *Runner) resolveMediaUrl(mediaId, format string) string {
-	if self.MediaStore == nil {
+func (self *Runner) resolveMediaUrl(ctx context.Context, mediaId string) string {
+	var data []byte
+	var metadata *models.Media
+	transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+		var getError error
+		data, metadata, getError = transaction.GetMedia(mediaId, nil)
+		return getError
+	})
+	if transactionError != nil {
+		log.Debugf("failed to load media %s for multimodal: %v", mediaId, transactionError)
 		return ""
 	}
-	data, metadata, err := self.MediaStore.Load(mediaId)
-	if err != nil {
-		log.Debugf("failed to load media %s for multimodal: %v", mediaId, err)
-		return ""
+	mimeType := valueOrEmptyString(metadata.ContentType)
+	if mimeType == "" {
+		mimeType = mimetypes.MIMETypeFromFormat(valueOrEmptyString(metadata.Format))
 	}
-	mimeType := media.MimeType(metadata.Format)
 	encoded := base64.StdEncoding.EncodeToString(data)
 	return "data:" + mimeType + ";base64," + encoded
 }

@@ -103,10 +103,10 @@ func (self *Runner) CompactConversation(ctx context.Context, conversationId stri
 	if strings.TrimSpace(userId) == "" {
 		return nil, fmt.Errorf("userId is required")
 	}
-	if self.ResolveUserConfig == nil {
-		return nil, fmt.Errorf("ResolveUserConfig is required")
+	if self.ResolveUser == nil {
+		return nil, fmt.Errorf("ResolveUser is required")
 	}
-	profile, err := self.ResolveUserConfig(userId)
+	profile, err := self.ResolveUser(userId)
 	if err != nil {
 		return nil, fmt.Errorf("resolving user profile for %q: %w", userId, err)
 	}
@@ -114,9 +114,6 @@ func (self *Runner) CompactConversation(ctx context.Context, conversationId stri
 		return nil, fmt.Errorf("user profile is required for user %q", userId)
 	}
 	store := self.ConversationsForUser(userId)
-	if store == nil {
-		return nil, fmt.Errorf("conversation store is not configured")
-	}
 
 	// Load conversation history.
 	history, err := store.Load(conversationId)
@@ -133,10 +130,9 @@ func (self *Runner) CompactConversation(ctx context.Context, conversationId stri
 	}
 	limits := configuration.ResolveModelLimits(qualifiedModel)
 	userWorkspaceDirectory := ""
-	userWorkspaceDirectory = configs.UserWorkspaceDirectory(userId)
 
 	// Build messages via the same pipeline used for normal runs.
-	llmMessages := self.buildMessages(history, limits, "", SystemPromptModeFull, configuration, userId, workspaceDirectory, userWorkspaceDirectory, skillPrompts, profile)
+	llmMessages := self.buildMessages(ctx, history, limits, "", SystemPromptModeFull, configuration, userId, workspaceDirectory, userWorkspaceDirectory, skillPrompts, profile)
 	// Resolve summarizer model.
 	qualifiedModel = configuration.Models.Default
 	if configuration.Models.SummarizerModel != "" {

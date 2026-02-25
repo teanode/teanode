@@ -9,12 +9,13 @@
   - Postgres-backed implementation modeled after `/home/ziyan/projects/ziyan/teanode/backend/db` transaction patterns.
 - Make storage access transactional and interface-driven so backend behavior can be switched at startup via CLI flags.
 - Remove legacy `configs.Load*` / `configs.Save*` style call paths instead of preserving dual APIs.
+- Remove local skill support, store only stores installed skills, all skills are installed from registries.
 
 ## Explicit Non-goals
 
 - No migration of existing user data/configs from filesystem to Postgres.
 - No compatibility layer to preserve old function signatures or old import-level globals.
-- No datastore ownership of PID file lifecycle. PID lock remains fully in `main.go`.
+- No store ownership of PID file lifecycle. PID lock remains fully in `main.go`.
 - No model catalog cache persistence. Model listing is uncached and fetched directly from providers.
 - No filesystem watcher reload mechanism. Remove `internal/watcher` as part of this refactor.
 
@@ -43,6 +44,7 @@ Proposed layout:
 All persisted/domain structs are defined in `internal/models`.
 Model convention: every field except `ID` is pointer-typed to support sparse loads and partial updates.
 Model convention: every persisted entity struct includes `CreatedAt` and `ModifiedAt`.
+Model convention: all field should have json and yaml tag with omitempty.
 
 ```go
 package models
@@ -265,7 +267,7 @@ type Token struct {
 }
 
 // Workspace file document for agent/user/project scopes.
-type File struct {
+type WorkspaceFile struct {
 	ID          string // globally unique
 	Scope       *Scope
 	ScopeID     *string
@@ -347,12 +349,14 @@ type Media struct {
 type Skill struct {
 	ID         string // globally unique
 	Name       *string
-	Version    *string
-	Source     *string
-	Manifest   *map[string]interface{} // full manifest document
+	Description *string // from manifest
+	Version    *string // from manifest
+	Enabled    *bool
+	Source     *string // from manifest
+	Publisher  *string // from manifest
 	Metadata   *map[string]interface{} // full skill metadata
 	Prompt     *string // full skill prompt content
-	CreatedAt  *time.Time
+	CreatedAt  *time.Time // this is InstalledAt
 	ModifiedAt *time.Time
 }
 ```
@@ -375,7 +379,7 @@ type Transaction interface {
 	UserOperation
 	ProjectOperation
 	TokenOperation
-	WorkspaceOperation
+	WorkspaceFileOperation
 	ConversationOperation
 	ConversationMessageOperation
 	JobOperation
@@ -390,12 +394,6 @@ type Option struct {
 	Offset *uint64
 }
 
-type ResolveConfigurationOptions struct {
-	CLIFlags            *map[string]string
-	Environment         *map[string]string
-	ApplySchemaDefaults *bool
-}
-
 type WorkspaceSearchOptions struct {
 	Limit          *uint64
 	CaseSensitive  *bool
@@ -403,12 +401,12 @@ type WorkspaceSearchOptions struct {
 	IncludeContent *bool
 }
 
-type WorkspaceSearchResult struct {
-	FileID       *string
-	Scope        *models.Scope
-	ScopeID      *string
-	Path         *string
-	MatchedLines *[]string
+type WorkspaceFileSearchResult struct {
+	WorkspaceFileID *string
+	Scope           *models.Scope
+	ScopeID         *string
+	Path            *string
+	MatchedLines    *[]string
 }
 
 type ConversationListOptions struct {
@@ -417,19 +415,13 @@ type ConversationListOptions struct {
 	Default *bool
 }
 
-type MediaListOptions struct {
-	UserID         *string
-	ConversationID *string
-	Source         *string
-	ToolName       *string
-}
 ```
 
 ### 3. Transaction semantics
 
 - `Transaction(...)` guarantees begin/rollback/commit semantics.
 - `Commit()` supports partial commit semantics aligned with backend/db pattern.
-- Filesystem transaction uses staged writes + atomic renames + rollback cleanup.
+- Filesystem transaction are not real transactions, do not stage writes, do not support roll back.
 - Postgres transaction uses `BEGIN/COMMIT/ROLLBACK`.
 
 ## Domain Method Inventory (minimum required)
@@ -439,18 +431,10 @@ type MediaListOptions struct {
 - `GetConfiguration(options *store.Option) (*models.Configuration, error)`
 - `ModifyConfiguration(modifier func(*models.Configuration) error, options *store.Option) (*models.Configuration, error)`
 
-Configuration resolution outside store:
-
-- `ResolveConfiguration(configuration *models.Configuration, options ResolveConfigurationOptions) (*models.Configuration, error)`
-- `ResolveConfiguration` returns a copied/enriched configuration with:
-  - schema defaults
-  - environment variable overrides
-  - CLI flag overrides
-
 ### AgentOperation
 
 - `ListAgents(options *store.Option) ([]models.Agent, error)`
-- `CreateAgent(agent *models.Agent, files []models.File, options *store.Option) (*models.Agent, error)`
+- `CreateAgent(agent *models.Agent, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Agent, error)`
 - `GetAgent(agentID string, options *store.Option) (*models.Agent, error)`
 - `ModifyAgent(agentID string, modifier func(*models.Agent) error, options *store.Option) (*models.Agent, error)`
 - `DeleteAgent(agentID string, options *store.Option) error`
@@ -458,7 +442,7 @@ Configuration resolution outside store:
 ### UserOperation
 
 - `ListUsers(options *store.Option) ([]models.User, error)`
-- `CreateUser(user *models.User, files []models.File, options *store.Option) (*models.User, error)`
+- `CreateUser(user *models.User, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.User, error)`
 - `GetUser(userID string, options *store.Option) (*models.User, error)`
 - `GetUserByUsername(username string, options *store.Option) (string, *models.User, bool)`
 - `GetUserByTelegramChatID(telegramChatID int64, options *store.Option) (string, *models.User, bool)`
@@ -469,7 +453,7 @@ Configuration resolution outside store:
 ### ProjectOperation
 
 - `ListProjects(options *store.Option) ([]models.Project, error)`
-- `CreateProject(project *models.Project, files []models.File, options *store.Option) (*models.Project, error)`
+- `CreateProject(project *models.Project, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Project, error)`
 - `GetProject(projectID string, options *store.Option) (*models.Project, error)`
 - `ModifyProject(projectID string, modifier func(*models.Project) error, options *store.Option) (*models.Project, error)`
 - `DeleteProject(projectID string, options *store.Option) error`
@@ -485,12 +469,12 @@ Configuration resolution outside store:
 
 ### WorkspaceOperation
 
-- `CreateWorkspaceFile(file *models.File, options *store.Option) (*models.File, error)`
-- `GetWorkspaceFile(scope models.Scope, scopeID string, relativePath string, options *store.Option) (*models.File, error)`
-- `ModifyWorkspaceFile(scope models.Scope, scopeID string, relativePath string, modifier func(*models.File) error, options *store.Option) (*models.File, error)`
-- `DeleteWorkspaceFile(scope models.Scope, scopeID string, relativePath string, options *store.Option) error`
-- `ListWorkspaceFiles(scope models.Scope, scopeID string, relativePath string, options *store.Option) ([]models.File, error)`
-- `SearchWorkspace(scope models.Scope, scopeID string, query string, searchOptions WorkspaceSearchOptions, options *store.Option) ([]WorkspaceSearchResult, error)`
+- `CreateWorkspaceFile(workspaceFile *models.WorkspaceFile, options *store.Option) (*models.WorkspaceFile, error)`
+- `GetWorkspaceFileByPath(scope models.Scope, scopeID string, path string, options *store.Option) (*models.WorkspaceFile, error)`
+- `ModifyWorkspaceFileByPath(scope models.Scope, scopeID string, path string, modifier func(*models.WorkspaceFile) error, options *store.Option) (*models.WorkspaceFile, error)`
+- `DeleteWorkspaceFileByPath(scope models.Scope, scopeID string, path string, options *store.Option) error`
+- `ListWorkspaceFilesByPath(scope models.Scope, scopeID string, path string, options *store.Option) ([]models.WorkspaceFile, error)`
+- `SearchWorkspaceFiles(scope models.Scope, scopeID string, query string, searchOptions WorkspaceSearchOptions, options *store.Option) ([]WorkspaceFileSearchResult, error)`
 
 ### ConversationOperation
 
@@ -527,7 +511,7 @@ Configuration resolution outside store:
 
 ### MediaOperation
 
-- `ListMedia(listOptions MediaListOptions, options *store.Option) ([]models.Media, error)`
+- `ListMedias(options *store.Option) ([]models.Media, error)`
 - `CreateMedia(content io.Reader, metadata *models.Media, options *store.Option) (*models.Media, error)`
 - `GetMedia(mediaID string, options *store.Option) ([]byte, *models.Media, error)`
 - `OpenMedia(mediaID string, options *store.Option) (io.ReadCloser, *models.Media, error)`
@@ -566,10 +550,6 @@ Configuration resolution outside store:
 
 - Keep current on-disk structure and file formats (`yaml`, workspace markdown).
 - In `fs` implementation, create directories on demand during write/create operations; no explicit ensure/seed operations in API surface.
-- Replace immediate writes with transaction-scoped staged writes:
-  - Build list of write/mkdir/move operations in transaction context.
-  - Apply in commit order.
-  - On rollback: discard staged temp files and no-op unapplied operations.
 - Reuse `atomicfile` for final writes.
 - Preserve permission behavior (`0600` for sensitive files like user/token auth records).
 
@@ -584,9 +564,9 @@ Create normalized tables for:
 - `users`
 - `projects`
 - `tokens`
-- `workspace_files`
-- `conversations`
-- `conversation_messages`
+- `workspace_file`
+- `conversation`
+- `conversation_message`
 - `jobs`
 - `sessions`
 - `media`
@@ -606,7 +586,7 @@ Use typed columns where practical and JSONB for extensible fields.
 ### Behavior mapping
 
 - Config, agent, user, project, token operations map to CRUD over tables.
-- Agent/user/project creation accepts initial `[]models.File` and persists them transactionally.
+- Agent/user/project creation accepts initial `[]models.WorkspaceFile` and persists them transactionally.
 - Workspace file tree maps to `workspace_files` keyed by `(scope, scope_id, path)`.
 - Conversation operations map to `conversations`; message operations map to `conversation_messages`.
 - Jobs map to `jobs` with one-shot semantics implied by `run_at`.
@@ -689,24 +669,36 @@ Key behavior updates:
 - Move current persistence IO into `internal/store/fs`.
 - Make writes transaction-scoped.
 - Update tests to run through store interfaces.
+- Split implementation into multiple fils, for example anything related to user and `UserOperation` should go into `internal/store/fs/filesystem_user.go`, not just the thin wrapper, but also the implementation and any utility functions that are not shared
 
 ### Phase 3: Postgres implementation
 
 - Add schema + migration runner.
 - Implement all required operations transactionally.
 - Add integration tests with ephemeral Postgres.
+- Split implementation into multiple fils, for example anything related to user and `UserOperation` should go into `internal/store/db/database_user.go`, not just the thin wrapper, but also the implementation and any utility functions that are not shared
 
 ### Phase 4: Cutover and cleanup
 
 - Remove legacy `internal/configs` persistence globals.
-- Move config resolution ownership to `internal/configurations`; remaining `internal/configs` scope is eliminated or reduced to transitional adapters only.
-- Ensure no non-exception package does direct persistence IO.
+- Remaining `internal/configs` scope is eliminated or reduced to transitional adapters only.
+- Ensure no non-exception package does direct persistence IO on filesystem, no listing directories, no writing files, no reading files, no renaming files.
 - Remove `internal/watcher` package and all startup/runtime wiring to it.
-
+- Remove local skill support, switch installed skill to use store.
+- Remove any code that assumes store will be nil, store will always be provided at runtime.
+- DO NOT check if store is nil, store will always be non-nil.
+- New `models.*` should be used throughout the codebase:
+  - `models.Job` should replace `jobs.OwnedJob`
+  - `models.Conversation` should replace `conversations.Conversation`
+  - `models.Skill` should replace `skills.installedSkill`
+  - `models.Session` should replace `sessions.Session`
+  - `models.Media` should replace `media.MediaMetadata`
+  - etc
+- Remove any other old store from the codebase, new `internal/store.Store` to be used everywhere
+  
 ## Testing strategy
 
 - Contract tests run against both `fs` and `db` implementations for:
-  - Configuration get/modify and `internal/configurations.ResolveConfiguration` behavior.
   - Agent/user/project/token CRUD, including create-time workspace files.
   - Workspace file CRUD/list/search by scope.
   - Conversation + conversation message lifecycle.
@@ -715,11 +707,12 @@ Key behavior updates:
   - Media create/get/open/modify/delete with metadata and stream handling.
   - Skill CRUD with full payload integrity.
   - User lookups (`username`, `telegramChatID`, `discordUserID`) and token lookup by raw token value.
-  - Transaction atomicity and rollback behavior.
+  - Transaction atomicity and rollback behavior for `db` only.
 - CI checks for postgres mode must fail if code writes persistence files under local data directories (for example `~/.teanode` equivalents), including `.trash`.
 
 ## Acceptance criteria
 
+- No import of `internal/*` (except for `internal/models`, `internal/store`, and `internal/util/*`) inside `internal/store` and `internal/store/*`
 - Runtime store selection via CLI works without code changes.
 - Existing functional domains are store-backed: configuration, agents, users, tokens, projects, workspace, conversations, conversation messages, jobs, sessions, media, skills.
 - No direct filesystem persistence IO outside `internal/store/**`, except explicit exception paths.
@@ -728,3 +721,54 @@ Key behavior updates:
 - `internal/watcher` is removed from codebase and not used at runtime.
 - Backend request paths do not cache datastore query results in memory; requests hit store as source of truth.
 - No data migration logic exists in this refactor.
+
+### Naming Convention
+
+When first alphabetical character is capitalized, also capitalize acronyms:
+
+- `ReferenceURI`
+- `URL`
+- `ID`
+- `SessionID`
+- `GetFTPID`
+- `_CreateSessionID`
+
+When first alphabetical character is not capitalized, capitalize **first** letter of an acronym:
+
+- `referenceUri`
+- `url`
+- `id`
+- `sessionId`
+- `getFtpId`
+- `__deleted__`
+- `__somethingElse__`
+
+Do not abbreviate, spell things out clearly. For example:
+
+- prefer "command" over "cmd"
+- prefer "response" over "resp"
+- prefer "request" over "req"
+
+Package names being the exception, they should be brief.
+
+Avoid single letter variables.
+
+Name things consistently everywhere, do not give different name to the same thing.
+
+When writing member function of a struct in Golang, use `self` to refer to the instance.
+
+### Further clean up
+
+- Add `store.ContextWithStore` and `store.StoreFromContext` and set up the store in ctx in `cmd/gateway.go`
+- Remove all store bridge code, such as `SetStore`, `getStore`, use `StoreFromContext` everywhere, guaranteed to return non-nil store, panic otherwise
+- Remove `Gateway.Store()`, remove struct members that are holding a `Store` pointer, like `PersistenceStore`
+- DO NOT pass `persistenceStore` in struct or func args, add `ctx` for components missing `ctx`
+- There is no need to name a func `*WithStore`, everything should be working with stores by default, so no need to make it sound redundant
+- For any operations that can be done with `store.Transaction()`, use `store.StoreFromContext` directly at the callsite, do not allow it to go through another `internal/*` package that is just a wrapper to the store operation. For example, `projects.ListProjects` etc should be removed, callsites should use the store, same for `skills.List` etc
+- Remove tests that aren't contributing to functionality tests, don't have tests to just have tests, remove low-value tests that are hinderance
+- Remove usage of `configs.*` struct, use `models.*` struct directly everywhere
+- Clean up `UserFromContext` to return `*models.User`, add `SessionFromContext` to return `*models.Session`, `ContextWithUser` renamed to `ContextWithUserAndSession` and pass in `*model.User` and `*model.Session`. Do not pass `userId` or `sessionId` in args or store them in struct, get them from `ctx`.
+- There should not be a `User` or `UserID` field in `SendMessageParameters`, again, must pass in `ctx`
+- Add `jobs.ContextWithScheduler` and `jobs.SchedulerFromContext`, remove `Gatway.Scheduler()`, move `jobs` tool from inside `internal/jobs` to `internal/tools/jobs`
+- Remove `internal/media`, convert all callsites to use store directly
+- Remove `gateway.Summarizer()`

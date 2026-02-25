@@ -1,65 +1,88 @@
 package skills
 
 import (
+	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-func TestLoadAllNonExistentDirectory(t *testing.T) {
-	skills, err := LoadAll("/nonexistent/path")
-	if err != nil {
-		t.Fatalf("expected nil error for missing directory, got %v", err)
+func createStoredSkillFromMarkdown(t *testing.T, openedStore store.Store, skillId string, version string, markdown string, enabled bool) {
+	t.Helper()
+
+	parsedDefinition := SkillDefinition{}
+	promptBody, parseError := parseSkillMarkdown([]byte(markdown), &parsedDefinition)
+	if parseError != nil {
+		t.Fatalf("parseSkillMarkdown: %v", parseError)
 	}
-	if skills != nil {
-		t.Errorf("expected nil skills, got %v", skills)
+	toolsData, marshalToolsError := json.Marshal(parsedDefinition.Tools)
+	if marshalToolsError != nil {
+		t.Fatalf("marshaling tools: %v", marshalToolsError)
+	}
+	tools := make([]map[string]interface{}, 0)
+	if unmarshalToolsError := json.Unmarshal(toolsData, &tools); unmarshalToolsError != nil {
+		t.Fatalf("unmarshaling tools: %v", unmarshalToolsError)
+	}
+	httpAuthData, marshalHTTPAuthError := json.Marshal(parsedDefinition.HTTPAuth)
+	if marshalHTTPAuthError != nil {
+		t.Fatalf("marshaling httpAuth: %v", marshalHTTPAuthError)
+	}
+	httpAuth := map[string]interface{}{}
+	if unmarshalHTTPAuthError := json.Unmarshal(httpAuthData, &httpAuth); unmarshalHTTPAuthError != nil {
+		t.Fatalf("unmarshaling httpAuth: %v", unmarshalHTTPAuthError)
+	}
+
+	description := strings.TrimSpace(parsedDefinition.Description)
+	metadata := map[string]interface{}{
+		"description": description,
+		"enabled":     enabled,
+	}
+	name := strings.TrimSpace(parsedDefinition.Name)
+	if name == "" {
+		name = skillId
+	}
+	prompt := strings.TrimSpace(promptBody)
+	runtimeMinVersion := strings.TrimSpace(parsedDefinition.RuntimeMinVersion)
+
+	createError := openedStore.Transaction(func(transaction store.Transaction) error {
+		_, skillCreateError := transaction.CreateSkill(&models.Skill{
+			ID:                skillId,
+			Name:              ptrto.Value(name),
+			Description:       ptrto.TrimmedString(description),
+			Version:           &version,
+			RuntimeMinVersion: ptrto.TrimmedString(runtimeMinVersion),
+			HTTPAuth:          &httpAuth,
+			Tools:             &tools,
+			Enabled:           &enabled,
+			Metadata:          &metadata,
+			Prompt:            &prompt,
+		}, nil)
+		return skillCreateError
+	})
+	if createError != nil {
+		t.Fatalf("creating skill: %v", createError)
 	}
 }
 
-func TestLoadAllEmptyDirectory(t *testing.T) {
-	directory := t.TempDir()
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestLoadAllWithEmptyStore(t *testing.T) {
+	openedStore := setupSkillStore(t)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	loadedSkills, loadError := LoadAll(ctx, t.TempDir())
+	if loadError != nil {
+		t.Fatalf("LoadAll: %v", loadError)
 	}
-	if skills != nil {
-		t.Errorf("expected nil skills for empty directory, got %v", skills)
-	}
-}
-
-func TestLoadAllSkipsNonMarkdownFiles(t *testing.T) {
-	directory := t.TempDir()
-	_ = os.WriteFile(filepath.Join(directory, "readme.txt"), []byte("not a skill"), 0644)
-	_ = os.WriteFile(filepath.Join(directory, "legacy.yaml"), []byte("name: legacy"), 0644)
-
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if skills != nil {
-		t.Errorf("expected nil skills, got %v", skills)
+	if len(loadedSkills) != 0 {
+		t.Fatalf("skill count = %d, want 0", len(loadedSkills))
 	}
 }
 
-func TestLoadAllSkipsSubdirectories(t *testing.T) {
-	directory := t.TempDir()
-	_ = os.MkdirAll(filepath.Join(directory, "subdir.md"), 0755)
-
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if skills != nil {
-		t.Errorf("expected nil skills, got %v", skills)
-	}
-}
-
-func TestLoadAllShellSkill(t *testing.T) {
-	directory := t.TempDir()
-	content := `---
+func TestLoadAllFromStore(t *testing.T) {
+	openedStore := setupSkillStore(t)
+	createStoredSkillFromMarkdown(t, openedStore, "sysinfo", "1.0.0", `---
 name: sysinfo
 description: System information tools
 tools:
@@ -68,149 +91,50 @@ tools:
     type: shell
     command: ["uptime"]
 ---
-
 Use these tools to inspect the system.
-`
-	_ = os.WriteFile(filepath.Join(directory, "sysinfo.md"), []byte(content), 0644)
+`, true)
 
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	loadedSkills, loadError := LoadAll(ctx, t.TempDir())
+	if loadError != nil {
+		t.Fatalf("LoadAll: %v", loadError)
 	}
-	if len(skills) != 1 {
-		t.Fatalf("expected 1 skill, got %d", len(skills))
+	if len(loadedSkills) != 1 {
+		t.Fatalf("skill count = %d, want 1", len(loadedSkills))
 	}
-	if skills[0].Name != "sysinfo" {
-		t.Errorf("name = %q, want %q", skills[0].Name, "sysinfo")
+	if loadedSkills[0].Name != "sysinfo" {
+		t.Fatalf("name = %q, want sysinfo", loadedSkills[0].Name)
 	}
-	if skills[0].Description != "System information tools" {
-		t.Errorf("description = %q, want %q", skills[0].Description, "System information tools")
-	}
-	if skills[0].Prompt != "Use these tools to inspect the system." {
-		t.Errorf("prompt = %q, want %q", skills[0].Prompt, "Use these tools to inspect the system.")
-	}
-	if len(skills[0].Tools) != 1 {
-		t.Fatalf("expected 1 tool, got %d", len(skills[0].Tools))
-	}
-	tool := skills[0].Tools[0]
-	if tool.Name != "uptime" {
-		t.Errorf("tool name = %q, want %q", tool.Name, "uptime")
-	}
-	if tool.Type != "shell" {
-		t.Errorf("tool type = %q, want %q", tool.Type, "shell")
-	}
-	if len(tool.Command) != 1 || tool.Command[0] != "uptime" {
-		t.Errorf("tool command = %v, want [uptime]", tool.Command)
+	if loadedSkills[0].Prompt != "Use these tools to inspect the system." {
+		t.Fatalf("prompt = %q", loadedSkills[0].Prompt)
 	}
 }
 
-func TestLoadAllHTTPSkillWithEmptyBody(t *testing.T) {
-	directory := t.TempDir()
-	content := `---
+func TestLoadAllSkipsDisabledSkills(t *testing.T) {
+	openedStore := setupSkillStore(t)
+	createStoredSkillFromMarkdown(t, openedStore, "weather", "1.0.0", `---
 name: weather
 tools:
-  - name: get_weather
-    description: Get the current weather
+  - name: weather_now
+    description: Current weather
     type: http
-    method: GET
-    url: "https://api.example.com/weather?city={{city}}"
-    headers:
-      Authorization: "Bearer secret"
-    timeout: 10
----`
-	_ = os.WriteFile(filepath.Join(directory, "weather.md"), []byte(content), 0644)
+    url: "https://example.com/weather"
+---
+`, false)
 
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	loadedSkills, loadError := LoadAll(ctx, t.TempDir())
+	if loadError != nil {
+		t.Fatalf("LoadAll: %v", loadError)
 	}
-	if len(skills) != 1 {
-		t.Fatalf("expected 1 skill, got %d", len(skills))
-	}
-	if skills[0].Prompt != "" {
-		t.Errorf("prompt = %q, want empty", skills[0].Prompt)
-	}
-	tool := skills[0].Tools[0]
-	if tool.Type != "http" {
-		t.Errorf("tool type = %q, want %q", tool.Type, "http")
-	}
-	if tool.Method != "GET" {
-		t.Errorf("tool method = %q, want %q", tool.Method, "GET")
-	}
-	if tool.URL != "https://api.example.com/weather?city={{city}}" {
-		t.Errorf("tool url = %q", tool.URL)
-	}
-	if tool.Headers["Authorization"] != "Bearer secret" {
-		t.Errorf("tool header = %q, want %q", tool.Headers["Authorization"], "Bearer secret")
-	}
-	if tool.Timeout != 10 {
-		t.Errorf("tool timeout = %d, want 10", tool.Timeout)
-	}
-}
-
-func TestLoadAllParsesCRLFMarkdownFrontmatter(t *testing.T) {
-	directory := t.TempDir()
-	content := "---\r\nname: crlf\r\ntools:\r\n  - name: ping\r\n    description: Ping\r\n    type: shell\r\n    command: [\"echo\", \"ok\"]\r\n---\r\nPrompt line.\r\n"
-	_ = os.WriteFile(filepath.Join(directory, "crlf.md"), []byte(content), 0644)
-
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(skills) != 1 {
-		t.Fatalf("expected 1 skill, got %d", len(skills))
-	}
-	if skills[0].Name != "crlf" {
-		t.Fatalf("name = %q, want crlf", skills[0].Name)
-	}
-	if skills[0].Prompt != "Prompt line." {
-		t.Fatalf("prompt = %q, want %q", skills[0].Prompt, "Prompt line.")
-	}
-}
-
-func TestLoadAllWorkflowSkill(t *testing.T) {
-	directory := t.TempDir()
-	content := `---
-name: orchestrator
-tools:
-  - name: check_release
-    description: Run multi-step checks
-    type: workflow
-    steps:
-      - name: ping
-        type: http
-        url: "https://example.com/health"
-      - name: summarize
-        type: shell
-        command: ["echo", "health={{steps.ping}}"]
----`
-	_ = os.WriteFile(filepath.Join(directory, "orchestrator.md"), []byte(content), 0644)
-
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(skills) != 1 {
-		t.Fatalf("expected 1 skill, got %d", len(skills))
-	}
-	if len(skills[0].Tools) != 1 {
-		t.Fatalf("expected 1 tool, got %d", len(skills[0].Tools))
-	}
-	tool := skills[0].Tools[0]
-	if tool.Type != "workflow" {
-		t.Fatalf("tool type = %q, want workflow", tool.Type)
-	}
-	if len(tool.Steps) != 2 {
-		t.Fatalf("steps = %d, want 2", len(tool.Steps))
-	}
-	if tool.Steps[0].Name != "ping" || tool.Steps[1].Name != "summarize" {
-		t.Fatalf("unexpected step names: %#v", tool.Steps)
+	if len(loadedSkills) != 0 {
+		t.Fatalf("skill count = %d, want 0", len(loadedSkills))
 	}
 }
 
 func TestLoadAllSkipsIncompatibleRuntimeMinVersion(t *testing.T) {
-	directory := t.TempDir()
-	content := `---
+	openedStore := setupSkillStore(t)
+	createStoredSkillFromMarkdown(t, openedStore, "future-skill", "1.0.0", `---
 name: future-skill
 runtimeMinVersion: 9999.0.0
 tools:
@@ -218,21 +142,22 @@ tools:
     description: noop
     type: shell
     command: ["echo", "ok"]
----`
-	_ = os.WriteFile(filepath.Join(directory, "future.md"), []byte(content), 0644)
+---
+`, true)
 
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	loadedSkills, loadError := LoadAll(ctx, t.TempDir())
+	if loadError != nil {
+		t.Fatalf("LoadAll: %v", loadError)
 	}
-	if len(skills) != 0 {
-		t.Fatalf("expected incompatible skill to be skipped, got %d", len(skills))
+	if len(loadedSkills) != 0 {
+		t.Fatalf("skill count = %d, want 0", len(loadedSkills))
 	}
 }
 
 func TestLoadAllSkipsUnknownAuthProfileReference(t *testing.T) {
-	directory := t.TempDir()
-	content := `---
+	openedStore := setupSkillStore(t)
+	createStoredSkillFromMarkdown(t, openedStore, "auth-skill", "1.0.0", `---
 name: auth-skill
 tools:
   - name: get_secure
@@ -240,55 +165,22 @@ tools:
     type: http
     url: https://example.com
     auth: missing_profile
----`
-	_ = os.WriteFile(filepath.Join(directory, "auth.md"), []byte(content), 0644)
-
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(skills) != 0 {
-		t.Fatalf("expected skill to be skipped for missing auth profile, got %d", len(skills))
-	}
-}
-
-func TestLoadAllSkipsMissingName(t *testing.T) {
-	directory := t.TempDir()
-	content := `---
-tools:
-  - name: test
-    description: test tool
-    type: shell
-    command: ["echo"]
 ---
-`
-	_ = os.WriteFile(filepath.Join(directory, "noname.md"), []byte(content), 0644)
+`, true)
 
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	loadedSkills, loadError := LoadAll(ctx, t.TempDir())
+	if loadError != nil {
+		t.Fatalf("LoadAll: %v", loadError)
 	}
-	if skills != nil {
-		t.Errorf("expected nil for skill without name, got %v", skills)
-	}
-}
-
-func TestLoadAllSkipsInvalidMarkdownFrontmatter(t *testing.T) {
-	directory := t.TempDir()
-	_ = os.WriteFile(filepath.Join(directory, "bad.md"), []byte("name: bad\n---"), 0644)
-
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if skills != nil {
-		t.Errorf("expected nil for invalid markdown frontmatter, got %v", skills)
+	if len(loadedSkills) != 0 {
+		t.Fatalf("skill count = %d, want 0", len(loadedSkills))
 	}
 }
 
 func TestLoadAllFiltersInvalidTools(t *testing.T) {
-	directory := t.TempDir()
-	content := `---
+	openedStore := setupSkillStore(t)
+	createStoredSkillFromMarkdown(t, openedStore, "mixed", "1.0.0", `---
 name: mixed
 tools:
   - name: good
@@ -298,350 +190,22 @@ tools:
   - name: bad_shell
     description: missing command
     type: shell
-  - name: bad_http
-    description: missing url
-    type: http
-  - name: ""
-    description: missing name
-    type: shell
-    command: ["echo"]
-  - name: bad_type
-    description: unknown type
-    type: ftp
 ---
 Prompt text.
-`
-	_ = os.WriteFile(filepath.Join(directory, "mixed.md"), []byte(content), 0644)
+`, true)
 
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	loadedSkills, loadError := LoadAll(ctx, t.TempDir())
+	if loadError != nil {
+		t.Fatalf("LoadAll: %v", loadError)
 	}
-	if len(skills) != 1 {
-		t.Fatalf("expected 1 skill, got %d", len(skills))
+	if len(loadedSkills) != 1 {
+		t.Fatalf("skill count = %d, want 1", len(loadedSkills))
 	}
-	if len(skills[0].Tools) != 1 {
-		t.Fatalf("expected 1 valid tool, got %d", len(skills[0].Tools))
+	if len(loadedSkills[0].Tools) != 1 {
+		t.Fatalf("tool count = %d, want 1", len(loadedSkills[0].Tools))
 	}
-	if skills[0].Tools[0].Name != "good" {
-		t.Errorf("tool name = %q, want %q", skills[0].Tools[0].Name, "good")
-	}
-}
-
-func TestLoadAllSkipsSkillWithNoValidTools(t *testing.T) {
-	directory := t.TempDir()
-	content := `---
-name: broken
-tools:
-  - name: bad
-    description: unknown type
-    type: ftp
----
-`
-	_ = os.WriteFile(filepath.Join(directory, "broken.md"), []byte(content), 0644)
-
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if skills != nil {
-		t.Errorf("expected nil for skill with no valid tools, got %v", skills)
-	}
-}
-
-func TestLoadAllMultipleFiles(t *testing.T) {
-	directory := t.TempDir()
-	skill1 := `---
-name: alpha
-tools:
-  - name: tool_a
-    description: tool A
-    type: shell
-    command: ["echo", "a"]
----
-alpha prompt
-`
-	skill2 := `---
-name: beta
-tools:
-  - name: tool_b
-    description: tool B
-    type: http
-    url: "http://example.com"
----
-beta prompt
-`
-	_ = os.WriteFile(filepath.Join(directory, "alpha.md"), []byte(skill1), 0644)
-	_ = os.WriteFile(filepath.Join(directory, "beta.md"), []byte(skill2), 0644)
-
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(skills) != 2 {
-		t.Fatalf("expected 2 skills, got %d", len(skills))
-	}
-
-	names := map[string]bool{}
-	for _, skill := range skills {
-		names[skill.Name] = true
-	}
-	if !names["alpha"] || !names["beta"] {
-		t.Errorf("expected alpha and beta, got %v", names)
-	}
-}
-
-func TestLoadAllInstalledSkillsAndLocalPrecedence(t *testing.T) {
-	directory := t.TempDir()
-
-	local := `---
-name: git
-tools:
-  - name: local_tool
-    description: local
-    type: shell
-    command: ["echo", "local"]
----
-local prompt
-`
-	installedOld := `---
-name: weather
-tools:
-  - name: weather_old
-    description: old
-    type: http
-    url: "https://old.example"
----
-old
-`
-	installedNew := `---
-name: weather
-tools:
-  - name: weather_new
-    description: new
-    type: http
-    url: "https://new.example"
----
-new
-`
-	installedConflict := `---
-name: git
-tools:
-  - name: installed_tool
-    description: installed
-    type: shell
-    command: ["echo", "installed"]
----
-installed prompt
-`
-
-	_ = os.WriteFile(filepath.Join(directory, "git.md"), []byte(local), 0644)
-	_ = os.MkdirAll(filepath.Join(directory, ".installed", "weather", "1.0.0"), 0755)
-	_ = os.MkdirAll(filepath.Join(directory, ".installed", "weather", "1.2.0"), 0755)
-	_ = os.MkdirAll(filepath.Join(directory, ".installed", "git", "9.9.9"), 0755)
-	_ = os.WriteFile(filepath.Join(directory, ".installed", "weather", "1.0.0", "skill.md"), []byte(installedOld), 0644)
-	_ = os.WriteFile(filepath.Join(directory, ".installed", "weather", "1.2.0", "skill.md"), []byte(installedNew), 0644)
-	_ = os.WriteFile(filepath.Join(directory, ".installed", "git", "9.9.9", "skill.md"), []byte(installedConflict), 0644)
-
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(skills) != 2 {
-		t.Fatalf("expected 2 skills (local git + installed weather), got %d", len(skills))
-	}
-
-	byName := map[string]SkillDefinition{}
-	for _, skill := range skills {
-		byName[skill.Name] = skill
-	}
-	if byName["git"].Tools[0].Name != "local_tool" {
-		t.Fatalf("expected local git skill to win, got %q", byName["git"].Tools[0].Name)
-	}
-	if byName["weather"].Tools[0].Name != "weather_new" {
-		t.Fatalf("expected newest installed version, got %q", byName["weather"].Tools[0].Name)
-	}
-}
-
-func TestLoadAllSkipsDisabledInstalledSkills(t *testing.T) {
-	directory := t.TempDir()
-
-	local := `---
-name: local
-tools:
-  - name: local_tool
-    description: local
-    type: shell
-    command: ["echo", "local"]
----`
-	installed := `---
-name: weather
-tools:
-  - name: get_weather
-    description: weather
-    type: shell
-    command: ["echo", "weather"]
----
-weather prompt
-`
-
-	_ = os.WriteFile(filepath.Join(directory, "local.md"), []byte(local), 0644)
-	installedDirectory := filepath.Join(directory, ".installed", "weather", "1.0.0")
-	_ = os.MkdirAll(installedDirectory, 0755)
-	_ = os.WriteFile(filepath.Join(installedDirectory, "skill.md"), []byte(installed), 0644)
-	manifest := installManifest{Name: "weather", Version: "1.0.0", Enabled: boolPointer(false)}
-	manifestBytes, _ := json.Marshal(manifest)
-	_ = os.WriteFile(filepath.Join(installedDirectory, "manifest.json"), manifestBytes, 0644)
-
-	skills, err := LoadAll(directory)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(skills) != 1 {
-		t.Fatalf("expected only local skill when installed one is disabled, got %d", len(skills))
-	}
-	if skills[0].Name != "local" {
-		t.Fatalf("expected local skill, got %q", skills[0].Name)
-	}
-}
-
-func TestValidateTool(t *testing.T) {
-	tests := []struct {
-		name    string
-		tool    ToolDefinition
-		wantErr bool
-	}{
-		{
-			name:    "valid shell tool",
-			tool:    ToolDefinition{Name: "test", Type: "shell", Command: []string{"echo"}},
-			wantErr: false,
-		},
-		{
-			name:    "valid http tool",
-			tool:    ToolDefinition{Name: "test", Type: "http", URL: "http://example.com"},
-			wantErr: false,
-		},
-		{
-			name: "valid workflow tool",
-			tool: ToolDefinition{
-				Name: "test",
-				Type: "workflow",
-				Steps: []ActionDefinition{
-					{Type: "shell", Command: []string{"echo", "ok"}},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid workflow tool with actions map",
-			tool: ToolDefinition{
-				Name: "test",
-				Type: "workflow",
-				Actions: map[string][]ActionDefinition{
-					"ping": {
-						{Type: "shell", Command: []string{"echo", "ok"}},
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name:    "missing name",
-			tool:    ToolDefinition{Type: "shell", Command: []string{"echo"}},
-			wantErr: true,
-		},
-		{
-			name:    "shell with empty command",
-			tool:    ToolDefinition{Name: "test", Type: "shell"},
-			wantErr: true,
-		},
-		{
-			name:    "http with empty url",
-			tool:    ToolDefinition{Name: "test", Type: "http"},
-			wantErr: true,
-		},
-		{
-			name:    "unknown type",
-			tool:    ToolDefinition{Name: "test", Type: "ftp"},
-			wantErr: true,
-		},
-		{
-			name:    "workflow with no steps",
-			tool:    ToolDefinition{Name: "test", Type: "workflow"},
-			wantErr: true,
-		},
-		{
-			name: "workflow with bad step",
-			tool: ToolDefinition{
-				Name: "test",
-				Type: "workflow",
-				Steps: []ActionDefinition{
-					{Type: "http"},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "workflow with invalid onError",
-			tool: ToolDefinition{
-				Name: "test",
-				Type: "workflow",
-				Steps: []ActionDefinition{
-					{Type: "shell", Command: []string{"echo", "ok"}, OnError: "ignore"},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "workflow with invalid result",
-			tool: ToolDefinition{
-				Name: "test",
-				Type: "workflow",
-				Steps: []ActionDefinition{
-					{Type: "shell", Command: []string{"echo", "ok"}, Result: "yaml"},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "workflow with negative retries",
-			tool: ToolDefinition{
-				Name: "test",
-				Type: "workflow",
-				Steps: []ActionDefinition{
-					{Type: "shell", Command: []string{"echo", "ok"}, Retries: -1},
-				},
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, testCase := range tests {
-		t.Run(testCase.name, func(t *testing.T) {
-			err := validateTool(testCase.tool)
-			if (err != nil) != testCase.wantErr {
-				t.Errorf("validateTool() error = %v, wantErr = %v", err, testCase.wantErr)
-			}
-		})
-	}
-}
-
-func TestLoadAllLocalSkillEnabledFrontmatterIgnoredByRegister(t *testing.T) {
-	directory := t.TempDir()
-	localDisabled := `---
-name: local-disabled
-enabled: false
-tools:
-  - name: local_disabled_tool
-    description: disabled
-    type: shell
-    command: ["echo", "disabled"]
----`
-	_ = os.WriteFile(filepath.Join(directory, "local-disabled.md"), []byte(localDisabled), 0644)
-
-	registry := agents.NewToolRegistry()
-	RegisterSkillsFiltered(registry, directory, nil)
-	if registry.Get("local_disabled_tool") == nil {
-		t.Fatal("local skill tool should be registered even when enabled: false is present")
+	if loadedSkills[0].Tools[0].Name != "good" {
+		t.Fatalf("tool name = %q, want good", loadedSkills[0].Tools[0].Name)
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/web"
 )
 
@@ -18,9 +20,6 @@ func (self *gateway) resolveSessionMaxAge() time.Duration {
 
 // checkBearerToken validates bearer auth and injects user context when valid.
 func (self *gateway) checkBearerToken(request *http.Request) (*http.Request, bool) {
-	if self.securityConfig == nil {
-		return request, false
-	}
 	authHeader := strings.TrimSpace(request.Header.Get("Authorization"))
 	if !strings.HasPrefix(authHeader, "Bearer ") {
 		return request, false
@@ -29,39 +28,72 @@ func (self *gateway) checkBearerToken(request *http.Request) (*http.Request, boo
 	if token == "" {
 		return request, false
 	}
-	userId, _, _, found := self.securityConfig.FindUserByToken(token)
-	if !found || strings.TrimSpace(userId) == "" {
+	var user *models.User
+	if err := store.StoreFromContext(request.Context()).Transaction(func(transaction store.Transaction) error {
+		foundUserId, _, found := transaction.GetTokenByToken(token, nil)
+		if found {
+			existingUser, getError := transaction.GetUser(foundUserId, nil)
+			if getError == nil {
+				user = existingUser
+			}
+		}
+		return nil
+	}); err != nil {
 		return request, false
 	}
-	user := &UserContext{
-		UserID:     userId,
-		AuthMethod: AuthMethodToken,
+	if user == nil || user.ID == "" {
+		return request, false
 	}
-	return request.WithContext(ContextWithUser(request.Context(), user)), true
+	return request.WithContext(ContextWithUserAndSession(request.Context(), user, nil)), true
 }
 
 // checkSessionCookie validates session auth and injects user context when valid.
 func (self *gateway) checkSessionCookie(request *http.Request) (*http.Request, bool) {
-	if self.sessionStore == nil {
-		return request, false
-	}
 	cookie, err := request.Cookie("session")
 	if err != nil || cookie.Value == "" {
 		return request, false
 	}
-	session := self.sessionStore.Get(cookie.Value)
-	if session == nil || strings.TrimSpace(session.UserID) == "" {
+	maxAge := self.resolveSessionMaxAge()
+	var session *models.Session
+	var user *models.User
+	if transactionError := store.StoreFromContext(request.Context()).Transaction(func(transaction store.Transaction) error {
+		existingSession, getSessionError := transaction.GetSession(cookie.Value, nil)
+		if getSessionError != nil {
+			return nil
+		}
+		if existingSession.ExpiresAt != nil && time.Now().After(*existingSession.ExpiresAt) {
+			_ = transaction.DeleteSession(cookie.Value, nil)
+			return nil
+		}
+		if existingSession.UserID == nil || *existingSession.UserID == "" {
+			return nil
+		}
+		existingUser, getUserError := transaction.GetUser(*existingSession.UserID, nil)
+		if getUserError != nil {
+			return nil
+		}
+		if existingSession.ModifiedAt != nil && time.Since(*existingSession.ModifiedAt) >= time.Hour {
+			now := time.Now()
+			updatedSession, modifyError := transaction.ModifySession(existingSession.ID, func(session *models.Session) error {
+				expiresAt := now.Add(maxAge)
+				session.ExpiresAt = &expiresAt
+				session.ModifiedAt = &now
+				return nil
+			}, nil)
+			if modifyError == nil {
+				existingSession = updatedSession
+			}
+		}
+		session = existingSession
+		user = existingUser
+		return nil
+	}); transactionError != nil {
 		return request, false
 	}
-	// Renew session asynchronously (throttled to once per hour inside Touch).
-	go self.sessionStore.Touch(session.ID, self.resolveSessionMaxAge())
-
-	user := &UserContext{
-		UserID:     session.UserID,
-		SessionID:  session.ID,
-		AuthMethod: AuthMethodSession,
+	if session == nil || user == nil || user.ID == "" {
+		return request, false
 	}
-	return request.WithContext(ContextWithUser(request.Context(), user)), true
+	return request.WithContext(ContextWithUserAndSession(request.Context(), user, session)), true
 }
 
 // AuthMiddleware returns a web.Middleware that enforces token/session auth.

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 )
 
@@ -17,15 +17,14 @@ type projectsTool struct{}
 type projectWorkspaceTool struct{}
 
 type projectsToolResponse struct {
-	Action    string                  `json:"action"`
-	ProjectID string                  `json:"projectId,omitempty"`
-	Project   *configs.ProjectConfig  `json:"project,omitempty"`
-	Projects  []configs.ProjectConfig `json:"projects,omitempty"`
-	Workspace string                  `json:"workspace,omitempty"`
-	Files     []string                `json:"files,omitempty"`
-	Content   string                  `json:"content,omitempty"`
-	Matches   []searchMatch           `json:"matches,omitempty"`
-	Success   bool                    `json:"success,omitempty"`
+	Action    string           `json:"action"`
+	ProjectID string           `json:"projectId,omitempty"`
+	Project   *models.Project  `json:"project,omitempty"`
+	Projects  []models.Project `json:"projects,omitempty"`
+	Files     []string         `json:"files,omitempty"`
+	Content   string           `json:"content,omitempty"`
+	Matches   []searchMatch    `json:"matches,omitempty"`
+	Success   bool             `json:"success,omitempty"`
 }
 
 func (self *projectsTool) Definition() providers.ToolDefinition {
@@ -127,7 +126,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 	action := strings.TrimSpace(arguments.Action)
 	switch action {
 	case "list":
-		items, err := configs.LoadProjectConfigs()
+		items, err := listProjects(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -137,7 +136,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		if strings.TrimSpace(arguments.ProjectID) == "" {
 			return "", fmt.Errorf("projectId is required")
 		}
-		item, err := configs.LoadProjectConfig(arguments.ProjectID)
+		item, err := getProject(ctx, arguments.ProjectID)
 		if err != nil {
 			return "", err
 		}
@@ -152,18 +151,17 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		if description == "" {
 			return "", fmt.Errorf("description is required for create")
 		}
-		item, err := CreateProject(name, description, arguments.Purpose)
+		item, err := createProject(ctx, name, description, arguments.Purpose)
 		if err != nil {
 			return "", err
 		}
-		workspacePath, _ := WorkspaceDirectory(item.ID)
-		output, _ := json.Marshal(projectsToolResponse{Action: "create", Project: item, Workspace: workspacePath})
+		output, _ := json.Marshal(projectsToolResponse{Action: "create", Project: item})
 		return string(output), nil
 	case "rename":
 		if strings.TrimSpace(arguments.ProjectID) == "" {
 			return "", fmt.Errorf("projectId is required")
 		}
-		item, err := RenameProject(arguments.ProjectID, arguments.Name)
+		item, err := renameProject(ctx, arguments.ProjectID, arguments.Name)
 		if err != nil {
 			return "", err
 		}
@@ -173,7 +171,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		if strings.TrimSpace(arguments.ProjectID) == "" {
 			return "", fmt.Errorf("projectId is required")
 		}
-		if err := DeleteProject(arguments.ProjectID); err != nil {
+		if err := deleteProject(ctx, arguments.ProjectID); err != nil {
 			return "", err
 		}
 		output, _ := json.Marshal(projectsToolResponse{Action: "delete", Success: true})
@@ -204,7 +202,7 @@ func (self *projectWorkspaceTool) Execute(ctx context.Context, rawArguments stri
 	action := strings.TrimSpace(arguments.Action)
 	switch action {
 	case "list":
-		files, err := listFiles(arguments.ProjectID)
+		files, err := listFiles(ctx, arguments.ProjectID)
 		if err != nil {
 			return "", err
 		}
@@ -215,7 +213,7 @@ func (self *projectWorkspaceTool) Execute(ctx context.Context, rawArguments stri
 		})
 		return string(output), nil
 	case "read":
-		content, err := readFile(arguments.ProjectID, arguments.Path)
+		content, err := readFile(ctx, arguments.ProjectID, arguments.Path)
 		if err != nil {
 			return "", err
 		}
@@ -226,19 +224,19 @@ func (self *projectWorkspaceTool) Execute(ctx context.Context, rawArguments stri
 		})
 		return string(output), nil
 	case "write":
-		if err := writeFile(arguments.ProjectID, arguments.Path, arguments.Content); err != nil {
+		if err := writeFile(ctx, arguments.ProjectID, arguments.Path, arguments.Content); err != nil {
 			return "", err
 		}
 		output, _ := json.Marshal(projectsToolResponse{Action: "write", ProjectID: arguments.ProjectID, Success: true})
 		return string(output), nil
 	case "append":
-		if err := appendFile(arguments.ProjectID, arguments.Path, arguments.Content); err != nil {
+		if err := appendFile(ctx, arguments.ProjectID, arguments.Path, arguments.Content); err != nil {
 			return "", err
 		}
 		output, _ := json.Marshal(projectsToolResponse{Action: "append", ProjectID: arguments.ProjectID, Success: true})
 		return string(output), nil
 	case "search":
-		matches, err := searchFiles(arguments.ProjectID, arguments.Query, arguments.MaxResults)
+		matches, err := searchFiles(ctx, arguments.ProjectID, arguments.Query, arguments.MaxResults)
 		if err != nil {
 			return "", err
 		}
@@ -252,13 +250,13 @@ func (self *projectWorkspaceTool) Execute(ctx context.Context, rawArguments stri
 		if strings.TrimSpace(arguments.Path) == "" {
 			return "", fmt.Errorf("path is required")
 		}
-		if err := deleteFile(arguments.ProjectID, arguments.Path); err != nil {
+		if err := deleteFile(ctx, arguments.ProjectID, arguments.Path); err != nil {
 			return "", err
 		}
 		output, _ := json.Marshal(projectsToolResponse{Action: "delete", ProjectID: arguments.ProjectID, Success: true})
 		return string(output), nil
 	case "move":
-		if err := moveFile(arguments.ProjectID, arguments.FromPath, arguments.ToPath); err != nil {
+		if err := moveFile(ctx, arguments.ProjectID, arguments.FromPath, arguments.ToPath); err != nil {
 			return "", err
 		}
 		output, _ := json.Marshal(projectsToolResponse{Action: "move", ProjectID: arguments.ProjectID, Success: true})

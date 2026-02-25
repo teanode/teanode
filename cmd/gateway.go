@@ -26,11 +26,13 @@ import (
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
-	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/projects"
 	"github.com/teanode/teanode/internal/providers"
-	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/skills"
+	datastore "github.com/teanode/teanode/internal/store"
+	storedb "github.com/teanode/teanode/internal/store/db"
+	storefs "github.com/teanode/teanode/internal/store/fs"
 	"github.com/teanode/teanode/internal/tools/claudecode"
 	"github.com/teanode/teanode/internal/tools/codex"
 	"github.com/teanode/teanode/internal/tools/datetime"
@@ -40,19 +42,27 @@ import (
 	"github.com/teanode/teanode/internal/tools/gitlab"
 	"github.com/teanode/teanode/internal/tools/google"
 	"github.com/teanode/teanode/internal/tools/homeassistant"
+	tooljobs "github.com/teanode/teanode/internal/tools/jobs"
 	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/shell"
 	"github.com/teanode/teanode/internal/tools/unifiprotect"
 	"github.com/teanode/teanode/internal/tools/workspace"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/version"
-	"github.com/teanode/teanode/internal/watcher"
 	"github.com/teanode/teanode/internal/web"
 	"github.com/urfave/cli/v3"
 )
 
 // ErrRestart is returned from the gateway command when a restart was requested.
 var ErrRestart = errors.New("restart requested")
+
+func valueOrEmptyString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
 
 func NewGatewayCommand() *cli.Command {
 	return &cli.Command{
@@ -64,12 +74,91 @@ func NewGatewayCommand() *cli.Command {
 				Aliases: []string{"p"},
 				Usage:   "port to listen on (overrides config)",
 			},
+			&cli.StringFlag{
+				Name:    "store",
+				Usage:   "store backend: filesystem or postgres",
+				Value:   string(datastore.BackendFilesystem),
+				Sources: cli.EnvVars("TEANODE_STORE"),
+			},
+			&cli.StringFlag{
+				Name:    "store-postgres-host",
+				Usage:   "postgres host",
+				Value:   "127.0.0.1",
+				Sources: cli.EnvVars("TEANODE_STORE_POSTGRES_HOST"),
+			},
+			&cli.UintFlag{
+				Name:    "store-postgres-port",
+				Usage:   "postgres port",
+				Value:   5432,
+				Sources: cli.EnvVars("TEANODE_STORE_POSTGRES_PORT"),
+			},
+			&cli.StringFlag{
+				Name:    "store-postgres-user",
+				Usage:   "postgres user",
+				Value:   "teanode",
+				Sources: cli.EnvVars("TEANODE_STORE_POSTGRES_USER"),
+			},
+			&cli.StringFlag{
+				Name:    "store-postgres-password",
+				Usage:   "postgres password",
+				Value:   "teanode",
+				Sources: cli.EnvVars("TEANODE_STORE_POSTGRES_PASSWORD"),
+			},
+			&cli.StringFlag{
+				Name:    "store-postgres-database",
+				Usage:   "postgres database",
+				Value:   "teanode",
+				Sources: cli.EnvVars("TEANODE_STORE_POSTGRES_DATABASE"),
+			},
+			&cli.StringFlag{
+				Name:    "store-postgres-sslmode",
+				Usage:   "postgres sslmode",
+				Value:   "disable",
+				Sources: cli.EnvVars("TEANODE_STORE_POSTGRES_SSLMODE"),
+			},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
 			// Ensure base directories exist.
 			if err := configs.EnsureDirectories(); err != nil {
 				return err
 			}
+			storeBackend := datastore.BackendType(command.String("store"))
+			var postgresSettings *storedb.Settings
+			if storeBackend == datastore.BackendPostgres {
+				postgresSettings = &storedb.Settings{
+					Host:     command.String("store-postgres-host"),
+					Port:     uint16(command.Uint("store-postgres-port")),
+					User:     command.String("store-postgres-user"),
+					Password: command.String("store-postgres-password"),
+					Database: command.String("store-postgres-database"),
+					SSLMode:  command.String("store-postgres-sslmode"),
+				}
+			}
+			var openedStore datastore.Store
+			var err error
+			switch storeBackend {
+			case "", datastore.BackendFilesystem:
+				openedStore, err = storefs.Open(storefs.Options{DataDirectory: configs.Directory()})
+			case datastore.BackendPostgres:
+				if postgresSettings == nil {
+					return fmt.Errorf("postgres settings are required")
+				}
+				openedStore, err = storedb.Open(*postgresSettings)
+			default:
+				return fmt.Errorf("unsupported store backend: %s", storeBackend)
+			}
+			if err != nil {
+				return err
+			}
+			if migrateError := openedStore.Migrate(); migrateError != nil {
+				return migrateError
+			}
+			ctx = datastore.ContextWithStore(ctx, openedStore)
+			defer func() {
+				if err := openedStore.Close(); err != nil {
+					log.Errorf("failed to close store: %v", err)
+				}
+			}()
 			pidGuard, err := acquireGatewayPIDGuard()
 			if err != nil {
 				return err
@@ -97,33 +186,32 @@ func NewGatewayCommand() *cli.Command {
 				return err
 			}
 			// Auto-generate one auth token for any user missing tokens.
-			securityChanged := false
-			securityConfig.Lock()
-			for userId, user := range securityConfig.Users {
-				if len(user.Tokens) > 0 {
-					continue
+			if err := openedStore.Transaction(func(transaction datastore.Transaction) error {
+				users, err := transaction.ListUsers(nil)
+				if err != nil {
+					return err
 				}
-				generated := security.GenerateRandomString(48, security.LowerAlphaNumeric)
-				user.Tokens = append(user.Tokens, configs.SecurityToken{
-					ID:        security.NewULID(),
-					Token:     generated,
-					CreatedAt: time.Now(),
-				})
-				securityConfig.Users[userId] = user
-				securityChanged = true
-			}
-			securityConfig.Unlock()
-			if securityChanged {
-				securityConfig.RLock()
-				if err := configs.SaveSecurity(securityConfig); err != nil {
-					log.Errorf("failed to save security config: %v", err)
+				for _, user := range users {
+					tokens, listError := transaction.ListTokens(user.ID, nil)
+					if listError != nil {
+						return listError
+					}
+					if len(tokens) > 0 {
+						continue
+					}
+					generated := security.GenerateRandomString(48, security.LowerAlphaNumeric)
+					if _, createError := transaction.CreateToken(&models.Token{
+						ID:     security.NewULID(),
+						UserID: ptrto.Value(user.ID),
+						Token:  ptrto.Value(generated),
+					}, nil); createError != nil {
+						return createError
+					}
 				}
-				securityConfig.RUnlock()
+				return nil
+			}); err != nil {
+				log.Errorf("failed to bootstrap auth tokens: %v", err)
 			}
-
-			// Create session store.
-			sessionsDirectory := configs.SessionsDirectory()
-			sessionStore := sessions.NewStore(sessionsDirectory)
 
 			// Build provider registry.
 			buildProviderRegistry := func(configuration *configs.Config) *providers.Registry {
@@ -172,12 +260,9 @@ func NewGatewayCommand() *cli.Command {
 
 			skillsDirectory := configs.SkillsDirectory()
 
-			mediaDirectory := configs.MediaDirectory()
-			mediaStore := media.NewStore(mediaDirectory)
-
 			// --- Agent Registry: create a runner per agent ---
 
-			agentRegistry := agents.NewAgentRegistry()
+			agentRegistry := agents.NewAgentRegistry(ctx)
 
 			// gateway is declared here so buildToolsForAgent can capture it via closure.
 			// It is assigned after runners are created, but tools are never called until
@@ -197,13 +282,23 @@ func NewGatewayCommand() *cli.Command {
 				if store, ok := conversationStores[key]; ok {
 					return store
 				}
-				directory := configs.UserAgentConversationsDirectory(userId, agentId)
-				if err := os.MkdirAll(directory, 0755); err != nil {
+				conversationStore := conversations.NewStore(ctx, userId, agentId)
+				conversationStores[key] = conversationStore
+				return conversationStore
+			}
+			resolveUser := func(userId string) (*models.User, error) {
+				var profile *models.User
+				if err := openedStore.Transaction(func(transaction datastore.Transaction) error {
+					user, err := transaction.GetUser(userId, nil)
+					if err != nil {
+						return err
+					}
+					profile = user
 					return nil
+				}); err != nil {
+					return nil, err
 				}
-				store := conversations.NewStore(directory)
-				conversationStores[key] = store
-				return store
+				return profile, nil
 			}
 
 			// buildToolsForAgent creates a fresh tool registry for the given agents.
@@ -236,11 +331,11 @@ func NewGatewayCommand() *cli.Command {
 				skills.SetRuntimeSecrets(configuration.Secrets)
 				agents.RegisterConversationTools(tools, conversations, providers, configuration)
 				if scheduler != nil {
-					jobs.RegisterTools(tools, scheduler)
+					tooljobs.RegisterTools(tools)
 				}
 				tools.Register(&configs.ConfigTool{Config: configuration})
 				gw.RegisterTools(tools, func(action gw.LifecycleAction) { gateway.ScheduleLifecycle(action) })
-				skillPrompts := skills.RegisterSkillsFiltered(tools, skillsDirectory, agentConfig.Skills)
+				skillPrompts := skills.RegisterSkillsFiltered(ctx, tools, skillsDirectory, agentConfig.Skills)
 				agents.RegisterInterAgentTools(tools, agentConfig.ID, agentRegistry, configuration)
 				tools.ApplyFilter(agentConfig.Tools)
 				return tools, skillPrompts
@@ -261,11 +356,8 @@ func NewGatewayCommand() *cli.Command {
 			}
 
 			// Set up job scheduler (needs agent registry).
-			jobStore, err := jobs.NewStore()
-			if err != nil {
-				return err
-			}
-			scheduler = jobs.NewScheduler(jobStore, agentRegistry)
+			scheduler = jobs.NewScheduler(ctx)
+			ctx = jobs.ContextWithScheduler(ctx, scheduler)
 
 			// Create a runner for each configured agents.
 			for _, agentConfig := range configuration.Agents() {
@@ -283,14 +375,11 @@ func NewGatewayCommand() *cli.Command {
 					AgentID:              agentConfig.ID,
 					Providers:            providers,
 					ResolveConversations: resolveConversationStore,
-					ResolveUserConfig: func(userId string) (*configs.UserConfig, error) {
-						return configs.LoadUserConfig(userId)
-					},
-					Config:             configuration,
-					Tools:              tools,
-					MediaStore:         mediaStore,
-					WorkspaceDirectory: workspaceDirectory,
-					SkillPrompts:       skillPrompts,
+					ResolveUser:          resolveUser,
+					Config:               configuration,
+					Tools:                tools,
+					WorkspaceDirectory:   workspaceDirectory,
+					SkillPrompts:         skillPrompts,
 				}
 				agentRegistry.Register(agentConfig.ID, runner)
 			}
@@ -300,9 +389,9 @@ func NewGatewayCommand() *cli.Command {
 
 			// --- Gateway + API + Frontend ---
 
-			summarizer := agents.NewSummarizer(agentRegistry, configuration)
+			summarizer := agents.NewSummarizer(ctx, agentRegistry, configuration)
 
-			gateway = gw.New(configuration, securityConfig, agentRegistry, browserRelay, terminalRelay, scheduler, summarizer, mediaStore, sessionStore)
+			gateway = gw.New(ctx, configuration, securityConfig, agentRegistry, browserRelay, terminalRelay, summarizer)
 			api := v1api.New(gateway, reloadSkills)
 			frontendComponent := frontend.New()
 
@@ -336,14 +425,11 @@ func NewGatewayCommand() *cli.Command {
 					AgentID:              agentConfig.ID,
 					Providers:            currentProviders,
 					ResolveConversations: resolveConversationStore,
-					ResolveUserConfig: func(userId string) (*configs.UserConfig, error) {
-						return configs.LoadUserConfig(userId)
-					},
-					Config:             currentConfiguration,
-					Tools:              tools,
-					MediaStore:         mediaStore,
-					WorkspaceDirectory: workspaceDirectory,
-					SkillPrompts:       skillPrompts,
+					ResolveUser:          resolveUser,
+					Config:               currentConfiguration,
+					Tools:                tools,
+					WorkspaceDirectory:   workspaceDirectory,
+					SkillPrompts:         skillPrompts,
 				})
 				summarizer.Notify()
 
@@ -362,12 +448,29 @@ func NewGatewayCommand() *cli.Command {
 			scheduler.Broadcast = func(event string, payload interface{}) {
 				gateway.Broadcast(gw.EventType(event), payload)
 			}
-			scheduler.NewDefaultConversation = func(userId, agentId, model string) string {
-				return gateway.NewDefaultConversation(userId, agentId, model)
-			}
 			scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
-				handle := gateway.SendMessage(ctx, gw.SendMessageParameters{
-					UserContext:    &gw.UserContext{UserID: userId},
+				var user *models.User
+				transactionError := openedStore.Transaction(func(transaction datastore.Transaction) error {
+					existingUser, getError := transaction.GetUser(userId, nil)
+					if getError != nil {
+						return getError
+					}
+					user = existingUser
+					return nil
+				})
+				if transactionError != nil || user == nil {
+					doneChannel := make(chan struct{})
+					close(doneChannel)
+					return "", doneChannel, func() error {
+						if transactionError != nil {
+							return transactionError
+						}
+						return fmt.Errorf("user not found: %s", userId)
+					}
+				}
+
+				runContext := gw.ContextWithUserAndSession(ctx, user, nil)
+				handle := gateway.SendMessage(runContext, gw.SendMessageParameters{
 					AgentID:        agentId,
 					ConversationID: conversationId,
 					Message:        message,
@@ -379,7 +482,7 @@ func NewGatewayCommand() *cli.Command {
 			// --- Discord bot ---
 
 			if configuration.Channels.Discord != nil && configuration.Channels.Discord.Token != "" {
-				discordBot := discord.New(configuration.Channels.Discord, agentRegistry, gateway)
+				discordBot := discord.New(configuration.Channels.Discord, ctx, agentRegistry, gateway)
 				if err := discordBot.Start(); err != nil {
 					log.Errorf("discord bot failed to start: %v", err)
 				} else {
@@ -390,114 +493,12 @@ func NewGatewayCommand() *cli.Command {
 			// --- Telegram bot ---
 
 			if configuration.Channels.Telegram != nil && configuration.Channels.Telegram.Token != "" {
-				telegramBot := telegram.New(configuration.Channels.Telegram, agentRegistry, gateway)
+				telegramBot := telegram.New(ctx, configuration.Channels.Telegram, agentRegistry, gateway)
 				if err := telegramBot.Start(); err != nil {
 					log.Errorf("telegram bot failed to start: %v", err)
 				} else {
 					defer telegramBot.Stop()
 				}
-			}
-
-			// --- File watcher for hot reloading ---
-
-			dataDirectory := configs.Directory()
-
-			fileWatcher := watcher.New(dataDirectory)
-
-			// reloadAgents reconfigures agent runners from the current gateway config.
-			reloadAgents := func() {
-				currentConfiguration := gateway.Config()
-				currentProviders := buildProviderRegistry(currentConfiguration)
-
-				for _, agentConfig := range currentConfiguration.Agents() {
-					runner := agentRegistry.GetRunner(agentConfig.ID)
-					if runner == nil {
-						// New agent appeared — create it.
-						if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {
-							log.Errorf("failed to create dirs for new agent %s: %v", agentConfig.ID, err)
-							continue
-						}
-						if err := configs.SeedAgentWorkspace(agentConfig.ID); err != nil {
-							log.Errorf("failed to seed workspace for new agent %s: %v", agentConfig.ID, err)
-							continue
-						}
-						workspaceDirectory := configs.AgentWorkspaceDirectory(agentConfig.ID)
-						tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, nil, scheduler)
-						runner = &agents.Runner{
-							AgentID:              agentConfig.ID,
-							Providers:            currentProviders,
-							ResolveConversations: resolveConversationStore,
-							ResolveUserConfig: func(userId string) (*configs.UserConfig, error) {
-								return configs.LoadUserConfig(userId)
-							},
-							Config:             currentConfiguration,
-							Tools:              tools,
-							MediaStore:         mediaStore,
-							WorkspaceDirectory: workspaceDirectory,
-							SkillPrompts:       skillPrompts,
-						}
-						agentRegistry.Register(agentConfig.ID, runner)
-						continue
-					}
-
-					// Existing agent — rebuild tools and reconfigure.
-					workspaceDirectory := configs.AgentWorkspaceDirectory(agentConfig.ID)
-					tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, nil, scheduler)
-					runner.Reconfigure(currentConfiguration, currentProviders, tools, skillPrompts)
-				}
-			}
-
-			fileWatcher.OnConfigReload = func() {
-				log.Info("hot-reloading config")
-				newConfiguration, err := configs.Load()
-				if err != nil {
-					log.Errorf("failed to reload config: %v", err)
-					return
-				}
-				// Preserve CLI port override.
-				if command.IsSet("port") {
-					newConfiguration.Gateway.Port = int(command.Int("port"))
-				}
-
-				gateway.SetConfig(newConfiguration)
-				gateway.InvalidateModelsCache()
-				reloadAgents()
-				summarizer.Notify()
-				log.Info("config reloaded successfully")
-			}
-
-			fileWatcher.OnAgentsReload = func() {
-				log.Info("hot-reloading agents")
-				newConfiguration, err := configs.Load()
-				if err != nil {
-					log.Errorf("failed to reload agents: %v", err)
-					return
-				}
-				// Preserve CLI port override.
-				if command.IsSet("port") {
-					newConfiguration.Gateway.Port = int(command.Int("port"))
-				}
-				gateway.SetConfig(newConfiguration)
-				reloadAgents()
-				summarizer.Notify()
-				log.Info("agents reloaded successfully")
-			}
-
-			fileWatcher.OnSkillsReload = reloadSkills
-
-			fileWatcher.OnJobsReload = func() {
-				log.Info("hot-reloading jobs")
-				if err := scheduler.Reload(); err != nil {
-					log.Errorf("failed to reload jobs: %v", err)
-				} else {
-					log.Info("jobs reloaded successfully")
-				}
-			}
-
-			if err := fileWatcher.Start(); err != nil {
-				log.Errorf("file watcher failed to start: %v", err)
-			} else {
-				defer fileWatcher.Stop()
 			}
 
 			// --- Create web server with components ---
@@ -508,7 +509,15 @@ func NewGatewayCommand() *cli.Command {
 			}
 
 			// Apply middleware stack (innermost first → outermost last).
+			storeMiddleware := func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					requestContext := datastore.ContextWithStore(request.Context(), openedStore)
+					requestContext = jobs.ContextWithScheduler(requestContext, scheduler)
+					next.ServeHTTP(writer, request.WithContext(requestContext))
+				})
+			}
 			handler := web.ApplyMiddlewares(webServer,
+				storeMiddleware,
 				gateway.AuthMiddleware(),
 				web.CompressionMiddleware,
 				web.MakeServerNameMiddleware(version.ServerName()),

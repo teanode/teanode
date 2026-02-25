@@ -1,82 +1,49 @@
 package skills
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
+	"context"
 	"testing"
 	"time"
 
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
-func TestIsSafePathSegment(t *testing.T) {
-	tests := []struct {
-		value string
-		safe  bool
-	}{
-		{value: "git", safe: true},
-		{value: "1.0.0", safe: true},
-		{value: "", safe: false},
-		{value: ".", safe: false},
-		{value: "..", safe: false},
-		{value: "../x", safe: false},
-		{value: "a/b", safe: false},
-		{value: `a\b`, safe: false},
+func setupSkillStore(t *testing.T) store.Store {
+	t.Helper()
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
 	}
-	for _, testCase := range tests {
-		if got := isSafePathSegment(testCase.value); got != testCase.safe {
-			t.Fatalf("isSafePathSegment(%q) = %v, want %v", testCase.value, got, testCase.safe)
-		}
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
 	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	return openedStore
 }
 
-func TestResolveInstallDirRejectsTraversal(t *testing.T) {
-	if _, err := resolveInstallDir("/tmp/skills", "../escape", "1.0.0"); err == nil {
-		t.Fatal("expected invalid skill name error")
-	}
-	if _, err := resolveInstallDir("/tmp/skills", "git", "../../escape"); err == nil {
-		t.Fatal("expected invalid skill version error")
-	}
-}
-
-func TestEnsureNoSymlinkComponentsRejectsSymlink(t *testing.T) {
-	root := t.TempDir()
-	target := filepath.Join(root, "target")
-	if err := os.MkdirAll(target, 0755); err != nil {
-		t.Fatalf("mkdir target: %v", err)
-	}
-	link := filepath.Join(root, "git")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("symlink not supported: %v", err)
-	}
-	if err := ensureNoSymlinkComponents(root, filepath.Join(link, "1.0.0")); err == nil {
-		t.Fatal("expected symlink component rejection")
-	}
-}
-
-func TestListInstalledWithMinimalManifest(t *testing.T) {
-	directory := t.TempDir()
-	configs.SetDirectory(directory)
-	t.Cleanup(func() { configs.SetDirectory("") })
-
-	installDirectory := filepath.Join(directory, "skills", ".installed", "demo", "1.0.0")
-	if err := os.MkdirAll(installDirectory, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	manifest := installManifest{
-		Name:    "demo",
-		Version: "1.0.0",
-	}
-	manifestBytes, _ := json.Marshal(manifest)
-	if err := os.WriteFile(filepath.Join(installDirectory, "manifest.json"), manifestBytes, 0644); err != nil {
-		t.Fatalf("manifest write: %v", err)
+func TestListInstalledWithMinimalMetadata(t *testing.T) {
+	openedStore := setupSkillStore(t)
+	version := "1.0.0"
+	createError := openedStore.Transaction(func(transaction store.Transaction) error {
+		_, skillCreateError := transaction.CreateSkill(&models.Skill{
+			ID:      "demo",
+			Name:    ptrto.Value("demo"),
+			Version: &version,
+		}, nil)
+		return skillCreateError
+	})
+	if createError != nil {
+		t.Fatalf("creating skill: %v", createError)
 	}
 
-	installed, err := ListInstalled()
-	if err != nil {
-		t.Fatalf("ListInstalled: %v", err)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	installed, listError := ListInstalled(ctx)
+	if listError != nil {
+		t.Fatalf("ListInstalled: %v", listError)
 	}
 	if len(installed) != 1 {
 		t.Fatalf("installed count = %d, want 1", len(installed))
@@ -92,31 +59,35 @@ func TestListInstalledWithMinimalManifest(t *testing.T) {
 	}
 }
 
-func TestListInstalledReadsManifestMetadata(t *testing.T) {
-	directory := t.TempDir()
-	configs.SetDirectory(directory)
-	t.Cleanup(func() { configs.SetDirectory("") })
+func TestListInstalledReadsMetadata(t *testing.T) {
+	openedStore := setupSkillStore(t)
+	version := "1.0.0"
+	installedAt := timeutil.Timestamp{Time: time.UnixMilli(12345)}
+	metadata := map[string]interface{}{
+		"description": "Demo skill",
+		"enabled":     false,
+		"sourceId":    "registry",
+		"publisher":   "Example",
+		"installedAt": installedAt.String(),
+	}
+	createError := openedStore.Transaction(func(transaction store.Transaction) error {
+		_, skillCreateError := transaction.CreateSkill(&models.Skill{
+			ID:       "demo",
+			Name:     ptrto.Value("demo"),
+			Version:  &version,
+			Source:   ptrto.Value("registry"),
+			Metadata: &metadata,
+		}, nil)
+		return skillCreateError
+	})
+	if createError != nil {
+		t.Fatalf("creating skill: %v", createError)
+	}
 
-	installDirectory := filepath.Join(directory, "skills", ".installed", "demo", "1.0.0")
-	if err := os.MkdirAll(installDirectory, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	manifest := installManifest{
-		Name:        "demo",
-		Description: "Demo skill",
-		Version:     "1.0.0",
-		SourceID:    "registry",
-		Publisher:   "Example",
-		InstalledAt: timeutil.Timestamp{Time: time.UnixMilli(12345)},
-	}
-	manifestBytes, _ := json.Marshal(manifest)
-	if err := os.WriteFile(filepath.Join(installDirectory, "manifest.json"), manifestBytes, 0644); err != nil {
-		t.Fatalf("manifest write: %v", err)
-	}
-
-	installed, err := ListInstalled()
-	if err != nil {
-		t.Fatalf("ListInstalled: %v", err)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	installed, listError := ListInstalled(ctx)
+	if listError != nil {
+		t.Fatalf("ListInstalled: %v", listError)
 	}
 	if len(installed) != 1 {
 		t.Fatalf("installed count = %d, want 1", len(installed))
@@ -130,35 +101,36 @@ func TestListInstalledReadsManifestMetadata(t *testing.T) {
 	if installed[0].Publisher != "Example" {
 		t.Fatalf("publisher = %q, want Example", installed[0].Publisher)
 	}
+	if installed[0].Enabled {
+		t.Fatal("enabled = true, want false")
+	}
 	if installed[0].InstalledAt.Time.UnixMilli() != 12345 {
 		t.Fatalf("installedAt = %d, want 12345", installed[0].InstalledAt.Time.UnixMilli())
 	}
 }
 
 func TestSetInstalledSkillEnabledPersistsAcrossListInstalled(t *testing.T) {
-	directory := t.TempDir()
-	configs.SetDirectory(directory)
-	t.Cleanup(func() { configs.SetDirectory("") })
+	openedStore := setupSkillStore(t)
+	version := "1.0.0"
+	createError := openedStore.Transaction(func(transaction store.Transaction) error {
+		_, skillCreateError := transaction.CreateSkill(&models.Skill{
+			ID:      "demo",
+			Name:    ptrto.Value("demo"),
+			Version: &version,
+		}, nil)
+		return skillCreateError
+	})
+	if createError != nil {
+		t.Fatalf("creating skill: %v", createError)
+	}
+	ctx := store.ContextWithStore(context.Background(), openedStore)
 
-	installDirectory := filepath.Join(directory, "skills", ".installed", "demo", "1.0.0")
-	if err := os.MkdirAll(installDirectory, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+	if setError := SetInstalledSkillEnabled(ctx, "demo", false); setError != nil {
+		t.Fatalf("SetInstalledSkillEnabled(false): %v", setError)
 	}
-	manifest := installManifest{
-		Name:    "demo",
-		Version: "1.0.0",
-	}
-	manifestBytes, _ := json.Marshal(manifest)
-	if err := os.WriteFile(filepath.Join(installDirectory, "manifest.json"), manifestBytes, 0644); err != nil {
-		t.Fatalf("manifest write: %v", err)
-	}
-
-	if err := SetInstalledSkillEnabled("demo", false); err != nil {
-		t.Fatalf("SetInstalledSkillEnabled(false): %v", err)
-	}
-	installed, err := ListInstalled()
-	if err != nil {
-		t.Fatalf("ListInstalled after disable: %v", err)
+	installed, listError := ListInstalled(ctx)
+	if listError != nil {
+		t.Fatalf("ListInstalled after disable: %v", listError)
 	}
 	if len(installed) != 1 {
 		t.Fatalf("installed count = %d, want 1", len(installed))
@@ -167,12 +139,12 @@ func TestSetInstalledSkillEnabledPersistsAcrossListInstalled(t *testing.T) {
 		t.Fatal("enabled = true, want false after disable")
 	}
 
-	if err := SetInstalledSkillEnabled("demo", true); err != nil {
-		t.Fatalf("SetInstalledSkillEnabled(true): %v", err)
+	if setError := SetInstalledSkillEnabled(ctx, "demo", true); setError != nil {
+		t.Fatalf("SetInstalledSkillEnabled(true): %v", setError)
 	}
-	installed, err = ListInstalled()
-	if err != nil {
-		t.Fatalf("ListInstalled after enable: %v", err)
+	installed, listError = ListInstalled(ctx)
+	if listError != nil {
+		t.Fatalf("ListInstalled after enable: %v", listError)
 	}
 	if len(installed) != 1 {
 		t.Fatalf("installed count = %d, want 1", len(installed))

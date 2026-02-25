@@ -12,10 +12,7 @@ import (
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
-	"github.com/teanode/teanode/internal/jobs"
-	"github.com/teanode/teanode/internal/media"
 	"github.com/teanode/teanode/internal/providers"
-	"github.com/teanode/teanode/internal/sessions"
 	"github.com/teanode/teanode/internal/voice"
 	"github.com/teanode/teanode/internal/web"
 )
@@ -24,7 +21,6 @@ var log = logging.MustGetLogger("gateway")
 
 // SendMessageParameters are the parameters for sending a message through the gateway.
 type SendMessageParameters struct {
-	UserContext        *UserContext
 	AgentID            string
 	ConversationID     string // empty = auto-create
 	Message            string
@@ -97,9 +93,6 @@ type Gateway interface {
 
 	// Subsystem access
 	AgentRegistry() *agents.AgentRegistry
-	Scheduler() *jobs.Scheduler
-	Summarizer() *agents.Summarizer
-	MediaStore() *media.Store
 	BrowserRelay() *relaybrowser.Relay
 	TerminalRelay() *terminals.Relay
 
@@ -131,7 +124,8 @@ type Gateway interface {
 
 	// Voice session lifecycle
 	StartVoiceSession(
-		userId, conversationId, agentId string,
+		ctx context.Context,
+		conversationId, agentId string,
 		promptSuffix string,
 		audioIn, audioOut voice.AudioFormat,
 		features voice.Features,
@@ -142,9 +136,6 @@ type Gateway interface {
 	MarkSessionConnected(sessionId string)
 	MarkSessionDisconnected(sessionId string)
 	IsSessionConnected(sessionId string) bool
-
-	// Session store access
-	SessionStore() *sessions.Store
 
 	// Auth middleware for the HTTP server
 	AuthMiddleware() web.Middleware
@@ -160,26 +151,22 @@ type Gateway interface {
 
 // New creates a new Gateway.
 func New(
+	ctx context.Context,
 	configuration *configs.Config,
 	securityConfig *configs.SecurityConfig,
 	agentRegistry *agents.AgentRegistry,
 	browserRelay *relaybrowser.Relay,
 	terminalRelay *terminals.Relay,
-	scheduler *jobs.Scheduler,
 	summarizer *agents.Summarizer,
-	mediaStore *media.Store,
-	sessionStore *sessions.Store,
 ) Gateway {
 	return &gateway{
+		ctx:                ctx,
 		config:             configuration,
 		securityConfig:     securityConfig,
 		agentRegistry:      agentRegistry,
 		browserRelay:       browserRelay,
 		terminalRelay:      terminalRelay,
-		scheduler:          scheduler,
 		summarizer:         summarizer,
-		mediaStore:         mediaStore,
-		sessionStore:       sessionStore,
 		subscribers:        make(map[Subscriber]struct{}),
 		sessionsConnected:  make(map[string]int),
 		activeRuns:         make(map[string]*activeRun),

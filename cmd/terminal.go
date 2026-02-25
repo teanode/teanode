@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/util/screenbuffer"
 	"github.com/urfave/cli/v3"
@@ -146,12 +145,6 @@ func NewTerminalCommand() *cli.Command {
 			// Connect to gateway WebSocket.
 			gatewayUrl := command.String("gateway")
 			token := command.String("token")
-			// Default token from security.yaml if --token is not provided.
-			if token == "" {
-				if securityConfig, err := configs.LoadSecurity(); err == nil {
-					token = securityConfig.LatestToken()
-				}
-			}
 			name := strings.TrimSpace(command.String("name"))
 			if name == "" {
 				name = defaultTerminalConnectionId()
@@ -167,12 +160,18 @@ func NewTerminalCommand() *cli.Command {
 }
 
 func defaultTerminalConnectionId() string {
+	username := "teanode"
+	if currentUser, err := user.Current(); err == nil {
+		if value := strings.TrimSpace(currentUser.Username); value != "" {
+			username = value
+		}
+	}
 	hostname, _ := os.Hostname()
 	hostname = strings.TrimSpace(hostname)
 	if hostname == "" {
 		hostname = "host"
 	}
-	return fmt.Sprintf("%s@%s:%d", configs.OSUsername(), hostname, os.Getpid())
+	return fmt.Sprintf("%s@%s:%d", username, hostname, os.Getpid())
 }
 
 func currentTerminalSize() (rows, cols uint16) {

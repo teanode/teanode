@@ -53,7 +53,7 @@ func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string
 	var args struct {
 		Action string `json:"action"`
 		Query  string `json:"query"`
-		FileID string `json:"file_id"`
+		WorkspaceFileID string `json:"file_id"`
 		Limit  int    `json:"limit"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
@@ -80,11 +80,11 @@ func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string
 		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
 
 	case "info":
-		if args.FileID == "" {
+		if args.WorkspaceFileID == "" {
 			return "", fmt.Errorf("file_id is required for info action")
 		}
 		return execGog(ctx, self.runner, self.binary, self.account,
-			"drive", "get", args.FileID)
+			"drive", "get", args.WorkspaceFileID)
 
 	default:
 		return "", fmt.Errorf("unknown drive action: %s", args.Action)

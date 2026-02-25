@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -17,8 +18,10 @@ import (
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/util/mimetypes"
 	"github.com/teanode/teanode/internal/util/slashcommands"
 )
 
@@ -220,12 +223,13 @@ type telegramSubscribedRun struct {
 	origin          string
 	originSessionId string
 	triggerText     string
-	pendingMedia    []*media.MediaContent
+	pendingMedia    []*mimetypes.MediaContent
 	mediaMutex      sync.Mutex
 }
 
 // Bot manages a Telegram bot that forwards messages to the agents.
 type Bot struct {
+	ctx           context.Context
 	config        *configs.TelegramConfig
 	agentRegistry *agents.AgentRegistry
 	gateway       gw.Gateway
@@ -246,8 +250,9 @@ type Bot struct {
 }
 
 // New creates a new Telegram bot that dynamically resolves the default agent and conversation from the registry.
-func New(telegramConfig *configs.TelegramConfig, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
+func New(ctx context.Context, telegramConfig *configs.TelegramConfig, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
 	return &Bot{
+		ctx:                 ctx,
 		config:              telegramConfig,
 		agentRegistry:       agentRegistry,
 		gateway:             gateway,
@@ -431,7 +436,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil {
 			result, _ := payloadMap["result"].(string)
-			if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+			if detected := mimetypes.DetectMedia(result); detected != nil && detected.Base64 != "" && mimetypes.IsImageFormat(detected.Format) {
 				subscribedRun.mediaMutex.Lock()
 				subscribedRun.pendingMedia = append(subscribedRun.pendingMedia, detected)
 				subscribedRun.mediaMutex.Unlock()
@@ -564,13 +569,14 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 	}
 
 	chatIdStr := fmt.Sprintf("%d", message.Chat.ID)
-	userId := self.linkedUserIdForTelegramChat(chatIdStr)
-	if userId == "" {
+	user := self.linkedUserForTelegramChat(chatIdStr)
+	if user == nil {
 		messageRequest := tgbotapi.NewMessage(message.Chat.ID, unlinkedTelegramMessage(chatIdStr))
 		messageRequest.ReplyToMessageID = message.MessageID
 		self.api.Send(messageRequest)
 		return
 	}
+	userId := user.ID
 
 	// Handle /start specially — always respond with greeting.
 	if text == "/start" || strings.HasPrefix(text, "/start@") {
@@ -630,7 +636,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 		attachments = self.extractAttachments(message)
 	}
 
-	go self.handleMessage(userId, conversationId, defaultAgentId, message.Chat.ID, message.MessageID, text, chatIdStr, attachments)
+	go self.handleMessage(user, conversationId, defaultAgentId, message.Chat.ID, message.MessageID, text, chatIdStr, attachments)
 }
 
 func unlinkedTelegramMessage(chatId string) string {
@@ -654,7 +660,7 @@ func unlinkedTelegramMessage(chatId string) string {
 	)
 }
 
-func (self *Bot) handleMessage(userId, conversationId, agentId string, chatId int64, replyTo int, message, chatIdStr string, attachments []conversations.Attachment) {
+func (self *Bot) handleMessage(user *models.User, conversationId, agentId string, chatId int64, replyTo int, message, chatIdStr string, attachments []conversations.Attachment) {
 	defer deferutil.Recover()
 
 	// Mark this conversation as actively handled by us.
@@ -672,7 +678,7 @@ func (self *Bot) handleMessage(userId, conversationId, agentId string, chatId in
 	action := tgbotapi.NewChatAction(chatId, tgbotapi.ChatTyping)
 	self.api.Send(action)
 
-	var pendingMedia []*media.MediaContent
+	var pendingMedia []*mimetypes.MediaContent
 	var pendingMediaMutex sync.Mutex
 
 	preview := newTelegramStreamPreview(self.api, chatId, replyTo)
@@ -690,7 +696,7 @@ func (self *Bot) handleMessage(userId, conversationId, agentId string, chatId in
 		},
 		OnToolResult: func(toolName string, result string) {
 			// Collect media for sending as photos.
-			if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+			if detected := mimetypes.DetectMedia(result); detected != nil && detected.Base64 != "" && mimetypes.IsImageFormat(detected.Format) {
 				pendingMediaMutex.Lock()
 				pendingMedia = append(pendingMedia, detected)
 				pendingMediaMutex.Unlock()
@@ -698,8 +704,8 @@ func (self *Bot) handleMessage(userId, conversationId, agentId string, chatId in
 		},
 	}
 
-	handle := self.gateway.SendMessage(context.Background(), gw.SendMessageParameters{
-		UserContext:    &gw.UserContext{UserID: userId},
+	runContext := gw.ContextWithUserAndSession(context.Background(), user, nil)
+	handle := self.gateway.SendMessage(runContext, gw.SendMessageParameters{
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
@@ -869,6 +875,7 @@ func (self *Bot) handleCommand(userId string, message *tgbotapi.Message, chatIdS
 		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
 		if runner != nil {
 			contextWithUserId := agents.ContextWithUserID(context.Background(), userId)
+			contextWithUserId = store.ContextWithStore(contextWithUserId, store.StoreFromContext(self.ctx))
 			result, err := runner.CompactConversation(contextWithUserId, conversationId)
 			if err != nil {
 				reply = fmt.Sprintf("Error compacting: %v", err)
@@ -904,35 +911,36 @@ func (self *Bot) handleCommand(userId string, message *tgbotapi.Message, chatIdS
 	}
 }
 
-func (self *Bot) linkedUserIdForTelegramChat(chatId string) string {
-	securityConfig := self.gateway.SecurityConfig()
-	if securityConfig == nil {
-		return ""
+func (self *Bot) linkedUserForTelegramChat(chatId string) *models.User {
+	var chatID int64
+	if _, scanError := fmt.Sscanf(chatId, "%d", &chatID); scanError != nil {
+		return nil
 	}
-	if securityConfig.ChannelLinks.Telegram == nil {
-		return ""
-	}
-	return securityConfig.ChannelLinks.Telegram[chatId]
+	var user *models.User
+	_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		_, foundUser, found := transaction.GetUserByTelegramChatID(chatID, nil)
+		if found {
+			user = foundUser
+		}
+		return nil
+	})
+	return user
 }
 
 func (self *Bot) telegramChatIdForUser(userId string) int64 {
 	if userId == "" {
 		return 0
 	}
-	securityConfig := self.gateway.SecurityConfig()
-	if securityConfig == nil || securityConfig.ChannelLinks.Telegram == nil {
-		return 0
-	}
-	for chatId, linkedUserId := range securityConfig.ChannelLinks.Telegram {
-		if linkedUserId != userId {
-			continue
+	chatID := int64(0)
+	_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		user, err := transaction.GetUser(userId, nil)
+		if err != nil || user.TelegramChatID == nil {
+			return nil
 		}
-		var parsed int64
-		if _, err := fmt.Sscanf(chatId, "%d", &parsed); err == nil {
-			return parsed
-		}
-	}
-	return 0
+		chatID = *user.TelegramChatID
+		return nil
+	})
+	return chatID
 }
 
 func (self *Bot) sendChunked(chatId int64, replyTo int, text string) {
@@ -969,13 +977,8 @@ func (self *Bot) sendChunked(chatId int64, replyTo int, text string) {
 }
 
 // extractAttachments downloads files attached to a Telegram message and saves
-// them to the media store, returning conversation attachment references.
+// them through the configured store, returning conversation attachment references.
 func (self *Bot) extractAttachments(message *tgbotapi.Message) []conversations.Attachment {
-	mediaStore := self.gateway.MediaStore()
-	if mediaStore == nil {
-		return nil
-	}
-
 	type telegramFile struct {
 		fileId   string
 		filename string
@@ -1017,27 +1020,42 @@ func (self *Bot) extractAttachments(message *tgbotapi.Message) []conversations.A
 		// Determine format from filename extension, fall back to MIME type.
 		format := strings.TrimPrefix(filepath.Ext(file.filename), ".")
 		if format == "" {
-			format = media.FormatFromMimeType(file.mimeType)
+			format = mimetypes.FormatFromMIMEType(file.mimeType)
 		}
 		if format == "" {
 			format = "bin"
 		}
 
-		saved, err := mediaStore.Save(data, format, media.SaveOptions{
-			SourceType:   "telegram",
-			OriginalName: file.filename,
+		contentType := file.mimeType
+		if strings.TrimSpace(contentType) == "" {
+			contentType = mimetypes.MIMETypeFromFormat(format)
+		}
+		var createdMedia *models.Media
+		createError := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+			var saveError error
+			createdMedia, saveError = transaction.CreateMedia(bytes.NewReader(data), &models.Media{
+				Format:       &format,
+				ContentType:  &contentType,
+				Source:       ptrToString("telegram"),
+				OriginalName: &file.filename,
+			}, nil)
+			return saveError
 		})
-		if err != nil {
-			log.Errorf("failed to save telegram attachment: %v", err)
+		if createError != nil {
+			log.Errorf("failed to save telegram attachment: %v", createError)
 			continue
 		}
 		attachments = append(attachments, conversations.Attachment{
-			MediaID:  saved.MediaID,
+			MediaID:  createdMedia.ID,
 			Format:   format,
 			Filename: file.filename,
 		})
 	}
 	return attachments
+}
+
+func ptrToString(value string) *string {
+	return &value
 }
 
 // downloadTelegramFile downloads a file from Telegram by its file ID.

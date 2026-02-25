@@ -2,24 +2,43 @@ package agents
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
 )
 
 func TestSummarizerSummarizeAllIteratesAllUsersAndAgents(t *testing.T) {
-	configs.SetDirectory(t.TempDir())
+	baseDirectory := t.TempDir()
+	configs.SetDirectory(baseDirectory)
+	defer configs.SetDirectory("")
 
-	for _, userId := range []string{"user-b", "user-a"} {
-		userDirectory := configs.UserDirectory(userId)
-		if err := os.MkdirAll(userDirectory, 0755); err != nil {
-			t.Fatalf("MkdirAll(%q): %v", userDirectory, err)
-		}
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: baseDirectory})
+	if openError != nil {
+		t.Fatalf("open store: %v", openError)
 	}
+	defer openedStore.Close()
+	if createError := openedStore.Transaction(func(transaction store.Transaction) error {
+		for _, userID := range []string{"user-b", "user-a"} {
+			username := userID
+			admin := false
+			if _, err := transaction.CreateUser(&models.User{
+				ID:       userID,
+				Username: &username,
+				Admin:    &admin,
+			}, nil, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); createError != nil {
+		t.Fatalf("create users: %v", createError)
+	}
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
 
 	var mutex sync.Mutex
 	calls := map[string]int{}
@@ -30,17 +49,17 @@ func TestSummarizerSummarizeAllIteratesAllUsersAndAgents(t *testing.T) {
 				mutex.Lock()
 				calls[userId+":"+resolvedAgentId]++
 				mutex.Unlock()
-				return conversations.NewStore(filepath.Join(t.TempDir(), userId, resolvedAgentId))
+				return conversations.NewStore(contextWithStore, userId, resolvedAgentId)
 			},
 			Config: &configs.Config{},
 		}
 	}
 
-	registry := NewAgentRegistry()
+	registry := NewAgentRegistry(contextWithStore)
 	registry.Register("agent-a", newRunner("agent-a"))
 	registry.Register("agent-b", newRunner("agent-b"))
 
-	summarizer := NewSummarizer(registry, &configs.Config{})
+	summarizer := NewSummarizer(contextWithStore, registry, &configs.Config{})
 	summarizer.summarizeAll(context.Background())
 
 	expected := []string{
@@ -59,23 +78,40 @@ func TestSummarizerSummarizeAllIteratesAllUsersAndAgents(t *testing.T) {
 	}
 }
 
-func TestSummarizerSkipsNilConversationStore(t *testing.T) {
-	configs.SetDirectory(t.TempDir())
+func TestSummarizerSummarizeAllWithEmptyConversationStore(t *testing.T) {
+	baseDirectory := t.TempDir()
+	configs.SetDirectory(baseDirectory)
+	defer configs.SetDirectory("")
 
-	userDirectory := configs.UserDirectory("user-1")
-	if err := os.MkdirAll(userDirectory, 0755); err != nil {
-		t.Fatalf("MkdirAll(%q): %v", userDirectory, err)
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: baseDirectory})
+	if openError != nil {
+		t.Fatalf("open store: %v", openError)
 	}
+	defer openedStore.Close()
+	if createError := openedStore.Transaction(func(transaction store.Transaction) error {
+		userID := "user-1"
+		username := userID
+		admin := false
+		_, err := transaction.CreateUser(&models.User{
+			ID:       userID,
+			Username: &username,
+			Admin:    &admin,
+		}, nil, nil)
+		return err
+	}); createError != nil {
+		t.Fatalf("create user: %v", createError)
+	}
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
 
-	registry := NewAgentRegistry()
+	registry := NewAgentRegistry(contextWithStore)
 	registry.Register("agent-a", &Runner{
 		AgentID: "agent-a",
 		ResolveConversations: func(userId, agentId string) *conversations.Store {
-			return nil
+			return conversations.NewStore(contextWithStore, userId, agentId)
 		},
 		Config: &configs.Config{},
 	})
 
-	summarizer := NewSummarizer(registry, &configs.Config{})
+	summarizer := NewSummarizer(contextWithStore, registry, &configs.Config{})
 	summarizer.summarizeAll(context.Background())
 }

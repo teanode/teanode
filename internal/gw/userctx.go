@@ -1,29 +1,27 @@
 package gw
 
-import "context"
+import (
+	"context"
 
-type AuthMethod string
-
-const (
-	AuthMethodSession AuthMethod = "session"
-	AuthMethodToken   AuthMethod = "token"
+	"github.com/teanode/teanode/internal/models"
 )
-
-type UserContext struct {
-	UserID     string
-	SessionID  string
-	AuthMethod AuthMethod
-}
 
 type userContextKey string
 
 const contextKeyUser userContextKey = "userContext"
+const contextKeySession userContextKey = "sessionContext"
 
-func ContextWithUser(ctx context.Context, user *UserContext) context.Context {
-	return context.WithValue(ctx, contextKeyUser, user)
+func ContextWithUserAndSession(ctx context.Context, user *models.User, session *models.Session) context.Context {
+	withUser := context.WithValue(ctx, contextKeyUser, user)
+	return context.WithValue(withUser, contextKeySession, session)
 }
 
-func UserFromContext(ctx context.Context) *UserContext {
-	value, _ := ctx.Value(contextKeyUser).(*UserContext)
+func UserFromContext(ctx context.Context) *models.User {
+	value, _ := ctx.Value(contextKeyUser).(*models.User)
+	return value
+}
+
+func SessionFromContext(ctx context.Context) *models.Session {
+	value, _ := ctx.Value(contextKeySession).(*models.Session)
 	return value
 }

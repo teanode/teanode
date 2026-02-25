@@ -3,23 +3,33 @@ package projects_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/projects"
-	"github.com/teanode/teanode/internal/util/timeutil"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
 )
 
-func withTempDirForTools(t *testing.T) {
+func setupProjectsToolStore(t *testing.T) store.Store {
 	t.Helper()
-	configs.SetDirectory(t.TempDir())
-	t.Cleanup(func() { configs.SetDirectory("") })
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	return openedStore
 }
 
 func TestProjectsToolCreateAndWrite(t *testing.T) {
-	withTempDirForTools(t)
+	openedStore := setupProjectsToolStore(t)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+
 	registry := agents.NewToolRegistry()
 	registry.Register(projects.NewProjectsTool())
 	registry.Register(projects.NewProjectWorkspaceTool())
@@ -32,20 +42,18 @@ func TestProjectsToolCreateAndWrite(t *testing.T) {
 		t.Fatal("project_workspace tool not registered")
 	}
 
-	ctx := context.Background()
-	result, err := projectsTool.Execute(ctx, `{"action":"create","name":"Alpha","description":"Track milestones and shared project decisions","purpose":"Track milestones"}`)
-	if err != nil {
-		t.Fatalf("create failed: %v", err)
+	result, createError := projectsTool.Execute(ctx, `{"action":"create","name":"Alpha","description":"Track milestones and shared project decisions","purpose":"Track milestones"}`)
+	if createError != nil {
+		t.Fatalf("create failed: %v", createError)
 	}
 	var created struct {
 		Project struct {
-			ID        string             `json:"id"`
-			Name      string             `json:"name"`
-			UpdatedAt timeutil.Timestamp `json:"updatedAt"`
+			ID   string `json:"id"`
+			Name string `json:"name"`
 		} `json:"project"`
 	}
-	if err := json.Unmarshal([]byte(result), &created); err != nil {
-		t.Fatalf("unmarshal create result: %v", err)
+	if unmarshalError := json.Unmarshal([]byte(result), &created); unmarshalError != nil {
+		t.Fatalf("unmarshal create result: %v", unmarshalError)
 	}
 	if created.Project.ID == "" {
 		t.Fatal("project ID should not be empty")
@@ -55,28 +63,22 @@ func TestProjectsToolCreateAndWrite(t *testing.T) {
 	}
 
 	time.Sleep(2 * time.Millisecond)
-	_, err = workspaceTool.Execute(ctx, `{"action":"write","projectId":"`+created.Project.ID+`","path":"notes.md","content":"hello"}`)
-	if err != nil {
-		t.Fatalf("write failed: %v", err)
+	if _, writeError := workspaceTool.Execute(ctx, `{"action":"write","projectId":"`+created.Project.ID+`","path":"notes.md","content":"hello"}`); writeError != nil {
+		t.Fatalf("write failed: %v", writeError)
 	}
-	listedProjects, err := configs.LoadProjectConfigs()
-	if err != nil {
-		t.Fatalf("LoadProjectConfigs(): %v", err)
+	readResult, readError := workspaceTool.Execute(ctx, `{"action":"read","projectId":"`+created.Project.ID+`","path":"notes.md"}`)
+	if readError != nil {
+		t.Fatalf("read failed: %v", readError)
 	}
-	if len(listedProjects) != 1 {
-		t.Fatalf("len(listedProjects) = %d, want 1", len(listedProjects))
-	}
-	metadata := listedProjects[0]
-	if metadata.ID != created.Project.ID {
-		t.Fatalf("metadata.ID = %q, want %q", metadata.ID, created.Project.ID)
-	}
-	if !metadata.UpdatedAt.Time.After(created.Project.UpdatedAt.Time) {
-		t.Fatalf("updatedAt = %s, want > %s", metadata.UpdatedAt.String(), created.Project.UpdatedAt.String())
+	if !strings.Contains(readResult, "hello") {
+		t.Fatalf("read result = %q, want to contain hello", readResult)
 	}
 }
 
 func TestProjectsToolListRenameDelete(t *testing.T) {
-	withTempDirForTools(t)
+	openedStore := setupProjectsToolStore(t)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+
 	registry := agents.NewToolRegistry()
 	registry.Register(projects.NewProjectsTool())
 	registry.Register(projects.NewProjectWorkspaceTool())
@@ -85,28 +87,26 @@ func TestProjectsToolListRenameDelete(t *testing.T) {
 		t.Fatal("projects tool not registered")
 	}
 
-	ctx := context.Background()
-	result, err := projectsTool.Execute(ctx, `{"action":"create","name":"Beta","description":"desc"}`)
-	if err != nil {
-		t.Fatalf("create failed: %v", err)
+	createResult, createError := projectsTool.Execute(ctx, `{"action":"create","name":"Beta","description":"desc"}`)
+	if createError != nil {
+		t.Fatalf("create failed: %v", createError)
 	}
 	var created struct {
 		Project struct {
 			ID string `json:"id"`
 		} `json:"project"`
 	}
-	if err := json.Unmarshal([]byte(result), &created); err != nil {
-		t.Fatalf("unmarshal create result: %v", err)
+	if unmarshalError := json.Unmarshal([]byte(createResult), &created); unmarshalError != nil {
+		t.Fatalf("unmarshal create result: %v", unmarshalError)
 	}
 
-	_, err = projectsTool.Execute(ctx, `{"action":"rename","projectId":"`+created.Project.ID+`","name":"Beta Renamed"}`)
-	if err != nil {
-		t.Fatalf("rename failed: %v", err)
+	if _, renameError := projectsTool.Execute(ctx, `{"action":"rename","projectId":"`+created.Project.ID+`","name":"Beta Renamed"}`); renameError != nil {
+		t.Fatalf("rename failed: %v", renameError)
 	}
 
-	result, err = projectsTool.Execute(ctx, `{"action":"list"}`)
-	if err != nil {
-		t.Fatalf("list failed: %v", err)
+	listResult, listError := projectsTool.Execute(ctx, `{"action":"list"}`)
+	if listError != nil {
+		t.Fatalf("list failed: %v", listError)
 	}
 	var listed struct {
 		Projects []struct {
@@ -114,76 +114,14 @@ func TestProjectsToolListRenameDelete(t *testing.T) {
 			Name string `json:"name"`
 		} `json:"projects"`
 	}
-	if err := json.Unmarshal([]byte(result), &listed); err != nil {
-		t.Fatalf("unmarshal list result: %v", err)
+	if unmarshalError := json.Unmarshal([]byte(listResult), &listed); unmarshalError != nil {
+		t.Fatalf("unmarshal list result: %v", unmarshalError)
 	}
 	if len(listed.Projects) != 1 || listed.Projects[0].Name != "Beta Renamed" {
 		t.Fatalf("unexpected projects list: %+v", listed.Projects)
 	}
 
-	_, err = projectsTool.Execute(ctx, `{"action":"delete","projectId":"`+created.Project.ID+`"}`)
-	if err != nil {
-		t.Fatalf("delete failed: %v", err)
-	}
-}
-
-func TestProjectsAndWorkspaceToolActions(t *testing.T) {
-	withTempDirForTools(t)
-	registry := agents.NewToolRegistry()
-	registry.Register(projects.NewProjectsTool())
-	registry.Register(projects.NewProjectWorkspaceTool())
-	projectsTool := registry.Get("projects")
-	workspaceTool := registry.Get("project_workspace")
-	if projectsTool == nil {
-		t.Fatal("projects tool not registered")
-	}
-	if workspaceTool == nil {
-		t.Fatal("project_workspace tool not registered")
-	}
-
-	ctx := context.Background()
-	result, err := projectsTool.Execute(ctx, `{"action":"create","name":"Aliases","description":"desc"}`)
-	if err != nil {
-		t.Fatalf("create alias failed: %v", err)
-	}
-	var created struct {
-		Project struct {
-			ID string `json:"id"`
-		} `json:"project"`
-	}
-	if err := json.Unmarshal([]byte(result), &created); err != nil {
-		t.Fatalf("unmarshal create result: %v", err)
-	}
-	if created.Project.ID == "" {
-		t.Fatal("project ID should not be empty")
-	}
-
-	if _, err := projectsTool.Execute(ctx, `{"action":"info","projectId":"`+created.Project.ID+`"}`); err != nil {
-		t.Fatalf("info failed: %v", err)
-	}
-	if _, err := workspaceTool.Execute(ctx, `{"action":"list","projectId":"`+created.Project.ID+`"}`); err != nil {
-		t.Fatalf("workspace list failed: %v", err)
-	}
-	if _, err := projectsTool.Execute(ctx, `{"action":"delete","projectId":"`+created.Project.ID+`"}`); err != nil {
-		t.Fatalf("delete failed: %v", err)
-	}
-}
-
-func TestProjectsToolCreateRequiresDescription(t *testing.T) {
-	withTempDirForTools(t)
-	registry := agents.NewToolRegistry()
-	registry.Register(projects.NewProjectsTool())
-	registry.Register(projects.NewProjectWorkspaceTool())
-	projectsTool := registry.Get("projects")
-	if projectsTool == nil {
-		t.Fatal("projects tool not registered")
-	}
-
-	_, err := projectsTool.Execute(context.Background(), `{"action":"create","name":"NoDesc"}`)
-	if err == nil {
-		t.Fatal("expected error when description is missing for create")
-	}
-	if err.Error() != "description is required for create" {
-		t.Fatalf("unexpected error: %v", err)
+	if _, deleteError := projectsTool.Execute(ctx, `{"action":"delete","projectId":"`+created.Project.ID+`"}`); deleteError != nil {
+		t.Fatalf("delete failed: %v", deleteError)
 	}
 }

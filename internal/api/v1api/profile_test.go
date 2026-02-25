@@ -1,12 +1,8 @@
 package v1api
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
-	"image"
-	"image/color"
-	"image/png"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,93 +13,141 @@ import (
 	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
+	storefs "github.com/teanode/teanode/internal/store/fs"
+	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-func withTempConfigDirectory(t *testing.T) string {
-	t.Helper()
-	directory := t.TempDir()
-	configs.SetDirectory(directory)
-	t.Cleanup(func() { configs.SetDirectory("") })
-	return directory
+const testProfileUserId = "user-1"
+
+type userProfileFixture struct {
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	AvatarMediaID string `json:"avatarMediaId,omitempty"`
 }
 
-func newTestApi(t *testing.T, _ *configs.UserConfig, mediaStore *media.Store) *v1Api {
+func setupProfileStore(t *testing.T) store.Store {
+	t.Helper()
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	return openedStore
+}
+
+func seedProfile(t *testing.T, openedStore store.Store, userId string, profile *userProfileFixture) {
+	t.Helper()
+	seedError := openedStore.Transaction(func(transaction store.Transaction) error {
+		_, getError := transaction.GetUser(userId, nil)
+		if getError == nil {
+			_, modifyError := transaction.ModifyUser(userId, func(user *models.User) error {
+				name := strings.TrimSpace(profile.Name)
+				description := strings.TrimSpace(profile.Description)
+				avatarMediaId := strings.TrimSpace(profile.AvatarMediaID)
+				user.Username = ptrto.Value(name)
+				user.Description = ptrto.Value(description)
+				user.AvatarMediaID = ptrto.Value(avatarMediaId)
+				return nil
+			}, nil)
+			return modifyError
+		}
+		admin := false
+		name := strings.TrimSpace(profile.Name)
+		description := strings.TrimSpace(profile.Description)
+		avatarMediaId := strings.TrimSpace(profile.AvatarMediaID)
+		_, createError := transaction.CreateUser(&models.User{
+			ID:            userId,
+			Username:      ptrto.Value(name),
+			Description:   ptrto.Value(description),
+			AvatarMediaID: ptrto.Value(avatarMediaId),
+			Admin:         &admin,
+		}, nil, nil)
+		return createError
+	})
+	if seedError != nil {
+		t.Fatalf("seeding profile: %v", seedError)
+	}
+}
+
+func loadProfileFromStore(t *testing.T, openedStore store.Store, userId string) userProfileFixture {
+	t.Helper()
+	result := userProfileFixture{}
+	loadError := openedStore.Transaction(func(transaction store.Transaction) error {
+		user, getError := transaction.GetUser(userId, nil)
+		if getError != nil {
+			return getError
+		}
+		result = userProfileFixture{
+			Name:          valueOrEmpty(user.Username),
+			Description:   valueOrEmpty(user.Description),
+			AvatarMediaID: valueOrEmpty(user.AvatarMediaID),
+		}
+		return nil
+	})
+	if loadError != nil {
+		t.Fatalf("loading profile from store: %v", loadError)
+	}
+	return result
+}
+
+func newTestApi(t *testing.T, openedStore store.Store) *v1Api {
 	t.Helper()
 	return New(
 		gw.New(
+			store.ContextWithStore(context.Background(), openedStore),
 			&configs.Config{},
 			&configs.SecurityConfig{},
-			agents.NewAgentRegistry(),
+			agents.NewAgentRegistry(store.ContextWithStore(context.Background(), openedStore)),
 			nil,
 			nil,
-			nil,
-			nil,
-			mediaStore,
 			nil,
 		),
 		func() {},
 	)
 }
 
-func decodeProfileResponse(t *testing.T, recorder *httptest.ResponseRecorder) configs.UserConfig {
-	t.Helper()
-	var profile configs.UserConfig
-	if err := json.Unmarshal(recorder.Body.Bytes(), &profile); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	return profile
+func withProfileUser(request *http.Request, openedStore store.Store) *http.Request {
+	contextWithUser := gw.ContextWithUserAndSession(
+		request.Context(),
+		&models.User{ID: testProfileUserId},
+		nil,
+	)
+	return request.WithContext(store.ContextWithStore(contextWithUser, openedStore))
 }
 
-func uploadAvatarRequest(t *testing.T) *http.Request {
-	t.Helper()
-	var imageBuffer bytes.Buffer
-	imageData := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	imageData.Set(0, 0, color.RGBA{R: 255, A: 255})
-	if err := png.Encode(&imageBuffer, imageData); err != nil {
-		t.Fatalf("failed to encode png: %v", err)
-	}
-
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	fileWriter, err := writer.CreateFormFile("file", "avatar.png")
-	if err != nil {
-		t.Fatalf("failed to create multipart file: %v", err)
-	}
-	if _, err := fileWriter.Write(imageBuffer.Bytes()); err != nil {
-		t.Fatalf("failed to write multipart data: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("failed to close multipart writer: %v", err)
-	}
-
-	request := httptest.NewRequest(http.MethodPost, "/internal/test/avatar", &body)
-	request.Header.Set("Content-Type", writer.FormDataContentType())
-	return request
-}
-
-func newRPCWebSocketPair(t *testing.T, api *v1Api) (*webSocketConnection, *websocket.Conn, func()) {
+func newRPCWebSocketPair(t *testing.T, api *v1Api, openedStore store.Store) (*webSocketConnection, *websocket.Conn, func()) {
 	t.Helper()
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(_ *http.Request) bool { return true },
 	}
-	serverConnectionCh := make(chan *websocket.Conn, 1)
+	serverConnectionChannel := make(chan *websocket.Conn, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		connection, err := upgrader.Upgrade(writer, request, nil)
-		if err != nil {
-			t.Errorf("failed to upgrade websocket: %v", err)
+		connection, upgradeError := upgrader.Upgrade(writer, request, nil)
+		if upgradeError != nil {
+			t.Errorf("failed to upgrade websocket: %v", upgradeError)
 			return
 		}
-		serverConnectionCh <- connection
+		serverConnectionChannel <- connection
 	}))
-	webSocketUrl := "ws" + strings.TrimPrefix(server.URL, "http")
-	clientConnection, _, err := websocket.DefaultDialer.Dial(webSocketUrl, nil)
-	if err != nil {
+	webSocketURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	clientConnection, _, dialError := websocket.DefaultDialer.Dial(webSocketURL, nil)
+	if dialError != nil {
 		server.Close()
-		t.Fatalf("failed to dial websocket: %v", err)
+		t.Fatalf("failed to dial websocket: %v", dialError)
 	}
-	serverConnection := <-serverConnectionCh
-	connection := newWebSocketConnection(serverConnection, api, "test-session", "user-1")
+	serverConnection := <-serverConnectionChannel
+	requestContext := store.ContextWithStore(context.Background(), openedStore)
+	requestContext = gw.ContextWithUserAndSession(
+		requestContext,
+		&models.User{ID: testProfileUserId},
+		&models.Session{ID: "test-session"},
+	)
+	connection := newWebSocketConnection(serverConnection, api, requestContext)
 	cleanup := func() {
 		_ = clientConnection.Close()
 		_ = serverConnection.Close()
@@ -114,12 +158,12 @@ func newRPCWebSocketPair(t *testing.T, api *v1Api) (*webSocketConnection, *webso
 
 func readRPCResponse(t *testing.T, connection *websocket.Conn) responseFrame {
 	t.Helper()
-	if err := connection.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-		t.Fatalf("failed to set read deadline: %v", err)
+	if deadlineError := connection.SetReadDeadline(time.Now().Add(2 * time.Second)); deadlineError != nil {
+		t.Fatalf("failed to set read deadline: %v", deadlineError)
 	}
 	var response responseFrame
-	if err := connection.ReadJSON(&response); err != nil {
-		t.Fatalf("failed to read rpc response: %v", err)
+	if readError := connection.ReadJSON(&response); readError != nil {
+		t.Fatalf("failed to read rpc response: %v", readError)
 	}
 	return response
 }
@@ -131,176 +175,26 @@ type rpcProfileResponsePayload struct {
 
 func decodeRPCProfilePayload(t *testing.T, payload interface{}) rpcProfileResponsePayload {
 	t.Helper()
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("failed to marshal payload: %v", err)
+	raw, marshalError := json.Marshal(payload)
+	if marshalError != nil {
+		t.Fatalf("failed to marshal payload: %v", marshalError)
 	}
 	var decoded rpcProfileResponsePayload
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("failed to decode payload: %v", err)
+	if unmarshalError := json.Unmarshal(raw, &decoded); unmarshalError != nil {
+		t.Fatalf("failed to decode payload: %v", unmarshalError)
 	}
 	return decoded
 }
 
-func TestHandleProfileGet_ReadsFromDiskWhenGatewayCacheIsStale(t *testing.T) {
-	withTempConfigDirectory(t)
-	persisted := &configs.UserConfig{
-		Name:          "Disk Name",
-		AvatarMediaID: "disk_avatar",
-	}
-	if err := configs.SaveUserConfig("", persisted); err != nil {
-		t.Fatalf("SaveUserConfig failed: %v", err)
-	}
-
-	api := newTestApi(t, &configs.UserConfig{
-		Name:          "Stale Name",
-		AvatarMediaID: "stale_avatar",
-	}, nil)
-
-	response := httptest.NewRecorder()
-	if err := api.handleProfile(response, httptest.NewRequest(http.MethodGet, "/internal/test/profile", nil)); err != nil {
-		t.Fatalf("handleProfile GET failed: %v", err)
-	}
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
-	}
-	if !strings.Contains(response.Header().Get("Cache-Control"), "no-store") {
-		t.Fatalf("Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))
-	}
-
-	got := decodeProfileResponse(t, response)
-	if got.Name != persisted.Name || got.AvatarMediaID != persisted.AvatarMediaID {
-		t.Fatalf("response profile = %+v, want %+v", got, *persisted)
-	}
-
-}
-
-func TestProfilePut_PersistsAndLoadsFromNewAPIInstance(t *testing.T) {
-	withTempConfigDirectory(t)
-	initial := &configs.UserConfig{
-		Name:          "Before",
-		AvatarMediaID: "avatar_before",
-	}
-	if err := configs.SaveUserConfig("", initial); err != nil {
-		t.Fatalf("SaveUserConfig failed: %v", err)
-	}
-
-	api := newTestApi(t, &configs.UserConfig{
-		Name:          "Stale",
-		AvatarMediaID: "stale_avatar",
-	}, nil)
-
-	putBody := strings.NewReader("{\"name\":\"  Updated Name  \"}")
-	putRequest := httptest.NewRequest(http.MethodPut, "/internal/test/profile", putBody)
-	response := httptest.NewRecorder()
-	if err := api.handleProfile(response, putRequest); err != nil {
-		t.Fatalf("handleProfile PUT failed: %v", err)
-	}
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
-	}
-
-	updated := decodeProfileResponse(t, response)
-	if updated.Name != "Updated Name" {
-		t.Fatalf("updated profile = %+v, want trimmed name", updated)
-	}
-	if updated.AvatarMediaID != initial.AvatarMediaID {
-		t.Fatalf("avatarMediaId = %q, want %q", updated.AvatarMediaID, initial.AvatarMediaID)
-	}
-
-	refreshedApi := newTestApi(t, &configs.UserConfig{
-		Name:          "Very Stale",
-		AvatarMediaID: "very_stale_avatar",
-	}, nil)
-	getResponse := httptest.NewRecorder()
-	if err := refreshedApi.handleProfile(getResponse, httptest.NewRequest(http.MethodGet, "/internal/test/profile", nil)); err != nil {
-		t.Fatalf("handleProfile GET failed: %v", err)
-	}
-	if getResponse.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", getResponse.Code, http.StatusOK)
-	}
-
-	got := decodeProfileResponse(t, getResponse)
-	if got.Name != "Updated Name" || got.AvatarMediaID != initial.AvatarMediaID {
-		t.Fatalf("profile after new api instance = %+v, want updated persisted values", got)
-	}
-}
-
-func TestProfileAvatarUploadAndRemove_PersistAcrossRefresh(t *testing.T) {
-	withTempConfigDirectory(t)
-	if err := configs.SaveUserConfig("", &configs.UserConfig{Name: "Alice"}); err != nil {
-		t.Fatalf("SaveUserConfig failed: %v", err)
-	}
-
-	mediaStore := media.NewStore(t.TempDir())
-	api := newTestApi(t, &configs.UserConfig{
-		Name:          "Stale Alice",
-		AvatarMediaID: "stale_avatar",
-	}, mediaStore)
-
-	uploadResponse := httptest.NewRecorder()
-	if err := api.handleProfileAvatar(uploadResponse, uploadAvatarRequest(t)); err != nil {
-		t.Fatalf("handleProfileAvatar POST failed: %v", err)
-	}
-	if uploadResponse.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", uploadResponse.Code, http.StatusOK)
-	}
-	uploaded := decodeProfileResponse(t, uploadResponse)
-	if uploaded.AvatarMediaID == "" {
-		t.Fatal("avatarMediaId should not be empty after upload")
-	}
-
-	refreshedApi := newTestApi(t, &configs.UserConfig{
-		Name:          "Very Stale Alice",
-		AvatarMediaID: "",
-	}, mediaStore)
-	getResponse := httptest.NewRecorder()
-	if err := refreshedApi.handleProfile(getResponse, httptest.NewRequest(http.MethodGet, "/internal/test/profile", nil)); err != nil {
-		t.Fatalf("handleProfile GET failed: %v", err)
-	}
-	got := decodeProfileResponse(t, getResponse)
-	if got.AvatarMediaID != uploaded.AvatarMediaID {
-		t.Fatalf("avatarMediaId after refresh = %q, want %q", got.AvatarMediaID, uploaded.AvatarMediaID)
-	}
-
-	deleteResponse := httptest.NewRecorder()
-	if err := refreshedApi.handleProfileAvatar(deleteResponse, httptest.NewRequest(http.MethodDelete, "/internal/test/avatar", nil)); err != nil {
-		t.Fatalf("handleProfileAvatar DELETE failed: %v", err)
-	}
-	removed := decodeProfileResponse(t, deleteResponse)
-	if removed.AvatarMediaID != "" {
-		t.Fatalf("avatarMediaId after remove = %q, want empty", removed.AvatarMediaID)
-	}
-
-	afterRemoveApi := newTestApi(t, &configs.UserConfig{
-		Name:          "Stale Again",
-		AvatarMediaID: uploaded.AvatarMediaID,
-	}, mediaStore)
-	finalGet := httptest.NewRecorder()
-	if err := afterRemoveApi.handleProfile(finalGet, httptest.NewRequest(http.MethodGet, "/internal/test/profile", nil)); err != nil {
-		t.Fatalf("handleProfile GET failed: %v", err)
-	}
-	final := decodeProfileResponse(t, finalGet)
-	if final.AvatarMediaID != "" {
-		t.Fatalf("avatarMediaId after refresh post-remove = %q, want empty", final.AvatarMediaID)
-	}
-}
-
 func TestWebSocketProfileRPCMethods(t *testing.T) {
-	withTempConfigDirectory(t)
-	initial := &configs.UserConfig{
+	openedStore := setupProfileStore(t)
+	seedProfile(t, openedStore, testProfileUserId, &userProfileFixture{
 		Name:          "Disk Name",
 		AvatarMediaID: "avatar_initial",
-	}
-	if err := configs.SaveUserConfig("user-1", initial); err != nil {
-		t.Fatalf("SaveUserConfig failed: %v", err)
-	}
+	})
 
-	api := newTestApi(t, &configs.UserConfig{
-		Name:          "Stale Name",
-		AvatarMediaID: "stale_avatar",
-	}, media.NewStore(t.TempDir()))
-	connection, clientConnection, cleanup := newRPCWebSocketPair(t, api)
+	api := newTestApi(t, openedStore)
+	connection, clientConnection, cleanup := newRPCWebSocketPair(t, api, openedStore)
 	defer cleanup()
 
 	t.Run("profile.get", func(t *testing.T) {
@@ -310,8 +204,8 @@ func TestWebSocketProfileRPCMethods(t *testing.T) {
 			t.Fatalf("response ok = false, error = %+v", response.Error)
 		}
 		payload := decodeRPCProfilePayload(t, response.Payload)
-		if payload.Name != initial.Name || payload.AvatarMediaID != initial.AvatarMediaID {
-			t.Fatalf("payload = %+v, want name/avatar from persisted profile", payload)
+		if payload.Name != "Disk Name" || payload.AvatarMediaID != "avatar_initial" {
+			t.Fatalf("payload = %+v", payload)
 		}
 	})
 
@@ -327,19 +221,13 @@ func TestWebSocketProfileRPCMethods(t *testing.T) {
 			t.Fatalf("response ok = false, error = %+v", response.Error)
 		}
 		payload := decodeRPCProfilePayload(t, response.Payload)
-		if payload.Name != "Updated Name" {
-			t.Fatalf("payload = %+v, want trimmed name", payload)
-		}
-		if payload.AvatarMediaID != initial.AvatarMediaID {
-			t.Fatalf("avatarMediaId = %q, want %q", payload.AvatarMediaID, initial.AvatarMediaID)
+		if payload.Name != "Updated Name" || payload.AvatarMediaID != "avatar_initial" {
+			t.Fatalf("payload = %+v", payload)
 		}
 
-		persisted, err := configs.LoadUserConfig("user-1")
-		if err != nil {
-			t.Fatalf("LoadUserConfig failed: %v", err)
-		}
-		if persisted.Name != "Updated Name" || persisted.AvatarMediaID != initial.AvatarMediaID {
-			t.Fatalf("persisted profile = %+v, want updated values with original avatar", *persisted)
+		persisted := loadProfileFromStore(t, openedStore, testProfileUserId)
+		if persisted.Name != "Updated Name" || persisted.AvatarMediaID != "avatar_initial" {
+			t.Fatalf("persisted profile = %+v", persisted)
 		}
 	})
 
@@ -359,10 +247,7 @@ func TestWebSocketProfileRPCMethods(t *testing.T) {
 			t.Fatalf("avatarMediaId = %q, want empty", payload.AvatarMediaID)
 		}
 
-		persisted, err := configs.LoadUserConfig("user-1")
-		if err != nil {
-			t.Fatalf("LoadUserConfig failed: %v", err)
-		}
+		persisted := loadProfileFromStore(t, openedStore, testProfileUserId)
 		if persisted.AvatarMediaID != "" {
 			t.Fatalf("persisted avatarMediaId = %q, want empty", persisted.AvatarMediaID)
 		}

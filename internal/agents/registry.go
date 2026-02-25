@@ -1,16 +1,18 @@
 package agents
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 
 	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
-	"github.com/teanode/teanode/internal/util/atomicfile"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
-	"gopkg.in/yaml.v3"
 )
 
 type persistedUserState struct {
@@ -30,6 +32,7 @@ type userRuntimeState struct {
 
 // AgentRegistry manages multiple named runners (one per agent).
 type AgentRegistry struct {
+	ctx         context.Context
 	mutex       sync.RWMutex
 	runners     map[string]*Runner // agentId → Runner
 	userStates  map[string]*userRuntimeState
@@ -37,8 +40,9 @@ type AgentRegistry struct {
 }
 
 // NewAgentRegistry creates an empty agent registry.
-func NewAgentRegistry() *AgentRegistry {
+func NewAgentRegistry(ctx context.Context) *AgentRegistry {
 	return &AgentRegistry{
+		ctx:        ctx,
 		runners:    make(map[string]*Runner),
 		userStates: make(map[string]*userRuntimeState),
 	}
@@ -89,6 +93,22 @@ func (self *AgentRegistry) GetRunner(agentId string) *Runner {
 	return self.runners[agentId]
 }
 
+func (self *AgentRegistry) AgentDescription(agentId string) string {
+	description := ""
+	_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		agent, err := transaction.GetAgent(agentId, nil)
+		if err != nil {
+			return nil
+		}
+		description = strings.TrimSpace(valueOrEmptyString(agent.Description))
+		return nil
+	})
+	if description != "" {
+		return description
+	}
+	return ""
+}
+
 func (self *AgentRegistry) EnsureDefaultAgent(userId string, defaultAgentId string) (string, bool, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
@@ -97,6 +117,7 @@ func (self *AgentRegistry) EnsureDefaultAgent(userId string, defaultAgentId stri
 	if state == nil {
 		return "", false, fmt.Errorf("userId is required")
 	}
+	self.loadUserStateFromStoreLocked(userId, state)
 	if state.DefaultAgentID != "" {
 		if _, exists := self.runners[state.DefaultAgentID]; exists {
 			return state.DefaultAgentID, false, nil
@@ -110,7 +131,7 @@ func (self *AgentRegistry) EnsureDefaultAgent(userId string, defaultAgentId stri
 		return "", false, fmt.Errorf("agent not found: %s", defaultAgentId)
 	}
 	state.DefaultAgentID = defaultAgentId
-	self.saveState()
+	self.persistDefaultAgentLocked(userId, defaultAgentId)
 	return defaultAgentId, true, nil
 }
 
@@ -153,62 +174,11 @@ func (self *AgentRegistry) ForEach(fn func(agentId string, runner *Runner)) {
 
 // LoadState restores per-user default agent and conversation state from ~/.teanode/state.yaml.
 func (self *AgentRegistry) LoadState() {
-	stateFilename := configs.StateFilename()
-	data, err := os.ReadFile(stateFilename)
-	if err != nil {
-		return
-	}
-	var state persistedState
-	if err := yaml.Unmarshal(data, &state); err != nil {
-		log.Warningf("ignoring malformed state file path=%s error=%v", stateFilename, err)
-		return
-	}
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	for userId, userState := range state.Users {
-		if userId == "" {
-			continue
-		}
-		runtimeState := self.ensureUserStateLocked(userId)
-		if runtimeState == nil {
-			continue
-		}
-		if userState.DefaultAgentID != "" {
-			if _, ok := self.runners[userState.DefaultAgentID]; ok {
-				runtimeState.DefaultAgentID = userState.DefaultAgentID
-			}
-		}
-		for agentId, conversationId := range userState.DefaultConversationIds {
-			if conversationId != "" {
-				runtimeState.DefaultConversationIds[agentId] = conversationId
-			}
-		}
-	}
+	// No-op: runtime state is sourced from store-backed user and conversation records.
 }
 
 func (self *AgentRegistry) saveState() {
-	stateFilename := configs.StateFilename()
-	state := persistedState{
-		Users: make(map[string]persistedUserState, len(self.userStates)),
-	}
-	for userId, userState := range self.userStates {
-		copyMap := map[string]string{}
-		for agentId, conversationId := range userState.DefaultConversationIds {
-			copyMap[agentId] = conversationId
-		}
-		state.Users[userId] = persistedUserState{
-			DefaultAgentID:         userState.DefaultAgentID,
-			DefaultConversationIds: copyMap,
-		}
-	}
-	data, err := yaml.Marshal(state)
-	if err != nil {
-		log.Warningf("failed to marshal state error=%v", err)
-		return
-	}
-	if err := atomicfile.WriteFile(stateFilename, data); err != nil {
-		log.Warningf("failed to write state file path=%s error=%v", stateFilename, err)
-	}
+	// No-op: runtime state is sourced from store-backed user and conversation records.
 }
 
 func (self *AgentRegistry) SetDefaultAgent(userId, agentId string) error {
@@ -222,7 +192,7 @@ func (self *AgentRegistry) SetDefaultAgent(userId, agentId string) error {
 		return fmt.Errorf("userId is required")
 	}
 	state.DefaultAgentID = agentId
-	self.saveState()
+	self.persistDefaultAgentLocked(userId, agentId)
 	return nil
 }
 
@@ -236,12 +206,13 @@ func (self *AgentRegistry) EnsureDefaultConversation(userId, agentId string) str
 	if state == nil {
 		return ""
 	}
+	self.loadUserStateFromStoreLocked(userId, state)
 	if conversationId, ok := state.DefaultConversationIds[agentId]; ok {
 		return conversationId
 	}
 	conversationId := security.NewULID()
 	state.DefaultConversationIds[agentId] = conversationId
-	self.saveState()
+	self.persistDefaultConversationLocked(userId, agentId, conversationId)
 	return conversationId
 }
 
@@ -253,7 +224,7 @@ func (self *AgentRegistry) SetDefaultConversation(userId, agentId, conversationI
 		return
 	}
 	state.DefaultConversationIds[agentId] = conversationId
-	self.saveState()
+	self.persistDefaultConversationLocked(userId, agentId, conversationId)
 }
 
 func (self *AgentRegistry) SetDefaultConversationIfUnset(userId, agentId, conversationId string) bool {
@@ -263,11 +234,12 @@ func (self *AgentRegistry) SetDefaultConversationIfUnset(userId, agentId, conver
 	if state == nil {
 		return false
 	}
+	self.loadUserStateFromStoreLocked(userId, state)
 	if _, ok := state.DefaultConversationIds[agentId]; ok {
 		return false
 	}
 	state.DefaultConversationIds[agentId] = conversationId
-	self.saveState()
+	self.persistDefaultConversationLocked(userId, agentId, conversationId)
 	return true
 }
 
@@ -280,6 +252,113 @@ func (self *AgentRegistry) NewDefaultConversation(userId, agentId string) string
 	}
 	conversationId := security.NewULID()
 	state.DefaultConversationIds[agentId] = conversationId
-	self.saveState()
+	self.persistDefaultConversationLocked(userId, agentId, conversationId)
 	return conversationId
+}
+
+func (self *AgentRegistry) loadUserStateFromStoreLocked(userId string, state *userRuntimeState) {
+	if state == nil || strings.TrimSpace(userId) == "" {
+		return
+	}
+	if state.DefaultConversationIds == nil {
+		state.DefaultConversationIds = map[string]string{}
+	}
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		user, err := transaction.GetUser(userId, nil)
+		if err == nil {
+			defaultAgentId := strings.TrimSpace(valueOrEmptyString(user.DefaultAgentID))
+			if defaultAgentId != "" {
+				if _, exists := self.runners[defaultAgentId]; exists {
+					state.DefaultAgentID = defaultAgentId
+				}
+			}
+		}
+
+		defaultConversation := true
+		conversations, listError := transaction.ListConversations(store.ConversationListOptions{
+			UserID:  ptrto.Value(userId),
+			Default: ptrto.Value(defaultConversation),
+		}, nil)
+		if listError != nil {
+			return nil
+		}
+		if len(conversations) == 0 {
+			allConversations, allListError := transaction.ListConversations(store.ConversationListOptions{
+				UserID: ptrto.Value(userId),
+			}, nil)
+			if allListError == nil {
+				conversations = allConversations
+			}
+		}
+		for _, conversation := range conversations {
+			agentId := strings.TrimSpace(valueOrEmptyString(conversation.AgentID))
+			if agentId == "" {
+				continue
+			}
+			state.DefaultConversationIds[agentId] = conversation.ID
+		}
+		return nil
+	}); err != nil {
+		log.Warningf("loading user state from store failed: %v", err)
+	}
+}
+
+func (self *AgentRegistry) persistDefaultAgentLocked(userId string, agentId string) {
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		_, err := transaction.ModifyUser(userId, func(user *models.User) error {
+			user.DefaultAgentID = ptrto.Value(strings.TrimSpace(agentId))
+			return nil
+		}, nil)
+		return err
+	}); err != nil {
+		log.Warningf("persisting default agent failed userId=%s agentId=%s error=%v", userId, agentId, err)
+	}
+}
+
+func (self *AgentRegistry) persistDefaultConversationLocked(userId string, agentId string, conversationId string) {
+	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		existingDefaultConversation, err := transaction.FindDefaultConversation(userId, agentId, nil)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		if err == nil && existingDefaultConversation != nil && existingDefaultConversation.ID != conversationId {
+			if _, modifyError := transaction.ModifyConversation(existingDefaultConversation.ID, func(conversation *models.Conversation) error {
+				conversation.Default = ptrto.Value(false)
+				return nil
+			}, nil); modifyError != nil {
+				return modifyError
+			}
+		}
+
+		conversation, getError := transaction.GetConversation(conversationId, nil)
+		if getError != nil {
+			if !errors.Is(getError, store.ErrNotFound) {
+				return getError
+			}
+			_, createError := transaction.CreateConversation(&models.Conversation{
+				ID:      conversationId,
+				UserID:  ptrto.Value(userId),
+				AgentID: ptrto.Value(agentId),
+				Default: ptrto.Value(true),
+			}, nil)
+			return createError
+		}
+
+		_, modifyError := transaction.ModifyConversation(conversation.ID, func(conversation *models.Conversation) error {
+			conversation.UserID = ptrto.Value(userId)
+			conversation.AgentID = ptrto.Value(agentId)
+			conversation.Default = ptrto.Value(true)
+			return nil
+		}, nil)
+		return modifyError
+	}); err != nil {
+		log.Warningf("persisting default conversation failed userId=%s agentId=%s conversationId=%s error=%v", userId, agentId, conversationId, err)
+	}
+}
+
+func valueOrEmptyString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

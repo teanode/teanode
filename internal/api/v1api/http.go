@@ -17,8 +17,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/mimetypes"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
 	_ "image/gif"
@@ -85,14 +88,27 @@ func (self *v1Api) handleMedia(writer http.ResponseWriter, request *http.Request
 	if mediaId == "" {
 		return web.Error(400, "missing media id")
 	}
-	mediaFile, err := self.gateway.MediaStore().Open(mediaId)
-	if err != nil {
+	var mediaReader io.ReadCloser
+	var metadata *models.Media
+	transactionError := store.StoreFromContext(request.Context()).Transaction(func(transaction store.Transaction) error {
+		var openError error
+		mediaReader, metadata, openError = transaction.OpenMedia(mediaId, nil)
+		return openError
+	})
+	if transactionError != nil {
 		return web.ErrNotFound
 	}
-	defer mediaFile.File.Close()
-	writer.Header().Set("Content-Type", media.MimeType(mediaFile.Format))
+	defer mediaReader.Close()
+	contentType := valueOrEmpty(metadata.ContentType)
+	if contentType == "" {
+		contentType = mimetypes.MIMETypeFromFormat(valueOrEmpty(metadata.Format))
+	}
+	writer.Header().Set("Content-Type", contentType)
 	writer.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	http.ServeContent(writer, request, "", time.Time{}, mediaFile.File)
+	_, copyError := io.Copy(writer, mediaReader)
+	if copyError != nil {
+		return copyError
+	}
 	return nil
 }
 
@@ -102,11 +118,6 @@ const maxAvatarUploadSize = 10 << 20
 func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodPost {
 		return web.Error(405, "method not allowed")
-	}
-
-	mediaStore := self.gateway.MediaStore()
-	if mediaStore == nil {
-		return web.Error(500, "media store not available")
 	}
 
 	request.Body = http.MaxBytesReader(writer, request.Body, maxUploadSize)
@@ -120,33 +131,45 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 	}
 	defer file.Close()
 
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return web.Error(400, "failed to read file")
-	}
-
 	// Determine format from file extension, falling back to Content-Type.
 	filename := header.Filename
 	ext := strings.TrimPrefix(filepath.Ext(filename), ".")
 	format := strings.ToLower(ext)
 	if format == "" {
-		format = media.FormatFromMimeType(header.Header.Get("Content-Type"))
+		format = mimetypes.FormatFromMIMEType(header.Header.Get("Content-Type"))
 	}
 	if format == "" {
 		format = "bin"
 	}
 
-	saved, err := mediaStore.Save(data, format, media.SaveOptions{
-		SourceType:   "upload",
-		OriginalName: filename,
+	userId := ""
+	if user := gw.UserFromContext(request.Context()); user != nil {
+		userId = user.ID
+	}
+	contentType := strings.TrimSpace(header.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = mimetypes.MIMETypeFromFormat(format)
+	}
+	metadata := &models.Media{
+		UserID:       ptrto.TrimmedString(userId),
+		Format:       ptrto.TrimmedString(format),
+		ContentType:  ptrto.TrimmedString(contentType),
+		Source:       ptrto.TrimmedString("upload"),
+		OriginalName: ptrto.TrimmedString(filename),
+	}
+	var saved *models.Media
+	createError := store.StoreFromContext(request.Context()).Transaction(func(transaction store.Transaction) error {
+		var err error
+		saved, err = transaction.CreateMedia(file, metadata, nil)
+		return err
 	})
-	if err != nil {
-		return web.Error(500, "failed to save file: "+err.Error())
+	if createError != nil {
+		return web.Error(500, "failed to save file: "+createError.Error())
 	}
 
 	writer.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(writer).Encode(map[string]interface{}{
-		"mediaId":  saved.MediaID,
+		"mediaId":  saved.ID,
 		"format":   format,
 		"filename": filename,
 	})
@@ -385,17 +408,6 @@ func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Req
 		log.Errorf("websocket upgrade error: %v", err)
 		return
 	}
-	var sessionId string
-	if cookie, err := request.Cookie("session"); err == nil {
-		sessionId = cookie.Value
-	}
-	userId := ""
-	if userContext := gw.UserFromContext(request.Context()); userContext != nil {
-		userId = userContext.UserID
-		if userContext.SessionID != "" {
-			sessionId = userContext.SessionID
-		}
-	}
-	webSocketConnection := newWebSocketConnection(connection, self, sessionId, userId)
+	webSocketConnection := newWebSocketConnection(connection, self, request.Context())
 	webSocketConnection.serve()
 }
