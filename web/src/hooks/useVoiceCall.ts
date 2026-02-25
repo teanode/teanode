@@ -372,7 +372,10 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     }
     // Client-side hard interrupt to eliminate audible overlap from buffered
     // chunks before server-side barge_in/flush events are observed.
-    if ((isPlaying || isSynthesizing) && !localSpeechInterruptIssuedRef.current) {
+    if (
+      (isPlaying || isSynthesizing) &&
+      !localSpeechInterruptIssuedRef.current
+    ) {
       interruptPlayback();
       abortRun();
       localSpeechInterruptIssuedRef.current = true;

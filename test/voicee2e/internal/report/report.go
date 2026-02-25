@@ -106,6 +106,6 @@ func percentile(values []int64, p int) int64 {
 	}
 	sorted := append([]int64(nil), values...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	index := (len(sorted)-1)*p/100
+	index := (len(sorted) - 1) * p / 100
 	return sorted[index]
 }

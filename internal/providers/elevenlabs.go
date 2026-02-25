@@ -126,7 +126,7 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, req Synthesi
 			if msgType == websocket.TextMessage {
 				var envelope struct {
 					Audio   string `json:"audio"`
-					IsFinal bool `json:"isFinal"`
+					IsFinal bool   `json:"isFinal"`
 				}
 				if err := json.Unmarshal(payload, &envelope); err == nil {
 					if strings.TrimSpace(envelope.Audio) != "" {

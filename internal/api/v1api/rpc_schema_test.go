@@ -99,4 +99,3 @@ func TestWithVoiceProviderEnums_AddsVoiceProviderEnums(t *testing.T) {
 		t.Fatalf("expected first synth enum to be auto empty string, got %q", synthEnum[0])
 	}
 }
-

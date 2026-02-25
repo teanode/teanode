@@ -97,9 +97,9 @@ func TestContextPruning_ExceedsBudget(t *testing.T) {
 func TestContextPruning_AlwaysKeepsLast2(t *testing.T) {
 	msgs := []providers.ChatMessage{
 		makeMsg("system", "sys"),
-		makeMsg("user", strings.Repeat("u", 100)),    // ~26 tokens
+		makeMsg("user", strings.Repeat("u", 100)),      // ~26 tokens
 		makeMsg("assistant", strings.Repeat("a", 100)), // ~26 tokens
-		makeMsg("user", strings.Repeat("u", 100)),    // last user
+		makeMsg("user", strings.Repeat("u", 100)),      // last user
 		makeMsg("assistant", strings.Repeat("a", 100)), // last assistant (guaranteed)
 	}
 
