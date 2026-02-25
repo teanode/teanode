@@ -49,6 +49,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     sendBinary,
     onBinaryMessage,
     onVoiceMessage,
+    abortRun,
     isRunning,
     connected,
     conversationId,
@@ -78,6 +79,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const endCallRef = useRef<() => void>(() => {});
   const pendingAgentDoneChimeRef = useRef(false);
+  const localSpeechInterruptIssuedRef = useRef(false);
 
   const chimePlayer = useChimePlayer(chimeConfig);
   const playWaitingChime = useCallback(() => {
@@ -191,6 +193,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
         // Stop current playback immediately and ignore stale in-flight audio
         // until the next response starts.
         interruptPlayback();
+        localSpeechInterruptIssuedRef.current = true;
       }
     });
   }, [
@@ -200,6 +203,28 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     onVoiceMessage,
     playWaitingChime,
     resumePlayback,
+  ]);
+
+  useEffect(() => {
+    if (!isCallActive) return;
+    if (!isUserSpeaking) {
+      localSpeechInterruptIssuedRef.current = false;
+      return;
+    }
+    // Client-side hard interrupt to eliminate audible overlap from buffered
+    // chunks before server-side barge_in/flush events are observed.
+    if ((isPlaying || isSynthesizing) && !localSpeechInterruptIssuedRef.current) {
+      interruptPlayback();
+      abortRun();
+      localSpeechInterruptIssuedRef.current = true;
+    }
+  }, [
+    abortRun,
+    interruptPlayback,
+    isCallActive,
+    isPlaying,
+    isSynthesizing,
+    isUserSpeaking,
   ]);
 
   useEffect(() => {
