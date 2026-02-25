@@ -136,7 +136,7 @@ func MakeForwarderMiddleware(forwarderKey string) Middleware {
 
 // AuthenticationMiddleware returns a middleware that enforces token/session auth
 // on API endpoints. It reads the store from the request context.
-func AuthenticationMiddleware() Middleware {
+func MakeAuthenticationMiddleware() Middleware {
 	// checkToken validates bearer auth and injects user context when valid.
 	checkToken := func(request *http.Request) (*http.Request, bool) {
 		authHeader := request.Header.Get("Authorization")
@@ -170,8 +170,8 @@ func AuthenticationMiddleware() Middleware {
 		return request.WithContext(models.ContextWithUserSessionToken(request.Context(), user, nil, token)), true
 	}
 
-	// checkCookie validates session auth and injects user context when valid.
-	checkCookie := func(request *http.Request) (*http.Request, bool) {
+	// checkSession validates session auth and injects user context when valid.
+	checkSession := func(request *http.Request) (*http.Request, bool) {
 		cookie, err := request.Cookie("session")
 		if err != nil || cookie.Value == "" {
 			return request, false
@@ -179,10 +179,10 @@ func AuthenticationMiddleware() Middleware {
 		maxAge := 14 * 24 * time.Hour
 		var session *models.Session
 		var user *models.User
-		if transactionError := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
-			existingSession, getSessionError := transaction.GetSession(ctx, cookie.Value, nil)
-			if getSessionError != nil {
-				return nil
+		if err := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+			existingSession, err := transaction.GetSession(ctx, cookie.Value, nil)
+			if err != nil {
+				return err
 			}
 			if existingSession.ExpiresAt != nil && time.Now().After(*existingSession.ExpiresAt) {
 				_ = transaction.DeleteSession(ctx, cookie.Value, nil)
@@ -191,27 +191,29 @@ func AuthenticationMiddleware() Middleware {
 			if existingSession.UserID == nil || *existingSession.UserID == "" {
 				return nil
 			}
-			existingUser, getUserError := transaction.GetUser(ctx, *existingSession.UserID, nil)
-			if getUserError != nil {
-				return nil
+			existingUser, err := transaction.GetUser(ctx, *existingSession.UserID, nil)
+			if err != nil {
+				return err
 			}
 			if existingSession.ModifiedAt != nil && time.Since(*existingSession.ModifiedAt) >= time.Hour {
-				updatedSession, modifyError := transaction.ModifySession(ctx, existingSession.ID, func(session *models.Session) error {
+				updatedSession, err := transaction.ModifySession(ctx, existingSession.ID, func(session *models.Session) error {
 					expiresAt := time.Now().Add(maxAge)
 					session.ExpiresAt = &expiresAt
 					return nil
 				}, nil)
-				if modifyError == nil {
-					existingSession = updatedSession
+				if err != nil {
+					return err
 				}
+				existingSession = updatedSession
 			}
 			session = existingSession
 			user = existingUser
 			return nil
-		}); transactionError != nil {
+		}); err != nil {
 			return request, false
 		}
-		if session == nil || user == nil || user.ID == "" {
+		log.Debugf("session = %+v, user = %+v", session, user)
+		if session == nil || user == nil {
 			return request, false
 		}
 		return request.WithContext(models.ContextWithUserSessionToken(request.Context(), user, session, nil)), true
@@ -224,6 +226,15 @@ func AuthenticationMiddleware() Middleware {
 			// 1. Non-/api/ paths (frontend static files): always allow.
 			if !strings.HasPrefix(path, "/api/") {
 				next.ServeHTTP(writer, request)
+				return
+			}
+
+			if authorizedRequest, authorized := checkSession(request); authorized {
+				next.ServeHTTP(writer, authorizedRequest)
+				return
+			}
+			if authorizedRequest, authorized := checkToken(request); authorized {
+				next.ServeHTTP(writer, authorizedRequest)
 				return
 			}
 
@@ -242,58 +253,6 @@ func AuthenticationMiddleware() Middleware {
 			// 4. Media GET endpoints: always allow (LLM providers fetch images).
 			if strings.HasPrefix(path, "/api/v1/media/") && request.Method == "GET" {
 				next.ServeHTTP(writer, request)
-				return
-			}
-
-			// 4b. Media upload: requires session or bearer auth.
-			if path == "/api/v1/media/upload" {
-				if authorizedRequest, authorized := checkCookie(request); authorized {
-					next.ServeHTTP(writer, authorizedRequest)
-					return
-				}
-				if authorizedRequest, authorized := checkToken(request); authorized {
-					next.ServeHTTP(writer, authorizedRequest)
-					return
-				}
-				WriteError(writer, ErrUnauthorized)
-				return
-			}
-
-			// 4c. Audio endpoints: requires session or bearer auth.
-			if strings.HasPrefix(path, "/api/v1/audio/") {
-				if authorizedRequest, authorized := checkCookie(request); authorized {
-					next.ServeHTTP(writer, authorizedRequest)
-					return
-				}
-				if authorizedRequest, authorized := checkToken(request); authorized {
-					next.ServeHTTP(writer, authorizedRequest)
-					return
-				}
-				WriteError(writer, ErrUnauthorized)
-				return
-			}
-
-			// 5. Machine endpoints: token-only auth.
-			if path == "/api/v1/browser" || path == "/api/v1/terminal" || path == "/api/v1/chat/completions" {
-				if authorizedRequest, authorized := checkToken(request); authorized {
-					next.ServeHTTP(writer, authorizedRequest)
-					return
-				}
-				WriteError(writer, ErrUnauthorized)
-				return
-			}
-
-			// 6. Websocket api: accept session cookie or bearer token.
-			if path == "/api/v1/websocket" {
-				if authorizedRequest, authorized := checkCookie(request); authorized {
-					next.ServeHTTP(writer, authorizedRequest)
-					return
-				}
-				if authorizedRequest, authorized := checkToken(request); authorized {
-					next.ServeHTTP(writer, authorizedRequest)
-					return
-				}
-				WriteError(writer, ErrUnauthorized)
 				return
 			}
 

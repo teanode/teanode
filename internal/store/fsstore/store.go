@@ -22,7 +22,7 @@ type fileSystemStore struct {
 	mutex         sync.Mutex
 }
 
-type transaction struct {
+type fileSystemTransaction struct {
 	store *fileSystemStore
 }
 
@@ -42,13 +42,13 @@ func (self *fileSystemStore) Transaction(ctx context.Context, run func(context.C
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
-	storeTransaction := &transaction{store: self}
+	storeTransaction := &fileSystemTransaction{store: self}
 	return run(ctx, storeTransaction)
 }
 
-func (self *transaction) Commit(ctx context.Context) error { return nil }
+func (self *fileSystemTransaction) Commit(ctx context.Context) error { return nil }
 
-func (self *transaction) workspaceRoot(scope models.Scope, scopeId string) (string, error) {
+func (self *fileSystemTransaction) workspaceRoot(scope models.Scope, scopeId string) (string, error) {
 	rootDirectory := self.workspaceDirectory(scope, scopeId)
 	if _, err := os.Stat(rootDirectory); errors.Is(err, os.ErrNotExist) {
 		return rootDirectory, nil
@@ -56,7 +56,7 @@ func (self *transaction) workspaceRoot(scope models.Scope, scopeId string) (stri
 	return rootDirectory, nil
 }
 
-func (self *transaction) workspaceDirectory(scope models.Scope, scopeId string) string {
+func (self *fileSystemTransaction) workspaceDirectory(scope models.Scope, scopeId string) string {
 	switch scope {
 	case models.ScopeAgent:
 		return self.agentWorkspaceDirectory(scopeId)
@@ -69,7 +69,7 @@ func (self *transaction) workspaceDirectory(scope models.Scope, scopeId string) 
 	}
 }
 
-func (self *transaction) workspaceFilePath(scope models.Scope, scopeId string, relativePath string) (string, error) {
+func (self *fileSystemTransaction) workspaceFilePath(scope models.Scope, scopeId string, relativePath string) (string, error) {
 	workspaceDirectory := self.workspaceDirectory(scope, scopeId)
 	if workspaceDirectory == "" {
 		return "", fmt.Errorf("unknown scope: %s", scope)

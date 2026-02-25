@@ -51,14 +51,14 @@ func runThroughAuthMiddleware(persistenceStore store.Store, request *http.Reques
 	next := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusNoContent)
 	})
-	AuthenticationMiddleware()(next).ServeHTTP(recorder, request)
+	MakeAuthenticationMiddleware()(next).ServeHTTP(recorder, request)
 	return recorder
 }
 
 func runThroughAuthMiddlewareWithNext(persistenceStore store.Store, request *http.Request, next http.Handler) *httptest.ResponseRecorder {
 	request = request.WithContext(store.ContextWithStore(request.Context(), persistenceStore))
 	recorder := httptest.NewRecorder()
-	AuthenticationMiddleware()(next).ServeHTTP(recorder, request)
+	MakeAuthenticationMiddleware()(next).ServeHTTP(recorder, request)
 	return recorder
 }
 

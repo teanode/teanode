@@ -18,30 +18,30 @@ import (
 	"github.com/teanode/teanode/internal/util/trash"
 )
 
-func (self *transaction) CreateWorkspaceFile(ctx context.Context, file *models.WorkspaceFile, options *store.Option) (*models.WorkspaceFile, error) {
+func (self *fileSystemTransaction) CreateWorkspaceFile(ctx context.Context, file *models.WorkspaceFile, options *store.Option) (*models.WorkspaceFile, error) {
 	return self.createWorkspaceFile(file, options)
 }
 
-func (self *transaction) GetWorkspaceFileByPath(ctx context.Context, scope models.Scope, scopeId string, relativePath string, options *store.Option) (*models.WorkspaceFile, error) {
+func (self *fileSystemTransaction) GetWorkspaceFileByPath(ctx context.Context, scope models.Scope, scopeId string, relativePath string, options *store.Option) (*models.WorkspaceFile, error) {
 	return self.getWorkspaceFile(scope, scopeId, relativePath, options)
 }
 
-func (self *transaction) ModifyWorkspaceFileByPath(ctx context.Context, scope models.Scope, scopeId string, relativePath string, modifier func(*models.WorkspaceFile) error, options *store.Option) (*models.WorkspaceFile, error) {
+func (self *fileSystemTransaction) ModifyWorkspaceFileByPath(ctx context.Context, scope models.Scope, scopeId string, relativePath string, modifier func(*models.WorkspaceFile) error, options *store.Option) (*models.WorkspaceFile, error) {
 	return self.modifyWorkspaceFile(ctx, scope, scopeId, relativePath, modifier, options)
 }
 
-func (self *transaction) DeleteWorkspaceFileByPath(ctx context.Context, scope models.Scope, scopeId string, relativePath string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteWorkspaceFileByPath(ctx context.Context, scope models.Scope, scopeId string, relativePath string, options *store.Option) error {
 	return self.deleteWorkspaceFile(scope, scopeId, relativePath, options)
 }
 
-func (self *transaction) ListWorkspaceFilesByPath(ctx context.Context, scope models.Scope, scopeId string, relativePath string, options *store.Option) ([]*models.WorkspaceFile, error) {
+func (self *fileSystemTransaction) ListWorkspaceFilesByPath(ctx context.Context, scope models.Scope, scopeId string, relativePath string, options *store.Option) ([]*models.WorkspaceFile, error) {
 	return self.listWorkspaceFiles(scope, scopeId, relativePath, options)
 }
 
-func (self *transaction) SearchWorkspaceFiles(ctx context.Context, scope models.Scope, scopeId string, query string, searchOptions store.WorkspaceSearchOptions, options *store.Option) ([]store.WorkspaceFileSearchResult, error) {
+func (self *fileSystemTransaction) SearchWorkspaceFiles(ctx context.Context, scope models.Scope, scopeId string, query string, searchOptions store.WorkspaceSearchOptions, options *store.Option) ([]store.WorkspaceFileSearchResult, error) {
 	return self.searchWorkspace(ctx, scope, scopeId, query, searchOptions, options)
 }
-func (self *transaction) createWorkspaceFile(file *models.WorkspaceFile, options *store.Option) (*models.WorkspaceFile, error) {
+func (self *fileSystemTransaction) createWorkspaceFile(file *models.WorkspaceFile, options *store.Option) (*models.WorkspaceFile, error) {
 	if file == nil || file.Scope == nil || file.ScopeID == nil || file.Path == nil {
 		return nil, fmt.Errorf("scope, scopeId and path are required")
 	}
@@ -76,7 +76,7 @@ func (self *transaction) createWorkspaceFile(file *models.WorkspaceFile, options
 	return &storedFile, nil
 }
 
-func (self *transaction) getWorkspaceFile(scope models.Scope, scopeId string, relativePath string, options *store.Option) (*models.WorkspaceFile, error) {
+func (self *fileSystemTransaction) getWorkspaceFile(scope models.Scope, scopeId string, relativePath string, options *store.Option) (*models.WorkspaceFile, error) {
 	absolutePath, err := self.workspaceFilePath(scope, scopeId, relativePath)
 	if err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func (self *transaction) getWorkspaceFile(scope models.Scope, scopeId string, re
 	return result, nil
 }
 
-func (self *transaction) modifyWorkspaceFile(ctx context.Context, scope models.Scope, scopeId string, relativePath string, modifier func(*models.WorkspaceFile) error, options *store.Option) (*models.WorkspaceFile, error) {
+func (self *fileSystemTransaction) modifyWorkspaceFile(ctx context.Context, scope models.Scope, scopeId string, relativePath string, modifier func(*models.WorkspaceFile) error, options *store.Option) (*models.WorkspaceFile, error) {
 	file, err := self.GetWorkspaceFileByPath(ctx, scope, scopeId, relativePath, options)
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (self *transaction) modifyWorkspaceFile(ctx context.Context, scope models.S
 	return self.CreateWorkspaceFile(ctx, file, options)
 }
 
-func (self *transaction) deleteWorkspaceFile(scope models.Scope, scopeId string, relativePath string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteWorkspaceFile(scope models.Scope, scopeId string, relativePath string, options *store.Option) error {
 	absolutePath, err := self.workspaceFilePath(scope, scopeId, relativePath)
 	if err != nil {
 		return err
@@ -137,7 +137,7 @@ func (self *transaction) deleteWorkspaceFile(scope models.Scope, scopeId string,
 	return trash.Move(absolutePath, self.trashDirectory())
 }
 
-func (self *transaction) listWorkspaceFiles(scope models.Scope, scopeId string, relativePath string, options *store.Option) ([]*models.WorkspaceFile, error) {
+func (self *fileSystemTransaction) listWorkspaceFiles(scope models.Scope, scopeId string, relativePath string, options *store.Option) ([]*models.WorkspaceFile, error) {
 	rootDirectory, err := self.workspaceRoot(scope, scopeId)
 	if err != nil {
 		return nil, err
@@ -188,7 +188,7 @@ func (self *transaction) listWorkspaceFiles(scope models.Scope, scopeId string, 
 	return applyOffsetLimitFiles(fileInfos, options), nil
 }
 
-func (self *transaction) searchWorkspace(ctx context.Context, scope models.Scope, scopeId string, query string, searchOptions store.WorkspaceSearchOptions, options *store.Option) ([]store.WorkspaceFileSearchResult, error) {
+func (self *fileSystemTransaction) searchWorkspace(ctx context.Context, scope models.Scope, scopeId string, query string, searchOptions store.WorkspaceSearchOptions, options *store.Option) ([]store.WorkspaceFileSearchResult, error) {
 	pathPrefix := ""
 	if searchOptions.PathPrefix != nil {
 		pathPrefix = *searchOptions.PathPrefix

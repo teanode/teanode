@@ -6,95 +6,95 @@ import (
 	"path/filepath"
 )
 
-func (self *transaction) dataDirectory() string {
+func (self *fileSystemTransaction) dataDirectory() string {
 	return self.store.dataDirectory
 }
 
-func (self *transaction) configFilename() string {
+func (self *fileSystemTransaction) configFilename() string {
 	return filepath.Join(self.dataDirectory(), "config.yaml")
 }
 
-func (self *transaction) securityFilename() string {
+func (self *fileSystemTransaction) securityFilename() string {
 	return filepath.Join(self.dataDirectory(), "security.yaml")
 }
 
-func (self *transaction) stateFilename() string {
+func (self *fileSystemTransaction) stateFilename() string {
 	return filepath.Join(self.dataDirectory(), "state.yaml")
 }
 
-func (self *transaction) usersDirectory() string {
+func (self *fileSystemTransaction) usersDirectory() string {
 	return filepath.Join(self.dataDirectory(), "users")
 }
 
-func (self *transaction) userDirectory(userId string) string {
+func (self *fileSystemTransaction) userDirectory(userId string) string {
 	return filepath.Join(self.usersDirectory(), userId)
 }
 
-func (self *transaction) userConfigFilename(userId string) string {
+func (self *fileSystemTransaction) userConfigFilename(userId string) string {
 	return filepath.Join(self.userDirectory(userId), "user.yaml")
 }
 
-func (self *transaction) userWorkspaceDirectory(userId string) string {
+func (self *fileSystemTransaction) userWorkspaceDirectory(userId string) string {
 	return filepath.Join(self.userDirectory(userId), "workspace")
 }
 
-func (self *transaction) userConversationsDirectory(userId string) string {
+func (self *fileSystemTransaction) userConversationsDirectory(userId string) string {
 	return filepath.Join(self.userDirectory(userId), "conversations")
 }
 
-func (self *transaction) userAgentConversationsDirectory(userId, agentId string) string {
+func (self *fileSystemTransaction) userAgentConversationsDirectory(userId, agentId string) string {
 	return filepath.Join(self.userConversationsDirectory(userId), agentId)
 }
 
-func (self *transaction) userJobsDirectory(userId string) string {
+func (self *fileSystemTransaction) userJobsDirectory(userId string) string {
 	return filepath.Join(self.userDirectory(userId), "jobs")
 }
 
-func (self *transaction) agentsDirectory() string {
+func (self *fileSystemTransaction) agentsDirectory() string {
 	return filepath.Join(self.dataDirectory(), "agents")
 }
 
-func (self *transaction) agentDirectory(agentId string) string {
+func (self *fileSystemTransaction) agentDirectory(agentId string) string {
 	return filepath.Join(self.agentsDirectory(), agentId)
 }
 
-func (self *transaction) agentConfigFilename(agentId string) string {
+func (self *fileSystemTransaction) agentConfigFilename(agentId string) string {
 	return filepath.Join(self.agentDirectory(agentId), "agent.yaml")
 }
 
-func (self *transaction) agentWorkspaceDirectory(agentId string) string {
+func (self *fileSystemTransaction) agentWorkspaceDirectory(agentId string) string {
 	return filepath.Join(self.agentDirectory(agentId), "workspace")
 }
 
-func (self *transaction) projectsDirectory() string {
+func (self *fileSystemTransaction) projectsDirectory() string {
 	return filepath.Join(self.dataDirectory(), "projects")
 }
 
-func (self *transaction) projectDirectory(projectId string) string {
+func (self *fileSystemTransaction) projectDirectory(projectId string) string {
 	return filepath.Join(self.projectsDirectory(), projectId)
 }
 
-func (self *transaction) projectConfigFilename(projectId string) string {
+func (self *fileSystemTransaction) projectConfigFilename(projectId string) string {
 	return filepath.Join(self.projectDirectory(projectId), "project.yaml")
 }
 
-func (self *transaction) projectWorkspaceDirectory(projectId string) string {
+func (self *fileSystemTransaction) projectWorkspaceDirectory(projectId string) string {
 	return filepath.Join(self.projectDirectory(projectId), "workspace")
 }
 
-func (self *transaction) sessionsDirectory() string {
+func (self *fileSystemTransaction) sessionsDirectory() string {
 	return filepath.Join(self.dataDirectory(), "sessions")
 }
 
-func (self *transaction) mediaDirectory() string {
+func (self *fileSystemTransaction) mediaDirectory() string {
 	return filepath.Join(self.dataDirectory(), "media")
 }
 
-func (self *transaction) skillsDirectory() string {
+func (self *fileSystemTransaction) skillsDirectory() string {
 	return filepath.Join(self.dataDirectory(), "skills")
 }
 
-func (self *transaction) trashDirectory() string {
+func (self *fileSystemTransaction) trashDirectory() string {
 	return filepath.Join(self.dataDirectory(), ".trash")
 }
 

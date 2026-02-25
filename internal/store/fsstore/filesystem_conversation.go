@@ -16,31 +16,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func (self *transaction) ListConversations(ctx context.Context, listOptions store.ConversationListOptions, options *store.Option) ([]*models.Conversation, error) {
+func (self *fileSystemTransaction) ListConversations(ctx context.Context, listOptions store.ConversationListOptions, options *store.Option) ([]*models.Conversation, error) {
 	return self.listConversations(listOptions, options)
 }
 
-func (self *transaction) CreateConversation(ctx context.Context, conversation *models.Conversation, options *store.Option) (*models.Conversation, error) {
+func (self *fileSystemTransaction) CreateConversation(ctx context.Context, conversation *models.Conversation, options *store.Option) (*models.Conversation, error) {
 	return self.createConversation(conversation, options)
 }
 
-func (self *transaction) GetConversation(ctx context.Context, conversationId string, options *store.Option) (*models.Conversation, error) {
+func (self *fileSystemTransaction) GetConversation(ctx context.Context, conversationId string, options *store.Option) (*models.Conversation, error) {
 	return self.getConversation(conversationId, options)
 }
 
-func (self *transaction) FindDefaultConversation(ctx context.Context, userId string, agentId string, options *store.Option) (*models.Conversation, error) {
+func (self *fileSystemTransaction) FindDefaultConversation(ctx context.Context, userId string, agentId string, options *store.Option) (*models.Conversation, error) {
 	return self.findDefaultConversation(ctx, userId, agentId, options)
 }
 
-func (self *transaction) ModifyConversation(ctx context.Context, conversationId string, modifier func(*models.Conversation) error, options *store.Option) (*models.Conversation, error) {
+func (self *fileSystemTransaction) ModifyConversation(ctx context.Context, conversationId string, modifier func(*models.Conversation) error, options *store.Option) (*models.Conversation, error) {
 	return self.modifyConversation(ctx, conversationId, modifier, options)
 }
 
-func (self *transaction) DeleteConversation(ctx context.Context, conversationId string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteConversation(ctx context.Context, conversationId string, options *store.Option) error {
 	return self.deleteConversation(ctx, conversationId, options)
 }
 
-func (self *transaction) listConversations(listOptions store.ConversationListOptions, options *store.Option) ([]*models.Conversation, error) {
+func (self *fileSystemTransaction) listConversations(listOptions store.ConversationListOptions, options *store.Option) ([]*models.Conversation, error) {
 	if listOptions.UserID == nil || listOptions.AgentID == nil {
 		return []*models.Conversation{}, nil
 	}
@@ -105,7 +105,7 @@ func (self *transaction) listConversations(listOptions store.ConversationListOpt
 	return applyOffsetLimitConversations(conversationsList, options), nil
 }
 
-func (self *transaction) createConversation(conversation *models.Conversation, options *store.Option) (*models.Conversation, error) {
+func (self *fileSystemTransaction) createConversation(conversation *models.Conversation, options *store.Option) (*models.Conversation, error) {
 	if conversation == nil || conversation.UserID == nil || conversation.AgentID == nil {
 		return nil, fmt.Errorf("conversation userId and agentId are required")
 	}
@@ -127,7 +127,7 @@ func (self *transaction) createConversation(conversation *models.Conversation, o
 	return &result, nil
 }
 
-func (self *transaction) getConversation(conversationId string, options *store.Option) (*models.Conversation, error) {
+func (self *fileSystemTransaction) getConversation(conversationId string, options *store.Option) (*models.Conversation, error) {
 	userEntries, readUsersError := os.ReadDir(self.usersDirectory())
 	if readUsersError != nil {
 		return nil, store.ErrNotFound
@@ -181,7 +181,7 @@ func (self *transaction) getConversation(conversationId string, options *store.O
 	return nil, store.ErrNotFound
 }
 
-func (self *transaction) findDefaultConversation(ctx context.Context, userId string, agentId string, options *store.Option) (*models.Conversation, error) {
+func (self *fileSystemTransaction) findDefaultConversation(ctx context.Context, userId string, agentId string, options *store.Option) (*models.Conversation, error) {
 	stateData, err := os.ReadFile(self.stateFilename())
 	if err != nil {
 		return nil, store.ErrNotFound
@@ -204,7 +204,7 @@ func (self *transaction) findDefaultConversation(ctx context.Context, userId str
 	return self.GetConversation(ctx, conversationId, options)
 }
 
-func (self *transaction) modifyConversation(ctx context.Context, conversationId string, modifier func(*models.Conversation) error, options *store.Option) (*models.Conversation, error) {
+func (self *fileSystemTransaction) modifyConversation(ctx context.Context, conversationId string, modifier func(*models.Conversation) error, options *store.Option) (*models.Conversation, error) {
 	conversation, err := self.GetConversation(ctx, conversationId, options)
 	if err != nil {
 		return nil, err
@@ -231,7 +231,7 @@ func (self *transaction) modifyConversation(ctx context.Context, conversationId 
 	return conversation, nil
 }
 
-func (self *transaction) deleteConversation(ctx context.Context, conversationId string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteConversation(ctx context.Context, conversationId string, options *store.Option) error {
 	conversation, err := self.GetConversation(ctx, conversationId, options)
 	if err != nil {
 		return err

@@ -14,26 +14,26 @@ import (
 	"github.com/teanode/teanode/internal/util/trash"
 )
 
-func (self *transaction) ListProjects(ctx context.Context, options *store.Option) ([]*models.Project, error) {
+func (self *fileSystemTransaction) ListProjects(ctx context.Context, options *store.Option) ([]*models.Project, error) {
 	return self.listProjects(options)
 }
 
-func (self *transaction) CreateProject(ctx context.Context, project *models.Project, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Project, error) {
+func (self *fileSystemTransaction) CreateProject(ctx context.Context, project *models.Project, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Project, error) {
 	return self.createProject(ctx, project, seedWorkspaceFiles, options)
 }
 
-func (self *transaction) GetProject(ctx context.Context, projectId string, options *store.Option) (*models.Project, error) {
+func (self *fileSystemTransaction) GetProject(ctx context.Context, projectId string, options *store.Option) (*models.Project, error) {
 	return self.getProject(projectId, options)
 }
 
-func (self *transaction) ModifyProject(ctx context.Context, projectId string, modifier func(*models.Project) error, options *store.Option) (*models.Project, error) {
+func (self *fileSystemTransaction) ModifyProject(ctx context.Context, projectId string, modifier func(*models.Project) error, options *store.Option) (*models.Project, error) {
 	return self.modifyProject(ctx, projectId, modifier, options)
 }
 
-func (self *transaction) DeleteProject(ctx context.Context, projectId string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteProject(ctx context.Context, projectId string, options *store.Option) error {
 	return self.deleteProject(projectId, options)
 }
-func (self *transaction) listProjects(options *store.Option) ([]*models.Project, error) {
+func (self *fileSystemTransaction) listProjects(options *store.Option) ([]*models.Project, error) {
 	projectConfigurations, err := self.listProjectRecords()
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func (self *transaction) listProjects(options *store.Option) ([]*models.Project,
 	return projects, nil
 }
 
-func (self *transaction) createProject(ctx context.Context, project *models.Project, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Project, error) {
+func (self *fileSystemTransaction) createProject(ctx context.Context, project *models.Project, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Project, error) {
 	if project == nil {
 		return nil, fmt.Errorf("project is required")
 	}
@@ -73,7 +73,7 @@ func (self *transaction) createProject(ctx context.Context, project *models.Proj
 	return &createdProject, nil
 }
 
-func (self *transaction) getProject(projectId string, options *store.Option) (*models.Project, error) {
+func (self *fileSystemTransaction) getProject(projectId string, options *store.Option) (*models.Project, error) {
 	configuration, err := self.loadProjectRecord(projectId)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -86,7 +86,7 @@ func (self *transaction) getProject(projectId string, options *store.Option) (*m
 	return &project, nil
 }
 
-func (self *transaction) modifyProject(ctx context.Context, projectId string, modifier func(*models.Project) error, options *store.Option) (*models.Project, error) {
+func (self *fileSystemTransaction) modifyProject(ctx context.Context, projectId string, modifier func(*models.Project) error, options *store.Option) (*models.Project, error) {
 	project, err := self.GetProject(ctx, projectId, options)
 	if err != nil {
 		return nil, err
@@ -103,7 +103,7 @@ func (self *transaction) modifyProject(ctx context.Context, projectId string, mo
 	return &result, nil
 }
 
-func (self *transaction) deleteProject(projectId string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteProject(projectId string, options *store.Option) error {
 	projectDirectory := self.projectDirectory(projectId)
 	if _, err := os.Stat(projectDirectory); errors.Is(err, os.ErrNotExist) {
 		return nil

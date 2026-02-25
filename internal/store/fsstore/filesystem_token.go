@@ -11,30 +11,30 @@ import (
 	"github.com/teanode/teanode/internal/util/security"
 )
 
-func (self *transaction) ListTokens(ctx context.Context, userId string, options *store.Option) ([]*models.Token, error) {
+func (self *fileSystemTransaction) ListTokens(ctx context.Context, userId string, options *store.Option) ([]*models.Token, error) {
 	return self.listTokens(userId, options)
 }
 
-func (self *transaction) CreateToken(ctx context.Context, token *models.Token, options *store.Option) (*models.Token, error) {
+func (self *fileSystemTransaction) CreateToken(ctx context.Context, token *models.Token, options *store.Option) (*models.Token, error) {
 	return self.createToken(token, options)
 }
 
-func (self *transaction) GetToken(ctx context.Context, tokenId string, options *store.Option) (*models.Token, error) {
+func (self *fileSystemTransaction) GetToken(ctx context.Context, tokenId string, options *store.Option) (*models.Token, error) {
 	return self.getToken(tokenId, options)
 }
 
-func (self *transaction) GetTokenByToken(ctx context.Context, tokenValue string, options *store.Option) (*models.Token, error) {
+func (self *fileSystemTransaction) GetTokenByToken(ctx context.Context, tokenValue string, options *store.Option) (*models.Token, error) {
 	return self.getTokenByToken(tokenValue, options)
 }
 
-func (self *transaction) ModifyToken(ctx context.Context, tokenId string, modifier func(*models.Token) error, options *store.Option) (*models.Token, error) {
+func (self *fileSystemTransaction) ModifyToken(ctx context.Context, tokenId string, modifier func(*models.Token) error, options *store.Option) (*models.Token, error) {
 	return self.modifyToken(ctx, tokenId, modifier, options)
 }
 
-func (self *transaction) DeleteToken(ctx context.Context, tokenId string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteToken(ctx context.Context, tokenId string, options *store.Option) error {
 	return self.deleteToken(tokenId, options)
 }
-func (self *transaction) listTokens(userId string, options *store.Option) ([]*models.Token, error) {
+func (self *fileSystemTransaction) listTokens(userId string, options *store.Option) ([]*models.Token, error) {
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (self *transaction) listTokens(userId string, options *store.Option) ([]*mo
 	return tokens, nil
 }
 
-func (self *transaction) createToken(token *models.Token, options *store.Option) (*models.Token, error) {
+func (self *fileSystemTransaction) createToken(token *models.Token, options *store.Option) (*models.Token, error) {
 	if token == nil || token.UserID == nil {
 		return nil, fmt.Errorf("token userId is required")
 	}
@@ -88,7 +88,7 @@ func (self *transaction) createToken(token *models.Token, options *store.Option)
 	return &result, nil
 }
 
-func (self *transaction) getToken(tokenId string, options *store.Option) (*models.Token, error) {
+func (self *fileSystemTransaction) getToken(tokenId string, options *store.Option) (*models.Token, error) {
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (self *transaction) getToken(tokenId string, options *store.Option) (*model
 	return nil, store.ErrNotFound
 }
 
-func (self *transaction) getTokenByToken(tokenValue string, options *store.Option) (*models.Token, error) {
+func (self *fileSystemTransaction) getTokenByToken(tokenValue string, options *store.Option) (*models.Token, error) {
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func (self *transaction) getTokenByToken(tokenValue string, options *store.Optio
 	return &result, nil
 }
 
-func (self *transaction) modifyToken(ctx context.Context, tokenId string, modifier func(*models.Token) error, options *store.Option) (*models.Token, error) {
+func (self *fileSystemTransaction) modifyToken(ctx context.Context, tokenId string, modifier func(*models.Token) error, options *store.Option) (*models.Token, error) {
 	token, err := self.GetToken(ctx, tokenId, options)
 	if err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func (self *transaction) modifyToken(ctx context.Context, tokenId string, modifi
 	return nil, store.ErrNotFound
 }
 
-func (self *transaction) deleteToken(tokenId string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteToken(tokenId string, options *store.Option) error {
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return err

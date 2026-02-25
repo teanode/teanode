@@ -14,27 +14,27 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-func (self *transaction) ListConversationMessages(ctx context.Context, conversationId string, options *store.Option) ([]*models.ConversationMessage, error) {
+func (self *fileSystemTransaction) ListConversationMessages(ctx context.Context, conversationId string, options *store.Option) ([]*models.ConversationMessage, error) {
 	return self.listConversationMessages(ctx, conversationId, options)
 }
 
-func (self *transaction) CreateConversationMessage(ctx context.Context, message *models.ConversationMessage, options *store.Option) (*models.ConversationMessage, error) {
+func (self *fileSystemTransaction) CreateConversationMessage(ctx context.Context, message *models.ConversationMessage, options *store.Option) (*models.ConversationMessage, error) {
 	return self.createConversationMessage(ctx, message, options)
 }
 
-func (self *transaction) GetConversationMessage(ctx context.Context, messageId string, options *store.Option) (*models.ConversationMessage, error) {
+func (self *fileSystemTransaction) GetConversationMessage(ctx context.Context, messageId string, options *store.Option) (*models.ConversationMessage, error) {
 	return self.getConversationMessage(ctx, messageId, options)
 }
 
-func (self *transaction) ModifyConversationMessage(ctx context.Context, messageId string, modifier func(*models.ConversationMessage) error, options *store.Option) (*models.ConversationMessage, error) {
+func (self *fileSystemTransaction) ModifyConversationMessage(ctx context.Context, messageId string, modifier func(*models.ConversationMessage) error, options *store.Option) (*models.ConversationMessage, error) {
 	return self.modifyConversationMessage(ctx, messageId, modifier, options)
 }
 
-func (self *transaction) DeleteConversationMessage(ctx context.Context, messageId string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteConversationMessage(ctx context.Context, messageId string, options *store.Option) error {
 	return self.deleteConversationMessage(ctx, messageId, options)
 }
 
-func (self *transaction) listConversationMessages(ctx context.Context, conversationId string, options *store.Option) ([]*models.ConversationMessage, error) {
+func (self *fileSystemTransaction) listConversationMessages(ctx context.Context, conversationId string, options *store.Option) ([]*models.ConversationMessage, error) {
 	conversation, err := self.GetConversation(ctx, conversationId, options)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (self *transaction) listConversationMessages(ctx context.Context, conversat
 	return applyOffsetLimitConversationMessages(results, options), nil
 }
 
-func (self *transaction) createConversationMessage(ctx context.Context, message *models.ConversationMessage, options *store.Option) (*models.ConversationMessage, error) {
+func (self *fileSystemTransaction) createConversationMessage(ctx context.Context, message *models.ConversationMessage, options *store.Option) (*models.ConversationMessage, error) {
 	if message == nil || message.ConversationID == nil || message.Role == nil || len(message.Content) == 0 {
 		return nil, store.ErrInvalidOptions
 	}
@@ -101,7 +101,7 @@ func (self *transaction) createConversationMessage(ctx context.Context, message 
 	return messages[len(messages)-1], nil
 }
 
-func (self *transaction) getConversationMessage(ctx context.Context, messageId string, options *store.Option) (*models.ConversationMessage, error) {
+func (self *fileSystemTransaction) getConversationMessage(ctx context.Context, messageId string, options *store.Option) (*models.ConversationMessage, error) {
 	conversationId, sequence, parseError := parseConversationMessageId(messageId)
 	if parseError != nil {
 		return nil, store.ErrNotFound
@@ -118,7 +118,7 @@ func (self *transaction) getConversationMessage(ctx context.Context, messageId s
 	return nil, store.ErrNotFound
 }
 
-func (self *transaction) modifyConversationMessage(ctx context.Context, messageId string, modifier func(*models.ConversationMessage) error, options *store.Option) (*models.ConversationMessage, error) {
+func (self *fileSystemTransaction) modifyConversationMessage(ctx context.Context, messageId string, modifier func(*models.ConversationMessage) error, options *store.Option) (*models.ConversationMessage, error) {
 	conversationId, sequence, parseError := parseConversationMessageId(messageId)
 	if parseError != nil {
 		return nil, store.ErrNotFound
@@ -163,7 +163,7 @@ func (self *transaction) modifyConversationMessage(ctx context.Context, messageI
 	return self.GetConversationMessage(ctx, messageId, options)
 }
 
-func (self *transaction) deleteConversationMessage(ctx context.Context, messageId string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteConversationMessage(ctx context.Context, messageId string, options *store.Option) error {
 	conversationId, sequence, parseError := parseConversationMessageId(messageId)
 	if parseError != nil {
 		return store.ErrNotFound

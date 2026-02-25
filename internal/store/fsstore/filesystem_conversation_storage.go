@@ -43,11 +43,11 @@ type conversationLinePeek struct {
 	Type string `json:"type"`
 }
 
-func (self *transaction) conversationFilePath(userId string, agentId string, conversationId string) string {
+func (self *fileSystemTransaction) conversationFilePath(userId string, agentId string, conversationId string) string {
 	return filepath.Join(self.userAgentConversationsDirectory(userId, agentId), conversationId+".jsonl")
 }
 
-func (self *transaction) loadConversationHeaderByPath(conversationPath string) (*conversationFileHeader, error) {
+func (self *fileSystemTransaction) loadConversationHeaderByPath(conversationPath string) (*conversationFileHeader, error) {
 	file, openError := os.Open(conversationPath)
 	if openError != nil {
 		return nil, openError
@@ -69,7 +69,7 @@ func (self *transaction) loadConversationHeaderByPath(conversationPath string) (
 	return header, nil
 }
 
-func (self *transaction) loadConversationData(userId string, agentId string, conversationId string) (*conversationFileHeader, []conversationFileMessage, error) {
+func (self *fileSystemTransaction) loadConversationData(userId string, agentId string, conversationId string) (*conversationFileHeader, []conversationFileMessage, error) {
 	conversationPath := self.conversationFilePath(userId, agentId, conversationId)
 	file, openError := os.Open(conversationPath)
 	if openError != nil {
@@ -119,7 +119,7 @@ func (self *transaction) loadConversationData(userId string, agentId string, con
 	return header, messages, nil
 }
 
-func (self *transaction) rewriteConversationFile(userId string, agentId string, conversationId string, header *conversationFileHeader, messages []conversationFileMessage) error {
+func (self *fileSystemTransaction) rewriteConversationFile(userId string, agentId string, conversationId string, header *conversationFileHeader, messages []conversationFileMessage) error {
 	if header == nil {
 		return fmt.Errorf("conversation header is required")
 	}
@@ -145,7 +145,7 @@ func (self *transaction) rewriteConversationFile(userId string, agentId string, 
 	return atomicfile.WriteFile(conversationPath, buffer.Bytes())
 }
 
-func (self *transaction) createConversationFile(userId string, agentId string, conversationId string) error {
+func (self *fileSystemTransaction) createConversationFile(userId string, agentId string, conversationId string) error {
 	conversationPath := self.conversationFilePath(userId, agentId, conversationId)
 	if makeDirectoryError := os.MkdirAll(filepath.Dir(conversationPath), 0755); makeDirectoryError != nil {
 		return makeDirectoryError
@@ -159,7 +159,7 @@ func (self *transaction) createConversationFile(userId string, agentId string, c
 	return self.rewriteConversationFile(userId, agentId, conversationId, header, []conversationFileMessage{})
 }
 
-func (self *transaction) updateConversationHeader(userId string, agentId string, conversationId string, mutate func(header *conversationFileHeader)) error {
+func (self *fileSystemTransaction) updateConversationHeader(userId string, agentId string, conversationId string, mutate func(header *conversationFileHeader)) error {
 	conversationPath := self.conversationFilePath(userId, agentId, conversationId)
 	fileInfo, statError := os.Stat(conversationPath)
 	if statError != nil {

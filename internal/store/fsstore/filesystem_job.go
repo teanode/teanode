@@ -33,27 +33,27 @@ type filesystemJobFrontmatter struct {
 	CreatedAt      int64  `yaml:"createdAt"`
 }
 
-func (self *transaction) ListJobs(ctx context.Context, userId string, options *store.Option) ([]*models.Job, error) {
+func (self *fileSystemTransaction) ListJobs(ctx context.Context, userId string, options *store.Option) ([]*models.Job, error) {
 	return self.listJobs(userId, options)
 }
 
-func (self *transaction) CreateJob(ctx context.Context, job *models.Job, options *store.Option) (*models.Job, error) {
+func (self *fileSystemTransaction) CreateJob(ctx context.Context, job *models.Job, options *store.Option) (*models.Job, error) {
 	return self.createJob(job, options)
 }
 
-func (self *transaction) GetJob(ctx context.Context, jobId string, options *store.Option) (*models.Job, error) {
+func (self *fileSystemTransaction) GetJob(ctx context.Context, jobId string, options *store.Option) (*models.Job, error) {
 	return self.getJob(jobId, options)
 }
 
-func (self *transaction) ModifyJob(ctx context.Context, jobId string, modifier func(*models.Job) error, options *store.Option) (*models.Job, error) {
+func (self *fileSystemTransaction) ModifyJob(ctx context.Context, jobId string, modifier func(*models.Job) error, options *store.Option) (*models.Job, error) {
 	return self.modifyJob(ctx, jobId, modifier, options)
 }
 
-func (self *transaction) DeleteJob(ctx context.Context, jobId string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteJob(ctx context.Context, jobId string, options *store.Option) error {
 	return self.deleteJob(ctx, jobId, options)
 }
 
-func (self *transaction) listJobs(userId string, options *store.Option) ([]*models.Job, error) {
+func (self *fileSystemTransaction) listJobs(userId string, options *store.Option) ([]*models.Job, error) {
 	if userId != "" {
 		jobs, err := self.readUserJobs(userId)
 		if err != nil {
@@ -84,7 +84,7 @@ func (self *transaction) listJobs(userId string, options *store.Option) ([]*mode
 	return applyOffsetLimitJobs(results, options), nil
 }
 
-func (self *transaction) createJob(job *models.Job, options *store.Option) (*models.Job, error) {
+func (self *fileSystemTransaction) createJob(job *models.Job, options *store.Option) (*models.Job, error) {
 	if job == nil || job.UserID == nil || *job.UserID == "" {
 		return nil, store.ErrInvalidOptions
 	}
@@ -101,7 +101,7 @@ func (self *transaction) createJob(job *models.Job, options *store.Option) (*mod
 	return &createdJob, nil
 }
 
-func (self *transaction) getJob(jobId string, options *store.Option) (*models.Job, error) {
+func (self *fileSystemTransaction) getJob(jobId string, options *store.Option) (*models.Job, error) {
 	jobsList, err := self.listJobs("", nil)
 	if err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func (self *transaction) getJob(jobId string, options *store.Option) (*models.Jo
 	return nil, store.ErrNotFound
 }
 
-func (self *transaction) modifyJob(ctx context.Context, jobId string, modifier func(*models.Job) error, options *store.Option) (*models.Job, error) {
+func (self *fileSystemTransaction) modifyJob(ctx context.Context, jobId string, modifier func(*models.Job) error, options *store.Option) (*models.Job, error) {
 	job, err := self.GetJob(ctx, jobId, options)
 	if err != nil {
 		return nil, err
@@ -133,7 +133,7 @@ func (self *transaction) modifyJob(ctx context.Context, jobId string, modifier f
 	return job, nil
 }
 
-func (self *transaction) deleteJob(ctx context.Context, jobId string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteJob(ctx context.Context, jobId string, options *store.Option) error {
 	job, err := self.GetJob(ctx, jobId, options)
 	if err != nil {
 		return err
@@ -148,7 +148,7 @@ func (self *transaction) deleteJob(ctx context.Context, jobId string, options *s
 	return trash.Move(jobPath, self.trashDirectory())
 }
 
-func (self *transaction) readUserJobs(userId string) ([]*models.Job, error) {
+func (self *fileSystemTransaction) readUserJobs(userId string) ([]*models.Job, error) {
 	jobsDirectory := self.userJobsDirectory(userId)
 	entries, readError := os.ReadDir(jobsDirectory)
 	if os.IsNotExist(readError) {
@@ -172,7 +172,7 @@ func (self *transaction) readUserJobs(userId string) ([]*models.Job, error) {
 	return results, nil
 }
 
-func (self *transaction) readJobFile(userId string, jobId string) (models.Job, error) {
+func (self *fileSystemTransaction) readJobFile(userId string, jobId string) (models.Job, error) {
 	data, readError := os.ReadFile(filepath.Join(self.userJobsDirectory(userId), jobId+".md"))
 	if readError != nil {
 		return models.Job{}, readError
@@ -180,7 +180,7 @@ func (self *transaction) readJobFile(userId string, jobId string) (models.Job, e
 	return parseJobMarkdown(userId, jobId, data)
 }
 
-func (self *transaction) writeJobFile(job models.Job) error {
+func (self *fileSystemTransaction) writeJobFile(job models.Job) error {
 	if job.UserID == nil || *job.UserID == "" {
 		return store.ErrInvalidOptions
 	}

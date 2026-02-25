@@ -7,14 +7,14 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-func (self *transaction) GetConfiguration(ctx context.Context, options *store.Option) (*models.Configuration, error) {
+func (self *fileSystemTransaction) GetConfiguration(ctx context.Context, options *store.Option) (*models.Configuration, error) {
 	return self.getConfiguration(options)
 }
 
-func (self *transaction) ModifyConfiguration(ctx context.Context, modifier func(*models.Configuration) error, options *store.Option) (*models.Configuration, error) {
+func (self *fileSystemTransaction) ModifyConfiguration(ctx context.Context, modifier func(*models.Configuration) error, options *store.Option) (*models.Configuration, error) {
 	return self.modifyConfiguration(ctx, modifier, options)
 }
-func (self *transaction) getConfiguration(options *store.Option) (*models.Configuration, error) {
+func (self *fileSystemTransaction) getConfiguration(options *store.Option) (*models.Configuration, error) {
 	configuration, err := self.loadConfigRecord()
 	if err != nil {
 		return nil, err
@@ -22,7 +22,7 @@ func (self *transaction) getConfiguration(options *store.Option) (*models.Config
 	return configToModel(configuration), nil
 }
 
-func (self *transaction) modifyConfiguration(ctx context.Context, modifier func(*models.Configuration) error, options *store.Option) (*models.Configuration, error) {
+func (self *fileSystemTransaction) modifyConfiguration(ctx context.Context, modifier func(*models.Configuration) error, options *store.Option) (*models.Configuration, error) {
 	modelConfiguration, err := self.GetConfiguration(ctx, options)
 	if err != nil {
 		return nil, err

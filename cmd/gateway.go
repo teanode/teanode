@@ -521,16 +521,8 @@ func NewGatewayCommand() *cli.Command {
 			}
 
 			// Apply middleware stack (innermost first → outermost last).
-			storeMiddleware := func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-					requestContext := store.ContextWithStore(request.Context(), openedStore)
-					requestContext = jobs.ContextWithScheduler(requestContext, scheduler)
-					next.ServeHTTP(writer, request.WithContext(requestContext))
-				})
-			}
 			handler := web.ApplyMiddlewares(webServer,
-				storeMiddleware,
-				web.AuthenticationMiddleware(),
+				web.MakeAuthenticationMiddleware(),
 				web.CompressionMiddleware,
 				web.MakeServerNameMiddleware(version.ServerName()),
 				web.LoggingMiddleware,

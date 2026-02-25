@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-func (self *transaction) deleteAgentDirectories(agentId string) error {
+func (self *fileSystemTransaction) deleteAgentDirectories(agentId string) error {
 	agentDirectory := self.agentDirectory(agentId)
 	if _, statError := os.Stat(agentDirectory); os.IsNotExist(statError) {
 		return fmt.Errorf("agent not found: %s", agentId)

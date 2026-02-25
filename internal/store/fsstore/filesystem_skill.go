@@ -80,27 +80,27 @@ func buildSkillFrontmatter(skill models.Skill, skillId string) map[string]interf
 	return frontmatter
 }
 
-func (self *transaction) ListSkills(ctx context.Context, options *store.Option) ([]*models.Skill, error) {
+func (self *fileSystemTransaction) ListSkills(ctx context.Context, options *store.Option) ([]*models.Skill, error) {
 	return self.listSkills(options)
 }
 
-func (self *transaction) CreateSkill(ctx context.Context, skill *models.Skill, options *store.Option) (*models.Skill, error) {
+func (self *fileSystemTransaction) CreateSkill(ctx context.Context, skill *models.Skill, options *store.Option) (*models.Skill, error) {
 	return self.createSkill(skill, options)
 }
 
-func (self *transaction) GetSkill(ctx context.Context, skillId string, options *store.Option) (*models.Skill, error) {
+func (self *fileSystemTransaction) GetSkill(ctx context.Context, skillId string, options *store.Option) (*models.Skill, error) {
 	return self.getSkill(ctx, skillId, options)
 }
 
-func (self *transaction) ModifySkill(ctx context.Context, skillId string, modifier func(*models.Skill) error, options *store.Option) (*models.Skill, error) {
+func (self *fileSystemTransaction) ModifySkill(ctx context.Context, skillId string, modifier func(*models.Skill) error, options *store.Option) (*models.Skill, error) {
 	return self.modifySkill(ctx, skillId, modifier, options)
 }
 
-func (self *transaction) DeleteSkill(ctx context.Context, skillId string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteSkill(ctx context.Context, skillId string, options *store.Option) error {
 	return self.deleteSkill(skillId, options)
 }
 
-func (self *transaction) listSkills(options *store.Option) ([]*models.Skill, error) {
+func (self *fileSystemTransaction) listSkills(options *store.Option) ([]*models.Skill, error) {
 	parsedSkills, loadError := self.loadSkillsFromFileSystem()
 	if loadError != nil {
 		return nil, loadError
@@ -135,7 +135,7 @@ func (self *transaction) listSkills(options *store.Option) ([]*models.Skill, err
 	return applyOffsetLimitSkills(results, options), nil
 }
 
-func (self *transaction) createSkill(skill *models.Skill, options *store.Option) (*models.Skill, error) {
+func (self *fileSystemTransaction) createSkill(skill *models.Skill, options *store.Option) (*models.Skill, error) {
 	if skill == nil {
 		return nil, store.ErrInvalidOptions
 	}
@@ -163,7 +163,7 @@ func (self *transaction) createSkill(skill *models.Skill, options *store.Option)
 	return &createdSkill, nil
 }
 
-func (self *transaction) getSkill(ctx context.Context, skillId string, options *store.Option) (*models.Skill, error) {
+func (self *fileSystemTransaction) getSkill(ctx context.Context, skillId string, options *store.Option) (*models.Skill, error) {
 	skillsList, listError := self.ListSkills(ctx, nil)
 	if listError != nil {
 		return nil, listError
@@ -176,7 +176,7 @@ func (self *transaction) getSkill(ctx context.Context, skillId string, options *
 	return nil, store.ErrNotFound
 }
 
-func (self *transaction) modifySkill(ctx context.Context, skillId string, modifier func(*models.Skill) error, options *store.Option) (*models.Skill, error) {
+func (self *fileSystemTransaction) modifySkill(ctx context.Context, skillId string, modifier func(*models.Skill) error, options *store.Option) (*models.Skill, error) {
 	skill, getError := self.GetSkill(ctx, skillId, options)
 	if getError != nil {
 		return nil, getError
@@ -197,7 +197,7 @@ func (self *transaction) modifySkill(ctx context.Context, skillId string, modifi
 	return skill, nil
 }
 
-func (self *transaction) deleteSkill(skillId string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteSkill(skillId string, options *store.Option) error {
 	installedSkillDirectory := filepath.Join(self.skillsDirectory(), ".installed", skillId)
 	if _, statError := os.Stat(installedSkillDirectory); os.IsNotExist(statError) {
 		return nil
@@ -205,7 +205,7 @@ func (self *transaction) deleteSkill(skillId string, options *store.Option) erro
 	return trash.Move(installedSkillDirectory, self.trashDirectory())
 }
 
-func (self *transaction) writeInstalledSkillFiles(skillId string, skill models.Skill) error {
+func (self *fileSystemTransaction) writeInstalledSkillFiles(skillId string, skill models.Skill) error {
 	version := skill.GetVersion()
 	if version == "" {
 		version = "0.0.0"
@@ -248,7 +248,7 @@ func (self *transaction) writeInstalledSkillFiles(skillId string, skill models.S
 	return atomicfile.WriteFile(filepath.Join(versionDirectory, "manifest.json"), manifestData)
 }
 
-func (self *transaction) loadSkillsFromFileSystem() ([]fileSystemParsedSkill, error) {
+func (self *fileSystemTransaction) loadSkillsFromFileSystem() ([]fileSystemParsedSkill, error) {
 	_, readError := os.ReadDir(self.skillsDirectory())
 	if os.IsNotExist(readError) {
 		return []fileSystemParsedSkill{}, nil
@@ -317,7 +317,7 @@ func (self *transaction) loadSkillsFromFileSystem() ([]fileSystemParsedSkill, er
 	return results, nil
 }
 
-func (self *transaction) readSkillMarkdown(path string) (fileSystemParsedSkill, error) {
+func (self *fileSystemTransaction) readSkillMarkdown(path string) (fileSystemParsedSkill, error) {
 	data, readError := os.ReadFile(path)
 	if readError != nil {
 		return fileSystemParsedSkill{}, readError

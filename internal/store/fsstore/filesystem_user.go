@@ -16,38 +16,38 @@ import (
 	"github.com/teanode/teanode/internal/util/trash"
 )
 
-func (self *transaction) ListUsers(ctx context.Context, options *store.Option) ([]*models.User, error) {
+func (self *fileSystemTransaction) ListUsers(ctx context.Context, options *store.Option) ([]*models.User, error) {
 	return self.listUsers(ctx, options)
 }
 
-func (self *transaction) CreateUser(ctx context.Context, user *models.User, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) CreateUser(ctx context.Context, user *models.User, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.User, error) {
 	return self.createUser(ctx, user, seedWorkspaceFiles, options)
 }
 
-func (self *transaction) GetUser(ctx context.Context, userId string, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) GetUser(ctx context.Context, userId string, options *store.Option) (*models.User, error) {
 	return self.getUser(userId, options)
 }
 
-func (self *transaction) GetUserByUsername(ctx context.Context, username string, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) GetUserByUsername(ctx context.Context, username string, options *store.Option) (*models.User, error) {
 	return self.getUserByUsername(ctx, username, options)
 }
 
-func (self *transaction) GetUserByTelegramChatID(ctx context.Context, telegramChatId int64, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) GetUserByTelegramChatID(ctx context.Context, telegramChatId int64, options *store.Option) (*models.User, error) {
 	return self.getUserByTelegramChatId(ctx, telegramChatId, options)
 }
 
-func (self *transaction) GetUserByDiscordUserID(ctx context.Context, discordUserId string, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) GetUserByDiscordUserID(ctx context.Context, discordUserId string, options *store.Option) (*models.User, error) {
 	return self.getUserByDiscordUserId(ctx, discordUserId, options)
 }
 
-func (self *transaction) ModifyUser(ctx context.Context, userId string, modifier func(*models.User) error, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) ModifyUser(ctx context.Context, userId string, modifier func(*models.User) error, options *store.Option) (*models.User, error) {
 	return self.modifyUser(ctx, userId, modifier, options)
 }
 
-func (self *transaction) DeleteUser(ctx context.Context, userId string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteUser(ctx context.Context, userId string, options *store.Option) error {
 	return self.deleteUser(userId, options)
 }
-func (self *transaction) listUsers(ctx context.Context, options *store.Option) ([]*models.User, error) {
+func (self *fileSystemTransaction) listUsers(ctx context.Context, options *store.Option) ([]*models.User, error) {
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ func (self *transaction) listUsers(ctx context.Context, options *store.Option) (
 	return users, nil
 }
 
-func (self *transaction) createUser(ctx context.Context, user *models.User, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) createUser(ctx context.Context, user *models.User, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.User, error) {
 	if user == nil {
 		return nil, fmt.Errorf("user is required")
 	}
@@ -148,7 +148,7 @@ func (self *transaction) createUser(ctx context.Context, user *models.User, seed
 	return self.GetUser(ctx, userId, options)
 }
 
-func (self *transaction) getUser(userId string, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) getUser(userId string, options *store.Option) (*models.User, error) {
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return nil, err
@@ -176,7 +176,7 @@ func (self *transaction) getUser(userId string, options *store.Option) (*models.
 	return &result, nil
 }
 
-func (self *transaction) getUserByUsername(ctx context.Context, username string, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) getUserByUsername(ctx context.Context, username string, options *store.Option) (*models.User, error) {
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return nil, err
@@ -192,7 +192,7 @@ func (self *transaction) getUserByUsername(ctx context.Context, username string,
 	return user, nil
 }
 
-func (self *transaction) getUserByTelegramChatId(ctx context.Context, telegramChatId int64, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) getUserByTelegramChatId(ctx context.Context, telegramChatId int64, options *store.Option) (*models.User, error) {
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return nil, err
@@ -204,7 +204,7 @@ func (self *transaction) getUserByTelegramChatId(ctx context.Context, telegramCh
 	return self.GetUser(ctx, userId, options)
 }
 
-func (self *transaction) getUserByDiscordUserId(ctx context.Context, discordUserId string, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) getUserByDiscordUserId(ctx context.Context, discordUserId string, options *store.Option) (*models.User, error) {
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return nil, err
@@ -216,7 +216,7 @@ func (self *transaction) getUserByDiscordUserId(ctx context.Context, discordUser
 	return self.GetUser(ctx, userId, options)
 }
 
-func (self *transaction) modifyUser(ctx context.Context, userId string, modifier func(*models.User) error, options *store.Option) (*models.User, error) {
+func (self *fileSystemTransaction) modifyUser(ctx context.Context, userId string, modifier func(*models.User) error, options *store.Option) (*models.User, error) {
 	user, err := self.GetUser(ctx, userId, options)
 	if err != nil {
 		return nil, err
@@ -288,7 +288,7 @@ func (self *transaction) modifyUser(ctx context.Context, userId string, modifier
 	return self.GetUser(ctx, userId, options)
 }
 
-func (self *transaction) deleteUser(userId string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteUser(userId string, options *store.Option) error {
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return err

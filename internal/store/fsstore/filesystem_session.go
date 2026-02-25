@@ -27,27 +27,27 @@ type fileSystemSessionRecord struct {
 	LastSeenAt time.Time `yaml:"lastSeenAt"`
 }
 
-func (self *transaction) ListSessions(ctx context.Context, options *store.Option) ([]*models.Session, error) {
+func (self *fileSystemTransaction) ListSessions(ctx context.Context, options *store.Option) ([]*models.Session, error) {
 	return self.listSessions(options)
 }
 
-func (self *transaction) CreateSession(ctx context.Context, session *models.Session, options *store.Option) (*models.Session, error) {
+func (self *fileSystemTransaction) CreateSession(ctx context.Context, session *models.Session, options *store.Option) (*models.Session, error) {
 	return self.createSession(session, options)
 }
 
-func (self *transaction) GetSession(ctx context.Context, sessionId string, options *store.Option) (*models.Session, error) {
+func (self *fileSystemTransaction) GetSession(ctx context.Context, sessionId string, options *store.Option) (*models.Session, error) {
 	return self.getSession(sessionId, options)
 }
 
-func (self *transaction) ModifySession(ctx context.Context, sessionId string, modifier func(*models.Session) error, options *store.Option) (*models.Session, error) {
+func (self *fileSystemTransaction) ModifySession(ctx context.Context, sessionId string, modifier func(*models.Session) error, options *store.Option) (*models.Session, error) {
 	return self.modifySession(ctx, sessionId, modifier, options)
 }
 
-func (self *transaction) DeleteSession(ctx context.Context, sessionId string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteSession(ctx context.Context, sessionId string, options *store.Option) error {
 	return self.deleteSession(sessionId, options)
 }
 
-func (self *transaction) listSessions(options *store.Option) ([]*models.Session, error) {
+func (self *fileSystemTransaction) listSessions(options *store.Option) ([]*models.Session, error) {
 	entries, readError := os.ReadDir(self.sessionsDirectory())
 	if os.IsNotExist(readError) {
 		return []*models.Session{}, nil
@@ -76,7 +76,7 @@ func (self *transaction) listSessions(options *store.Option) ([]*models.Session,
 	return applyOffsetLimitSessions(results, options), nil
 }
 
-func (self *transaction) createSession(session *models.Session, options *store.Option) (*models.Session, error) {
+func (self *fileSystemTransaction) createSession(session *models.Session, options *store.Option) (*models.Session, error) {
 	if session == nil || session.UserID == nil || *session.UserID == "" {
 		return nil, store.ErrInvalidOptions
 	}
@@ -105,7 +105,7 @@ func (self *transaction) createSession(session *models.Session, options *store.O
 	return &result, nil
 }
 
-func (self *transaction) getSession(sessionId string, options *store.Option) (*models.Session, error) {
+func (self *fileSystemTransaction) getSession(sessionId string, options *store.Option) (*models.Session, error) {
 	record, readError := self.readSessionRecord(sessionId)
 	if readError != nil {
 		if os.IsNotExist(readError) {
@@ -121,7 +121,7 @@ func (self *transaction) getSession(sessionId string, options *store.Option) (*m
 	return &result, nil
 }
 
-func (self *transaction) modifySession(ctx context.Context, sessionId string, modifier func(*models.Session) error, options *store.Option) (*models.Session, error) {
+func (self *fileSystemTransaction) modifySession(ctx context.Context, sessionId string, modifier func(*models.Session) error, options *store.Option) (*models.Session, error) {
 	session, getError := self.GetSession(ctx, sessionId, options)
 	if getError != nil {
 		return nil, getError
@@ -142,7 +142,7 @@ func (self *transaction) modifySession(ctx context.Context, sessionId string, mo
 	return &result, nil
 }
 
-func (self *transaction) deleteSession(sessionId string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteSession(sessionId string, options *store.Option) error {
 	sessionPath := filepath.Join(self.sessionsDirectory(), sessionId+".yaml")
 	if _, statError := os.Stat(sessionPath); os.IsNotExist(statError) {
 		return store.ErrNotFound
@@ -150,7 +150,7 @@ func (self *transaction) deleteSession(sessionId string, options *store.Option) 
 	return self.moveSessionToTrash(sessionId)
 }
 
-func (self *transaction) readSessionRecord(sessionId string) (fileSystemSessionRecord, error) {
+func (self *fileSystemTransaction) readSessionRecord(sessionId string) (fileSystemSessionRecord, error) {
 	data, readError := os.ReadFile(filepath.Join(self.sessionsDirectory(), sessionId+".yaml"))
 	if readError != nil {
 		return fileSystemSessionRecord{}, readError
@@ -162,7 +162,7 @@ func (self *transaction) readSessionRecord(sessionId string) (fileSystemSessionR
 	return record, nil
 }
 
-func (self *transaction) writeSessionRecord(record fileSystemSessionRecord) error {
+func (self *fileSystemTransaction) writeSessionRecord(record fileSystemSessionRecord) error {
 	if record.ID == "" {
 		return fmt.Errorf("session ID is required")
 	}
@@ -176,7 +176,7 @@ func (self *transaction) writeSessionRecord(record fileSystemSessionRecord) erro
 	return atomicfile.WriteFile(filepath.Join(self.sessionsDirectory(), record.ID+".yaml"), encoded)
 }
 
-func (self *transaction) moveSessionToTrash(sessionId string) error {
+func (self *fileSystemTransaction) moveSessionToTrash(sessionId string) error {
 	sessionPath := filepath.Join(self.sessionsDirectory(), sessionId+".yaml")
 	return trash.Move(sessionPath, self.trashDirectory())
 }

@@ -12,26 +12,26 @@ import (
 	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
-func (self *transaction) ListAgents(ctx context.Context, options *store.Option) ([]*models.Agent, error) {
+func (self *fileSystemTransaction) ListAgents(ctx context.Context, options *store.Option) ([]*models.Agent, error) {
 	return self.listAgents(options)
 }
 
-func (self *transaction) CreateAgent(ctx context.Context, agent *models.Agent, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Agent, error) {
+func (self *fileSystemTransaction) CreateAgent(ctx context.Context, agent *models.Agent, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Agent, error) {
 	return self.createAgent(ctx, agent, seedWorkspaceFiles, options)
 }
 
-func (self *transaction) GetAgent(ctx context.Context, agentId string, options *store.Option) (*models.Agent, error) {
+func (self *fileSystemTransaction) GetAgent(ctx context.Context, agentId string, options *store.Option) (*models.Agent, error) {
 	return self.getAgent(agentId, options)
 }
 
-func (self *transaction) ModifyAgent(ctx context.Context, agentId string, modifier func(*models.Agent) error, options *store.Option) (*models.Agent, error) {
+func (self *fileSystemTransaction) ModifyAgent(ctx context.Context, agentId string, modifier func(*models.Agent) error, options *store.Option) (*models.Agent, error) {
 	return self.modifyAgent(ctx, agentId, modifier, options)
 }
 
-func (self *transaction) DeleteAgent(ctx context.Context, agentId string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteAgent(ctx context.Context, agentId string, options *store.Option) error {
 	return self.deleteAgent(agentId, options)
 }
-func (self *transaction) listAgents(options *store.Option) ([]*models.Agent, error) {
+func (self *fileSystemTransaction) listAgents(options *store.Option) ([]*models.Agent, error) {
 	agentConfigurations, err := self.listAgentRecords()
 	if err != nil {
 		return nil, err
@@ -44,7 +44,7 @@ func (self *transaction) listAgents(options *store.Option) ([]*models.Agent, err
 	return agents, nil
 }
 
-func (self *transaction) createAgent(ctx context.Context, agent *models.Agent, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Agent, error) {
+func (self *fileSystemTransaction) createAgent(ctx context.Context, agent *models.Agent, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Agent, error) {
 	if agent == nil {
 		return nil, fmt.Errorf("agent is required")
 	}
@@ -73,7 +73,7 @@ func (self *transaction) createAgent(ctx context.Context, agent *models.Agent, s
 	return &createdAgent, nil
 }
 
-func (self *transaction) getAgent(agentId string, options *store.Option) (*models.Agent, error) {
+func (self *fileSystemTransaction) getAgent(agentId string, options *store.Option) (*models.Agent, error) {
 	configuration, err := self.loadAgentRecord(agentId)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func (self *transaction) getAgent(agentId string, options *store.Option) (*model
 	return &agent, nil
 }
 
-func (self *transaction) modifyAgent(ctx context.Context, agentId string, modifier func(*models.Agent) error, options *store.Option) (*models.Agent, error) {
+func (self *fileSystemTransaction) modifyAgent(ctx context.Context, agentId string, modifier func(*models.Agent) error, options *store.Option) (*models.Agent, error) {
 	agent, err := self.GetAgent(ctx, agentId, options)
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func (self *transaction) modifyAgent(ctx context.Context, agentId string, modifi
 	return &result, nil
 }
 
-func (self *transaction) deleteAgent(agentId string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteAgent(agentId string, options *store.Option) error {
 	return self.deleteAgentDirectories(agentId)
 }
 

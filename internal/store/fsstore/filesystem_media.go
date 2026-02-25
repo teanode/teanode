@@ -34,31 +34,31 @@ type storeMediaMetadata struct {
 	OriginalName   string `json:"originalName,omitempty"`
 }
 
-func (self *transaction) ListMedia(ctx context.Context, listOptions store.MediaListOptions, options *store.Option) ([]*models.Media, error) {
+func (self *fileSystemTransaction) ListMedia(ctx context.Context, listOptions store.MediaListOptions, options *store.Option) ([]*models.Media, error) {
 	return self.listMedia(listOptions, options)
 }
 
-func (self *transaction) CreateMedia(ctx context.Context, content io.Reader, metadata *models.Media, options *store.Option) (*models.Media, error) {
+func (self *fileSystemTransaction) CreateMedia(ctx context.Context, content io.Reader, metadata *models.Media, options *store.Option) (*models.Media, error) {
 	return self.createMedia(content, metadata, options)
 }
 
-func (self *transaction) GetMedia(ctx context.Context, mediaId string, options *store.Option) ([]byte, *models.Media, error) {
+func (self *fileSystemTransaction) GetMedia(ctx context.Context, mediaId string, options *store.Option) ([]byte, *models.Media, error) {
 	return self.getMedia(mediaId, options)
 }
 
-func (self *transaction) OpenMedia(ctx context.Context, mediaId string, options *store.Option) (io.ReadCloser, *models.Media, error) {
+func (self *fileSystemTransaction) OpenMedia(ctx context.Context, mediaId string, options *store.Option) (io.ReadCloser, *models.Media, error) {
 	return self.openMedia(mediaId, options)
 }
 
-func (self *transaction) ModifyMedia(ctx context.Context, mediaId string, modifier func(*models.Media) error, options *store.Option) (*models.Media, error) {
+func (self *fileSystemTransaction) ModifyMedia(ctx context.Context, mediaId string, modifier func(*models.Media) error, options *store.Option) (*models.Media, error) {
 	return self.modifyMedia(ctx, mediaId, modifier, options)
 }
 
-func (self *transaction) DeleteMedia(ctx context.Context, mediaId string, options *store.Option) error {
+func (self *fileSystemTransaction) DeleteMedia(ctx context.Context, mediaId string, options *store.Option) error {
 	return self.deleteMedia(mediaId, options)
 }
 
-func (self *transaction) listMedia(listOptions store.MediaListOptions, options *store.Option) ([]*models.Media, error) {
+func (self *fileSystemTransaction) listMedia(listOptions store.MediaListOptions, options *store.Option) ([]*models.Media, error) {
 	metadataList, err := self.scanMediaMetadata(func(metadata storeMediaMetadata) bool {
 		if listOptions.ConversationID != nil && metadata.ConversationID != *listOptions.ConversationID {
 			return false
@@ -82,7 +82,7 @@ func (self *transaction) listMedia(listOptions store.MediaListOptions, options *
 	return applyOffsetLimitMedia(results, options), nil
 }
 
-func (self *transaction) createMedia(content io.Reader, metadata *models.Media, options *store.Option) (*models.Media, error) {
+func (self *fileSystemTransaction) createMedia(content io.Reader, metadata *models.Media, options *store.Option) (*models.Media, error) {
 	if content == nil {
 		return nil, store.ErrInvalidOptions
 	}
@@ -134,7 +134,7 @@ func (self *transaction) createMedia(content io.Reader, metadata *models.Media, 
 	return &result, nil
 }
 
-func (self *transaction) getMedia(mediaId string, options *store.Option) ([]byte, *models.Media, error) {
+func (self *fileSystemTransaction) getMedia(mediaId string, options *store.Option) ([]byte, *models.Media, error) {
 	mediaPath, format, err := self.findMediaFile(mediaId)
 	if err != nil {
 		return nil, nil, err
@@ -151,7 +151,7 @@ func (self *transaction) getMedia(mediaId string, options *store.Option) ([]byte
 	return data, &result, nil
 }
 
-func (self *transaction) openMedia(mediaId string, options *store.Option) (io.ReadCloser, *models.Media, error) {
+func (self *fileSystemTransaction) openMedia(mediaId string, options *store.Option) (io.ReadCloser, *models.Media, error) {
 	mediaPath, format, err := self.findMediaFile(mediaId)
 	if err != nil {
 		return nil, nil, err
@@ -169,7 +169,7 @@ func (self *transaction) openMedia(mediaId string, options *store.Option) (io.Re
 	return mediaFile, &result, nil
 }
 
-func (self *transaction) modifyMedia(ctx context.Context, mediaId string, modifier func(*models.Media) error, options *store.Option) (*models.Media, error) {
+func (self *fileSystemTransaction) modifyMedia(ctx context.Context, mediaId string, modifier func(*models.Media) error, options *store.Option) (*models.Media, error) {
 	_, metadata, err := self.GetMedia(ctx, mediaId, options)
 	if err != nil {
 		return nil, err
@@ -180,7 +180,7 @@ func (self *transaction) modifyMedia(ctx context.Context, mediaId string, modifi
 	return metadata, nil
 }
 
-func (self *transaction) deleteMedia(mediaId string, options *store.Option) error {
+func (self *fileSystemTransaction) deleteMedia(mediaId string, options *store.Option) error {
 	mediaPath, _, err := self.findMediaFile(mediaId)
 	if err != nil {
 		return err
@@ -199,18 +199,18 @@ func (self *transaction) deleteMedia(mediaId string, options *store.Option) erro
 	return nil
 }
 
-func (self *transaction) mediaShardDirectory(mediaId string) string {
+func (self *fileSystemTransaction) mediaShardDirectory(mediaId string) string {
 	if len(mediaId) < 2 {
 		return self.mediaDirectory()
 	}
 	return filepath.Join(self.mediaDirectory(), mediaId[len(mediaId)-2:])
 }
 
-func (self *transaction) mediaMetadataPath(mediaId string) string {
+func (self *fileSystemTransaction) mediaMetadataPath(mediaId string) string {
 	return filepath.Join(self.mediaShardDirectory(mediaId), mediaId+mediaMetadataSuffix)
 }
 
-func (self *transaction) findMediaFile(mediaId string) (string, string, error) {
+func (self *fileSystemTransaction) findMediaFile(mediaId string) (string, string, error) {
 	matches, globError := filepath.Glob(filepath.Join(self.mediaShardDirectory(mediaId), mediaId+".*"))
 	if globError != nil {
 		return "", "", globError
@@ -225,7 +225,7 @@ func (self *transaction) findMediaFile(mediaId string) (string, string, error) {
 	return "", "", store.ErrNotFound
 }
 
-func (self *transaction) readMediaMetadata(mediaId string) (storeMediaMetadata, error) {
+func (self *fileSystemTransaction) readMediaMetadata(mediaId string) (storeMediaMetadata, error) {
 	data, readError := os.ReadFile(self.mediaMetadataPath(mediaId))
 	if readError != nil {
 		return storeMediaMetadata{}, readError
@@ -237,7 +237,7 @@ func (self *transaction) readMediaMetadata(mediaId string) (storeMediaMetadata, 
 	return metadata, nil
 }
 
-func (self *transaction) writeMediaMetadata(mediaId string, metadata storeMediaMetadata) error {
+func (self *fileSystemTransaction) writeMediaMetadata(mediaId string, metadata storeMediaMetadata) error {
 	encoded, marshalError := json.Marshal(metadata)
 	if marshalError != nil {
 		return marshalError
@@ -245,7 +245,7 @@ func (self *transaction) writeMediaMetadata(mediaId string, metadata storeMediaM
 	return atomicfile.WriteFile(self.mediaMetadataPath(mediaId), encoded)
 }
 
-func (self *transaction) loadOrSynthesizeMediaMetadata(mediaId string, format string, mediaPath string) (storeMediaMetadata, error) {
+func (self *fileSystemTransaction) loadOrSynthesizeMediaMetadata(mediaId string, format string, mediaPath string) (storeMediaMetadata, error) {
 	metadata, metadataError := self.readMediaMetadata(mediaId)
 	if metadataError == nil {
 		return metadata, nil
@@ -267,7 +267,7 @@ func (self *transaction) loadOrSynthesizeMediaMetadata(mediaId string, format st
 	return metadata, nil
 }
 
-func (self *transaction) scanMediaMetadata(filter func(storeMediaMetadata) bool) ([]storeMediaMetadata, error) {
+func (self *fileSystemTransaction) scanMediaMetadata(filter func(storeMediaMetadata) bool) ([]storeMediaMetadata, error) {
 	entries, readError := os.ReadDir(self.mediaDirectory())
 	if readError != nil {
 		if os.IsNotExist(readError) {
