@@ -10,15 +10,28 @@ import (
 )
 
 type pipelineMockTranscriber struct {
+	mu    sync.Mutex
 	text  string
 	delay time.Duration
+	calls int
 }
 
 func (self *pipelineMockTranscriber) Transcribe(_ context.Context, _ VoiceTranscribeRequest) (*VoiceTranscribeResponse, error) {
-	if self.delay > 0 {
-		time.Sleep(self.delay)
+	self.mu.Lock()
+	self.calls++
+	delay := self.delay
+	text := self.text
+	self.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
 	}
-	return &VoiceTranscribeResponse{Text: self.text}, nil
+	return &VoiceTranscribeResponse{Text: text}, nil
+}
+
+func (self *pipelineMockTranscriber) callCount() int {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+	return self.calls
 }
 
 type pipelineMockProviderRegistry struct {
@@ -293,19 +306,60 @@ func TestTranscribeQueuesWhenRunActive(t *testing.T) {
 	s.SetCurrentRunId("run-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
+	waitFor(t, 500*time.Millisecond, func() bool { return deps.sendCount() == 1 })
 
-	if deps.sendCount() != 0 {
-		t.Fatalf("expected no immediate send while run active, got %d", deps.sendCount())
+	if deps.cancelCount() != 1 {
+		t.Fatalf("expected one cancel call for preempted run, got %d", deps.cancelCount())
 	}
-	if !s.HasPendingTurns() {
-		t.Fatal("expected pending turn queued")
+	if s.HasPendingTurns() {
+		t.Fatal("expected queued turn to be committed immediately after preemption")
+	}
+}
+
+func TestTranscribePreemptsQueuedTurnBeforeResponseStarts(t *testing.T) {
+	s, deps := newPipelineSession("hello from queued turn")
+	s.SetCurrentRunId("run-active")
+
+	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
+	waitFor(t, 500*time.Millisecond, func() bool { return deps.sendCount() == 1 })
+
+	if deps.cancelCount() != 1 {
+		t.Fatalf("expected one cancel call for preempted run, got %d", deps.cancelCount())
+	}
+	if s.HasPendingTurns() {
+		t.Fatal("expected queued turn to be committed immediately after preemption")
+	}
+	parameters := deps.lastSend()
+	if parameters.Message != "hello from queued turn" {
+		t.Fatalf("unexpected committed message after preemption: %q", parameters.Message)
+	}
+}
+
+func TestTranscribeDoesNotPreemptWhenResponseAlreadyStarted(t *testing.T) {
+	s, deps := newPipelineSession("hello from queued turn")
+	s.SetCurrentRunId("run-active")
+	s.SetCurrentResponseId("response-active")
+
+	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
+
+	if deps.sendCount() != 1 {
+		t.Fatalf("expected immediate send after barge-in when response active, got %d", deps.sendCount())
+	}
+	if deps.cancelCount() != 0 {
+		t.Fatalf("expected no run cancel while response active, got %d", deps.cancelCount())
+	}
+	if deps.abortCount() != 1 {
+		t.Fatalf("expected one abort call while response active, got %d", deps.abortCount())
+	}
+	if s.HasPendingTurns() {
+		t.Fatal("expected no pending turn after response-active barge-in path")
 	}
 }
 
 func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
 	s, deps := newPipelineSession("hello from queued turn")
 	s.SetCurrentRunId("run-active")
-	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
+	s.EnqueuePendingTurn("turn-1", "hello from queued turn")
 	if !s.HasPendingTurns() {
 		t.Fatal("expected queued turn before drain")
 	}
@@ -390,9 +444,10 @@ func TestQueueOverflowDropsOldestWithReason(t *testing.T) {
 	s, deps, rec := newPipelineSessionWithEvents("queued transcript text")
 	s.maxPendingTurns = 1
 	s.SetCurrentRunId("run-active")
+	s.SetCurrentResponseId("response-active")
 
-	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
-	s.transcribeAndSend("turn-2", makePCMFrame(12000, 320))
+	s.enqueueTranscriptTurn("turn-1", "queued transcript text")
+	s.enqueueTranscriptTurn("turn-2", "queued transcript text")
 
 	if deps.sendCount() != 0 {
 		t.Fatalf("expected no sends while run active, got %d", deps.sendCount())
@@ -575,7 +630,7 @@ func TestAudioInputLoop_ServerTurnFalse(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		s.audioInCh <- loud
 	}
-	for i := 0; i < 25; i++ {
+	for i := 0; i < vadRedemptionFrames+5; i++ {
 		s.audioInCh <- quiet
 	}
 
@@ -684,6 +739,54 @@ func TestInputCommit_RaceCondition(t *testing.T) {
 	waitFor(t, 500*time.Millisecond, func() bool { return deps.sendCount() >= 1 || s.HasPendingTurns() })
 	if deps.sendCount() > 1 {
 		t.Fatalf("expected at most one send after concurrent commits, got %d", deps.sendCount())
+	}
+}
+
+func TestCommitCapturedTurn_PrefersStreamingFinalText(t *testing.T) {
+	s, deps := newPipelineSession("batch transcript should not be used")
+	mockRegistry, ok := deps.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+	mockTranscriber, ok := mockRegistry.transcriber.(*pipelineMockTranscriber)
+	if !ok {
+		t.Fatal("expected pipeline mock transcriber")
+	}
+	s.setStreamingTranscribeStream(newPipelineMockTranscribeStream())
+	s.setStreamingFinalText("turn-stream", "I want to learn about GitHub specifically worktree.")
+
+	s.commitCapturedTurn("turn-stream", makePCMFrame(12000, 8000))
+	waitFor(t, 800*time.Millisecond, func() bool { return deps.sendCount() == 1 })
+
+	if deps.lastSend().Message != "I want to learn about GitHub specifically worktree." {
+		t.Fatalf("unexpected committed transcript: %q", deps.lastSend().Message)
+	}
+	if mockTranscriber.callCount() != 0 {
+		t.Fatalf("expected no batch transcription call when streaming final is strong, got %d", mockTranscriber.callCount())
+	}
+}
+
+func TestCommitCapturedTurn_FallsBackToBatchWhenStreamingFinalTooShort(t *testing.T) {
+	s, deps := newPipelineSession("I am planning a trip to Cheesecake Factory tell me the menu")
+	mockRegistry, ok := deps.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+	mockTranscriber, ok := mockRegistry.transcriber.(*pipelineMockTranscriber)
+	if !ok {
+		t.Fatal("expected pipeline mock transcriber")
+	}
+	s.setStreamingTranscribeStream(newPipelineMockTranscribeStream())
+	s.setStreamingFinalText("turn-short", "trip")
+
+	s.commitCapturedTurn("turn-short", makePCMFrame(12000, 8000))
+	waitFor(t, 1200*time.Millisecond, func() bool { return deps.sendCount() == 1 })
+
+	if deps.lastSend().Message != "I am planning a trip to Cheesecake Factory tell me the menu" {
+		t.Fatalf("unexpected committed transcript: %q", deps.lastSend().Message)
+	}
+	if mockTranscriber.callCount() == 0 {
+		t.Fatal("expected batch fallback transcription for short streaming final")
 	}
 }
 
@@ -956,7 +1059,7 @@ func TestAudioInputLoop_StreamingNoInterimFallsBackToBatch(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		s.audioInCh <- loud
 	}
-	for i := 0; i < 25; i++ {
+	for i := 0; i < vadRedemptionFrames+5; i++ {
 		s.audioInCh <- silence
 	}
 
@@ -1009,21 +1112,25 @@ func TestAudioInputLoop_StreamingFallbackTranscriptionIsNonBlocking(t *testing.T
 	for i := 0; i < 12; i++ {
 		s.audioInCh <- loud
 	}
-	for i := 0; i < 25; i++ {
+	for i := 0; i < vadRedemptionFrames+5; i++ {
 		s.audioInCh <- silence
 	}
 
-	// Keep feeding audio while fallback transcription is in progress.
-	droppedFrames := 0
-	deadline := time.Now().Add(180 * time.Millisecond)
+	// Wait until fallback transcription has started, then ensure the audio loop
+	// keeps draining input while transcription runs in the background.
+	waitFor(t, time.Second, func() bool { return mockTranscriber.callCount() >= 1 })
+	blockedSends := 0
+	deadline := time.Now().Add(120 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if !s.enqueueAudioIn(loud) {
-			droppedFrames++
+		select {
+		case s.audioInCh <- loud:
+		case <-time.After(20 * time.Millisecond):
+			blockedSends++
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if droppedFrames > 0 {
-		t.Fatalf("expected no dropped audio frames while fallback transcription runs, got %d drops", droppedFrames)
+	if blockedSends > 0 {
+		t.Fatalf("expected audio input to remain drainable while fallback transcription runs, got %d blocked sends", blockedSends)
 	}
 
 	waitFor(t, 2*time.Second, func() bool { return deps.sendCount() == 1 })
@@ -1074,7 +1181,7 @@ func TestAudioInputLoop_StreamingInterimFallsBackToBatch(t *testing.T) {
 		Text:       "interim transcript should not bypass batch",
 		Confidence: 0.95,
 	}
-	for i := 0; i < 25; i++ {
+	for i := 0; i < vadRedemptionFrames+5; i++ {
 		s.audioInCh <- silence
 	}
 
@@ -1092,6 +1199,45 @@ func TestAudioInputLoop_StreamingInterimFallsBackToBatch(t *testing.T) {
 	_ = stream.Close()
 	select {
 	case <-streamingDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("streamingTranscribeLoop did not stop after done")
+	}
+}
+
+func TestStreamingTranscribeLoop_TracksSpeechFinalAndUtteranceEnd(t *testing.T) {
+	stream := newPipelineMockTranscribeStream()
+	session, dependencies, _ := newPipelineSessionWithEventsAndFeatures("unused", Features{
+		ServerVAD:  true,
+		ServerTurn: true,
+		BargeIn:    true,
+	})
+	registry, ok := dependencies.registry.(*pipelineMockProviderRegistry)
+	if !ok {
+		t.Fatal("expected pipeline mock provider registry")
+	}
+	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	if !session.startStreamingTranscriber() {
+		t.Fatal("expected streaming transcriber to start")
+	}
+	turnId := "turn-boundary"
+	session.SetCurrentTurnId(turnId)
+
+	done := make(chan struct{})
+	go func() {
+		session.streamingTranscribeLoop()
+		close(done)
+	}()
+
+	stream.events <- VoiceTranscribeEvent{Type: "speech_final", Text: "this is complete"}
+	stream.events <- VoiceTranscribeEvent{Type: "utterance_end"}
+	waitFor(t, 500*time.Millisecond, func() bool {
+		return session.hasStreamingSpeechFinal(turnId) && session.hasStreamingUtteranceEnd(turnId)
+	})
+
+	close(session.doneCh)
+	_ = stream.Close()
+	select {
+	case <-done:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("streamingTranscribeLoop did not stop after done")
 	}
