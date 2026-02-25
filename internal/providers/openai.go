@@ -334,7 +334,7 @@ func (self *ChatRequest) normalizeMaxTokensParam() {
 }
 
 func usesMaxCompletionTokens(model string) bool {
-	lower := strings.ToLower(strings.TrimSpace(model))
+	lower := strings.ToLower(model)
 	return strings.HasPrefix(lower, "gpt-5")
 }
 

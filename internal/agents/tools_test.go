@@ -3,19 +3,21 @@ package agents
 import (
 	"sort"
 	"testing"
+
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 // newTestRegistry returns a registry with three stub tools: "alpha", "beta", "gamma".
 // Reuses stubTool from runner_test.go.
-func newTestRegistry() *ToolRegistry {
-	registry := NewToolRegistry()
+func newTestRegistry() *toolregistry.ToolRegistry {
+	registry := toolregistry.NewToolRegistry()
 	registry.Register(&stubTool{name: "alpha"})
 	registry.Register(&stubTool{name: "beta"})
 	registry.Register(&stubTool{name: "gamma"})
 	return registry
 }
 
-func sortedNames(registry *ToolRegistry) []string {
+func sortedNames(registry *toolregistry.ToolRegistry) []string {
 	names := registry.Names()
 	sort.Strings(names)
 	return names

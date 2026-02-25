@@ -13,6 +13,7 @@ type User struct {
 	DefaultAgentID *string `json:"defaultAgentId,omitempty" yaml:"defaultAgentId,omitempty"`
 	TelegramChatID *int64  `json:"telegramChatId,omitempty" yaml:"telegramChatId,omitempty"`
 	DiscordUserID  *string `json:"discordUserId,omitempty" yaml:"discordUserId,omitempty"`
-	AvatarMediaID  *string `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
-	Description    *string `json:"description,omitempty" yaml:"description,omitempty"`
+	AvatarMediaID  *string    `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
+	Description    *string    `json:"description,omitempty" yaml:"description,omitempty"`
+	SummarizedAt   *time.Time `json:"summarizedAt,omitempty" yaml:"summarizedAt,omitempty"`
 }

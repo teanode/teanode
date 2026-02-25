@@ -8,19 +8,19 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/mimetypes"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/slashcommands"
 )
 
@@ -143,7 +143,7 @@ type discordSubscribedRun struct {
 
 // Bot manages a Discord bot that forwards messages to the agents.
 type Bot struct {
-	config        *configs.DiscordConfig
+	token         string
 	ctx           context.Context
 	agentRegistry *agents.AgentRegistry
 	gateway       gw.Gateway
@@ -166,9 +166,9 @@ type Bot struct {
 }
 
 // New creates a new Discord bot that dynamically resolves the default agent and conversation from the registry.
-func New(discordConfig *configs.DiscordConfig, ctx context.Context, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
+func New(token string, ctx context.Context, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
 	return &Bot{
-		config:              discordConfig,
+		token:               token,
 		ctx:                 ctx,
 		agentRegistry:       agentRegistry,
 		gateway:             gateway,
@@ -181,7 +181,7 @@ func New(discordConfig *configs.DiscordConfig, ctx context.Context, agentRegistr
 
 // Start connects the bot to Discord.
 func (self *Bot) Start() error {
-	discordSession, err := discordgo.New("Bot " + self.config.Token)
+	discordSession, err := discordgo.New("Bot " + self.token)
 	if err != nil {
 		return fmt.Errorf("creating discord session: %w", err)
 	}
@@ -215,10 +215,15 @@ func (self *Bot) shouldForwardDisconnectedSession(userId, agentId, conversationI
 	if userId == "" {
 		return false
 	}
-	defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
-	if err != nil {
-		return false
-	}
+	var defaultAgentId string
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		user, err := transaction.GetUser(ctx, userId, nil)
+		if err != nil {
+			return nil
+		}
+		defaultAgentId = user.GetDefaultAgentID()
+		return nil
+	})
 	if agentId != defaultAgentId {
 		return false
 	}
@@ -266,8 +271,16 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 	case "user_message":
 		agentId, _ := payloadMap["agentId"].(string)
 		// Only forward events for the default agent.
-		defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
-		if err != nil || agentId != defaultAgentId {
+		var defaultAgentId string
+		_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+			user, err := transaction.GetUser(ctx, userId, nil)
+			if err != nil {
+				return nil
+			}
+			defaultAgentId = user.GetDefaultAgentID()
+			return nil
+		})
+		if agentId != defaultAgentId {
 			return
 		}
 
@@ -438,7 +451,7 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		return
 	}
 
-	content := strings.TrimSpace(event.Content)
+	content := event.Content
 	hasAttachments := len(event.Attachments) > 0
 
 	if content == "" && !hasAttachments {
@@ -458,8 +471,8 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 			return
 		}
 		// Strip the mention from the message.
-		content = strings.TrimSpace(strings.ReplaceAll(content, "<@"+self.botUserId+">", ""))
-		content = strings.TrimSpace(strings.ReplaceAll(content, "<@!"+self.botUserId+">", ""))
+		content = strings.ReplaceAll(content, "<@"+self.botUserId+">", "")
+		content = strings.ReplaceAll(content, "<@!"+self.botUserId+">", "")
 		if content == "" && !hasAttachments {
 			return
 		}
@@ -475,12 +488,12 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 	self.setChannelForUser(userId, event.ChannelID)
 
 	if name, arguments, ok := slashcommands.Parse(content); ok {
-		self.handleCommand(userId, discordSession, event, name, arguments)
+		self.handleCommand(user, discordSession, event, name, arguments)
 		return
 	}
 
-	defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
-	if err != nil {
+	defaultAgentId := user.GetDefaultAgentID()
+	if defaultAgentId == "" {
 		discordSession.ChannelMessageSend(event.ChannelID, "No default agent available.")
 		return
 	}
@@ -493,7 +506,7 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 	}
 
 	// Extract attachments from the message.
-	var attachments []conversations.Attachment
+	var attachments []map[string]string
 	if hasAttachments {
 		attachments = self.extractAttachments(event.Attachments)
 	}
@@ -516,13 +529,13 @@ func unlinkedDiscordMessage(discordUserId string) string {
 			"channelLinks:\n"+
 			"  discord:\n"+
 			"    \"%s\": \"user-1\"",
-		configs.SecurityFilename(),
+		"security.yaml",
 		discordUserId,
 		discordUserId,
 	)
 }
 
-func (self *Bot) handleMessage(user *models.User, conversationId, agentId, channelId, message string, attachments []conversations.Attachment) {
+func (self *Bot) handleMessage(user *models.User, conversationId, agentId, channelId, message string, attachments []map[string]string) {
 	defer deferutil.Recover()
 
 	// Mark this conversation as actively handled by us.
@@ -564,7 +577,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 		},
 	}
 
-	runContext := gw.ContextWithUserAndSession(context.Background(), user, nil)
+	runContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
 	handle := self.gateway.SendMessage(runContext, gw.SendMessageParameters{
 		AgentID:        agentId,
 		ConversationID: conversationId,
@@ -632,12 +645,12 @@ func (self *Bot) getModel(channelId string) string {
 	return self.modelOverrides[channelId]
 }
 
-func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session, messageEvent *discordgo.MessageCreate, name, arguments string) {
+func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Session, messageEvent *discordgo.MessageCreate, name, arguments string) {
 	channelId := messageEvent.ChannelID
 	var reply string
 
-	defaultAgentId, defaultError := self.gateway.EnsureDefaultAgent(userId)
-	if defaultError != nil {
+	defaultAgentId := user.GetDefaultAgentID()
+	if defaultAgentId == "" {
 		discordSession.ChannelMessageSend(channelId, "No default agent available.")
 		return
 	}
@@ -645,24 +658,24 @@ func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session,
 
 	switch name {
 	case "new":
-		conversationId := self.gateway.NewDefaultConversation(userId, defaultAgentId, "")
+		conversationId := self.gateway.NewDefaultConversation(user.ID, defaultAgentId, "")
 		reply = fmt.Sprintf("New conversation started. (`%s`)", conversationId)
 
 	case "reset", "clear":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
 		// Abort active run if any.
 		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
 			self.gateway.AbortRun(activeRunId)
 		}
-		if err := self.gateway.DeleteConversation(userId, defaultAgentId, conversationId); err != nil {
+		if err := self.gateway.DeleteConversation(user.ID, defaultAgentId, conversationId); err != nil {
 			reply = fmt.Sprintf("Error clearing conversation: %v", err)
 		} else {
-			newConversationId := self.gateway.NewDefaultConversation(userId, defaultAgentId, "")
+			newConversationId := self.gateway.NewDefaultConversation(user.ID, defaultAgentId, "")
 			reply = fmt.Sprintf("Conversation cleared. New conversation started. (`%s`)", newConversationId)
 		}
 
 	case "stop":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
 		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
 			self.gateway.AbortRun(activeRunId)
 			reply = "Run cancelled."
@@ -674,7 +687,7 @@ func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session,
 		if arguments == "" {
 			model := self.getModel(channelId)
 			if model == "" && runner != nil {
-				model = runner.Config.Models.Default
+				model = runner.Config.Models.GetDefault()
 			}
 			reply = fmt.Sprintf("Current model: `%s`", model)
 		} else {
@@ -689,7 +702,7 @@ func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session,
 			var lines []string
 			lines = append(lines, fmt.Sprintf("Default agent: `%s`", defaultAgentId))
 			lines = append(lines, "Agents:")
-			for _, agentId := range self.agentRegistry.AgentIDs() {
+			for _, agentId := range self.listAgentIDsFromStore() {
 				marker := "  "
 				if agentId == defaultAgentId {
 					marker = "* "
@@ -698,19 +711,31 @@ func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session,
 			}
 			reply = strings.Join(lines, "\n")
 		} else {
-			if err := self.gateway.SetDefaultAgent(userId, arguments); err != nil {
+			if self.agentRegistry.GetRunner(arguments) == nil {
+				reply = fmt.Sprintf("Error: agent not found: %s", arguments)
+			} else if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+				_, err := transaction.ModifyUser(ctx, user.ID, func(user *models.User) error {
+					user.DefaultAgentID = ptrto.Value(arguments)
+					return nil
+				}, nil)
+				return err
+			}); err != nil {
 				reply = fmt.Sprintf("Error: %v", err)
 			} else {
-				newConversationId := self.agentRegistry.EnsureDefaultConversation(userId, arguments)
+				self.gateway.Broadcast(gw.EventTypeDefaultAgent, map[string]interface{}{
+					"defaultAgentId": arguments,
+					"userId":         user.ID,
+				})
+				newConversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, arguments)
 				reply = fmt.Sprintf("Switched to agent `%s`. (conversation: `%s`)", arguments, newConversationId)
 			}
 		}
 
 	case "status":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
 		model := self.getModel(channelId)
 		if model == "" && runner != nil {
-			model = runner.Config.Models.Default
+			model = runner.Config.Models.GetDefault()
 		}
 		running := self.gateway.GetActiveRun(conversationId) != ""
 		status := "idle"
@@ -719,15 +744,15 @@ func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session,
 		}
 		providerName := ""
 		if runner != nil {
-			providerName = runner.Config.Models.DefaultProviderName()
+			providerName = runner.Providers.DefaultProvider()
 		}
 		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
 
 	case "compact":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
 		if runner != nil {
-			contextWithUserId := agents.ContextWithUserID(self.ctx, userId)
-			result, err := runner.CompactConversation(contextWithUserId, conversationId)
+			compactContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
+			result, err := runner.CompactConversation(compactContext, conversationId)
 			if err != nil {
 				reply = fmt.Sprintf("Error compacting: %v", err)
 			} else {
@@ -780,14 +805,31 @@ func (self *Bot) sendChunked(channelId, text string) {
 
 func (self *Bot) linkedUserForDiscordUser(discordUserId string) *models.User {
 	var user *models.User
-	_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-		_, foundUser, found := transaction.GetUserByDiscordUserID(discordUserId, nil)
-		if found {
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		foundUser, err := transaction.GetUserByDiscordUserID(ctx, discordUserId, nil)
+		if err == nil {
 			user = foundUser
 		}
 		return nil
 	})
 	return user
+}
+
+func (self *Bot) listAgentIDsFromStore() []string {
+	agentIDs := make([]string, 0)
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agents, listError := transaction.ListAgents(ctx, nil)
+		if listError != nil {
+			return nil
+		}
+		agentIDs = make([]string, 0, len(agents))
+		for _, agent := range agents {
+			agentIDs = append(agentIDs, agent.ID)
+		}
+		sort.Strings(agentIDs)
+		return nil
+	})
+	return agentIDs
 }
 
 func (self *Bot) setChannelForUser(userId, channelId string) {
@@ -807,8 +849,8 @@ func (self *Bot) channelIdForUser(userId string) string {
 
 // extractAttachments downloads files attached to a Discord message and saves
 // them through the configured store, returning conversation attachment references.
-func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttachment) []conversations.Attachment {
-	var attachments []conversations.Attachment
+func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttachment) []map[string]string {
+	var attachments []map[string]string
 	for _, att := range messageAttachments {
 		data, err := downloadUrl(att.URL)
 		if err != nil {
@@ -826,16 +868,16 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 		}
 
 		contentType := att.ContentType
-		if strings.TrimSpace(contentType) == "" {
+		if contentType == "" {
 			contentType = mimetypes.MIMETypeFromFormat(format)
 		}
 		var createdMedia *models.Media
-		createError := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		createError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 			var saveError error
-			createdMedia, saveError = transaction.CreateMedia(bytes.NewReader(data), &models.Media{
+			createdMedia, saveError = transaction.CreateMedia(ctx, bytes.NewReader(data), &models.Media{
 				Format:       &format,
 				ContentType:  &contentType,
-				Source:       ptrToString("discord"),
+				Source:       ptrto.Value("discord"),
 				OriginalName: &att.Filename,
 			}, nil)
 			return saveError
@@ -844,17 +886,13 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 			log.Errorf("failed to save discord attachment: %v", createError)
 			continue
 		}
-		attachments = append(attachments, conversations.Attachment{
-			MediaID:  createdMedia.ID,
-			Format:   format,
-			Filename: att.Filename,
+		attachments = append(attachments, map[string]string{
+			"mediaId":  createdMedia.ID,
+			"format":   format,
+			"filename": att.Filename,
 		})
 	}
 	return attachments
-}
-
-func ptrToString(value string) *string {
-	return &value
 }
 
 // downloadUrl fetches data from a URL.

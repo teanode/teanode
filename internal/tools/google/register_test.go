@@ -5,8 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 func makeFakeBinary(t *testing.T, name string) func() {
@@ -25,7 +24,7 @@ func TestRegisterTools_NilConfig_BinaryPresent(t *testing.T) {
 	cleanup := makeFakeBinary(t, "gog")
 	defer cleanup()
 
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, nil)
 
 	// Default services: gmail, calendar, drive → 3 tools.
@@ -45,7 +44,7 @@ func TestRegisterTools_NilConfig_BinaryMissing(t *testing.T) {
 	os.Setenv("PATH", t.TempDir())
 	defer os.Setenv("PATH", origPath)
 
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, nil)
 
 	if len(registry.Names()) != 0 {
@@ -57,8 +56,8 @@ func TestRegisterTools_ExplicitConfig_CustomServices(t *testing.T) {
 	cleanup := makeFakeBinary(t, "gog")
 	defer cleanup()
 
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.GoogleConfig{
+	registry := toolregistry.NewToolRegistry()
+	RegisterTools(registry, &RegistrationOptions{
 		Services: []string{"gmail", "contacts"},
 	})
 

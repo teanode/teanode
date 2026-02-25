@@ -145,7 +145,7 @@ func NewTerminalCommand() *cli.Command {
 			// Connect to gateway WebSocket.
 			gatewayUrl := command.String("gateway")
 			token := command.String("token")
-			name := strings.TrimSpace(command.String("name"))
+			name := command.String("name")
 			if name == "" {
 				name = defaultTerminalConnectionId()
 			}
@@ -162,12 +162,12 @@ func NewTerminalCommand() *cli.Command {
 func defaultTerminalConnectionId() string {
 	username := "teanode"
 	if currentUser, err := user.Current(); err == nil {
-		if value := strings.TrimSpace(currentUser.Username); value != "" {
+		if value := currentUser.Username; value != "" {
 			username = value
 		}
 	}
 	hostname, _ := os.Hostname()
-	hostname = strings.TrimSpace(hostname)
+	hostname = hostname
 	if hostname == "" {
 		hostname = "host"
 	}

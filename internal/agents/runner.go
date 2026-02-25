@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,12 +12,11 @@ import (
 	"encoding/base64"
 
 	"github.com/kaptinlin/jsonrepair"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/mimetypes"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
@@ -32,57 +30,16 @@ type conversationState struct {
 
 // Runner orchestrates: load conversation -> build prompt -> call LLM -> save response.
 type Runner struct {
-	mutex                sync.RWMutex
-	AgentID              string
-	Providers            *providers.Registry
-	ResolveConversations func(userId, agentId string) *conversations.Store
-	ResolveUser          func(userId string) (*models.User, error)
-	Config               *configs.Config
-	Tools                *ToolRegistry
-	WorkspaceDirectory   string
-	SkillPrompts         string
-
-	// contextWindows maps "provider:model" -> context window size.
-	contextWindows sync.Map
+	AgentID            string
+	Providers          *providers.Registry
+	ResolveUser        func(userId string) (*models.User, error)
+	Config             *models.Configuration
+	Tools              *toolregistry.ToolRegistry
+	WorkspaceDirectory string
+	SkillPrompts       string
 
 	// conversationStates maps conversation id -> *conversationState for per-conversation serial execution.
 	conversationStates sync.Map
-}
-
-// Reconfigure hot-swaps the runner's configuration, providers, tools, and skill prompts.
-// In-progress runs continue with their snapshotted references; new runs use the updated values.
-func (self *Runner) Reconfigure(config *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, skillPrompts string) {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	self.Config = config
-	self.Providers = providerRegistry
-	self.Tools = tools
-	self.SkillPrompts = skillPrompts
-}
-
-// Snapshot captures the runner's current state under the read lock.
-func (self *Runner) Snapshot() (config *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, workspaceDirectory string, skillPrompts string) {
-	self.mutex.RLock()
-	defer self.mutex.RUnlock()
-	return self.Config, self.Providers, self.Tools, self.WorkspaceDirectory, self.SkillPrompts
-}
-
-// SetModels populates the context window map for models from a given provider.
-func (self *Runner) SetModels(providerName string, models []providers.ModelInfo) {
-	for _, model := range models {
-		if model.ContextLength > 0 {
-			key := providers.QualifyModel(providerName, model.ID)
-			self.contextWindows.Store(key, model.ContextLength)
-		}
-	}
-}
-
-// lookupContextWindow returns the context window for a qualified model, or 0 if unknown.
-func (self *Runner) lookupContextWindow(qualifiedModel string) int {
-	if value, ok := self.contextWindows.Load(qualifiedModel); ok {
-		return value.(int)
-	}
-	return 0
 }
 
 // RunParams holds the parameters for a single agent run.
@@ -90,7 +47,7 @@ type RunParams struct {
 	ConversationID     string
 	Message            string
 	Model              string // override config default
-	Attachments        []conversations.Attachment
+	Attachments        []map[string]string
 	SystemPromptSuffix string // optional; appended to system prompt for this run only
 	SystemPromptMode   SystemPromptMode
 }
@@ -99,7 +56,7 @@ type RunParams struct {
 type RunResult struct {
 	RunID         string
 	Response      string
-	Usage         *conversations.Usage
+	Usage         map[string]int
 	Model         string
 	StopReason    string
 	ContextWindow int // context window size of the model used
@@ -176,30 +133,15 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 // executeRun performs the actual chat turn: appends the user message, calls the LLM
 // (streaming), and appends the assistant response. Loops when the LLM requests tool calls.
 func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
-	// Snapshot mutable fields so in-progress runs aren't affected by hot-reloads.
-	configuration, providerRegistry, tools, workspaceDirectory, skillPrompts := self.Snapshot()
-	userId := UserIDFromContext(ctx)
-	isAdmin, hasAdminContext := AdminFromContext(ctx)
-	if !hasAdminContext {
-		// Missing role context defaults to least privilege.
-		isAdmin = false
-	}
-	if strings.TrimSpace(userId) == "" {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
 		return nil, fmt.Errorf("userId is required")
 	}
-	userWorkspaceDirectory := ""
+	userId := user.ID
+	isAdmin := user.GetAdmin()
 	if self.ResolveUser == nil {
 		return nil, fmt.Errorf("ResolveUser is required")
 	}
-	profile, err := self.ResolveUser(userId)
-	if err != nil {
-		return nil, fmt.Errorf("resolving user profile for %q: %w", userId, err)
-	}
-	if profile == nil {
-		return nil, fmt.Errorf("user profile is required for user %q", userId)
-	}
-	conversationStore := self.conversationStore(userId)
-
 	runId := security.NewULID()
 	now := time.Now().UnixMilli()
 
@@ -210,20 +152,29 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	ctx = contextWithRunner(ctx, self)
 
 	// 1. Choose model and resolve provider (before appending, so we can stamp the header).
-	qualifiedModel := configuration.AgentModel(self.AgentID)
+	qualifiedModel, _ := self.resolveAgentModelAndName(ctx, self.Config.Models.GetDefault())
 	if params.Model != "" {
 		qualifiedModel = params.Model
 	}
 
 	// Validate provider/model alignment with existing conversation.
-	header, headerError := conversationStore.LoadHeader(params.ConversationID)
-	if headerError == nil && header.Model != "" {
-		// Existing conversation with a locked model.
-		if params.Model != "" && params.Model != header.Model {
-			return nil, fmt.Errorf("model mismatch: conversation %s is locked to %q but request specified %q",
-				params.ConversationID, header.Model, params.Model)
+	conversationMessagesForHeader, headerError := listConversationMessages(ctx, params.ConversationID)
+	if headerError == nil {
+		headerModel := ""
+		for index := len(conversationMessagesForHeader) - 1; index >= 0; index-- {
+			headerModel = conversationMessagesForHeader[index].GetModel()
+			if headerModel != "" {
+				break
+			}
 		}
-		qualifiedModel = header.Model
+		if headerModel != "" {
+			// Existing conversation with a locked model.
+			if params.Model != "" && params.Model != headerModel {
+				return nil, fmt.Errorf("model mismatch: conversation %s is locked to %q but request specified %q",
+					params.ConversationID, headerModel, params.Model)
+			}
+			qualifiedModel = headerModel
+		}
 	}
 
 	// Validate that we resolved a non-empty model.
@@ -231,61 +182,78 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		return nil, fmt.Errorf("no model configured: set a default model in config or specify one in the request")
 	}
 
-	limits := configuration.ResolveModelLimits(qualifiedModel)
-
-	provider, model, err := providerRegistry.Resolve(qualifiedModel)
+	provider, model, err := self.Providers.Resolve(qualifiedModel)
 	if err != nil {
 		return nil, fmt.Errorf("resolving model %q: %w", qualifiedModel, err)
 	}
-	resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, providerRegistry.DefaultProvider())
+	resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, self.Providers.DefaultProvider())
 
 	// 2. Append user message to conversation (sets provider/model on new or backfills existing).
-	var userMessage conversations.Message
+	var userMessage models.ConversationMessage
 	if len(params.Attachments) > 0 {
-		userMessage = conversations.NewMessageWithAttachments("user", params.Message, params.Attachments, now)
+		userMessage = newMessageWithAttachments("user", params.Message, params.Attachments, now)
 	} else {
-		userMessage = conversations.NewTextMessage("user", params.Message, now)
+		userMessage = newTextMessage("user", params.Message, now)
 	}
-	if err := conversationStore.Append(params.ConversationID, userMessage,
-		conversations.WithProviderAndModel(resolvedProvider, qualifiedModel)); err != nil {
+	userMessage.Provider = ptrto.Value(resolvedProvider)
+	userMessage.Model = ptrto.Value(qualifiedModel)
+	if err := appendConversationMessage(ctx, userId, self.AgentID, params.ConversationID, userMessage); err != nil {
 		return nil, fmt.Errorf("saving user message: %w", err)
 	}
 
 	// 3. Load full conversation history.
-	history, err := conversationStore.Load(params.ConversationID)
+	history, err := listConversationMessages(ctx, params.ConversationID)
 	if err != nil {
 		return nil, fmt.Errorf("loading conversation: %w", err)
 	}
 
 	// 4. Tool-call loop.
-	var totalUsage *conversations.Usage
+	var totalUsage map[string]int
 	var responseText string
 	var responseModel string
 	var stopReason string
 	var contextWindow int
 
-	for round := 0; round < limits.MaxToolRounds; round++ {
+	for round := 0; round < 250; round++ {
 		log.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
 
 		// Build messages for the LLM.
-		llmMessages := self.buildMessages(ctx, history, limits, params.SystemPromptSuffix, params.SystemPromptMode, configuration, userId, workspaceDirectory, userWorkspaceDirectory, skillPrompts, profile)
+		llmMessages := self.buildMessages(ctx, history, params.SystemPromptSuffix, params.SystemPromptMode, self.SkillPrompts)
 
 		// Tier 1: truncate old tool results.
-		llmMessages = truncateOldToolResults(llmMessages, limits.MinKeepMessages, limits.MaxToolResultChars)
+		llmMessages = truncateOldToolResults(llmMessages, 10, 8000)
 
 		// Build tool definitions for the request.
 		var toolDefs []providers.ToolDefinition
-		if tools != nil {
-			toolDefs = tools.Definitions()
+		if self.Tools != nil {
+			toolDefs = self.Tools.Definitions()
 		}
 
 		// Tier 2: compress context if approaching the context window limit.
-		// Use per-model context window if available, otherwise fall back to configs.
-		contextWindow = self.lookupContextWindow(qualifiedModel)
-		if contextWindow <= 0 {
-			contextWindow = configuration.Models.ContextWindow
+		// Use per-model context window if available, otherwise fall back to configured default.
+		modelsConfiguration := self.Config.Models
+		if modelsConfiguration != nil {
+			contextWindow = modelsConfiguration.GetContextWindow()
 		}
-		llmMessages, err = self.compressContext(ctx, providerRegistry, configuration, llmMessages, toolDefs, params.ConversationID, contextWindow, limits)
+		compressionOptions := contextCompressionModelOptions{}
+		if modelsConfiguration != nil {
+			compressionOptions.DefaultModel = modelsConfiguration.GetDefault()
+			compressionOptions.SummarizerModel = modelsConfiguration.GetSummarizerModel()
+		}
+		llmMessages, err = self.compressContext(
+			ctx,
+			self.Providers,
+			compressionOptions,
+			llmMessages,
+			toolDefs,
+			params.ConversationID,
+			contextWindow,
+			contextCompressionLimits{
+				CompressionThreshold: 0.8,
+				MinKeepMessages:      10,
+				MinKeepRecentTokens:  8000,
+			},
+		)
 		if err != nil {
 			log.Debugf("context compression error (non-fatal): %v", err)
 		}
@@ -383,55 +351,64 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		// Accumulate usage.
 		if usage != nil {
 			if totalUsage == nil {
-				totalUsage = &conversations.Usage{}
+				totalUsage = map[string]int{}
 			}
-			totalUsage.Input += usage.PromptTokens
-			totalUsage.Output += usage.CompletionTokens
-			totalUsage.Total += usage.TotalTokens
-			totalUsage.CacheCreated += usage.CacheCreationInputTokens
-			totalUsage.CacheRead += usage.CacheReadInputTokens
+			totalUsage["input"] += usage.PromptTokens
+			totalUsage["output"] += usage.CompletionTokens
+			totalUsage["totalTokens"] += usage.TotalTokens
+			totalUsage["cacheCreated"] += usage.CacheCreationInputTokens
+			totalUsage["cacheRead"] += usage.CacheReadInputTokens
 		}
 
 		responseText = textBuilder.String()
 
 		// Save assistant message.
-		assistantMessage := conversations.NewTextMessage("assistant", responseText, time.Now().UnixMilli())
-		assistantMessage.Model = responseModel
-		assistantMessage.Provider = resolvedProvider
-		assistantMessage.StopReason = stopReason
+		assistantMessage := newTextMessage("assistant", responseText, time.Now().UnixMilli())
+		assistantMessage.Model = ptrto.Value(responseModel)
+		assistantMessage.Provider = ptrto.Value(resolvedProvider)
+		if stopReason != "" {
+			stopReasonValue := models.StopReason(stopReason)
+			assistantMessage.StopReason = &stopReasonValue
+		}
+		usageMap := map[string]int(nil)
 		if usage != nil {
-			assistantMessage.Usage = &conversations.Usage{
-				Input:        usage.PromptTokens,
-				Output:       usage.CompletionTokens,
-				Total:        usage.TotalTokens,
-				CacheCreated: usage.CacheCreationInputTokens,
-				CacheRead:    usage.CacheReadInputTokens,
+			usageMap = map[string]int{
+				"input":        usage.PromptTokens,
+				"output":       usage.CompletionTokens,
+				"totalTokens":  usage.TotalTokens,
+				"cacheCreated": usage.CacheCreationInputTokens,
+				"cacheRead":    usage.CacheReadInputTokens,
 			}
 		}
 		if len(toolCalls) > 0 {
-			assistantMessage.ToolCalls, _ = json.Marshal(toolCalls)
+			toolCallsJson, _ := json.Marshal(toolCalls)
+			assistantMessage.ToolCalls = toolCallsJson
+		}
+		if usageMap != nil {
+			usageJson, _ := json.Marshal(usageMap)
+			assistantMessage.Usage = usageJson
 		}
 
-		if err := conversationStore.Append(params.ConversationID, assistantMessage); err != nil {
+		if err := appendConversationMessage(ctx, userId, self.AgentID, params.ConversationID, assistantMessage); err != nil {
 			return nil, fmt.Errorf("saving assistant message: %w", err)
 		}
-		history = append(history, assistantMessage)
+		history = append(history, &assistantMessage)
 
 		// If no tool calls, we're done.
-		if len(toolCalls) == 0 || tools == nil {
+		if len(toolCalls) == 0 || self.Tools == nil {
 			break
 		}
 
 		// Phase 1 — Filter & notify: resolve tools, fire OnToolCall callbacks in order.
 		type toolWorkItem struct {
 			toolCall  providers.ToolCall
-			tool      Tool
+			tool      toolregistry.Tool
 			arguments string
 		}
 
 		var workItems []toolWorkItem
 		for _, toolCall := range toolCalls {
-			tool := tools.Get(toolCall.Function.Name)
+			tool := self.Tools.Get(toolCall.Function.Name)
 			if tool == nil {
 				continue
 			}
@@ -447,11 +424,11 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 				if callbacks != nil && callbacks.OnToolResult != nil {
 					callbacks.OnToolResult(toolCall.Function.Name, result)
 				}
-				toolMessage := conversations.NewToolMessage(toolCall.ID, toolCall.Function.Name, result, time.Now().UnixMilli())
-				if err := conversationStore.Append(params.ConversationID, toolMessage); err != nil {
+				toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result, time.Now().UnixMilli())
+				if err := appendConversationMessage(ctx, userId, self.AgentID, params.ConversationID, toolMessage); err != nil {
 					return nil, fmt.Errorf("saving tool denial: %w", err)
 				}
-				history = append(history, toolMessage)
+				history = append(history, &toolMessage)
 				continue
 			}
 			workItems = append(workItems, toolWorkItem{
@@ -507,9 +484,9 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 				if decodeError == nil {
 					contentType := mimetypes.MIMETypeFromFormat(detected.Format)
 					var createdMedia *models.Media
-					createError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+					createError := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 						var saveError error
-						createdMedia, saveError = transaction.CreateMedia(bytes.NewReader(rawData), &models.Media{
+						createdMedia, saveError = transaction.CreateMedia(ctx, bytes.NewReader(rawData), &models.Media{
 							UserID:         ptrto.Value(userId),
 							Format:         ptrto.Value(detected.Format),
 							ContentType:    ptrto.Value(contentType),
@@ -536,11 +513,11 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 				callbacks.OnToolResult(item.toolCall.Function.Name, liveResult)
 			}
 
-			toolMessage := conversations.NewToolMessage(item.toolCall.ID, item.toolCall.Function.Name, storedResult, time.Now().UnixMilli())
-			if err := conversationStore.Append(params.ConversationID, toolMessage); err != nil {
+			toolMessage := newToolMessage(item.toolCall.ID, item.toolCall.Function.Name, storedResult, time.Now().UnixMilli())
+			if err := appendConversationMessage(ctx, userId, self.AgentID, params.ConversationID, toolMessage); err != nil {
 				return nil, fmt.Errorf("saving tool result: %w", err)
 			}
-			history = append(history, toolMessage)
+			history = append(history, &toolMessage)
 		}
 	}
 
@@ -554,21 +531,6 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		StopReason:    stopReason,
 		ContextWindow: contextWindow,
 	}, nil
-}
-
-func (self *Runner) conversationStore(userId string) *conversations.Store {
-	self.mutex.RLock()
-	resolver := self.ResolveConversations
-	self.mutex.RUnlock()
-	if resolver == nil {
-		return nil
-	}
-	return resolver(userId, self.AgentID)
-}
-
-// ConversationsForUser resolves the conversation store for a user.
-func (self *Runner) ConversationsForUser(userId string) *conversations.Store {
-	return self.conversationStore(userId)
 }
 
 // repairToolArgs attempts to fix malformed JSON from the LLM.
@@ -642,40 +604,40 @@ func parseToolAction(arguments string) string {
 		return ""
 	}
 	action, _ := payload["action"].(string)
-	return strings.TrimSpace(strings.ToLower(action))
+	return strings.ToLower(action)
+}
+
+func (self *Runner) resolveAgentModelAndName(ctx context.Context, defaultModel string) (string, string) {
+	resolvedModel := defaultModel
+	resolvedName := ""
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agent, err := transaction.GetAgent(ctx, self.AgentID, nil)
+		if err != nil || agent == nil {
+			return nil
+		}
+		if model := agent.GetModel(); model != "" {
+			resolvedModel = model
+		}
+		resolvedName = agent.GetName()
+		return nil
+	})
+	return resolvedModel, resolvedName
 }
 
 // buildMessages converts conversation history into LLM messages.
 // It scans backward for the last context_summary message and skips everything before it.
 func (self *Runner) buildMessages(
 	ctx context.Context,
-	history []conversations.Message,
-	limits configs.AgentLimits,
+	history []*models.ConversationMessage,
 	systemPromptSuffix string,
 	systemPromptMode SystemPromptMode,
-	configuration *configs.Config,
-	currentUserId string,
-	agentWorkspaceDirectory string,
-	userWorkspaceDirectory string,
 	skillPrompts string,
-	profile *models.User,
 ) []providers.ChatMessage {
-	currentUserRole, otherUsers, projectList := self.resolveSystemPromptContext(ctx, currentUserId, 8)
-	systemPrompt := buildSystemPrompt(buildSystemPromptParameters{
-		Context:                 ctx,
-		Configuration:           configuration,
+	_, agentName := self.resolveAgentModelAndName(ctx, "")
+	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		IdentityLine:            resolveIdentityLine(self.AgentID, agentName),
 		AgentID:                 self.AgentID,
-		CurrentUserID:           currentUserId,
-		CurrentUserRole:         currentUserRole,
-		OtherUsers:              otherUsers,
-		ProjectList:             projectList,
-		AgentWorkspaceScopeID:   self.AgentID,
-		UserWorkspaceScopeID:    currentUserId,
-		AgentWorkspaceDirectory: agentWorkspaceDirectory,
-		UserWorkspaceDirectory:  userWorkspaceDirectory,
 		SkillPrompts:            skillPrompts,
-		MaxWorkspaceFileChars:   limits.MaxWorkspaceFileChars,
-		Profile:                 profile,
 		Mode:                    systemPromptMode,
 	})
 	if systemPromptSuffix != "" {
@@ -694,7 +656,7 @@ func (self *Runner) buildMessages(
 		hasSummary = true
 		messages = append(messages, providers.ChatMessage{
 			Role:    "system",
-			Content: prompts.PreviousConversationSummaryPrefix + history[idx].ContentText(),
+			Content: prompts.PreviousConversationSummaryPrefix + conversationMessageContentText(*history[idx]),
 		})
 		startIndex = idx + 1
 	}
@@ -704,11 +666,12 @@ func (self *Runner) buildMessages(
 	// auto-compression), messages from that run follow the summary on disk.
 	// Advance past the next complete LLM turn (an assistant message with a
 	// terminal stopReason) so we start from a clean boundary.
-	if hasSummary && startIndex < len(history) && history[startIndex].Role != "user" {
+	if hasSummary && startIndex < len(history) && conversationMessageRole(*history[startIndex]) != "user" {
 		for startIndex < len(history) {
 			message := history[startIndex]
 			startIndex++
-			if message.StopReason != "" && message.StopReason != "tool_calls" && message.StopReason != "context_summary" {
+			stopReason := conversationMessageStopReason(*message)
+			if stopReason != "" && stopReason != "tool_calls" && stopReason != "context_summary" {
 				break
 			}
 		}
@@ -716,37 +679,35 @@ func (self *Runner) buildMessages(
 
 	for _, message := range history[startIndex:] {
 		chatMessage := providers.ChatMessage{
-			Role: message.Role,
+			Role: conversationMessageRole(*message),
 		}
 
 		// Check for multimodal content (attachments).
-		blocks := message.ContentBlocks()
+		blocks := conversationMessageContentBlocks(*message)
 		hasAttachments := false
 		for _, block := range blocks {
-			if block.Type == "attachment" {
+			if block["type"] == "attachment" {
 				hasAttachments = true
 				break
 			}
 		}
 
-		if hasAttachments && message.Role == "user" {
+		if hasAttachments && chatMessage.Role == "user" {
 			chatMessage.Content = self.buildMultimodalContent(ctx, blocks)
 		} else {
-			chatMessage.Content = message.ContentText()
+			chatMessage.Content = conversationMessageContentText(*message)
 		}
 
 		// Attach tool calls on assistant messages.
-		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
-			var toolCalls []providers.ToolCall
-			if err := json.Unmarshal(message.ToolCalls, &toolCalls); err == nil {
-				chatMessage.ToolCalls = toolCalls
-			}
+		toolCalls := conversationMessageToolCalls(*message)
+		if chatMessage.Role == "assistant" && len(toolCalls) > 0 {
+			chatMessage.ToolCalls = append(chatMessage.ToolCalls, toolCalls...)
 		}
 
 		// Attach tool metadata on tool result messages.
-		if message.Role == "tool" {
-			chatMessage.ToolCallID = message.ToolCallID
-			chatMessage.Name = message.ToolName
+		if chatMessage.Role == "tool" {
+			chatMessage.ToolCallID = message.GetToolCallID()
+			chatMessage.Name = message.GetToolName()
 		}
 
 		messages = append(messages, chatMessage)
@@ -758,121 +719,6 @@ func (self *Runner) buildMessages(
 	messages = fixInterruptedToolCalls(messages)
 
 	return messages
-}
-
-func (self *Runner) resolveSystemPromptContext(ctx context.Context, currentUserId string, projectLimit int) (string, string, string) {
-	if ctx == nil {
-		return "user", "", ""
-	}
-	userRole := "user"
-	users := make([]models.User, 0)
-	projects := make([]models.Project, 0)
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		if currentUserId != "" {
-			user, err := transaction.GetUser(currentUserId, nil)
-			if err == nil && user.Admin != nil && *user.Admin {
-				userRole = "admin"
-			}
-		}
-		listedUsers, userListError := transaction.ListUsers(nil)
-		if userListError == nil {
-			users = listedUsers
-		}
-		listedProjects, projectListError := transaction.ListProjects(nil)
-		if projectListError == nil {
-			projects = listedProjects
-		}
-		return nil
-	}); err != nil {
-		return "", "", ""
-	}
-
-	return userRole, self.formatOtherUsersFromStore(users, currentUserId), self.formatProjectListFromStore(projects, projectLimit)
-}
-
-func (self *Runner) formatOtherUsersFromStore(users []models.User, currentUserId string) string {
-	if len(users) == 0 {
-		return ""
-	}
-	filteredUsers := make([]models.User, 0, len(users))
-	for _, user := range users {
-		if strings.TrimSpace(user.ID) == strings.TrimSpace(currentUserId) {
-			continue
-		}
-		filteredUsers = append(filteredUsers, user)
-	}
-	if len(filteredUsers) == 0 {
-		return ""
-	}
-	sort.Slice(filteredUsers, func(leftIndex, rightIndex int) bool {
-		return filteredUsers[leftIndex].ID < filteredUsers[rightIndex].ID
-	})
-	lines := make([]string, 0, len(filteredUsers))
-	for _, user := range filteredUsers {
-		username := strings.TrimSpace(runnerValueOrEmptyString(user.Username))
-		if username == "" {
-			username = user.ID
-		}
-		role := "user"
-		if user.Admin != nil && *user.Admin {
-			role = "admin"
-		}
-		description := strings.TrimSpace(runnerValueOrEmptyString(user.Description))
-		if description == "" {
-			description = "No description provided."
-		}
-		lines = append(lines, fmt.Sprintf("- %s (userId: %s, role: %s)\n  description:\n%s", username, user.ID, role, formatPromptMultiline(description, "    ")))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func (self *Runner) formatProjectListFromStore(projects []models.Project, limit int) string {
-	if len(projects) == 0 {
-		return ""
-	}
-	sort.Slice(projects, func(leftIndex, rightIndex int) bool {
-		left := projects[leftIndex]
-		right := projects[rightIndex]
-		leftModifiedAt := time.Time{}
-		rightModifiedAt := time.Time{}
-		if left.ModifiedAt != nil {
-			leftModifiedAt = *left.ModifiedAt
-		}
-		if right.ModifiedAt != nil {
-			rightModifiedAt = *right.ModifiedAt
-		}
-		if leftModifiedAt.Equal(rightModifiedAt) {
-			return strings.TrimSpace(runnerValueOrEmptyString(left.Name)) < strings.TrimSpace(runnerValueOrEmptyString(right.Name))
-		}
-		return leftModifiedAt.After(rightModifiedAt)
-	})
-	if limit > 0 && len(projects) > limit {
-		projects = projects[:limit]
-	}
-	lines := make([]string, 0, len(projects))
-	for _, project := range projects {
-		name := strings.TrimSpace(runnerValueOrEmptyString(project.Name))
-		if name == "" {
-			continue
-		}
-		description := strings.TrimSpace(runnerValueOrEmptyString(project.Description))
-		if description == "" {
-			description = "No description available."
-		}
-		updatedAt := "unknown"
-		if project.ModifiedAt != nil && !project.ModifiedAt.IsZero() {
-			updatedAt = project.ModifiedAt.String()
-		}
-		lines = append(lines, fmt.Sprintf("- %s (projectId: %s, updatedAt: %s): %s", name, project.ID, updatedAt, description))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func runnerValueOrEmptyString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 // fixInterruptedToolCalls scans for assistant messages with tool_calls whose
@@ -932,18 +778,21 @@ func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatM
 // buildMultimodalContent converts conversation ContentBlocks into provider ContentParts.
 // Image attachments are sent as image_url parts with base64 data URIs.
 // Non-image attachments are included as text references.
-func (self *Runner) buildMultimodalContent(ctx context.Context, blocks []conversations.ContentBlock) []providers.ContentPart {
+func (self *Runner) buildMultimodalContent(ctx context.Context, blocks []map[string]string) []providers.ContentPart {
 	var parts []providers.ContentPart
 
 	for _, block := range blocks {
-		switch block.Type {
+		switch block["type"] {
 		case "text":
-			if block.Text != "" {
-				parts = append(parts, providers.ContentPart{Type: "text", Text: block.Text})
+			if block["text"] != "" {
+				parts = append(parts, providers.ContentPart{Type: "text", Text: block["text"]})
 			}
 		case "attachment":
-			if mimetypes.IsImageFormat(block.Format) {
-				imageUrl := self.resolveMediaUrl(ctx, block.MediaID)
+			format := block["format"]
+			mediaId := block["mediaId"]
+			fileName := block["filename"]
+			if mimetypes.IsImageFormat(format) {
+				imageUrl := self.resolveMediaUrl(ctx, mediaId)
 				if imageUrl != "" {
 					parts = append(parts, providers.ContentPart{
 						Type:     "image_url",
@@ -952,13 +801,13 @@ func (self *Runner) buildMultimodalContent(ctx context.Context, blocks []convers
 				}
 			} else {
 				// Non-image: include as text reference.
-				label := block.Filename
+				label := fileName
 				if label == "" {
-					label = block.MediaID
+					label = mediaId
 				}
 				parts = append(parts, providers.ContentPart{
 					Type: "text",
-					Text: fmt.Sprintf("[Attached file: %s (%s)]", label, block.Format),
+					Text: fmt.Sprintf("[Attached file: %s (%s)]", label, format),
 				})
 			}
 		}
@@ -974,19 +823,146 @@ func (self *Runner) buildMultimodalContent(ctx context.Context, blocks []convers
 func (self *Runner) resolveMediaUrl(ctx context.Context, mediaId string) string {
 	var data []byte
 	var metadata *models.Media
-	transactionError := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+	transactionError := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		var getError error
-		data, metadata, getError = transaction.GetMedia(mediaId, nil)
+		data, metadata, getError = transaction.GetMedia(ctx, mediaId, nil)
 		return getError
 	})
 	if transactionError != nil {
 		log.Debugf("failed to load media %s for multimodal: %v", mediaId, transactionError)
 		return ""
 	}
-	mimeType := valueOrEmptyString(metadata.ContentType)
+	mimeType := metadata.GetContentType()
 	if mimeType == "" {
-		mimeType = mimetypes.MIMETypeFromFormat(valueOrEmptyString(metadata.Format))
+		mimeType = mimetypes.MIMETypeFromFormat(metadata.GetFormat())
 	}
 	encoded := base64.StdEncoding.EncodeToString(data)
 	return "data:" + mimeType + ";base64," + encoded
+}
+
+func listConversationMessages(ctx context.Context, conversationId string) ([]*models.ConversationMessage, error) {
+	result := make([]*models.ConversationMessage, 0)
+	err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		items, err := transaction.ListConversationMessages(ctx, conversationId, nil)
+		if err != nil {
+			return err
+		}
+		result = append(result, items...)
+		return nil
+	})
+	if err == store.ErrNotFound {
+		return nil, nil
+	}
+	return result, err
+}
+
+func appendConversationMessage(ctx context.Context, userId, agentId, conversationId string, message models.ConversationMessage) error {
+	return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		if _, err := transaction.GetConversation(ctx, conversationId, nil); err != nil {
+			if err != store.ErrNotFound {
+				return err
+			}
+			if _, createError := transaction.CreateConversation(ctx, &models.Conversation{
+				ID:      conversationId,
+				UserID:  ptrto.Value(userId),
+				AgentID: ptrto.Value(agentId),
+			}, nil); createError != nil {
+				return createError
+			}
+		}
+		message.ID = security.NewULID()
+		message.ConversationID = ptrto.Value(conversationId)
+		_, err := transaction.CreateConversationMessage(ctx, &message, nil)
+		return err
+	})
+}
+
+func newTextMessage(role, text string, timestamp int64) models.ConversationMessage {
+	roleValue := models.Role(role)
+	content, _ := json.Marshal(text)
+	return models.ConversationMessage{
+		Role:    &roleValue,
+		Content: content,
+	}
+}
+
+func newMessageWithAttachments(role, text string, attachments []map[string]string, timestamp int64) models.ConversationMessage {
+	blocks := make([]map[string]string, 0, len(attachments)+1)
+	blocks = append(blocks, map[string]string{
+		"type": "text",
+		"text": text,
+	})
+	for _, attachment := range attachments {
+		blocks = append(blocks, map[string]string{
+			"type":     "attachment",
+			"mediaId":  attachment["mediaId"],
+			"format":   attachment["format"],
+			"filename": attachment["filename"],
+		})
+	}
+	content, _ := json.Marshal(blocks)
+	roleValue := models.Role(role)
+	return models.ConversationMessage{
+		Role:    &roleValue,
+		Content: content,
+	}
+}
+
+func newToolMessage(toolCallId, toolName, content string, timestamp int64) models.ConversationMessage {
+	message := newTextMessage("tool", content, timestamp)
+	message.ToolCallID = ptrto.Value(toolCallId)
+	message.ToolName = ptrto.Value(toolName)
+	return message
+}
+
+func conversationMessageRole(message models.ConversationMessage) string {
+	if message.Role == nil {
+		return ""
+	}
+	return string(*message.Role)
+}
+
+func conversationMessageStopReason(message models.ConversationMessage) string {
+	if message.StopReason == nil {
+		return ""
+	}
+	return string(*message.StopReason)
+}
+
+func conversationMessageContentText(message models.ConversationMessage) string {
+	if len(message.Content) == 0 {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(message.Content, &text); err == nil {
+		return text
+	}
+	return string(message.Content)
+}
+
+func conversationMessageToolCalls(message models.ConversationMessage) []providers.ToolCall {
+	if len(message.ToolCalls) == 0 {
+		return nil
+	}
+	var toolCalls []providers.ToolCall
+	_ = json.Unmarshal(message.ToolCalls, &toolCalls)
+	return toolCalls
+}
+
+func conversationMessageContentBlocks(message models.ConversationMessage) []map[string]string {
+	if len(message.Content) == 0 {
+		return nil
+	}
+	var blocks []map[string]string
+	if err := json.Unmarshal(message.Content, &blocks); err == nil && len(blocks) > 0 {
+		if blocks[0]["type"] != "" {
+			return blocks
+		}
+	}
+	return []map[string]string{
+		{
+			"type": "text",
+			"text": conversationMessageContentText(message),
+		},
+	}
 }

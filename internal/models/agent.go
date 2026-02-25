@@ -11,6 +11,7 @@ type Agent struct {
 	Model         *string   `json:"model,omitempty" yaml:"model,omitempty"`
 	Skills        *[]string `json:"skills,omitempty" yaml:"skills,omitempty"`
 	Tools         *[]string `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Description   *string   `json:"description,omitempty" yaml:"description,omitempty"`
-	AvatarMediaID *string   `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
+	Description   *string     `json:"description,omitempty" yaml:"description,omitempty"`
+	AvatarMediaID *string     `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
+	SummarizedAt  *time.Time  `json:"summarizedAt,omitempty" yaml:"summarizedAt,omitempty"`
 }

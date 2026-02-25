@@ -5,41 +5,38 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strings"
+	"sort"
 
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
 var validAgentIdPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 // RegisterInterAgentTools adds agent_list and agent_message tools to the registry.
-func RegisterInterAgentTools(registry *ToolRegistry, selfAgentId string, agentRegistry *AgentRegistry, configuration *configs.Config) {
-	agentConfig := configuration.AgentByID(selfAgentId)
-	if agentConfig == nil {
+func RegisterInterAgentTools(registry *toolregistry.ToolRegistry, selfAgentId string, agentRegistry *AgentRegistry) {
+	if agentRegistry.GetRunner(selfAgentId) == nil {
 		return
 	}
 
 	registry.Register(&agentListTool{
 		selfAgentId:   selfAgentId,
 		agentRegistry: agentRegistry,
-		configuration: configuration,
 	})
 	registry.Register(&agentMessageTool{
 		selfAgentId:   selfAgentId,
 		agentRegistry: agentRegistry,
-		configuration: configuration,
 	})
 	registry.Register(&agentCreateTool{
 		selfAgentId:   selfAgentId,
 		agentRegistry: agentRegistry,
-		configuration: configuration,
 	})
 	registry.Register(&subagentSpawnTool{
 		selfAgentId:   selfAgentId,
 		agentRegistry: agentRegistry,
-		configuration: configuration,
 	})
 }
 
@@ -48,7 +45,6 @@ func RegisterInterAgentTools(registry *ToolRegistry, selfAgentId string, agentRe
 type agentCreateTool struct {
 	selfAgentId   string
 	agentRegistry *AgentRegistry
-	configuration *configs.Config
 }
 
 func (self *agentCreateTool) Definition() providers.ToolDefinition {
@@ -91,8 +87,7 @@ func (self *agentCreateTool) Execute(_ context.Context, rawArguments string) (st
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
-	arguments.AgentID = strings.TrimSpace(arguments.AgentID)
-	arguments.Name = strings.TrimSpace(arguments.Name)
+	arguments.Name = arguments.Name
 	if arguments.AgentID == "" || arguments.Name == "" {
 		return "", fmt.Errorf("agentId and name are required")
 	}
@@ -103,11 +98,7 @@ func (self *agentCreateTool) Execute(_ context.Context, rawArguments string) (st
 		return "", fmt.Errorf("agent %q already exists", arguments.AgentID)
 	}
 
-	agentConfig := configs.AgentConfig{
-		ID:   arguments.AgentID,
-		Name: arguments.Name,
-	}
-	if err := self.agentRegistry.CreateAgent(agentConfig); err != nil {
+	if err := self.agentRegistry.CreateAgentWithName(arguments.AgentID, arguments.Name); err != nil {
 		return "", fmt.Errorf("creating agent %q: %w", arguments.AgentID, err)
 	}
 
@@ -124,7 +115,6 @@ func (self *agentCreateTool) Execute(_ context.Context, rawArguments string) (st
 type agentListTool struct {
 	selfAgentId   string
 	agentRegistry *AgentRegistry
-	configuration *configs.Config
 }
 
 func (self *agentListTool) Definition() providers.ToolDefinition {
@@ -160,25 +150,62 @@ func (self *agentListTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *agentListTool) Execute(_ context.Context, _ string) (string, error) {
-	agentIds := self.agentRegistry.AgentIDs()
+func (self *agentListTool) Execute(ctx context.Context, _ string) (string, error) {
+	agentIds := make([]string, 0)
+	agentsById := make(map[string]*models.Agent)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agents, listError := transaction.ListAgents(ctx, nil)
+		if listError != nil {
+			return listError
+		}
+		for _, agent := range agents {
+			agentsById[agent.ID] = agent
+			agentIds = append(agentIds, agent.ID)
+		}
+		sort.Strings(agentIds)
+		return nil
+	}); err != nil {
+		return "", err
+	}
 	agents := make([]map[string]interface{}, 0, len(agentIds))
 	for _, agentId := range agentIds {
 		entry := map[string]interface{}{
 			"id": agentId,
 		}
-		if agentConfig := self.configuration.AgentByID(agentId); agentConfig != nil {
-			if agentConfig.Name != "" {
-				entry["name"] = agentConfig.Name
+		if agent, ok := agentsById[agentId]; ok {
+			if name := agent.GetName(); name != "" {
+				entry["name"] = name
+			}
+			if description := agent.GetDescription(); description != "" {
+				entry["description"] = description
+			}
+			if model := agent.GetModel(); model != "" {
+				entry["model"] = model
 			}
 		}
-		if description := self.agentRegistry.AgentDescription(agentId); description != "" {
-			entry["description"] = description
+		if _, hasDescription := entry["description"]; !hasDescription {
+			if description := self.agentRegistry.AgentDescription(agentId); description != "" {
+				entry["description"] = description
+			}
 		}
-		entry["model"] = self.configuration.AgentModel(agentId)
+		if _, hasModel := entry["model"]; !hasModel {
+			if runner := self.agentRegistry.GetRunner(agentId); runner != nil {
+				resolvedModel := runner.Config.Models.GetDefault()
+				_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+					agent, err := transaction.GetAgent(ctx, agentId, nil)
+					if err != nil || agent == nil {
+						return nil
+					}
+					if model := agent.GetModel(); model != "" {
+						resolvedModel = model
+					}
+					return nil
+				})
+				entry["model"] = resolvedModel
+			}
+		}
 		if runner := self.agentRegistry.GetRunner(agentId); runner != nil {
-			_, _, tools, _, _ := runner.Snapshot()
-			entry["tools"] = tools.Names()
+			entry["tools"] = runner.Tools.Names()
 		}
 		if agentId == self.selfAgentId {
 			entry["isSelf"] = true
@@ -196,7 +223,6 @@ func (self *agentListTool) Execute(_ context.Context, _ string) (string, error) 
 type agentMessageTool struct {
 	selfAgentId   string
 	agentRegistry *AgentRegistry
-	configuration *configs.Config
 }
 
 func (self *agentMessageTool) Definition() providers.ToolDefinition {
@@ -286,7 +312,6 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 type subagentSpawnTool struct {
 	selfAgentId   string
 	agentRegistry *AgentRegistry
-	configuration *configs.Config
 }
 
 func (self *subagentSpawnTool) Definition() providers.ToolDefinition {
@@ -379,8 +404,10 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	result, err := targetRunner.Run(childContext, runParams, nil)
 
 	// Always clean up the ephemeral conversation, even on error.
-	store := targetRunner.ConversationsForUser(UserIDFromContext(ctx))
-	_ = store.Delete(conversationId)
+	user := models.UserFromContext(ctx)
+	if user != nil && user.ID != "" {
+		_ = deleteConversationRecord(ctx, conversationId)
+	}
 
 	if err != nil {
 		return "", fmt.Errorf("subagent %q run failed: %w", targetAgentId, err)

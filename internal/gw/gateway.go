@@ -7,15 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sort"
 	"sync"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/summarizer"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/voice"
 )
@@ -35,13 +37,12 @@ func closedDoneChannel() <-chan struct{} {
 
 // gateway is the unexported concrete implementation of Gateway.
 type gateway struct {
-	ctx            context.Context
-	config         *configs.Config
-	securityConfig *configs.SecurityConfig
-	agentRegistry  *agents.AgentRegistry
-	browserRelay   *relaybrowser.Relay
-	terminalRelay  *terminals.Relay
-	summarizer     *agents.Summarizer
+	ctx           context.Context
+	config        *models.Configuration
+	agentRegistry *agents.AgentRegistry
+	browserRelay  *relaybrowser.Relay
+	terminalRelay *terminals.Relay
+	summarizer    *summarizer.Summarizer
 
 	subscribersMutex sync.RWMutex
 	subscribers      map[Subscriber]struct{}
@@ -56,18 +57,6 @@ type gateway struct {
 	lifecycleChannel       chan LifecycleAction
 	pendingLifecycleMutex  sync.Mutex
 	pendingLifecycleAction *LifecycleAction
-
-	conversationStoresMutex sync.Mutex
-	conversationStores      map[string]*conversations.Store // userId:agentId -> store
-}
-
-// --- Configuration access ---
-
-func (self *gateway) Config() *configs.Config                 { return self.config }
-func (self *gateway) SetConfig(configuration *configs.Config) { self.config = configuration }
-func (self *gateway) SecurityConfig() *configs.SecurityConfig { return self.securityConfig }
-func (self *gateway) SetSecurityConfig(securityConfig *configs.SecurityConfig) {
-	self.securityConfig = securityConfig
 }
 
 // --- Subsystem access ---
@@ -109,16 +98,41 @@ func (self *gateway) IsSessionConnected(sessionId string) bool {
 	return self.sessionsConnected[sessionId] > 0
 }
 
+func (self *gateway) defaultAgentID() string {
+	defaultAgentID := "main"
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agents, err := transaction.ListAgents(ctx, nil)
+		if err != nil || len(agents) == 0 {
+			return nil
+		}
+		agentIDs := make([]string, 0, len(agents))
+		for _, agent := range agents {
+			if agent.ID == "main" {
+				defaultAgentID = "main"
+				return nil
+			}
+			if agent.ID != "" {
+				agentIDs = append(agentIDs, agent.ID)
+			}
+		}
+		sort.Strings(agentIDs)
+		if len(agentIDs) > 0 {
+			defaultAgentID = agentIDs[0]
+		}
+		return nil
+	})
+	return defaultAgentID
+}
+
 // --- Domain operations ---
 
 // ProviderRegistry returns the provider registry from the configured default runner.
 func (self *gateway) ProviderRegistry() *providers.Registry {
-	runner := self.GetRunner(self.config.DefaultAgentID())
+	runner := self.GetRunner(self.defaultAgentID())
 	if runner == nil {
 		return nil
 	}
-	_, providerRegistry, _, _, _ := runner.Snapshot()
-	return providerRegistry
+	return runner.Providers
 }
 
 // GetRunner returns the runner for the given agent ID.
@@ -126,99 +140,10 @@ func (self *gateway) GetRunner(agentId string) *agents.Runner {
 	return self.agentRegistry.GetRunner(agentId)
 }
 
-func conversationStoreKey(userId, agentId string) string {
-	return userId + ":" + agentId
-}
-
-func (self *gateway) ConversationStore(userId, agentId string) *conversations.Store {
-	if userId == "" {
-		log.Warningf("conversation store requires non-empty userId")
-		return nil
-	}
-	key := conversationStoreKey(userId, agentId)
-	self.conversationStoresMutex.Lock()
-	defer self.conversationStoresMutex.Unlock()
-	if store, ok := self.conversationStores[key]; ok {
-		return store
-	}
-	store := conversations.NewStore(self.ctx, userId, agentId)
-	self.conversationStores[key] = store
-	return store
-}
-
-// LoadModels returns the cached models or fetches from each provider's API.
-func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.ModelInfo, error) {
-	// Use the configured default runner to resolve the currently configured providers.
-	defaultRunner := self.GetRunner(self.config.DefaultAgentID())
-	if defaultRunner == nil {
-		return nil, fmt.Errorf("no default agent runner")
-	}
-	_, providerRegistry, _, _, _ := defaultRunner.Snapshot()
-	providerNames := providerRegistry.ProviderNames()
-
-	// Fetch from each provider's API.
-	result := make(map[string][]providers.ModelInfo)
-	for _, name := range providerNames {
-		provider, _, err := providerRegistry.Resolve(providers.QualifyModel(name, "dummy"))
-		if err != nil {
-			continue
-		}
-		models, err := provider.ListModels(ctx)
-		if err != nil {
-			log.Debugf("failed to fetch models from %s: %v", name, err)
-			continue
-		}
-		result[name] = models
-	}
-
-	self.updateRunnerContextWindows(result)
-	return result, nil
-}
-
-// InvalidateModelsCache clears the in-memory models cache so the next
-// LoadModels call will re-fetch from disk or API.
-func (self *gateway) InvalidateModelsCache() {
-}
-
-func (self *gateway) updateRunnerContextWindows(models map[string][]providers.ModelInfo) {
-	self.agentRegistry.ForEach(func(agentId string, runner *agents.Runner) {
-		for providerName, modelList := range models {
-			runner.SetModels(providerName, modelList)
-		}
-	})
-}
-
 // --- Default agent / conversation ---
 
-func (self *gateway) EnsureDefaultAgent(userId string) (string, error) {
-	agentId, assigned, err := self.agentRegistry.EnsureDefaultAgent(userId, self.config.DefaultAgentID())
-	if err != nil {
-		return "", err
-	}
-	if assigned {
-		self.Broadcast(EventTypeDefaultAgent, map[string]interface{}{
-			"defaultAgentId": agentId,
-			"userId":         userId,
-		})
-	}
-	return agentId, nil
-}
 func (self *gateway) EnsureDefaultConversation(userId, agentId string) string {
 	return self.agentRegistry.EnsureDefaultConversation(userId, agentId)
-}
-
-func (self *gateway) SetDefaultAgent(userId, agentId string) error {
-	if userId == "" {
-		return fmt.Errorf("userId is required")
-	}
-	err := self.agentRegistry.SetDefaultAgent(userId, agentId)
-	if err == nil {
-		self.Broadcast(EventTypeDefaultAgent, map[string]interface{}{
-			"defaultAgentId": agentId,
-			"userId":         userId,
-		})
-	}
-	return err
 }
 
 func (self *gateway) SetDefaultConversation(userId, agentId, conversationId string) {
@@ -261,15 +186,32 @@ func (self *gateway) createConversationFile(userId, agentId, conversationId, mod
 	}
 	qualifiedModel := model
 	if qualifiedModel == "" {
-		qualifiedModel = self.config.AgentModel(agentId)
+		if self.config != nil && self.config.Models != nil {
+			qualifiedModel = self.config.Models.GetDefault()
+		}
+		_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+			agent, err := transaction.GetAgent(ctx, agentId, nil)
+			if err != nil || agent == nil {
+				return nil
+			}
+			agentModel := agent.GetModel()
+			if agentModel != "" {
+				qualifiedModel = agentModel
+			}
+			return nil
+		})
 	}
 	if qualifiedModel == "" {
 		return
 	}
-	_, providerRegistry, _, _, _ := runner.Snapshot()
-	resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, providerRegistry.DefaultProvider())
-	store := self.ConversationStore(userId, agentId)
-	if err := store.Create(conversationId, resolvedProvider, qualifiedModel); err != nil {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, createError := transaction.CreateConversation(ctx, &models.Conversation{
+			ID:      conversationId,
+			UserID:  ptrto.Value(userId),
+			AgentID: ptrto.Value(agentId),
+		}, nil)
+		return createError
+	}); err != nil {
 		log.Errorf("creating conversation file: %v", err)
 	}
 }
@@ -322,7 +264,7 @@ func (self *gateway) Broadcast(eventType EventType, payload interface{}) {
 // up on completion. Returns a RunHandle immediately so the caller can wait or proceed.
 func (self *gateway) SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle {
 	userId := ""
-	if user := UserFromContext(ctx); user != nil {
+	if user := models.UserFromContext(ctx); user != nil {
 		userId = user.ID
 	}
 	if userId == "" {
@@ -334,13 +276,14 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	// Resolve agent and runner.
 	resolvedAgentId := parameters.AgentID
 	if resolvedAgentId == "" {
-		defaultAgentId, err := self.EnsureDefaultAgent(userId)
-		if err != nil {
+		if user := models.UserFromContext(ctx); user != nil {
+			resolvedAgentId = user.GetDefaultAgentID()
+		}
+		if resolvedAgentId == "" {
 			return &RunHandle{Done: closedDoneChannel(), Outcome: func() *RunOutcome {
 				return &RunOutcome{Error: fmt.Errorf("cannot determine default agent")}
 			}}
 		}
-		resolvedAgentId = defaultAgentId
 	}
 	runner := self.GetRunner(resolvedAgentId)
 	if runner == nil {
@@ -348,12 +291,6 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			return &RunOutcome{Error: fmt.Errorf("agent not found: %s", resolvedAgentId)}
 		}}
 	}
-	if self.ConversationStore(userId, resolvedAgentId) == nil {
-		return &RunHandle{Done: closedDoneChannel(), Outcome: func() *RunOutcome {
-			return &RunOutcome{Error: fmt.Errorf("conversation store not available")}
-		}}
-	}
-
 	// Resolve or create conversation.
 	conversationId := parameters.ConversationID
 	if conversationId == "" {
@@ -434,18 +371,6 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 		// use this to flush the final response before process restart.
 		defer close(done)
 
-		isAdmin := false
-		_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-			user, err := transaction.GetUser(userId, nil)
-			if err != nil {
-				return nil
-			}
-			isAdmin = user.Admin != nil && *user.Admin
-			return nil
-		})
-		runContext = agents.ContextWithUserID(runContext, userId)
-		runContext = agents.ContextWithAdmin(runContext, isAdmin)
-		runContext = store.ContextWithStore(runContext, store.StoreFromContext(self.ctx))
 		result, err := runner.Run(runContext, agents.RunParams{
 			ConversationID:     conversationId,
 			Message:            parameters.Message,
@@ -627,9 +552,11 @@ func (self *gateway) DeleteConversation(userId, agentId, conversationId string) 
 	if self.GetRunner(agentId) == nil {
 		return fmt.Errorf("agent not found: %s", agentId)
 	}
-	store := self.ConversationStore(userId, agentId)
-	if err := store.Delete(conversationId); err != nil {
-		return err
+	deleteError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		return transaction.DeleteConversation(ctx, conversationId, nil)
+	})
+	if deleteError != nil && deleteError != store.ErrNotFound {
+		return deleteError
 	}
 
 	self.Broadcast(EventTypeConversations, nil)
@@ -678,10 +605,18 @@ func (self *gateway) LifecycleChannel() <-chan LifecycleAction {
 // ListenAddress returns the host:port string derived from configs.
 func (self *gateway) ListenAddress() string {
 	host := "127.0.0.1"
-	if self.config.Gateway.Bind == "lan" {
+	bind := ""
+	port := 8833
+	if self.config != nil && self.config.Gateway != nil {
+		bind = self.config.Gateway.GetBind()
+		if self.config.Gateway.GetPort() > 0 {
+			port = self.config.Gateway.GetPort()
+		}
+	}
+	if bind == "lan" {
 		host = "0.0.0.0"
 	}
-	return net.JoinHostPort(host, fmt.Sprintf("%d", self.config.Gateway.Port))
+	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
 }
 
 // StartVoiceSession creates a voice session bound to this gateway instance.
@@ -695,15 +630,15 @@ func (self *gateway) StartVoiceSession(
 	sendBinary func([]byte),
 ) (*voice.Session, error) {
 	userId := ""
-	if user := UserFromContext(ctx); user != nil {
+	if user := models.UserFromContext(ctx); user != nil {
 		userId = user.ID
 	}
 	if userId == "" {
 		return nil, fmt.Errorf("userId is required")
 	}
-	agentId, err := self.EnsureDefaultAgent(userId)
-	if err != nil {
-		return nil, err
+	agentId = models.UserFromContext(ctx).GetDefaultAgentID()
+	if agentId == "" {
+		return nil, fmt.Errorf("no default agent configured")
 	}
 	if conversationId == "" {
 		// Start a fresh conversation when the client omits conversation_id.
@@ -723,8 +658,8 @@ type voiceGatewayAdapter struct {
 	ctx context.Context
 }
 
-func (self *voiceGatewayAdapter) SendMessage(ctx context.Context, parameters voice.VoiceSendMessageParams) voice.VoiceRunHandle {
-	handle := self.gw.SendMessage(ctx, SendMessageParameters{
+func (self *voiceGatewayAdapter) SendMessage(_ context.Context, parameters voice.VoiceSendMessageParams) voice.VoiceRunHandle {
+	handle := self.gw.SendMessage(self.ctx, SendMessageParameters{
 		AgentID:            parameters.AgentID,
 		ConversationID:     parameters.ConversationID,
 		Message:            parameters.Message,

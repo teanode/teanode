@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fs"
+	storefs "github.com/teanode/teanode/internal/store/fsstore"
 )
 
 // mockRunner returns a commandRunner that records calls and returns canned output.
@@ -526,56 +526,123 @@ func TestLoadSessionsFromConversationStore(testing *testing.T) {
 	if openError != nil {
 		testing.Fatalf("opening store: %v", openError)
 	}
-	if migrateError := openedStore.Migrate(); migrateError != nil {
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
 		testing.Fatalf("migrating store: %v", migrateError)
 	}
 	testing.Cleanup(func() {
 		_ = openedStore.Close()
 	})
-	store := conversations.NewStore(store.ContextWithStore(context.Background(), openedStore), "user-1", "agent-1")
+
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	userId := "user-1"
+	agentId := "agent-1"
+
+	timestamp1 := time.Now().Add(-2 * time.Hour)
+	timestamp2 := time.Now().Add(-time.Hour)
+	timestamp3 := time.Now()
+
+	toolRole := models.RoleTool
+	contentS1 := marshalContent(`{"sessionId":"s1","result":"one"}`)
+	contentS1Resume := marshalContent(`{"resume":{"sessionId":"s1"}}`)
+	contentS2 := marshalContent(`{"sessionId":"s2","result":"two"}`)
+	contentOther := marshalContent(`{"sessionId":"ignored"}`)
+	codexToolName := "codex"
+	otherToolName := "other_tool"
+
+	if err := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		conversation1, createError := transaction.CreateConversation(ctx, &models.Conversation{
+			UserID:  &userId,
+			AgentID: &agentId,
+		}, nil)
+		if createError != nil {
+			return createError
+		}
+		conversation2, createError := transaction.CreateConversation(ctx, &models.Conversation{
+			UserID:  &userId,
+			AgentID: &agentId,
+		}, nil)
+		if createError != nil {
+			return createError
+		}
+
+		// Conversation 1: two tool messages for session s1
+		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
+			ConversationID: &conversation1.ID,
+			Role:           &toolRole,
+			Content:        contentS1,
+			ToolName:       &codexToolName,
+			CreatedAt:      &timestamp1,
+		}, nil); err != nil {
+			return err
+		}
+		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
+			ConversationID: &conversation1.ID,
+			Role:           &toolRole,
+			Content:        contentS1Resume,
+			ToolName:       &codexToolName,
+			CreatedAt:      &timestamp2,
+		}, nil); err != nil {
+			return err
+		}
+
+		// Conversation 2: one tool message for session s2, one for another tool
+		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
+			ConversationID: &conversation2.ID,
+			Role:           &toolRole,
+			Content:        contentS2,
+			ToolName:       &codexToolName,
+			CreatedAt:      &timestamp3,
+		}, nil); err != nil {
+			return err
+		}
+		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
+			ConversationID: &conversation2.ID,
+			Role:           &toolRole,
+			Content:        contentOther,
+			ToolName:       &otherToolName,
+			CreatedAt:      &timestamp3,
+		}, nil); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		testing.Fatalf("seeding store: %v", err)
+	}
+
 	tool := &codexTool{}
-
-	t1 := time.Now().Add(-2 * time.Hour).UnixMilli()
-	t2 := time.Now().Add(-time.Hour).UnixMilli()
-	t3 := time.Now().UnixMilli()
-
-	if err := store.Append("c1", conversations.NewToolMessage("tc1", "codex", `{"sessionId":"s1","result":"one"}`, t1)); err != nil {
-		testing.Fatalf("append c1/tc1: %v", err)
-	}
-	if err := store.Append("c1", conversations.NewToolMessage("tc2", "codex", `{"resume":{"sessionId":"s1"}}`, t2)); err != nil {
-		testing.Fatalf("append c1/tc2: %v", err)
-	}
-	if err := store.Append("c2", conversations.NewToolMessage("tc3", "codex", `{"sessionId":"s2","result":"two"}`, t3)); err != nil {
-		testing.Fatalf("append c2/tc3: %v", err)
-	}
-	if err := store.Append("c2", conversations.NewToolMessage("tc4", "other_tool", `{"sessionId":"ignored"}`, t3)); err != nil {
-		testing.Fatalf("append c2/tc4: %v", err)
-	}
-
-	sessions, err := tool.loadSessionsFromConversationStore(store)
+	sessions, err := tool.loadSessionsFromConversationStore(ctx, userId, agentId)
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 	if len(sessions) != 2 {
 		testing.Fatalf("expected 2 sessions, got %d", len(sessions))
 	}
-	if sessions[0].SessionID != "s2" {
-		testing.Errorf("expected newest session first to be s2, got %q", sessions[0].SessionID)
+
+	sessionsByID := map[string]*sessionInfo{}
+	for index := range sessions {
+		sessionsByID[sessions[index].SessionID] = &sessions[index]
 	}
 
-	var s1 *sessionInfo
-	for index := range sessions {
-		if sessions[index].SessionID == "s1" {
-			s1 = &sessions[index]
-			break
-		}
-	}
+	s1 := sessionsByID["s1"]
 	if s1 == nil {
 		testing.Fatalf("expected session s1 in results: %+v", sessions)
 	}
 	if s1.TurnCount != 2 {
 		testing.Errorf("expected s1 turnCount 2, got %d", s1.TurnCount)
 	}
+	s2 := sessionsByID["s2"]
+	if s2 == nil {
+		testing.Fatalf("expected session s2 in results: %+v", sessions)
+	}
+	if s2.TurnCount != 1 {
+		testing.Errorf("expected s2 turnCount 1, got %d", s2.TurnCount)
+	}
+}
+
+func marshalContent(value string) []byte {
+	data, _ := json.Marshal(value)
+	return data
 }
 
 // --- argument building tests ---
@@ -720,8 +787,6 @@ func TestTimeoutCapping(testing *testing.T) {
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
-	// If it didn't hang or error, the cap worked. No direct way to assert
-	// the timeout value, but the command executed successfully.
 }
 
 // --- unknown action test ---

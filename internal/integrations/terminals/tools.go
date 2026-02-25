@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 // RegisterTerminalTools adds all terminal-control tools to the registry.
-func RegisterTerminalTools(registry *agents.ToolRegistry, relay *Relay) {
+func RegisterTerminalTools(registry *toolregistry.ToolRegistry, relay *Relay) {
 	registry.Register(&terminalTool{relay: relay})
 }
 
@@ -91,11 +92,11 @@ func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (str
 }
 
 func (self *terminalTool) executeList(ctx context.Context) (string, error) {
-	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
-	if userId == "" {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	connections := self.relay.ConnectionsForUser(userId)
+	connections := self.relay.ConnectionsForUser(user.ID)
 	type entry struct {
 		ID               string `json:"id"`
 		Hostname         string `json:"hostname,omitempty"`
@@ -124,15 +125,15 @@ func (self *terminalTool) executeList(ctx context.Context) (string, error) {
 }
 
 func (self *terminalTool) executeScreenshot(ctx context.Context, connectionId string) (string, error) {
-	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
-	if userId == "" {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	resolvedId, err := resolveConnectionId(self.relay, userId, connectionId)
+	resolvedId, err := resolveConnectionId(self.relay, user.ID, connectionId)
 	if err != nil {
 		return "", err
 	}
-	result, err := self.relay.SendCommandForUser(ctx, userId, resolvedId, "screenshot", nil)
+	result, err := self.relay.SendCommandForUser(ctx, user.ID, resolvedId, "screenshot", nil)
 	if err != nil {
 		return "", err
 	}
@@ -147,15 +148,15 @@ func (self *terminalTool) executeScreenshot(ctx context.Context, connectionId st
 }
 
 func (self *terminalTool) executeType(ctx context.Context, connectionId string, text string) (string, error) {
-	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
-	if userId == "" {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	resolvedId, err := resolveConnectionId(self.relay, userId, connectionId)
+	resolvedId, err := resolveConnectionId(self.relay, user.ID, connectionId)
 	if err != nil {
 		return "", err
 	}
-	_, err = self.relay.SendCommandForUser(ctx, userId, resolvedId, "write", map[string]interface{}{
+	_, err = self.relay.SendCommandForUser(ctx, user.ID, resolvedId, "write", map[string]interface{}{
 		"data": text,
 	})
 	if err != nil {
@@ -170,15 +171,15 @@ func (self *terminalTool) executePressKey(ctx context.Context, connectionId stri
 	if !ok {
 		return "", fmt.Errorf("unknown key: %s", key)
 	}
-	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
-	if userId == "" {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	resolvedId, err := resolveConnectionId(self.relay, userId, connectionId)
+	resolvedId, err := resolveConnectionId(self.relay, user.ID, connectionId)
 	if err != nil {
 		return "", err
 	}
-	_, err = self.relay.SendCommandForUser(ctx, userId, resolvedId, "write", map[string]interface{}{
+	_, err = self.relay.SendCommandForUser(ctx, user.ID, resolvedId, "write", map[string]interface{}{
 		"data": seq,
 	})
 	if err != nil {

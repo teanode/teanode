@@ -1,6 +1,7 @@
 package v1api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -9,13 +10,11 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/onboarding"
-	"github.com/teanode/teanode/internal/skills"
+	"github.com/teanode/teanode/internal/schemas"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
@@ -25,28 +24,33 @@ import (
 
 // handleConnect: handshake, return capabilities.
 func (self *webSocketConnection) handleConnect(frame requestFrame) {
-	agentConfigs := self.api.gateway.Config().Agents()
-	defaultAgentId, err := self.api.gateway.EnsureDefaultAgent(self.userId())
-	if err != nil {
-		self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
+	agentsList, listError := self.listAgents()
+	if listError != nil {
+		self.sendError(frame.ID, 500, "listing agents: "+listError.Error())
 		return
 	}
-	agentInfos := make([]map[string]interface{}, 0, len(agentConfigs))
-	for _, agentConfig := range agentConfigs {
+	defaultAgentId := models.UserFromContext(self.ctx).GetDefaultAgentID()
+	agentInfos := make([]map[string]interface{}, 0, len(agentsList))
+	for _, agent := range agentsList {
 		info := map[string]interface{}{
-			"id":                    agentConfig.ID,
-			"defaultConversationId": self.api.gateway.EnsureDefaultConversation(self.userId(), agentConfig.ID),
+			"id":                    agent.ID,
+			"defaultConversationId": self.api.gateway.EnsureDefaultConversation(self.userId(), agent.ID),
 		}
-		if agentConfig.Name != "" {
-			info["name"] = agentConfig.Name
+		if name := agent.GetName(); name != "" {
+			info["name"] = name
 		}
-		if avatarMediaID := self.agentAvatarMediaID(agentConfig.ID); avatarMediaID != "" {
+		if avatarMediaID := self.agentAvatarMediaID(agent.ID); avatarMediaID != "" {
 			info["avatarMediaId"] = avatarMediaID
 		}
 		agentInfos = append(agentInfos, info)
 	}
 
-	config := self.api.gateway.Config()
+	defaultModel := ""
+	if configuration, err := self.loadConfiguration(); err == nil {
+		if configuration.Models != nil && configuration.Models.Default != nil {
+			defaultModel = *configuration.Models.Default
+		}
+	}
 
 	capabilities := []string{"conversations"}
 	if registry := self.api.gateway.ProviderRegistry(); registry != nil {
@@ -58,11 +62,11 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"version":               version.Version(),
 		"capabilities":          capabilities,
-		"defaultModel":          config.Models.Default,
+		"defaultModel":          defaultModel,
 		"agents":                agentInfos,
 		"defaultAgentId":        defaultAgentId,
 		"defaultConversationId": self.api.gateway.EnsureDefaultConversation(self.userId(), defaultAgentId),
-		"isAdmin":               self.api.gateway.SecurityConfig().IsAdmin(self.userId()),
+		"isAdmin":               self.isAdmin(),
 		"userId":                self.userId(),
 	})
 }
@@ -76,22 +80,22 @@ func (self *webSocketConnection) handleHealth(frame requestFrame) {
 
 // handleAgentsList: return list of configured agents.
 func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
-	agentConfigs := self.api.gateway.Config().Agents()
-	defaultAgentId, err := self.api.gateway.EnsureDefaultAgent(self.userId())
-	if err != nil {
-		self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
+	agentsList, listError := self.listAgents()
+	if listError != nil {
+		self.sendError(frame.ID, 500, "listing agents: "+listError.Error())
 		return
 	}
-	agentInfos := make([]map[string]interface{}, 0, len(agentConfigs))
-	for _, agentConfig := range agentConfigs {
+	defaultAgentId := models.UserFromContext(self.ctx).GetDefaultAgentID()
+	agentInfos := make([]map[string]interface{}, 0, len(agentsList))
+	for _, agent := range agentsList {
 		info := map[string]interface{}{
-			"id":                    agentConfig.ID,
-			"defaultConversationId": self.api.gateway.EnsureDefaultConversation(self.userId(), agentConfig.ID),
+			"id":                    agent.ID,
+			"defaultConversationId": self.api.gateway.EnsureDefaultConversation(self.userId(), agent.ID),
 		}
-		if agentConfig.Name != "" {
-			info["name"] = agentConfig.Name
+		if name := agent.GetName(); name != "" {
+			info["name"] = name
 		}
-		if avatarMediaID := self.agentAvatarMediaID(agentConfig.ID); avatarMediaID != "" {
+		if avatarMediaID := self.agentAvatarMediaID(agent.ID); avatarMediaID != "" {
 			info["avatarMediaId"] = avatarMediaID
 		}
 		agentInfos = append(agentInfos, info)
@@ -102,14 +106,44 @@ func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 	})
 }
 
+func (self *webSocketConnection) listAgents() ([]*models.Agent, error) {
+	agentsList := make([]*models.Agent, 0)
+	if transactionError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		listedAgents, listError := transaction.ListAgents(ctx, nil)
+		if listError != nil {
+			return listError
+		}
+		agentsList = listedAgents
+		return nil
+	}); transactionError != nil {
+		return nil, transactionError
+	}
+	return agentsList, nil
+}
+
+func (self *webSocketConnection) loadConfiguration() (*models.Configuration, error) {
+	var configuration *models.Configuration
+	if transactionError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		loadedConfiguration, loadError := transaction.GetConfiguration(ctx, nil)
+		if loadError != nil {
+			return loadError
+		}
+		configuration = loadedConfiguration
+		return nil
+	}); transactionError != nil {
+		return nil, transactionError
+	}
+	return configuration, nil
+}
+
 func (self *webSocketConnection) agentAvatarMediaID(agentID string) string {
 	avatarMediaID := ""
-	_ = store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		agent, err := transaction.GetAgent(agentID, nil)
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agent, err := transaction.GetAgent(ctx, agentID, nil)
 		if err != nil {
 			return nil
 		}
-		avatarMediaID = strings.TrimSpace(valueOrEmpty(agent.AvatarMediaID))
+		avatarMediaID = agent.GetAvatarMediaID()
 		return nil
 	})
 	return avatarMediaID
@@ -131,10 +165,24 @@ func (self *webSocketConnection) handleAgentsSetDefault(frame requestFrame) {
 		self.sendError(frame.ID, 400, "agentId is required")
 		return
 	}
-	if err := self.api.gateway.SetDefaultAgent(self.userId(), parameters.AgentID); err != nil {
-		self.sendError(frame.ID, 404, err.Error())
+	if self.api.gateway.GetRunner(parameters.AgentID) == nil {
+		self.sendError(frame.ID, 404, "agent not found: "+parameters.AgentID)
 		return
 	}
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.ModifyUser(ctx, self.userId(), func(user *models.User) error {
+			user.DefaultAgentID = ptrto.Value(parameters.AgentID)
+			return nil
+		}, nil)
+		return err
+	}); err != nil {
+		self.sendError(frame.ID, 500, "updating default agent: "+err.Error())
+		return
+	}
+	self.api.gateway.Broadcast(gw.EventTypeDefaultAgent, map[string]interface{}{
+		"defaultAgentId": parameters.AgentID,
+		"userId":         self.userId(),
+	})
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"defaultAgentId":        parameters.AgentID,
 		"defaultConversationId": self.api.gateway.EnsureDefaultConversation(self.userId(), parameters.AgentID),
@@ -160,12 +208,7 @@ func (self *webSocketConnection) handleConversationsSetDefault(frame requestFram
 	}
 	agentId := parameters.AgentID
 	if agentId == "" {
-		resolvedDefaultAgentId, err := self.api.gateway.EnsureDefaultAgent(self.userId())
-		if err != nil {
-			self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
-			return
-		}
-		agentId = resolvedDefaultAgentId
+		agentId = models.UserFromContext(self.ctx).GetDefaultAgentID()
 	}
 	self.api.gateway.SetDefaultConversation(self.userId(), agentId, parameters.ConversationID)
 	self.sendResponse(frame.ID, map[string]interface{}{
@@ -176,13 +219,13 @@ func (self *webSocketConnection) handleConversationsSetDefault(frame requestFram
 
 // conversationSendParameters are the parameters for conversations.send.
 type conversationSendParameters struct {
-	ConversationID     string                     `json:"conversationId"`
-	Message            string                     `json:"message"`
-	Model              string                     `json:"model,omitempty"`
-	AgentID            string                     `json:"agentId,omitempty"`
-	OriginID           string                     `json:"originId,omitempty"`
-	Attachments        []conversations.Attachment `json:"attachments,omitempty"`
-	SystemPromptSuffix string                     `json:"systemPromptSuffix,omitempty"`
+	ConversationID     string              `json:"conversationId"`
+	Message            string              `json:"message"`
+	Model              string              `json:"model,omitempty"`
+	AgentID            string              `json:"agentId,omitempty"`
+	OriginID           string              `json:"originId,omitempty"`
+	Attachments        []map[string]string `json:"attachments,omitempty"`
+	SystemPromptSuffix string              `json:"systemPromptSuffix,omitempty"`
 }
 
 // handleConversationsSend: send user message, trigger agent run via gateway.
@@ -199,15 +242,10 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 	}
 
 	if parameters.AgentID == "" {
-		resolvedDefaultAgentId, err := self.api.gateway.EnsureDefaultAgent(self.userId())
-		if err != nil {
-			self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
-			return
-		}
-		parameters.AgentID = resolvedDefaultAgentId
+		parameters.AgentID = models.UserFromContext(self.ctx).GetDefaultAgentID()
 	}
 
-	handle := self.api.gateway.SendMessage(self.context, gw.SendMessageParameters{
+	handle := self.api.gateway.SendMessage(self.ctx, gw.SendMessageParameters{
 		AgentID:            parameters.AgentID,
 		ConversationID:     parameters.ConversationID,
 		Message:            parameters.Message,
@@ -247,12 +285,7 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 	}
 
 	if parameters.AgentID == "" {
-		resolvedDefaultAgentId, err := self.api.gateway.EnsureDefaultAgent(self.userId())
-		if err != nil {
-			self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
-			return
-		}
-		parameters.AgentID = resolvedDefaultAgentId
+		parameters.AgentID = models.UserFromContext(self.ctx).GetDefaultAgentID()
 	}
 
 	limit := parameters.Limit
@@ -260,31 +293,29 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 		limit = 50
 	}
 
-	store := self.api.gateway.ConversationStore(self.userId(), parameters.AgentID)
-	page, err := store.LoadPage(parameters.ConversationID, limit, parameters.BeforeIndex)
+	messages, err := listConversationMessages(self.ctx, parameters.ConversationID)
 	if err != nil {
 		self.sendError(frame.ID, 500, "loading conversation: "+err.Error())
 		return
 	}
+	pageMessages, totalCount, oldestLoadedIndex, hasMore := pageConversationMessages(messages, limit, parameters.BeforeIndex)
+	provider, model := resolveConversationProviderAndModel(messages)
 
 	response := map[string]interface{}{
 		"conversationId":    parameters.ConversationID,
-		"messages":          page.Messages,
-		"totalCount":        page.TotalCount,
-		"oldestLoadedIndex": page.OldestLoadedIndex,
-		"hasMore":           page.HasMore,
+		"messages":          marshalConversationMessages(pageMessages),
+		"totalCount":        totalCount,
+		"oldestLoadedIndex": oldestLoadedIndex,
+		"hasMore":           hasMore,
 	}
 	if activeRunId := self.api.gateway.GetActiveRun(parameters.ConversationID); activeRunId != "" {
 		response["activeRunId"] = activeRunId
 	}
-	// Include conversation's locked provider/model from the header.
-	if header, headerError := store.LoadHeader(parameters.ConversationID); headerError == nil {
-		if header.Provider != "" {
-			response["provider"] = header.Provider
-		}
-		if header.Model != "" {
-			response["model"] = header.Model
-		}
+	if provider != "" {
+		response["provider"] = provider
+	}
+	if model != "" {
+		response["model"] = model
 	}
 	self.sendResponse(frame.ID, response)
 }
@@ -333,12 +364,7 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 	// Resolve the agent ID for default-conversation check.
 	resolvedAgentId := parameters.AgentID
 	if resolvedAgentId == "" {
-		defaultAgentId, err := self.api.gateway.EnsureDefaultAgent(self.userId())
-		if err != nil {
-			self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
-			return
-		}
-		resolvedAgentId = defaultAgentId
+		resolvedAgentId = models.UserFromContext(self.ctx).GetDefaultAgentID()
 	}
 	defaultConversationId := self.api.gateway.EnsureDefaultConversation(self.userId(), resolvedAgentId)
 	if parameters.ConversationID == defaultConversationId {
@@ -371,17 +397,20 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 
 	if parameters.AgentID != "" {
 		// List conversations for a specific agent.
-		store := self.api.gateway.ConversationStore(self.userId(), parameters.AgentID)
-		conversations, err := store.List()
+		conversationList, err := listConversations(self.ctx, self.userId(), parameters.AgentID)
 		if err != nil {
 			self.sendError(frame.ID, 500, "listing conversations: "+err.Error())
 			return
 		}
-		if parameters.Limit > 0 && len(conversations) > parameters.Limit {
-			conversations = conversations[:parameters.Limit]
+		conversationPayload := marshalConversationList(conversationList)
+		sort.Slice(conversationPayload, func(leftIndex, rightIndex int) bool {
+			return conversationPayload[leftIndex]["lastActive"].(int64) > conversationPayload[rightIndex]["lastActive"].(int64)
+		})
+		if parameters.Limit > 0 && len(conversationPayload) > parameters.Limit {
+			conversationPayload = conversationPayload[:parameters.Limit]
 		}
 		self.sendResponse(frame.ID, map[string]interface{}{
-			"conversations": conversations,
+			"conversations": conversationPayload,
 		})
 		return
 	}
@@ -399,20 +428,23 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 
 	var allConversations []conversationWithAgent
 	self.api.gateway.AgentRegistry().ForEach(func(agentId string, _ *agents.Runner) {
-		store := self.api.gateway.ConversationStore(self.userId(), agentId)
-		conversations, err := store.List()
+		conversationList, err := listConversations(self.ctx, self.userId(), agentId)
 		if err != nil {
 			return
 		}
-		for _, conversationInfo := range conversations {
+		for _, conversationInfo := range conversationList {
+			lastActive := int64(0)
+			if conversationInfo.ModifiedAt != nil {
+				lastActive = conversationInfo.ModifiedAt.UnixMilli()
+			} else if conversationInfo.CreatedAt != nil {
+				lastActive = conversationInfo.CreatedAt.UnixMilli()
+			}
 			allConversations = append(allConversations, conversationWithAgent{
 				ID:         conversationInfo.ID,
-				LastActive: conversationInfo.LastActive,
-				Title:      conversationInfo.Title,
-				Summary:    conversationInfo.Summary,
+				LastActive: lastActive,
+				Title:      conversationInfo.GetTitle(),
+				Summary:    conversationInfo.GetSummary(),
 				AgentID:    agentId,
-				Provider:   conversationInfo.Provider,
-				Model:      conversationInfo.Model,
 			})
 		}
 	})
@@ -437,33 +469,18 @@ type modelsListEntry struct {
 
 // handleModelsList: return available models from all providers.
 func (self *webSocketConnection) handleModelsList(frame requestFrame) {
-	models, err := self.api.gateway.LoadModels(self.context)
-	if err != nil {
-		self.sendError(frame.ID, 500, "loading models: "+err.Error())
-		return
-	}
-
-	configuration := self.api.gateway.Config()
-	defaultContextWindow := configuration.Models.ContextWindow
-
-	var entries []modelsListEntry
-	for providerName, modelList := range models {
-		for _, model := range modelList {
-			contextLength := model.ContextLength
-			if contextLength <= 0 {
-				contextLength = defaultContextWindow
+	defaultModel := ""
+	if configuration, err := self.loadConfiguration(); err == nil && configuration != nil {
+		if configuration.Models != nil {
+			if configuration.Models.Default != nil {
+				defaultModel = *configuration.Models.Default
 			}
-			entries = append(entries, modelsListEntry{
-				Provider:      providerName,
-				ID:            model.ID,
-				ContextLength: contextLength,
-			})
 		}
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"models":       entries,
-		"defaultModel": configuration.Models.Default,
+		"models":       nil, // TODO
+		"defaultModel": defaultModel,
 	})
 }
 
@@ -475,7 +492,7 @@ func (self *webSocketConnection) handleConfigSchema(frame requestFrame) {
 		return
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"schema": configs.ConfigSchema(),
+		"schema": schemas.ConfigSchema(),
 	})
 }
 
@@ -486,8 +503,8 @@ func (self *webSocketConnection) handleConfigGet(frame requestFrame) {
 		return
 	}
 	var configuration *models.Configuration
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		result, err := transaction.GetConfiguration(nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		result, err := transaction.GetConfiguration(ctx, nil)
 		if err != nil {
 			return err
 		}
@@ -521,8 +538,8 @@ func (self *webSocketConnection) handleConfigUpdate(frame requestFrame) {
 
 	// Load raw configuration from store.
 	var currentData []byte
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		configuration, err := transaction.GetConfiguration(nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, err := transaction.GetConfiguration(ctx, nil)
 		if err != nil {
 			return err
 		}
@@ -566,8 +583,8 @@ func (self *webSocketConnection) handleConfigUpdate(frame requestFrame) {
 		self.sendError(frame.ID, 500, "parsing merged config: "+err.Error())
 		return
 	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		_, modifyError := transaction.ModifyConfiguration(func(configuration *models.Configuration) error {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, modifyError := transaction.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
 			*configuration = mergedModelConfig
 			return nil
 		}, nil)
@@ -607,24 +624,34 @@ func (self *webSocketConnection) handleAgentsConfigSchema(frame requestFrame) {
 	}
 	suggestions := map[string][]string{}
 
-	// Collect tool names from this user's default runner.
-	agentId, err := self.api.gateway.EnsureDefaultAgent(self.userId())
-	if err == nil {
-		runner := self.api.gateway.GetRunner(agentId)
-		if runner != nil {
-			_, _, tools, _, _ := runner.Snapshot()
-			if tools != nil {
-				suggestions["tool"] = tools.Names()
-			}
+	// TODO: Collect tool names from this user's default runner.
+	// agentId := models.UserFromContext(self.ctx).GetDefaultAgentID()
+	// if agentId != "" {
+	// 	runner := self.api.gateway.GetRunner(agentId)
+	// 	if runner != nil && runner.Tools != nil {
+	// 		suggestions["tool"] = runner.Tools.Names()
+	// 	}
+	// }
+
+	// Collect skill names from store-backed skills.
+	skillNames := make([]string, 0)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		skills, err := transaction.ListSkills(ctx, nil)
+		if err != nil {
+			return err
 		}
+		for _, skill := range skills {
+			skillNames = append(skillNames, skill.GetName())
+		}
+		return nil
+	}); err != nil {
+		log.Warningf("failed to collect a list of skill names: %v", err)
 	}
 
-	// Collect skill names from the skills directory.
-	skillsDirectory := configs.SkillsDirectory()
-	suggestions["skill"] = skills.Names(self.context, skillsDirectory)
+	suggestions["skill"] = skillNames
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"schema":      configs.AgentConfigSchema(),
+		"schema":      schemas.AgentSchema(),
 		"suggestions": suggestions,
 	})
 }
@@ -635,8 +662,8 @@ func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
 		return
 	}
 	entries := make([]map[string]interface{}, 0)
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		agents, err := transaction.ListAgents(nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agents, err := transaction.ListAgents(ctx, nil)
 		if err != nil {
 			return err
 		}
@@ -644,10 +671,10 @@ func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
 			entry := map[string]interface{}{
 				"id": agent.ID,
 			}
-			if name := strings.TrimSpace(valueOrEmpty(agent.Name)); name != "" {
+			if name := agent.GetName(); name != "" {
 				entry["name"] = name
 			}
-			if modelName := strings.TrimSpace(valueOrEmpty(agent.Model)); modelName != "" {
+			if modelName := agent.GetModel(); modelName != "" {
 				entry["model"] = modelName
 			}
 			if agent.Tools != nil && len(*agent.Tools) > 0 {
@@ -656,7 +683,7 @@ func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
 			if agent.Skills != nil && len(*agent.Skills) > 0 {
 				entry["skills"] = *agent.Skills
 			}
-			if avatarMediaID := strings.TrimSpace(valueOrEmpty(agent.AvatarMediaID)); avatarMediaID != "" {
+			if avatarMediaID := agent.GetAvatarMediaID(); avatarMediaID != "" {
 				entry["avatarMediaId"] = avatarMediaID
 			}
 			entries = append(entries, entry)
@@ -673,7 +700,15 @@ func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
 
 // agentsConfigSaveParameters are the parameters for agents.config.save.
 type agentsConfigSaveParameters struct {
-	Agent configs.AgentConfig `json:"agent"`
+	Agent struct {
+		ID            string   `json:"id"`
+		Name          string   `json:"name,omitempty"`
+		Model         string   `json:"model,omitempty"`
+		Tools         []string `json:"tools,omitempty"`
+		Skills        []string `json:"skills,omitempty"`
+		Description   string   `json:"description,omitempty"`
+		AvatarMediaID string   `json:"avatarMediaId,omitempty"`
+	} `json:"agent"`
 }
 
 // handleAgentsConfigSave: save a single agent config to its per-agent file.
@@ -691,9 +726,9 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) {
 		return
 	}
 	agentConfig := parameters.Agent
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		agentID := strings.TrimSpace(agentConfig.ID)
-		existingAgent, err := transaction.GetAgent(agentID, nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agentID := agentConfig.ID
+		existingAgent, err := transaction.GetAgent(ctx, agentID, nil)
 		agentNotFound := false
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -704,32 +739,32 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) {
 		}
 
 		if !agentNotFound && existingAgent != nil {
-			if strings.TrimSpace(agentConfig.Description) == "" {
-				agentConfig.Description = strings.TrimSpace(valueOrEmpty(existingAgent.Description))
+			if agentConfig.Description == "" {
+				agentConfig.Description = existingAgent.GetDescription()
 			}
-			if strings.TrimSpace(agentConfig.AvatarMediaID) == "" {
-				agentConfig.AvatarMediaID = strings.TrimSpace(valueOrEmpty(existingAgent.AvatarMediaID))
+			if agentConfig.AvatarMediaID == "" {
+				agentConfig.AvatarMediaID = existingAgent.GetAvatarMediaID()
 			}
-			_, err = transaction.ModifyAgent(agentID, func(agent *models.Agent) error {
-				agent.Name = ptrto.TrimmedString(strings.TrimSpace(agentConfig.Name))
-				agent.Model = ptrto.TrimmedString(strings.TrimSpace(agentConfig.Model))
+			_, err = transaction.ModifyAgent(ctx, agentID, func(agent *models.Agent) error {
+				agent.Name = ptrto.TrimmedString(agentConfig.Name)
+				agent.Model = ptrto.TrimmedString(agentConfig.Model)
 				agent.Tools = ptrto.Value(agentConfig.Tools)
 				agent.Skills = ptrto.Value(agentConfig.Skills)
-				agent.Description = ptrto.TrimmedString(strings.TrimSpace(agentConfig.Description))
-				agent.AvatarMediaID = ptrto.TrimmedString(strings.TrimSpace(agentConfig.AvatarMediaID))
+				agent.Description = ptrto.TrimmedString(agentConfig.Description)
+				agent.AvatarMediaID = ptrto.TrimmedString(agentConfig.AvatarMediaID)
 				return nil
 			}, nil)
 			return err
 		}
 
-		_, err = transaction.CreateAgent(&models.Agent{
+		_, err = transaction.CreateAgent(ctx, &models.Agent{
 			ID:            agentID,
-			Name:          ptrto.TrimmedString(strings.TrimSpace(agentConfig.Name)),
-			Model:         ptrto.TrimmedString(strings.TrimSpace(agentConfig.Model)),
+			Name:          ptrto.TrimmedString(agentConfig.Name),
+			Model:         ptrto.TrimmedString(agentConfig.Model),
 			Tools:         ptrto.Value(agentConfig.Tools),
 			Skills:        ptrto.Value(agentConfig.Skills),
-			Description:   ptrto.TrimmedString(strings.TrimSpace(agentConfig.Description)),
-			AvatarMediaID: ptrto.TrimmedString(strings.TrimSpace(agentConfig.AvatarMediaID)),
+			Description:   ptrto.TrimmedString(agentConfig.Description),
+			AvatarMediaID: ptrto.TrimmedString(agentConfig.AvatarMediaID),
 		}, nil, nil)
 		return err
 	}); err != nil {
@@ -760,17 +795,13 @@ func (self *webSocketConnection) handleAgentsConfigDelete(frame requestFrame) {
 		self.sendError(frame.ID, 400, "id is required")
 		return
 	}
-	defaultAgentId, err := self.api.gateway.EnsureDefaultAgent(self.userId())
-	if err != nil {
-		self.sendError(frame.ID, 500, "resolving default agent: "+err.Error())
-		return
-	}
+	defaultAgentId := models.UserFromContext(self.ctx).GetDefaultAgentID()
 	if parameters.ID == defaultAgentId {
 		self.sendError(frame.ID, 409, "cannot delete the default agent")
 		return
 	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		return transaction.DeleteAgent(parameters.ID, nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		return transaction.DeleteAgent(ctx, parameters.ID, nil)
 	}); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			self.sendError(frame.ID, 404, "agent not found")
@@ -798,8 +829,8 @@ func (self *webSocketConnection) handleAgentsAvatarSet(frame requestFrame) {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
-	agentId := strings.TrimSpace(parameters.ID)
-	avatarMediaId := strings.TrimSpace(parameters.AvatarMediaID)
+	agentId := parameters.ID
+	avatarMediaId := parameters.AvatarMediaID
 	if agentId == "" {
 		self.sendError(frame.ID, 400, "id is required")
 		return
@@ -809,12 +840,11 @@ func (self *webSocketConnection) handleAgentsAvatarSet(frame requestFrame) {
 		return
 	}
 
-	if self.api.gateway.Config().AgentByID(agentId) == nil {
-		self.sendError(frame.ID, 404, "agent not found")
-		return
-	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		_, err := transaction.ModifyAgent(agentId, func(agent *models.Agent) error {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		if _, getError := transaction.GetAgent(ctx, agentId, nil); getError != nil {
+			return getError
+		}
+		_, err := transaction.ModifyAgent(ctx, agentId, func(agent *models.Agent) error {
 			agent.AvatarMediaID = &avatarMediaId
 			return nil
 		}, nil)
@@ -846,17 +876,16 @@ func (self *webSocketConnection) handleAgentsAvatarRemove(frame requestFrame) {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
-	agentId := strings.TrimSpace(parameters.ID)
+	agentId := parameters.ID
 	if agentId == "" {
 		self.sendError(frame.ID, 400, "id is required")
 		return
 	}
-	if self.api.gateway.Config().AgentByID(agentId) == nil {
-		self.sendError(frame.ID, 404, "agent not found")
-		return
-	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		_, err := transaction.ModifyAgent(agentId, func(agent *models.Agent) error {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		if _, getError := transaction.GetAgent(ctx, agentId, nil); getError != nil {
+			return getError
+		}
+		_, err := transaction.ModifyAgent(ctx, agentId, func(agent *models.Agent) error {
 			agent.AvatarMediaID = ptrto.TrimmedString("")
 			return nil
 		}, nil)
@@ -879,9 +908,9 @@ func (self *webSocketConnection) handleAgentsAvatarRemove(frame requestFrame) {
 
 // handleJobsList: list all jobs.
 func (self *webSocketConnection) handleJobsList(frame requestFrame) {
-	jobsList := make([]models.Job, 0)
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		listedJobs, listError := transaction.ListJobs(self.userId(), nil)
+	jobsList := make([]*models.Job, 0)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		listedJobs, listError := transaction.ListJobs(ctx, self.userId(), nil)
 		if listError != nil {
 			return listError
 		}
@@ -908,21 +937,21 @@ func (self *webSocketConnection) handleJobsCreate(frame requestFrame) {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
-	if strings.TrimSpace(valueOrEmpty(parameters.Job.Name)) == "" {
+	if parameters.Job.GetName() == "" {
 		self.sendError(frame.ID, 400, "job.name is required")
 		return
 	}
-	if strings.TrimSpace(valueOrEmpty(parameters.Job.Schedule)) == "" && parameters.Job.RunAt == nil {
+	if parameters.Job.GetSchedule() == "" && parameters.Job.RunAt == nil {
 		self.sendError(frame.ID, 400, "job.schedule or job.runAt is required")
 		return
 	}
-	if strings.TrimSpace(valueOrEmpty(parameters.Job.ConversationID)) == "" {
-		defaultConversationId := self.api.gateway.EnsureDefaultConversation(self.userId(), valueOrEmpty(parameters.Job.AgentID))
+	if parameters.Job.GetConversationID() == "" {
+		defaultConversationId := self.api.gateway.EnsureDefaultConversation(self.userId(), parameters.Job.GetAgentID())
 		parameters.Job.ConversationID = ptrto.Value(defaultConversationId)
 	}
 	parameters.Job.UserID = ptrto.Value(self.userId())
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		_, createError := transaction.CreateJob(&parameters.Job, nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, createError := transaction.CreateJob(ctx, &parameters.Job, nil)
 		return createError
 	}); err != nil {
 		self.sendError(frame.ID, 500, "creating job: "+err.Error())
@@ -950,28 +979,28 @@ func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) {
 		self.sendError(frame.ID, 400, "job.id is required")
 		return
 	}
-	if strings.TrimSpace(valueOrEmpty(parameters.Job.Name)) == "" {
+	if parameters.Job.GetName() == "" {
 		self.sendError(frame.ID, 400, "job.name is required")
 		return
 	}
-	if strings.TrimSpace(valueOrEmpty(parameters.Job.Schedule)) == "" && parameters.Job.RunAt == nil {
+	if parameters.Job.GetSchedule() == "" && parameters.Job.RunAt == nil {
 		self.sendError(frame.ID, 400, "job.schedule or job.runAt is required")
 		return
 	}
-	if strings.TrimSpace(valueOrEmpty(parameters.Job.ConversationID)) == "" {
-		defaultConversationId := self.api.gateway.EnsureDefaultConversation(self.userId(), valueOrEmpty(parameters.Job.AgentID))
+	if parameters.Job.GetConversationID() == "" {
+		defaultConversationId := self.api.gateway.EnsureDefaultConversation(self.userId(), parameters.Job.GetAgentID())
 		parameters.Job.ConversationID = ptrto.Value(defaultConversationId)
 	}
 	parameters.Job.UserID = ptrto.Value(self.userId())
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		existingJob, getError := transaction.GetJob(parameters.Job.ID, nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		existingJob, getError := transaction.GetJob(ctx, parameters.Job.ID, nil)
 		if getError != nil {
 			return getError
 		}
-		if valueOrEmpty(existingJob.UserID) != self.userId() {
+		if existingJob.GetUserID() != self.userId() {
 			return store.ErrNotFound
 		}
-		_, modifyError := transaction.ModifyJob(parameters.Job.ID, func(job *models.Job) error {
+		_, modifyError := transaction.ModifyJob(ctx, parameters.Job.ID, func(job *models.Job) error {
 			*job = parameters.Job
 			return nil
 		}, nil)
@@ -1003,15 +1032,15 @@ func (self *webSocketConnection) handleJobsDelete(frame requestFrame) {
 		return
 	}
 
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		job, getError := transaction.GetJob(parameters.ID, nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		job, getError := transaction.GetJob(ctx, parameters.ID, nil)
 		if getError != nil {
 			return getError
 		}
-		if valueOrEmpty(job.UserID) != self.userId() {
+		if job.GetUserID() != self.userId() {
 			return store.ErrNotFound
 		}
-		return transaction.DeleteJob(parameters.ID, nil)
+		return transaction.DeleteJob(ctx, parameters.ID, nil)
 	}); err != nil {
 		self.sendError(frame.ID, 500, "deleting job: "+err.Error())
 		return
@@ -1039,7 +1068,7 @@ func (self *webSocketConnection) handleJobsTrigger(frame requestFrame) {
 		return
 	}
 
-	if err := jobs.SchedulerFromContext(self.context).TriggerJob(self.context, parameters.ID); err != nil {
+	if err := jobs.SchedulerFromContext(self.ctx).TriggerJob(self.ctx, parameters.ID); err != nil {
 		self.sendError(frame.ID, 500, "triggering job: "+err.Error())
 		return
 	}
@@ -1053,14 +1082,14 @@ func (self *webSocketConnection) handleJobsTrigger(frame requestFrame) {
 
 // handleSessionsList: list all active sessions.
 func (self *webSocketConnection) handleSessionsList(frame requestFrame) {
-	filteredSessions := make([]models.Session, 0)
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		sessionList, err := transaction.ListSessions(nil)
+	filteredSessions := make([]*models.Session, 0)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		sessionList, err := transaction.ListSessions(ctx, nil)
 		if err != nil {
 			return err
 		}
 		for _, session := range sessionList {
-			if strings.TrimSpace(valueOrEmpty(session.UserID)) != self.userId() {
+			if session.GetUserID() != self.userId() {
 				continue
 			}
 			filteredSessions = append(filteredSessions, session)
@@ -1097,15 +1126,15 @@ func (self *webSocketConnection) handleSessionsRevoke(frame requestFrame) {
 		return
 	}
 
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		session, err := transaction.GetSession(parameters.SessionID, nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		session, err := transaction.GetSession(ctx, parameters.SessionID, nil)
 		if err != nil {
 			return err
 		}
-		if strings.TrimSpace(valueOrEmpty(session.UserID)) != self.userId() {
+		if session.GetUserID() != self.userId() {
 			return store.ErrNotFound
 		}
-		return transaction.DeleteSession(parameters.SessionID, nil)
+		return transaction.DeleteSession(ctx, parameters.SessionID, nil)
 	}); err != nil {
 		self.sendError(frame.ID, 404, "session not found: "+parameters.SessionID)
 		return
@@ -1125,11 +1154,11 @@ type authTokenListItem struct {
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 }
 
-func toModelAuthTokenListItems(tokens []models.Token) []authTokenListItem {
+func toModelAuthTokenListItems(tokens []*models.Token) []authTokenListItem {
 	items := make([]authTokenListItem, 0, len(tokens))
 	for _, token := range tokens {
-		tokenID := strings.TrimSpace(token.ID)
-		tokenValue := strings.TrimSpace(valueOrEmpty(token.Token))
+		tokenID := token.ID
+		tokenValue := token.GetToken()
 		if tokenID == "" || tokenValue == "" {
 			continue
 		}
@@ -1154,8 +1183,8 @@ func toModelAuthTokenListItems(tokens []models.Token) []authTokenListItem {
 
 func (self *webSocketConnection) handleAuthTokensList(frame requestFrame) {
 	items := make([]authTokenListItem, 0)
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		tokens, err := transaction.ListTokens(self.userId(), nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		tokens, err := transaction.ListTokens(ctx, self.userId(), nil)
 		if err != nil {
 			return err
 		}
@@ -1173,10 +1202,10 @@ func (self *webSocketConnection) handleAuthTokensList(frame requestFrame) {
 func (self *webSocketConnection) handleAuthTokensCreate(frame requestFrame) {
 	tokenValue := security.GenerateRandomString(48, security.LowerAlphaNumeric)
 	var createdItem authTokenListItem
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		createdToken, err := transaction.CreateToken(&models.Token{
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		createdToken, err := transaction.CreateToken(ctx, &models.Token{
 			ID:     security.NewULID(),
-			UserID: ptrto.TrimmedString(self.userId()),
+			UserID: ptrto.Value(self.userId()),
 			Token:  ptrto.TrimmedString(tokenValue),
 		}, nil)
 		if err != nil {
@@ -1184,7 +1213,7 @@ func (self *webSocketConnection) handleAuthTokensCreate(frame requestFrame) {
 		}
 		createdItem = authTokenListItem{
 			ID:    createdToken.ID,
-			Token: valueOrEmpty(createdToken.Token),
+			Token: createdToken.GetToken(),
 		}
 		if createdToken.CreatedAt != nil {
 			createdItem.CreatedAt = *createdToken.CreatedAt
@@ -1213,20 +1242,20 @@ func (self *webSocketConnection) handleAuthTokensDelete(frame requestFrame) {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
-	tokenId := strings.TrimSpace(parameters.TokenID)
+	tokenId := parameters.TokenID
 	if tokenId == "" {
 		self.sendError(frame.ID, 400, "tokenId is required")
 		return
 	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		token, err := transaction.GetToken(tokenId, nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		token, err := transaction.GetToken(ctx, tokenId, nil)
 		if err != nil {
 			return err
 		}
-		if strings.TrimSpace(valueOrEmpty(token.UserID)) != self.userId() {
+		if token.GetUserID() != self.userId() {
 			return store.ErrNotFound
 		}
-		return transaction.DeleteToken(tokenId, nil)
+		return transaction.DeleteToken(ctx, tokenId, nil)
 	}); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			self.sendError(frame.ID, 404, "token not found")
@@ -1263,12 +1292,12 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 		self.sendError(frame.ID, 500, "failed to hash password")
 		return
 	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		user, err := transaction.GetUser(self.userId(), nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		user, err := transaction.GetUser(ctx, self.userId(), nil)
 		if err != nil {
 			return err
 		}
-		existingPassword := strings.TrimSpace(valueOrEmpty(user.Password))
+		existingPassword := user.GetPassword()
 		if existingPassword != "" {
 			if parameters.CurrentPassword == "" {
 				return web.Error(400, "current password is required")
@@ -1278,7 +1307,7 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 				return web.Error(401, "current password is incorrect")
 			}
 		}
-		_, err = transaction.ModifyUser(self.userId(), func(user *models.User) error {
+		_, err = transaction.ModifyUser(ctx, self.userId(), func(user *models.User) error {
 			user.Password = ptrto.TrimmedString(string(hash))
 			return nil
 		}, nil)
@@ -1302,8 +1331,8 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 
 func (self *webSocketConnection) requireAdmin(frame requestFrame) bool {
 	isAdmin := false
-	_ = store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		user, err := transaction.GetUser(self.userId(), nil)
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		user, err := transaction.GetUser(ctx, self.userId(), nil)
 		if err != nil {
 			return nil
 		}
@@ -1332,8 +1361,8 @@ func (self *webSocketConnection) handleUsersList(frame requestFrame) {
 		return
 	}
 	items := make([]usersListItem, 0)
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		users, err := transaction.ListUsers(nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		users, err := transaction.ListUsers(ctx, nil)
 		if err != nil {
 			return err
 		}
@@ -1344,13 +1373,13 @@ func (self *webSocketConnection) handleUsersList(frame requestFrame) {
 			userID := user.ID
 			item := usersListItem{
 				ID:          userID,
-				Username:    valueOrEmpty(user.Username),
+				Username:    user.GetUsername(),
 				Admin:       user.Admin != nil && *user.Admin,
-				HasPassword: strings.TrimSpace(valueOrEmpty(user.Password)) != "",
-				Name:        valueOrEmpty(user.Username),
-				Description: valueOrEmpty(user.Description),
+				HasPassword: user.GetPassword() != "",
+				Name:        user.GetUsername(),
+				Description: user.GetDescription(),
 			}
-			item.AvatarMediaID = valueOrEmpty(user.AvatarMediaID)
+			item.AvatarMediaID = user.GetAvatarMediaID()
 			items = append(items, item)
 		}
 		return nil
@@ -1379,7 +1408,7 @@ func (self *webSocketConnection) handleUsersCreate(frame requestFrame) {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
-	username := strings.TrimSpace(parameters.Username)
+	username := parameters.Username
 	if username == "" {
 		self.sendError(frame.ID, 400, "username is required")
 		return
@@ -1393,23 +1422,22 @@ func (self *webSocketConnection) handleUsersCreate(frame requestFrame) {
 		self.sendError(frame.ID, 500, "failed to hash password")
 		return
 	}
-	admin := false
-	var createdUserID string
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		if _, _, found := transaction.GetUserByUsername(username, nil); found {
+	var createdUserId string
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		if existingUser, _ := transaction.GetUserByUsername(ctx, username, nil); existingUser != nil {
 			return store.ErrAlreadyExists
 		}
-		createdUser, err := transaction.CreateUser(&models.User{
+		createdUser, _, err := onboarding.CreateUser(ctx, transaction, &models.User{
 			ID:          security.NewULID(),
 			Username:    &username,
 			Password:    ptrto.TrimmedString(string(hash)),
-			Admin:       &admin,
-			Description: ptrto.TrimmedString(strings.TrimSpace(parameters.Description)),
-		}, nil, nil)
+			Admin:       ptrto.Value(false),
+			Description: ptrto.TrimmedString(parameters.Description),
+		})
 		if err != nil {
 			return err
 		}
-		createdUserID = createdUser.ID
+		createdUserId = createdUser.ID
 		return nil
 	}); err != nil {
 		if errors.Is(err, store.ErrAlreadyExists) {
@@ -1419,13 +1447,9 @@ func (self *webSocketConnection) handleUsersCreate(frame requestFrame) {
 		self.sendError(frame.ID, 500, "failed to create user")
 		return
 	}
-	if err := onboarding.InitializeUser(self.context, self.api.gateway, createdUserID); err != nil {
-		self.sendError(frame.ID, 500, "failed to initialize user onboarding")
-		return
-	}
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"user": usersListItem{
-			ID:          createdUserID,
+			ID:          createdUserId,
 			Username:    username,
 			Admin:       false,
 			HasPassword: true,
@@ -1447,7 +1471,7 @@ func (self *webSocketConnection) handleUsersDelete(frame requestFrame) {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
-	userId := strings.TrimSpace(parameters.UserID)
+	userId := parameters.UserID
 	if userId == "" {
 		self.sendError(frame.ID, 400, "userId is required")
 		return
@@ -1456,16 +1480,16 @@ func (self *webSocketConnection) handleUsersDelete(frame requestFrame) {
 		self.sendError(frame.ID, 400, "cannot delete the current user")
 		return
 	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		sessionList, listError := transaction.ListSessions(nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		sessionList, listError := transaction.ListSessions(ctx, nil)
 		if listError == nil {
 			for _, session := range sessionList {
-				if strings.TrimSpace(valueOrEmpty(session.UserID)) == userId {
-					_ = transaction.DeleteSession(session.ID, nil)
+				if session.GetUserID() == userId {
+					_ = transaction.DeleteSession(ctx, session.ID, nil)
 				}
 			}
 		}
-		return transaction.DeleteUser(userId, nil)
+		return transaction.DeleteUser(ctx, userId, nil)
 	}); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			self.sendError(frame.ID, 404, "user not found")
@@ -1493,7 +1517,7 @@ func (self *webSocketConnection) handleUsersChangePassword(frame requestFrame) {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
-	userId := strings.TrimSpace(parameters.UserID)
+	userId := parameters.UserID
 	if userId == "" {
 		self.sendError(frame.ID, 400, "userId is required")
 		return
@@ -1511,8 +1535,8 @@ func (self *webSocketConnection) handleUsersChangePassword(frame requestFrame) {
 		self.sendError(frame.ID, 500, "failed to hash password")
 		return
 	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		_, err := transaction.ModifyUser(userId, func(user *models.User) error {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.ModifyUser(ctx, userId, func(user *models.User) error {
 			user.Password = ptrto.TrimmedString(string(hash))
 			return nil
 		}, nil)
@@ -1547,7 +1571,7 @@ func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
-	userId := strings.TrimSpace(parameters.UserID)
+	userId := parameters.UserID
 	if userId == "" {
 		self.sendError(frame.ID, 400, "userId is required")
 		return
@@ -1556,16 +1580,16 @@ func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) {
 		self.sendError(frame.ID, 400, "cannot update the current user from users list")
 		return
 	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		_, err := transaction.ModifyUser(userId, func(user *models.User) error {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.ModifyUser(ctx, userId, func(user *models.User) error {
 			if parameters.Username != nil {
-				nextUsername := strings.TrimSpace(*parameters.Username)
+				nextUsername := *parameters.Username
 				if nextUsername == "" {
 					return web.Error(400, "username is required")
 				}
 				user.Username = &nextUsername
 			}
-			if parameters.NewPassword != nil && strings.TrimSpace(*parameters.NewPassword) != "" {
+			if parameters.NewPassword != nil && *parameters.NewPassword != "" {
 				if len(*parameters.NewPassword) < 8 {
 					return web.Error(400, "new password must be at least 8 characters")
 				}
@@ -1576,13 +1600,13 @@ func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) {
 				user.Password = ptrto.TrimmedString(string(hash))
 			}
 			if parameters.Name != nil {
-				nextName := strings.TrimSpace(*parameters.Name)
+				nextName := *parameters.Name
 				if nextName != "" {
 					user.Username = &nextName
 				}
 			}
 			if parameters.Description != nil {
-				nextDescription := strings.TrimSpace(*parameters.Description)
+				nextDescription := *parameters.Description
 				user.Description = &nextDescription
 			}
 			return nil
@@ -1619,7 +1643,7 @@ func (self *webSocketConnection) handleUsersSetRole(frame requestFrame) {
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
 		return
 	}
-	userId := strings.TrimSpace(parameters.UserID)
+	userId := parameters.UserID
 	if userId == "" {
 		self.sendError(frame.ID, 400, "userId is required")
 		return
@@ -1628,8 +1652,8 @@ func (self *webSocketConnection) handleUsersSetRole(frame requestFrame) {
 		self.sendError(frame.ID, 400, "cannot change the current user's role")
 		return
 	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		_, err := transaction.ModifyUser(userId, func(user *models.User) error {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.ModifyUser(ctx, userId, func(user *models.User) error {
 			user.Admin = &parameters.Admin
 			return nil
 		}, nil)
@@ -1649,17 +1673,14 @@ func (self *webSocketConnection) handleUsersSetRole(frame requestFrame) {
 	})
 }
 
-func profileToRpcPayload(profile *models.User) map[string]interface{} {
+func (self *webSocketConnection) profileToRpcPayload(profile *models.User) map[string]interface{} {
 	payload := map[string]interface{}{
-		"name": valueOrEmpty(profile.Username),
+		"name": profile.GetUsername(),
 	}
-	if strings.TrimSpace(valueOrEmpty(profile.Username)) == "" {
-		payload["name"] = configs.OSUsername()
-	}
-	if description := strings.TrimSpace(valueOrEmpty(profile.Description)); description != "" {
+	if description := profile.GetDescription(); description != "" {
 		payload["description"] = description
 	}
-	if avatarMediaId := strings.TrimSpace(valueOrEmpty(profile.AvatarMediaID)); avatarMediaId != "" {
+	if avatarMediaId := profile.GetAvatarMediaID(); avatarMediaId != "" {
 		payload["avatarMediaId"] = avatarMediaId
 	}
 	return payload
@@ -1667,8 +1688,8 @@ func profileToRpcPayload(profile *models.User) map[string]interface{} {
 
 func (self *webSocketConnection) handleProfileGet(frame requestFrame) {
 	var profile *models.User
-	err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		user, getError := transaction.GetUser(self.userId(), nil)
+	err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		user, getError := transaction.GetUser(ctx, self.userId(), nil)
 		if getError != nil {
 			return getError
 		}
@@ -1679,7 +1700,7 @@ func (self *webSocketConnection) handleProfileGet(frame requestFrame) {
 		self.sendError(frame.ID, 500, "failed to load profile")
 		return
 	}
-	self.sendResponse(frame.ID, profileToRpcPayload(profile))
+	self.sendResponse(frame.ID, self.profileToRpcPayload(profile))
 }
 
 type profileUpdateParameters struct {
@@ -1695,16 +1716,16 @@ func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) {
 		return
 	}
 
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		_, err := transaction.ModifyUser(self.userId(), func(user *models.User) error {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.ModifyUser(ctx, self.userId(), func(user *models.User) error {
 			if parameters.Name != nil {
-				user.Username = ptrto.TrimmedString(strings.TrimSpace(*parameters.Name))
+				user.Username = ptrto.TrimmedString(*parameters.Name)
 			}
 			if parameters.Description != nil {
-				user.Description = ptrto.TrimmedString(strings.TrimSpace(*parameters.Description))
+				user.Description = ptrto.TrimmedString(*parameters.Description)
 			}
 			if parameters.AvatarMediaID != nil {
-				avatarMediaId := strings.TrimSpace(*parameters.AvatarMediaID)
+				avatarMediaId := *parameters.AvatarMediaID
 				user.AvatarMediaID = &avatarMediaId
 			}
 			return nil
@@ -1715,8 +1736,8 @@ func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) {
 		return
 	}
 	var persisted *models.User
-	err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		user, getError := transaction.GetUser(self.userId(), nil)
+	err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		user, getError := transaction.GetUser(ctx, self.userId(), nil)
 		if getError != nil {
 			return getError
 		}
@@ -1728,12 +1749,12 @@ func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) {
 		return
 	}
 
-	self.sendResponse(frame.ID, profileToRpcPayload(persisted))
+	self.sendResponse(frame.ID, self.profileToRpcPayload(persisted))
 }
 
 func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		_, err := transaction.ModifyUser(self.userId(), func(user *models.User) error {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.ModifyUser(ctx, self.userId(), func(user *models.User) error {
 			emptyValue := ""
 			user.AvatarMediaID = &emptyValue
 			return nil
@@ -1744,8 +1765,8 @@ func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
 		return
 	}
 	var persisted *models.User
-	err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		user, getError := transaction.GetUser(self.userId(), nil)
+	err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		user, getError := transaction.GetUser(ctx, self.userId(), nil)
 		if getError != nil {
 			return getError
 		}
@@ -1756,7 +1777,7 @@ func (self *webSocketConnection) handleProfileAvatarRemove(frame requestFrame) {
 		self.sendError(frame.ID, 500, "failed to load profile")
 		return
 	}
-	self.sendResponse(frame.ID, profileToRpcPayload(persisted))
+	self.sendResponse(frame.ID, self.profileToRpcPayload(persisted))
 }
 
 // --- Projects RPC handlers ---
@@ -1766,16 +1787,16 @@ func (self *webSocketConnection) handleProjectsList(frame requestFrame) {
 		return
 	}
 	projectList := make([]map[string]interface{}, 0)
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		projects, err := transaction.ListProjects(nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		projects, err := transaction.ListProjects(ctx, nil)
 		if err != nil {
 			return err
 		}
 		for _, project := range projects {
 			projectList = append(projectList, map[string]interface{}{
 				"id":          project.ID,
-				"name":        valueOrEmpty(project.Name),
-				"description": valueOrEmpty(project.Description),
+				"name":        project.GetName(),
+				"description": project.GetDescription(),
 			})
 		}
 		return nil
@@ -1795,7 +1816,7 @@ type projectsCreateParameters struct {
 }
 
 func projectRpcError(err error, operation string) (int, string) {
-	message := strings.TrimSpace(err.Error())
+	message := err.Error()
 	lower := strings.ToLower(message)
 	if errors.Is(err, os.ErrNotExist) {
 		return 404, operation + ": not found"
@@ -1822,10 +1843,10 @@ func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 		return
 	}
 	var createdProject *models.Project
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		projectID := security.NewULID()
 		workspaceFiles := make([]models.WorkspaceFile, 0)
-		purpose := strings.TrimSpace(parameters.Purpose)
+		purpose := parameters.Purpose
 		if purpose != "" {
 			relativePath := "PURPOSE.md"
 			content := []byte(purpose)
@@ -1834,10 +1855,10 @@ func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 				Content: &content,
 			})
 		}
-		project, err := transaction.CreateProject(&models.Project{
+		project, err := transaction.CreateProject(ctx, &models.Project{
 			ID:          projectID,
-			Name:        ptrto.TrimmedString(strings.TrimSpace(parameters.Name)),
-			Description: ptrto.TrimmedString(strings.TrimSpace(parameters.Description)),
+			Name:        ptrto.TrimmedString(parameters.Name),
+			Description: ptrto.TrimmedString(parameters.Description),
 		}, workspaceFiles, nil)
 		if err != nil {
 			return err
@@ -1852,8 +1873,8 @@ func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"project": map[string]interface{}{
 			"id":          createdProject.ID,
-			"name":        valueOrEmpty(createdProject.Name),
-			"description": valueOrEmpty(createdProject.Description),
+			"name":        createdProject.GetName(),
+			"description": createdProject.GetDescription(),
 		},
 	})
 }
@@ -1881,9 +1902,9 @@ func (self *webSocketConnection) handleProjectsRename(frame requestFrame) {
 		return
 	}
 	var updatedProject *models.Project
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		project, err := transaction.ModifyProject(parameters.ProjectID, func(project *models.Project) error {
-			project.Name = ptrto.TrimmedString(strings.TrimSpace(parameters.Name))
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		project, err := transaction.ModifyProject(ctx, parameters.ProjectID, func(project *models.Project) error {
+			project.Name = ptrto.TrimmedString(parameters.Name)
 			return nil
 		}, nil)
 		if err != nil {
@@ -1899,8 +1920,8 @@ func (self *webSocketConnection) handleProjectsRename(frame requestFrame) {
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"project": map[string]interface{}{
 			"id":          updatedProject.ID,
-			"name":        valueOrEmpty(updatedProject.Name),
-			"description": valueOrEmpty(updatedProject.Description),
+			"name":        updatedProject.GetName(),
+			"description": updatedProject.GetDescription(),
 		},
 	})
 }
@@ -1922,8 +1943,8 @@ func (self *webSocketConnection) handleProjectsDelete(frame requestFrame) {
 		self.sendError(frame.ID, 400, "projectId is required")
 		return
 	}
-	if err := store.StoreFromContext(self.context).Transaction(func(transaction store.Transaction) error {
-		return transaction.DeleteProject(parameters.ProjectID, nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		return transaction.DeleteProject(ctx, parameters.ProjectID, nil)
 	}); err != nil {
 		code, message := projectRpcError(err, "deleting project")
 		self.sendError(frame.ID, code, message)
@@ -1934,187 +1955,134 @@ func (self *webSocketConnection) handleProjectsDelete(frame requestFrame) {
 	})
 }
 
-// --- Skills Registry RPC handlers ---
-
-func (self *webSocketConnection) handleSkillsRegistryList(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
-	}
-	configuration := self.api.gateway.Config()
-	self.sendResponse(frame.ID, map[string]interface{}{
-		"registries": configuration.SkillsRegistries,
+func listConversations(ctx context.Context, userId, agentId string) ([]*models.Conversation, error) {
+	result := make([]*models.Conversation, 0)
+	err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		items, err := transaction.ListConversations(ctx, store.ConversationListOptions{
+			UserID:  ptrto.Value(userId),
+			AgentID: ptrto.Value(agentId),
+		}, nil)
+		if err != nil {
+			return err
+		}
+		result = append(result, items...)
+		return nil
 	})
+	return result, err
 }
 
-type skillsRegistrySearchParameters struct {
-	Query string `json:"query,omitempty"`
-}
-
-func (self *webSocketConnection) handleSkillsLocalList(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func listConversationMessages(ctx context.Context, conversationId string) ([]*models.ConversationMessage, error) {
+	result := make([]*models.ConversationMessage, 0)
+	err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		items, err := transaction.ListConversationMessages(ctx, conversationId, nil)
+		if err != nil {
+			return err
+		}
+		result = append(result, items...)
+		return nil
+	})
+	if err == store.ErrNotFound {
+		return nil, nil
 	}
-	self.sendError(frame.ID, 400, "local skills are no longer supported")
+	return result, err
 }
 
-func (self *webSocketConnection) handleSkillsRegistrySearch(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
-	}
-	var parameters skillsRegistrySearchParameters
-	if frame.Params != nil {
-		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
-			self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
-			return
+func resolveConversationProviderAndModel(messages []*models.ConversationMessage) (string, string) {
+	provider := ""
+	model := ""
+	for index := len(messages) - 1; index >= 0; index-- {
+		if provider == "" && messages[index].Provider != nil {
+			provider = *messages[index].Provider
+		}
+		if model == "" && messages[index].Model != nil {
+			model = *messages[index].Model
+		}
+		if provider != "" && model != "" {
+			break
 		}
 	}
-	results, err := skills.Search(self.context, self.api.gateway.Config().SkillsRegistries, parameters.Query)
-	if err != nil {
-		self.sendError(frame.ID, 500, "searching registry: "+err.Error())
-		return
-	}
-	self.sendResponse(frame.ID, map[string]interface{}{
-		"results": results,
-	})
+	return provider, model
 }
 
-type skillsInstallParameters struct {
-	SourceID string `json:"sourceId,omitempty"`
-	Name     string `json:"name"`
-	Version  string `json:"version,omitempty"`
+func pageConversationMessages(messages []*models.ConversationMessage, limit int, beforeIndex int) ([]*models.ConversationMessage, int, int, bool) {
+	totalCount := len(messages)
+	end := totalCount
+	if beforeIndex > 0 && beforeIndex < totalCount {
+		end = beforeIndex
+	}
+	start := end - limit
+	if start < 0 {
+		start = 0
+	}
+	return messages[start:end], totalCount, start, start > 0
 }
 
-func (self *webSocketConnection) handleSkillsInstall(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
-	}
-	var parameters skillsInstallParameters
-	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
-		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
-		return
-	}
-	if parameters.Name == "" {
-		self.sendError(frame.ID, 400, "name is required")
-		return
-	}
-	installed, err := skills.Install(self.context, self.api.gateway.Config().SkillsRegistries, parameters.SourceID, parameters.Name, parameters.Version)
-	if err != nil {
-		self.sendError(frame.ID, 500, "install failed: "+err.Error())
-		return
-	}
-	self.sendResponse(frame.ID, map[string]interface{}{
-		"installed": installed,
-	})
-	if self.api.onSkillsChanged != nil {
-		self.api.onSkillsChanged()
-	}
-}
-
-func (self *webSocketConnection) handleSkillsInstalledList(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
-	}
-	installed, err := skills.ListInstalled(self.context)
-	if err != nil {
-		self.sendError(frame.ID, 500, "listing installed skills: "+err.Error())
-		return
-	}
-	self.sendResponse(frame.ID, map[string]interface{}{
-		"skills": installed,
-	})
-}
-
-type skillsUninstallParameters struct {
-	Name string `json:"name"`
-}
-
-func (self *webSocketConnection) handleSkillsUninstall(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
-	}
-	var parameters skillsUninstallParameters
-	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
-		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
-		return
-	}
-	if parameters.Name == "" {
-		self.sendError(frame.ID, 400, "name is required")
-		return
-	}
-	if err := skills.Uninstall(self.context, parameters.Name); err != nil {
-		self.sendError(frame.ID, 500, "uninstall failed: "+err.Error())
-		return
-	}
-	self.sendResponse(frame.ID, map[string]interface{}{
-		"uninstalled": true,
-	})
-	if self.api.onSkillsChanged != nil {
-		self.api.onSkillsChanged()
-	}
-}
-
-type skillsSetEnabledParameters struct {
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-}
-
-func (self *webSocketConnection) handleSkillsSetEnabled(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
-	}
-	var parameters skillsSetEnabledParameters
-	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
-		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
-		return
-	}
-	if parameters.Name == "" {
-		self.sendError(frame.ID, 400, "name is required")
-		return
-	}
-	if err := skills.SetInstalledSkillEnabled(self.context, parameters.Name, parameters.Enabled); err != nil {
-		self.sendError(frame.ID, 500, "set enabled failed: "+err.Error())
-		return
-	}
-	installed, err := skills.ListInstalled(self.context)
-	if err != nil {
-		self.sendError(frame.ID, 500, "listing installed skills: "+err.Error())
-		return
-	}
-	self.sendResponse(frame.ID, map[string]interface{}{
-		"ok":      true,
-		"name":    parameters.Name,
-		"enabled": parameters.Enabled,
-		"skills":  installed,
-	})
-	if self.api.onSkillsChanged != nil {
-		self.api.onSkillsChanged()
-	}
-}
-
-type skillsUpdateParameters struct {
-	Name string `json:"name,omitempty"`
-}
-
-func (self *webSocketConnection) handleSkillsUpdate(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
-	}
-	var parameters skillsUpdateParameters
-	if frame.Params != nil {
-		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
-			self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
-			return
+func marshalConversationList(conversationList []*models.Conversation) []map[string]interface{} {
+	result := make([]map[string]interface{}, 0, len(conversationList))
+	for _, conversation := range conversationList {
+		lastActive := int64(0)
+		if conversation.ModifiedAt != nil {
+			lastActive = conversation.ModifiedAt.UnixMilli()
+		} else if conversation.CreatedAt != nil {
+			lastActive = conversation.CreatedAt.UnixMilli()
 		}
+		result = append(result, map[string]interface{}{
+			"id":         conversation.ID,
+			"lastActive": lastActive,
+			"title":      conversation.GetTitle(),
+			"summary":    conversation.GetSummary(),
+		})
 	}
-	updated, err := skills.Update(self.context, self.api.gateway.Config().SkillsRegistries, parameters.Name)
-	if err != nil {
-		self.sendError(frame.ID, 500, "update failed: "+err.Error())
-		return
+	return result
+}
+
+func marshalConversationMessages(messages []*models.ConversationMessage) []map[string]interface{} {
+	result := make([]map[string]interface{}, 0, len(messages))
+	for _, message := range messages {
+		entry := map[string]interface{}{
+			"role":      valueOrRole(message.Role),
+			"content":   json.RawMessage(message.Content),
+			"timestamp": valueOrTimeUnixMillis(message.CreatedAt),
+		}
+		if message.StopReason != nil {
+			entry["stopReason"] = string(*message.StopReason)
+		}
+		if message.Model != nil {
+			entry["model"] = *message.Model
+		}
+		if message.Provider != nil {
+			entry["provider"] = *message.Provider
+		}
+		if message.ToolCallID != nil {
+			entry["toolCallId"] = *message.ToolCallID
+		}
+		if message.ToolName != nil {
+			entry["toolName"] = *message.ToolName
+		}
+		if len(message.Metadata) > 0 {
+			entry["metadata"] = json.RawMessage(message.Metadata)
+		}
+		if len(message.ToolCalls) > 0 {
+			entry["toolCalls"] = json.RawMessage(message.ToolCalls)
+		}
+		if len(message.Usage) > 0 {
+			entry["usage"] = json.RawMessage(message.Usage)
+		}
+		result = append(result, entry)
 	}
-	self.sendResponse(frame.ID, map[string]interface{}{
-		"updated": updated,
-	})
-	if len(updated) > 0 && self.api.onSkillsChanged != nil {
-		self.api.onSkillsChanged()
+	return result
+}
+
+func valueOrRole(value *models.Role) string {
+	if value == nil {
+		return ""
 	}
+	return string(*value)
+}
+
+func valueOrTimeUnixMillis(value *time.Time) int64 {
+	if value == nil {
+		return 0
+	}
+	return value.UnixMilli()
 }

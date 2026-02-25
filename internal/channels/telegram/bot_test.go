@@ -6,23 +6,32 @@ import (
 	"testing"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fs"
+	storefs "github.com/teanode/teanode/internal/store/fsstore"
 )
 
 func TestShouldForwardDisconnectedWebUI(t *testing.T) {
-	configs.SetDirectory(t.TempDir())
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: configs.Directory()})
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
 	if openError != nil {
 		t.Fatalf("opening store backend: %v", openError)
 	}
-	if migrateError := openedStore.Migrate(); migrateError != nil {
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
 		t.Fatalf("migrating store backend: %v", migrateError)
 	}
 	t.Cleanup(func() { _ = openedStore.Close() })
 	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
+
+	// Seed a user with DefaultAgentID so shouldForwardDisconnectedSession can read it from the store.
+	defaultAgentId := "main"
+	_ = openedStore.Transaction(contextWithStore, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.CreateUser(ctx, &models.User{
+			ID:             "user-1",
+			DefaultAgentID: &defaultAgentId,
+		}, nil, nil)
+		return err
+	})
 
 	registry := agents.NewAgentRegistry(contextWithStore)
 	registry.Register("main", &agents.Runner{AgentID: "main"})
@@ -30,8 +39,7 @@ func TestShouldForwardDisconnectedWebUI(t *testing.T) {
 
 	gateway := gw.New(
 		contextWithStore,
-		&configs.Config{AgentConfigs: []configs.AgentConfig{{ID: "main"}}},
-		&configs.SecurityConfig{Users: map[string]configs.SecurityUser{}},
+		&models.Configuration{},
 		registry,
 		nil,
 		nil,
@@ -58,7 +66,6 @@ func TestShouldForwardDisconnectedWebUI(t *testing.T) {
 }
 
 func TestUnlinkedTelegramMessage(t *testing.T) {
-	configs.SetDirectory(t.TempDir())
 	message := unlinkedTelegramMessage("12345")
 	for _, want := range []string{
 		"not linked",

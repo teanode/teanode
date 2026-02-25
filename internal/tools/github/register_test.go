@@ -5,8 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 // makeFakeBinary creates a minimal executable in a temp directory and
@@ -27,7 +26,7 @@ func TestRegisterTools_NilConfig_BinaryPresent(t *testing.T) {
 	cleanup := makeFakeBinary(t, "gh")
 	defer cleanup()
 
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, nil)
 
 	// Default services: issues, pulls, repos → 3 tools.
@@ -48,7 +47,7 @@ func TestRegisterTools_NilConfig_BinaryMissing(t *testing.T) {
 	os.Setenv("PATH", t.TempDir())
 	defer os.Setenv("PATH", origPath)
 
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, nil)
 
 	if len(registry.Names()) != 0 {
@@ -60,8 +59,8 @@ func TestRegisterTools_ExplicitConfig_CustomServices(t *testing.T) {
 	cleanup := makeFakeBinary(t, "gh")
 	defer cleanup()
 
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.GitHubConfig{
+	registry := toolregistry.NewToolRegistry()
+	RegisterTools(registry, &RegistrationOptions{
 		Services: []string{"issues", "search"},
 	})
 
@@ -83,8 +82,8 @@ func TestRegisterTools_ExplicitConfig_CustomBinaryPath(t *testing.T) {
 		t.Fatalf("creating fake binary: %v", err)
 	}
 
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.GitHubConfig{
+	registry := toolregistry.NewToolRegistry()
+	RegisterTools(registry, &RegistrationOptions{
 		BinaryPath: customBinary,
 	})
 

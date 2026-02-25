@@ -7,15 +7,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
+	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/valueor"
 )
 
 // RegisterTools adds memory tools to the registry.
-func RegisterTools(registry *agents.ToolRegistry, agentWorkspaceDirectory string) {
-	agentId := filepath.Base(filepath.Dir(agentWorkspaceDirectory))
+func RegisterTools(registry *toolregistry.ToolRegistry, agentId string) {
 	registry.Register(newWorkspaceTool(
 		"agent_workspace",
 		"Persistent per-agent workspace storage shared by users of this agent.",
@@ -25,11 +25,11 @@ func RegisterTools(registry *agents.ToolRegistry, agentWorkspaceDirectory string
 		"user_workspace",
 		"Persistent per-user workspace storage for user-specific memory and notes.",
 		func(ctx context.Context) (models.Scope, string, error) {
-			userId := agents.UserIDFromContext(ctx)
-			if userId == "" {
+			user := models.UserFromContext(ctx)
+			if user == nil || user.ID == "" {
 				return "", "", fmt.Errorf("missing user context")
 			}
-			return models.ScopeUser, userId, nil
+			return models.ScopeUser, user.ID, nil
 		},
 	))
 }
@@ -162,8 +162,8 @@ func (self *workspaceTool) executeRead(
 		return "", err
 	}
 	content := ""
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		file, err := transaction.GetWorkspaceFileByPath(scope, scopeId, normalizedPath, nil)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		file, err := transaction.GetWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, nil)
 		if err != nil {
 			return err
 		}
@@ -192,9 +192,9 @@ func (self *workspaceTool) executeWrite(
 	if err != nil {
 		return "", err
 	}
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		contentBytes := []byte(content)
-		_, modifyError := transaction.ModifyWorkspaceFileByPath(scope, scopeId, normalizedPath, func(file *models.WorkspaceFile) error {
+		_, modifyError := transaction.ModifyWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, func(file *models.WorkspaceFile) error {
 			file.Content = &contentBytes
 			return nil
 		}, nil)
@@ -204,7 +204,7 @@ func (self *workspaceTool) executeWrite(
 		if modifyError != store.ErrNotFound {
 			return modifyError
 		}
-		_, createError := transaction.CreateWorkspaceFile(&models.WorkspaceFile{
+		_, createError := transaction.CreateWorkspaceFile(ctx, &models.WorkspaceFile{
 			Scope:   &scope,
 			ScopeID: &scopeId,
 			Path:    &normalizedPath,
@@ -227,14 +227,14 @@ func (self *workspaceTool) executeList(
 	scopeId string,
 ) (string, error) {
 	files := []string{}
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		workspaceFiles, err := transaction.ListWorkspaceFilesByPath(scope, scopeId, "", nil)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		workspaceFiles, err := transaction.ListWorkspaceFilesByPath(ctx, scope, scopeId, "", nil)
 		if err != nil {
 			return err
 		}
 		files = make([]string, 0, len(workspaceFiles))
 		for _, file := range workspaceFiles {
-			path := strings.TrimSpace(valueOrEmptyString(file.Path))
+			path := file.GetPath()
 			if path != "" {
 				files = append(files, path)
 			}
@@ -261,16 +261,16 @@ func (self *workspaceTool) executeAppend(
 	if err != nil {
 		return "", err
 	}
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		existingContent := ""
-		file, getError := transaction.GetWorkspaceFileByPath(scope, scopeId, normalizedPath, nil)
+		file, getError := transaction.GetWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, nil)
 		if getError == nil && file.Content != nil {
 			existingContent = string(*file.Content)
 		}
 		nextContent := existingContent + content + "\n"
 		contentBytes := []byte(nextContent)
 		if getError == nil {
-			_, modifyError := transaction.ModifyWorkspaceFileByPath(scope, scopeId, normalizedPath, func(file *models.WorkspaceFile) error {
+			_, modifyError := transaction.ModifyWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, func(file *models.WorkspaceFile) error {
 				file.Content = &contentBytes
 				return nil
 			}, nil)
@@ -279,7 +279,7 @@ func (self *workspaceTool) executeAppend(
 		if getError != store.ErrNotFound {
 			return getError
 		}
-		_, createError := transaction.CreateWorkspaceFile(&models.WorkspaceFile{
+		_, createError := transaction.CreateWorkspaceFile(ctx, &models.WorkspaceFile{
 			Scope:   &scope,
 			ScopeID: &scopeId,
 			Path:    &normalizedPath,
@@ -315,10 +315,10 @@ func (self *workspaceTool) executeSearch(
 		Text string `json:"text"`
 	}
 	matches := []matchEntry{}
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		limit := uint64(maxResults)
 		includeContent := true
-		results, err := transaction.SearchWorkspaceFiles(scope, scopeId, query, store.WorkspaceSearchOptions{
+		results, err := transaction.SearchWorkspaceFiles(ctx, scope, scopeId, query, store.WorkspaceSearchOptions{
 			Limit:          &limit,
 			IncludeContent: &includeContent,
 		}, nil)
@@ -326,11 +326,11 @@ func (self *workspaceTool) executeSearch(
 			return err
 		}
 		for _, result := range results {
-			path := strings.TrimSpace(valueOrEmptyString(result.Path))
+			path := valueor.Zero(result.Path)
 			if path == "" || (!strings.HasSuffix(path, ".md") && !strings.HasSuffix(path, ".txt")) {
 				continue
 			}
-			lines := valueOrEmptyStringSlice(result.MatchedLines)
+			lines := valueor.Zero(result.MatchedLines)
 			for index, line := range lines {
 				matches = append(matches, matchEntry{Path: path, Line: index + 1, Text: line})
 				if len(matches) >= maxResults {
@@ -359,8 +359,8 @@ func (self *workspaceTool) executeDelete(
 	if err != nil {
 		return "", err
 	}
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		return transaction.DeleteWorkspaceFileByPath(scope, scopeId, normalizedPath, nil)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		return transaction.DeleteWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, nil)
 	}); err != nil {
 		return "", fmt.Errorf("deleting file: %w", err)
 	}
@@ -379,16 +379,3 @@ func normalizeRelativePath(path string) (string, error) {
 	return cleanedPath, nil
 }
 
-func valueOrEmptyString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func valueOrEmptyStringSlice(value *[]string) []string {
-	if value == nil {
-		return []string{}
-	}
-	return *value
-}

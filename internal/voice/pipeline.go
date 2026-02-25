@@ -158,10 +158,10 @@ func (self *Session) llmEventForwarder() {
 				streamForFlush := streamText
 				// Some providers may only emit final text (no deltas). In that case,
 				// use the final text as the source for sentence flushing.
-				if !sawDelta && strings.TrimSpace(text) != "" {
+				if !sawDelta && text != "" {
 					streamForFlush = text
 				}
-				remaining := strings.TrimSpace(FlushRemaining(streamForFlush, sentencesEnqueued))
+				remaining := FlushRemaining(streamForFlush, sentencesEnqueued)
 				if remaining != "" {
 					select {
 					case self.ttsInCh <- remaining:
@@ -370,7 +370,7 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 }
 
 func (self *Session) effectivePromptSuffix() string {
-	if strings.TrimSpace(self.PromptSuffix) != "" {
+	if self.PromptSuffix != "" {
 		return self.PromptSuffix
 	}
 	return voiceCallPromptSuffix

@@ -7,15 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/atomicfile"
-	"github.com/teanode/teanode/internal/util/trash"
 )
 
 var log = logging.MustGetLogger("filesystem")
@@ -26,9 +23,7 @@ const (
 )
 
 // RegisterTools adds the filesystem tool to the registry.
-func RegisterTools(registry *agents.ToolRegistry) {
-	registry.Register(&filesystemTool{})
-}
+func RegisterTools(registry *toolregistry.ToolRegistry) { registry.Register(&filesystemTool{}) }
 
 type filesystemTool struct{}
 
@@ -149,7 +144,7 @@ func (self *filesystemTool) Execute(ctx context.Context, rawArguments string) (s
 	case "mkdir":
 		return executeMkdir(arguments.Path, arguments.Recursive)
 	case "delete":
-		return executeDelete(arguments.Path, arguments.Recursive)
+		return self.executeDelete(arguments.Path, arguments.Recursive)
 	case "move":
 		return executeMove(arguments.Path, arguments.Destination)
 	default:
@@ -320,7 +315,7 @@ func executeMkdir(path string, recursive bool) (string, error) {
 	return string(result), nil
 }
 
-func executeDelete(path string, recursive bool) (string, error) {
+func (self *filesystemTool) executeDelete(path string, recursive bool) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("deleting path: %w", err)
@@ -335,21 +330,13 @@ func executeDelete(path string, recursive bool) (string, error) {
 		}
 	}
 
-	dataDirectory := configs.Directory()
-	if isPathInsideDirectory(path, dataDirectory) {
-		trashDirectory := configs.TrashDirectory()
-		if err := trash.Move(path, trashDirectory); err != nil {
-			return "", fmt.Errorf("deleting path: %w", err)
-		}
+	if recursive {
+		err = os.RemoveAll(path)
 	} else {
-		if recursive {
-			err = os.RemoveAll(path)
-		} else {
-			err = os.Remove(path)
-		}
-		if err != nil {
-			return "", fmt.Errorf("deleting path: %w", err)
-		}
+		err = os.Remove(path)
+	}
+	if err != nil {
+		return "", fmt.Errorf("deleting path: %w", err)
 	}
 
 	result, err := json.Marshal(map[string]interface{}{
@@ -360,22 +347,6 @@ func executeDelete(path string, recursive bool) (string, error) {
 		return "", fmt.Errorf("marshaling result: %w", err)
 	}
 	return string(result), nil
-}
-
-func isPathInsideDirectory(path, directory string) bool {
-	absolutePath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-	absoluteDirectory, err := filepath.Abs(directory)
-	if err != nil {
-		return false
-	}
-	relativePath, err := filepath.Rel(absoluteDirectory, absolutePath)
-	if err != nil {
-		return false
-	}
-	return relativePath == "." || (!strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) && relativePath != "..")
 }
 
 func executeMove(path, destination string) (string, error) {

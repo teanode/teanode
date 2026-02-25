@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 )
@@ -31,6 +30,17 @@ type criticalFacts struct {
 type structuredSummary struct {
 	Summary       string        `json:"summary"`
 	CriticalFacts criticalFacts `json:"criticalFacts"`
+}
+
+type contextCompressionModelOptions struct {
+	DefaultModel    string
+	SummarizerModel string
+}
+
+type contextCompressionLimits struct {
+	CompressionThreshold float64
+	MinKeepMessages      int
+	MinKeepRecentTokens  int
 }
 
 // estimateTokens returns a rough token count using a character heuristic.
@@ -61,7 +71,7 @@ func stripDetailsFields(value interface{}) interface{} {
 }
 
 func sanitizeToolResultForCompaction(text string) string {
-	trimmedText := strings.TrimSpace(text)
+	trimmedText := text
 	if trimmedText == "" || !json.Valid([]byte(trimmedText)) {
 		return text
 	}
@@ -219,51 +229,14 @@ func expandKeepBoundaryForRecentTokens(messages []providers.ChatMessage, keepIdx
 
 // findLastSummaryIndex returns the index of the last context_summary message
 // in history, or -1 if none exists.
-func findLastSummaryIndex(messages []conversations.Message) int {
+func findLastSummaryIndex(messages []*models.ConversationMessage) int {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "system" && messages[i].StopReason == "context_summary" {
+		if conversationMessageRole(*messages[i]) == "system" &&
+			conversationMessageStopReason(*messages[i]) == "context_summary" {
 			return i
 		}
 	}
 	return -1
-}
-
-// messagesText builds a truncated text representation of conversation messages,
-// collecting from the end to prioritize recent messages. Returns chronologically
-// ordered text. Pass maxTotalChars <= 0 for no total limit.
-func messagesText(messages []conversations.Message, maxTotalChars int, maxMessageChars int) string {
-	var lines []string
-	totalChars := 0
-
-	for i := len(messages) - 1; i >= 0; i-- {
-		role := messages[i].Role
-		if role == "tool" && messages[i].ToolName != "" {
-			role = fmt.Sprintf("tool(%s)", messages[i].ToolName)
-		}
-
-		content := messages[i].ContentText()
-		if maxMessageChars > 0 && len(content) > maxMessageChars {
-			content = content[:maxMessageChars] + "..."
-		}
-
-		line := fmt.Sprintf("[%s]: %s\n", role, content)
-		if maxTotalChars > 0 && totalChars+len(line) > maxTotalChars {
-			remaining := maxTotalChars - totalChars
-			if remaining > 0 {
-				lines = append(lines, line[:remaining])
-			}
-			break
-		}
-		lines = append(lines, line)
-		totalChars += len(line)
-	}
-
-	// Reverse to chronological order.
-	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
-		lines[i], lines[j] = lines[j], lines[i]
-	}
-
-	return strings.Join(lines, "")
 }
 
 // chatMessagesText builds a truncated text representation of provider chat
@@ -311,7 +284,7 @@ func normalizeFactLines(lines []string) []string {
 	seen := make(map[string]struct{}, len(lines))
 	normalized := make([]string, 0, len(lines))
 	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
+		trimmedLine := line
 		if trimmedLine == "" {
 			continue
 		}
@@ -329,7 +302,7 @@ func normalizeFactLines(lines []string) []string {
 }
 
 func normalizeStructuredSummary(summary structuredSummary) structuredSummary {
-	summary.Summary = strings.TrimSpace(summary.Summary)
+	summary.Summary = summary.Summary
 	summary.CriticalFacts.Decisions = normalizeFactLines(summary.CriticalFacts.Decisions)
 	summary.CriticalFacts.Todos = normalizeFactLines(summary.CriticalFacts.Todos)
 	summary.CriticalFacts.Constraints = normalizeFactLines(summary.CriticalFacts.Constraints)
@@ -374,7 +347,7 @@ func formatStructuredSummary(summary structuredSummary) string {
 	appendFactSection(&builder, "Constraints", normalizedSummary.CriticalFacts.Constraints)
 	appendFactSection(&builder, "User preferences", normalizedSummary.CriticalFacts.UserPreferences)
 	appendFactSection(&builder, "Open questions", normalizedSummary.CriticalFacts.OpenQuestions)
-	return strings.TrimSpace(builder.String())
+	return builder.String()
 }
 
 func mergeStructuredSummaries(baseSummary, incomingSummary structuredSummary) structuredSummary {
@@ -388,14 +361,14 @@ func mergeStructuredSummaries(baseSummary, incomingSummary structuredSummary) st
 			OpenQuestions:   append(append([]string{}, baseSummary.CriticalFacts.OpenQuestions...), incomingSummary.CriticalFacts.OpenQuestions...),
 		},
 	}
-	if strings.TrimSpace(mergedSummary.Summary) == "" {
+	if mergedSummary.Summary == "" {
 		mergedSummary.Summary = baseSummary.Summary
 	}
 	return normalizeStructuredSummary(mergedSummary)
 }
 
 func parseStructuredSummaryResponse(rawText string) structuredSummary {
-	trimmedText := strings.TrimSpace(rawText)
+	trimmedText := rawText
 	parsedSummary := structuredSummary{}
 	if trimmedText == "" {
 		return parsedSummary
@@ -405,7 +378,7 @@ func parseStructuredSummaryResponse(rawText string) structuredSummary {
 		trimmedText = strings.TrimPrefix(trimmedText, "```json")
 		trimmedText = strings.TrimPrefix(trimmedText, "```")
 		trimmedText = strings.TrimSuffix(trimmedText, "```")
-		trimmedText = strings.TrimSpace(trimmedText)
+		trimmedText = trimmedText
 	}
 
 	if json.Unmarshal([]byte(trimmedText), &parsedSummary) == nil {
@@ -413,14 +386,14 @@ func parseStructuredSummaryResponse(rawText string) structuredSummary {
 	}
 	if startIndex := strings.Index(trimmedText, "{"); startIndex >= 0 {
 		if endIndex := strings.LastIndex(trimmedText, "}"); endIndex > startIndex {
-			candidate := strings.TrimSpace(trimmedText[startIndex : endIndex+1])
+			candidate := trimmedText[startIndex : endIndex+1]
 			if json.Unmarshal([]byte(candidate), &parsedSummary) == nil {
 				return normalizeStructuredSummary(parsedSummary)
 			}
 		}
 	}
 
-	return structuredSummary{Summary: strings.TrimSpace(rawText)}
+	return structuredSummary{Summary: rawText}
 }
 
 func summarizeChunk(
@@ -431,7 +404,7 @@ func summarizeChunk(
 	previousSummary string,
 	focus string,
 ) (structuredSummary, error) {
-	if strings.TrimSpace(chunkText) == "" {
+	if chunkText == "" {
 		return structuredSummary{}, nil
 	}
 
@@ -457,7 +430,7 @@ func summarizeChunk(
 	if len(response.Choices) == 0 {
 		return structuredSummary{}, fmt.Errorf("empty summary response")
 	}
-	content := strings.TrimSpace(response.Choices[0].Message.ContentText())
+	content := response.Choices[0].Message.ContentText()
 	if content == "" {
 		return structuredSummary{}, fmt.Errorf("empty summary content")
 	}
@@ -536,7 +509,7 @@ func buildLastMessagesFallback(messages []providers.ChatMessage) structuredSumma
 		tailCount = len(messages)
 	}
 	tailMessages := messages[len(messages)-tailCount:]
-	fallbackText := strings.TrimSpace(chatMessagesText(tailMessages, 4000, 500))
+	fallbackText := chatMessagesText(tailMessages, 4000, 500)
 	if fallbackText == "" {
 		fallbackText = "Recent context unavailable."
 	}
@@ -554,7 +527,7 @@ func summarizeMessagesWithFallback(
 	focus string,
 ) structuredSummary {
 	fullSummary, err := summarizeMessagesInStages(ctx, provider, model, messages, contextWindow, focus)
-	if err == nil && strings.TrimSpace(fullSummary.Summary) != "" {
+	if err == nil && fullSummary.Summary != "" {
 		return fullSummary
 	}
 	log.Debugf("summary full pass failed, retrying without oversized messages: %v", err)
@@ -575,7 +548,7 @@ func summarizeMessagesWithFallback(
 	}
 	if len(filteredMessages) > 0 {
 		partialSummary, partialErr := summarizeMessagesInStages(ctx, provider, model, filteredMessages, contextWindow, focus)
-		if partialErr == nil && strings.TrimSpace(partialSummary.Summary) != "" {
+		if partialErr == nil && partialSummary.Summary != "" {
 			return partialSummary
 		}
 		log.Debugf("summary partial pass failed, falling back to deterministic summary: %v", partialErr)
@@ -589,12 +562,12 @@ func summarizeMessagesWithFallback(
 func (self *Runner) compressContext(
 	ctx context.Context,
 	providerRegistry *providers.Registry,
-	config *configs.Config,
+	modelOptions contextCompressionModelOptions,
 	messages []providers.ChatMessage,
 	toolDefs []providers.ToolDefinition,
 	conversationId string,
 	contextWindow int,
-	limits configs.AgentLimits,
+	limits contextCompressionLimits,
 ) ([]providers.ChatMessage, error) {
 	if contextWindow <= 0 {
 		contextWindow = defaultContextWindow
@@ -626,9 +599,9 @@ func (self *Runner) compressContext(
 	toSummarize := messages[1:keepIdx]
 
 	// Pick summary model and resolve its provider.
-	summaryQualifiedModel := config.Models.Default
-	if config.Models.SummarizerModel != "" {
-		summaryQualifiedModel = config.Models.SummarizerModel
+	summaryQualifiedModel := modelOptions.DefaultModel
+	if modelOptions.SummarizerModel != "" {
+		summaryQualifiedModel = modelOptions.SummarizerModel
 	}
 
 	summaryClient, summaryBareModel, resolveErr := providerRegistry.Resolve(summaryQualifiedModel)
@@ -647,10 +620,10 @@ func (self *Runner) compressContext(
 	)
 
 	// Persist summary to conversation.
-	summaryMessage := conversations.NewSummaryMessage(summaryText, time.Now().UnixMilli())
-	store := self.ConversationsForUser(UserIDFromContext(ctx))
-	if store != nil {
-		if appendError := store.Append(conversationId, summaryMessage); appendError != nil {
+	summaryMessage := newSummaryMessage(summaryText, time.Now().UnixMilli())
+	user := models.UserFromContext(ctx)
+	if user != nil && user.ID != "" {
+		if appendError := appendConversationMessage(ctx, user.ID, self.AgentID, conversationId, summaryMessage); appendError != nil {
 			log.Debugf("failed to persist context summary: %v", appendError)
 		}
 	}

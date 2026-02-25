@@ -2,8 +2,6 @@ package homeassistant
 
 import (
 	"strings"
-
-	"github.com/teanode/teanode/internal/configs"
 )
 
 // DefaultAllowedDomains is the safe set of domains permitted by default.
@@ -47,7 +45,7 @@ type AccessChecker struct {
 
 // NewAccessChecker creates an AccessChecker from the given configuration.
 // If config is nil, safe defaults are used.
-func NewAccessChecker(config *configs.HomeAssistantConfig) *AccessChecker {
+func NewAccessChecker(options *RegistrationOptions) *AccessChecker {
 	checker := &AccessChecker{
 		allowedDomains:  make(map[string]bool),
 		blockedDomains:  make(map[string]bool),
@@ -57,15 +55,15 @@ func NewAccessChecker(config *configs.HomeAssistantConfig) *AccessChecker {
 	allowedDomains := DefaultAllowedDomains
 	blockedDomains := DefaultBlockedDomains
 
-	if config != nil {
-		checker.readOnly = config.ReadOnly
-		if config.AllowedDomains != nil {
-			allowedDomains = config.AllowedDomains
+	if options != nil {
+		checker.readOnly = options.ReadOnly
+		if options.AllowedDomains != nil {
+			allowedDomains = options.AllowedDomains
 		}
-		if config.BlockedDomains != nil {
-			blockedDomains = config.BlockedDomains
+		if options.BlockedDomains != nil {
+			blockedDomains = options.BlockedDomains
 		}
-		for _, entity := range config.AllowedEntities {
+		for _, entity := range options.AllowedEntities {
 			checker.allowedEntities[entity] = true
 		}
 	}

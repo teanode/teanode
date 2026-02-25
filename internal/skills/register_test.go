@@ -5,8 +5,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/store"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 func TestRegisterSkills(t *testing.T) {
@@ -26,9 +26,9 @@ tools:
 Use deploy tools carefully.
 `, true)
 
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	ctx := store.ContextWithStore(context.Background(), openedStore)
-	prompt := RegisterSkills(ctx, registry, t.TempDir())
+	prompt := RegisterSkills(ctx, registry)
 
 	if registry.Get("deploy_status") == nil {
 		t.Fatal("deploy_status not registered")
@@ -73,9 +73,9 @@ tools:
 ---
 `, true)
 
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	ctx := store.ContextWithStore(context.Background(), openedStore)
-	prompt := RegisterSkillsFiltered(ctx, registry, t.TempDir(), []string{"alpha", "gamma"})
+	prompt := RegisterSkillsFiltered(ctx, registry, []string{"alpha", "gamma"})
 	if registry.Get("alpha_tool") == nil {
 		t.Fatal("alpha_tool not registered")
 	}
@@ -112,7 +112,7 @@ tools:
 `, true)
 
 	ctx := store.ContextWithStore(context.Background(), openedStore)
-	names := Names(ctx, t.TempDir())
+	names := Names(ctx)
 	sort.Strings(names)
 	if len(names) != 2 {
 		t.Fatalf("name count = %d, want 2", len(names))

@@ -17,8 +17,6 @@ import (
 	"github.com/teanode/teanode/internal/api/v1api"
 	"github.com/teanode/teanode/internal/channels/discord"
 	"github.com/teanode/teanode/internal/channels/telegram"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/frontend"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/integrations/browsers"
@@ -27,14 +25,16 @@ import (
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/models"
-	"github.com/teanode/teanode/internal/projects"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/skills"
-	datastore "github.com/teanode/teanode/internal/store"
-	storedb "github.com/teanode/teanode/internal/store/db"
-	storefs "github.com/teanode/teanode/internal/store/fs"
+	"github.com/teanode/teanode/internal/store"
+	summarizerpackage "github.com/teanode/teanode/internal/summarizer"
+	storedb "github.com/teanode/teanode/internal/store/dbstore"
+	storefs "github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/tools/claudecode"
 	"github.com/teanode/teanode/internal/tools/codex"
+	toolconfigs "github.com/teanode/teanode/internal/tools/configs"
+	toolgateway "github.com/teanode/teanode/internal/tools/gateway"
 	"github.com/teanode/teanode/internal/tools/datetime"
 	"github.com/teanode/teanode/internal/tools/fetch"
 	"github.com/teanode/teanode/internal/tools/filesystem"
@@ -42,7 +42,10 @@ import (
 	"github.com/teanode/teanode/internal/tools/gitlab"
 	"github.com/teanode/teanode/internal/tools/google"
 	"github.com/teanode/teanode/internal/tools/homeassistant"
+	toolconversation "github.com/teanode/teanode/internal/tools/conversation"
 	tooljobs "github.com/teanode/teanode/internal/tools/jobs"
+	"github.com/teanode/teanode/internal/tools/projects"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/tools/search"
 	"github.com/teanode/teanode/internal/tools/shell"
 	"github.com/teanode/teanode/internal/tools/unifiprotect"
@@ -57,13 +60,6 @@ import (
 // ErrRestart is returned from the gateway command when a restart was requested.
 var ErrRestart = errors.New("restart requested")
 
-func valueOrEmptyString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
 func NewGatewayCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "gateway",
@@ -77,7 +73,7 @@ func NewGatewayCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "store",
 				Usage:   "store backend: filesystem or postgres",
-				Value:   string(datastore.BackendFilesystem),
+				Value:   string(store.BackendFilesystem),
 				Sources: cli.EnvVars("TEANODE_STORE"),
 			},
 			&cli.StringFlag{
@@ -118,13 +114,14 @@ func NewGatewayCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
-			// Ensure base directories exist.
-			if err := configs.EnsureDirectories(); err != nil {
-				return err
+			dataDirectory, dataDirectoryError := DataDirectoryFromContext(ctx)
+			if dataDirectoryError != nil {
+				return dataDirectoryError
 			}
-			storeBackend := datastore.BackendType(command.String("store"))
+
+			storeBackend := store.BackendType(command.String("store"))
 			var postgresSettings *storedb.Settings
-			if storeBackend == datastore.BackendPostgres {
+			if storeBackend == store.BackendPostgres {
 				postgresSettings = &storedb.Settings{
 					Host:     command.String("store-postgres-host"),
 					Port:     uint16(command.Uint("store-postgres-port")),
@@ -134,12 +131,12 @@ func NewGatewayCommand() *cli.Command {
 					SSLMode:  command.String("store-postgres-sslmode"),
 				}
 			}
-			var openedStore datastore.Store
+			var openedStore store.Store
 			var err error
 			switch storeBackend {
-			case "", datastore.BackendFilesystem:
-				openedStore, err = storefs.Open(storefs.Options{DataDirectory: configs.Directory()})
-			case datastore.BackendPostgres:
+			case "", store.BackendFilesystem:
+				openedStore, err = storefs.Open(storefs.Options{DataDirectory: dataDirectory})
+			case store.BackendPostgres:
 				if postgresSettings == nil {
 					return fmt.Errorf("postgres settings are required")
 				}
@@ -150,16 +147,16 @@ func NewGatewayCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			if migrateError := openedStore.Migrate(); migrateError != nil {
+			if migrateError := openedStore.Migrate(ctx); migrateError != nil {
 				return migrateError
 			}
-			ctx = datastore.ContextWithStore(ctx, openedStore)
+			ctx = store.ContextWithStore(ctx, openedStore)
 			defer func() {
 				if err := openedStore.Close(); err != nil {
 					log.Errorf("failed to close store: %v", err)
 				}
 			}()
-			pidGuard, err := acquireGatewayPIDGuard()
+			pidGuard, err := acquirePidGuard(ctx)
 			if err != nil {
 				return err
 			}
@@ -169,30 +166,68 @@ func NewGatewayCommand() *cli.Command {
 				}
 			}()
 
-			// Load config.
-			configuration, err := configs.Load()
-			if err != nil {
-				return err
+			configuration := &models.Configuration{}
+			if transactionError := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+				loadedConfiguration, getError := transaction.GetConfiguration(ctx, nil)
+				if getError != nil {
+					return getError
+				}
+				configuration = loadedConfiguration
+				return nil
+			}); transactionError != nil {
+				return transactionError
+			}
+			if configuration.Gateway == nil {
+				configuration.Gateway = &models.GatewayConfiguration{}
+			}
+			if configuration.Models == nil {
+				configuration.Models = &models.ModelsConfiguration{}
+			}
+			if configuration.Tools == nil {
+				configuration.Tools = &models.ToolsConfiguration{}
+			}
+			if configuration.Integrations == nil {
+				configuration.Integrations = &models.IntegrationsConfiguration{}
+			}
+			if configuration.Channels == nil {
+				configuration.Channels = &models.ChannelsConfiguration{}
+			}
+			if configuration.Gateway.Port == nil {
+				configuration.Gateway.Port = ptrto.Value(8833)
+			}
+			if configuration.Gateway.Bind == nil {
+				configuration.Gateway.Bind = ptrto.Value("loopback")
+			}
+			if configuration.Models.GetDefault() == "" {
+				configuration.Models.Default = ptrto.Value("openai:gpt-5.2")
+			}
+			if configuration.Models.Providers == nil || len(*configuration.Models.Providers) == 0 {
+				defaultProviderName := "openai"
+				defaultProviderBaseURL := "https://api.openai.com/v1"
+				defaultProviderKey := os.Getenv("OPENAI_API_KEY")
+				defaultProviders := []*models.ProviderConfiguration{
+					{
+						Name:    &defaultProviderName,
+						BaseURL: &defaultProviderBaseURL,
+						APIKey:  &defaultProviderKey,
+					},
+				}
+				configuration.Models.Providers = &defaultProviders
 			}
 
 			// CLI flag overrides config.
 			if command.IsSet("port") {
-				configuration.Gateway.Port = int(command.Int("port"))
+				configuration.Gateway.Port = ptrto.Value(int(command.Int("port")))
 			}
 
-			// Load security config (token + password hash).
-			securityConfig, err := configs.LoadSecurity()
-			if err != nil {
-				return err
-			}
 			// Auto-generate one auth token for any user missing tokens.
-			if err := openedStore.Transaction(func(transaction datastore.Transaction) error {
-				users, err := transaction.ListUsers(nil)
+			if err := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+				users, err := transaction.ListUsers(ctx, nil)
 				if err != nil {
 					return err
 				}
 				for _, user := range users {
-					tokens, listError := transaction.ListTokens(user.ID, nil)
+					tokens, listError := transaction.ListTokens(ctx, user.ID, nil)
 					if listError != nil {
 						return listError
 					}
@@ -200,7 +235,7 @@ func NewGatewayCommand() *cli.Command {
 						continue
 					}
 					generated := security.GenerateRandomString(48, security.LowerAlphaNumeric)
-					if _, createError := transaction.CreateToken(&models.Token{
+					if _, createError := transaction.CreateToken(ctx, &models.Token{
 						ID:     security.NewULID(),
 						UserID: ptrto.Value(user.ID),
 						Token:  ptrto.Value(generated),
@@ -214,10 +249,26 @@ func NewGatewayCommand() *cli.Command {
 			}
 
 			// Build provider registry.
-			buildProviderRegistry := func(configuration *configs.Config) *providers.Registry {
-				registry := providers.NewRegistry(configuration.Models.DefaultProviderName())
-				for _, providerConfig := range configuration.Models.ResolvedProviders() {
-					registry.Register(providerConfig.Name, providers.NewProvider(providerConfig.Name, providerConfig.BaseURL, providerConfig.APIKey))
+			buildProviderRegistry := func(configuration *models.Configuration) *providers.Registry {
+				defaultProviderName := "openai"
+				if configuration.Models != nil && configuration.Models.GetDefault() != "" {
+					resolvedProviderName, _ := providers.ParseQualifiedModel(configuration.Models.GetDefault(), defaultProviderName)
+					defaultProviderName = resolvedProviderName
+				}
+				registry := providers.NewRegistry(defaultProviderName)
+				if configuration.Models == nil || configuration.Models.Providers == nil {
+					return registry
+				}
+				for _, providerConfiguration := range *configuration.Models.Providers {
+					providerName := providerConfiguration.GetName()
+					if providerName == "" {
+						continue
+					}
+					registry.Register(providerName, providers.NewProvider(
+						providerName,
+						providerConfiguration.GetBaseURL(),
+						providerConfiguration.GetAPIKey(),
+					))
 				}
 				return registry
 			}
@@ -225,10 +276,12 @@ func NewGatewayCommand() *cli.Command {
 
 			// Validate that at least one provider has an API key.
 			hasKey := false
-			for _, providerConfig := range configuration.Models.ResolvedProviders() {
-				if providerConfig.APIKey != "" {
-					hasKey = true
-					break
+			if configuration.Models != nil && configuration.Models.Providers != nil {
+				for _, providerConfiguration := range *configuration.Models.Providers {
+					if providerConfiguration.GetAPIKey() != "" {
+						hasKey = true
+						break
+					}
 				}
 			}
 			if !hasKey {
@@ -243,9 +296,10 @@ func NewGatewayCommand() *cli.Command {
 			backends := []browsers.Browser{browserRelay}
 
 			var headlessBrowser *headlessbrowser.Headless
-			if configuration.Integrations.Browser != nil && configuration.Integrations.Browser.CDPEndpoint != "" {
-				log.Infof("browser: headless CDP connecting to %s", configuration.Integrations.Browser.CDPEndpoint)
-				headlessBrowser = headlessbrowser.NewHeadless(configuration.Integrations.Browser.CDPEndpoint)
+			if configuration.Integrations.Browser != nil && configuration.Integrations.Browser.GetCDPEndpoint() != "" {
+				cdpEndpoint := configuration.Integrations.Browser.GetCDPEndpoint()
+				log.Infof("browser: headless CDP connecting to %s", cdpEndpoint)
+				headlessBrowser = headlessbrowser.NewHeadless(cdpEndpoint)
 				if err := headlessBrowser.Connect(ctx); err != nil {
 					log.Errorf("headless browser failed to connect: %v", err)
 				}
@@ -258,8 +312,6 @@ func NewGatewayCommand() *cli.Command {
 
 			terminalRelay := terminals.NewRelay()
 
-			skillsDirectory := configs.SkillsDirectory()
-
 			// --- Agent Registry: create a runner per agent ---
 
 			agentRegistry := agents.NewAgentRegistry(ctx)
@@ -268,28 +320,11 @@ func NewGatewayCommand() *cli.Command {
 			// It is assigned after runners are created, but tools are never called until
 			// bots and the API server start, which happens after assignment.
 			var gateway gw.Gateway
-			var reloadSkills func()
 			var scheduler *jobs.Scheduler
-			var conversationStoresMutex sync.Mutex
-			conversationStores := map[string]*conversations.Store{}
-			resolveConversationStore := func(userId, agentId string) *conversations.Store {
-				if userId == "" || agentId == "" {
-					return nil
-				}
-				key := userId + ":" + agentId
-				conversationStoresMutex.Lock()
-				defer conversationStoresMutex.Unlock()
-				if store, ok := conversationStores[key]; ok {
-					return store
-				}
-				conversationStore := conversations.NewStore(ctx, userId, agentId)
-				conversationStores[key] = conversationStore
-				return conversationStore
-			}
 			resolveUser := func(userId string) (*models.User, error) {
 				var profile *models.User
-				if err := openedStore.Transaction(func(transaction datastore.Transaction) error {
-					user, err := transaction.GetUser(userId, nil)
+				if err := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+					user, err := transaction.GetUser(ctx, userId, nil)
 					if err != nil {
 						return err
 					}
@@ -303,85 +338,63 @@ func NewGatewayCommand() *cli.Command {
 
 			// buildToolsForAgent creates a fresh tool registry for the given agents.
 			buildToolsForAgent := func(
-				configuration *configs.Config,
-				agentConfig configs.AgentConfig,
-				workspaceDirectory string,
-				conversations *conversations.Store,
+				configuration *models.Configuration,
+				agent models.Agent,
 				scheduler *jobs.Scheduler,
-			) (*agents.ToolRegistry, string) {
-				tools := agents.NewToolRegistry()
-				workspace.RegisterTools(tools, workspaceDirectory)
-				tools.Register(projects.NewProjectsTool())
-				tools.Register(projects.NewProjectWorkspaceTool())
-				browsers.RegisterBrowserTools(tools, browser)
-				terminals.RegisterTerminalTools(tools, terminalRelay)
-				search.RegisterTools(tools, configuration.Tools.BraveAPIKey)
-				fetch.RegisterTools(tools)
-				filesystem.RegisterTools(tools)
-				shell.RegisterTools(tools)
-				google.RegisterTools(tools, configuration.Tools.Google)
-				github.RegisterTools(tools, configuration.Tools.GitHub)
-				gitlab.RegisterTools(tools, configuration.Tools.GitLab)
-				claudecode.RegisterTools(tools, configuration.Tools.ClaudeCode)
-				codex.RegisterTools(tools, configuration.Tools.Codex)
-				datetime.RegisterTools(tools)
-				homeassistant.RegisterTools(tools, configuration.Tools.HomeAssistant)
-				unifiprotect.RegisterTools(tools, configuration.Tools.UniFiProtect)
-				skills.RegisterTools(tools, configuration.SkillsRegistries, reloadSkills)
-				skills.SetRuntimeSecrets(configuration.Secrets)
-				agents.RegisterConversationTools(tools, conversations, providers, configuration)
-				if scheduler != nil {
-					tooljobs.RegisterTools(tools)
-				}
-				tools.Register(&configs.ConfigTool{Config: configuration})
-				gw.RegisterTools(tools, func(action gw.LifecycleAction) { gateway.ScheduleLifecycle(action) })
-				skillPrompts := skills.RegisterSkillsFiltered(ctx, tools, skillsDirectory, agentConfig.Skills)
-				agents.RegisterInterAgentTools(tools, agentConfig.ID, agentRegistry, configuration)
-				tools.ApplyFilter(agentConfig.Tools)
-				return tools, skillPrompts
-			}
-			reloadSkills = func() {
-				log.Info("hot-reloading skills")
-				agentRegistry.ForEach(func(agentId string, runner *agents.Runner) {
-					currentConfig, currentProviders, _, _, _ := runner.Snapshot()
-					agentConfig := currentConfig.AgentByID(agentId)
-					if agentConfig == nil {
-						return
-					}
-					workspaceDirectory := configs.AgentWorkspaceDirectory(agentId)
-					tools, skillPrompts := buildToolsForAgent(currentConfig, *agentConfig, workspaceDirectory, nil, scheduler)
-					runner.Reconfigure(currentConfig, currentProviders, tools, skillPrompts)
+			) (*toolregistry.ToolRegistry, string) {
+				return buildToolRegistry(buildToolRegistryOptions{
+					Context:           ctx,
+					Configuration:     configuration,
+					Agent:             agent,
+					Scheduler:         scheduler,
+					Providers:         providers,
+					Browser:           browser,
+					TerminalRelay:     terminalRelay,
+					AgentRegistry:     agentRegistry,
+					ScheduleLifecycle: func(action gw.LifecycleAction) { gateway.ScheduleLifecycle(action) },
 				})
-				log.Info("skills reloaded successfully")
 			}
-
+			
 			// Set up job scheduler (needs agent registry).
 			scheduler = jobs.NewScheduler(ctx)
 			ctx = jobs.ContextWithScheduler(ctx, scheduler)
 
-			// Create a runner for each configured agents.
-			for _, agentConfig := range configuration.Agents() {
-				if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {
-					return err
+			// Create a runner for each stored agent.
+			agentModels := make([]*models.Agent, 0)
+			if transactionError := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+				listedAgents, listError := transaction.ListAgents(ctx, nil)
+				if listError != nil {
+					return listError
 				}
-				if err := configs.SeedAgentWorkspace(agentConfig.ID); err != nil {
-					return err
+				agentModels = listedAgents
+				if len(agentModels) == 0 {
+					mainAgentName := "Tea"
+					mainAgent, createError := transaction.CreateAgent(ctx, &models.Agent{
+						ID:   "main",
+						Name: &mainAgentName,
+					}, nil, nil)
+					if createError != nil {
+						return createError
+					}
+					agentModels = append(agentModels, mainAgent)
 				}
-
-				workspaceDirectory := configs.AgentWorkspaceDirectory(agentConfig.ID)
-				tools, skillPrompts := buildToolsForAgent(configuration, agentConfig, workspaceDirectory, nil, scheduler)
+				return nil
+			}); transactionError != nil {
+				return transactionError
+			}
+			for _, agentModel := range agentModels {
+				tools, skillPrompts := buildToolsForAgent(configuration, *agentModel, scheduler)
 
 				runner := &agents.Runner{
-					AgentID:              agentConfig.ID,
-					Providers:            providers,
-					ResolveConversations: resolveConversationStore,
-					ResolveUser:          resolveUser,
-					Config:               configuration,
-					Tools:                tools,
-					WorkspaceDirectory:   workspaceDirectory,
-					SkillPrompts:         skillPrompts,
+					AgentID:            agentModel.ID,
+					Providers:          providers,
+					ResolveUser:        resolveUser,
+					Config:             configuration,
+					Tools:              tools,
+					WorkspaceDirectory: "",
+					SkillPrompts:       skillPrompts,
 				}
-				agentRegistry.Register(agentConfig.ID, runner)
+				agentRegistry.Register(agentModel.ID, runner)
 			}
 
 			// Restore persisted per-user state.
@@ -389,47 +402,46 @@ func NewGatewayCommand() *cli.Command {
 
 			// --- Gateway + API + Frontend ---
 
-			summarizer := agents.NewSummarizer(ctx, agentRegistry, configuration)
+			summarizer := summarizerpackage.New(ctx, providers)
 
-			gateway = gw.New(ctx, configuration, securityConfig, agentRegistry, browserRelay, terminalRelay, summarizer)
-			api := v1api.New(gateway, reloadSkills)
+			gateway = gw.New(ctx, configuration, agentRegistry, browserRelay, terminalRelay, summarizer)
+			api := v1api.New(gateway)
 			frontendComponent := frontend.New()
 
-			agentRegistry.SetCreateAgentFunc(func(agentConfig configs.AgentConfig) error {
-				if agentConfig.ID == "" {
+			agentRegistry.SetCreateAgentFunc(func(agentId string, name string) error {
+				if agentId == "" {
 					return errors.New("agent id is required")
 				}
-				if agentRegistry.GetRunner(agentConfig.ID) != nil {
-					return fmt.Errorf("agent already exists: %s", agentConfig.ID)
+				if agentRegistry.GetRunner(agentId) != nil {
+					return fmt.Errorf("agent already exists: %s", agentId)
 				}
 
-				if err := configs.SaveAgentConfig(agentConfig.ID, &agentConfig); err != nil {
-					return err
-				}
-				if err := configs.EnsureAgentDirectories(agentConfig.ID); err != nil {
-					return err
-				}
-				if err := configs.SeedAgentWorkspace(agentConfig.ID); err != nil {
-					return err
+				var createdAgent *models.Agent
+				if transactionError := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+					agentModel, createError := transaction.CreateAgent(ctx, &models.Agent{
+						ID:   agentId,
+						Name: ptrto.TrimmedString(name),
+					}, nil, nil)
+					if createError != nil {
+						return createError
+					}
+					createdAgent = agentModel
+					return nil
+				}); transactionError != nil {
+					return transactionError
 				}
 
-				workspaceDirectory := configs.AgentWorkspaceDirectory(agentConfig.ID)
-				currentConfiguration := gateway.Config()
-				if currentConfiguration.AgentByID(agentConfig.ID) == nil {
-					currentConfiguration.AgentConfigs = append(currentConfiguration.AgentConfigs, agentConfig)
-				}
-				currentProviders := buildProviderRegistry(currentConfiguration)
-				tools, skillPrompts := buildToolsForAgent(currentConfiguration, agentConfig, workspaceDirectory, nil, scheduler)
+				currentProviders := buildProviderRegistry(configuration)
+				tools, skillPrompts := buildToolsForAgent(configuration, *createdAgent, scheduler)
 
-				agentRegistry.Register(agentConfig.ID, &agents.Runner{
-					AgentID:              agentConfig.ID,
-					Providers:            currentProviders,
-					ResolveConversations: resolveConversationStore,
-					ResolveUser:          resolveUser,
-					Config:               currentConfiguration,
-					Tools:                tools,
-					WorkspaceDirectory:   workspaceDirectory,
-					SkillPrompts:         skillPrompts,
+				agentRegistry.Register(agentId, &agents.Runner{
+					AgentID:            agentId,
+					Providers:          currentProviders,
+					ResolveUser:        resolveUser,
+					Config:             configuration,
+					Tools:              tools,
+					WorkspaceDirectory: "",
+					SkillPrompts:       skillPrompts,
 				})
 				summarizer.Notify()
 
@@ -450,8 +462,8 @@ func NewGatewayCommand() *cli.Command {
 			}
 			scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 				var user *models.User
-				transactionError := openedStore.Transaction(func(transaction datastore.Transaction) error {
-					existingUser, getError := transaction.GetUser(userId, nil)
+				transactionError := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+					existingUser, getError := transaction.GetUser(ctx, userId, nil)
 					if getError != nil {
 						return getError
 					}
@@ -469,7 +481,7 @@ func NewGatewayCommand() *cli.Command {
 					}
 				}
 
-				runContext := gw.ContextWithUserAndSession(ctx, user, nil)
+				runContext := models.ContextWithUserSessionToken(ctx, user, nil, nil)
 				handle := gateway.SendMessage(runContext, gw.SendMessageParameters{
 					AgentID:        agentId,
 					ConversationID: conversationId,
@@ -481,8 +493,8 @@ func NewGatewayCommand() *cli.Command {
 
 			// --- Discord bot ---
 
-			if configuration.Channels.Discord != nil && configuration.Channels.Discord.Token != "" {
-				discordBot := discord.New(configuration.Channels.Discord, ctx, agentRegistry, gateway)
+			if configuration.Channels.Discord != nil && configuration.Channels.Discord.GetToken() != "" {
+				discordBot := discord.New(configuration.Channels.Discord.GetToken(), ctx, agentRegistry, gateway)
 				if err := discordBot.Start(); err != nil {
 					log.Errorf("discord bot failed to start: %v", err)
 				} else {
@@ -492,8 +504,8 @@ func NewGatewayCommand() *cli.Command {
 
 			// --- Telegram bot ---
 
-			if configuration.Channels.Telegram != nil && configuration.Channels.Telegram.Token != "" {
-				telegramBot := telegram.New(ctx, configuration.Channels.Telegram, agentRegistry, gateway)
+			if configuration.Channels.Telegram != nil && configuration.Channels.Telegram.GetToken() != "" {
+				telegramBot := telegram.New(ctx, configuration.Channels.Telegram.GetToken(), agentRegistry, gateway)
 				if err := telegramBot.Start(); err != nil {
 					log.Errorf("telegram bot failed to start: %v", err)
 				} else {
@@ -511,18 +523,18 @@ func NewGatewayCommand() *cli.Command {
 			// Apply middleware stack (innermost first → outermost last).
 			storeMiddleware := func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-					requestContext := datastore.ContextWithStore(request.Context(), openedStore)
+					requestContext := store.ContextWithStore(request.Context(), openedStore)
 					requestContext = jobs.ContextWithScheduler(requestContext, scheduler)
 					next.ServeHTTP(writer, request.WithContext(requestContext))
 				})
 			}
 			handler := web.ApplyMiddlewares(webServer,
 				storeMiddleware,
-				gateway.AuthMiddleware(),
+				web.AuthenticationMiddleware(),
 				web.CompressionMiddleware,
 				web.MakeServerNameMiddleware(version.ServerName()),
 				web.LoggingMiddleware,
-				web.MakeForwarderMiddleware(configuration.Gateway.ForwarderKey),
+				web.MakeForwarderMiddleware(""),
 			)
 
 			// Create HTTP listener upfront so binding errors surface immediately.
@@ -534,6 +546,9 @@ func NewGatewayCommand() *cli.Command {
 
 			httpServer := &http.Server{
 				Handler: handler,
+				BaseContext: func(net.Listener) context.Context {
+					return ctx
+				},
 			}
 
 			// Start scheduler and summarizer.
@@ -621,5 +636,139 @@ func NewGatewayCommand() *cli.Command {
 			}
 			return nil
 		},
+	}
+}
+
+type buildToolRegistryOptions struct {
+	Context           context.Context
+	Configuration     *models.Configuration
+	Agent             models.Agent
+	Scheduler         *jobs.Scheduler
+	Providers         *providers.Registry
+	Browser           browsers.Browser
+	TerminalRelay     *terminals.Relay
+	AgentRegistry     *agents.AgentRegistry
+	ScheduleLifecycle func(gw.LifecycleAction)
+}
+
+func buildToolRegistry(options buildToolRegistryOptions) (*toolregistry.ToolRegistry, string) {
+	registry := toolregistry.NewToolRegistry()
+	configuration := options.Configuration
+	agent := options.Agent
+
+	workspace.RegisterTools(registry, agent.ID)
+	registry.Register(projects.NewProjectsTool())
+	registry.Register(projects.NewProjectWorkspaceTool())
+	browsers.RegisterBrowserTools(registry, options.Browser)
+	terminals.RegisterTerminalTools(registry, options.TerminalRelay)
+	search.RegisterTools(registry, configuration.Tools.GetBraveAPIKey())
+	fetch.RegisterTools(registry)
+	filesystem.RegisterTools(registry)
+	shell.RegisterTools(registry)
+	google.RegisterTools(registry, buildGoogleToolOptions(configuration.Tools.Google))
+	github.RegisterTools(registry, buildGitHubToolOptions(configuration.Tools.GitHub))
+	gitlab.RegisterTools(registry, buildGitLabToolOptions(configuration.Tools.GitLab))
+	claudecode.RegisterTools(registry, buildClaudeCodeToolOptions(configuration.Tools.ClaudeCode))
+	codex.RegisterTools(registry, buildCodexToolOptions(configuration.Tools.Codex))
+	datetime.RegisterTools(registry)
+	homeassistant.RegisterTools(registry, buildHomeAssistantToolOptions(configuration.Tools.HomeAssistant))
+	unifiprotect.RegisterTools(registry, buildUniFiProtectToolOptions(configuration.Tools.UniFiProtect))
+	toolconversation.RegisterTools(registry)
+	if options.Scheduler != nil {
+		tooljobs.RegisterTools(registry)
+	}
+	registry.Register(toolconfigs.NewConfigTool())
+	toolgateway.RegisterTools(registry, options.ScheduleLifecycle)
+	skillPrompts := skills.RegisterSkillsFiltered(options.Context, registry, agent.GetSkills())
+	agents.RegisterInterAgentTools(registry, agent.ID, options.AgentRegistry)
+	registry.ApplyFilter(agent.GetTools())
+	return registry, skillPrompts
+}
+
+func buildGoogleToolOptions(configuration *models.GoogleConfiguration) *google.RegistrationOptions {
+	if configuration == nil {
+		return nil
+	}
+	return &google.RegistrationOptions{
+		BinaryPath: configuration.GetBinaryPath(),
+		Account:    configuration.GetAccount(),
+		Services:   configuration.GetServices(),
+	}
+}
+
+func buildGitHubToolOptions(configuration *models.GitHubConfiguration) *github.RegistrationOptions {
+	if configuration == nil {
+		return nil
+	}
+	return &github.RegistrationOptions{
+		BinaryPath: configuration.GetBinaryPath(),
+		Services:   configuration.GetServices(),
+	}
+}
+
+func buildGitLabToolOptions(configuration *models.GitLabConfiguration) *gitlab.RegistrationOptions {
+	if configuration == nil {
+		return nil
+	}
+	return &gitlab.RegistrationOptions{
+		BinaryPath: configuration.GetBinaryPath(),
+		Services:   configuration.GetServices(),
+	}
+}
+
+func buildClaudeCodeToolOptions(configuration *models.ClaudeCodeConfiguration) *claudecode.RegistrationOptions {
+	if configuration == nil {
+		return nil
+	}
+	return &claudecode.RegistrationOptions{
+		BinaryPath:            configuration.GetBinaryPath(),
+		AllowedTools:          configuration.GetAllowedTools(),
+		Model:                 configuration.GetModel(),
+		MaxTurnTimeoutSeconds: configuration.GetMaxTurnTimeoutSeconds(),
+	}
+}
+
+func buildCodexToolOptions(configuration *models.CodexConfiguration) *codex.RegistrationOptions {
+	if configuration == nil {
+		return nil
+	}
+	return &codex.RegistrationOptions{
+		BinaryPath:            configuration.GetBinaryPath(),
+		AllowedTools:          configuration.GetAllowedTools(),
+		ExtraArgs:             configuration.GetExtraArgs(),
+		Model:                 configuration.GetModel(),
+		MaxTurnTimeoutSeconds: configuration.GetMaxTurnTimeoutSeconds(),
+	}
+}
+
+func buildHomeAssistantToolOptions(configuration *models.HomeAssistantConfiguration) *homeassistant.RegistrationOptions {
+	if configuration == nil {
+		return nil
+	}
+	return &homeassistant.RegistrationOptions{
+		BaseURL:         configuration.GetBaseURL(),
+		Token:           configuration.GetToken(),
+		ReadOnly:        configuration.GetReadOnly(),
+		AllowedDomains:  configuration.GetAllowedDomains(),
+		BlockedDomains:  configuration.GetBlockedDomains(),
+		AllowedEntities: configuration.GetAllowedEntities(),
+		TimeoutSeconds:  configuration.GetTimeoutSeconds(),
+	}
+}
+
+func buildUniFiProtectToolOptions(configuration *models.UniFiProtectConfiguration) *unifiprotect.RegistrationOptions {
+	if configuration == nil {
+		return nil
+	}
+	return &unifiprotect.RegistrationOptions{
+		BaseURL:               configuration.GetBaseURL(),
+		APIKey:                configuration.GetAPIKey(),
+		Username:              configuration.GetUsername(),
+		Password:              configuration.GetPassword(),
+		VerifyTLS:             configuration.GetVerifyTLS(),
+		ReadOnly:              configuration.GetReadOnly(),
+		AllowedCameras:        configuration.GetAllowedCameras(),
+		AllowDangerousActions: configuration.GetAllowDangerousActions(),
+		TimeoutSeconds:        configuration.GetTimeoutSeconds(),
 	}
 }

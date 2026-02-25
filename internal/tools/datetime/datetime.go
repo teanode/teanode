@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/providers"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 // RegisterTools adds the datetime tool to the registry.
-func RegisterTools(registry *agents.ToolRegistry) {
+func RegisterTools(registry *toolregistry.ToolRegistry) {
 	registry.Register(&datetimeTool{})
 }
 

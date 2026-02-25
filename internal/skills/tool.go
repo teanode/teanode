@@ -9,14 +9,16 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
 )
 
 const (
@@ -28,7 +30,7 @@ var placeholderPattern = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*\}\}`)
 
 // ShellTool implements agent.Tool for shell-type skill tools.
 type ShellTool struct {
-	definition ToolDefinition
+	definition models.SkillTool
 }
 
 func (self *ShellTool) Definition() providers.ToolDefinition {
@@ -36,8 +38,8 @@ func (self *ShellTool) Definition() providers.ToolDefinition {
 }
 
 func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	isAdmin, hasAdminContext := agents.AdminFromContext(ctx)
-	if hasAdminContext && !isAdmin {
+	user := models.UserFromContext(ctx)
+	if user != nil && !user.GetAdmin() {
 		return "", fmt.Errorf("admin access required for shell skill tool")
 	}
 	arguments := parseArguments(rawArguments)
@@ -58,8 +60,8 @@ func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string
 
 // HTTPTool implements agent.Tool for http-type skill tools.
 type HTTPTool struct {
-	definition       ToolDefinition
-	httpAuthProfiles map[string]HTTPAuthProfile
+	definition       models.SkillTool
+	httpAuthProfiles map[string]models.SkillAuthenticationProfiles
 }
 
 func (self *HTTPTool) Definition() providers.ToolDefinition {
@@ -85,8 +87,8 @@ func (self *HTTPTool) Execute(ctx context.Context, rawArguments string) (string,
 
 // WorkflowTool implements agent.Tool for workflow-type skill tools.
 type WorkflowTool struct {
-	definition       ToolDefinition
-	httpAuthProfiles map[string]HTTPAuthProfile
+	definition       models.SkillTool
+	httpAuthProfiles map[string]models.SkillAuthenticationProfiles
 }
 
 func (self *WorkflowTool) Definition() providers.ToolDefinition {
@@ -110,7 +112,7 @@ func (self *WorkflowTool) Execute(ctx context.Context, rawArguments string) (str
 	mainSteps := self.definition.Steps
 	if len(self.definition.Actions) > 0 {
 		actionField := self.definition.ActionField
-		if strings.TrimSpace(actionField) == "" {
+		if actionField == "" {
 			actionField = "action"
 		}
 		actionName := fmt.Sprintf("%v", contextData[actionField])
@@ -162,10 +164,9 @@ type workflowStepResult struct {
 	Error      string      `json:"error,omitempty"`
 }
 
-func executeWorkflowSteps(ctx context.Context, steps []ActionDefinition, contextData map[string]interface{}, results *[]workflowStepResult, namePrefix string, httpAuthProfiles map[string]HTTPAuthProfile) (interface{}, error) {
+func executeWorkflowSteps(ctx context.Context, steps []*models.SkillAction, contextData map[string]interface{}, results *[]workflowStepResult, namePrefix string, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
 	var lastOutput interface{}
-	for index := range steps {
-		step := steps[index]
+	for index, step := range steps {
 		output, err := executeWorkflowStep(ctx, step, index, contextData, results, namePrefix, httpAuthProfiles)
 		if err != nil {
 			return lastOutput, err
@@ -178,14 +179,14 @@ func executeWorkflowSteps(ctx context.Context, steps []ActionDefinition, context
 	return lastOutput, nil
 }
 
-func executeWorkflowStep(ctx context.Context, step ActionDefinition, stepIndex int, contextData map[string]interface{}, results *[]workflowStepResult, namePrefix string, httpAuthProfiles map[string]HTTPAuthProfile) (interface{}, error) {
+func executeWorkflowStep(ctx context.Context, step *models.SkillAction, stepIndex int, contextData map[string]interface{}, results *[]workflowStepResult, namePrefix string, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
 	stepName := step.Name
 	if stepName == "" {
 		stepName = fmt.Sprintf("step%d", stepIndex+1)
 	}
 	fullName := namePrefix + stepName
 
-	if !shouldRunStep(step, contextData) {
+	if !shouldRunStep(ctx, step, contextData) {
 		*results = append(*results, workflowStepResult{
 			Name:   fullName,
 			Type:   step.Type,
@@ -206,7 +207,7 @@ func executeWorkflowStep(ctx context.Context, step ActionDefinition, stepIndex i
 	}
 }
 
-func executeActionStep(ctx context.Context, step ActionDefinition, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, httpAuthProfiles map[string]HTTPAuthProfile) (interface{}, error) {
+func executeActionStep(ctx context.Context, step *models.SkillAction, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
 	startedAt := time.Now()
 	maxAttempts := step.Retries + 1
 	if maxAttempts <= 0 {
@@ -221,20 +222,20 @@ func executeActionStep(ctx context.Context, step ActionDefinition, fullName stri
 	for attempts = 1; attempts <= maxAttempts; attempts++ {
 		switch step.Type {
 		case "shell":
-			isAdmin, hasAdminContext := agents.AdminFromContext(ctx)
-			if hasAdminContext && !isAdmin {
+			user := models.UserFromContext(ctx)
+			if user != nil && !user.GetAdmin() {
 				return nil, fmt.Errorf("admin access required for shell skill actions")
 			}
 			workflowInput, _ := json.Marshal(contextData)
-			rawOutput, err = executeShellAction(ctx, step, contextData, string(workflowInput))
+			rawOutput, err = executeShellAction(ctx, *step, contextData, string(workflowInput))
 		case "http":
-			rawOutput, err = executeHTTPAction(ctx, step, contextData, httpAuthProfiles)
+			rawOutput, err = executeHTTPAction(ctx, *step, contextData, httpAuthProfiles)
 		}
 		if err == nil {
 			break
 		}
-		if attempts < maxAttempts && step.RetryDelayMs > 0 {
-			time.Sleep(time.Duration(step.RetryDelayMs) * time.Millisecond)
+		if attempts < maxAttempts && step.RetryDelay > 0 {
+			time.Sleep(time.Duration(step.RetryDelay) * time.Millisecond)
 		}
 	}
 
@@ -255,7 +256,7 @@ func executeActionStep(ctx context.Context, step ActionDefinition, fullName stri
 		return nil, fmt.Errorf("workflow step %s failed: %w", fullName, err)
 	}
 
-	storedOutput, processErr := processActionOutput(step, rawOutput, fullName)
+	storedOutput, processErr := processActionOutput(*step, rawOutput, fullName)
 	if processErr != nil {
 		return nil, processErr
 	}
@@ -271,7 +272,7 @@ func executeActionStep(ctx context.Context, step ActionDefinition, fullName stri
 	return storedOutput, nil
 }
 
-func executeForEachStep(ctx context.Context, step ActionDefinition, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, httpAuthProfiles map[string]HTTPAuthProfile) (interface{}, error) {
+func executeForEachStep(ctx context.Context, step *models.SkillAction, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
 	startedAt := time.Now()
 	itemsRaw, ok := resolveTemplateValue(contextData, step.ForEach)
 	if !ok {
@@ -329,15 +330,15 @@ func executeForEachStep(ctx context.Context, step ActionDefinition, fullName str
 	return collected, nil
 }
 
-func executeSwitchStep(ctx context.Context, step ActionDefinition, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, httpAuthProfiles map[string]HTTPAuthProfile) (interface{}, error) {
+func executeSwitchStep(ctx context.Context, step *models.SkillAction, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
 	startedAt := time.Now()
 	value, ok := resolveTemplateValue(contextData, step.Switch)
 	if !ok {
-		value = strings.TrimSpace(applyTemplate(step.Switch, contextData))
+		value = applyTemplate(ctx, step.Switch, contextData)
 	}
 	matchValue := fmt.Sprintf("%v", value)
 
-	var selectedSteps []ActionDefinition
+	var selectedSteps []*models.SkillAction
 	for _, switchCase := range step.Cases {
 		if switchCase.Match == matchValue {
 			selectedSteps = switchCase.Steps
@@ -377,7 +378,7 @@ func executeSwitchStep(ctx context.Context, step ActionDefinition, fullName stri
 	return output, nil
 }
 
-func recordStepOutput(contextData map[string]interface{}, step ActionDefinition, stepName string, output interface{}) {
+func recordStepOutput(contextData map[string]interface{}, step *models.SkillAction, stepName string, output interface{}) {
 	saveAs := step.SaveAs
 	if saveAs == "" {
 		saveAs = stepName
@@ -386,7 +387,7 @@ func recordStepOutput(contextData map[string]interface{}, step ActionDefinition,
 	stepsMap[saveAs] = output
 }
 
-func toolDefinition(definition ToolDefinition) providers.ToolDefinition {
+func toolDefinition(definition models.SkillTool) providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
 		Function: providers.FunctionSpec{
@@ -397,8 +398,8 @@ func toolDefinition(definition ToolDefinition) providers.ToolDefinition {
 	}
 }
 
-func actionFromTool(definition ToolDefinition) ActionDefinition {
-	return ActionDefinition{
+func actionFromTool(definition models.SkillTool) models.SkillAction {
+	return models.SkillAction{
 		Type:             definition.Type,
 		Command:          definition.Command,
 		WorkingDirectory: definition.WorkingDirectory,
@@ -415,10 +416,10 @@ func actionFromTool(definition ToolDefinition) ActionDefinition {
 	}
 }
 
-func executeShellAction(ctx context.Context, action ActionDefinition, arguments map[string]interface{}, stdin string) (string, error) {
+func executeShellAction(ctx context.Context, action models.SkillAction, arguments map[string]interface{}, stdin string) (string, error) {
 	commandParts := make([]string, len(action.Command))
 	for index, element := range action.Command {
-		commandParts[index] = applyTemplate(element, arguments)
+		commandParts[index] = applyTemplate(ctx, element, arguments)
 	}
 	timeout := action.Timeout
 	if timeout <= 0 {
@@ -448,12 +449,12 @@ func executeShellAction(ctx context.Context, action ActionDefinition, arguments 
 	if stderrStr := stderr.String(); stderrStr != "" {
 		log.Debugf("shell stderr: %s", stderrStr)
 	}
-	return truncate(stdout.String(), maxResultBytes), nil
+	return truncate(strings.TrimRight(stdout.String(), "\n"), maxResultBytes), nil
 }
 
-func executeHTTPAction(ctx context.Context, action ActionDefinition, arguments map[string]interface{}, httpAuthProfiles map[string]HTTPAuthProfile) (string, error) {
-	targetUrl := applyTemplate(action.URL, arguments)
-	body := applyTemplate(action.Body, arguments)
+func executeHTTPAction(ctx context.Context, action models.SkillAction, arguments map[string]interface{}, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (string, error) {
+	targetUrl := applyTemplate(ctx, action.URL, arguments)
+	body := applyTemplate(ctx, action.Body, arguments)
 	method := action.Method
 	if method == "" {
 		method = "GET"
@@ -480,7 +481,7 @@ func executeHTTPAction(ctx context.Context, action ActionDefinition, arguments m
 	for headerName, headerValue := range action.Headers {
 		request.Header.Set(headerName, headerValue)
 	}
-	if err := applyHTTPAuthProfile(request, action, arguments, httpAuthProfiles); err != nil {
+	if err := applyAuthenticationProfiles(ctx, request, action, arguments, httpAuthProfiles); err != nil {
 		return "", err
 	}
 
@@ -508,8 +509,8 @@ func executeHTTPAction(ctx context.Context, action ActionDefinition, arguments m
 	return result, nil
 }
 
-func applyHTTPAuthProfile(request *http.Request, action ActionDefinition, arguments map[string]interface{}, httpAuthProfiles map[string]HTTPAuthProfile) error {
-	profileName := strings.TrimSpace(action.Auth)
+func applyAuthenticationProfiles(ctx context.Context, request *http.Request, action models.SkillAction, arguments map[string]interface{}, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) error {
+	profileName := action.Auth
 	if profileName == "" {
 		return nil
 	}
@@ -519,18 +520,18 @@ func applyHTTPAuthProfile(request *http.Request, action ActionDefinition, argume
 	}
 	switch profile.Type {
 	case "bearer":
-		token := applyTemplate(profile.Token, arguments)
+		token := applyTemplate(ctx, profile.Token, arguments)
 		prefix := profile.Prefix
 		if prefix == "" {
 			prefix = "Bearer "
 		}
 		request.Header.Set("Authorization", prefix+token)
 	case "basic":
-		username := applyTemplate(profile.Username, arguments)
-		password := applyTemplate(profile.Password, arguments)
+		username := applyTemplate(ctx, profile.Username, arguments)
+		password := applyTemplate(ctx, profile.Password, arguments)
 		request.SetBasicAuth(username, password)
 	case "apiKey":
-		value := applyTemplate(profile.Value, arguments)
+		value := applyTemplate(ctx, profile.Value, arguments)
 		if profile.Prefix != "" {
 			value = profile.Prefix + value
 		}
@@ -548,7 +549,7 @@ func applyHTTPAuthProfile(request *http.Request, action ActionDefinition, argume
 	return nil
 }
 
-func processActionOutput(action ActionDefinition, rawOutput string, name string) (interface{}, error) {
+func processActionOutput(action models.SkillAction, rawOutput string, name string) (interface{}, error) {
 	storedOutput := interface{}(rawOutput)
 	if action.Result == "json" {
 		var parsed interface{}
@@ -594,7 +595,7 @@ func serializeToolResult(value interface{}) string {
 
 // parseArguments extracts a map from JSON arguments string.
 func parseArguments(arguments string) map[string]interface{} {
-	if strings.TrimSpace(arguments) == "" {
+	if arguments == "" {
 		return map[string]interface{}{}
 	}
 	var parsed map[string]interface{}
@@ -609,7 +610,7 @@ func parseArguments(arguments string) map[string]interface{} {
 
 // applyTemplate replaces {{path.to.value}} placeholders with values from args.
 // Supported filters: json, urlencode, base64, default:<text>, join:<separator>.
-func applyTemplate(template string, args map[string]interface{}) string {
+func applyTemplate(ctx context.Context, template string, args map[string]interface{}) string {
 	if args == nil {
 		return template
 	}
@@ -618,7 +619,7 @@ func applyTemplate(template string, args map[string]interface{}) string {
 		if len(submatches) < 2 {
 			return match
 		}
-		value, ok := evaluateTemplateExpression(args, submatches[1])
+		value, ok := evaluateTemplateExpression(ctx, args, submatches[1])
 		if !ok {
 			return match
 		}
@@ -626,21 +627,21 @@ func applyTemplate(template string, args map[string]interface{}) string {
 	})
 }
 
-func evaluateTemplateExpression(values map[string]interface{}, expression string) (interface{}, bool) {
+func evaluateTemplateExpression(ctx context.Context, values map[string]interface{}, expression string) (interface{}, bool) {
 	parts := strings.Split(expression, "|")
 	if len(parts) == 0 {
 		return nil, false
 	}
-	basePath := strings.TrimSpace(parts[0])
+	basePath := parts[0]
 	var (
 		value interface{}
 		ok    bool
 	)
 	switch {
 	case strings.HasPrefix(basePath, "secret:"):
-		value, ok = resolveSecret(strings.TrimSpace(strings.TrimPrefix(basePath, "secret:")))
+		value, ok = resolveSecret(ctx, strings.TrimPrefix(basePath, "secret:"))
 	case strings.HasPrefix(basePath, "env:"):
-		value, ok = resolveEnv(strings.TrimSpace(strings.TrimPrefix(basePath, "env:")))
+		value, ok = resolveEnv(strings.TrimPrefix(basePath, "env:"))
 	default:
 		value, ok = resolveTemplateValue(values, basePath)
 	}
@@ -688,7 +689,7 @@ func evaluateTemplateExpression(values map[string]interface{}, expression string
 }
 
 func parseFilter(raw string) (string, string) {
-	filter := strings.TrimSpace(raw)
+	filter := raw
 	parts := strings.SplitN(filter, ":", 2)
 	if len(parts) == 1 {
 		return parts[0], ""
@@ -738,11 +739,11 @@ func toInterfaceSlice(value interface{}) ([]interface{}, bool) {
 	}
 }
 
-func shouldRunStep(action ActionDefinition, contextData map[string]interface{}) bool {
-	if strings.TrimSpace(action.If) == "" {
+func shouldRunStep(ctx context.Context, action *models.SkillAction, contextData map[string]interface{}) bool {
+	if action.If == "" {
 		return true
 	}
-	condition := strings.TrimSpace(action.If)
+	condition := action.If
 	if strings.Contains(condition, "==") || strings.Contains(condition, "!=") {
 		comparisonValue, ok := evaluateConditionComparison(condition, contextData)
 		if !ok {
@@ -750,7 +751,7 @@ func shouldRunStep(action ActionDefinition, contextData map[string]interface{}) 
 		}
 		return comparisonValue
 	}
-	value, ok := resolveConditionValue(condition, contextData)
+	value, ok := resolveConditionValue(ctx, condition, contextData)
 	if !ok {
 		return false
 	}
@@ -795,7 +796,7 @@ func resolveConditionOperand(token string, contextData map[string]interface{}) (
 	return nil, false
 }
 
-func resolveConditionValue(condition string, contextData map[string]interface{}) (interface{}, bool) {
+func resolveConditionValue(ctx context.Context, condition string, contextData map[string]interface{}) (interface{}, bool) {
 	if literal, ok := parseConditionLiteral(condition); ok {
 		return literal, true
 	}
@@ -803,7 +804,7 @@ func resolveConditionValue(condition string, contextData map[string]interface{})
 		return value, true
 	}
 	if strings.Contains(condition, "{{") {
-		templated := strings.TrimSpace(applyTemplate(condition, contextData))
+		templated := applyTemplate(ctx, condition, contextData)
 		if literal, ok := parseConditionLiteral(templated); ok {
 			return literal, true
 		}
@@ -896,7 +897,7 @@ func isTruthy(value interface{}) bool {
 	case bool:
 		return typed
 	case string:
-		normalized := strings.TrimSpace(strings.ToLower(typed))
+		normalized := strings.ToLower(typed)
 		return normalized != "" && normalized != "0" && normalized != "false" && normalized != "no" && normalized != "off"
 	case float64:
 		return typed != 0
@@ -918,7 +919,7 @@ func isEmptyValue(value interface{}) bool {
 	case nil:
 		return true
 	case string:
-		return strings.TrimSpace(typed) == ""
+		return typed == ""
 	case []interface{}:
 		return len(typed) == 0
 	case map[string]interface{}:
@@ -1050,4 +1051,48 @@ func truncate(text string, maximumLength int) string {
 		return text
 	}
 	return text[:maximumLength] + "\n... (truncated)"
+}
+
+func resolveSecret(ctx context.Context, name string) (string, bool) {
+	dataStore := store.StoreFromContext(ctx)
+	var secretValue string
+	var found bool
+	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if configuration.Secrets != nil {
+			for _, secret := range *configuration.Secrets {
+				key := ""
+				if secret.Key != nil {
+					key = *secret.Key
+				}
+				if key == name {
+					if secret.Value != nil {
+						secretValue = *secret.Value
+					}
+					found = true
+					return nil
+				}
+			}
+		}
+		return nil
+	})
+	if found && secretValue != "" {
+		return secretValue, true
+	}
+	value := os.Getenv(name)
+	if value != "" {
+		return value, true
+	}
+	return "", false
+}
+
+func resolveEnv(name string) (string, bool) {
+	value := os.Getenv(name)
+	if value == "" {
+		return "", false
+	}
+	return value, true
 }

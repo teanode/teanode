@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 // RegisterBrowserTools adds all browser-control tools to the registry.
-func RegisterBrowserTools(registry *agents.ToolRegistry, browser Browser) {
+func RegisterBrowserTools(registry *toolregistry.ToolRegistry, browser Browser) {
 	registry.Register(&browserTool{browser: browser})
 	registry.Register(&browserTabsTool{browser: browser})
 }
@@ -19,8 +20,8 @@ func RegisterBrowserTools(registry *agents.ToolRegistry, browser Browser) {
 // resolveSessionId returns the sessionId for the given user and connectionId,
 // or falls back to the user's default target's session ID.
 func resolveSessionId(ctx context.Context, browser Browser, connectionId string) (string, error) {
-	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
-	if userId == "" {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
 	scopedBrowser, ok := browser.(UserScopedBrowser)
@@ -28,13 +29,13 @@ func resolveSessionId(ctx context.Context, browser Browser, connectionId string)
 		return "", fmt.Errorf("browser backend does not support user scoping")
 	}
 	if connectionId != "" {
-		target, err := scopedBrowser.TargetByConnectionIDForUser(userId, connectionId)
+		target, err := scopedBrowser.TargetByConnectionIDForUser(user.ID, connectionId)
 		if err != nil {
 			return "", err
 		}
 		return target.SessionID, nil
 	}
-	target, err := scopedBrowser.DefaultTargetForUser(userId)
+	target, err := scopedBrowser.DefaultTargetForUser(user.ID)
 	if err != nil {
 		return "", err
 	}
@@ -380,11 +381,11 @@ func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (
 
 	switch arguments.Action {
 	case "list":
-		userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
-		if userId == "" {
+		user := models.UserFromContext(ctx)
+		if user == nil || user.ID == "" {
 			return "", fmt.Errorf("missing user context")
 		}
-		return self.executeList(userId)
+		return self.executeList(user.ID)
 	case "open":
 		return self.executeOpen(ctx, arguments.URL)
 	case "close":
@@ -442,9 +443,9 @@ func (self *browserTabsTool) executeOpen(ctx context.Context, url string) (strin
 		TargetID string `json:"targetId"`
 	}
 	json.Unmarshal(result, &response)
-	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
-	if assigner, ok := self.browser.(TargetOwnerAssigner); ok && userId != "" && response.TargetID != "" {
-		assigner.AssignTargetToUser(userId, response.TargetID)
+	user := models.UserFromContext(ctx)
+	if assigner, ok := self.browser.(TargetOwnerAssigner); ok && user != nil && user.ID != "" && response.TargetID != "" {
+		assigner.AssignTargetToUser(user.ID, response.TargetID)
 	}
 	out, _ := json.Marshal(map[string]string{
 		"targetId": response.TargetID,
@@ -454,8 +455,8 @@ func (self *browserTabsTool) executeOpen(ctx context.Context, url string) (strin
 }
 
 func (self *browserTabsTool) executeClose(ctx context.Context, targetId string) (string, error) {
-	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
-	if userId == "" {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
 	scopedBrowser, ok := self.browser.(UserScopedBrowser)
@@ -463,14 +464,14 @@ func (self *browserTabsTool) executeClose(ctx context.Context, targetId string) 
 		return "", fmt.Errorf("browser backend does not support user scoping")
 	}
 	if targetId == "" {
-		target, err := scopedBrowser.DefaultTargetForUser(userId)
+		target, err := scopedBrowser.DefaultTargetForUser(user.ID)
 		if err != nil {
 			return "", err
 		}
 		targetId = target.TargetID
 	}
 	allowed := false
-	for _, target := range scopedBrowser.TargetsForUser(userId) {
+	for _, target := range scopedBrowser.TargetsForUser(user.ID) {
 		if target.TargetID == targetId {
 			allowed = true
 			break
@@ -499,8 +500,8 @@ func (self *browserTabsTool) executeActivate(ctx context.Context, targetId strin
 	if targetId == "" {
 		return "", fmt.Errorf("targetId is required for activate action")
 	}
-	userId := strings.TrimSpace(agents.UserIDFromContext(ctx))
-	if userId == "" {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
 	scopedBrowser, ok := self.browser.(UserScopedBrowser)
@@ -508,7 +509,7 @@ func (self *browserTabsTool) executeActivate(ctx context.Context, targetId strin
 		return "", fmt.Errorf("browser backend does not support user scoping")
 	}
 	allowed := false
-	for _, target := range scopedBrowser.TargetsForUser(userId) {
+	for _, target := range scopedBrowser.TargetsForUser(user.ID) {
 		if target.TargetID == targetId {
 			allowed = true
 			break

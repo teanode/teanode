@@ -4,19 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/models"
-	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
 type persistedUserState struct {
-	DefaultAgentID         string            `yaml:"defaultAgentId,omitempty"`
 	DefaultConversationIds map[string]string `yaml:"defaultConversationIds,omitempty"`
 }
 
@@ -26,7 +22,6 @@ type persistedState struct {
 }
 
 type userRuntimeState struct {
-	DefaultAgentID         string
 	DefaultConversationIds map[string]string
 }
 
@@ -36,7 +31,7 @@ type AgentRegistry struct {
 	mutex       sync.RWMutex
 	runners     map[string]*Runner // agentId → Runner
 	userStates  map[string]*userRuntimeState
-	createAgent func(agentConfig configs.AgentConfig) error
+	createAgent func(agentId string, name string) error
 }
 
 // NewAgentRegistry creates an empty agent registry.
@@ -71,20 +66,20 @@ func (self *AgentRegistry) Register(agentId string, runner *Runner) {
 	self.runners[agentId] = runner
 }
 
-func (self *AgentRegistry) SetCreateAgentFunc(create func(agentConfig configs.AgentConfig) error) {
+func (self *AgentRegistry) SetCreateAgentFunc(create func(agentId string, name string) error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.createAgent = create
 }
 
-func (self *AgentRegistry) CreateAgent(agentConfig configs.AgentConfig) error {
+func (self *AgentRegistry) CreateAgentWithName(agentId string, name string) error {
 	self.mutex.RLock()
 	create := self.createAgent
 	self.mutex.RUnlock()
 	if create == nil {
 		return fmt.Errorf("agent creation is not configured")
 	}
-	return create(agentConfig)
+	return create(agentId, name)
 }
 
 func (self *AgentRegistry) GetRunner(agentId string) *Runner {
@@ -95,62 +90,18 @@ func (self *AgentRegistry) GetRunner(agentId string) *Runner {
 
 func (self *AgentRegistry) AgentDescription(agentId string) string {
 	description := ""
-	_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-		agent, err := transaction.GetAgent(agentId, nil)
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agent, err := transaction.GetAgent(ctx, agentId, nil)
 		if err != nil {
 			return nil
 		}
-		description = strings.TrimSpace(valueOrEmptyString(agent.Description))
+		description = agent.GetDescription()
 		return nil
 	})
 	if description != "" {
 		return description
 	}
 	return ""
-}
-
-func (self *AgentRegistry) EnsureDefaultAgent(userId string, defaultAgentId string) (string, bool, error) {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-
-	state := self.ensureUserStateLocked(userId)
-	if state == nil {
-		return "", false, fmt.Errorf("userId is required")
-	}
-	self.loadUserStateFromStoreLocked(userId, state)
-	if state.DefaultAgentID != "" {
-		if _, exists := self.runners[state.DefaultAgentID]; exists {
-			return state.DefaultAgentID, false, nil
-		}
-	}
-
-	if defaultAgentId == "" {
-		return "", false, fmt.Errorf("defaultAgentId is required")
-	}
-	if _, exists := self.runners[defaultAgentId]; !exists {
-		return "", false, fmt.Errorf("agent not found: %s", defaultAgentId)
-	}
-	state.DefaultAgentID = defaultAgentId
-	self.persistDefaultAgentLocked(userId, defaultAgentId)
-	return defaultAgentId, true, nil
-}
-
-func (self *AgentRegistry) AgentIDs() []string {
-	self.mutex.RLock()
-	defer self.mutex.RUnlock()
-	ids := make([]string, 0, len(self.runners))
-	for agentId := range self.runners {
-		ids = append(ids, agentId)
-	}
-	return ids
-}
-
-func (self *AgentRegistry) Reconfigure(agentId string, configuration *configs.Config, providerRegistry *providers.Registry, tools *ToolRegistry, skillPrompts string) {
-	runner := self.GetRunner(agentId)
-	if runner == nil {
-		return
-	}
-	runner.Reconfigure(configuration, providerRegistry, tools, skillPrompts)
 }
 
 func (self *AgentRegistry) ForEach(fn func(agentId string, runner *Runner)) {
@@ -181,23 +132,8 @@ func (self *AgentRegistry) saveState() {
 	// No-op: runtime state is sourced from store-backed user and conversation records.
 }
 
-func (self *AgentRegistry) SetDefaultAgent(userId, agentId string) error {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
-	if _, ok := self.runners[agentId]; !ok {
-		return fmt.Errorf("agent not found: %s", agentId)
-	}
-	state := self.ensureUserStateLocked(userId)
-	if state == nil {
-		return fmt.Errorf("userId is required")
-	}
-	state.DefaultAgentID = agentId
-	self.persistDefaultAgentLocked(userId, agentId)
-	return nil
-}
-
 func (self *AgentRegistry) EnsureDefaultConversation(userId, agentId string) string {
-	if strings.TrimSpace(agentId) == "" {
+	if agentId == "" {
 		return ""
 	}
 	self.mutex.Lock()
@@ -257,45 +193,37 @@ func (self *AgentRegistry) NewDefaultConversation(userId, agentId string) string
 }
 
 func (self *AgentRegistry) loadUserStateFromStoreLocked(userId string, state *userRuntimeState) {
-	if state == nil || strings.TrimSpace(userId) == "" {
+	if state == nil || userId == "" {
 		return
 	}
 	if state.DefaultConversationIds == nil {
 		state.DefaultConversationIds = map[string]string{}
 	}
-	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-		user, err := transaction.GetUser(userId, nil)
-		if err == nil {
-			defaultAgentId := strings.TrimSpace(valueOrEmptyString(user.DefaultAgentID))
-			if defaultAgentId != "" {
-				if _, exists := self.runners[defaultAgentId]; exists {
-					state.DefaultAgentID = defaultAgentId
-				}
-			}
-		}
-
-		defaultConversation := true
-		conversations, listError := transaction.ListConversations(store.ConversationListOptions{
-			UserID:  ptrto.Value(userId),
-			Default: ptrto.Value(defaultConversation),
-		}, nil)
-		if listError != nil {
-			return nil
-		}
-		if len(conversations) == 0 {
-			allConversations, allListError := transaction.ListConversations(store.ConversationListOptions{
-				UserID: ptrto.Value(userId),
-			}, nil)
-			if allListError == nil {
-				conversations = allConversations
-			}
-		}
-		for _, conversation := range conversations {
-			agentId := strings.TrimSpace(valueOrEmptyString(conversation.AgentID))
-			if agentId == "" {
+	// Collect registered agent IDs (mutex is already held by caller).
+	agentIds := make([]string, 0, len(self.runners))
+	for agentId := range self.runners {
+		agentIds = append(agentIds, agentId)
+	}
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		for _, agentId := range agentIds {
+			if _, exists := state.DefaultConversationIds[agentId]; exists {
 				continue
 			}
-			state.DefaultConversationIds[agentId] = conversation.ID
+			// Try FindDefaultConversation first (reads persisted state).
+			defaultConversation, findError := transaction.FindDefaultConversation(ctx, userId, agentId, nil)
+			if findError == nil && defaultConversation != nil {
+				state.DefaultConversationIds[agentId] = defaultConversation.ID
+				continue
+			}
+			// Fall back to the most recent conversation for this agent.
+			conversations, listError := transaction.ListConversations(ctx, store.ConversationListOptions{
+				UserID:  ptrto.Value(userId),
+				AgentID: ptrto.Value(agentId),
+			}, nil)
+			if listError != nil || len(conversations) == 0 {
+				continue
+			}
+			state.DefaultConversationIds[agentId] = conversations[0].ID
 		}
 		return nil
 	}); err != nil {
@@ -303,26 +231,14 @@ func (self *AgentRegistry) loadUserStateFromStoreLocked(userId string, state *us
 	}
 }
 
-func (self *AgentRegistry) persistDefaultAgentLocked(userId string, agentId string) {
-	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-		_, err := transaction.ModifyUser(userId, func(user *models.User) error {
-			user.DefaultAgentID = ptrto.Value(strings.TrimSpace(agentId))
-			return nil
-		}, nil)
-		return err
-	}); err != nil {
-		log.Warningf("persisting default agent failed userId=%s agentId=%s error=%v", userId, agentId, err)
-	}
-}
-
 func (self *AgentRegistry) persistDefaultConversationLocked(userId string, agentId string, conversationId string) {
-	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-		existingDefaultConversation, err := transaction.FindDefaultConversation(userId, agentId, nil)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		existingDefaultConversation, err := transaction.FindDefaultConversation(ctx, userId, agentId, nil)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return err
 		}
 		if err == nil && existingDefaultConversation != nil && existingDefaultConversation.ID != conversationId {
-			if _, modifyError := transaction.ModifyConversation(existingDefaultConversation.ID, func(conversation *models.Conversation) error {
+			if _, modifyError := transaction.ModifyConversation(ctx, existingDefaultConversation.ID, func(conversation *models.Conversation) error {
 				conversation.Default = ptrto.Value(false)
 				return nil
 			}, nil); modifyError != nil {
@@ -330,12 +246,12 @@ func (self *AgentRegistry) persistDefaultConversationLocked(userId string, agent
 			}
 		}
 
-		conversation, getError := transaction.GetConversation(conversationId, nil)
+		conversation, getError := transaction.GetConversation(ctx, conversationId, nil)
 		if getError != nil {
 			if !errors.Is(getError, store.ErrNotFound) {
 				return getError
 			}
-			_, createError := transaction.CreateConversation(&models.Conversation{
+			_, createError := transaction.CreateConversation(ctx, &models.Conversation{
 				ID:      conversationId,
 				UserID:  ptrto.Value(userId),
 				AgentID: ptrto.Value(agentId),
@@ -344,7 +260,7 @@ func (self *AgentRegistry) persistDefaultConversationLocked(userId string, agent
 			return createError
 		}
 
-		_, modifyError := transaction.ModifyConversation(conversation.ID, func(conversation *models.Conversation) error {
+		_, modifyError := transaction.ModifyConversation(ctx, conversation.ID, func(conversation *models.Conversation) error {
 			conversation.UserID = ptrto.Value(userId)
 			conversation.AgentID = ptrto.Value(agentId)
 			conversation.Default = ptrto.Value(true)
@@ -356,9 +272,3 @@ func (self *AgentRegistry) persistDefaultConversationLocked(userId string, agent
 	}
 }
 
-func valueOrEmptyString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}

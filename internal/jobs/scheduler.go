@@ -56,8 +56,8 @@ func (self *Scheduler) TriggerJob(ctx context.Context, id string) error {
 		queryContext = self.ctx
 	}
 	var job *models.Job
-	transactionError := store.StoreFromContext(queryContext).Transaction(func(transaction store.Transaction) error {
-		existingJob, getError := transaction.GetJob(id, nil)
+	transactionError := store.StoreFromContext(queryContext).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		existingJob, getError := transaction.GetJob(queryContext, id, nil)
 		if getError != nil {
 			if getError == store.ErrNotFound {
 				return fmt.Errorf("job not found: %s", id)
@@ -70,7 +70,7 @@ func (self *Scheduler) TriggerJob(ctx context.Context, id string) error {
 	if transactionError != nil {
 		return transactionError
 	}
-	go self.executeJob(*job)
+	go self.executeJob(job)
 	return nil
 }
 
@@ -91,9 +91,9 @@ func (self *Scheduler) run() {
 }
 
 func (self *Scheduler) tick(when time.Time) {
-	jobModels := make([]models.Job, 0)
-	transactionError := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-		listedJobs, listError := transaction.ListJobs("", nil)
+	jobModels := make([]*models.Job, 0)
+	transactionError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		listedJobs, listError := transaction.ListJobs(ctx, "", nil)
 		if listError != nil {
 			return listError
 		}
@@ -108,10 +108,10 @@ func (self *Scheduler) tick(when time.Time) {
 	minuteBoundary := when.Truncate(time.Minute)
 	nowMilliseconds := when.UnixMilli()
 	for _, jobModel := range jobModels {
-		if !valueOrFalseBool(jobModel.Enabled) {
+		if !jobModel.GetEnabled() {
 			continue
 		}
-		if valueOrEmptyString(jobModel.UserID) == "" {
+		if jobModel.GetUserID() == "" {
 			continue
 		}
 		if jobModel.RunAt != nil {
@@ -120,7 +120,7 @@ func (self *Scheduler) tick(when time.Time) {
 			}
 			continue
 		}
-		schedule := valueOrEmptyString(jobModel.Schedule)
+		schedule := jobModel.GetSchedule()
 		expression, parseError := cronexpr.Parse(schedule)
 		if parseError != nil {
 			log.Errorf("bad schedule expression for job %s (%s): %v", jobModel.ID, schedule, parseError)
@@ -141,16 +141,16 @@ func (self *Scheduler) tick(when time.Time) {
 	}
 }
 
-func (self *Scheduler) executeJob(job models.Job) {
+func (self *Scheduler) executeJob(job *models.Job) {
 	defer deferutil.Recover()
 
 	// Immediately disable one-shot jobs to prevent duplicate execution on the next tick.
-	if valueOrFalseBool(job.OneShot) {
+	if job.GetOneShot() {
 		enabled := false
 		job.Enabled = &enabled
-		_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-			_, modifyError := transaction.ModifyJob(job.ID, func(existingJob *models.Job) error {
-				*existingJob = job
+		_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+			_, modifyError := transaction.ModifyJob(ctx, job.ID, func(existingJob *models.Job) error {
+				*existingJob = *job
 				return nil
 			}, nil)
 			return modifyError
@@ -158,14 +158,14 @@ func (self *Scheduler) executeJob(job models.Job) {
 	}
 
 	// Resolve the runner for this job's agent.
-	agentId := valueOrEmptyString(job.AgentID)
+	agentId := job.GetAgentID()
 	if agentId == "" {
-		resolveError := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-			existingUser, getError := transaction.GetUser(valueOrEmptyString(job.UserID), nil)
+		resolveError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+			existingUser, getError := transaction.GetUser(ctx, job.GetUserID(), nil)
 			if getError != nil {
 				return getError
 			}
-			defaultAgentId := valueOrEmptyString(existingUser.DefaultAgentID)
+			defaultAgentId := existingUser.GetDefaultAgentID()
 			if defaultAgentId == "" {
 				return fmt.Errorf("user %s has no default agent", existingUser.ID)
 			}
@@ -179,10 +179,10 @@ func (self *Scheduler) executeJob(job models.Job) {
 	}
 
 	// Resolve conversation: use stored value if present, otherwise use default conversation.
-	conversationId := valueOrEmptyString(job.ConversationID)
+	conversationId := job.GetConversationID()
 	if conversationId == "" {
-		resolveError := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-			defaultConversation, findError := transaction.FindDefaultConversation(valueOrEmptyString(job.UserID), agentId, nil)
+		resolveError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+			defaultConversation, findError := transaction.FindDefaultConversation(ctx, job.GetUserID(), agentId, nil)
 			if findError == nil {
 				conversationId = defaultConversation.ID
 				return nil
@@ -191,10 +191,10 @@ func (self *Scheduler) executeJob(job models.Job) {
 				return findError
 			}
 			isDefault := true
-			createdConversation, createError := transaction.CreateConversation(&models.Conversation{
+			createdConversation, createError := transaction.CreateConversation(ctx, &models.Conversation{
 				ID:      security.NewULID(),
 				UserID:  job.UserID,
-				AgentID: ptrString(agentId),
+				AgentID: ptrto.Value(agentId),
 				Default: &isDefault,
 			}, nil)
 			if createError != nil {
@@ -208,16 +208,16 @@ func (self *Scheduler) executeJob(job models.Job) {
 			return
 		}
 	}
-	model := valueOrEmptyString(job.Model)
+	model := job.GetModel()
 
 	if self.RunMessage == nil {
 		log.Errorf("job %s: RunMessage callback not configured", job.ID)
 		return
 	}
 
-	log.Infof("executing job %s (%s) -> agent %s conversation %s", job.ID, valueOrEmptyString(job.Name), agentId, conversationId)
+	log.Infof("executing job %s (%s) -> agent %s conversation %s", job.ID, job.GetName(), agentId, conversationId)
 
-	runId, done, getError := self.RunMessage(self.ctx, valueOrEmptyString(job.UserID), agentId, conversationId, valueOrEmptyString(job.Prompt), model)
+	runId, done, getError := self.RunMessage(self.ctx, job.GetUserID(), agentId, conversationId, job.GetPrompt(), model)
 	log.Infof("job %s started run %s", job.ID, runId)
 
 	// Wait for the run to complete.
@@ -235,9 +235,9 @@ func (self *Scheduler) executeJob(job models.Job) {
 		job.LastError = ptrto.Value("")
 	}
 
-	if err := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-		_, modifyError := transaction.ModifyJob(job.ID, func(existingJob *models.Job) error {
-			*existingJob = job
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, modifyError := transaction.ModifyJob(ctx, job.ID, func(existingJob *models.Job) error {
+			*existingJob = *job
 			return nil
 		}, nil)
 		return modifyError
@@ -246,9 +246,9 @@ func (self *Scheduler) executeJob(job models.Job) {
 	}
 
 	// Self-destruct one-shot jobs after execution.
-	if valueOrFalseBool(job.OneShot) {
-		deleteError := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-			return transaction.DeleteJob(job.ID, nil)
+	if job.GetOneShot() {
+		deleteError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+			return transaction.DeleteJob(ctx, job.ID, nil)
 		})
 		if deleteError != nil {
 			log.Errorf("deleting one-shot job %s: %v", job.ID, deleteError)
@@ -259,20 +259,3 @@ func (self *Scheduler) executeJob(job models.Job) {
 	}
 }
 
-func valueOrEmptyString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func valueOrFalseBool(value *bool) bool {
-	if value == nil {
-		return false
-	}
-	return *value
-}
-
-func ptrString(value string) *string {
-	return &value
-}

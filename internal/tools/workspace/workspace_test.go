@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fs"
+	storefs "github.com/teanode/teanode/internal/store/fsstore"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 func setupWorkspaceStore(t *testing.T) context.Context {
@@ -25,7 +26,7 @@ func setupWorkspaceStore(t *testing.T) context.Context {
 func TestWorkspaceTools(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
 	memoryDirectory := t.TempDir()
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, memoryDirectory)
 
 	tool := registry.Get("agent_workspace")
@@ -106,7 +107,7 @@ func TestWorkspaceTools(t *testing.T) {
 func TestWorkspaceAppendTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
 	memoryDirectory := t.TempDir()
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, memoryDirectory)
 
 	tool := registry.Get("agent_workspace")
@@ -165,7 +166,7 @@ func TestWorkspaceAppendTool(t *testing.T) {
 func TestWorkspaceSearchTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
 	memoryDirectory := t.TempDir()
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, memoryDirectory)
 
 	tool := registry.Get("agent_workspace")
@@ -262,7 +263,7 @@ func TestWorkspaceSearchTool(t *testing.T) {
 func TestUserWorkspaceTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
 
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, filepath.Join(t.TempDir(), "agents", "alpha", "workspace"))
 
 	userTool := registry.Get("user_workspace")
@@ -270,7 +271,7 @@ func TestUserWorkspaceTool(t *testing.T) {
 		t.Fatal("user_workspace not registered")
 	}
 
-	ctx = agents.ContextWithUserID(ctx, "user-1")
+	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "user-1"}, nil, nil)
 	if _, err := userTool.Execute(ctx, `{"action":"append","path":"memory/2026-02-23.md","content":"remember this"}`); err != nil {
 		t.Fatalf("user_workspace append: %v", err)
 	}

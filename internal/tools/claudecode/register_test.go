@@ -5,8 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 func makeFakeBinary(t *testing.T, name string) func() {
@@ -25,7 +24,7 @@ func TestRegisterTools_NilConfig_BinaryPresent(t *testing.T) {
 	cleanup := makeFakeBinary(t, "claude")
 	defer cleanup()
 
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, nil)
 
 	if registry.Get("claude_code") == nil {
@@ -38,7 +37,7 @@ func TestRegisterTools_NilConfig_BinaryMissing(t *testing.T) {
 	os.Setenv("PATH", t.TempDir())
 	defer os.Setenv("PATH", origPath)
 
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, nil)
 
 	if registry.Get("claude_code") != nil {
@@ -50,8 +49,8 @@ func TestRegisterTools_ExplicitConfig_UsesDefaults(t *testing.T) {
 	cleanup := makeFakeBinary(t, "claude")
 	defer cleanup()
 
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.ClaudeCodeConfig{})
+	registry := toolregistry.NewToolRegistry()
+	RegisterTools(registry, &RegistrationOptions{})
 
 	if registry.Get("claude_code") == nil {
 		t.Error("expected claude_code to be registered with empty config")
@@ -65,8 +64,8 @@ func TestRegisterTools_ExplicitConfig_CustomBinaryPath(t *testing.T) {
 		t.Fatalf("creating fake binary: %v", err)
 	}
 
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.ClaudeCodeConfig{
+	registry := toolregistry.NewToolRegistry()
+	RegisterTools(registry, &RegistrationOptions{
 		BinaryPath: customBinary,
 	})
 

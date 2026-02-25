@@ -11,11 +11,10 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fs"
+	storefs "github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
@@ -33,7 +32,7 @@ func setupProfileStore(t *testing.T) store.Store {
 	if openError != nil {
 		t.Fatalf("opening store backend: %v", openError)
 	}
-	if migrateError := openedStore.Migrate(); migrateError != nil {
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
 		t.Fatalf("migrating store backend: %v", migrateError)
 	}
 	t.Cleanup(func() { _ = openedStore.Close() })
@@ -42,13 +41,13 @@ func setupProfileStore(t *testing.T) store.Store {
 
 func seedProfile(t *testing.T, openedStore store.Store, userId string, profile *userProfileFixture) {
 	t.Helper()
-	seedError := openedStore.Transaction(func(transaction store.Transaction) error {
-		_, getError := transaction.GetUser(userId, nil)
+	seedError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		_, getError := transaction.GetUser(context.Background(), userId, nil)
 		if getError == nil {
-			_, modifyError := transaction.ModifyUser(userId, func(user *models.User) error {
-				name := strings.TrimSpace(profile.Name)
-				description := strings.TrimSpace(profile.Description)
-				avatarMediaId := strings.TrimSpace(profile.AvatarMediaID)
+			_, modifyError := transaction.ModifyUser(context.Background(), userId, func(user *models.User) error {
+				name := profile.Name
+				description := profile.Description
+				avatarMediaId := profile.AvatarMediaID
 				user.Username = ptrto.Value(name)
 				user.Description = ptrto.Value(description)
 				user.AvatarMediaID = ptrto.Value(avatarMediaId)
@@ -57,10 +56,10 @@ func seedProfile(t *testing.T, openedStore store.Store, userId string, profile *
 			return modifyError
 		}
 		admin := false
-		name := strings.TrimSpace(profile.Name)
-		description := strings.TrimSpace(profile.Description)
-		avatarMediaId := strings.TrimSpace(profile.AvatarMediaID)
-		_, createError := transaction.CreateUser(&models.User{
+		name := profile.Name
+		description := profile.Description
+		avatarMediaId := profile.AvatarMediaID
+		_, createError := transaction.CreateUser(context.Background(), &models.User{
 			ID:            userId,
 			Username:      ptrto.Value(name),
 			Description:   ptrto.Value(description),
@@ -77,15 +76,15 @@ func seedProfile(t *testing.T, openedStore store.Store, userId string, profile *
 func loadProfileFromStore(t *testing.T, openedStore store.Store, userId string) userProfileFixture {
 	t.Helper()
 	result := userProfileFixture{}
-	loadError := openedStore.Transaction(func(transaction store.Transaction) error {
-		user, getError := transaction.GetUser(userId, nil)
+	loadError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		user, getError := transaction.GetUser(context.Background(), userId, nil)
 		if getError != nil {
 			return getError
 		}
 		result = userProfileFixture{
-			Name:          valueOrEmpty(user.Username),
-			Description:   valueOrEmpty(user.Description),
-			AvatarMediaID: valueOrEmpty(user.AvatarMediaID),
+			Name:          user.GetUsername(),
+			Description:   user.GetDescription(),
+			AvatarMediaID: user.GetAvatarMediaID(),
 		}
 		return nil
 	})
@@ -100,21 +99,20 @@ func newTestApi(t *testing.T, openedStore store.Store) *v1Api {
 	return New(
 		gw.New(
 			store.ContextWithStore(context.Background(), openedStore),
-			&configs.Config{},
-			&configs.SecurityConfig{},
+			&models.Configuration{},
 			agents.NewAgentRegistry(store.ContextWithStore(context.Background(), openedStore)),
 			nil,
 			nil,
 			nil,
 		),
-		func() {},
 	)
 }
 
 func withProfileUser(request *http.Request, openedStore store.Store) *http.Request {
-	contextWithUser := gw.ContextWithUserAndSession(
+	contextWithUser := models.ContextWithUserSessionToken(
 		request.Context(),
 		&models.User{ID: testProfileUserId},
+		nil,
 		nil,
 	)
 	return request.WithContext(store.ContextWithStore(contextWithUser, openedStore))
@@ -142,10 +140,11 @@ func newRPCWebSocketPair(t *testing.T, api *v1Api, openedStore store.Store) (*we
 	}
 	serverConnection := <-serverConnectionChannel
 	requestContext := store.ContextWithStore(context.Background(), openedStore)
-	requestContext = gw.ContextWithUserAndSession(
+	requestContext = models.ContextWithUserSessionToken(
 		requestContext,
 		&models.User{ID: testProfileUserId},
 		&models.Session{ID: "test-session"},
+		nil,
 	)
 	connection := newWebSocketConnection(serverConnection, api, requestContext)
 	cleanup := func() {

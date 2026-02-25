@@ -130,8 +130,8 @@ type sessionEndedPayload struct {
 }
 
 func validateVoiceAudioFormats(audioIn, audioOut voiceAudioFormat) error {
-	inCodec := strings.ToLower(strings.TrimSpace(audioIn.Codec))
-	outCodec := strings.ToLower(strings.TrimSpace(audioOut.Codec))
+	inCodec := strings.ToLower(audioIn.Codec)
+	outCodec := strings.ToLower(audioOut.Codec)
 
 	if inCodec == "" {
 		inCodec = "pcm_s16le"

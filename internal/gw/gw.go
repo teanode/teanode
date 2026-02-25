@@ -8,13 +8,12 @@ import (
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/summarizer"
 	"github.com/teanode/teanode/internal/voice"
-	"github.com/teanode/teanode/internal/web"
 )
 
 var log = logging.MustGetLogger("gateway")
@@ -25,11 +24,11 @@ type SendMessageParameters struct {
 	ConversationID     string // empty = auto-create
 	Message            string
 	Model              string
-	OriginID           string                     // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
-	Origin             string                     // source of the message (e.g. "webui", "discord", "telegram"); empty for automated sources like the scheduler
-	OriginSessionID    string                     // source session identifier (used for disconnect-aware notifications)
-	Attachments        []conversations.Attachment // file attachments
-	SystemPromptSuffix string                     // optional; appended to system prompt for this run only
+	OriginID           string              // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
+	Origin             string              // source of the message (e.g. "webui", "discord", "telegram"); empty for automated sources like the scheduler
+	OriginSessionID    string              // source session identifier (used for disconnect-aware notifications)
+	Attachments        []map[string]string // file attachments
+	SystemPromptSuffix string              // optional; appended to system prompt for this run only
 }
 
 // RunHandle is returned by SendMessage and allows the caller to wait for completion.
@@ -45,7 +44,7 @@ type RunOutcome struct {
 	Response   string
 	Model      string
 	StopReason string
-	Usage      *conversations.Usage
+	Usage      map[string]int
 	Error      error
 }
 
@@ -85,12 +84,6 @@ const (
 
 // Gateway is the main domain interface for the TeaNode gateway.
 type Gateway interface {
-	// Configuration access
-	Config() *configs.Config
-	SetConfig(configuration *configs.Config)
-	SecurityConfig() *configs.SecurityConfig
-	SetSecurityConfig(securityConfig *configs.SecurityConfig)
-
 	// Subsystem access
 	AgentRegistry() *agents.AgentRegistry
 	BrowserRelay() *relaybrowser.Relay
@@ -98,14 +91,9 @@ type Gateway interface {
 
 	// Domain operations
 	GetRunner(agentId string) *agents.Runner
-	ConversationStore(userId, agentId string) *conversations.Store
 	ProviderRegistry() *providers.Registry
-	LoadModels(ctx context.Context) (map[string][]providers.ModelInfo, error)
-	InvalidateModelsCache()
 
 	// Default agent / conversation
-	EnsureDefaultAgent(userId string) (string, error)
-	SetDefaultAgent(userId, agentId string) error
 	EnsureDefaultConversation(userId, agentId string) string
 	SetDefaultConversation(userId, agentId, conversationId string)
 	SetDefaultConversationIfUnset(userId, agentId, conversationId string) bool
@@ -137,9 +125,6 @@ type Gateway interface {
 	MarkSessionDisconnected(sessionId string)
 	IsSessionConnected(sessionId string) bool
 
-	// Auth middleware for the HTTP server
-	AuthMiddleware() web.Middleware
-
 	// ListenAddress returns the host:port the server should bind to.
 	ListenAddress() string
 
@@ -152,26 +137,23 @@ type Gateway interface {
 // New creates a new Gateway.
 func New(
 	ctx context.Context,
-	configuration *configs.Config,
-	securityConfig *configs.SecurityConfig,
+	configuration *models.Configuration,
 	agentRegistry *agents.AgentRegistry,
 	browserRelay *relaybrowser.Relay,
 	terminalRelay *terminals.Relay,
-	summarizer *agents.Summarizer,
+	summarizer *summarizer.Summarizer,
 ) Gateway {
 	return &gateway{
-		ctx:                ctx,
-		config:             configuration,
-		securityConfig:     securityConfig,
-		agentRegistry:      agentRegistry,
-		browserRelay:       browserRelay,
-		terminalRelay:      terminalRelay,
-		summarizer:         summarizer,
-		subscribers:        make(map[Subscriber]struct{}),
-		sessionsConnected:  make(map[string]int),
-		activeRuns:         make(map[string]*activeRun),
-		runIndex:           make(map[string]string),
-		lifecycleChannel:   make(chan LifecycleAction, 1),
-		conversationStores: make(map[string]*conversations.Store),
+		ctx:               ctx,
+		config:            configuration,
+		agentRegistry:     agentRegistry,
+		browserRelay:      browserRelay,
+		terminalRelay:     terminalRelay,
+		summarizer:        summarizer,
+		subscribers:       make(map[Subscriber]struct{}),
+		sessionsConnected: make(map[string]int),
+		activeRuns:        make(map[string]*activeRun),
+		runIndex:          make(map[string]string),
+		lifecycleChannel:  make(chan LifecycleAction, 1),
 	}
 }

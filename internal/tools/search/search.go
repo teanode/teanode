@@ -10,15 +10,15 @@ import (
 	"strconv"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/providers"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("search")
 
 // RegisterTools adds web search tools to the registry.
 // If apiKey is empty, no tools are registered.
-func RegisterTools(registry *agents.ToolRegistry, apiKey string) {
+func RegisterTools(registry *toolregistry.ToolRegistry, apiKey string) {
 	if apiKey == "" {
 		return
 	}

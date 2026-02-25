@@ -2,126 +2,91 @@ package onboarding
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strings"
-	"sync"
-	"time"
 
-	"github.com/teanode/teanode/internal/conversations"
-	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/ptrto"
+	"github.com/teanode/teanode/internal/util/security"
 )
 
-var userInitLocks sync.Map // map[userId]*sync.Mutex
-
-func userInitLock(userId string) *sync.Mutex {
-	if lock, ok := userInitLocks.Load(userId); ok {
-		return lock.(*sync.Mutex)
-	}
-	lock := &sync.Mutex{}
-	actual, _ := userInitLocks.LoadOrStore(userId, lock)
-	return actual.(*sync.Mutex)
-}
-
-// InitializeUser ensures user directories/workspace and seeds one onboarding
-// assistant message when ONBOARDING.md exists and the user has no user-authored messages yet.
-func InitializeUser(ctx context.Context, gateway gw.Gateway, userId string) error {
-	userId = strings.TrimSpace(userId)
-	if userId == "" {
-		return fmt.Errorf("userId is required")
+// CreateUser creates a user with seed workspace files, a default conversation,
+// and an onboarding seed message, all within the caller-provided transaction.
+func CreateUser(ctx context.Context, transaction store.Transaction, user *models.User) (*models.User, *models.Conversation, error) {
+	if user == nil {
+		return nil, nil, fmt.Errorf("user is required")
 	}
 
-	lock := userInitLock(userId)
-	lock.Lock()
-	defer lock.Unlock()
-
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		return seedUserWorkspace(transaction, userId)
-	}); err != nil {
-		return fmt.Errorf("seeding user workspace: %w", err)
-	}
-
-	agentId, err := gateway.EnsureDefaultAgent(userId)
+	// Resolve default agent ID: prefer "main", otherwise earliest CreatedAt.
+	agents, err := transaction.ListAgents(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("ensure default agent for user: %w", err)
+		return nil, nil, fmt.Errorf("listing agents: %w", err)
 	}
-
-	store := gateway.ConversationStore(userId, agentId)
-
-	onboardingExists, onboardingErr := workspaceFileExists(ctx, models.ScopeUser, userId, "ONBOARDING.md")
-	if onboardingErr != nil {
-		return onboardingErr
-	}
-	if !onboardingExists {
-		return nil
-	}
-
-	hasConversation, err := storeHasAnyConversation(store)
-	if err != nil {
-		return err
-	}
-	if hasConversation {
-		return nil
-	}
-
-	conversationId := gateway.NewDefaultConversation(userId, agentId, "")
-	message := conversations.NewTextMessage("assistant", prompts.OnboardingSeedMessage, time.Now().UnixMilli())
-	if err := store.Append(conversationId, message); err != nil {
-		return fmt.Errorf("seeding onboarding conversation: %w", err)
-	}
-	return nil
-}
-
-func seedUserWorkspace(transaction store.Transaction, userId string) error {
-	if _, getError := transaction.GetWorkspaceFileByPath(models.ScopeUser, userId, "USER.md", nil); getError == nil {
-		return nil
-	}
-	filesToSeed := []struct {
-		path    string
-		content string
-	}{
-		{path: "USER.md", content: prompts.DefaultUserMarkdown()},
-		{path: "ONBOARDING.md", content: prompts.DefaultOnboardingMarkdown()},
-		{path: "MEMORY.md", content: prompts.DefaultMemoryMarkdown()},
-	}
-	scope := models.ScopeUser
-	scopeID := userId
-	for _, fileToSeed := range filesToSeed {
-		if _, err := transaction.GetWorkspaceFileByPath(scope, scopeID, fileToSeed.path, nil); err == nil {
-			continue
+	defaultAgentId := ""
+	if len(agents) > 0 {
+		for _, agent := range agents {
+			if agent.ID == "main" {
+				defaultAgentId = "main"
+				break
+			}
 		}
-		content := []byte(fileToSeed.content)
-		relativePath := fileToSeed.path
-		if _, err := transaction.CreateWorkspaceFile(&models.WorkspaceFile{
-			ID:      "",
-			Scope:   &scope,
-			ScopeID: &scopeID,
-			Path:    &relativePath,
-			Content: &content,
-		}, nil); err != nil {
-			return err
+		if defaultAgentId == "" {
+			earliest := agents[0]
+			for _, agent := range agents[1:] {
+				if agent.CreatedAt != nil && earliest.CreatedAt != nil && agent.CreatedAt.Before(*earliest.CreatedAt) {
+					earliest = agent
+				}
+			}
+			defaultAgentId = earliest.ID
 		}
 	}
-	return nil
-}
-
-func workspaceFileExists(ctx context.Context, scope models.Scope, scopeID string, relativePath string) (bool, error) {
-	exists := false
-	err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		if _, getError := transaction.GetWorkspaceFileByPath(scope, scopeID, relativePath, nil); getError == nil {
-			exists = true
-		}
-		return nil
-	})
-	return exists, err
-}
-
-func storeHasAnyConversation(store *conversations.Store) (bool, error) {
-	conversationList, err := store.List()
-	if err != nil {
-		return false, fmt.Errorf("listing conversations: %w", err)
+	if defaultAgentId != "" {
+		user.DefaultAgentID = ptrto.Value(defaultAgentId)
 	}
-	return len(conversationList) > 0, nil
+
+	// Build seed workspace files.
+	seedWorkspaceFiles := []models.WorkspaceFile{
+		{Path: ptrto.Value("USER.md"), Content: byteSlicePtr([]byte(prompts.DefaultUserMarkdown()))},
+		{Path: ptrto.Value("ONBOARDING.md"), Content: byteSlicePtr([]byte(prompts.DefaultOnboardingMarkdown()))},
+		{Path: ptrto.Value("MEMORY.md"), Content: byteSlicePtr([]byte(prompts.DefaultMemoryMarkdown()))},
+	}
+
+	// Create the user with seed workspace files.
+	createdUser, createUserError := transaction.CreateUser(ctx, user, seedWorkspaceFiles, nil)
+	if createUserError != nil {
+		return nil, nil, fmt.Errorf("creating user: %w", createUserError)
+	}
+
+	// Create default conversation.
+	conversationId := security.NewULID()
+	conversation := &models.Conversation{
+		ID:         conversationId,
+		UserID:     ptrto.Value(createdUser.ID),
+		AgentID:    ptrto.Value(defaultAgentId),
+		Default:   	ptrto.Value(true),
+	}
+	createdConversation, err := transaction.CreateConversation(ctx, conversation, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating default conversation: %w", err)
+	}
+
+	// Create seed onboarding message.
+	role := models.Role("assistant")
+	content, _ := json.Marshal(prompts.OnboardingSeedMessage)
+	message := &models.ConversationMessage{
+		ConversationID: ptrto.Value(createdConversation.ID),
+		Role:           &role,
+		Content:        content,
+	}
+	if _, err := transaction.CreateConversationMessage(ctx, message, nil); err != nil {
+		return nil, nil, fmt.Errorf("creating seed message: %w", err)
+	}
+
+	return createdUser, createdConversation, nil
+}
+
+func byteSlicePtr(value []byte) *[]byte {
+	return &value
 }

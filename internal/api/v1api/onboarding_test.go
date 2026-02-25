@@ -9,27 +9,20 @@ import (
 	"testing"
 
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fs"
+	storefs "github.com/teanode/teanode/internal/store/fsstore"
 )
 
-func newOnboardingTestAPI(t *testing.T, securityConfig *configs.SecurityConfig) (*v1Api, store.Store) {
+func newOnboardingTestAPI(t *testing.T, dataDirectory string, seededUsers []models.User) (*v1Api, store.Store) {
 	t.Helper()
-	if securityConfig == nil {
-		securityConfig = &configs.SecurityConfig{Users: map[string]configs.SecurityUser{}}
-	}
-	if securityConfig.Users == nil {
-		securityConfig.Users = map[string]configs.SecurityUser{}
-	}
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: configs.Directory()})
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: dataDirectory})
 	if openError != nil {
 		t.Fatalf("opening store backend: %v", openError)
 	}
-	if migrateError := openedStore.Migrate(); migrateError != nil {
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
 		t.Fatalf("migrating store backend: %v", migrateError)
 	}
 	t.Cleanup(func() { _ = openedStore.Close() })
@@ -37,36 +30,30 @@ func newOnboardingTestAPI(t *testing.T, securityConfig *configs.SecurityConfig) 
 
 	registry := agents.NewAgentRegistry(contextWithStore)
 	registry.Register("main", &agents.Runner{AgentID: "main"})
-	if seedError := openedStore.Transaction(func(transaction store.Transaction) error {
-		for userId, securityUser := range securityConfig.Users {
-			userName := securityUser.Username
-			isAdmin := securityUser.Admin
-			if _, createUserError := transaction.CreateUser(&models.User{
-				ID:       userId,
-				Username: &userName,
-				Admin:    &isAdmin,
-			}, nil, nil); createUserError != nil && createUserError != store.ErrAlreadyExists {
+	if seedError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		if _, createAgentError := transaction.CreateAgent(ctx, &models.Agent{ID: "main"}, nil, nil); createAgentError != nil && createAgentError != store.ErrAlreadyExists {
+			return createAgentError
+		}
+		for index := range seededUsers {
+			user := seededUsers[index]
+			if _, createUserError := transaction.CreateUser(context.Background(), &user, nil, nil); createUserError != nil && createUserError != store.ErrAlreadyExists {
 				return createUserError
 			}
 		}
 		return nil
 	}); seedError != nil {
-		t.Fatalf("seeding security users into store: %v", seedError)
+		t.Fatalf("seeding users into store: %v", seedError)
 	}
 
 	api := New(
 		gw.New(
 			contextWithStore,
-			&configs.Config{
-				AgentConfigs: []configs.AgentConfig{{ID: "main", Name: "Tea"}},
-			},
-			securityConfig,
+			&models.Configuration{},
 			registry,
 			nil,
 			nil,
 			nil,
 		),
-		func() {},
 	)
 	return api, openedStore
 }
@@ -76,8 +63,8 @@ func assertOnboardingSeeded(t *testing.T, api *v1Api, openedStore store.Store, u
 	workspaceScope := models.ScopeUser
 	for _, filename := range []string{"USER.md", "ONBOARDING.md", "MEMORY.md"} {
 		fileName := filename
-		getError := openedStore.Transaction(func(transaction store.Transaction) error {
-			_, fileError := transaction.GetWorkspaceFileByPath(workspaceScope, userId, fileName, nil)
+		getError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+			_, fileError := transaction.GetWorkspaceFileByPath(context.Background(), workspaceScope, userId, fileName, nil)
 			return fileError
 		})
 		if getError != nil {
@@ -86,33 +73,52 @@ func assertOnboardingSeeded(t *testing.T, api *v1Api, openedStore store.Store, u
 	}
 
 	agentId := "main"
-	store := api.gateway.ConversationStore(userId, agentId)
-	conversationList, err := store.List()
-	if err != nil {
-		t.Fatalf("list conversations: %v", err)
+	var conversations []*models.Conversation
+	listError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		items, listConversationsError := transaction.ListConversations(ctx, store.ConversationListOptions{
+			UserID:  &userId,
+			AgentID: &agentId,
+		}, nil)
+		if listConversationsError != nil {
+			return listConversationsError
+		}
+		conversations = items
+		return nil
+	})
+	if listError != nil {
+		t.Fatalf("list conversations: %v", listError)
 	}
-	if len(conversationList) != 1 {
-		t.Fatalf("expected one seeded conversation, got %d", len(conversationList))
+	if len(conversations) != 1 {
+		t.Fatalf("expected one seeded conversation, got %d", len(conversations))
 	}
-	conversationId := conversationList[0].ID
+	conversationId := conversations[0].ID
 
 	defaultConversationId := api.gateway.EnsureDefaultConversation(userId, agentId)
 	if defaultConversationId != conversationId {
 		t.Fatalf("default conversation id = %q, want %q", defaultConversationId, conversationId)
 	}
 
-	messages, err := store.Load(conversationId)
-	if err != nil {
-		t.Fatalf("load conversation: %v", err)
+	var messages []*models.ConversationMessage
+	loadError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		items, listMessagesError := transaction.ListConversationMessages(ctx, conversationId, nil)
+		if listMessagesError != nil {
+			return listMessagesError
+		}
+		messages = items
+		return nil
+	})
+	if loadError != nil {
+		t.Fatalf("load conversation: %v", loadError)
 	}
 	if len(messages) == 0 {
 		t.Fatal("expected seeded assistant message in onboarding conversation")
 	}
-	if messages[0].Role != "assistant" {
-		t.Fatalf("first message role = %q, want assistant", messages[0].Role)
+	if messages[0].Role == nil || *messages[0].Role != "assistant" {
+		t.Fatalf("first message role = %v, want assistant", messages[0].Role)
 	}
-	if messages[0].ContentText() != prompts.OnboardingSeedMessage {
-		t.Fatalf("first message content = %q, want %q", messages[0].ContentText(), prompts.OnboardingSeedMessage)
+	expectedContent, _ := json.Marshal(prompts.OnboardingSeedMessage)
+	if len(messages[0].Content) == 0 || string(messages[0].Content) != string(expectedContent) {
+		t.Fatalf("first message content mismatch")
 	}
 	if len(messages[0].Metadata) != 0 {
 		t.Fatal("seeded onboarding message should not contain metadata marker")
@@ -120,8 +126,7 @@ func assertOnboardingSeeded(t *testing.T, api *v1Api, openedStore store.Store, u
 }
 
 func TestAuthSetupSeedsOnboarding(t *testing.T) {
-	withTempConfigDirectory(t)
-	api, openedStore := newOnboardingTestAPI(t, nil)
+	api, openedStore := newOnboardingTestAPI(t, t.TempDir(), nil)
 
 	body := bytes.NewBufferString(`{"username":"admin","password":"password123","name":"Admin User"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/setup", body)
@@ -136,8 +141,8 @@ func TestAuthSetupSeedsOnboarding(t *testing.T) {
 	}
 
 	var userId string
-	listError := openedStore.Transaction(func(transaction store.Transaction) error {
-		users, getUsersError := transaction.ListUsers(nil)
+	listError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		users, getUsersError := transaction.ListUsers(context.Background(), nil)
 		if getUsersError != nil {
 			return getUsersError
 		}
@@ -160,21 +165,26 @@ func TestAuthSetupSeedsOnboarding(t *testing.T) {
 }
 
 func TestUsersCreateSeedsOnboarding(t *testing.T) {
-	withTempConfigDirectory(t)
-	securityConfig := &configs.SecurityConfig{
-		Users: map[string]configs.SecurityUser{
-			"user-1": {Username: "admin", Admin: true, PasswordHash: "hash"},
+	username := "admin"
+	password := "hash"
+	admin := true
+	api, openedStore := newOnboardingTestAPI(t, t.TempDir(), []models.User{
+		{
+			ID:       "user-1",
+			Username: &username,
+			Password: &password,
+			Admin:    &admin,
 		},
-	}
-	api, openedStore := newOnboardingTestAPI(t, securityConfig)
+	})
 
 	connection, clientConnection, cleanup := newRPCWebSocketPair(t, api, openedStore)
 	defer cleanup()
 	connectionContext := store.ContextWithStore(context.Background(), openedStore)
-	connection.context = gw.ContextWithUserAndSession(
+	connection.ctx = models.ContextWithUserSessionToken(
 		connectionContext,
 		&models.User{ID: "user-1"},
 		&models.Session{ID: "test-session"},
+		nil,
 	)
 
 	request := requestFrame{

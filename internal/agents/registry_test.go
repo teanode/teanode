@@ -5,9 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fs"
+	storefs "github.com/teanode/teanode/internal/store/fsstore"
 )
 
 func openRegistryStore(t *testing.T) store.Store {
@@ -16,7 +15,7 @@ func openRegistryStore(t *testing.T) store.Store {
 	if openError != nil {
 		t.Fatalf("opening store backend: %v", openError)
 	}
-	if migrateError := openedStore.Migrate(); migrateError != nil {
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
 		t.Fatalf("migrating store backend: %v", migrateError)
 	}
 	t.Cleanup(func() {
@@ -50,14 +49,14 @@ func TestAgentRegistryForEachDoesNotHoldLockDuringCallback(t *testing.T) {
 
 	setDefaultDone := make(chan struct{})
 	go func() {
-		_, _, _ = registry.EnsureDefaultAgent("user-1", "main")
+		registry.SetDefaultConversation("user-1", "main", "conv-1")
 		close(setDefaultDone)
 	}()
 
 	select {
 	case <-setDefaultDone:
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("EnsureDefaultAgent blocked while ForEach callback was running")
+		t.Fatal("SetDefaultConversation blocked while ForEach callback was running")
 	}
 
 	close(releaseCallback)
@@ -69,56 +68,7 @@ func TestAgentRegistryForEachDoesNotHoldLockDuringCallback(t *testing.T) {
 	}
 }
 
-func TestAgentRegistryEnsureDefaultAgent(t *testing.T) {
-	openedStore := openRegistryStore(t)
-	registry := NewAgentRegistry(store.ContextWithStore(context.Background(), openedStore))
-	registry.Register("main", &Runner{})
-	registry.Register("research", &Runner{})
-	agentId, assigned, err := registry.EnsureDefaultAgent("user-1", "main")
-	if err != nil {
-		t.Fatalf("EnsureDefaultAgent(user-1) error = %v", err)
-	}
-	if !assigned {
-		t.Fatal("EnsureDefaultAgent(user-1) assigned = false, want true")
-	}
-	if agentId != "main" {
-		t.Fatalf("EnsureDefaultAgent(user-1) agentId = %q, want %q", agentId, "main")
-	}
-
-	registry.mutex.Lock()
-	state := registry.ensureUserStateLocked("user-1")
-	if state == nil {
-		registry.mutex.Unlock()
-		t.Fatal("expected user state")
-	}
-	state.DefaultAgentID = "research"
-	registry.mutex.Unlock()
-
-	agentId, assigned, err = registry.EnsureDefaultAgent("user-1", "main")
-	if err != nil {
-		t.Fatalf("EnsureDefaultAgent(user-1) error = %v", err)
-	}
-	if assigned {
-		t.Fatal("EnsureDefaultAgent(user-1) assigned = true, want false")
-	}
-	if agentId != "research" {
-		t.Fatalf("EnsureDefaultAgent(user-1) agentId = %q, want %q", agentId, "research")
-	}
-
-	agentId, assigned, err = registry.EnsureDefaultAgent("user-2", "missing")
-	if err == nil {
-		t.Fatal("EnsureDefaultAgent(user-2) error = nil, want non-nil")
-	}
-	if assigned {
-		t.Fatal("EnsureDefaultAgent(user-2) assigned = true, want false")
-	}
-	if agentId != "" {
-		t.Fatalf("EnsureDefaultAgent(user-2) agentId = %q, want empty", agentId)
-	}
-}
-
 func TestAgentRegistryDefaultConversationPersistsAcrossReload(t *testing.T) {
-	configs.SetDirectory(t.TempDir())
 	openedStore := openRegistryStore(t)
 
 	contextWithStore := store.ContextWithStore(context.Background(), openedStore)

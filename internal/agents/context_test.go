@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
 )
 
@@ -121,11 +120,11 @@ func TestTruncateOldToolResults(t *testing.T) {
 	messages = append(messages, providers.ChatMessage{Role: "assistant", Content: "here's what I found"})
 
 	// Add enough recent messages to fill minKeepMessages
-	for index := 0; index < configs.DefaultAgentLimits.MinKeepMessages; index++ {
+	for index := 0; index < defaultModelRuntimeLimits().MinKeepMessages; index++ {
 		messages = append(messages, providers.ChatMessage{Role: "user", Content: "recent message"})
 	}
 
-	result := truncateOldToolResults(messages, configs.DefaultAgentLimits.MinKeepMessages, configs.DefaultAgentLimits.MaxToolResultChars)
+	result := truncateOldToolResults(messages, defaultModelRuntimeLimits().MinKeepMessages, defaultModelRuntimeLimits().MaxToolResultChars)
 
 	// The old tool result (index 3) should be truncated
 	if len(result[3].ContentText()) >= 20000 {
@@ -134,7 +133,7 @@ func TestTruncateOldToolResults(t *testing.T) {
 	if !strings.HasSuffix(result[3].ContentText(), "... (truncated)") {
 		t.Error("truncated content should end with '... (truncated)'")
 	}
-	if len(result[3].ContentText()) > configs.DefaultAgentLimits.MaxToolResultChars+40 {
+	if len(result[3].ContentText()) > defaultModelRuntimeLimits().MaxToolResultChars+40 {
 		t.Errorf("truncated content too long: %d", len(result[3].ContentText()))
 	}
 
@@ -152,7 +151,7 @@ func TestTruncateOldToolResultsShortHistory(t *testing.T) {
 		{Role: "tool", Content: strings.Repeat("x", 20000), ToolCallID: "c1", Name: "test"},
 	}
 
-	result := truncateOldToolResults(messages, configs.DefaultAgentLimits.MinKeepMessages, configs.DefaultAgentLimits.MaxToolResultChars)
+	result := truncateOldToolResults(messages, defaultModelRuntimeLimits().MinKeepMessages, defaultModelRuntimeLimits().MaxToolResultChars)
 
 	// With fewer than minKeepMessages, nothing should be truncated
 	if result[2].ContentText() != messages[2].ContentText() {
@@ -161,7 +160,7 @@ func TestTruncateOldToolResultsShortHistory(t *testing.T) {
 }
 
 func TestTruncateOldToolResultsHardClear(t *testing.T) {
-	maxChars := configs.DefaultAgentLimits.MaxToolResultChars
+	maxChars := defaultModelRuntimeLimits().MaxToolResultChars
 	messages := []providers.ChatMessage{
 		{Role: "system", Content: "prompt"},
 		{Role: "tool", Content: strings.Repeat("x", maxChars*5), ToolCallID: "c1", Name: "test"},

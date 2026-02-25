@@ -11,13 +11,14 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
 // RegisterTools adds job management tools to the registry.
-func RegisterTools(registry *agents.ToolRegistry) {
+func RegisterTools(registry *toolregistry.ToolRegistry) {
 	registry.Register(&jobsTool{})
 }
 
@@ -110,10 +111,11 @@ func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string,
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
 
-	userId := agents.UserIDFromContext(ctx)
-	if userId == "" {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("authenticated user context is required")
 	}
+	userId := user.ID
 
 	switch arguments.Action {
 	case "list":
@@ -132,9 +134,9 @@ func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string,
 }
 
 func (self *jobsTool) executeList(ctx context.Context, userId string) (string, error) {
-	jobModels := make([]models.Job, 0)
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		listedJobs, listError := transaction.ListJobs(userId, nil)
+	jobModels := make([]*models.Job, 0)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		listedJobs, listError := transaction.ListJobs(ctx, userId, nil)
 		if listError != nil {
 			return listError
 		}
@@ -192,7 +194,6 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 		isOneShot = *oneShot
 	}
 
-	now := time.Now()
 	job := models.Job{
 		ID:             security.NewULID(),
 		Name:           ptrto.Value(name),
@@ -204,12 +205,11 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 		ConversationID: ptrto.TrimmedString(conversationId),
 		RunAt:          runAt,
 		OneShot:        ptrto.Value(isOneShot),
-		CreatedAt:      &now,
 	}
 	job.UserID = ptrto.Value(userId)
 
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		_, createError := transaction.CreateJob(&job, nil)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, createError := transaction.CreateJob(ctx, &job, nil)
 		return createError
 	}); err != nil {
 		return "", fmt.Errorf("creating job: %w", err)
@@ -218,11 +218,11 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 	response := map[string]interface{}{
 		"action":  "create",
 		"id":      job.ID,
-		"name":    valueOrEmptyString(job.Name),
-		"agentId": valueOrEmptyString(job.AgentID),
+		"name":    job.GetName(),
+		"agentId": job.GetAgentID(),
 	}
-	if valueOrEmptyString(job.Schedule) != "" {
-		response["schedule"] = valueOrEmptyString(job.Schedule)
+	if job.GetSchedule() != "" {
+		response["schedule"] = job.GetSchedule()
 	}
 	if job.RunAt != nil {
 		response["firesAt"] = job.RunAt.Format(time.RFC3339)
@@ -237,12 +237,12 @@ func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name
 	}
 
 	var job *models.Job
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		existingJob, getError := transaction.GetJob(id, nil)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		existingJob, getError := transaction.GetJob(ctx, id, nil)
 		if getError != nil {
 			return getError
 		}
-		if valueOrEmptyString(existingJob.UserID) != userId {
+		if existingJob.GetUserID() != userId {
 			return store.ErrNotFound
 		}
 		job = existingJob
@@ -270,9 +270,9 @@ func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name
 		job.Enabled = ptrto.Value(*enabled)
 	}
 
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		job.UserID = ptrto.Value(userId)
-		_, modifyError := transaction.ModifyJob(job.ID, func(existingJob *models.Job) error {
+		_, modifyError := transaction.ModifyJob(ctx, job.ID, func(existingJob *models.Job) error {
 			*existingJob = *job
 			return nil
 		}, nil)
@@ -284,7 +284,7 @@ func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name
 	result, _ := json.Marshal(map[string]interface{}{
 		"action":  "update",
 		"id":      job.ID,
-		"name":    valueOrEmptyString(job.Name),
+		"name":    job.GetName(),
 		"success": true,
 	})
 	return string(result), nil
@@ -295,15 +295,15 @@ func (self *jobsTool) executeDelete(ctx context.Context, userId, id string) (str
 		return "", fmt.Errorf("id is required")
 	}
 
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		existingJob, getError := transaction.GetJob(id, nil)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		existingJob, getError := transaction.GetJob(ctx, id, nil)
 		if getError != nil {
 			return getError
 		}
-		if valueOrEmptyString(existingJob.UserID) != userId {
+		if existingJob.GetUserID() != userId {
 			return store.ErrNotFound
 		}
-		return transaction.DeleteJob(id, nil)
+		return transaction.DeleteJob(ctx, id, nil)
 	}); err != nil {
 		return "", fmt.Errorf("deleting job: %w", err)
 	}
@@ -333,9 +333,3 @@ func (self *jobsTool) executeTrigger(ctx context.Context, _ string, id string) (
 	return string(result), nil
 }
 
-func valueOrEmptyString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}

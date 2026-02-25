@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/util/ratelimit"
 	"github.com/teanode/teanode/internal/web"
 )
@@ -24,7 +25,7 @@ type synthesisToken struct {
 	ExpiresAt time.Time
 }
 
-type authBucketEntry struct {
+type rateLimitBucketEntry struct {
 	bucket   *ratelimit.Bucket
 	lastSeen time.Time
 }
@@ -32,11 +33,10 @@ type authBucketEntry struct {
 // v1Api is the v1 API component. It implements web.Component.
 type v1Api struct {
 	gateway         gw.Gateway
-	onSkillsChanged func()
 
 	// Per-IP rate limiter for auth endpoints (login, setup).
-	authBucketsMutex sync.Mutex
-	authBuckets      map[string]*authBucketEntry
+	rateLimitBucketsMutex sync.Mutex
+	rateLimitBuckets      map[string]*rateLimitBucketEntry
 
 	// Pending TTS synthesis requests keyed by token.
 	synthesisTokensMutex sync.Mutex
@@ -44,11 +44,10 @@ type v1Api struct {
 }
 
 // New creates a new v1 API wired to the given Gateway.
-func New(gateway gw.Gateway, onSkillsChanged func()) *v1Api {
+func New(gateway gw.Gateway) *v1Api {
 	return &v1Api{
 		gateway:         gateway,
-		onSkillsChanged: onSkillsChanged,
-		authBuckets:     make(map[string]*authBucketEntry),
+		rateLimitBuckets:     make(map[string]*rateLimitBucketEntry),
 		synthesisTokens: make(map[string]synthesisToken),
 	}
 }
@@ -85,7 +84,7 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 }
 
 func (self *v1Api) handleBrowserWebSocket(writer http.ResponseWriter, request *http.Request) {
-	user := gw.UserFromContext(request.Context())
+	user := models.UserFromContext(request.Context())
 	if user == nil || user.ID == "" {
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return
@@ -94,7 +93,7 @@ func (self *v1Api) handleBrowserWebSocket(writer http.ResponseWriter, request *h
 }
 
 func (self *v1Api) handleTerminalWebSocket(writer http.ResponseWriter, request *http.Request) {
-	user := gw.UserFromContext(request.Context())
+	user := models.UserFromContext(request.Context())
 	if user == nil || user.ID == "" {
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return

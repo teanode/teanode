@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -66,7 +65,6 @@ func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *h
 		http.Error(writer, "missing terminal connection id", http.StatusBadRequest)
 		return
 	}
-	userId = strings.TrimSpace(userId)
 	if userId == "" {
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return

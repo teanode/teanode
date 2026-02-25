@@ -9,19 +9,19 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/mimetypes"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/slashcommands"
 )
 
@@ -230,7 +230,7 @@ type telegramSubscribedRun struct {
 // Bot manages a Telegram bot that forwards messages to the agents.
 type Bot struct {
 	ctx           context.Context
-	config        *configs.TelegramConfig
+	token         string
 	agentRegistry *agents.AgentRegistry
 	gateway       gw.Gateway
 	api           *tgbotapi.BotAPI
@@ -250,10 +250,10 @@ type Bot struct {
 }
 
 // New creates a new Telegram bot that dynamically resolves the default agent and conversation from the registry.
-func New(ctx context.Context, telegramConfig *configs.TelegramConfig, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
+func New(ctx context.Context, token string, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
 	return &Bot{
 		ctx:                 ctx,
-		config:              telegramConfig,
+		token:               token,
 		agentRegistry:       agentRegistry,
 		gateway:             gateway,
 		modelOverrides:      make(map[string]string),
@@ -265,7 +265,7 @@ func New(ctx context.Context, telegramConfig *configs.TelegramConfig, agentRegis
 
 // Start connects the bot to Telegram and begins polling for updates.
 func (self *Bot) Start() error {
-	api, err := tgbotapi.NewBotAPI(self.config.Token)
+	api, err := tgbotapi.NewBotAPI(self.token)
 	if err != nil {
 		return fmt.Errorf("creating telegram bot: %w", err)
 	}
@@ -313,10 +313,15 @@ func (self *Bot) shouldForwardDisconnectedSession(userId, agentId, conversationI
 	if userId == "" {
 		return false
 	}
-	defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
-	if err != nil {
-		return false
-	}
+	var defaultAgentId string
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		user, err := transaction.GetUser(ctx, userId, nil)
+		if err != nil {
+			return nil
+		}
+		defaultAgentId = user.GetDefaultAgentID()
+		return nil
+	})
 	if agentId != defaultAgentId {
 		return false
 	}
@@ -364,8 +369,16 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 	case "user_message":
 		agentId, _ := payloadMap["agentId"].(string)
 		// Only forward events for the default agent.
-		defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
-		if err != nil || agentId != defaultAgentId {
+		var defaultAgentId string
+		_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+			user, err := transaction.GetUser(ctx, userId, nil)
+			if err != nil {
+				return nil
+			}
+			defaultAgentId = user.GetDefaultAgentID()
+			return nil
+		})
+		if agentId != defaultAgentId {
 			return
 		}
 
@@ -558,9 +571,9 @@ func (self *Bot) poll() {
 func (self *Bot) onMessage(message *tgbotapi.Message) {
 	defer deferutil.Recover()
 
-	text := strings.TrimSpace(message.Text)
+	text := message.Text
 	if text == "" {
-		text = strings.TrimSpace(message.Caption)
+		text = message.Caption
 	}
 	hasAttachments := message.Photo != nil || message.Document != nil || message.Audio != nil || message.Video != nil || message.Voice != nil
 
@@ -592,7 +605,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 		if index := strings.Index(rest, " "); strings.HasPrefix(rest, "@") && index > 0 {
 			rest = rest[index:]
 		}
-		text = strings.TrimSpace(rest)
+		text = rest
 		if text == "" && !hasAttachments {
 			messageRequest := tgbotapi.NewMessage(message.Chat.ID, "Usage: /ask <message>")
 			messageRequest.ReplyToMessageID = message.MessageID
@@ -601,7 +614,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 		}
 		// Fall through to agent handling below.
 	} else if name, arguments, ok := slashcommands.Parse(text); ok {
-		self.handleCommand(userId, message, chatIdStr, name, arguments)
+		self.handleCommand(user, message, chatIdStr, name, arguments)
 		return
 	} else {
 		// In group chats, only respond to replies to the bot.
@@ -613,8 +626,8 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 		}
 	}
 
-	defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
-	if err != nil {
+	defaultAgentId := user.GetDefaultAgentID()
+	if defaultAgentId == "" {
 		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "No default agent available.")
 		messageRequest.ReplyToMessageID = message.MessageID
 		self.api.Send(messageRequest)
@@ -631,7 +644,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 	}
 
 	// Extract attachments from the message.
-	var attachments []conversations.Attachment
+	var attachments []map[string]string
 	if hasAttachments {
 		attachments = self.extractAttachments(message)
 	}
@@ -654,13 +667,13 @@ func unlinkedTelegramMessage(chatId string) string {
 			"channelLinks:\n"+
 			"  telegram:\n"+
 			"    \"%s\": \"user-1\"",
-		configs.SecurityFilename(),
+		"security.yaml",
 		chatId,
 		chatId,
 	)
 }
 
-func (self *Bot) handleMessage(user *models.User, conversationId, agentId string, chatId int64, replyTo int, message, chatIdStr string, attachments []conversations.Attachment) {
+func (self *Bot) handleMessage(user *models.User, conversationId, agentId string, chatId int64, replyTo int, message, chatIdStr string, attachments []map[string]string) {
 	defer deferutil.Recover()
 
 	// Mark this conversation as actively handled by us.
@@ -704,7 +717,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 		},
 	}
 
-	runContext := gw.ContextWithUserAndSession(context.Background(), user, nil)
+	runContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
 	handle := self.gateway.SendMessage(runContext, gw.SendMessageParameters{
 		AgentID:        agentId,
 		ConversationID: conversationId,
@@ -779,11 +792,11 @@ func (self *Bot) getModel(chatIdStr string) string {
 	return self.modelOverrides[chatIdStr]
 }
 
-func (self *Bot) handleCommand(userId string, message *tgbotapi.Message, chatIdStr, name, arguments string) {
+func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, chatIdStr, name, arguments string) {
 	var reply string
 
-	defaultAgentId, defaultError := self.gateway.EnsureDefaultAgent(userId)
-	if defaultError != nil {
+	defaultAgentId := user.GetDefaultAgentID()
+	if defaultAgentId == "" {
 		replyMessage := tgbotapi.NewMessage(message.Chat.ID, "No default agent available.")
 		replyMessage.ReplyToMessageID = message.MessageID
 		self.api.Send(replyMessage)
@@ -793,24 +806,24 @@ func (self *Bot) handleCommand(userId string, message *tgbotapi.Message, chatIdS
 
 	switch name {
 	case "new":
-		conversationId := self.gateway.NewDefaultConversation(userId, defaultAgentId, "")
+		conversationId := self.gateway.NewDefaultConversation(user.ID, defaultAgentId, "")
 		reply = fmt.Sprintf("New conversation started. (%s)", conversationId)
 
 	case "reset", "clear":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
 		// Abort active run if any.
 		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
 			self.gateway.AbortRun(activeRunId)
 		}
-		if err := self.gateway.DeleteConversation(userId, defaultAgentId, conversationId); err != nil {
+		if err := self.gateway.DeleteConversation(user.ID, defaultAgentId, conversationId); err != nil {
 			reply = fmt.Sprintf("Error clearing conversation: %v", err)
 		} else {
-			newConversationId := self.gateway.NewDefaultConversation(userId, defaultAgentId, "")
+			newConversationId := self.gateway.NewDefaultConversation(user.ID, defaultAgentId, "")
 			reply = fmt.Sprintf("Conversation cleared. New conversation started. (%s)", newConversationId)
 		}
 
 	case "stop":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
 		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
 			self.gateway.AbortRun(activeRunId)
 			reply = "Run cancelled."
@@ -822,7 +835,7 @@ func (self *Bot) handleCommand(userId string, message *tgbotapi.Message, chatIdS
 		if arguments == "" {
 			model := self.getModel(chatIdStr)
 			if model == "" && runner != nil {
-				model = runner.Config.Models.Default
+				model = runner.Config.Models.GetDefault()
 			}
 			reply = fmt.Sprintf("Current model: %s", model)
 		} else {
@@ -837,7 +850,7 @@ func (self *Bot) handleCommand(userId string, message *tgbotapi.Message, chatIdS
 			var lines []string
 			lines = append(lines, fmt.Sprintf("Default agent: %s", defaultAgentId))
 			lines = append(lines, "Agents:")
-			for _, agentId := range self.agentRegistry.AgentIDs() {
+			for _, agentId := range self.listAgentIDsFromStore() {
 				marker := "  "
 				if agentId == defaultAgentId {
 					marker = "* "
@@ -846,19 +859,31 @@ func (self *Bot) handleCommand(userId string, message *tgbotapi.Message, chatIdS
 			}
 			reply = strings.Join(lines, "\n")
 		} else {
-			if err := self.gateway.SetDefaultAgent(userId, arguments); err != nil {
+			if self.agentRegistry.GetRunner(arguments) == nil {
+				reply = fmt.Sprintf("Error: agent not found: %s", arguments)
+			} else if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+				_, err := transaction.ModifyUser(ctx, user.ID, func(user *models.User) error {
+					user.DefaultAgentID = ptrto.Value(arguments)
+					return nil
+				}, nil)
+				return err
+			}); err != nil {
 				reply = fmt.Sprintf("Error: %v", err)
 			} else {
-				newConversationId := self.agentRegistry.EnsureDefaultConversation(userId, arguments)
+				self.gateway.Broadcast(gw.EventTypeDefaultAgent, map[string]interface{}{
+					"defaultAgentId": arguments,
+					"userId":         user.ID,
+				})
+				newConversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, arguments)
 				reply = fmt.Sprintf("Switched to agent %s. (conversation: %s)", arguments, newConversationId)
 			}
 		}
 
 	case "status":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
 		model := self.getModel(chatIdStr)
 		if model == "" && runner != nil {
-			model = runner.Config.Models.Default
+			model = runner.Config.Models.GetDefault()
 		}
 		running := self.gateway.GetActiveRun(conversationId) != ""
 		status := "idle"
@@ -867,16 +892,15 @@ func (self *Bot) handleCommand(userId string, message *tgbotapi.Message, chatIdS
 		}
 		providerName := ""
 		if runner != nil {
-			providerName = runner.Config.Models.DefaultProviderName()
+			providerName = runner.Providers.DefaultProvider()
 		}
 		reply = fmt.Sprintf("Agent: %s\nConversation: %s\nModel: %s\nProvider: %s\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
 
 	case "compact":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
 		if runner != nil {
-			contextWithUserId := agents.ContextWithUserID(context.Background(), userId)
-			contextWithUserId = store.ContextWithStore(contextWithUserId, store.StoreFromContext(self.ctx))
-			result, err := runner.CompactConversation(contextWithUserId, conversationId)
+			compactContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
+			result, err := runner.CompactConversation(compactContext, conversationId)
 			if err != nil {
 				reply = fmt.Sprintf("Error compacting: %v", err)
 			} else {
@@ -917,9 +941,9 @@ func (self *Bot) linkedUserForTelegramChat(chatId string) *models.User {
 		return nil
 	}
 	var user *models.User
-	_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-		_, foundUser, found := transaction.GetUserByTelegramChatID(chatID, nil)
-		if found {
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		foundUser, err := transaction.GetUserByTelegramChatID(ctx, chatID, nil)
+		if err == nil {
 			user = foundUser
 		}
 		return nil
@@ -927,13 +951,30 @@ func (self *Bot) linkedUserForTelegramChat(chatId string) *models.User {
 	return user
 }
 
+func (self *Bot) listAgentIDsFromStore() []string {
+	agentIDs := make([]string, 0)
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agents, listError := transaction.ListAgents(ctx, nil)
+		if listError != nil {
+			return nil
+		}
+		agentIDs = make([]string, 0, len(agents))
+		for _, agent := range agents {
+			agentIDs = append(agentIDs, agent.ID)
+		}
+		sort.Strings(agentIDs)
+		return nil
+	})
+	return agentIDs
+}
+
 func (self *Bot) telegramChatIdForUser(userId string) int64 {
 	if userId == "" {
 		return 0
 	}
 	chatID := int64(0)
-	_ = store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
-		user, err := transaction.GetUser(userId, nil)
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		user, err := transaction.GetUser(ctx, userId, nil)
 		if err != nil || user.TelegramChatID == nil {
 			return nil
 		}
@@ -978,7 +1019,7 @@ func (self *Bot) sendChunked(chatId int64, replyTo int, text string) {
 
 // extractAttachments downloads files attached to a Telegram message and saves
 // them through the configured store, returning conversation attachment references.
-func (self *Bot) extractAttachments(message *tgbotapi.Message) []conversations.Attachment {
+func (self *Bot) extractAttachments(message *tgbotapi.Message) []map[string]string {
 	type telegramFile struct {
 		fileId   string
 		filename string
@@ -1009,7 +1050,7 @@ func (self *Bot) extractAttachments(message *tgbotapi.Message) []conversations.A
 		files = append(files, telegramFile{fileId: message.Voice.FileID, filename: "voice.ogg", mimeType: message.Voice.MimeType})
 	}
 
-	var attachments []conversations.Attachment
+	var attachments []map[string]string
 	for _, file := range files {
 		data, err := self.downloadTelegramFile(file.fileId)
 		if err != nil {
@@ -1027,16 +1068,16 @@ func (self *Bot) extractAttachments(message *tgbotapi.Message) []conversations.A
 		}
 
 		contentType := file.mimeType
-		if strings.TrimSpace(contentType) == "" {
+		if contentType == "" {
 			contentType = mimetypes.MIMETypeFromFormat(format)
 		}
 		var createdMedia *models.Media
-		createError := store.StoreFromContext(self.ctx).Transaction(func(transaction store.Transaction) error {
+		createError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 			var saveError error
-			createdMedia, saveError = transaction.CreateMedia(bytes.NewReader(data), &models.Media{
+			createdMedia, saveError = transaction.CreateMedia(ctx, bytes.NewReader(data), &models.Media{
 				Format:       &format,
 				ContentType:  &contentType,
-				Source:       ptrToString("telegram"),
+				Source:       ptrto.Value("telegram"),
 				OriginalName: &file.filename,
 			}, nil)
 			return saveError
@@ -1045,17 +1086,13 @@ func (self *Bot) extractAttachments(message *tgbotapi.Message) []conversations.A
 			log.Errorf("failed to save telegram attachment: %v", createError)
 			continue
 		}
-		attachments = append(attachments, conversations.Attachment{
-			MediaID:  createdMedia.ID,
-			Format:   format,
-			Filename: file.filename,
+		attachments = append(attachments, map[string]string{
+			"mediaId":  createdMedia.ID,
+			"format":   format,
+			"filename": file.filename,
 		})
 	}
 	return attachments
-}
-
-func ptrToString(value string) *string {
-	return &value
 }
 
 // downloadTelegramFile downloads a file from Telegram by its file ID.

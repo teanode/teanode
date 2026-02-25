@@ -8,6 +8,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/voice"
 )
 
@@ -16,7 +17,7 @@ import (
 type webSocketConnection struct {
 	connection *websocket.Conn
 	api        *v1Api
-	context    context.Context
+	ctx    context.Context
 	writeMutex sync.Mutex
 
 	// Idempotency deduplication: method+id -> expiry time
@@ -26,11 +27,11 @@ type webSocketConnection struct {
 	activeVoiceSession *voice.Session
 }
 
-func newWebSocketConnection(connection *websocket.Conn, api *v1Api, requestContext context.Context) *webSocketConnection {
+func newWebSocketConnection(connection *websocket.Conn, api *v1Api, ctx context.Context) *webSocketConnection {
 	return &webSocketConnection{
 		connection: connection,
 		api:        api,
-		context:    requestContext,
+		ctx:    ctx,
 	}
 }
 
@@ -119,17 +120,25 @@ func (self *webSocketConnection) serve() {
 }
 
 func (self *webSocketConnection) userId() string {
-	if user := gw.UserFromContext(self.context); user != nil {
+	if user := models.UserFromContext(self.ctx); user != nil {
 		return user.ID
 	}
 	return ""
 }
 
 func (self *webSocketConnection) sessionId() string {
-	if session := gw.SessionFromContext(self.context); session != nil {
+	if session := models.SessionFromContext(self.ctx); session != nil {
 		return session.ID
 	}
 	return ""
+}
+
+func (self *webSocketConnection) isAdmin() bool {
+	user := models.UserFromContext(self.ctx)
+	if user == nil || user.Admin == nil {
+		return false
+	}
+	return *user.Admin
 }
 
 func (self *webSocketConnection) dispatch(frame requestFrame) {
@@ -214,22 +223,14 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleProfileUpdate(frame)
 	case "profile.avatar.remove":
 		self.handleProfileAvatarRemove(frame)
-	case "skills.registry.list":
-		self.handleSkillsRegistryList(frame)
-	case "skills.registry.search":
-		self.handleSkillsRegistrySearch(frame)
-	case "skills.local.list":
-		self.handleSkillsLocalList(frame)
-	case "skills.install":
-		self.handleSkillsInstall(frame)
-	case "skills.installed.list":
-		self.handleSkillsInstalledList(frame)
-	case "skills.uninstall":
-		self.handleSkillsUninstall(frame)
-	case "skills.update":
-		self.handleSkillsUpdate(frame)
-	case "skills.setEnabled":
-		self.handleSkillsSetEnabled(frame)
+	// TODO
+	// case "skills.registry.list":
+	// case "skills.registry.search":
+	// case "skills.install":
+	// case "skills.installed.list":
+	// case "skills.uninstall":
+	// case "skills.update":
+	// case "skills.setEnabled":
 	case "voice.start":
 		self.handleVoiceStart(frame)
 	case "voice.end":

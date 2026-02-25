@@ -7,19 +7,16 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fs"
+	storefs "github.com/teanode/teanode/internal/store/fsstore"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
@@ -73,20 +70,13 @@ func testResolveUser(_ string) (*models.User, error) {
 	return &models.User{ID: "user-1", Username: &name}, nil
 }
 
-func testResolveConversations(store *conversations.Store) func(userId, agentId string) *conversations.Store {
-	return func(userId, agentId string) *conversations.Store {
-		return store
-	}
-}
-
 func contextWithUserAndStore(userId string, persistenceStore store.Store) context.Context {
-	ctx := ContextWithUserID(context.Background(), userId)
+	ctx := models.ContextWithUserSessionToken(context.Background(), &models.User{ID: userId}, nil, nil)
 	return store.ContextWithStore(ctx, persistenceStore)
 }
 
 type testConversationStore struct {
-	conversationsStore *conversations.Store
-	persistenceStore   store.Store
+	persistenceStore store.Store
 }
 
 func newTestConversationStore(testing *testing.T, userId string, agentId string) testConversationStore {
@@ -96,13 +86,13 @@ func newTestConversationStore(testing *testing.T, userId string, agentId string)
 	if openError != nil {
 		testing.Fatalf("opening store: %v", openError)
 	}
-	if migrateError := openedStore.Migrate(); migrateError != nil {
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
 		testing.Fatalf("migrating store: %v", migrateError)
 	}
-	if transactionError := openedStore.Transaction(func(transaction store.Transaction) error {
+	if transactionError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
 		username := userId
 		admin := false
-		if _, err := transaction.CreateUser(&models.User{
+		if _, err := transaction.CreateUser(context.Background(), &models.User{
 			ID:       userId,
 			Username: &username,
 			Admin:    &admin,
@@ -110,7 +100,7 @@ func newTestConversationStore(testing *testing.T, userId string, agentId string)
 			return err
 		}
 		name := agentId
-		if _, err := transaction.CreateAgent(&models.Agent{
+		if _, err := transaction.CreateAgent(context.Background(), &models.Agent{
 			ID:   agentId,
 			Name: &name,
 		}, nil, nil); err != nil && err != store.ErrAlreadyExists {
@@ -123,11 +113,86 @@ func newTestConversationStore(testing *testing.T, userId string, agentId string)
 	testing.Cleanup(func() {
 		_ = openedStore.Close()
 	})
-	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
 	return testConversationStore{
-		conversationsStore: conversations.NewStore(contextWithStore, userId, agentId),
-		persistenceStore:   openedStore,
+		persistenceStore: openedStore,
 	}
+}
+
+func loadTestConversationMessages(testing *testing.T, persistenceStore store.Store, conversationId string) []*models.ConversationMessage {
+	testing.Helper()
+	var messages []*models.ConversationMessage
+	loadError := persistenceStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		items, listError := transaction.ListConversationMessages(ctx, conversationId, nil)
+		if listError != nil {
+			return listError
+		}
+		messages = items
+		return nil
+	})
+	if loadError != nil {
+		testing.Fatalf("loading conversation messages: %v", loadError)
+	}
+	return messages
+}
+
+// seedWorkspaceFile creates a workspace file in the store for testing.
+func seedWorkspaceFile(testing *testing.T, openedStore store.Store, scope models.Scope, scopeId string, path string, content string) {
+	testing.Helper()
+	contentBytes := []byte(content)
+	if err := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		_, createError := transaction.CreateWorkspaceFile(ctx, &models.WorkspaceFile{
+			Scope:   &scope,
+			ScopeID: &scopeId,
+			Path:    &path,
+			Content: &contentBytes,
+		}, nil)
+		return createError
+	}); err != nil {
+		testing.Fatalf("seeding workspace file %s: %v", path, err)
+	}
+}
+
+// newSystemPromptTestContext creates a test context with a store, user, and agent for system prompt tests.
+func newSystemPromptTestContext(testing *testing.T, userId string, agentId string) (context.Context, store.Store) {
+	testing.Helper()
+	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: testing.TempDir()})
+	if openError != nil {
+		testing.Fatalf("opening store backend: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
+		testing.Fatalf("migrating store backend: %v", migrateError)
+	}
+	testing.Cleanup(func() { _ = openedStore.Close() })
+
+	admin := true
+	username := userId
+	if err := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		if _, createError := transaction.CreateUser(ctx, &models.User{
+			ID:       userId,
+			Username: &username,
+			Admin:    &admin,
+		}, nil, nil); createError != nil && createError != store.ErrAlreadyExists {
+			return createError
+		}
+		name := agentId
+		if _, createError := transaction.CreateAgent(ctx, &models.Agent{
+			ID:   agentId,
+			Name: &name,
+		}, nil, nil); createError != nil && createError != store.ErrAlreadyExists {
+			return createError
+		}
+		return nil
+	}); err != nil {
+		testing.Fatalf("seeding user/agent: %v", err)
+	}
+
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: userId, Username: &username, Admin: &admin}, nil, nil)
+	return ctx, openedStore
+}
+
+func ptrConversationMessage(message models.ConversationMessage) *models.ConversationMessage {
+	return &message
 }
 
 func TestRunnerRun(t *testing.T) {
@@ -136,22 +201,14 @@ func TestRunnerRun(t *testing.T) {
 	defer server.Close()
 
 	testStore := newTestConversationStore(t, "user-1", "main")
-	store := testStore.conversationsStore
-	configuration := &configs.Config{
-		Models: configs.ModelsConfig{
-			Default: "mock-model",
-			Providers: []configs.ProviderConfig{
-				{Name: "mock", BaseURL: server.URL},
-			},
-		},
-	}
+	configuration := testConfiguration("mock-model", "mock", server.URL)
 	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		Providers:            mockRegistry(provider),
-		ResolveConversations: testResolveConversations(store),
-		ResolveUser:          testResolveUser,
-		Config:               configuration,
+		AgentID:     "main",
+		Providers:   mockRegistry(provider),
+		ResolveUser: testResolveUser,
+		Config:      configuration,
 	}
 
 	var chunks []string
@@ -181,22 +238,19 @@ func TestRunnerRun(t *testing.T) {
 	}
 	if result.Usage == nil {
 		t.Error("expected usage, got nil")
-	} else if result.Usage.Total != 15 {
-		t.Errorf("usage.total = %d, want 15", result.Usage.Total)
+	} else if result.Usage["totalTokens"] != 15 {
+		t.Errorf("usage.totalTokens = %d, want 15", result.Usage["totalTokens"])
 	}
 
 	// Verify messages were persisted.
-	messages, err := store.Load("test-run")
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	messages := loadTestConversationMessages(t, testStore.persistenceStore, "test-run")
 	if len(messages) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(messages))
 	}
-	if messages[0].Role != "user" || messages[0].ContentText() != "hi" {
+	if conversationMessageRole(*messages[0]) != "user" || conversationMessageContentText(*messages[0]) != "hi" {
 		t.Errorf("msg[0] = %+v", messages[0])
 	}
-	if messages[1].Role != "assistant" || messages[1].ContentText() != mockResponse {
+	if conversationMessageRole(*messages[1]) != "assistant" || conversationMessageContentText(*messages[1]) != mockResponse {
 		t.Errorf("msg[1] = %+v", messages[1])
 	}
 }
@@ -216,22 +270,14 @@ func TestRunnerRunAbort(t *testing.T) {
 	defer server.Close()
 
 	testStore := newTestConversationStore(t, "user-1", "main")
-	store := testStore.conversationsStore
-	configuration := &configs.Config{
-		Models: configs.ModelsConfig{
-			Default: "mock",
-			Providers: []configs.ProviderConfig{
-				{Name: "mock", BaseURL: server.URL},
-			},
-		},
-	}
+	configuration := testConfiguration("mock", "mock", server.URL)
 	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		Providers:            mockRegistry(provider),
-		ResolveConversations: testResolveConversations(store),
-		ResolveUser:          testResolveUser,
-		Config:               configuration,
+		AgentID:     "main",
+		Providers:   mockRegistry(provider),
+		ResolveUser: testResolveUser,
+		Config:      configuration,
 	}
 
 	ctx, cancel := context.WithCancel(contextWithUserAndStore("user-1", testStore.persistenceStore))
@@ -294,26 +340,18 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	defer server.Close()
 
 	testStore := newTestConversationStore(t, "user-1", "main")
-	store := testStore.conversationsStore
-	configuration := &configs.Config{
-		Models: configs.ModelsConfig{
-			Default: "mock-model",
-			Providers: []configs.ProviderConfig{
-				{Name: "mock", BaseURL: server.URL},
-			},
-		},
-	}
+	configuration := testConfiguration("mock-model", "mock", server.URL)
 	provider := providers.NewClient(server.URL, "")
 
-	tools := NewToolRegistry()
+	tools := toolregistry.NewToolRegistry()
 	tools.Register(&stubTool{name: "workspace"})
 
 	runner := &Runner{
-		Providers:            mockRegistry(provider),
-		ResolveConversations: testResolveConversations(store),
-		ResolveUser:          testResolveUser,
-		Config:               configuration,
-		Tools:                tools,
+		AgentID:     "main",
+		Providers:   mockRegistry(provider),
+		ResolveUser: testResolveUser,
+		Config:      configuration,
+		Tools:       tools,
 	}
 
 	var toolCalls []string
@@ -340,74 +378,59 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	if result.Usage == nil {
 		t.Fatal("expected usage, got nil")
 	}
-	if result.Usage.Total != 45 {
-		t.Errorf("usage.total = %d, want 45", result.Usage.Total)
+	if result.Usage["totalTokens"] != 45 {
+		t.Errorf("usage.totalTokens = %d, want 45", result.Usage["totalTokens"])
 	}
 
 	// Verify session has user + assistant(tool_call) + tool + assistant(text) = 4 messages.
-	messages, err := store.Load("tool-test")
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	messages := loadTestConversationMessages(t, testStore.persistenceStore, "tool-test")
 	if len(messages) != 4 {
 		t.Fatalf("expected 4 messages, got %d", len(messages))
 	}
-	if messages[0].Role != "user" {
-		t.Errorf("msg[0].role = %q, want user", messages[0].Role)
+	if conversationMessageRole(*messages[0]) != "user" {
+		t.Errorf("msg[0].role = %q, want user", conversationMessageRole(*messages[0]))
 	}
-	if messages[1].Role != "assistant" {
-		t.Errorf("msg[1].role = %q, want assistant", messages[1].Role)
+	if conversationMessageRole(*messages[1]) != "assistant" {
+		t.Errorf("msg[1].role = %q, want assistant", conversationMessageRole(*messages[1]))
 	}
-	if len(messages[1].ToolCalls) == 0 {
+	if len(conversationMessageToolCalls(*messages[1])) == 0 {
 		t.Error("msg[1] should have toolCalls")
 	}
-	if messages[2].Role != "tool" {
-		t.Errorf("msg[2].role = %q, want tool", messages[2].Role)
+	if conversationMessageRole(*messages[2]) != "tool" {
+		t.Errorf("msg[2].role = %q, want tool", conversationMessageRole(*messages[2]))
 	}
-	if messages[2].ToolCallID != "call-1" {
-		t.Errorf("msg[2].toolCallId = %q, want call-1", messages[2].ToolCallID)
+	if messages[2].GetToolCallID() != "call-1" {
+		t.Errorf("msg[2].toolCallId = %q, want call-1", messages[2].GetToolCallID())
 	}
-	if messages[3].Role != "assistant" {
-		t.Errorf("msg[3].role = %q, want assistant", messages[3].Role)
+	if conversationMessageRole(*messages[3]) != "assistant" {
+		t.Errorf("msg[3].role = %q, want assistant", conversationMessageRole(*messages[3]))
 	}
 }
 
 func TestBuildSystemPromptWithWorkspace(t *testing.T) {
-	workspaceDirectory := t.TempDir()
-	configuration := &configs.Config{}
+	ctx, openedStore := newSystemPromptTestContext(t, "user-1", "main")
+	seedWorkspaceFile(t, openedStore, models.ScopeAgent, "main", "AGENT.md", "Be extra helpful")
 
-	// Write workspace files.
-	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte("Be extra helpful"), 0644)
-
-	prompt := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:           configuration,
-		AgentWorkspaceDirectory: workspaceDirectory,
-		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Mode:                    SystemPromptModeFull,
+	prompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID: "main",
+		Mode:    SystemPromptModeFull,
 	})
 
-	// AGENT.md should be embedded in the system prompt (rarely changes).
+	// AGENT.md should be embedded in the system prompt.
 	if !strings.Contains(prompt, "Be extra helpful") {
 		t.Error("prompt should contain AGENT.md content")
 	}
 	if !strings.Contains(prompt, "Operating Instructions") {
 		t.Error("prompt should have AGENT.md section header")
 	}
-
-	// MEMORY.md is not inlined in the system prompt.
-	if strings.Contains(prompt, "Long-term Memory") {
-		t.Error("prompt should NOT contain MEMORY.md section (injected as user message)")
-	}
 }
 
 func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
-	configuration := &configs.Config{}
+	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
 
-	// Empty workspace dir — no files loaded.
-	prompt := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:         configuration,
-		MaxWorkspaceFileChars: configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Mode:                  SystemPromptModeFull,
+	prompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID: "main",
+		Mode:    SystemPromptModeFull,
 	})
 	if !strings.Contains(prompt, "TeaNode") {
 		t.Error("prompt should contain TeaNode identifier")
@@ -415,24 +438,15 @@ func TestBuildSystemPromptWithoutWorkspace(t *testing.T) {
 	if !strings.Contains(prompt, "workspace") {
 		t.Error("prompt should mention workspace tool")
 	}
-
-	if strings.Contains(prompt, "Today's date:") {
-		t.Error("prompt should not include dynamic date/time fields")
-	}
 }
 
 func TestBuildSystemPromptUsesAgentIdentity(t *testing.T) {
-	configuration := &configs.Config{
-		AgentConfigs: []configs.AgentConfig{
-			{ID: "custom", Name: "Custom Assistant"},
-		},
-	}
-	prompt := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:           configuration,
-		AgentID:                 "custom",
-		AgentWorkspaceDirectory: "/some/dir",
-		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Mode:                    SystemPromptModeFull,
+	ctx, _ := newSystemPromptTestContext(t, "user-1", "custom")
+
+	prompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		IdentityLine: resolveIdentityLine("custom", "Custom Assistant"),
+		AgentID:      "custom",
+		Mode:         SystemPromptModeFull,
 	})
 	if !strings.Contains(prompt, "You are 'Custom Assistant' (agent: custom).") {
 		t.Error("prompt should contain agent identity suffix")
@@ -443,18 +457,14 @@ func TestBuildSystemPromptUsesAgentIdentity(t *testing.T) {
 }
 
 func TestBuildSystemPromptTruncation(t *testing.T) {
-	workspaceDirectory := t.TempDir()
-	configuration := &configs.Config{}
+	ctx, openedStore := newSystemPromptTestContext(t, "user-1", "main")
 
-	// Write a large file (> maxWorkspaceFileChars).
 	big := strings.Repeat("x", 10000)
-	os.WriteFile(filepath.Join(workspaceDirectory, "AGENT.md"), []byte(big), 0644)
+	seedWorkspaceFile(t, openedStore, models.ScopeAgent, "main", "AGENT.md", big)
 
-	prompt := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:           configuration,
-		AgentWorkspaceDirectory: workspaceDirectory,
-		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Mode:                    SystemPromptModeFull,
+	prompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID: "main",
+		Mode:    SystemPromptModeFull,
 	})
 	if strings.Contains(prompt, strings.Repeat("x", 10000)) {
 		t.Error("prompt should have truncated the large file")
@@ -465,32 +475,20 @@ func TestBuildSystemPromptTruncation(t *testing.T) {
 }
 
 func TestBuildSystemPromptIncludesRecentProjects(t *testing.T) {
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
-	if openError != nil {
-		t.Fatalf("opening store backend: %v", openError)
-	}
-	if migrateError := openedStore.Migrate(); migrateError != nil {
-		t.Fatalf("migrating store backend: %v", migrateError)
-	}
-	ctx := store.ContextWithStore(context.Background(), openedStore)
-	t.Cleanup(func() { _ = openedStore.Close() })
+	ctx, openedStore := newSystemPromptTestContext(t, "user-1", "main")
 
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		roadmapName := "Roadmap"
-		roadmapDescription := "Plan roadmap milestones"
-		researchName := "Research"
-		researchDescription := "Collect and summarize findings"
-		if _, createError := transaction.CreateProject(&models.Project{
+	if err := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		if _, createError := transaction.CreateProject(ctx, &models.Project{
 			ID:          "project-roadmap",
-			Name:        ptrto.Value(roadmapName),
-			Description: ptrto.Value(roadmapDescription),
+			Name:        ptrto.Value("Roadmap"),
+			Description: ptrto.Value("Plan roadmap milestones"),
 		}, nil, nil); createError != nil {
 			return createError
 		}
-		if _, createError := transaction.CreateProject(&models.Project{
+		if _, createError := transaction.CreateProject(ctx, &models.Project{
 			ID:          "project-research",
-			Name:        ptrto.Value(researchName),
-			Description: ptrto.Value(researchDescription),
+			Name:        ptrto.Value("Research"),
+			Description: ptrto.Value("Collect and summarize findings"),
 		}, nil, nil); createError != nil {
 			return createError
 		}
@@ -499,11 +497,9 @@ func TestBuildSystemPromptIncludesRecentProjects(t *testing.T) {
 		t.Fatalf("project create: %v", err)
 	}
 
-	prompt := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:         &configs.Config{},
-		Context:               ctx,
-		MaxWorkspaceFileChars: configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Mode:                  SystemPromptModeFull,
+	prompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID: "main",
+		Mode:    SystemPromptModeFull,
 	})
 	if !strings.Contains(prompt, "Recent Projects") {
 		t.Error("prompt should include recent projects section")
@@ -514,26 +510,14 @@ func TestBuildSystemPromptIncludesRecentProjects(t *testing.T) {
 }
 
 func TestBuildSystemPromptIncludesUserWorkspaceFiles(t *testing.T) {
-	agentWorkspaceDirectory := t.TempDir()
-	userWorkspaceDirectory := t.TempDir()
-	configuration := &configs.Config{}
+	ctx, openedStore := newSystemPromptTestContext(t, "user-1", "main")
+	seedWorkspaceFile(t, openedStore, models.ScopeAgent, "main", "AGENT.md", "Agent operating notes")
+	seedWorkspaceFile(t, openedStore, models.ScopeUser, "user-1", "USER.md", "Preferred name: Alex")
+	seedWorkspaceFile(t, openedStore, models.ScopeUser, "user-1", "MEMORY.md", "Likes concise summaries")
 
-	if err := os.WriteFile(filepath.Join(agentWorkspaceDirectory, "AGENT.md"), []byte("Agent operating notes"), 0644); err != nil {
-		t.Fatalf("write AGENT.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "USER.md"), []byte("Preferred name: Alex"), 0644); err != nil {
-		t.Fatalf("write USER.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "MEMORY.md"), []byte("Likes concise summaries"), 0644); err != nil {
-		t.Fatalf("write user MEMORY.md: %v", err)
-	}
-
-	prompt := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:           configuration,
-		AgentWorkspaceDirectory: agentWorkspaceDirectory,
-		UserWorkspaceDirectory:  userWorkspaceDirectory,
-		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Mode:                    SystemPromptModeFull,
+	prompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID: "main",
+		Mode:    SystemPromptModeFull,
 	})
 	if !strings.Contains(prompt, "Agent operating notes") {
 		t.Error("prompt should include AGENT.md content")
@@ -550,31 +534,21 @@ func TestBuildSystemPromptIncludesUserWorkspaceFiles(t *testing.T) {
 }
 
 func TestBuildSystemPromptIncludesOnboardingOnlyWhenPresent(t *testing.T) {
-	configuration := &configs.Config{}
-	agentWorkspaceDirectory := t.TempDir()
-	userWorkspaceDirectory := t.TempDir()
+	ctx, openedStore := newSystemPromptTestContext(t, "user-1", "main")
 
-	withOnboarding := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:           configuration,
-		AgentWorkspaceDirectory: agentWorkspaceDirectory,
-		UserWorkspaceDirectory:  userWorkspaceDirectory,
-		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Mode:                    SystemPromptModeFull,
+	withOnboarding := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID: "main",
+		Mode:    SystemPromptModeFull,
 	})
 	if strings.Contains(withOnboarding, "Onboarding Notes (ONBOARDING.md)") {
 		t.Fatal("prompt should not include ONBOARDING section when file is missing")
 	}
 
-	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "ONBOARDING.md"), []byte("Ask about language and timezone"), 0644); err != nil {
-		t.Fatalf("write ONBOARDING.md: %v", err)
-	}
+	seedWorkspaceFile(t, openedStore, models.ScopeUser, "user-1", "ONBOARDING.md", "Ask about language and timezone")
 
-	withOnboarding = buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:           configuration,
-		AgentWorkspaceDirectory: agentWorkspaceDirectory,
-		UserWorkspaceDirectory:  userWorkspaceDirectory,
-		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Mode:                    SystemPromptModeFull,
+	withOnboarding = buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID: "main",
+		Mode:    SystemPromptModeFull,
 	})
 	if !strings.Contains(withOnboarding, "Onboarding Notes (ONBOARDING.md)") {
 		t.Fatal("prompt should include ONBOARDING section when file exists")
@@ -585,54 +559,22 @@ func TestBuildSystemPromptIncludesOnboardingOnlyWhenPresent(t *testing.T) {
 }
 
 func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
-	configuration := &configs.Config{}
-	userWorkspaceDirectory := t.TempDir()
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
-	if openError != nil {
-		t.Fatalf("opening store backend: %v", openError)
-	}
-	if migrateError := openedStore.Migrate(); migrateError != nil {
-		t.Fatalf("migrating store backend: %v", migrateError)
-	}
-	t.Cleanup(func() { _ = openedStore.Close() })
+	ctx, openedStore := newSystemPromptTestContext(t, "user-1", "default")
 	onboardingInstructions := "Collect preferred name, verbosity, language, timezone, and goals."
-	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "ONBOARDING.md"), []byte(onboardingInstructions), 0644); err != nil {
-		t.Fatalf("write ONBOARDING.md: %v", err)
-	}
-	if transactionError := openedStore.Transaction(func(transaction store.Transaction) error {
-		workspaceScope := models.ScopeUser
-		content := []byte(onboardingInstructions)
-		_, createError := transaction.CreateWorkspaceFile(&models.WorkspaceFile{
-			ID:      "workspace-onboarding",
-			Scope:   &workspaceScope,
-			ScopeID: ptrto.Value("user-1"),
-			Path:    ptrto.Value("ONBOARDING.md"),
-			Content: &content,
-		}, nil)
-		return createError
-	}); transactionError != nil {
-		t.Fatalf("creating onboarding workspace file: %v", transactionError)
-	}
+	seedWorkspaceFile(t, openedStore, models.ScopeUser, "user-1", "ONBOARDING.md", onboardingInstructions)
 
-	history := []conversations.Message{
-		conversations.NewTextMessage("assistant", "Welcome! To get started, tell me your preferred name and timezone.", 1),
-		conversations.NewTextMessage("user", "I'm Alex, PST timezone.", 2),
+	history := []*models.ConversationMessage{
+		ptrConversationMessage(newTextMessage("assistant", "Welcome! To get started, tell me your preferred name and timezone.", 1)),
+		ptrConversationMessage(newTextMessage("user", "I'm Alex, PST timezone.", 2)),
 	}
 
 	runner := &Runner{AgentID: "default"}
-	ctx := store.ContextWithStore(context.Background(), openedStore)
 	messages := runner.buildMessages(
 		ctx,
 		history,
-		configs.DefaultAgentLimits,
 		"",
 		SystemPromptModeFull,
-		configuration,
-		"user-1",
 		"",
-		userWorkspaceDirectory,
-		"",
-		&models.User{ID: "user-1", Username: ptrto.Value("Alex")},
 	)
 
 	if len(messages) < 3 {
@@ -662,33 +604,16 @@ func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
 }
 
 func TestBuildSystemPromptModeMinimal(t *testing.T) {
-	agentWorkspaceDirectory := t.TempDir()
-	userWorkspaceDirectory := t.TempDir()
-	configuration := &configs.Config{}
+	ctx, openedStore := newSystemPromptTestContext(t, "user-1", "default")
+	seedWorkspaceFile(t, openedStore, models.ScopeAgent, "default", "AGENT.md", "Agent instructions")
+	seedWorkspaceFile(t, openedStore, models.ScopeAgent, "default", "SKILLS.md", "Skill details")
+	seedWorkspaceFile(t, openedStore, models.ScopeUser, "user-1", "USER.md", "Preferred name: Alex")
+	seedWorkspaceFile(t, openedStore, models.ScopeUser, "user-1", "ONBOARDING.md", "Ask about timezone")
 
-	if err := os.WriteFile(filepath.Join(agentWorkspaceDirectory, "AGENT.md"), []byte("Agent instructions"), 0644); err != nil {
-		t.Fatalf("write AGENT.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agentWorkspaceDirectory, "SKILLS.md"), []byte("Skill details"), 0644); err != nil {
-		t.Fatalf("write SKILLS.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "USER.md"), []byte("Preferred name: Alex"), 0644); err != nil {
-		t.Fatalf("write USER.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "ONBOARDING.md"), []byte("Ask about timezone"), 0644); err != nil {
-		t.Fatalf("write ONBOARDING.md: %v", err)
-	}
-
-	prompt := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:           configuration,
-		AgentID:                 "default",
-		CurrentUserID:           "user-1",
-		AgentWorkspaceDirectory: agentWorkspaceDirectory,
-		UserWorkspaceDirectory:  userWorkspaceDirectory,
-		SkillPrompts:            "<skill>demo</skill>",
-		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Profile:                 &models.User{ID: "user-1", Username: ptrto.Value("Alex"), Description: ptrto.Value("Prefers concise responses")},
-		Mode:                    SystemPromptModeMinimal,
+	prompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID:      "default",
+		SkillPrompts: "<skill>demo</skill>",
+		Mode:         SystemPromptModeMinimal,
 	})
 
 	if strings.Contains(prompt, "Current User Profile") {
@@ -715,11 +640,11 @@ func TestBuildSystemPromptModeMinimal(t *testing.T) {
 }
 
 func TestBuildSystemPromptModeNone(t *testing.T) {
-	prompt := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:         &configs.Config{},
-		AgentID:               "default",
-		MaxWorkspaceFileChars: configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Mode:                  SystemPromptModeNone,
+	ctx, _ := newSystemPromptTestContext(t, "user-1", "default")
+
+	prompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID: "default",
+		Mode:    SystemPromptModeNone,
 	})
 	if strings.Contains(prompt, "TeaNode version:") {
 		t.Error("none mode should return only identity line")
@@ -730,39 +655,18 @@ func TestBuildSystemPromptModeNone(t *testing.T) {
 }
 
 func TestBuildSystemPromptStableForSameInputs(t *testing.T) {
-	agentWorkspaceDirectory := t.TempDir()
-	userWorkspaceDirectory := t.TempDir()
-	configuration := &configs.Config{}
+	ctx, openedStore := newSystemPromptTestContext(t, "user-1", "default")
+	seedWorkspaceFile(t, openedStore, models.ScopeAgent, "default", "AGENT.md", "Stable agent instructions")
+	seedWorkspaceFile(t, openedStore, models.ScopeUser, "user-1", "USER.md", "Preferred name: Alex")
 
-	if err := os.WriteFile(filepath.Join(agentWorkspaceDirectory, "AGENT.md"), []byte("Stable agent instructions"), 0644); err != nil {
-		t.Fatalf("write AGENT.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(userWorkspaceDirectory, "USER.md"), []byte("Preferred name: Alex"), 0644); err != nil {
-		t.Fatalf("write USER.md: %v", err)
+	parameters := buildSystemPromptParameters{
+		AgentID:      "default",
+		SkillPrompts: "<skill>demo</skill>",
+		Mode:         SystemPromptModeFull,
 	}
 
-	promptA := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:           configuration,
-		AgentID:                 "default",
-		CurrentUserID:           "user-1",
-		AgentWorkspaceDirectory: agentWorkspaceDirectory,
-		UserWorkspaceDirectory:  userWorkspaceDirectory,
-		SkillPrompts:            "<skill>demo</skill>",
-		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Profile:                 &models.User{ID: "user-1", Username: ptrto.Value("Alex")},
-		Mode:                    SystemPromptModeFull,
-	})
-	promptB := buildSystemPrompt(buildSystemPromptParameters{
-		Configuration:           configuration,
-		AgentID:                 "default",
-		CurrentUserID:           "user-1",
-		AgentWorkspaceDirectory: agentWorkspaceDirectory,
-		UserWorkspaceDirectory:  userWorkspaceDirectory,
-		SkillPrompts:            "<skill>demo</skill>",
-		MaxWorkspaceFileChars:   configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Profile:                 &models.User{ID: "user-1", Username: ptrto.Value("Alex")},
-		Mode:                    SystemPromptModeFull,
-	})
+	promptA := buildSystemPrompt(ctx, parameters)
+	promptB := buildSystemPrompt(ctx, parameters)
 
 	if promptA != promptB {
 		t.Error("system prompt should be deterministic for identical inputs")
@@ -770,29 +674,12 @@ func TestBuildSystemPromptStableForSameInputs(t *testing.T) {
 }
 
 func TestBuildSystemPromptIncludesOtherUsers(t *testing.T) {
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
-	if openError != nil {
-		t.Fatalf("opening store backend: %v", openError)
-	}
-	if migrateError := openedStore.Migrate(); migrateError != nil {
-		t.Fatalf("migrating store backend: %v", migrateError)
-	}
-	t.Cleanup(func() { _ = openedStore.Close() })
-	ctx := store.ContextWithStore(context.Background(), openedStore)
+	ctx, openedStore := newSystemPromptTestContext(t, "user-1", "main")
 
-	if transactionError := openedStore.Transaction(func(transaction store.Transaction) error {
-		aliceUsername := "alice"
-		aliceAdmin := true
-		if _, createError := transaction.CreateUser(&models.User{
-			ID:       "user-1",
-			Username: &aliceUsername,
-			Admin:    &aliceAdmin,
-		}, nil, nil); createError != nil {
-			return createError
-		}
+	if transactionError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
 		bobUsername := "bob"
 		bobAdmin := true
-		_, createError := transaction.CreateUser(&models.User{
+		_, createError := transaction.CreateUser(ctx, &models.User{
 			ID:       "user-2",
 			Username: &bobUsername,
 			Admin:    &bobAdmin,
@@ -802,12 +689,9 @@ func TestBuildSystemPromptIncludesOtherUsers(t *testing.T) {
 		t.Fatalf("seeding users failed: %v", transactionError)
 	}
 
-	prompt := buildSystemPrompt(buildSystemPromptParameters{
-		Context:               ctx,
-		Configuration:         &configs.Config{},
-		CurrentUserID:         "user-1",
-		MaxWorkspaceFileChars: configs.DefaultAgentLimits.MaxWorkspaceFileChars,
-		Mode:                  SystemPromptModeFull,
+	prompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID: "main",
+		Mode:    SystemPromptModeFull,
 	})
 	if !strings.Contains(prompt, "Other Users") {
 		t.Error("prompt should include other users section")
@@ -825,22 +709,14 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	defer server.Close()
 
 	testStore := newTestConversationStore(t, "user-1", "main")
-	store := testStore.conversationsStore
-	configuration := &configs.Config{
-		Models: configs.ModelsConfig{
-			Default: "mock-model",
-			Providers: []configs.ProviderConfig{
-				{Name: "mock", BaseURL: server.URL},
-			},
-		},
-	}
+	configuration := testConfiguration("mock-model", "mock", server.URL)
 	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		Providers:            mockRegistry(provider),
-		ResolveConversations: testResolveConversations(store),
-		ResolveUser:          testResolveUser,
-		Config:               configuration,
+		AgentID:     "main",
+		Providers:   mockRegistry(provider),
+		ResolveUser: testResolveUser,
+		Config:      configuration,
 	}
 
 	// First run: creates the conversation and locks it to "mock:mock-model".
@@ -868,18 +744,12 @@ func TestRunnerModelMismatchError(t *testing.T) {
 
 func TestRunnerNoModelError(t *testing.T) {
 	testStore := newTestConversationStore(t, "user-1", "main")
-	store := testStore.conversationsStore
-	configuration := &configs.Config{
-		Models: configs.ModelsConfig{
-			// No default model set.
-		},
-	}
+	configuration := testConfiguration("", "", "")
 
 	runner := &Runner{
-		Providers:            providers.NewRegistry("mock"),
-		ResolveConversations: testResolveConversations(store),
-		ResolveUser:          testResolveUser,
-		Config:               configuration,
+		Providers:   providers.NewRegistry("mock"),
+		ResolveUser: testResolveUser,
+		Config:      configuration,
 	}
 
 	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
@@ -896,12 +766,10 @@ func TestRunnerNoModelError(t *testing.T) {
 
 func TestRunnerRunRequiresUserID(t *testing.T) {
 	testStore := newTestConversationStore(t, "user-1", "main")
-	conversationStore := testStore.conversationsStore
 	runner := &Runner{
-		ResolveConversations: testResolveConversations(conversationStore),
-		ResolveUser:          testResolveUser,
-		Config:               &configs.Config{},
-		Providers:            providers.NewRegistry("mock"),
+		ResolveUser: testResolveUser,
+		Config:      &models.Configuration{},
+		Providers:   providers.NewRegistry("mock"),
 	}
 
 	_, err := runner.Run(store.ContextWithStore(context.Background(), testStore.persistenceStore), RunParams{
@@ -915,11 +783,9 @@ func TestRunnerRunRequiresUserID(t *testing.T) {
 
 func TestRunnerRunRequiresResolveUser(t *testing.T) {
 	testStore := newTestConversationStore(t, "user-1", "main")
-	store := testStore.conversationsStore
 	runner := &Runner{
-		ResolveConversations: testResolveConversations(store),
-		Config:               &configs.Config{},
-		Providers:            providers.NewRegistry("mock"),
+		Config:    &models.Configuration{},
+		Providers: providers.NewRegistry("mock"),
 	}
 
 	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{

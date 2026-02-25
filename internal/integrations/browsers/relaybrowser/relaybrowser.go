@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -49,7 +48,6 @@ func NewRelay() *Relay {
 
 // HandleWebSocketForUser upgrades and binds a browser extension connection to one user.
 func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *http.Request, userId string) {
-	userId = strings.TrimSpace(userId)
 	if userId == "" {
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return

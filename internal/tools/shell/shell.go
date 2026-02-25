@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/providers"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("shell")
@@ -24,7 +24,7 @@ const (
 )
 
 // RegisterTools adds the shell tool to the registry.
-func RegisterTools(registry *agents.ToolRegistry) {
+func RegisterTools(registry *toolregistry.ToolRegistry) {
 	registry.Register(&shellTool{})
 }
 

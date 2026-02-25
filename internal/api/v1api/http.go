@@ -2,6 +2,7 @@ package v1api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"image"
 	"image/draw"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
@@ -32,6 +32,19 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(request *http.Request) bool { return false },
 }
 
+func loadPublicUrlFromStore(ctx context.Context) string {
+	publicUrl := ""
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, getError := transaction.GetConfiguration(ctx, nil)
+		if getError != nil || configuration == nil || configuration.Gateway == nil || configuration.Gateway.PublicURL == nil {
+			return nil
+		}
+		publicUrl = *configuration.Gateway.PublicURL
+		return nil
+	})
+	return publicUrl
+}
+
 func splitHostPortDefault(rawHost string, tls bool) (string, string) {
 	host, port, err := net.SplitHostPort(rawHost)
 	if err == nil {
@@ -41,7 +54,7 @@ func splitHostPortDefault(rawHost string, tls bool) (string, string) {
 	if tls {
 		defaultPort = "443"
 	}
-	return strings.ToLower(strings.TrimSpace(rawHost)), defaultPort
+	return strings.ToLower(rawHost), defaultPort
 }
 
 func sameOriginHost(leftHost string, leftTLS bool, rightHost string, rightTLS bool) bool {
@@ -51,7 +64,7 @@ func sameOriginHost(leftHost string, leftTLS bool, rightHost string, rightTLS bo
 }
 
 func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
-	origin := strings.TrimSpace(request.Header.Get("Origin"))
+	origin := request.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
@@ -65,7 +78,7 @@ func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
 		return true
 	}
 
-	publicUrl := strings.TrimSpace(self.gateway.Config().Gateway.PublicURL)
+	publicUrl := loadPublicUrlFromStore(request.Context())
 	if publicUrl == "" {
 		return false
 	}
@@ -90,18 +103,18 @@ func (self *v1Api) handleMedia(writer http.ResponseWriter, request *http.Request
 	}
 	var mediaReader io.ReadCloser
 	var metadata *models.Media
-	transactionError := store.StoreFromContext(request.Context()).Transaction(func(transaction store.Transaction) error {
+	transactionError := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
 		var openError error
-		mediaReader, metadata, openError = transaction.OpenMedia(mediaId, nil)
+		mediaReader, metadata, openError = transaction.OpenMedia(ctx, mediaId, nil)
 		return openError
 	})
 	if transactionError != nil {
 		return web.ErrNotFound
 	}
 	defer mediaReader.Close()
-	contentType := valueOrEmpty(metadata.ContentType)
+	contentType := metadata.GetContentType()
 	if contentType == "" {
-		contentType = mimetypes.MIMETypeFromFormat(valueOrEmpty(metadata.Format))
+		contentType = mimetypes.MIMETypeFromFormat(metadata.GetFormat())
 	}
 	writer.Header().Set("Content-Type", contentType)
 	writer.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -143,10 +156,10 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 	}
 
 	userId := ""
-	if user := gw.UserFromContext(request.Context()); user != nil {
+	if user := models.UserFromContext(request.Context()); user != nil {
 		userId = user.ID
 	}
-	contentType := strings.TrimSpace(header.Header.Get("Content-Type"))
+	contentType := header.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = mimetypes.MIMETypeFromFormat(format)
 	}
@@ -158,9 +171,9 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 		OriginalName: ptrto.TrimmedString(filename),
 	}
 	var saved *models.Media
-	createError := store.StoreFromContext(request.Context()).Transaction(func(transaction store.Transaction) error {
+	createError := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
 		var err error
-		saved, err = transaction.CreateMedia(file, metadata, nil)
+		saved, err = transaction.CreateMedia(ctx, file, metadata, nil)
 		return err
 	})
 	if createError != nil {

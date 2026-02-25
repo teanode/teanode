@@ -51,10 +51,10 @@ func (self *driveTool) Definition() providers.ToolDefinition {
 
 func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var args struct {
-		Action string `json:"action"`
-		Query  string `json:"query"`
+		Action          string `json:"action"`
+		Query           string `json:"query"`
 		WorkspaceFileID string `json:"file_id"`
-		Limit  int    `json:"limit"`
+		Limit           int    `json:"limit"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)

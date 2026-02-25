@@ -4,13 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"text/template"
 
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/store"
@@ -47,84 +44,63 @@ type systemPromptData struct {
 }
 
 type buildSystemPromptParameters struct {
-	Context                 context.Context
-	Configuration           *configs.Config
-	AgentID                 string
-	CurrentUserID           string
-	CurrentUserRole         string
-	OtherUsers              string
-	ProjectList             string
-	AgentWorkspaceScopeID   string
-	UserWorkspaceScopeID    string
-	AgentWorkspaceDirectory string
-	UserWorkspaceDirectory  string
-	SkillPrompts            string
-	MaxWorkspaceFileChars   int
-	Profile                 *models.User
-	Mode                    SystemPromptMode
+	IdentityLine string
+	AgentID      string
+	OtherUsers   string
+	ProjectList  string
+	SkillPrompts string
+	Mode         SystemPromptMode
 }
 
 // buildSystemPrompt generates the system prompt for an agent run.
 // If workspace directories are non-empty, workspace files are loaded and injected.
 // maxWorkspaceFileChars controls the per-file truncation limit.
-func buildSystemPrompt(parameters buildSystemPromptParameters) string {
+func buildSystemPrompt(ctx context.Context, parameters buildSystemPromptParameters) string {
 	// Resolve the identity line.
-	identityLine := resolveIdentityLine(parameters.Configuration, parameters.AgentID)
+	identityLine := parameters.IdentityLine
+	if identityLine == "" {
+		identityLine = resolveIdentityLine(parameters.AgentID, "")
+	}
 	mode := normalizeSystemPromptMode(parameters.Mode)
 
 	if mode == SystemPromptModeNone {
 		return identityLine
 	}
 
+	user := models.UserFromContext(ctx)
+	userId := user.ID
+	userRole := "user"
+	if user.GetAdmin() {
+		userRole = "admin"
+	}
+
+	otherUsers := parameters.OtherUsers
+	if otherUsers == "" {
+		otherUsers = loadOtherUsers(ctx, userId)
+	}
+	projectList := parameters.ProjectList
+	if projectList == "" {
+		projectList = loadProjectList(ctx, 8)
+	}
+
 	data := systemPromptData{
 		IdentityLine:    identityLine,
 		MinimalMode:     mode == SystemPromptModeMinimal,
 		Version:         version.Version(),
-		CurrentUserID:   strings.TrimSpace(parameters.CurrentUserID),
+		CurrentUserID:   userId,
+		CurrentUserRole: userRole,
 		SkillPrompts:    parameters.SkillPrompts,
 		ProjectLimit:    8,
-		ProjectList:     strings.TrimSpace(parameters.ProjectList),
-		CurrentUserRole: strings.TrimSpace(parameters.CurrentUserRole),
-		OtherUsers:      strings.TrimSpace(parameters.OtherUsers),
+		ProjectList:     projectList,
+		OtherUsers:      otherUsers,
 	}
-	if data.ProjectList == "" {
-		data.ProjectList = loadProjectList(parameters.Context, 8)
-	}
-
-	if data.CurrentUserRole == "" || data.OtherUsers == "" {
-		currentUserRole, otherUsers := loadCurrentUserRoleAndOtherUsers(parameters.Context, data.CurrentUserID)
-		if data.CurrentUserRole == "" {
-			data.CurrentUserRole = currentUserRole
-		}
-		if data.OtherUsers == "" {
-			data.OtherUsers = otherUsers
-		}
-	}
-	if data.CurrentUserRole == "" {
-		data.CurrentUserRole = "user"
-	}
-	if parameters.Profile != nil {
-		data.ProfileName = strings.TrimSpace(valueOrEmptyString(parameters.Profile.Username))
-		data.ProfileDescription = strings.TrimSpace(valueOrEmptyString(parameters.Profile.Description))
-		data.ProfileDescriptionBlock = formatPromptMultiline(data.ProfileDescription, "  ")
-	}
-
-	agentScopeId := strings.TrimSpace(parameters.AgentWorkspaceScopeID)
-	userScopeId := strings.TrimSpace(parameters.UserWorkspaceScopeID)
-	if agentScopeId != "" {
-		data.AgentContent = loadWorkspaceFileFromStore(parameters.Context, models.ScopeAgent, agentScopeId, "AGENT.md", parameters.MaxWorkspaceFileChars)
-		data.SkillsContent = loadWorkspaceFileFromStore(parameters.Context, models.ScopeAgent, agentScopeId, "SKILLS.md", parameters.MaxWorkspaceFileChars)
-	} else if parameters.AgentWorkspaceDirectory != "" {
-		data.AgentContent = loadWorkspaceFile(parameters.AgentWorkspaceDirectory, "AGENT.md", parameters.MaxWorkspaceFileChars)
-		data.SkillsContent = loadWorkspaceFile(parameters.AgentWorkspaceDirectory, "SKILLS.md", parameters.MaxWorkspaceFileChars)
-	}
-	if userScopeId != "" {
-		data.UserContent = loadWorkspaceFileFromStore(parameters.Context, models.ScopeUser, userScopeId, "USER.md", parameters.MaxWorkspaceFileChars)
-		data.UserOnboarding = loadWorkspaceFileFromStore(parameters.Context, models.ScopeUser, userScopeId, "ONBOARDING.md", parameters.MaxWorkspaceFileChars)
-	} else if parameters.UserWorkspaceDirectory != "" {
-		data.UserContent = loadWorkspaceFile(parameters.UserWorkspaceDirectory, "USER.md", parameters.MaxWorkspaceFileChars)
-		data.UserOnboarding = loadWorkspaceFile(parameters.UserWorkspaceDirectory, "ONBOARDING.md", parameters.MaxWorkspaceFileChars)
-	}
+	data.ProfileName = user.GetUsername()
+	data.ProfileDescription = user.GetDescription()
+	data.ProfileDescriptionBlock = formatPromptMultiline(data.ProfileDescription, "  ")
+	data.AgentContent = loadWorkspaceFileFromStore(ctx, models.ScopeAgent, parameters.AgentID, "AGENT.md", 8000)
+	data.SkillsContent = loadWorkspaceFileFromStore(ctx, models.ScopeAgent, parameters.AgentID, "SKILLS.md", 8000)
+	data.UserContent = loadWorkspaceFileFromStore(ctx, models.ScopeUser, userId, "USER.md", 8000)
+	data.UserOnboarding = loadWorkspaceFileFromStore(ctx, models.ScopeUser, userId, "ONBOARDING.md", 8000)
 
 	var buffer bytes.Buffer
 	if err := parsedSystemPrompt.Execute(&buffer, data); err != nil {
@@ -143,35 +119,31 @@ func normalizeSystemPromptMode(mode SystemPromptMode) SystemPromptMode {
 	}
 }
 
-func loadCurrentUserRoleAndOtherUsers(ctx context.Context, currentUserID string) (string, string) {
-	currentUserRole := "user"
+func loadOtherUsers(ctx context.Context, currentUserID string) string {
 	if ctx == nil {
-		return currentUserRole, ""
+		return ""
 	}
-	users := make([]models.User, 0)
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		listedUsers, listError := transaction.ListUsers(nil)
+	users := make([]*models.User, 0)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		listedUsers, listError := transaction.ListUsers(ctx, nil)
 		if listError != nil {
 			return listError
 		}
 		users = listedUsers
 		return nil
 	}); err != nil {
-		return currentUserRole, ""
+		return ""
 	}
 
-	filteredUsers := make([]models.User, 0, len(users))
+	filteredUsers := make([]*models.User, 0, len(users))
 	for _, user := range users {
-		if strings.TrimSpace(user.ID) == strings.TrimSpace(currentUserID) {
-			if user.Admin != nil && *user.Admin {
-				currentUserRole = "admin"
-			}
+		if user.ID == currentUserID {
 			continue
 		}
 		filteredUsers = append(filteredUsers, user)
 	}
 	if len(filteredUsers) == 0 {
-		return currentUserRole, ""
+		return ""
 	}
 
 	sort.Slice(filteredUsers, func(leftIndex int, rightIndex int) bool {
@@ -179,25 +151,25 @@ func loadCurrentUserRoleAndOtherUsers(ctx context.Context, currentUserID string)
 	})
 	lines := make([]string, 0, len(filteredUsers))
 	for _, user := range filteredUsers {
-		username := strings.TrimSpace(valueOrEmptyString(user.Username))
+		username := user.GetUsername()
 		if username == "" {
 			username = user.ID
 		}
 		role := "user"
-		if user.Admin != nil && *user.Admin {
+		if user.GetAdmin() {
 			role = "admin"
 		}
-		description := strings.TrimSpace(valueOrEmptyString(user.Description))
+		description := user.GetDescription()
 		if description == "" {
 			description = "No description provided."
 		}
 		lines = append(lines, fmt.Sprintf("- %s (userId: %s, role: %s)\n  description:\n%s", username, user.ID, role, formatPromptMultiline(description, "    ")))
 	}
-	return currentUserRole, strings.Join(lines, "\n")
+	return strings.Join(lines, "\n")
 }
 
 func formatPromptMultiline(text, indent string) string {
-	if strings.TrimSpace(text) == "" {
+	if text == "" {
 		return indent
 	}
 	lines := strings.Split(text, "\n")
@@ -211,9 +183,9 @@ func loadProjectList(ctx context.Context, limit int) string {
 	if ctx == nil {
 		return ""
 	}
-	items := make([]models.Project, 0)
-	if err := store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		projects, listError := transaction.ListProjects(nil)
+	items := make([]*models.Project, 0)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		projects, listError := transaction.ListProjects(ctx, nil)
 		if listError != nil {
 			return listError
 		}
@@ -225,7 +197,7 @@ func loadProjectList(ctx context.Context, limit int) string {
 	return formatProjectList(items, limit)
 }
 
-func formatProjectList(items []models.Project, limit int) string {
+func formatProjectList(items []*models.Project, limit int) string {
 	if len(items) == 0 {
 		return ""
 	}
@@ -234,11 +206,11 @@ func formatProjectList(items []models.Project, limit int) string {
 	}
 	lines := make([]string, 0, len(items))
 	for _, item := range items {
-		name := strings.TrimSpace(valueOrEmptyString(item.Name))
+		name := item.GetName()
 		if name == "" {
 			continue
 		}
-		description := strings.TrimSpace(valueOrEmptyString(item.Description))
+		description := item.GetDescription()
 		if description == "" {
 			description = "No description available."
 		}
@@ -252,33 +224,18 @@ func formatProjectList(items []models.Project, limit int) string {
 }
 
 // resolveIdentityLine determines the identity line for the system prompt.
-func resolveIdentityLine(configuration *configs.Config, agentId string) string {
-	return fmt.Sprintf("%s %s", prompts.DefaultIdentityLine, agentIdentitySuffix(configuration, agentId))
+func resolveIdentityLine(agentId string, agentName string) string {
+	return fmt.Sprintf("%s %s", prompts.DefaultIdentityLine, agentIdentitySuffix(agentId, agentName))
 }
 
 // agentIdentitySuffix returns a sentence fragment identifying the agent by name
 // and ID (e.g. "You are 'Research Assistant' (agent: research).") or just by ID
 // when no friendly name is set.
-func agentIdentitySuffix(configuration *configs.Config, agentId string) string {
-	if agentConfig := configuration.AgentByID(agentId); agentConfig != nil && agentConfig.Name != "" {
-		return fmt.Sprintf("You are '%s' (agent: %s).", agentConfig.Name, agentId)
+func agentIdentitySuffix(agentId string, agentName string) string {
+	if agentName != "" {
+		return fmt.Sprintf("You are '%s' (agent: %s).", agentName, agentId)
 	}
 	return fmt.Sprintf("You are the '%s' agent.", agentId)
-}
-
-// loadWorkspaceFile reads a file from the workspace directory, truncating if too large.
-// Returns empty string if the file doesn't exist.
-func loadWorkspaceFile(workspaceDirectory, relPath string, maxChars int) string {
-	full := filepath.Join(workspaceDirectory, relPath)
-	data, err := os.ReadFile(full)
-	if err != nil {
-		return ""
-	}
-	content := string(data)
-	if len(content) > maxChars {
-		content = content[:maxChars] + "\n... (truncated)"
-	}
-	return content
 }
 
 func loadWorkspaceFileFromStore(ctx context.Context, scope models.Scope, scopeId string, relativePath string, maxChars int) string {
@@ -286,8 +243,8 @@ func loadWorkspaceFileFromStore(ctx context.Context, scope models.Scope, scopeId
 		return ""
 	}
 	content := ""
-	_ = store.StoreFromContext(ctx).Transaction(func(transaction store.Transaction) error {
-		file, err := transaction.GetWorkspaceFileByPath(scope, scopeId, relativePath, nil)
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		file, err := transaction.GetWorkspaceFileByPath(ctx, scope, scopeId, relativePath, nil)
 		if err != nil || file == nil || file.Content == nil {
 			return nil
 		}

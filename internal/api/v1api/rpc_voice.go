@@ -53,7 +53,7 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 	}
 
 	session, err := self.api.gateway.StartVoiceSession(
-		self.context,
+		self.ctx,
 		parameters.ConversationID,
 		parameters.AgentID,
 		parameters.PromptSuffix,

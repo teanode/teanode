@@ -7,8 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 // --- mock client ---
@@ -89,13 +88,13 @@ func newMockClient() *mockClient {
 	}
 }
 
-func newTestTool(client *mockClient, config *configs.HomeAssistantConfig) *homeAssistantTool {
-	if config == nil {
-		config = &configs.HomeAssistantConfig{}
+func newTestTool(client *mockClient, options *RegistrationOptions) *homeAssistantTool {
+	if options == nil {
+		options = &RegistrationOptions{}
 	}
 	return &homeAssistantTool{
 		client:  client,
-		checker: NewAccessChecker(config),
+		checker: NewAccessChecker(options),
 	}
 }
 
@@ -142,7 +141,7 @@ func TestAccessChecker_DefaultEntityAccess(testing *testing.T) {
 }
 
 func TestAccessChecker_CustomAllowedDomains(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{
+	config := &RegistrationOptions{
 		AllowedDomains: []string{"light", "switch"},
 	}
 	checker := NewAccessChecker(config)
@@ -160,7 +159,7 @@ func TestAccessChecker_CustomAllowedDomains(testing *testing.T) {
 }
 
 func TestAccessChecker_CustomBlockedDomains(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{
+	config := &RegistrationOptions{
 		BlockedDomains: []string{"lock", "alarm_control_panel", "light"},
 	}
 	checker := NewAccessChecker(config)
@@ -175,7 +174,7 @@ func TestAccessChecker_CustomBlockedDomains(testing *testing.T) {
 }
 
 func TestAccessChecker_AllowedEntities(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{
+	config := &RegistrationOptions{
 		AllowedEntities: []string{"light.kitchen", "switch.garage"},
 	}
 	checker := NewAccessChecker(config)
@@ -193,7 +192,7 @@ func TestAccessChecker_AllowedEntities(testing *testing.T) {
 }
 
 func TestAccessChecker_BlockedDomainOverridesAllowedEntity(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{
+	config := &RegistrationOptions{
 		AllowedEntities: []string{"lock.front_door"},
 		// lock is blocked by default
 	}
@@ -205,14 +204,14 @@ func TestAccessChecker_BlockedDomainOverridesAllowedEntity(testing *testing.T) {
 }
 
 func TestAccessChecker_ReadOnly(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{ReadOnly: true}
+	config := &RegistrationOptions{ReadOnly: true}
 	checker := NewAccessChecker(config)
 
 	if checker.IsWriteAllowed() {
 		testing.Error("expected write to be blocked in read-only mode")
 	}
 
-	config2 := &configs.HomeAssistantConfig{ReadOnly: false}
+	config2 := &RegistrationOptions{ReadOnly: false}
 	checker2 := NewAccessChecker(config2)
 	if !checker2.IsWriteAllowed() {
 		testing.Error("expected write to be allowed when not read-only")
@@ -504,7 +503,7 @@ func TestControl_TurnOff(testing *testing.T) {
 }
 
 func TestControl_ReadOnlyBlocked(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{ReadOnly: true}
+	config := &RegistrationOptions{ReadOnly: true}
 	tool := newTestTool(newMockClient(), config)
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -601,7 +600,7 @@ func TestTriggerScene_Basic(testing *testing.T) {
 }
 
 func TestTriggerScene_ReadOnlyBlocked(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{ReadOnly: true}
+	config := &RegistrationOptions{ReadOnly: true}
 	tool := newTestTool(newMockClient(), config)
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -799,7 +798,7 @@ func TestInvalidJSON(testing *testing.T) {
 // --- RegisterTools tests ---
 
 func TestRegisterTools_NilConfig(testing *testing.T) {
-	registry := agents.NewToolRegistry()
+	registry := toolregistry.NewToolRegistry()
 	RegisterTools(registry, nil)
 	if registry.Get("home_assistant") != nil {
 		testing.Error("expected no tool registered with nil config")
@@ -807,8 +806,8 @@ func TestRegisterTools_NilConfig(testing *testing.T) {
 }
 
 func TestRegisterTools_MissingBaseURL(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.HomeAssistantConfig{
+	registry := toolregistry.NewToolRegistry()
+	RegisterTools(registry, &RegistrationOptions{
 		Token: "test-token",
 	})
 	if registry.Get("home_assistant") != nil {
@@ -817,8 +816,8 @@ func TestRegisterTools_MissingBaseURL(testing *testing.T) {
 }
 
 func TestRegisterTools_MissingToken(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.HomeAssistantConfig{
+	registry := toolregistry.NewToolRegistry()
+	RegisterTools(registry, &RegistrationOptions{
 		BaseURL: "http://localhost:8123",
 	})
 	if registry.Get("home_assistant") != nil {
@@ -827,8 +826,8 @@ func TestRegisterTools_MissingToken(testing *testing.T) {
 }
 
 func TestRegisterTools_ValidConfig(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.HomeAssistantConfig{
+	registry := toolregistry.NewToolRegistry()
+	RegisterTools(registry, &RegistrationOptions{
 		BaseURL: "http://localhost:8123",
 		Token:   "test-token",
 	})

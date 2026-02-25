@@ -8,16 +8,16 @@ import (
 	"os"
 	"os/exec"
 	"sort"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("codex")
@@ -81,30 +81,38 @@ type codexTool struct {
 	mutex        sync.Mutex
 }
 
+type RegistrationOptions struct {
+	BinaryPath            string
+	AllowedTools          []string
+	ExtraArgs             []string
+	Model                 string
+	MaxTurnTimeoutSeconds int
+}
+
 // RegisterTools adds the codex tool to the registry.
 // If the codex binary is not found, no tools are registered.
 // A nil config is treated as "use defaults" — tools are registered
 // as long as the binary is present on PATH.
-func RegisterTools(registry *agents.ToolRegistry, config *configs.CodexConfig) {
+func RegisterTools(registry *toolregistry.ToolRegistry, options *RegistrationOptions) {
 	binaryPath := "codex"
 	allowedTools := DefaultAllowedTools
 	var extraArgs []string
 	var model string
 	timeout := defaultTimeout
 
-	if config != nil {
-		if config.BinaryPath != "" {
-			binaryPath = config.BinaryPath
+	if options != nil {
+		if options.BinaryPath != "" {
+			binaryPath = options.BinaryPath
 		}
-		if len(config.AllowedTools) > 0 {
-			allowedTools = config.AllowedTools
+		if len(options.AllowedTools) > 0 {
+			allowedTools = options.AllowedTools
 		}
-		if len(config.ExtraArgs) > 0 {
-			extraArgs = append(extraArgs, config.ExtraArgs...)
+		if len(options.ExtraArgs) > 0 {
+			extraArgs = append(extraArgs, options.ExtraArgs...)
 		}
-		model = config.Model
-		if config.MaxTurnTimeoutSeconds > 0 {
-			timeout = time.Duration(config.MaxTurnTimeoutSeconds) * time.Second
+		model = options.Model
+		if options.MaxTurnTimeoutSeconds > 0 {
+			timeout = time.Duration(options.MaxTurnTimeoutSeconds) * time.Second
 			if timeout > maxTimeout {
 				timeout = maxTimeout
 			}
@@ -301,9 +309,9 @@ func (self *codexTool) executeResume(ctx context.Context, sessionId, prompt, sys
 }
 
 func (self *codexTool) executeListSessions(ctx context.Context) (string, error) {
-	conversationStore, storeError := self.resolveConversationStore(ctx)
-	if storeError == nil {
-		sessions, err := self.loadSessionsFromConversationStore(conversationStore)
+	userId, agentId, scopeError := self.resolveConversationScope(ctx)
+	if scopeError == nil {
+		sessions, err := self.loadSessionsFromConversationStore(ctx, userId, agentId)
 		if err == nil {
 			result, marshalErr := json.Marshal(map[string]interface{}{"sessions": sessions})
 			if marshalErr != nil {
@@ -313,7 +321,7 @@ func (self *codexTool) executeListSessions(ctx context.Context) (string, error) 
 		}
 		log.Debugf("list_sessions: failed to load from conversation history, falling back to in-memory sessions: %v", err)
 	} else {
-		log.Debugf("list_sessions: no conversation store available, falling back to in-memory sessions: %v", storeError)
+		log.Debugf("list_sessions: no conversation scope available, falling back to in-memory sessions: %v", scopeError)
 	}
 
 	self.mutex.Lock()
@@ -337,45 +345,65 @@ func (self *codexTool) executeListSessions(ctx context.Context) (string, error) 
 	return string(result), nil
 }
 
-func (self *codexTool) resolveConversationStore(ctx context.Context) (*conversations.Store, error) {
+func (self *codexTool) resolveConversationScope(ctx context.Context) (string, string, error) {
 	runner := agents.RunnerFromContext(ctx)
 	if runner == nil {
-		return nil, fmt.Errorf("runner context missing")
+		return "", "", fmt.Errorf("runner context missing")
 	}
-	userID := agents.UserIDFromContext(ctx)
-	if userID == "" {
-		return nil, fmt.Errorf("user context missing")
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
+		return "", "", fmt.Errorf("user context missing")
 	}
-	conversationStore := runner.ConversationsForUser(userID)
-	if conversationStore == nil {
-		return nil, fmt.Errorf("conversation store missing")
-	}
-	return conversationStore, nil
+	return user.ID, runner.AgentID, nil
 }
 
-func (self *codexTool) loadSessionsFromConversationStore(store *conversations.Store) ([]sessionInfo, error) {
-	conversationList, err := store.List()
-	if err != nil {
+func (self *codexTool) loadSessionsFromConversationStore(ctx context.Context, userId, agentId string) ([]sessionInfo, error) {
+	conversationList := make([]*models.Conversation, 0)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		items, listError := transaction.ListConversations(ctx, store.ConversationListOptions{
+			UserID:  &userId,
+			AgentID: &agentId,
+		}, nil)
+		if listError != nil {
+			return listError
+		}
+		conversationList = append(conversationList, items...)
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("listing conversations: %w", err)
 	}
 
 	sessionsById := make(map[string]*sessionInfo)
 	for _, conversation := range conversationList {
-		messages, loadError := store.Load(conversation.ID)
-		if loadError != nil {
+		messages := make([]*models.ConversationMessage, 0)
+		if loadError := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+			items, err := transaction.ListConversationMessages(ctx, conversation.ID, nil)
+			if err != nil {
+				return err
+			}
+			messages = append(messages, items...)
+			return nil
+		}); loadError != nil {
 			log.Debugf("list_sessions: skipping conversation %q (load error: %v)", conversation.ID, loadError)
 			continue
 		}
 		for _, message := range messages {
-			if message.Role != "tool" || message.ToolName != "codex" {
+			if message.Role == nil || string(*message.Role) != "tool" || message.ToolName == nil || *message.ToolName != "codex" {
 				continue
 			}
-			sessionId := extractSessionIdFromToolResult(message.ContentText())
+			content := ""
+			if len(message.Content) > 0 {
+				_ = json.Unmarshal(message.Content, &content)
+			}
+			sessionId := extractSessionIdFromToolResult(content)
 			if sessionId == "" {
 				continue
 			}
 
-			timestamp := time.UnixMilli(message.Timestamp)
+			timestamp := time.Now()
+			if message.CreatedAt != nil {
+				timestamp = *message.CreatedAt
+			}
 			existing := sessionsById[sessionId]
 			if existing == nil {
 				sessionsById[sessionId] = &sessionInfo{
@@ -508,9 +536,9 @@ func (self *codexTool) parseOutput(stdout, stderr []byte, exitCode int, duration
 	if err := json.Unmarshal(stdout, &parsed); err != nil {
 		log.Debugf("codex output is not JSON, using raw output (parse error: %v)", err)
 
-		rawResult := strings.TrimSpace(string(stdout))
+		rawResult := string(stdout)
 		if rawResult == "" && len(stderr) > 0 {
-			rawResult = strings.TrimSpace(string(stderr))
+			rawResult = string(stderr)
 		}
 
 		result, marshalError := json.Marshal(map[string]interface{}{

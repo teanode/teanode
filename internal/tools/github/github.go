@@ -4,8 +4,7 @@ import (
 	"os/exec"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("github")
@@ -13,18 +12,23 @@ var log = logging.MustGetLogger("github")
 // defaultServices are registered when no explicit service list is configured (Tier 1).
 var defaultServices = []string{"issues", "pulls", "repos"}
 
+type RegistrationOptions struct {
+	BinaryPath string
+	Services   []string
+}
+
 // RegisterTools adds GitHub tools to the registry.
 // If the gh binary is not found, no tools are registered.
 // A nil config is treated as "use defaults" — tools are registered
 // as long as the binary is present on PATH.
-func RegisterTools(registry *agents.ToolRegistry, config *configs.GitHubConfig) {
+func RegisterTools(registry *toolregistry.ToolRegistry, options *RegistrationOptions) {
 	binary := "gh"
 	var services []string
-	if config != nil {
-		if config.BinaryPath != "" {
-			binary = config.BinaryPath
+	if options != nil {
+		if options.BinaryPath != "" {
+			binary = options.BinaryPath
 		}
-		services = config.Services
+		services = options.Services
 	}
 
 	// Check that the binary exists on PATH.

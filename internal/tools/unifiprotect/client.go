@@ -11,8 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/teanode/teanode/internal/configs"
 )
 
 const (
@@ -144,22 +142,22 @@ type httpClient struct {
 }
 
 // NewHTTPClient creates a new HTTP-based UniFi Protect client.
-func NewHTTPClient(config *configs.UniFiProtectConfig) Client {
-	timeoutSeconds := config.TimeoutSeconds
+func NewHTTPClient(options *RegistrationOptions) Client {
+	timeoutSeconds := options.TimeoutSeconds
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = defaultTimeoutSeconds
 	}
 
 	transport := &http.Transport{}
-	if !config.VerifyTLS {
+	if !options.VerifyTLS {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
 	return &httpClient{
-		baseUrl:  strings.TrimRight(config.BaseURL, "/"),
-		apiKey:   config.APIKey,
-		username: config.Username,
-		password: config.Password,
+		baseUrl:  strings.TrimRight(options.BaseURL, "/"),
+		apiKey:   options.APIKey,
+		username: options.Username,
+		password: options.Password,
 		httpClient: &http.Client{
 			Timeout:   time.Duration(timeoutSeconds) * time.Second,
 			Transport: transport,

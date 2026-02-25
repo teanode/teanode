@@ -72,14 +72,14 @@ func BuildStructuredSummaryUserPrompt(previousSummary, focus, chunkText string) 
 	builder.WriteString("- Keep summary under 500 words.\n")
 	builder.WriteString("- Keep criticalFacts concise and factual.\n")
 	builder.WriteString("- Include unresolved tasks in todos/openQuestions.\n")
-	if strings.TrimSpace(focus) != "" {
+	if focus != "" {
 		builder.WriteString("- Additional focus: ")
-		builder.WriteString(strings.TrimSpace(focus))
+		builder.WriteString(focus)
 		builder.WriteString("\n")
 	}
-	if strings.TrimSpace(previousSummary) != "" {
+	if previousSummary != "" {
 		builder.WriteString("\nPrevious merged summary for continuity:\n")
-		builder.WriteString(strings.TrimSpace(previousSummary))
+		builder.WriteString(previousSummary)
 		builder.WriteString("\n")
 	}
 	builder.WriteString("\nConversation chunk:\n")
@@ -97,7 +97,7 @@ func BuildProjectMarkdown(name, projectId, description, purpose string) (string,
 		Name:        name,
 		ID:          projectId,
 		Description: description,
-		Purpose:     strings.TrimSpace(purpose),
+		Purpose:     purpose,
 	}
 	var buffer bytes.Buffer
 	if err := parsedDefaultProjectTemplate.Execute(&buffer, data); err != nil {

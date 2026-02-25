@@ -335,7 +335,7 @@ func (self *unifiProtectTool) resolveCamera(ctx context.Context, cameraIDOrName 
 		return nil, fmt.Errorf("fetching cameras: %w", err)
 	}
 
-	normalizedQuery := strings.ToLower(strings.TrimSpace(cameraIDOrName))
+	normalizedQuery := strings.ToLower(cameraIDOrName)
 
 	for _, camera := range cameras {
 		if camera.ID == cameraIDOrName || strings.ToLower(camera.Name) == normalizedQuery {
