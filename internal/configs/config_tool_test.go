@@ -299,7 +299,7 @@ func TestBackupConfig_CreatesBackup(t *testing.T) {
 		t.Fatalf("backupConfig() error: %v", err)
 	}
 
-	backupPath := filepath.Join(directory, "config.yaml.bak")
+	backupPath := filepath.Join(directory, ".config.yaml.bak")
 	data, err := os.ReadFile(backupPath)
 	if err != nil {
 		t.Fatalf("backup file not found: %v", err)
@@ -460,9 +460,9 @@ func TestExecuteSet_StripsSentinels(t *testing.T) {
 	}
 
 	// Verify backup was created.
-	backupPath := filepath.Join(directory, "config.yaml.bak")
+	backupPath := filepath.Join(directory, ".config.yaml.bak")
 	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-		t.Error("config.yaml.bak should have been created")
+		t.Error(".config.yaml.bak should have been created")
 	}
 }
 

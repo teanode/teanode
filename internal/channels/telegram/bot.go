@@ -634,10 +634,6 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 }
 
 func unlinkedTelegramMessage(chatId string) string {
-	securityFile := "~/.teanode/security.yaml"
-	if path, err := configs.SecurityFile(); err == nil && strings.TrimSpace(path) != "" {
-		securityFile = path
-	}
 	return fmt.Sprintf(
 		"Your Telegram chat is not linked to a TeaNode user yet.\n\n"+
 			"Link it by editing `%s` and adding:\n"+
@@ -652,7 +648,7 @@ func unlinkedTelegramMessage(chatId string) string {
 			"channelLinks:\n"+
 			"  telegram:\n"+
 			"    \"%s\": \"user-1\"",
-		securityFile,
+		configs.SecurityFilename(),
 		chatId,
 		chatId,
 	)

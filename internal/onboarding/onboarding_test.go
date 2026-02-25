@@ -90,10 +90,7 @@ func TestInitializeUserDoesNotSeedWhenOnboardingMissing(t *testing.T) {
 	if err := configs.EnsureUserDirectories(userId); err != nil {
 		t.Fatalf("EnsureUserDirectories failed: %v", err)
 	}
-	workspaceDirectory, err := configs.UserWorkspaceDirectory(userId)
-	if err != nil {
-		t.Fatalf("UserWorkspaceDirectory failed: %v", err)
-	}
+	workspaceDirectory := configs.UserWorkspaceDirectory(userId)
 	if err := os.Remove(filepath.Join(workspaceDirectory, "ONBOARDING.md")); err != nil {
 		t.Fatalf("remove ONBOARDING.md failed: %v", err)
 	}

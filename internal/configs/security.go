@@ -3,7 +3,6 @@ package configs
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -67,25 +66,11 @@ func (self *SecurityConfig) RUnlock() {
 	self.mutex.RUnlock()
 }
 
-// SecurityFile returns the path to ~/.teanode/security.yaml.
-func SecurityFile() (string, error) {
-	directory, err := Directory()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, "security.yaml"), nil
-}
-
 // LoadSecurity reads and unmarshals security.yaml. Returns an empty config if
 // the file does not exist.
 func LoadSecurity() (*SecurityConfig, error) {
-	securityFile, err := SecurityFile()
-	if err != nil {
-		return nil, err
-	}
-
 	config := &SecurityConfig{}
-	data, err := os.ReadFile(securityFile)
+	data, err := os.ReadFile(SecurityFilename())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return config, nil
@@ -127,11 +112,7 @@ func SaveSecurity(config *SecurityConfig) error {
 	if err != nil {
 		return fmt.Errorf("marshalling security config: %w", err)
 	}
-	securityFile, err := SecurityFile()
-	if err != nil {
-		return err
-	}
-	return atomicfile.WriteFileWithMode(securityFile, data, 0600)
+	return atomicfile.WriteFileWithMode(SecurityFilename(), data, 0600)
 }
 
 func (self *SecurityConfig) FindUserByUsername(username string) (string, SecurityUser, bool) {

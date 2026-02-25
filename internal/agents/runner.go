@@ -31,7 +31,7 @@ type Runner struct {
 	AgentID              string
 	Providers            *providers.Registry
 	ResolveConversations func(userId, agentId string) *conversations.Store
-	ResolveUserProfile   func(userId string) (*configs.UserProfile, error)
+	ResolveUserConfig    func(userId string) (*configs.UserConfig, error)
 	Config               *configs.Config
 	Tools                *ToolRegistry
 	MediaStore           *media.Store
@@ -92,6 +92,7 @@ type RunParams struct {
 	// len(text)/4 token approximation. Zero means no additional limit beyond the
 	// model's native context window. Used by voice to cap the 16k budget.
 	MaxContextTokens int
+	SystemPromptMode SystemPromptMode
 }
 
 // RunResult holds the result of a completed agent run.
@@ -187,13 +188,11 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		return nil, fmt.Errorf("userId is required")
 	}
 	userWorkspaceDirectory := ""
-	if resolvedUserWorkspaceDirectory, resolveErr := configs.UserWorkspaceDirectory(userId); resolveErr == nil {
-		userWorkspaceDirectory = resolvedUserWorkspaceDirectory
+	userWorkspaceDirectory = configs.UserWorkspaceDirectory(userId)
+	if self.ResolveUserConfig == nil {
+		return nil, fmt.Errorf("ResolveUserConfig is required")
 	}
-	if self.ResolveUserProfile == nil {
-		return nil, fmt.Errorf("ResolveUserProfile is required")
-	}
-	profile, err := self.ResolveUserProfile(userId)
+	profile, err := self.ResolveUserConfig(userId)
 	if err != nil {
 		return nil, fmt.Errorf("resolving user profile for %q: %w", userId, err)
 	}
@@ -273,7 +272,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		log.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
 
 		// Build messages for the LLM.
-		llmMessages := self.buildMessages(history, limits, params.SystemPromptSuffix, configuration, userId, workspaceDirectory, userWorkspaceDirectory, skillPrompts, profile)
+		llmMessages := self.buildMessages(history, limits, params.SystemPromptSuffix, params.SystemPromptMode, configuration, userId, workspaceDirectory, userWorkspaceDirectory, skillPrompts, profile)
 
 		// Voice context budget: prune oldest turns when MaxContextTokens is set.
 		if params.MaxContextTokens > 0 {
@@ -654,23 +653,25 @@ func (self *Runner) buildMessages(
 	history []conversations.Message,
 	limits configs.AgentLimits,
 	systemPromptSuffix string,
+	systemPromptMode SystemPromptMode,
 	configuration *configs.Config,
 	currentUserId string,
 	agentWorkspaceDirectory string,
 	userWorkspaceDirectory string,
 	skillPrompts string,
-	profile *configs.UserProfile,
+	profile *configs.UserConfig,
 ) []providers.ChatMessage {
-	systemPrompt := BuildSystemPrompt(
-		configuration,
-		self.AgentID,
-		currentUserId,
-		agentWorkspaceDirectory,
-		userWorkspaceDirectory,
-		skillPrompts,
-		limits.MaxWorkspaceFileChars,
-		profile,
-	)
+	systemPrompt := buildSystemPrompt(buildSystemPromptParameters{
+		Configuration:           configuration,
+		AgentID:                 self.AgentID,
+		CurrentUserID:           currentUserId,
+		AgentWorkspaceDirectory: agentWorkspaceDirectory,
+		UserWorkspaceDirectory:  userWorkspaceDirectory,
+		SkillPrompts:            skillPrompts,
+		MaxWorkspaceFileChars:   limits.MaxWorkspaceFileChars,
+		Profile:                 profile,
+		Mode:                    systemPromptMode,
+	})
 	if systemPromptSuffix != "" {
 		systemPrompt += "\n\n" + systemPromptSuffix
 	}

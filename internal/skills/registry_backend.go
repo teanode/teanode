@@ -249,10 +249,7 @@ func Install(ctx context.Context, registries []configs.SkillsRegistry, sourceId 
 		return nil, fmt.Errorf("digest mismatch")
 	}
 
-	skillsDirectory, err := configs.SkillsDirectory()
-	if err != nil {
-		return nil, err
-	}
+	skillsDirectory := configs.SkillsDirectory()
 	installDir, err := resolveInstallDir(skillsDirectory, entry.Name, entry.Version)
 	if err != nil {
 		return nil, err
@@ -293,10 +290,7 @@ func Install(ctx context.Context, registries []configs.SkillsRegistry, sourceId 
 }
 
 func ListInstalled() ([]InstalledSkill, error) {
-	skillsDirectory, err := configs.SkillsDirectory()
-	if err != nil {
-		return nil, err
-	}
+	skillsDirectory := configs.SkillsDirectory()
 	root := filepath.Join(skillsDirectory, ".installed")
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -357,10 +351,7 @@ func ListInstalled() ([]InstalledSkill, error) {
 }
 
 func SetInstalledSkillEnabled(name string, enabled bool) error {
-	skillsDirectory, err := configs.SkillsDirectory()
-	if err != nil {
-		return err
-	}
+	skillsDirectory := configs.SkillsDirectory()
 	if !isSafePathSegment(name) {
 		return fmt.Errorf("invalid skill name")
 	}
@@ -409,10 +400,7 @@ func SetInstalledSkillEnabled(name string, enabled bool) error {
 }
 
 func Uninstall(name string) error {
-	skillsDirectory, err := configs.SkillsDirectory()
-	if err != nil {
-		return err
-	}
+	skillsDirectory := configs.SkillsDirectory()
 	if !isSafePathSegment(name) {
 		return fmt.Errorf("invalid skill name")
 	}

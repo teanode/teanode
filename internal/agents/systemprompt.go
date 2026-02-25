@@ -4,37 +4,37 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"sort"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/teanode/teanode/internal/configs"
-	projectstore "github.com/teanode/teanode/internal/projects"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/version"
 )
 
 var parsedSystemPrompt = template.Must(template.New("systemprompt").Parse(prompts.SystemPromptTemplate()))
 
+type SystemPromptMode string
+
+const (
+	SystemPromptModeFull    SystemPromptMode = "full"
+	SystemPromptModeMinimal SystemPromptMode = "minimal"
+	SystemPromptModeNone    SystemPromptMode = "none"
+)
+
 type systemPromptData struct {
 	IdentityLine            string
+	MinimalMode             bool
 	Version                 string
-	Date                    string
-	Timezone                string
-	Username                string
 	CurrentUserID           string
 	CurrentUserRole         string
 	ProfileName             string
 	ProfileDescription      string
 	ProfileDescriptionBlock string
-	HomeDirectory           string
 	AgentContent            string
-	AgentMemory             string
 	UserContent             string
-	UserMemory              string
 	UserOnboarding          string
 	SkillsContent           string
 	SkillPrompts            string
@@ -43,39 +43,36 @@ type systemPromptData struct {
 	OtherUsers              string
 }
 
-// BuildSystemPrompt generates the system prompt for an agent run.
-// If workspaceDirectory is non-empty, workspace files are loaded and injected.
+type buildSystemPromptParameters struct {
+	Configuration           *configs.Config
+	AgentID                 string
+	CurrentUserID           string
+	AgentWorkspaceDirectory string
+	UserWorkspaceDirectory  string
+	SkillPrompts            string
+	MaxWorkspaceFileChars   int
+	Profile                 *configs.UserConfig
+	Mode                    SystemPromptMode
+}
+
+// buildSystemPrompt generates the system prompt for an agent run.
+// If workspace directories are non-empty, workspace files are loaded and injected.
 // maxWorkspaceFileChars controls the per-file truncation limit.
-func BuildSystemPrompt(
-	configuration *configs.Config,
-	agentId string,
-	currentUserId string,
-	agentWorkspaceDirectory string,
-	userWorkspaceDirectory string,
-	skillPrompts string,
-	maxWorkspaceFileChars int,
-	profile *configs.UserProfile,
-) string {
+func buildSystemPrompt(parameters buildSystemPromptParameters) string {
 	// Resolve the identity line.
-	identityLine := resolveIdentityLine(configuration, agentId)
+	identityLine := resolveIdentityLine(parameters.Configuration, parameters.AgentID)
+	mode := normalizeSystemPromptMode(parameters.Mode)
 
-	homeDir, _ := os.UserHomeDir()
-	username := ""
-	if u, err := user.Current(); err == nil {
-		username = u.Username
+	if mode == SystemPromptModeNone {
+		return identityLine
 	}
-
-	now := time.Now()
 
 	data := systemPromptData{
 		IdentityLine:  identityLine,
+		MinimalMode:   mode == SystemPromptModeMinimal,
 		Version:       version.Version(),
-		Date:          now.Format("2006-01-02"),
-		Timezone:      now.Format("MST"),
-		Username:      username,
-		CurrentUserID: strings.TrimSpace(currentUserId),
-		HomeDirectory: homeDir,
-		SkillPrompts:  skillPrompts,
+		CurrentUserID: strings.TrimSpace(parameters.CurrentUserID),
+		SkillPrompts:  parameters.SkillPrompts,
 		ProjectLimit:  8,
 		ProjectList:   loadProjectList(8),
 	}
@@ -87,21 +84,19 @@ func BuildSystemPrompt(
 		}
 		data.OtherUsers = loadOtherUsers(securityConfig, data.CurrentUserID)
 	}
-	if profile != nil {
-		data.ProfileName = strings.TrimSpace(profile.Name)
-		data.ProfileDescription = strings.TrimSpace(profile.Description)
+	if parameters.Profile != nil {
+		data.ProfileName = strings.TrimSpace(parameters.Profile.Name)
+		data.ProfileDescription = strings.TrimSpace(parameters.Profile.Description)
 		data.ProfileDescriptionBlock = formatPromptMultiline(data.ProfileDescription, "  ")
 	}
 
-	if agentWorkspaceDirectory != "" {
-		data.AgentContent = loadWorkspaceFile(agentWorkspaceDirectory, "AGENT.md", maxWorkspaceFileChars)
-		data.AgentMemory = loadWorkspaceFile(agentWorkspaceDirectory, "MEMORY.md", maxWorkspaceFileChars)
-		data.SkillsContent = loadWorkspaceFile(agentWorkspaceDirectory, "SKILLS.md", maxWorkspaceFileChars)
+	if parameters.AgentWorkspaceDirectory != "" {
+		data.AgentContent = loadWorkspaceFile(parameters.AgentWorkspaceDirectory, "AGENT.md", parameters.MaxWorkspaceFileChars)
+		data.SkillsContent = loadWorkspaceFile(parameters.AgentWorkspaceDirectory, "SKILLS.md", parameters.MaxWorkspaceFileChars)
 	}
-	if userWorkspaceDirectory != "" {
-		data.UserContent = loadWorkspaceFile(userWorkspaceDirectory, "USER.md", maxWorkspaceFileChars)
-		data.UserMemory = loadWorkspaceFile(userWorkspaceDirectory, "MEMORY.md", maxWorkspaceFileChars)
-		data.UserOnboarding = loadWorkspaceFile(userWorkspaceDirectory, "ONBOARDING.md", maxWorkspaceFileChars)
+	if parameters.UserWorkspaceDirectory != "" {
+		data.UserContent = loadWorkspaceFile(parameters.UserWorkspaceDirectory, "USER.md", parameters.MaxWorkspaceFileChars)
+		data.UserOnboarding = loadWorkspaceFile(parameters.UserWorkspaceDirectory, "ONBOARDING.md", parameters.MaxWorkspaceFileChars)
 	}
 
 	var buffer bytes.Buffer
@@ -110,6 +105,15 @@ func BuildSystemPrompt(
 		return prompts.DefaultIdentityLine
 	}
 	return buffer.String()
+}
+
+func normalizeSystemPromptMode(mode SystemPromptMode) SystemPromptMode {
+	switch mode {
+	case SystemPromptModeFull, SystemPromptModeMinimal, SystemPromptModeNone:
+		return mode
+	default:
+		return SystemPromptModeFull
+	}
 }
 
 func loadOtherUsers(securityConfig *configs.SecurityConfig, currentUserId string) string {
@@ -136,7 +140,7 @@ func loadOtherUsers(securityConfig *configs.SecurityConfig, currentUserId string
 			role = "admin"
 		}
 		description := "No description provided."
-		if profile, err := configs.LoadUserProfile(userId); err == nil {
+		if profile, err := configs.LoadUserConfig(userId); err == nil {
 			if parsed := strings.TrimSpace(profile.Description); parsed != "" {
 				description = parsed
 			}
@@ -158,7 +162,7 @@ func formatPromptMultiline(text, indent string) string {
 }
 
 func loadProjectList(limit int) string {
-	items, err := projectstore.List()
+	items, err := configs.LoadProjectConfigs()
 	if err != nil || len(items) == 0 {
 		return ""
 	}

@@ -158,10 +158,7 @@ func (self *gateway) ConversationStore(userId, agentId string) *conversations.St
 	if store, ok := self.conversationStores[key]; ok {
 		return store
 	}
-	directory, err := configs.UserAgentConversationsDirectory(userId, agentId)
-	if err != nil {
-		return nil
-	}
+	directory := configs.UserAgentConversationsDirectory(userId, agentId)
 	if err := os.MkdirAll(directory, 0755); err != nil {
 		return nil
 	}
@@ -205,16 +202,13 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.Mod
 	providerNames := providerRegistry.ProviderNames()
 
 	// Try loading from disk cache.
-	modelsFile, err := configs.ModelsFile()
-	if err == nil {
-		if data, err := os.ReadFile(modelsFile); err == nil {
-			var cache modelsCache
-			if err := yaml.Unmarshal(data, &cache); err == nil && time.Since(cache.FetchedAt) < modelsCacheMaxAge {
-				self.models = cache.Providers
-				self.modelsTime = cache.FetchedAt
-				self.updateRunnerContextWindows(cache.Providers)
-				return cache.Providers, nil
-			}
+	if data, err := os.ReadFile(configs.ModelsFilename()); err == nil {
+		var cache modelsCache
+		if err := yaml.Unmarshal(data, &cache); err == nil && time.Since(cache.FetchedAt) < modelsCacheMaxAge {
+			self.models = cache.Providers
+			self.modelsTime = cache.FetchedAt
+			self.updateRunnerContextWindows(cache.Providers)
+			return cache.Providers, nil
 		}
 	}
 
@@ -237,12 +231,10 @@ func (self *gateway) LoadModels(ctx context.Context) (map[string][]providers.Mod
 	self.modelsTime = time.Now()
 
 	// Write to disk cache.
-	if modelsFile != "" {
-		cache := modelsCache{FetchedAt: self.modelsTime, Providers: result}
-		if data, err := yaml.Marshal(cache); err == nil {
-			if err := atomicfile.WriteFile(modelsFile, data); err != nil {
-				log.Debugf("failed to write models cache: %v", err)
-			}
+	cache := modelsCache{FetchedAt: self.modelsTime, Providers: result}
+	if data, err := yaml.Marshal(cache); err == nil {
+		if err := atomicfile.WriteFile(configs.ModelsFilename(), data); err != nil {
+			log.Debugf("failed to write models cache: %v", err)
 		}
 	}
 

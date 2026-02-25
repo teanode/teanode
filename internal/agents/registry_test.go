@@ -110,15 +110,12 @@ func TestAgentRegistryDefaultConversationPersistsAcrossReload(t *testing.T) {
 	registry.Register("main", &Runner{})
 	registry.SetDefaultConversation("user-1", "main", "conv-123")
 
-	stateFile, err := configs.StateFile()
-	if err != nil {
-		t.Fatalf("resolving state file: %v", err)
+	stateFilename := configs.StateFilename()
+	if _, err := os.Stat(stateFilename); err != nil {
+		t.Fatalf("state file not written at %s: %v", stateFilename, err)
 	}
-	if _, err := os.Stat(stateFile); err != nil {
-		t.Fatalf("state file not written at %s: %v", stateFile, err)
-	}
-	if filepath.Dir(stateFile) != temporaryDirectory {
-		t.Fatalf("state file directory = %q, want %q", filepath.Dir(stateFile), temporaryDirectory)
+	if filepath.Dir(stateFilename) != temporaryDirectory {
+		t.Fatalf("state file directory = %q, want %q", filepath.Dir(stateFilename), temporaryDirectory)
 	}
 
 	reloaded := NewAgentRegistry()

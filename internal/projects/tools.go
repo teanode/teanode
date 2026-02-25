@@ -6,30 +6,26 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/configs"
-	projectstore "github.com/teanode/teanode/internal/projects"
 	"github.com/teanode/teanode/internal/providers"
 )
 
-func RegisterTools(registry *agents.ToolRegistry) {
-	registry.Register(&projectsTool{})
-	registry.Register(&projectWorkspaceTool{})
-}
+func NewProjectsTool() *projectsTool                 { return &projectsTool{} }
+func NewProjectWorkspaceTool() *projectWorkspaceTool { return &projectWorkspaceTool{} }
 
 type projectsTool struct{}
 type projectWorkspaceTool struct{}
 
 type projectsToolResponse struct {
-	Action    string                     `json:"action"`
-	ProjectID string                     `json:"projectId,omitempty"`
-	Project   *projectstore.Metadata     `json:"project,omitempty"`
-	Projects  []projectstore.Metadata    `json:"projects,omitempty"`
-	Workspace string                     `json:"workspace,omitempty"`
-	Files     []string                   `json:"files,omitempty"`
-	Content   string                     `json:"content,omitempty"`
-	Matches   []projectstore.SearchMatch `json:"matches,omitempty"`
-	Success   bool                       `json:"success,omitempty"`
+	Action    string                  `json:"action"`
+	ProjectID string                  `json:"projectId,omitempty"`
+	Project   *configs.ProjectConfig  `json:"project,omitempty"`
+	Projects  []configs.ProjectConfig `json:"projects,omitempty"`
+	Workspace string                  `json:"workspace,omitempty"`
+	Files     []string                `json:"files,omitempty"`
+	Content   string                  `json:"content,omitempty"`
+	Matches   []searchMatch           `json:"matches,omitempty"`
+	Success   bool                    `json:"success,omitempty"`
 }
 
 func (self *projectsTool) Definition() providers.ToolDefinition {
@@ -55,7 +51,7 @@ func (self *projectsTool) Definition() providers.ToolDefinition {
 					},
 					"description": map[string]interface{}{
 						"type":        "string",
-						"description": "Project description (optional for create; generated when omitted).",
+						"description": "Project description for create.",
 					},
 					"purpose": map[string]interface{}{
 						"type":        "string",
@@ -131,7 +127,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 	action := strings.TrimSpace(arguments.Action)
 	switch action {
 	case "list":
-		items, err := projectstore.List()
+		items, err := configs.LoadProjectConfigs()
 		if err != nil {
 			return "", err
 		}
@@ -141,7 +137,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		if strings.TrimSpace(arguments.ProjectID) == "" {
 			return "", fmt.Errorf("projectId is required")
 		}
-		item, err := projectstore.Get(arguments.ProjectID)
+		item, err := configs.LoadProjectConfig(arguments.ProjectID)
 		if err != nil {
 			return "", err
 		}
@@ -154,20 +150,20 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		}
 		description := strings.TrimSpace(arguments.Description)
 		if description == "" {
-			description = strings.TrimSpace(generateDescription(ctx, name, arguments.Purpose))
+			return "", fmt.Errorf("description is required for create")
 		}
-		item, err := projectstore.Create(name, description, arguments.Purpose)
+		item, err := CreateProject(name, description, arguments.Purpose)
 		if err != nil {
 			return "", err
 		}
-		workspacePath, _ := projectstore.WorkspaceDirectory(item.ID)
+		workspacePath, _ := WorkspaceDirectory(item.ID)
 		output, _ := json.Marshal(projectsToolResponse{Action: "create", Project: item, Workspace: workspacePath})
 		return string(output), nil
 	case "rename":
 		if strings.TrimSpace(arguments.ProjectID) == "" {
 			return "", fmt.Errorf("projectId is required")
 		}
-		item, err := projectstore.Rename(arguments.ProjectID, arguments.Name)
+		item, err := RenameProject(arguments.ProjectID, arguments.Name)
 		if err != nil {
 			return "", err
 		}
@@ -177,7 +173,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		if strings.TrimSpace(arguments.ProjectID) == "" {
 			return "", fmt.Errorf("projectId is required")
 		}
-		if err := projectstore.Delete(arguments.ProjectID); err != nil {
+		if err := DeleteProject(arguments.ProjectID); err != nil {
 			return "", err
 		}
 		output, _ := json.Marshal(projectsToolResponse{Action: "delete", Success: true})
@@ -208,7 +204,7 @@ func (self *projectWorkspaceTool) Execute(ctx context.Context, rawArguments stri
 	action := strings.TrimSpace(arguments.Action)
 	switch action {
 	case "list":
-		files, err := projectstore.ListFiles(arguments.ProjectID)
+		files, err := listFiles(arguments.ProjectID)
 		if err != nil {
 			return "", err
 		}
@@ -219,7 +215,7 @@ func (self *projectWorkspaceTool) Execute(ctx context.Context, rawArguments stri
 		})
 		return string(output), nil
 	case "read":
-		content, err := projectstore.ReadFile(arguments.ProjectID, arguments.Path)
+		content, err := readFile(arguments.ProjectID, arguments.Path)
 		if err != nil {
 			return "", err
 		}
@@ -230,19 +226,19 @@ func (self *projectWorkspaceTool) Execute(ctx context.Context, rawArguments stri
 		})
 		return string(output), nil
 	case "write":
-		if err := projectstore.WriteFile(arguments.ProjectID, arguments.Path, arguments.Content); err != nil {
+		if err := writeFile(arguments.ProjectID, arguments.Path, arguments.Content); err != nil {
 			return "", err
 		}
 		output, _ := json.Marshal(projectsToolResponse{Action: "write", ProjectID: arguments.ProjectID, Success: true})
 		return string(output), nil
 	case "append":
-		if err := projectstore.AppendFile(arguments.ProjectID, arguments.Path, arguments.Content); err != nil {
+		if err := appendFile(arguments.ProjectID, arguments.Path, arguments.Content); err != nil {
 			return "", err
 		}
 		output, _ := json.Marshal(projectsToolResponse{Action: "append", ProjectID: arguments.ProjectID, Success: true})
 		return string(output), nil
 	case "search":
-		matches, err := projectstore.SearchFiles(arguments.ProjectID, arguments.Query, arguments.MaxResults)
+		matches, err := searchFiles(arguments.ProjectID, arguments.Query, arguments.MaxResults)
 		if err != nil {
 			return "", err
 		}
@@ -256,13 +252,13 @@ func (self *projectWorkspaceTool) Execute(ctx context.Context, rawArguments stri
 		if strings.TrimSpace(arguments.Path) == "" {
 			return "", fmt.Errorf("path is required")
 		}
-		if err := projectstore.DeleteFile(arguments.ProjectID, arguments.Path); err != nil {
+		if err := deleteFile(arguments.ProjectID, arguments.Path); err != nil {
 			return "", err
 		}
 		output, _ := json.Marshal(projectsToolResponse{Action: "delete", ProjectID: arguments.ProjectID, Success: true})
 		return string(output), nil
 	case "move":
-		if err := projectstore.MoveFile(arguments.ProjectID, arguments.FromPath, arguments.ToPath); err != nil {
+		if err := moveFile(arguments.ProjectID, arguments.FromPath, arguments.ToPath); err != nil {
 			return "", err
 		}
 		output, _ := json.Marshal(projectsToolResponse{Action: "move", ProjectID: arguments.ProjectID, Success: true})
@@ -270,60 +266,4 @@ func (self *projectWorkspaceTool) Execute(ctx context.Context, rawArguments stri
 	default:
 		return "", fmt.Errorf("unknown project_workspace action: %s", arguments.Action)
 	}
-}
-
-func generateDescription(ctx context.Context, name, purpose string) string {
-	runner := agents.RunnerFromContext(ctx)
-	if runner == nil {
-		return ""
-	}
-	userId := agents.UserIDFromContext(ctx)
-	configuration, providerRegistry, _, workspaceDirectory, skillPrompts := runner.Snapshot()
-
-	qualifiedModel := configuration.AgentModel(runner.AgentID)
-	if qualifiedModel == "" {
-		return ""
-	}
-	provider, bareModel, err := providerRegistry.Resolve(qualifiedModel)
-	if err != nil {
-		return ""
-	}
-
-	limits := configuration.ResolveModelLimits(qualifiedModel)
-	userWorkspaceDirectory := ""
-	if strings.TrimSpace(userId) != "" {
-		if resolvedUserWorkspaceDirectory, resolveErr := configs.UserWorkspaceDirectory(userId); resolveErr == nil {
-			userWorkspaceDirectory = resolvedUserWorkspaceDirectory
-		}
-	}
-	systemPrompt := agents.BuildSystemPrompt(
-		configuration,
-		runner.AgentID,
-		userId,
-		workspaceDirectory,
-		userWorkspaceDirectory,
-		skillPrompts,
-		limits.MaxWorkspaceFileChars,
-		nil,
-	)
-
-	request := providers.ChatRequest{
-		Model: bareModel,
-		Messages: []providers.ChatMessage{
-			{Role: "system", Content: systemPrompt},
-			{
-				Role: "user",
-				Content: "Write a 1-2 sentence project description for task routing. " +
-					"Include what this project is for and what work belongs here. " +
-					"Use plain text only. " +
-					"Project name: " + name + ". Purpose: " + strings.TrimSpace(purpose),
-			},
-		},
-	}
-	response, err := provider.ChatCompletion(ctx, request)
-	if err != nil || len(response.Choices) == 0 {
-		return ""
-	}
-	description := strings.TrimSpace(response.Choices[0].Message.ContentText())
-	return description
 }

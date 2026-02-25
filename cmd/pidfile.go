@@ -20,26 +20,23 @@ type gatewayPIDGuard struct {
 }
 
 func acquireGatewayPIDGuard() (*gatewayPIDGuard, error) {
-	pidFile, err := configs.GatewayPIDFile()
-	if err != nil {
-		return nil, err
-	}
+	pidFilename := configs.GatewayPIDFilename()
 
-	existingPid, err := readPIDFile(pidFile)
+	existingPid, err := readPIDFile(pidFilename)
 	switch {
 	case err == nil:
 		if processExists(existingPid) {
 			return nil, fmt.Errorf("gateway already running (pid %d)", existingPid)
 		}
-		log.Warningf("removing stale gateway pid file at %s (pid %d not running)", pidFile, existingPid)
-		if err := os.Remove(pidFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Warningf("removing stale gateway pid file at %s (pid %d not running)", pidFilename, existingPid)
+		if err := os.Remove(pidFilename); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("remove stale gateway pid file: %w", err)
 		}
 	case errors.Is(err, os.ErrNotExist):
 		// No existing pid file.
 	case errors.Is(err, errInvalidPIDFile):
-		log.Warningf("removing invalid gateway pid file at %s: %v", pidFile, err)
-		if err := os.Remove(pidFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Warningf("removing invalid gateway pid file at %s: %v", pidFilename, err)
+		if err := os.Remove(pidFilename); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("remove invalid gateway pid file: %w", err)
 		}
 	default:
@@ -47,10 +44,10 @@ func acquireGatewayPIDGuard() (*gatewayPIDGuard, error) {
 	}
 
 	currentPid := os.Getpid()
-	if err := atomicfile.WriteFile(pidFile, []byte(strconv.Itoa(currentPid)+"\n")); err != nil {
+	if err := atomicfile.WriteFile(pidFilename, []byte(strconv.Itoa(currentPid)+"\n")); err != nil {
 		return nil, fmt.Errorf("write gateway pid file: %w", err)
 	}
-	return &gatewayPIDGuard{path: pidFile, pid: currentPid}, nil
+	return &gatewayPIDGuard{path: pidFilename, pid: currentPid}, nil
 }
 
 func (self *gatewayPIDGuard) Release() error {
@@ -74,32 +71,30 @@ func (self *gatewayPIDGuard) Release() error {
 }
 
 func restartGatewayProcess() error {
-	pidFile, err := configs.GatewayPIDFile()
-	if err != nil {
-		return err
-	}
-	pid, err := readPIDFile(pidFile)
+	pidFilename := configs.GatewayPIDFilename()
+	var err error
+	pid, err := readPIDFile(pidFilename)
 	switch {
 	case err == nil:
 	case errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("gateway is not running (pid file not found: %s)", pidFile)
+		return fmt.Errorf("gateway is not running (pid file not found: %s)", pidFilename)
 	case errors.Is(err, errInvalidPIDFile):
-		return fmt.Errorf("gateway pid file is invalid: %s", pidFile)
+		return fmt.Errorf("gateway pid file is invalid: %s", pidFilename)
 	default:
 		return fmt.Errorf("read gateway pid file: %w", err)
 	}
 
 	if !processExists(pid) {
-		if removeErr := os.Remove(pidFile); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			log.Warningf("failed to remove stale gateway pid file %s: %v", pidFile, removeErr)
+		if removeErr := os.Remove(pidFilename); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			log.Warningf("failed to remove stale gateway pid file %s: %v", pidFilename, removeErr)
 		}
-		return fmt.Errorf("gateway is not running (stale pid file removed: %s)", pidFile)
+		return fmt.Errorf("gateway is not running (stale pid file removed: %s)", pidFilename)
 	}
 
 	if err := syscall.Kill(pid, syscall.SIGHUP); err != nil {
 		if errors.Is(err, syscall.ESRCH) {
-			if removeErr := os.Remove(pidFile); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-				log.Warningf("failed to remove stale gateway pid file %s: %v", pidFile, removeErr)
+			if removeErr := os.Remove(pidFilename); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				log.Warningf("failed to remove stale gateway pid file %s: %v", pidFilename, removeErr)
 			}
 		}
 		return fmt.Errorf("failed to signal gateway process %d: %w", pid, err)

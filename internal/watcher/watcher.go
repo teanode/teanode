@@ -25,7 +25,7 @@ type Watcher struct {
 	OnConfigReload func() // called when config.yaml changes
 	OnSkillsReload func() // called when skills markdown or installed skills change
 	OnJobsReload   func() // called when users/*/jobs/*.md changes
-	OnAgentsReload func() // called when agents/*/config.yaml changes
+	OnAgentsReload func() // called when agents/*/agent.yaml changes
 }
 
 // New creates a new Watcher for the given data directory.
@@ -148,8 +148,8 @@ func (self *Watcher) run(notifier *fsnotify.Watcher) {
 			} else if strings.HasSuffix(name, ".md") && strings.HasPrefix(event.Name, skillsDirectory+string(filepath.Separator)) {
 				log.Infof("skills changed (%s), scheduling reload", name)
 				debounce("skills", self.OnSkillsReload)
-			} else if name == "config.yaml" && strings.HasPrefix(eventDirectory, agentsDirectory+string(filepath.Separator)) {
-				log.Infof("agent config changed (%s), scheduling reload", filepath.Base(eventDirectory))
+			} else if name == "agent.yaml" && strings.HasPrefix(eventDirectory, agentsDirectory+string(filepath.Separator)) {
+				log.Infof("agent file changed (%s), scheduling reload", filepath.Base(eventDirectory))
 				debounce("agents", self.OnAgentsReload)
 			} else if strings.HasPrefix(event.Name, filepath.Join(skillsDirectory, ".installed")+string(filepath.Separator)) {
 				log.Infof("installed skills changed (%s), scheduling reload", name)
