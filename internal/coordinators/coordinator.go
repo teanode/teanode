@@ -471,8 +471,16 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 		message := conversationRunnerInstance.queue[0]
 		conversationRunnerInstance.queue = conversationRunnerInstance.queue[1:]
 
-		// Create a cancellable context for this message.
-		messageContext, cancel := context.WithCancel(message.ctx)
+		// Build a run context from the coordinator's long-lived context so the
+		// runner keeps running even if the caller (e.g. WebSocket) disconnects.
+		// Carry over the authenticated user from the caller's context.
+		runContext := models.ContextWithUserSessionToken(
+			self.ctx,
+			models.UserFromContext(message.ctx),
+			models.SessionFromContext(message.ctx),
+			models.TokenFromContext(message.ctx),
+		)
+		messageContext, cancel := context.WithCancel(runContext)
 		conversationRunnerInstance.cancelCurrent = cancel
 
 		// Ensure coordinator is on the context.
