@@ -1,22 +1,17 @@
 package v1api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"image"
-	"image/draw"
-	"image/jpeg"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
+	_ "image/gif"
+	_ "image/png"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
@@ -24,71 +19,7 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
-	_ "image/gif"
-	_ "image/png"
 )
-
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(request *http.Request) bool { return false },
-}
-
-func loadPublicUrlFromStore(ctx context.Context) string {
-	publicUrl := ""
-	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		configuration, getError := transaction.GetConfiguration(ctx, nil)
-		if getError != nil || configuration == nil || configuration.Gateway == nil || configuration.Gateway.PublicURL == nil {
-			return nil
-		}
-		publicUrl = *configuration.Gateway.PublicURL
-		return nil
-	})
-	return publicUrl
-}
-
-func splitHostPortDefault(rawHost string, tls bool) (string, string) {
-	host, port, err := net.SplitHostPort(rawHost)
-	if err == nil {
-		return strings.ToLower(host), port
-	}
-	defaultPort := "80"
-	if tls {
-		defaultPort = "443"
-	}
-	return strings.ToLower(rawHost), defaultPort
-}
-
-func sameOriginHost(leftHost string, leftTLS bool, rightHost string, rightTLS bool) bool {
-	leftName, leftPort := splitHostPortDefault(leftHost, leftTLS)
-	rightName, rightPort := splitHostPortDefault(rightHost, rightTLS)
-	return leftName == rightName && leftPort == rightPort
-}
-
-func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
-	origin := request.Header.Get("Origin")
-	if origin == "" {
-		return true
-	}
-	originUrl, err := url.Parse(origin)
-	if err != nil || originUrl.Host == "" {
-		return false
-	}
-	originTLS := strings.EqualFold(originUrl.Scheme, "https")
-	requestTLS := request.TLS != nil
-	if sameOriginHost(originUrl.Host, originTLS, request.Host, requestTLS) {
-		return true
-	}
-
-	publicUrl := loadPublicUrlFromStore(request.Context())
-	if publicUrl == "" {
-		return false
-	}
-	parsedPublicUrl, err := url.Parse(publicUrl)
-	if err != nil || parsedPublicUrl.Host == "" {
-		return false
-	}
-	publicTLS := strings.EqualFold(parsedPublicUrl.Scheme, "https")
-	return sameOriginHost(originUrl.Host, originTLS, parsedPublicUrl.Host, publicTLS)
-}
 
 func (self *v1Api) handleHealth(writer http.ResponseWriter, request *http.Request) error {
 	writer.Header().Set("Content-Type", "application/json")
@@ -126,7 +57,6 @@ func (self *v1Api) handleMedia(writer http.ResponseWriter, request *http.Request
 }
 
 const maxUploadSize = 50 << 20 // 50 MB
-const maxAvatarUploadSize = 10 << 20
 
 func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodPost {
@@ -187,55 +117,6 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 		"filename": filename,
 	})
 	return nil
-}
-
-func processAvatarImage(data []byte) ([]byte, string, error) {
-	img, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, "", err
-	}
-
-	bounds := img.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
-	size := width
-	if height < size {
-		size = height
-	}
-	startX := bounds.Min.X + (width-size)/2
-	startY := bounds.Min.Y + (height-size)/2
-
-	square := image.NewRGBA(image.Rect(0, 0, size, size))
-	draw.Draw(square, square.Bounds(), img, image.Point{X: startX, Y: startY}, draw.Src)
-
-	const avatarSize = 256
-	resized := image.NewRGBA(image.Rect(0, 0, avatarSize, avatarSize))
-	scaleNearestNeighbor(resized, square)
-
-	var output bytes.Buffer
-	if err := jpeg.Encode(&output, resized, &jpeg.Options{Quality: 85}); err != nil {
-		return nil, "", err
-	}
-	return output.Bytes(), "jpeg", nil
-}
-
-func scaleNearestNeighbor(destination *image.RGBA, source *image.RGBA) {
-	dstBounds := destination.Bounds()
-	srcBounds := source.Bounds()
-	dstWidth := dstBounds.Dx()
-	dstHeight := dstBounds.Dy()
-	srcWidth := srcBounds.Dx()
-	srcHeight := srcBounds.Dy()
-	if dstWidth <= 0 || dstHeight <= 0 || srcWidth <= 0 || srcHeight <= 0 {
-		return
-	}
-	for y := 0; y < dstHeight; y++ {
-		srcY := y * srcHeight / dstHeight
-		for x := 0; x < dstWidth; x++ {
-			srcX := x * srcWidth / dstWidth
-			destination.Set(x, y, source.At(srcX, srcY))
-		}
-	}
 }
 
 const maxAudioUploadSize = 25 << 20 // 25 MB (OpenAI Whisper limit)
@@ -409,18 +290,4 @@ func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.R
 		io.Copy(writer, result.Audio)
 	}
 	return nil
-}
-
-func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Request) {
-	requestUpgrader := upgrader
-	requestUpgrader.CheckOrigin = func(request *http.Request) bool {
-		return self.isWebSocketOriginAllowed(request)
-	}
-	connection, err := requestUpgrader.Upgrade(writer, request, nil)
-	if err != nil {
-		log.Errorf("websocket upgrade error: %v", err)
-		return
-	}
-	webSocketConnection := newWebSocketConnection(connection, self, request.Context())
-	webSocketConnection.serve()
 }

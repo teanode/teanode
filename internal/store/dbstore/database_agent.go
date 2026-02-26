@@ -13,11 +13,11 @@ import (
 )
 
 type databaseAgentRecord struct {
-	ID            string    `gorm:"column:id;type:varchar(32);primaryKey"`
-	Name          *string   `gorm:"column:name;type:varchar(256)"`
-	Model         *string   `gorm:"column:model;type:varchar(128)"`
-	Skills        []byte    `gorm:"column:skills;type:jsonb"`
-	Tools         []byte    `gorm:"column:tools;type:jsonb"`
+	ID            string     `gorm:"column:id;type:varchar(32);primaryKey"`
+	Name          *string    `gorm:"column:name;type:varchar(256)"`
+	Model         *string    `gorm:"column:model;type:varchar(128)"`
+	Skills        []byte     `gorm:"column:skills;type:jsonb"`
+	Tools         []byte     `gorm:"column:tools;type:jsonb"`
 	Description   *string    `gorm:"column:description"`
 	AvatarMediaID *string    `gorm:"column:avatar_media_id;type:varchar(32)"`
 	SummarizedAt  *time.Time `gorm:"column:summarized_at"`

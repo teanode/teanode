@@ -1,4 +1,4 @@
-package agents
+package runners
 
 import (
 	"bytes"
@@ -22,29 +22,17 @@ import (
 	"github.com/teanode/teanode/internal/util/security"
 )
 
-// conversationState holds per-conversation concurrency control channels.
-type conversationState struct {
-	lock chan struct{} // semaphore (buffered, size 1) — serializes runs
-	done chan struct{} // closed on conversation cancellation — wakes all waiters
-}
-
 // Runner orchestrates: load conversation -> build prompt -> call LLM -> save response.
 type Runner struct {
-	AgentID            string
-	Providers          *providers.Registry
-	ResolveUser        func(userId string) (*models.User, error)
-	Config             *models.Configuration
-	Tools              *toolregistry.ToolRegistry
-	WorkspaceDirectory string
-	SkillPrompts       string
-
-	// conversationStates maps conversation id -> *conversationState for per-conversation serial execution.
-	conversationStates sync.Map
+	AgentID        string
+	ConversationID string
+	Providers      *providers.Registry
+	Tools          *toolregistry.ToolRegistry
+	SkillPrompts   string
 }
 
 // RunParams holds the parameters for a single agent run.
 type RunParams struct {
-	ConversationID     string
 	Message            string
 	Model              string // override config default
 	Attachments        []map[string]string
@@ -65,69 +53,28 @@ type RunResult struct {
 // RunCallbacks receives events during an agent run.
 type RunCallbacks struct {
 	OnQueued     func() // called when the run must wait for the semaphore
-	OnStart      func() // called after the semaphore is acquired, before execution
 	OnTextDelta  func(text string)
 	OnToolCall   func(toolName string, arguments string)
 	OnToolResult func(toolName string, result string)
 }
 
-// getConversationState returns the conversationState for a given conversation id, creating one if needed.
-func (self *Runner) getConversationState(conversationId string) *conversationState {
-	state, _ := self.conversationStates.LoadOrStore(conversationId, &conversationState{
-		lock: make(chan struct{}, 1),
-		done: make(chan struct{}),
-	})
-	return state.(*conversationState)
-}
-
-// CancelConversation closes the done channel for the given conversation id, waking all queued
-// goroutines so they return context.Canceled. A fresh conversationState is created on the
-// next Run call via LoadOrStore.
-func (self *Runner) CancelConversation(conversationId string) {
-	if value, loaded := self.conversationStates.LoadAndDelete(conversationId); loaded {
-		state := value.(*conversationState)
-		close(state.done)
-	}
-}
-
-// Run acquires a per-conversation semaphore so that only one run executes at a time per
-// conversation id. Additional calls block until the current run completes. If the conversation
-// is cancelled via CancelConversation, all waiting goroutines return context.Canceled.
+// Run directly executes a run for this runner's conversation.
 func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
-	state := self.getConversationState(params.ConversationID)
-
-	// Try to acquire the semaphore without blocking first.
-	select {
-	case state.lock <- struct{}{}:
-		// Acquired immediately.
-	default:
-		// Must wait — notify caller that this run is queued.
-		if callbacks != nil && callbacks.OnQueued != nil {
-			callbacks.OnQueued()
-		}
-		select {
-		case state.lock <- struct{}{}:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-state.done:
-			return nil, context.Canceled
-		}
-	}
-	defer func() { <-state.lock }()
-
-	// Re-check conversation cancellation after acquiring.
-	select {
-	case <-state.done:
-		return nil, context.Canceled
-	default:
-	}
-
-	// Notify caller that the run is starting (semaphore acquired).
-	if callbacks != nil && callbacks.OnStart != nil {
-		callbacks.OnStart()
-	}
-
 	return self.executeRun(ctx, params, callbacks)
+}
+
+// ResolveModelsConfiguration reads the current ModelsConfiguration from the store.
+func ResolveModelsConfiguration(ctx context.Context) *models.ModelsConfiguration {
+	var configuration *models.Configuration
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		var getError error
+		configuration, getError = transaction.GetConfiguration(ctx, nil)
+		return getError
+	})
+	if configuration != nil {
+		return configuration.Models
+	}
+	return nil
 }
 
 // executeRun performs the actual chat turn: appends the user message, calls the LLM
@@ -139,26 +86,27 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	}
 	userId := user.ID
 	isAdmin := user.GetAdmin()
-	if self.ResolveUser == nil {
-		return nil, fmt.Errorf("ResolveUser is required")
-	}
 	runId := security.NewULID()
 	now := time.Now().UnixMilli()
 
-	log.Debugf("run start id=%s conversation=%s model=%s", runId, params.ConversationID, params.Model)
+	log.Debugf("run start id=%s conversation=%s model=%s", runId, self.ConversationID, params.Model)
 
 	// Enrich context with conversation id and runner for tools.
-	ctx = ContextWithRun(ctx, params.ConversationID)
-	ctx = contextWithRunner(ctx, self)
+	ctx = ContextWithRunner(ctx, self)
 
 	// 1. Choose model and resolve provider (before appending, so we can stamp the header).
-	qualifiedModel, _ := self.resolveAgentModelAndName(ctx, self.Config.Models.GetDefault())
+	modelsConfiguration := ResolveModelsConfiguration(ctx)
+	defaultModel := ""
+	if modelsConfiguration != nil {
+		defaultModel = modelsConfiguration.GetDefault()
+	}
+	qualifiedModel, _ := self.resolveAgentModelAndName(ctx, defaultModel)
 	if params.Model != "" {
 		qualifiedModel = params.Model
 	}
 
 	// Validate provider/model alignment with existing conversation.
-	conversationMessagesForHeader, headerError := listConversationMessages(ctx, params.ConversationID)
+	conversationMessagesForHeader, headerError := listConversationMessages(ctx, self.ConversationID)
 	if headerError == nil {
 		headerModel := ""
 		for index := len(conversationMessagesForHeader) - 1; index >= 0; index-- {
@@ -171,7 +119,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			// Existing conversation with a locked model.
 			if params.Model != "" && params.Model != headerModel {
 				return nil, fmt.Errorf("model mismatch: conversation %s is locked to %q but request specified %q",
-					params.ConversationID, headerModel, params.Model)
+					self.ConversationID, headerModel, params.Model)
 			}
 			qualifiedModel = headerModel
 		}
@@ -197,12 +145,12 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	}
 	userMessage.Provider = ptrto.Value(resolvedProvider)
 	userMessage.Model = ptrto.Value(qualifiedModel)
-	if err := appendConversationMessage(ctx, userId, self.AgentID, params.ConversationID, userMessage); err != nil {
+	if err := self.appendConversationMessage(ctx,userMessage); err != nil {
 		return nil, fmt.Errorf("saving user message: %w", err)
 	}
 
 	// 3. Load full conversation history.
-	history, err := listConversationMessages(ctx, params.ConversationID)
+	history, err := listConversationMessages(ctx, self.ConversationID)
 	if err != nil {
 		return nil, fmt.Errorf("loading conversation: %w", err)
 	}
@@ -230,23 +178,15 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		}
 
 		// Tier 2: compress context if approaching the context window limit.
-		// Use per-model context window if available, otherwise fall back to configured default.
-		modelsConfiguration := self.Config.Models
+		// Re-read models configuration for fresh values.
+		modelsConfiguration = ResolveModelsConfiguration(ctx)
 		if modelsConfiguration != nil {
 			contextWindow = modelsConfiguration.GetContextWindow()
 		}
-		compressionOptions := contextCompressionModelOptions{}
-		if modelsConfiguration != nil {
-			compressionOptions.DefaultModel = modelsConfiguration.GetDefault()
-			compressionOptions.SummarizerModel = modelsConfiguration.GetSummarizerModel()
-		}
 		llmMessages, err = self.compressContext(
 			ctx,
-			self.Providers,
-			compressionOptions,
 			llmMessages,
 			toolDefs,
-			params.ConversationID,
 			contextWindow,
 			contextCompressionLimits{
 				CompressionThreshold: 0.8,
@@ -389,7 +329,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			assistantMessage.Usage = usageJson
 		}
 
-		if err := appendConversationMessage(ctx, userId, self.AgentID, params.ConversationID, assistantMessage); err != nil {
+		if err := self.appendConversationMessage(ctx,assistantMessage); err != nil {
 			return nil, fmt.Errorf("saving assistant message: %w", err)
 		}
 		history = append(history, &assistantMessage)
@@ -425,7 +365,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 					callbacks.OnToolResult(toolCall.Function.Name, result)
 				}
 				toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result, time.Now().UnixMilli())
-				if err := appendConversationMessage(ctx, userId, self.AgentID, params.ConversationID, toolMessage); err != nil {
+				if err := self.appendConversationMessage(ctx,toolMessage); err != nil {
 					return nil, fmt.Errorf("saving tool denial: %w", err)
 				}
 				history = append(history, &toolMessage)
@@ -473,10 +413,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 				log.Debugf("tool done id=%s name=%s result_len=%d", item.toolCall.ID, item.toolCall.Function.Name, len(result))
 			}
 
-			// Detect media in tool result. If base64 media is found, save it
-			// to store and create a compact reference
-			// for the conversation file and LLM history, while sending the original
-			// (with base64) to live consumers via OnToolResult.
+			// Detect media in tool result.
 			liveResult := result
 			storedResult := result
 			if detected := mimetypes.DetectMedia(result); detected != nil && detected.Base64 != "" && mimetypes.IsImageFormat(detected.Format) {
@@ -492,7 +429,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 							ContentType:    ptrto.Value(contentType),
 							Source:         ptrto.Value("tool"),
 							SourceAgentID:  ptrto.Value(self.AgentID),
-							ConversationID: ptrto.Value(params.ConversationID),
+							ConversationID: ptrto.Value(self.ConversationID),
 							ToolName:       ptrto.Value(item.toolCall.Function.Name),
 							ToolCallID:     ptrto.Value(item.toolCall.ID),
 						}, nil)
@@ -514,7 +451,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			}
 
 			toolMessage := newToolMessage(item.toolCall.ID, item.toolCall.Function.Name, storedResult, time.Now().UnixMilli())
-			if err := appendConversationMessage(ctx, userId, self.AgentID, params.ConversationID, toolMessage); err != nil {
+			if err := self.appendConversationMessage(ctx,toolMessage); err != nil {
 				return nil, fmt.Errorf("saving tool result: %w", err)
 			}
 			history = append(history, &toolMessage)
@@ -635,10 +572,10 @@ func (self *Runner) buildMessages(
 ) []providers.ChatMessage {
 	_, agentName := self.resolveAgentModelAndName(ctx, "")
 	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
-		IdentityLine:            resolveIdentityLine(self.AgentID, agentName),
-		AgentID:                 self.AgentID,
-		SkillPrompts:            skillPrompts,
-		Mode:                    systemPromptMode,
+		IdentityLine: resolveIdentityLine(self.AgentID, agentName),
+		AgentID:      self.AgentID,
+		SkillPrompts: skillPrompts,
+		Mode:         systemPromptMode,
 	})
 	if systemPromptSuffix != "" {
 		systemPrompt += "\n\n" + systemPromptSuffix
@@ -661,11 +598,7 @@ func (self *Runner) buildMessages(
 		startIndex = idx + 1
 	}
 
-	// Skip the remainder of any in-progress run after the summary. When a
-	// summary is appended mid-run (e.g. conversation_compact tool or
-	// auto-compression), messages from that run follow the summary on disk.
-	// Advance past the next complete LLM turn (an assistant message with a
-	// terminal stopReason) so we start from a clean boundary.
+	// Skip the remainder of any in-progress run after the summary.
 	if hasSummary && startIndex < len(history) && conversationMessageRole(*history[startIndex]) != "user" {
 		for startIndex < len(history) {
 			message := history[startIndex]
@@ -713,18 +646,14 @@ func (self *Runner) buildMessages(
 		messages = append(messages, chatMessage)
 	}
 
-	// Fix interrupted tool calls: if an assistant message has tool_calls but
-	// some or all lack corresponding tool result messages, the LLM API will
-	// reject the request. Append synthetic tool results for any unanswered calls.
+	// Fix interrupted tool calls.
 	messages = fixInterruptedToolCalls(messages)
 
 	return messages
 }
 
 // fixInterruptedToolCalls scans for assistant messages with tool_calls whose
-// IDs have no corresponding tool result message following them. For each
-// missing result, a synthetic tool message is appended so the LLM API does
-// not reject the request.
+// IDs have no corresponding tool result message following them.
 func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatMessage {
 	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]
@@ -738,8 +667,6 @@ func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatM
 			if messages[j].Role == "tool" && messages[j].ToolCallID != "" {
 				answered[messages[j].ToolCallID] = true
 			}
-			// Stop at the next assistant or user message — tool results only
-			// apply between this assistant message and the next turn.
 			if messages[j].Role == "assistant" || messages[j].Role == "user" {
 				break
 			}
@@ -747,20 +674,18 @@ func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatM
 
 		// Append synthetic results for any unanswered tool calls.
 		var synthetic []providers.ChatMessage
-		for _, tc := range message.ToolCalls {
-			if !answered[tc.ID] {
+		for _, toolCall := range message.ToolCalls {
+			if !answered[toolCall.ID] {
 				synthetic = append(synthetic, providers.ChatMessage{
 					Role:       "tool",
 					Content:    "Tool call was interrupted and did not complete.",
-					ToolCallID: tc.ID,
-					Name:       tc.Function.Name,
+					ToolCallID: toolCall.ID,
+					Name:       toolCall.Function.Name,
 				})
 			}
 		}
 
 		if len(synthetic) > 0 {
-			// Insert synthetic results right after the existing tool results
-			// for this assistant message (or right after the assistant message).
 			insertAt := i + 1
 			for insertAt < len(messages) && messages[insertAt].Role == "tool" {
 				insertAt++
@@ -776,8 +701,6 @@ func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatM
 }
 
 // buildMultimodalContent converts conversation ContentBlocks into provider ContentParts.
-// Image attachments are sent as image_url parts with base64 data URIs.
-// Non-image attachments are included as text references.
 func (self *Runner) buildMultimodalContent(ctx context.Context, blocks []map[string]string) []providers.ContentPart {
 	var parts []providers.ContentPart
 
@@ -856,22 +779,26 @@ func listConversationMessages(ctx context.Context, conversationId string) ([]*mo
 	return result, err
 }
 
-func appendConversationMessage(ctx context.Context, userId, agentId, conversationId string, message models.ConversationMessage) error {
+func (self *Runner) appendConversationMessage(ctx context.Context, message models.ConversationMessage) error {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
+		return fmt.Errorf("userId is required")
+	}
 	return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		if _, err := transaction.GetConversation(ctx, conversationId, nil); err != nil {
+		if _, err := transaction.GetConversation(ctx, self.ConversationID, nil); err != nil {
 			if err != store.ErrNotFound {
 				return err
 			}
 			if _, createError := transaction.CreateConversation(ctx, &models.Conversation{
-				ID:      conversationId,
-				UserID:  ptrto.Value(userId),
-				AgentID: ptrto.Value(agentId),
+				ID:      self.ConversationID,
+				UserID:  ptrto.Value(user.ID),
+				AgentID: ptrto.Value(self.AgentID),
 			}, nil); createError != nil {
 				return createError
 			}
 		}
 		message.ID = security.NewULID()
-		message.ConversationID = ptrto.Value(conversationId)
+		message.ConversationID = ptrto.Value(self.ConversationID)
 		_, err := transaction.CreateConversationMessage(ctx, &message, nil)
 		return err
 	})

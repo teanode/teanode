@@ -11,7 +11,11 @@ import (
 )
 
 // unifiProtectTool implements the consolidated unifi_protect tool.
-type unifiProtectTool struct {
+type unifiProtectTool struct{}
+
+// unifiProtectExecution holds per-call client and access checker
+// built from the current store configuration.
+type unifiProtectExecution struct {
 	client  Client
 	checker *AccessChecker
 }
@@ -91,6 +95,23 @@ func (self *unifiProtectTool) Definition() providers.ToolDefinition {
 }
 
 func (self *unifiProtectTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	config := configFromContext(ctx)
+	if config.baseURL == "" {
+		return "", fmt.Errorf("UniFi Protect tool is not configured: baseUrl is missing")
+	}
+	if config.apiKey == "" && (config.username == "" || config.password == "") {
+		return "", fmt.Errorf("UniFi Protect tool is not configured: credentials are missing (need apiKey or username+password)")
+	}
+
+	execution := &unifiProtectExecution{
+		client:  NewHTTPClient(config),
+		checker: NewAccessChecker(config),
+	}
+
+	return execution.execute(ctx, rawArguments)
+}
+
+func (self *unifiProtectExecution) execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action        string `json:"action"`
 		CameraID      string `json:"cameraId"`
@@ -120,7 +141,7 @@ func (self *unifiProtectTool) Execute(ctx context.Context, rawArguments string) 
 	}
 }
 
-func (self *unifiProtectTool) executeListCameras(ctx context.Context, isDoorbellFilter *bool) (string, error) {
+func (self *unifiProtectExecution) executeListCameras(ctx context.Context, isDoorbellFilter *bool) (string, error) {
 	cameras, err := self.client.GetCameras(ctx)
 	if err != nil {
 		return "", fmt.Errorf("listing cameras: %w", err)
@@ -162,7 +183,7 @@ func (self *unifiProtectTool) executeListCameras(ctx context.Context, isDoorbell
 	})
 }
 
-func (self *unifiProtectTool) executeGetCamera(ctx context.Context, cameraId string) (string, error) {
+func (self *unifiProtectExecution) executeGetCamera(ctx context.Context, cameraId string) (string, error) {
 	if cameraId == "" {
 		return "", fmt.Errorf("cameraId is required for get_camera action")
 	}
@@ -178,7 +199,7 @@ func (self *unifiProtectTool) executeGetCamera(ctx context.Context, cameraId str
 	})
 }
 
-func (self *unifiProtectTool) executeGetSnapshot(ctx context.Context, cameraId string) (string, error) {
+func (self *unifiProtectExecution) executeGetSnapshot(ctx context.Context, cameraId string) (string, error) {
 	if cameraId == "" {
 		return "", fmt.Errorf("cameraId is required for get_snapshot action")
 	}
@@ -201,7 +222,7 @@ func (self *unifiProtectTool) executeGetSnapshot(ctx context.Context, cameraId s
 	})
 }
 
-func (self *unifiProtectTool) executeSetStatusLight(ctx context.Context, cameraId string, enabled *bool) (string, error) {
+func (self *unifiProtectExecution) executeSetStatusLight(ctx context.Context, cameraId string, enabled *bool) (string, error) {
 	if err := self.checkWriteAction("set_status_light"); err != nil {
 		return "", err
 	}
@@ -235,7 +256,7 @@ func (self *unifiProtectTool) executeSetStatusLight(ctx context.Context, cameraI
 	})
 }
 
-func (self *unifiProtectTool) executeSetRecordingMode(ctx context.Context, cameraId string, recordingMode string) (string, error) {
+func (self *unifiProtectExecution) executeSetRecordingMode(ctx context.Context, cameraId string, recordingMode string) (string, error) {
 	if err := self.checkWriteAction("set_recording_mode"); err != nil {
 		return "", err
 	}
@@ -276,7 +297,7 @@ func (self *unifiProtectTool) executeSetRecordingMode(ctx context.Context, camer
 	})
 }
 
-func (self *unifiProtectTool) executeSetPrivacyMode(ctx context.Context, cameraId string, enabled *bool) (string, error) {
+func (self *unifiProtectExecution) executeSetPrivacyMode(ctx context.Context, cameraId string, enabled *bool) (string, error) {
 	if err := self.checkWriteAction("set_privacy_mode"); err != nil {
 		return "", err
 	}
@@ -329,7 +350,7 @@ func (self *unifiProtectTool) executeSetPrivacyMode(ctx context.Context, cameraI
 
 // resolveCamera finds a camera by ID or name from the bootstrap data and
 // enforces the camera allowlist.
-func (self *unifiProtectTool) resolveCamera(ctx context.Context, cameraIDOrName string) (*Camera, error) {
+func (self *unifiProtectExecution) resolveCamera(ctx context.Context, cameraIDOrName string) (*Camera, error) {
 	cameras, err := self.client.GetCameras(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetching cameras: %w", err)
@@ -351,7 +372,7 @@ func (self *unifiProtectTool) resolveCamera(ctx context.Context, cameraIDOrName 
 
 // checkWriteAction verifies that write operations are allowed and the specific
 // action is in the dangerous actions allowlist.
-func (self *unifiProtectTool) checkWriteAction(action string) error {
+func (self *unifiProtectExecution) checkWriteAction(action string) error {
 	if !self.checker.IsWriteAllowed() {
 		return fmt.Errorf("%s is blocked: UniFi Protect is configured in read-only mode", action)
 	}

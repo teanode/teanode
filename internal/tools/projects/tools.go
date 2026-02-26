@@ -16,14 +16,14 @@ type projectsTool struct{}
 type projectWorkspaceTool struct{}
 
 type projectsToolResponse struct {
-	Action    string           `json:"action"`
-	ProjectID string           `json:"projectId,omitempty"`
-	Project   *models.Project  `json:"project,omitempty"`
+	Action    string            `json:"action"`
+	ProjectID string            `json:"projectId,omitempty"`
+	Project   *models.Project   `json:"project,omitempty"`
 	Projects  []*models.Project `json:"projects,omitempty"`
-	Files     []string         `json:"files,omitempty"`
-	Content   string           `json:"content,omitempty"`
-	Matches   []searchMatch    `json:"matches,omitempty"`
-	Success   bool             `json:"success,omitempty"`
+	Files     []string          `json:"files,omitempty"`
+	Content   string            `json:"content,omitempty"`
+	Matches   []searchMatch     `json:"matches,omitempty"`
+	Success   bool              `json:"success,omitempty"`
 }
 
 func (self *projectsTool) Definition() providers.ToolDefinition {

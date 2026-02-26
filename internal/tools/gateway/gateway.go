@@ -5,23 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/providers"
 	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 // RegisterTools adds the consolidated gateway lifecycle tool to the registry.
-// The scheduleLifecycle callback defers the action until the current agent run
-// completes, ensuring the LLM can generate its final response before shutdown.
-func RegisterTools(registry *toolregistry.ToolRegistry, scheduleLifecycle func(gw.LifecycleAction)) {
-	registry.Register(&gatewayTool{scheduleLifecycle: scheduleLifecycle})
+func RegisterTools(registry *toolregistry.ToolRegistry) {
+	registry.Register(&gatewayTool{})
 }
 
 // --- gateway (multi-action) ---
 
-type gatewayTool struct {
-	scheduleLifecycle func(gw.LifecycleAction)
-}
+type gatewayTool struct{}
 
 func (self *gatewayTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
@@ -61,7 +57,7 @@ func (self *gatewayTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *gatewayTool) Execute(context context.Context, rawArguments string) (string, error) {
+func (self *gatewayTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action string `json:"action"`
 	}
@@ -69,21 +65,26 @@ func (self *gatewayTool) Execute(context context.Context, rawArguments string) (
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
 
-	var action gw.LifecycleAction
+	lc := lifecycle.LifecycleFromContext(ctx)
+	if lc == nil {
+		return "", fmt.Errorf("missing lifecycle context")
+	}
+
+	var action lifecycle.Action
 	var status string
 
 	switch arguments.Action {
 	case "restart":
-		action = gw.LifecycleRestart
+		action = lifecycle.Restart
 		status = "scheduled_restart"
 	case "terminate":
-		action = gw.LifecycleShutdown
+		action = lifecycle.Shutdown
 		status = "scheduled_shutdown"
 	default:
 		return "", fmt.Errorf("unknown gateway action: %s", arguments.Action)
 	}
 
-	self.scheduleLifecycle(action)
+	lc.ScheduleLifecycle(action)
 
 	result, _ := json.Marshal(map[string]interface{}{
 		"action":  arguments.Action,

@@ -3,11 +3,11 @@ package workspace
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	storefs "github.com/teanode/teanode/internal/store/fsstore"
 	toolregistry "github.com/teanode/teanode/internal/tools"
@@ -25,9 +25,9 @@ func setupWorkspaceStore(t *testing.T) context.Context {
 
 func TestWorkspaceTools(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
-	memoryDirectory := t.TempDir()
+	ctx = runners.ContextWithRunner(ctx, &runners.Runner{AgentID: "test-agent"})
 	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry, memoryDirectory)
+	RegisterTools(registry)
 
 	tool := registry.Get("agent_workspace")
 	if tool == nil {
@@ -106,9 +106,9 @@ func TestWorkspaceTools(t *testing.T) {
 
 func TestWorkspaceAppendTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
-	memoryDirectory := t.TempDir()
+	ctx = runners.ContextWithRunner(ctx, &runners.Runner{AgentID: "test-agent"})
 	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry, memoryDirectory)
+	RegisterTools(registry)
 
 	tool := registry.Get("agent_workspace")
 	if tool == nil {
@@ -165,9 +165,9 @@ func TestWorkspaceAppendTool(t *testing.T) {
 
 func TestWorkspaceSearchTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
-	memoryDirectory := t.TempDir()
+	ctx = runners.ContextWithRunner(ctx, &runners.Runner{AgentID: "test-agent"})
 	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry, memoryDirectory)
+	RegisterTools(registry)
 
 	tool := registry.Get("agent_workspace")
 	if tool == nil {
@@ -264,7 +264,7 @@ func TestUserWorkspaceTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
 
 	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry, filepath.Join(t.TempDir(), "agents", "alpha", "workspace"))
+	RegisterTools(registry)
 
 	userTool := registry.Get("user_workspace")
 	if userTool == nil {

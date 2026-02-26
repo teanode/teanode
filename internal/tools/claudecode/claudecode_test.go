@@ -87,8 +87,6 @@ func TestRunWithValidJSON(testing *testing.T) {
 
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -148,8 +146,6 @@ func TestRunWithNonJSONFallback(testing *testing.T) {
 
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -180,8 +176,6 @@ func TestRunWithNonJSONFallbackError(testing *testing.T) {
 
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -211,8 +205,6 @@ func TestRunMissingPrompt(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -230,8 +222,6 @@ func TestRunRequiresResumeWhenSessionExists(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions: map[string]*sessionInfo{
 			"existing-session": {SessionID: "existing-session"},
@@ -253,8 +243,6 @@ func TestRunAllowsForceNewSessionWhenSessionExists(testing *testing.T) {
 	runner, calls := mockRunner(claudeOutput, "", 0, nil)
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions: map[string]*sessionInfo{
 			"existing-session": {SessionID: "existing-session"},
@@ -283,8 +271,6 @@ func TestResumeKnownSession(testing *testing.T) {
 
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions: map[string]*sessionInfo{
 			"abc-123": {
@@ -344,8 +330,6 @@ func TestResumeWithoutTrackedSession(testing *testing.T) {
 	runner, calls := mockRunner(claudeOutput, "", 0, nil)
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -390,8 +374,6 @@ func TestResumeMissingSessionID(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -410,8 +392,6 @@ func TestResumeMissingPrompt(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions: map[string]*sessionInfo{
 			"abc-123": {SessionID: "abc-123"},
@@ -470,8 +450,6 @@ func TestListSessionsAfterRuns(testing *testing.T) {
 
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -645,11 +623,9 @@ func marshalContent(value string) []byte {
 // --- argument building tests ---
 
 func TestBuildArgumentsBasic(testing *testing.T) {
-	tool := &claudeCodeTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
 
 	// Verify -p is first.
 	if len(arguments) < 2 || arguments[0] != "-p" || arguments[1] != "Do something" {
@@ -690,11 +666,9 @@ func TestBuildArgumentsBasic(testing *testing.T) {
 }
 
 func TestBuildArgumentsWithResume(testing *testing.T) {
-	tool := &claudeCodeTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments("Continue", "session-xyz", "")
+	arguments := tool.buildArguments(context.Background(), "Continue", "session-xyz", "")
 
 	foundResume := false
 	for index, argument := range arguments {
@@ -708,32 +682,24 @@ func TestBuildArgumentsWithResume(testing *testing.T) {
 	}
 }
 
-func TestBuildArgumentsWithModel(testing *testing.T) {
-	tool := &claudeCodeTool{
-		allowedTools: DefaultAllowedTools,
-		model:        "claude-sonnet-4-5-20250514",
-	}
+func TestBuildArgumentsWithoutModelConfig(testing *testing.T) {
+	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
 
-	foundModel := false
-	for index, argument := range arguments {
-		if argument == "--model" && index+1 < len(arguments) && arguments[index+1] == "claude-sonnet-4-5-20250514" {
-			foundModel = true
+	// Without a store in context, no --model flag should be emitted.
+	for _, argument := range arguments {
+		if argument == "--model" {
+			testing.Errorf("did not expect '--model' without config, got: %v", arguments)
 			break
 		}
-	}
-	if !foundModel {
-		testing.Errorf("expected '--model claude-sonnet-4-5-20250514' in args: %v", arguments)
 	}
 }
 
 func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
-	tool := &claudeCodeTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments("Do something", "", "You are a helpful assistant")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "You are a helpful assistant")
 
 	foundSystemPrompt := false
 	for index, argument := range arguments {
@@ -747,14 +713,12 @@ func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
 	}
 }
 
-func TestBuildArgumentsAllowedToolsAlwaysPresent(testing *testing.T) {
-	tool := &claudeCodeTool{
-		allowedTools: []string{"Bash", "Read"},
-	}
+func TestBuildArgumentsDefaultAllowedToolsPresent(testing *testing.T) {
+	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
 
-	// Find the --allowedTools flag and verify the tools follow.
+	// Without a store in context, DefaultAllowedTools should be used.
 	allowedToolsIndex := -1
 	for index, argument := range arguments {
 		if argument == "--allowedTools" {
@@ -765,15 +729,16 @@ func TestBuildArgumentsAllowedToolsAlwaysPresent(testing *testing.T) {
 	if allowedToolsIndex == -1 {
 		testing.Fatalf("--allowedTools not found in args: %v", arguments)
 	}
-	// The tools should follow immediately after --allowedTools.
-	if allowedToolsIndex+2 >= len(arguments) {
-		testing.Fatalf("not enough args after --allowedTools: %v", arguments)
-	}
-	if arguments[allowedToolsIndex+1] != "Bash" {
-		testing.Errorf("expected 'Bash' after --allowedTools, got %q", arguments[allowedToolsIndex+1])
-	}
-	if arguments[allowedToolsIndex+2] != "Read" {
-		testing.Errorf("expected 'Read' after --allowedTools, got %q", arguments[allowedToolsIndex+2])
+	// The default tools should follow immediately after --allowedTools.
+	expectedTools := DefaultAllowedTools
+	for offset, expectedTool := range expectedTools {
+		position := allowedToolsIndex + 1 + offset
+		if position >= len(arguments) {
+			testing.Fatalf("not enough args after --allowedTools: %v", arguments)
+		}
+		if arguments[position] != expectedTool {
+			testing.Errorf("expected %q at position %d after --allowedTools, got %q", expectedTool, offset, arguments[position])
+		}
 	}
 }
 
@@ -785,8 +750,6 @@ func TestTimeoutCapping(testing *testing.T) {
 
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -859,8 +822,6 @@ func TestRunCommandExecutionError(testing *testing.T) {
 
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -883,8 +844,6 @@ func TestRunWithWorkingDirectory(testing *testing.T) {
 
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -914,8 +873,6 @@ func TestRunFallbackToStderr(testing *testing.T) {
 
 	tool := &claudeCodeTool{
 		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}

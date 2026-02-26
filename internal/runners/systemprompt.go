@@ -1,4 +1,4 @@
-package agents
+package runners
 
 import (
 	"bytes"
@@ -53,8 +53,6 @@ type buildSystemPromptParameters struct {
 }
 
 // buildSystemPrompt generates the system prompt for an agent run.
-// If workspace directories are non-empty, workspace files are loaded and injected.
-// maxWorkspaceFileChars controls the per-file truncation limit.
 func buildSystemPrompt(ctx context.Context, parameters buildSystemPromptParameters) string {
 	// Resolve the identity line.
 	identityLine := parameters.IdentityLine
@@ -229,8 +227,7 @@ func resolveIdentityLine(agentId string, agentName string) string {
 }
 
 // agentIdentitySuffix returns a sentence fragment identifying the agent by name
-// and ID (e.g. "You are 'Research Assistant' (agent: research).") or just by ID
-// when no friendly name is set.
+// and ID or just by ID when no friendly name is set.
 func agentIdentitySuffix(agentId string, agentName string) string {
 	if agentName != "" {
 		return fmt.Sprintf("You are '%s' (agent: %s).", agentName, agentId)

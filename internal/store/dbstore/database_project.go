@@ -80,10 +80,10 @@ func (self *databaseTransaction) ModifyProject(ctx context.Context, projectId st
 	record.ID = projectId
 	record.ModifiedAt = *ptrto.TimeNowInLocal()
 	updateError := self.database.Model(&databaseProjectRecord{}).Where("id = ?", record.ID).Updates(map[string]interface{}{
-		"name":           record.Name,
-		"description":    record.Description,
-		"summarized_at":  record.SummarizedAt,
-		"modified_at":    record.ModifiedAt,
+		"name":          record.Name,
+		"description":   record.Description,
+		"summarized_at": record.SummarizedAt,
+		"modified_at":   record.ModifiedAt,
 	}).Error
 	if updateError != nil {
 		return nil, databaseError(updateError)

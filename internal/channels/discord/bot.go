@@ -14,9 +14,10 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/mimetypes"
@@ -143,12 +144,11 @@ type discordSubscribedRun struct {
 
 // Bot manages a Discord bot that forwards messages to the agents.
 type Bot struct {
-	token         string
-	ctx           context.Context
-	agentRegistry *agents.AgentRegistry
-	gateway       gw.Gateway
-	discord       *discordgo.Session
-	botUserId     string
+	token     string
+	ctx       context.Context
+	gateway   gw.Gateway
+	discord   *discordgo.Session
+	botUserId string
 
 	// Per-channel model overrides (channelId -> model name).
 	modelMutex     sync.RWMutex
@@ -165,12 +165,11 @@ type Bot struct {
 	userChannels        map[string]string // userId -> channelId
 }
 
-// New creates a new Discord bot that dynamically resolves the default agent and conversation from the registry.
-func New(token string, ctx context.Context, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
+// New creates a new Discord bot that dynamically resolves the default agent and conversation from the gateway.
+func New(token string, ctx context.Context, gateway gw.Gateway) *Bot {
 	return &Bot{
 		token:               token,
 		ctx:                 ctx,
-		agentRegistry:       agentRegistry,
 		gateway:             gateway,
 		modelOverrides:      make(map[string]string),
 		activeConversations: make(map[string]struct{}),
@@ -227,7 +226,7 @@ func (self *Bot) shouldForwardDisconnectedSession(userId, agentId, conversationI
 	if agentId != defaultAgentId {
 		return false
 	}
-	defaultConversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+	defaultConversationId := self.gateway.EnsureDefaultConversation(userId, defaultAgentId)
 	if defaultConversationId == "" || conversationId == "" {
 		return false
 	}
@@ -497,7 +496,7 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		discordSession.ChannelMessageSend(event.ChannelID, "No default agent available.")
 		return
 	}
-	conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+	conversationId := self.gateway.EnsureDefaultConversation(userId, defaultAgentId)
 
 	// Check if there's already an active run for this conversation.
 	if self.gateway.GetActiveRun(conversationId) != "" {
@@ -558,7 +557,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 	preview := newDiscordStreamPreview(self.discord, channelId)
 
 	// Caller-specific callbacks: only preview/typing/media logic.
-	callerCallbacks := &agents.RunCallbacks{
+	callerCallbacks := &runners.RunCallbacks{
 		OnTextDelta: func(text string) {
 			preview.Update(text)
 		},
@@ -654,28 +653,22 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 		discordSession.ChannelMessageSend(channelId, "No default agent available.")
 		return
 	}
-	runner := self.agentRegistry.GetRunner(defaultAgentId)
-
 	switch name {
 	case "new":
 		conversationId := self.gateway.NewDefaultConversation(user.ID, defaultAgentId, "")
 		reply = fmt.Sprintf("New conversation started. (`%s`)", conversationId)
 
 	case "reset", "clear":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
+		conversationId := self.gateway.EnsureDefaultConversation(user.ID, defaultAgentId)
 		// Abort active run if any.
 		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
 			self.gateway.AbortRun(activeRunId)
 		}
-		if err := self.gateway.DeleteConversation(user.ID, defaultAgentId, conversationId); err != nil {
-			reply = fmt.Sprintf("Error clearing conversation: %v", err)
-		} else {
-			newConversationId := self.gateway.NewDefaultConversation(user.ID, defaultAgentId, "")
-			reply = fmt.Sprintf("Conversation cleared. New conversation started. (`%s`)", newConversationId)
-		}
+		newConversationId := self.gateway.NewDefaultConversation(user.ID, defaultAgentId, "")
+		reply = fmt.Sprintf("Conversation cleared. New conversation started. (`%s`)", newConversationId)
 
 	case "stop":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
+		conversationId := self.gateway.EnsureDefaultConversation(user.ID, defaultAgentId)
 		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
 			self.gateway.AbortRun(activeRunId)
 			reply = "Run cancelled."
@@ -686,8 +679,8 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 	case "model":
 		if arguments == "" {
 			model := self.getModel(channelId)
-			if model == "" && runner != nil {
-				model = runner.Config.Models.GetDefault()
+			if model == "" {
+				model = self.resolveDefaultModel()
 			}
 			reply = fmt.Sprintf("Current model: `%s`", model)
 		} else {
@@ -711,7 +704,7 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 			}
 			reply = strings.Join(lines, "\n")
 		} else {
-			if self.agentRegistry.GetRunner(arguments) == nil {
+			if !self.agentExistsInStore(arguments) {
 				reply = fmt.Sprintf("Error: agent not found: %s", arguments)
 			} else if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 				_, err := transaction.ModifyUser(ctx, user.ID, func(user *models.User) error {
@@ -726,50 +719,43 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 					"defaultAgentId": arguments,
 					"userId":         user.ID,
 				})
-				newConversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, arguments)
+				newConversationId := self.gateway.EnsureDefaultConversation(user.ID, arguments)
 				reply = fmt.Sprintf("Switched to agent `%s`. (conversation: `%s`)", arguments, newConversationId)
 			}
 		}
 
 	case "status":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
+		conversationId := self.gateway.EnsureDefaultConversation(user.ID, defaultAgentId)
 		model := self.getModel(channelId)
-		if model == "" && runner != nil {
-			model = runner.Config.Models.GetDefault()
+		if model == "" {
+			model = self.resolveDefaultModel()
 		}
 		running := self.gateway.GetActiveRun(conversationId) != ""
 		status := "idle"
 		if running {
 			status = "running"
 		}
-		providerName := ""
-		if runner != nil {
-			providerName = runner.Providers.DefaultProvider()
-		}
+		providerName := self.gateway.ProviderRegistry().DefaultProvider()
 		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
 
 	case "compact":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(user.ID, defaultAgentId)
-		if runner != nil {
-			compactContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
-			result, err := runner.CompactConversation(compactContext, conversationId)
-			if err != nil {
-				reply = fmt.Sprintf("Error compacting: %v", err)
-			} else {
-				reply = fmt.Sprintf("Conversation compacted. Summarized %d messages.", result.SummarizedMessages)
-			}
+		conversationId := self.gateway.EnsureDefaultConversation(user.ID, defaultAgentId)
+		compactContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
+		result, err := self.gateway.Coordinator().CompactConversation(compactContext, defaultAgentId, conversationId)
+		if err != nil {
+			reply = fmt.Sprintf("Error compacting: %v", err)
 		} else {
-			reply = "No default agent available."
+			reply = fmt.Sprintf("Conversation compacted. Summarized %d messages.", result.SummarizedMessages)
 		}
 
 	case "restart":
 		discordSession.ChannelMessageSend(channelId, "Restarting gateway...")
-		self.gateway.RequestLifecycle(gw.LifecycleRestart)
+		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Restart)
 		return
 
 	case "terminate":
 		discordSession.ChannelMessageSend(channelId, "Shutting down gateway...")
-		self.gateway.RequestLifecycle(gw.LifecycleShutdown)
+		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Shutdown)
 		return
 
 	case "help":
@@ -813,6 +799,32 @@ func (self *Bot) linkedUserForDiscordUser(discordUserId string) *models.User {
 		return nil
 	})
 	return user
+}
+
+func (self *Bot) agentExistsInStore(agentId string) bool {
+	exists := false
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		if _, getError := transaction.GetAgent(ctx, agentId, nil); getError == nil {
+			exists = true
+		}
+		return nil
+	})
+	return exists
+}
+
+func (self *Bot) resolveDefaultModel() string {
+	var defaultModel string
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, getError := transaction.GetConfiguration(ctx, nil)
+		if getError != nil {
+			return getError
+		}
+		if configuration.Models != nil {
+			defaultModel = configuration.Models.GetDefault()
+		}
+		return nil
+	})
+	return defaultModel
 }
 
 func (self *Bot) listAgentIDsFromStore() []string {

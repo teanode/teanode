@@ -7,11 +7,11 @@ type Configuration struct {
 	CreatedAt  *time.Time `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
 	ModifiedAt *time.Time `json:"modifiedAt,omitempty" yaml:"modifiedAt,omitempty"`
 
-	Gateway          *GatewayConfiguration         `json:"gateway,omitempty" yaml:"gateway,omitempty"`
-	Models           *ModelsConfiguration          `json:"models,omitempty" yaml:"models,omitempty"`
-	Tools            *ToolsConfiguration           `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Integrations     *IntegrationsConfiguration    `json:"integrations,omitempty" yaml:"integrations,omitempty"`
-	Channels         *ChannelsConfiguration        `json:"channels,omitempty" yaml:"channels,omitempty"`
+	Gateway          *GatewayConfiguration          `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Models           *ModelsConfiguration           `json:"models,omitempty" yaml:"models,omitempty"`
+	Tools            *ToolsConfiguration            `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Integrations     *IntegrationsConfiguration     `json:"integrations,omitempty" yaml:"integrations,omitempty"`
+	Channels         *ChannelsConfiguration         `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Secrets          *[]*SecretConfiguration        `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	SkillsRegistries *[]*SkillRegistryConfiguration `json:"skillsRegistries,omitempty" yaml:"skillsRegistries,omitempty"`
 }
@@ -23,12 +23,12 @@ type GatewayConfiguration struct {
 }
 
 type ModelsConfiguration struct {
-	Default         *string                       `json:"default,omitempty" yaml:"default,omitempty"`
-	SummarizerModel *string                       `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"`
-	ContextWindow   *int                          `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
-	Providers       *[]*ProviderConfiguration     `json:"providers,omitempty" yaml:"providers,omitempty"`
-	DefaultLimits   *map[string]interface{}        `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`
-	Limits          *[]map[string]interface{}       `json:"limits,omitempty" yaml:"limits,omitempty"`
+	Default         *string                   `json:"default,omitempty" yaml:"default,omitempty"`
+	SummarizerModel *string                   `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"`
+	ContextWindow   *int                      `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
+	Providers       *[]*ProviderConfiguration `json:"providers,omitempty" yaml:"providers,omitempty"`
+	DefaultLimits   *map[string]interface{}   `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`
+	Limits          *[]map[string]interface{} `json:"limits,omitempty" yaml:"limits,omitempty"`
 }
 
 type ProviderConfiguration struct {

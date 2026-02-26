@@ -85,6 +85,7 @@ type ConversationOperation interface {
 	CreateConversation(ctx context.Context, conversation *models.Conversation, options *Option) (*models.Conversation, error)
 	GetConversation(ctx context.Context, conversationId string, options *Option) (*models.Conversation, error)
 	FindDefaultConversation(ctx context.Context, userId string, agentId string, options *Option) (*models.Conversation, error)
+	SetDefaultConversation(ctx context.Context, conversationId string, options *Option) error
 	ModifyConversation(ctx context.Context, conversationId string, modifier func(*models.Conversation) error, options *Option) (*models.Conversation, error)
 	DeleteConversation(ctx context.Context, conversationId string, options *Option) error
 }

@@ -1,4 +1,4 @@
-package browsers
+package browser
 
 import (
 	"context"
@@ -6,25 +6,26 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
-// RegisterBrowserTools adds all browser-control tools to the registry.
-func RegisterBrowserTools(registry *toolregistry.ToolRegistry, browser Browser) {
-	registry.Register(&browserTool{browser: browser})
-	registry.Register(&browserTabsTool{browser: browser})
+// RegisterTools adds all browser-control tools to the registry.
+func RegisterTools(registry *toolregistry.ToolRegistry) {
+	registry.Register(&browserTool{})
+	registry.Register(&browserTabsTool{})
 }
 
 // resolveSessionId returns the sessionId for the given user and connectionId,
 // or falls back to the user's default target's session ID.
-func resolveSessionId(ctx context.Context, browser Browser, connectionId string) (string, error) {
+func resolveSessionId(ctx context.Context, browser browsers.Browser, connectionId string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	scopedBrowser, ok := browser.(UserScopedBrowser)
+	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
 	if !ok {
 		return "", fmt.Errorf("browser backend does not support user scoping")
 	}
@@ -44,7 +45,7 @@ func resolveSessionId(ctx context.Context, browser Browser, connectionId string)
 
 // --- browser (page interaction) ---
 
-type browserTool struct{ browser Browser }
+type browserTool struct{}
 
 func (self *browserTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
@@ -106,6 +107,11 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 }
 
 func (self *browserTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	browser := browsers.BrowserFromContext(ctx)
+	if browser == nil {
+		return "", fmt.Errorf("no browser available")
+	}
+
 	var arguments struct {
 		Action       string   `json:"action"`
 		ConnectionID string   `json:"connectionId"`
@@ -123,30 +129,30 @@ func (self *browserTool) Execute(ctx context.Context, rawArguments string) (stri
 
 	switch arguments.Action {
 	case "navigate":
-		return self.executeNavigate(ctx, arguments.ConnectionID, arguments.URL)
+		return executeNavigate(ctx, browser, arguments.ConnectionID, arguments.URL)
 	case "screenshot":
-		return self.executeScreenshot(ctx, arguments.ConnectionID)
+		return executeScreenshot(ctx, browser, arguments.ConnectionID)
 	case "snapshot":
-		return self.executeSnapshot(ctx, arguments.ConnectionID)
+		return executeSnapshot(ctx, browser, arguments.ConnectionID)
 	case "click":
-		return self.executeClick(ctx, arguments.ConnectionID, arguments.X, arguments.Y, arguments.Selector)
+		return executeClick(ctx, browser, arguments.ConnectionID, arguments.X, arguments.Y, arguments.Selector)
 	case "type":
-		return self.executeType(ctx, arguments.ConnectionID, arguments.Text, arguments.Selector)
+		return executeType(ctx, browser, arguments.ConnectionID, arguments.Text, arguments.Selector)
 	case "press_key":
-		return self.executePressKey(ctx, arguments.ConnectionID, arguments.Key)
+		return executePressKey(ctx, browser, arguments.ConnectionID, arguments.Key)
 	case "evaluate":
-		return self.executeEvaluate(ctx, arguments.ConnectionID, arguments.Expression)
+		return executeEvaluate(ctx, browser, arguments.ConnectionID, arguments.Expression)
 	default:
 		return "", fmt.Errorf("unknown browser action: %s", arguments.Action)
 	}
 }
 
-func (self *browserTool) executeNavigate(ctx context.Context, connectionId string, url string) (string, error) {
-	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
+func executeNavigate(ctx context.Context, browser browsers.Browser, connectionId string, url string) (string, error) {
+	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
 		return "", err
 	}
-	_, err = self.browser.SendCDPCommand(ctx, "Page.navigate", map[string]interface{}{
+	_, err = browser.SendCDPCommand(ctx, "Page.navigate", map[string]interface{}{
 		"url": url,
 	}, sessionId)
 	if err != nil {
@@ -156,12 +162,12 @@ func (self *browserTool) executeNavigate(ctx context.Context, connectionId strin
 	return string(out), nil
 }
 
-func (self *browserTool) executeScreenshot(ctx context.Context, connectionId string) (string, error) {
-	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
+func executeScreenshot(ctx context.Context, browser browsers.Browser, connectionId string) (string, error) {
+	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
 		return "", err
 	}
-	result, err := self.browser.SendCDPCommand(ctx, "Page.captureScreenshot", map[string]interface{}{
+	result, err := browser.SendCDPCommand(ctx, "Page.captureScreenshot", map[string]interface{}{
 		"format": "png",
 	}, sessionId)
 	if err != nil {
@@ -180,12 +186,12 @@ func (self *browserTool) executeScreenshot(ctx context.Context, connectionId str
 	return string(out), nil
 }
 
-func (self *browserTool) executeSnapshot(ctx context.Context, connectionId string) (string, error) {
-	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
+func executeSnapshot(ctx context.Context, browser browsers.Browser, connectionId string) (string, error) {
+	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
 		return "", err
 	}
-	result, err := self.browser.SendCDPCommand(ctx, "Accessibility.getFullAXTree", nil, sessionId)
+	result, err := browser.SendCDPCommand(ctx, "Accessibility.getFullAXTree", nil, sessionId)
 	if err != nil {
 		return "", err
 	}
@@ -199,15 +205,15 @@ func (self *browserTool) executeSnapshot(ctx context.Context, connectionId strin
 	return string(out), nil
 }
 
-func (self *browserTool) executeClick(ctx context.Context, connectionId string, x *float64, y *float64, selector string) (string, error) {
-	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
+func executeClick(ctx context.Context, browser browsers.Browser, connectionId string, x *float64, y *float64, selector string) (string, error) {
+	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
 		return "", err
 	}
 
 	if selector != "" {
 		expression := fmt.Sprintf(`document.querySelector(%q)?.click()`, selector)
-		_, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
+		_, err := browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
 			"expression":    expression,
 			"returnByValue": true,
 		}, sessionId)
@@ -223,7 +229,7 @@ func (self *browserTool) executeClick(ctx context.Context, connectionId string, 
 	}
 	xValue, yValue := *x, *y
 	for _, eventType := range []string{"mousePressed", "mouseReleased"} {
-		_, err := self.browser.SendCDPCommand(ctx, "Input.dispatchMouseEvent", map[string]interface{}{
+		_, err := browser.SendCDPCommand(ctx, "Input.dispatchMouseEvent", map[string]interface{}{
 			"type":       eventType,
 			"x":          xValue,
 			"y":          yValue,
@@ -238,15 +244,15 @@ func (self *browserTool) executeClick(ctx context.Context, connectionId string, 
 	return string(out), nil
 }
 
-func (self *browserTool) executeType(ctx context.Context, connectionId string, text string, selector string) (string, error) {
-	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
+func executeType(ctx context.Context, browser browsers.Browser, connectionId string, text string, selector string) (string, error) {
+	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
 		return "", err
 	}
 
 	if selector != "" {
 		expression := fmt.Sprintf(`document.querySelector(%q)?.focus()`, selector)
-		_, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
+		_, err := browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
 			"expression":    expression,
 			"returnByValue": true,
 		}, sessionId)
@@ -255,7 +261,7 @@ func (self *browserTool) executeType(ctx context.Context, connectionId string, t
 		}
 	}
 
-	_, err = self.browser.SendCDPCommand(ctx, "Input.insertText", map[string]interface{}{
+	_, err = browser.SendCDPCommand(ctx, "Input.insertText", map[string]interface{}{
 		"text": text,
 	}, sessionId)
 	if err != nil {
@@ -265,8 +271,8 @@ func (self *browserTool) executeType(ctx context.Context, connectionId string, t
 	return string(out), nil
 }
 
-func (self *browserTool) executePressKey(ctx context.Context, connectionId string, key string) (string, error) {
-	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
+func executePressKey(ctx context.Context, browser browsers.Browser, connectionId string, key string) (string, error) {
+	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
 		return "", err
 	}
@@ -288,7 +294,7 @@ func (self *browserTool) executePressKey(ctx context.Context, connectionId strin
 		if eventType == "keyDown" && len(info.text) > 0 {
 			params["text"] = info.text
 		}
-		_, err := self.browser.SendCDPCommand(ctx, "Input.dispatchKeyEvent", params, sessionId)
+		_, err := browser.SendCDPCommand(ctx, "Input.dispatchKeyEvent", params, sessionId)
 		if err != nil {
 			return "", err
 		}
@@ -297,12 +303,12 @@ func (self *browserTool) executePressKey(ctx context.Context, connectionId strin
 	return string(out), nil
 }
 
-func (self *browserTool) executeEvaluate(ctx context.Context, connectionId string, expression string) (string, error) {
-	sessionId, err := resolveSessionId(ctx, self.browser, connectionId)
+func executeEvaluate(ctx context.Context, browser browsers.Browser, connectionId string, expression string) (string, error) {
+	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
 		return "", err
 	}
-	result, err := self.browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
+	result, err := browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
 		"expression":    expression,
 		"returnByValue": true,
 	}, sessionId)
@@ -333,7 +339,7 @@ func (self *browserTool) executeEvaluate(ctx context.Context, connectionId strin
 
 // --- browser_tabs (tab management) ---
 
-type browserTabsTool struct{ browser Browser }
+type browserTabsTool struct{}
 
 func (self *browserTabsTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
@@ -370,6 +376,11 @@ func (self *browserTabsTool) Definition() providers.ToolDefinition {
 }
 
 func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	browser := browsers.BrowserFromContext(ctx)
+	if browser == nil {
+		return "", fmt.Errorf("no browser available")
+	}
+
 	var arguments struct {
 		Action   string `json:"action"`
 		TargetID string `json:"targetId"`
@@ -385,20 +396,20 @@ func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (
 		if user == nil || user.ID == "" {
 			return "", fmt.Errorf("missing user context")
 		}
-		return self.executeList(user.ID)
+		return executeTabsList(browser, user.ID)
 	case "open":
-		return self.executeOpen(ctx, arguments.URL)
+		return executeTabsOpen(ctx, browser, arguments.URL)
 	case "close":
-		return self.executeClose(ctx, arguments.TargetID)
+		return executeTabsClose(ctx, browser, arguments.TargetID)
 	case "activate":
-		return self.executeActivate(ctx, arguments.TargetID)
+		return executeTabsActivate(ctx, browser, arguments.TargetID)
 	default:
 		return "", fmt.Errorf("unknown browser_tabs action: %s", arguments.Action)
 	}
 }
 
-func (self *browserTabsTool) executeList(userId string) (string, error) {
-	scopedBrowser, ok := self.browser.(UserScopedBrowser)
+func executeTabsList(browser browsers.Browser, userId string) (string, error) {
+	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
 	if !ok {
 		return "", fmt.Errorf("browser backend does not support user scoping")
 	}
@@ -424,16 +435,16 @@ func (self *browserTabsTool) executeList(userId string) (string, error) {
 	return string(out), nil
 }
 
-func (self *browserTabsTool) executeOpen(ctx context.Context, url string) (string, error) {
+func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string) (string, error) {
 	if url == "" {
 		url = "about:blank"
 	}
 
-	sessionId, err := resolveSessionId(ctx, self.browser, "")
+	sessionId, err := resolveSessionId(ctx, browser, "")
 	if err != nil {
 		return "", err
 	}
-	result, err := self.browser.SendCDPCommand(ctx, "Target.createTarget", map[string]interface{}{
+	result, err := browser.SendCDPCommand(ctx, "Target.createTarget", map[string]interface{}{
 		"url": url,
 	}, sessionId)
 	if err != nil {
@@ -444,7 +455,7 @@ func (self *browserTabsTool) executeOpen(ctx context.Context, url string) (strin
 	}
 	json.Unmarshal(result, &response)
 	user := models.UserFromContext(ctx)
-	if assigner, ok := self.browser.(TargetOwnerAssigner); ok && user != nil && user.ID != "" && response.TargetID != "" {
+	if assigner, ok := browser.(browsers.TargetOwnerAssigner); ok && user != nil && user.ID != "" && response.TargetID != "" {
 		assigner.AssignTargetToUser(user.ID, response.TargetID)
 	}
 	out, _ := json.Marshal(map[string]string{
@@ -454,12 +465,12 @@ func (self *browserTabsTool) executeOpen(ctx context.Context, url string) (strin
 	return string(out), nil
 }
 
-func (self *browserTabsTool) executeClose(ctx context.Context, targetId string) (string, error) {
+func executeTabsClose(ctx context.Context, browser browsers.Browser, targetId string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	scopedBrowser, ok := self.browser.(UserScopedBrowser)
+	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
 	if !ok {
 		return "", fmt.Errorf("browser backend does not support user scoping")
 	}
@@ -480,7 +491,7 @@ func (self *browserTabsTool) executeClose(ctx context.Context, targetId string) 
 	if !allowed {
 		return "", fmt.Errorf("targetId %q not found", targetId)
 	}
-	sessionId, err := resolveSessionId(ctx, self.browser, "")
+	sessionId, err := resolveSessionId(ctx, browser, "")
 	if err != nil {
 		return "", err
 	}
@@ -488,7 +499,7 @@ func (self *browserTabsTool) executeClose(ctx context.Context, targetId string) 
 	if targetId != "" {
 		params["targetId"] = targetId
 	}
-	_, err = self.browser.SendCDPCommand(ctx, "Target.closeTarget", params, sessionId)
+	_, err = browser.SendCDPCommand(ctx, "Target.closeTarget", params, sessionId)
 	if err != nil {
 		return "", err
 	}
@@ -496,7 +507,7 @@ func (self *browserTabsTool) executeClose(ctx context.Context, targetId string) 
 	return string(out), nil
 }
 
-func (self *browserTabsTool) executeActivate(ctx context.Context, targetId string) (string, error) {
+func executeTabsActivate(ctx context.Context, browser browsers.Browser, targetId string) (string, error) {
 	if targetId == "" {
 		return "", fmt.Errorf("targetId is required for activate action")
 	}
@@ -504,7 +515,7 @@ func (self *browserTabsTool) executeActivate(ctx context.Context, targetId strin
 	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	scopedBrowser, ok := self.browser.(UserScopedBrowser)
+	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
 	if !ok {
 		return "", fmt.Errorf("browser backend does not support user scoping")
 	}
@@ -519,11 +530,11 @@ func (self *browserTabsTool) executeActivate(ctx context.Context, targetId strin
 		return "", fmt.Errorf("targetId %q not found", targetId)
 	}
 
-	sessionId, err := resolveSessionId(ctx, self.browser, "")
+	sessionId, err := resolveSessionId(ctx, browser, "")
 	if err != nil {
 		return "", err
 	}
-	_, err = self.browser.SendCDPCommand(ctx, "Target.activateTarget", map[string]interface{}{
+	_, err = browser.SendCDPCommand(ctx, "Target.activateTarget", map[string]interface{}{
 		"targetId": targetId,
 	}, sessionId)
 	if err != nil {

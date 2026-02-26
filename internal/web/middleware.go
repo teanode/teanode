@@ -212,7 +212,6 @@ func MakeAuthenticationMiddleware() Middleware {
 		}); err != nil {
 			return request, false
 		}
-		log.Debugf("session = %+v, user = %+v", session, user)
 		if session == nil || user == nil {
 			return request, false
 		}

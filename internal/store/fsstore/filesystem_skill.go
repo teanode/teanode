@@ -364,7 +364,6 @@ func parseSkillMarkdownFrontmatter(data []byte, frontmatter *fileSystemSkillFron
 	return rest[bodyStart:], nil
 }
 
-
 func compareSkillVersions(leftVersion string, rightVersion string) int {
 	leftParts := strings.Split(strings.TrimPrefix(leftVersion, "v"), ".")
 	rightParts := strings.Split(strings.TrimPrefix(rightVersion, "v"), ".")

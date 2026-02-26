@@ -1,23 +1,35 @@
-package agents
+package tools
 
 import (
+	"context"
 	"sort"
 	"testing"
 
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/providers"
 )
 
-// newTestRegistry returns a registry with three stub tools: "alpha", "beta", "gamma".
-// Reuses stubTool from runner_test.go.
-func newTestRegistry() *toolregistry.ToolRegistry {
-	registry := toolregistry.NewToolRegistry()
+type stubTool struct{ name string }
+
+func (self *stubTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
+		Type:     "function",
+		Function: providers.FunctionSpec{Name: self.name},
+	}
+}
+
+func (self *stubTool) Execute(_ context.Context, _ string) (string, error) {
+	return "ok", nil
+}
+
+func newTestRegistry() *ToolRegistry {
+	registry := NewToolRegistry()
 	registry.Register(&stubTool{name: "alpha"})
 	registry.Register(&stubTool{name: "beta"})
 	registry.Register(&stubTool{name: "gamma"})
 	return registry
 }
 
-func sortedNames(registry *toolregistry.ToolRegistry) []string {
+func sortedNames(registry *ToolRegistry) []string {
 	names := registry.Names()
 	sort.Strings(names)
 	return names
@@ -87,8 +99,8 @@ func TestDefinitions_MatchesRegisteredTools(t *testing.T) {
 	}
 
 	names := make([]string, len(definitions))
-	for i, d := range definitions {
-		names[i] = d.Function.Name
+	for index, definition := range definitions {
+		names[index] = definition.Function.Name
 	}
 	sort.Strings(names)
 	if names[0] != "alpha" || names[1] != "beta" || names[2] != "gamma" {

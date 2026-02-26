@@ -8,8 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/store"
@@ -28,8 +29,6 @@ func newOnboardingTestAPI(t *testing.T, dataDirectory string, seededUsers []mode
 	t.Cleanup(func() { _ = openedStore.Close() })
 	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
 
-	registry := agents.NewAgentRegistry(contextWithStore)
-	registry.Register("main", &agents.Runner{AgentID: "main"})
 	if seedError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
 		if _, createAgentError := transaction.CreateAgent(ctx, &models.Agent{ID: "main"}, nil, nil); createAgentError != nil && createAgentError != store.ErrAlreadyExists {
 			return createAgentError
@@ -49,7 +48,8 @@ func newOnboardingTestAPI(t *testing.T, dataDirectory string, seededUsers []mode
 		gw.New(
 			contextWithStore,
 			&models.Configuration{},
-			registry,
+			coordinators.New(nil, nil),
+			runners.NewDefaultConversationManager(contextWithStore),
 			nil,
 			nil,
 			nil,

@@ -11,7 +11,7 @@ import (
 
 type driveTool struct {
 	binary  string
-	account string
+
 	runner  commandRunner
 }
 
@@ -66,7 +66,7 @@ func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string
 		if limit <= 0 {
 			limit = 10
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"drive", "ls", "--max", strconv.Itoa(limit))
 
 	case "search":
@@ -77,13 +77,13 @@ func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Limit > 0 {
 			cmdArgs = append(cmdArgs, "--max", strconv.Itoa(args.Limit))
 		}
-		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account, cmdArgs...)
 
 	case "info":
 		if args.WorkspaceFileID == "" {
 			return "", fmt.Errorf("file_id is required for info action")
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"drive", "get", args.WorkspaceFileID)
 
 	default:

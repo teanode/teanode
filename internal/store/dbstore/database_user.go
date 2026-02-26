@@ -12,14 +12,14 @@ import (
 )
 
 type databaseUserRecord struct {
-	ID             string    `gorm:"column:id;type:varchar(32);primaryKey"`
-	Username       *string   `gorm:"column:username;type:varchar(128)"`
-	Password       *string   `gorm:"column:password;type:varchar(128)"`
-	Admin          *bool     `gorm:"column:admin"`
-	DefaultAgentID *string   `gorm:"column:default_agent_id;type:varchar(32)"`
-	TelegramChatID *int64    `gorm:"column:telegram_chat_id"`
-	DiscordUserID  *string   `gorm:"column:discord_user_id;type:varchar(128)"`
-	AvatarMediaID  *string   `gorm:"column:avatar_media_id;type:varchar(32)"`
+	ID             string     `gorm:"column:id;type:varchar(32);primaryKey"`
+	Username       *string    `gorm:"column:username;type:varchar(128)"`
+	Password       *string    `gorm:"column:password;type:varchar(128)"`
+	Admin          *bool      `gorm:"column:admin"`
+	DefaultAgentID *string    `gorm:"column:default_agent_id;type:varchar(32)"`
+	TelegramChatID *int64     `gorm:"column:telegram_chat_id"`
+	DiscordUserID  *string    `gorm:"column:discord_user_id;type:varchar(128)"`
+	AvatarMediaID  *string    `gorm:"column:avatar_media_id;type:varchar(32)"`
 	Description    *string    `gorm:"column:description"`
 	SummarizedAt   *time.Time `gorm:"column:summarized_at"`
 	CreatedAt      time.Time  `gorm:"column:created_at;not null"`

@@ -5,25 +5,104 @@ import (
 	"encoding/json"
 	"sync"
 	"time"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/voice"
+	"github.com/teanode/teanode/internal/store"
 )
+
+func loadPublicUrlFromStore(ctx context.Context) string {
+	publicUrl := ""
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, getError := transaction.GetConfiguration(ctx, nil)
+		if getError != nil || configuration == nil || configuration.Gateway == nil || configuration.Gateway.PublicURL == nil {
+			return nil
+		}
+		publicUrl = *configuration.Gateway.PublicURL
+		return nil
+	})
+	return publicUrl
+}
+
+func splitHostPortDefault(rawHost string, tls bool) (string, string) {
+	host, port, err := net.SplitHostPort(rawHost)
+	if err == nil {
+		return strings.ToLower(host), port
+	}
+	defaultPort := "80"
+	if tls {
+		defaultPort = "443"
+	}
+	return strings.ToLower(rawHost), defaultPort
+}
+
+func sameOriginHost(leftHost string, leftTls bool, rightHost string, rightTls bool) bool {
+	leftName, leftPort := splitHostPortDefault(leftHost, leftTls)
+	rightName, rightPort := splitHostPortDefault(rightHost, rightTls)
+	return leftName == rightName && leftPort == rightPort
+}
+
+func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
+	origin := request.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	originUrl, err := url.Parse(origin)
+	if err != nil || originUrl.Host == "" {
+		return false
+	}
+	originTls := strings.EqualFold(originUrl.Scheme, "https")
+	requestTls := request.TLS != nil
+	if sameOriginHost(originUrl.Host, originTls, request.Host, requestTls) {
+		return true
+	}
+
+	publicUrl := loadPublicUrlFromStore(request.Context())
+	if publicUrl == "" {
+		return false
+	}
+	parsedPublicUrl, err := url.Parse(publicUrl)
+	if err != nil || parsedPublicUrl.Host == "" {
+		return false
+	}
+	publicTls := strings.EqualFold(parsedPublicUrl.Scheme, "https")
+	return sameOriginHost(originUrl.Host, originTls, parsedPublicUrl.Host, publicTls)
+}
+
+func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Request) error {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(request *http.Request) bool {
+			return self.isWebSocketOriginAllowed(request)
+		},
+	}
+	connection, err := upgrader.Upgrade(writer, request, nil)
+	if err != nil {
+		log.Errorf("websocket upgrade error: %v", err)
+		return err
+	}
+	webSocketConnection := newWebSocketConnection(connection, self, request.Context())
+	webSocketConnection.serve()
+	return nil
+}
 
 // webSocketConnection manages a single WebSocket connection.
 // It implements gw.Subscriber to receive broadcast events from the gateway.
 type webSocketConnection struct {
 	connection *websocket.Conn
 	api        *v1Api
-	ctx    context.Context
+	ctx        context.Context
 	writeMutex sync.Mutex
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time
 
-	activeVoiceMu      sync.RWMutex
+	activeVoiceMutex   sync.RWMutex
 	activeVoiceSession *voice.Session
 }
 
@@ -31,7 +110,7 @@ func newWebSocketConnection(connection *websocket.Conn, api *v1Api, ctx context.
 	return &webSocketConnection{
 		connection: connection,
 		api:        api,
-		ctx:    ctx,
+		ctx:        ctx,
 	}
 }
 
@@ -62,12 +141,13 @@ func (self *webSocketConnection) shouldDeliverEvent(payload interface{}) bool {
 func (self *webSocketConnection) serve() {
 	defer self.connection.Close()
 	sessionId := self.sessionId()
-	if sessionId != "" {
-		self.api.gateway.MarkSessionConnected(sessionId)
-		defer self.api.gateway.MarkSessionDisconnected(sessionId)
-	}
+
+	self.api.gateway.MarkSessionConnected(sessionId)
+	defer self.api.gateway.MarkSessionDisconnected(sessionId)
+
 	self.api.gateway.Subscribe(self)
 	defer self.api.gateway.Unsubscribe(self)
+
 	defer func() {
 		if sess := self.getActiveVoiceSession(); sess != nil {
 			sess.Close()
@@ -295,14 +375,14 @@ func (self *webSocketConnection) writeBinary(data []byte) {
 }
 
 func (self *webSocketConnection) getActiveVoiceSession() *voice.Session {
-	self.activeVoiceMu.RLock()
-	defer self.activeVoiceMu.RUnlock()
+	self.activeVoiceMutex.RLock()
+	defer self.activeVoiceMutex.RUnlock()
 	return self.activeVoiceSession
 }
 
 func (self *webSocketConnection) setActiveVoiceSession(session *voice.Session) bool {
-	self.activeVoiceMu.Lock()
-	defer self.activeVoiceMu.Unlock()
+	self.activeVoiceMutex.Lock()
+	defer self.activeVoiceMutex.Unlock()
 	if self.activeVoiceSession != nil {
 		return false
 	}
@@ -311,8 +391,8 @@ func (self *webSocketConnection) setActiveVoiceSession(session *voice.Session) b
 }
 
 func (self *webSocketConnection) clearActiveVoiceSession(session *voice.Session) {
-	self.activeVoiceMu.Lock()
-	defer self.activeVoiceMu.Unlock()
+	self.activeVoiceMutex.Lock()
+	defer self.activeVoiceMutex.Unlock()
 	if self.activeVoiceSession == session {
 		self.activeVoiceSession = nil
 	}

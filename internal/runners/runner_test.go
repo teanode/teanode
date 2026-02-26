@@ -1,4 +1,4 @@
-package agents
+package runners
 
 import (
 	"context"
@@ -65,11 +65,6 @@ func (self *stubTool) Execute(_ context.Context, _ string) (string, error) {
 	return "ok", nil
 }
 
-func testResolveUser(_ string) (*models.User, error) {
-	name := "Test User"
-	return &models.User{ID: "user-1", Username: &name}, nil
-}
-
 func contextWithUserAndStore(userId string, persistenceStore store.Store) context.Context {
 	ctx := models.ContextWithUserSessionToken(context.Background(), &models.User{ID: userId}, nil, nil)
 	return store.ContextWithStore(ctx, persistenceStore)
@@ -79,7 +74,7 @@ type testConversationStore struct {
 	persistenceStore store.Store
 }
 
-func newTestConversationStore(testing *testing.T, userId string, agentId string) testConversationStore {
+func newTestConversationStore(testing *testing.T, userId string, agentId string, defaultModel string) testConversationStore {
 	testing.Helper()
 	dataDirectory := testing.TempDir()
 	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: dataDirectory})
@@ -109,6 +104,21 @@ func newTestConversationStore(testing *testing.T, userId string, agentId string)
 		return nil
 	}); transactionError != nil {
 		testing.Fatalf("seeding user and agent: %v", transactionError)
+	}
+	// Seed model configuration if a default model is provided.
+	if defaultModel != "" {
+		if transactionError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+			_, modifyError := transaction.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
+				if configuration.Models == nil {
+					configuration.Models = &models.ModelsConfiguration{}
+				}
+				configuration.Models.Default = &defaultModel
+				return nil
+			}, nil)
+			return modifyError
+		}); transactionError != nil {
+			testing.Fatalf("seeding model configuration: %v", transactionError)
+		}
 	}
 	testing.Cleanup(func() {
 		_ = openedStore.Close()
@@ -200,21 +210,18 @@ func TestRunnerRun(t *testing.T) {
 	server := mockOpenAIServer(mockResponse)
 	defer server.Close()
 
-	testStore := newTestConversationStore(t, "user-1", "main")
-	configuration := testConfiguration("mock-model", "mock", server.URL)
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
 	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		AgentID:     "main",
-		Providers:   mockRegistry(provider),
-		ResolveUser: testResolveUser,
-		Config:      configuration,
+		AgentID:        "main",
+		ConversationID: "test-run",
+		Providers:      mockRegistry(provider),
 	}
 
 	var chunks []string
 	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
-		ConversationID: "test-run",
-		Message:        "hi",
+		Message: "hi",
 	}, &RunCallbacks{
 		OnTextDelta: func(text string) {
 			chunks = append(chunks, text)
@@ -269,15 +276,13 @@ func TestRunnerRunAbort(t *testing.T) {
 	}))
 	defer server.Close()
 
-	testStore := newTestConversationStore(t, "user-1", "main")
-	configuration := testConfiguration("mock", "mock", server.URL)
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock")
 	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		AgentID:     "main",
-		Providers:   mockRegistry(provider),
-		ResolveUser: testResolveUser,
-		Config:      configuration,
+		AgentID:        "main",
+		ConversationID: "abort-test",
+		Providers:      mockRegistry(provider),
 	}
 
 	ctx, cancel := context.WithCancel(contextWithUserAndStore("user-1", testStore.persistenceStore))
@@ -288,8 +293,7 @@ func TestRunnerRunAbort(t *testing.T) {
 	go func() {
 		defer close(done)
 		runner.Run(ctx, RunParams{
-			ConversationID: "abort-test",
-			Message:        "abort me",
+			Message: "abort me",
 		}, &RunCallbacks{
 			OnTextDelta: func(text string) {
 				closeChunk.Do(func() { close(gotChunk) })
@@ -339,25 +343,22 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	server := mockToolCallServer("call-1", "workspace", `{"action":"write","path":"test.txt","content":"hello"}`, "Done! I saved that for you.")
 	defer server.Close()
 
-	testStore := newTestConversationStore(t, "user-1", "main")
-	configuration := testConfiguration("mock-model", "mock", server.URL)
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
 	provider := providers.NewClient(server.URL, "")
 
 	tools := toolregistry.NewToolRegistry()
 	tools.Register(&stubTool{name: "workspace"})
 
 	runner := &Runner{
-		AgentID:     "main",
-		Providers:   mockRegistry(provider),
-		ResolveUser: testResolveUser,
-		Config:      configuration,
-		Tools:       tools,
+		AgentID:        "main",
+		ConversationID: "tool-test",
+		Providers:      mockRegistry(provider),
+		Tools:          tools,
 	}
 
 	var toolCalls []string
 	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
-		ConversationID: "tool-test",
-		Message:        "remember hello",
+		Message: "remember hello",
 	}, &RunCallbacks{
 		OnToolCall: func(name string, args string) {
 			toolCalls = append(toolCalls, name)
@@ -708,21 +709,18 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	server := mockOpenAIServer("first response")
 	defer server.Close()
 
-	testStore := newTestConversationStore(t, "user-1", "main")
-	configuration := testConfiguration("mock-model", "mock", server.URL)
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
 	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		AgentID:     "main",
-		Providers:   mockRegistry(provider),
-		ResolveUser: testResolveUser,
-		Config:      configuration,
+		AgentID:        "main",
+		ConversationID: "mismatch-test",
+		Providers:      mockRegistry(provider),
 	}
 
 	// First run: creates the conversation and locks it to "mock:mock-model".
 	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
-		ConversationID: "mismatch-test",
-		Message:        "hello",
+		Message: "hello",
 	}, nil)
 	if err != nil {
 		t.Fatalf("first run failed: %v", err)
@@ -730,9 +728,8 @@ func TestRunnerModelMismatchError(t *testing.T) {
 
 	// Second run: same conversation, explicitly different model — should error.
 	_, err = runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
-		ConversationID: "mismatch-test",
-		Message:        "hello again",
-		Model:          "mock:other-model",
+		Message: "hello again",
+		Model:   "mock:other-model",
 	}, nil)
 	if err == nil {
 		t.Fatal("expected model mismatch error, got nil")
@@ -743,18 +740,17 @@ func TestRunnerModelMismatchError(t *testing.T) {
 }
 
 func TestRunnerNoModelError(t *testing.T) {
-	testStore := newTestConversationStore(t, "user-1", "main")
-	configuration := testConfiguration("", "", "")
+	// Create store without seeding any model configuration.
+	testStore := newTestConversationStore(t, "user-1", "main", "")
 
 	runner := &Runner{
-		Providers:   providers.NewRegistry("mock"),
-		ResolveUser: testResolveUser,
-		Config:      configuration,
+		AgentID:        "main",
+		ConversationID: "no-model-test",
+		Providers:      providers.NewRegistry("mock"),
 	}
 
 	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
-		ConversationID: "no-model-test",
-		Message:        "hello",
+		Message: "hello",
 	}, nil)
 	if err == nil {
 		t.Fatal("expected 'no model configured' error, got nil")
@@ -765,35 +761,18 @@ func TestRunnerNoModelError(t *testing.T) {
 }
 
 func TestRunnerRunRequiresUserID(t *testing.T) {
-	testStore := newTestConversationStore(t, "user-1", "main")
+	testStore := newTestConversationStore(t, "user-1", "main", "")
 	runner := &Runner{
-		ResolveUser: testResolveUser,
-		Config:      &models.Configuration{},
-		Providers:   providers.NewRegistry("mock"),
+		AgentID:        "main",
+		ConversationID: "missing-user-id",
+		Providers:      providers.NewRegistry("mock"),
 	}
 
 	_, err := runner.Run(store.ContextWithStore(context.Background(), testStore.persistenceStore), RunParams{
-		ConversationID: "missing-user-id",
-		Message:        "hello",
+		Message: "hello",
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "userId is required") {
 		t.Fatalf("expected userId required error, got: %v", err)
-	}
-}
-
-func TestRunnerRunRequiresResolveUser(t *testing.T) {
-	testStore := newTestConversationStore(t, "user-1", "main")
-	runner := &Runner{
-		Config:    &models.Configuration{},
-		Providers: providers.NewRegistry("mock"),
-	}
-
-	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
-		ConversationID: "missing-resolver",
-		Message:        "hello",
-	}, nil)
-	if err == nil || !strings.Contains(err.Error(), "ResolveUser is required") {
-		t.Fatalf("expected ResolveUser required error, got: %v", err)
 	}
 }
 

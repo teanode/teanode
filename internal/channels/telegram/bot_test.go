@@ -5,9 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	storefs "github.com/teanode/teanode/internal/store/fsstore"
 )
@@ -33,22 +34,27 @@ func TestShouldForwardDisconnectedWebUI(t *testing.T) {
 		return err
 	})
 
-	registry := agents.NewAgentRegistry(contextWithStore)
-	registry.Register("main", &agents.Runner{AgentID: "main"})
-	registry.SetDefaultConversation("user-1", "main", "default-conversation")
+	// Seed agent in store.
+	_ = openedStore.Transaction(contextWithStore, func(ctx context.Context, transaction store.Transaction) error {
+		_, _ = transaction.CreateAgent(ctx, &models.Agent{ID: "main"}, nil, nil)
+		return nil
+	})
+
+	defaults := runners.NewDefaultConversationManager(contextWithStore)
+	defaults.SetDefaultConversation("user-1", "main", "default-conversation")
 
 	gateway := gw.New(
 		contextWithStore,
 		&models.Configuration{},
-		registry,
+		coordinators.New(nil, nil),
+		defaults,
 		nil,
 		nil,
 		nil,
 	)
 	bot := &Bot{
-		ctx:           contextWithStore,
-		agentRegistry: registry,
-		gateway:       gateway,
+		ctx:     contextWithStore,
+		gateway: gateway,
 	}
 
 	if !bot.shouldForwardDisconnectedSession("user-1", "main", "default-conversation", "session-1") {

@@ -11,7 +11,7 @@ import (
 
 type calendarTool struct {
 	binary  string
-	account string
+
 	runner  commandRunner
 }
 
@@ -91,14 +91,14 @@ func (self *calendarTool) Execute(ctx context.Context, rawArguments string) (str
 		if days <= 0 {
 			days = 7
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"calendar", "events", "primary", "--days", strconv.Itoa(days))
 
 	case "search":
 		if args.Query == "" {
 			return "", fmt.Errorf("query is required for search action")
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"calendar", "search", args.Query)
 
 	case "create":
@@ -119,13 +119,13 @@ func (self *calendarTool) Execute(ctx context.Context, rawArguments string) (str
 		if args.Attendees != "" {
 			cmdArgs = append(cmdArgs, "--attendees", args.Attendees)
 		}
-		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account, cmdArgs...)
 
 	case "delete":
 		if args.EventID == "" {
 			return "", fmt.Errorf("event_id is required for delete action")
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"calendar", "delete", "primary", args.EventID)
 
 	default:

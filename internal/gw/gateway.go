@@ -6,15 +6,16 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"net"
 	"sort"
 	"sync"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
+	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/summarizer"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -26,7 +27,6 @@ import (
 type activeRun struct {
 	runId  string
 	cancel context.CancelFunc
-	runner *agents.Runner
 }
 
 func closedDoneChannel() <-chan struct{} {
@@ -37,9 +37,10 @@ func closedDoneChannel() <-chan struct{} {
 
 // gateway is the unexported concrete implementation of Gateway.
 type gateway struct {
-	ctx           context.Context
-	config        *models.Configuration
-	agentRegistry *agents.AgentRegistry
+	ctx         context.Context
+	config      *models.Configuration
+	coordinator *coordinators.Coordinator
+	defaults    *runners.DefaultConversationManager
 	browserRelay  *relaybrowser.Relay
 	terminalRelay *terminals.Relay
 	summarizer    *summarizer.Summarizer
@@ -54,16 +55,13 @@ type gateway struct {
 	activeRuns      map[string]*activeRun // conversationId -> activeRun
 	runIndex        map[string]string     // runId -> conversationId
 
-	lifecycleChannel       chan LifecycleAction
-	pendingLifecycleMutex  sync.Mutex
-	pendingLifecycleAction *LifecycleAction
 }
 
 // --- Subsystem access ---
 
-func (self *gateway) AgentRegistry() *agents.AgentRegistry { return self.agentRegistry }
-func (self *gateway) BrowserRelay() *relaybrowser.Relay    { return self.browserRelay }
-func (self *gateway) TerminalRelay() *terminals.Relay      { return self.terminalRelay }
+func (self *gateway) Coordinator() *coordinators.Coordinator { return self.coordinator }
+func (self *gateway) BrowserRelay() *relaybrowser.Relay      { return self.browserRelay }
+func (self *gateway) TerminalRelay() *terminals.Relay        { return self.terminalRelay }
 
 func (self *gateway) MarkSessionConnected(sessionId string) {
 	if sessionId == "" {
@@ -126,24 +124,15 @@ func (self *gateway) defaultAgentID() string {
 
 // --- Domain operations ---
 
-// ProviderRegistry returns the provider registry from the configured default runner.
+// ProviderRegistry returns the provider registry from the coordinator.
 func (self *gateway) ProviderRegistry() *providers.Registry {
-	runner := self.GetRunner(self.defaultAgentID())
-	if runner == nil {
-		return nil
-	}
-	return runner.Providers
-}
-
-// GetRunner returns the runner for the given agent ID.
-func (self *gateway) GetRunner(agentId string) *agents.Runner {
-	return self.agentRegistry.GetRunner(agentId)
+	return self.coordinator.Providers()
 }
 
 // --- Default agent / conversation ---
 
 func (self *gateway) EnsureDefaultConversation(userId, agentId string) string {
-	return self.agentRegistry.EnsureDefaultConversation(userId, agentId)
+	return self.defaults.EnsureDefaultConversation(userId, agentId)
 }
 
 func (self *gateway) SetDefaultConversation(userId, agentId, conversationId string) {
@@ -151,7 +140,7 @@ func (self *gateway) SetDefaultConversation(userId, agentId, conversationId stri
 		log.Warningf("set default conversation requires non-empty userId")
 		return
 	}
-	self.agentRegistry.SetDefaultConversation(userId, agentId, conversationId)
+	self.defaults.SetDefaultConversation(userId, agentId, conversationId)
 	self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
 		"agentId":               agentId,
 		"defaultConversationId": conversationId,
@@ -164,7 +153,7 @@ func (self *gateway) SetDefaultConversationIfUnset(userId, agentId, conversation
 		log.Warningf("set default conversation-if-unset requires non-empty userId")
 		return false
 	}
-	changed := self.agentRegistry.SetDefaultConversationIfUnset(userId, agentId, conversationId)
+	changed := self.defaults.SetDefaultConversationIfUnset(userId, agentId, conversationId)
 	if changed {
 		self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
 			"agentId":               agentId,
@@ -177,11 +166,6 @@ func (self *gateway) SetDefaultConversationIfUnset(userId, agentId, conversation
 
 func (self *gateway) createConversationFile(userId, agentId, conversationId, model string) {
 	if userId == "" {
-		return
-	}
-	// Resolve model and create conversation file with provider/model in the header.
-	runner := self.GetRunner(agentId)
-	if runner == nil {
 		return
 	}
 	qualifiedModel := model
@@ -221,7 +205,7 @@ func (self *gateway) NewDefaultConversation(userId, agentId, model string) strin
 		log.Warningf("new conversation requires non-empty userId")
 		return ""
 	}
-	conversationId := self.agentRegistry.NewDefaultConversation(userId, agentId)
+	conversationId := self.defaults.NewDefaultConversation(userId, agentId)
 	self.createConversationFile(userId, agentId, conversationId, model)
 
 	self.Broadcast(EventTypeDefaultConversation, map[string]interface{}{
@@ -259,10 +243,10 @@ func (self *gateway) Broadcast(eventType EventType, payload interface{}) {
 
 // --- Centralized message sending ---
 
-// SendMessage orchestrates an agent run: resolves runner and conversation, generates
+// SendMessage orchestrates an agent run: resolves conversation, generates
 // a run ID, tracks the run, broadcasts all events, merges caller callbacks, and cleans
 // up on completion. Returns a RunHandle immediately so the caller can wait or proceed.
-func (self *gateway) SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle {
+func (self *gateway) SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *runners.RunCallbacks) *RunHandle {
 	userId := ""
 	if user := models.UserFromContext(ctx); user != nil {
 		userId = user.ID
@@ -273,7 +257,7 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 		}}
 	}
 
-	// Resolve agent and runner.
+	// Resolve agent.
 	resolvedAgentId := parameters.AgentID
 	if resolvedAgentId == "" {
 		if user := models.UserFromContext(ctx); user != nil {
@@ -285,12 +269,22 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			}}
 		}
 	}
-	runner := self.GetRunner(resolvedAgentId)
-	if runner == nil {
+
+	// Verify agent exists in store.
+	var agentExists bool
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agent, err := transaction.GetAgent(ctx, resolvedAgentId, nil)
+		if err == nil && agent != nil {
+			agentExists = true
+		}
+		return nil
+	})
+	if !agentExists {
 		return &RunHandle{Done: closedDoneChannel(), Outcome: func() *RunOutcome {
 			return &RunOutcome{Error: fmt.Errorf("agent not found: %s", resolvedAgentId)}
 		}}
 	}
+
 	// Resolve or create conversation.
 	conversationId := parameters.ConversationID
 	if conversationId == "" {
@@ -310,7 +304,6 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	self.activeRuns[conversationId] = &activeRun{
 		runId:  runId,
 		cancel: cancel,
-		runner: runner,
 	}
 	self.runIndex[runId] = conversationId
 	self.activeRunsMutex.Unlock()
@@ -346,7 +339,10 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	// Build merged callbacks (broadcast + caller).
 	mergedCallbacks := self.buildMergedCallbacks(runId, conversationId, resolvedAgentId, userId, callerCallbacks)
 
-	// Run agent in background goroutine.
+	// Ensure coordinator is on context.
+	runContext = runners.ContextWithCoordinator(runContext, self.coordinator)
+
+	// Run agent in background goroutine via coordinator.
 	go func() {
 		defer func() {
 			// Clean up run tracking.
@@ -364,15 +360,11 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 			}
 
 			// Fire any deferred lifecycle action now that the run is complete.
-			self.firePendingLifecycle()
+			self.lifecycle().FirePendingLifecycle()
 		}()
-		// Signal run completion to callers before cleanup may trigger a deferred
-		// lifecycle action (restart/shutdown). Channel callers (e.g. Telegram)
-		// use this to flush the final response before process restart.
 		defer close(done)
 
-		result, err := runner.Run(runContext, agents.RunParams{
-			ConversationID:     conversationId,
+		result, err := self.coordinator.SendMessage(runContext, resolvedAgentId, conversationId, runners.RunParams{
 			Message:            parameters.Message,
 			Model:              parameters.Model,
 			Attachments:        parameters.Attachments,
@@ -434,14 +426,11 @@ func (self *gateway) SendMessage(ctx context.Context, parameters SendMessagePara
 	}
 }
 
-// buildMergedCallbacks creates RunCallbacks that both broadcast events (using the
-// "conversation" event name consistently) and call the caller's optional callbacks.
-func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId, userId string, callerCallbacks *agents.RunCallbacks) *agents.RunCallbacks {
-	// Notify summarizer on first text delta so untitled conversations get a title
-	// while tool-call loops are still running.
+// buildMergedCallbacks creates RunCallbacks that both broadcast events and call the caller's optional callbacks.
+func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId, userId string, callerCallbacks *runners.RunCallbacks) *runners.RunCallbacks {
 	var notifyOnce sync.Once
 
-	return &agents.RunCallbacks{
+	return &runners.RunCallbacks{
 		OnQueued: func() {
 			self.Broadcast(EventTypeConversation, map[string]interface{}{
 				"state":          "queued",
@@ -452,11 +441,6 @@ func (self *gateway) buildMergedCallbacks(runId, conversationId, agentId, userId
 			})
 			if callerCallbacks != nil && callerCallbacks.OnQueued != nil {
 				callerCallbacks.OnQueued()
-			}
-		},
-		OnStart: func() {
-			if callerCallbacks != nil && callerCallbacks.OnStart != nil {
-				callerCallbacks.OnStart()
 			}
 		},
 		OnTextDelta: func(text string) {
@@ -524,9 +508,7 @@ func (self *gateway) AbortRun(runId string) bool {
 	}
 
 	run.cancel()
-	if run.runner != nil {
-		run.runner.CancelConversation(conversationId)
-	}
+	self.coordinator.AbortConversation(conversationId)
 	return true
 }
 
@@ -549,7 +531,16 @@ func (self *gateway) DeleteConversation(userId, agentId, conversationId string) 
 		return fmt.Errorf("cannot delete conversation with active run")
 	}
 
-	if self.GetRunner(agentId) == nil {
+	// Verify agent exists in store.
+	var agentExists bool
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agent, err := transaction.GetAgent(ctx, agentId, nil)
+		if err == nil && agent != nil {
+			agentExists = true
+		}
+		return nil
+	})
+	if !agentExists {
 		return fmt.Errorf("agent not found: %s", agentId)
 	}
 	deleteError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
@@ -565,58 +556,9 @@ func (self *gateway) DeleteConversation(userId, agentId, conversationId string) 
 
 // --- Lifecycle controls ---
 
-// RequestLifecycle sends a lifecycle action immediately (non-blocking).
-// Used by slash commands that run outside agent runs.
-func (self *gateway) RequestLifecycle(action LifecycleAction) {
-	select {
-	case self.lifecycleChannel <- action:
-	default:
-	}
-}
-
-// ScheduleLifecycle stores a pending lifecycle action that fires after the
-// current agent run completes. Used by the LLM gateway tool so the conversation
-// finishes cleanly before the gateway shuts down or restarts.
-func (self *gateway) ScheduleLifecycle(action LifecycleAction) {
-	self.pendingLifecycleMutex.Lock()
-	self.pendingLifecycleAction = &action
-	self.pendingLifecycleMutex.Unlock()
-}
-
-// firePendingLifecycle checks for a pending lifecycle action and fires it.
-// Called from run cleanup after the LLM response has been broadcast.
-func (self *gateway) firePendingLifecycle() {
-	self.pendingLifecycleMutex.Lock()
-	action := self.pendingLifecycleAction
-	self.pendingLifecycleAction = nil
-	self.pendingLifecycleMutex.Unlock()
-
-	if action != nil {
-		self.RequestLifecycle(*action)
-	}
-}
-
-func (self *gateway) LifecycleChannel() <-chan LifecycleAction {
-	return self.lifecycleChannel
-}
-
-// --- Listen address ---
-
-// ListenAddress returns the host:port string derived from configs.
-func (self *gateway) ListenAddress() string {
-	host := "127.0.0.1"
-	bind := ""
-	port := 8833
-	if self.config != nil && self.config.Gateway != nil {
-		bind = self.config.Gateway.GetBind()
-		if self.config.Gateway.GetPort() > 0 {
-			port = self.config.Gateway.GetPort()
-		}
-	}
-	if bind == "lan" {
-		host = "0.0.0.0"
-	}
-	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
+// lifecycle returns the lifecycle manager from the gateway context.
+func (self *gateway) lifecycle() lifecycle.Lifecycle {
+	return lifecycle.LifecycleFromContext(self.ctx)
 }
 
 // StartVoiceSession creates a voice session bound to this gateway instance.
@@ -641,8 +583,6 @@ func (self *gateway) StartVoiceSession(
 		return nil, fmt.Errorf("no default agent configured")
 	}
 	if conversationId == "" {
-		// Start a fresh conversation when the client omits conversation_id.
-		// This avoids cross-session context bleed between separate voice calls.
 		conversationId = security.NewULID()
 		self.createConversationFile(userId, agentId, conversationId, "")
 		self.SetDefaultConversationIfUnset(userId, agentId, conversationId)

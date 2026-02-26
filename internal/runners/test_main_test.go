@@ -1,4 +1,4 @@
-package agents
+package runners
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	directory, err := os.MkdirTemp("", "teanode-agents-tests-")
+	directory, err := os.MkdirTemp("", "teanode-runners-tests-")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "MkdirTemp failed: %v\n", err)
 		os.Exit(1)

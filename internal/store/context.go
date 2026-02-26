@@ -19,3 +19,10 @@ func StoreFromContext(ctx context.Context) Store {
 	}
 	return dataStore
 }
+
+// StoreFromContextSafe returns the store from context, or nil if not present.
+func StoreFromContextSafe(ctx context.Context) Store {
+	value := ctx.Value(contextKeyStore{})
+	dataStore, _ := value.(Store)
+	return dataStore
+}

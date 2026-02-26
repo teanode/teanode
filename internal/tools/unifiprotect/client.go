@@ -142,22 +142,22 @@ type httpClient struct {
 }
 
 // NewHTTPClient creates a new HTTP-based UniFi Protect client.
-func NewHTTPClient(options *RegistrationOptions) Client {
-	timeoutSeconds := options.TimeoutSeconds
+func NewHTTPClient(config *resolvedConfig) Client {
+	timeoutSeconds := config.timeoutSeconds
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = defaultTimeoutSeconds
 	}
 
 	transport := &http.Transport{}
-	if !options.VerifyTLS {
+	if !config.verifyTLS {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
 	return &httpClient{
-		baseUrl:  strings.TrimRight(options.BaseURL, "/"),
-		apiKey:   options.APIKey,
-		username: options.Username,
-		password: options.Password,
+		baseUrl:  strings.TrimRight(config.baseURL, "/"),
+		apiKey:   config.apiKey,
+		username: config.username,
+		password: config.password,
 		httpClient: &http.Client{
 			Timeout:   time.Duration(timeoutSeconds) * time.Second,
 			Transport: transport,

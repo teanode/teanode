@@ -12,11 +12,11 @@ import (
 )
 
 type databaseConversationRecord struct {
-	ID         string    `gorm:"column:id;type:varchar(32);primaryKey"`
-	UserID     *string   `gorm:"column:user_id;type:varchar(32)"`
-	AgentID    *string   `gorm:"column:agent_id;type:varchar(32)"`
-	Default    *bool     `gorm:"column:default"`
-	Title      *string   `gorm:"column:title;type:varchar(256)"`
+	ID           string     `gorm:"column:id;type:varchar(32);primaryKey"`
+	UserID       *string    `gorm:"column:user_id;type:varchar(32)"`
+	AgentID      *string    `gorm:"column:agent_id;type:varchar(32)"`
+	Default      *bool      `gorm:"column:default"`
+	Title        *string    `gorm:"column:title;type:varchar(256)"`
 	Summary      *string    `gorm:"column:summary"`
 	SummarizedAt *time.Time `gorm:"column:summarized_at"`
 	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
@@ -87,6 +87,32 @@ func (self *databaseTransaction) FindDefaultConversation(ctx context.Context, us
 	return conversationRecordToModel(record), nil
 }
 
+func (self *databaseTransaction) SetDefaultConversation(ctx context.Context, conversationId string, options *store.Option) error {
+	// Look up the conversation to get userId and agentId.
+	record := &databaseConversationRecord{}
+	if getError := self.database.Where("id = ?", conversationId).Take(record).Error; getError != nil {
+		return databaseError(getError)
+	}
+	// Clear any existing default for this user+agent.
+	clearError := self.database.Model(&databaseConversationRecord{}).
+		Where("user_id = ? AND agent_id = ? AND \"default\" = ?", record.UserID, record.AgentID, true).
+		Update("default", false).Error
+	if clearError != nil {
+		return databaseError(clearError)
+	}
+	// Set the new default.
+	setError := self.database.Model(&databaseConversationRecord{}).
+		Where("id = ?", conversationId).
+		Updates(map[string]interface{}{
+			"default":     true,
+			"modified_at": *ptrto.TimeNowInLocal(),
+		}).Error
+	if setError != nil {
+		return databaseError(setError)
+	}
+	return nil
+}
+
 func (self *databaseTransaction) ModifyConversation(ctx context.Context, conversationId string, modifier func(*models.Conversation) error, options *store.Option) (*models.Conversation, error) {
 	conversation, getError := self.GetConversation(ctx, conversationId, options)
 	if getError != nil {
@@ -99,13 +125,13 @@ func (self *databaseTransaction) ModifyConversation(ctx context.Context, convers
 	record.ID = conversationId
 	record.ModifiedAt = *ptrto.TimeNowInLocal()
 	updateError := self.database.Model(&databaseConversationRecord{}).Where("id = ?", record.ID).Updates(map[string]interface{}{
-		"user_id":     record.UserID,
-		"agent_id":    record.AgentID,
-		"default":     record.Default,
-		"title":       record.Title,
-		"summary":        record.Summary,
-		"summarized_at":  record.SummarizedAt,
-		"modified_at":    record.ModifiedAt,
+		"user_id":       record.UserID,
+		"agent_id":      record.AgentID,
+		"default":       record.Default,
+		"title":         record.Title,
+		"summary":       record.Summary,
+		"summarized_at": record.SummarizedAt,
+		"modified_at":   record.ModifiedAt,
 	}).Error
 	if updateError != nil {
 		return nil, databaseError(updateError)

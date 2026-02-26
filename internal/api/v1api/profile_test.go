@@ -10,8 +10,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
 	storefs "github.com/teanode/teanode/internal/store/fsstore"
@@ -96,11 +97,13 @@ func loadProfileFromStore(t *testing.T, openedStore store.Store, userId string) 
 
 func newTestApi(t *testing.T, openedStore store.Store) *v1Api {
 	t.Helper()
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
 	return New(
 		gw.New(
-			store.ContextWithStore(context.Background(), openedStore),
+			contextWithStore,
 			&models.Configuration{},
-			agents.NewAgentRegistry(store.ContextWithStore(context.Background(), openedStore)),
+			coordinators.New(nil, nil),
+			runners.NewDefaultConversationManager(contextWithStore),
 			nil,
 			nil,
 			nil,

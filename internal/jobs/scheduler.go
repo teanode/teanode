@@ -258,4 +258,3 @@ func (self *Scheduler) executeJob(job *models.Job) {
 		}
 	}
 }
-

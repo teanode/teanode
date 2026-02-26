@@ -8,8 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/runners"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
 )
@@ -85,25 +86,30 @@ func (self *v1Api) handleChatCompletions(writer http.ResponseWriter, request *ht
 		return web.Error(http.StatusUnauthorized, "unauthorized")
 	}
 	agentId := user.GetDefaultAgentID()
-	runner := self.gateway.GetRunner(agentId)
-	if runner == nil {
+	agentExists := false
+	_ = store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+		if _, getError := transaction.GetAgent(ctx, agentId, nil); getError == nil {
+			agentExists = true
+		}
+		return nil
+	})
+	if !agentExists {
 		return web.Error(500, "no default agent configured")
 	}
 
 	if chatRequest.Stream {
-		return self.handleChatCompletionsStream(writer, request, chatRequest, conversationId, lastMessage, runner)
+		return self.handleChatCompletionsStream(writer, request, chatRequest, agentId, conversationId, lastMessage)
 	}
-	return self.handleChatCompletionsSync(writer, request, chatRequest, conversationId, lastMessage, runner)
+	return self.handleChatCompletionsSync(writer, request, chatRequest, agentId, conversationId, lastMessage)
 }
 
-func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage, runner *agents.Runner) error {
+func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, agentId string, conversationId string, lastMessage openaiMessage) error {
 	ctx, cancel := context.WithTimeout(httpRequest.Context(), 5*time.Minute)
 	defer cancel()
 
-	result, err := runner.Run(ctx, agents.RunParams{
-		ConversationID: conversationId,
-		Message:        lastMessage.Content,
-		Model:          request.Model,
+	result, err := self.gateway.Coordinator().SendMessage(ctx, agentId, conversationId, runners.RunParams{
+		Message: lastMessage.Content,
+		Model:   request.Model,
 	}, nil) // no callbacks for sync mode
 	if err != nil {
 		return web.Error(500, err.Error())
@@ -143,7 +149,7 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 	return nil
 }
 
-func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage, runner *agents.Runner) error {
+func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, agentId string, conversationId string, lastMessage openaiMessage) error {
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
 		return web.Error(500, "streaming not supported")
@@ -158,11 +164,10 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 
 	responseId := security.NewULID()
 
-	result, err := runner.Run(ctx, agents.RunParams{
-		ConversationID: conversationId,
-		Message:        lastMessage.Content,
-		Model:          request.Model,
-	}, &agents.RunCallbacks{
+	result, err := self.gateway.Coordinator().SendMessage(ctx, agentId, conversationId, runners.RunParams{
+		Message: lastMessage.Content,
+		Model:   request.Model,
+	}, &runners.RunCallbacks{
 		OnTextDelta: func(text string) {
 			chunk := openaiResponse{
 				ID:      responseId,

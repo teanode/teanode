@@ -1,4 +1,4 @@
-package agents
+package runners
 
 import (
 	"strings"

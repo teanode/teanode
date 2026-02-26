@@ -10,7 +10,7 @@ import (
 
 type tasksTool struct {
 	binary  string
-	account string
+
 	runner  commandRunner
 }
 
@@ -75,7 +75,7 @@ func (self *tasksTool) Execute(ctx context.Context, rawArguments string) (string
 
 	switch args.Action {
 	case "list":
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"tasks", "list", args.TaskList)
 
 	case "create":
@@ -89,20 +89,20 @@ func (self *tasksTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Due != "" {
 			cmdArgs = append(cmdArgs, "--due", args.Due)
 		}
-		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account, cmdArgs...)
 
 	case "complete":
 		if args.TaskID == "" {
 			return "", fmt.Errorf("task_id is required for complete action")
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"tasks", "complete", args.TaskList, args.TaskID)
 
 	case "delete":
 		if args.TaskID == "" {
 			return "", fmt.Errorf("task_id is required for delete action")
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"tasks", "delete", args.TaskList, args.TaskID)
 
 	default:

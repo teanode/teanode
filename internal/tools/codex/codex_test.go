@@ -87,8 +87,6 @@ func TestRunWithValidJSON(testing *testing.T) {
 
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -148,8 +146,6 @@ func TestRunWithNonJSONFallback(testing *testing.T) {
 
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -180,8 +176,6 @@ func TestRunWithNonJSONFallbackError(testing *testing.T) {
 
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -211,8 +205,6 @@ func TestRunMissingPrompt(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -230,8 +222,6 @@ func TestRunRequiresResumeWhenSessionExists(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions: map[string]*sessionInfo{
 			"existing-session": {SessionID: "existing-session"},
@@ -253,8 +243,6 @@ func TestRunAllowsForceNewSessionWhenSessionExists(testing *testing.T) {
 	runner, calls := mockRunner(codexOutput, "", 0, nil)
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions: map[string]*sessionInfo{
 			"existing-session": {SessionID: "existing-session"},
@@ -283,8 +271,6 @@ func TestResumeKnownSession(testing *testing.T) {
 
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions: map[string]*sessionInfo{
 			"abc-123": {
@@ -347,8 +333,6 @@ func TestResumeWithoutTrackedSession(testing *testing.T) {
 	runner, calls := mockRunner(codexOutput, "", 0, nil)
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -393,8 +377,6 @@ func TestResumeMissingSessionID(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -413,8 +395,6 @@ func TestResumeMissingPrompt(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions: map[string]*sessionInfo{
 			"abc-123": {SessionID: "abc-123"},
@@ -473,8 +453,6 @@ func TestListSessionsAfterRuns(testing *testing.T) {
 
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -648,11 +626,9 @@ func marshalContent(value string) []byte {
 // --- argument building tests ---
 
 func TestBuildArgumentsBasic(testing *testing.T) {
-	tool := &codexTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &codexTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
 
 	// Verify exec mode and prompt placement.
 	if len(arguments) < 2 || arguments[0] != "exec" {
@@ -692,11 +668,9 @@ func TestBuildArgumentsBasic(testing *testing.T) {
 }
 
 func TestBuildArgumentsWithResume(testing *testing.T) {
-	tool := &codexTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &codexTool{}
 
-	arguments := tool.buildArguments("Continue", "session-xyz", "")
+	arguments := tool.buildArguments(context.Background(), "Continue", "session-xyz", "")
 
 	foundResumeSubcommand := false
 	foundSessionId := false
@@ -716,32 +690,24 @@ func TestBuildArgumentsWithResume(testing *testing.T) {
 	}
 }
 
-func TestBuildArgumentsWithModel(testing *testing.T) {
-	tool := &codexTool{
-		allowedTools: DefaultAllowedTools,
-		model:        "codex-sonnet-4-5-20250514",
-	}
+func TestBuildArgumentsWithoutModelConfig(testing *testing.T) {
+	tool := &codexTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
 
-	foundModel := false
-	for index, argument := range arguments {
-		if argument == "--model" && index+1 < len(arguments) && arguments[index+1] == "codex-sonnet-4-5-20250514" {
-			foundModel = true
+	// Without a store in context, no --model flag should be emitted.
+	for _, argument := range arguments {
+		if argument == "--model" {
+			testing.Errorf("did not expect '--model' without config, got: %v", arguments)
 			break
 		}
-	}
-	if !foundModel {
-		testing.Errorf("expected '--model codex-sonnet-4-5-20250514' in args: %v", arguments)
 	}
 }
 
 func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
-	tool := &codexTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &codexTool{}
 
-	arguments := tool.buildArguments("Do something", "", "You are a helpful assistant")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "You are a helpful assistant")
 
 	combinedPrompt := arguments[len(arguments)-1]
 	if !strings.Contains(combinedPrompt, "Additional system instructions:\nYou are a helpful assistant") {
@@ -750,11 +716,9 @@ func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
 }
 
 func TestBuildArgumentsDoesNotEmitUnsupportedLegacyFlags(testing *testing.T) {
-	tool := &codexTool{
-		allowedTools: []string{"Bash", "Read"},
-	}
+	tool := &codexTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
 
 	for _, argument := range arguments {
 		if argument == "--allowedTools" || argument == "--append-system-prompt" || argument == "--resume" {
@@ -771,8 +735,6 @@ func TestTimeoutCapping(testing *testing.T) {
 
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -843,8 +805,6 @@ func TestRunCommandExecutionError(testing *testing.T) {
 
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -867,8 +827,6 @@ func TestRunWithWorkingDirectory(testing *testing.T) {
 
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}
@@ -898,8 +856,6 @@ func TestRunFallbackToStderr(testing *testing.T) {
 
 	tool := &codexTool{
 		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
 		runner:       runner,
 		sessions:     make(map[string]*sessionInfo),
 	}

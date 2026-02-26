@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/models"
@@ -165,7 +164,14 @@ func (self *webSocketConnection) handleAgentsSetDefault(frame requestFrame) {
 		self.sendError(frame.ID, 400, "agentId is required")
 		return
 	}
-	if self.api.gateway.GetRunner(parameters.AgentID) == nil {
+	agentExists := false
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		if _, getError := transaction.GetAgent(ctx, parameters.AgentID, nil); getError == nil {
+			agentExists = true
+		}
+		return nil
+	})
+	if !agentExists {
 		self.sendError(frame.ID, 404, "agent not found: "+parameters.AgentID)
 		return
 	}
@@ -427,10 +433,15 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 	}
 
 	var allConversations []conversationWithAgent
-	self.api.gateway.AgentRegistry().ForEach(func(agentId string, _ *agents.Runner) {
-		conversationList, err := listConversations(self.ctx, self.userId(), agentId)
+	agentsList, agentsListError := self.listAgents()
+	if agentsListError != nil {
+		self.sendError(frame.ID, 500, "listing agents: "+agentsListError.Error())
+		return
+	}
+	for _, agent := range agentsList {
+		conversationList, err := listConversations(self.ctx, self.userId(), agent.ID)
 		if err != nil {
-			return
+			continue
 		}
 		for _, conversationInfo := range conversationList {
 			lastActive := int64(0)
@@ -444,10 +455,10 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 				LastActive: lastActive,
 				Title:      conversationInfo.GetTitle(),
 				Summary:    conversationInfo.GetSummary(),
-				AgentID:    agentId,
+				AgentID:    agent.ID,
 			})
 		}
-	})
+	}
 
 	if parameters.Limit > 0 && len(allConversations) > parameters.Limit {
 		allConversations = allConversations[:parameters.Limit]
@@ -1427,7 +1438,7 @@ func (self *webSocketConnection) handleUsersCreate(frame requestFrame) {
 		if existingUser, _ := transaction.GetUserByUsername(ctx, username, nil); existingUser != nil {
 			return store.ErrAlreadyExists
 		}
-		createdUser, _, err := onboarding.CreateUser(ctx, transaction, &models.User{
+		createdUser, err := onboarding.CreateUser(ctx, transaction, &models.User{
 			ID:          security.NewULID(),
 			Username:    &username,
 			Password:    ptrto.TrimmedString(string(hash)),

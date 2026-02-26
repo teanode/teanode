@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
@@ -73,47 +73,47 @@ type sessionInfo struct {
 
 // claudeCodeTool delegates complex coding tasks to Claude Code in headless mode.
 type claudeCodeTool struct {
-	binaryPath   string
-	allowedTools []string
-	model        string
-	timeout      time.Duration
-	runner       commandRunner
-	sessions     map[string]*sessionInfo
-	mutex        sync.Mutex
+	binaryPath string
+	runner     commandRunner
+	sessions   map[string]*sessionInfo
+	mutex      sync.Mutex
 }
 
-type RegistrationOptions struct {
-	BinaryPath            string
-	AllowedTools          []string
-	Model                 string
-	MaxTurnTimeoutSeconds int
+// configFromContext reads the Claude Code tool configuration from the store.
+func configFromContext(ctx context.Context) (allowedTools []string, model string, timeout time.Duration) {
+	allowedTools = DefaultAllowedTools
+	timeout = defaultTimeout
+	dataStore := store.StoreFromContextSafe(ctx)
+	if dataStore == nil {
+		return
+	}
+	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if configuration.Tools != nil && configuration.Tools.ClaudeCode != nil {
+			config := configuration.Tools.ClaudeCode
+			if tools := config.GetAllowedTools(); len(tools) > 0 {
+				allowedTools = tools
+			}
+			model = config.GetModel()
+			if seconds := config.GetMaxTurnTimeoutSeconds(); seconds > 0 {
+				timeout = time.Duration(seconds) * time.Second
+				if timeout > maxTimeout {
+					timeout = maxTimeout
+				}
+			}
+		}
+		return nil
+	})
+	return
 }
 
 // RegisterTools adds the claude_code tool to the registry.
 // If the claude binary is not found, no tools are registered.
-// A nil config is treated as "use defaults" — tools are registered
-// as long as the binary is present on PATH.
-func RegisterTools(registry *toolregistry.ToolRegistry, options *RegistrationOptions) {
+func RegisterTools(registry *toolregistry.ToolRegistry) {
 	binaryPath := "claude"
-	allowedTools := DefaultAllowedTools
-	var model string
-	timeout := defaultTimeout
-
-	if options != nil {
-		if options.BinaryPath != "" {
-			binaryPath = options.BinaryPath
-		}
-		if len(options.AllowedTools) > 0 {
-			allowedTools = options.AllowedTools
-		}
-		model = options.Model
-		if options.MaxTurnTimeoutSeconds > 0 {
-			timeout = time.Duration(options.MaxTurnTimeoutSeconds) * time.Second
-			if timeout > maxTimeout {
-				timeout = maxTimeout
-			}
-		}
-	}
 
 	resolvedPath, err := exec.LookPath(binaryPath)
 	if err != nil {
@@ -123,12 +123,9 @@ func RegisterTools(registry *toolregistry.ToolRegistry, options *RegistrationOpt
 	log.Infof("Claude Code tools enabled (binary: %s)", resolvedPath)
 
 	registry.Register(&claudeCodeTool{
-		binaryPath:   resolvedPath,
-		allowedTools: allowedTools,
-		model:        model,
-		timeout:      timeout,
-		runner:       defaultCommandRunner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: resolvedPath,
+		runner:     defaultCommandRunner,
+		sessions:   make(map[string]*sessionInfo),
 	})
 }
 
@@ -281,7 +278,7 @@ func (self *claudeCodeTool) executeRun(ctx context.Context, prompt, systemPrompt
 		return "", fmt.Errorf("existing session(s) detected — use action=resume with sessionId (see list_sessions), or set forceNewSession=true to start a new session")
 	}
 
-	commandArguments := self.buildArguments(prompt, "", systemPrompt)
+	commandArguments := self.buildArguments(ctx, prompt, "", systemPrompt)
 	return self.executeCommand(ctx, commandArguments, workingDirectory, timeoutSeconds)
 }
 
@@ -299,7 +296,7 @@ func (self *claudeCodeTool) executeResume(ctx context.Context, sessionId, prompt
 		return "", fmt.Errorf("prompt is required for resume action")
 	}
 
-	commandArguments := self.buildArguments(prompt, sessionId, systemPrompt)
+	commandArguments := self.buildArguments(ctx, prompt, sessionId, systemPrompt)
 	return self.executeCommand(ctx, commandArguments, workingDirectory, timeoutSeconds)
 }
 
@@ -343,7 +340,7 @@ func (self *claudeCodeTool) executeListSessions(ctx context.Context) (string, er
 }
 
 func (self *claudeCodeTool) resolveConversationScope(ctx context.Context) (string, string, error) {
-	runner := agents.RunnerFromContext(ctx)
+	runner := runners.RunnerFromContext(ctx)
 	if runner == nil {
 		return "", "", fmt.Errorf("runner context missing")
 	}
@@ -454,20 +451,22 @@ func extractSessionIdFromToolResult(result string) string {
 	return ""
 }
 
-func (self *claudeCodeTool) buildArguments(prompt, sessionId, systemPrompt string) []string {
+func (self *claudeCodeTool) buildArguments(ctx context.Context, prompt, sessionId, systemPrompt string) []string {
+	allowedTools, model, _ := configFromContext(ctx)
+
 	arguments := []string{"-p", prompt, "--output-format", "json"}
 
 	if sessionId != "" {
 		arguments = append(arguments, "--resume", sessionId)
 	}
 
-	if self.model != "" {
-		arguments = append(arguments, "--model", self.model)
+	if model != "" {
+		arguments = append(arguments, "--model", model)
 	}
 
 	// Always pass --allowedTools to prevent interactive tool approval prompts.
 	arguments = append(arguments, "--allowedTools")
-	arguments = append(arguments, self.allowedTools...)
+	arguments = append(arguments, allowedTools...)
 
 	if systemPrompt != "" {
 		arguments = append(arguments, "--append-system-prompt", systemPrompt)
@@ -478,7 +477,8 @@ func (self *claudeCodeTool) buildArguments(prompt, sessionId, systemPrompt strin
 
 func (self *claudeCodeTool) executeCommand(ctx context.Context, commandArguments []string, workingDirectory string, timeoutSeconds int) (string, error) {
 	// Resolve timeout.
-	timeout := self.timeout
+	_, _, configTimeout := configFromContext(ctx)
+	timeout := configTimeout
 	if timeoutSeconds > 0 {
 		timeout = time.Duration(timeoutSeconds) * time.Second
 		if timeout > maxTimeout {

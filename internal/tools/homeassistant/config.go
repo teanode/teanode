@@ -45,7 +45,7 @@ type AccessChecker struct {
 
 // NewAccessChecker creates an AccessChecker from the given configuration.
 // If config is nil, safe defaults are used.
-func NewAccessChecker(options *RegistrationOptions) *AccessChecker {
+func NewAccessChecker(config *resolvedConfig) *AccessChecker {
 	checker := &AccessChecker{
 		allowedDomains:  make(map[string]bool),
 		blockedDomains:  make(map[string]bool),
@@ -55,15 +55,15 @@ func NewAccessChecker(options *RegistrationOptions) *AccessChecker {
 	allowedDomains := DefaultAllowedDomains
 	blockedDomains := DefaultBlockedDomains
 
-	if options != nil {
-		checker.readOnly = options.ReadOnly
-		if options.AllowedDomains != nil {
-			allowedDomains = options.AllowedDomains
+	if config != nil {
+		checker.readOnly = config.readOnly
+		if config.allowedDomains != nil {
+			allowedDomains = config.allowedDomains
 		}
-		if options.BlockedDomains != nil {
-			blockedDomains = options.BlockedDomains
+		if config.blockedDomains != nil {
+			blockedDomains = config.blockedDomains
 		}
-		for _, entity := range options.AllowedEntities {
+		for _, entity := range config.allowedEntities {
 			checker.allowedEntities[entity] = true
 		}
 	}

@@ -27,7 +27,7 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		parameters.Features.ServerVAD, parameters.Features.ServerTurn, parameters.Features.ServerDenoise, parameters.Features.BargeIn,
 	)
 
-	if isVoiceStartConflict(self.getActiveVoiceSession()) {
+	if self.getActiveVoiceSession() != nil {
 		log.Warningf("voice.start conflict: active session already exists")
 		self.sendError(frame.ID, 409, "voice session already active")
 		return
@@ -94,7 +94,7 @@ func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) {
 		}
 	}
 	session := self.getActiveVoiceSession()
-	if isVoiceEndNotFound(session) {
+	if session == nil {
 		log.Warningf("voice.end without active session")
 		self.sendError(frame.ID, 404, "no active voice session")
 		return
@@ -171,12 +171,4 @@ func applyVoiceDefaults(parameters *voiceStartParams) {
 	if parameters.AudioOut.Channels == 0 {
 		parameters.AudioOut.Channels = 1
 	}
-}
-
-func isVoiceStartConflict(active *voice.Session) bool {
-	return active != nil
-}
-
-func isVoiceEndNotFound(active *voice.Session) bool {
-	return active == nil
 }

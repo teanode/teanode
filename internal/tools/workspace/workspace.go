@@ -9,17 +9,24 @@ import (
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	toolregistry "github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/valueor"
 )
 
 // RegisterTools adds memory tools to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry, agentId string) {
+func RegisterTools(registry *toolregistry.ToolRegistry) {
 	registry.Register(newWorkspaceTool(
 		"agent_workspace",
 		"Persistent per-agent workspace storage shared by users of this agent.",
-		func(context.Context) (models.Scope, string, error) { return models.ScopeAgent, agentId, nil },
+		func(ctx context.Context) (models.Scope, string, error) {
+			runner := runners.RunnerFromContext(ctx)
+			if runner == nil || runner.AgentID == "" {
+				return "", "", fmt.Errorf("missing runner context")
+			}
+			return models.ScopeAgent, runner.AgentID, nil
+		},
 	))
 	registry.Register(newWorkspaceTool(
 		"user_workspace",
@@ -378,4 +385,3 @@ func normalizeRelativePath(path string) (string, error) {
 	}
 	return cleanedPath, nil
 }
-

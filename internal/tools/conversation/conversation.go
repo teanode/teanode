@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
 	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
 // RegisterTools adds conversation-related tools to the registry.
@@ -73,17 +75,28 @@ func (self *listConversationsTool) Execute(ctx context.Context, rawArguments str
 		arguments.Limit = 10
 	}
 
-	currentConversationId := agents.ConversationIDFromContext(ctx)
+	runner := runners.RunnerFromContext(ctx)
+	if runner == nil {
+		return "", fmt.Errorf("runner context missing")
+	}
+	currentConversationId := runner.ConversationID
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("userId is required")
 	}
-	runner := agents.RunnerFromContext(ctx)
-	if runner == nil {
-		return "", fmt.Errorf("runner context missing")
-	}
-	allConversations, err := agents.ListConversationsForAgent(ctx, user.ID, runner.AgentID)
-	if err != nil {
+
+	allConversations := make([]*models.Conversation, 0)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		conversations, err := transaction.ListConversations(ctx, store.ConversationListOptions{
+			UserID:  ptrto.Value(user.ID),
+			AgentID: ptrto.Value(runner.AgentID),
+		}, nil)
+		if err != nil {
+			return err
+		}
+		allConversations = append(allConversations, conversations...)
+		return nil
+	}); err != nil {
 		return "", fmt.Errorf("listing conversations: %w", err)
 	}
 
@@ -159,21 +172,10 @@ func (self *compactConversationTool) Definition() providers.ToolDefinition {
 }
 
 func (self *compactConversationTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	conversationId := agents.ConversationIDFromContext(ctx)
-	if conversationId == "" {
-		return "", fmt.Errorf("no default conversation")
-	}
-
-	runner := agents.RunnerFromContext(ctx)
-	if runner == nil {
-		return "", fmt.Errorf("runner context missing")
-	}
-
-	compactResult, err := runner.CompactConversation(ctx, conversationId)
+	compactResult, err := runners.RunnerFromContext(ctx).CompactConversation(ctx)
 	if err != nil {
 		return "", err
 	}
-
 	result, _ := json.Marshal(compactResult)
 	return string(result), nil
 }

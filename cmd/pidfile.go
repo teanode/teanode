@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"syscall"
-	"path/filepath"
 
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )

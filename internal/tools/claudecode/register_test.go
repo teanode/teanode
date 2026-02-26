@@ -20,56 +20,27 @@ func makeFakeBinary(t *testing.T, name string) func() {
 	return func() { os.Setenv("PATH", origPath) }
 }
 
-func TestRegisterTools_NilConfig_BinaryPresent(t *testing.T) {
+func TestRegisterTools_BinaryPresent(t *testing.T) {
 	cleanup := makeFakeBinary(t, "claude")
 	defer cleanup()
 
 	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry, nil)
+	RegisterTools(registry)
 
 	if registry.Get("claude_code") == nil {
-		t.Error("expected claude_code to be registered with nil config")
+		t.Error("expected claude_code to be registered")
 	}
 }
 
-func TestRegisterTools_NilConfig_BinaryMissing(t *testing.T) {
+func TestRegisterTools_BinaryMissing(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", t.TempDir())
 	defer os.Setenv("PATH", origPath)
 
 	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry, nil)
+	RegisterTools(registry)
 
 	if registry.Get("claude_code") != nil {
 		t.Error("expected no claude_code tool when binary is missing")
-	}
-}
-
-func TestRegisterTools_ExplicitConfig_UsesDefaults(t *testing.T) {
-	cleanup := makeFakeBinary(t, "claude")
-	defer cleanup()
-
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry, &RegistrationOptions{})
-
-	if registry.Get("claude_code") == nil {
-		t.Error("expected claude_code to be registered with empty config")
-	}
-}
-
-func TestRegisterTools_ExplicitConfig_CustomBinaryPath(t *testing.T) {
-	dir := t.TempDir()
-	customBinary := filepath.Join(dir, "my-claude")
-	if err := os.WriteFile(customBinary, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("creating fake binary: %v", err)
-	}
-
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry, &RegistrationOptions{
-		BinaryPath: customBinary,
-	})
-
-	if registry.Get("claude_code") == nil {
-		t.Error("expected claude_code to be registered with custom binary path")
 	}
 }

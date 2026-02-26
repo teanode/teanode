@@ -108,7 +108,7 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 			Password: ptrto.TrimmedString(string(hash)),
 			Admin:    ptrto.Value(true),
 		}
-		createdUser, _, err := onboarding.CreateUser(ctx, transaction, user)
+		createdUser, err := onboarding.CreateUser(ctx, transaction, user)
 		if err != nil {
 			return err
 		}
@@ -122,7 +122,7 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 			RemoteAddress: ptrto.Value(request.RemoteAddr),
 			ExpiresAt:     ptrto.Value(expiresAt),
 		}, nil)
-		if err != nil { 
+		if err != nil {
 			return err
 		}
 		session = createdSession
@@ -187,7 +187,7 @@ func (self *v1Api) handleAuthLogin(writer http.ResponseWriter, request *http.Req
 			RemoteAddress: ptrto.Value(request.RemoteAddr),
 			ExpiresAt:     ptrto.Value(expiresAt),
 		}, nil)
-		if err != nil { 
+		if err != nil {
 			return err
 		}
 		session = createdSession
@@ -323,4 +323,3 @@ func (self *v1Api) checkAuthRateLimit(request *http.Request) error {
 	}
 	return nil
 }
-

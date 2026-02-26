@@ -27,10 +27,10 @@ func setupSkillStore(t *testing.T) store.Store {
 
 // skillFrontmatter represents the YAML frontmatter of a skill markdown file.
 type skillFrontmatter struct {
-	Name                   string                                         `yaml:"name"`
-	Description            string                                         `yaml:"description"`
-	Tools                  []*models.SkillTool                            `yaml:"tools"`
-	AuthenticationProfiles map[string]models.SkillAuthenticationProfiles   `yaml:"authenticationProfiles"`
+	Name                   string                                        `yaml:"name"`
+	Description            string                                        `yaml:"description"`
+	Tools                  []*models.SkillTool                           `yaml:"tools"`
+	AuthenticationProfiles map[string]models.SkillAuthenticationProfiles `yaml:"authenticationProfiles"`
 }
 
 func createStoredSkillFromMarkdown(t *testing.T, openedStore store.Store, skillId string, version string, markdown string, enabled bool) {

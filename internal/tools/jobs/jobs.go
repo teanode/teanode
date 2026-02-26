@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/runners"
 	jobscore "github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
@@ -14,7 +14,6 @@ import (
 	toolregistry "github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/ptrto"
-	"github.com/teanode/teanode/internal/util/security"
 )
 
 // RegisterTools adds job management tools to the registry.
@@ -179,11 +178,7 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 		runAt = &runAtValue
 		isOneShot = true
 		// One-shot reminders bind to the current conversation.
-		if contextConversationId := agents.ConversationIDFromContext(ctx); contextConversationId != "" {
-			conversationId = contextConversationId
-		} else {
-			conversationId = security.NewULID()
-		}
+		conversationId = runners.RunnerFromContext(ctx).ConversationID
 	} else {
 		if _, parseError := cronexpr.Parse(schedule); parseError != nil {
 			return "", fmt.Errorf("invalid schedule expression: %w", parseError)
@@ -195,7 +190,6 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 	}
 
 	job := models.Job{
-		ID:             security.NewULID(),
 		Name:           ptrto.Value(name),
 		Schedule:       ptrto.TrimmedString(schedule),
 		Prompt:         ptrto.Value(message),
@@ -332,4 +326,3 @@ func (self *jobsTool) executeTrigger(ctx context.Context, _ string, id string) (
 	})
 	return string(result), nil
 }
-

@@ -1,4 +1,4 @@
-package terminals
+package terminal
 
 import (
 	"context"
@@ -6,18 +6,19 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
-// RegisterTerminalTools adds all terminal-control tools to the registry.
-func RegisterTerminalTools(registry *toolregistry.ToolRegistry, relay *Relay) {
-	registry.Register(&terminalTool{relay: relay})
+// RegisterTools adds all terminal-control tools to the registry.
+func RegisterTools(registry *toolregistry.ToolRegistry) {
+	registry.Register(&terminalTool{})
 }
 
 // resolveConnectionId returns the connectionId from args or falls back to the user's default.
-func resolveConnectionId(relay *Relay, userId, connectionId string) (string, error) {
+func resolveConnectionId(relay *terminals.Relay, userId, connectionId string) (string, error) {
 	if connectionId != "" {
 		return connectionId, nil
 	}
@@ -26,7 +27,7 @@ func resolveConnectionId(relay *Relay, userId, connectionId string) (string, err
 
 // --- terminal (consolidated) ---
 
-type terminalTool struct{ relay *Relay }
+type terminalTool struct{}
 
 func (self *terminalTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
@@ -67,6 +68,11 @@ func (self *terminalTool) Definition() providers.ToolDefinition {
 }
 
 func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	relay := terminals.TerminalFromContext(ctx)
+	if relay == nil {
+		return "", fmt.Errorf("no terminal relay available")
+	}
+
 	var arguments struct {
 		Action       string `json:"action"`
 		ConnectionID string `json:"connectionId"`
@@ -79,24 +85,24 @@ func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (str
 
 	switch arguments.Action {
 	case "list":
-		return self.executeList(ctx)
+		return executeList(ctx, relay)
 	case "screenshot":
-		return self.executeScreenshot(ctx, arguments.ConnectionID)
+		return executeScreenshot(ctx, relay, arguments.ConnectionID)
 	case "type":
-		return self.executeType(ctx, arguments.ConnectionID, arguments.Text)
+		return executeTypeAction(ctx, relay, arguments.ConnectionID, arguments.Text)
 	case "press_key":
-		return self.executePressKey(ctx, arguments.ConnectionID, arguments.Key)
+		return executePressKey(ctx, relay, arguments.ConnectionID, arguments.Key)
 	default:
 		return "", fmt.Errorf("unknown terminal action: %s", arguments.Action)
 	}
 }
 
-func (self *terminalTool) executeList(ctx context.Context) (string, error) {
+func executeList(ctx context.Context, relay *terminals.Relay) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	connections := self.relay.ConnectionsForUser(user.ID)
+	connections := relay.ConnectionsForUser(user.ID)
 	type entry struct {
 		ID               string `json:"id"`
 		Hostname         string `json:"hostname,omitempty"`
@@ -124,16 +130,16 @@ func (self *terminalTool) executeList(ctx context.Context) (string, error) {
 	return string(output), nil
 }
 
-func (self *terminalTool) executeScreenshot(ctx context.Context, connectionId string) (string, error) {
+func executeScreenshot(ctx context.Context, relay *terminals.Relay, connectionId string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	resolvedId, err := resolveConnectionId(self.relay, user.ID, connectionId)
+	resolvedId, err := resolveConnectionId(relay, user.ID, connectionId)
 	if err != nil {
 		return "", err
 	}
-	result, err := self.relay.SendCommandForUser(ctx, user.ID, resolvedId, "screenshot", nil)
+	result, err := relay.SendCommandForUser(ctx, user.ID, resolvedId, "screenshot", nil)
 	if err != nil {
 		return "", err
 	}
@@ -147,16 +153,16 @@ func (self *terminalTool) executeScreenshot(ctx context.Context, connectionId st
 	return string(output), nil
 }
 
-func (self *terminalTool) executeType(ctx context.Context, connectionId string, text string) (string, error) {
+func executeTypeAction(ctx context.Context, relay *terminals.Relay, connectionId string, text string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	resolvedId, err := resolveConnectionId(self.relay, user.ID, connectionId)
+	resolvedId, err := resolveConnectionId(relay, user.ID, connectionId)
 	if err != nil {
 		return "", err
 	}
-	_, err = self.relay.SendCommandForUser(ctx, user.ID, resolvedId, "write", map[string]interface{}{
+	_, err = relay.SendCommandForUser(ctx, user.ID, resolvedId, "write", map[string]interface{}{
 		"data": text,
 	})
 	if err != nil {
@@ -166,7 +172,7 @@ func (self *terminalTool) executeType(ctx context.Context, connectionId string, 
 	return string(output), nil
 }
 
-func (self *terminalTool) executePressKey(ctx context.Context, connectionId string, key string) (string, error) {
+func executePressKey(ctx context.Context, relay *terminals.Relay, connectionId string, key string) (string, error) {
 	seq, ok := termKeyMap[strings.ToLower(key)]
 	if !ok {
 		return "", fmt.Errorf("unknown key: %s", key)
@@ -175,11 +181,11 @@ func (self *terminalTool) executePressKey(ctx context.Context, connectionId stri
 	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
-	resolvedId, err := resolveConnectionId(self.relay, user.ID, connectionId)
+	resolvedId, err := resolveConnectionId(relay, user.ID, connectionId)
 	if err != nil {
 		return "", err
 	}
-	_, err = self.relay.SendCommandForUser(ctx, user.ID, resolvedId, "write", map[string]interface{}{
+	_, err = relay.SendCommandForUser(ctx, user.ID, resolvedId, "write", map[string]interface{}{
 		"data": seq,
 	})
 	if err != nil {

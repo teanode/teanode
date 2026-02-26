@@ -7,11 +7,12 @@ import (
 	"context"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/summarizer"
 	"github.com/teanode/teanode/internal/voice"
 )
@@ -74,23 +75,14 @@ type Subscriber interface {
 	OnEvent(eventType EventType, payload interface{})
 }
 
-// LifecycleAction identifies a gateway lifecycle request.
-type LifecycleAction int
-
-const (
-	LifecycleShutdown LifecycleAction = iota
-	LifecycleRestart
-)
-
 // Gateway is the main domain interface for the TeaNode gateway.
 type Gateway interface {
 	// Subsystem access
-	AgentRegistry() *agents.AgentRegistry
+	Coordinator() *coordinators.Coordinator
 	BrowserRelay() *relaybrowser.Relay
 	TerminalRelay() *terminals.Relay
 
 	// Domain operations
-	GetRunner(agentId string) *agents.Runner
 	ProviderRegistry() *providers.Registry
 
 	// Default agent / conversation
@@ -100,7 +92,7 @@ type Gateway interface {
 	NewDefaultConversation(userId, agentId, model string) string
 
 	// Centralized message sending and run management
-	SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *agents.RunCallbacks) *RunHandle
+	SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *runners.RunCallbacks) *RunHandle
 	AbortRun(runId string) bool
 	GetActiveRun(conversationId string) string
 	DeleteConversation(userId, agentId, conversationId string) error
@@ -124,21 +116,15 @@ type Gateway interface {
 	MarkSessionConnected(sessionId string)
 	MarkSessionDisconnected(sessionId string)
 	IsSessionConnected(sessionId string) bool
-
-	// ListenAddress returns the host:port the server should bind to.
-	ListenAddress() string
-
-	// Lifecycle controls
-	RequestLifecycle(action LifecycleAction)
-	ScheduleLifecycle(action LifecycleAction)
-	LifecycleChannel() <-chan LifecycleAction
 }
 
-// New creates a new Gateway.
+// New creates a new Gateway. The ctx must contain a lifecycle.Lifecycle
+// (via lifecycle.ContextWithLifecycle) for lifecycle controls to work.
 func New(
 	ctx context.Context,
 	configuration *models.Configuration,
-	agentRegistry *agents.AgentRegistry,
+	coordinator *coordinators.Coordinator,
+	defaults *runners.DefaultConversationManager,
 	browserRelay *relaybrowser.Relay,
 	terminalRelay *terminals.Relay,
 	summarizer *summarizer.Summarizer,
@@ -146,7 +132,8 @@ func New(
 	return &gateway{
 		ctx:               ctx,
 		config:            configuration,
-		agentRegistry:     agentRegistry,
+		coordinator:       coordinator,
+		defaults:          defaults,
 		browserRelay:      browserRelay,
 		terminalRelay:     terminalRelay,
 		summarizer:        summarizer,
@@ -154,6 +141,5 @@ func New(
 		sessionsConnected: make(map[string]int),
 		activeRuns:        make(map[string]*activeRun),
 		runIndex:          make(map[string]string),
-		lifecycleChannel:  make(chan LifecycleAction, 1),
 	}
 }

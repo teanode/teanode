@@ -13,28 +13,28 @@ type AccessChecker struct {
 }
 
 // NewAccessChecker creates an AccessChecker from the given configuration.
-func NewAccessChecker(options *RegistrationOptions) *AccessChecker {
+func NewAccessChecker(config *resolvedConfig) *AccessChecker {
 	checker := &AccessChecker{
 		allowedCameras:        make(map[string]bool),
 		allowDangerousActions: make(map[string]bool),
 	}
 
-	if options == nil {
+	if config == nil {
 		checker.allowCameraAll = true
 		return checker
 	}
 
-	checker.readOnly = options.ReadOnly
+	checker.readOnly = config.readOnly
 
-	if len(options.AllowedCameras) == 0 {
+	if len(config.allowedCameras) == 0 {
 		checker.allowCameraAll = true
 	} else {
-		for _, camera := range options.AllowedCameras {
+		for _, camera := range config.allowedCameras {
 			checker.allowedCameras[normalizeCamera(camera)] = true
 		}
 	}
 
-	for _, action := range options.AllowDangerousActions {
+	for _, action := range config.allowDangerousActions {
 		checker.allowDangerousActions[action] = true
 	}
 

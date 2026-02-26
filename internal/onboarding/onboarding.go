@@ -14,15 +14,15 @@ import (
 
 // CreateUser creates a user with seed workspace files, a default conversation,
 // and an onboarding seed message, all within the caller-provided transaction.
-func CreateUser(ctx context.Context, transaction store.Transaction, user *models.User) (*models.User, *models.Conversation, error) {
+func CreateUser(ctx context.Context, transaction store.Transaction, user *models.User) (*models.User, error) {
 	if user == nil {
-		return nil, nil, fmt.Errorf("user is required")
+		return nil, fmt.Errorf("user is required")
 	}
 
 	// Resolve default agent ID: prefer "main", otherwise earliest CreatedAt.
 	agents, err := transaction.ListAgents(ctx, nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("listing agents: %w", err)
+		return nil, fmt.Errorf("listing agents: %w", err)
 	}
 	defaultAgentId := ""
 	if len(agents) > 0 {
@@ -48,28 +48,28 @@ func CreateUser(ctx context.Context, transaction store.Transaction, user *models
 
 	// Build seed workspace files.
 	seedWorkspaceFiles := []models.WorkspaceFile{
-		{Path: ptrto.Value("USER.md"), Content: byteSlicePtr([]byte(prompts.DefaultUserMarkdown()))},
-		{Path: ptrto.Value("ONBOARDING.md"), Content: byteSlicePtr([]byte(prompts.DefaultOnboardingMarkdown()))},
-		{Path: ptrto.Value("MEMORY.md"), Content: byteSlicePtr([]byte(prompts.DefaultMemoryMarkdown()))},
+		{Path: ptrto.Value("USER.md"), Content: ptrto.Value([]byte(prompts.DefaultUserMarkdown()))},
+		{Path: ptrto.Value("ONBOARDING.md"), Content: ptrto.Value([]byte(prompts.DefaultOnboardingMarkdown()))},
+		{Path: ptrto.Value("MEMORY.md"), Content: ptrto.Value([]byte(prompts.DefaultMemoryMarkdown()))},
 	}
 
 	// Create the user with seed workspace files.
 	createdUser, createUserError := transaction.CreateUser(ctx, user, seedWorkspaceFiles, nil)
 	if createUserError != nil {
-		return nil, nil, fmt.Errorf("creating user: %w", createUserError)
+		return nil, fmt.Errorf("creating user: %w", createUserError)
 	}
 
 	// Create default conversation.
 	conversationId := security.NewULID()
 	conversation := &models.Conversation{
-		ID:         conversationId,
-		UserID:     ptrto.Value(createdUser.ID),
-		AgentID:    ptrto.Value(defaultAgentId),
-		Default:   	ptrto.Value(true),
+		ID:      conversationId,
+		UserID:  ptrto.Value(createdUser.ID),
+		AgentID: ptrto.Value(defaultAgentId),
+		Default: ptrto.Value(true),
 	}
 	createdConversation, err := transaction.CreateConversation(ctx, conversation, nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating default conversation: %w", err)
+		return nil, fmt.Errorf("creating default conversation: %w", err)
 	}
 
 	// Create seed onboarding message.
@@ -81,12 +81,8 @@ func CreateUser(ctx context.Context, transaction store.Transaction, user *models
 		Content:        content,
 	}
 	if _, err := transaction.CreateConversationMessage(ctx, message, nil); err != nil {
-		return nil, nil, fmt.Errorf("creating seed message: %w", err)
+		return nil, fmt.Errorf("creating seed message: %w", err)
 	}
 
-	return createdUser, createdConversation, nil
-}
-
-func byteSlicePtr(value []byte) *[]byte {
-	return &value
+	return createdUser, nil
 }

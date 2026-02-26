@@ -12,24 +12,10 @@ var log = logging.MustGetLogger("github")
 // defaultServices are registered when no explicit service list is configured (Tier 1).
 var defaultServices = []string{"issues", "pulls", "repos"}
 
-type RegistrationOptions struct {
-	BinaryPath string
-	Services   []string
-}
-
 // RegisterTools adds GitHub tools to the registry.
 // If the gh binary is not found, no tools are registered.
-// A nil config is treated as "use defaults" — tools are registered
-// as long as the binary is present on PATH.
-func RegisterTools(registry *toolregistry.ToolRegistry, options *RegistrationOptions) {
+func RegisterTools(registry *toolregistry.ToolRegistry) {
 	binary := "gh"
-	var services []string
-	if options != nil {
-		if options.BinaryPath != "" {
-			binary = options.BinaryPath
-		}
-		services = options.Services
-	}
 
 	// Check that the binary exists on PATH.
 	resolvedPath, err := exec.LookPath(binary)
@@ -39,13 +25,9 @@ func RegisterTools(registry *toolregistry.ToolRegistry, options *RegistrationOpt
 	}
 	log.Infof("GitHub tools enabled (binary: %s)", resolvedPath)
 
-	if len(services) == 0 {
-		services = defaultServices
-	}
-
 	runner := defaultRunner
 
-	for _, service := range services {
+	for _, service := range defaultServices {
 		switch service {
 		case "issues":
 			registry.Register(&issuesTool{binary: resolvedPath, runner: runner})
@@ -59,8 +41,6 @@ func RegisterTools(registry *toolregistry.ToolRegistry, options *RegistrationOpt
 			registry.Register(&actionsTool{binary: resolvedPath, runner: runner})
 		case "releases":
 			registry.Register(&releasesTool{binary: resolvedPath, runner: runner})
-		default:
-			log.Warningf("unknown GitHub service %q, skipping", service)
 		}
 	}
 }

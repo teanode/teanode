@@ -12,6 +12,19 @@ import (
 
 var log = logging.MustGetLogger("browsers")
 
+type browserContextKey struct{}
+
+// ContextWithBrowser returns a new context with the given Browser attached.
+func ContextWithBrowser(ctx context.Context, browser Browser) context.Context {
+	return context.WithValue(ctx, browserContextKey{}, browser)
+}
+
+// BrowserFromContext returns the Browser stored in ctx, or nil.
+func BrowserFromContext(ctx context.Context) Browser {
+	browser, _ := ctx.Value(browserContextKey{}).(Browser)
+	return browser
+}
+
 // ConnectedTarget describes a Chrome tab attached via a backend.
 type ConnectedTarget struct {
 	SessionID string

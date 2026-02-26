@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
@@ -71,53 +71,44 @@ type sessionInfo struct {
 
 // codexTool delegates complex coding tasks to Codex in headless mode.
 type codexTool struct {
-	binaryPath   string
-	allowedTools []string
-	extraArgs    []string
-	model        string
-	timeout      time.Duration
-	runner       commandRunner
-	sessions     map[string]*sessionInfo
-	mutex        sync.Mutex
+	binaryPath string
+	runner     commandRunner
+	sessions   map[string]*sessionInfo
+	mutex      sync.Mutex
 }
 
-type RegistrationOptions struct {
-	BinaryPath            string
-	AllowedTools          []string
-	ExtraArgs             []string
-	Model                 string
-	MaxTurnTimeoutSeconds int
+// configFromContext reads the Codex tool configuration from the store.
+func configFromContext(ctx context.Context) (extraArgs []string, model string, timeout time.Duration) {
+	timeout = defaultTimeout
+	dataStore := store.StoreFromContextSafe(ctx)
+	if dataStore == nil {
+		return
+	}
+	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if configuration.Tools != nil && configuration.Tools.Codex != nil {
+			config := configuration.Tools.Codex
+			extraArgs = config.GetExtraArgs()
+			model = config.GetModel()
+			if seconds := config.GetMaxTurnTimeoutSeconds(); seconds > 0 {
+				timeout = time.Duration(seconds) * time.Second
+				if timeout > maxTimeout {
+					timeout = maxTimeout
+				}
+			}
+		}
+		return nil
+	})
+	return
 }
 
 // RegisterTools adds the codex tool to the registry.
 // If the codex binary is not found, no tools are registered.
-// A nil config is treated as "use defaults" — tools are registered
-// as long as the binary is present on PATH.
-func RegisterTools(registry *toolregistry.ToolRegistry, options *RegistrationOptions) {
+func RegisterTools(registry *toolregistry.ToolRegistry) {
 	binaryPath := "codex"
-	allowedTools := DefaultAllowedTools
-	var extraArgs []string
-	var model string
-	timeout := defaultTimeout
-
-	if options != nil {
-		if options.BinaryPath != "" {
-			binaryPath = options.BinaryPath
-		}
-		if len(options.AllowedTools) > 0 {
-			allowedTools = options.AllowedTools
-		}
-		if len(options.ExtraArgs) > 0 {
-			extraArgs = append(extraArgs, options.ExtraArgs...)
-		}
-		model = options.Model
-		if options.MaxTurnTimeoutSeconds > 0 {
-			timeout = time.Duration(options.MaxTurnTimeoutSeconds) * time.Second
-			if timeout > maxTimeout {
-				timeout = maxTimeout
-			}
-		}
-	}
 
 	resolvedPath, err := exec.LookPath(binaryPath)
 	if err != nil {
@@ -127,13 +118,9 @@ func RegisterTools(registry *toolregistry.ToolRegistry, options *RegistrationOpt
 	log.Infof("Codex tools enabled (binary: %s)", resolvedPath)
 
 	registry.Register(&codexTool{
-		binaryPath:   resolvedPath,
-		allowedTools: allowedTools,
-		extraArgs:    extraArgs,
-		model:        model,
-		timeout:      timeout,
-		runner:       defaultCommandRunner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: resolvedPath,
+		runner:     defaultCommandRunner,
+		sessions:   make(map[string]*sessionInfo),
 	})
 }
 
@@ -286,7 +273,7 @@ func (self *codexTool) executeRun(ctx context.Context, prompt, systemPrompt, wor
 		return "", fmt.Errorf("existing session(s) detected — use action=resume with sessionId (see list_sessions), or set forceNewSession=true to start a new session")
 	}
 
-	commandArguments := self.buildArguments(prompt, "", systemPrompt)
+	commandArguments := self.buildArguments(ctx, prompt, "", systemPrompt)
 	return self.executeCommand(ctx, commandArguments, workingDirectory, timeoutSeconds)
 }
 
@@ -304,7 +291,7 @@ func (self *codexTool) executeResume(ctx context.Context, sessionId, prompt, sys
 		return "", fmt.Errorf("prompt is required for resume action")
 	}
 
-	commandArguments := self.buildArguments(prompt, sessionId, systemPrompt)
+	commandArguments := self.buildArguments(ctx, prompt, sessionId, systemPrompt)
 	return self.executeCommand(ctx, commandArguments, workingDirectory, timeoutSeconds)
 }
 
@@ -346,7 +333,7 @@ func (self *codexTool) executeListSessions(ctx context.Context) (string, error) 
 }
 
 func (self *codexTool) resolveConversationScope(ctx context.Context) (string, string, error) {
-	runner := agents.RunnerFromContext(ctx)
+	runner := runners.RunnerFromContext(ctx)
 	if runner == nil {
 		return "", "", fmt.Errorf("runner context missing")
 	}
@@ -457,7 +444,9 @@ func extractSessionIdFromToolResult(result string) string {
 	return ""
 }
 
-func (self *codexTool) buildArguments(prompt, sessionId, systemPrompt string) []string {
+func (self *codexTool) buildArguments(ctx context.Context, prompt, sessionId, systemPrompt string) []string {
+	extraArgs, model, _ := configFromContext(ctx)
+
 	if systemPrompt != "" {
 		prompt = fmt.Sprintf("Additional system instructions:\n%s\n\nUser request:\n%s", systemPrompt, prompt)
 	}
@@ -469,11 +458,11 @@ func (self *codexTool) buildArguments(prompt, sessionId, systemPrompt string) []
 
 	arguments = append(arguments, "--json", "--skip-git-repo-check")
 
-	if self.model != "" {
-		arguments = append(arguments, "--model", self.model)
+	if model != "" {
+		arguments = append(arguments, "--model", model)
 	}
-	if len(self.extraArgs) > 0 {
-		arguments = append(arguments, self.extraArgs...)
+	if len(extraArgs) > 0 {
+		arguments = append(arguments, extraArgs...)
 	}
 	if sessionId != "" {
 		arguments = append(arguments, sessionId)
@@ -484,7 +473,7 @@ func (self *codexTool) buildArguments(prompt, sessionId, systemPrompt string) []
 }
 
 func (self *codexTool) executeCommand(ctx context.Context, commandArguments []string, workingDirectory string, timeoutSeconds int) (string, error) {
-	timeout := self.timeout
+	_, _, timeout := configFromContext(ctx)
 	if timeoutSeconds > 0 {
 		timeout = time.Duration(timeoutSeconds) * time.Second
 		if timeout > maxTimeout {

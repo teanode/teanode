@@ -9,7 +9,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/util/ratelimit"
 	"github.com/teanode/teanode/internal/web"
 )
@@ -32,7 +31,7 @@ type rateLimitBucketEntry struct {
 
 // v1Api is the v1 API component. It implements web.Component.
 type v1Api struct {
-	gateway         gw.Gateway
+	gateway gw.Gateway
 
 	// Per-IP rate limiter for auth endpoints (login, setup).
 	rateLimitBucketsMutex sync.Mutex
@@ -46,9 +45,9 @@ type v1Api struct {
 // New creates a new v1 API wired to the given Gateway.
 func New(gateway gw.Gateway) *v1Api {
 	return &v1Api{
-		gateway:         gateway,
-		rateLimitBuckets:     make(map[string]*rateLimitBucketEntry),
-		synthesisTokens: make(map[string]synthesisToken),
+		gateway:          gateway,
+		rateLimitBuckets: make(map[string]*rateLimitBucketEntry),
+		synthesisTokens:  make(map[string]synthesisToken),
 	}
 }
 
@@ -64,13 +63,13 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 	sub.Handle("/auth/login", web.HandlerFunc(self.handleAuthLogin))
 	sub.Handle("/auth/logout", web.HandlerFunc(self.handleAuthLogout))
 
-	sub.HandleFunc("/websocket", self.handleWebSocket)
+	sub.Handle("/websocket", web.HandlerFunc(self.handleWebSocket))
 
 	if self.gateway.BrowserRelay() != nil {
-		sub.HandleFunc("/browser", self.handleBrowserWebSocket)
+		sub.Handle("/browser", web.HandlerFunc(self.handleBrowserWebSocket))
 	}
 	if self.gateway.TerminalRelay() != nil {
-		sub.HandleFunc("/terminal", self.handleTerminalWebSocket)
+		sub.Handle("/terminal", web.HandlerFunc(self.handleTerminalWebSocket))
 	}
 	sub.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
 	sub.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
@@ -83,20 +82,10 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 	return nil
 }
 
-func (self *v1Api) handleBrowserWebSocket(writer http.ResponseWriter, request *http.Request) {
-	user := models.UserFromContext(request.Context())
-	if user == nil || user.ID == "" {
-		http.Error(writer, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	self.gateway.BrowserRelay().HandleWebSocketForUser(writer, request, user.ID)
+func (self *v1Api) handleBrowserWebSocket(writer http.ResponseWriter, request *http.Request) error {
+	return self.gateway.BrowserRelay().HandleWebSocket(writer, request)
 }
 
-func (self *v1Api) handleTerminalWebSocket(writer http.ResponseWriter, request *http.Request) {
-	user := models.UserFromContext(request.Context())
-	if user == nil || user.ID == "" {
-		http.Error(writer, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	self.gateway.TerminalRelay().HandleWebSocketForUser(writer, request, user.ID)
+func (self *v1Api) handleTerminalWebSocket(writer http.ResponseWriter, request *http.Request) error {
+	return self.gateway.TerminalRelay().HandleWebSocket(writer, request)
 }

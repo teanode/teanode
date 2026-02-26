@@ -1,4 +1,4 @@
-package agents
+package runners
 
 import (
 	"context"
@@ -32,15 +32,16 @@ type structuredSummary struct {
 	CriticalFacts criticalFacts `json:"criticalFacts"`
 }
 
-type contextCompressionModelOptions struct {
-	DefaultModel    string
-	SummarizerModel string
-}
-
 type contextCompressionLimits struct {
 	CompressionThreshold float64
 	MinKeepMessages      int
 	MinKeepRecentTokens  int
+}
+
+// CompactResult holds the outcome of a conversation compaction.
+type CompactResult struct {
+	SummarizedMessages int `json:"summarizedMessages"`
+	SummaryLength      int `json:"summaryLength"`
 }
 
 // estimateTokens returns a rough token count using a character heuristic.
@@ -139,9 +140,7 @@ func trimToolResultText(text string, maxChars int) string {
 	return fmt.Sprintf("%s\n...\n%s\n... (truncated)", head, tail)
 }
 
-// truncateOldToolResults applies a two-tier pruning strategy for old tool results:
-// soft-trim large results and hard-clear very large results. Messages in the last
-// minKeep are preserved intact.
+// truncateOldToolResults applies a two-tier pruning strategy for old tool results.
 func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxChars int) []providers.ChatMessage {
 	if len(messages) <= minKeep {
 		return messages
@@ -169,7 +168,6 @@ func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxCh
 
 // findKeepBoundary walks backward from the target split point to find an index
 // where we can safely split without breaking tool call/result pairs.
-// Returns the index of the first message to keep.
 func findKeepBoundary(messages []providers.ChatMessage, minKeep int) int {
 	if len(messages) <= minKeep {
 		return 0
@@ -179,23 +177,14 @@ func findKeepBoundary(messages []providers.ChatMessage, minKeep int) int {
 	// Walk backward from target to find a safe split point.
 	index := target
 	for index > 0 {
-		// If the message at index is a tool result, we need to include its
-		// parent assistant message, so move backward past all tool results
-		// and include the assistant message that triggered them.
 		if messages[index].Role == "tool" {
 			for index > 0 && messages[index].Role == "tool" {
 				index--
 			}
-			// index now points at the assistant message with tool calls; include it
 			continue
 		}
 
-		// If the message just before index is an assistant with tool calls,
-		// and index is a tool result for it, we already handled that above.
-		// But check if index-1 is an assistant with tool calls whose results
-		// would be split off.
 		if index > 0 && messages[index-1].Role == "assistant" && len(messages[index-1].ToolCalls) > 0 {
-			// The assistant's tool results follow it; keep the assistant with its results.
 			index--
 			continue
 		}
@@ -207,8 +196,7 @@ func findKeepBoundary(messages []providers.ChatMessage, minKeep int) int {
 }
 
 // expandKeepBoundaryForRecentTokens moves the keep boundary earlier (smaller index)
-// until at least minKeepRecentTokens are preserved in the tail. Expects messages to
-// include the system prompt at index 0; keepIdx is an absolute index into messages.
+// until at least minKeepRecentTokens are preserved in the tail.
 func expandKeepBoundaryForRecentTokens(messages []providers.ChatMessage, keepIdx int, minKeepRecentTokens int) int {
 	if minKeepRecentTokens <= 0 {
 		return keepIdx
@@ -239,9 +227,7 @@ func findLastSummaryIndex(messages []*models.ConversationMessage) int {
 	return -1
 }
 
-// chatMessagesText builds a truncated text representation of provider chat
-// messages, collecting from the end to prioritize recent messages. Returns
-// chronologically ordered text. Pass maxTotalChars <= 0 for no total limit.
+// chatMessagesText builds a truncated text representation of provider chat messages.
 func chatMessagesText(messages []providers.ChatMessage, maxTotalChars int, maxMessageChars int) string {
 	var lines []string
 	totalChars := 0
@@ -302,7 +288,7 @@ func normalizeFactLines(lines []string) []string {
 }
 
 func normalizeStructuredSummary(summary structuredSummary) structuredSummary {
-	summary.Summary = summary.Summary
+	summary.Summary = strings.TrimSpace(summary.Summary)
 	summary.CriticalFacts.Decisions = normalizeFactLines(summary.CriticalFacts.Decisions)
 	summary.CriticalFacts.Todos = normalizeFactLines(summary.CriticalFacts.Todos)
 	summary.CriticalFacts.Constraints = normalizeFactLines(summary.CriticalFacts.Constraints)
@@ -378,7 +364,7 @@ func parseStructuredSummaryResponse(rawText string) structuredSummary {
 		trimmedText = strings.TrimPrefix(trimmedText, "```json")
 		trimmedText = strings.TrimPrefix(trimmedText, "```")
 		trimmedText = strings.TrimSuffix(trimmedText, "```")
-		trimmedText = trimmedText
+		trimmedText = strings.TrimSpace(trimmedText)
 	}
 
 	if json.Unmarshal([]byte(trimmedText), &parsedSummary) == nil {
@@ -557,15 +543,97 @@ func summarizeMessagesWithFallback(
 	return buildLastMessagesFallback(messages)
 }
 
+// summarizeAndPersist resolves the summarizer model, summarizes the given
+// messages, persists the summary to the conversation, and returns the summary
+// text. This is the shared core of CompactConversation and compressContext.
+func (self *Runner) summarizeAndPersist(
+	ctx context.Context,
+	messages []providers.ChatMessage,
+) (string, error) {
+	modelsConfiguration := ResolveModelsConfiguration(ctx)
+	qualifiedModel := ""
+	if modelsConfiguration != nil {
+		qualifiedModel = modelsConfiguration.GetDefault()
+		if summarizerModel := modelsConfiguration.GetSummarizerModel(); summarizerModel != "" {
+			qualifiedModel = summarizerModel
+		}
+	}
+
+	provider, bareModel, resolveError := self.Providers.Resolve(qualifiedModel)
+	if resolveError != nil {
+		return "", fmt.Errorf("resolving summary model %q: %w", qualifiedModel, resolveError)
+	}
+
+	contextWindow := 0
+	if modelsConfiguration != nil {
+		contextWindow = modelsConfiguration.GetContextWindow()
+	}
+	if contextWindow <= 0 {
+		contextWindow = defaultContextWindow
+	}
+
+	summaryText := formatStructuredSummary(
+		summarizeMessagesWithFallback(
+			ctx,
+			provider,
+			bareModel,
+			messages,
+			contextWindow,
+			prompts.StructuredSummaryDefaultFocus,
+		),
+	)
+
+	summaryMessage := newTextMessage("system", summaryText, time.Now().UnixMilli())
+	stopReason := models.StopReason("context_summary")
+	summaryMessage.StopReason = &stopReason
+	if appendError := self.appendConversationMessage(ctx, summaryMessage); appendError != nil {
+		return "", fmt.Errorf("saving summary: %w", appendError)
+	}
+
+	return summaryText, nil
+}
+
+// CompactConversation summarizes all messages in a conversation using the
+// runner's buildMessages pipeline, reusing the cached system prompt and tool
+// definitions. This enables prompt cache hits when the summarizer model matches
+// the main model.
+func (self *Runner) CompactConversation(ctx context.Context) (*CompactResult, error) {
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
+		return nil, fmt.Errorf("userId is required")
+	}
+
+	// Load conversation history.
+	history, err := listConversationMessages(ctx, self.ConversationID)
+	if err != nil {
+		return nil, fmt.Errorf("loading conversation: %w", err)
+	}
+	if len(history) == 0 {
+		return nil, fmt.Errorf("conversation is empty")
+	}
+
+	// Build messages via the same pipeline used for normal runs.
+	llmMessages := self.buildMessages(ctx, history, "", SystemPromptModeFull, self.SkillPrompts)
+
+	summaryText, err := self.summarizeAndPersist(ctx, llmMessages)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Debugf("conversation compacted (cache-aware): %d messages summarized", len(history))
+
+	return &CompactResult{
+		SummarizedMessages: len(history),
+		SummaryLength:      len(summaryText),
+	}, nil
+}
+
 // compressContext checks whether the estimated token count exceeds the
 // compression threshold and, if so, summarizes older messages via an LLM call.
 func (self *Runner) compressContext(
 	ctx context.Context,
-	providerRegistry *providers.Registry,
-	modelOptions contextCompressionModelOptions,
 	messages []providers.ChatMessage,
 	toolDefs []providers.ToolDefinition,
-	conversationId string,
 	contextWindow int,
 	limits contextCompressionLimits,
 ) ([]providers.ChatMessage, error) {
@@ -586,46 +654,20 @@ func (self *Runner) compressContext(
 
 	log.Debugf("context compression triggered: estimated %d tokens, threshold %d", total, threshold)
 
-	// Find the split point: keep system prompt (index 0) + recent messages.
-	// messages[0] is always the system prompt.
-	keepIdx := findKeepBoundary(messages[1:], limits.MinKeepMessages) + 1 // +1 for system prompt offset
+	// Find the split point.
+	keepIdx := findKeepBoundary(messages[1:], limits.MinKeepMessages) + 1
 	keepIdx = expandKeepBoundaryForRecentTokens(messages, keepIdx, limits.MinKeepRecentTokens)
 	if keepIdx <= 1 {
-		// Nothing to compress.
 		return messages, nil
 	}
 
 	// Messages to summarize: messages[1:keepIdx] (skip system prompt at 0).
 	toSummarize := messages[1:keepIdx]
 
-	// Pick summary model and resolve its provider.
-	summaryQualifiedModel := modelOptions.DefaultModel
-	if modelOptions.SummarizerModel != "" {
-		summaryQualifiedModel = modelOptions.SummarizerModel
-	}
-
-	summaryClient, summaryBareModel, resolveErr := providerRegistry.Resolve(summaryQualifiedModel)
-	if resolveErr != nil {
-		return messages, fmt.Errorf("resolving summary model %q: %w", summaryQualifiedModel, resolveErr)
-	}
-	summaryText := formatStructuredSummary(
-		summarizeMessagesWithFallback(
-			ctx,
-			summaryClient,
-			summaryBareModel,
-			toSummarize,
-			contextWindow,
-			prompts.StructuredSummaryDefaultFocus,
-		),
-	)
-
-	// Persist summary to conversation.
-	summaryMessage := newSummaryMessage(summaryText, time.Now().UnixMilli())
-	user := models.UserFromContext(ctx)
-	if user != nil && user.ID != "" {
-		if appendError := appendConversationMessage(ctx, user.ID, self.AgentID, conversationId, summaryMessage); appendError != nil {
-			log.Debugf("failed to persist context summary: %v", appendError)
-		}
+	summaryText, err := self.summarizeAndPersist(ctx, toSummarize)
+	if err != nil {
+		log.Debugf("failed to persist context summary: %v", err)
+		return messages, nil
 	}
 
 	// Build compressed messages: system prompt + summary + kept messages.
