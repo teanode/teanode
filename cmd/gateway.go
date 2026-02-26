@@ -221,14 +221,13 @@ func NewGatewayCommand() *cli.Command {
 			// add headless CDP backend. Both can be active simultaneously.
 			browserRelay := relaybrowser.NewRelay()
 
-			cdpEndpoint := "127.0.0.1:9222"
-			if configuration.Integrations != nil && configuration.Integrations.Browser != nil && configuration.Integrations.Browser.GetCDPEndpoint() != "" {
-				cdpEndpoint = configuration.Integrations.Browser.GetCDPEndpoint()
+			var browserConfiguration *models.BrowserConfiguration
+			if configuration.Integrations != nil {
+				browserConfiguration = configuration.Integrations.Browser
 			}
-			log.Infof("browser: headless CDP connecting to %s", cdpEndpoint)
-			headlessBrowser := headlessbrowser.NewHeadless(cdpEndpoint)
+			headlessBrowser := headlessbrowser.NewHeadless(browserConfiguration)
 			if err := headlessBrowser.Connect(ctx); err != nil {
-				log.Errorf("headless browser failed to connect: %v", err)
+				log.Debugf("headless browser: initial connect: %v", err)
 			}
 			headlessBrowser.StartReconnectLoop(ctx)
 			defer headlessBrowser.Close()
@@ -336,8 +335,15 @@ func NewGatewayCommand() *cli.Command {
 
 			// --- Discord bot ---
 
-			if configuration.Channels.Discord != nil && configuration.Channels.Discord.GetToken() != "" {
-				discordBot := discord.New(configuration.Channels.Discord.GetToken(), ctx, coordinator, events, sessions)
+			discordToken := ""
+			if configuration.Channels.Discord != nil {
+				discordToken = configuration.Channels.Discord.GetToken()
+			}
+			if discordToken == "" {
+				discordToken = os.Getenv("DISCORD_BOT_TOKEN")
+			}
+			if discordToken != "" {
+				discordBot := discord.New(discordToken, ctx, coordinator, events, sessions)
 				if err := discordBot.Start(); err != nil {
 					log.Errorf("discord bot failed to start: %v", err)
 				} else {
@@ -347,8 +353,15 @@ func NewGatewayCommand() *cli.Command {
 
 			// --- Telegram bot ---
 
-			if configuration.Channels.Telegram != nil && configuration.Channels.Telegram.GetToken() != "" {
-				telegramBot := telegram.New(ctx, configuration.Channels.Telegram.GetToken(), coordinator, events, sessions)
+			telegramToken := ""
+			if configuration.Channels.Telegram != nil {
+				telegramToken = configuration.Channels.Telegram.GetToken()
+			}
+			if telegramToken == "" {
+				telegramToken = os.Getenv("TELEGRAM_BOT_TOKEN")
+			}
+			if telegramToken != "" {
+				telegramBot := telegram.New(ctx, telegramToken, coordinator, events, sessions)
 				if err := telegramBot.Start(); err != nil {
 					log.Errorf("telegram bot failed to start: %v", err)
 				} else {

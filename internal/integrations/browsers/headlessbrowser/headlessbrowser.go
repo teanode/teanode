@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/integrations/browsers"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/pending"
 )
@@ -34,8 +36,17 @@ type Headless struct {
 	stopReconnect chan struct{}
 }
 
-// NewHeadless creates a new headless browser client for the given endpoint.
-func NewHeadless(endpoint string) *Headless {
+// NewHeadless creates a new headless browser client. The CDP endpoint is
+// resolved from the browser configuration, falling back to the
+// TEANODE_CDP_ENDPOINT environment variable, then to 127.0.0.1:9222.
+func NewHeadless(configuration *models.BrowserConfiguration) *Headless {
+	endpoint := "127.0.0.1:9222"
+	if configuration != nil && configuration.GetCDPEndpoint() != "" {
+		endpoint = configuration.GetCDPEndpoint()
+	}
+	if value := os.Getenv("TEANODE_CDP_ENDPOINT"); value != "" {
+		endpoint = value
+	}
 	return &Headless{
 		endpoint:      endpoint,
 		targets:       make(map[string]*browsers.ConnectedTarget),
