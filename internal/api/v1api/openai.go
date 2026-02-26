@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
@@ -107,10 +108,16 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 	ctx, cancel := context.WithTimeout(httpRequest.Context(), 5*time.Minute)
 	defer cancel()
 
-	result, err := self.gateway.Coordinator().SendMessage(ctx, agentId, conversationId, runners.RunParams{
-		Message: lastMessage.Content,
-		Model:   request.Model,
+	handle, sendError := self.coordinator.SendMessage(ctx, coordinators.SendMessageParameters{
+		AgentID:        agentId,
+		ConversationID: conversationId,
+		Message:        lastMessage.Content,
+		Model:          request.Model,
 	}, nil) // no callbacks for sync mode
+	if sendError != nil {
+		return web.Error(500, sendError.Error())
+	}
+	result, err := handle.Wait()
 	if err != nil {
 		return web.Error(500, err.Error())
 	}
@@ -164,9 +171,11 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 
 	responseId := security.NewULID()
 
-	result, err := self.gateway.Coordinator().SendMessage(ctx, agentId, conversationId, runners.RunParams{
-		Message: lastMessage.Content,
-		Model:   request.Model,
+	handle, sendError := self.coordinator.SendMessage(ctx, coordinators.SendMessageParameters{
+		AgentID:        agentId,
+		ConversationID: conversationId,
+		Message:        lastMessage.Content,
+		Model:          request.Model,
 	}, &runners.RunCallbacks{
 		OnTextDelta: func(text string) {
 			chunk := openaiResponse{
@@ -188,7 +197,14 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 			flusher.Flush()
 		},
 	})
+	if sendError != nil {
+		errData, _ := json.Marshal(map[string]string{"error": sendError.Error()})
+		fmt.Fprintf(writer, "data: %s\n\n", errData)
+		flusher.Flush()
+		return nil
+	}
 
+	result, err := handle.Wait()
 	if err != nil {
 		errData, _ := json.Marshal(map[string]string{"error": err.Error()})
 		fmt.Fprintf(writer, "data: %s\n\n", errData)

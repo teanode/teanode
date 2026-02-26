@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/voice"
 	"github.com/teanode/teanode/internal/store"
 )
@@ -92,7 +92,7 @@ func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Req
 }
 
 // webSocketConnection manages a single WebSocket connection.
-// It implements gw.Subscriber to receive broadcast events from the gateway.
+// It implements pubsub.Subscriber to receive broadcast events.
 type webSocketConnection struct {
 	connection *websocket.Conn
 	api        *v1Api
@@ -114,8 +114,8 @@ func newWebSocketConnection(connection *websocket.Conn, api *v1Api, ctx context.
 	}
 }
 
-// OnEvent implements gw.Subscriber. It forwards gateway events to this WebSocket client.
-func (self *webSocketConnection) OnEvent(eventType gw.EventType, payload interface{}) {
+// OnEvent implements pubsub.Subscriber. It forwards events to this WebSocket client.
+func (self *webSocketConnection) OnEvent(eventType pubsub.EventType, payload interface{}) {
 	if !self.shouldDeliverEvent(payload) {
 		return
 	}
@@ -142,11 +142,11 @@ func (self *webSocketConnection) serve() {
 	defer self.connection.Close()
 	sessionId := self.sessionId()
 
-	self.api.gateway.MarkSessionConnected(sessionId)
-	defer self.api.gateway.MarkSessionDisconnected(sessionId)
+	self.api.sessionTracker.MarkConnected(sessionId)
+	defer self.api.sessionTracker.MarkDisconnected(sessionId)
 
-	self.api.gateway.Subscribe(self)
-	defer self.api.gateway.Unsubscribe(self)
+	self.api.pubsub.Subscribe(self)
+	defer self.api.pubsub.Unsubscribe(self)
 
 	defer func() {
 		if sess := self.getActiveVoiceSession(); sess != nil {
@@ -350,7 +350,7 @@ func (self *webSocketConnection) sendError(id string, code int, message string) 
 	})
 }
 
-func (self *webSocketConnection) sendEvent(eventType gw.EventType, payload interface{}) {
+func (self *webSocketConnection) sendEvent(eventType pubsub.EventType, payload interface{}) {
 	self.writeJSON(eventFrame{
 		Type:    "event",
 		Event:   string(eventType),

@@ -126,7 +126,7 @@ func (self *v1Api) handleAudioTranscribe(writer http.ResponseWriter, request *ht
 		return web.Error(405, "method not allowed")
 	}
 
-	registry := self.gateway.ProviderRegistry()
+	registry := self.coordinator.Providers()
 	if registry == nil {
 		return web.Error(500, "provider registry not available")
 	}
@@ -176,7 +176,7 @@ func (self *v1Api) handleAudioSynthesize(writer http.ResponseWriter, request *ht
 		return web.Error(405, "method not allowed")
 	}
 
-	registry := self.gateway.ProviderRegistry()
+	registry := self.coordinator.Providers()
 	if registry == nil {
 		return web.Error(500, "provider registry not available")
 	}
@@ -252,7 +252,7 @@ func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.R
 		return web.Error(410, "token expired")
 	}
 
-	registry := self.gateway.ProviderRegistry()
+	registry := self.coordinator.Providers()
 	if registry == nil {
 		return web.Error(500, "provider registry not available")
 	}

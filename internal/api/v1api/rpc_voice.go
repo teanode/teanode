@@ -3,6 +3,8 @@ package v1api
 import (
 	"encoding/json"
 
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/voice"
 )
 
@@ -33,6 +35,26 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		return
 	}
 
+	// Resolve user and agent.
+	user := models.UserFromContext(self.ctx)
+	if user == nil || user.ID == "" {
+		self.sendError(frame.ID, 401, "userId is required")
+		return
+	}
+	agentId := user.GetDefaultAgentID()
+	if agentId == "" {
+		self.sendError(frame.ID, 500, "no default agent configured")
+		return
+	}
+
+	// Resolve or create conversation.
+	conversationId := parameters.ConversationID
+	if conversationId == "" {
+		conversationId = self.api.coordinator.NewDefaultConversation(user.ID, agentId, "")
+	} else {
+		self.api.coordinator.SetDefaultConversationIfUnset(user.ID, agentId, conversationId)
+	}
+
 	audioIn := voice.AudioFormat{
 		Codec:        parameters.AudioIn.Codec,
 		SampleRateHz: parameters.AudioIn.SampleRateHz,
@@ -52,22 +74,20 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		BargeIn:       parameters.Features.BargeIn,
 	}
 
-	session, err := self.api.gateway.StartVoiceSession(
-		self.ctx,
-		parameters.ConversationID,
-		parameters.AgentID,
+	sessionId := security.NewULID()
+	session := voice.NewSession(
+		sessionId,
+		conversationId,
+		agentId,
 		parameters.PromptSuffix,
 		audioIn,
 		audioOut,
 		features,
+		self.api.coordinator,
+		self.api.pubsub,
 		func(payload interface{}) { self.writeJSON(payload) },
 		func(data []byte) { self.writeBinary(data) },
 	)
-	if err != nil {
-		log.Errorf("voice.start failed to create session: %v", err)
-		self.sendError(frame.ID, 500, "failed to start voice session: "+err.Error())
-		return
-	}
 	if !self.setActiveVoiceSession(session) {
 		log.Warningf("voice.start race conflict while setting active session")
 		self.sendError(frame.ID, 409, "voice session already active")
@@ -172,3 +192,4 @@ func applyVoiceDefaults(parameters *voiceStartParams) {
 		parameters.AudioOut.Channels = 1
 	}
 }
+

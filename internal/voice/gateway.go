@@ -1,64 +1,162 @@
 package voice
 
-import "context"
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"fmt"
+	"io"
 
-// GatewayDeps is the minimum gateway surface the voice session depends on.
-type GatewayDeps interface {
-	SendMessage(ctx context.Context, parameters VoiceSendMessageParams) VoiceRunHandle
-	AbortRun(runId string) bool
-	Subscribe(sub VoiceSubscriber)
-	Unsubscribe(sub VoiceSubscriber)
-	ProviderRegistry() VoiceProviderRegistry
+	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/pubsub"
+	"github.com/teanode/teanode/internal/runners"
+)
+
+// voiceDispatcher is the minimal coordinator interface needed by voice sessions.
+// *coordinators.Coordinator satisfies this interface.
+type voiceDispatcher interface {
+	SendMessage(ctx context.Context, parameters coordinators.SendMessageParameters, callbacks *runners.RunCallbacks) (*coordinators.RunHandle, error)
+	AbortRunner(runnerId string) bool
+	Providers() *providers.Registry
 }
 
-// VoiceSendMessageParams holds message creation fields required by voice.
-type VoiceSendMessageParams struct {
-	AgentID            string
-	ConversationID     string
-	Message            string
-	Model              string
-	SystemPromptSuffix string
+// conversationEventSubscriber filters conversation events by conversationId.
+type conversationEventSubscriber struct {
+	conversationId string
+	eventCh        chan map[string]interface{}
 }
 
-// VoiceRunHandle is a simplified run-handle used by voice.
-type VoiceRunHandle struct {
-	RunID          string
-	ConversationID string
-	Done           <-chan struct{}
+func (self *conversationEventSubscriber) OnEvent(eventType pubsub.EventType, payload interface{}) {
+	if eventType != pubsub.EventTypeConversation {
+		return
+	}
+	eventMap, ok := payload.(map[string]interface{})
+	if !ok {
+		return
+	}
+	conversationId, _ := eventMap["conversationId"].(string)
+	if conversationId != self.conversationId {
+		return
+	}
+	state, _ := eventMap["state"].(string)
+	critical := state == "final" || state == "error" || state == "aborted" || state == "queued"
+	if !critical {
+		select {
+		case self.eventCh <- eventMap:
+		default:
+		}
+		return
+	}
+
+	select {
+	case self.eventCh <- eventMap:
+	default:
+		// Preserve terminal lifecycle events by making room if queue is saturated by deltas.
+		select {
+		case <-self.eventCh:
+		default:
+		}
+		select {
+		case self.eventCh <- eventMap:
+		default:
+		}
+	}
 }
 
-// VoiceSubscriber receives gateway broadcasts used by voice.
-type VoiceSubscriber interface {
-	OnVoiceEvent(eventType string, payload interface{})
+// wavToPCM16LE extracts raw PCM16LE samples from a WAV file.
+func wavToPCM16LE(wavData []byte) ([]byte, error) {
+	if len(wavData) < 44 {
+		return nil, fmt.Errorf("wav payload too short")
+	}
+	if string(wavData[0:4]) != "RIFF" || string(wavData[8:12]) != "WAVE" {
+		return nil, fmt.Errorf("invalid wav header")
+	}
+	var (
+		audioFormat   uint16
+		channels      uint16
+		bitsPerSample uint16
+	)
+	for index := 12; index+8 <= len(wavData); {
+		chunkId := string(wavData[index : index+4])
+		chunkSize := int(binary.LittleEndian.Uint32(wavData[index+4 : index+8]))
+		chunkStart := index + 8
+		chunkEnd := chunkStart + chunkSize
+		if chunkEnd > len(wavData) {
+			break
+		}
+		if chunkId == "fmt " && chunkSize >= 16 {
+			audioFormat = binary.LittleEndian.Uint16(wavData[chunkStart : chunkStart+2])
+			channels = binary.LittleEndian.Uint16(wavData[chunkStart+2 : chunkStart+4])
+			bitsPerSample = binary.LittleEndian.Uint16(wavData[chunkStart+14 : chunkStart+16])
+		}
+		if chunkId == "data" {
+			if audioFormat != 1 {
+				return nil, fmt.Errorf("unsupported wav format: %d", audioFormat)
+			}
+			if channels != 1 {
+				return nil, fmt.Errorf("unsupported wav channels: %d", channels)
+			}
+			if bitsPerSample != 16 {
+				return nil, fmt.Errorf("unsupported wav bits per sample: %d", bitsPerSample)
+			}
+			return append([]byte(nil), wavData[chunkStart:chunkEnd]...), nil
+		}
+		index = chunkEnd
+		if index%2 == 1 {
+			index++
+		}
+	}
+
+	// Fallback parser: some providers return non-standard RIFF chunk sizes.
+	dataOffset := 12
+	for dataOffset+8 <= len(wavData) {
+		idx := bytes.Index(wavData[dataOffset:], []byte("data"))
+		if idx < 0 {
+			break
+		}
+		header := dataOffset + idx
+		if header+8 > len(wavData) {
+			break
+		}
+		chunkSize := int(binary.LittleEndian.Uint32(wavData[header+4 : header+8]))
+		chunkStart := header + 8
+		if chunkStart >= len(wavData) {
+			break
+		}
+		chunkEnd := chunkStart + chunkSize
+		if chunkEnd > len(wavData) {
+			chunkEnd = len(wavData)
+		}
+		pcm := append([]byte(nil), wavData[chunkStart:chunkEnd]...)
+		if len(pcm)%2 == 1 {
+			pcm = pcm[:len(pcm)-1]
+		}
+		if len(pcm) > 0 {
+			return pcm, nil
+		}
+		dataOffset = chunkStart
+	}
+
+	return nil, fmt.Errorf("wav data chunk not found")
 }
 
-// VoiceProviderRegistry exposes optional voice-capable providers.
-type VoiceProviderRegistry interface {
-	FindTranscriber() (VoiceTranscriber, string, bool)
-	FindSynthesizer() (VoiceSynthesizer, string, bool)
-}
+// synthesizePCM calls a synthesizer and converts WAV output to raw PCM.
+func synthesizePCM(ctx context.Context, synthesizer providers.AudioSynthesizer, text, voiceName string, sampleRateHz int) ([]byte, error) {
+	result, err := synthesizer.Synthesize(ctx, providers.SynthesizeRequest{
+		Text:   text,
+		Voice:  voiceName,
+		Format: "wav",
+		Speed:  1.0,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer result.Audio.Close()
 
-// VoiceTranscriber converts user audio to text.
-type VoiceTranscriber interface {
-	Transcribe(ctx context.Context, request VoiceTranscribeRequest) (*VoiceTranscribeResponse, error)
-}
-
-// VoiceTranscribeRequest is the normalized STT request used in voice.
-type VoiceTranscribeRequest struct {
-	Audio      []byte
-	Format     string
-	Language   string
-	Prompt     string
-	SampleRate int
-	Channels   int
-}
-
-// VoiceTranscribeResponse is the normalized STT result.
-type VoiceTranscribeResponse struct {
-	Text string
-}
-
-// VoiceSynthesizer generates speech audio bytes.
-type VoiceSynthesizer interface {
-	SynthesizePCM(ctx context.Context, text, voice string, sampleRateHz int) ([]byte, error)
+	wavData, err := io.ReadAll(result.Audio)
+	if err != nil {
+		return nil, err
+	}
+	return wavToPCM16LE(wavData)
 }

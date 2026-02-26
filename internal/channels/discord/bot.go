@@ -14,14 +14,16 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/mimetypes"
 	"github.com/teanode/teanode/internal/util/ptrto"
+	"github.com/teanode/teanode/internal/util/sessiontracker"
 	"github.com/teanode/teanode/internal/util/slashcommands"
 )
 
@@ -144,11 +146,13 @@ type discordSubscribedRun struct {
 
 // Bot manages a Discord bot that forwards messages to the agents.
 type Bot struct {
-	token     string
-	ctx       context.Context
-	gateway   gw.Gateway
-	discord   *discordgo.Session
-	botUserId string
+	token          string
+	ctx            context.Context
+	coordinator    *coordinators.Coordinator
+	pubsub         *pubsub.PubSub
+	sessionTracker *sessiontracker.SessionTracker
+	discord        *discordgo.Session
+	botUserId      string
 
 	// Per-channel model overrides (channelId -> model name).
 	modelMutex     sync.RWMutex
@@ -165,12 +169,14 @@ type Bot struct {
 	userChannels        map[string]string // userId -> channelId
 }
 
-// New creates a new Discord bot that dynamically resolves the default agent and conversation from the gateway.
-func New(token string, ctx context.Context, gateway gw.Gateway) *Bot {
+// New creates a new Discord bot that dynamically resolves the default agent and conversation from the coordinator.
+func New(token string, ctx context.Context, coordinator *coordinators.Coordinator, events *pubsub.PubSub, sessions *sessiontracker.SessionTracker) *Bot {
 	return &Bot{
 		token:               token,
 		ctx:                 ctx,
-		gateway:             gateway,
+		coordinator:         coordinator,
+		pubsub:              events,
+		sessionTracker:      sessions,
 		modelOverrides:      make(map[string]string),
 		activeConversations: make(map[string]struct{}),
 		subscribedRuns:      make(map[string]*discordSubscribedRun),
@@ -194,14 +200,14 @@ func (self *Bot) Start() error {
 
 	self.discord = discordSession
 	self.botUserId = discordSession.State.User.ID
-	self.gateway.Subscribe(self)
+	self.pubsub.Subscribe(self)
 	log.Infof("discord bot connected as %s (%s)", discordSession.State.User.Username, self.botUserId)
 	return nil
 }
 
 // Stop disconnects the bot.
 func (self *Bot) Stop() {
-	self.gateway.Unsubscribe(self)
+	self.pubsub.Unsubscribe(self)
 	if self.discord != nil {
 		self.discord.Close()
 	}
@@ -226,17 +232,17 @@ func (self *Bot) shouldForwardDisconnectedSession(userId, agentId, conversationI
 	if agentId != defaultAgentId {
 		return false
 	}
-	defaultConversationId := self.gateway.EnsureDefaultConversation(userId, defaultAgentId)
+	defaultConversationId := self.coordinator.EnsureDefaultConversation(userId, defaultAgentId)
 	if defaultConversationId == "" || conversationId == "" {
 		return false
 	}
 	return conversationId == defaultConversationId
 }
 
-// OnEvent implements gw.Subscriber. It handles conversation events for runs
+// OnEvent implements pubsub.Subscriber. It handles conversation events for runs
 // not initiated by this bot (e.g. scheduled jobs), streaming them to the appropriate channel.
-func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
-	if eventType != gw.EventTypeConversation {
+func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
+	if eventType != pubsub.EventTypeConversation {
 		return
 	}
 	payloadMap, ok := payload.(map[string]interface{})
@@ -404,7 +410,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		}
 
 		// Session fallback: only notify when the originating web session is disconnected.
-		if subscribedRun.origin == "webui" && !self.gateway.IsSessionConnected(subscribedRun.originSessionId) {
+		if subscribedRun.origin == "webui" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
 			self.sendChunked(subscribedRun.channelId, finalText)
 		}
 
@@ -427,7 +433,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 				errorText = "An error occurred while processing the request."
 			}
 			self.discord.ChannelMessageSend(subscribedRun.channelId, "Sorry, an error occurred: "+errorText)
-		} else if state == "error" && subscribedRun.origin == "webui" && !self.gateway.IsSessionConnected(subscribedRun.originSessionId) {
+		} else if state == "error" && subscribedRun.origin == "webui" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
 			errorText, _ := payloadMap["error"].(string)
 			if errorText == "" {
 				errorText = "An error occurred while processing the request."
@@ -496,10 +502,10 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		discordSession.ChannelMessageSend(event.ChannelID, "No default agent available.")
 		return
 	}
-	conversationId := self.gateway.EnsureDefaultConversation(userId, defaultAgentId)
+	conversationId := self.coordinator.EnsureDefaultConversation(userId, defaultAgentId)
 
 	// Check if there's already an active run for this conversation.
-	if self.gateway.GetActiveRun(conversationId) != "" {
+	if self.coordinator.GetActiveConversationRunner(conversationId) {
 		discordSession.ChannelMessageSend(event.ChannelID, "I'm still working on a previous request. Please wait.")
 		return
 	}
@@ -577,7 +583,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 	}
 
 	runContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
-	handle := self.gateway.SendMessage(runContext, gw.SendMessageParameters{
+	handle, sendError := self.coordinator.SendMessage(runContext, coordinators.SendMessageParameters{
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
@@ -585,16 +591,22 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 		Origin:         "discord",
 		Attachments:    attachments,
 	}, callerCallbacks)
+	if sendError != nil {
+		log.Errorf("discord send message error (conversation %s): %v", conversationId, sendError)
+		preview.Stop()
+		preview.Delete()
+		self.discord.ChannelMessageSend(channelId, "Sorry, an error occurred while processing your request.")
+		return
+	}
 
 	// Wait for completion.
-	<-handle.Done
+	result, runError := handle.Wait()
 
 	previewMessageId, _ := preview.Stop()
-	outcome := handle.Outcome()
 
 	// Handle error: delete preview, send error message.
-	if outcome.Error != nil {
-		log.Errorf("discord agent run error (conversation %s): %v", handle.ConversationID, outcome.Error)
+	if runError != nil {
+		log.Errorf("discord agent run error (conversation %s): %v", handle.ConversationID, runError)
 		preview.Delete()
 		self.discord.ChannelMessageSend(channelId, "Sorry, an error occurred while processing your request.")
 		return
@@ -616,7 +628,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 
 	// Reuse the preview message as the final message by editing it.
 	if previewMessageId != "" {
-		finalText := outcome.Response
+		finalText := result.Response
 		firstChunk := finalText
 		remaining := ""
 		if len(finalText) > maxDiscordMessageLen {
@@ -634,8 +646,8 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 		return
 	}
 
-	// No preview message was created — send as new message(s).
-	self.sendChunked(channelId, outcome.Response)
+	// No preview message was created -- send as new message(s).
+	self.sendChunked(channelId, result.Response)
 }
 
 func (self *Bot) getModel(channelId string) string {
@@ -655,22 +667,20 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 	}
 	switch name {
 	case "new":
-		conversationId := self.gateway.NewDefaultConversation(user.ID, defaultAgentId, "")
+		conversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId, "")
 		reply = fmt.Sprintf("New conversation started. (`%s`)", conversationId)
 
 	case "reset", "clear":
-		conversationId := self.gateway.EnsureDefaultConversation(user.ID, defaultAgentId)
+		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
 		// Abort active run if any.
-		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
-			self.gateway.AbortRun(activeRunId)
-		}
-		newConversationId := self.gateway.NewDefaultConversation(user.ID, defaultAgentId, "")
+		self.coordinator.AbortConversationRunner(conversationId)
+		newConversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId, "")
 		reply = fmt.Sprintf("Conversation cleared. New conversation started. (`%s`)", newConversationId)
 
 	case "stop":
-		conversationId := self.gateway.EnsureDefaultConversation(user.ID, defaultAgentId)
-		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
-			self.gateway.AbortRun(activeRunId)
+		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
+		if self.coordinator.GetActiveConversationRunner(conversationId) {
+			self.coordinator.AbortConversationRunner(conversationId)
 			reply = "Run cancelled."
 		} else {
 			reply = "No active run to cancel."
@@ -715,37 +725,42 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 			}); err != nil {
 				reply = fmt.Sprintf("Error: %v", err)
 			} else {
-				self.gateway.Broadcast(gw.EventTypeDefaultAgent, map[string]interface{}{
+				self.pubsub.Broadcast(pubsub.EventTypeDefaultAgent, map[string]interface{}{
 					"defaultAgentId": arguments,
 					"userId":         user.ID,
 				})
-				newConversationId := self.gateway.EnsureDefaultConversation(user.ID, arguments)
+				newConversationId := self.coordinator.EnsureDefaultConversation(user.ID, arguments)
 				reply = fmt.Sprintf("Switched to agent `%s`. (conversation: `%s`)", arguments, newConversationId)
 			}
 		}
 
 	case "status":
-		conversationId := self.gateway.EnsureDefaultConversation(user.ID, defaultAgentId)
+		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
 		model := self.getModel(channelId)
 		if model == "" {
 			model = self.resolveDefaultModel()
 		}
-		running := self.gateway.GetActiveRun(conversationId) != ""
+		running := self.coordinator.GetActiveConversationRunner(conversationId)
 		status := "idle"
 		if running {
 			status = "running"
 		}
-		providerName := self.gateway.ProviderRegistry().DefaultProvider()
+		providerName := self.coordinator.Providers().DefaultProvider()
 		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
 
 	case "compact":
-		conversationId := self.gateway.EnsureDefaultConversation(user.ID, defaultAgentId)
+		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
 		compactContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
-		result, err := self.gateway.Coordinator().CompactConversation(compactContext, defaultAgentId, conversationId)
-		if err != nil {
-			reply = fmt.Sprintf("Error compacting: %v", err)
+		compactHandle, compactError := self.coordinator.CompactConversation(compactContext, defaultAgentId, conversationId)
+		if compactError != nil {
+			reply = fmt.Sprintf("Error compacting: %v", compactError)
 		} else {
-			reply = fmt.Sprintf("Conversation compacted. Summarized %d messages.", result.SummarizedMessages)
+			result, waitError := compactHandle.Wait()
+			if waitError != nil {
+				reply = fmt.Sprintf("Error compacting: %v", waitError)
+			} else {
+				reply = fmt.Sprintf("Conversation compacted. Summarized %d messages.", result.SummarizedMessages)
+			}
 		}
 
 	case "restart":

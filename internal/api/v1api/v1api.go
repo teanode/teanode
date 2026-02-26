@@ -8,8 +8,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
+	"github.com/teanode/teanode/internal/integrations/terminals"
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/util/ratelimit"
+	"github.com/teanode/teanode/internal/util/sessiontracker"
 	"github.com/teanode/teanode/internal/web"
 )
 
@@ -31,7 +35,11 @@ type rateLimitBucketEntry struct {
 
 // v1Api is the v1 API component. It implements web.Component.
 type v1Api struct {
-	gateway gw.Gateway
+	coordinator    *coordinators.Coordinator
+	pubsub         *pubsub.PubSub
+	sessionTracker *sessiontracker.SessionTracker
+	browserRelay   *relaybrowser.Relay
+	terminalRelay  *terminals.Relay
 
 	// Per-IP rate limiter for auth endpoints (login, setup).
 	rateLimitBucketsMutex sync.Mutex
@@ -42,10 +50,14 @@ type v1Api struct {
 	synthesisTokens      map[string]synthesisToken
 }
 
-// New creates a new v1 API wired to the given Gateway.
-func New(gateway gw.Gateway) *v1Api {
+// New creates a new v1 API wired to the given coordinator and pubsub.
+func New(coordinator *coordinators.Coordinator, events *pubsub.PubSub, sessions *sessiontracker.SessionTracker, browserRelay *relaybrowser.Relay, terminalRelay *terminals.Relay) *v1Api {
 	return &v1Api{
-		gateway:          gateway,
+		coordinator:      coordinator,
+		pubsub:           events,
+		sessionTracker:   sessions,
+		browserRelay:     browserRelay,
+		terminalRelay:    terminalRelay,
 		rateLimitBuckets: make(map[string]*rateLimitBucketEntry),
 		synthesisTokens:  make(map[string]synthesisToken),
 	}
@@ -65,10 +77,10 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 
 	sub.Handle("/websocket", web.HandlerFunc(self.handleWebSocket))
 
-	if self.gateway.BrowserRelay() != nil {
+	if self.browserRelay != nil {
 		sub.Handle("/browser", web.HandlerFunc(self.handleBrowserWebSocket))
 	}
-	if self.gateway.TerminalRelay() != nil {
+	if self.terminalRelay != nil {
 		sub.Handle("/terminal", web.HandlerFunc(self.handleTerminalWebSocket))
 	}
 	sub.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
@@ -83,9 +95,9 @@ func (self *v1Api) AddRoutes(router *mux.Router) error {
 }
 
 func (self *v1Api) handleBrowserWebSocket(writer http.ResponseWriter, request *http.Request) error {
-	return self.gateway.BrowserRelay().HandleWebSocket(writer, request)
+	return self.browserRelay.HandleWebSocket(writer, request)
 }
 
 func (self *v1Api) handleTerminalWebSocket(writer http.ResponseWriter, request *http.Request) error {
-	return self.gateway.TerminalRelay().HandleWebSocket(writer, request)
+	return self.terminalRelay.HandleWebSocket(writer, request)
 }

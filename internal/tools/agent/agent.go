@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 
+	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/runners"
@@ -273,7 +274,7 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 	}
 
 	// Get coordinator from context.
-	coordinator := runners.CoordinatorFromContext(ctx)
+	coordinator := coordinators.CoordinatorFromContext(ctx)
 	if coordinator == nil {
 		return "", fmt.Errorf("coordinator not available")
 	}
@@ -288,10 +289,16 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 	prefixedMessage := fmt.Sprintf("[Message from agent '%s']: %s", currentAgentId, arguments.Message)
 
 	// Run synchronously via coordinator.
-	result, err := coordinator.SendMessage(ctx, arguments.AgentID, conversationId, runners.RunParams{
+	handle, sendError := coordinator.SendMessage(ctx, coordinators.SendMessageParameters{
+		AgentID:          arguments.AgentID,
+		ConversationID:   conversationId,
 		Message:          prefixedMessage,
 		SystemPromptMode: runners.SystemPromptModeMinimal,
 	}, nil)
+	if sendError != nil {
+		return "", fmt.Errorf("agent %q send failed: %w", arguments.AgentID, sendError)
+	}
+	result, err := handle.Wait()
 	if err != nil {
 		return "", fmt.Errorf("agent %q run failed: %w", arguments.AgentID, err)
 	}
@@ -383,7 +390,7 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	}
 
 	// Get coordinator from context.
-	coordinator := runners.CoordinatorFromContext(ctx)
+	coordinator := coordinators.CoordinatorFromContext(ctx)
 	if coordinator == nil {
 		return "", fmt.Errorf("coordinator not available")
 	}
@@ -398,15 +405,21 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	prefixedTask := fmt.Sprintf("[Subagent task from '%s' (depth %d)]: %s", currentAgentId, currentDepth+1, arguments.Task)
 
 	// Run synchronously via coordinator.
-	runParams := runners.RunParams{
+	sendParameters := coordinators.SendMessageParameters{
+		AgentID:          targetAgentId,
+		ConversationID:   conversationId,
 		Message:          prefixedTask,
 		SystemPromptMode: runners.SystemPromptModeMinimal,
 	}
 	if arguments.Model != "" {
-		runParams.Model = arguments.Model
+		sendParameters.Model = arguments.Model
 	}
 
-	result, err := coordinator.SendMessage(childContext, targetAgentId, conversationId, runParams, nil)
+	handle, sendError := coordinator.SendMessage(childContext, sendParameters, nil)
+	if sendError != nil {
+		return "", fmt.Errorf("subagent %q send failed: %w", targetAgentId, sendError)
+	}
+	result, err := handle.Wait()
 	if err != nil {
 		return "", fmt.Errorf("subagent %q run failed: %w", targetAgentId, err)
 	}

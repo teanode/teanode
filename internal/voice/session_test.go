@@ -6,62 +6,52 @@ import (
 	"time"
 )
 
-type stubDeps struct{}
-
-func (self *stubDeps) SendMessage(_ interface{}, _ VoiceSendMessageParams) VoiceRunHandle {
-	return VoiceRunHandle{}
-}
-func (self *stubDeps) AbortRun(_ string) bool                  { return true }
-func (self *stubDeps) Subscribe(_ VoiceSubscriber)             {}
-func (self *stubDeps) Unsubscribe(_ VoiceSubscriber)           {}
-func (self *stubDeps) ProviderRegistry() VoiceProviderRegistry { return nil }
-
 func newTestSession() *Session {
-	return NewSession("sess", "conv", "agent", "", AudioFormat{Codec: "pcm_s16le", SampleRateHz: 16000, Channels: 1}, AudioFormat{Codec: "pcm_s16le", SampleRateHz: 24000, Channels: 1}, Features{BargeIn: true}, nil, nil, nil)
+	return NewSession("sess", "conv", "agent", "", AudioFormat{Codec: "pcm_s16le", SampleRateHz: 16000, Channels: 1}, AudioFormat{Codec: "pcm_s16le", SampleRateHz: 24000, Channels: 1}, Features{BargeIn: true}, nil, nil, nil, nil)
 }
 
 func TestCloseIdempotent(t *testing.T) {
-	s := newTestSession()
-	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
+	session := newTestSession()
+	var waitGroup sync.WaitGroup
+	for index := 0; index < 10; index++ {
+		waitGroup.Add(1)
 		go func() {
-			defer wg.Done()
-			s.Close()
+			defer waitGroup.Done()
+			session.Close()
 		}()
 	}
-	wg.Wait()
+	waitGroup.Wait()
 }
 
 func TestConcurrentStateAccess(t *testing.T) {
-	s := newTestSession()
-	var wg sync.WaitGroup
-	for g := 0; g < 50; g++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
-				s.SetCurrentRunID("run")
-				_ = s.GetCurrentRunID()
-				s.SetCurrentResponseID("response")
-				_ = s.GetCurrentResponseID()
-				s.SetCurrentTurnID("turn")
-				_ = s.GetCurrentTurnID()
-				s.ClearCurrentRun()
-				s.ClearCurrentResponse()
+	session := newTestSession()
+	var waitGroup sync.WaitGroup
+	for goroutine := 0; goroutine < 50; goroutine++ {
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
+			for iteration := 0; iteration < 100; iteration++ {
+				session.SetCurrentRunID("run")
+				_ = session.GetCurrentRunID()
+				session.SetCurrentResponseID("response")
+				_ = session.GetCurrentResponseID()
+				session.SetCurrentTurnID("turn")
+				_ = session.GetCurrentTurnID()
+				session.ClearCurrentRun()
+				session.ClearCurrentResponse()
 			}
-		}(g)
+		}(goroutine)
 	}
-	wg.Wait()
+	waitGroup.Wait()
 }
 
 func TestNonBlockingEnqueue(t *testing.T) {
-	s := newTestSession()
-	for i := 0; i < cap(s.audioOutCh); i++ {
-		s.audioOutCh <- []byte{1}
+	session := newTestSession()
+	for index := 0; index < cap(session.audioOutCh); index++ {
+		session.audioOutCh <- []byte{1}
 	}
 	start := time.Now()
-	ok := s.enqueueAudioOut([]byte{2})
+	ok := session.enqueueAudioOut([]byte{2})
 	if ok {
 		t.Fatal("expected enqueue to fail when full")
 	}
@@ -71,38 +61,38 @@ func TestNonBlockingEnqueue(t *testing.T) {
 }
 
 func TestTriggerBargeInNonBlocking(t *testing.T) {
-	s := newTestSession()
-	s.SetCurrentRunID("run-1")
-	for i := 0; i < cap(s.audioOutCh); i++ {
-		s.audioOutCh <- []byte{1}
+	session := newTestSession()
+	session.SetCurrentRunID("run-1")
+	for index := 0; index < cap(session.audioOutCh); index++ {
+		session.audioOutCh <- []byte{1}
 	}
 	start := time.Now()
-	s.triggerBargeIn()
+	session.triggerBargeIn()
 	if time.Since(start) > 5*time.Millisecond {
 		t.Fatal("triggerBargeIn blocked")
 	}
 }
 
 func TestTriggerBargeInClearsQueuedSpeechAndQueuesFlush(t *testing.T) {
-	s := newTestSession()
-	s.SetCurrentRunID("run-1")
-	s.SetCurrentResponseID("resp-1")
+	session := newTestSession()
+	session.SetCurrentRunID("run-1")
+	session.SetCurrentResponseID("resp-1")
 
-	s.ttsInCh <- "old sentence"
-	s.ttsInCh <- ""
-	s.audioOutCh <- []byte{1}
-	s.audioOutCh <- []byte{2}
+	session.ttsInCh <- "old sentence"
+	session.ttsInCh <- ""
+	session.audioOutCh <- []byte{1}
+	session.audioOutCh <- []byte{2}
 
-	s.triggerBargeIn()
+	session.triggerBargeIn()
 
-	if got := len(s.ttsInCh); got != 0 {
+	if got := len(session.ttsInCh); got != 0 {
 		t.Fatalf("expected empty tts queue after barge-in, got %d", got)
 	}
-	if got := len(s.audioOutCh); got != 1 {
+	if got := len(session.audioOutCh); got != 1 {
 		t.Fatalf("expected only flush frame queued after barge-in, got %d items", got)
 	}
 
-	frame := <-s.audioOutCh
+	frame := <-session.audioOutCh
 	parsed, err := ParseBinaryAudioFrame(frame)
 	if err != nil {
 		t.Fatalf("expected valid binary frame, got error: %v", err)
@@ -110,30 +100,30 @@ func TestTriggerBargeInClearsQueuedSpeechAndQueuesFlush(t *testing.T) {
 	if parsed.FrameType != FrameTypeFlush {
 		t.Fatalf("expected flush frame type, got %d", parsed.FrameType)
 	}
-	if s.GetCurrentRunID() != "" {
+	if session.GetCurrentRunID() != "" {
 		t.Fatal("expected run id cleared after barge-in")
 	}
-	if s.GetCurrentResponseID() != "" {
+	if session.GetCurrentResponseID() != "" {
 		t.Fatal("expected response id cleared after barge-in")
 	}
-	if !s.IsRunCanceled("run-1") {
+	if !session.IsRunCanceled("run-1") {
 		t.Fatal("expected interrupted run tracked as canceled")
 	}
 }
 
 func TestPendingTurnQueueFIFOAndOverflow(t *testing.T) {
-	s := newTestSession()
-	s.maxPendingTurns = 2
+	session := newTestSession()
+	session.maxPendingTurns = 2
 
-	dropped, depth := s.EnqueuePendingTurn("t1", "first")
+	dropped, depth := session.EnqueuePendingTurn("t1", "first")
 	if dropped != nil || depth != 1 {
 		t.Fatalf("unexpected first enqueue result: dropped=%v depth=%d", dropped, depth)
 	}
-	dropped, depth = s.EnqueuePendingTurn("t2", "second")
+	dropped, depth = session.EnqueuePendingTurn("t2", "second")
 	if dropped != nil || depth != 2 {
 		t.Fatalf("unexpected second enqueue result: dropped=%v depth=%d", dropped, depth)
 	}
-	dropped, depth = s.EnqueuePendingTurn("t3", "third")
+	dropped, depth = session.EnqueuePendingTurn("t3", "third")
 	if dropped == nil || dropped.TurnID != "t1" {
 		t.Fatalf("expected oldest turn t1 dropped, got %+v", dropped)
 	}
@@ -141,34 +131,34 @@ func TestPendingTurnQueueFIFOAndOverflow(t *testing.T) {
 		t.Fatalf("expected queue depth 2 after overflow, got %d", depth)
 	}
 
-	first, ok := s.DequeuePendingTurn()
+	first, ok := session.DequeuePendingTurn()
 	if !ok || first.TurnID != "t2" {
 		t.Fatalf("expected first dequeue t2, got %+v", first)
 	}
-	second, ok := s.DequeuePendingTurn()
+	second, ok := session.DequeuePendingTurn()
 	if !ok || second.TurnID != "t3" {
 		t.Fatalf("expected second dequeue t3, got %+v", second)
 	}
-	if s.HasPendingTurns() {
+	if session.HasPendingTurns() {
 		t.Fatal("expected pending queue empty")
 	}
 }
 
 func TestPendingTurnQueueConcurrentAccess(t *testing.T) {
-	s := newTestSession()
-	s.maxPendingTurns = 8
+	session := newTestSession()
+	session.maxPendingTurns = 8
 
-	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			s.EnqueuePendingTurn("turn", "text")
-			if idx%2 == 0 {
-				s.DequeuePendingTurn()
+	var waitGroup sync.WaitGroup
+	for index := 0; index < 20; index++ {
+		waitGroup.Add(1)
+		go func(iteration int) {
+			defer waitGroup.Done()
+			session.EnqueuePendingTurn("turn", "text")
+			if iteration%2 == 0 {
+				session.DequeuePendingTurn()
 			}
-			s.HasPendingTurns()
-		}(i)
+			session.HasPendingTurns()
+		}(index)
 	}
-	wg.Wait()
+	waitGroup.Wait()
 }

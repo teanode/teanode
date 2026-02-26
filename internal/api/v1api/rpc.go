@@ -9,8 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/jobs"
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/onboarding"
 	"github.com/teanode/teanode/internal/schemas"
@@ -33,7 +34,7 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	for _, agent := range agentsList {
 		info := map[string]interface{}{
 			"id":                    agent.ID,
-			"defaultConversationId": self.api.gateway.EnsureDefaultConversation(self.userId(), agent.ID),
+			"defaultConversationId": self.api.coordinator.EnsureDefaultConversation(self.userId(), agent.ID),
 		}
 		if name := agent.GetName(); name != "" {
 			info["name"] = name
@@ -52,7 +53,7 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	}
 
 	capabilities := []string{"conversations"}
-	if registry := self.api.gateway.ProviderRegistry(); registry != nil {
+	if registry := self.api.coordinator.Providers(); registry != nil {
 		if _, _, ok := registry.FindTranscriber(); ok {
 			capabilities = append(capabilities, "audio")
 		}
@@ -64,7 +65,7 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 		"defaultModel":          defaultModel,
 		"agents":                agentInfos,
 		"defaultAgentId":        defaultAgentId,
-		"defaultConversationId": self.api.gateway.EnsureDefaultConversation(self.userId(), defaultAgentId),
+		"defaultConversationId": self.api.coordinator.EnsureDefaultConversation(self.userId(), defaultAgentId),
 		"isAdmin":               self.isAdmin(),
 		"userId":                self.userId(),
 	})
@@ -89,7 +90,7 @@ func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 	for _, agent := range agentsList {
 		info := map[string]interface{}{
 			"id":                    agent.ID,
-			"defaultConversationId": self.api.gateway.EnsureDefaultConversation(self.userId(), agent.ID),
+			"defaultConversationId": self.api.coordinator.EnsureDefaultConversation(self.userId(), agent.ID),
 		}
 		if name := agent.GetName(); name != "" {
 			info["name"] = name
@@ -185,13 +186,13 @@ func (self *webSocketConnection) handleAgentsSetDefault(frame requestFrame) {
 		self.sendError(frame.ID, 500, "updating default agent: "+err.Error())
 		return
 	}
-	self.api.gateway.Broadcast(gw.EventTypeDefaultAgent, map[string]interface{}{
+	self.api.pubsub.Broadcast(pubsub.EventTypeDefaultAgent, map[string]interface{}{
 		"defaultAgentId": parameters.AgentID,
 		"userId":         self.userId(),
 	})
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"defaultAgentId":        parameters.AgentID,
-		"defaultConversationId": self.api.gateway.EnsureDefaultConversation(self.userId(), parameters.AgentID),
+		"defaultConversationId": self.api.coordinator.EnsureDefaultConversation(self.userId(), parameters.AgentID),
 	})
 }
 
@@ -216,7 +217,7 @@ func (self *webSocketConnection) handleConversationsSetDefault(frame requestFram
 	if agentId == "" {
 		agentId = models.UserFromContext(self.ctx).GetDefaultAgentID()
 	}
-	self.api.gateway.SetDefaultConversation(self.userId(), agentId, parameters.ConversationID)
+	self.api.coordinator.SetDefaultConversation(self.userId(), agentId, parameters.ConversationID)
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"defaultAgentId":        agentId,
 		"defaultConversationId": parameters.ConversationID,
@@ -251,7 +252,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 		parameters.AgentID = models.UserFromContext(self.ctx).GetDefaultAgentID()
 	}
 
-	handle := self.api.gateway.SendMessage(self.ctx, gw.SendMessageParameters{
+	handle, sendError := self.api.coordinator.SendMessage(self.ctx, coordinators.SendMessageParameters{
 		AgentID:            parameters.AgentID,
 		ConversationID:     parameters.ConversationID,
 		Message:            parameters.Message,
@@ -262,9 +263,13 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 		Attachments:        parameters.Attachments,
 		SystemPromptSuffix: parameters.SystemPromptSuffix,
 	}, nil)
+	if sendError != nil {
+		self.sendError(frame.ID, 500, sendError.Error())
+		return
+	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"runId":          handle.RunID,
+		"runId":          handle.RunnerID,
 		"conversationId": handle.ConversationID,
 	})
 }
@@ -314,8 +319,8 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 		"oldestLoadedIndex": oldestLoadedIndex,
 		"hasMore":           hasMore,
 	}
-	if activeRunId := self.api.gateway.GetActiveRun(parameters.ConversationID); activeRunId != "" {
-		response["activeRunId"] = activeRunId
+	if self.api.coordinator.GetActiveConversationRunner(parameters.ConversationID) {
+		response["running"] = true
 	}
 	if provider != "" {
 		response["provider"] = provider
@@ -339,7 +344,7 @@ func (self *webSocketConnection) handleConversationsAbort(frame requestFrame) {
 		return
 	}
 
-	if self.api.gateway.AbortRun(parameters.RunID) {
+	if self.api.coordinator.AbortRunner(parameters.RunID) {
 		self.sendResponse(frame.ID, map[string]interface{}{
 			"aborted": true,
 		})
@@ -372,13 +377,13 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 	if resolvedAgentId == "" {
 		resolvedAgentId = models.UserFromContext(self.ctx).GetDefaultAgentID()
 	}
-	defaultConversationId := self.api.gateway.EnsureDefaultConversation(self.userId(), resolvedAgentId)
+	defaultConversationId := self.api.coordinator.EnsureDefaultConversation(self.userId(), resolvedAgentId)
 	if parameters.ConversationID == defaultConversationId {
 		self.sendError(frame.ID, 409, "cannot delete the default conversation")
 		return
 	}
 
-	if err := self.api.gateway.DeleteConversation(self.userId(), resolvedAgentId, parameters.ConversationID); err != nil {
+	if err := self.api.coordinator.DeleteConversation(self.userId(), resolvedAgentId, parameters.ConversationID); err != nil {
 		self.sendError(frame.ID, 500, "deleting conversation: "+err.Error())
 		return
 	}
@@ -638,7 +643,7 @@ func (self *webSocketConnection) handleAgentsConfigSchema(frame requestFrame) {
 	// TODO: Collect tool names from this user's default runner.
 	// agentId := models.UserFromContext(self.ctx).GetDefaultAgentID()
 	// if agentId != "" {
-	// 	runner := self.api.gateway.GetRunner(agentId)
+	// 	runner := self.api.coordinator.GetRunner(agentId)
 	// 	if runner != nil && runner.Tools != nil {
 	// 		suggestions["tool"] = runner.Tools.Names()
 	// 	}
@@ -957,7 +962,7 @@ func (self *webSocketConnection) handleJobsCreate(frame requestFrame) {
 		return
 	}
 	if parameters.Job.GetConversationID() == "" {
-		defaultConversationId := self.api.gateway.EnsureDefaultConversation(self.userId(), parameters.Job.GetAgentID())
+		defaultConversationId := self.api.coordinator.EnsureDefaultConversation(self.userId(), parameters.Job.GetAgentID())
 		parameters.Job.ConversationID = ptrto.Value(defaultConversationId)
 	}
 	parameters.Job.UserID = ptrto.Value(self.userId())
@@ -968,7 +973,7 @@ func (self *webSocketConnection) handleJobsCreate(frame requestFrame) {
 		self.sendError(frame.ID, 500, "creating job: "+err.Error())
 		return
 	}
-	self.api.gateway.Broadcast(gw.EventTypeJobs, nil)
+	self.api.pubsub.Broadcast(pubsub.EventTypeJobs, nil)
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"job": parameters.Job,
 	})
@@ -999,7 +1004,7 @@ func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) {
 		return
 	}
 	if parameters.Job.GetConversationID() == "" {
-		defaultConversationId := self.api.gateway.EnsureDefaultConversation(self.userId(), parameters.Job.GetAgentID())
+		defaultConversationId := self.api.coordinator.EnsureDefaultConversation(self.userId(), parameters.Job.GetAgentID())
 		parameters.Job.ConversationID = ptrto.Value(defaultConversationId)
 	}
 	parameters.Job.UserID = ptrto.Value(self.userId())
@@ -1020,7 +1025,7 @@ func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) {
 		self.sendError(frame.ID, 500, "updating job: "+err.Error())
 		return
 	}
-	self.api.gateway.Broadcast(gw.EventTypeJobs, nil)
+	self.api.pubsub.Broadcast(pubsub.EventTypeJobs, nil)
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"job": parameters.Job,
 	})

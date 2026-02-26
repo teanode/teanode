@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
@@ -50,7 +51,8 @@ type Session struct {
 	AudioOut       AudioFormat
 	Features       Features
 
-	deps         GatewayDeps
+	dispatcher voiceDispatcher
+	pubsub     *pubsub.PubSub
 	sendJsonFn   func(any)
 	sendBinaryFn func([]byte)
 
@@ -88,7 +90,8 @@ const (
 )
 
 // NewSession creates a session with default channel capacities.
-func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioFormat, features Features, deps GatewayDeps, sendJson func(any), sendBinary func([]byte)) *Session {
+// The dispatcher parameter accepts *coordinators.Coordinator or any implementation of voiceDispatcher.
+func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioFormat, features Features, dispatcher voiceDispatcher, events *pubsub.PubSub, sendJson func(any), sendBinary func([]byte)) *Session {
 	return &Session{
 		ID:                 id,
 		ConversationID:     conversationId,
@@ -97,7 +100,8 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 		AudioIn:            in,
 		AudioOut:           out,
 		Features:           features,
-		deps:               deps,
+		dispatcher:         dispatcher,
+		pubsub:             events,
 		sendJsonFn:         sendJson,
 		sendBinaryFn:       sendBinary,
 		transcribeInFlight: make(map[string]struct{}),

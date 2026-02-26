@@ -18,7 +18,6 @@ import (
 	"github.com/teanode/teanode/internal/channels/telegram"
 	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/frontend"
-	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/integrations/browsers/headlessbrowser"
 	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
@@ -29,6 +28,7 @@ import (
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/store"
@@ -57,6 +57,7 @@ import (
 	"github.com/teanode/teanode/internal/tools/workspace"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/util/sessiontracker"
 	"github.com/teanode/teanode/internal/version"
 	"github.com/teanode/teanode/internal/web"
 	"github.com/urfave/cli/v3"
@@ -319,12 +320,10 @@ func NewGatewayCommand() *cli.Command {
 			terminalRelay := terminals.NewRelay()
 			ctx = terminals.ContextWithTerminal(ctx, terminalRelay)
 
-			// --- Coordinator + Default Conversation Manager ---
+			// --- Coordinator + PubSub + SessionTracker ---
 
-			// gateway is declared here so buildToolRegistry can capture it via closure.
-			// It is assigned after the coordinator is created, but tools are never called until
-			// bots and the API server start, which happens after assignment.
-			var gateway gw.Gateway
+			events := pubsub.New()
+			sessions := sessiontracker.New()
 			var scheduler *jobs.Scheduler
 
 			// buildToolRegistryForCoordinator is called by the coordinator each time a new
@@ -337,8 +336,8 @@ func NewGatewayCommand() *cli.Command {
 				})
 			}
 
-			coordinator := coordinators.New(providers, buildToolRegistryForCoordinator)
 			defaults := runners.NewDefaultConversationManager(ctx)
+			summarizer := summarizerpackage.New(ctx, providers)
 
 			// Set up job scheduler.
 			scheduler = jobs.NewScheduler(ctx)
@@ -365,27 +364,28 @@ func NewGatewayCommand() *cli.Command {
 				return transactionError
 			}
 
-			// --- Gateway + API + Frontend ---
+			// --- Coordinator + API + Frontend ---
 
-			summarizer := summarizerpackage.New(ctx, providers)
+			coordinator := coordinators.New(ctx, configuration, providers, defaults, summarizer, events, buildToolRegistryForCoordinator)
+			ctx = coordinators.ContextWithCoordinator(ctx, coordinator)
+
 			lifecycleManager := lifecycle.New()
 			ctx = lifecycle.ContextWithLifecycle(ctx, lifecycleManager)
 
-			gateway = gw.New(ctx, configuration, coordinator, defaults, browserRelay, terminalRelay, summarizer)
-			api := v1api.New(gateway)
+			api := v1api.New(coordinator, events, sessions, browserRelay, terminalRelay)
 			frontendComponent := frontend.New()
 
-			// Wire summarizer to gateway.
+			// Wire summarizer to coordinator.
 			summarizer.IsConversationActive = func(conversationId string) bool {
-				return gateway.GetActiveRun(conversationId) != ""
+				return coordinator.GetActiveConversationRunner(conversationId)
 			}
 			summarizer.Broadcast = func(event string, payload interface{}) {
-				gateway.Broadcast(gw.EventType(event), payload)
+				events.Broadcast(pubsub.EventType(event), payload)
 			}
 
-			// Wire scheduler to gateway via closure.
+			// Wire scheduler to coordinator.
 			scheduler.Broadcast = func(event string, payload interface{}) {
-				gateway.Broadcast(gw.EventType(event), payload)
+				events.Broadcast(pubsub.EventType(event), payload)
 			}
 			scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
 				var user *models.User
@@ -409,19 +409,27 @@ func NewGatewayCommand() *cli.Command {
 				}
 
 				runContext := models.ContextWithUserSessionToken(ctx, user, nil, nil)
-				handle := gateway.SendMessage(runContext, gw.SendMessageParameters{
+				handle, sendError := coordinator.SendMessage(runContext, coordinators.SendMessageParameters{
 					AgentID:        agentId,
 					ConversationID: conversationId,
 					Message:        message,
 					Model:          model,
 				}, nil)
-				return handle.RunID, handle.Done, func() error { return handle.Outcome().Error }
+				if sendError != nil {
+					doneChannel := make(chan struct{})
+					close(doneChannel)
+					return "", doneChannel, func() error { return sendError }
+				}
+				return handle.RunnerID, handle.Done(), func() error {
+					_, waitError := handle.Wait()
+					return waitError
+				}
 			}
 
 			// --- Discord bot ---
 
 			if configuration.Channels.Discord != nil && configuration.Channels.Discord.GetToken() != "" {
-				discordBot := discord.New(configuration.Channels.Discord.GetToken(), ctx, gateway)
+				discordBot := discord.New(configuration.Channels.Discord.GetToken(), ctx, coordinator, events, sessions)
 				if err := discordBot.Start(); err != nil {
 					log.Errorf("discord bot failed to start: %v", err)
 				} else {
@@ -432,7 +440,7 @@ func NewGatewayCommand() *cli.Command {
 			// --- Telegram bot ---
 
 			if configuration.Channels.Telegram != nil && configuration.Channels.Telegram.GetToken() != "" {
-				telegramBot := telegram.New(ctx, configuration.Channels.Telegram.GetToken(), gateway)
+				telegramBot := telegram.New(ctx, configuration.Channels.Telegram.GetToken(), coordinator, events, sessions)
 				if err := telegramBot.Start(); err != nil {
 					log.Errorf("telegram bot failed to start: %v", err)
 				} else {

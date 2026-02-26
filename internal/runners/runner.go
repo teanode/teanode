@@ -24,6 +24,7 @@ import (
 
 // Runner orchestrates: load conversation -> build prompt -> call LLM -> save response.
 type Runner struct {
+	ID             string
 	AgentID        string
 	ConversationID string
 	Providers      *providers.Registry

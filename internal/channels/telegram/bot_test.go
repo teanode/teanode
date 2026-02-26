@@ -6,11 +6,12 @@ import (
 	"testing"
 
 	"github.com/teanode/teanode/internal/coordinators"
-	"github.com/teanode/teanode/internal/gw"
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	storefs "github.com/teanode/teanode/internal/store/fsstore"
+	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 func TestShouldForwardDisconnectedWebUI(t *testing.T) {
@@ -43,18 +44,14 @@ func TestShouldForwardDisconnectedWebUI(t *testing.T) {
 	defaults := runners.NewDefaultConversationManager(contextWithStore)
 	defaults.SetDefaultConversation("user-1", "main", "default-conversation")
 
-	gateway := gw.New(
-		contextWithStore,
-		&models.Configuration{},
-		coordinators.New(nil, nil),
-		defaults,
-		nil,
-		nil,
-		nil,
-	)
+	events := pubsub.New()
+	coordinator := coordinators.New(contextWithStore, &models.Configuration{}, nil, defaults, nil, events, func(_ context.Context, _ models.Agent) (*toolregistry.ToolRegistry, string) {
+		return toolregistry.NewToolRegistry(), ""
+	})
+
 	bot := &Bot{
-		ctx:     contextWithStore,
-		gateway: gateway,
+		ctx:         contextWithStore,
+		coordinator: coordinator,
 	}
 
 	if !bot.shouldForwardDisconnectedSession("user-1", "main", "default-conversation", "session-1") {
