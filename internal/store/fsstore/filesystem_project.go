@@ -38,7 +38,7 @@ func (self *fileSystemTransaction) listProjects(options *store.Option) ([]*model
 	if err != nil {
 		return nil, err
 	}
-	projectConfigurations = applyOffsetLimitProjectConfig(projectConfigurations, options)
+	projectConfigurations = applyOffsetLimit(projectConfigurations, options)
 	projects := make([]*models.Project, 0, len(projectConfigurations))
 	for _, projectConfiguration := range projectConfigurations {
 		project := projectConfigToModel(projectConfiguration)
@@ -106,7 +106,7 @@ func (self *fileSystemTransaction) modifyProject(ctx context.Context, projectId 
 func (self *fileSystemTransaction) deleteProject(projectId string, options *store.Option) error {
 	projectDirectory := self.projectDirectory(projectId)
 	if _, err := os.Stat(projectDirectory); errors.Is(err, os.ErrNotExist) {
-		return nil
+		return store.ErrNotFound
 	}
 	return trash.Move(projectDirectory, self.trashDirectory())
 }
@@ -133,20 +133,4 @@ func modelToProjectConfig(project models.Project) storeProjectRecord {
 		record.SummarizedAt = timeutil.Timestamp{Time: *project.SummarizedAt}
 	}
 	return record
-}
-
-func applyOffsetLimitProjectConfig(values []storeProjectRecord, options *store.Option) []storeProjectRecord {
-	if options == nil {
-		return values
-	}
-	offset := int(uint64Value(options.Offset))
-	if offset >= len(values) {
-		return []storeProjectRecord{}
-	}
-	values = values[offset:]
-	limit := int(uint64Value(options.Limit))
-	if limit > 0 && limit < len(values) {
-		values = values[:limit]
-	}
-	return values
 }

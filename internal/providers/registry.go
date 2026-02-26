@@ -3,6 +3,7 @@ package providers
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/teanode/teanode/internal/models"
@@ -108,6 +109,7 @@ func (self *ProviderRegistry) ProviderNames() []string {
 	for name := range self.clients {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

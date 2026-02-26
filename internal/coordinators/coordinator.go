@@ -174,6 +174,13 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 	go func() {
 		defer deferutil.Recover()
 		defer func() {
+			// Safety net: ensure the handle is always resolved even if the
+			// goroutine panics before reaching the normal Resolve calls.
+			// RunHandle.Resolve is sync.Once-protected so this is a no-op
+			// when the handle was already resolved normally.
+			handle.Resolve(nil, nil, fmt.Errorf("run terminated unexpectedly"))
+		}()
+		defer func() {
 			// Clean up runner index.
 			self.runnerIndex.Delete(runnerId)
 			cancel()
@@ -423,8 +430,16 @@ func (self *Coordinator) enqueueMessage(conversationId, agentId string, message 
 	if !conversationRunnerInstance.processing {
 		conversationRunnerInstance.processing = true
 
-		// Create runner for this conversation.
-		runner := self.createRunner(message.ctx, agentId, conversationId)
+		// Create runner using the coordinator's long-lived context rather than the
+		// first message's context, which may be cancelled independently. Carry over
+		// the authenticated user so downstream code (tools, system prompt) can access it.
+		runnerContext := models.ContextWithUserSessionToken(
+			self.ctx,
+			models.UserFromContext(message.ctx),
+			models.SessionFromContext(message.ctx),
+			models.TokenFromContext(message.ctx),
+		)
+		runner := self.createRunner(runnerContext, agentId, conversationId)
 		conversationRunnerInstance.runner = runner
 
 		conversationRunnerInstance.mutex.Unlock()
@@ -447,8 +462,8 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 		if len(conversationRunnerInstance.queue) == 0 {
 			conversationRunnerInstance.processing = false
 			conversationRunnerInstance.runner = nil
-			conversationRunnerInstance.mutex.Unlock()
 			self.activeRunners.Delete(conversationId)
+			conversationRunnerInstance.mutex.Unlock()
 			return
 		}
 
@@ -494,6 +509,9 @@ func (self *Coordinator) createRunner(ctx context.Context, agentId, conversation
 		agent, err = transaction.GetAgent(ctx, agentId, nil)
 		return err
 	}); err != nil {
+		return nil
+	}
+	if agent == nil {
 		return nil
 	}
 

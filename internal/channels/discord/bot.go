@@ -924,8 +924,9 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 }
 
 // downloadUrl fetches data from a URL.
-func downloadUrl(url string) ([]byte, error) {
-	response, err := http.Get(url)
+func downloadUrl(targetUrl string) ([]byte, error) {
+	client := &http.Client{Timeout: 60 * time.Second}
+	response, err := client.Get(targetUrl)
 	if err != nil {
 		return nil, fmt.Errorf("downloading: %w", err)
 	}
@@ -933,5 +934,6 @@ func downloadUrl(url string) ([]byte, error) {
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned status %d", response.StatusCode)
 	}
-	return io.ReadAll(response.Body)
+	const maxFileSize = 100 * 1024 * 1024 // 100 MB
+	return io.ReadAll(io.LimitReader(response.Body, maxFileSize))
 }

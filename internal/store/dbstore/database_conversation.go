@@ -28,13 +28,12 @@ func (databaseConversationRecord) TableName() string {
 }
 
 func (self *databaseTransaction) ListConversations(ctx context.Context, listOptions store.ConversationListOptions, options *store.Option) ([]*models.Conversation, error) {
+	if listOptions.UserID == nil || listOptions.AgentID == nil {
+		return []*models.Conversation{}, nil
+	}
 	query := self.database.Model(&databaseConversationRecord{})
-	if listOptions.UserID != nil {
-		query = query.Where("user_id = ?", *listOptions.UserID)
-	}
-	if listOptions.AgentID != nil {
-		query = query.Where("agent_id = ?", *listOptions.AgentID)
-	}
+	query = query.Where("user_id = ?", *listOptions.UserID)
+	query = query.Where("agent_id = ?", *listOptions.AgentID)
 	if listOptions.Default != nil {
 		query = query.Where("\"default\" = ?", *listOptions.Default)
 	}

@@ -172,7 +172,11 @@ func (self *compactConversationTool) Definition() providers.ToolDefinition {
 }
 
 func (self *compactConversationTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	compactResult, err := runners.RunnerFromContext(ctx).CompactConversation(ctx)
+	runner := runners.RunnerFromContext(ctx)
+	if runner == nil {
+		return "", fmt.Errorf("runner context missing")
+	}
+	compactResult, err := runner.CompactConversation(ctx)
 	if err != nil {
 		return "", err
 	}

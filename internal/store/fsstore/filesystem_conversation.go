@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -107,7 +108,7 @@ func (self *fileSystemTransaction) listConversations(listOptions store.Conversat
 		return leftConversation.ModifiedAt.After(*rightConversation.ModifiedAt)
 	})
 
-	return applyOffsetLimitConversations(conversationsList, options), nil
+	return applyOffsetLimit(conversationsList, options), nil
 }
 
 func (self *fileSystemTransaction) createConversation(conversation *models.Conversation, options *store.Option) (*models.Conversation, error) {
@@ -133,55 +134,48 @@ func (self *fileSystemTransaction) createConversation(conversation *models.Conve
 }
 
 func (self *fileSystemTransaction) getConversation(conversationId string, options *store.Option) (*models.Conversation, error) {
-	userEntries, readUsersError := os.ReadDir(self.usersDirectory())
-	if readUsersError != nil {
+	// Glob for the conversation file across all user/agent directories instead
+	// of iterating every user and agent directory pair.
+	pattern := filepath.Join(self.usersDirectory(), "*", "conversations", "*", conversationId+".jsonl")
+	matches, globError := filepath.Glob(pattern)
+	if globError != nil {
 		return nil, store.ErrNotFound
 	}
-	for _, userEntry := range userEntries {
-		if !userEntry.IsDir() {
+	for _, conversationPath := range matches {
+		// Extract userId and agentId from the matched path:
+		// .../users/{userId}/conversations/{agentId}/{conversationId}.jsonl
+		agentId := filepath.Base(filepath.Dir(conversationPath))
+		userId := filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(conversationPath))))
+
+		header, headerError := self.loadConversationHeaderByPath(conversationPath)
+		if headerError != nil {
 			continue
 		}
-		userId := userEntry.Name()
-		agentEntries, readAgentsError := os.ReadDir(self.userConversationsDirectory(userId))
-		if readAgentsError != nil {
+		fileInfo, statError := os.Stat(conversationPath)
+		if statError != nil {
 			continue
 		}
-		for _, agentEntry := range agentEntries {
-			if !agentEntry.IsDir() {
-				continue
+		createdAt := fileInfo.ModTime()
+		if header.Timestamp != "" {
+			if parsedTimestamp, parseError := time.Parse(time.RFC3339, header.Timestamp); parseError == nil {
+				createdAt = parsedTimestamp
 			}
-			agentId := agentEntry.Name()
-			conversationPath := self.conversationFilePath(userId, agentId, conversationId)
-			header, headerError := self.loadConversationHeaderByPath(conversationPath)
-			if headerError != nil {
-				continue
-			}
-			fileInfo, statError := os.Stat(conversationPath)
-			if statError != nil {
-				continue
-			}
-			createdAt := fileInfo.ModTime()
-			if header.Timestamp != "" {
-				if parsedTimestamp, parseError := time.Parse(time.RFC3339, header.Timestamp); parseError == nil {
-					createdAt = parsedTimestamp
-				}
-			}
-			modifiedAt := fileInfo.ModTime()
-			conversation := &models.Conversation{
-				ID:         conversationId,
-				UserID:     ptrto.TrimmedString(userId),
-				AgentID:    ptrto.TrimmedString(agentId),
-				Title:      ptrto.TrimmedString(header.Title),
-				Summary:    ptrto.TrimmedString(header.Summary),
-				CreatedAt:  &createdAt,
-				ModifiedAt: &modifiedAt,
-			}
-			if header.SummarizedAt > 0 {
-				summarizedAt := time.UnixMilli(header.SummarizedAt)
-				conversation.SummarizedAt = &summarizedAt
-			}
-			return conversation, nil
 		}
+		modifiedAt := fileInfo.ModTime()
+		conversation := &models.Conversation{
+			ID:         conversationId,
+			UserID:     ptrto.TrimmedString(userId),
+			AgentID:    ptrto.TrimmedString(agentId),
+			Title:      ptrto.TrimmedString(header.Title),
+			Summary:    ptrto.TrimmedString(header.Summary),
+			CreatedAt:  &createdAt,
+			ModifiedAt: &modifiedAt,
+		}
+		if header.SummarizedAt > 0 {
+			summarizedAt := time.UnixMilli(header.SummarizedAt)
+			conversation.SummarizedAt = &summarizedAt
+		}
+		return conversation, nil
 	}
 	return nil, store.ErrNotFound
 }
@@ -300,20 +294,4 @@ func (self *fileSystemTransaction) deleteConversation(ctx context.Context, conve
 		return nil
 	}
 	return trash.Move(conversationPath, self.trashDirectory())
-}
-
-func applyOffsetLimitConversations(values []*models.Conversation, options *store.Option) []*models.Conversation {
-	if options == nil {
-		return values
-	}
-	offset := int(uint64Value(options.Offset))
-	if offset >= len(values) {
-		return []*models.Conversation{}
-	}
-	values = values[offset:]
-	limit := int(uint64Value(options.Limit))
-	if limit > 0 && limit < len(values) {
-		values = values[:limit]
-	}
-	return values
 }

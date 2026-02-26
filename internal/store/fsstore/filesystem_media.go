@@ -23,6 +23,7 @@ const mediaMetadataSuffix = ".meta.json"
 
 type storeMediaMetadata struct {
 	MediaID        string `json:"mediaId"`
+	UserID         string `json:"userId,omitempty"`
 	Format         string `json:"format"`
 	SizeBytes      int64  `json:"sizeBytes"`
 	CreatedAt      int64  `json:"createdAt"`
@@ -60,6 +61,9 @@ func (self *fileSystemTransaction) DeleteMedia(ctx context.Context, mediaId stri
 
 func (self *fileSystemTransaction) listMedia(listOptions store.MediaListOptions, options *store.Option) ([]*models.Media, error) {
 	metadataList, err := self.scanMediaMetadata(func(metadata storeMediaMetadata) bool {
+		if listOptions.UserID != nil && metadata.UserID != *listOptions.UserID {
+			return false
+		}
 		if listOptions.ConversationID != nil && metadata.ConversationID != *listOptions.ConversationID {
 			return false
 		}
@@ -79,7 +83,7 @@ func (self *fileSystemTransaction) listMedia(listOptions store.MediaListOptions,
 		media := mediaMetadataToModel(metadata)
 		results = append(results, &media)
 	}
-	return applyOffsetLimitMedia(results, options), nil
+	return applyOffsetLimit(results, options), nil
 }
 
 func (self *fileSystemTransaction) createMedia(content io.Reader, metadata *models.Media, options *store.Option) (*models.Media, error) {
@@ -116,6 +120,7 @@ func (self *fileSystemTransaction) createMedia(content io.Reader, metadata *mode
 	}
 	metadataRecord := storeMediaMetadata{
 		MediaID:        mediaId,
+		UserID:         metadata.GetUserID(),
 		Format:         format,
 		SizeBytes:      sizeBytes,
 		CreatedAt:      time.Now().UnixMilli(),
@@ -176,6 +181,22 @@ func (self *fileSystemTransaction) modifyMedia(ctx context.Context, mediaId stri
 	}
 	if err := modifier(metadata); err != nil {
 		return nil, err
+	}
+	updatedRecord := storeMediaMetadata{
+		MediaID:        mediaId,
+		UserID:         metadata.GetUserID(),
+		Format:         metadata.GetFormat(),
+		SizeBytes:      metadata.GetSize(),
+		CreatedAt:      metadata.GetCreatedAt().UnixMilli(),
+		SourceType:     string(metadata.GetSource()),
+		AgentID:        metadata.GetSourceAgentID(),
+		ConversationID: metadata.GetConversationID(),
+		ToolName:       metadata.GetToolName(),
+		ToolCallID:     metadata.GetToolCallID(),
+		OriginalName:   metadata.GetOriginalName(),
+	}
+	if writeError := self.writeMediaMetadata(mediaId, updatedRecord); writeError != nil {
+		return nil, fmt.Errorf("writing media metadata: %w", writeError)
 	}
 	return metadata, nil
 }
@@ -352,6 +373,7 @@ func mediaMetadataToModel(metadata storeMediaMetadata) models.Media {
 	contentType := mimetypes.MIMETypeFromFormat(metadata.Format)
 	return models.Media{
 		ID:             metadata.MediaID,
+		UserID:         ptrto.TrimmedString(metadata.UserID),
 		Format:         &format,
 		ContentType:    &contentType,
 		Source:         ptrto.Trimmed[models.MediaSource](metadata.SourceType),
@@ -364,20 +386,4 @@ func mediaMetadataToModel(metadata storeMediaMetadata) models.Media {
 		CreatedAt:      &createdAt,
 		ModifiedAt:     &modifiedAt,
 	}
-}
-
-func applyOffsetLimitMedia(values []*models.Media, options *store.Option) []*models.Media {
-	if options == nil {
-		return values
-	}
-	offset := int(uint64Value(options.Offset))
-	if offset >= len(values) {
-		return []*models.Media{}
-	}
-	values = values[offset:]
-	limit := int(uint64Value(options.Limit))
-	if limit > 0 && limit < len(values) {
-		values = values[:limit]
-	}
-	return values
 }

@@ -1,7 +1,11 @@
 // Package pubsub provides a simple in-process event broadcasting system.
 package pubsub
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/teanode/teanode/internal/util/deferutil"
+)
 
 // EventType identifies the kind of broadcast event.
 type EventType string
@@ -56,11 +60,21 @@ func (self *PubSub) Unsubscribe(subscriber Subscriber) {
 	self.mutex.Unlock()
 }
 
-// Broadcast sends an event to all subscribers.
+// Broadcast sends an event to all subscribers. The subscriber set is
+// snapshotted before invoking callbacks so that OnEvent handlers may
+// safely call Subscribe/Unsubscribe without deadlocking.
 func (self *PubSub) Broadcast(eventType EventType, payload interface{}) {
 	self.mutex.RLock()
-	defer self.mutex.RUnlock()
+	snapshot := make([]Subscriber, 0, len(self.subscribers))
 	for subscriber := range self.subscribers {
-		subscriber.OnEvent(eventType, payload)
+		snapshot = append(snapshot, subscriber)
+	}
+	self.mutex.RUnlock()
+
+	for _, subscriber := range snapshot {
+		func() {
+			defer deferutil.Recover()
+			subscriber.OnEvent(eventType, payload)
+		}()
 	}
 }

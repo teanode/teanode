@@ -149,7 +149,7 @@ func NewHTTPClient(config *resolvedConfig) Client {
 	}
 
 	transport := &http.Transport{}
-	if !config.verifyTLS {
+	if !config.verifyTls {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 

@@ -39,7 +39,6 @@ type ConversationMessage struct {
 	Provider       *string         `json:"provider,omitempty" yaml:"provider,omitempty"`
 	ToolCallID     *string         `json:"toolCallId,omitempty" yaml:"toolCallId,omitempty"`
 	ToolName       *string         `json:"toolName,omitempty" yaml:"toolName,omitempty"`
-	Sequence       *int64          `json:"sequence,omitempty" yaml:"sequence,omitempty"`
 	CreatedAt      *time.Time      `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
 	ModifiedAt     *time.Time      `json:"modifiedAt,omitempty" yaml:"modifiedAt,omitempty"`
 }

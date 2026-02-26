@@ -206,6 +206,13 @@ func (self *webSocketConnection) userId() string {
 	return ""
 }
 
+func (self *webSocketConnection) defaultAgentId() string {
+	if user := models.UserFromContext(self.ctx); user != nil {
+		return user.GetDefaultAgentID()
+	}
+	return ""
+}
+
 func (self *webSocketConnection) sessionId() string {
 	if session := models.SessionFromContext(self.ctx); session != nil {
 		return session.ID

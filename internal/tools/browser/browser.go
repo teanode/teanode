@@ -158,8 +158,8 @@ func executeNavigate(ctx context.Context, browser browsers.Browser, connectionId
 	if err != nil {
 		return "", err
 	}
-	out, _ := json.Marshal(map[string]string{"url": url})
-	return string(out), nil
+	output, _ := json.Marshal(map[string]string{"url": url})
+	return string(output), nil
 }
 
 func executeScreenshot(ctx context.Context, browser browsers.Browser, connectionId string) (string, error) {
@@ -179,11 +179,11 @@ func executeScreenshot(ctx context.Context, browser browsers.Browser, connection
 	if err := json.Unmarshal(result, &response); err != nil {
 		return "", fmt.Errorf("parsing screenshot: %w", err)
 	}
-	out, _ := json.Marshal(map[string]string{
+	output, _ := json.Marshal(map[string]string{
 		"base64": response.Data,
 		"format": "png",
 	})
-	return string(out), nil
+	return string(output), nil
 }
 
 func executeSnapshot(ctx context.Context, browser browsers.Browser, connectionId string) (string, error) {
@@ -201,8 +201,8 @@ func executeSnapshot(ctx context.Context, browser browsers.Browser, connectionId
 	if err := json.Unmarshal(result, &response); err != nil {
 		return "", fmt.Errorf("parsing accessibility tree: %w", err)
 	}
-	out, _ := json.Marshal(map[string]string{"tree": buildAXTree(response.Nodes)})
-	return string(out), nil
+	output, _ := json.Marshal(map[string]string{"tree": buildAXTree(response.Nodes)})
+	return string(output), nil
 }
 
 func executeClick(ctx context.Context, browser browsers.Browser, connectionId string, x *float64, y *float64, selector string) (string, error) {
@@ -220,8 +220,8 @@ func executeClick(ctx context.Context, browser browsers.Browser, connectionId st
 		if err != nil {
 			return "", err
 		}
-		out, _ := json.Marshal(map[string]string{"selector": selector})
-		return string(out), nil
+		output, _ := json.Marshal(map[string]string{"selector": selector})
+		return string(output), nil
 	}
 
 	if x == nil || y == nil {
@@ -240,8 +240,8 @@ func executeClick(ctx context.Context, browser browsers.Browser, connectionId st
 			return "", err
 		}
 	}
-	out, _ := json.Marshal(map[string]interface{}{"x": xValue, "y": yValue})
-	return string(out), nil
+	output, _ := json.Marshal(map[string]interface{}{"x": xValue, "y": yValue})
+	return string(output), nil
 }
 
 func executeType(ctx context.Context, browser browsers.Browser, connectionId string, text string, selector string) (string, error) {
@@ -267,8 +267,8 @@ func executeType(ctx context.Context, browser browsers.Browser, connectionId str
 	if err != nil {
 		return "", err
 	}
-	out, _ := json.Marshal(map[string]string{"text": text})
-	return string(out), nil
+	output, _ := json.Marshal(map[string]string{"text": text})
+	return string(output), nil
 }
 
 func executePressKey(ctx context.Context, browser browsers.Browser, connectionId string, key string) (string, error) {
@@ -299,8 +299,8 @@ func executePressKey(ctx context.Context, browser browsers.Browser, connectionId
 			return "", err
 		}
 	}
-	out, _ := json.Marshal(map[string]string{"key": key})
-	return string(out), nil
+	output, _ := json.Marshal(map[string]string{"key": key})
+	return string(output), nil
 }
 
 func executeEvaluate(ctx context.Context, browser browsers.Browser, connectionId string, expression string) (string, error) {
@@ -330,11 +330,11 @@ func executeEvaluate(ctx context.Context, browser browsers.Browser, connectionId
 	if response.ExceptionDetails != nil {
 		return "", fmt.Errorf("evaluation error: %s", response.ExceptionDetails.Text)
 	}
-	out, _ := json.Marshal(map[string]interface{}{
+	output, _ := json.Marshal(map[string]interface{}{
 		"type":  response.Result.Type,
 		"value": response.Result.Value,
 	})
-	return string(out), nil
+	return string(output), nil
 }
 
 // --- browser_tabs (tab management) ---
@@ -431,8 +431,8 @@ func executeTabsList(browser browsers.Browser, userId string) (string, error) {
 			Source:       target.Source,
 		}
 	}
-	out, _ := json.Marshal(map[string]interface{}{"tabs": entries})
-	return string(out), nil
+	output, _ := json.Marshal(map[string]interface{}{"tabs": entries})
+	return string(output), nil
 }
 
 func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string) (string, error) {
@@ -458,11 +458,11 @@ func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string) 
 	if assigner, ok := browser.(browsers.TargetOwnerAssigner); ok && user != nil && user.ID != "" && response.TargetID != "" {
 		assigner.AssignTargetToUser(user.ID, response.TargetID)
 	}
-	out, _ := json.Marshal(map[string]string{
+	output, _ := json.Marshal(map[string]string{
 		"targetId": response.TargetID,
 		"url":      url,
 	})
-	return string(out), nil
+	return string(output), nil
 }
 
 func executeTabsClose(ctx context.Context, browser browsers.Browser, targetId string) (string, error) {
@@ -503,8 +503,8 @@ func executeTabsClose(ctx context.Context, browser browsers.Browser, targetId st
 	if err != nil {
 		return "", err
 	}
-	out, _ := json.Marshal(map[string]string{"targetId": targetId})
-	return string(out), nil
+	output, _ := json.Marshal(map[string]string{"targetId": targetId})
+	return string(output), nil
 }
 
 func executeTabsActivate(ctx context.Context, browser browsers.Browser, targetId string) (string, error) {
@@ -540,8 +540,8 @@ func executeTabsActivate(ctx context.Context, browser browsers.Browser, targetId
 	if err != nil {
 		return "", err
 	}
-	out, _ := json.Marshal(map[string]string{"targetId": targetId})
-	return string(out), nil
+	output, _ := json.Marshal(map[string]string{"targetId": targetId})
+	return string(output), nil
 }
 
 // --- Accessibility tree types and helpers ---

@@ -101,7 +101,7 @@ type UniFiProtectConfiguration struct {
 	APIKey                *string   `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
 	Username              *string   `json:"username,omitempty" yaml:"username,omitempty"`
 	Password              *string   `json:"password,omitempty" yaml:"password,omitempty"`
-	VerifyTLS             *bool     `json:"verifyTLS,omitempty" yaml:"verifyTLS,omitempty"`
+	VerifyTLS             *bool     `json:"verifyTls,omitempty" yaml:"verifyTls,omitempty"`
 	ReadOnly              *bool     `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
 	AllowedCameras        *[]string `json:"allowedCameras,omitempty" yaml:"allowedCameras,omitempty"`
 	AllowDangerousActions *[]string `json:"allowDangerousActions,omitempty" yaml:"allowDangerousActions,omitempty"`

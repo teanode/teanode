@@ -59,7 +59,7 @@ func (self *fileSystemTransaction) listJobs(userId string, options *store.Option
 		if err != nil {
 			return nil, err
 		}
-		return applyOffsetLimitJobs(jobs, options), nil
+		return applyOffsetLimit(jobs, options), nil
 	}
 
 	userEntries, readError := os.ReadDir(self.usersDirectory())
@@ -81,7 +81,7 @@ func (self *fileSystemTransaction) listJobs(userId string, options *store.Option
 		}
 		results = append(results, jobs...)
 	}
-	return applyOffsetLimitJobs(results, options), nil
+	return applyOffsetLimit(results, options), nil
 }
 
 func (self *fileSystemTransaction) createJob(job *models.Job, options *store.Option) (*models.Job, error) {
@@ -102,16 +102,19 @@ func (self *fileSystemTransaction) createJob(job *models.Job, options *store.Opt
 }
 
 func (self *fileSystemTransaction) getJob(jobId string, options *store.Option) (*models.Job, error) {
-	jobsList, err := self.listJobs("", nil)
-	if err != nil {
-		return nil, err
+	// Glob for the job file across all user directories instead of listing every job.
+	pattern := filepath.Join(self.usersDirectory(), "*", "jobs", jobId+".md")
+	matches, globError := filepath.Glob(pattern)
+	if globError != nil || len(matches) == 0 {
+		return nil, store.ErrNotFound
 	}
-	for _, job := range jobsList {
-		if job.ID == jobId {
-			return job, nil
-		}
+	// Extract userId from path: .../users/{userId}/jobs/{jobId}.md
+	userId := filepath.Base(filepath.Dir(filepath.Dir(matches[0])))
+	job, parseError := self.readJobFile(userId, jobId)
+	if parseError != nil {
+		return nil, store.ErrNotFound
 	}
-	return nil, store.ErrNotFound
+	return &job, nil
 }
 
 func (self *fileSystemTransaction) modifyJob(ctx context.Context, jobId string, modifier func(*models.Job) error, options *store.Option) (*models.Job, error) {
@@ -287,20 +290,4 @@ func modelJobToFrontmatter(job models.Job) filesystemJobFrontmatter {
 		frontmatter.CreatedAt = time.Now().UnixMilli()
 	}
 	return frontmatter
-}
-
-func applyOffsetLimitJobs(values []*models.Job, options *store.Option) []*models.Job {
-	if options == nil {
-		return values
-	}
-	offset := int(uint64Value(options.Offset))
-	if offset >= len(values) {
-		return []*models.Job{}
-	}
-	values = values[offset:]
-	limit := int(uint64Value(options.Limit))
-	if limit > 0 && limit < len(values) {
-		values = values[:limit]
-	}
-	return values
 }

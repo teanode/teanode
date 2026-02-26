@@ -185,7 +185,7 @@ func (self *fileSystemTransaction) listWorkspaceFiles(scope models.Scope, scopeI
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	return applyOffsetLimitFiles(fileInfos, options), nil
+	return applyOffsetLimit(fileInfos, options), nil
 }
 
 func (self *fileSystemTransaction) searchWorkspace(ctx context.Context, scope models.Scope, scopeId string, query string, searchOptions store.WorkspaceSearchOptions, options *store.Option) ([]store.WorkspaceFileSearchResult, error) {
@@ -193,7 +193,7 @@ func (self *fileSystemTransaction) searchWorkspace(ctx context.Context, scope mo
 	if searchOptions.PathPrefix != nil {
 		pathPrefix = *searchOptions.PathPrefix
 	}
-	files, err := self.ListWorkspaceFilesByPath(ctx, scope, scopeId, pathPrefix, options)
+	files, err := self.ListWorkspaceFilesByPath(ctx, scope, scopeId, pathPrefix, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -238,20 +238,4 @@ func (self *fileSystemTransaction) searchWorkspace(ctx context.Context, scope mo
 		results = results[:*searchOptions.Limit]
 	}
 	return results, nil
-}
-
-func applyOffsetLimitFiles(values []*models.WorkspaceFile, options *store.Option) []*models.WorkspaceFile {
-	if options == nil {
-		return values
-	}
-	offset := int(uint64Value(options.Offset))
-	if offset >= len(values) {
-		return []*models.WorkspaceFile{}
-	}
-	values = values[offset:]
-	limit := int(uint64Value(options.Limit))
-	if limit > 0 && limit < len(values) {
-		values = values[:limit]
-	}
-	return values
 }

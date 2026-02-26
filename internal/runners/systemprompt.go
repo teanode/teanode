@@ -66,6 +66,9 @@ func buildSystemPrompt(ctx context.Context, parameters buildSystemPromptParamete
 	}
 
 	user := models.UserFromContext(ctx)
+	if user == nil {
+		return identityLine
+	}
 	userId := user.ID
 	userRole := "user"
 	if user.GetAdmin() {

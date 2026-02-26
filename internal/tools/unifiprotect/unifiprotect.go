@@ -17,7 +17,7 @@ type resolvedConfig struct {
 	apiKey                string
 	username              string
 	password              string
-	verifyTLS             bool
+	verifyTls             bool
 	readOnly              bool
 	allowedCameras        []string
 	allowDangerousActions []string
@@ -42,7 +42,7 @@ func configFromContext(ctx context.Context) *resolvedConfig {
 			config.apiKey = upConfig.GetAPIKey()
 			config.username = upConfig.GetUsername()
 			config.password = upConfig.GetPassword()
-			config.verifyTLS = upConfig.GetVerifyTLS()
+			config.verifyTls = upConfig.GetVerifyTLS()
 			config.readOnly = upConfig.GetReadOnly()
 			config.allowedCameras = upConfig.GetAllowedCameras()
 			config.allowDangerousActions = upConfig.GetAllowDangerousActions()

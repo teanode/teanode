@@ -393,7 +393,9 @@ func NewGatewayCommand() *cli.Command {
 			}
 
 			httpServer := &http.Server{
-				Handler: handler,
+				Handler:     handler,
+				ReadTimeout: 30 * time.Second,
+				IdleTimeout: 120 * time.Second,
 				BaseContext: func(net.Listener) context.Context {
 					return ctx
 				},

@@ -14,8 +14,6 @@ type Store interface {
 }
 
 type Transaction interface {
-	Commit(context.Context) error
-
 	ConfigurationOperation
 	AgentOperation
 	UserOperation
@@ -93,9 +91,6 @@ type ConversationOperation interface {
 type ConversationMessageOperation interface {
 	ListConversationMessages(ctx context.Context, conversationId string, options *Option) ([]*models.ConversationMessage, error)
 	CreateConversationMessage(ctx context.Context, message *models.ConversationMessage, options *Option) (*models.ConversationMessage, error)
-	GetConversationMessage(ctx context.Context, messageId string, options *Option) (*models.ConversationMessage, error)
-	ModifyConversationMessage(ctx context.Context, messageId string, modifier func(*models.ConversationMessage) error, options *Option) (*models.ConversationMessage, error)
-	DeleteConversationMessage(ctx context.Context, messageId string, options *Option) error
 }
 
 type JobOperation interface {

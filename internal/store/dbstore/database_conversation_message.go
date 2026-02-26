@@ -24,7 +24,6 @@ type databaseConversationMessageRecord struct {
 	Provider       *string   `gorm:"column:provider;type:varchar(128)"`
 	ToolCallID     *string   `gorm:"column:tool_call_id;type:varchar(128)"`
 	ToolName       *string   `gorm:"column:tool_name;type:varchar(128)"`
-	Sequence       *int64    `gorm:"column:sequence"`
 	CreatedAt      time.Time `gorm:"column:created_at;not null"`
 	ModifiedAt     time.Time `gorm:"column:modified_at;not null"`
 }
@@ -35,7 +34,7 @@ func (databaseConversationMessageRecord) TableName() string {
 
 func (self *databaseTransaction) ListConversationMessages(ctx context.Context, conversationId string, options *store.Option) ([]*models.ConversationMessage, error) {
 	records := make([]databaseConversationMessageRecord, 0)
-	query := self.database.Model(&databaseConversationMessageRecord{}).Where("conversation_id = ?", conversationId).Order("sequence ASC")
+	query := self.database.Model(&databaseConversationMessageRecord{}).Where("conversation_id = ?", conversationId).Order("id ASC")
 	query = applyOption(query, options)
 	listError := query.Find(&records).Error
 	if listError != nil {
@@ -56,16 +55,6 @@ func (self *databaseTransaction) CreateConversationMessage(ctx context.Context, 
 	if record.ID == "" {
 		record.ID = security.NewULID()
 	}
-	sequence := int64(0)
-	if message.Sequence != nil {
-		sequence = *message.Sequence
-	} else {
-		rawQuery := self.database.Raw("SELECT COALESCE(MAX(sequence), 0) + 1 FROM conversation_messages WHERE conversation_id = ?", *message.ConversationID)
-		if sequenceError := rawQuery.Scan(&sequence).Error; sequenceError != nil {
-			return nil, databaseError(sequenceError)
-		}
-	}
-	record.Sequence = &sequence
 	now := ptrto.TimeNowInLocal()
 	record.CreatedAt = *now
 	record.ModifiedAt = *now
@@ -73,59 +62,16 @@ func (self *databaseTransaction) CreateConversationMessage(ctx context.Context, 
 	if createError != nil {
 		return nil, databaseError(createError)
 	}
-	return self.GetConversationMessage(ctx, record.ID, options)
+	return self.getConversationMessage(record.ID)
 }
 
-func (self *databaseTransaction) GetConversationMessage(ctx context.Context, messageId string, options *store.Option) (*models.ConversationMessage, error) {
+func (self *databaseTransaction) getConversationMessage(messageId string) (*models.ConversationMessage, error) {
 	record := &databaseConversationMessageRecord{}
 	getError := self.database.Where("id = ?", messageId).Take(record).Error
 	if getError != nil {
 		return nil, databaseError(getError)
 	}
 	return conversationMessageRecordToModel(record), nil
-}
-
-func (self *databaseTransaction) ModifyConversationMessage(ctx context.Context, messageId string, modifier func(*models.ConversationMessage) error, options *store.Option) (*models.ConversationMessage, error) {
-	message, getError := self.GetConversationMessage(ctx, messageId, options)
-	if getError != nil {
-		return nil, getError
-	}
-	if modifierError := modifier(message); modifierError != nil {
-		return nil, modifierError
-	}
-	record := modelToConversationMessageRecord(message)
-	record.ID = messageId
-	record.ModifiedAt = *ptrto.TimeNowInLocal()
-	updateError := self.database.Model(&databaseConversationMessageRecord{}).Where("id = ?", record.ID).Updates(map[string]interface{}{
-		"conversation_id": record.ConversationID,
-		"role":            record.Role,
-		"content":         record.Content,
-		"tool_calls":      record.ToolCalls,
-		"usage":           record.Usage,
-		"metadata":        record.Metadata,
-		"stop_reason":     record.StopReason,
-		"model":           record.Model,
-		"provider":        record.Provider,
-		"tool_call_id":    record.ToolCallID,
-		"tool_name":       record.ToolName,
-		"sequence":        record.Sequence,
-		"modified_at":     record.ModifiedAt,
-	}).Error
-	if updateError != nil {
-		return nil, databaseError(updateError)
-	}
-	return self.GetConversationMessage(ctx, record.ID, options)
-}
-
-func (self *databaseTransaction) DeleteConversationMessage(ctx context.Context, messageId string, options *store.Option) error {
-	result := self.database.Where("id = ?", messageId).Delete(&databaseConversationMessageRecord{})
-	if result.Error != nil {
-		return databaseError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return store.ErrNotFound
-	}
-	return nil
 }
 
 func modelToConversationMessageRecord(message *models.ConversationMessage) *databaseConversationMessageRecord {
@@ -144,7 +90,6 @@ func modelToConversationMessageRecord(message *models.ConversationMessage) *data
 		Provider:       ptrto.TrimmedString(message.GetProvider()),
 		ToolCallID:     ptrto.TrimmedString(message.GetToolCallID()),
 		ToolName:       ptrto.TrimmedString(message.GetToolName()),
-		Sequence:       message.Sequence,
 	}
 }
 
@@ -164,7 +109,6 @@ func conversationMessageRecordToModel(record *databaseConversationMessageRecord)
 		Provider:       ptrto.TrimmedString(valueor.Zero(record.Provider)),
 		ToolCallID:     ptrto.TrimmedString(valueor.Zero(record.ToolCallID)),
 		ToolName:       ptrto.TrimmedString(valueor.Zero(record.ToolName)),
-		Sequence:       record.Sequence,
 		CreatedAt:      &record.CreatedAt,
 		ModifiedAt:     &record.ModifiedAt,
 	}

@@ -26,6 +26,7 @@ type conversationFileHeader struct {
 }
 
 type conversationFileMessage struct {
+	ID         string          `json:"id,omitempty"`
 	Role       string          `json:"role"`
 	Content    json.RawMessage `json:"content"`
 	Timestamp  int64           `json:"timestamp"`

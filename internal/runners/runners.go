@@ -3,4 +3,4 @@ package runners
 
 import "github.com/op/go-logging"
 
-var log = logging.MustGetLogger("agent")
+var log = logging.MustGetLogger("runners")

@@ -14,19 +14,19 @@ import (
 
 func init() {
 	tools.RegisterBuiltinTool(func() []tools.Tool {
-		return []tools.Tool{NewConfigTool()}
+		return []tools.Tool{newConfigTool()}
 	})
 }
 
 const secretSentinel = "<hidden>"
 
-type ConfigTool struct{}
+type configTool struct{}
 
-func NewConfigTool() *ConfigTool {
-	return &ConfigTool{}
+func newConfigTool() *configTool {
+	return &configTool{}
 }
 
-func (self *ConfigTool) Definition() providers.ToolDefinition {
+func (self *configTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
 		Function: providers.FunctionSpec{
@@ -64,7 +64,12 @@ func (self *ConfigTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *ConfigTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+func (self *configTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	user := models.UserFromContext(ctx)
+	if user == nil || !user.GetAdmin() {
+		return "", fmt.Errorf("admin access required to use the config tool")
+	}
+
 	var arguments struct {
 		Action string          `json:"action"`
 		Config json.RawMessage `json:"config"`
@@ -85,7 +90,7 @@ func (self *ConfigTool) Execute(ctx context.Context, rawArguments string) (strin
 	}
 }
 
-func (self *ConfigTool) executeGet(ctx context.Context) (string, error) {
+func (self *configTool) executeGet(ctx context.Context) (string, error) {
 	var configuration *models.Configuration
 	if transactionError := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		loadedConfiguration, loadError := transaction.GetConfiguration(ctx, nil)
@@ -123,7 +128,7 @@ func (self *ConfigTool) executeGet(ctx context.Context) (string, error) {
 	return string(output), nil
 }
 
-func (self *ConfigTool) executeSet(ctx context.Context, partial json.RawMessage) (string, error) {
+func (self *configTool) executeSet(ctx context.Context, partial json.RawMessage) (string, error) {
 	if len(partial) == 0 {
 		return "", fmt.Errorf("config is required for set action")
 	}
@@ -137,6 +142,7 @@ func (self *ConfigTool) executeSet(ctx context.Context, partial json.RawMessage)
 			if configuration == nil {
 				return fmt.Errorf("configuration is required")
 			}
+			// Round-trip current config and partial to maps for sentinel stripping.
 			currentData, marshalError := json.Marshal(configuration)
 			if marshalError != nil {
 				return fmt.Errorf("marshalling config: %w", marshalError)
@@ -155,18 +161,21 @@ func (self *ConfigTool) executeSet(ctx context.Context, partial json.RawMessage)
 				return fmt.Errorf("parsing partial config: %w", unmarshalPartialError)
 			}
 
+			// Restore masked sentinel values from the original config.
 			stripSentinels(partialCopy, currentMap)
-			deepMerge(currentMap, partialCopy)
 
-			mergedData, marshalMergedError := json.Marshal(currentMap)
-			if marshalMergedError != nil {
-				return fmt.Errorf("marshalling merged config: %w", marshalMergedError)
+			// Unmarshal the stripped partial into a typed struct and deep merge
+			// via generated Update() — only non-nil fields are applied, nested
+			// structs are recursively merged.
+			strippedData, marshalStrippedError := json.Marshal(partialCopy)
+			if marshalStrippedError != nil {
+				return fmt.Errorf("marshalling stripped config: %w", marshalStrippedError)
 			}
-			mergedConfiguration := models.Configuration{}
-			if unmarshalMergedError := json.Unmarshal(mergedData, &mergedConfiguration); unmarshalMergedError != nil {
-				return fmt.Errorf("parsing merged config: %w", unmarshalMergedError)
+			var partialConfiguration models.Configuration
+			if unmarshalStrippedError := json.Unmarshal(strippedData, &partialConfiguration); unmarshalStrippedError != nil {
+				return fmt.Errorf("parsing stripped config: %w", unmarshalStrippedError)
 			}
-			*configuration = mergedConfiguration
+			configuration.Update(&partialConfiguration)
 			return nil
 		}, nil)
 		return modifyError
@@ -181,24 +190,12 @@ func (self *ConfigTool) executeSet(ctx context.Context, partial json.RawMessage)
 	return string(output), nil
 }
 
-func (self *ConfigTool) executeSchema() (string, error) {
+func (self *configTool) executeSchema() (string, error) {
 	output, _ := json.Marshal(map[string]interface{}{
 		"action": "schema",
 		"schema": schemas.ConfigSchema(),
 	})
 	return string(output), nil
-}
-
-func deepMerge(destination map[string]interface{}, source map[string]interface{}) {
-	for key, sourceValue := range source {
-		if sourceMap, ok := sourceValue.(map[string]interface{}); ok {
-			if destinationMap, ok := destination[key].(map[string]interface{}); ok {
-				deepMerge(destinationMap, sourceMap)
-				continue
-			}
-		}
-		destination[key] = sourceValue
-	}
 }
 
 func maskSecrets(data map[string]interface{}, schema map[string]interface{}) {

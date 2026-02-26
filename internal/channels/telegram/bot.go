@@ -1128,11 +1128,12 @@ func (self *Bot) extractAttachments(message *tgbotapi.Message) []map[string]stri
 
 // downloadTelegramFile downloads a file from Telegram by its file ID.
 func (self *Bot) downloadTelegramFile(fileId string) ([]byte, error) {
-	url, err := self.api.GetFileDirectURL(fileId)
+	fileURL, err := self.api.GetFileDirectURL(fileId)
 	if err != nil {
 		return nil, fmt.Errorf("getting file URL: %w", err)
 	}
-	response, err := http.Get(url)
+	client := &http.Client{Timeout: 60 * time.Second}
+	response, err := client.Get(fileURL)
 	if err != nil {
 		return nil, fmt.Errorf("downloading file: %w", err)
 	}
@@ -1140,5 +1141,6 @@ func (self *Bot) downloadTelegramFile(fileId string) ([]byte, error) {
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned status %d", response.StatusCode)
 	}
-	return io.ReadAll(response.Body)
+	const maxFileSize = 100 * 1024 * 1024 // 100 MB
+	return io.ReadAll(io.LimitReader(response.Body, maxFileSize))
 }

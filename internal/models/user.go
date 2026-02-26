@@ -8,6 +8,7 @@ type User struct {
 	ModifiedAt *time.Time `json:"modifiedAt,omitempty" yaml:"modifiedAt,omitempty"`
 
 	Username       *string    `json:"username,omitempty" yaml:"username,omitempty"`
+	Name           *string    `json:"name,omitempty" yaml:"name,omitempty"`
 	Password       *string    `json:"password,omitempty" yaml:"password,omitempty"`
 	Admin          *bool      `json:"admin,omitempty" yaml:"admin,omitempty"`
 	DefaultAgentID *string    `json:"defaultAgentId,omitempty" yaml:"defaultAgentId,omitempty"`

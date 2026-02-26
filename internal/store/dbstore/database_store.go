@@ -3,7 +3,6 @@ package dbstore
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -22,7 +21,6 @@ type Settings struct {
 
 type databaseStore struct {
 	database *gorm.DB
-	mutex    sync.Mutex
 }
 
 func Open(settings Settings) (store.Store, error) {
@@ -57,8 +55,6 @@ func (self *databaseStore) Transaction(ctx context.Context, run func(context.Con
 	if self.database == nil {
 		return store.ErrNotImplemented
 	}
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
 
 	databaseTransactionHandle := self.database.Begin()
 	if databaseTransactionHandle.Error != nil {
@@ -70,18 +66,11 @@ func (self *databaseStore) Transaction(ctx context.Context, run func(context.Con
 	}
 	runError := run(ctx, transaction)
 	if runError != nil {
-		if !transaction.finalized {
-			_ = databaseTransactionHandle.Rollback()
-			transaction.finalized = true
-		}
+		_ = databaseTransactionHandle.Rollback()
 		return runError
-	}
-	if transaction.finalized {
-		return nil
 	}
 	if commitError := databaseTransactionHandle.Commit().Error; commitError != nil {
 		return commitError
 	}
-	transaction.finalized = true
 	return nil
 }

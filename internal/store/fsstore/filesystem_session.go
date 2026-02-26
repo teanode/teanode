@@ -73,7 +73,7 @@ func (self *fileSystemTransaction) listSessions(options *store.Option) ([]*model
 		session := sessionRecordToModel(record)
 		results = append(results, &session)
 	}
-	return applyOffsetLimitSessions(results, options), nil
+	return applyOffsetLimit(results, options), nil
 }
 
 func (self *fileSystemTransaction) createSession(session *models.Session, options *store.Option) (*models.Session, error) {
@@ -213,20 +213,4 @@ func modelToSessionRecord(session models.Session) fileSystemSessionRecord {
 		record.LastSeenAt = *session.ModifiedAt
 	}
 	return record
-}
-
-func applyOffsetLimitSessions(values []*models.Session, options *store.Option) []*models.Session {
-	if options == nil {
-		return values
-	}
-	offset := int(uint64Value(options.Offset))
-	if offset >= len(values) {
-		return []*models.Session{}
-	}
-	values = values[offset:]
-	limit := int(uint64Value(options.Limit))
-	if limit > 0 && limit < len(values) {
-		values = values[:limit]
-	}
-	return values
 }

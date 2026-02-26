@@ -14,6 +14,7 @@ import (
 type databaseUserRecord struct {
 	ID             string     `gorm:"column:id;type:varchar(32);primaryKey"`
 	Username       *string    `gorm:"column:username;type:varchar(128)"`
+	Name           *string    `gorm:"column:name;type:varchar(256)"`
 	Password       *string    `gorm:"column:password;type:varchar(128)"`
 	Admin          *bool      `gorm:"column:admin"`
 	DefaultAgentID *string    `gorm:"column:default_agent_id;type:varchar(32)"`
@@ -79,7 +80,7 @@ func (self *databaseTransaction) GetUserByUsername(ctx context.Context, username
 	record := &databaseUserRecord{}
 	getError := self.database.Where("username = ?", username).Take(record).Error
 	if getError != nil {
-		return nil, getError
+		return nil, databaseError(getError)
 	}
 	return userRecordToModel(record), nil
 }
@@ -88,7 +89,7 @@ func (self *databaseTransaction) GetUserByTelegramChatID(ctx context.Context, te
 	record := &databaseUserRecord{}
 	getError := self.database.Where("telegram_chat_id = ?", telegramChatId).Take(record).Error
 	if getError != nil {
-		return nil, getError
+		return nil, databaseError(getError)
 	}
 	return userRecordToModel(record), nil
 }
@@ -97,7 +98,7 @@ func (self *databaseTransaction) GetUserByDiscordUserID(ctx context.Context, dis
 	record := &databaseUserRecord{}
 	getError := self.database.Where("discord_user_id = ?", discordUserId).Take(record).Error
 	if getError != nil {
-		return nil, getError
+		return nil, databaseError(getError)
 	}
 	return userRecordToModel(record), nil
 }
@@ -115,6 +116,7 @@ func (self *databaseTransaction) ModifyUser(ctx context.Context, userId string, 
 	record.ModifiedAt = *ptrto.TimeNowInLocal()
 	updateError := self.database.Model(&databaseUserRecord{}).Where("id = ?", record.ID).Updates(map[string]interface{}{
 		"username":         record.Username,
+		"name":             record.Name,
 		"password":         record.Password,
 		"admin":            record.Admin,
 		"default_agent_id": record.DefaultAgentID,
@@ -150,6 +152,7 @@ func modelToUserRecord(user *models.User) *databaseUserRecord {
 	return &databaseUserRecord{
 		ID:             user.ID,
 		Username:       ptrto.TrimmedString(user.GetUsername()),
+		Name:           ptrto.TrimmedString(user.GetName()),
 		Password:       ptrto.TrimmedString(user.GetPassword()),
 		Admin:          user.Admin,
 		DefaultAgentID: ptrto.TrimmedString(user.GetDefaultAgentID()),
@@ -165,6 +168,7 @@ func userRecordToModel(record *databaseUserRecord) *models.User {
 	return &models.User{
 		ID:             record.ID,
 		Username:       ptrto.TrimmedString(valueor.Zero(record.Username)),
+		Name:           ptrto.TrimmedString(valueor.Zero(record.Name)),
 		Password:       ptrto.TrimmedString(valueor.Zero(record.Password)),
 		Admin:          record.Admin,
 		DefaultAgentID: ptrto.TrimmedString(valueor.Zero(record.DefaultAgentID)),

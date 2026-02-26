@@ -243,6 +243,7 @@ async function attachTab(tabId, opts = {}) {
   }
 
   const sessionId = generateULID()
+  const attachOrder = Date.now()
 
   tabs.set(tabId, { state: 'connected', sessionId, targetId, attachOrder })
   tabBySession.set(sessionId, tabId)

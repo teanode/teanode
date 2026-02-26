@@ -39,7 +39,7 @@ func (self *ShellTool) Definition() providers.ToolDefinition {
 
 func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
-	if user != nil && !user.GetAdmin() {
+	if user == nil || !user.GetAdmin() {
 		return "", fmt.Errorf("admin access required for shell skill tool")
 	}
 	arguments := parseArguments(rawArguments)
@@ -223,7 +223,7 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 		switch step.Type {
 		case models.SkillActionTypeShell:
 			user := models.UserFromContext(ctx)
-			if user != nil && !user.GetAdmin() {
+			if user == nil || !user.GetAdmin() {
 				return nil, fmt.Errorf("admin access required for shell skill actions")
 			}
 			workflowInput, _ := json.Marshal(contextData)

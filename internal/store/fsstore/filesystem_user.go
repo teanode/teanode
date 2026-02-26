@@ -57,7 +57,7 @@ func (self *fileSystemTransaction) listUsers(ctx context.Context, options *store
 		userIDs = append(userIDs, userId)
 	}
 	sort.Strings(userIDs)
-	filteredUserIDs := applyOffsetLimitString(userIDs, options)
+	filteredUserIDs := applyOffsetLimit(userIDs, options)
 
 	users := make([]*models.User, 0, len(filteredUserIDs))
 	for _, userId := range filteredUserIDs {
@@ -103,14 +103,18 @@ func (self *fileSystemTransaction) createUser(ctx context.Context, user *models.
 	if err := self.saveSecurityRecord(securityConfiguration); err != nil {
 		return nil, err
 	}
+	profileName := user.GetName()
+	if profileName == "" {
+		profileName = user.GetUsername()
+	}
+	if profileName == "" {
+		profileName = processUsername()
+	}
 	profile := &storeUserRecord{
 		ID:            userId,
-		Name:          user.GetUsername(),
+		Name:          profileName,
 		Description:   user.GetDescription(),
 		AvatarMediaID: user.GetAvatarMediaID(),
-	}
-	if profile.Name == "" {
-		profile.Name = processUsername()
 	}
 	if err := self.saveUserRecord(userId, profile); err != nil {
 		return nil, err
@@ -163,6 +167,7 @@ func (self *fileSystemTransaction) getUser(userId string, options *store.Option)
 	}
 	result := models.User{ID: userId}
 	result.Username = ptrto.TrimmedString(securityUser.Username)
+	result.Name = ptrto.TrimmedString(profile.Name)
 	result.Password = ptrto.TrimmedString(securityUser.PasswordHash)
 	result.Admin = ptrto.Value(securityUser.Admin)
 	result.DefaultAgentID = ptrto.TrimmedString(securityUser.DefaultAgentID)
@@ -183,7 +188,7 @@ func (self *fileSystemTransaction) getUserByUsername(ctx context.Context, userna
 	}
 	userId, _, found := securityConfiguration.FindUserByUsername(username)
 	if !found {
-		return nil, err
+		return nil, store.ErrNotFound
 	}
 	user, err := self.GetUser(ctx, userId, options)
 	if err != nil {
@@ -270,8 +275,8 @@ func (self *fileSystemTransaction) modifyUser(ctx context.Context, userId string
 	if err != nil {
 		profile = &storeUserRecord{ID: userId}
 	}
-	if user.Username != nil {
-		profile.Name = *user.Username
+	if user.Name != nil {
+		profile.Name = *user.Name
 	}
 	if user.Description != nil {
 		profile.Description = *user.Description
@@ -292,6 +297,9 @@ func (self *fileSystemTransaction) deleteUser(userId string, options *store.Opti
 	securityConfiguration, err := self.loadSecurityRecord()
 	if err != nil {
 		return err
+	}
+	if _, exists := securityConfiguration.Users[userId]; !exists {
+		return store.ErrNotFound
 	}
 	delete(securityConfiguration.Users, userId)
 	for chatId, linkedUserId := range securityConfiguration.ChannelLinks.Telegram {
@@ -336,22 +344,4 @@ func findDiscordUserIdByUserId(links map[string]string, userId string) *string {
 		}
 	}
 	return nil
-}
-
-func applyOffsetLimitString(values []string, options *store.Option) []string {
-	if options == nil {
-		return values
-	}
-	offset := uint64(0)
-	if options.Offset != nil {
-		offset = *options.Offset
-	}
-	if offset >= uint64(len(values)) {
-		return []string{}
-	}
-	values = values[offset:]
-	if options.Limit != nil && *options.Limit < uint64(len(values)) {
-		values = values[:*options.Limit]
-	}
-	return values
 }

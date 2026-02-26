@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/teanode/teanode/internal/util/atomicfile"
@@ -108,7 +109,7 @@ func readPidFile(path string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	value := string(data)
+	value := strings.TrimSpace(string(data))
 	pid, err := strconv.Atoi(value)
 	if err != nil || pid <= 0 {
 		return 0, fmt.Errorf("%w: %q", errInvalidPIDFile, value)

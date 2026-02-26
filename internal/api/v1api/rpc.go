@@ -29,7 +29,7 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 		self.sendError(frame.ID, 500, "listing agents: "+listError.Error())
 		return
 	}
-	defaultAgentId := models.UserFromContext(self.ctx).GetDefaultAgentID()
+	defaultAgentId := self.defaultAgentId()
 	agentInfos := make([]map[string]interface{}, 0, len(agentsList))
 	for _, agent := range agentsList {
 		info := map[string]interface{}{
@@ -85,7 +85,7 @@ func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 		self.sendError(frame.ID, 500, "listing agents: "+listError.Error())
 		return
 	}
-	defaultAgentId := models.UserFromContext(self.ctx).GetDefaultAgentID()
+	defaultAgentId := self.defaultAgentId()
 	agentInfos := make([]map[string]interface{}, 0, len(agentsList))
 	for _, agent := range agentsList {
 		info := map[string]interface{}{
@@ -215,7 +215,7 @@ func (self *webSocketConnection) handleConversationsSetDefault(frame requestFram
 	}
 	agentId := parameters.AgentID
 	if agentId == "" {
-		agentId = models.UserFromContext(self.ctx).GetDefaultAgentID()
+		agentId = self.defaultAgentId()
 	}
 	self.api.coordinator.SetDefaultConversation(self.userId(), agentId, parameters.ConversationID)
 	self.sendResponse(frame.ID, map[string]interface{}{
@@ -249,7 +249,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 	}
 
 	if parameters.AgentID == "" {
-		parameters.AgentID = models.UserFromContext(self.ctx).GetDefaultAgentID()
+		parameters.AgentID = self.defaultAgentId()
 	}
 
 	handle, sendError := self.api.coordinator.SendMessage(self.ctx, coordinators.SendMessageParameters{
@@ -296,7 +296,13 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 	}
 
 	if parameters.AgentID == "" {
-		parameters.AgentID = models.UserFromContext(self.ctx).GetDefaultAgentID()
+		parameters.AgentID = self.defaultAgentId()
+	}
+
+	// Verify the requesting user owns this conversation.
+	if err := self.verifyConversationOwnership(parameters.ConversationID); err != nil {
+		self.sendError(frame.ID, 404, "conversation not found")
+		return
 	}
 
 	limit := parameters.Limit
@@ -375,7 +381,7 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 	// Resolve the agent ID for default-conversation check.
 	resolvedAgentId := parameters.AgentID
 	if resolvedAgentId == "" {
-		resolvedAgentId = models.UserFromContext(self.ctx).GetDefaultAgentID()
+		resolvedAgentId = self.defaultAgentId()
 	}
 	defaultConversationId := self.api.coordinator.EnsureDefaultConversation(self.userId(), resolvedAgentId)
 	if parameters.ConversationID == defaultConversationId {
@@ -383,8 +389,15 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 		return
 	}
 
+	// Verify the requesting user owns this conversation.
+	if err := self.verifyConversationOwnership(parameters.ConversationID); err != nil {
+		self.sendError(frame.ID, 404, "conversation not found")
+		return
+	}
+
 	if self.api.coordinator.GetActiveConversationRunner(parameters.ConversationID) != nil {
 		self.sendError(frame.ID, 500, "conversation has active run")
+		return
 	}
 
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
@@ -559,56 +572,18 @@ func (self *webSocketConnection) handleConfigUpdate(frame requestFrame) {
 		return
 	}
 
-	// Load raw configuration from store.
-	var currentData []byte
-	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		configuration, err := transaction.GetConfiguration(ctx, nil)
-		if err != nil {
-			return err
-		}
-		encoded, encodeError := json.Marshal(configuration)
-		if encodeError != nil {
-			return encodeError
-		}
-		currentData = encoded
-		return nil
-	}); err != nil {
-		self.sendError(frame.ID, 500, "loading config: "+err.Error())
-		return
-	}
-
-	// Round-trip current config to a map for merging.
-	var err error
-	var mergedModelConfig models.Configuration
-	currentMap := map[string]interface{}{}
-	if err := json.Unmarshal(currentData, &currentMap); err != nil {
-		self.sendError(frame.ID, 500, "parsing config: "+err.Error())
-		return
-	}
-
-	// Parse the incoming partial configs.
-	var partialMap map[string]interface{}
-	if err := json.Unmarshal(parameters.Config, &partialMap); err != nil {
+	// Parse the incoming partial config into a typed struct.
+	var partialConfiguration models.Configuration
+	if err := json.Unmarshal(parameters.Config, &partialConfiguration); err != nil {
 		self.sendError(frame.ID, 400, "invalid config object: "+err.Error())
 		return
 	}
 
-	// Deep merge: recursively merge maps so nested secrets are preserved.
-	deepMerge(currentMap, partialMap)
-
-	mergedData, err := json.Marshal(currentMap)
-	if err != nil {
-		self.sendError(frame.ID, 500, "marshalling merged config: "+err.Error())
-		return
-	}
-
-	if err := json.Unmarshal(mergedData, &mergedModelConfig); err != nil {
-		self.sendError(frame.ID, 500, "parsing merged config: "+err.Error())
-		return
-	}
+	// Deep merge via generated Update(): only non-nil fields are applied,
+	// nested structs are recursively merged.
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		_, modifyError := transaction.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
-			*configuration = mergedModelConfig
+			configuration.Update(&partialConfiguration)
 			return nil
 		}, nil)
 		return modifyError
@@ -622,21 +597,6 @@ func (self *webSocketConnection) handleConfigUpdate(frame requestFrame) {
 	})
 }
 
-// deepMerge recursively merges source into destination. For keys where both
-// sides are maps, it recurses. Otherwise the source value replaces the
-// destination value. This preserves existing nested keys (like API keys that
-// were stripped by stripMasked) rather than replacing entire sub-objects.
-func deepMerge(destination map[string]interface{}, source map[string]interface{}) {
-	for key, sourceValue := range source {
-		if sourceMap, ok := sourceValue.(map[string]interface{}); ok {
-			if destinationMap, ok := destination[key].(map[string]interface{}); ok {
-				deepMerge(destinationMap, sourceMap)
-				continue
-			}
-		}
-		destination[key] = sourceValue
-	}
-}
 
 // --- Agent Config RPC handlers ---
 
@@ -648,7 +608,7 @@ func (self *webSocketConnection) handleAgentsConfigSchema(frame requestFrame) {
 	suggestions := map[string][]string{}
 
 	// TODO: Collect tool names from this user's default runner.
-	// agentId := models.UserFromContext(self.ctx).GetDefaultAgentID()
+	// agentId := self.defaultAgentId()
 	// if agentId != "" {
 	// 	runner := self.api.coordinator.GetRunner(agentId)
 	// 	if runner != nil && runner.Tools != nil {
@@ -818,7 +778,7 @@ func (self *webSocketConnection) handleAgentsConfigDelete(frame requestFrame) {
 		self.sendError(frame.ID, 400, "id is required")
 		return
 	}
-	defaultAgentId := models.UserFromContext(self.ctx).GetDefaultAgentID()
+	defaultAgentId := self.defaultAgentId()
 	if parameters.ID == defaultAgentId {
 		self.sendError(frame.ID, 409, "cannot delete the default agent")
 		return
@@ -1091,6 +1051,21 @@ func (self *webSocketConnection) handleJobsTrigger(frame requestFrame) {
 		return
 	}
 
+	// Verify the requesting user owns this job.
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		job, getError := transaction.GetJob(ctx, parameters.ID, nil)
+		if getError != nil {
+			return getError
+		}
+		if job.GetUserID() != self.userId() {
+			return store.ErrNotFound
+		}
+		return nil
+	}); err != nil {
+		self.sendError(frame.ID, 404, "job not found")
+		return
+	}
+
 	if err := jobs.SchedulerFromContext(self.ctx).TriggerJob(self.ctx, parameters.ID); err != nil {
 		self.sendError(frame.ID, 500, "triggering job: "+err.Error())
 		return
@@ -1353,20 +1328,25 @@ func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) {
 }
 
 func (self *webSocketConnection) requireAdmin(frame requestFrame) bool {
-	isAdmin := false
-	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		user, err := transaction.GetUser(ctx, self.userId(), nil)
-		if err != nil {
-			return nil
-		}
-		isAdmin = user.Admin != nil && *user.Admin
-		return nil
-	})
-	if !isAdmin {
+	if !self.isAdmin() {
 		self.sendError(frame.ID, 403, "admin access required")
 		return false
 	}
 	return true
+}
+
+// verifyConversationOwnership checks that the conversation belongs to the current user.
+func (self *webSocketConnection) verifyConversationOwnership(conversationId string) error {
+	return store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		conversation, err := transaction.GetConversation(ctx, conversationId, nil)
+		if err != nil {
+			return err
+		}
+		if conversation.GetUserID() != self.userId() {
+			return store.ErrNotFound
+		}
+		return nil
+	})
 }
 
 type usersListItem struct {
@@ -1625,7 +1605,7 @@ func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) {
 			if parameters.Name != nil {
 				nextName := *parameters.Name
 				if nextName != "" {
-					user.Username = &nextName
+					user.Name = &nextName
 				}
 			}
 			if parameters.Description != nil {
@@ -1742,7 +1722,7 @@ func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) {
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		_, err := transaction.ModifyUser(ctx, self.userId(), func(user *models.User) error {
 			if parameters.Name != nil {
-				user.Username = ptrto.TrimmedString(*parameters.Name)
+				user.Name = ptrto.TrimmedString(*parameters.Name)
 			}
 			if parameters.Description != nil {
 				user.Description = ptrto.TrimmedString(*parameters.Description)

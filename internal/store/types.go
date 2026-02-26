@@ -7,12 +7,6 @@ type Option struct {
 	Offset *uint64
 }
 
-type ResolveConfigurationOptions struct {
-	CLIFlags            *map[string]string
-	Environment         *map[string]string
-	ApplySchemaDefaults *bool
-}
-
 type WorkspaceSearchOptions struct {
 	Limit          *uint64
 	CaseSensitive  *bool

@@ -311,9 +311,23 @@ func (self *jobsTool) executeDelete(ctx context.Context, userId, id string) (str
 	return string(result), nil
 }
 
-func (self *jobsTool) executeTrigger(ctx context.Context, _ string, id string) (string, error) {
+func (self *jobsTool) executeTrigger(ctx context.Context, userId string, id string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("id is required")
+	}
+
+	// Verify ownership before triggering.
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		existingJob, getError := transaction.GetJob(ctx, id, nil)
+		if getError != nil {
+			return getError
+		}
+		if existingJob.GetUserID() != userId {
+			return store.ErrNotFound
+		}
+		return nil
+	}); err != nil {
+		return "", fmt.Errorf("job not found: %s", id)
 	}
 
 	if err := jobscore.SchedulerFromContext(ctx).TriggerJob(ctx, id); err != nil {

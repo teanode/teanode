@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/teanode/teanode/internal/lifecycle"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 )
@@ -59,6 +60,11 @@ func (self *gatewayTool) Definition() providers.ToolDefinition {
 }
 
 func (self *gatewayTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	user := models.UserFromContext(ctx)
+	if user == nil || !user.GetAdmin() {
+		return "", fmt.Errorf("admin access required to manage the gateway")
+	}
+
 	var arguments struct {
 		Action string `json:"action"`
 	}
@@ -66,8 +72,8 @@ func (self *gatewayTool) Execute(ctx context.Context, rawArguments string) (stri
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
 
-	lc := lifecycle.LifecycleFromContext(ctx)
-	if lc == nil {
+	lifecycleManager := lifecycle.LifecycleFromContext(ctx)
+	if lifecycleManager == nil {
 		return "", fmt.Errorf("missing lifecycle context")
 	}
 
@@ -85,7 +91,7 @@ func (self *gatewayTool) Execute(ctx context.Context, rawArguments string) (stri
 		return "", fmt.Errorf("unknown gateway action: %s", arguments.Action)
 	}
 
-	lc.ScheduleLifecycle(action)
+	lifecycleManager.ScheduleLifecycle(action)
 
 	result, _ := json.Marshal(map[string]interface{}{
 		"action":  arguments.Action,

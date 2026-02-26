@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
@@ -198,31 +197,31 @@ func findKeepBoundary(messages []providers.ChatMessage, minKeep int) int {
 
 // expandKeepBoundaryForRecentTokens moves the keep boundary earlier (smaller index)
 // until at least minKeepRecentTokens are preserved in the tail.
-func expandKeepBoundaryForRecentTokens(messages []providers.ChatMessage, keepIdx int, minKeepRecentTokens int) int {
+func expandKeepBoundaryForRecentTokens(messages []providers.ChatMessage, keepIndex int, minKeepRecentTokens int) int {
 	if minKeepRecentTokens <= 0 {
-		return keepIdx
+		return keepIndex
 	}
-	if keepIdx < 1 || keepIdx >= len(messages) {
-		return keepIdx
+	if keepIndex < 1 || keepIndex >= len(messages) {
+		return keepIndex
 	}
 	keptTokens := 0
-	for index := keepIdx; index < len(messages); index++ {
+	for index := keepIndex; index < len(messages); index++ {
 		keptTokens += estimateMessageTokens(messages[index])
 	}
-	for keepIdx > 1 && keptTokens < minKeepRecentTokens {
-		keepIdx--
-		keptTokens += estimateMessageTokens(messages[keepIdx])
+	for keepIndex > 1 && keptTokens < minKeepRecentTokens {
+		keepIndex--
+		keptTokens += estimateMessageTokens(messages[keepIndex])
 	}
-	return keepIdx
+	return keepIndex
 }
 
 // findLastSummaryIndex returns the index of the last context_summary message
 // in history, or -1 if none exists.
 func findLastSummaryIndex(messages []*models.ConversationMessage) int {
-	for i := len(messages) - 1; i >= 0; i-- {
-		if conversationMessageRole(*messages[i]) == "system" &&
-			conversationMessageStopReason(*messages[i]) == "context_summary" {
-			return i
+	for messageIndex := len(messages) - 1; messageIndex >= 0; messageIndex-- {
+		if conversationMessageRole(*messages[messageIndex]) == "system" &&
+			conversationMessageStopReason(*messages[messageIndex]) == "context_summary" {
+			return messageIndex
 		}
 	}
 	return -1
@@ -233,14 +232,14 @@ func chatMessagesText(messages []providers.ChatMessage, maxTotalChars int, maxMe
 	var lines []string
 	totalChars := 0
 
-	for i := len(messages) - 1; i >= 0; i-- {
-		role := messages[i].Role
-		if role == "tool" && messages[i].Name != "" {
-			role = fmt.Sprintf("tool(%s)", messages[i].Name)
+	for messageIndex := len(messages) - 1; messageIndex >= 0; messageIndex-- {
+		role := messages[messageIndex].Role
+		if role == "tool" && messages[messageIndex].Name != "" {
+			role = fmt.Sprintf("tool(%s)", messages[messageIndex].Name)
 		}
 
-		content := messages[i].ContentText()
-		if messages[i].Role == "tool" {
+		content := messages[messageIndex].ContentText()
+		if messages[messageIndex].Role == "tool" {
 			content = sanitizeToolResultForCompaction(content)
 		}
 		if maxMessageChars > 0 && len(content) > maxMessageChars {
@@ -260,8 +259,8 @@ func chatMessagesText(messages []providers.ChatMessage, maxTotalChars int, maxMe
 	}
 
 	// Reverse to chronological order.
-	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
-		lines[i], lines[j] = lines[j], lines[i]
+	for leftIndex, rightIndex := 0, len(lines)-1; leftIndex < rightIndex; leftIndex, rightIndex = leftIndex+1, rightIndex-1 {
+		lines[leftIndex], lines[rightIndex] = lines[rightIndex], lines[leftIndex]
 	}
 
 	return strings.Join(lines, "")
@@ -586,7 +585,7 @@ func (self *Runner) summarizeAndPersist(
 		),
 	)
 
-	summaryMessage := newTextMessage("system", summaryText, time.Now().UnixMilli())
+	summaryMessage := newTextMessage("system", summaryText)
 	stopReason := models.StopReason("context_summary")
 	summaryMessage.StopReason = &stopReason
 	if appendError := self.appendConversationMessage(ctx, summaryMessage); appendError != nil {
@@ -672,14 +671,14 @@ func (self *Runner) compressContext(
 	log.Debugf("context compression triggered: estimated %d tokens, threshold %d", total, threshold)
 
 	// Find the split point.
-	keepIdx := findKeepBoundary(messages[1:], limits.MinKeepMessages) + 1
-	keepIdx = expandKeepBoundaryForRecentTokens(messages, keepIdx, limits.MinKeepRecentTokens)
-	if keepIdx <= 1 {
+	keepIndex := findKeepBoundary(messages[1:], limits.MinKeepMessages) + 1
+	keepIndex = expandKeepBoundaryForRecentTokens(messages, keepIndex, limits.MinKeepRecentTokens)
+	if keepIndex <= 1 {
 		return messages, nil
 	}
 
-	// Messages to summarize: messages[1:keepIdx] (skip system prompt at 0).
-	toSummarize := messages[1:keepIdx]
+	// Messages to summarize: messages[1:keepIndex] (skip system prompt at 0).
+	toSummarize := messages[1:keepIndex]
 
 	summaryText, err := self.summarizeAndPersist(ctx, toSummarize, contextWindow)
 	if err != nil {
@@ -688,16 +687,16 @@ func (self *Runner) compressContext(
 	}
 
 	// Build compressed messages: system prompt + summary + kept messages.
-	compressed := make([]providers.ChatMessage, 0, 2+len(messages)-keepIdx)
+	compressed := make([]providers.ChatMessage, 0, 2+len(messages)-keepIndex)
 	compressed = append(compressed, messages[0]) // system prompt
 	compressed = append(compressed, providers.ChatMessage{
 		Role:    "system",
 		Content: prompts.PreviousConversationSummaryPrefix + summaryText,
 	})
-	compressed = append(compressed, messages[keepIdx:]...)
+	compressed = append(compressed, messages[keepIndex:]...)
 
 	log.Debugf("context compressed: %d messages -> %d messages (dropped %d, kept %d)",
-		len(messages), len(compressed), len(toSummarize), len(messages)-keepIdx)
+		len(messages), len(compressed), len(toSummarize), len(messages)-keepIndex)
 
 	return compressed, nil
 }

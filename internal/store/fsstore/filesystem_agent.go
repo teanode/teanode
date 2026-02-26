@@ -37,7 +37,7 @@ func (self *fileSystemTransaction) listAgents(options *store.Option) ([]*models.
 		return nil, err
 	}
 	agents := make([]*models.Agent, 0, len(agentConfigurations))
-	for _, agentConfiguration := range applyOffsetLimitAgentConfig(agentConfigurations, options) {
+	for _, agentConfiguration := range applyOffsetLimit(agentConfigurations, options) {
 		agent := agentConfigToModel(agentConfiguration)
 		agents = append(agents, &agent)
 	}
@@ -74,12 +74,15 @@ func (self *fileSystemTransaction) createAgent(ctx context.Context, agent *model
 }
 
 func (self *fileSystemTransaction) getAgent(agentId string, options *store.Option) (*models.Agent, error) {
+	if _, statError := os.Stat(self.agentConfigFilename(agentId)); statError != nil {
+		if os.IsNotExist(statError) {
+			return nil, store.ErrNotFound
+		}
+		return nil, statError
+	}
 	configuration, err := self.loadAgentRecord(agentId)
 	if err != nil {
 		return nil, err
-	}
-	if configuration == nil || configuration.ID == "" {
-		return nil, store.ErrNotFound
 	}
 	agent := agentConfigToModel(*configuration)
 	return &agent, nil
@@ -136,20 +139,4 @@ func modelToAgentConfig(agent models.Agent) storeAgentRecord {
 		record.SummarizedAt = timeutil.Timestamp{Time: *agent.SummarizedAt}
 	}
 	return record
-}
-
-func applyOffsetLimitAgentConfig(values []storeAgentRecord, options *store.Option) []storeAgentRecord {
-	if options == nil {
-		return values
-	}
-	offset := int(uint64Value(options.Offset))
-	if offset >= len(values) {
-		return []storeAgentRecord{}
-	}
-	values = values[offset:]
-	limit := int(uint64Value(options.Limit))
-	if limit > 0 && limit < len(values) {
-		values = values[:limit]
-	}
-	return values
 }

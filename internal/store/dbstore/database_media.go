@@ -112,7 +112,7 @@ func (self *databaseTransaction) OpenMedia(ctx context.Context, mediaId string, 
 	record := &databaseMediaRecord{}
 	getError := self.database.Where("id = ?", mediaId).Take(record).Error
 	if getError != nil {
-		return nil, nil, getError
+		return nil, nil, databaseError(getError)
 	}
 	databaseHandle := self.rootDatabaseHandle
 	if databaseHandle == nil {

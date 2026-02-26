@@ -2,9 +2,7 @@ package fsstore
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -46,14 +44,8 @@ func (self *fileSystemStore) Transaction(ctx context.Context, run func(context.C
 	return run(ctx, storeTransaction)
 }
 
-func (self *fileSystemTransaction) Commit(ctx context.Context) error { return nil }
-
 func (self *fileSystemTransaction) workspaceRoot(scope models.Scope, scopeId string) (string, error) {
-	rootDirectory := self.workspaceDirectory(scope, scopeId)
-	if _, err := os.Stat(rootDirectory); errors.Is(err, os.ErrNotExist) {
-		return rootDirectory, nil
-	}
-	return rootDirectory, nil
+	return self.workspaceDirectory(scope, scopeId), nil
 }
 
 func (self *fileSystemTransaction) workspaceDirectory(scope models.Scope, scopeId string) string {
@@ -91,6 +83,22 @@ func (self *fileSystemTransaction) workspaceFilePath(scope models.Scope, scopeId
 func normalizeRelativePath(relativePath string) string {
 	normalizedPath := filepath.ToSlash(filepath.Clean(relativePath))
 	return strings.TrimPrefix(normalizedPath, "/")
+}
+
+func applyOffsetLimit[T any](values []T, options *store.Option) []T {
+	if options == nil {
+		return values
+	}
+	offset := int(uint64Value(options.Offset))
+	if offset >= len(values) {
+		return []T{}
+	}
+	values = values[offset:]
+	limit := int(uint64Value(options.Limit))
+	if limit > 0 && limit < len(values) {
+		values = values[:limit]
+	}
+	return values
 }
 
 func uint64Value(value *uint64) uint64 {

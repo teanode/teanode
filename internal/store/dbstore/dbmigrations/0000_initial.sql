@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS users (
 	telegram_chat_id BIGINT NULL,
 	discord_user_id VARCHAR(128) NULL,
 	avatar_media_id VARCHAR(32) NULL,
+	name VARCHAR(256) NULL,
 	description TEXT NULL,
 	summarized_at TIMESTAMPTZ NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -109,12 +110,10 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 	provider VARCHAR(128) NULL,
 	tool_call_id VARCHAR(128) NULL,
 	tool_name VARCHAR(128) NULL,
-	sequence BIGINT NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	modified_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	CONSTRAINT conversation_messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
-CREATE UNIQUE INDEX IF NOT EXISTS conversation_messages_conversation_id_sequence_unique_index ON conversation_messages (conversation_id, sequence);
 CREATE INDEX IF NOT EXISTS conversation_messages_conversation_id_index ON conversation_messages (conversation_id);
 
 CREATE TABLE IF NOT EXISTS jobs (

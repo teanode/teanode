@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/teanode/teanode/internal/models"
@@ -316,7 +317,7 @@ func TestRunnerRunAbort(t *testing.T) {
 
 // mockToolCallServer simulates an LLM that makes a tool call then responds with text.
 func mockToolCallServer(toolCallId, toolName, toolArgs, finalText string) *httptest.Server {
-	callCount := 0
+	var callCount atomic.Int32
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// Read the request to check if it contains tool results.
 		body, _ := io.ReadAll(request.Body)
@@ -326,8 +327,8 @@ func mockToolCallServer(toolCallId, toolName, toolArgs, finalText string) *httpt
 		writer.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := writer.(http.Flusher)
 
-		callCount++
-		if callCount == 1 {
+		currentCall := callCount.Add(1)
+		if currentCall == 1 {
 			// First call: return a tool call
 			chunk := fmt.Sprintf(`{"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":%q,"type":"function","function":{"name":%q,"arguments":%q}}]},"finish_reason":null}]}`,
 				toolCallId, toolName, toolArgs)
@@ -571,8 +572,8 @@ func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
 	seedWorkspaceFile(t, openedStore, models.ScopeUser, "user-1", "ONBOARDING.md", onboardingInstructions)
 
 	history := []*models.ConversationMessage{
-		ptrConversationMessage(newTextMessage("assistant", "Welcome! To get started, tell me your preferred name and timezone.", 1)),
-		ptrConversationMessage(newTextMessage("user", "I'm Alex, PST timezone.", 2)),
+		ptrConversationMessage(newTextMessage("assistant", "Welcome! To get started, tell me your preferred name and timezone.")),
+		ptrConversationMessage(newTextMessage("user", "I'm Alex, PST timezone.")),
 	}
 
 	runner := &Runner{AgentID: "default"}

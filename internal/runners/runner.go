@@ -5,9 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"encoding/base64"
 
@@ -25,7 +25,6 @@ import (
 
 // Runner orchestrates: load conversation -> build prompt -> call LLM -> save response.
 type Runner struct {
-	ID               string
 	AgentID          string
 	ConversationID   string
 	ProviderRegistry *providers.ProviderRegistry
@@ -33,10 +32,9 @@ type Runner struct {
 	SkillPrompts     string
 }
 
-// NewRunner creates a new Runner with a generated ID.
+// NewRunner creates a new Runner.
 func NewRunner(agentId, conversationId string, providerRegistry *providers.ProviderRegistry, toolRegistry *toolregistry.ToolRegistry, skillPrompts string) *Runner {
 	return &Runner{
-		ID:               security.NewULID(),
 		AgentID:          agentId,
 		ConversationID:   conversationId,
 		ProviderRegistry: providerRegistry,
@@ -87,7 +85,6 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	userId := user.ID
 	isAdmin := user.GetAdmin()
 	runnerId := security.NewULID()
-	now := time.Now().UnixMilli()
 
 	log.Debugf("run start id=%s conversation=%s model=%s", runnerId, self.ConversationID, params.Model)
 
@@ -128,9 +125,9 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	// 2. Append user message to conversation (sets provider/model on new or backfills existing).
 	var userMessage models.ConversationMessage
 	if len(params.Attachments) > 0 {
-		userMessage = newMessageWithAttachments("user", params.Message, params.Attachments, now)
+		userMessage = newMessageWithAttachments("user", params.Message, params.Attachments)
 	} else {
-		userMessage = newTextMessage("user", params.Message, now)
+		userMessage = newTextMessage("user", params.Message)
 	}
 	userMessage.Provider = ptrto.Value(providerName)
 	userMessage.Model = ptrto.Value(modelName)
@@ -149,7 +146,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	var responseText string
 	var responseModel string
 	var stopReason string
-	var contextWindow int
+	contextWindow := self.resolveContextWindow(ctx)
 
 	for round := 0; round < 250; round++ {
 		log.Debugf("run id=%s round=%d history_len=%d", runnerId, round, len(history))
@@ -202,12 +199,14 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		toolCallMap := make(map[int]*providers.ToolCall)
 		var usage *providers.UsageInfo
 
+		var streamError error
 		for event := range stream {
 			if ctx.Err() != nil {
 				break
 			}
 			if event.Err != nil {
-				return nil, fmt.Errorf("stream error: %w", event.Err)
+				streamError = fmt.Errorf("stream error: %w", event.Err)
+				break
 			}
 			if event.Done {
 				break
@@ -261,11 +260,24 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			}
 		}
 
+		// Drain any remaining stream events to prevent the producer goroutine from blocking.
+		for range stream {
+		}
+
+		if streamError != nil {
+			return nil, streamError
+		}
+
 		// Flatten tool call map to sorted slice.
 		if len(toolCallMap) > 0 {
-			toolCalls = make([]providers.ToolCall, len(toolCallMap))
-			for index, toolCall := range toolCallMap {
-				toolCalls[index] = *toolCall
+			indices := make([]int, 0, len(toolCallMap))
+			for index := range toolCallMap {
+				indices = append(indices, index)
+			}
+			sort.Ints(indices)
+			toolCalls = make([]providers.ToolCall, len(indices))
+			for position, index := range indices {
+				toolCalls[position] = *toolCallMap[index]
 			}
 		}
 
@@ -284,7 +296,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		responseText = textBuilder.String()
 
 		// Save assistant message.
-		assistantMessage := newTextMessage("assistant", responseText, time.Now().UnixMilli())
+		assistantMessage := newTextMessage("assistant", responseText)
 		assistantMessage.Model = ptrto.Value(responseModel)
 		assistantMessage.Provider = ptrto.Value(providerName)
 		if stopReason != "" {
@@ -345,7 +357,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 				if callbacks != nil && callbacks.OnToolResult != nil {
 					callbacks.OnToolResult(toolCall.Function.Name, result)
 				}
-				toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result, time.Now().UnixMilli())
+				toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result)
 				if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
 					return nil, fmt.Errorf("saving tool denial: %w", err)
 				}
@@ -432,7 +444,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 				callbacks.OnToolResult(item.toolCall.Function.Name, liveResult)
 			}
 
-			toolMessage := newToolMessage(item.toolCall.ID, item.toolCall.Function.Name, storedResult, time.Now().UnixMilli())
+			toolMessage := newToolMessage(item.toolCall.ID, item.toolCall.Function.Name, storedResult)
 			if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
 				return nil, fmt.Errorf("saving tool result: %w", err)
 			}
@@ -569,13 +581,13 @@ func (self *Runner) buildMessages(
 	// Find the last context summary and start from there.
 	startIndex := 0
 	hasSummary := false
-	if idx := findLastSummaryIndex(history); idx >= 0 {
+	if summaryIndex := findLastSummaryIndex(history); summaryIndex >= 0 {
 		hasSummary = true
 		messages = append(messages, providers.ChatMessage{
 			Role:    "system",
-			Content: prompts.PreviousConversationSummaryPrefix + conversationMessageContentText(*history[idx]),
+			Content: prompts.PreviousConversationSummaryPrefix + conversationMessageContentText(*history[summaryIndex]),
 		})
-		startIndex = idx + 1
+		startIndex = summaryIndex + 1
 	}
 
 	// Skip the remainder of any in-progress run after the summary.
@@ -635,19 +647,19 @@ func (self *Runner) buildMessages(
 // fixInterruptedToolCalls scans for assistant messages with tool_calls whose
 // IDs have no corresponding tool result message following them.
 func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatMessage {
-	for i := len(messages) - 1; i >= 0; i-- {
-		message := messages[i]
+	for messageIndex := len(messages) - 1; messageIndex >= 0; messageIndex-- {
+		message := messages[messageIndex]
 		if message.Role != "assistant" || len(message.ToolCalls) == 0 {
 			continue
 		}
 
 		// Collect tool_call IDs that have results after this assistant message.
 		answered := make(map[string]bool)
-		for j := i + 1; j < len(messages); j++ {
-			if messages[j].Role == "tool" && messages[j].ToolCallID != "" {
-				answered[messages[j].ToolCallID] = true
+		for searchIndex := messageIndex + 1; searchIndex < len(messages); searchIndex++ {
+			if messages[searchIndex].Role == "tool" && messages[searchIndex].ToolCallID != "" {
+				answered[messages[searchIndex].ToolCallID] = true
 			}
-			if messages[j].Role == "assistant" || messages[j].Role == "user" {
+			if messages[searchIndex].Role == "assistant" || messages[searchIndex].Role == "user" {
 				break
 			}
 		}
@@ -666,7 +678,7 @@ func fixInterruptedToolCalls(messages []providers.ChatMessage) []providers.ChatM
 		}
 
 		if len(synthetic) > 0 {
-			insertAt := i + 1
+			insertAt := messageIndex + 1
 			for insertAt < len(messages) && messages[insertAt].Role == "tool" {
 				insertAt++
 			}
@@ -784,7 +796,7 @@ func (self *Runner) appendConversationMessage(ctx context.Context, message model
 	})
 }
 
-func newTextMessage(role, text string, timestamp int64) models.ConversationMessage {
+func newTextMessage(role, text string) models.ConversationMessage {
 	roleValue := models.Role(role)
 	content, _ := json.Marshal(text)
 	return models.ConversationMessage{
@@ -793,7 +805,7 @@ func newTextMessage(role, text string, timestamp int64) models.ConversationMessa
 	}
 }
 
-func newMessageWithAttachments(role, text string, attachments []map[string]string, timestamp int64) models.ConversationMessage {
+func newMessageWithAttachments(role, text string, attachments []map[string]string) models.ConversationMessage {
 	blocks := make([]map[string]string, 0, len(attachments)+1)
 	blocks = append(blocks, map[string]string{
 		"type": "text",
@@ -815,8 +827,8 @@ func newMessageWithAttachments(role, text string, attachments []map[string]strin
 	}
 }
 
-func newToolMessage(toolCallId, toolName, content string, timestamp int64) models.ConversationMessage {
-	message := newTextMessage("tool", content, timestamp)
+func newToolMessage(toolCallId, toolName, content string) models.ConversationMessage {
+	message := newTextMessage("tool", content)
 	message.ToolCallID = ptrto.Value(toolCallId)
 	message.ToolName = ptrto.Value(toolName)
 	return message

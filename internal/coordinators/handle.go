@@ -1,6 +1,8 @@
 package coordinators
 
 import (
+	"sync"
+
 	"github.com/teanode/teanode/internal/runners"
 )
 
@@ -23,6 +25,7 @@ type RunHandle struct {
 	RunnerID       string
 	ConversationID string
 	done           chan struct{}
+	once           sync.Once
 	result         *runners.RunResult
 	compactResult  *runners.CompactResult
 	err            error
@@ -49,9 +52,12 @@ func (self *RunHandle) Wait() (*runners.RunResult, *runners.CompactResult, error
 }
 
 // Resolve completes the handle with the given results and error.
+// It is safe to call Resolve multiple times; only the first call takes effect.
 func (self *RunHandle) Resolve(runResult *runners.RunResult, compactResult *runners.CompactResult, err error) {
-	self.result = runResult
-	self.compactResult = compactResult
-	self.err = err
-	close(self.done)
+	self.once.Do(func() {
+		self.result = runResult
+		self.compactResult = compactResult
+		self.err = err
+		close(self.done)
+	})
 }

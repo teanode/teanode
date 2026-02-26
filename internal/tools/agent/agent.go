@@ -83,25 +83,22 @@ func (self *agentCreateTool) Execute(ctx context.Context, rawArguments string) (
 		return "", fmt.Errorf("invalid agentId %q: use lowercase letters, numbers, hyphens, and underscores", arguments.AgentID)
 	}
 
-	// Check if agent already exists in store.
-	var existingAgent *models.Agent
-	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		existingAgent, _ = transaction.GetAgent(ctx, arguments.AgentID, nil)
-		return nil
-	})
-	if existingAgent != nil {
-		return "", fmt.Errorf("agent %q already exists", arguments.AgentID)
-	}
-
-	// Create agent directly in store.
+	// Check existence and create atomically in a single transaction.
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.GetAgent(ctx, arguments.AgentID, nil)
+		if err == nil {
+			return fmt.Errorf("agent %q already exists", arguments.AgentID)
+		}
+		if err != store.ErrNotFound {
+			return err
+		}
 		_, createError := transaction.CreateAgent(ctx, &models.Agent{
 			ID:   arguments.AgentID,
 			Name: &arguments.Name,
 		}, nil, nil)
 		return createError
 	}); err != nil {
-		return "", fmt.Errorf("creating agent %q: %w", arguments.AgentID, err)
+		return "", err
 	}
 
 	response, _ := json.Marshal(map[string]interface{}{
@@ -252,10 +249,16 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 
 	// Verify target agent exists in store.
 	var targetAgent *models.Agent
-	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		targetAgent, _ = transaction.GetAgent(ctx, arguments.AgentID, nil)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		foundAgent, err := transaction.GetAgent(ctx, arguments.AgentID, nil)
+		if err != nil {
+			return err
+		}
+		targetAgent = foundAgent
 		return nil
-	})
+	}); err != nil {
+		return "", fmt.Errorf("looking up agent: %w", err)
+	}
 	if targetAgent == nil {
 		return "", fmt.Errorf("agent %q not found", arguments.AgentID)
 	}
@@ -368,10 +371,16 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 
 	// Verify target agent exists in store.
 	var targetAgent *models.Agent
-	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		targetAgent, _ = transaction.GetAgent(ctx, targetAgentId, nil)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		foundAgent, err := transaction.GetAgent(ctx, targetAgentId, nil)
+		if err != nil {
+			return err
+		}
+		targetAgent = foundAgent
 		return nil
-	})
+	}); err != nil {
+		return "", fmt.Errorf("looking up agent: %w", err)
+	}
 	if targetAgent == nil {
 		return "", fmt.Errorf("agent %q not found", targetAgentId)
 	}

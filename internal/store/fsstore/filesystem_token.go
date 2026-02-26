@@ -48,7 +48,7 @@ func (self *fileSystemTransaction) listTokens(userId string, options *store.Opti
 		tokenModel := securityTokenToModel(userId, token)
 		tokens = append(tokens, &tokenModel)
 	}
-	tokens = applyOffsetLimitTokens(tokens, options)
+	tokens = applyOffsetLimit(tokens, options)
 	return tokens, nil
 }
 
@@ -111,7 +111,7 @@ func (self *fileSystemTransaction) getTokenByToken(tokenValue string, options *s
 	}
 	userId, user, index, found := securityConfiguration.FindUserByToken(tokenValue)
 	if !found || index < 0 || index >= len(user.Tokens) {
-		return nil, err
+		return nil, store.ErrNotFound
 	}
 	result := securityTokenToModel(userId, user.Tokens[index])
 	return &result, nil
@@ -185,20 +185,4 @@ func securityTokenToModel(userId string, token storeSecurityTokenRecord) models.
 		LastUsedAt: token.LastUsedAt,
 		ModifiedAt: &modifiedAt,
 	}
-}
-
-func applyOffsetLimitTokens(values []*models.Token, options *store.Option) []*models.Token {
-	if options == nil {
-		return values
-	}
-	offset := int(uint64Value(options.Offset))
-	if offset >= len(values) {
-		return []*models.Token{}
-	}
-	values = values[offset:]
-	limit := int(uint64Value(options.Limit))
-	if limit > 0 && limit < len(values) {
-		values = values[:limit]
-	}
-	return values
 }

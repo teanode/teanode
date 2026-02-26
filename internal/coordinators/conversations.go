@@ -11,25 +11,37 @@ import (
 )
 
 // EnsureDefaultConversation returns the default conversation for a user+agent, creating one if needed.
+// All conversation management methods intentionally use the coordinator's own context (self.ctx)
+// rather than a caller-provided context because these operations manage global state that must
+// persist regardless of individual request lifecycles (e.g. a disconnecting websocket should
+// not cancel a default-conversation write).
 func (self *Coordinator) EnsureDefaultConversation(userId, agentId string) string {
 	var conversationId string
-	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		defaultConversation, findError := transaction.FindDefaultConversation(ctx, userId, agentId, nil)
-		if findError == nil && defaultConversation != nil {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		defaultConversation, err := transaction.FindDefaultConversation(ctx, userId, agentId, nil)
+		if err != nil {
+			return err
+		}
+		if defaultConversation != nil {
 			conversationId = defaultConversation.ID
 			return nil
 		}
 		// Fall back to the most recent conversation for this agent.
-		conversations, listError := transaction.ListConversations(ctx, store.ConversationListOptions{
+		conversations, err := transaction.ListConversations(ctx, store.ConversationListOptions{
 			UserID:  ptrto.Value(userId),
 			AgentID: ptrto.Value(agentId),
 		}, nil)
-		if listError == nil && len(conversations) > 0 {
+		if err != nil {
+			return err
+		}
+		if len(conversations) > 0 {
 			conversationId = conversations[0].ID
 			return nil
 		}
 		return nil
-	})
+	}); err != nil {
+		log.Warningf("failed to find default conversation for user %q agent %q from store: %v", userId, agentId, err)
+	}
 	if conversationId != "" {
 		return conversationId
 	}
@@ -60,13 +72,16 @@ func (self *Coordinator) SetDefaultConversationIfUnset(userId, agentId, conversa
 		return false
 	}
 	var alreadySet bool
-	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		defaultConversation, findError := transaction.FindDefaultConversation(ctx, userId, agentId, nil)
-		if findError == nil && defaultConversation != nil {
-			alreadySet = true
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		defaultConversation, err := transaction.FindDefaultConversation(ctx, userId, agentId, nil)
+		if err != nil {
+			return err
 		}
+		alreadySet = defaultConversation != nil
 		return nil
-	})
+	}); err != nil {
+		log.Warningf("failed to set default conversation for user %q agent %q conversation %q: %v", userId, agentId, conversationId, err)
+	}
 	if alreadySet {
 		return false
 	}
@@ -100,12 +115,12 @@ func (self *Coordinator) NewDefaultConversation(userId, agentId string) string {
 // createConversation creates a conversation in the store with the resolved model.
 func (self *Coordinator) createConversation(userId, agentId, conversationId string) {
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		_, createError := transaction.CreateConversation(ctx, &models.Conversation{
+		_, err := transaction.CreateConversation(ctx, &models.Conversation{
 			ID:      conversationId,
 			UserID:  ptrto.Value(userId),
 			AgentID: ptrto.Value(agentId),
 		}, nil)
-		return createError
+		return err
 	}); err != nil {
 		log.Errorf("creating conversation file: %v", err)
 	}
@@ -116,16 +131,16 @@ func (self *Coordinator) persistDefaultConversation(userId, agentId, conversatio
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		// Ensure the conversation exists in the store.
 		if _, err := transaction.GetConversation(ctx, conversationId, nil); err != nil {
-			if _, createError := transaction.CreateConversation(ctx, &models.Conversation{
+			if _, err := transaction.CreateConversation(ctx, &models.Conversation{
 				ID:      conversationId,
 				UserID:  ptrto.Value(userId),
 				AgentID: ptrto.Value(agentId),
-			}, nil); createError != nil {
-				return createError
+			}, nil); err != nil {
+				return err
 			}
 		}
 		return transaction.SetDefaultConversation(ctx, conversationId, nil)
 	}); err != nil {
-		log.Warningf("persisting default conversation failed userId=%s agentId=%s conversationId=%s error=%v", userId, agentId, conversationId, err)
+		log.Warningf("persisting default conversation failed for user %q agent %q conversation %q: %v", userId, agentId, conversationId, err)
 	}
 }
