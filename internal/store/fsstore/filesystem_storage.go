@@ -117,11 +117,11 @@ func (self *fileSystemTransaction) loadUserRecord(userId string) (*storeUserReco
 		return nil, readError
 	}
 	userRecord.ID = userId
-	userRecord.Name = userRecord.Name
+	userRecord.Name = strings.TrimSpace(userRecord.Name)
 	if userRecord.Name == "" {
 		userRecord.Name = processUsername()
 	}
-	userRecord.Description = userRecord.Description
+	userRecord.Description = strings.TrimSpace(userRecord.Description)
 	return userRecord, nil
 }
 
@@ -130,11 +130,11 @@ func (self *fileSystemTransaction) saveUserRecord(userId string, userRecord *sto
 		userRecord = &storeUserRecord{}
 	}
 	userRecord.ID = userId
-	userRecord.Name = userRecord.Name
+	userRecord.Name = strings.TrimSpace(userRecord.Name)
 	if userRecord.Name == "" {
 		userRecord.Name = processUsername()
 	}
-	userRecord.Description = userRecord.Description
+	userRecord.Description = strings.TrimSpace(userRecord.Description)
 	return writeYAMLFileMode(self.userConfigFilename(userId), userRecord, 0600)
 }
 
@@ -157,7 +157,7 @@ func (self *fileSystemTransaction) saveProjectRecord(projectId string, projectRe
 		projectRecord = &storeProjectRecord{}
 	}
 	projectRecord.ID = projectId
-	projectRecord.Name = projectRecord.Name
+	projectRecord.Name = strings.TrimSpace(projectRecord.Name)
 	if projectRecord.Name == "" {
 		return fmt.Errorf("name is required")
 	}

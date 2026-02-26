@@ -9,7 +9,6 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/pubsub"
-	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	storefs "github.com/teanode/teanode/internal/store/fsstore"
 	toolregistry "github.com/teanode/teanode/internal/tools"
@@ -51,7 +50,7 @@ func (self *testProvider) ListModels(_ context.Context) ([]providers.ModelInfo, 
 	return []providers.ModelInfo{{ID: "test-model"}}, nil
 }
 
-func newTestCoordinator(t *testing.T) (*Coordinator, *runners.DefaultConversationManager, context.Context, string) {
+func newTestCoordinator(t *testing.T) (*Coordinator, context.Context, string) {
 	t.Helper()
 	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
 	if openError != nil {
@@ -75,37 +74,40 @@ func newTestCoordinator(t *testing.T) (*Coordinator, *runners.DefaultConversatio
 		return nil
 	})
 
-	providerRegistry := providers.NewRegistry("mock")
+	providerRegistry := providers.NewProviderRegistry(&models.ModelsConfiguration{
+		Default: ptrto.Value("mock:test-model"),
+		Providers: &[]*models.ProviderConfiguration{
+			{Name: ptrto.Value("mock"), APIKey: ptrto.Value("test")},
+		},
+	})
 	providerRegistry.Register("mock", &testProvider{})
 
 	events := pubsub.New()
-	defaults := runners.NewDefaultConversationManager(contextWithStore)
 	contextWithStore = lifecycle.ContextWithLifecycle(contextWithStore, lifecycle.New())
 
 	configuration := &models.Configuration{
 		Models: &models.ModelsConfiguration{Default: ptrto.Value("mock:test-model")},
 	}
-	coordinator := New(contextWithStore, configuration, providerRegistry, defaults, nil, events, func(_ context.Context, _ models.Agent) (*toolregistry.ToolRegistry, string) {
-		return toolregistry.NewToolRegistry(), ""
+	coordinator := New(contextWithStore, configuration, providerRegistry, nil, events, func(_ context.Context, _ models.Agent) (*toolregistry.ToolRegistry, string) {
+		return toolregistry.NewEmptyToolRegistry(), ""
 	})
 
-	return coordinator, defaults, contextWithStore, agentId
+	return coordinator, contextWithStore, agentId
 }
 
 func waitRunHandle(t *testing.T, handle *RunHandle) {
 	t.Helper()
-	result, err := handle.Wait()
+	_, _, err := handle.Wait()
 	if err != nil {
 		t.Fatalf("run error: %v", err)
 	}
-	_ = result
 }
 
 func TestSendMessageAutoCreateDoesNotOverwriteExistingDefaultConversation(t *testing.T) {
-	coordinator, defaults, contextWithStore, agentId := newTestCoordinator(t)
+	coordinator, contextWithStore, agentId := newTestCoordinator(t)
 	userId := "user-1"
 
-	existingDefaultConversationId := coordinator.NewDefaultConversation(userId, agentId, "")
+	existingDefaultConversationId := coordinator.NewDefaultConversation(userId, agentId)
 
 	runContext := models.ContextWithUserSessionToken(contextWithStore, &models.User{ID: userId}, nil, nil)
 	handle, sendError := coordinator.SendMessage(runContext, SendMessageParameters{
@@ -122,13 +124,13 @@ func TestSendMessageAutoCreateDoesNotOverwriteExistingDefaultConversation(t *tes
 	if handle.ConversationID == existingDefaultConversationId {
 		t.Fatalf("auto-created conversation id = existing default %q; want new conversation id", existingDefaultConversationId)
 	}
-	if got := defaults.EnsureDefaultConversation(userId, agentId); got != existingDefaultConversationId {
+	if got := coordinator.EnsureDefaultConversation(userId, agentId); got != existingDefaultConversationId {
 		t.Fatalf("default conversation id = %q, want %q", got, existingDefaultConversationId)
 	}
 }
 
 func TestSendMessageAutoCreateSetsDefaultWhenUnset(t *testing.T) {
-	coordinator, defaults, contextWithStore, agentId := newTestCoordinator(t)
+	coordinator, contextWithStore, agentId := newTestCoordinator(t)
 	userId := "user-1"
 
 	runContext := models.ContextWithUserSessionToken(contextWithStore, &models.User{ID: userId}, nil, nil)
@@ -143,28 +145,28 @@ func TestSendMessageAutoCreateSetsDefaultWhenUnset(t *testing.T) {
 	}
 	waitRunHandle(t, handle)
 
-	if got := defaults.EnsureDefaultConversation(userId, agentId); got != handle.ConversationID {
+	if got := coordinator.EnsureDefaultConversation(userId, agentId); got != handle.ConversationID {
 		t.Fatalf("default conversation id = %q, want %q", got, handle.ConversationID)
 	}
 }
 
 func TestNewConversationReplacesDefaultConversation(t *testing.T) {
-	coordinator, defaults, _, agentId := newTestCoordinator(t)
+	coordinator, _, agentId := newTestCoordinator(t)
 	userId := "user-1"
 
-	firstConversationId := coordinator.NewDefaultConversation(userId, agentId, "")
-	secondConversationId := coordinator.NewDefaultConversation(userId, agentId, "")
+	firstConversationId := coordinator.NewDefaultConversation(userId, agentId)
+	secondConversationId := coordinator.NewDefaultConversation(userId, agentId)
 
 	if secondConversationId == firstConversationId {
 		t.Fatalf("second conversation id = first conversation id %q; want different id", firstConversationId)
 	}
-	if got := defaults.EnsureDefaultConversation(userId, agentId); got != secondConversationId {
+	if got := coordinator.EnsureDefaultConversation(userId, agentId); got != secondConversationId {
 		t.Fatalf("default conversation id = %q, want %q", got, secondConversationId)
 	}
 }
 
 func TestDeferredLifecycleFiresAfterRunDone(t *testing.T) {
-	coordinator, _, contextWithStore, agentId := newTestCoordinator(t)
+	coordinator, contextWithStore, agentId := newTestCoordinator(t)
 	userId := "user-1"
 
 	lifecycleManager := lifecycle.LifecycleFromContext(contextWithStore)
@@ -202,7 +204,7 @@ func TestDeferredLifecycleFiresAfterRunDone(t *testing.T) {
 	}
 
 	// Ensure run completed successfully.
-	_, waitError := handle.Wait()
+	_, _, waitError := handle.Wait()
 	if waitError != nil {
 		t.Fatalf("run error: %v", waitError)
 	}

@@ -482,6 +482,7 @@ type targetInfo struct {
 
 // attachTarget attaches to a target in flatten mode and registers it directly.
 func (self *Headless) attachTarget(ctx context.Context, info targetInfo) {
+	defer deferutil.Recover()
 	result, err := self.sendBrowserCommand(ctx, "Target.attachToTarget", map[string]interface{}{
 		"targetId": info.TargetID,
 		"flatten":  true,

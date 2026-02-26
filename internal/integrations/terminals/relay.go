@@ -11,10 +11,10 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/teanode/teanode/internal/web"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/pending"
+	"github.com/teanode/teanode/internal/web"
 )
 
 var wsUpgrader = websocket.Upgrader{

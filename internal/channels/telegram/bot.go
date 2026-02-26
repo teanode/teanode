@@ -60,6 +60,7 @@ func newTelegramStreamPreview(api *tgbotapi.BotAPI, chatId int64, replyTo int) *
 }
 
 func (self *telegramStreamPreview) run() {
+	defer deferutil.Recover()
 	interval := 500 * time.Millisecond
 	for {
 		select {
@@ -250,7 +251,7 @@ type Bot struct {
 
 	// Subscriber-driven streaming state.
 	subscribedRunsMutex sync.Mutex
-	subscribedRuns      map[string]*telegramSubscribedRun // runId -> state
+	subscribedRuns      map[string]*telegramSubscribedRun // runnerId -> state
 }
 
 // New creates a new Telegram bot that dynamically resolves the default agent and conversation from the coordinator.
@@ -348,11 +349,11 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 		return
 	}
 
-	runId, _ := payloadMap["runId"].(string)
+	runnerId, _ := payloadMap["runnerId"].(string)
 	state, _ := payloadMap["state"].(string)
 	conversationId, _ := payloadMap["conversationId"].(string)
 
-	if runId == "" || state == "" {
+	if runnerId == "" || state == "" {
 		return
 	}
 
@@ -398,7 +399,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			}
 			preview := newTelegramStreamPreview(self.api, chatId, 0)
 			self.subscribedRunsMutex.Lock()
-			self.subscribedRuns[runId] = &telegramSubscribedRun{
+			self.subscribedRuns[runnerId] = &telegramSubscribedRun{
 				preview:     preview,
 				chatId:      chatId,
 				origin:      origin,
@@ -421,7 +422,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 		// Session runs are only delivered to Telegram if the originating web session disconnects.
 		self.subscribedRunsMutex.Lock()
-		self.subscribedRuns[runId] = &telegramSubscribedRun{
+		self.subscribedRuns[runnerId] = &telegramSubscribedRun{
 			chatId:          chatId,
 			origin:          origin,
 			originSessionId: originSessionId,
@@ -431,7 +432,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "delta":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runId]
+		subscribedRun := self.subscribedRuns[runnerId]
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil && subscribedRun.preview != nil {
 			text, _ := payloadMap["text"].(string)
@@ -440,7 +441,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "tool_call":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runId]
+		subscribedRun := self.subscribedRuns[runnerId]
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil && subscribedRun.preview != nil {
 			subscribedRun.preview.Reset()
@@ -450,7 +451,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "tool_result":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runId]
+		subscribedRun := self.subscribedRuns[runnerId]
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil {
 			result, _ := payloadMap["result"].(string)
@@ -463,8 +464,8 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "final":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runId]
-		delete(self.subscribedRuns, runId)
+		subscribedRun := self.subscribedRuns[runnerId]
+		delete(self.subscribedRuns, runnerId)
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun == nil {
 			return
@@ -521,8 +522,8 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "error", "aborted":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runId]
-		delete(self.subscribedRuns, runId)
+		subscribedRun := self.subscribedRuns[runnerId]
+		delete(self.subscribedRuns, runnerId)
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun == nil {
 			return
@@ -641,7 +642,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 	conversationId := self.coordinator.EnsureDefaultConversation(userId, defaultAgentId)
 
 	// Check if there's already an active run for this conversation.
-	if self.coordinator.GetActiveConversationRunner(conversationId) {
+	if self.coordinator.GetActiveConversationRunner(conversationId) != nil {
 		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "I'm still working on a previous request. Please wait.")
 		messageRequest.ReplyToMessageID = message.MessageID
 		self.api.Send(messageRequest)
@@ -743,7 +744,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 	}
 
 	// Wait for completion.
-	result, runError := handle.Wait()
+	result, _, runError := handle.Wait()
 
 	previewMessageId, _ := preview.Stop()
 
@@ -818,19 +819,19 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 	}
 	switch name {
 	case "new":
-		conversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId, "")
+		conversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId)
 		reply = fmt.Sprintf("New conversation started. (%s)", conversationId)
 
 	case "reset", "clear":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
 		// Abort active run if any.
 		self.coordinator.AbortConversationRunner(conversationId)
-		newConversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId, "")
+		newConversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId)
 		reply = fmt.Sprintf("Conversation cleared. New conversation started. (%s)", newConversationId)
 
 	case "stop":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
-		if self.coordinator.GetActiveConversationRunner(conversationId) {
+		if self.coordinator.GetActiveConversationRunner(conversationId) != nil {
 			self.coordinator.AbortConversationRunner(conversationId)
 			reply = "Run cancelled."
 		} else {
@@ -891,12 +892,12 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 		if model == "" {
 			model = self.resolveDefaultModel()
 		}
-		running := self.coordinator.GetActiveConversationRunner(conversationId)
+		running := self.coordinator.GetActiveConversationRunner(conversationId) != nil
 		status := "idle"
 		if running {
 			status = "running"
 		}
-		providerName := self.coordinator.Providers().DefaultProvider()
+		providerName := self.coordinator.ProviderRegistry().DefaultProvider()
 		reply = fmt.Sprintf("Agent: %s\nConversation: %s\nModel: %s\nProvider: %s\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
 
 	case "compact":
@@ -906,7 +907,7 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 		if compactError != nil {
 			reply = fmt.Sprintf("Error compacting: %v", compactError)
 		} else {
-			compactResult, waitError := compactHandle.Wait()
+			_, compactResult, waitError := compactHandle.Wait()
 			if waitError != nil {
 				reply = fmt.Sprintf("Error compacting: %v", waitError)
 			} else {
@@ -1107,7 +1108,7 @@ func (self *Bot) extractAttachments(message *tgbotapi.Message) []map[string]stri
 			createdMedia, saveError = transaction.CreateMedia(ctx, bytes.NewReader(data), &models.Media{
 				Format:       &format,
 				ContentType:  &contentType,
-				Source:       ptrto.Value("telegram"),
+				Source:       ptrto.Value(models.MediaSourceTelegram),
 				OriginalName: &file.filename,
 			}, nil)
 			return saveError

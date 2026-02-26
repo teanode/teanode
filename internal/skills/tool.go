@@ -60,8 +60,8 @@ func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string
 
 // HTTPTool implements agent.Tool for http-type skill tools.
 type HTTPTool struct {
-	definition       models.SkillTool
-	httpAuthProfiles map[string]models.SkillAuthenticationProfiles
+	definition             models.SkillTool
+	authenticationProfiles map[string]models.SkillAuthenticationProfiles
 }
 
 func (self *HTTPTool) Definition() providers.ToolDefinition {
@@ -74,7 +74,7 @@ func (self *HTTPTool) Execute(ctx context.Context, rawArguments string) (string,
 		return "", err
 	}
 	action := actionFromTool(self.definition)
-	output, err := executeHTTPAction(ctx, action, arguments, self.httpAuthProfiles)
+	output, err := executeHTTPAction(ctx, action, arguments, self.authenticationProfiles)
 	if err != nil {
 		return "", err
 	}
@@ -87,8 +87,8 @@ func (self *HTTPTool) Execute(ctx context.Context, rawArguments string) (string,
 
 // WorkflowTool implements agent.Tool for workflow-type skill tools.
 type WorkflowTool struct {
-	definition       models.SkillTool
-	httpAuthProfiles map[string]models.SkillAuthenticationProfiles
+	definition             models.SkillTool
+	authenticationProfiles map[string]models.SkillAuthenticationProfiles
 }
 
 func (self *WorkflowTool) Definition() providers.ToolDefinition {
@@ -126,8 +126,8 @@ func (self *WorkflowTool) Execute(ctx context.Context, rawArguments string) (str
 		mainSteps = selectedSteps
 	}
 
-	mainOutput, mainError := executeWorkflowSteps(ctx, mainSteps, contextData, &results, "", self.httpAuthProfiles)
-	finallyOutput, finallyError := executeWorkflowSteps(ctx, self.definition.Finally, contextData, &results, "finally.", self.httpAuthProfiles)
+	mainOutput, mainError := executeWorkflowSteps(ctx, mainSteps, contextData, &results, "", self.authenticationProfiles)
+	finallyOutput, finallyError := executeWorkflowSteps(ctx, self.definition.Finally, contextData, &results, "finally.", self.authenticationProfiles)
 	if finallyOutput != nil {
 		contextData["lastFinally"] = finallyOutput
 	}
@@ -164,10 +164,10 @@ type workflowStepResult struct {
 	Error      string      `json:"error,omitempty"`
 }
 
-func executeWorkflowSteps(ctx context.Context, steps []*models.SkillAction, contextData map[string]interface{}, results *[]workflowStepResult, namePrefix string, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
+func executeWorkflowSteps(ctx context.Context, steps []*models.SkillAction, contextData map[string]interface{}, results *[]workflowStepResult, namePrefix string, authenticationProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
 	var lastOutput interface{}
 	for index, step := range steps {
-		output, err := executeWorkflowStep(ctx, step, index, contextData, results, namePrefix, httpAuthProfiles)
+		output, err := executeWorkflowStep(ctx, step, index, contextData, results, namePrefix, authenticationProfiles)
 		if err != nil {
 			return lastOutput, err
 		}
@@ -179,7 +179,7 @@ func executeWorkflowSteps(ctx context.Context, steps []*models.SkillAction, cont
 	return lastOutput, nil
 }
 
-func executeWorkflowStep(ctx context.Context, step *models.SkillAction, stepIndex int, contextData map[string]interface{}, results *[]workflowStepResult, namePrefix string, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
+func executeWorkflowStep(ctx context.Context, step *models.SkillAction, stepIndex int, contextData map[string]interface{}, results *[]workflowStepResult, namePrefix string, authenticationProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
 	stepName := step.Name
 	if stepName == "" {
 		stepName = fmt.Sprintf("step%d", stepIndex+1)
@@ -189,25 +189,25 @@ func executeWorkflowStep(ctx context.Context, step *models.SkillAction, stepInde
 	if !shouldRunStep(ctx, step, contextData) {
 		*results = append(*results, workflowStepResult{
 			Name:   fullName,
-			Type:   step.Type,
+			Type:   string(step.Type),
 			Status: "skipped",
 		})
 		return nil, nil
 	}
 
 	switch step.Type {
-	case "forEach":
-		return executeForEachStep(ctx, step, fullName, contextData, results, httpAuthProfiles)
-	case "switch":
-		return executeSwitchStep(ctx, step, fullName, contextData, results, httpAuthProfiles)
-	case "shell", "http":
-		return executeActionStep(ctx, step, fullName, contextData, results, httpAuthProfiles)
+	case models.SkillActionTypeForEach:
+		return executeForEachStep(ctx, step, fullName, contextData, results, authenticationProfiles)
+	case models.SkillActionTypeSwitch:
+		return executeSwitchStep(ctx, step, fullName, contextData, results, authenticationProfiles)
+	case models.SkillActionTypeShell, models.SkillActionTypeHTTP:
+		return executeActionStep(ctx, step, fullName, contextData, results, authenticationProfiles)
 	default:
 		return nil, fmt.Errorf("unknown workflow step type %q", step.Type)
 	}
 }
 
-func executeActionStep(ctx context.Context, step *models.SkillAction, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
+func executeActionStep(ctx context.Context, step *models.SkillAction, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, authenticationProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
 	startedAt := time.Now()
 	maxAttempts := step.Retries + 1
 	if maxAttempts <= 0 {
@@ -221,15 +221,15 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 	)
 	for attempts = 1; attempts <= maxAttempts; attempts++ {
 		switch step.Type {
-		case "shell":
+		case models.SkillActionTypeShell:
 			user := models.UserFromContext(ctx)
 			if user != nil && !user.GetAdmin() {
 				return nil, fmt.Errorf("admin access required for shell skill actions")
 			}
 			workflowInput, _ := json.Marshal(contextData)
 			rawOutput, err = executeShellAction(ctx, *step, contextData, string(workflowInput))
-		case "http":
-			rawOutput, err = executeHTTPAction(ctx, *step, contextData, httpAuthProfiles)
+		case models.SkillActionTypeHTTP:
+			rawOutput, err = executeHTTPAction(ctx, *step, contextData, authenticationProfiles)
 		}
 		if err == nil {
 			break
@@ -240,12 +240,12 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 	}
 
 	if err != nil {
-		if step.OnError == "continue" {
+		if step.OnError == models.SkillErrorPolicyContinue {
 			recordStepOutput(contextData, step, fullName, map[string]interface{}{"error": err.Error()})
 			contextData["lastError"] = err.Error()
 			*results = append(*results, workflowStepResult{
 				Name:       fullName,
-				Type:       step.Type,
+				Type:       string(step.Type),
 				Status:     "error",
 				Attempts:   attempts,
 				DurationMs: time.Since(startedAt).Milliseconds(),
@@ -263,7 +263,7 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 	recordStepOutput(contextData, step, fullName, storedOutput)
 	*results = append(*results, workflowStepResult{
 		Name:       fullName,
-		Type:       step.Type,
+		Type:       string(step.Type),
 		Status:     "ok",
 		Attempts:   attempts,
 		DurationMs: time.Since(startedAt).Milliseconds(),
@@ -272,7 +272,7 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 	return storedOutput, nil
 }
 
-func executeForEachStep(ctx context.Context, step *models.SkillAction, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
+func executeForEachStep(ctx context.Context, step *models.SkillAction, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, authenticationProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
 	startedAt := time.Now()
 	itemsRaw, ok := resolveTemplateValue(contextData, step.ForEach)
 	if !ok {
@@ -307,9 +307,9 @@ func executeForEachStep(ctx context.Context, step *models.SkillAction, fullName 
 	for index, item := range items {
 		contextData[alias] = item
 		contextData[aliasIndexKey] = index
-		output, err := executeWorkflowSteps(ctx, step.Steps, contextData, results, fullName+fmt.Sprintf("[%d].", index), httpAuthProfiles)
+		output, err := executeWorkflowSteps(ctx, step.Steps, contextData, results, fullName+fmt.Sprintf("[%d].", index), authenticationProfiles)
 		if err != nil {
-			if step.OnError == "continue" {
+			if step.OnError == models.SkillErrorPolicyContinue {
 				collected = append(collected, map[string]interface{}{"error": err.Error()})
 				continue
 			}
@@ -321,7 +321,7 @@ func executeForEachStep(ctx context.Context, step *models.SkillAction, fullName 
 	recordStepOutput(contextData, step, fullName, collected)
 	*results = append(*results, workflowStepResult{
 		Name:       fullName,
-		Type:       step.Type,
+		Type:       string(step.Type),
 		Status:     "ok",
 		Attempts:   1,
 		DurationMs: time.Since(startedAt).Milliseconds(),
@@ -330,7 +330,7 @@ func executeForEachStep(ctx context.Context, step *models.SkillAction, fullName 
 	return collected, nil
 }
 
-func executeSwitchStep(ctx context.Context, step *models.SkillAction, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
+func executeSwitchStep(ctx context.Context, step *models.SkillAction, fullName string, contextData map[string]interface{}, results *[]workflowStepResult, authenticationProfiles map[string]models.SkillAuthenticationProfiles) (interface{}, error) {
 	startedAt := time.Now()
 	value, ok := resolveTemplateValue(contextData, step.Switch)
 	if !ok {
@@ -349,13 +349,13 @@ func executeSwitchStep(ctx context.Context, step *models.SkillAction, fullName s
 		selectedSteps = step.Default
 	}
 
-	output, err := executeWorkflowSteps(ctx, selectedSteps, contextData, results, fullName+".", httpAuthProfiles)
+	output, err := executeWorkflowSteps(ctx, selectedSteps, contextData, results, fullName+".", authenticationProfiles)
 	if err != nil {
-		if step.OnError == "continue" {
+		if step.OnError == models.SkillErrorPolicyContinue {
 			recordStepOutput(contextData, step, fullName, map[string]interface{}{"error": err.Error()})
 			*results = append(*results, workflowStepResult{
 				Name:       fullName,
-				Type:       step.Type,
+				Type:       string(step.Type),
 				Status:     "error",
 				Attempts:   1,
 				DurationMs: time.Since(startedAt).Milliseconds(),
@@ -369,7 +369,7 @@ func executeSwitchStep(ctx context.Context, step *models.SkillAction, fullName s
 	recordStepOutput(contextData, step, fullName, output)
 	*results = append(*results, workflowStepResult{
 		Name:       fullName,
-		Type:       step.Type,
+		Type:       string(step.Type),
 		Status:     "ok",
 		Attempts:   1,
 		DurationMs: time.Since(startedAt).Milliseconds(),
@@ -400,7 +400,7 @@ func toolDefinition(definition models.SkillTool) providers.ToolDefinition {
 
 func actionFromTool(definition models.SkillTool) models.SkillAction {
 	return models.SkillAction{
-		Type:             definition.Type,
+		Type:             models.SkillActionType(definition.Type),
 		Command:          definition.Command,
 		WorkingDirectory: definition.WorkingDirectory,
 		Method:           definition.Method,
@@ -452,7 +452,7 @@ func executeShellAction(ctx context.Context, action models.SkillAction, argument
 	return truncate(strings.TrimRight(stdout.String(), "\n"), maxResultBytes), nil
 }
 
-func executeHTTPAction(ctx context.Context, action models.SkillAction, arguments map[string]interface{}, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) (string, error) {
+func executeHTTPAction(ctx context.Context, action models.SkillAction, arguments map[string]interface{}, authenticationProfiles map[string]models.SkillAuthenticationProfiles) (string, error) {
 	targetUrl := applyTemplate(ctx, action.URL, arguments)
 	body := applyTemplate(ctx, action.Body, arguments)
 	method := action.Method
@@ -481,7 +481,7 @@ func executeHTTPAction(ctx context.Context, action models.SkillAction, arguments
 	for headerName, headerValue := range action.Headers {
 		request.Header.Set(headerName, headerValue)
 	}
-	if err := applyAuthenticationProfiles(ctx, request, action, arguments, httpAuthProfiles); err != nil {
+	if err := applyAuthenticationProfiles(ctx, request, action, arguments, authenticationProfiles); err != nil {
 		return "", err
 	}
 
@@ -509,28 +509,28 @@ func executeHTTPAction(ctx context.Context, action models.SkillAction, arguments
 	return result, nil
 }
 
-func applyAuthenticationProfiles(ctx context.Context, request *http.Request, action models.SkillAction, arguments map[string]interface{}, httpAuthProfiles map[string]models.SkillAuthenticationProfiles) error {
+func applyAuthenticationProfiles(ctx context.Context, request *http.Request, action models.SkillAction, arguments map[string]interface{}, authenticationProfiles map[string]models.SkillAuthenticationProfiles) error {
 	profileName := action.Auth
 	if profileName == "" {
 		return nil
 	}
-	profile, ok := httpAuthProfiles[profileName]
+	profile, ok := authenticationProfiles[profileName]
 	if !ok {
 		return fmt.Errorf("http auth profile not found: %s", profileName)
 	}
 	switch profile.Type {
-	case "bearer":
+	case models.SkillAuthenticationTypeBearer:
 		token := applyTemplate(ctx, profile.Token, arguments)
 		prefix := profile.Prefix
 		if prefix == "" {
 			prefix = "Bearer "
 		}
 		request.Header.Set("Authorization", prefix+token)
-	case "basic":
+	case models.SkillAuthenticationTypeBasic:
 		username := applyTemplate(ctx, profile.Username, arguments)
 		password := applyTemplate(ctx, profile.Password, arguments)
 		request.SetBasicAuth(username, password)
-	case "apiKey":
+	case models.SkillAuthenticationTypeAPIKey:
 		value := applyTemplate(ctx, profile.Value, arguments)
 		if profile.Prefix != "" {
 			value = profile.Prefix + value
@@ -551,7 +551,7 @@ func applyAuthenticationProfiles(ctx context.Context, request *http.Request, act
 
 func processActionOutput(action models.SkillAction, rawOutput string, name string) (interface{}, error) {
 	storedOutput := interface{}(rawOutput)
-	if action.Result == "json" {
+	if action.Result == models.SkillResultFormatJSON {
 		var parsed interface{}
 		if err := json.Unmarshal([]byte(rawOutput), &parsed); err != nil {
 			return nil, fmt.Errorf("%s invalid json output: %w", name, err)

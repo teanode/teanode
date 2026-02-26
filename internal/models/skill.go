@@ -2,12 +2,50 @@ package models
 
 import "time"
 
+type SkillToolType string
+
+const (
+	SkillToolTypeShell    SkillToolType = "shell"
+	SkillToolTypeHTTP     SkillToolType = "http"
+	SkillToolTypeWorkflow SkillToolType = "workflow"
+)
+
+type SkillActionType string
+
+const (
+	SkillActionTypeShell   SkillActionType = "shell"
+	SkillActionTypeHTTP    SkillActionType = "http"
+	SkillActionTypeForEach SkillActionType = "forEach"
+	SkillActionTypeSwitch  SkillActionType = "switch"
+)
+
+type SkillAuthenticationType string
+
+const (
+	SkillAuthenticationTypeBearer SkillAuthenticationType = "bearer"
+	SkillAuthenticationTypeBasic  SkillAuthenticationType = "basic"
+	SkillAuthenticationTypeAPIKey SkillAuthenticationType = "apiKey"
+)
+
+type SkillResultFormat string
+
+const (
+	SkillResultFormatText SkillResultFormat = "text"
+	SkillResultFormatJSON SkillResultFormat = "json"
+)
+
+type SkillErrorPolicy string
+
+const (
+	SkillErrorPolicyFail     SkillErrorPolicy = "fail"
+	SkillErrorPolicyContinue SkillErrorPolicy = "continue"
+)
+
 type Skill struct {
 	ID                     string                                  `json:"id,omitempty" yaml:"id,omitempty"`
 	Name                   *string                                 `json:"name,omitempty" yaml:"name,omitempty"`
 	Description            *string                                 `json:"description,omitempty" yaml:"description,omitempty"`
 	Version                *string                                 `json:"version,omitempty" yaml:"version,omitempty"`
-	RuntimeMinVersion      *string                                 `json:"runtimeMinVersion,omitempty" yaml:"runtimeMinVersion,omitempty"`
 	AuthenticationProfiles *map[string]SkillAuthenticationProfiles `json:"authenticationProfiles,omitempty" yaml:"authenticationProfiles,omitempty"`
 	Tools                  *[]*SkillTool                           `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Enabled                *bool                                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
@@ -20,22 +58,22 @@ type Skill struct {
 
 // SkillAuthenticationProfiles defines authentication credentials for HTTP skill tools.
 type SkillAuthenticationProfiles struct {
-	Type       string `json:"type" yaml:"type"` // "bearer", "basic", "apiKey"
-	Token      string `json:"token,omitempty" yaml:"token,omitempty"`
-	Username   string `json:"username,omitempty" yaml:"username,omitempty"`
-	Password   string `json:"password,omitempty" yaml:"password,omitempty"`
-	Header     string `json:"header,omitempty" yaml:"header,omitempty"`         // for apiKey
-	QueryParam string `json:"queryParam,omitempty" yaml:"queryParam,omitempty"` // for apiKey
-	Value      string `json:"value,omitempty" yaml:"value,omitempty"`           // for apiKey
-	Prefix     string `json:"prefix,omitempty" yaml:"prefix,omitempty"`         // optional value prefix
+	Type       SkillAuthenticationType `json:"type" yaml:"type"` // "bearer", "basic", "apiKey"
+	Token      string                  `json:"token,omitempty" yaml:"token,omitempty"`
+	Username   string                  `json:"username,omitempty" yaml:"username,omitempty"`
+	Password   string                  `json:"password,omitempty" yaml:"password,omitempty"`
+	Header     string                  `json:"header,omitempty" yaml:"header,omitempty"`         // for apiKey
+	QueryParam string                  `json:"queryParam,omitempty" yaml:"queryParam,omitempty"` // for apiKey
+	Value      string                  `json:"value,omitempty" yaml:"value,omitempty"`           // for apiKey
+	Prefix     string                  `json:"prefix,omitempty" yaml:"prefix,omitempty"`         // optional value prefix
 }
 
 // SkillTool is one tool inside a skill.
 type SkillTool struct {
-	Name        string      `json:"name" yaml:"name"`
-	Description string      `json:"description" yaml:"description"`
-	Type        string      `json:"type" yaml:"type"`             // "shell", "http", or "workflow"
-	Parameters  interface{} `json:"parameters" yaml:"parameters"` // JSON schema for LLM
+	Name        string        `json:"name" yaml:"name"`
+	Description string        `json:"description" yaml:"description"`
+	Type        SkillToolType `json:"type" yaml:"type"`             // "shell", "http", or "workflow"
+	Parameters  interface{}   `json:"parameters" yaml:"parameters"` // JSON schema for LLM
 
 	// Shell fields
 	Command          []string `json:"command,omitempty" yaml:"command,omitempty"`                   // command + args
@@ -49,7 +87,7 @@ type SkillTool struct {
 
 	// Common
 	Timeout      int                    `json:"timeout,omitempty" yaml:"timeout,omitempty"` // seconds, default 30
-	Result       string                 `json:"result,omitempty" yaml:"result,omitempty"`   // "text"(default) | "json"
+	Result       SkillResultFormat      `json:"result,omitempty" yaml:"result,omitempty"`   // "text"(default) | "json"
 	Extract      string                 `json:"extract,omitempty" yaml:"extract,omitempty"` // path into JSON result
 	Select       map[string]string      `json:"select,omitempty" yaml:"select,omitempty"`   // output key -> path into JSON result
 	OutputSchema map[string]interface{} `json:"outputSchema,omitempty" yaml:"outputSchema,omitempty"`
@@ -64,9 +102,9 @@ type SkillTool struct {
 
 // SkillAction is one step in a workflow tool.
 type SkillAction struct {
-	Name string `json:"name,omitempty" yaml:"name,omitempty"`
-	Type string `json:"type" yaml:"type"` // "shell", "http", "forEach", "switch"
-	If   string `json:"if,omitempty" yaml:"if,omitempty"`
+	Name string          `json:"name,omitempty" yaml:"name,omitempty"`
+	Type SkillActionType `json:"type" yaml:"type"` // "shell", "http", "forEach", "switch"
+	If   string          `json:"if,omitempty" yaml:"if,omitempty"`
 
 	// Shell fields
 	Command          []string `json:"command,omitempty" yaml:"command,omitempty"`
@@ -82,8 +120,8 @@ type SkillAction struct {
 	Timeout      int                    `json:"timeout,omitempty" yaml:"timeout,omitempty"`
 	Retries      int                    `json:"retries,omitempty" yaml:"retries,omitempty"`
 	RetryDelay   int                    `json:"retryDelay,omitempty" yaml:"retryDelay,omitempty"`
-	OnError      string                 `json:"onError,omitempty" yaml:"onError,omitempty"` // "fail"(default) | "continue"
-	Result       string                 `json:"result,omitempty" yaml:"result,omitempty"`   // "text"(default) | "json"
+	OnError      SkillErrorPolicy       `json:"onError,omitempty" yaml:"onError,omitempty"` // "fail"(default) | "continue"
+	Result       SkillResultFormat      `json:"result,omitempty" yaml:"result,omitempty"`   // "text"(default) | "json"
 	SaveAs       string                 `json:"saveAs,omitempty" yaml:"saveAs,omitempty"`
 	Extract      string                 `json:"extract,omitempty" yaml:"extract,omitempty"` // path into JSON result
 	Select       map[string]string      `json:"select,omitempty" yaml:"select,omitempty"`   // output key -> path into JSON result

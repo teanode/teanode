@@ -10,9 +10,9 @@ import (
 )
 
 type driveTool struct {
-	binary  string
+	binary string
 
-	runner  commandRunner
+	runner commandRunner
 }
 
 func (self *driveTool) Definition() providers.ToolDefinition {

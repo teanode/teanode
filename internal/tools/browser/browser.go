@@ -9,13 +9,13 @@ import (
 	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
-// RegisterTools adds all browser-control tools to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
-	registry.Register(&browserTool{})
-	registry.Register(&browserTabsTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&browserTool{}, &browserTabsTool{}}
+	})
 }
 
 // resolveSessionId returns the sessionId for the given user and connectionId,

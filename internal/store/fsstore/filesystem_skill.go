@@ -23,8 +23,7 @@ type fileSystemSkillFrontmatter struct {
 	Name                   string                                        `yaml:"name"`
 	Description            string                                        `yaml:"description,omitempty"`
 	Version                string                                        `yaml:"version,omitempty"`
-	RuntimeMinVersion      string                                        `yaml:"runtimeMinVersion,omitempty"`
-	AuthenticationProfiles map[string]models.SkillAuthenticationProfiles `yaml:"httpAuth,omitempty"`
+	AuthenticationProfiles map[string]models.SkillAuthenticationProfiles `yaml:"authenticationProfiles,omitempty"`
 	Tools                  []*models.SkillTool                           `yaml:"tools,omitempty"`
 }
 
@@ -42,7 +41,6 @@ type fileSystemParsedSkill struct {
 	Name                   string
 	Description            string
 	Version                string
-	RuntimeMinVersion      string
 	AuthenticationProfiles map[string]models.SkillAuthenticationProfiles
 	Tools                  []*models.SkillTool
 	Prompt                 string
@@ -67,12 +65,8 @@ func buildSkillFrontmatter(skill models.Skill, skillId string) map[string]interf
 	if description != "" {
 		frontmatter["description"] = description
 	}
-	runtimeMinVersion := skill.GetRuntimeMinVersion()
-	if runtimeMinVersion != "" {
-		frontmatter["runtimeMinVersion"] = runtimeMinVersion
-	}
 	if skill.AuthenticationProfiles != nil {
-		frontmatter["httpAuth"] = *skill.AuthenticationProfiles
+		frontmatter["authenticationProfiles"] = *skill.AuthenticationProfiles
 	}
 	if skill.Tools != nil {
 		frontmatter["tools"] = *skill.Tools
@@ -111,18 +105,17 @@ func (self *fileSystemTransaction) listSkills(options *store.Option) ([]*models.
 		prompt := parsedSkill.Prompt
 		description := parsedSkill.Description
 		skill := models.Skill{
-			ID:                parsedSkill.Name,
-			Name:              ptrto.TrimmedString(name),
-			Description:       ptrto.TrimmedString(description),
-			Version:           ptrto.TrimmedString(parsedSkill.Version),
-			RuntimeMinVersion: ptrto.TrimmedString(parsedSkill.RuntimeMinVersion),
-			Source:            ptrto.TrimmedString(parsedSkill.Source),
-			Publisher:         ptrto.TrimmedString(parsedSkill.Publisher),
-			Prompt:            ptrto.Value(prompt),
+			ID:          parsedSkill.Name,
+			Name:        ptrto.TrimmedString(name),
+			Description: ptrto.TrimmedString(description),
+			Version:     ptrto.TrimmedString(parsedSkill.Version),
+			Source:      ptrto.TrimmedString(parsedSkill.Source),
+			Publisher:   ptrto.TrimmedString(parsedSkill.Publisher),
+			Prompt:      ptrto.Value(prompt),
 		}
 		if len(parsedSkill.AuthenticationProfiles) > 0 {
-			httpAuth := parsedSkill.AuthenticationProfiles
-			skill.AuthenticationProfiles = &httpAuth
+			authenticationProfiles := parsedSkill.AuthenticationProfiles
+			skill.AuthenticationProfiles = &authenticationProfiles
 		}
 		if len(parsedSkill.Tools) > 0 {
 			tools := parsedSkill.Tools
@@ -331,7 +324,6 @@ func (self *fileSystemTransaction) readSkillMarkdown(path string) (fileSystemPar
 		Name:                   frontmatter.Name,
 		Description:            frontmatter.Description,
 		Version:                frontmatter.Version,
-		RuntimeMinVersion:      frontmatter.RuntimeMinVersion,
 		AuthenticationProfiles: frontmatter.AuthenticationProfiles,
 		Tools:                  frontmatter.Tools,
 		Prompt:                 strings.TrimSpace(body),

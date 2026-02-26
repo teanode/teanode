@@ -74,8 +74,8 @@ func TestAuthMiddleware_WebSocketAllowsBearerToken(t *testing.T) {
 
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket?token=token123", nil)
 	response = runThroughAuthMiddleware(persistenceStore, request)
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("websocket query-token status = %d, want %d", response.Code, http.StatusUnauthorized)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("websocket query-token status = %d, want %d", response.Code, http.StatusNoContent)
 	}
 }
 

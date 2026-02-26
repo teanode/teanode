@@ -1,6 +1,5 @@
 package runners
 
-
 // modelRuntimeLimitsStub provides test defaults matching the hardcoded
 // constants used by truncateOldToolResults. This is a temporary stub until
 // the ModelRuntimeLimits type lands in models.

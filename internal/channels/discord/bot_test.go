@@ -8,7 +8,6 @@ import (
 	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/pubsub"
-	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	storefs "github.com/teanode/teanode/internal/store/fsstore"
 	toolregistry "github.com/teanode/teanode/internal/tools"
@@ -41,13 +40,11 @@ func TestShouldForwardDisconnectedWebUI(t *testing.T) {
 		return nil
 	})
 
-	defaults := runners.NewDefaultConversationManager(contextWithStore)
-	defaults.SetDefaultConversation("user-1", "main", "default-conversation")
-
 	events := pubsub.New()
-	coordinator := coordinators.New(contextWithStore, &models.Configuration{}, nil, defaults, nil, events, func(_ context.Context, _ models.Agent) (*toolregistry.ToolRegistry, string) {
-		return toolregistry.NewToolRegistry(), ""
+	coordinator := coordinators.New(contextWithStore, &models.Configuration{}, nil, nil, events, func(_ context.Context, _ models.Agent) (*toolregistry.ToolRegistry, string) {
+		return toolregistry.NewEmptyToolRegistry(), ""
 	})
+	coordinator.SetDefaultConversation("user-1", "main", "default-conversation")
 
 	bot := &Bot{ctx: contextWithStore, coordinator: coordinator}
 

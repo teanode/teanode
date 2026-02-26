@@ -86,9 +86,9 @@ func TestRunWithValidJSON(testing *testing.T) {
 	runner, calls := mockRunner(codexOutput, "", 0, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -145,9 +145,9 @@ func TestRunWithNonJSONFallback(testing *testing.T) {
 	runner, _ := mockRunner("Some plain text output\nfrom codex", "", 0, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -175,9 +175,9 @@ func TestRunWithNonJSONFallbackError(testing *testing.T) {
 	runner, _ := mockRunner("Error output", "some stderr", 1, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -204,9 +204,9 @@ func TestRunWithNonJSONFallbackError(testing *testing.T) {
 func TestRunMissingPrompt(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -221,8 +221,8 @@ func TestRunMissingPrompt(testing *testing.T) {
 func TestRunRequiresResumeWhenSessionExists(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 		sessions: map[string]*sessionInfo{
 			"existing-session": {SessionID: "existing-session"},
 		},
@@ -242,8 +242,8 @@ func TestRunAllowsForceNewSessionWhenSessionExists(testing *testing.T) {
 	codexOutput := `{"result":"Started fresh","session_id":"new-session","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
 	runner, calls := mockRunner(codexOutput, "", 0, nil)
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 		sessions: map[string]*sessionInfo{
 			"existing-session": {SessionID: "existing-session"},
 		},
@@ -270,8 +270,8 @@ func TestResumeKnownSession(testing *testing.T) {
 	runner, calls := mockRunner(codexOutput, "", 0, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 		sessions: map[string]*sessionInfo{
 			"abc-123": {
 				SessionID:  "abc-123",
@@ -332,9 +332,9 @@ func TestResumeWithoutTrackedSession(testing *testing.T) {
 	codexOutput := `{"result":"Continued anyway","session_id":"nonexistent","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
 	runner, calls := mockRunner(codexOutput, "", 0, nil)
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -376,9 +376,9 @@ func TestResumeWithoutTrackedSession(testing *testing.T) {
 func TestResumeMissingSessionID(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -394,8 +394,8 @@ func TestResumeMissingSessionID(testing *testing.T) {
 func TestResumeMissingPrompt(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 		sessions: map[string]*sessionInfo{
 			"abc-123": {SessionID: "abc-123"},
 		},
@@ -452,9 +452,9 @@ func TestListSessionsAfterRuns(testing *testing.T) {
 	}
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	// Run two tasks.
@@ -734,9 +734,9 @@ func TestTimeoutCapping(testing *testing.T) {
 	runner, _ := mockRunner(codexOutput, "", 0, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	// Request a timeout that exceeds the max — it should be capped.
@@ -804,9 +804,9 @@ func TestRunCommandExecutionError(testing *testing.T) {
 	runner, _ := mockRunner("", "command not found", -1, fmt.Errorf("exec: command not found"))
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -826,9 +826,9 @@ func TestRunWithWorkingDirectory(testing *testing.T) {
 	runner, calls := mockRunner(codexOutput, "", 0, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -855,9 +855,9 @@ func TestRunFallbackToStderr(testing *testing.T) {
 	runner, _ := mockRunner("", "Error: something went wrong", 1, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{

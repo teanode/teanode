@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
 	storefs "github.com/teanode/teanode/internal/store/fsstore"
 )
@@ -44,7 +45,7 @@ func TestSummarizerSummarizeAllIteratesAllUsersAndAgents(t *testing.T) {
 	}
 	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
 
-	instance := New(contextWithStore, nil)
+	instance := New(contextWithStore, providers.NewEmptyProviderRegistry())
 	// summarizeAll should iterate all user-agent combinations without panicking.
 	// No provider is configured, so summarization will be silently skipped,
 	// but the iteration logic is exercised.
@@ -82,6 +83,6 @@ func TestSummarizerSummarizeAllWithEmptyConversationStore(t *testing.T) {
 	}
 	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
 
-	instance := New(contextWithStore, nil)
+	instance := New(contextWithStore, providers.NewEmptyProviderRegistry())
 	instance.summarizeAll(contextWithStore)
 }

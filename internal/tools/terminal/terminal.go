@@ -9,12 +9,13 @@ import (
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
-// RegisterTools adds all terminal-control tools to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
-	registry.Register(&terminalTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&terminalTool{}}
+	})
 }
 
 // resolveConnectionId returns the connectionId from args or falls back to the user's default.

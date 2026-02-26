@@ -15,12 +15,8 @@ func ContextWithDataDirectory(ctx context.Context, dataDirectory string) context
 }
 
 // DataDirectoryFromContext returns the data directory from context, falling back to
-// ResolveDataDirectory("") when not set.
-func DataDirectoryFromContext(ctx context.Context) (string, error) {
-	if dataDirectory, ok := ctx.Value(dataDirectoryContextKey{}).(string); ok && dataDirectory != "" {
-		return dataDirectory, nil
-	}
-	return ResolveDataDirectory("")
+func DataDirectoryFromContext(ctx context.Context) string {
+	return ctx.Value(dataDirectoryContextKey{}).(string)
 }
 
 // ResolveDataDirectory returns the data directory from the given command flag value,
@@ -37,13 +33,4 @@ func ResolveDataDirectory(commandValue string) (string, error) {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
 	return filepath.Join(homeDirectory, ".teanode"), nil
-}
-
-// GatewayPIDFilenameFromContext returns the path to the gateway PID file.
-func GatewayPIDFilenameFromContext(ctx context.Context) (string, error) {
-	dataDirectory, err := DataDirectoryFromContext(ctx)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dataDirectory, "gateway.pid"), nil
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
 	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/mimetypes"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
@@ -24,12 +25,24 @@ import (
 
 // Runner orchestrates: load conversation -> build prompt -> call LLM -> save response.
 type Runner struct {
-	ID             string
-	AgentID        string
-	ConversationID string
-	Providers      *providers.Registry
-	Tools          *toolregistry.ToolRegistry
-	SkillPrompts   string
+	ID               string
+	AgentID          string
+	ConversationID   string
+	ProviderRegistry *providers.ProviderRegistry
+	ToolRegistry     *toolregistry.ToolRegistry
+	SkillPrompts     string
+}
+
+// NewRunner creates a new Runner with a generated ID.
+func NewRunner(agentId, conversationId string, providerRegistry *providers.ProviderRegistry, toolRegistry *toolregistry.ToolRegistry, skillPrompts string) *Runner {
+	return &Runner{
+		ID:               security.NewULID(),
+		AgentID:          agentId,
+		ConversationID:   conversationId,
+		ProviderRegistry: providerRegistry,
+		ToolRegistry:     toolRegistry,
+		SkillPrompts:     skillPrompts,
+	}
 }
 
 // RunParams holds the parameters for a single agent run.
@@ -43,7 +56,7 @@ type RunParams struct {
 
 // RunResult holds the result of a completed agent run.
 type RunResult struct {
-	RunID         string
+	RunnerID      string
 	Response      string
 	Usage         map[string]int
 	Model         string
@@ -64,20 +77,6 @@ func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCal
 	return self.executeRun(ctx, params, callbacks)
 }
 
-// ResolveModelsConfiguration reads the current ModelsConfiguration from the store.
-func ResolveModelsConfiguration(ctx context.Context) *models.ModelsConfiguration {
-	var configuration *models.Configuration
-	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		var getError error
-		configuration, getError = transaction.GetConfiguration(ctx, nil)
-		return getError
-	})
-	if configuration != nil {
-		return configuration.Models
-	}
-	return nil
-}
-
 // executeRun performs the actual chat turn: appends the user message, calls the LLM
 // (streaming), and appends the assistant response. Loops when the LLM requests tool calls.
 func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
@@ -87,21 +86,16 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	}
 	userId := user.ID
 	isAdmin := user.GetAdmin()
-	runId := security.NewULID()
+	runnerId := security.NewULID()
 	now := time.Now().UnixMilli()
 
-	log.Debugf("run start id=%s conversation=%s model=%s", runId, self.ConversationID, params.Model)
+	log.Debugf("run start id=%s conversation=%s model=%s", runnerId, self.ConversationID, params.Model)
 
 	// Enrich context with conversation id and runner for tools.
 	ctx = ContextWithRunner(ctx, self)
 
 	// 1. Choose model and resolve provider (before appending, so we can stamp the header).
-	modelsConfiguration := ResolveModelsConfiguration(ctx)
-	defaultModel := ""
-	if modelsConfiguration != nil {
-		defaultModel = modelsConfiguration.GetDefault()
-	}
-	qualifiedModel, _ := self.resolveAgentModelAndName(ctx, defaultModel)
+	qualifiedModel, _ := self.resolveAgentModelAndName(ctx)
 	if params.Model != "" {
 		qualifiedModel = params.Model
 	}
@@ -126,16 +120,10 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		}
 	}
 
-	// Validate that we resolved a non-empty model.
-	if qualifiedModel == "" {
-		return nil, fmt.Errorf("no model configured: set a default model in config or specify one in the request")
-	}
-
-	provider, model, err := self.Providers.Resolve(qualifiedModel)
+	provider, providerName, modelName, err := self.ProviderRegistry.ResolveProviderAndModel(qualifiedModel)
 	if err != nil {
 		return nil, fmt.Errorf("resolving model %q: %w", qualifiedModel, err)
 	}
-	resolvedProvider, _ := providers.ParseQualifiedModel(qualifiedModel, self.Providers.DefaultProvider())
 
 	// 2. Append user message to conversation (sets provider/model on new or backfills existing).
 	var userMessage models.ConversationMessage
@@ -144,9 +132,9 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	} else {
 		userMessage = newTextMessage("user", params.Message, now)
 	}
-	userMessage.Provider = ptrto.Value(resolvedProvider)
-	userMessage.Model = ptrto.Value(qualifiedModel)
-	if err := self.appendConversationMessage(ctx,userMessage); err != nil {
+	userMessage.Provider = ptrto.Value(providerName)
+	userMessage.Model = ptrto.Value(modelName)
+	if err := self.appendConversationMessage(ctx, userMessage); err != nil {
 		return nil, fmt.Errorf("saving user message: %w", err)
 	}
 
@@ -164,7 +152,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	var contextWindow int
 
 	for round := 0; round < 250; round++ {
-		log.Debugf("run id=%s round=%d history_len=%d", runId, round, len(history))
+		log.Debugf("run id=%s round=%d history_len=%d", runnerId, round, len(history))
 
 		// Build messages for the LLM.
 		llmMessages := self.buildMessages(ctx, history, params.SystemPromptSuffix, params.SystemPromptMode, self.SkillPrompts)
@@ -173,22 +161,14 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		llmMessages = truncateOldToolResults(llmMessages, 10, 8000)
 
 		// Build tool definitions for the request.
-		var toolDefs []providers.ToolDefinition
-		if self.Tools != nil {
-			toolDefs = self.Tools.Definitions()
-		}
+		toolDefinitions := self.ToolRegistry.Definitions()
 
 		// Tier 2: compress context if approaching the context window limit.
 		// Re-read models configuration for fresh values.
-		modelsConfiguration = ResolveModelsConfiguration(ctx)
-		if modelsConfiguration != nil {
-			contextWindow = modelsConfiguration.GetContextWindow()
-		}
 		llmMessages, err = self.compressContext(
 			ctx,
 			llmMessages,
-			toolDefs,
-			contextWindow,
+			toolDefinitions,
 			contextCompressionLimits{
 				CompressionThreshold: 0.8,
 				MinKeepMessages:      10,
@@ -201,13 +181,13 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 
 		// Build request.
 		request := providers.ChatRequest{
-			Model:         model,
+			Model:         modelName,
 			Messages:      llmMessages,
 			Stream:        true,
 			StreamOptions: &providers.StreamOptions{IncludeUsage: true},
 		}
-		if len(toolDefs) > 0 {
-			request.Tools = toolDefs
+		if len(toolDefinitions) > 0 {
+			request.Tools = toolDefinitions
 		}
 
 		// Call LLM with streaming.
@@ -306,7 +286,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		// Save assistant message.
 		assistantMessage := newTextMessage("assistant", responseText, time.Now().UnixMilli())
 		assistantMessage.Model = ptrto.Value(responseModel)
-		assistantMessage.Provider = ptrto.Value(resolvedProvider)
+		assistantMessage.Provider = ptrto.Value(providerName)
 		if stopReason != "" {
 			stopReasonValue := models.StopReason(stopReason)
 			assistantMessage.StopReason = &stopReasonValue
@@ -330,13 +310,13 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			assistantMessage.Usage = usageJson
 		}
 
-		if err := self.appendConversationMessage(ctx,assistantMessage); err != nil {
+		if err := self.appendConversationMessage(ctx, assistantMessage); err != nil {
 			return nil, fmt.Errorf("saving assistant message: %w", err)
 		}
 		history = append(history, &assistantMessage)
 
 		// If no tool calls, we're done.
-		if len(toolCalls) == 0 || self.Tools == nil {
+		if len(toolCalls) == 0 || self.ToolRegistry == nil {
 			break
 		}
 
@@ -349,7 +329,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 
 		var workItems []toolWorkItem
 		for _, toolCall := range toolCalls {
-			tool := self.Tools.Get(toolCall.Function.Name)
+			tool := self.ToolRegistry.Get(toolCall.Function.Name)
 			if tool == nil {
 				continue
 			}
@@ -366,7 +346,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 					callbacks.OnToolResult(toolCall.Function.Name, result)
 				}
 				toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result, time.Now().UnixMilli())
-				if err := self.appendConversationMessage(ctx,toolMessage); err != nil {
+				if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
 					return nil, fmt.Errorf("saving tool denial: %w", err)
 				}
 				history = append(history, &toolMessage)
@@ -395,6 +375,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		waitGroup.Add(len(workItems))
 		for position, item := range workItems {
 			go func(position int, item toolWorkItem) {
+				defer deferutil.Recover()
 				defer waitGroup.Done()
 				log.Debugf("tool call id=%s name=%s", item.toolCall.ID, item.toolCall.Function.Name)
 				result, executeError := item.tool.Execute(ctx, item.arguments)
@@ -428,7 +409,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 							UserID:         ptrto.Value(userId),
 							Format:         ptrto.Value(detected.Format),
 							ContentType:    ptrto.Value(contentType),
-							Source:         ptrto.Value("tool"),
+							Source:         ptrto.Value(models.MediaSourceTool),
 							SourceAgentID:  ptrto.Value(self.AgentID),
 							ConversationID: ptrto.Value(self.ConversationID),
 							ToolName:       ptrto.Value(item.toolCall.Function.Name),
@@ -452,17 +433,17 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			}
 
 			toolMessage := newToolMessage(item.toolCall.ID, item.toolCall.Function.Name, storedResult, time.Now().UnixMilli())
-			if err := self.appendConversationMessage(ctx,toolMessage); err != nil {
+			if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
 				return nil, fmt.Errorf("saving tool result: %w", err)
 			}
 			history = append(history, &toolMessage)
 		}
 	}
 
-	log.Debugf("run done id=%s model=%s stop=%s", runId, responseModel, stopReason)
+	log.Debugf("run done id=%s model=%s stop=%s", runnerId, responseModel, stopReason)
 
 	return &RunResult{
-		RunID:         runId,
+		RunnerID:      runnerId,
 		Response:      responseText,
 		Usage:         totalUsage,
 		Model:         responseModel,
@@ -545,17 +526,15 @@ func parseToolAction(arguments string) string {
 	return strings.ToLower(action)
 }
 
-func (self *Runner) resolveAgentModelAndName(ctx context.Context, defaultModel string) (string, string) {
-	resolvedModel := defaultModel
+func (self *Runner) resolveAgentModelAndName(ctx context.Context) (string, string) {
+	resolvedModel := ""
 	resolvedName := ""
 	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		agent, err := transaction.GetAgent(ctx, self.AgentID, nil)
 		if err != nil || agent == nil {
 			return nil
 		}
-		if model := agent.GetModel(); model != "" {
-			resolvedModel = model
-		}
+		resolvedModel = agent.GetModel()
 		resolvedName = agent.GetName()
 		return nil
 	})
@@ -571,7 +550,7 @@ func (self *Runner) buildMessages(
 	systemPromptMode SystemPromptMode,
 	skillPrompts string,
 ) []providers.ChatMessage {
-	_, agentName := self.resolveAgentModelAndName(ctx, "")
+	_, agentName := self.resolveAgentModelAndName(ctx)
 	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
 		IdentityLine: resolveIdentityLine(self.AgentID, agentName),
 		AgentID:      self.AgentID,

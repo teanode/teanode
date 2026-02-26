@@ -12,7 +12,30 @@ import (
 
 // EnsureDefaultConversation returns the default conversation for a user+agent, creating one if needed.
 func (self *Coordinator) EnsureDefaultConversation(userId, agentId string) string {
-	return self.defaults.EnsureDefaultConversation(userId, agentId)
+	var conversationId string
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		defaultConversation, findError := transaction.FindDefaultConversation(ctx, userId, agentId, nil)
+		if findError == nil && defaultConversation != nil {
+			conversationId = defaultConversation.ID
+			return nil
+		}
+		// Fall back to the most recent conversation for this agent.
+		conversations, listError := transaction.ListConversations(ctx, store.ConversationListOptions{
+			UserID:  ptrto.Value(userId),
+			AgentID: ptrto.Value(agentId),
+		}, nil)
+		if listError == nil && len(conversations) > 0 {
+			conversationId = conversations[0].ID
+			return nil
+		}
+		return nil
+	})
+	if conversationId != "" {
+		return conversationId
+	}
+	conversationId = security.NewULID()
+	self.persistDefaultConversation(userId, agentId, conversationId)
+	return conversationId
 }
 
 // SetDefaultConversation sets the default conversation for a user+agent and broadcasts the change.
@@ -21,7 +44,7 @@ func (self *Coordinator) SetDefaultConversation(userId, agentId, conversationId 
 		log.Warningf("set default conversation requires non-empty userId")
 		return
 	}
-	self.defaults.SetDefaultConversation(userId, agentId, conversationId)
+	self.persistDefaultConversation(userId, agentId, conversationId)
 	self.pubsub.Broadcast(pubsub.EventTypeDefaultConversation, map[string]interface{}{
 		"agentId":               agentId,
 		"defaultConversationId": conversationId,
@@ -36,25 +59,35 @@ func (self *Coordinator) SetDefaultConversationIfUnset(userId, agentId, conversa
 		log.Warningf("set default conversation-if-unset requires non-empty userId")
 		return false
 	}
-	changed := self.defaults.SetDefaultConversationIfUnset(userId, agentId, conversationId)
-	if changed {
-		self.pubsub.Broadcast(pubsub.EventTypeDefaultConversation, map[string]interface{}{
-			"agentId":               agentId,
-			"defaultConversationId": conversationId,
-			"userId":                userId,
-		})
+	var alreadySet bool
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		defaultConversation, findError := transaction.FindDefaultConversation(ctx, userId, agentId, nil)
+		if findError == nil && defaultConversation != nil {
+			alreadySet = true
+		}
+		return nil
+	})
+	if alreadySet {
+		return false
 	}
-	return changed
+	self.persistDefaultConversation(userId, agentId, conversationId)
+	self.pubsub.Broadcast(pubsub.EventTypeDefaultConversation, map[string]interface{}{
+		"agentId":               agentId,
+		"defaultConversationId": conversationId,
+		"userId":                userId,
+	})
+	return true
 }
 
 // NewDefaultConversation creates a new conversation and sets it as the default.
-func (self *Coordinator) NewDefaultConversation(userId, agentId, model string) string {
+func (self *Coordinator) NewDefaultConversation(userId, agentId string) string {
 	if userId == "" {
 		log.Warningf("new conversation requires non-empty userId")
 		return ""
 	}
-	conversationId := self.defaults.NewDefaultConversation(userId, agentId)
-	self.createConversation(userId, agentId, conversationId, model)
+	conversationId := security.NewULID()
+	self.persistDefaultConversation(userId, agentId, conversationId)
+	self.createConversation(userId, agentId, conversationId)
 
 	self.pubsub.Broadcast(pubsub.EventTypeDefaultConversation, map[string]interface{}{
 		"agentId":               agentId,
@@ -65,30 +98,7 @@ func (self *Coordinator) NewDefaultConversation(userId, agentId, model string) s
 }
 
 // createConversation creates a conversation in the store with the resolved model.
-func (self *Coordinator) createConversation(userId, agentId, conversationId, model string) {
-	if userId == "" {
-		return
-	}
-	qualifiedModel := model
-	if qualifiedModel == "" {
-		if self.config != nil && self.config.Models != nil {
-			qualifiedModel = self.config.Models.GetDefault()
-		}
-		_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-			agent, err := transaction.GetAgent(ctx, agentId, nil)
-			if err != nil || agent == nil {
-				return nil
-			}
-			agentModel := agent.GetModel()
-			if agentModel != "" {
-				qualifiedModel = agentModel
-			}
-			return nil
-		})
-	}
-	if qualifiedModel == "" {
-		return
-	}
+func (self *Coordinator) createConversation(userId, agentId, conversationId string) {
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		_, createError := transaction.CreateConversation(ctx, &models.Conversation{
 			ID:      conversationId,
@@ -101,45 +111,21 @@ func (self *Coordinator) createConversation(userId, agentId, conversationId, mod
 	}
 }
 
-// DeleteConversation deletes a conversation if it's not actively running.
-func (self *Coordinator) DeleteConversation(userId, agentId, conversationId string) error {
-	// Check not active.
-	if self.GetActiveConversationRunner(conversationId) {
-		return errConversationHasActiveRun
-	}
-
-	// Verify agent exists in store.
-	var agentExists bool
-	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		agent, err := transaction.GetAgent(ctx, agentId, nil)
-		if err == nil && agent != nil {
-			agentExists = true
+// persistDefaultConversation ensures the conversation exists and sets it as the default.
+func (self *Coordinator) persistDefaultConversation(userId, agentId, conversationId string) {
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		// Ensure the conversation exists in the store.
+		if _, err := transaction.GetConversation(ctx, conversationId, nil); err != nil {
+			if _, createError := transaction.CreateConversation(ctx, &models.Conversation{
+				ID:      conversationId,
+				UserID:  ptrto.Value(userId),
+				AgentID: ptrto.Value(agentId),
+			}, nil); createError != nil {
+				return createError
+			}
 		}
-		return nil
-	})
-	if !agentExists {
-		return errAgentNotFound
+		return transaction.SetDefaultConversation(ctx, conversationId, nil)
+	}); err != nil {
+		log.Warningf("persisting default conversation failed userId=%s agentId=%s conversationId=%s error=%v", userId, agentId, conversationId, err)
 	}
-	deleteError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		return transaction.DeleteConversation(ctx, conversationId, nil)
-	})
-	if deleteError != nil && deleteError != store.ErrNotFound {
-		return deleteError
-	}
-
-	self.pubsub.Broadcast(pubsub.EventTypeConversations, nil)
-	return nil
-}
-
-// ResolveOrCreateConversation resolves a conversation ID. If empty, creates a new one
-// and sets it as default if unset. Returns the resolved conversation ID.
-func (self *Coordinator) ResolveOrCreateConversation(userId, agentId, conversationId, model string) string {
-	if conversationId == "" {
-		conversationId = security.NewULID()
-		self.createConversation(userId, agentId, conversationId, model)
-		self.SetDefaultConversationIfUnset(userId, agentId, conversationId)
-	} else {
-		self.SetDefaultConversationIfUnset(userId, agentId, conversationId)
-	}
-	return conversationId
 }

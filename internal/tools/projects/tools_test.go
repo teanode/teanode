@@ -30,7 +30,7 @@ func TestProjectsToolCreateAndWrite(t *testing.T) {
 	openedStore := setupProjectsToolStore(t)
 	ctx := store.ContextWithStore(context.Background(), openedStore)
 
-	registry := tools.NewToolRegistry()
+	registry := tools.NewEmptyToolRegistry()
 	registry.Register(projects.NewProjectsTool())
 	registry.Register(projects.NewProjectWorkspaceTool())
 	projectsTool := registry.Get("projects")
@@ -79,7 +79,7 @@ func TestProjectsToolListRenameDelete(t *testing.T) {
 	openedStore := setupProjectsToolStore(t)
 	ctx := store.ContextWithStore(context.Background(), openedStore)
 
-	registry := tools.NewToolRegistry()
+	registry := tools.NewEmptyToolRegistry()
 	registry.Register(projects.NewProjectsTool())
 	registry.Register(projects.NewProjectWorkspaceTool())
 	projectsTool := registry.Get("projects")

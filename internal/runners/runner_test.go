@@ -20,11 +20,18 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-// mockRegistry creates a single-provider registry for testing.
-func mockRegistry(provider providers.Provider) *providers.Registry {
-	registry := providers.NewRegistry("mock")
-	registry.Register("mock", provider)
-	return registry
+// mockProviderRegistry creates a single-provider registry for testing with
+// "mock" as the default provider.
+func mockProviderRegistry(baseURL string) *providers.ProviderRegistry {
+	mockProviders := []*models.ProviderConfiguration{{
+		Name:    ptrto.Value("mock"),
+		BaseURL: ptrto.Value(baseURL),
+		APIKey:  ptrto.Value("test-key"),
+	}}
+	return providers.NewProviderRegistry(&models.ModelsConfiguration{
+		Default:   ptrto.Value("mock:mock-model"),
+		Providers: &mockProviders,
+	})
 }
 
 // mockOpenAIServer returns an httptest.Server that serves a streaming chat completion.
@@ -211,12 +218,12 @@ func TestRunnerRun(t *testing.T) {
 	defer server.Close()
 
 	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
-	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		AgentID:        "main",
-		ConversationID: "test-run",
-		Providers:      mockRegistry(provider),
+		AgentID:          "main",
+		ConversationID:   "test-run",
+		ProviderRegistry: mockProviderRegistry(server.URL),
+		ToolRegistry:     toolregistry.NewEmptyToolRegistry(),
 	}
 
 	var chunks []string
@@ -277,12 +284,12 @@ func TestRunnerRunAbort(t *testing.T) {
 	defer server.Close()
 
 	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock")
-	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		AgentID:        "main",
-		ConversationID: "abort-test",
-		Providers:      mockRegistry(provider),
+		AgentID:          "main",
+		ConversationID:   "abort-test",
+		ProviderRegistry: mockProviderRegistry(server.URL),
+		ToolRegistry:     toolregistry.NewEmptyToolRegistry(),
 	}
 
 	ctx, cancel := context.WithCancel(contextWithUserAndStore("user-1", testStore.persistenceStore))
@@ -344,16 +351,15 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	defer server.Close()
 
 	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
-	provider := providers.NewClient(server.URL, "")
 
-	tools := toolregistry.NewToolRegistry()
-	tools.Register(&stubTool{name: "workspace"})
+	toolRegistry := toolregistry.NewEmptyToolRegistry()
+	toolRegistry.Register(&stubTool{name: "workspace"})
 
 	runner := &Runner{
-		AgentID:        "main",
-		ConversationID: "tool-test",
-		Providers:      mockRegistry(provider),
-		Tools:          tools,
+		AgentID:          "main",
+		ConversationID:   "tool-test",
+		ProviderRegistry: mockProviderRegistry(server.URL),
+		ToolRegistry:     toolRegistry,
 	}
 
 	var toolCalls []string
@@ -710,12 +716,12 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	defer server.Close()
 
 	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
-	provider := providers.NewClient(server.URL, "")
 
 	runner := &Runner{
-		AgentID:        "main",
-		ConversationID: "mismatch-test",
-		Providers:      mockRegistry(provider),
+		AgentID:          "main",
+		ConversationID:   "mismatch-test",
+		ProviderRegistry: mockProviderRegistry(server.URL),
+		ToolRegistry:     toolregistry.NewEmptyToolRegistry(),
 	}
 
 	// First run: creates the conversation and locks it to "mock:mock-model".
@@ -744,9 +750,9 @@ func TestRunnerNoModelError(t *testing.T) {
 	testStore := newTestConversationStore(t, "user-1", "main", "")
 
 	runner := &Runner{
-		AgentID:        "main",
-		ConversationID: "no-model-test",
-		Providers:      providers.NewRegistry("mock"),
+		AgentID:          "main",
+		ConversationID:   "no-model-test",
+		ProviderRegistry: providers.NewEmptyProviderRegistry(),
 	}
 
 	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
@@ -763,9 +769,9 @@ func TestRunnerNoModelError(t *testing.T) {
 func TestRunnerRunRequiresUserID(t *testing.T) {
 	testStore := newTestConversationStore(t, "user-1", "main", "")
 	runner := &Runner{
-		AgentID:        "main",
-		ConversationID: "missing-user-id",
-		Providers:      providers.NewRegistry("mock"),
+		AgentID:          "main",
+		ConversationID:   "missing-user-id",
+		ProviderRegistry: providers.NewProviderRegistry(nil),
 	}
 
 	_, err := runner.Run(store.ContextWithStore(context.Background(), testStore.persistenceStore), RunParams{

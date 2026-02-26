@@ -385,12 +385,12 @@ func convertConversationEvent(record func(model.TimelineEvent), now time.Time, p
 	}
 	state, _ := event["state"].(string)
 	text, _ := event["text"].(string)
-	runId, _ := event["runId"].(string)
+	runnerId, _ := event["runnerId"].(string)
 	switch state {
 	case "user_message":
-		record(model.TimelineEvent{At: now, Type: model.EventTranscriptFinal, Text: text, RunID: runId, Raw: event})
+		record(model.TimelineEvent{At: now, Type: model.EventTranscriptFinal, Text: text, RunnerID: runnerId, Raw: event})
 	case "delta":
-		record(model.TimelineEvent{At: now, Type: model.EventTTSInput, Text: text, RunID: runId, Raw: event})
+		record(model.TimelineEvent{At: now, Type: model.EventTTSInput, Text: text, RunnerID: runnerId, Raw: event})
 	}
 }
 

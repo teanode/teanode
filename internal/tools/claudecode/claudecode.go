@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("claudecode")
@@ -110,23 +110,25 @@ func configFromContext(ctx context.Context) (allowedTools []string, model string
 	return
 }
 
-// RegisterTools adds the claude_code tool to the registry.
-// If the claude binary is not found, no tools are registered.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
+func init() {
+	tools.RegisterBuiltinTool(createTools)
+}
+
+func createTools() []tools.Tool {
 	binaryPath := "claude"
 
 	resolvedPath, err := exec.LookPath(binaryPath)
 	if err != nil {
 		log.Infof("Claude Code tools skipped: %s binary not found", binaryPath)
-		return
+		return nil
 	}
 	log.Infof("Claude Code tools enabled (binary: %s)", resolvedPath)
 
-	registry.Register(&claudeCodeTool{
+	return []tools.Tool{&claudeCodeTool{
 		binaryPath: resolvedPath,
 		runner:     defaultCommandRunner,
 		sessions:   make(map[string]*sessionInfo),
-	})
+	}}
 }
 
 func (self *claudeCodeTool) Definition() providers.ToolDefinition {

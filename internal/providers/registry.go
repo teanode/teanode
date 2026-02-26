@@ -2,57 +2,128 @@ package providers
 
 import (
 	"fmt"
+	"os"
 	"strings"
+
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-// Registry holds named provider clients and resolves qualified model IDs.
-type Registry struct {
-	clients         map[string]Provider
-	defaultProvider string
+// ProviderRegistry holds named provider clients and resolves qualified model IDs.
+type ProviderRegistry struct {
+	clients               map[string]Provider
+	defaultProvider       string
+	defaultQualifiedModel string
 }
 
-// NewRegistry creates a provider registry with the given default provider name.
-func NewRegistry(defaultProvider string) *Registry {
-	return &Registry{
-		clients:         make(map[string]Provider),
-		defaultProvider: defaultProvider,
+// NewProviderRegistry creates a provider registry from the given models configuration.
+// If modelsConfiguration is nil, sensible defaults are applied (openai:gpt-5.2
+// with the OPENAI_API_KEY environment variable).
+func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *ProviderRegistry {
+	if modelsConfiguration == nil {
+		modelsConfiguration = &models.ModelsConfiguration{}
+	}
+	if modelsConfiguration.GetDefault() == "" {
+		modelsConfiguration.Default = ptrto.Value("openai:gpt-5.2")
+	}
+	if modelsConfiguration.Providers == nil || len(*modelsConfiguration.Providers) == 0 {
+		defaultProviders := []*models.ProviderConfiguration{
+			{
+				Name:    ptrto.Value("openai"),
+				BaseURL: ptrto.Value("https://api.openai.com/v1"),
+				APIKey:  ptrto.Value(os.Getenv("OPENAI_API_KEY")),
+			},
+		}
+		modelsConfiguration.Providers = &defaultProviders
+	}
+
+	defaultProviderName, _ := ParseQualifiedModel(modelsConfiguration.GetDefault(), "openai")
+
+	providerRegistry := &ProviderRegistry{
+		clients:               make(map[string]Provider),
+		defaultProvider:       defaultProviderName,
+		defaultQualifiedModel: modelsConfiguration.GetDefault(),
+	}
+
+	for _, providerConfiguration := range *modelsConfiguration.Providers {
+		name := providerConfiguration.GetName()
+		if name == "" {
+			continue
+		}
+		providerRegistry.Register(name, NewProvider(
+			name,
+			providerConfiguration.GetBaseURL(),
+			providerConfiguration.GetAPIKey(),
+		))
+	}
+
+	hasKey := false
+	for _, providerConfiguration := range *modelsConfiguration.Providers {
+		if providerConfiguration.GetAPIKey() != "" {
+			hasKey = true
+			break
+		}
+	}
+	if !hasKey {
+		log.Warning("no API key configured (set OPENAI_API_KEY or models.apiKey in config)")
+	}
+
+	return providerRegistry
+}
+
+// NewEmptyProviderRegistry creates a provider registry with no providers or
+// defaults. Useful in tests that verify "no model configured" behaviour.
+func NewEmptyProviderRegistry() *ProviderRegistry {
+	return &ProviderRegistry{
+		clients: make(map[string]Provider),
 	}
 }
 
 // Register adds a named provider client.
-func (r *Registry) Register(name string, client Provider) {
-	r.clients[name] = client
+func (self *ProviderRegistry) Register(name string, client Provider) {
+	self.clients[name] = client
 }
 
 // Resolve splits a qualified model ID ("provider:model") and returns the
 // corresponding client and bare model name. If the model has no provider
 // prefix, the default provider is used.
-func (r *Registry) Resolve(qualifiedModel string) (client Provider, bareModel string, err error) {
-	providerName, model := ParseQualifiedModel(qualifiedModel, r.defaultProvider)
-	client, ok := r.clients[providerName]
-	if !ok {
-		return nil, "", fmt.Errorf("unknown provider: %q", providerName)
+func (self *ProviderRegistry) ResolveProviderAndModel(qualifiedModel string) (Provider, string, string, error) {
+	if qualifiedModel == "" {
+		qualifiedModel = self.defaultQualifiedModel
 	}
-	return client, model, nil
+	if qualifiedModel == "" {
+		return nil, "", "", fmt.Errorf("no model configured")
+	}
+	providerName, modelName := ParseQualifiedModel(qualifiedModel, self.defaultProvider)
+	client, ok := self.clients[providerName]
+	if !ok {
+		return nil, "", "", fmt.Errorf("unknown provider: %q", providerName)
+	}
+	return client, providerName, modelName, nil
 }
 
 // ProviderNames returns sorted provider names.
-func (r *Registry) ProviderNames() []string {
-	names := make([]string, 0, len(r.clients))
-	for name := range r.clients {
+func (self *ProviderRegistry) ProviderNames() []string {
+	names := make([]string, 0, len(self.clients))
+	for name := range self.clients {
 		names = append(names, name)
 	}
 	return names
 }
 
 // DefaultProvider returns the default provider name.
-func (r *Registry) DefaultProvider() string {
-	return r.defaultProvider
+func (self *ProviderRegistry) DefaultProvider() string {
+	return self.defaultProvider
+}
+
+// DefaultModel returns the default qualified model string.
+func (self *ProviderRegistry) DefaultModel() string {
+	return self.defaultQualifiedModel
 }
 
 // ParseQualifiedModel splits "provider:model" on the first colon.
 // If there is no colon, defaultProvider is used.
-func ParseQualifiedModel(qualified, defaultProvider string) (providerName, model string) {
+func ParseQualifiedModel(qualified, defaultProvider string) (string, string) {
 	if idx := strings.IndexByte(qualified, ':'); idx >= 0 {
 		return qualified[:idx], qualified[idx+1:]
 	}
@@ -60,13 +131,13 @@ func ParseQualifiedModel(qualified, defaultProvider string) (providerName, model
 }
 
 // QualifyModel joins a provider name and model into "provider:model".
-func QualifyModel(providerName, model string) string {
-	return providerName + ":" + model
+func QualifyModel(providerName, modelName string) string {
+	return providerName + ":" + modelName
 }
 
 // FindTranscriber returns the first registered provider that implements AudioTranscriber.
-func (r *Registry) FindTranscriber() (AudioTranscriber, string, bool) {
-	for name, client := range r.clients {
+func (self *ProviderRegistry) FindTranscriber() (AudioTranscriber, string, bool) {
+	for name, client := range self.clients {
 		if transcriber, ok := client.(AudioTranscriber); ok {
 			return transcriber, name, true
 		}
@@ -75,8 +146,8 @@ func (r *Registry) FindTranscriber() (AudioTranscriber, string, bool) {
 }
 
 // FindSynthesizer returns the first registered provider that implements AudioSynthesizer.
-func (r *Registry) FindSynthesizer() (AudioSynthesizer, string, bool) {
-	for name, client := range r.clients {
+func (self *ProviderRegistry) FindSynthesizer() (AudioSynthesizer, string, bool) {
+	for name, client := range self.clients {
 		if synthesizer, ok := client.(AudioSynthesizer); ok {
 			return synthesizer, name, true
 		}

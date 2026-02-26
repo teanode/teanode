@@ -17,7 +17,7 @@ interface DisplayMessage {
   type: "user" | "assistant" | "tool-invoke" | "tool-result" | "usage";
   content: string;
   toolName?: string;
-  runId?: string;
+  runnerId?: string;
   timestamp?: number;
 }
 
@@ -30,13 +30,13 @@ function nextMessageId(): string {
 
 function findRunAssistantIndex(
   messages: DisplayMessage[],
-  runId: string | null,
+  runnerId: string | null,
 ): number {
-  if (!runId) return messages.length - 1;
+  if (!runnerId) return messages.length - 1;
   for (let index = messages.length - 1; index >= 0; index--) {
     if (
       messages[index].type === "assistant" &&
-      messages[index].runId === runId
+      messages[index].runnerId === runnerId
     ) {
       return index;
     }
@@ -57,7 +57,7 @@ class StreamingSimulation {
   isStreaming = false;
 
   /** Start a new run with user message + empty assistant placeholder. */
-  startRun(runId: string, userText: string) {
+  startRun(runnerId: string, userText: string) {
     this.messages.push(
       {
         id: nextMessageId(),
@@ -65,7 +65,7 @@ class StreamingSimulation {
         content: userText,
         timestamp: Date.now(),
       },
-      { id: nextMessageId(), type: "assistant", content: "", runId },
+      { id: nextMessageId(), type: "assistant", content: "", runnerId },
     );
     this.streamText = "";
     this.afterToolCalls = false;
@@ -73,12 +73,12 @@ class StreamingSimulation {
   }
 
   /** Process a delta event (streaming text chunk). */
-  delta(runId: string, text: string) {
+  delta(runnerId: string, text: string) {
     if (this.afterToolCalls) {
       const previousText = this.streamText;
       if (previousText) {
         const updated = [...this.messages];
-        const assistantIndex = findRunAssistantIndex(updated, runId);
+        const assistantIndex = findRunAssistantIndex(updated, runnerId);
         if (
           assistantIndex >= 0 &&
           updated[assistantIndex].type === "assistant"
@@ -92,13 +92,13 @@ class StreamingSimulation {
           id: nextMessageId(),
           type: "assistant",
           content: "",
-          runId,
+          runnerId,
         };
         updated.splice(assistantIndex + 1, 0, newAssistant);
         this.messages = updated;
       } else {
         const updated = [...this.messages];
-        const assistantIndex = findRunAssistantIndex(updated, runId);
+        const assistantIndex = findRunAssistantIndex(updated, runnerId);
         if (
           assistantIndex >= 0 &&
           updated[assistantIndex].type === "assistant" &&
@@ -110,7 +110,7 @@ class StreamingSimulation {
             id: nextMessageId(),
             type: "assistant",
             content: "",
-            runId,
+            runnerId,
           };
           updated.splice(assistantIndex + 1, 0, newAssistant);
         }
@@ -124,12 +124,12 @@ class StreamingSimulation {
   }
 
   /** Process a tool_call event. */
-  toolCall(runId: string, toolName: string, args: string) {
+  toolCall(runnerId: string, toolName: string, args: string) {
     this.afterToolCalls = true;
     const accumulatedText = this.streamText;
     this.streamText = "";
     const updated = [...this.messages];
-    const assistantIndex = findRunAssistantIndex(updated, runId);
+    const assistantIndex = findRunAssistantIndex(updated, runnerId);
     const toolMessage: DisplayMessage = {
       id: nextMessageId(),
       type: "tool-invoke",
@@ -151,7 +151,7 @@ class StreamingSimulation {
         id: nextMessageId(),
         type: "assistant",
         content: "",
-        runId,
+        runnerId,
       };
       updated.splice(assistantIndex + 2, 0, newTail);
     } else {
@@ -162,9 +162,9 @@ class StreamingSimulation {
   }
 
   /** Process a tool_result event. */
-  toolResult(runId: string, toolName: string, result: string) {
+  toolResult(runnerId: string, toolName: string, result: string) {
     const updated = [...this.messages];
-    const assistantIndex = findRunAssistantIndex(updated, runId);
+    const assistantIndex = findRunAssistantIndex(updated, runnerId);
     const toolMessage: DisplayMessage = {
       id: nextMessageId(),
       type: "tool-result",
@@ -177,14 +177,14 @@ class StreamingSimulation {
   }
 
   /** Process a final event. */
-  final(runId: string, serverText?: string) {
+  final(runnerId: string, serverText?: string) {
     const updated = [...this.messages];
-    const assistantIndex = findRunAssistantIndex(updated, runId);
+    const assistantIndex = findRunAssistantIndex(updated, runnerId);
     const hasToolSplits = updated.some(
       (message, index) =>
         index !== assistantIndex &&
         message.type === "assistant" &&
-        message.runId === runId,
+        message.runnerId === runnerId,
     );
     const finalText = hasToolSplits
       ? this.streamText
@@ -213,14 +213,14 @@ class StreamingSimulation {
   }
 
   /** Resolve the display text for each assistant message (what the UI would render). */
-  renderedAssistantTexts(activeRunId: string): string[] {
+  renderedAssistantTexts(activeRunnerId: string): string[] {
     // Determine the last streaming assistant ID (mirrors MessageList logic).
     let lastStreamingAssistantId: string | null = null;
     if (this.isStreaming) {
       for (let index = this.messages.length - 1; index >= 0; index--) {
         if (
           this.messages[index].type === "assistant" &&
-          this.messages[index].runId === activeRunId
+          this.messages[index].runnerId === activeRunnerId
         ) {
           lastStreamingAssistantId = this.messages[index].id;
           break;
@@ -244,25 +244,25 @@ class StreamingSimulation {
 
 describe("streaming message merge", () => {
   let simulation: StreamingSimulation;
-  const runId = "run-1";
+  const runnerId = "run-1";
 
   beforeEach(() => {
     messageIdCounter = 0;
     simulation = new StreamingSimulation();
-    simulation.startRun(runId, "Hello");
+    simulation.startRun(runnerId, "Hello");
   });
 
   it("accumulates deltas into a single assistant message", () => {
-    simulation.delta(runId, "Hi ");
-    simulation.delta(runId, "there!");
+    simulation.delta(runnerId, "Hi ");
+    simulation.delta(runnerId, "there!");
 
-    const rendered = simulation.renderedAssistantTexts(runId);
+    const rendered = simulation.renderedAssistantTexts(runnerId);
     expect(rendered).toEqual(["Hi there!"]);
   });
 
   it("preserves pre-tool text when a tool call arrives", () => {
-    simulation.delta(runId, "Before tool");
-    simulation.toolCall(runId, "search", '{"q":"test"}');
+    simulation.delta(runnerId, "Before tool");
+    simulation.toolCall(runnerId, "search", '{"q":"test"}');
 
     // The committed assistant keeps the pre-tool text; a new empty tail is
     // created after the tool for post-tool streaming.
@@ -275,12 +275,12 @@ describe("streaming message merge", () => {
   });
 
   it("does not duplicate text across tool call boundaries", () => {
-    simulation.delta(runId, "Before");
-    simulation.toolCall(runId, "search", "{}");
-    simulation.toolResult(runId, "search", "result");
-    simulation.delta(runId, "After");
+    simulation.delta(runnerId, "Before");
+    simulation.toolCall(runnerId, "search", "{}");
+    simulation.toolResult(runnerId, "search", "result");
+    simulation.delta(runnerId, "After");
 
-    const rendered = simulation.renderedAssistantTexts(runId);
+    const rendered = simulation.renderedAssistantTexts(runnerId);
     // Two assistant messages: pre-tool and post-tool, with distinct content.
     expect(rendered).toHaveLength(2);
     expect(rendered[0]).toBe("Before");
@@ -288,11 +288,11 @@ describe("streaming message merge", () => {
   });
 
   it("orders messages as assistant text, then tool calls (matches history)", () => {
-    simulation.delta(runId, "Let me search");
-    simulation.toolCall(runId, "search", '{"q":"test"}');
-    simulation.toolResult(runId, "search", "found");
-    simulation.delta(runId, "Here are the results");
-    simulation.final(runId);
+    simulation.delta(runnerId, "Let me search");
+    simulation.toolCall(runnerId, "search", '{"q":"test"}');
+    simulation.toolResult(runnerId, "search", "found");
+    simulation.delta(runnerId, "Here are the results");
+    simulation.final(runnerId);
 
     // Message order should match what convertHistory produces on reload:
     // assistant text → tool-invoke → tool-result → assistant text
@@ -308,12 +308,12 @@ describe("streaming message merge", () => {
   });
 
   it("final event does not overwrite split messages with full server text", () => {
-    simulation.delta(runId, "Part1");
-    simulation.toolCall(runId, "tool", "{}");
-    simulation.toolResult(runId, "tool", "ok");
-    simulation.delta(runId, "Part2");
+    simulation.delta(runnerId, "Part1");
+    simulation.toolCall(runnerId, "tool", "{}");
+    simulation.toolResult(runnerId, "tool", "ok");
+    simulation.delta(runnerId, "Part2");
     // Server sends full concatenated text in final event.
-    simulation.final(runId, "Part1Part2");
+    simulation.final(runnerId, "Part1Part2");
 
     const assistants = simulation.messages.filter(
       (message) => message.type === "assistant",
@@ -324,8 +324,8 @@ describe("streaming message merge", () => {
   });
 
   it("simple stream without tool calls works with server final text", () => {
-    simulation.delta(runId, "Complete");
-    simulation.final(runId, "Complete response");
+    simulation.delta(runnerId, "Complete");
+    simulation.final(runnerId, "Complete response");
 
     const assistants = simulation.messages.filter(
       (message) => message.type === "assistant",
@@ -337,10 +337,10 @@ describe("streaming message merge", () => {
 
   it("handles tool call with no preceding text", () => {
     // Model immediately calls a tool without streaming text first.
-    simulation.toolCall(runId, "search", '{"q":"test"}');
-    simulation.toolResult(runId, "search", "found");
-    simulation.delta(runId, "Response");
-    simulation.final(runId);
+    simulation.toolCall(runnerId, "search", '{"q":"test"}');
+    simulation.toolResult(runnerId, "search", "found");
+    simulation.delta(runnerId, "Response");
+    simulation.final(runnerId);
 
     const assistants = simulation.messages.filter(
       (message) => message.type === "assistant",
@@ -350,14 +350,14 @@ describe("streaming message merge", () => {
   });
 
   it("handles multiple sequential tool calls", () => {
-    simulation.delta(runId, "A");
-    simulation.toolCall(runId, "tool1", "{}");
-    simulation.toolResult(runId, "tool1", "r1");
-    simulation.delta(runId, "B");
-    simulation.toolCall(runId, "tool2", "{}");
-    simulation.toolResult(runId, "tool2", "r2");
-    simulation.delta(runId, "C");
-    simulation.final(runId);
+    simulation.delta(runnerId, "A");
+    simulation.toolCall(runnerId, "tool1", "{}");
+    simulation.toolResult(runnerId, "tool1", "r1");
+    simulation.delta(runnerId, "B");
+    simulation.toolCall(runnerId, "tool2", "{}");
+    simulation.toolResult(runnerId, "tool2", "r2");
+    simulation.delta(runnerId, "C");
+    simulation.final(runnerId);
 
     const assistants = simulation.messages.filter(
       (message) => message.type === "assistant",
@@ -369,14 +369,14 @@ describe("streaming message merge", () => {
   });
 
   it("handles consecutive tool calls without text between them", () => {
-    simulation.delta(runId, "Intro");
-    simulation.toolCall(runId, "tool1", "{}");
-    simulation.toolResult(runId, "tool1", "r1");
+    simulation.delta(runnerId, "Intro");
+    simulation.toolCall(runnerId, "tool1", "{}");
+    simulation.toolResult(runnerId, "tool1", "r1");
     // Second tool call without any delta between.
-    simulation.toolCall(runId, "tool2", "{}");
-    simulation.toolResult(runId, "tool2", "r2");
-    simulation.delta(runId, "Done");
-    simulation.final(runId);
+    simulation.toolCall(runnerId, "tool2", "{}");
+    simulation.toolResult(runnerId, "tool2", "r2");
+    simulation.delta(runnerId, "Done");
+    simulation.final(runnerId);
 
     const assistants = simulation.messages.filter(
       (message) => message.type === "assistant",
@@ -391,11 +391,11 @@ describe("streaming message merge", () => {
   });
 
   it("removes empty trailing assistant on final with no post-tool text", () => {
-    simulation.delta(runId, "Text");
-    simulation.toolCall(runId, "tool", "{}");
-    simulation.toolResult(runId, "tool", "ok");
+    simulation.delta(runnerId, "Text");
+    simulation.toolCall(runnerId, "tool", "{}");
+    simulation.toolResult(runnerId, "tool", "ok");
     // Final arrives without any post-tool deltas.
-    simulation.final(runId);
+    simulation.final(runnerId);
 
     const assistants = simulation.messages.filter(
       (message) => message.type === "assistant",
@@ -406,17 +406,17 @@ describe("streaming message merge", () => {
   });
 
   it("rendered texts are never empty while streaming", () => {
-    simulation.delta(runId, "Hello");
-    expect(simulation.renderedAssistantTexts(runId)).toEqual(["Hello"]);
+    simulation.delta(runnerId, "Hello");
+    expect(simulation.renderedAssistantTexts(runnerId)).toEqual(["Hello"]);
 
-    simulation.toolCall(runId, "tool", "{}");
+    simulation.toolCall(runnerId, "tool", "{}");
     // After tool call, streaming is false; content was committed.
-    const texts = simulation.renderedAssistantTexts(runId);
+    const texts = simulation.renderedAssistantTexts(runnerId);
     expect(texts.filter((text) => text)).toEqual(["Hello"]);
 
-    simulation.toolResult(runId, "tool", "ok");
-    simulation.delta(runId, "World");
-    const textsAfter = simulation.renderedAssistantTexts(runId);
+    simulation.toolResult(runnerId, "tool", "ok");
+    simulation.delta(runnerId, "World");
+    const textsAfter = simulation.renderedAssistantTexts(runnerId);
     expect(textsAfter).toEqual(["Hello", "World"]);
   });
 
@@ -424,14 +424,14 @@ describe("streaming message merge", () => {
     // Sequence: delta → tool_call → tool_result → delta → tool_call → tool_result → final
     // The second tool_call clears streamTextRef, but the assistant already has
     // committed content from the second delta segment.  Final must not remove it.
-    simulation.delta(runId, "Before");
-    simulation.toolCall(runId, "tool1", "{}");
-    simulation.toolResult(runId, "tool1", "r1");
-    simulation.delta(runId, "Middle");
-    simulation.toolCall(runId, "tool2", "{}");
-    simulation.toolResult(runId, "tool2", "r2");
+    simulation.delta(runnerId, "Before");
+    simulation.toolCall(runnerId, "tool1", "{}");
+    simulation.toolResult(runnerId, "tool1", "r1");
+    simulation.delta(runnerId, "Middle");
+    simulation.toolCall(runnerId, "tool2", "{}");
+    simulation.toolResult(runnerId, "tool2", "r2");
     // Final arrives without any post-tool-2 deltas — streamText is ''.
-    simulation.final(runId, "BeforeMiddle");
+    simulation.final(runnerId, "BeforeMiddle");
 
     const assistants = simulation.messages.filter(
       (message) => message.type === "assistant",
@@ -445,11 +445,11 @@ describe("streaming message merge", () => {
 
   it("does not lose content when final arrives without server text after a tool call", () => {
     // Tool call with no post-tool deltas and server sends no text in final.
-    simulation.delta(runId, "Hello");
-    simulation.toolCall(runId, "tool", "{}");
-    simulation.toolResult(runId, "tool", "ok");
+    simulation.delta(runnerId, "Hello");
+    simulation.toolCall(runnerId, "tool", "{}");
+    simulation.toolResult(runnerId, "tool", "ok");
     // Final with no server text and no post-tool deltas.
-    simulation.final(runId);
+    simulation.final(runnerId);
 
     const assistants = simulation.messages.filter(
       (message) => message.type === "assistant",
@@ -461,28 +461,28 @@ describe("streaming message merge", () => {
   it("rendered text falls back to content when streamText is empty", () => {
     // Simulate a state where isStreaming is true but streamText is '' —
     // the UI should fall back to the committed content, not show nothing.
-    simulation.delta(runId, "Hello");
-    simulation.toolCall(runId, "tool", "{}");
+    simulation.delta(runnerId, "Hello");
+    simulation.toolCall(runnerId, "tool", "{}");
     // After tool_call, content is committed to 'Hello' and streamText is ''.
     // Force isStreaming true to simulate a transient edge case.
     simulation.isStreaming = true;
-    const texts = simulation.renderedAssistantTexts(runId);
+    const texts = simulation.renderedAssistantTexts(runnerId);
     // With || instead of ??, the empty streamText falls back to content.
     expect(texts.filter((text) => text)).toEqual(["Hello"]);
   });
 
   it("preserves all segments across three tool-call rounds", () => {
-    simulation.delta(runId, "A");
-    simulation.toolCall(runId, "t1", "{}");
-    simulation.toolResult(runId, "t1", "r1");
-    simulation.delta(runId, "B");
-    simulation.toolCall(runId, "t2", "{}");
-    simulation.toolResult(runId, "t2", "r2");
-    simulation.delta(runId, "C");
-    simulation.toolCall(runId, "t3", "{}");
-    simulation.toolResult(runId, "t3", "r3");
+    simulation.delta(runnerId, "A");
+    simulation.toolCall(runnerId, "t1", "{}");
+    simulation.toolResult(runnerId, "t1", "r1");
+    simulation.delta(runnerId, "B");
+    simulation.toolCall(runnerId, "t2", "{}");
+    simulation.toolResult(runnerId, "t2", "r2");
+    simulation.delta(runnerId, "C");
+    simulation.toolCall(runnerId, "t3", "{}");
+    simulation.toolResult(runnerId, "t3", "r3");
     // Final with no post-tool-3 deltas.
-    simulation.final(runId);
+    simulation.final(runnerId);
 
     const assistants = simulation.messages.filter(
       (message) => message.type === "assistant",
@@ -493,11 +493,11 @@ describe("streaming message merge", () => {
 });
 
 describe("findRunAssistantIndex", () => {
-  it("returns the last assistant with matching runId", () => {
+  it("returns the last assistant with matching runnerId", () => {
     const messages: DisplayMessage[] = [
-      { id: "1", type: "assistant", content: "A", runId: "r1" },
+      { id: "1", type: "assistant", content: "A", runnerId: "r1" },
       { id: "2", type: "tool-invoke", content: "{}", toolName: "t" },
-      { id: "3", type: "assistant", content: "", runId: "r1" },
+      { id: "3", type: "assistant", content: "", runnerId: "r1" },
     ];
     expect(findRunAssistantIndex(messages, "r1")).toBe(2);
   });
@@ -509,10 +509,10 @@ describe("findRunAssistantIndex", () => {
     expect(findRunAssistantIndex(messages, "r-unknown")).toBe(0);
   });
 
-  it("falls back to last index when runId is null", () => {
+  it("falls back to last index when runnerId is null", () => {
     const messages: DisplayMessage[] = [
       { id: "1", type: "user", content: "hi" },
-      { id: "2", type: "assistant", content: "", runId: "r1" },
+      { id: "2", type: "assistant", content: "", runnerId: "r1" },
     ];
     expect(findRunAssistantIndex(messages, null)).toBe(1);
   });
@@ -528,7 +528,7 @@ describe("reconcileRunStateFromHistory", () => {
     );
 
     expect(reconciled).toEqual({
-      currentRunId: null,
+      currentRunnerId: null,
       runQueue: [],
       isRunning: false,
     });
@@ -544,7 +544,7 @@ describe("reconcileRunStateFromHistory", () => {
     );
 
     expect(reconciled).toEqual({
-      currentRunId: "run-123",
+      currentRunnerId: "run-123",
       runQueue: ["run-123"],
       isRunning: true,
     });

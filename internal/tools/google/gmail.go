@@ -10,9 +10,9 @@ import (
 )
 
 type gmailTool struct {
-	binary  string
+	binary string
 
-	runner  commandRunner
+	runner commandRunner
 }
 
 func (self *gmailTool) Definition() providers.ToolDefinition {

@@ -10,7 +10,7 @@ import (
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	storefs "github.com/teanode/teanode/internal/store/fsstore"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 func setupWorkspaceStore(t *testing.T) context.Context {
@@ -25,9 +25,11 @@ func setupWorkspaceStore(t *testing.T) context.Context {
 
 func TestWorkspaceTools(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
-	ctx = runners.ContextWithRunner(ctx, &runners.Runner{AgentID: "test-agent"})
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner("test-agent", "", nil, nil, ""))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
 
 	tool := registry.Get("agent_workspace")
 	if tool == nil {
@@ -106,9 +108,11 @@ func TestWorkspaceTools(t *testing.T) {
 
 func TestWorkspaceAppendTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
-	ctx = runners.ContextWithRunner(ctx, &runners.Runner{AgentID: "test-agent"})
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner("test-agent", "", nil, nil, ""))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
 
 	tool := registry.Get("agent_workspace")
 	if tool == nil {
@@ -165,9 +169,11 @@ func TestWorkspaceAppendTool(t *testing.T) {
 
 func TestWorkspaceSearchTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
-	ctx = runners.ContextWithRunner(ctx, &runners.Runner{AgentID: "test-agent"})
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner("test-agent", "", nil, nil, ""))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
 
 	tool := registry.Get("agent_workspace")
 	if tool == nil {
@@ -263,8 +269,10 @@ func TestWorkspaceSearchTool(t *testing.T) {
 func TestUserWorkspaceTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
 
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
 
 	userTool := registry.Get("user_workspace")
 	if userTool == nil {

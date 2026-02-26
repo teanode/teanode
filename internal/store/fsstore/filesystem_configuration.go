@@ -44,7 +44,7 @@ func configToModel(configuration *storeConfigRecord) *models.Configuration {
 	result := &models.Configuration{}
 	gatewayConfiguration := &models.GatewayConfiguration{}
 	gatewayConfiguration.Port = ptrto.Value(configuration.Gateway.Port)
-	gatewayConfiguration.Bind = ptrto.TrimmedString(configuration.Gateway.Bind)
+	gatewayConfiguration.Bind = ptrto.Trimmed[models.BindMode](configuration.Gateway.Bind)
 	gatewayConfiguration.PublicURL = ptrto.TrimmedString(configuration.Gateway.PublicURL)
 	result.Gateway = gatewayConfiguration
 
@@ -63,7 +63,68 @@ func configToModel(configuration *storeConfigRecord) *models.Configuration {
 	modelsConfiguration.Providers = &providerConfigurations
 	result.Models = modelsConfiguration
 
-	result.Tools = &models.ToolsConfiguration{BraveAPIKey: ptrto.TrimmedString(configuration.Tools.BraveAPIKey)}
+	toolsConfiguration := &models.ToolsConfiguration{BraveAPIKey: ptrto.TrimmedString(configuration.Tools.BraveAPIKey)}
+	if configuration.Tools.Google != nil {
+		toolsConfiguration.Google = &models.GoogleConfiguration{
+			BinaryPath: ptrto.TrimmedString(configuration.Tools.Google.BinaryPath),
+			Account:    ptrto.TrimmedString(configuration.Tools.Google.Account),
+			Services:   ptrto.TrimmedStrings(configuration.Tools.Google.Services),
+		}
+	}
+	if configuration.Tools.GitHub != nil {
+		toolsConfiguration.GitHub = &models.GitHubConfiguration{
+			BinaryPath: ptrto.TrimmedString(configuration.Tools.GitHub.BinaryPath),
+			Services:   ptrto.TrimmedStrings(configuration.Tools.GitHub.Services),
+		}
+	}
+	if configuration.Tools.GitLab != nil {
+		toolsConfiguration.GitLab = &models.GitLabConfiguration{
+			BinaryPath: ptrto.TrimmedString(configuration.Tools.GitLab.BinaryPath),
+			Services:   ptrto.TrimmedStrings(configuration.Tools.GitLab.Services),
+		}
+	}
+	if configuration.Tools.ClaudeCode != nil {
+		toolsConfiguration.ClaudeCode = &models.ClaudeCodeConfiguration{
+			BinaryPath:            ptrto.TrimmedString(configuration.Tools.ClaudeCode.BinaryPath),
+			AllowedTools:          ptrto.TrimmedStrings(configuration.Tools.ClaudeCode.AllowedTools),
+			Model:                 ptrto.TrimmedString(configuration.Tools.ClaudeCode.Model),
+			MaxTurnTimeoutSeconds: ptrto.Value(configuration.Tools.ClaudeCode.MaxTurnTimeoutSeconds),
+		}
+	}
+	if configuration.Tools.Codex != nil {
+		toolsConfiguration.Codex = &models.CodexConfiguration{
+			BinaryPath:            ptrto.TrimmedString(configuration.Tools.Codex.BinaryPath),
+			AllowedTools:          ptrto.TrimmedStrings(configuration.Tools.Codex.AllowedTools),
+			Model:                 ptrto.TrimmedString(configuration.Tools.Codex.Model),
+			ExtraArgs:             ptrto.TrimmedStrings(configuration.Tools.Codex.ExtraArgs),
+			MaxTurnTimeoutSeconds: ptrto.Value(configuration.Tools.Codex.MaxTurnTimeoutSeconds),
+		}
+	}
+	if configuration.Tools.HomeAssistant != nil {
+		toolsConfiguration.HomeAssistant = &models.HomeAssistantConfiguration{
+			BaseURL:         ptrto.TrimmedString(configuration.Tools.HomeAssistant.BaseURL),
+			Token:           ptrto.TrimmedString(configuration.Tools.HomeAssistant.Token),
+			ReadOnly:        ptrto.Value(configuration.Tools.HomeAssistant.ReadOnly),
+			AllowedDomains:  ptrto.TrimmedStrings(configuration.Tools.HomeAssistant.AllowedDomains),
+			BlockedDomains:  ptrto.TrimmedStrings(configuration.Tools.HomeAssistant.BlockedDomains),
+			AllowedEntities: ptrto.TrimmedStrings(configuration.Tools.HomeAssistant.AllowedEntities),
+			TimeoutSeconds:  ptrto.Value(configuration.Tools.HomeAssistant.TimeoutSeconds),
+		}
+	}
+	if configuration.Tools.UniFiProtect != nil {
+		toolsConfiguration.UniFiProtect = &models.UniFiProtectConfiguration{
+			BaseURL:               ptrto.TrimmedString(configuration.Tools.UniFiProtect.BaseURL),
+			APIKey:                ptrto.TrimmedString(configuration.Tools.UniFiProtect.APIKey),
+			Username:              ptrto.TrimmedString(configuration.Tools.UniFiProtect.Username),
+			Password:              ptrto.TrimmedString(configuration.Tools.UniFiProtect.Password),
+			VerifyTLS:             ptrto.Value(configuration.Tools.UniFiProtect.VerifyTLS),
+			ReadOnly:              ptrto.Value(configuration.Tools.UniFiProtect.ReadOnly),
+			AllowedCameras:        ptrto.TrimmedStrings(configuration.Tools.UniFiProtect.AllowedCameras),
+			AllowDangerousActions: ptrto.TrimmedStrings(configuration.Tools.UniFiProtect.AllowDangerousActions),
+			TimeoutSeconds:        ptrto.Value(configuration.Tools.UniFiProtect.TimeoutSeconds),
+		}
+	}
+	result.Tools = toolsConfiguration
 	result.Integrations = &models.IntegrationsConfiguration{}
 	if configuration.Integrations.Browser != nil {
 		result.Integrations.Browser = &models.BrowserConfiguration{CDPEndpoint: ptrto.TrimmedString(configuration.Integrations.Browser.CDPEndpoint)}
@@ -104,7 +165,7 @@ func modelToConfig(configuration *models.Configuration) *storeConfigRecord {
 	}
 	if configuration.Gateway != nil {
 		result.Gateway.Port = configuration.Gateway.GetPort()
-		result.Gateway.Bind = configuration.Gateway.GetBind()
+		result.Gateway.Bind = string(configuration.Gateway.GetBind())
 		result.Gateway.PublicURL = configuration.Gateway.GetPublicURL()
 	}
 	if configuration.Models != nil {
@@ -123,6 +184,66 @@ func modelToConfig(configuration *models.Configuration) *storeConfigRecord {
 	}
 	if configuration.Tools != nil {
 		result.Tools.BraveAPIKey = configuration.Tools.GetBraveAPIKey()
+		if configuration.Tools.Google != nil {
+			result.Tools.Google = &storeGoogleToolRecord{
+				BinaryPath: configuration.Tools.Google.GetBinaryPath(),
+				Account:    configuration.Tools.Google.GetAccount(),
+				Services:   sliceValue(configuration.Tools.Google.Services),
+			}
+		}
+		if configuration.Tools.GitHub != nil {
+			result.Tools.GitHub = &storeGitHubToolRecord{
+				BinaryPath: configuration.Tools.GitHub.GetBinaryPath(),
+				Services:   sliceValue(configuration.Tools.GitHub.Services),
+			}
+		}
+		if configuration.Tools.GitLab != nil {
+			result.Tools.GitLab = &storeGitLabToolRecord{
+				BinaryPath: configuration.Tools.GitLab.GetBinaryPath(),
+				Services:   sliceValue(configuration.Tools.GitLab.Services),
+			}
+		}
+		if configuration.Tools.ClaudeCode != nil {
+			result.Tools.ClaudeCode = &storeClaudeCodeToolRecord{
+				BinaryPath:            configuration.Tools.ClaudeCode.GetBinaryPath(),
+				AllowedTools:          sliceValue(configuration.Tools.ClaudeCode.AllowedTools),
+				Model:                 configuration.Tools.ClaudeCode.GetModel(),
+				MaxTurnTimeoutSeconds: configuration.Tools.ClaudeCode.GetMaxTurnTimeoutSeconds(),
+			}
+		}
+		if configuration.Tools.Codex != nil {
+			result.Tools.Codex = &storeCodexToolRecord{
+				BinaryPath:            configuration.Tools.Codex.GetBinaryPath(),
+				AllowedTools:          sliceValue(configuration.Tools.Codex.AllowedTools),
+				Model:                 configuration.Tools.Codex.GetModel(),
+				ExtraArgs:             sliceValue(configuration.Tools.Codex.ExtraArgs),
+				MaxTurnTimeoutSeconds: configuration.Tools.Codex.GetMaxTurnTimeoutSeconds(),
+			}
+		}
+		if configuration.Tools.HomeAssistant != nil {
+			result.Tools.HomeAssistant = &storeHomeAssistantRecord{
+				BaseURL:         configuration.Tools.HomeAssistant.GetBaseURL(),
+				Token:           configuration.Tools.HomeAssistant.GetToken(),
+				ReadOnly:        configuration.Tools.HomeAssistant.GetReadOnly(),
+				AllowedDomains:  sliceValue(configuration.Tools.HomeAssistant.AllowedDomains),
+				BlockedDomains:  sliceValue(configuration.Tools.HomeAssistant.BlockedDomains),
+				AllowedEntities: sliceValue(configuration.Tools.HomeAssistant.AllowedEntities),
+				TimeoutSeconds:  configuration.Tools.HomeAssistant.GetTimeoutSeconds(),
+			}
+		}
+		if configuration.Tools.UniFiProtect != nil {
+			result.Tools.UniFiProtect = &storeUniFiProtectRecord{
+				BaseURL:               configuration.Tools.UniFiProtect.GetBaseURL(),
+				APIKey:                configuration.Tools.UniFiProtect.GetAPIKey(),
+				Username:              configuration.Tools.UniFiProtect.GetUsername(),
+				Password:              configuration.Tools.UniFiProtect.GetPassword(),
+				VerifyTLS:             configuration.Tools.UniFiProtect.GetVerifyTLS(),
+				ReadOnly:              configuration.Tools.UniFiProtect.GetReadOnly(),
+				AllowedCameras:        sliceValue(configuration.Tools.UniFiProtect.AllowedCameras),
+				AllowDangerousActions: sliceValue(configuration.Tools.UniFiProtect.AllowDangerousActions),
+				TimeoutSeconds:        configuration.Tools.UniFiProtect.GetTimeoutSeconds(),
+			}
+		}
 	}
 	if configuration.Integrations != nil && configuration.Integrations.Browser != nil {
 		result.Integrations.Browser = &storeBrowserRecord{CDPEndpoint: configuration.Integrations.Browser.GetCDPEndpoint()}

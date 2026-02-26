@@ -6,7 +6,7 @@ import (
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("google")
@@ -43,32 +43,37 @@ func configFromContext(ctx context.Context) *resolvedConfig {
 	return &config
 }
 
-// RegisterTools adds Google Workspace tools to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
+func init() {
+	tools.RegisterBuiltinTool(createTools)
+}
+
+func createTools() []tools.Tool {
 	binary := "gog"
 
 	// Check that the binary exists on PATH.
 	resolvedPath, err := exec.LookPath(binary)
 	if err != nil {
 		log.Infof("Google tools skipped: %s binary not found", binary)
-		return
+		return nil
 	}
 	log.Infof("Google tools enabled (binary: %s)", resolvedPath)
 
 	runner := defaultRunner
+	var result []tools.Tool
 
 	for _, service := range defaultServices {
 		switch service {
 		case "gmail":
-			registry.Register(&gmailTool{binary: resolvedPath, runner: runner})
+			result = append(result, &gmailTool{binary: resolvedPath, runner: runner})
 		case "calendar":
-			registry.Register(&calendarTool{binary: resolvedPath, runner: runner})
+			result = append(result, &calendarTool{binary: resolvedPath, runner: runner})
 		case "tasks":
-			registry.Register(&tasksTool{binary: resolvedPath, runner: runner})
+			result = append(result, &tasksTool{binary: resolvedPath, runner: runner})
 		case "drive":
-			registry.Register(&driveTool{binary: resolvedPath, runner: runner})
+			result = append(result, &driveTool{binary: resolvedPath, runner: runner})
 		case "contacts":
-			registry.Register(&contactsTool{binary: resolvedPath, runner: runner})
+			result = append(result, &contactsTool{binary: resolvedPath, runner: runner})
 		}
 	}
+	return result
 }

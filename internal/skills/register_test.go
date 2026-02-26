@@ -2,7 +2,6 @@ package skills
 
 import (
 	"context"
-	"sort"
 	"testing"
 
 	"github.com/teanode/teanode/internal/store"
@@ -26,9 +25,9 @@ tools:
 Use deploy tools carefully.
 `, true)
 
-	registry := toolregistry.NewToolRegistry()
+	registry := toolregistry.NewEmptyToolRegistry()
 	ctx := store.ContextWithStore(context.Background(), openedStore)
-	prompt := RegisterSkills(ctx, registry)
+	prompt := RegisterSkills(ctx, registry, nil)
 
 	if registry.Get("deploy_status") == nil {
 		t.Fatal("deploy_status not registered")
@@ -73,9 +72,9 @@ tools:
 ---
 `, true)
 
-	registry := toolregistry.NewToolRegistry()
+	registry := toolregistry.NewEmptyToolRegistry()
 	ctx := store.ContextWithStore(context.Background(), openedStore)
-	prompt := RegisterSkillsFiltered(ctx, registry, []string{"alpha", "gamma"})
+	prompt := RegisterSkills(ctx, registry, []string{"alpha", "gamma"})
 	if registry.Get("alpha_tool") == nil {
 		t.Fatal("alpha_tool not registered")
 	}
@@ -87,37 +86,5 @@ tools:
 	}
 	if prompt != "Alpha instructions." {
 		t.Fatalf("prompt = %q, want %q", prompt, "Alpha instructions.")
-	}
-}
-
-func TestNames(t *testing.T) {
-	openedStore := setupSkillStore(t)
-	createStoredSkillFromMarkdown(t, openedStore, "deploy", "1.0.0", `---
-name: deploy
-tools:
-  - name: deploy_tool
-    description: Deploy
-    type: shell
-    command: ["echo"]
----
-`, true)
-	createStoredSkillFromMarkdown(t, openedStore, "monitor", "1.0.0", `---
-name: monitor
-tools:
-  - name: monitor_tool
-    description: Monitor
-    type: http
-    url: "http://example.com"
----
-`, true)
-
-	ctx := store.ContextWithStore(context.Background(), openedStore)
-	names := Names(ctx)
-	sort.Strings(names)
-	if len(names) != 2 {
-		t.Fatalf("name count = %d, want 2", len(names))
-	}
-	if names[0] != "deploy" || names[1] != "monitor" {
-		t.Fatalf("names = %v, want [deploy monitor]", names)
 	}
 }

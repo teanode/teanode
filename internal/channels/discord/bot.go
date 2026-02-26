@@ -55,6 +55,7 @@ func newDiscordStreamPreview(session *discordgo.Session, channelId string) *disc
 }
 
 func (self *discordStreamPreview) run() {
+	defer deferutil.Recover()
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -164,7 +165,7 @@ type Bot struct {
 
 	// Subscriber-driven streaming state.
 	subscribedRunsMutex sync.Mutex
-	subscribedRuns      map[string]*discordSubscribedRun // runId -> state
+	subscribedRuns      map[string]*discordSubscribedRun // runnerId -> state
 	userChannelsMutex   sync.RWMutex
 	userChannels        map[string]string // userId -> channelId
 }
@@ -250,11 +251,11 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 		return
 	}
 
-	runId, _ := payloadMap["runId"].(string)
+	runnerId, _ := payloadMap["runnerId"].(string)
 	state, _ := payloadMap["state"].(string)
 	conversationId, _ := payloadMap["conversationId"].(string)
 
-	if runId == "" || state == "" {
+	if runnerId == "" || state == "" {
 		return
 	}
 
@@ -299,7 +300,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			}
 			preview := newDiscordStreamPreview(self.discord, channelId)
 			self.subscribedRunsMutex.Lock()
-			self.subscribedRuns[runId] = &discordSubscribedRun{
+			self.subscribedRuns[runnerId] = &discordSubscribedRun{
 				preview:     preview,
 				channelId:   channelId,
 				origin:      origin,
@@ -321,7 +322,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 		// Session runs are only delivered to Discord if the originating web session disconnects.
 		self.subscribedRunsMutex.Lock()
-		self.subscribedRuns[runId] = &discordSubscribedRun{
+		self.subscribedRuns[runnerId] = &discordSubscribedRun{
 			channelId:       channelId,
 			origin:          origin,
 			originSessionId: originSessionId,
@@ -331,7 +332,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "delta":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runId]
+		subscribedRun := self.subscribedRuns[runnerId]
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil && subscribedRun.preview != nil {
 			text, _ := payloadMap["text"].(string)
@@ -340,7 +341,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "tool_call":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runId]
+		subscribedRun := self.subscribedRuns[runnerId]
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil && subscribedRun.preview != nil {
 			subscribedRun.preview.Reset()
@@ -349,7 +350,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "tool_result":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runId]
+		subscribedRun := self.subscribedRuns[runnerId]
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil {
 			result, _ := payloadMap["result"].(string)
@@ -362,8 +363,8 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "final":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runId]
-		delete(self.subscribedRuns, runId)
+		subscribedRun := self.subscribedRuns[runnerId]
+		delete(self.subscribedRuns, runnerId)
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun == nil {
 			return
@@ -416,8 +417,8 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "error", "aborted":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runId]
-		delete(self.subscribedRuns, runId)
+		subscribedRun := self.subscribedRuns[runnerId]
+		delete(self.subscribedRuns, runnerId)
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun == nil {
 			return
@@ -505,7 +506,7 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 	conversationId := self.coordinator.EnsureDefaultConversation(userId, defaultAgentId)
 
 	// Check if there's already an active run for this conversation.
-	if self.coordinator.GetActiveConversationRunner(conversationId) {
+	if self.coordinator.GetActiveConversationRunner(conversationId) != nil {
 		discordSession.ChannelMessageSend(event.ChannelID, "I'm still working on a previous request. Please wait.")
 		return
 	}
@@ -600,7 +601,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 	}
 
 	// Wait for completion.
-	result, runError := handle.Wait()
+	result, _, runError := handle.Wait()
 
 	previewMessageId, _ := preview.Stop()
 
@@ -667,19 +668,19 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 	}
 	switch name {
 	case "new":
-		conversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId, "")
+		conversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId)
 		reply = fmt.Sprintf("New conversation started. (`%s`)", conversationId)
 
 	case "reset", "clear":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
 		// Abort active run if any.
 		self.coordinator.AbortConversationRunner(conversationId)
-		newConversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId, "")
+		newConversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId)
 		reply = fmt.Sprintf("Conversation cleared. New conversation started. (`%s`)", newConversationId)
 
 	case "stop":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
-		if self.coordinator.GetActiveConversationRunner(conversationId) {
+		if self.coordinator.GetActiveConversationRunner(conversationId) != nil {
 			self.coordinator.AbortConversationRunner(conversationId)
 			reply = "Run cancelled."
 		} else {
@@ -740,12 +741,12 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 		if model == "" {
 			model = self.resolveDefaultModel()
 		}
-		running := self.coordinator.GetActiveConversationRunner(conversationId)
+		running := self.coordinator.GetActiveConversationRunner(conversationId) != nil
 		status := "idle"
 		if running {
 			status = "running"
 		}
-		providerName := self.coordinator.Providers().DefaultProvider()
+		providerName := self.coordinator.ProviderRegistry().DefaultProvider()
 		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
 
 	case "compact":
@@ -755,7 +756,7 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 		if compactError != nil {
 			reply = fmt.Sprintf("Error compacting: %v", compactError)
 		} else {
-			result, waitError := compactHandle.Wait()
+			_, result, waitError := compactHandle.Wait()
 			if waitError != nil {
 				reply = fmt.Sprintf("Error compacting: %v", waitError)
 			} else {
@@ -904,7 +905,7 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 			createdMedia, saveError = transaction.CreateMedia(ctx, bytes.NewReader(data), &models.Media{
 				Format:       &format,
 				ContentType:  &contentType,
-				Source:       ptrto.Value("discord"),
+				Source:       ptrto.Value(models.MediaSourceDiscord),
 				OriginalName: &att.Filename,
 			}, nil)
 			return saveError

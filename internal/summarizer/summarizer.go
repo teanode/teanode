@@ -43,7 +43,7 @@ const (
 // for conversations, agents, users, and projects.
 type Summarizer struct {
 	ctx                  context.Context
-	providers            *providers.Registry
+	providerRegistry     *providers.ProviderRegistry
 	IsConversationActive func(conversationId string) bool        // returns true if conversation has an active run
 	Broadcast            func(event string, payload interface{}) // broadcasts events to connected clients
 	notify               chan struct{}
@@ -52,11 +52,11 @@ type Summarizer struct {
 }
 
 // New creates a new Summarizer backed by the given provider registry.
-func New(ctx context.Context, providers *providers.Registry) *Summarizer {
+func New(ctx context.Context, providerRegistry *providers.ProviderRegistry) *Summarizer {
 	return &Summarizer{
-		ctx:       ctx,
-		providers: providers,
-		notify:    make(chan struct{}, 1),
+		ctx:              ctx,
+		providerRegistry: providerRegistry,
+		notify:           make(chan struct{}, 1),
 	}
 }
 
@@ -298,12 +298,12 @@ func (self *Summarizer) summarizeConversationTitleAndSummary(
 		conversationText = "[Previous summary]: " + previousSummary + "\n" + conversationText
 	}
 
-	provider, bareModel, ok := self.resolveSynthesisProvider("")
+	provider, modelName, ok := self.resolveSynthesisProvider()
 	if !ok {
 		return
 	}
 
-	responseText, ok := self.runSynthesisRequest(ctx, provider, bareModel, summarizerModeConversationTitleAndSummary,
+	responseText, ok := self.runSynthesisRequest(ctx, provider, modelName, summarizerModeConversationTitleAndSummary,
 		prompts.SummarizerTitleAndSummarySystemPrompt,
 		conversationText,
 		0,
@@ -376,11 +376,11 @@ func (self *Summarizer) summarizeAgentDescriptionModel(ctx context.Context, agen
 	// TODO: load tool names from agent configuration
 	toolNames := []string{}
 	userPrompt := "Write a plain-text routing description in 1-2 sentences. State your specialty, what tasks should be routed to you, and key tools. Tools: " + summarizeToolNames(toolNames, 20)
-	provider, bareModel, ok := self.resolveSynthesisProvider("")
+	provider, modelName, ok := self.resolveSynthesisProvider()
 	if !ok {
 		return
 	}
-	description, ok := self.runSynthesisRequest(ctx, provider, bareModel, summarizerModeAgentDescription, systemPrompt, userPrompt, summarizerDescriptionMaxTokens)
+	description, ok := self.runSynthesisRequest(ctx, provider, modelName, summarizerModeAgentDescription, systemPrompt, userPrompt, summarizerDescriptionMaxTokens)
 	if !ok {
 		return
 	}
@@ -417,21 +417,16 @@ func (self *Summarizer) summarizeUserDescriptionModel(ctx context.Context, userI
 		}
 	}
 
-	configuration := self.loadConfiguration()
-	if configuration == nil || configuration.Models == nil {
-		return
-	}
-
 	userContent := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeUser, userId, "USER.md", summarizerDescriptionMaxWorkspaceChars))
 	userMemory := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeUser, userId, "MEMORY.md", summarizerDescriptionMaxWorkspaceChars))
 	systemPrompt := "You generate concise user descriptions for personalization and routing. Use only plain text."
 	userPrompt := "Write a plain-text user description in 1-2 sentences. Include preferences, goals, and relevant constraints.\n\nUSER.md:\n" +
 		userContent + "\n\nMEMORY.md:\n" + userMemory
-	provider, bareModel, ok := self.resolveSynthesisProvider("")
+	provider, modelName, ok := self.resolveSynthesisProvider()
 	if !ok {
 		return
 	}
-	description, ok := self.runSynthesisRequest(ctx, provider, bareModel, summarizerModeUserDescription, systemPrompt, userPrompt, summarizerDescriptionMaxTokens)
+	description, ok := self.runSynthesisRequest(ctx, provider, modelName, summarizerModeUserDescription, systemPrompt, userPrompt, summarizerDescriptionMaxTokens)
 	if !ok {
 		return
 	}
@@ -463,19 +458,14 @@ func (self *Summarizer) summarizeProjectDescriptionModel(ctx context.Context, pr
 		}
 	}
 
-	configuration := self.loadConfiguration()
-	if configuration == nil || configuration.Models == nil {
-		return
-	}
-
 	projectMarkdown := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeProject, projectId, "PROJECT.md", summarizerDescriptionMaxWorkspaceChars))
 	systemPrompt := "You generate concise project descriptions for routing and discovery. Use only plain text."
 	userPrompt := "Write a plain-text project description in 1-2 sentences. Include what work belongs in this project.\n\nPROJECT.md:\n" + projectMarkdown
-	provider, bareModel, ok := self.resolveSynthesisProvider("")
+	provider, modelName, ok := self.resolveSynthesisProvider()
 	if !ok {
 		return
 	}
-	description, ok := self.runSynthesisRequest(ctx, provider, bareModel, summarizerModeProjectDescription, systemPrompt, userPrompt, summarizerDescriptionMaxTokens)
+	description, ok := self.runSynthesisRequest(ctx, provider, modelName, summarizerModeProjectDescription, systemPrompt, userPrompt, summarizerDescriptionMaxTokens)
 	if !ok {
 		return
 	}
@@ -495,14 +485,14 @@ func (self *Summarizer) summarizeProjectDescriptionModel(ctx context.Context, pr
 func (self *Summarizer) runSynthesisRequest(
 	ctx context.Context,
 	provider providers.Provider,
-	model string,
+	modelName string,
 	mode summarizerMode,
 	systemPrompt string,
 	userPrompt string,
 	maxTokens int,
 ) (string, bool) {
 	request := providers.ChatRequest{
-		Model: model,
+		Model: modelName,
 		Messages: []providers.ChatMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
@@ -526,33 +516,7 @@ func (self *Summarizer) runSynthesisRequest(
 	return content, true
 }
 
-func (self *Summarizer) resolveSynthesisProvider(modelOverride string) (providers.Provider, string, bool) {
-	if self.providers == nil {
-		return nil, "", false
-	}
-	configuration := self.loadConfiguration()
-	if configuration == nil || configuration.Models == nil {
-		return nil, "", false
-	}
-	qualifiedModel := modelOverride
-	if qualifiedModel == "" {
-		qualifiedModel = configuration.Models.GetSummarizerModel()
-	}
-	if qualifiedModel == "" {
-		qualifiedModel = configuration.Models.GetDefault()
-	}
-	if qualifiedModel == "" {
-		return nil, "", false
-	}
-	provider, bareModel, err := self.providers.Resolve(qualifiedModel)
-	if err != nil {
-		log.Debugf("summarizer: failed to resolve synthesis model %q: %v", qualifiedModel, err)
-		return nil, "", false
-	}
-	return provider, bareModel, true
-}
-
-func (self *Summarizer) loadConfiguration() *models.Configuration {
+func (self *Summarizer) resolveSynthesisProvider() (providers.Provider, string, bool) {
 	var configuration *models.Configuration
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		loadedConfiguration, err := transaction.GetConfiguration(ctx, nil)
@@ -563,9 +527,20 @@ func (self *Summarizer) loadConfiguration() *models.Configuration {
 		return nil
 	}); err != nil {
 		log.Debugf("summarizer: failed to load configuration from store: %v", err)
-		return nil
+		return nil, "", false
 	}
-	return configuration
+	qualifiedModel := ""
+	if configuration != nil && configuration.Models != nil {
+		if summarizerModel := configuration.Models.GetSummarizerModel(); summarizerModel != "" {
+			qualifiedModel = summarizerModel
+		}
+	}
+	provider, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(qualifiedModel)
+	if err != nil {
+		log.Debugf("summarizer: failed to resolve synthesis model %q: %v", qualifiedModel, err)
+		return nil, "", false
+	}
+	return provider, modelName, true
 }
 
 func (self *Summarizer) userDescriptionSourceUpdatedAt(userId string) time.Time {

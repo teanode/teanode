@@ -188,7 +188,7 @@ func TestShellToolExecute(t *testing.T) {
 	t.Run("simple echo", func(t *testing.T) {
 		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "echo_test",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"echo", "hello"},
 		}}
 
@@ -204,7 +204,7 @@ func TestShellToolExecute(t *testing.T) {
 	t.Run("template substitution", func(t *testing.T) {
 		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "greet",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"echo", "hello {{name}}"},
 		}}
 
@@ -220,7 +220,7 @@ func TestShellToolExecute(t *testing.T) {
 	t.Run("default timeout used", func(t *testing.T) {
 		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "fast",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"true"},
 		}}
 
@@ -233,7 +233,7 @@ func TestShellToolExecute(t *testing.T) {
 	t.Run("custom timeout", func(t *testing.T) {
 		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "fast",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"true"},
 			Timeout: 5,
 		}}
@@ -247,7 +247,7 @@ func TestShellToolExecute(t *testing.T) {
 	t.Run("command failure returns error", func(t *testing.T) {
 		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "fail",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"false"},
 		}}
 
@@ -261,7 +261,7 @@ func TestShellToolExecute(t *testing.T) {
 		directory := t.TempDir()
 		tool := &ShellTool{definition: models.SkillTool{
 			Name:             "pwd_test",
-			Type:             "shell",
+			Type:             models.SkillToolTypeShell,
 			Command:          []string{"pwd"},
 			WorkingDirectory: directory,
 		}}
@@ -280,7 +280,7 @@ func TestShellToolExecute(t *testing.T) {
 		repeatCount := (maxResultBytes / 10) + 100
 		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "big_output",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"sh", "-c", fmt.Sprintf("yes 'aaaaaaaaaa' | head -n %d", repeatCount)},
 		}}
 
@@ -296,7 +296,7 @@ func TestShellToolExecute(t *testing.T) {
 	t.Run("stdin receives raw arguments", func(t *testing.T) {
 		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "stdin_test",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"cat"},
 		}}
 
@@ -312,7 +312,7 @@ func TestShellToolExecute(t *testing.T) {
 	t.Run("required parameters enforced", func(t *testing.T) {
 		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "required_test",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"echo", "{{path}}"},
 			Parameters: map[string]interface{}{
 				"type":     "object",
@@ -360,7 +360,7 @@ func TestHTTPToolExecute(t *testing.T) {
 
 		tool := &HTTPTool{definition: models.SkillTool{
 			Name:   "get_test",
-			Type:   "http",
+			Type:   models.SkillToolTypeHTTP,
 			Method: "GET",
 			URL:    server.URL,
 		}}
@@ -385,7 +385,7 @@ func TestHTTPToolExecute(t *testing.T) {
 
 		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "default_method",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL,
 		}}
 
@@ -412,7 +412,7 @@ func TestHTTPToolExecute(t *testing.T) {
 
 		tool := &HTTPTool{definition: models.SkillTool{
 			Name:   "post_test",
-			Type:   "http",
+			Type:   models.SkillToolTypeHTTP,
 			Method: "POST",
 			URL:    server.URL,
 			Body:   `{"query":"{{query}}"}`,
@@ -437,7 +437,7 @@ func TestHTTPToolExecute(t *testing.T) {
 
 		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "url_template",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL + "/items/{{itemId}}",
 		}}
 
@@ -464,7 +464,7 @@ func TestHTTPToolExecute(t *testing.T) {
 
 		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "headers_test",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL,
 			Headers: map[string]string{
 				"X-Api-Key":    "secret123",
@@ -487,7 +487,7 @@ func TestHTTPToolExecute(t *testing.T) {
 
 		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "error_test",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL,
 		}}
 
@@ -509,7 +509,7 @@ func TestHTTPToolExecute(t *testing.T) {
 
 		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "server_error",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL,
 		}}
 
@@ -531,7 +531,7 @@ func TestHTTPToolExecute(t *testing.T) {
 
 		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "big_response",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL,
 		}}
 
@@ -559,13 +559,13 @@ func TestHTTPToolExecute(t *testing.T) {
 		tool := &HTTPTool{
 			definition: models.SkillTool{
 				Name: "auth_test",
-				Type: "http",
+				Type: models.SkillToolTypeHTTP,
 				URL:  server.URL,
 				Auth: "main",
 			},
-			httpAuthProfiles: map[string]models.SkillAuthenticationProfiles{
+			authenticationProfiles: map[string]models.SkillAuthenticationProfiles{
 				"main": {
-					Type:  "bearer",
+					Type:  models.SkillAuthenticationTypeBearer,
 					Token: "{{secret:AUTH_TOKEN}}",
 				},
 			},
@@ -611,16 +611,16 @@ func TestWorkflowToolExecute(t *testing.T) {
 
 	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "multi_action",
-		Type: "workflow",
+		Type: models.SkillToolTypeWorkflow,
 		Steps: []*models.SkillAction{
 			{
 				Name: "fetch",
-				Type: "http",
+				Type: models.SkillActionTypeHTTP,
 				URL:  server.URL,
 			},
 			{
 				Name:    "compose",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "hello {{steps.fetch}}"},
 			},
 		},
@@ -650,28 +650,28 @@ func TestWorkflowToolConditionAndContinueOnError(t *testing.T) {
 
 	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "conditional_flow",
-		Type: "workflow",
+		Type: models.SkillToolTypeWorkflow,
 		Steps: []*models.SkillAction{
 			{
 				Name:    "gate",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "run"},
 			},
 			{
 				Name:    "skipped",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				If:      "false",
 				Command: []string{"echo", "should_not_run"},
 			},
 			{
 				Name:    "fails",
-				Type:    "http",
+				Type:    models.SkillActionTypeHTTP,
 				URL:     server.URL,
-				OnError: "continue",
+				OnError: models.SkillErrorPolicyContinue,
 			},
 			{
 				Name:    "after_error",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "ok"},
 			},
 		},
@@ -695,11 +695,11 @@ func TestWorkflowToolConditionAndContinueOnError(t *testing.T) {
 func TestWorkflowToolConditionMissingPathIsFalse(t *testing.T) {
 	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "conditional_missing_path",
-		Type: "workflow",
+		Type: models.SkillToolTypeWorkflow,
 		Steps: []*models.SkillAction{
 			{
 				Name:    "guarded",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				If:      "missing.path",
 				Command: []string{"echo", "should_not_run"},
 			},
@@ -718,23 +718,23 @@ func TestWorkflowToolConditionMissingPathIsFalse(t *testing.T) {
 func TestWorkflowToolConditionComparison(t *testing.T) {
 	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "conditional_comparison",
-		Type: "workflow",
+		Type: models.SkillToolTypeWorkflow,
 		Steps: []*models.SkillAction{
 			{
 				Name:    "match",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				If:      "mode == \"prod\"",
 				Command: []string{"echo", "matched"},
 			},
 			{
 				Name:    "missing_is_null",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				If:      "missing.value == null",
 				Command: []string{"echo", "null_match"},
 			},
 			{
 				Name:    "mismatch",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				If:      "mode != \"prod\"",
 				Command: []string{"echo", "should_not_run"},
 			},
@@ -764,17 +764,17 @@ func TestWorkflowToolJSONResultReuse(t *testing.T) {
 
 	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "json_reuse",
-		Type: "workflow",
+		Type: models.SkillToolTypeWorkflow,
 		Steps: []*models.SkillAction{
 			{
 				Name:   "fetch",
-				Type:   "http",
+				Type:   models.SkillActionTypeHTTP,
 				URL:    server.URL,
-				Result: "json",
+				Result: models.SkillResultFormatJSON,
 			},
 			{
 				Name:    "use",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "id={{steps.fetch.id}}"},
 			},
 		},
@@ -797,13 +797,13 @@ func TestWorkflowToolJSONSelectAndExtract(t *testing.T) {
 
 	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "json_select",
-		Type: "workflow",
+		Type: models.SkillToolTypeWorkflow,
 		Steps: []*models.SkillAction{
 			{
 				Name:    "fetch",
-				Type:    "http",
+				Type:    models.SkillActionTypeHTTP,
 				URL:     server.URL,
-				Result:  "json",
+				Result:  models.SkillResultFormatJSON,
 				Extract: "data",
 				Select: map[string]string{
 					"id": "id",
@@ -811,7 +811,7 @@ func TestWorkflowToolJSONSelectAndExtract(t *testing.T) {
 			},
 			{
 				Name:    "use",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "{{steps.fetch.id}}"},
 			},
 		},
@@ -832,35 +832,35 @@ func TestWorkflowToolJSONSelectAndExtract(t *testing.T) {
 func TestWorkflowForEachSwitchAndFinally(t *testing.T) {
 	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "control_flow",
-		Type: "workflow",
+		Type: models.SkillToolTypeWorkflow,
 		Steps: []*models.SkillAction{
 			{
 				Name:    "init",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", `[1,2,3]`},
-				Result:  "json",
+				Result:  models.SkillResultFormatJSON,
 				SaveAs:  "numbers",
 			},
 			{
 				Name:    "loop",
-				Type:    "forEach",
+				Type:    models.SkillActionTypeForEach,
 				ForEach: "steps.numbers",
 				As:      "num",
 				Steps: []*models.SkillAction{
 					{
 						Name:   "route",
-						Type:   "switch",
+						Type:   models.SkillActionTypeSwitch,
 						Switch: "num",
 						Cases: []*models.SkillCase{
 							{
 								Match: "2",
 								Steps: []*models.SkillAction{
-									{Name: "mark_two", Type: "shell", Command: []string{"echo", "two-{{num}}"}},
+									{Name: "mark_two", Type: models.SkillActionTypeShell, Command: []string{"echo", "two-{{num}}"}},
 								},
 							},
 						},
 						Default: []*models.SkillAction{
-							{Name: "mark_other", Type: "shell", Command: []string{"echo", "other-{{num}}"}},
+							{Name: "mark_other", Type: models.SkillActionTypeShell, Command: []string{"echo", "other-{{num}}"}},
 						},
 					},
 				},
@@ -869,7 +869,7 @@ func TestWorkflowForEachSwitchAndFinally(t *testing.T) {
 		Finally: []*models.SkillAction{
 			{
 				Name:    "cleanup",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "done"},
 			},
 		},
@@ -893,24 +893,24 @@ func TestWorkflowForEachSwitchAndFinally(t *testing.T) {
 func TestWorkflowForEachRestoresAliasIndex(t *testing.T) {
 	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "for_each_alias_restore",
-		Type: "workflow",
+		Type: models.SkillToolTypeWorkflow,
 		Steps: []*models.SkillAction{
 			{
 				Name:    "loop",
-				Type:    "forEach",
+				Type:    models.SkillActionTypeForEach,
 				ForEach: "items",
 				As:      "item",
 				Steps: []*models.SkillAction{
 					{
 						Name:    "work",
-						Type:    "shell",
+						Type:    models.SkillActionTypeShell,
 						Command: []string{"echo", "{{itemIndex}}"},
 					},
 				},
 			},
 			{
 				Name:    "after",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "{{itemIndex}}"},
 			},
 		},
@@ -931,11 +931,11 @@ func TestWorkflowForEachRestoresAliasIndex(t *testing.T) {
 func TestWorkflowActionRouting(t *testing.T) {
 	tool := &WorkflowTool{definition: models.SkillTool{
 		Name:        "router",
-		Type:        "workflow",
+		Type:        models.SkillToolTypeWorkflow,
 		ActionField: "op",
 		Actions: map[string][]*models.SkillAction{
 			"ping": {
-				{Name: "echo", Type: "shell", Command: []string{"echo", "pong"}},
+				{Name: "echo", Type: models.SkillActionTypeShell, Command: []string{"echo", "pong"}},
 			},
 		},
 	}}
@@ -962,9 +962,9 @@ func TestToolOutputSchemaValidation(t *testing.T) {
 	t.Run("pass", func(t *testing.T) {
 		tool := &HTTPTool{definition: models.SkillTool{
 			Name:   "schema_pass",
-			Type:   "http",
+			Type:   models.SkillToolTypeHTTP,
 			URL:    server.URL,
-			Result: "json",
+			Result: models.SkillResultFormatJSON,
 			OutputSchema: map[string]interface{}{
 				"type": "object",
 				"required": []interface{}{
@@ -984,9 +984,9 @@ func TestToolOutputSchemaValidation(t *testing.T) {
 	t.Run("fail", func(t *testing.T) {
 		tool := &HTTPTool{definition: models.SkillTool{
 			Name:   "schema_fail",
-			Type:   "http",
+			Type:   models.SkillToolTypeHTTP,
 			URL:    server.URL,
-			Result: "json",
+			Result: models.SkillResultFormatJSON,
 			OutputSchema: map[string]interface{}{
 				"type": "object",
 				"required": []interface{}{
@@ -1004,7 +1004,7 @@ func TestToolOutputSchemaValidation(t *testing.T) {
 func TestShellSkillToolsDeniedForNonAdmin(t *testing.T) {
 	tool := &ShellTool{definition: models.SkillTool{
 		Name:    "echo",
-		Type:    "shell",
+		Type:    models.SkillToolTypeShell,
 		Command: []string{"echo", "ok"},
 	}}
 	nonAdminContext := models.ContextWithUserSessionToken(context.Background(), &models.User{ID: "non-admin"}, nil, nil)
@@ -1017,9 +1017,9 @@ func TestShellSkillToolsDeniedForNonAdmin(t *testing.T) {
 func TestWorkflowShellStepsDeniedForNonAdmin(t *testing.T) {
 	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "workflow_shell",
-		Type: "workflow",
+		Type: models.SkillToolTypeWorkflow,
 		Steps: []*models.SkillAction{
-			{Name: "echo", Type: "shell", Command: []string{"echo", "ok"}},
+			{Name: "echo", Type: models.SkillActionTypeShell, Command: []string{"echo", "ok"}},
 		},
 	}}
 	nonAdminContext := models.ContextWithUserSessionToken(context.Background(), &models.User{ID: "non-admin"}, nil, nil)

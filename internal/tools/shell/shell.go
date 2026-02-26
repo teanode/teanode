@@ -12,7 +12,7 @@ import (
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/providers"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("shell")
@@ -23,9 +23,10 @@ const (
 	maxOutputBytes = 256 * 1024 // 256 KB per stream
 )
 
-// RegisterTools adds the shell tool to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
-	registry.Register(&shellTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&shellTool{}}
+	})
 }
 
 type shellTool struct{}

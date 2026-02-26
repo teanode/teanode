@@ -16,10 +16,17 @@ type Configuration struct {
 	SkillsRegistries *[]*SkillRegistryConfiguration `json:"skillsRegistries,omitempty" yaml:"skillsRegistries,omitempty"`
 }
 
+type BindMode string
+
+const (
+	BindModeLoopback BindMode = "loopback"
+	BindModeLAN      BindMode = "lan"
+)
+
 type GatewayConfiguration struct {
-	Port      *int    `json:"port,omitempty" yaml:"port,omitempty"`
-	Bind      *string `json:"bind,omitempty" yaml:"bind,omitempty"`
-	PublicURL *string `json:"publicUrl,omitempty" yaml:"publicUrl,omitempty"`
+	Port      *int      `json:"port,omitempty" yaml:"port,omitempty"`
+	Bind      *BindMode `json:"bind,omitempty" yaml:"bind,omitempty"`
+	PublicURL *string   `json:"publicUrl,omitempty" yaml:"publicUrl,omitempty"`
 }
 
 type ModelsConfiguration struct {
@@ -45,7 +52,7 @@ type ToolsConfiguration struct {
 	ClaudeCode    *ClaudeCodeConfiguration    `json:"claudeCode,omitempty" yaml:"claudeCode,omitempty"`
 	Codex         *CodexConfiguration         `json:"codex,omitempty" yaml:"codex,omitempty"`
 	HomeAssistant *HomeAssistantConfiguration `json:"homeAssistant,omitempty" yaml:"homeAssistant,omitempty"`
-	UniFiProtect  *UniFiProtectConfiguration  `json:"uniFiProtect,omitempty" yaml:"uniFiProtect,omitempty"`
+	UniFiProtect  *UniFiProtectConfiguration  `json:"unifiProtect,omitempty" yaml:"unifiProtect,omitempty"`
 }
 
 type GoogleConfiguration struct {

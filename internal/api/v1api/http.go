@@ -3,13 +3,13 @@ package v1api
 import (
 	"context"
 	"encoding/json"
+	_ "image/gif"
+	_ "image/png"
 	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
-	_ "image/gif"
-	_ "image/png"
 
 	"github.com/gorilla/mux"
 	"github.com/teanode/teanode/internal/models"
@@ -97,7 +97,7 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 		UserID:       ptrto.TrimmedString(userId),
 		Format:       ptrto.TrimmedString(format),
 		ContentType:  ptrto.TrimmedString(contentType),
-		Source:       ptrto.TrimmedString("upload"),
+		Source:       ptrto.Value(models.MediaSourceUpload),
 		OriginalName: ptrto.TrimmedString(filename),
 	}
 	var saved *models.Media
@@ -126,12 +126,12 @@ func (self *v1Api) handleAudioTranscribe(writer http.ResponseWriter, request *ht
 		return web.Error(405, "method not allowed")
 	}
 
-	registry := self.coordinator.Providers()
-	if registry == nil {
+	providerRegistry := self.coordinator.ProviderRegistry()
+	if providerRegistry == nil {
 		return web.Error(500, "provider registry not available")
 	}
 
-	transcriber, _, ok := registry.FindTranscriber()
+	transcriber, _, ok := providerRegistry.FindTranscriber()
 	if !ok {
 		return web.Error(501, "no audio transcription provider configured")
 	}
@@ -176,12 +176,12 @@ func (self *v1Api) handleAudioSynthesize(writer http.ResponseWriter, request *ht
 		return web.Error(405, "method not allowed")
 	}
 
-	registry := self.coordinator.Providers()
-	if registry == nil {
+	providerRegistry := self.coordinator.ProviderRegistry()
+	if providerRegistry == nil {
 		return web.Error(500, "provider registry not available")
 	}
 
-	if _, _, ok := registry.FindSynthesizer(); !ok {
+	if _, _, ok := providerRegistry.FindSynthesizer(); !ok {
 		return web.Error(501, "no audio synthesis provider configured")
 	}
 
@@ -252,12 +252,12 @@ func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.R
 		return web.Error(410, "token expired")
 	}
 
-	registry := self.coordinator.Providers()
-	if registry == nil {
+	providerRegistry := self.coordinator.ProviderRegistry()
+	if providerRegistry == nil {
 		return web.Error(500, "provider registry not available")
 	}
 
-	synthesizer, _, ok := registry.FindSynthesizer()
+	synthesizer, _, ok := providerRegistry.FindSynthesizer()
 	if !ok {
 		return web.Error(501, "no audio synthesis provider configured")
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 // --- mock client ---
@@ -792,11 +792,11 @@ func TestInvalidJSON(testing *testing.T) {
 	}
 }
 
-// --- RegisterTools tests ---
+// --- Registration tests ---
 
 func TestRegisterTools(testing *testing.T) {
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(&unifiProtectTool{})
 	if registry.Get("unifi_protect") == nil {
 		testing.Error("expected unifi_protect tool to be registered")
 	}

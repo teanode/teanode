@@ -25,7 +25,7 @@ type Scheduler struct {
 	stopChannel  chan struct{}
 
 	Broadcast  func(event string, payload interface{})
-	RunMessage func(ctx context.Context, userId, agentId, conversationId, message, model string) (runId string, done <-chan struct{}, getError func() error)
+	RunMessage func(ctx context.Context, userId, agentId, conversationId, message, model string) (runnerId string, done <-chan struct{}, getError func() error)
 }
 
 // NewScheduler creates a new job scheduler.
@@ -217,8 +217,8 @@ func (self *Scheduler) executeJob(job *models.Job) {
 
 	log.Infof("executing job %s (%s) -> agent %s conversation %s", job.ID, job.GetName(), agentId, conversationId)
 
-	runId, done, getError := self.RunMessage(self.ctx, job.GetUserID(), agentId, conversationId, job.GetPrompt(), model)
-	log.Infof("job %s started run %s", job.ID, runId)
+	runnerId, done, getError := self.RunMessage(self.ctx, job.GetUserID(), agentId, conversationId, job.GetPrompt(), model)
+	log.Infof("job %s started run %s", job.ID, runnerId)
 
 	// Wait for the run to complete.
 	<-done
@@ -227,11 +227,11 @@ func (self *Scheduler) executeJob(job *models.Job) {
 	if err := getError(); err != nil {
 		log.Errorf("job %s failed: %v", job.ID, err)
 		job.LastRunAt = lastRunAt
-		job.LastStatus = ptrto.Value("error")
+		job.LastStatus = ptrto.Value(models.JobStatusError)
 		job.LastError = ptrto.Value(err.Error())
 	} else {
 		job.LastRunAt = lastRunAt
-		job.LastStatus = ptrto.Value("success")
+		job.LastStatus = ptrto.Value(models.JobStatusSuccess)
 		job.LastError = ptrto.Value("")
 	}
 

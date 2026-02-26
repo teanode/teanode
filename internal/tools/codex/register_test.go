@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 func makeFakeBinary(t *testing.T, name string) func() {
@@ -20,27 +18,29 @@ func makeFakeBinary(t *testing.T, name string) func() {
 	return func() { os.Setenv("PATH", origPath) }
 }
 
-func TestRegisterTools_BinaryPresent(t *testing.T) {
+func TestCreateTools_BinaryPresent(t *testing.T) {
 	cleanup := makeFakeBinary(t, "codex")
 	defer cleanup()
 
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
-
-	if registry.Get("codex") == nil {
-		t.Error("expected codex to be registered")
+	tools := createTools()
+	found := false
+	for _, tool := range tools {
+		if tool.Definition().Function.Name == "codex" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected codex to be created")
 	}
 }
 
-func TestRegisterTools_BinaryMissing(t *testing.T) {
+func TestCreateTools_BinaryMissing(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", t.TempDir())
 	defer os.Setenv("PATH", origPath)
 
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
-
-	if registry.Get("codex") != nil {
-		t.Error("expected no codex tool when binary is missing")
+	tools := createTools()
+	if len(tools) != 0 {
+		t.Errorf("expected no tools when binary is missing, got %d", len(tools))
 	}
 }

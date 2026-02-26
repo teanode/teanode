@@ -22,7 +22,7 @@ func (self *stubTool) Execute(_ context.Context, _ string) (string, error) {
 }
 
 func newTestRegistry() *ToolRegistry {
-	registry := NewToolRegistry()
+	registry := NewEmptyToolRegistry()
 	registry.Register(&stubTool{name: "alpha"})
 	registry.Register(&stubTool{name: "beta"})
 	registry.Register(&stubTool{name: "gamma"})

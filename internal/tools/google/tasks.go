@@ -9,9 +9,9 @@ import (
 )
 
 type tasksTool struct {
-	binary  string
+	binary string
 
-	runner  commandRunner
+	runner commandRunner
 }
 
 func (self *tasksTool) Definition() providers.ToolDefinition {

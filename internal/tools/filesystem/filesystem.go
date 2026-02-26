@@ -11,7 +11,7 @@ import (
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/providers"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
@@ -22,8 +22,11 @@ const (
 	maxDirectoryEntries = 1000
 )
 
-// RegisterTools adds the filesystem tool to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) { registry.Register(&filesystemTool{}) }
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&filesystemTool{}}
+	})
+}
 
 type filesystemTool struct{}
 

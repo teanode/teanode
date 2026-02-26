@@ -12,19 +12,16 @@ import (
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
 var validAgentIdPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
-// RegisterTools adds agent_list, agent_message, agent_create, and
-// subagent_spawn tools to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
-	registry.Register(&agentListTool{})
-	registry.Register(&agentMessageTool{})
-	registry.Register(&agentCreateTool{})
-	registry.Register(&subagentSpawnTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&agentListTool{}, &agentMessageTool{}, &agentCreateTool{}, &subagentSpawnTool{}}
+	})
 }
 
 func selfAgentId(ctx context.Context) string {
@@ -171,13 +168,6 @@ func (self *agentListTool) Execute(ctx context.Context, _ string) (string, error
 		return "", err
 	}
 
-	// Read default model from configuration for fallback.
-	modelsConfiguration := runners.ResolveModelsConfiguration(ctx)
-	defaultModel := ""
-	if modelsConfiguration != nil {
-		defaultModel = modelsConfiguration.GetDefault()
-	}
-
 	agents := make([]map[string]interface{}, 0, len(agentIds))
 	for _, agentId := range agentIds {
 		entry := map[string]interface{}{
@@ -193,9 +183,6 @@ func (self *agentListTool) Execute(ctx context.Context, _ string) (string, error
 			if model := agent.GetModel(); model != "" {
 				entry["model"] = model
 			}
-		}
-		if _, hasModel := entry["model"]; !hasModel && defaultModel != "" {
-			entry["model"] = defaultModel
 		}
 		if agentId == currentAgentId {
 			entry["isSelf"] = true
@@ -298,7 +285,7 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 	if sendError != nil {
 		return "", fmt.Errorf("agent %q send failed: %w", arguments.AgentID, sendError)
 	}
-	result, err := handle.Wait()
+	result, _, err := handle.Wait()
 	if err != nil {
 		return "", fmt.Errorf("agent %q run failed: %w", arguments.AgentID, err)
 	}
@@ -419,7 +406,7 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	if sendError != nil {
 		return "", fmt.Errorf("subagent %q send failed: %w", targetAgentId, sendError)
 	}
-	result, err := handle.Wait()
+	result, _, err := handle.Wait()
 	if err != nil {
 		return "", fmt.Errorf("subagent %q run failed: %w", targetAgentId, err)
 	}

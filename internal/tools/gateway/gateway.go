@@ -7,12 +7,13 @@ import (
 
 	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/providers"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
-// RegisterTools adds the consolidated gateway lifecycle tool to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
-	registry.Register(&gatewayTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&gatewayTool{}}
+	})
 }
 
 // --- gateway (multi-action) ---

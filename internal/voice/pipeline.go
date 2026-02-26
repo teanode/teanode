@@ -10,6 +10,7 @@ import (
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
 var pipelineLog = logging.MustGetLogger("voice.pipeline")
@@ -96,6 +97,7 @@ func (self *Session) audioInputLoop() {
 					continue
 				}
 				go func(tid string, audio []byte) {
+					defer deferutil.Recover()
 					defer self.FinishTurnTranscription(tid)
 					self.transcribeAndSend(tid, audio)
 				}(turnId, captured)
@@ -126,15 +128,15 @@ func (self *Session) llmEventForwarder() {
 		case event := <-sub.eventCh:
 			state, _ := event["state"].(string)
 			text, _ := event["text"].(string)
-			runId, _ := event["runId"].(string)
-			if runId != "" && self.IsRunCanceled(runId) {
+			runnerId, _ := event["runnerId"].(string)
+			if runnerId != "" && self.IsRunCanceled(runnerId) {
 				if state == "final" || state == "aborted" || state == "error" {
-					self.ClearCanceledRun(runId)
+					self.ClearCanceledRun(runnerId)
 				}
 				continue
 			}
-			if runId != "" && (state == "queued" || state == "delta") {
-				self.SetCurrentRunID(runId)
+			if runnerId != "" && (state == "queued" || state == "delta") {
+				self.SetCurrentRunID(runnerId)
 			}
 			if state == "queued" || state == "final" || state == "error" || state == "aborted" {
 				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", self.ID, self.GetCurrentTurnID(), state, len(text), self.GetCurrentRunID())
@@ -179,7 +181,7 @@ func (self *Session) llmEventForwarder() {
 				}
 				// Response stream is complete; allow next transcript to commit a new run.
 				self.ClearCurrentRun()
-				self.ClearCanceledRun(runId)
+				self.ClearCanceledRun(runnerId)
 				streamText = ""
 				sentencesEnqueued = 0
 				sawDelta = false
@@ -210,7 +212,7 @@ func (self *Session) ttsSynthLoop() {
 				pipelineLog.Warningf("voice synthesis skipped: missing coordinator")
 				continue
 			}
-			synth, _, ok := self.dispatcher.Providers().FindSynthesizer()
+			synth, _, ok := self.dispatcher.ProviderRegistry().FindSynthesizer()
 			if !ok || synth == nil {
 				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
@@ -286,7 +288,7 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 		return
 	}
 	pipelineLog.Infof("voice transcribe start: session=%s turn=%s bytes=%d", self.ID, turnId, len(captured))
-	transcriber, _, ok := self.dispatcher.Providers().FindTranscriber()
+	transcriber, _, ok := self.dispatcher.ProviderRegistry().FindTranscriber()
 	if !ok || transcriber == nil {
 		pipelineLog.Warningf("voice transcription skipped: no transcriber configured")
 		return
@@ -419,16 +421,16 @@ func (self *Session) commitNextPendingTurn() {
 func (self *Session) triggerBargeIn() {
 	self.bargeInOnce.Do(func() {
 		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunID(), self.GetCurrentResponseID())
-		runId := self.GetCurrentRunID()
-		self.MarkRunCanceled(runId)
+		runnerId := self.GetCurrentRunID()
+		self.MarkRunCanceled(runnerId)
 		if prev := self.SwapTTSCancel(nil); prev != nil {
 			prev()
 		}
 		self.drainTTSQueue()
 		self.drainAudioOutQueue()
 		self.trySendFlushFrame()
-		if runId != "" && self.dispatcher != nil {
-			self.dispatcher.AbortRunner(runId)
+		if runnerId != "" && self.dispatcher != nil {
+			self.dispatcher.AbortRunner(runnerId)
 		}
 		self.ClearCurrentRun()
 		self.ClearCurrentResponse()

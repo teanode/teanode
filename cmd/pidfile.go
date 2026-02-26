@@ -20,11 +20,7 @@ type pidGuard struct {
 }
 
 func acquirePidGuard(ctx context.Context) (*pidGuard, error) {
-	dataDirectory, err := DataDirectoryFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	pidFilename := filepath.Join(dataDirectory, "gateway.pid")
+	pidFilename := filepath.Join(DataDirectoryFromContext(ctx), "gateway.pid")
 
 	existingPid, err := readPidFile(pidFilename)
 	switch {
@@ -75,11 +71,7 @@ func (self *pidGuard) Release() error {
 }
 
 func restartProcess(ctx context.Context) error {
-	dataDirectory, err := DataDirectoryFromContext(ctx)
-	if err != nil {
-		return err
-	}
-	pidFilename := filepath.Join(dataDirectory, "gateway.pid")
+	pidFilename := filepath.Join(DataDirectoryFromContext(ctx), "gateway.pid")
 
 	pid, err := readPidFile(pidFilename)
 	switch {

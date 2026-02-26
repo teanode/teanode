@@ -5,18 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-// RegisterTools adds conversation-related tools to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
-	registry.Register(&listConversationsTool{})
-	registry.Register(&compactConversationTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&listConversationsTool{}, &compactConversationTool{}}
+	})
 }
 
 // --- conversation_list ---

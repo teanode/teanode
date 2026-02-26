@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/pubsub"
+	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
@@ -51,8 +52,8 @@ type Session struct {
 	AudioOut       AudioFormat
 	Features       Features
 
-	dispatcher voiceDispatcher
-	pubsub     *pubsub.PubSub
+	dispatcher   voiceDispatcher
+	pubsub       *pubsub.PubSub
 	sendJsonFn   func(any)
 	sendBinaryFn func([]byte)
 
@@ -62,7 +63,7 @@ type Session struct {
 
 	stateMu            sync.RWMutex
 	currentTurnId      string
-	currentRunId       string
+	currentRunnerId    string
 	currentResponseId  string
 	lastCommittedText  string
 	runCancel          func()
@@ -119,10 +120,10 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 func (self *Session) Start() {
 	pipelineLog.Infof("voice session start: session=%s conv=%s agent=%s", self.ID, self.ConversationID, self.AgentID)
 	self.wg.Add(4)
-	go func() { defer self.wg.Done(); self.audioInputLoop() }()
-	go func() { defer self.wg.Done(); self.llmEventForwarder() }()
-	go func() { defer self.wg.Done(); self.ttsSynthLoop() }()
-	go func() { defer self.wg.Done(); self.audioOutputLoop() }()
+	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.audioInputLoop() }()
+	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.llmEventForwarder() }()
+	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.ttsSynthLoop() }()
+	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.audioOutputLoop() }()
 }
 
 // Close stops the session and waits for loop termination.
@@ -226,13 +227,13 @@ func (self *Session) SetCurrentTurnID(id string) {
 func (self *Session) GetCurrentRunID() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
-	return self.currentRunId
+	return self.currentRunnerId
 }
 
 func (self *Session) SetCurrentRunID(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
-	self.currentRunId = id
+	self.currentRunnerId = id
 }
 
 func (self *Session) ClearCurrentRun() {
@@ -331,32 +332,32 @@ func (self *Session) MarkTurnCommitted(turnId string) {
 	self.committedTurns[turnId] = struct{}{}
 }
 
-func (self *Session) MarkRunCanceled(runId string) {
-	if runId == "" {
+func (self *Session) MarkRunCanceled(runnerId string) {
+	if runnerId == "" {
 		return
 	}
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
-	self.canceledRuns[runId] = struct{}{}
+	self.canceledRuns[runnerId] = struct{}{}
 }
 
-func (self *Session) IsRunCanceled(runId string) bool {
-	if runId == "" {
+func (self *Session) IsRunCanceled(runnerId string) bool {
+	if runnerId == "" {
 		return false
 	}
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
-	_, exists := self.canceledRuns[runId]
+	_, exists := self.canceledRuns[runnerId]
 	return exists
 }
 
-func (self *Session) ClearCanceledRun(runId string) {
-	if runId == "" {
+func (self *Session) ClearCanceledRun(runnerId string) {
+	if runnerId == "" {
 		return
 	}
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
-	delete(self.canceledRuns, runId)
+	delete(self.canceledRuns, runnerId)
 }
 
 func (self *Session) EnqueuePendingTurn(turnId, text string) (dropped *PendingTurn, queueDepth int) {

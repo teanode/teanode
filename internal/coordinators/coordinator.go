@@ -15,15 +15,11 @@ import (
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/summarizer"
 	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
 var log = logging.MustGetLogger("coordinator")
-
-var (
-	errConversationHasActiveRun = fmt.Errorf("cannot delete conversation with active run")
-	errAgentNotFound            = fmt.Errorf("agent not found")
-)
 
 // BuildToolRegistryFunc creates a tool registry and skill prompts for an agent.
 type BuildToolRegistryFunc func(ctx context.Context, agent models.Agent) (*toolregistry.ToolRegistry, string)
@@ -34,8 +30,7 @@ type BuildToolRegistryFunc func(ctx context.Context, agent models.Agent) (*toolr
 type Coordinator struct {
 	ctx               context.Context
 	config            *models.Configuration
-	providers         *providers.Registry
-	defaults          *runners.DefaultConversationManager
+	providerRegistry  *providers.ProviderRegistry
 	summarizer        *summarizer.Summarizer
 	pubsub            *pubsub.PubSub
 	buildToolRegistry BuildToolRegistryFunc
@@ -71,8 +66,7 @@ type messageResult struct {
 func New(
 	ctx context.Context,
 	config *models.Configuration,
-	providerRegistry *providers.Registry,
-	defaults *runners.DefaultConversationManager,
+	providerRegistry *providers.ProviderRegistry,
 	summarizerInstance *summarizer.Summarizer,
 	events *pubsub.PubSub,
 	buildToolRegistry BuildToolRegistryFunc,
@@ -80,22 +74,16 @@ func New(
 	return &Coordinator{
 		ctx:               ctx,
 		config:            config,
-		providers:         providerRegistry,
-		defaults:          defaults,
+		providerRegistry:  providerRegistry,
 		summarizer:        summarizerInstance,
 		pubsub:            events,
 		buildToolRegistry: buildToolRegistry,
 	}
 }
 
-// Providers returns the provider registry.
-func (self *Coordinator) Providers() *providers.Registry {
-	return self.providers
-}
-
-// PubSub returns the pubsub instance.
-func (self *Coordinator) PubSub() *pubsub.PubSub {
-	return self.pubsub
+// ProviderRegistry returns the provider registry.
+func (self *Coordinator) ProviderRegistry() *providers.ProviderRegistry {
+	return self.providerRegistry
 }
 
 // SendMessage orchestrates an agent run: resolves conversation, generates
@@ -137,10 +125,10 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 	// Resolve or create conversation.
 	conversationId := parameters.ConversationID
 	if conversationId == "" {
-		conversationId = self.ResolveOrCreateConversation(userId, resolvedAgentId, "", parameters.Model)
-	} else {
-		self.SetDefaultConversationIfUnset(userId, resolvedAgentId, conversationId)
+		conversationId = security.NewULID()
+		self.createConversation(userId, resolvedAgentId, conversationId)
 	}
+	self.SetDefaultConversationIfUnset(userId, resolvedAgentId, conversationId)
 
 	// Generate runner ID and create cancellable context.
 	runnerId := security.NewULID()
@@ -155,7 +143,7 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 	// Broadcast user message and conversations list update.
 	userMessagePayload := map[string]interface{}{
 		"state":          "user_message",
-		"runId":          runnerId,
+		"runnerId":       runnerId,
 		"conversationId": conversationId,
 		"agentId":        resolvedAgentId,
 		"userId":         userId,
@@ -184,6 +172,7 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 
 	// Run agent in background goroutine via internal dispatch.
 	go func() {
+		defer deferutil.Recover()
 		defer func() {
 			// Clean up runner index.
 			self.runnerIndex.Delete(runnerId)
@@ -195,7 +184,9 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 			}
 
 			// Fire any deferred lifecycle action now that the run is complete.
-			self.lifecycle().FirePendingLifecycle()
+			if lifecycleManager := self.lifecycle(); lifecycleManager != nil {
+				lifecycleManager.FirePendingLifecycle()
+			}
 		}()
 
 		result, err := self.dispatchMessage(runContext, resolvedAgentId, conversationId, runners.RunParams{
@@ -208,30 +199,32 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 
 		if err != nil {
 			if runContext.Err() != nil {
+				log.Warningf("run aborted runner=%s conversation=%s: %v", runnerId, conversationId, err)
 				self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 					"state":          "aborted",
-					"runId":          runnerId,
+					"runnerId":       runnerId,
 					"conversationId": conversationId,
 					"agentId":        resolvedAgentId,
 					"userId":         userId,
 				})
 			} else {
+				log.Errorf("run error runner=%s conversation=%s: %v", runnerId, conversationId, err)
 				self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 					"state":          "error",
-					"runId":          runnerId,
+					"runnerId":       runnerId,
 					"conversationId": conversationId,
 					"agentId":        resolvedAgentId,
 					"userId":         userId,
 					"error":          err.Error(),
 				})
 			}
-			handle.Resolve(nil, err)
+			handle.Resolve(nil, nil, err)
 			return
 		}
 
 		payload := map[string]interface{}{
 			"state":          "final",
-			"runId":          runnerId,
+			"runnerId":       runnerId,
 			"conversationId": conversationId,
 			"agentId":        resolvedAgentId,
 			"userId":         userId,
@@ -246,7 +239,7 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 			payload["contextWindow"] = result.ContextWindow
 		}
 		self.pubsub.Broadcast(pubsub.EventTypeConversation, payload)
-		handle.Resolve(result, nil)
+		handle.Resolve(result, nil, nil)
 	}()
 
 	return handle, nil
@@ -260,7 +253,7 @@ func (self *Coordinator) buildMergedCallbacks(runnerId, conversationId, agentId,
 		OnQueued: func() {
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "queued",
-				"runId":          runnerId,
+				"runnerId":       runnerId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
 				"userId":         userId,
@@ -272,7 +265,7 @@ func (self *Coordinator) buildMergedCallbacks(runnerId, conversationId, agentId,
 		OnTextDelta: func(text string) {
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "delta",
-				"runId":          runnerId,
+				"runnerId":       runnerId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
 				"userId":         userId,
@@ -288,7 +281,7 @@ func (self *Coordinator) buildMergedCallbacks(runnerId, conversationId, agentId,
 		OnToolCall: func(toolName string, arguments string) {
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "tool_call",
-				"runId":          runnerId,
+				"runnerId":       runnerId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
 				"userId":         userId,
@@ -302,7 +295,7 @@ func (self *Coordinator) buildMergedCallbacks(runnerId, conversationId, agentId,
 		OnToolResult: func(toolName string, result string) {
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "tool_result",
-				"runId":          runnerId,
+				"runnerId":       runnerId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
 				"userId":         userId,
@@ -317,9 +310,9 @@ func (self *Coordinator) buildMergedCallbacks(runnerId, conversationId, agentId,
 }
 
 // CompactConversation queues a compaction request to the conversation's runner.
-// Returns a CompactHandle immediately.
-func (self *Coordinator) CompactConversation(ctx context.Context, agentId, conversationId string) (*CompactHandle, error) {
-	handle := NewCompactHandle()
+// Returns a RunHandle immediately.
+func (self *Coordinator) CompactConversation(ctx context.Context, agentId, conversationId string) (*RunHandle, error) {
+	handle := NewRunHandle("", conversationId)
 	resultChan := make(chan messageResult, 1)
 	queued := &queuedMessage{
 		ctx:        ctx,
@@ -331,11 +324,12 @@ func (self *Coordinator) CompactConversation(ctx context.Context, agentId, conve
 	self.enqueueMessage(conversationId, agentId, queued)
 
 	go func() {
+		defer deferutil.Recover()
 		select {
 		case result := <-resultChan:
-			handle.Resolve(result.compactResult, result.err)
+			handle.Resolve(nil, result.compactResult, result.err)
 		case <-ctx.Done():
-			handle.Resolve(nil, ctx.Err())
+			handle.Resolve(nil, nil, ctx.Err())
 		}
 	}()
 
@@ -377,10 +371,17 @@ func (self *Coordinator) AbortRunner(runnerId string) bool {
 	return self.AbortConversationRunner(conversationId)
 }
 
-// GetActiveConversationRunner returns true if there is an active runner for the conversation.
-func (self *Coordinator) GetActiveConversationRunner(conversationId string) bool {
-	_, ok := self.activeRunners.Load(conversationId)
-	return ok
+// GetActiveConversationRunner returns the active runner for the conversation, or nil.
+func (self *Coordinator) GetActiveConversationRunner(conversationId string) *runners.Runner {
+	value, ok := self.activeRunners.Load(conversationId)
+	if !ok {
+		return nil
+	}
+	active := value.(*conversationRunner)
+	active.mutex.Lock()
+	runner := active.runner
+	active.mutex.Unlock()
+	return runner
 }
 
 // dispatchMessage routes a message to the per-conversation queue, blocking until processed.
@@ -438,6 +439,8 @@ func (self *Coordinator) enqueueMessage(conversationId, agentId string, message 
 }
 
 func (self *Coordinator) processQueue(conversationId string, conversationRunnerInstance *conversationRunner) {
+	defer deferutil.Recover()
+
 	for {
 		conversationRunnerInstance.mutex.Lock()
 
@@ -494,15 +497,8 @@ func (self *Coordinator) createRunner(ctx context.Context, agentId, conversation
 		return nil
 	}
 
-	tools, skillPrompts := self.buildToolRegistry(ctx, *agent)
-	return &runners.Runner{
-		ID:             security.NewULID(),
-		AgentID:        agentId,
-		ConversationID: conversationId,
-		Providers:      self.providers,
-		Tools:          tools,
-		SkillPrompts:   skillPrompts,
-	}
+	toolRegistry, skillPrompts := self.buildToolRegistry(ctx, *agent)
+	return runners.NewRunner(agentId, conversationId, self.providerRegistry, toolRegistry, skillPrompts)
 }
 
 // lifecycle returns the lifecycle manager from the coordinator context.

@@ -10,6 +10,16 @@ func TrimmedString(value string) *string {
 	return Value(trimmedValue)
 }
 
+// Trimmed is a generic version of TrimmedString for string-based enum types.
+func Trimmed[T ~string](value string) *T {
+	trimmedValue := strings.TrimSpace(value)
+	if trimmedValue == "" {
+		return nil
+	}
+	result := T(trimmedValue)
+	return &result
+}
+
 func TrimmedStrings(values []string) *[]string {
 	if len(values) == 0 {
 		return nil

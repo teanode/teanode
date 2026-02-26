@@ -10,9 +10,9 @@ import (
 )
 
 type contactsTool struct {
-	binary  string
+	binary string
 
-	runner  commandRunner
+	runner commandRunner
 }
 
 func (self *contactsTool) Definition() providers.ToolDefinition {

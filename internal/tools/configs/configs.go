@@ -9,7 +9,14 @@ import (
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/schemas"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
 )
+
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{NewConfigTool()}
+	})
+}
 
 const secretSentinel = "<hidden>"
 

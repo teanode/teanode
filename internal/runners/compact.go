@@ -10,6 +10,7 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
 )
 
 const defaultContextWindow = 128000
@@ -385,7 +386,7 @@ func parseStructuredSummaryResponse(rawText string) structuredSummary {
 func summarizeChunk(
 	ctx context.Context,
 	provider providers.Provider,
-	model string,
+	modelName string,
 	chunkText string,
 	previousSummary string,
 	focus string,
@@ -397,7 +398,7 @@ func summarizeChunk(
 	userPrompt := prompts.BuildStructuredSummaryUserPrompt(previousSummary, focus, chunkText)
 
 	summaryRequest := providers.ChatRequest{
-		Model: model,
+		Model: modelName,
 		Messages: []providers.ChatMessage{
 			{
 				Role:    "system",
@@ -452,7 +453,7 @@ func splitMessagesByTokenBudget(messages []providers.ChatMessage, maxTokens int)
 func summarizeMessagesInStages(
 	ctx context.Context,
 	provider providers.Provider,
-	model string,
+	modelName string,
 	messages []providers.ChatMessage,
 	contextWindow int,
 	focus string,
@@ -477,7 +478,7 @@ func summarizeMessagesInStages(
 	mergedSummary := structuredSummary{}
 	for _, chunk := range chunks {
 		chunkText := chatMessagesText(chunk, 0, defaultSummaryMaxMessageChars)
-		chunkSummary, err := summarizeChunk(ctx, provider, model, chunkText, formatStructuredSummary(mergedSummary), focus)
+		chunkSummary, err := summarizeChunk(ctx, provider, modelName, chunkText, formatStructuredSummary(mergedSummary), focus)
 		if err != nil {
 			return structuredSummary{}, err
 		}
@@ -507,12 +508,12 @@ func buildLastMessagesFallback(messages []providers.ChatMessage) structuredSumma
 func summarizeMessagesWithFallback(
 	ctx context.Context,
 	provider providers.Provider,
-	model string,
+	modelName string,
 	messages []providers.ChatMessage,
 	contextWindow int,
 	focus string,
 ) structuredSummary {
-	fullSummary, err := summarizeMessagesInStages(ctx, provider, model, messages, contextWindow, focus)
+	fullSummary, err := summarizeMessagesInStages(ctx, provider, modelName, messages, contextWindow, focus)
 	if err == nil && fullSummary.Summary != "" {
 		return fullSummary
 	}
@@ -533,7 +534,7 @@ func summarizeMessagesWithFallback(
 		filteredMessages = append(filteredMessages, message)
 	}
 	if len(filteredMessages) > 0 {
-		partialSummary, partialErr := summarizeMessagesInStages(ctx, provider, model, filteredMessages, contextWindow, focus)
+		partialSummary, partialErr := summarizeMessagesInStages(ctx, provider, modelName, filteredMessages, contextWindow, focus)
 		if partialErr == nil && partialSummary.Summary != "" {
 			return partialSummary
 		}
@@ -549,34 +550,36 @@ func summarizeMessagesWithFallback(
 func (self *Runner) summarizeAndPersist(
 	ctx context.Context,
 	messages []providers.ChatMessage,
+	contextWindow int,
 ) (string, error) {
-	modelsConfiguration := ResolveModelsConfiguration(ctx)
+	var configuration *models.Configuration
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		loadedConfiguration, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
+		}
+		configuration = loadedConfiguration
+		return nil
+	}); err != nil {
+		log.Debugf("runner: failed to load configuration from store: %v", err)
+		return "", fmt.Errorf("failed to load configuration from store: %w", err)
+	}
 	qualifiedModel := ""
-	if modelsConfiguration != nil {
-		qualifiedModel = modelsConfiguration.GetDefault()
-		if summarizerModel := modelsConfiguration.GetSummarizerModel(); summarizerModel != "" {
+	if configuration != nil && configuration.Models != nil {
+		if summarizerModel := configuration.Models.GetSummarizerModel(); summarizerModel != "" {
 			qualifiedModel = summarizerModel
 		}
 	}
-
-	provider, bareModel, resolveError := self.Providers.Resolve(qualifiedModel)
-	if resolveError != nil {
-		return "", fmt.Errorf("resolving summary model %q: %w", qualifiedModel, resolveError)
-	}
-
-	contextWindow := 0
-	if modelsConfiguration != nil {
-		contextWindow = modelsConfiguration.GetContextWindow()
-	}
-	if contextWindow <= 0 {
-		contextWindow = defaultContextWindow
+	provider, _, modelName, err := self.ProviderRegistry.ResolveProviderAndModel(qualifiedModel)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve summary model %q: %w", qualifiedModel, err)
 	}
 
 	summaryText := formatStructuredSummary(
 		summarizeMessagesWithFallback(
 			ctx,
 			provider,
-			bareModel,
+			modelName,
 			messages,
 			contextWindow,
 			prompts.StructuredSummaryDefaultFocus,
@@ -615,7 +618,7 @@ func (self *Runner) CompactConversation(ctx context.Context) (*CompactResult, er
 	// Build messages via the same pipeline used for normal runs.
 	llmMessages := self.buildMessages(ctx, history, "", SystemPromptModeFull, self.SkillPrompts)
 
-	summaryText, err := self.summarizeAndPersist(ctx, llmMessages)
+	summaryText, err := self.summarizeAndPersist(ctx, llmMessages, self.resolveContextWindow(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -628,18 +631,32 @@ func (self *Runner) CompactConversation(ctx context.Context) (*CompactResult, er
 	}, nil
 }
 
+func (self *Runner) resolveContextWindow(ctx context.Context) int {
+	var configuration *models.Configuration
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		var err error
+		configuration, err = transaction.GetConfiguration(ctx, nil)
+		return err
+	})
+	contextWindow := 0
+	if configuration != nil && configuration.Models != nil {
+		contextWindow = configuration.Models.GetContextWindow()
+	}
+	if contextWindow <= 0 {
+		contextWindow = defaultContextWindow
+	}
+	return contextWindow
+}
+
 // compressContext checks whether the estimated token count exceeds the
 // compression threshold and, if so, summarizes older messages via an LLM call.
 func (self *Runner) compressContext(
 	ctx context.Context,
 	messages []providers.ChatMessage,
 	toolDefs []providers.ToolDefinition,
-	contextWindow int,
 	limits contextCompressionLimits,
 ) ([]providers.ChatMessage, error) {
-	if contextWindow <= 0 {
-		contextWindow = defaultContextWindow
-	}
+	contextWindow := self.resolveContextWindow(ctx)
 
 	// Estimate total tokens.
 	total := estimateToolDefsTokens(toolDefs)
@@ -664,7 +681,7 @@ func (self *Runner) compressContext(
 	// Messages to summarize: messages[1:keepIdx] (skip system prompt at 0).
 	toSummarize := messages[1:keepIdx]
 
-	summaryText, err := self.summarizeAndPersist(ctx, toSummarize)
+	summaryText, err := self.summarizeAndPersist(ctx, toSummarize, contextWindow)
 	if err != nil {
 		log.Debugf("failed to persist context summary: %v", err)
 		return messages, nil

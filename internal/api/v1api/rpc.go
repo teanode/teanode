@@ -11,9 +11,9 @@ import (
 
 	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/jobs"
-	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/onboarding"
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/schemas"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -53,8 +53,8 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	}
 
 	capabilities := []string{"conversations"}
-	if registry := self.api.coordinator.Providers(); registry != nil {
-		if _, _, ok := registry.FindTranscriber(); ok {
+	if providerRegistry := self.api.coordinator.ProviderRegistry(); providerRegistry != nil {
+		if _, _, ok := providerRegistry.FindTranscriber(); ok {
 			capabilities = append(capabilities, "audio")
 		}
 	}
@@ -269,7 +269,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"runId":          handle.RunnerID,
+		"runnerId":       handle.RunnerID,
 		"conversationId": handle.ConversationID,
 	})
 }
@@ -319,7 +319,7 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 		"oldestLoadedIndex": oldestLoadedIndex,
 		"hasMore":           hasMore,
 	}
-	if self.api.coordinator.GetActiveConversationRunner(parameters.ConversationID) {
+	if self.api.coordinator.GetActiveConversationRunner(parameters.ConversationID) != nil {
 		response["running"] = true
 	}
 	if provider != "" {
@@ -333,7 +333,7 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 
 // conversationAbortParameters are the parameters for conversations.abort.
 type conversationAbortParameters struct {
-	RunID string `json:"runId"`
+	RunnerID string `json:"runnerId"`
 }
 
 // handleConversationsAbort: cancel a running agent. Works cross-tab and cross-channel.
@@ -344,12 +344,12 @@ func (self *webSocketConnection) handleConversationsAbort(frame requestFrame) {
 		return
 	}
 
-	if self.api.coordinator.AbortRunner(parameters.RunID) {
+	if self.api.coordinator.AbortRunner(parameters.RunnerID) {
 		self.sendResponse(frame.ID, map[string]interface{}{
 			"aborted": true,
 		})
 	} else {
-		self.sendError(frame.ID, 404, "run not found: "+parameters.RunID)
+		self.sendError(frame.ID, 404, "run not found: "+parameters.RunnerID)
 	}
 }
 
@@ -383,10 +383,17 @@ func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) {
 		return
 	}
 
-	if err := self.api.coordinator.DeleteConversation(self.userId(), resolvedAgentId, parameters.ConversationID); err != nil {
+	if self.api.coordinator.GetActiveConversationRunner(parameters.ConversationID) != nil {
+		self.sendError(frame.ID, 500, "conversation has active run")
+	}
+
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		return transaction.DeleteConversation(ctx, parameters.ConversationID, nil)
+	}); err != nil && err != store.ErrNotFound {
 		self.sendError(frame.ID, 500, "deleting conversation: "+err.Error())
 		return
 	}
+	self.api.pubsub.Broadcast(pubsub.EventTypeConversations, nil)
 
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"deleted": true,

@@ -10,9 +10,9 @@ import (
 )
 
 type calendarTool struct {
-	binary  string
+	binary string
 
-	runner  commandRunner
+	runner commandRunner
 }
 
 func (self *calendarTool) Definition() providers.ToolDefinition {

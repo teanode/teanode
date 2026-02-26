@@ -14,13 +14,36 @@ type Tool interface {
 	Execute(ctx context.Context, arguments string) (string, error)
 }
 
+// builtinRegistry holds factory functions registered by tool packages via init().
+var builtinRegistry []func() []Tool
+
+// RegisterBuiltinTool registers a factory that produces tools at registry
+// creation time. Tool packages call this from init() so that importing the
+// package is sufficient to make the tools available.
+func RegisterBuiltinTool(factory func() []Tool) {
+	builtinRegistry = append(builtinRegistry, factory)
+}
+
 // ToolRegistry holds named tools available to the agent.
 type ToolRegistry struct {
 	tools map[string]Tool
 }
 
-// NewToolRegistry creates an empty registry.
+// NewToolRegistry creates a registry pre-populated with all builtin tools
+// registered via RegisterBuiltinTool.
 func NewToolRegistry() *ToolRegistry {
+	registry := &ToolRegistry{tools: make(map[string]Tool)}
+	for _, factory := range builtinRegistry {
+		for _, tool := range factory() {
+			registry.Register(tool)
+		}
+	}
+	return registry
+}
+
+// NewEmptyToolRegistry creates a registry with no tools. Use this in tests
+// that need an isolated registry without builtin tools.
+func NewEmptyToolRegistry() *ToolRegistry {
 	return &ToolRegistry{tools: make(map[string]Tool)}
 }
 

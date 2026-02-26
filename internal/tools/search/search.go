@@ -12,14 +12,15 @@ import (
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("search")
 
-// RegisterTools adds web search tools to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
-	registry.Register(&searchTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&searchTool{}}
+	})
 }
 
 // braveAPIKeyFromContext reads the Brave API key from the store configuration.

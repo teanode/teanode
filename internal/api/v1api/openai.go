@@ -117,7 +117,7 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 	if sendError != nil {
 		return web.Error(500, sendError.Error())
 	}
-	result, err := handle.Wait()
+	result, _, err := handle.Wait()
 	if err != nil {
 		return web.Error(500, err.Error())
 	}
@@ -204,7 +204,7 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 		return nil
 	}
 
-	result, err := handle.Wait()
+	result, _, err := handle.Wait()
 	if err != nil {
 		errData, _ := json.Marshal(map[string]string{"error": err.Error()})
 		fmt.Fprintf(writer, "data: %s\n\n", errData)

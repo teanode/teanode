@@ -7,7 +7,14 @@ import (
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
+
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{NewProjectsTool(), NewProjectWorkspaceTool()}
+	})
+}
 
 func NewProjectsTool() *projectsTool                 { return &projectsTool{} }
 func NewProjectWorkspaceTool() *projectWorkspaceTool { return &projectWorkspaceTool{} }

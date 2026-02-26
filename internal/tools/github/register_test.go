@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 // makeFakeBinary creates a minimal executable in a temp directory and
@@ -22,35 +20,36 @@ func makeFakeBinary(t *testing.T, name string) func() {
 	return func() { os.Setenv("PATH", origPath) }
 }
 
-func TestRegisterTools_BinaryPresent(t *testing.T) {
+func TestCreateTools_BinaryPresent(t *testing.T) {
 	cleanup := makeFakeBinary(t, "gh")
 	defer cleanup()
 
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
+	tools := createTools()
+	names := map[string]bool{}
+	for _, tool := range tools {
+		names[tool.Definition().Function.Name] = true
+	}
 
 	// Default services: issues, pulls, repos → 3 tools.
-	if registry.Get("github_issues") == nil {
-		t.Error("expected github_issues to be registered")
+	if !names["github_issues"] {
+		t.Error("expected github_issues to be created")
 	}
-	if registry.Get("github_pulls") == nil {
-		t.Error("expected github_pulls to be registered")
+	if !names["github_pulls"] {
+		t.Error("expected github_pulls to be created")
 	}
-	if registry.Get("github_repos") == nil {
-		t.Error("expected github_repos to be registered")
+	if !names["github_repos"] {
+		t.Error("expected github_repos to be created")
 	}
 }
 
-func TestRegisterTools_BinaryMissing(t *testing.T) {
+func TestCreateTools_BinaryMissing(t *testing.T) {
 	// Use a PATH with no gh binary.
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", t.TempDir())
 	defer os.Setenv("PATH", origPath)
 
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
-
-	if len(registry.Names()) != 0 {
-		t.Errorf("expected no tools when binary is missing, got %v", registry.Names())
+	tools := createTools()
+	if len(tools) != 0 {
+		t.Errorf("expected no tools when binary is missing, got %d", len(tools))
 	}
 }

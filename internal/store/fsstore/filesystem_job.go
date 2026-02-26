@@ -254,7 +254,7 @@ func frontmatterToModelJob(userId string, jobId string, prompt string, frontmatt
 		Prompt:         ptrto.TrimmedString(prompt),
 		Enabled:        ptrto.Value(frontmatter.Enabled),
 		OneShot:        ptrto.Value(frontmatter.OneShot),
-		LastStatus:     ptrto.TrimmedString(frontmatter.LastStatus),
+		LastStatus:     ptrto.Trimmed[models.JobStatus](frontmatter.LastStatus),
 		LastError:      ptrto.TrimmedString(frontmatter.LastError),
 		RunAt:          runAt,
 		LastRunAt:      lastRunAt,
@@ -271,7 +271,7 @@ func modelJobToFrontmatter(job models.Job) filesystemJobFrontmatter {
 		AgentID:        job.GetAgentID(),
 		Enabled:        job.GetEnabled(),
 		OneShot:        job.GetOneShot(),
-		LastStatus:     job.GetLastStatus(),
+		LastStatus:     string(job.GetLastStatus()),
 		LastError:      job.GetLastError(),
 		ConversationID: job.GetConversationID(),
 	}

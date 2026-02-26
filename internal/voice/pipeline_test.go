@@ -26,7 +26,7 @@ func (self *mockDispatcher) SendMessage(_ context.Context, parameters coordinato
 	self.runCounter++
 	self.sendCalls = append(self.sendCalls, parameters)
 	handle := coordinators.NewRunHandle(fmt.Sprintf("run-%d", self.runCounter), parameters.ConversationID)
-	handle.Resolve(&runners.RunResult{Response: "ok"}, nil)
+	handle.Resolve(&runners.RunResult{Response: "ok"}, nil, nil)
 	return handle, nil
 }
 
@@ -37,7 +37,7 @@ func (self *mockDispatcher) AbortRunner(runnerId string) bool {
 	return true
 }
 
-func (self *mockDispatcher) Providers() *providers.Registry {
+func (self *mockDispatcher) ProviderRegistry() *providers.ProviderRegistry {
 	// Return nil; tests that need provider access use the registry field directly via transcribeAndSend override.
 	return nil
 }
@@ -77,17 +77,19 @@ func (self *eventRecorder) findTurnEvent(event string) map[string]interface{} {
 // so that transcribeAndSend can find the mock transcriber.
 type mockVoiceDispatcher struct {
 	*mockDispatcher
-	providerRegistry *providers.Registry
+	providerRegistry *providers.ProviderRegistry
 }
 
-func (self *mockVoiceDispatcher) Providers() *providers.Registry {
+func (self *mockVoiceDispatcher) ProviderRegistry() *providers.ProviderRegistry {
 	return self.providerRegistry
 }
 
-func newMockProviderRegistryWithTranscriber(text string) *providers.Registry {
-	registry := providers.NewRegistry("mock")
-	registry.Register("mock", &mockTranscriberProvider{text: text})
-	return registry
+func newMockProviderRegistryWithTranscriber(text string) *providers.ProviderRegistry {
+	providerRegistry := providers.NewProviderRegistry(nil)
+	// Register under "openai" to override the default provider so FindTranscriber
+	// returns the mock instead of the real OpenAI client.
+	providerRegistry.Register("openai", &mockTranscriberProvider{text: text})
+	return providerRegistry
 }
 
 // mockTranscriberProvider satisfies both providers.Provider and providers.AudioTranscriber.

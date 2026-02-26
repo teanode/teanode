@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	toolregistry "github.com/teanode/teanode/internal/tools"
 )
 
 func makeFakeBinary(t *testing.T, name string) func() {
@@ -20,34 +18,35 @@ func makeFakeBinary(t *testing.T, name string) func() {
 	return func() { os.Setenv("PATH", origPath) }
 }
 
-func TestRegisterTools_BinaryPresent(t *testing.T) {
+func TestCreateTools_BinaryPresent(t *testing.T) {
 	cleanup := makeFakeBinary(t, "glab")
 	defer cleanup()
 
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
+	tools := createTools()
+	names := map[string]bool{}
+	for _, tool := range tools {
+		names[tool.Definition().Function.Name] = true
+	}
 
 	// Default services: issues, merge_requests, projects → 3 tools.
-	if registry.Get("gitlab_issues") == nil {
-		t.Error("expected gitlab_issues to be registered")
+	if !names["gitlab_issues"] {
+		t.Error("expected gitlab_issues to be created")
 	}
-	if registry.Get("gitlab_merge_requests") == nil {
-		t.Error("expected gitlab_merge_requests to be registered")
+	if !names["gitlab_merge_requests"] {
+		t.Error("expected gitlab_merge_requests to be created")
 	}
-	if registry.Get("gitlab_projects") == nil {
-		t.Error("expected gitlab_projects to be registered")
+	if !names["gitlab_projects"] {
+		t.Error("expected gitlab_projects to be created")
 	}
 }
 
-func TestRegisterTools_BinaryMissing(t *testing.T) {
+func TestCreateTools_BinaryMissing(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", t.TempDir())
 	defer os.Setenv("PATH", origPath)
 
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
-
-	if len(registry.Names()) != 0 {
-		t.Errorf("expected no tools when binary is missing, got %v", registry.Names())
+	tools := createTools()
+	if len(tools) != 0 {
+		t.Errorf("expected no tools when binary is missing, got %d", len(tools))
 	}
 }

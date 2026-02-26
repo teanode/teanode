@@ -137,13 +137,15 @@ func MakeForwarderMiddleware(forwarderKey string) Middleware {
 // AuthenticationMiddleware returns a middleware that enforces token/session auth
 // on API endpoints. It reads the store from the request context.
 func MakeAuthenticationMiddleware() Middleware {
-	// checkToken validates bearer auth and injects user context when valid.
+	// checkToken validates bearer auth (header or query param) and injects user context when valid.
 	checkToken := func(request *http.Request) (*http.Request, bool) {
-		authHeader := request.Header.Get("Authorization")
-		if !strings.HasPrefix(authHeader, "Bearer ") {
-			return request, false
+		tokenValue := ""
+		if authHeader := request.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+			tokenValue = strings.TrimPrefix(authHeader, "Bearer ")
 		}
-		tokenValue := strings.TrimPrefix(authHeader, "Bearer ")
+		if tokenValue == "" {
+			tokenValue = request.URL.Query().Get("token")
+		}
 		if tokenValue == "" {
 			return request, false
 		}

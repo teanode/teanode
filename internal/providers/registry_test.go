@@ -4,9 +4,11 @@ import (
 	"context"
 	"sort"
 	"testing"
+
+	"github.com/teanode/teanode/internal/models"
 )
 
-// mockProvider implements Provider for testing the registry.
+// mockProvider implements Provider for testing the providerRegistry.
 type mockProvider struct {
 	name string
 }
@@ -23,26 +25,53 @@ func (self *mockProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	return nil, nil
 }
 
-func TestNewRegistry(t *testing.T) {
-	registry := NewRegistry("openai")
-	if registry.DefaultProvider() != "openai" {
-		t.Errorf("DefaultProvider() = %q, want %q", registry.DefaultProvider(), "openai")
+func TestNewRegistryNilConfig(t *testing.T) {
+	providerRegistry := NewProviderRegistry(nil)
+	if providerRegistry.DefaultProvider() != "openai" {
+		t.Errorf("DefaultProvider() = %q, want %q", providerRegistry.DefaultProvider(), "openai")
 	}
-	if len(registry.ProviderNames()) != 0 {
-		t.Errorf("expected empty provider names, got %v", registry.ProviderNames())
+	if providerRegistry.DefaultModel() != "openai:gpt-5.2" {
+		t.Errorf("DefaultModel() = %q, want %q", providerRegistry.DefaultModel(), "openai:gpt-5.2")
+	}
+	// Should have registered the default openai provider.
+	if len(providerRegistry.ProviderNames()) != 1 {
+		t.Errorf("expected 1 provider, got %v", providerRegistry.ProviderNames())
+	}
+}
+
+func TestNewRegistryWithConfig(t *testing.T) {
+	defaultModel := "anthropic:claude-sonnet-4-20250514"
+	providerName := "anthropic"
+	providerBaseURL := "https://api.anthropic.com"
+	providerKey := "test-key"
+	providerRegistry := NewProviderRegistry(&models.ModelsConfiguration{
+		Default: &defaultModel,
+		Providers: &[]*models.ProviderConfiguration{
+			{
+				Name:    &providerName,
+				BaseURL: &providerBaseURL,
+				APIKey:  &providerKey,
+			},
+		},
+	})
+	if providerRegistry.DefaultProvider() != "anthropic" {
+		t.Errorf("DefaultProvider() = %q, want %q", providerRegistry.DefaultProvider(), "anthropic")
+	}
+	if providerRegistry.DefaultModel() != defaultModel {
+		t.Errorf("DefaultModel() = %q, want %q", providerRegistry.DefaultModel(), defaultModel)
 	}
 }
 
 func TestRegistryRegisterAndResolve(t *testing.T) {
-	registry := NewRegistry("openai")
+	providerRegistry := NewProviderRegistry(nil)
 	openaiProvider := &mockProvider{name: "openai"}
 	anthropicProvider := &mockProvider{name: "anthropic"}
 
-	registry.Register("openai", openaiProvider)
-	registry.Register("anthropic", anthropicProvider)
+	providerRegistry.Register("openai", openaiProvider)
+	providerRegistry.Register("anthropic", anthropicProvider)
 
 	// Resolve with explicit provider prefix.
-	client, model, err := registry.Resolve("anthropic:claude-sonnet-4-20250514")
+	client, _, model, err := providerRegistry.ResolveProviderAndModel("anthropic:claude-sonnet-4-20250514")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -55,7 +84,7 @@ func TestRegistryRegisterAndResolve(t *testing.T) {
 	}
 
 	// Resolve without prefix should use default provider.
-	client, model, err = registry.Resolve("gpt-4o")
+	client, _, model, err = providerRegistry.ResolveProviderAndModel("gpt-4o")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -69,10 +98,9 @@ func TestRegistryRegisterAndResolve(t *testing.T) {
 }
 
 func TestRegistryResolveUnknownProvider(t *testing.T) {
-	registry := NewRegistry("openai")
-	registry.Register("openai", &mockProvider{name: "openai"})
+	providerRegistry := NewProviderRegistry(nil)
 
-	_, _, err := registry.Resolve("unknown:some-model")
+	_, _, _, err := providerRegistry.ResolveProviderAndModel("unknown:some-model")
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
@@ -83,21 +111,27 @@ func TestRegistryResolveUnknownProvider(t *testing.T) {
 }
 
 func TestRegistryResolveNoDefaultRegistered(t *testing.T) {
-	registry := NewRegistry("missing")
+	defaultModel := "missing:model"
+	providerRegistry := NewProviderRegistry(&models.ModelsConfiguration{
+		Default:   &defaultModel,
+		Providers: &[]*models.ProviderConfiguration{
+			// Empty providers list so nothing actually registers.
+		},
+	})
 
-	_, _, err := registry.Resolve("some-model")
+	_, _, _, err := providerRegistry.ResolveProviderAndModel("some-model")
 	if err == nil {
 		t.Fatal("expected error when default provider is not registered")
 	}
 }
 
 func TestRegistryProviderNames(t *testing.T) {
-	registry := NewRegistry("openai")
-	registry.Register("openai", &mockProvider{})
-	registry.Register("anthropic", &mockProvider{})
-	registry.Register("local", &mockProvider{})
+	providerRegistry := NewProviderRegistry(nil)
+	providerRegistry.Register("openai", &mockProvider{})
+	providerRegistry.Register("anthropic", &mockProvider{})
+	providerRegistry.Register("local", &mockProvider{})
 
-	names := registry.ProviderNames()
+	names := providerRegistry.ProviderNames()
 	sort.Strings(names)
 
 	expected := []string{"anthropic", "local", "openai"}
@@ -158,14 +192,14 @@ func TestQualifyModel(t *testing.T) {
 }
 
 func TestRegistryRegisterOverwrite(t *testing.T) {
-	registry := NewRegistry("openai")
+	providerRegistry := NewProviderRegistry(nil)
 	firstProvider := &mockProvider{name: "first"}
 	secondProvider := &mockProvider{name: "second"}
 
-	registry.Register("openai", firstProvider)
-	registry.Register("openai", secondProvider)
+	providerRegistry.Register("openai", firstProvider)
+	providerRegistry.Register("openai", secondProvider)
 
-	client, _, err := registry.Resolve("openai:gpt-4o")
+	client, _, _, err := providerRegistry.ResolveProviderAndModel("openai:gpt-4o")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

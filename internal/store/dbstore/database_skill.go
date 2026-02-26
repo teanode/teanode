@@ -126,11 +126,8 @@ func modelToSkillRecord(skill *models.Skill) (*databaseSkillRecord, error) {
 	if value := skill.GetDescription(); value != "" {
 		metadata["description"] = value
 	}
-	if value := skill.GetRuntimeMinVersion(); value != "" {
-		metadata["runtimeMinVersion"] = value
-	}
 	if skill.AuthenticationProfiles != nil && len(*skill.AuthenticationProfiles) > 0 {
-		metadata["httpAuth"] = *skill.AuthenticationProfiles
+		metadata["authenticationProfiles"] = *skill.AuthenticationProfiles
 	}
 	if skill.Tools != nil && len(*skill.Tools) > 0 {
 		metadata["tools"] = *skill.Tools
@@ -169,19 +166,16 @@ func skillRecordToModel(record *databaseSkillRecord) (*models.Skill, error) {
 		if value, ok := metadata["description"].(string); ok {
 			skill.Description = ptrto.TrimmedString(value)
 		}
-		if value, ok := metadata["runtimeMinVersion"].(string); ok {
-			skill.RuntimeMinVersion = ptrto.TrimmedString(value)
-		}
-		if value, exists := metadata["httpAuth"]; exists {
-			httpAuthData, marshalError := json.Marshal(value)
+		if value, exists := metadata["authenticationProfiles"]; exists {
+			authenticationProfilesData, marshalError := json.Marshal(value)
 			if marshalError != nil {
 				return nil, marshalError
 			}
-			httpAuth := map[string]models.SkillAuthenticationProfiles{}
-			if unmarshalError := json.Unmarshal(httpAuthData, &httpAuth); unmarshalError != nil {
+			authenticationProfiles := map[string]models.SkillAuthenticationProfiles{}
+			if unmarshalError := json.Unmarshal(authenticationProfilesData, &authenticationProfiles); unmarshalError != nil {
 				return nil, unmarshalError
 			}
-			skill.AuthenticationProfiles = &httpAuth
+			skill.AuthenticationProfiles = &authenticationProfiles
 		}
 		if value, exists := metadata["tools"]; exists {
 			toolsData, marshalError := json.Marshal(value)

@@ -5,7 +5,7 @@ import (
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("unifiprotect")
@@ -53,7 +53,8 @@ func configFromContext(ctx context.Context) *resolvedConfig {
 	return config
 }
 
-// RegisterTools adds the UniFi Protect tool to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
-	registry.Register(&unifiProtectTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&unifiProtectTool{}}
+	})
 }

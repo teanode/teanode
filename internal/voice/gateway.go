@@ -18,7 +18,7 @@ import (
 type voiceDispatcher interface {
 	SendMessage(ctx context.Context, parameters coordinators.SendMessageParameters, callbacks *runners.RunCallbacks) (*coordinators.RunHandle, error)
 	AbortRunner(runnerId string) bool
-	Providers() *providers.Registry
+	ProviderRegistry() *providers.ProviderRegistry
 }
 
 // conversationEventSubscriber filters conversation events by conversationId.

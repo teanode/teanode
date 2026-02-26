@@ -13,8 +13,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/op/go-logging"
 
-	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/integrations/browsers"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/pending"
 )

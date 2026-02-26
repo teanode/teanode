@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 // --- mock client ---
@@ -794,11 +794,11 @@ func TestInvalidJSON(testing *testing.T) {
 	}
 }
 
-// --- RegisterTools tests ---
+// --- Registration tests ---
 
 func TestRegisterTools(testing *testing.T) {
-	registry := toolregistry.NewToolRegistry()
-	RegisterTools(registry)
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(&homeAssistantTool{})
 	if registry.Get("home_assistant") == nil {
 		testing.Error("expected home_assistant tool to be registered")
 	}

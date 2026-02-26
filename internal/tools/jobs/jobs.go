@@ -6,19 +6,20 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/teanode/teanode/internal/runners"
 	jobscore "github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-// RegisterTools adds job management tools to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
-	registry.Register(&jobsTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&jobsTool{}}
+	})
 }
 
 // jobsTool supports list/create/update/delete/trigger actions.

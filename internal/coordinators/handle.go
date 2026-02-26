@@ -18,12 +18,13 @@ type SendMessageParameters struct {
 	SystemPromptMode   runners.SystemPromptMode
 }
 
-// RunHandle is returned by SendMessage and allows the caller to wait for completion.
+// RunHandle is returned by SendMessage and CompactConversation and allows the caller to wait for completion.
 type RunHandle struct {
 	RunnerID       string
 	ConversationID string
 	done           chan struct{}
 	result         *runners.RunResult
+	compactResult  *runners.CompactResult
 	err            error
 }
 
@@ -41,47 +42,16 @@ func (self *RunHandle) Done() <-chan struct{} {
 	return self.done
 }
 
-// Wait blocks until the run completes and returns the result.
-func (self *RunHandle) Wait() (*runners.RunResult, error) {
+// Wait blocks until the handle completes and returns both result types and the error.
+func (self *RunHandle) Wait() (*runners.RunResult, *runners.CompactResult, error) {
 	<-self.done
-	return self.result, self.err
+	return self.result, self.compactResult, self.err
 }
 
-// Resolve completes the handle with the given result and error.
-func (self *RunHandle) Resolve(result *runners.RunResult, err error) {
-	self.result = result
-	self.err = err
-	close(self.done)
-}
-
-// CompactHandle is returned by CompactConversation and allows the caller to wait for completion.
-type CompactHandle struct {
-	done   chan struct{}
-	result *runners.CompactResult
-	err    error
-}
-
-// NewCompactHandle creates a new CompactHandle.
-func NewCompactHandle() *CompactHandle {
-	return &CompactHandle{
-		done: make(chan struct{}),
-	}
-}
-
-// Done returns a channel that is closed when the compaction completes.
-func (self *CompactHandle) Done() <-chan struct{} {
-	return self.done
-}
-
-// Wait blocks until the compaction completes and returns the result.
-func (self *CompactHandle) Wait() (*runners.CompactResult, error) {
-	<-self.done
-	return self.result, self.err
-}
-
-// Resolve completes the handle with the given result and error.
-func (self *CompactHandle) Resolve(result *runners.CompactResult, err error) {
-	self.result = result
+// Resolve completes the handle with the given results and error.
+func (self *RunHandle) Resolve(runResult *runners.RunResult, compactResult *runners.CompactResult, err error) {
+	self.result = runResult
+	self.compactResult = compactResult
 	self.err = err
 	close(self.done)
 }

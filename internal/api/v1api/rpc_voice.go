@@ -50,7 +50,7 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 	// Resolve or create conversation.
 	conversationId := parameters.ConversationID
 	if conversationId == "" {
-		conversationId = self.api.coordinator.NewDefaultConversation(user.ID, agentId, "")
+		conversationId = self.api.coordinator.NewDefaultConversation(user.ID, agentId)
 	} else {
 		self.api.coordinator.SetDefaultConversationIfUnset(user.ID, agentId, conversationId)
 	}
@@ -192,4 +192,3 @@ func applyVoiceDefaults(parameters *voiceStartParams) {
 		parameters.AudioOut.Channels = 1
 	}
 }
-

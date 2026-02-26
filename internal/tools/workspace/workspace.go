@@ -11,34 +11,39 @@ import (
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/valueor"
 )
 
-// RegisterTools adds memory tools to the registry.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
-	registry.Register(newWorkspaceTool(
-		"agent_workspace",
-		"Persistent per-agent workspace storage shared by users of this agent.",
-		func(ctx context.Context) (models.Scope, string, error) {
-			runner := runners.RunnerFromContext(ctx)
-			if runner == nil || runner.AgentID == "" {
-				return "", "", fmt.Errorf("missing runner context")
-			}
-			return models.ScopeAgent, runner.AgentID, nil
-		},
-	))
-	registry.Register(newWorkspaceTool(
-		"user_workspace",
-		"Persistent per-user workspace storage for user-specific memory and notes.",
-		func(ctx context.Context) (models.Scope, string, error) {
-			user := models.UserFromContext(ctx)
-			if user == nil || user.ID == "" {
-				return "", "", fmt.Errorf("missing user context")
-			}
-			return models.ScopeUser, user.ID, nil
-		},
-	))
+func init() {
+	tools.RegisterBuiltinTool(createTools)
+}
+
+func createTools() []tools.Tool {
+	return []tools.Tool{
+		newWorkspaceTool(
+			"agent_workspace",
+			"Persistent per-agent workspace storage shared by users of this agent.",
+			func(ctx context.Context) (models.Scope, string, error) {
+				runner := runners.RunnerFromContext(ctx)
+				if runner == nil || runner.AgentID == "" {
+					return "", "", fmt.Errorf("missing runner context")
+				}
+				return models.ScopeAgent, runner.AgentID, nil
+			},
+		),
+		newWorkspaceTool(
+			"user_workspace",
+			"Persistent per-user workspace storage for user-specific memory and notes.",
+			func(ctx context.Context) (models.Scope, string, error) {
+				user := models.UserFromContext(ctx)
+				if user == nil || user.ID == "" {
+					return "", "", fmt.Errorf("missing user context")
+				}
+				return models.ScopeUser, user.ID, nil
+			},
+		),
+	}
 }
 
 // --- workspace (consolidated) ---

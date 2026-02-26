@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("codex")
@@ -105,23 +105,25 @@ func configFromContext(ctx context.Context) (extraArgs []string, model string, t
 	return
 }
 
-// RegisterTools adds the codex tool to the registry.
-// If the codex binary is not found, no tools are registered.
-func RegisterTools(registry *toolregistry.ToolRegistry) {
+func init() {
+	tools.RegisterBuiltinTool(createTools)
+}
+
+func createTools() []tools.Tool {
 	binaryPath := "codex"
 
 	resolvedPath, err := exec.LookPath(binaryPath)
 	if err != nil {
 		log.Infof("Codex tools skipped: %s binary not found", binaryPath)
-		return
+		return nil
 	}
 	log.Infof("Codex tools enabled (binary: %s)", resolvedPath)
 
-	registry.Register(&codexTool{
+	return []tools.Tool{&codexTool{
 		binaryPath: resolvedPath,
 		runner:     defaultCommandRunner,
 		sessions:   make(map[string]*sessionInfo),
-	})
+	}}
 }
 
 func (self *codexTool) Definition() providers.ToolDefinition {

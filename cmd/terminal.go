@@ -19,6 +19,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/teanode/teanode/internal/integrations/terminals"
+	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/screenbuffer"
 	"github.com/urfave/cli/v3"
 )
@@ -112,11 +113,13 @@ func NewTerminalCommand() *cli.Command {
 
 			// Goroutine: stdin -> PTY master.
 			go func() {
+				defer deferutil.Recover()
 				io.Copy(master, os.Stdin)
 			}()
 
 			// Goroutine: PTY master -> stdout + screen buffer.
 			go func() {
+				defer deferutil.Recover()
 				chunk := make([]byte, 4096)
 				for {
 					bytesRead, err := master.Read(chunk)
@@ -135,6 +138,7 @@ func NewTerminalCommand() *cli.Command {
 			signal.Notify(sigwinch, syscall.SIGWINCH)
 			defer signal.Stop(sigwinch)
 			go func() {
+				defer deferutil.Recover()
 				for range sigwinch {
 					rows, cols := currentTerminalSize()
 					_ = terminals.SetWinSize(int(master.Fd()), rows, cols)
@@ -167,7 +171,7 @@ func defaultTerminalConnectionId() string {
 		}
 	}
 	hostname, _ := os.Hostname()
-	hostname = hostname
+	hostname = strings.TrimSpace(hostname)
 	if hostname == "" {
 		hostname = "host"
 	}
@@ -185,6 +189,7 @@ func currentTerminalSize() (rows, cols uint16) {
 }
 
 func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand string, master *os.File, buffer *screenbuffer.Buffer) {
+	defer deferutil.Recover()
 	parsedUrl, err := url.Parse(gatewayUrl)
 	if err != nil {
 		log.Errorf("terminal: invalid gateway URL: %v", err)
