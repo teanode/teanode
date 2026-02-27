@@ -13,38 +13,33 @@ import (
 	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
-	"github.com/teanode/teanode/internal/summarizer"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/summarizers"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
 var log = logging.MustGetLogger("coordinator")
 
-// BuildToolRegistryFunc creates a tool registry and skill prompts for an agent.
-type BuildToolRegistryFunc func(ctx context.Context, agent models.Agent) (*toolregistry.ToolRegistry, string)
-
 // Coordinator owns runner creation, the active runner map, message routing,
 // default conversation management, and event broadcasting via pubsub.
 // It implements RunCoordinator.
 type Coordinator struct {
-	ctx               context.Context
-	config            *models.Configuration
-	providerRegistry  *providers.ProviderRegistry
-	summarizer        *summarizer.Summarizer
-	pubsub            *pubsub.PubSub
-	buildToolRegistry BuildToolRegistryFunc
-	activeRunners     sync.Map // conversationId -> *conversationRunner
-	runnerIndex       sync.Map // runnerId -> conversationId
+	ctx              context.Context
+	config           *models.Configuration
+	providerRegistry *providers.ProviderRegistry
+	summarizer       *summarizers.Summarizer
+	pubsub           *pubsub.PubSub
+	activeRunners    sync.Map // conversationId -> *conversationRunner
+	runnerIndex      sync.Map // runnerId -> conversationId
 }
 
 type conversationRunner struct {
-	mutex         sync.Mutex
-	runner        *runners.Runner
-	queue         []*queuedMessage
-	processing    bool
-	cancelCurrent context.CancelFunc
-	aborted       bool
+	mutex      sync.Mutex
+	runner     *runners.Runner
+	queue      []*queuedMessage
+	processing bool
+	cancel     context.CancelFunc
+	aborted    bool
 }
 
 type queuedMessage struct {
@@ -67,17 +62,15 @@ func New(
 	ctx context.Context,
 	config *models.Configuration,
 	providerRegistry *providers.ProviderRegistry,
-	summarizerInstance *summarizer.Summarizer,
+	summarizerInstance *summarizers.Summarizer,
 	events *pubsub.PubSub,
-	buildToolRegistry BuildToolRegistryFunc,
 ) *Coordinator {
 	return &Coordinator{
-		ctx:               ctx,
-		config:            config,
-		providerRegistry:  providerRegistry,
-		summarizer:        summarizerInstance,
-		pubsub:            events,
-		buildToolRegistry: buildToolRegistry,
+		ctx:              ctx,
+		config:           config,
+		providerRegistry: providerRegistry,
+		summarizer:       summarizerInstance,
+		pubsub:           events,
 	}
 }
 
@@ -355,8 +348,8 @@ func (self *Coordinator) AbortConversationRunner(conversationId string) bool {
 	defer conversationRunner.mutex.Unlock()
 
 	conversationRunner.aborted = true
-	if conversationRunner.cancelCurrent != nil {
-		conversationRunner.cancelCurrent()
+	if conversationRunner.cancel != nil {
+		conversationRunner.cancel()
 	}
 
 	// Drain queue with errors.
@@ -474,17 +467,14 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 		// Build a run context from the coordinator's long-lived context so the
 		// runner keeps running even if the caller (e.g. WebSocket) disconnects.
 		// Carry over the authenticated user from the caller's context.
-		runContext := models.ContextWithUserSessionToken(
+		// Ensure coordinator is on the context.
+		runnerContext, cancel := context.WithCancel(ContextWithCoordinator(models.ContextWithUserSessionToken(
 			self.ctx,
 			models.UserFromContext(message.ctx),
 			models.SessionFromContext(message.ctx),
 			models.TokenFromContext(message.ctx),
-		)
-		messageContext, cancel := context.WithCancel(runContext)
-		conversationRunnerInstance.cancelCurrent = cancel
-
-		// Ensure coordinator is on the context.
-		messageContext = ContextWithCoordinator(messageContext, self)
+		), self))
+		conversationRunnerInstance.cancel = cancel
 
 		runner := conversationRunnerInstance.runner
 
@@ -494,10 +484,10 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 		var result messageResult
 		if runner != nil {
 			if message.compact {
-				compactResult, err := runner.CompactConversation(messageContext)
+				compactResult, err := runner.CompactConversation(runnerContext)
 				result = messageResult{compactResult: compactResult, err: err}
 			} else {
-				runResult, err := runner.Run(messageContext, message.params, message.callbacks)
+				runResult, err := runner.Run(runnerContext, message.params, message.callbacks)
 				result = messageResult{runResult: runResult, err: err}
 			}
 		} else {
@@ -523,8 +513,7 @@ func (self *Coordinator) createRunner(ctx context.Context, agentId, conversation
 		return nil
 	}
 
-	toolRegistry, skillPrompts := self.buildToolRegistry(ctx, *agent)
-	return runners.NewRunner(agentId, conversationId, self.providerRegistry, toolRegistry, skillPrompts)
+	return runners.NewRunner(ctx, agentId, conversationId, self.providerRegistry, *agent)
 }
 
 // lifecycle returns the lifecycle manager from the coordinator context.

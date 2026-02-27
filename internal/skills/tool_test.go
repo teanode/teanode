@@ -185,6 +185,8 @@ func TestShellToolDefinition(t *testing.T) {
 }
 
 func TestShellToolExecute(t *testing.T) {
+	ctx := adminContext()
+
 	t.Run("simple echo", func(t *testing.T) {
 		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "echo_test",
@@ -192,7 +194,7 @@ func TestShellToolExecute(t *testing.T) {
 			Command: []string{"echo", "hello"},
 		}}
 
-		result, err := tool.Execute(context.Background(), "{}")
+		result, err := tool.Execute(ctx, "{}")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -208,7 +210,7 @@ func TestShellToolExecute(t *testing.T) {
 			Command: []string{"echo", "hello {{name}}"},
 		}}
 
-		result, err := tool.Execute(context.Background(), `{"name":"world"}`)
+		result, err := tool.Execute(ctx, `{"name":"world"}`)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -224,7 +226,7 @@ func TestShellToolExecute(t *testing.T) {
 			Command: []string{"true"},
 		}}
 
-		_, err := tool.Execute(context.Background(), "{}")
+		_, err := tool.Execute(ctx, "{}")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -238,7 +240,7 @@ func TestShellToolExecute(t *testing.T) {
 			Timeout: 5,
 		}}
 
-		_, err := tool.Execute(context.Background(), "{}")
+		_, err := tool.Execute(ctx, "{}")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -251,7 +253,7 @@ func TestShellToolExecute(t *testing.T) {
 			Command: []string{"false"},
 		}}
 
-		_, err := tool.Execute(context.Background(), "{}")
+		_, err := tool.Execute(ctx, "{}")
 		if err == nil {
 			t.Fatal("expected error for failing command")
 		}
@@ -266,7 +268,7 @@ func TestShellToolExecute(t *testing.T) {
 			WorkingDirectory: directory,
 		}}
 
-		result, err := tool.Execute(context.Background(), "{}")
+		result, err := tool.Execute(ctx, "{}")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -284,7 +286,7 @@ func TestShellToolExecute(t *testing.T) {
 			Command: []string{"sh", "-c", fmt.Sprintf("yes 'aaaaaaaaaa' | head -n %d", repeatCount)},
 		}}
 
-		result, err := tool.Execute(context.Background(), "{}")
+		result, err := tool.Execute(ctx, "{}")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -300,7 +302,7 @@ func TestShellToolExecute(t *testing.T) {
 			Command: []string{"cat"},
 		}}
 
-		result, err := tool.Execute(context.Background(), `{"message":"from stdin"}`)
+		result, err := tool.Execute(ctx, `{"message":"from stdin"}`)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -319,7 +321,7 @@ func TestShellToolExecute(t *testing.T) {
 				"required": []interface{}{"path"},
 			},
 		}}
-		_, err := tool.Execute(context.Background(), `{}`)
+		_, err := tool.Execute(ctx, `{}`)
 		if err == nil || !strings.Contains(err.Error(), "missing required parameter: path") {
 			t.Fatalf("expected required parameter error, got: %v", err)
 		}
@@ -626,7 +628,7 @@ func TestWorkflowToolExecute(t *testing.T) {
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -677,7 +679,7 @@ func TestWorkflowToolConditionAndContinueOnError(t *testing.T) {
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -706,7 +708,7 @@ func TestWorkflowToolConditionMissingPathIsFalse(t *testing.T) {
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -741,7 +743,7 @@ func TestWorkflowToolConditionComparison(t *testing.T) {
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), `{"mode":"prod"}`)
+	result, err := tool.Execute(adminContext(), `{"mode":"prod"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -780,7 +782,7 @@ func TestWorkflowToolJSONResultReuse(t *testing.T) {
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -817,7 +819,7 @@ func TestWorkflowToolJSONSelectAndExtract(t *testing.T) {
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -875,7 +877,7 @@ func TestWorkflowForEachSwitchAndFinally(t *testing.T) {
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -916,7 +918,7 @@ func TestWorkflowForEachRestoresAliasIndex(t *testing.T) {
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), `{"items":[1,2],"itemIndex":"seed"}`)
+	result, err := tool.Execute(adminContext(), `{"items":[1,2],"itemIndex":"seed"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -940,7 +942,8 @@ func TestWorkflowActionRouting(t *testing.T) {
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), `{"op":"ping"}`)
+	ctx := adminContext()
+	result, err := tool.Execute(ctx, `{"op":"ping"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -948,7 +951,7 @@ func TestWorkflowActionRouting(t *testing.T) {
 		t.Fatalf("missing routed action output: %s", result)
 	}
 
-	if _, err := tool.Execute(context.Background(), `{"op":"missing"}`); err == nil {
+	if _, err := tool.Execute(ctx, `{"op":"missing"}`); err == nil {
 		t.Fatal("expected unknown action error")
 	}
 }

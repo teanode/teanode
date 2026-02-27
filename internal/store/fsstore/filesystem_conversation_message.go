@@ -21,7 +21,6 @@ func (self *fileSystemTransaction) CreateConversationMessage(ctx context.Context
 	return self.createConversationMessage(ctx, message, options)
 }
 
-
 func (self *fileSystemTransaction) listConversationMessages(ctx context.Context, conversationId string, options *store.Option) ([]*models.ConversationMessage, error) {
 	conversation, err := self.GetConversation(ctx, conversationId, options)
 	if err != nil {
@@ -89,7 +88,6 @@ func (self *fileSystemTransaction) createConversationMessage(ctx context.Context
 	result := conversationRawMessageToModel(*message.ConversationID, appendMessage)
 	return &result, nil
 }
-
 
 func conversationRawMessageToModel(conversationId string, message conversationFileMessage) models.ConversationMessage {
 	messageId := message.ID

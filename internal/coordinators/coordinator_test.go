@@ -10,8 +10,7 @@ import (
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fsstore"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
@@ -52,7 +51,7 @@ func (self *testProvider) ListModels(_ context.Context) ([]providers.ModelInfo, 
 
 func newTestCoordinator(t *testing.T) (*Coordinator, context.Context, string) {
 	t.Helper()
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
 	if openError != nil {
 		t.Fatalf("opening store backend: %v", openError)
 	}
@@ -88,9 +87,7 @@ func newTestCoordinator(t *testing.T) (*Coordinator, context.Context, string) {
 	configuration := &models.Configuration{
 		Models: &models.ModelsConfiguration{Default: ptrto.Value("mock:test-model")},
 	}
-	coordinator := New(contextWithStore, configuration, providerRegistry, nil, events, func(_ context.Context, _ models.Agent) (*toolregistry.ToolRegistry, string) {
-		return toolregistry.NewEmptyToolRegistry(), ""
-	})
+	coordinator := New(contextWithStore, configuration, providerRegistry, nil, events)
 
 	return coordinator, contextWithStore, agentId
 }

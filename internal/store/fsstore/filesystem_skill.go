@@ -373,4 +373,3 @@ func parseSkillMarkdownFrontmatter(data []byte, frontmatter *fileSystemSkillFron
 	}
 	return rest[bodyStart:], nil
 }
-

@@ -9,13 +9,13 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fsstore"
+	"github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/tools"
 )
 
 func setupWorkspaceStore(t *testing.T) context.Context {
 	t.Helper()
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
 	if openError != nil {
 		t.Fatalf("open store: %v", openError)
 	}
@@ -25,7 +25,7 @@ func setupWorkspaceStore(t *testing.T) context.Context {
 
 func TestWorkspaceTools(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
-	ctx = runners.ContextWithRunner(ctx, runners.NewRunner("test-agent", "", nil, nil, ""))
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent", "", nil, models.Agent{}))
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
 		registry.Register(tool)
@@ -108,7 +108,7 @@ func TestWorkspaceTools(t *testing.T) {
 
 func TestWorkspaceAppendTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
-	ctx = runners.ContextWithRunner(ctx, runners.NewRunner("test-agent", "", nil, nil, ""))
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent", "", nil, models.Agent{}))
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
 		registry.Register(tool)
@@ -169,7 +169,7 @@ func TestWorkspaceAppendTool(t *testing.T) {
 
 func TestWorkspaceSearchTool(t *testing.T) {
 	ctx := setupWorkspaceStore(t)
-	ctx = runners.ContextWithRunner(ctx, runners.NewRunner("test-agent", "", nil, nil, ""))
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent", "", nil, models.Agent{}))
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
 		registry.Register(tool)

@@ -9,14 +9,14 @@ import (
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fsstore"
+	"github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
 func testStoreWithBearer(t *testing.T, token string) store.Store {
 	t.Helper()
-	persistenceStore, err := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	persistenceStore, err := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
 	if err != nil {
 		t.Fatalf("opening store: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestAuthMiddleware_WebSocketBearerSetsUserContext(t *testing.T) {
 }
 
 func TestAuthMiddleware_WebSocketSessionSetsUserContext(t *testing.T) {
-	persistenceStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	persistenceStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
 	if openError != nil {
 		t.Fatalf("opening store: %v", openError)
 	}

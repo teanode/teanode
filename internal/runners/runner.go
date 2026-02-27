@@ -15,8 +15,9 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/mimetypes"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -28,12 +29,16 @@ type Runner struct {
 	AgentID          string
 	ConversationID   string
 	ProviderRegistry *providers.ProviderRegistry
-	ToolRegistry     *toolregistry.ToolRegistry
+	ToolRegistry     *tools.ToolRegistry
 	SkillPrompts     string
 }
 
-// NewRunner creates a new Runner.
-func NewRunner(agentId, conversationId string, providerRegistry *providers.ProviderRegistry, toolRegistry *toolregistry.ToolRegistry, skillPrompts string) *Runner {
+// NewRunner creates a new Runner. It builds the tool registry from the agent's
+// configured skills and tool allow-list.
+func NewRunner(ctx context.Context, agentId, conversationId string, providerRegistry *providers.ProviderRegistry, agent models.Agent) *Runner {
+	toolRegistry := tools.NewToolRegistry()
+	skillPrompts := skills.RegisterSkills(ctx, toolRegistry, agent.GetSkills())
+	toolRegistry.ApplyFilter(agent.GetTools())
 	return &Runner{
 		AgentID:          agentId,
 		ConversationID:   conversationId,
@@ -335,7 +340,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		// Phase 1 — Filter & notify: resolve tools, fire OnToolCall callbacks in order.
 		type toolWorkItem struct {
 			toolCall  providers.ToolCall
-			tool      toolregistry.Tool
+			tool      tools.Tool
 			arguments string
 		}
 

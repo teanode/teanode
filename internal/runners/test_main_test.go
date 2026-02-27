@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	storefs "github.com/teanode/teanode/internal/store/fsstore"
+	"github.com/teanode/teanode/internal/store/fsstore"
 )
 
 func TestMain(m *testing.M) {
@@ -15,7 +15,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "MkdirTemp failed: %v\n", err)
 		os.Exit(1)
 	}
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: directory})
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: directory})
 	if openError != nil {
 		fmt.Fprintf(os.Stderr, "store open failed: %v\n", openError)
 		os.Exit(1)

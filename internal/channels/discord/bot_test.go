@@ -9,12 +9,11 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fsstore"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/store/fsstore"
 )
 
 func TestShouldForwardDisconnectedWebUI(t *testing.T) {
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
 	if openError != nil {
 		t.Fatalf("opening store backend: %v", openError)
 	}
@@ -41,9 +40,7 @@ func TestShouldForwardDisconnectedWebUI(t *testing.T) {
 	})
 
 	events := pubsub.New()
-	coordinator := coordinators.New(contextWithStore, &models.Configuration{}, nil, nil, events, func(_ context.Context, _ models.Agent) (*toolregistry.ToolRegistry, string) {
-		return toolregistry.NewEmptyToolRegistry(), ""
-	})
+	coordinator := coordinators.New(contextWithStore, &models.Configuration{}, nil, nil, events)
 	coordinator.SetDefaultConversation("user-1", "main", "default-conversation")
 
 	bot := &Bot{ctx: contextWithStore, coordinator: coordinator}

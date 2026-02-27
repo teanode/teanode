@@ -7,14 +7,19 @@ import (
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fsstore"
+	"github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"gopkg.in/yaml.v3"
 )
 
+func adminContext() context.Context {
+	admin := true
+	return models.ContextWithUserSessionToken(context.Background(), &models.User{ID: "test-admin", Admin: &admin}, nil, nil)
+}
+
 func setupSkillStore(t *testing.T) store.Store {
 	t.Helper()
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: t.TempDir()})
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
 	if openError != nil {
 		t.Fatalf("opening store backend: %v", openError)
 	}

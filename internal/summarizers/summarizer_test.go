@@ -1,4 +1,4 @@
-package summarizer
+package summarizers
 
 import (
 	"context"
@@ -7,13 +7,13 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fsstore"
+	"github.com/teanode/teanode/internal/store/fsstore"
 )
 
 func TestSummarizerSummarizeAllIteratesAllUsersAndAgents(t *testing.T) {
 	baseDirectory := t.TempDir()
 
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: baseDirectory})
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: baseDirectory})
 	if openError != nil {
 		t.Fatalf("open store: %v", openError)
 	}
@@ -55,7 +55,7 @@ func TestSummarizerSummarizeAllIteratesAllUsersAndAgents(t *testing.T) {
 func TestSummarizerSummarizeAllWithEmptyConversationStore(t *testing.T) {
 	baseDirectory := t.TempDir()
 
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: baseDirectory})
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: baseDirectory})
 	if openError != nil {
 		t.Fatalf("open store: %v", openError)
 	}

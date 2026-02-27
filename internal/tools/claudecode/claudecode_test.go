@@ -10,7 +10,7 @@ import (
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fsstore"
+	"github.com/teanode/teanode/internal/store/fsstore"
 )
 
 // mockRunner returns a commandRunner that records calls and returns canned output.
@@ -497,7 +497,7 @@ func TestListSessionsAfterRuns(testing *testing.T) {
 
 func TestLoadSessionsFromConversationStore(testing *testing.T) {
 	dataDirectory := testing.TempDir()
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: dataDirectory})
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: dataDirectory})
 	if openError != nil {
 		testing.Fatalf("opening store: %v", openError)
 	}

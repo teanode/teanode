@@ -16,7 +16,7 @@ import (
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
-	storefs "github.com/teanode/teanode/internal/store/fsstore"
+	"github.com/teanode/teanode/internal/store/fsstore"
 	toolregistry "github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
@@ -85,7 +85,7 @@ type testConversationStore struct {
 func newTestConversationStore(testing *testing.T, userId string, agentId string, defaultModel string) testConversationStore {
 	testing.Helper()
 	dataDirectory := testing.TempDir()
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: dataDirectory})
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: dataDirectory})
 	if openError != nil {
 		testing.Fatalf("opening store: %v", openError)
 	}
@@ -173,7 +173,7 @@ func seedWorkspaceFile(testing *testing.T, openedStore store.Store, scope models
 // newSystemPromptTestContext creates a test context with a store, user, and agent for system prompt tests.
 func newSystemPromptTestContext(testing *testing.T, userId string, agentId string) (context.Context, store.Store) {
 	testing.Helper()
-	openedStore, openError := storefs.Open(storefs.Options{DataDirectory: testing.TempDir()})
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: testing.TempDir()})
 	if openError != nil {
 		testing.Fatalf("opening store backend: %v", openError)
 	}

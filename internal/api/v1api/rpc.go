@@ -597,7 +597,6 @@ func (self *webSocketConnection) handleConfigUpdate(frame requestFrame) {
 	})
 }
 
-
 // --- Agent Config RPC handlers ---
 
 // handleAgentsConfigSchema: return the agent config schema for UI form generation.

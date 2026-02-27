@@ -26,12 +26,10 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/pubsub"
-	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/store"
-	storedb "github.com/teanode/teanode/internal/store/dbstore"
-	storefs "github.com/teanode/teanode/internal/store/fsstore"
-	summarizerpackage "github.com/teanode/teanode/internal/summarizer"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/store/dbstore"
+	"github.com/teanode/teanode/internal/store/fsstore"
+	"github.com/teanode/teanode/internal/summarizers"
 	"github.com/teanode/teanode/internal/util/debugutil"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -146,9 +144,9 @@ func NewGatewayCommand() *cli.Command {
 			}()
 
 			storeBackend := store.BackendType(command.String("store"))
-			var postgresSettings *storedb.Settings
+			var postgresSettings *dbstore.Settings
 			if storeBackend == store.BackendPostgres {
-				postgresSettings = &storedb.Settings{
+				postgresSettings = &dbstore.Settings{
 					Host:     command.String("store-postgres-host"),
 					Port:     uint16(command.Uint("store-postgres-port")),
 					User:     command.String("store-postgres-user"),
@@ -160,12 +158,12 @@ func NewGatewayCommand() *cli.Command {
 			var openedStore store.Store
 			switch storeBackend {
 			case "", store.BackendFilesystem:
-				openedStore, err = storefs.Open(storefs.Options{DataDirectory: DataDirectoryFromContext(ctx)})
+				openedStore, err = fsstore.Open(fsstore.Options{DataDirectory: DataDirectoryFromContext(ctx)})
 			case store.BackendPostgres:
 				if postgresSettings == nil {
 					return fmt.Errorf("postgres settings are required")
 				}
-				openedStore, err = storedb.Open(*postgresSettings)
+				openedStore, err = dbstore.Open(*postgresSettings)
 			default:
 				return fmt.Errorf("unsupported store backend: %s", storeBackend)
 			}
@@ -244,7 +242,7 @@ func NewGatewayCommand() *cli.Command {
 			events := pubsub.New()
 			sessions := sessiontracker.New()
 
-			summarizer := summarizerpackage.New(ctx, providerRegistry)
+			summarizer := summarizers.New(ctx, providerRegistry)
 
 			// Set up job scheduler.
 			scheduler := jobs.NewScheduler(ctx)
@@ -276,7 +274,7 @@ func NewGatewayCommand() *cli.Command {
 			lifecycleManager := lifecycle.New()
 			ctx = lifecycle.ContextWithLifecycle(ctx, lifecycleManager)
 
-			coordinator := coordinators.New(ctx, configuration, providerRegistry, summarizer, events, buildToolRegistry)
+			coordinator := coordinators.New(ctx, configuration, providerRegistry, summarizer, events)
 			ctx = coordinators.ContextWithCoordinator(ctx, coordinator)
 
 			api := v1api.New(coordinator, events, sessions, browserRelay, terminalRelay)
@@ -487,13 +485,6 @@ func NewGatewayCommand() *cli.Command {
 			return nil
 		},
 	}
-}
-
-func buildToolRegistry(ctx context.Context, agent models.Agent) (*toolregistry.ToolRegistry, string) {
-	toolRegistry := toolregistry.NewToolRegistry()
-	skillPrompts := skills.RegisterSkills(ctx, toolRegistry, agent.GetSkills())
-	toolRegistry.ApplyFilter(agent.GetTools())
-	return toolRegistry, skillPrompts
 }
 
 // listenAddress returns the host:port string derived from the gateway configuration.
