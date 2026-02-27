@@ -11,8 +11,8 @@ func TestLoadWAVAsPCM16Mono(t *testing.T) {
 	t.Parallel()
 	samples := []int16{0, 1000, -1000, 2000, -2000}
 	data := make([]byte, len(samples)*2)
-	for i, sample := range samples {
-		binary.LittleEndian.PutUint16(data[i*2:], uint16(sample))
+	for index, sample := range samples {
+		binary.LittleEndian.PutUint16(data[index*2:], uint16(sample))
 	}
 	wav := buildPCM16WAV(16000, 1, data)
 	path := filepath.Join(t.TempDir(), "sample.wav")
@@ -54,22 +54,22 @@ func buildPCM16WAV(sampleRate int, channels int, pcm []byte) []byte {
 	blockAlign := channels * bitsPerSample / 8
 	byteRate := sampleRate * blockAlign
 	riffSize := 4 + (8 + 16) + (8 + len(pcm))
-	buf := make([]byte, 44+len(pcm))
-	copy(buf[0:4], []byte("RIFF"))
-	binary.LittleEndian.PutUint32(buf[4:8], uint32(riffSize))
-	copy(buf[8:12], []byte("WAVE"))
-	copy(buf[12:16], []byte("fmt "))
-	binary.LittleEndian.PutUint32(buf[16:20], 16)
-	binary.LittleEndian.PutUint16(buf[20:22], 1)
-	binary.LittleEndian.PutUint16(buf[22:24], uint16(channels))
-	binary.LittleEndian.PutUint32(buf[24:28], uint32(sampleRate))
-	binary.LittleEndian.PutUint32(buf[28:32], uint32(byteRate))
-	binary.LittleEndian.PutUint16(buf[32:34], uint16(blockAlign))
-	binary.LittleEndian.PutUint16(buf[34:36], bitsPerSample)
-	copy(buf[36:40], []byte("data"))
-	binary.LittleEndian.PutUint32(buf[40:44], uint32(len(pcm)))
-	copy(buf[44:], pcm)
-	return buf
+	buffer := make([]byte, 44+len(pcm))
+	copy(buffer[0:4], []byte("RIFF"))
+	binary.LittleEndian.PutUint32(buffer[4:8], uint32(riffSize))
+	copy(buffer[8:12], []byte("WAVE"))
+	copy(buffer[12:16], []byte("fmt "))
+	binary.LittleEndian.PutUint32(buffer[16:20], 16)
+	binary.LittleEndian.PutUint16(buffer[20:22], 1)
+	binary.LittleEndian.PutUint16(buffer[22:24], uint16(channels))
+	binary.LittleEndian.PutUint32(buffer[24:28], uint32(sampleRate))
+	binary.LittleEndian.PutUint32(buffer[28:32], uint32(byteRate))
+	binary.LittleEndian.PutUint16(buffer[32:34], uint16(blockAlign))
+	binary.LittleEndian.PutUint16(buffer[34:36], bitsPerSample)
+	copy(buffer[36:40], []byte("data"))
+	binary.LittleEndian.PutUint32(buffer[40:44], uint32(len(pcm)))
+	copy(buffer[44:], pcm)
+	return buffer
 }
 
 func buildPCM16WAVWithFillerData(sampleRate int, channels int, pcm []byte) []byte {
@@ -78,28 +78,28 @@ func buildPCM16WAVWithFillerData(sampleRate int, channels int, pcm []byte) []byt
 	byteRate := sampleRate * blockAlign
 	// RIFF + fmt + FLLR + data(empty)
 	riffSize := 4 + (8 + 16) + (8 + len(pcm)) + (8 + 0)
-	buf := make([]byte, 12+(8+16)+(8+len(pcm))+(8+0))
-	copy(buf[0:4], []byte("RIFF"))
-	binary.LittleEndian.PutUint32(buf[4:8], uint32(riffSize))
-	copy(buf[8:12], []byte("WAVE"))
+	buffer := make([]byte, 12+(8+16)+(8+len(pcm))+(8+0))
+	copy(buffer[0:4], []byte("RIFF"))
+	binary.LittleEndian.PutUint32(buffer[4:8], uint32(riffSize))
+	copy(buffer[8:12], []byte("WAVE"))
 
 	offset := 12
-	copy(buf[offset:offset+4], []byte("fmt "))
-	binary.LittleEndian.PutUint32(buf[offset+4:offset+8], 16)
-	binary.LittleEndian.PutUint16(buf[offset+8:offset+10], 1)
-	binary.LittleEndian.PutUint16(buf[offset+10:offset+12], uint16(channels))
-	binary.LittleEndian.PutUint32(buf[offset+12:offset+16], uint32(sampleRate))
-	binary.LittleEndian.PutUint32(buf[offset+16:offset+20], uint32(byteRate))
-	binary.LittleEndian.PutUint16(buf[offset+20:offset+22], uint16(blockAlign))
-	binary.LittleEndian.PutUint16(buf[offset+22:offset+24], bitsPerSample)
+	copy(buffer[offset:offset+4], []byte("fmt "))
+	binary.LittleEndian.PutUint32(buffer[offset+4:offset+8], 16)
+	binary.LittleEndian.PutUint16(buffer[offset+8:offset+10], 1)
+	binary.LittleEndian.PutUint16(buffer[offset+10:offset+12], uint16(channels))
+	binary.LittleEndian.PutUint32(buffer[offset+12:offset+16], uint32(sampleRate))
+	binary.LittleEndian.PutUint32(buffer[offset+16:offset+20], uint32(byteRate))
+	binary.LittleEndian.PutUint16(buffer[offset+20:offset+22], uint16(blockAlign))
+	binary.LittleEndian.PutUint16(buffer[offset+22:offset+24], bitsPerSample)
 	offset += 24
 
-	copy(buf[offset:offset+4], []byte("FLLR"))
-	binary.LittleEndian.PutUint32(buf[offset+4:offset+8], uint32(len(pcm)))
-	copy(buf[offset+8:offset+8+len(pcm)], pcm)
+	copy(buffer[offset:offset+4], []byte("FLLR"))
+	binary.LittleEndian.PutUint32(buffer[offset+4:offset+8], uint32(len(pcm)))
+	copy(buffer[offset+8:offset+8+len(pcm)], pcm)
 	offset += 8 + len(pcm)
 
-	copy(buf[offset:offset+4], []byte("data"))
-	binary.LittleEndian.PutUint32(buf[offset+4:offset+8], 0)
-	return buf
+	copy(buffer[offset:offset+4], []byte("data"))
+	binary.LittleEndian.PutUint32(buffer[offset+4:offset+8], 0)
+	return buffer
 }

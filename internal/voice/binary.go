@@ -63,16 +63,16 @@ func EncodeBinaryAudioFrame(frame BinaryAudioFrame) []byte {
 		frame.Data = nil
 		frame.DurationMS = 0
 	}
-	buf := make([]byte, BinaryHeaderSize+len(frame.Data))
-	buf[0] = BinaryMagic
-	buf[1] = frame.FrameType
+	buffer := make([]byte, BinaryHeaderSize+len(frame.Data))
+	buffer[0] = BinaryMagic
+	buffer[1] = frame.FrameType
 
 	seqBytes := [8]byte{}
 	binary.BigEndian.PutUint64(seqBytes[:], frame.Seq)
-	copy(buf[2:8], seqBytes[2:])
+	copy(buffer[2:8], seqBytes[2:])
 
-	binary.BigEndian.PutUint64(buf[8:16], uint64(frame.CaptureTSMs))
-	binary.BigEndian.PutUint16(buf[16:18], frame.DurationMS)
-	copy(buf[18:], frame.Data)
-	return buf
+	binary.BigEndian.PutUint64(buffer[8:16], uint64(frame.CaptureTSMs))
+	binary.BigEndian.PutUint16(buffer[16:18], frame.DurationMS)
+	copy(buffer[18:], frame.Data)
+	return buffer
 }

@@ -148,7 +148,7 @@ func (self *fileSystemTransaction) listWorkspaceFiles(scope models.Scope, scopeI
 			return nil, err
 		}
 	}
-	fileInfos := make([]*models.WorkspaceFile, 0)
+	fileInformations := make([]*models.WorkspaceFile, 0)
 	err = filepath.WalkDir(rootDirectory, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -179,13 +179,13 @@ func (self *fileSystemTransaction) listWorkspaceFiles(scope models.Scope, scopeI
 			CreatedAt:   &modifiedAt,
 			ModifiedAt:  &modifiedAt,
 		}
-		fileInfos = append(fileInfos, &file)
+		fileInformations = append(fileInformations, &file)
 		return nil
 	})
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	return applyOffsetLimit(fileInfos, options), nil
+	return applyOffsetLimit(fileInformations, options), nil
 }
 
 func (self *fileSystemTransaction) searchWorkspace(ctx context.Context, scope models.Scope, scopeId string, query string, searchOptions store.WorkspaceSearchOptions, options *store.Option) ([]store.WorkspaceFileSearchResult, error) {

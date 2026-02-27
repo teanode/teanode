@@ -14,19 +14,19 @@ import (
 
 func init() {
 	tools.RegisterBuiltinTool(func() []tools.Tool {
-		return []tools.Tool{newConfigTool()}
+		return []tools.Tool{newConfigurationTool()}
 	})
 }
 
 const secretSentinel = "<hidden>"
 
-type configTool struct{}
+type configurationTool struct{}
 
-func newConfigTool() *configTool {
-	return &configTool{}
+func newConfigurationTool() *configurationTool {
+	return &configurationTool{}
 }
 
-func (self *configTool) Definition() providers.ToolDefinition {
+func (self *configurationTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
 		Function: providers.FunctionSpec{
@@ -64,7 +64,7 @@ func (self *configTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *configTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+func (self *configurationTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || !user.GetAdmin() {
 		return "", fmt.Errorf("admin access required to use the config tool")
@@ -90,7 +90,7 @@ func (self *configTool) Execute(ctx context.Context, rawArguments string) (strin
 	}
 }
 
-func (self *configTool) executeGet(ctx context.Context) (string, error) {
+func (self *configurationTool) executeGet(ctx context.Context) (string, error) {
 	var configuration *models.Configuration
 	if transactionError := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		loadedConfiguration, loadError := transaction.GetConfiguration(ctx, nil)
@@ -128,7 +128,7 @@ func (self *configTool) executeGet(ctx context.Context) (string, error) {
 	return string(output), nil
 }
 
-func (self *configTool) executeSet(ctx context.Context, partial json.RawMessage) (string, error) {
+func (self *configurationTool) executeSet(ctx context.Context, partial json.RawMessage) (string, error) {
 	if len(partial) == 0 {
 		return "", fmt.Errorf("config is required for set action")
 	}
@@ -190,7 +190,7 @@ func (self *configTool) executeSet(ctx context.Context, partial json.RawMessage)
 	return string(output), nil
 }
 
-func (self *configTool) executeSchema() (string, error) {
+func (self *configurationTool) executeSchema() (string, error) {
 	output, _ := json.Marshal(map[string]interface{}{
 		"action": "schema",
 		"schema": schemas.ConfigSchema(),

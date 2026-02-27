@@ -39,8 +39,8 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 		if name := agent.GetName(); name != "" {
 			info["name"] = name
 		}
-		if avatarMediaID := self.agentAvatarMediaID(agent.ID); avatarMediaID != "" {
-			info["avatarMediaId"] = avatarMediaID
+		if avatarMediaId := self.agentAvatarMediaId(agent.ID); avatarMediaId != "" {
+			info["avatarMediaId"] = avatarMediaId
 		}
 		agentInfos = append(agentInfos, info)
 	}
@@ -95,8 +95,8 @@ func (self *webSocketConnection) handleAgentsList(frame requestFrame) {
 		if name := agent.GetName(); name != "" {
 			info["name"] = name
 		}
-		if avatarMediaID := self.agentAvatarMediaID(agent.ID); avatarMediaID != "" {
-			info["avatarMediaId"] = avatarMediaID
+		if avatarMediaId := self.agentAvatarMediaId(agent.ID); avatarMediaId != "" {
+			info["avatarMediaId"] = avatarMediaId
 		}
 		agentInfos = append(agentInfos, info)
 	}
@@ -136,17 +136,17 @@ func (self *webSocketConnection) loadConfiguration() (*models.Configuration, err
 	return configuration, nil
 }
 
-func (self *webSocketConnection) agentAvatarMediaID(agentID string) string {
-	avatarMediaID := ""
+func (self *webSocketConnection) agentAvatarMediaId(agentID string) string {
+	avatarMediaId := ""
 	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		agent, err := transaction.GetAgent(ctx, agentID, nil)
 		if err != nil {
 			return nil
 		}
-		avatarMediaID = agent.GetAvatarMediaID()
+		avatarMediaId = agent.GetAvatarMediaID()
 		return nil
 	})
-	return avatarMediaID
+	return avatarMediaId
 }
 
 // agentsSetDefaultParameters are the parameters for agents.setDefault.
@@ -690,8 +690,8 @@ func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
 			if agent.Skills != nil && len(*agent.Skills) > 0 {
 				entry["skills"] = *agent.Skills
 			}
-			if avatarMediaID := agent.GetAvatarMediaID(); avatarMediaID != "" {
-				entry["avatarMediaId"] = avatarMediaID
+			if avatarMediaId := agent.GetAvatarMediaID(); avatarMediaId != "" {
+				entry["avatarMediaId"] = avatarMediaId
 			}
 			entries = append(entries, entry)
 		}
@@ -1179,13 +1179,13 @@ type authTokenListItem struct {
 func toModelAuthTokenListItems(tokens []*models.Token) []authTokenListItem {
 	items := make([]authTokenListItem, 0, len(tokens))
 	for _, token := range tokens {
-		tokenID := token.ID
+		tokenId := token.ID
 		tokenValue := token.GetToken()
-		if tokenID == "" || tokenValue == "" {
+		if tokenId == "" || tokenValue == "" {
 			continue
 		}
 		item := authTokenListItem{
-			ID:    tokenID,
+			ID:    tokenId,
 			Token: tokenValue,
 		}
 		if token.CreatedAt != nil {
@@ -1397,9 +1397,9 @@ func (self *webSocketConnection) handleUsersList(frame requestFrame) {
 			return users[leftIndex].ID < users[rightIndex].ID
 		})
 		for _, user := range users {
-			userID := user.ID
+			userId := user.ID
 			item := usersListItem{
-				ID:          userID,
+				ID:          userId,
 				Username:    user.GetUsername(),
 				Admin:       user.Admin != nil && *user.Admin,
 				HasPassword: user.GetPassword() != "",
@@ -1871,7 +1871,7 @@ func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 	}
 	var createdProject *models.Project
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		projectID := security.NewULID()
+		projectId := security.NewULID()
 		workspaceFiles := make([]models.WorkspaceFile, 0)
 		purpose := parameters.Purpose
 		if purpose != "" {
@@ -1883,7 +1883,7 @@ func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 			})
 		}
 		project, err := transaction.CreateProject(ctx, &models.Project{
-			ID:          projectID,
+			ID:          projectId,
 			Name:        ptrto.TrimmedString(parameters.Name),
 			Description: ptrto.TrimmedString(parameters.Description),
 		}, workspaceFiles, nil)

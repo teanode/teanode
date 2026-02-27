@@ -25,7 +25,7 @@ var log = logging.MustGetLogger("coordinator")
 // It implements RunCoordinator.
 type Coordinator struct {
 	ctx                        context.Context
-	config                     *models.Configuration
+	configuration              *models.Configuration
 	providerRegistry           *providers.ProviderRegistry
 	summarizer                 *summarizers.Summarizer
 	pubsub                     *pubsub.PubSub
@@ -46,7 +46,7 @@ type conversationRunner struct {
 type queuedMessage struct {
 	ctx        context.Context
 	agentId    string
-	params     runners.RunParameters
+	parameters runners.RunParameters
 	callbacks  *runners.RunCallbacks
 	resultChan chan<- messageResult
 	compact    bool // true for compact operations
@@ -62,14 +62,14 @@ type messageResult struct {
 // New creates a Coordinator.
 func New(
 	ctx context.Context,
-	config *models.Configuration,
+	configuration *models.Configuration,
 	providerRegistry *providers.ProviderRegistry,
 	summarizerInstance *summarizers.Summarizer,
 	events *pubsub.PubSub,
 ) *Coordinator {
 	return &Coordinator{
 		ctx:              ctx,
-		config:           config,
+		configuration:    configuration,
 		providerRegistry: providerRegistry,
 		summarizer:       summarizerInstance,
 		pubsub:           events,
@@ -400,12 +400,12 @@ type dispatchResult struct {
 }
 
 // dispatchMessage routes a message to the per-conversation queue, blocking until processed.
-func (self *Coordinator) dispatchMessage(ctx context.Context, agentId, conversationId string, params runners.RunParameters, callbacks *runners.RunCallbacks) dispatchResult {
+func (self *Coordinator) dispatchMessage(ctx context.Context, agentId, conversationId string, parameters runners.RunParameters, callbacks *runners.RunCallbacks) dispatchResult {
 	resultChan := make(chan messageResult, 1)
 	queued := &queuedMessage{
 		ctx:        ctx,
 		agentId:    agentId,
-		params:     params,
+		parameters: parameters,
 		callbacks:  callbacks,
 		resultChan: resultChan,
 	}
@@ -502,7 +502,7 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 				compactResult, err := runner.CompactConversation(ctx)
 				result = messageResult{compactResult: compactResult, err: err}
 			} else {
-				runResult, err := runner.Run(ctx, message.params, message.callbacks)
+				runResult, err := runner.Run(ctx, message.parameters, message.callbacks)
 				result = messageResult{runResult: runResult, err: err}
 			}
 		} else {

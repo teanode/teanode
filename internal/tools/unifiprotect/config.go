@@ -13,7 +13,7 @@ type AccessChecker struct {
 }
 
 // NewAccessChecker creates an AccessChecker from the given configuration.
-func NewAccessChecker(config *resolvedConfig) *AccessChecker {
+func NewAccessChecker(config *resolvedConfiguration) *AccessChecker {
 	checker := &AccessChecker{
 		allowedCameras:        make(map[string]bool),
 		allowDangerousActions: make(map[string]bool),

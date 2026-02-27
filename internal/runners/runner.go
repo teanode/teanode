@@ -206,7 +206,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		var textBuilder strings.Builder
 		var toolCalls []providers.ToolCall
 		toolCallMap := make(map[int]*providers.ToolCall)
-		var usage *providers.UsageInfo
+		var usage *providers.UsageInformation
 
 		var streamError error
 		for event := range stream {
@@ -229,7 +229,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 			}
 			if event.Chunk.Usage != nil {
 				if usage == nil {
-					usage = &providers.UsageInfo{}
+					usage = &providers.UsageInformation{}
 				}
 				usage.PromptTokens += event.Chunk.Usage.PromptTokens
 				usage.CompletionTokens += event.Chunk.Usage.CompletionTokens
@@ -363,7 +363,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 				callbacks.OnToolCall(toolCall.Function.Name, toolCall.Function.Arguments)
 			}
 
-			arguments := repairToolArgs(toolCall.Function.Arguments)
+			arguments := repairToolArguments(toolCall.Function.Arguments)
 			if authorizationErr := validateToolAuthorization(toolCall.Function.Name, arguments, isAdmin); authorizationErr != nil {
 				result := "error: " + authorizationErr.Error()
 				log.Debugf("tool denied id=%s name=%s err=%v", toolCall.ID, toolCall.Function.Name, authorizationErr)
@@ -480,9 +480,9 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 	}, nil
 }
 
-// repairToolArgs attempts to fix malformed JSON from the LLM.
+// repairToolArguments attempts to fix malformed JSON from the LLM.
 // It only runs the repair if the JSON is actually invalid.
-func repairToolArgs(input string) string {
+func repairToolArguments(input string) string {
 	if json.Valid([]byte(input)) {
 		return input
 	}

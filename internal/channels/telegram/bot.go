@@ -28,7 +28,7 @@ import (
 	"github.com/teanode/teanode/internal/util/slashcommands"
 )
 
-const maxTelegramMessageLen = 4096
+const maxTelegramMessageLength = 4096
 
 // telegramStreamPreview manages a live-updating preview message during LLM streaming.
 // It sends an initial plain-text message on the first text delta, then edits it
@@ -99,8 +99,8 @@ func (self *telegramStreamPreview) flush() int {
 	if text == self.lastSentText || text == "" || self.stopped {
 		return 0
 	}
-	if len(text) > maxTelegramMessageLen {
-		text = text[:maxTelegramMessageLen]
+	if len(text) > maxTelegramMessageLength {
+		text = text[:maxTelegramMessageLength]
 	}
 
 	if self.messageId == 0 {
@@ -154,8 +154,8 @@ func (self *telegramStreamPreview) recoverMessage() {
 	if text == "" {
 		return
 	}
-	if len(text) > maxTelegramMessageLen {
-		text = text[:maxTelegramMessageLen]
+	if len(text) > maxTelegramMessageLength {
+		text = text[:maxTelegramMessageLength]
 	}
 
 	messageRequest := tgbotapi.NewMessage(self.chatId, text)
@@ -492,10 +492,10 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			if previewMessageId != 0 {
 				firstChunk := finalText
 				remaining := ""
-				if len(finalText) > maxTelegramMessageLen {
-					cut := strings.LastIndex(finalText[:maxTelegramMessageLen], "\n")
-					if cut < maxTelegramMessageLen/2 {
-						cut = maxTelegramMessageLen
+				if len(finalText) > maxTelegramMessageLength {
+					cut := strings.LastIndex(finalText[:maxTelegramMessageLength], "\n")
+					if cut < maxTelegramMessageLength/2 {
+						cut = maxTelegramMessageLength
 					}
 					firstChunk = finalText[:cut]
 					remaining = finalText[cut:]
@@ -554,10 +554,10 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 func (self *Bot) poll() {
 	defer deferutil.Recover()
 
-	updateConfig := tgbotapi.NewUpdate(0)
-	updateConfig.Timeout = 30
+	updateConfiguration := tgbotapi.NewUpdate(0)
+	updateConfiguration.Timeout = 30
 
-	updates := self.api.GetUpdatesChan(updateConfig)
+	updates := self.api.GetUpdatesChan(updateConfiguration)
 	for {
 		select {
 		case <-self.stopChannel:
@@ -587,10 +587,10 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 		return
 	}
 
-	chatIdStr := fmt.Sprintf("%d", message.Chat.ID)
-	user := self.linkedUserForTelegramChat(chatIdStr)
+	chatIdString := fmt.Sprintf("%d", message.Chat.ID)
+	user := self.linkedUserForTelegramChat(chatIdString)
 	if user == nil {
-		messageRequest := tgbotapi.NewMessage(message.Chat.ID, unlinkedTelegramMessage(chatIdStr))
+		messageRequest := tgbotapi.NewMessage(message.Chat.ID, unlinkedTelegramMessage(chatIdString))
 		messageRequest.ReplyToMessageID = message.MessageID
 		self.api.Send(messageRequest)
 		return
@@ -620,7 +620,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 		}
 		// Fall through to agent handling below.
 	} else if name, arguments, ok := slashcommands.Parse(text); ok {
-		self.handleCommand(user, message, chatIdStr, name, arguments)
+		self.handleCommand(user, message, chatIdString, name, arguments)
 		return
 	} else {
 		// In group chats, only respond to replies to the bot.
@@ -655,7 +655,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 		attachments = self.extractAttachments(message)
 	}
 
-	go self.handleMessage(user, conversationId, defaultAgentId, message.Chat.ID, message.MessageID, text, chatIdStr, attachments)
+	go self.handleMessage(user, conversationId, defaultAgentId, message.Chat.ID, message.MessageID, text, chatIdString, attachments)
 }
 
 func unlinkedTelegramMessage(chatId string) string {
@@ -679,7 +679,7 @@ func unlinkedTelegramMessage(chatId string) string {
 	)
 }
 
-func (self *Bot) handleMessage(user *models.User, conversationId, agentId string, chatId int64, replyTo int, message, chatIdStr string, attachments []map[string]string) {
+func (self *Bot) handleMessage(user *models.User, conversationId, agentId string, chatId int64, replyTo int, message, chatIdString string, attachments []map[string]string) {
 	defer deferutil.Recover()
 
 	// Mark this conversation as actively handled by us.
@@ -728,7 +728,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
-		Model:          self.getModel(chatIdStr),
+		Model:          self.getModel(chatIdString),
 		Origin:         "telegram",
 		Attachments:    attachments,
 	}, callerCallbacks)
@@ -777,10 +777,10 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 		finalText := result.Response
 		firstChunk := finalText
 		remaining := ""
-		if len(finalText) > maxTelegramMessageLen {
-			cut := strings.LastIndex(finalText[:maxTelegramMessageLen], "\n")
-			if cut < maxTelegramMessageLen/2 {
-				cut = maxTelegramMessageLen
+		if len(finalText) > maxTelegramMessageLength {
+			cut := strings.LastIndex(finalText[:maxTelegramMessageLength], "\n")
+			if cut < maxTelegramMessageLength/2 {
+				cut = maxTelegramMessageLength
 			}
 			firstChunk = finalText[:cut]
 			remaining = finalText[cut:]
@@ -801,13 +801,13 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 	self.sendChunked(chatId, replyTo, result.Response)
 }
 
-func (self *Bot) getModel(chatIdStr string) string {
+func (self *Bot) getModel(chatIdString string) string {
 	self.modelMutex.RLock()
 	defer self.modelMutex.RUnlock()
-	return self.modelOverrides[chatIdStr]
+	return self.modelOverrides[chatIdString]
 }
 
-func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, chatIdStr, name, arguments string) {
+func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, chatIdString, name, arguments string) {
 	var reply string
 
 	defaultAgentId := user.GetDefaultAgentID()
@@ -840,14 +840,14 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 
 	case "model":
 		if arguments == "" {
-			model := self.getModel(chatIdStr)
+			model := self.getModel(chatIdString)
 			if model == "" {
 				model = self.resolveDefaultModel()
 			}
 			reply = fmt.Sprintf("Current model: %s", model)
 		} else {
 			self.modelMutex.Lock()
-			self.modelOverrides[chatIdStr] = arguments
+			self.modelOverrides[chatIdString] = arguments
 			self.modelMutex.Unlock()
 			reply = fmt.Sprintf("Model set to %s.", arguments)
 		}
@@ -857,7 +857,7 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 			var lines []string
 			lines = append(lines, fmt.Sprintf("Default agent: %s", defaultAgentId))
 			lines = append(lines, "Agents:")
-			for _, agentId := range self.listAgentIDsFromStore() {
+			for _, agentId := range self.listAgentIdsFromStore() {
 				marker := "  "
 				if agentId == defaultAgentId {
 					marker = "* "
@@ -888,7 +888,7 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 
 	case "status":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
-		model := self.getModel(chatIdStr)
+		model := self.getModel(chatIdString)
 		if model == "" {
 			model = self.resolveDefaultModel()
 		}
@@ -936,13 +936,13 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 }
 
 func (self *Bot) linkedUserForTelegramChat(chatId string) *models.User {
-	var chatID int64
-	if _, scanError := fmt.Sscanf(chatId, "%d", &chatID); scanError != nil {
+	var chatIdNumeric int64
+	if _, scanError := fmt.Sscanf(chatId, "%d", &chatIdNumeric); scanError != nil {
 		return nil
 	}
 	var user *models.User
 	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		foundUser, err := transaction.GetUserByTelegramChatID(ctx, chatID, nil)
+		foundUser, err := transaction.GetUserByTelegramChatID(ctx, chatIdNumeric, nil)
 		if err == nil {
 			user = foundUser
 		}
@@ -977,37 +977,37 @@ func (self *Bot) resolveDefaultModel() string {
 	return defaultModel
 }
 
-func (self *Bot) listAgentIDsFromStore() []string {
-	agentIDs := make([]string, 0)
+func (self *Bot) listAgentIdsFromStore() []string {
+	agentIds := make([]string, 0)
 	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		agents, listError := transaction.ListAgents(ctx, nil)
 		if listError != nil {
 			return nil
 		}
-		agentIDs = make([]string, 0, len(agents))
+		agentIds = make([]string, 0, len(agents))
 		for _, agent := range agents {
-			agentIDs = append(agentIDs, agent.ID)
+			agentIds = append(agentIds, agent.ID)
 		}
-		sort.Strings(agentIDs)
+		sort.Strings(agentIds)
 		return nil
 	})
-	return agentIDs
+	return agentIds
 }
 
 func (self *Bot) telegramChatIdForUser(userId string) int64 {
 	if userId == "" {
 		return 0
 	}
-	chatID := int64(0)
+	chatId := int64(0)
 	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		user, err := transaction.GetUser(ctx, userId, nil)
 		if err != nil || user.TelegramChatID == nil {
 			return nil
 		}
-		chatID = *user.TelegramChatID
+		chatId = *user.TelegramChatID
 		return nil
 	})
-	return chatID
+	return chatId
 }
 
 func (self *Bot) sendChunked(chatId int64, replyTo int, text string) {
@@ -1017,11 +1017,11 @@ func (self *Bot) sendChunked(chatId int64, replyTo int, text string) {
 	first := true
 	for len(text) > 0 {
 		chunk := text
-		if len(chunk) > maxTelegramMessageLen {
+		if len(chunk) > maxTelegramMessageLength {
 			// Try to split at a newline.
-			cut := strings.LastIndex(chunk[:maxTelegramMessageLen], "\n")
-			if cut < maxTelegramMessageLen/2 {
-				cut = maxTelegramMessageLen
+			cut := strings.LastIndex(chunk[:maxTelegramMessageLength], "\n")
+			if cut < maxTelegramMessageLength/2 {
+				cut = maxTelegramMessageLength
 			}
 			chunk = text[:cut]
 		}
@@ -1123,12 +1123,12 @@ func (self *Bot) extractAttachments(message *tgbotapi.Message) []map[string]stri
 
 // downloadTelegramFile downloads a file from Telegram by its file ID.
 func (self *Bot) downloadTelegramFile(fileId string) ([]byte, error) {
-	fileURL, err := self.api.GetFileDirectURL(fileId)
+	fileUrl, err := self.api.GetFileDirectURL(fileId)
 	if err != nil {
 		return nil, fmt.Errorf("getting file URL: %w", err)
 	}
 	client := &http.Client{Timeout: 60 * time.Second}
-	response, err := client.Get(fileURL)
+	response, err := client.Get(fileUrl)
 	if err != nil {
 		return nil, fmt.Errorf("downloading file: %w", err)
 	}

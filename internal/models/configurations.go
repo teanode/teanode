@@ -82,7 +82,7 @@ type CodexConfiguration struct {
 	BinaryPath            *string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`
 	AllowedTools          *[]string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
 	Model                 *string   `json:"model,omitempty" yaml:"model,omitempty"`
-	ExtraArgs             *[]string `json:"extraArgs,omitempty" yaml:"extraArgs,omitempty"`
+	ExtraArguments        *[]string `json:"extraArgs,omitempty" yaml:"extraArgs,omitempty"`
 	MaxTurnTimeoutSeconds *int      `json:"maxTurnTimeoutSeconds,omitempty" yaml:"maxTurnTimeoutSeconds,omitempty"`
 }
 

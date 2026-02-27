@@ -23,34 +23,34 @@ func New(gatewayUrl string) *Runner {
 	}
 }
 
-func (r *Runner) RunSuite(ctx context.Context, cfg model.RunnerConfig) (*model.RunReport, error) {
+func (self *Runner) RunSuite(ctx context.Context, configuration model.RunnerConfiguration) (*model.RunReport, error) {
 	start := time.Now()
-	suite, err := config.LoadSuite(cfg.SuitePath)
+	suite, err := config.LoadSuite(configuration.SuitePath)
 	if err != nil {
 		return nil, err
 	}
-	suite, err = config.FilterScenario(suite, cfg.Scenario)
+	suite, err = config.FilterScenario(suite, configuration.Scenario)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.PromptPath != "" {
-		raw, err := os.ReadFile(cfg.PromptPath)
+	if configuration.PromptPath != "" {
+		raw, err := os.ReadFile(configuration.PromptPath)
 		if err != nil {
 			return nil, fmt.Errorf("read prompt file: %w", err)
 		}
-		r.client.SetPromptSuffix(string(raw))
+		self.client.SetPromptSuffix(string(raw))
 	}
 
 	results := make([]model.ScenarioResult, 0, len(suite.Scenarios))
 	for _, scenario := range suite.Scenarios {
-		result := r.runScenario(ctx, scenario, cfg)
+		result := self.runScenario(ctx, scenario, configuration)
 		results = append(results, result)
 	}
 
 	report := &model.RunReport{
 		Version:       "v1",
 		SuiteName:     suite.Name,
-		GatewayURL:    cfg.GatewayURL,
+		GatewayURL:    configuration.GatewayURL,
 		StartedAt:     start,
 		EndedAt:       time.Now(),
 		ScenarioCount: len(results),
@@ -67,24 +67,24 @@ func (r *Runner) RunSuite(ctx context.Context, cfg model.RunnerConfig) (*model.R
 	return report, nil
 }
 
-func (r *Runner) runScenario(ctx context.Context, scenario model.ScenarioSpec, cfg model.RunnerConfig) model.ScenarioResult {
+func (self *Runner) runScenario(ctx context.Context, scenario model.ScenarioSpecification, configuration model.RunnerConfiguration) model.ScenarioResult {
 	start := time.Now()
 	result := model.ScenarioResult{
 		ID:            scenario.ID,
 		Name:          scenario.Name,
 		StartedAt:     start,
 		Metrics:       map[string]any{},
-		PromptVariant: cfg.PromptPath,
+		PromptVariant: configuration.PromptPath,
 	}
 
 	timeout := 90 * time.Second
-	if scenario.TimeoutSec > 0 {
-		timeout = time.Duration(scenario.TimeoutSec) * time.Second
+	if scenario.TimeoutSeconds > 0 {
+		timeout = time.Duration(scenario.TimeoutSeconds) * time.Second
 	}
-	sctx, cancel := context.WithTimeout(ctx, timeout)
+	scenarioContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	timeline, runErr := r.client.RunScenario(sctx, scenario)
+	timeline, runErr := self.client.RunScenario(scenarioContext, scenario)
 	result.Timeline = timeline
 	if runErr != nil {
 		result.Failures = append(result.Failures, fmt.Sprintf("scenario run failed: %v", runErr))

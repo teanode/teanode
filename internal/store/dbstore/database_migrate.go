@@ -38,19 +38,19 @@ func (self *databaseStore) Migrate(ctx context.Context) error {
 	}
 
 	currentMigrations := dbmigrations.Migrations()
-	currentMigrationIDs := make(map[string]struct{}, len(currentMigrations))
+	currentMigrationIds := make(map[string]struct{}, len(currentMigrations))
 	for _, migration := range currentMigrations {
-		currentMigrationIDs[migration.ID] = struct{}{}
+		currentMigrationIds[migration.ID] = struct{}{}
 	}
 
-	unknownMigrationIDs := make([]string, 0)
+	unknownMigrationIds := make([]string, 0)
 	for migrationId := range existingRecordById {
-		if _, ok := currentMigrationIDs[migrationId]; !ok {
-			unknownMigrationIDs = append(unknownMigrationIDs, migrationId)
+		if _, ok := currentMigrationIds[migrationId]; !ok {
+			unknownMigrationIds = append(unknownMigrationIds, migrationId)
 		}
 	}
-	sort.Sort(sort.Reverse(sort.StringSlice(unknownMigrationIDs)))
-	for _, migrationId := range unknownMigrationIDs {
+	sort.Sort(sort.Reverse(sort.StringSlice(unknownMigrationIds)))
+	for _, migrationId := range unknownMigrationIds {
 		record := existingRecordById[migrationId]
 		if record.ReverseSQL == "" {
 			return fmt.Errorf("missing reverse sql for migration %s", migrationId)

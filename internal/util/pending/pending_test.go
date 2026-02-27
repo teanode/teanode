@@ -9,10 +9,10 @@ import (
 func TestAllocateIncrementsID(t *testing.T) {
 	t.Parallel()
 
-	r := NewRequests()
-	id0, _ := r.Allocate()
-	id1, _ := r.Allocate()
-	id2, _ := r.Allocate()
+	pending := NewRequests()
+	id0, _ := pending.Allocate()
+	id1, _ := pending.Allocate()
+	id2, _ := pending.Allocate()
 
 	if id0 != 0 {
 		t.Fatalf("expected first id to be 0, got %d", id0)
@@ -28,16 +28,16 @@ func TestAllocateIncrementsID(t *testing.T) {
 func TestResolve(t *testing.T) {
 	t.Parallel()
 
-	r := NewRequests()
-	id, ch := r.Allocate()
+	pending := NewRequests()
+	id, channel := pending.Allocate()
 
 	want := Result{Data: json.RawMessage(`{"ok":true}`)}
-	ok := r.Resolve(id, want)
+	ok := pending.Resolve(id, want)
 	if !ok {
 		t.Fatal("Resolve returned false for a valid pending request")
 	}
 
-	got := <-ch
+	got := <-channel
 	if string(got.Data) != string(want.Data) {
 		t.Fatalf("expected data %s, got %s", want.Data, got.Data)
 	}
@@ -49,13 +49,13 @@ func TestResolve(t *testing.T) {
 func TestResolveError(t *testing.T) {
 	t.Parallel()
 
-	r := NewRequests()
-	id, ch := r.Allocate()
+	pending := NewRequests()
+	id, channel := pending.Allocate()
 
 	want := Result{Error: "something went wrong"}
-	r.Resolve(id, want)
+	pending.Resolve(id, want)
 
-	got := <-ch
+	got := <-channel
 	if got.Error != want.Error {
 		t.Fatalf("expected error %q, got %q", want.Error, got.Error)
 	}
@@ -64,8 +64,8 @@ func TestResolveError(t *testing.T) {
 func TestResolveUnknownID(t *testing.T) {
 	t.Parallel()
 
-	r := NewRequests()
-	ok := r.Resolve(999, Result{})
+	pending := NewRequests()
+	ok := pending.Resolve(999, Result{})
 	if ok {
 		t.Fatal("Resolve returned true for an unknown ID")
 	}
@@ -74,11 +74,11 @@ func TestResolveUnknownID(t *testing.T) {
 func TestResolveAlreadyResolved(t *testing.T) {
 	t.Parallel()
 
-	r := NewRequests()
-	id, _ := r.Allocate()
+	pending := NewRequests()
+	id, _ := pending.Allocate()
 
-	r.Resolve(id, Result{})
-	ok := r.Resolve(id, Result{})
+	pending.Resolve(id, Result{})
+	ok := pending.Resolve(id, Result{})
 	if ok {
 		t.Fatal("Resolve returned true for an already-resolved ID")
 	}
@@ -87,12 +87,12 @@ func TestResolveAlreadyResolved(t *testing.T) {
 func TestCancel(t *testing.T) {
 	t.Parallel()
 
-	r := NewRequests()
-	id, _ := r.Allocate()
-	r.Cancel(id)
+	pending := NewRequests()
+	id, _ := pending.Allocate()
+	pending.Cancel(id)
 
 	// After cancel, Resolve should fail.
-	ok := r.Resolve(id, Result{})
+	ok := pending.Resolve(id, Result{})
 	if ok {
 		t.Fatal("Resolve returned true after Cancel")
 	}
@@ -102,24 +102,24 @@ func TestCancelUnknownID(t *testing.T) {
 	t.Parallel()
 
 	// Should not panic.
-	r := NewRequests()
-	r.Cancel(42)
+	pending := NewRequests()
+	pending.Cancel(42)
 }
 
 func TestRejectAll(t *testing.T) {
 	t.Parallel()
 
-	r := NewRequests()
-	_, ch0 := r.Allocate()
-	_, ch1 := r.Allocate()
-	_, ch2 := r.Allocate()
+	pending := NewRequests()
+	_, channel0 := pending.Allocate()
+	_, channel1 := pending.Allocate()
+	_, channel2 := pending.Allocate()
 
-	r.RejectAll("disconnected")
+	pending.RejectAll("disconnected")
 
-	for i, ch := range []<-chan Result{ch0, ch1, ch2} {
-		got := <-ch
+	for index, channel := range []<-chan Result{channel0, channel1, channel2} {
+		got := <-channel
 		if got.Error != "disconnected" {
-			t.Fatalf("channel %d: expected error %q, got %q", i, "disconnected", got.Error)
+			t.Fatalf("channel %d: expected error %q, got %q", index, "disconnected", got.Error)
 		}
 	}
 }
@@ -127,11 +127,11 @@ func TestRejectAll(t *testing.T) {
 func TestRejectAllClearsMap(t *testing.T) {
 	t.Parallel()
 
-	r := NewRequests()
-	id, _ := r.Allocate()
-	r.RejectAll("bye")
+	pending := NewRequests()
+	id, _ := pending.Allocate()
+	pending.RejectAll("bye")
 
-	ok := r.Resolve(id, Result{})
+	ok := pending.Resolve(id, Result{})
 	if ok {
 		t.Fatal("Resolve returned true after RejectAll")
 	}
@@ -141,48 +141,48 @@ func TestRejectAllEmpty(t *testing.T) {
 	t.Parallel()
 
 	// Should not panic on empty map.
-	r := NewRequests()
-	r.RejectAll("no-op")
+	pending := NewRequests()
+	pending.RejectAll("no-op")
 }
 
 func TestConcurrentAllocateResolve(t *testing.T) {
 	t.Parallel()
 
-	r := NewRequests()
-	const n = 100
+	pending := NewRequests()
+	const count = 100
 	var wg sync.WaitGroup
-	wg.Add(n)
+	wg.Add(count)
 
 	type pair struct {
-		id int
-		ch <-chan Result
+		id      int
+		channel <-chan Result
 	}
-	pairs := make([]pair, n)
+	pairs := make([]pair, count)
 
 	// Allocate sequentially to collect pairs.
-	for i := 0; i < n; i++ {
-		id, ch := r.Allocate()
-		pairs[i] = pair{id, ch}
+	for index := 0; index < count; index++ {
+		id, channel := pending.Allocate()
+		pairs[index] = pair{id, channel}
 	}
 
 	// Resolve concurrently.
-	for i := 0; i < n; i++ {
-		go func(p pair) {
+	for index := 0; index < count; index++ {
+		go func(result pair) {
 			defer wg.Done()
-			r.Resolve(p.id, Result{Data: json.RawMessage(`"ok"`)})
-		}(pairs[i])
+			pending.Resolve(result.id, Result{Data: json.RawMessage(`"ok"`)})
+		}(pairs[index])
 	}
 
 	wg.Wait()
 
-	for i, p := range pairs {
+	for index, result := range pairs {
 		select {
-		case res := <-p.ch:
-			if string(res.Data) != `"ok"` {
-				t.Fatalf("pair %d: expected \"ok\", got %s", i, res.Data)
+		case received := <-result.channel:
+			if string(received.Data) != `"ok"` {
+				t.Fatalf("pair %d: expected \"ok\", got %s", index, received.Data)
 			}
 		default:
-			t.Fatalf("pair %d: channel was empty after resolve", i)
+			t.Fatalf("pair %d: channel was empty after resolve", index)
 		}
 	}
 }

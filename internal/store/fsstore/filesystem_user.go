@@ -52,15 +52,15 @@ func (self *fileSystemTransaction) listUsers(ctx context.Context, options *store
 	if err != nil {
 		return nil, err
 	}
-	userIDs := make([]string, 0, len(securityConfiguration.Users))
+	userIds := make([]string, 0, len(securityConfiguration.Users))
 	for userId := range securityConfiguration.Users {
-		userIDs = append(userIDs, userId)
+		userIds = append(userIds, userId)
 	}
-	sort.Strings(userIDs)
-	filteredUserIDs := applyOffsetLimit(userIDs, options)
+	sort.Strings(userIds)
+	filteredUserIds := applyOffsetLimit(userIds, options)
 
-	users := make([]*models.User, 0, len(filteredUserIDs))
-	for _, userId := range filteredUserIDs {
+	users := make([]*models.User, 0, len(filteredUserIds))
+	for _, userId := range filteredUserIds {
 		user, err := self.GetUser(ctx, userId, options)
 		if err != nil {
 			continue

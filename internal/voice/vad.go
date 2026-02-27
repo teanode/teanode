@@ -21,43 +21,43 @@ type VADState struct {
 }
 
 // Reset clears all transient VAD counters.
-func (v *VADState) Reset() {
-	v.IsSpeaking = false
-	v.speechFrames = 0
-	v.redemptionCount = 0
+func (self *VADState) Reset() {
+	self.IsSpeaking = false
+	self.speechFrames = 0
+	self.redemptionCount = 0
 }
 
 // ProcessFrame processes one s16le frame and returns (started, ended, rms).
-func (v *VADState) ProcessFrame(pcm []byte) (bool, bool, float64) {
+func (self *VADState) ProcessFrame(pcm []byte) (bool, bool, float64) {
 	rms := rmsS16LE(pcm)
 
 	started := false
 	ended := false
-	if !v.IsSpeaking {
+	if !self.IsSpeaking {
 		if rms >= vadPositiveThreshold {
-			v.speechFrames++
-			if v.speechFrames >= vadMinSpeechFrames {
-				v.IsSpeaking = true
-				v.redemptionCount = 0
+			self.speechFrames++
+			if self.speechFrames >= vadMinSpeechFrames {
+				self.IsSpeaking = true
+				self.redemptionCount = 0
 				started = true
 			}
 		} else {
-			v.speechFrames = 0
+			self.speechFrames = 0
 		}
 		return started, ended, rms
 	}
-	v.speechFrames = 0
+	self.speechFrames = 0
 
 	if rms < vadNegativeThreshold {
-		v.redemptionCount++
-		if v.redemptionCount >= vadRedemptionFrames {
-			v.IsSpeaking = false
-			v.speechFrames = 0
-			v.redemptionCount = 0
+		self.redemptionCount++
+		if self.redemptionCount >= vadRedemptionFrames {
+			self.IsSpeaking = false
+			self.speechFrames = 0
+			self.redemptionCount = 0
 			ended = true
 		}
 	} else {
-		v.redemptionCount = 0
+		self.redemptionCount = 0
 	}
 
 	return started, ended, rms
@@ -69,10 +69,10 @@ func rmsS16LE(pcm []byte) float64 {
 	}
 	samples := len(pcm) / 2
 	var sum float64
-	for i := 0; i < samples; i++ {
-		raw := int16(binary.LittleEndian.Uint16(pcm[i*2 : i*2+2]))
-		n := float64(raw) / 32768.0
-		sum += n * n
+	for index := 0; index < samples; index++ {
+		raw := int16(binary.LittleEndian.Uint16(pcm[index*2 : index*2+2]))
+		sampleCount := float64(raw) / 32768.0
+		sum += sampleCount * sampleCount
 	}
 	return math.Sqrt(sum / float64(samples))
 }

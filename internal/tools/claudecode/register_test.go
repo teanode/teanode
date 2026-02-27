@@ -8,14 +8,14 @@ import (
 
 func makeFakeBinary(t *testing.T, name string) func() {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, name)
+	directory := t.TempDir()
+	path := filepath.Join(directory, name)
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("creating fake binary: %v", err)
 	}
-	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", dir+string(os.PathListSeparator)+origPath)
-	return func() { os.Setenv("PATH", origPath) }
+	originalPath := os.Getenv("PATH")
+	os.Setenv("PATH", directory+string(os.PathListSeparator)+originalPath)
+	return func() { os.Setenv("PATH", originalPath) }
 }
 
 func TestCreateTools_BinaryPresent(t *testing.T) {
@@ -35,9 +35,9 @@ func TestCreateTools_BinaryPresent(t *testing.T) {
 }
 
 func TestCreateTools_BinaryMissing(t *testing.T) {
-	origPath := os.Getenv("PATH")
+	originalPath := os.Getenv("PATH")
 	os.Setenv("PATH", t.TempDir())
-	defer os.Setenv("PATH", origPath)
+	defer os.Setenv("PATH", originalPath)
 
 	tools := createTools()
 	if len(tools) != 0 {

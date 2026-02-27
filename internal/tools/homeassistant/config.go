@@ -45,7 +45,7 @@ type AccessChecker struct {
 
 // NewAccessChecker creates an AccessChecker from the given configuration.
 // If config is nil, safe defaults are used.
-func NewAccessChecker(config *resolvedConfig) *AccessChecker {
+func NewAccessChecker(config *resolvedConfiguration) *AccessChecker {
 	checker := &AccessChecker{
 		allowedDomains:  make(map[string]bool),
 		blockedDomains:  make(map[string]bool),

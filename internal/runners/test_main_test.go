@@ -29,8 +29,8 @@ func TestMain(m *testing.M) {
 	if closeError := openedStore.Close(); closeError != nil {
 		fmt.Fprintf(os.Stderr, "store close failed: %v\n", closeError)
 	}
-	if removeErr := os.RemoveAll(directory); removeErr != nil {
-		fmt.Fprintf(os.Stderr, "RemoveAll failed: %v\n", removeErr)
+	if removeError := os.RemoveAll(directory); removeError != nil {
+		fmt.Fprintf(os.Stderr, "RemoveAll failed: %v\n", removeError)
 	}
 	os.Exit(exitCode)
 }

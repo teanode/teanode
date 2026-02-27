@@ -36,8 +36,8 @@ func (self *Session) audioInputLoop() {
 			return
 		case frame := <-self.audioInCh:
 			if !vad.IsSpeaking {
-				cp := append([]byte(nil), frame...)
-				preSpeech = append(preSpeech, cp)
+				frameCopy := append([]byte(nil), frame...)
+				preSpeech = append(preSpeech, frameCopy)
 				if len(preSpeech) > vadPreRollFrames {
 					preSpeech = preSpeech[1:]
 				}
@@ -96,10 +96,10 @@ func (self *Session) audioInputLoop() {
 					pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
 					continue
 				}
-				go func(tid string, audio []byte) {
+				go func(turnId string, audio []byte) {
 					defer deferutil.Recover()
-					defer self.FinishTurnTranscription(tid)
-					self.transcribeAndSend(tid, audio)
+					defer self.FinishTurnTranscription(turnId)
+					self.transcribeAndSend(turnId, audio)
 				}(turnId, captured)
 			}
 		}
@@ -110,12 +110,12 @@ func (self *Session) llmEventForwarder() {
 	if self.pubsub == nil {
 		return
 	}
-	sub := &conversationEventSubscriber{
+	subscriber := &conversationEventSubscriber{
 		conversationId: self.ConversationID,
 		eventCh:        make(chan map[string]interface{}, 128),
 	}
-	self.pubsub.Subscribe(sub)
-	defer self.pubsub.Unsubscribe(sub)
+	self.pubsub.Subscribe(subscriber)
+	defer self.pubsub.Unsubscribe(subscriber)
 
 	streamText := ""
 	sentencesEnqueued := 0
@@ -125,7 +125,7 @@ func (self *Session) llmEventForwarder() {
 		select {
 		case <-self.doneCh:
 			return
-		case event := <-sub.eventCh:
+		case event := <-subscriber.eventCh:
 			state, _ := event["state"].(string)
 			text, _ := event["text"].(string)
 			runId, _ := event["runId"].(string)
@@ -199,9 +199,9 @@ func (self *Session) ttsSynthLoop() {
 		case sentence := <-self.ttsInCh:
 			if sentence == "" {
 				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseID())
-				if rid := self.GetCurrentResponseID(); rid != "" {
+				if responseId := self.GetCurrentResponseID(); responseId != "" {
 					self.sendVoiceEvent("response.completed", map[string]interface{}{
-						"response_id": rid,
+						"response_id": responseId,
 						"turn_id":     self.GetCurrentTurnID(),
 					})
 				}

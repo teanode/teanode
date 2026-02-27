@@ -149,9 +149,9 @@ func (self *webSocketConnection) serve() {
 	defer self.api.pubsub.Unsubscribe(self)
 
 	defer func() {
-		if sess := self.getActiveVoiceSession(); sess != nil {
-			sess.Close()
-			self.clearActiveVoiceSession(sess)
+		if session := self.getActiveVoiceSession(); session != nil {
+			session.Close()
+			self.clearActiveVoiceSession(session)
 		}
 	}()
 
@@ -165,12 +165,12 @@ func (self *webSocketConnection) serve() {
 		}
 
 		if messageType == websocket.BinaryMessage {
-			sess := self.getActiveVoiceSession()
-			if sess == nil {
+			session := self.getActiveVoiceSession()
+			if session == nil {
 				log.Warningf("ws binary frame dropped: no active voice session, bytes=%d", len(rawMessage))
 				continue
 			}
-			if err := sess.HandleInputBinaryFrame(rawMessage); err != nil {
+			if err := session.HandleInputBinaryFrame(rawMessage); err != nil {
 				log.Warningf("invalid voice binary frame: %v", err)
 			}
 			continue
@@ -187,13 +187,13 @@ func (self *webSocketConnection) serve() {
 		}
 
 		// Idempotency check.
-		dedupKey := frame.Method + ":" + frame.ID
-		if expiry, loaded := self.deduplication.Load(dedupKey); loaded {
+		deduplicationKey := frame.Method + ":" + frame.ID
+		if expiry, loaded := self.deduplication.Load(deduplicationKey); loaded {
 			if time.Now().Before(expiry.(time.Time)) {
 				continue // duplicate, skip
 			}
 		}
-		self.deduplication.Store(dedupKey, time.Now().Add(15*time.Minute))
+		self.deduplication.Store(deduplicationKey, time.Now().Add(15*time.Minute))
 
 		self.dispatch(frame)
 	}

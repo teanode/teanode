@@ -38,7 +38,7 @@ func (self *fileSystemTransaction) listAgents(options *store.Option) ([]*models.
 	}
 	agents := make([]*models.Agent, 0, len(agentConfigurations))
 	for _, agentConfiguration := range applyOffsetLimit(agentConfigurations, options) {
-		agent := agentConfigToModel(agentConfiguration)
+		agent := agentConfigurationToModel(agentConfiguration)
 		agents = append(agents, &agent)
 	}
 	return agents, nil
@@ -52,10 +52,10 @@ func (self *fileSystemTransaction) createAgent(ctx context.Context, agent *model
 	if agentId == "" {
 		agentId = security.NewULID()
 	}
-	if _, err := os.Stat(self.agentConfigFilename(agentId)); err == nil {
+	if _, err := os.Stat(self.agentConfigurationFilename(agentId)); err == nil {
 		return nil, store.ErrAlreadyExists
 	}
-	configuration := modelToAgentConfig(*agent)
+	configuration := modelToAgentConfiguration(*agent)
 	if err := self.saveAgentRecord(agentId, &configuration); err != nil {
 		return nil, err
 	}
@@ -68,13 +68,13 @@ func (self *fileSystemTransaction) createAgent(ctx context.Context, agent *model
 			return nil, err
 		}
 	}
-	createdAgent := agentConfigToModel(configuration)
+	createdAgent := agentConfigurationToModel(configuration)
 	createdAgent.ID = agentId
 	return &createdAgent, nil
 }
 
 func (self *fileSystemTransaction) getAgent(agentId string, options *store.Option) (*models.Agent, error) {
-	if _, statError := os.Stat(self.agentConfigFilename(agentId)); statError != nil {
+	if _, statError := os.Stat(self.agentConfigurationFilename(agentId)); statError != nil {
 		if os.IsNotExist(statError) {
 			return nil, store.ErrNotFound
 		}
@@ -84,7 +84,7 @@ func (self *fileSystemTransaction) getAgent(agentId string, options *store.Optio
 	if err != nil {
 		return nil, err
 	}
-	agent := agentConfigToModel(*configuration)
+	agent := agentConfigurationToModel(*configuration)
 	return &agent, nil
 }
 
@@ -96,11 +96,11 @@ func (self *fileSystemTransaction) modifyAgent(ctx context.Context, agentId stri
 	if err := modifier(agent); err != nil {
 		return nil, err
 	}
-	configuration := modelToAgentConfig(*agent)
+	configuration := modelToAgentConfiguration(*agent)
 	if err := self.saveAgentRecord(agentId, &configuration); err != nil {
 		return nil, err
 	}
-	result := agentConfigToModel(configuration)
+	result := agentConfigurationToModel(configuration)
 	result.ID = agentId
 	return &result, nil
 }
@@ -109,7 +109,7 @@ func (self *fileSystemTransaction) deleteAgent(agentId string, options *store.Op
 	return self.deleteAgentDirectories(agentId)
 }
 
-func agentConfigToModel(configuration storeAgentRecord) models.Agent {
+func agentConfigurationToModel(configuration storeAgentRecord) models.Agent {
 	agent := models.Agent{
 		ID:            configuration.ID,
 		Name:          ptrto.TrimmedString(configuration.Name),
@@ -125,7 +125,7 @@ func agentConfigToModel(configuration storeAgentRecord) models.Agent {
 	return agent
 }
 
-func modelToAgentConfig(agent models.Agent) storeAgentRecord {
+func modelToAgentConfiguration(agent models.Agent) storeAgentRecord {
 	record := storeAgentRecord{
 		ID:            agent.ID,
 		Name:          agent.GetName(),

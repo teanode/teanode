@@ -8,7 +8,7 @@ import (
 
 func TestEvaluateRequireBargeIn(t *testing.T) {
 	t.Parallel()
-	scenario := model.ScenarioSpec{
+	scenario := model.ScenarioSpecification{
 		ID:   "s",
 		Name: "scenario",
 		Expect: model.ScenarioExpectations{

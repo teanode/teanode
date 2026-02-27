@@ -59,7 +59,7 @@ type Session struct {
 
 	closeOnce   sync.Once
 	bargeInOnce sync.Once
-	wg          sync.WaitGroup
+	waitGroup   sync.WaitGroup
 
 	stateMu            sync.RWMutex
 	currentTurnId      string
@@ -119,11 +119,11 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 // Start begins session background loops.
 func (self *Session) Start() {
 	pipelineLog.Infof("voice session start: session=%s conv=%s agent=%s", self.ID, self.ConversationID, self.AgentID)
-	self.wg.Add(4)
-	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.audioInputLoop() }()
-	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.llmEventForwarder() }()
-	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.ttsSynthLoop() }()
-	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.audioOutputLoop() }()
+	self.waitGroup.Add(4)
+	go func() { defer deferutil.Recover(); defer self.waitGroup.Done(); self.audioInputLoop() }()
+	go func() { defer deferutil.Recover(); defer self.waitGroup.Done(); self.llmEventForwarder() }()
+	go func() { defer deferutil.Recover(); defer self.waitGroup.Done(); self.ttsSynthLoop() }()
+	go func() { defer deferutil.Recover(); defer self.waitGroup.Done(); self.audioOutputLoop() }()
 }
 
 // Close stops the session and waits for loop termination.
@@ -137,7 +137,7 @@ func (self *Session) Close() {
 			prev()
 		}
 		close(self.doneCh)
-		self.wg.Wait()
+		self.waitGroup.Wait()
 	})
 }
 

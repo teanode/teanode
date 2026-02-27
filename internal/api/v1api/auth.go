@@ -237,10 +237,10 @@ func (self *v1Api) handleAuthLogout(writer http.ResponseWriter, request *http.Re
 	return nil
 }
 
-func setSessionCookie(writer http.ResponseWriter, sessionID string, maxAge time.Duration) {
+func setSessionCookie(writer http.ResponseWriter, sessionId string, maxAge time.Duration) {
 	http.SetCookie(writer, &http.Cookie{
 		Name:     "session",
-		Value:    sessionID,
+		Value:    sessionId,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -248,15 +248,15 @@ func setSessionCookie(writer http.ResponseWriter, sessionID string, maxAge time.
 	})
 }
 
-func (self *v1Api) getSessionByID(ctx context.Context, sessionID string) (*models.Session, bool) {
+func (self *v1Api) getSessionById(ctx context.Context, sessionId string) (*models.Session, bool) {
 	var session *models.Session
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		existingSession, getError := transaction.GetSession(ctx, sessionID, nil)
+		existingSession, getError := transaction.GetSession(ctx, sessionId, nil)
 		if getError != nil {
 			return nil
 		}
 		if existingSession.ExpiresAt != nil && time.Now().After(*existingSession.ExpiresAt) {
-			_ = transaction.DeleteSession(ctx, sessionID, nil)
+			_ = transaction.DeleteSession(ctx, sessionId, nil)
 			return nil
 		}
 		session = existingSession

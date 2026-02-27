@@ -10,10 +10,10 @@ import (
 
 var log = logging.MustGetLogger("unifiprotect")
 
-// resolvedConfig holds the resolved UniFi Protect configuration
+// resolvedConfiguration holds the resolved UniFi Protect configuration
 // read from the store at execution time.
-type resolvedConfig struct {
-	baseURL               string
+type resolvedConfiguration struct {
+	baseUrl               string
 	apiKey                string
 	username              string
 	password              string
@@ -24,33 +24,33 @@ type resolvedConfig struct {
 	timeoutSeconds        int
 }
 
-// configFromContext reads the UniFi Protect tool configuration from the store.
-func configFromContext(ctx context.Context) *resolvedConfig {
-	config := &resolvedConfig{}
+// configurationFromContext reads the UniFi Protect tool configuration from the store.
+func configurationFromContext(ctx context.Context) *resolvedConfiguration {
+	configuration := &resolvedConfiguration{}
 	dataStore := store.StoreFromContextSafe(ctx)
 	if dataStore == nil {
-		return config
+		return configuration
 	}
 	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		configuration, err := transaction.GetConfiguration(ctx, nil)
+		storedConfiguration, err := transaction.GetConfiguration(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if configuration.Tools != nil && configuration.Tools.UniFiProtect != nil {
-			upConfig := configuration.Tools.UniFiProtect
-			config.baseURL = upConfig.GetBaseURL()
-			config.apiKey = upConfig.GetAPIKey()
-			config.username = upConfig.GetUsername()
-			config.password = upConfig.GetPassword()
-			config.verifyTls = upConfig.GetVerifyTLS()
-			config.readOnly = upConfig.GetReadOnly()
-			config.allowedCameras = upConfig.GetAllowedCameras()
-			config.allowDangerousActions = upConfig.GetAllowDangerousActions()
-			config.timeoutSeconds = upConfig.GetTimeoutSeconds()
+		if storedConfiguration.Tools != nil && storedConfiguration.Tools.UniFiProtect != nil {
+			unifiProtectConfiguration := storedConfiguration.Tools.UniFiProtect
+			configuration.baseUrl = unifiProtectConfiguration.GetBaseURL()
+			configuration.apiKey = unifiProtectConfiguration.GetAPIKey()
+			configuration.username = unifiProtectConfiguration.GetUsername()
+			configuration.password = unifiProtectConfiguration.GetPassword()
+			configuration.verifyTls = unifiProtectConfiguration.GetVerifyTLS()
+			configuration.readOnly = unifiProtectConfiguration.GetReadOnly()
+			configuration.allowedCameras = unifiProtectConfiguration.GetAllowedCameras()
+			configuration.allowDangerousActions = unifiProtectConfiguration.GetAllowDangerousActions()
+			configuration.timeoutSeconds = unifiProtectConfiguration.GetTimeoutSeconds()
 		}
 		return nil
 	})
-	return config
+	return configuration
 }
 
 func init() {

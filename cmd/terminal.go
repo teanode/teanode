@@ -180,8 +180,8 @@ func defaultTerminalConnectionId() string {
 
 func currentTerminalSize() (rows, cols uint16) {
 	candidates := []int{int(os.Stdout.Fd()), int(os.Stderr.Fd()), int(os.Stdin.Fd())}
-	for _, fd := range candidates {
-		if rows, cols, err := terminals.GetWinSize(fd); err == nil && rows > 0 && cols > 0 {
+	for _, fileDescriptor := range candidates {
+		if rows, cols, err := terminals.GetWinSize(fileDescriptor); err == nil && rows > 0 && cols > 0 {
 			return rows, cols
 		}
 	}
@@ -269,10 +269,10 @@ func serveGatewayConnection(ctx context.Context, url string, shellCommand string
 			}
 			_, writeErr := master.Write([]byte(parameters.Data))
 			if writeErr != nil {
-				errStr := writeErr.Error()
+				errorString := writeErr.Error()
 				response, _ := json.Marshal(map[string]interface{}{
 					"id":    message.ID,
-					"error": errStr,
+					"error": errorString,
 				})
 				connection.WriteMessage(websocket.TextMessage, response)
 			} else {

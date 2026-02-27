@@ -10,7 +10,7 @@ func (self *fileSystemTransaction) dataDirectory() string {
 	return self.store.dataDirectory
 }
 
-func (self *fileSystemTransaction) configFilename() string {
+func (self *fileSystemTransaction) configurationFilename() string {
 	return filepath.Join(self.dataDirectory(), "config.yaml")
 }
 
@@ -30,7 +30,7 @@ func (self *fileSystemTransaction) userDirectory(userId string) string {
 	return filepath.Join(self.usersDirectory(), userId)
 }
 
-func (self *fileSystemTransaction) userConfigFilename(userId string) string {
+func (self *fileSystemTransaction) userConfigurationFilename(userId string) string {
 	return filepath.Join(self.userDirectory(userId), "user.yaml")
 }
 
@@ -58,7 +58,7 @@ func (self *fileSystemTransaction) agentDirectory(agentId string) string {
 	return filepath.Join(self.agentsDirectory(), agentId)
 }
 
-func (self *fileSystemTransaction) agentConfigFilename(agentId string) string {
+func (self *fileSystemTransaction) agentConfigurationFilename(agentId string) string {
 	return filepath.Join(self.agentDirectory(agentId), "agent.yaml")
 }
 
@@ -74,7 +74,7 @@ func (self *fileSystemTransaction) projectDirectory(projectId string) string {
 	return filepath.Join(self.projectsDirectory(), projectId)
 }
 
-func (self *fileSystemTransaction) projectConfigFilename(projectId string) string {
+func (self *fileSystemTransaction) projectConfigurationFilename(projectId string) string {
 	return filepath.Join(self.projectDirectory(projectId), "project.yaml")
 }
 

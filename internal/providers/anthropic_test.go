@@ -95,8 +95,8 @@ func TestTranslateRequest_ToolDefinitions(t *testing.T) {
 		t.Errorf("tool description = %q", translated.Tools[0].Description)
 	}
 	// InputSchema should be the parameters, not include Returns.
-	schemaJSON, _ := json.Marshal(translated.Tools[0].InputSchema)
-	if string(schemaJSON) == "" {
+	schemaJson, _ := json.Marshal(translated.Tools[0].InputSchema)
+	if string(schemaJson) == "" {
 		t.Error("input_schema should not be empty")
 	}
 }

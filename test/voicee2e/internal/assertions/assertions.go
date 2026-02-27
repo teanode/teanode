@@ -8,7 +8,7 @@ import (
 	"github.com/teanode/teanode/test/voicee2e/internal/model"
 )
 
-func EnrichMetrics(scenario model.ScenarioSpec, timeline []model.TimelineEvent, metrics map[string]any) {
+func EnrichMetrics(scenario model.ScenarioSpecification, timeline []model.TimelineEvent, metrics map[string]any) {
 	expected := make([]string, 0, len(scenario.Audio))
 	for _, step := range scenario.Audio {
 		if step.ExpectedText != "" {
@@ -32,7 +32,7 @@ func EnrichMetrics(scenario model.ScenarioSpec, timeline []model.TimelineEvent, 
 	metrics["transcript_similarity"] = score
 }
 
-func Evaluate(scenario model.ScenarioSpec, timeline []model.TimelineEvent, metrics map[string]any) (failures []string, warnings []string) {
+func Evaluate(scenario model.ScenarioSpecification, timeline []model.TimelineEvent, metrics map[string]any) (failures []string, warnings []string) {
 	transcriptCount, _ := metrics["transcript_count"].(int64)
 	if transcriptCount == 0 {
 		failures = append(failures, "no transcript.final events")
@@ -51,8 +51,8 @@ func Evaluate(scenario model.ScenarioSpec, timeline []model.TimelineEvent, metri
 	}
 
 	if scenario.Expect.MaxResponseLatencyMS > 0 {
-		if v, ok := metrics["latency_speech_end_to_transcript_ms"].(int64); ok && v > scenario.Expect.MaxResponseLatencyMS {
-			failures = append(failures, fmt.Sprintf("speech_end->transcript latency too high: %dms > %dms", v, scenario.Expect.MaxResponseLatencyMS))
+		if value, ok := metrics["latency_speech_end_to_transcript_ms"].(int64); ok && value > scenario.Expect.MaxResponseLatencyMS {
+			failures = append(failures, fmt.Sprintf("speech_end->transcript latency too high: %dms > %dms", value, scenario.Expect.MaxResponseLatencyMS))
 		}
 	}
 	if scenario.Expect.MinTranscriptSimilarity > 0 {
@@ -66,8 +66,8 @@ func Evaluate(scenario model.ScenarioSpec, timeline []model.TimelineEvent, metri
 	}
 
 	if scenario.Expect.MaxResponseSentences > 0 {
-		if v, ok := metrics["tts_sentence_count"].(int64); ok && int(v) > scenario.Expect.MaxResponseSentences {
-			warnings = append(warnings, fmt.Sprintf("tts sentence count exceeded soft bound: %d > %d", v, scenario.Expect.MaxResponseSentences))
+		if value, ok := metrics["tts_sentence_count"].(int64); ok && int(value) > scenario.Expect.MaxResponseSentences {
+			warnings = append(warnings, fmt.Sprintf("tts sentence count exceeded soft bound: %d > %d", value, scenario.Expect.MaxResponseSentences))
 		}
 	}
 
@@ -78,25 +78,25 @@ func Evaluate(scenario model.ScenarioSpec, timeline []model.TimelineEvent, metri
 var wordRE = regexp.MustCompile(`[a-z0-9]+`)
 
 func similarity(expected, actual string) float64 {
-	ew := toWords(expected)
-	aw := toWords(actual)
-	if len(ew) == 0 {
+	expectedWords := toWords(expected)
+	actualWords := toWords(actual)
+	if len(expectedWords) == 0 {
 		return 1
 	}
 	set := map[string]bool{}
-	for _, word := range aw {
+	for _, word := range actualWords {
 		set[word] = true
 	}
 	match := 0
-	for _, word := range ew {
+	for _, word := range expectedWords {
 		if set[word] {
 			match++
 		}
 	}
-	return float64(match) / float64(len(ew))
+	return float64(match) / float64(len(expectedWords))
 }
 
-func toWords(s string) []string {
-	lower := strings.ToLower(s)
+func toWords(text string) []string {
+	lower := strings.ToLower(text)
 	return wordRE.FindAllString(lower, -1)
 }

@@ -8,30 +8,30 @@ import (
 func TestAcquireBufferReturnsEmptyBuffer(t *testing.T) {
 	t.Parallel()
 
-	buf, release := AcquireBuffer()
+	buffer, release := AcquireBuffer()
 	defer release()
 
-	if buf.Len() != 0 {
-		t.Fatalf("expected empty buffer, got length %d", buf.Len())
+	if buffer.Len() != 0 {
+		t.Fatalf("expected empty buffer, got length %d", buffer.Len())
 	}
 }
 
 func TestAcquireBufferIsWritable(t *testing.T) {
 	t.Parallel()
 
-	buf, release := AcquireBuffer()
+	buffer, release := AcquireBuffer()
 	defer release()
 
 	data := []byte("hello world")
-	n, err := buf.Write(data)
+	count, err := buffer.Write(data)
 	if err != nil {
 		t.Fatalf("unexpected write error: %s", err)
 	}
-	if n != len(data) {
-		t.Fatalf("expected to write %d bytes, wrote %d", len(data), n)
+	if count != len(data) {
+		t.Fatalf("expected to write %d bytes, wrote %d", len(data), count)
 	}
-	if buf.String() != "hello world" {
-		t.Fatalf("expected %q, got %q", "hello world", buf.String())
+	if buffer.String() != "hello world" {
+		t.Fatalf("expected %q, got %q", "hello world", buffer.String())
 	}
 }
 
@@ -39,8 +39,8 @@ func TestAcquireBufferResetsOnReuse(t *testing.T) {
 	t.Parallel()
 
 	// Write data, release, then re-acquire and check it's empty.
-	buf, release := AcquireBuffer()
-	buf.WriteString("leftover data")
+	buffer, release := AcquireBuffer()
+	buffer.WriteString("leftover data")
 	release()
 
 	buf2, release2 := AcquireBuffer()
@@ -54,19 +54,19 @@ func TestAcquireBufferResetsOnReuse(t *testing.T) {
 func TestAcquireBufferConcurrent(t *testing.T) {
 	t.Parallel()
 
-	const n = 100
+	const count = 100
 	var wg sync.WaitGroup
-	wg.Add(n)
+	wg.Add(count)
 
-	for i := 0; i < n; i++ {
+	for index := 0; index < count; index++ {
 		go func() {
 			defer wg.Done()
-			buf, release := AcquireBuffer()
+			buffer, release := AcquireBuffer()
 			defer release()
 
-			buf.WriteString("test")
-			if buf.String() != "test" {
-				t.Errorf("expected %q, got %q", "test", buf.String())
+			buffer.WriteString("test")
+			if buffer.String() != "test" {
+				t.Errorf("expected %q, got %q", "test", buffer.String())
 			}
 		}()
 	}

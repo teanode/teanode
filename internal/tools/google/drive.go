@@ -66,24 +66,24 @@ func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string
 		if limit <= 0 {
 			limit = 10
 		}
-		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
 			"drive", "ls", "--max", strconv.Itoa(limit))
 
 	case "search":
 		if args.Query == "" {
 			return "", fmt.Errorf("query is required for search action")
 		}
-		cmdArgs := []string{"drive", "search", args.Query}
+		commandArguments := []string{"drive", "search", args.Query}
 		if args.Limit > 0 {
-			cmdArgs = append(cmdArgs, "--max", strconv.Itoa(args.Limit))
+			commandArguments = append(commandArguments, "--max", strconv.Itoa(args.Limit))
 		}
-		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account, cmdArgs...)
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account, commandArguments...)
 
 	case "info":
 		if args.WorkspaceFileID == "" {
 			return "", fmt.Errorf("file_id is required for info action")
 		}
-		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
 			"drive", "get", args.WorkspaceFileID)
 
 	default:

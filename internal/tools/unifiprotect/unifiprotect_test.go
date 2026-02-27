@@ -65,9 +65,9 @@ func newMockClient() *mockClient {
 	}
 }
 
-func newTestTool(client *mockClient, config *resolvedConfig) *unifiProtectExecution {
+func newTestTool(client *mockClient, config *resolvedConfiguration) *unifiProtectExecution {
 	if config == nil {
-		config = &resolvedConfig{}
+		config = &resolvedConfiguration{}
 	}
 	return &unifiProtectExecution{
 		client:  client,
@@ -89,7 +89,7 @@ func TestAccessChecker_AllCamerasAllowed(testing *testing.T) {
 }
 
 func TestAccessChecker_AllowedCamerasByName(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowedCameras: []string{"Front Door", "Backyard"},
 	}
 	checker := NewAccessChecker(config)
@@ -106,7 +106,7 @@ func TestAccessChecker_AllowedCamerasByName(testing *testing.T) {
 }
 
 func TestAccessChecker_AllowedCamerasByID(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowedCameras: []string{"cam001"},
 	}
 	checker := NewAccessChecker(config)
@@ -120,7 +120,7 @@ func TestAccessChecker_AllowedCamerasByID(testing *testing.T) {
 }
 
 func TestAccessChecker_CaseInsensitive(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowedCameras: []string{"front door"},
 	}
 	checker := NewAccessChecker(config)
@@ -131,7 +131,7 @@ func TestAccessChecker_CaseInsensitive(testing *testing.T) {
 }
 
 func TestAccessChecker_EmptyAllowlist(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowedCameras: []string{},
 	}
 	checker := NewAccessChecker(config)
@@ -142,14 +142,14 @@ func TestAccessChecker_EmptyAllowlist(testing *testing.T) {
 }
 
 func TestAccessChecker_ReadOnly(testing *testing.T) {
-	config := &resolvedConfig{readOnly: true}
+	config := &resolvedConfiguration{readOnly: true}
 	checker := NewAccessChecker(config)
 
 	if checker.IsWriteAllowed() {
 		testing.Error("expected write to be blocked in read-only mode")
 	}
 
-	config2 := &resolvedConfig{readOnly: false}
+	config2 := &resolvedConfiguration{readOnly: false}
 	checker2 := NewAccessChecker(config2)
 	if !checker2.IsWriteAllowed() {
 		testing.Error("expected write to be allowed when not read-only")
@@ -157,7 +157,7 @@ func TestAccessChecker_ReadOnly(testing *testing.T) {
 }
 
 func TestAccessChecker_IsActionAllowed(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowDangerousActions: []string{"set_status_light", "set_recording_mode"},
 	}
 	checker := NewAccessChecker(config)
@@ -174,7 +174,7 @@ func TestAccessChecker_IsActionAllowed(testing *testing.T) {
 }
 
 func TestAccessChecker_ReadOnlyBlocksActions(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		readOnly:              true,
 		allowDangerousActions: []string{"set_status_light"},
 	}
@@ -308,7 +308,7 @@ func TestListCameras_FilterNonDoorbell(testing *testing.T) {
 
 func TestListCameras_AllowlistFilter(testing *testing.T) {
 	client := newMockClient()
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowedCameras: []string{"Front Door"},
 	}
 	tool := newTestTool(client, config)
@@ -402,7 +402,7 @@ func TestGetCamera_NotFound(testing *testing.T) {
 
 func TestGetCamera_BlockedByAllowlist(testing *testing.T) {
 	client := newMockClient()
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowedCameras: []string{"Front Door"},
 	}
 	tool := newTestTool(client, config)
@@ -469,7 +469,7 @@ func TestGetSnapshot_ByName(testing *testing.T) {
 
 func TestGetSnapshot_BlockedCamera(testing *testing.T) {
 	client := newMockClient()
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowedCameras: []string{"Backyard"},
 	}
 	tool := newTestTool(client, config)
@@ -495,7 +495,7 @@ func TestGetSnapshot_MissingCameraID(testing *testing.T) {
 
 func TestSetStatusLight_Allowed(testing *testing.T) {
 	client := newMockClient()
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowDangerousActions: []string{"set_status_light"},
 	}
 	tool := newTestTool(client, config)
@@ -529,7 +529,7 @@ func TestSetStatusLight_Allowed(testing *testing.T) {
 }
 
 func TestSetStatusLight_ReadOnlyBlocked(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		readOnly:              true,
 		allowDangerousActions: []string{"set_status_light"},
 	}
@@ -547,7 +547,7 @@ func TestSetStatusLight_ReadOnlyBlocked(testing *testing.T) {
 }
 
 func TestSetStatusLight_NotInAllowlist(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowDangerousActions: []string{"set_recording_mode"},
 	}
 	tool := newTestTool(newMockClient(), config)
@@ -564,7 +564,7 @@ func TestSetStatusLight_NotInAllowlist(testing *testing.T) {
 }
 
 func TestSetStatusLight_MissingEnabled(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowDangerousActions: []string{"set_status_light"},
 	}
 	tool := newTestTool(newMockClient(), config)
@@ -583,7 +583,7 @@ func TestSetStatusLight_MissingEnabled(testing *testing.T) {
 
 func TestSetRecordingMode_Allowed(testing *testing.T) {
 	client := newMockClient()
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowDangerousActions: []string{"set_recording_mode"},
 	}
 	tool := newTestTool(client, config)
@@ -614,7 +614,7 @@ func TestSetRecordingMode_Allowed(testing *testing.T) {
 }
 
 func TestSetRecordingMode_InvalidMode(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowDangerousActions: []string{"set_recording_mode"},
 	}
 	tool := newTestTool(newMockClient(), config)
@@ -631,7 +631,7 @@ func TestSetRecordingMode_InvalidMode(testing *testing.T) {
 }
 
 func TestSetRecordingMode_ReadOnlyBlocked(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		readOnly:              true,
 		allowDangerousActions: []string{"set_recording_mode"},
 	}
@@ -649,7 +649,7 @@ func TestSetRecordingMode_ReadOnlyBlocked(testing *testing.T) {
 }
 
 func TestSetRecordingMode_MissingMode(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowDangerousActions: []string{"set_recording_mode"},
 	}
 	tool := newTestTool(newMockClient(), config)
@@ -668,7 +668,7 @@ func TestSetRecordingMode_MissingMode(testing *testing.T) {
 
 func TestSetPrivacyMode_Enable(testing *testing.T) {
 	client := newMockClient()
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowDangerousActions: []string{"set_privacy_mode"},
 	}
 	tool := newTestTool(client, config)
@@ -706,7 +706,7 @@ func TestSetPrivacyMode_Enable(testing *testing.T) {
 
 func TestSetPrivacyMode_Disable(testing *testing.T) {
 	client := newMockClient()
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowDangerousActions: []string{"set_privacy_mode"},
 	}
 	tool := newTestTool(client, config)
@@ -737,7 +737,7 @@ func TestSetPrivacyMode_Disable(testing *testing.T) {
 }
 
 func TestSetPrivacyMode_NotInAllowlist(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		allowDangerousActions: []string{"set_status_light"},
 	}
 	tool := newTestTool(newMockClient(), config)
@@ -754,7 +754,7 @@ func TestSetPrivacyMode_NotInAllowlist(testing *testing.T) {
 }
 
 func TestSetPrivacyMode_ReadOnlyBlocked(testing *testing.T) {
-	config := &resolvedConfig{
+	config := &resolvedConfiguration{
 		readOnly:              true,
 		allowDangerousActions: []string{"set_privacy_mode"},
 	}

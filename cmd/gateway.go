@@ -434,12 +434,12 @@ func NewGatewayCommand() *cli.Command {
 
 			for !quit {
 				select {
-				case sig := <-signaling:
-					log.Warningf("received signal %v", sig)
-					if sig == syscall.SIGQUIT {
+				case signal := <-signaling:
+					log.Warningf("received signal %v", signal)
+					if signal == syscall.SIGQUIT {
 						log.Warningf("dumping all goroutine stacks:\n%s", debugutil.GetAllStacks())
 					}
-					if sig == syscall.SIGHUP {
+					if signal == syscall.SIGHUP {
 						restart = true
 					}
 					quit = true

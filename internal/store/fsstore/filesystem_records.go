@@ -100,7 +100,7 @@ type storeCodexToolRecord struct {
 	BinaryPath            string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`
 	AllowedTools          []string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
 	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`
-	ExtraArgs             []string `json:"extraArgs,omitempty" yaml:"extraArgs,omitempty"`
+	ExtraArguments        []string `json:"extraArgs,omitempty" yaml:"extraArgs,omitempty"`
 	MaxTurnTimeoutSeconds int      `json:"maxTurnTimeoutSeconds,omitempty" yaml:"maxTurnTimeoutSeconds,omitempty"`
 }
 
@@ -126,7 +126,7 @@ type storeUniFiProtectRecord struct {
 	TimeoutSeconds        int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
 }
 
-type storeConfigRecord struct {
+type storeConfigurationRecord struct {
 	Gateway          storeGatewayRecord         `json:"gateway,omitempty" yaml:"gateway,omitempty"`
 	Models           storeModelsRecord          `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools            storeToolsRecord           `json:"tools,omitempty" yaml:"tools,omitempty"`
@@ -235,13 +235,13 @@ func normalizeSecurityUsernames(users map[string]storeSecurityUserRecord) {
 		}
 	}
 
-	userIDs := make([]string, 0, len(users))
+	userIds := make([]string, 0, len(users))
 	for userId := range users {
-		userIDs = append(userIDs, userId)
+		userIds = append(userIds, userId)
 	}
-	sort.Strings(userIDs)
+	sort.Strings(userIds)
 	nextIndex := 1
-	for _, userId := range userIDs {
+	for _, userId := range userIds {
 		user := users[userId]
 		if user.Username != "" {
 			continue

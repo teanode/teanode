@@ -50,7 +50,7 @@ func NewRelay() *Relay {
 
 // HandleWebSocket upgrades and binds a browser extension connection to one user.
 func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Request) error {
-	conn, err := wsUpgrader.Upgrade(writer, request, nil)
+	connection, err := wsUpgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		log.Errorf("upgrade error: %v", err)
 		return err
@@ -61,21 +61,21 @@ func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Req
 	self.mutex.Lock()
 	self.nextConnection++
 	connectionId := strconv.Itoa(self.nextConnection)
-	rc := &relayConnection{
+	relayConnection := &relayConnection{
 		userId:     user.ID,
-		connection: conn,
+		connection: connection,
 		targets:    make(map[string]*browsers.ConnectedTarget),
 		pending:    pending.NewRequests(),
 		done:       make(chan struct{}),
 	}
-	self.connections[connectionId] = rc
-	done := rc.done
+	self.connections[connectionId] = relayConnection
+	done := relayConnection.done
 	self.mutex.Unlock()
 
 	log.Infof("extension connected user=%s id=%s", user.ID, connectionId)
 
-	go self.pingLoop(connectionId, conn, done)
-	self.readLoop(connectionId, conn, done)
+	go self.pingLoop(connectionId, connection, done)
+	self.readLoop(connectionId, connection, done)
 	return nil
 }
 
@@ -91,8 +91,8 @@ func (self *Relay) Targets() []browsers.ConnectedTarget {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	var out []browsers.ConnectedTarget
-	for _, rc := range self.connections {
-		for _, target := range rc.targets {
+	for _, relayConnection := range self.connections {
+		for _, target := range relayConnection.targets {
 			out = append(out, *target)
 		}
 	}
@@ -104,11 +104,11 @@ func (self *Relay) TargetsForUser(userId string) []browsers.ConnectedTarget {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	var out []browsers.ConnectedTarget
-	for _, rc := range self.connections {
-		if rc.userId != userId {
+	for _, relayConnection := range self.connections {
+		if relayConnection.userId != userId {
 			continue
 		}
-		for _, target := range rc.targets {
+		for _, target := range relayConnection.targets {
 			out = append(out, *target)
 		}
 	}
@@ -119,8 +119,8 @@ func (self *Relay) TargetsForUser(userId string) []browsers.ConnectedTarget {
 func (self *Relay) DefaultTarget() (*browsers.ConnectedTarget, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	for _, rc := range self.connections {
-		for _, target := range rc.targets {
+	for _, relayConnection := range self.connections {
+		for _, target := range relayConnection.targets {
 			return target, nil
 		}
 	}
@@ -131,11 +131,11 @@ func (self *Relay) DefaultTarget() (*browsers.ConnectedTarget, error) {
 func (self *Relay) DefaultTargetForUser(userId string) (*browsers.ConnectedTarget, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	for _, rc := range self.connections {
-		if rc.userId != userId {
+	for _, relayConnection := range self.connections {
+		if relayConnection.userId != userId {
 			continue
 		}
-		for _, target := range rc.targets {
+		for _, target := range relayConnection.targets {
 			return target, nil
 		}
 	}
@@ -146,8 +146,8 @@ func (self *Relay) DefaultTargetForUser(userId string) (*browsers.ConnectedTarge
 func (self *Relay) TargetByConnectionID(connectionId string) (*browsers.ConnectedTarget, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	for _, rc := range self.connections {
-		if target, ok := rc.targets[connectionId]; ok {
+	for _, relayConnection := range self.connections {
+		if target, ok := relayConnection.targets[connectionId]; ok {
 			return target, nil
 		}
 	}
@@ -158,11 +158,11 @@ func (self *Relay) TargetByConnectionID(connectionId string) (*browsers.Connecte
 func (self *Relay) TargetByConnectionIDForUser(userId, connectionId string) (*browsers.ConnectedTarget, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	for _, rc := range self.connections {
-		if rc.userId != userId {
+	for _, relayConnection := range self.connections {
+		if relayConnection.userId != userId {
 			continue
 		}
-		if target, ok := rc.targets[connectionId]; ok {
+		if target, ok := relayConnection.targets[connectionId]; ok {
 			return target, nil
 		}
 	}
@@ -172,9 +172,9 @@ func (self *Relay) TargetByConnectionIDForUser(userId, connectionId string) (*br
 // findConnectionForSession returns the relayConnection that owns the given sessionId.
 // Must be called with self.mutex held.
 func (self *Relay) findConnectionForSession(sessionId string) *relayConnection {
-	for _, rc := range self.connections {
-		if _, ok := rc.targets[sessionId]; ok {
-			return rc
+	for _, relayConnection := range self.connections {
+		if _, ok := relayConnection.targets[sessionId]; ok {
+			return relayConnection
 		}
 	}
 	return nil
@@ -183,13 +183,13 @@ func (self *Relay) findConnectionForSession(sessionId string) *relayConnection {
 // SendCDPCommand sends a CDP command through the extension and waits for the result.
 func (self *Relay) SendCDPCommand(ctx context.Context, method string, parameters interface{}, sessionId string) (json.RawMessage, error) {
 	self.mutex.Lock()
-	rc := self.findConnectionForSession(sessionId)
-	if rc == nil {
+	relayConnection := self.findConnectionForSession(sessionId)
+	if relayConnection == nil {
 		self.mutex.Unlock()
 		return nil, errors.New("browser extension not connected")
 	}
-	commandId, resultChannel := rc.pending.Allocate()
-	conn := rc.connection
+	commandId, resultChannel := relayConnection.pending.Allocate()
+	connection := relayConnection.connection
 	self.mutex.Unlock()
 
 	message := map[string]interface{}{
@@ -203,18 +203,18 @@ func (self *Relay) SendCDPCommand(ctx context.Context, method string, parameters
 	}
 	data, err := json.Marshal(message)
 	if err != nil {
-		rc.pending.Cancel(commandId)
+		relayConnection.pending.Cancel(commandId)
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
 
-	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		rc.pending.Cancel(commandId)
+	if err := connection.WriteMessage(websocket.TextMessage, data); err != nil {
+		relayConnection.pending.Cancel(commandId)
 		return nil, fmt.Errorf("write: %w", err)
 	}
 
 	select {
 	case <-ctx.Done():
-		rc.pending.Cancel(commandId)
+		relayConnection.pending.Cancel(commandId)
 		return nil, ctx.Err()
 	case result := <-resultChannel:
 		if result.Error != "" {
@@ -255,14 +255,14 @@ func (self *Relay) readLoop(connectionId string, connection *websocket.Conn, don
 		// Response to a pending command.
 		if frame.ID != nil && (frame.Result != nil || frame.Error != nil) {
 			self.mutex.Lock()
-			rc, ok := self.connections[connectionId]
+			relayConnection, ok := self.connections[connectionId]
 			self.mutex.Unlock()
 			if ok {
 				result := pending.Result{Data: frame.Result}
 				if frame.Error != nil {
 					result.Error = *frame.Error
 				}
-				rc.pending.Resolve(*frame.ID, result)
+				relayConnection.pending.Resolve(*frame.ID, result)
 			}
 			continue
 		}
@@ -296,8 +296,8 @@ func (self *Relay) handleCDPEvent(connectionId string, raw json.RawMessage) {
 		}
 		if json.Unmarshal(event.Params, &payload) == nil && payload.SessionID != "" {
 			self.mutex.Lock()
-			if rc, ok := self.connections[connectionId]; ok {
-				rc.targets[payload.SessionID] = &browsers.ConnectedTarget{
+			if relayConnection, ok := self.connections[connectionId]; ok {
+				relayConnection.targets[payload.SessionID] = &browsers.ConnectedTarget{
 					SessionID: payload.SessionID,
 					TargetID:  payload.TargetInfo.TargetID,
 					URL:       payload.TargetInfo.URL,
@@ -315,8 +315,8 @@ func (self *Relay) handleCDPEvent(connectionId string, raw json.RawMessage) {
 		}
 		if json.Unmarshal(event.Params, &payload) == nil && payload.SessionID != "" {
 			self.mutex.Lock()
-			if rc, ok := self.connections[connectionId]; ok {
-				delete(rc.targets, payload.SessionID)
+			if relayConnection, ok := self.connections[connectionId]; ok {
+				delete(relayConnection.targets, payload.SessionID)
 			}
 			self.mutex.Unlock()
 			log.Infof("target detached session=%s", payload.SessionID)
@@ -332,8 +332,8 @@ func (self *Relay) handleCDPEvent(connectionId string, raw json.RawMessage) {
 		}
 		if json.Unmarshal(event.Params, &payload) == nil {
 			self.mutex.Lock()
-			if rc, ok := self.connections[connectionId]; ok {
-				for _, target := range rc.targets {
+			if relayConnection, ok := self.connections[connectionId]; ok {
+				for _, target := range relayConnection.targets {
 					if target.TargetID == payload.TargetInfo.TargetID {
 						target.URL = payload.TargetInfo.URL
 						target.Title = payload.TargetInfo.Title
@@ -368,12 +368,12 @@ func (self *Relay) onDisconnect(connectionId string, connection *websocket.Conn)
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
-	rc, ok := self.connections[connectionId]
-	if !ok || rc.connection != connection {
+	relayConnection, ok := self.connections[connectionId]
+	if !ok || relayConnection.connection != connection {
 		return
 	}
 
-	rc.pending.RejectAll("extension disconnected")
+	relayConnection.pending.RejectAll("extension disconnected")
 	delete(self.connections, connectionId)
 
 	log.Infof("extension disconnected id=%s", connectionId)

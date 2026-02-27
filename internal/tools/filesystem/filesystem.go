@@ -169,7 +169,7 @@ func executeRead(path string, offset, limit int64) (string, error) {
 	}
 	defer file.Close()
 
-	fileInfo, err := file.Stat()
+	fileInformation, err := file.Stat()
 	if err != nil {
 		return "", fmt.Errorf("getting file info: %w", err)
 	}
@@ -194,7 +194,7 @@ func executeRead(path string, offset, limit int64) (string, error) {
 	result, err := json.Marshal(map[string]interface{}{
 		"action":    "read",
 		"content":   string(data),
-		"size":      fileInfo.Size(),
+		"size":      fileInformation.Size(),
 		"truncated": truncated,
 	})
 	if err != nil {
@@ -254,9 +254,9 @@ func executeList(path string) (string, error) {
 
 		var size int64
 		var modifiedAt string
-		if info, err := entry.Info(); err == nil {
-			size = info.Size()
-			modifiedAt = info.ModTime().Format(time.RFC3339)
+		if information, err := entry.Info(); err == nil {
+			size = information.Size()
+			modifiedAt = information.ModTime().Format(time.RFC3339)
 		}
 
 		outputEntries = append(outputEntries, directoryEntry{
@@ -279,17 +279,17 @@ func executeList(path string) (string, error) {
 }
 
 func executeInfo(path string) (string, error) {
-	info, err := os.Stat(path)
+	information, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("getting file info: %w", err)
 	}
 
 	result, err := json.Marshal(map[string]interface{}{
 		"action":      "info",
-		"size":        info.Size(),
-		"isDirectory": info.IsDir(),
-		"permissions": info.Mode().String(),
-		"modifiedAt":  info.ModTime().Format(time.RFC3339),
+		"size":        information.Size(),
+		"isDirectory": information.IsDir(),
+		"permissions": information.Mode().String(),
+		"modifiedAt":  information.ModTime().Format(time.RFC3339),
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshaling result: %w", err)
@@ -319,11 +319,11 @@ func executeMkdir(path string, recursive bool) (string, error) {
 }
 
 func (self *filesystemTool) executeDelete(path string, recursive bool) (string, error) {
-	info, err := os.Stat(path)
+	information, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("deleting path: %w", err)
 	}
-	if info.IsDir() && !recursive {
+	if information.IsDir() && !recursive {
 		entries, readError := os.ReadDir(path)
 		if readError != nil {
 			return "", fmt.Errorf("deleting path: %w", readError)

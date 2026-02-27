@@ -126,8 +126,8 @@ func (self *ProviderRegistry) DefaultModel() string {
 // ParseQualifiedModel splits "provider:model" on the first colon.
 // If there is no colon, defaultProvider is used.
 func ParseQualifiedModel(qualified, defaultProvider string) (string, string) {
-	if idx := strings.IndexByte(qualified, ':'); idx >= 0 {
-		return qualified[:idx], qualified[idx+1:]
+	if index := strings.IndexByte(qualified, ':'); index >= 0 {
+		return qualified[:index], qualified[index+1:]
 	}
 	return defaultProvider, qualified
 }

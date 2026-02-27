@@ -316,7 +316,7 @@ func TestRunnerRunAbort(t *testing.T) {
 }
 
 // mockToolCallServer simulates an LLM that makes a tool call then responds with text.
-func mockToolCallServer(toolCallId, toolName, toolArgs, finalText string) *httptest.Server {
+func mockToolCallServer(toolCallId, toolName, toolArguments, finalText string) *httptest.Server {
 	var callCount atomic.Int32
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// Read the request to check if it contains tool results.
@@ -331,7 +331,7 @@ func mockToolCallServer(toolCallId, toolName, toolArgs, finalText string) *httpt
 		if currentCall == 1 {
 			// First call: return a tool call
 			chunk := fmt.Sprintf(`{"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":%q,"type":"function","function":{"name":%q,"arguments":%q}}]},"finish_reason":null}]}`,
-				toolCallId, toolName, toolArgs)
+				toolCallId, toolName, toolArguments)
 			fmt.Fprintf(writer, "data: %s\n\n", chunk)
 			fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
 			fmt.Fprintf(writer, "data: [DONE]\n\n")
@@ -367,7 +367,7 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParameters{
 		Message: "remember hello",
 	}, &RunCallbacks{
-		OnToolCall: func(name string, args string) {
+		OnToolCall: func(name string, arguments string) {
 			toolCalls = append(toolCalls, name)
 		},
 	})

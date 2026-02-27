@@ -10,10 +10,10 @@ import (
 
 var log = logging.MustGetLogger("homeassistant")
 
-// resolvedConfig holds the resolved Home Assistant configuration
+// resolvedConfiguration holds the resolved Home Assistant configuration
 // read from the store at execution time.
-type resolvedConfig struct {
-	baseURL         string
+type resolvedConfiguration struct {
+	baseUrl         string
 	token           string
 	readOnly        bool
 	allowedDomains  []string
@@ -22,31 +22,31 @@ type resolvedConfig struct {
 	timeoutSeconds  int
 }
 
-// configFromContext reads the Home Assistant tool configuration from the store.
-func configFromContext(ctx context.Context) *resolvedConfig {
-	config := &resolvedConfig{}
+// configurationFromContext reads the Home Assistant tool configuration from the store.
+func configurationFromContext(ctx context.Context) *resolvedConfiguration {
+	configuration := &resolvedConfiguration{}
 	dataStore := store.StoreFromContextSafe(ctx)
 	if dataStore == nil {
-		return config
+		return configuration
 	}
 	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		configuration, err := transaction.GetConfiguration(ctx, nil)
+		storedConfiguration, err := transaction.GetConfiguration(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if configuration.Tools != nil && configuration.Tools.HomeAssistant != nil {
-			haConfig := configuration.Tools.HomeAssistant
-			config.baseURL = haConfig.GetBaseURL()
-			config.token = haConfig.GetToken()
-			config.readOnly = haConfig.GetReadOnly()
-			config.allowedDomains = haConfig.GetAllowedDomains()
-			config.blockedDomains = haConfig.GetBlockedDomains()
-			config.allowedEntities = haConfig.GetAllowedEntities()
-			config.timeoutSeconds = haConfig.GetTimeoutSeconds()
+		if storedConfiguration.Tools != nil && storedConfiguration.Tools.HomeAssistant != nil {
+			homeAssistantConfiguration := storedConfiguration.Tools.HomeAssistant
+			configuration.baseUrl = homeAssistantConfiguration.GetBaseURL()
+			configuration.token = homeAssistantConfiguration.GetToken()
+			configuration.readOnly = homeAssistantConfiguration.GetReadOnly()
+			configuration.allowedDomains = homeAssistantConfiguration.GetAllowedDomains()
+			configuration.blockedDomains = homeAssistantConfiguration.GetBlockedDomains()
+			configuration.allowedEntities = homeAssistantConfiguration.GetAllowedEntities()
+			configuration.timeoutSeconds = homeAssistantConfiguration.GetTimeoutSeconds()
 		}
 		return nil
 	})
-	return config
+	return configuration
 }
 
 func init() {

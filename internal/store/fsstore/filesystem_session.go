@@ -23,7 +23,7 @@ type fileSystemSessionRecord struct {
 	CreatedAt  time.Time `yaml:"createdAt"`
 	ExpiresAt  time.Time `yaml:"expiresAt"`
 	UserAgent  string    `yaml:"userAgent"`
-	RemoteAddr string    `yaml:"remoteAddr"`
+	RemoteAddress string    `yaml:"remoteAddr"`
 	LastSeenAt time.Time `yaml:"lastSeenAt"`
 }
 
@@ -95,7 +95,7 @@ func (self *fileSystemTransaction) createSession(session *models.Session, option
 		CreatedAt:  now,
 		ExpiresAt:  expiresAt,
 		UserAgent:  session.GetUserAgent(),
-		RemoteAddr: session.GetRemoteAddress(),
+		RemoteAddress: session.GetRemoteAddress(),
 		LastSeenAt: now,
 	}
 	if writeError := self.writeSessionRecord(record); writeError != nil {
@@ -189,7 +189,7 @@ func sessionRecordToModel(record fileSystemSessionRecord) models.Session {
 		ID:            record.ID,
 		UserID:        ptrto.TrimmedString(record.UserID),
 		UserAgent:     ptrto.TrimmedString(record.UserAgent),
-		RemoteAddress: ptrto.TrimmedString(record.RemoteAddr),
+		RemoteAddress: ptrto.TrimmedString(record.RemoteAddress),
 		CreatedAt:     &createdAt,
 		ExpiresAt:     &expiresAt,
 		ModifiedAt:    &modifiedAt,
@@ -201,7 +201,7 @@ func modelToSessionRecord(session models.Session) fileSystemSessionRecord {
 		ID:         session.ID,
 		UserID:     session.GetUserID(),
 		UserAgent:  session.GetUserAgent(),
-		RemoteAddr: session.GetRemoteAddress(),
+		RemoteAddress: session.GetRemoteAddress(),
 	}
 	if session.CreatedAt != nil {
 		record.CreatedAt = *session.CreatedAt

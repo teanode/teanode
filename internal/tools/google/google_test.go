@@ -128,16 +128,16 @@ func TestGmailTool_SearchAction(t *testing.T) {
 	}
 
 	// Verify the command args include gmail search.
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	found := false
-	for i, arg := range cmdArgs {
-		if arg == "gmail" && i+1 < len(cmdArgs) && cmdArgs[i+1] == "search" {
+	for i, arg := range commandArguments {
+		if arg == "gmail" && i+1 < len(commandArguments) && commandArguments[i+1] == "search" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected 'gmail search' in args: %v", cmdArgs)
+		t.Errorf("expected 'gmail search' in args: %v", commandArguments)
 	}
 }
 
@@ -154,11 +154,11 @@ func TestGmailTool_ReadAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundGet := false
 	foundMessageId := false
-	for index, arg := range cmdArgs {
-		if arg == "gmail" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "get" {
+	for index, arg := range commandArguments {
+		if arg == "gmail" && index+1 < len(commandArguments) && commandArguments[index+1] == "get" {
 			foundGet = true
 		}
 		if arg == "msg123" {
@@ -166,10 +166,10 @@ func TestGmailTool_ReadAction(t *testing.T) {
 		}
 	}
 	if !foundGet {
-		t.Errorf("expected 'gmail get' in args: %v", cmdArgs)
+		t.Errorf("expected 'gmail get' in args: %v", commandArguments)
 	}
 	if !foundMessageId {
-		t.Errorf("expected message ID in args: %v", cmdArgs)
+		t.Errorf("expected message ID in args: %v", commandArguments)
 	}
 }
 
@@ -187,29 +187,29 @@ func TestGmailTool_ReplyAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundSend := false
 	foundReplyTo := false
 	foundBody := false
-	for index, arg := range cmdArgs {
-		if arg == "gmail" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "send" {
+	for index, arg := range commandArguments {
+		if arg == "gmail" && index+1 < len(commandArguments) && commandArguments[index+1] == "send" {
 			foundSend = true
 		}
-		if arg == "--reply-to-message-id" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "msg456" {
+		if arg == "--reply-to-message-id" && index+1 < len(commandArguments) && commandArguments[index+1] == "msg456" {
 			foundReplyTo = true
 		}
-		if arg == "--body" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "Thanks!" {
+		if arg == "--body" && index+1 < len(commandArguments) && commandArguments[index+1] == "Thanks!" {
 			foundBody = true
 		}
 	}
 	if !foundSend {
-		t.Errorf("expected 'gmail send' in args: %v", cmdArgs)
+		t.Errorf("expected 'gmail send' in args: %v", commandArguments)
 	}
 	if !foundReplyTo {
-		t.Errorf("expected '--reply-to-message-id msg456' in args: %v", cmdArgs)
+		t.Errorf("expected '--reply-to-message-id msg456' in args: %v", commandArguments)
 	}
 	if !foundBody {
-		t.Errorf("expected '--body' in args: %v", cmdArgs)
+		t.Errorf("expected '--body' in args: %v", commandArguments)
 	}
 }
 
@@ -226,15 +226,15 @@ func TestGmailTool_TrashAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundThreadModify := false
 	foundAddTrash := false
 	foundId := false
-	for index, arg := range cmdArgs {
-		if arg == "thread" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "modify" {
+	for index, arg := range commandArguments {
+		if arg == "thread" && index+1 < len(commandArguments) && commandArguments[index+1] == "modify" {
 			foundThreadModify = true
 		}
-		if arg == "--add" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "TRASH" {
+		if arg == "--add" && index+1 < len(commandArguments) && commandArguments[index+1] == "TRASH" {
 			foundAddTrash = true
 		}
 		if arg == "msg789" {
@@ -242,13 +242,13 @@ func TestGmailTool_TrashAction(t *testing.T) {
 		}
 	}
 	if !foundThreadModify {
-		t.Errorf("expected 'thread modify' in args: %v", cmdArgs)
+		t.Errorf("expected 'thread modify' in args: %v", commandArguments)
 	}
 	if !foundAddTrash {
-		t.Errorf("expected '--add TRASH' in args: %v", cmdArgs)
+		t.Errorf("expected '--add TRASH' in args: %v", commandArguments)
 	}
 	if !foundId {
-		t.Errorf("expected message ID in args: %v", cmdArgs)
+		t.Errorf("expected message ID in args: %v", commandArguments)
 	}
 }
 
@@ -310,16 +310,16 @@ func TestCalendarTool_ListAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundDays := false
-	for i, arg := range cmdArgs {
-		if arg == "--days" && i+1 < len(cmdArgs) && cmdArgs[i+1] == "3" {
+	for i, arg := range commandArguments {
+		if arg == "--days" && i+1 < len(commandArguments) && commandArguments[i+1] == "3" {
 			foundDays = true
 			break
 		}
 	}
 	if !foundDays {
-		t.Errorf("expected --days 3 in args: %v", cmdArgs)
+		t.Errorf("expected --days 3 in args: %v", commandArguments)
 	}
 }
 
@@ -340,14 +340,14 @@ func TestCalendarTool_CreateAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	hasDescription := false
 	hasAttendees := false
-	for i, arg := range cmdArgs {
-		if arg == "--description" && i+1 < len(cmdArgs) {
+	for i, arg := range commandArguments {
+		if arg == "--description" && i+1 < len(commandArguments) {
 			hasDescription = true
 		}
-		if arg == "--attendees" && i+1 < len(cmdArgs) {
+		if arg == "--attendees" && i+1 < len(commandArguments) {
 			hasAttendees = true
 		}
 	}
@@ -372,28 +372,28 @@ func TestCalendarTool_SearchAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundSearch := false
 	foundQuery := false
-	for index, arg := range cmdArgs {
-		if arg == "calendar" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "search" {
+	for index, arg := range commandArguments {
+		if arg == "calendar" && index+1 < len(commandArguments) && commandArguments[index+1] == "search" {
 			foundSearch = true
 		}
 		if arg == "team meeting" {
 			foundQuery = true
 		}
 		if arg == "--query" {
-			t.Errorf("should not use --query flag (query is positional): %v", cmdArgs)
+			t.Errorf("should not use --query flag (query is positional): %v", commandArguments)
 		}
 		if arg == "primary" {
-			t.Errorf("should not pass 'primary' as positional (calendar search takes query, not calendarId): %v", cmdArgs)
+			t.Errorf("should not pass 'primary' as positional (calendar search takes query, not calendarId): %v", commandArguments)
 		}
 	}
 	if !foundSearch {
-		t.Errorf("expected 'calendar search' in args: %v", cmdArgs)
+		t.Errorf("expected 'calendar search' in args: %v", commandArguments)
 	}
 	if !foundQuery {
-		t.Errorf("expected query as positional arg: %v", cmdArgs)
+		t.Errorf("expected query as positional arg: %v", commandArguments)
 	}
 }
 
@@ -410,11 +410,11 @@ func TestTasksTool_ListAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundTasksList := false
 	foundListId := false
-	for index, arg := range cmdArgs {
-		if arg == "tasks" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "list" {
+	for index, arg := range commandArguments {
+		if arg == "tasks" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundTasksList = true
 		}
 		if arg == "mylist123" {
@@ -422,10 +422,10 @@ func TestTasksTool_ListAction(t *testing.T) {
 		}
 	}
 	if !foundTasksList {
-		t.Errorf("expected 'tasks list' in args: %v", cmdArgs)
+		t.Errorf("expected 'tasks list' in args: %v", commandArguments)
 	}
 	if !foundListId {
-		t.Errorf("expected task list ID as positional arg: %v", cmdArgs)
+		t.Errorf("expected task list ID as positional arg: %v", commandArguments)
 	}
 }
 
@@ -445,19 +445,19 @@ func TestTasksTool_CreateAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	hasTitle := false
 	hasNotes := false
 	hasDue := false
 	hasListId := false
-	for index, arg := range cmdArgs {
-		if arg == "--title" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "Buy groceries" {
+	for index, arg := range commandArguments {
+		if arg == "--title" && index+1 < len(commandArguments) && commandArguments[index+1] == "Buy groceries" {
 			hasTitle = true
 		}
-		if arg == "--notes" && index+1 < len(cmdArgs) {
+		if arg == "--notes" && index+1 < len(commandArguments) {
 			hasNotes = true
 		}
-		if arg == "--due" && index+1 < len(cmdArgs) {
+		if arg == "--due" && index+1 < len(commandArguments) {
 			hasDue = true
 		}
 		if arg == "mylist123" {
@@ -474,7 +474,7 @@ func TestTasksTool_CreateAction(t *testing.T) {
 		t.Error("expected --due in args")
 	}
 	if !hasListId {
-		t.Errorf("expected task list ID as positional arg: %v", cmdArgs)
+		t.Errorf("expected task list ID as positional arg: %v", commandArguments)
 	}
 }
 
@@ -492,12 +492,12 @@ func TestTasksTool_CompleteAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundComplete := false
 	foundListId := false
 	foundTaskId := false
-	for index, arg := range cmdArgs {
-		if arg == "tasks" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "complete" {
+	for index, arg := range commandArguments {
+		if arg == "tasks" && index+1 < len(commandArguments) && commandArguments[index+1] == "complete" {
 			foundComplete = true
 		}
 		if arg == "mylist123" {
@@ -508,13 +508,13 @@ func TestTasksTool_CompleteAction(t *testing.T) {
 		}
 	}
 	if !foundComplete {
-		t.Errorf("expected 'tasks complete' in args: %v", cmdArgs)
+		t.Errorf("expected 'tasks complete' in args: %v", commandArguments)
 	}
 	if !foundListId {
-		t.Errorf("expected task list ID in args: %v", cmdArgs)
+		t.Errorf("expected task list ID in args: %v", commandArguments)
 	}
 	if !foundTaskId {
-		t.Errorf("expected task ID in args: %v", cmdArgs)
+		t.Errorf("expected task ID in args: %v", commandArguments)
 	}
 }
 
@@ -532,12 +532,12 @@ func TestTasksTool_DeleteAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundDelete := false
 	foundListId := false
 	foundTaskId := false
-	for index, arg := range cmdArgs {
-		if arg == "tasks" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "delete" {
+	for index, arg := range commandArguments {
+		if arg == "tasks" && index+1 < len(commandArguments) && commandArguments[index+1] == "delete" {
 			foundDelete = true
 		}
 		if arg == "mylist123" {
@@ -548,13 +548,13 @@ func TestTasksTool_DeleteAction(t *testing.T) {
 		}
 	}
 	if !foundDelete {
-		t.Errorf("expected 'tasks delete' in args: %v", cmdArgs)
+		t.Errorf("expected 'tasks delete' in args: %v", commandArguments)
 	}
 	if !foundListId {
-		t.Errorf("expected task list ID in args: %v", cmdArgs)
+		t.Errorf("expected task list ID in args: %v", commandArguments)
 	}
 	if !foundTaskId {
-		t.Errorf("expected task ID in args: %v", cmdArgs)
+		t.Errorf("expected task ID in args: %v", commandArguments)
 	}
 }
 
@@ -584,22 +584,22 @@ func TestDriveTool_ListAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundLs := false
 	foundMax := false
-	for index, arg := range cmdArgs {
-		if arg == "drive" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "ls" {
+	for index, arg := range commandArguments {
+		if arg == "drive" && index+1 < len(commandArguments) && commandArguments[index+1] == "ls" {
 			foundLs = true
 		}
-		if arg == "--max" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "5" {
+		if arg == "--max" && index+1 < len(commandArguments) && commandArguments[index+1] == "5" {
 			foundMax = true
 		}
 	}
 	if !foundLs {
-		t.Errorf("expected 'drive ls' in args: %v", cmdArgs)
+		t.Errorf("expected 'drive ls' in args: %v", commandArguments)
 	}
 	if !foundMax {
-		t.Errorf("expected '--max 5' in args: %v", cmdArgs)
+		t.Errorf("expected '--max 5' in args: %v", commandArguments)
 	}
 }
 
@@ -617,32 +617,32 @@ func TestDriveTool_SearchAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundSearch := false
 	foundQuery := false
 	foundMax := false
-	for index, arg := range cmdArgs {
-		if arg == "drive" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "search" {
+	for index, arg := range commandArguments {
+		if arg == "drive" && index+1 < len(commandArguments) && commandArguments[index+1] == "search" {
 			foundSearch = true
 		}
 		if arg == "budget 2025" {
 			foundQuery = true
 		}
-		if arg == "--max" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "10" {
+		if arg == "--max" && index+1 < len(commandArguments) && commandArguments[index+1] == "10" {
 			foundMax = true
 		}
 		if arg == "--query" {
-			t.Errorf("should not use --query flag (query is positional): %v", cmdArgs)
+			t.Errorf("should not use --query flag (query is positional): %v", commandArguments)
 		}
 	}
 	if !foundSearch {
-		t.Errorf("expected 'drive search' in args: %v", cmdArgs)
+		t.Errorf("expected 'drive search' in args: %v", commandArguments)
 	}
 	if !foundQuery {
-		t.Errorf("expected query as positional arg: %v", cmdArgs)
+		t.Errorf("expected query as positional arg: %v", commandArguments)
 	}
 	if !foundMax {
-		t.Errorf("expected '--max 10' in args: %v", cmdArgs)
+		t.Errorf("expected '--max 10' in args: %v", commandArguments)
 	}
 }
 
@@ -659,11 +659,11 @@ func TestDriveTool_InfoAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundGet := false
 	foundFileId := false
-	for index, arg := range cmdArgs {
-		if arg == "drive" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "get" {
+	for index, arg := range commandArguments {
+		if arg == "drive" && index+1 < len(commandArguments) && commandArguments[index+1] == "get" {
 			foundGet = true
 		}
 		if arg == "file123" {
@@ -671,10 +671,10 @@ func TestDriveTool_InfoAction(t *testing.T) {
 		}
 	}
 	if !foundGet {
-		t.Errorf("expected 'drive get' in args: %v", cmdArgs)
+		t.Errorf("expected 'drive get' in args: %v", commandArguments)
 	}
 	if !foundFileId {
-		t.Errorf("expected file ID in args: %v", cmdArgs)
+		t.Errorf("expected file ID in args: %v", commandArguments)
 	}
 }
 
@@ -692,32 +692,32 @@ func TestContactsTool_SearchAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundSearch := false
 	foundQuery := false
 	foundMax := false
-	for index, arg := range cmdArgs {
-		if arg == "contacts" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "search" {
+	for index, arg := range commandArguments {
+		if arg == "contacts" && index+1 < len(commandArguments) && commandArguments[index+1] == "search" {
 			foundSearch = true
 		}
 		if arg == "Alice" {
 			foundQuery = true
 		}
-		if arg == "--max" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "5" {
+		if arg == "--max" && index+1 < len(commandArguments) && commandArguments[index+1] == "5" {
 			foundMax = true
 		}
 		if arg == "--query" {
-			t.Errorf("should not use --query flag (query is positional): %v", cmdArgs)
+			t.Errorf("should not use --query flag (query is positional): %v", commandArguments)
 		}
 	}
 	if !foundSearch {
-		t.Errorf("expected 'contacts search' in args: %v", cmdArgs)
+		t.Errorf("expected 'contacts search' in args: %v", commandArguments)
 	}
 	if !foundQuery {
-		t.Errorf("expected query as positional arg: %v", cmdArgs)
+		t.Errorf("expected query as positional arg: %v", commandArguments)
 	}
 	if !foundMax {
-		t.Errorf("expected '--max 5' in args: %v", cmdArgs)
+		t.Errorf("expected '--max 5' in args: %v", commandArguments)
 	}
 }
 
@@ -734,25 +734,25 @@ func TestContactsTool_ListAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cmdArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundList := false
 	foundMax := false
-	for index, arg := range cmdArgs {
-		if arg == "contacts" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "list" {
+	for index, arg := range commandArguments {
+		if arg == "contacts" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundList = true
 		}
-		if arg == "--max" && index+1 < len(cmdArgs) && cmdArgs[index+1] == "20" {
+		if arg == "--max" && index+1 < len(commandArguments) && commandArguments[index+1] == "20" {
 			foundMax = true
 		}
 		if arg == "--limit" {
-			t.Errorf("should not use --limit flag (use --max): %v", cmdArgs)
+			t.Errorf("should not use --limit flag (use --max): %v", commandArguments)
 		}
 	}
 	if !foundList {
-		t.Errorf("expected 'contacts list' in args: %v", cmdArgs)
+		t.Errorf("expected 'contacts list' in args: %v", commandArguments)
 	}
 	if !foundMax {
-		t.Errorf("expected '--max 20' in args: %v", cmdArgs)
+		t.Errorf("expected '--max 20' in args: %v", commandArguments)
 	}
 }
 

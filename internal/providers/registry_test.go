@@ -21,7 +21,7 @@ func (self *mockProvider) ChatCompletionStream(ctx context.Context, request Chat
 	return nil, nil
 }
 
-func (self *mockProvider) ListModels(ctx context.Context) ([]ModelInfo, error) {
+func (self *mockProvider) ListModels(ctx context.Context) ([]ModelInformation, error) {
 	return nil, nil
 }
 

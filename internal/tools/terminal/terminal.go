@@ -174,7 +174,7 @@ func executeTypeAction(ctx context.Context, relay *terminals.Relay, connectionId
 }
 
 func executePressKey(ctx context.Context, relay *terminals.Relay, connectionId string, key string) (string, error) {
-	seq, ok := termKeyMap[strings.ToLower(key)]
+	sequence, ok := termKeyMap[strings.ToLower(key)]
 	if !ok {
 		return "", fmt.Errorf("unknown key: %s", key)
 	}
@@ -187,7 +187,7 @@ func executePressKey(ctx context.Context, relay *terminals.Relay, connectionId s
 		return "", err
 	}
 	_, err = relay.SendCommandForUser(ctx, user.ID, resolvedId, "write", map[string]interface{}{
-		"data": seq,
+		"data": sequence,
 	})
 	if err != nil {
 		return "", err

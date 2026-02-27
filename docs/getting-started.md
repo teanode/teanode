@@ -59,7 +59,7 @@ docker-compose up --build
 
 ## 3. Basic configuration
 
-TeaNode reads configuration from `~/.teanode/config.json`, with environment variables taking precedence.
+TeaNode reads configuration from `~/.teanode/config.yaml`, with environment variables taking precedence.
 
 Common env vars:
 
@@ -69,40 +69,39 @@ Common env vars:
 | `TEANODE_GATEWAY_PORT` | Gateway listen port |
 | `TEANODE_GATEWAY_TOKEN` | Bearer token for authentication |
 
-Example `~/.teanode/config.json` (see `config.example.json` in the repo):
+Example `~/.teanode/config.yaml`:
 
-```json
-{
-  "gateway": {
-    "port": 8833,
-    "bind": "loopback"
-  },
-  "models": {
-    "default": "gpt-5.1",
-    "provider": "openai",
-    "baseUrl": "https://api.openai.com/v1"
-  }
-}
+```yaml
+gateway:
+  port: 8833
+  bind: loopback
+models:
+  default: gpt-5.1
+  provider: openai
+  baseUrl: https://api.openai.com/v1
 ```
 
 On startup, TeaNode also loads:
 
-- Model/provider definitions
+- Security settings (`security.yaml`)
+- Model/provider definitions (`models.yaml`)
 - Skills directory configuration
 - Channel/gateway settings
 
-These are documented at a high level in `docs/architecture.md` under **Data & Configuration**.
+These are documented at a high level in `docs/architecture.md`.
 
 ---
 
 ## 4. First run and workspace layout
 
-On first run, TeaNode creates a workspace directory under `~/.teanode/workspace/` (path may be configurable in the future). Key files:
+On first run, TeaNode creates its data directory under `~/.teanode/`. Workspace files are scoped per agent, user, and project:
 
-- `AGENT.md` – main agent operating instructions.
-- `MEMORY.md` – long-term, curated memory used by the agent.
-- `SKILLS.md` – human-readable summary of skills/workflows.
-- `memory/YYYY-MM-DD.md` – daily log files (one per day).
+- `agents/<agentId>/workspace/AGENT.md` – agent operating instructions.
+- `agents/<agentId>/workspace/MEMORY.md` – long-term, curated memory used by the agent.
+- `agents/<agentId>/workspace/SKILLS.md` – human-readable summary of skills/workflows.
+- `agents/<agentId>/workspace/memory/YYYY-MM-DD.md` – daily log files (one per day).
+- `users/<userId>/workspace/USER.md` – user-specific instructions.
+- `users/<userId>/workspace/MEMORY.md` – user-specific memory.
 
 The agent reads these files into its system prompt and can update them using built-in memory tools. Editing `AGENT.md` and `MEMORY.md` is the simplest way to customize behavior without touching Go code.
 
@@ -178,13 +177,13 @@ See `docs/agents-and-skills.md` for the schema and lifecycle.
 
 1. Find the relevant package in `internal/tools/` (e.g. `shell`, `filesystem`, `gitlab`, `google`).
 2. Implement or adjust a tool handler (request/response shape, external call).
-3. Register it so agents can see it (wiring lives under `internal/agents/tools.go`).
+3. Register it in `internal/tools/tools.go` so agents can see it.
 
 ### Adjust agent behavior
 
-1. Edit `~/.teanode/workspace/AGENT.md` to tweak global guidelines.
+1. Edit `~/.teanode/agents/<agentId>/workspace/AGENT.md` to tweak agent guidelines.
 2. Use `MEMORY.md` and daily `memory/YYYY-MM-DD.md` logs for stable preferences.
-3. Configure additional agents or routes using the gateway config (see `internal/configs` and `internal/gw`).
+3. Configure additional agents via the agent config YAML files under `~/.teanode/agents/<agentId>/config.yaml`.
 
 ---
 

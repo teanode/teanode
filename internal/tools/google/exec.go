@@ -49,12 +49,12 @@ func execGog(ctx context.Context, runner commandRunner, binary string, account s
 
 	output, err := runner(ctx, binary, fullArgs...)
 	if err != nil {
-		errMsg := err.Error()
+		errorMessage := err.Error()
 		// Detect auth errors and return a clear message for the LLM.
-		if isAuthError(errMsg) {
+		if isAuthError(errorMessage) {
 			return "", fmt.Errorf("Google authentication required. Please run 'gog auth login' to authenticate")
 		}
-		return "", fmt.Errorf("gog command failed: %s", errMsg)
+		return "", fmt.Errorf("gog command failed: %s", errorMessage)
 	}
 
 	result := string(output)
@@ -66,7 +66,7 @@ func execGog(ctx context.Context, runner commandRunner, binary string, account s
 }
 
 // isAuthError checks if an error message indicates an authentication problem.
-func isAuthError(msg string) bool {
+func isAuthError(message string) bool {
 	authPhrases := []string{
 		"not authenticated",
 		"not logged in",
@@ -78,7 +78,7 @@ func isAuthError(msg string) bool {
 		"unauthenticated",
 	}
 	for _, phrase := range authPhrases {
-		if bytes.Contains([]byte(msg), []byte(phrase)) {
+		if bytes.Contains([]byte(message), []byte(phrase)) {
 			return true
 		}
 	}

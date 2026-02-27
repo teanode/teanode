@@ -27,7 +27,7 @@ import (
 	"github.com/teanode/teanode/internal/util/slashcommands"
 )
 
-const maxDiscordMessageLen = 2000
+const maxDiscordMessageLength = 2000
 
 // discordStreamPreview manages a live-updating preview message during LLM streaming.
 // It sends an initial message on the first text delta, then edits it at a capped
@@ -76,8 +76,8 @@ func (self *discordStreamPreview) flush() {
 	if text == self.lastSentText || text == "" || self.stopped {
 		return
 	}
-	if len(text) > maxDiscordMessageLen {
-		text = text[:maxDiscordMessageLen]
+	if len(text) > maxDiscordMessageLength {
+		text = text[:maxDiscordMessageLength]
 	}
 	self.lastSentText = text
 
@@ -392,10 +392,10 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			if previewMessageId != "" {
 				firstChunk := finalText
 				remaining := ""
-				if len(finalText) > maxDiscordMessageLen {
-					cut := strings.LastIndex(finalText[:maxDiscordMessageLen], "\n")
-					if cut < maxDiscordMessageLen/2 {
-						cut = maxDiscordMessageLen
+				if len(finalText) > maxDiscordMessageLength {
+					cut := strings.LastIndex(finalText[:maxDiscordMessageLength], "\n")
+					if cut < maxDiscordMessageLength/2 {
+						cut = maxDiscordMessageLength
 					}
 					firstChunk = finalText[:cut]
 					remaining = finalText[cut:]
@@ -632,10 +632,10 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 		finalText := result.Response
 		firstChunk := finalText
 		remaining := ""
-		if len(finalText) > maxDiscordMessageLen {
-			cut := strings.LastIndex(finalText[:maxDiscordMessageLen], "\n")
-			if cut < maxDiscordMessageLen/2 {
-				cut = maxDiscordMessageLen
+		if len(finalText) > maxDiscordMessageLength {
+			cut := strings.LastIndex(finalText[:maxDiscordMessageLength], "\n")
+			if cut < maxDiscordMessageLength/2 {
+				cut = maxDiscordMessageLength
 			}
 			firstChunk = finalText[:cut]
 			remaining = finalText[cut:]
@@ -706,7 +706,7 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 			var lines []string
 			lines = append(lines, fmt.Sprintf("Default agent: `%s`", defaultAgentId))
 			lines = append(lines, "Agents:")
-			for _, agentId := range self.listAgentIDsFromStore() {
+			for _, agentId := range self.listAgentIdsFromStore() {
 				marker := "  "
 				if agentId == defaultAgentId {
 					marker = "* "
@@ -784,11 +784,11 @@ func (self *Bot) sendChunked(channelId, text string) {
 	}
 	for len(text) > 0 {
 		chunk := text
-		if len(chunk) > maxDiscordMessageLen {
+		if len(chunk) > maxDiscordMessageLength {
 			// Try to split at a newline.
-			cut := strings.LastIndex(chunk[:maxDiscordMessageLen], "\n")
-			if cut < maxDiscordMessageLen/2 {
-				cut = maxDiscordMessageLen
+			cut := strings.LastIndex(chunk[:maxDiscordMessageLength], "\n")
+			if cut < maxDiscordMessageLength/2 {
+				cut = maxDiscordMessageLength
 			}
 			chunk = text[:cut]
 		}
@@ -838,21 +838,21 @@ func (self *Bot) resolveDefaultModel() string {
 	return defaultModel
 }
 
-func (self *Bot) listAgentIDsFromStore() []string {
-	agentIDs := make([]string, 0)
+func (self *Bot) listAgentIdsFromStore() []string {
+	agentIds := make([]string, 0)
 	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		agents, listError := transaction.ListAgents(ctx, nil)
 		if listError != nil {
 			return nil
 		}
-		agentIDs = make([]string, 0, len(agents))
+		agentIds = make([]string, 0, len(agents))
 		for _, agent := range agents {
-			agentIDs = append(agentIDs, agent.ID)
+			agentIds = append(agentIds, agent.ID)
 		}
-		sort.Strings(agentIDs)
+		sort.Strings(agentIds)
 		return nil
 	})
-	return agentIDs
+	return agentIds
 }
 
 func (self *Bot) setChannelForUser(userId, channelId string) {
@@ -874,23 +874,23 @@ func (self *Bot) channelIdForUser(userId string) string {
 // them through the configured store, returning conversation attachment references.
 func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttachment) []map[string]string {
 	var attachments []map[string]string
-	for _, att := range messageAttachments {
-		data, err := downloadUrl(att.URL)
+	for _, attachment := range messageAttachments {
+		data, err := downloadUrl(attachment.URL)
 		if err != nil {
-			log.Errorf("failed to download discord attachment %s: %v", att.Filename, err)
+			log.Errorf("failed to download discord attachment %s: %v", attachment.Filename, err)
 			continue
 		}
 
 		// Determine format from filename extension, fall back to content type.
-		format := strings.TrimPrefix(filepath.Ext(att.Filename), ".")
+		format := strings.TrimPrefix(filepath.Ext(attachment.Filename), ".")
 		if format == "" {
-			format = mimetypes.FormatFromMIMEType(att.ContentType)
+			format = mimetypes.FormatFromMIMEType(attachment.ContentType)
 		}
 		if format == "" {
 			format = "bin"
 		}
 
-		contentType := att.ContentType
+		contentType := attachment.ContentType
 		if contentType == "" {
 			contentType = mimetypes.MIMETypeFromFormat(format)
 		}
@@ -901,7 +901,7 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 				Format:       &format,
 				ContentType:  &contentType,
 				Source:       ptrto.Value(models.MediaSourceDiscord),
-				OriginalName: &att.Filename,
+				OriginalName: &attachment.Filename,
 			}, nil)
 			return saveError
 		})
@@ -912,7 +912,7 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 		attachments = append(attachments, map[string]string{
 			"mediaId":  createdMedia.ID,
 			"format":   format,
-			"filename": att.Filename,
+			"filename": attachment.Filename,
 		})
 	}
 	return attachments

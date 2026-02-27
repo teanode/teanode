@@ -158,7 +158,7 @@ type workflowStepResult struct {
 	Type       string      `json:"type"`
 	Status     string      `json:"status"`
 	Attempts   int         `json:"attempts"`
-	DurationMs int64       `json:"durationMs"`
+	DurationMS int64       `json:"durationMs"`
 	Output     interface{} `json:"output,omitempty"`
 	Error      string      `json:"error,omitempty"`
 }
@@ -247,7 +247,7 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 				Type:       string(step.Type),
 				Status:     "error",
 				Attempts:   attempts,
-				DurationMs: time.Since(startedAt).Milliseconds(),
+				DurationMS: time.Since(startedAt).Milliseconds(),
 				Error:      err.Error(),
 			})
 			return nil, nil
@@ -265,7 +265,7 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 		Type:       string(step.Type),
 		Status:     "ok",
 		Attempts:   attempts,
-		DurationMs: time.Since(startedAt).Milliseconds(),
+		DurationMS: time.Since(startedAt).Milliseconds(),
 		Output:     storedOutput,
 	})
 	return storedOutput, nil
@@ -323,7 +323,7 @@ func executeForEachStep(ctx context.Context, step *models.SkillAction, fullName 
 		Type:       string(step.Type),
 		Status:     "ok",
 		Attempts:   1,
-		DurationMs: time.Since(startedAt).Milliseconds(),
+		DurationMS: time.Since(startedAt).Milliseconds(),
 		Output:     collected,
 	})
 	return collected, nil
@@ -357,7 +357,7 @@ func executeSwitchStep(ctx context.Context, step *models.SkillAction, fullName s
 				Type:       string(step.Type),
 				Status:     "error",
 				Attempts:   1,
-				DurationMs: time.Since(startedAt).Milliseconds(),
+				DurationMS: time.Since(startedAt).Milliseconds(),
 				Error:      err.Error(),
 			})
 			return nil, nil
@@ -371,7 +371,7 @@ func executeSwitchStep(ctx context.Context, step *models.SkillAction, fullName s
 		Type:       string(step.Type),
 		Status:     "ok",
 		Attempts:   1,
-		DurationMs: time.Since(startedAt).Milliseconds(),
+		DurationMS: time.Since(startedAt).Milliseconds(),
 		Output:     output,
 	})
 	return output, nil

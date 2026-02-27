@@ -9,7 +9,7 @@ import (
 type Provider interface {
 	ChatCompletion(ctx context.Context, request ChatRequest) (*ChatResponse, error)
 	ChatCompletionStream(ctx context.Context, request ChatRequest) (<-chan StreamEvent, error)
-	ListModels(ctx context.Context) ([]ModelInfo, error)
+	ListModels(ctx context.Context) ([]ModelInformation, error)
 }
 
 // AudioTranscriber is an optional capability interface for speech-to-text.

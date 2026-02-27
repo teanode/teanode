@@ -142,7 +142,7 @@ type httpClient struct {
 }
 
 // NewHTTPClient creates a new HTTP-based UniFi Protect client.
-func NewHTTPClient(config *resolvedConfig) Client {
+func NewHTTPClient(config *resolvedConfiguration) Client {
 	timeoutSeconds := config.timeoutSeconds
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = defaultTimeoutSeconds
@@ -154,7 +154,7 @@ func NewHTTPClient(config *resolvedConfig) Client {
 	}
 
 	return &httpClient{
-		baseUrl:  strings.TrimRight(config.baseURL, "/"),
+		baseUrl:  strings.TrimRight(config.baseUrl, "/"),
 		apiKey:   config.apiKey,
 		username: config.username,
 		password: config.password,

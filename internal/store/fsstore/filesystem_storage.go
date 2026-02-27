@@ -10,25 +10,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func (self *fileSystemTransaction) loadConfigRecord() (*storeConfigRecord, error) {
-	configRecord := &storeConfigRecord{}
-	if readError := readYAMLFileOrDefault(self.configFilename(), configRecord); readError != nil {
+func (self *fileSystemTransaction) loadConfigurationRecord() (*storeConfigurationRecord, error) {
+	configurationRecord := &storeConfigurationRecord{}
+	if readError := readYAMLFileOrDefault(self.configurationFilename(), configurationRecord); readError != nil {
 		return nil, readError
 	}
-	if configRecord.Secrets == nil {
-		configRecord.Secrets = map[string]string{}
+	if configurationRecord.Secrets == nil {
+		configurationRecord.Secrets = map[string]string{}
 	}
-	return configRecord, nil
+	return configurationRecord, nil
 }
 
-func (self *fileSystemTransaction) saveConfigRecord(configRecord *storeConfigRecord) error {
-	if configRecord == nil {
-		configRecord = &storeConfigRecord{}
+func (self *fileSystemTransaction) saveConfigurationRecord(configurationRecord *storeConfigurationRecord) error {
+	if configurationRecord == nil {
+		configurationRecord = &storeConfigurationRecord{}
 	}
-	if configRecord.Secrets == nil {
-		configRecord.Secrets = map[string]string{}
+	if configurationRecord.Secrets == nil {
+		configurationRecord.Secrets = map[string]string{}
 	}
-	return writeYAMLFile(self.configFilename(), configRecord)
+	return writeYAMLFile(self.configurationFilename(), configurationRecord)
 }
 
 func (self *fileSystemTransaction) loadSecurityRecord() (*storeSecurityRecord, error) {
@@ -68,7 +68,7 @@ func (self *fileSystemTransaction) saveSecurityRecord(securityRecord *storeSecur
 
 func (self *fileSystemTransaction) loadAgentRecord(agentId string) (*storeAgentRecord, error) {
 	agentRecord := &storeAgentRecord{ID: agentId}
-	filename := self.agentConfigFilename(agentId)
+	filename := self.agentConfigurationFilename(agentId)
 	if readError := readYAMLFileOrDefault(filename, agentRecord); readError != nil {
 		return nil, readError
 	}
@@ -81,7 +81,7 @@ func (self *fileSystemTransaction) saveAgentRecord(agentId string, agentRecord *
 		agentRecord = &storeAgentRecord{}
 	}
 	agentRecord.ID = agentId
-	return writeYAMLFile(self.agentConfigFilename(agentId), agentRecord)
+	return writeYAMLFile(self.agentConfigurationFilename(agentId), agentRecord)
 }
 
 func (self *fileSystemTransaction) listAgentRecords() ([]storeAgentRecord, error) {
@@ -112,7 +112,7 @@ func (self *fileSystemTransaction) listAgentRecords() ([]storeAgentRecord, error
 
 func (self *fileSystemTransaction) loadUserRecord(userId string) (*storeUserRecord, error) {
 	userRecord := &storeUserRecord{ID: userId, Name: processUsername()}
-	filename := self.userConfigFilename(userId)
+	filename := self.userConfigurationFilename(userId)
 	if readError := readYAMLFileOrDefault(filename, userRecord); readError != nil {
 		return nil, readError
 	}
@@ -135,12 +135,12 @@ func (self *fileSystemTransaction) saveUserRecord(userId string, userRecord *sto
 		userRecord.Name = processUsername()
 	}
 	userRecord.Description = strings.TrimSpace(userRecord.Description)
-	return writeYAMLFileMode(self.userConfigFilename(userId), userRecord, 0600)
+	return writeYAMLFileMode(self.userConfigurationFilename(userId), userRecord, 0600)
 }
 
 func (self *fileSystemTransaction) loadProjectRecord(projectId string) (*storeProjectRecord, error) {
 	projectRecord := &storeProjectRecord{}
-	filename := self.projectConfigFilename(projectId)
+	filename := self.projectConfigurationFilename(projectId)
 	fileContent, readError := os.ReadFile(filename)
 	if readError != nil {
 		return nil, readError
@@ -164,7 +164,7 @@ func (self *fileSystemTransaction) saveProjectRecord(projectId string, projectRe
 	if projectRecord.UpdatedAt.IsZero() {
 		projectRecord.UpdatedAt = timeutil.Now()
 	}
-	return writeYAMLFile(self.projectConfigFilename(projectId), projectRecord)
+	return writeYAMLFile(self.projectConfigurationFilename(projectId), projectRecord)
 }
 
 func (self *fileSystemTransaction) listProjectRecords() ([]storeProjectRecord, error) {

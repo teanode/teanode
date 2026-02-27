@@ -195,7 +195,7 @@ type ChatResponse struct {
 	ID      string     `json:"id"`
 	Model   string     `json:"model"`
 	Choices []Choice   `json:"choices"`
-	Usage   *UsageInfo `json:"usage,omitempty"`
+	Usage   *UsageInformation `json:"usage,omitempty"`
 }
 
 // Choice is a single completion choice.
@@ -205,8 +205,8 @@ type Choice struct {
 	FinishReason string      `json:"finish_reason"`
 }
 
-// UsageInfo contains token usage info.
-type UsageInfo struct {
+// UsageInformation contains token usage info.
+type UsageInformation struct {
 	PromptTokens             int `json:"prompt_tokens"`
 	CompletionTokens         int `json:"completion_tokens"`
 	TotalTokens              int `json:"total_tokens"`
@@ -219,7 +219,7 @@ type StreamChunk struct {
 	ID      string         `json:"id"`
 	Model   string         `json:"model"`
 	Choices []StreamChoice `json:"choices"`
-	Usage   *UsageInfo     `json:"usage,omitempty"`
+	Usage   *UsageInformation     `json:"usage,omitempty"`
 }
 
 // StreamChoice is a choice delta in a stream chunk.
@@ -317,7 +317,7 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 		defer deferutil.Recover()
 		defer close(events)
 		defer response.Body.Close()
-		self.readSSE(ctx, response.Body, events)
+		self.readSse(ctx, response.Body, events)
 	}()
 
 	return events, nil
@@ -345,7 +345,7 @@ type StreamEvent struct {
 	Done  bool
 }
 
-func (self *Client) readSSE(ctx context.Context, reader io.Reader, events chan<- StreamEvent) {
+func (self *Client) readSse(ctx context.Context, reader io.Reader, events chan<- StreamEvent) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -378,8 +378,8 @@ func (self *Client) readSSE(ctx context.Context, reader io.Reader, events chan<-
 	}
 }
 
-// ModelInfo describes a model returned by the /models API.
-type ModelInfo struct {
+// ModelInformation describes a model returned by the /models API.
+type ModelInformation struct {
 	ID            string `json:"id" yaml:"id"`
 	Created       int64  `json:"created,omitempty" yaml:"created,omitempty"`
 	OwnedBy       string `json:"owned_by,omitempty" yaml:"owned_by,omitempty"`
@@ -387,7 +387,7 @@ type ModelInfo struct {
 }
 
 // ListModels fetches available models from the provider's /models endpoint.
-func (self *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
+func (self *Client) ListModels(ctx context.Context) ([]ModelInformation, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultModelsRequestTimeout)
 	defer cancel()
 
@@ -411,15 +411,15 @@ func (self *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	}
 
 	var result struct {
-		Data []ModelInfo `json:"data"`
+		Data []ModelInformation `json:"data"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding models response: %w", err)
 	}
 
 	// Sort by ID for stable ordering.
-	sort.Slice(result.Data, func(i, j int) bool {
-		return result.Data[i].ID < result.Data[j].ID
+	sort.Slice(result.Data, func(index, innerIndex int) bool {
+		return result.Data[index].ID < result.Data[innerIndex].ID
 	})
 
 	return result.Data, nil
@@ -447,11 +447,11 @@ func (self *Client) Transcribe(ctx context.Context, request TranscribeRequest) (
 	writer := multipart.NewWriter(&body)
 
 	// Determine file extension for the form field.
-	ext := request.Format
-	if ext == "" {
-		ext = "webm"
+	extension := request.Format
+	if extension == "" {
+		extension = "webm"
 	}
-	part, err := writer.CreateFormFile("file", "audio."+ext)
+	part, err := writer.CreateFormFile("file", "audio."+extension)
 	if err != nil {
 		return nil, fmt.Errorf("creating form file: %w", err)
 	}
@@ -469,7 +469,7 @@ func (self *Client) Transcribe(ctx context.Context, request TranscribeRequest) (
 	}
 	writer.Close()
 
-	log.Debugf("POST %s/audio/transcriptions format=%s", self.baseUrl, ext)
+	log.Debugf("POST %s/audio/transcriptions format=%s", self.baseUrl, extension)
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/audio/transcriptions", &body)
 	if err != nil {

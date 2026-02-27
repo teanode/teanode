@@ -24,11 +24,11 @@ func LoadWAVAsPCM16Mono(path string, targetSampleRate int) ([]byte, error) {
 	if sampleRate != targetSampleRate {
 		mono = resampleLinearInt16(mono, sampleRate, targetSampleRate)
 	}
-	out := make([]byte, len(mono)*2)
-	for i, sample := range mono {
-		binary.LittleEndian.PutUint16(out[i*2:], uint16(sample))
+	output := make([]byte, len(mono)*2)
+	for index, sample := range mono {
+		binary.LittleEndian.PutUint16(output[index*2:], uint16(sample))
 	}
-	return out, nil
+	return output, nil
 }
 
 func parsePCM16WAV(raw []byte) ([]int16, int, int, error) {
@@ -94,8 +94,8 @@ func parsePCM16WAV(raw []byte) ([]int16, int, int, error) {
 	}
 
 	samples := make([]int16, len(pcm)/2)
-	for i := 0; i < len(samples); i++ {
-		samples[i] = int16(binary.LittleEndian.Uint16(pcm[i*2:]))
+	for index := 0; index < len(samples); index++ {
+		samples[index] = int16(binary.LittleEndian.Uint16(pcm[index*2:]))
 	}
 	return samples, sampleRate, channels, nil
 }
@@ -105,41 +105,41 @@ func downmixToMono(samples []int16, channels int) []int16 {
 		return samples
 	}
 	frames := len(samples) / channels
-	out := make([]int16, frames)
+	output := make([]int16, frames)
 	for frame := 0; frame < frames; frame++ {
 		sum := 0
 		for channel := 0; channel < channels; channel++ {
 			sum += int(samples[frame*channels+channel])
 		}
-		out[frame] = int16(sum / channels)
+		output[frame] = int16(sum / channels)
 	}
-	return out
+	return output
 }
 
-func resampleLinearInt16(in []int16, inRate, outRate int) []int16 {
-	if inRate <= 0 || outRate <= 0 || len(in) == 0 {
-		return in
+func resampleLinearInt16(input []int16, inputRate, outputRate int) []int16 {
+	if inputRate <= 0 || outputRate <= 0 || len(input) == 0 {
+		return input
 	}
-	if inRate == outRate {
-		return in
+	if inputRate == outputRate {
+		return input
 	}
-	ratio := float64(outRate) / float64(inRate)
-	outLen := int(math.Round(float64(len(in)) * ratio))
-	if outLen <= 0 {
+	ratio := float64(outputRate) / float64(inputRate)
+	outputLength := int(math.Round(float64(len(input)) * ratio))
+	if outputLength <= 0 {
 		return []int16{}
 	}
-	out := make([]int16, outLen)
-	for i := 0; i < outLen; i++ {
-		src := float64(i) / ratio
-		idx := int(src)
-		frac := src - float64(idx)
-		if idx >= len(in)-1 {
-			out[i] = in[len(in)-1]
+	output := make([]int16, outputLength)
+	for index := 0; index < outputLength; index++ {
+		source := float64(index) / ratio
+		sourceIndex := int(source)
+		fraction := source - float64(sourceIndex)
+		if sourceIndex >= len(input)-1 {
+			output[index] = input[len(input)-1]
 			continue
 		}
-		v0 := float64(in[idx])
-		v1 := float64(in[idx+1])
-		out[i] = int16(math.Round(v0 + (v1-v0)*frac))
+		v0 := float64(input[sourceIndex])
+		v1 := float64(input[sourceIndex+1])
+		output[index] = int16(math.Round(v0 + (v1-v0)*fraction))
 	}
-	return out
+	return output
 }

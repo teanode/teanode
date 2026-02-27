@@ -14,33 +14,33 @@ var log = logging.MustGetLogger("google")
 // defaultServices are registered when no explicit service list is configured (Tier 1).
 var defaultServices = []string{"gmail", "calendar", "drive"}
 
-// resolvedConfig holds the resolved Google tool configuration.
-type resolvedConfig struct {
+// resolvedConfiguration holds the resolved Google tool configuration.
+type resolvedConfiguration struct {
 	binaryPath string
 	account    string
 	services   []string
 }
 
-// configFromContext reads the Google tool configuration from the store.
-func configFromContext(ctx context.Context) *resolvedConfig {
-	var config resolvedConfig
+// configurationFromContext reads the Google tool configuration from the store.
+func configurationFromContext(ctx context.Context) *resolvedConfiguration {
+	var configuration resolvedConfiguration
 	dataStore := store.StoreFromContextSafe(ctx)
 	if dataStore == nil {
-		return &config
+		return &configuration
 	}
 	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		configuration, err := transaction.GetConfiguration(ctx, nil)
+		storedConfiguration, err := transaction.GetConfiguration(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if configuration.Tools != nil && configuration.Tools.Google != nil {
-			config.binaryPath = configuration.Tools.Google.GetBinaryPath()
-			config.account = configuration.Tools.Google.GetAccount()
-			config.services = configuration.Tools.Google.GetServices()
+		if storedConfiguration.Tools != nil && storedConfiguration.Tools.Google != nil {
+			configuration.binaryPath = storedConfiguration.Tools.Google.GetBinaryPath()
+			configuration.account = storedConfiguration.Tools.Google.GetAccount()
+			configuration.services = storedConfiguration.Tools.Google.GetServices()
 		}
 		return nil
 	})
-	return &config
+	return &configuration
 }
 
 func init() {

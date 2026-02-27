@@ -76,20 +76,20 @@ func (self *Headless) Connect(ctx context.Context) error {
 		return fmt.Errorf("headlessbrowser: reading version response: %w", err)
 	}
 
-	var versionInfo struct {
+	var versionInformation struct {
 		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
 	}
-	if err := json.Unmarshal(body, &versionInfo); err != nil {
+	if err := json.Unmarshal(body, &versionInformation); err != nil {
 		return fmt.Errorf("headlessbrowser: parsing version response: %w", err)
 	}
-	if versionInfo.WebSocketDebuggerURL == "" {
+	if versionInformation.WebSocketDebuggerURL == "" {
 		return fmt.Errorf("headlessbrowser: no webSocketDebuggerUrl in version response")
 	}
 
 	// 2. Dial the browser-level WebSocket.
-	connection, _, err := websocket.DefaultDialer.DialContext(ctx, versionInfo.WebSocketDebuggerURL, nil)
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, versionInformation.WebSocketDebuggerURL, nil)
 	if err != nil {
-		return fmt.Errorf("headlessbrowser: dialing %s: %w", versionInfo.WebSocketDebuggerURL, err)
+		return fmt.Errorf("headlessbrowser: dialing %s: %w", versionInformation.WebSocketDebuggerURL, err)
 	}
 
 	self.mutex.Lock()
@@ -111,14 +111,14 @@ func (self *Headless) Connect(ctx context.Context) error {
 	}
 
 	var targetList struct {
-		TargetInfos []targetInfo `json:"targetInfos"`
+		TargetInformations []targetInformation `json:"targetInformations"`
 	}
 	if err := json.Unmarshal(targetResult, &targetList); err == nil {
-		log.Infof("discovered %d targets", len(targetList.TargetInfos))
-		for _, info := range targetList.TargetInfos {
-			log.Infof("  target %s type=%s url=%s", info.TargetID, info.Type, info.URL)
-			if info.Type == "page" {
-				self.attachTarget(ctx, info)
+		log.Infof("discovered %d targets", len(targetList.TargetInformations))
+		for _, information := range targetList.TargetInformations {
+			log.Infof("  target %s type=%s url=%s", information.TargetID, information.Type, information.URL)
+			if information.Type == "page" {
+				self.attachTarget(ctx, information)
 			}
 		}
 	}
@@ -141,7 +141,7 @@ func (self *Headless) Connect(ctx context.Context) error {
 				TargetID string `json:"targetId"`
 			}
 			if json.Unmarshal(createResult, &created) == nil && created.TargetID != "" {
-				self.attachTarget(ctx, targetInfo{
+				self.attachTarget(ctx, targetInformation{
 					TargetID: created.TargetID,
 					Type:     "page",
 					URL:      "about:blank",
@@ -349,7 +349,7 @@ func (self *Headless) DefaultTargetForUser(userId string) (*browsers.ConnectedTa
 	}
 
 	self.AssignTargetToUser(userId, created.TargetID)
-	self.attachTarget(createContext, targetInfo{
+	self.attachTarget(createContext, targetInformation{
 		TargetID: created.TargetID,
 		Type:     "page",
 		URL:      "about:blank",
@@ -483,8 +483,8 @@ func (self *Headless) writeJSON(connection *websocket.Conn, message interface{})
 	return nil
 }
 
-// targetInfo holds the fields we care about from CDP Target.TargetInfo.
-type targetInfo struct {
+// targetInformation holds the fields we care about from CDP Target.TargetInfo.
+type targetInformation struct {
 	TargetID string `json:"targetId"`
 	Type     string `json:"type"`
 	URL      string `json:"url"`
@@ -492,14 +492,14 @@ type targetInfo struct {
 }
 
 // attachTarget attaches to a target in flatten mode and registers it directly.
-func (self *Headless) attachTarget(ctx context.Context, info targetInfo) {
+func (self *Headless) attachTarget(ctx context.Context, information targetInformation) {
 	defer deferutil.Recover()
 	result, err := self.sendBrowserCommand(ctx, "Target.attachToTarget", map[string]interface{}{
-		"targetId": info.TargetID,
+		"targetId": information.TargetID,
 		"flatten":  true,
 	})
 	if err != nil {
-		log.Errorf("attachToTarget %s: %v", info.TargetID, err)
+		log.Errorf("attachToTarget %s: %v", information.TargetID, err)
 		return
 	}
 
@@ -516,15 +516,15 @@ func (self *Headless) attachTarget(ctx context.Context, info targetInfo) {
 	self.mutex.Lock()
 	self.targets[attachResponse.SessionID] = &browsers.ConnectedTarget{
 		SessionID: attachResponse.SessionID,
-		TargetID:  info.TargetID,
-		URL:       info.URL,
-		Title:     info.Title,
+		TargetID:  information.TargetID,
+		URL:       information.URL,
+		Title:     information.Title,
 		Source:    "headless",
 	}
-	self.sessionOwners[attachResponse.SessionID] = self.targetOwners[info.TargetID]
+	self.sessionOwners[attachResponse.SessionID] = self.targetOwners[information.TargetID]
 	self.mutex.Unlock()
 
-	log.Infof("attached to target %s session=%s url=%s", info.TargetID, attachResponse.SessionID, info.URL)
+	log.Infof("attached to target %s session=%s url=%s", information.TargetID, attachResponse.SessionID, information.URL)
 }
 
 func (self *Headless) readLoop(connection *websocket.Conn, done chan struct{}) {
@@ -581,7 +581,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 				Type     string `json:"type"`
 				URL      string `json:"url"`
 				Title    string `json:"title"`
-			} `json:"targetInfo"`
+			} `json:"targetInformation"`
 		}
 		if json.Unmarshal(params, &payload) == nil && payload.SessionID != "" {
 			self.mutex.Lock()
@@ -615,13 +615,13 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 			log.Infof("target detached session=%s", payload.SessionID)
 		}
 
-	case "Target.targetInfoChanged":
+	case "Target.targetInformationChanged":
 		var payload struct {
 			TargetInfo struct {
 				TargetID string `json:"targetId"`
 				URL      string `json:"url"`
 				Title    string `json:"title"`
-			} `json:"targetInfo"`
+			} `json:"targetInformation"`
 		}
 		if json.Unmarshal(params, &payload) == nil {
 			self.mutex.Lock()
@@ -638,7 +638,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 	case "Target.targetCreated":
 		// Auto-attach to new page targets created after Connect().
 		var payload struct {
-			TargetInfo targetInfo `json:"targetInfo"`
+			TargetInfo targetInformation `json:"targetInformation"`
 		}
 		if json.Unmarshal(params, &payload) == nil && payload.TargetInfo.Type == "page" {
 			// Check if we already have this target.

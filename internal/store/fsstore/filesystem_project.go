@@ -41,7 +41,7 @@ func (self *fileSystemTransaction) listProjects(options *store.Option) ([]*model
 	projectConfigurations = applyOffsetLimit(projectConfigurations, options)
 	projects := make([]*models.Project, 0, len(projectConfigurations))
 	for _, projectConfiguration := range projectConfigurations {
-		project := projectConfigToModel(projectConfiguration)
+		project := projectConfigurationToModel(projectConfiguration)
 		projects = append(projects, &project)
 	}
 	return projects, nil
@@ -55,7 +55,7 @@ func (self *fileSystemTransaction) createProject(ctx context.Context, project *m
 	if projectId == "" {
 		projectId = security.NewULID()
 	}
-	configuration := modelToProjectConfig(*project)
+	configuration := modelToProjectConfiguration(*project)
 	if err := self.saveProjectRecord(projectId, &configuration); err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (self *fileSystemTransaction) createProject(ctx context.Context, project *m
 			return nil, err
 		}
 	}
-	createdProject := projectConfigToModel(configuration)
+	createdProject := projectConfigurationToModel(configuration)
 	createdProject.ID = projectId
 	return &createdProject, nil
 }
@@ -81,7 +81,7 @@ func (self *fileSystemTransaction) getProject(projectId string, options *store.O
 		}
 		return nil, err
 	}
-	project := projectConfigToModel(*configuration)
+	project := projectConfigurationToModel(*configuration)
 	project.ID = projectId
 	return &project, nil
 }
@@ -94,11 +94,11 @@ func (self *fileSystemTransaction) modifyProject(ctx context.Context, projectId 
 	if err := modifier(project); err != nil {
 		return nil, err
 	}
-	configuration := modelToProjectConfig(*project)
+	configuration := modelToProjectConfiguration(*project)
 	if err := self.saveProjectRecord(projectId, &configuration); err != nil {
 		return nil, err
 	}
-	result := projectConfigToModel(configuration)
+	result := projectConfigurationToModel(configuration)
 	result.ID = projectId
 	return &result, nil
 }
@@ -111,7 +111,7 @@ func (self *fileSystemTransaction) deleteProject(projectId string, options *stor
 	return trash.Move(projectDirectory, self.trashDirectory())
 }
 
-func projectConfigToModel(configuration storeProjectRecord) models.Project {
+func projectConfigurationToModel(configuration storeProjectRecord) models.Project {
 	project := models.Project{
 		ID:          configuration.ID,
 		Name:        ptrto.TrimmedString(configuration.Name),
@@ -123,7 +123,7 @@ func projectConfigToModel(configuration storeProjectRecord) models.Project {
 	return project
 }
 
-func modelToProjectConfig(project models.Project) storeProjectRecord {
+func modelToProjectConfiguration(project models.Project) storeProjectRecord {
 	record := storeProjectRecord{
 		ID:          project.ID,
 		Name:        project.GetName(),

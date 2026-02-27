@@ -2,9 +2,9 @@
 
 This document complements `docs/architecture.md` with a focused overview of how **agents** and **skills** work internally.
 
-## Agents (`internal/agents`)
+## Agents and Runners (`internal/runners`, `internal/models`, `internal/summarizers`)
 
-Agents are LLM-backed workers that orchestrate conversations, tools, and skills.
+Agents are LLM-backed workers that orchestrate conversations, tools, and skills. Agent definitions live in `internal/models/agent.go`, while the runtime machinery is split across `internal/runners` and `internal/summarizers`.
 
 Key responsibilities:
 
@@ -14,26 +14,31 @@ Key responsibilities:
 - Coordinate conversation compaction and summarization.
 - Support inter-agent communication.
 
-Important files:
+Important files in `internal/runners`:
 
-- `agent.go` – basic agent interface and helpers.
-- `registry.go` – global registry of agents, used by the gateway and tools like `agent_list` / `agent_message`.
+- `runners.go` – runner registry managing multiple runners and per-user default agent/conversation state.
 - `runner.go` / `runctx.go` – main execution loop for a single turn:
   - Prepare the model request (messages, tools, system prompt).
   - Stream or collect the model response.
   - Detect and execute tool calls.
   - Append final assistant messages to the conversation.
-- `context.go` – types for messages, tool calls, and conversation state used by the runner.
-- `systemprompt.go` / `systemprompt.txt` – compose the system prompt from:
+- `systemprompt.go` – compose the system prompt from:
   - Core TeaNode instructions.
   - Workspace configuration (AGENT.md, MEMORY.md, SKILLS.md).
   - Runtime metadata (date/time, etc.).
-- `conversation_tools.go` – tools for managing conversations (list, compact, etc.) exposed back to agents.
-- `compact.go` / `summarizer.go` – summarization and pruning logic for long conversations.
-- `interagent.go` – inter-agent messaging implementation backing `agent_message`.
-- `tools.go` – wiring between agents and concrete tools in `internal/tools`.
+- `compact.go` – context compaction and pruning logic for long conversations.
 
-In practice, most agent behavior is driven by configuration (agent JSON in the workspace) plus the system prompt template, with `internal/agents` providing the runtime machinery.
+Important files in `internal/summarizers`:
+
+- `summarizer.go` – background summarizer for conversation titles and descriptions.
+
+Important files in `internal/models`:
+
+- `agent.go` – agent data types and configuration.
+- `conversation.go` / `conversation_message.go` – conversation and message types.
+- `context.go` – context types for messages, tool calls, and conversation state.
+
+In practice, most agent behavior is driven by configuration (agent YAML in the workspace) plus the system prompt template, with `internal/runners` providing the runtime machinery.
 
 ## Skills (`internal/skills`)
 
@@ -50,17 +55,9 @@ High-level flow:
 
 Important files:
 
-- `types.go` – core structs for skills and tools (`SkillDefinition`, `ToolDefinition`, `ActionDefinition`).
-- `loader.go` – loads and validates markdown skill files:
-  - Reads `*.md` from the skills directory.
-  - Validates required fields and workflow constraints.
-  - Logs and skips malformed entries instead of failing the whole process.
+- `skills.go` – convenience helpers for working with registered skills and skill loading.
 - `register.go` – registers loaded skills and their tools in the global tool registry.
 - `tool.go` – runtime execution for skill tools.
-- `skills.go` – convenience helpers for working with registered skills.
-- `registry_tool.go` – `skills` multi-action management tool (`list_registry`, `search`, `install`, `list_installed`, `update`, `uninstall`).
-- `registry_backend.go` – install/update/uninstall/search implementation for online registries.
-- `local_list.go` – local skill listing for UI/API.
 
 ### Skill file format
 

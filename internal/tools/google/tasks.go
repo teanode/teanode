@@ -75,34 +75,34 @@ func (self *tasksTool) Execute(ctx context.Context, rawArguments string) (string
 
 	switch args.Action {
 	case "list":
-		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
 			"tasks", "list", args.TaskList)
 
 	case "create":
 		if args.Title == "" {
 			return "", fmt.Errorf("title is required for create action")
 		}
-		cmdArgs := []string{"tasks", "create", args.TaskList, "--title", args.Title}
+		commandArguments := []string{"tasks", "create", args.TaskList, "--title", args.Title}
 		if args.Notes != "" {
-			cmdArgs = append(cmdArgs, "--notes", args.Notes)
+			commandArguments = append(commandArguments, "--notes", args.Notes)
 		}
 		if args.Due != "" {
-			cmdArgs = append(cmdArgs, "--due", args.Due)
+			commandArguments = append(commandArguments, "--due", args.Due)
 		}
-		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account, cmdArgs...)
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account, commandArguments...)
 
 	case "complete":
 		if args.TaskID == "" {
 			return "", fmt.Errorf("task_id is required for complete action")
 		}
-		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
 			"tasks", "complete", args.TaskList, args.TaskID)
 
 	case "delete":
 		if args.TaskID == "" {
 			return "", fmt.Errorf("task_id is required for delete action")
 		}
-		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
 			"tasks", "delete", args.TaskList, args.TaskID)
 
 	default:

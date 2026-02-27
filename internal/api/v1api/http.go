@@ -76,8 +76,8 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 
 	// Determine format from file extension, falling back to Content-Type.
 	filename := header.Filename
-	ext := strings.TrimPrefix(filepath.Ext(filename), ".")
-	format := strings.ToLower(ext)
+	extension := strings.TrimPrefix(filepath.Ext(filename), ".")
+	format := strings.ToLower(extension)
 	if format == "" {
 		format = mimetypes.FormatFromMIMEType(header.Header.Get("Content-Type"))
 	}
@@ -147,8 +147,8 @@ func (self *v1Api) handleAudioTranscribe(writer http.ResponseWriter, request *ht
 	}
 	defer file.Close()
 
-	ext := strings.TrimPrefix(filepath.Ext(header.Filename), ".")
-	format := strings.ToLower(ext)
+	extension := strings.TrimPrefix(filepath.Ext(header.Filename), ".")
+	format := strings.ToLower(extension)
 	if format == "" {
 		format = "webm"
 	}
@@ -185,15 +185,15 @@ func (self *v1Api) handleAudioSynthesize(writer http.ResponseWriter, request *ht
 		return web.Error(501, "no audio synthesis provider configured")
 	}
 
-	var params struct {
+	var parameters struct {
 		Text  string  `json:"text"`
 		Voice string  `json:"voice"`
 		Speed float64 `json:"speed"`
 	}
-	if err := json.NewDecoder(request.Body).Decode(&params); err != nil {
+	if err := json.NewDecoder(request.Body).Decode(&parameters); err != nil {
 		return web.Error(400, "invalid JSON body: "+err.Error())
 	}
-	if params.Text == "" {
+	if parameters.Text == "" {
 		return web.Error(400, "text is required")
 	}
 
@@ -208,9 +208,9 @@ func (self *v1Api) handleAudioSynthesize(writer http.ResponseWriter, request *ht
 		}
 	}
 	self.synthesisTokens[token] = synthesisToken{
-		Text:      params.Text,
-		Voice:     params.Voice,
-		Speed:     params.Speed,
+		Text:      parameters.Text,
+		Voice:     parameters.Voice,
+		Speed:     parameters.Speed,
 		ExpiresAt: now.Add(60 * time.Second),
 	}
 	self.synthesisTokensMutex.Unlock()

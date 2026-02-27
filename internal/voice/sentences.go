@@ -49,32 +49,32 @@ func splitSentences(text string) ([]string, int) {
 	var out []string
 	start := 0
 	lastConsumedRune := 0
-	for i := 0; i < len(runes); i++ {
-		if !isSentenceEndRune(runes[i]) {
+	for index := 0; index < len(runes); index++ {
+		if !isSentenceEndRune(runes[index]) {
 			continue
 		}
-		if runes[i] == '.' && looksLikeAbbreviation(runes[start:i+1]) {
+		if runes[index] == '.' && looksLikeAbbreviation(runes[start:index+1]) {
 			continue
 		}
-		if isASCIIPunct(runes[i]) {
-			if i+1 < len(runes) && !unicode.IsSpace(runes[i+1]) {
+		if isASCIIPunct(runes[index]) {
+			if index+1 < len(runes) && !unicode.IsSpace(runes[index+1]) {
 				continue
 			}
-			if i+1 < len(runes) {
-				j := i + 1
-				for j < len(runes) && unicode.IsSpace(runes[j]) {
-					j++
+			if index+1 < len(runes) {
+				innerIndex := index + 1
+				for innerIndex < len(runes) && unicode.IsSpace(runes[innerIndex]) {
+					innerIndex++
 				}
-				if j < len(runes) && !unicode.IsUpper(runes[j]) {
+				if innerIndex < len(runes) && !unicode.IsUpper(runes[innerIndex]) {
 					continue
 				}
 			}
 		}
-		s := string(runes[start : i+1])
-		if s != "" {
-			out = append(out, s)
+		sentence := string(runes[start : index+1])
+		if sentence != "" {
+			out = append(out, sentence)
 		}
-		start = i + 1
+		start = index + 1
 		lastConsumedRune = start
 		for start < len(runes) && unicode.IsSpace(runes[start]) {
 			start++
@@ -88,23 +88,23 @@ func byteOffsetForRuneIndex(text string, runeIdx int) int {
 	if runeIdx <= 0 {
 		return 0
 	}
-	i := 0
+	index := 0
 	for pos := range text {
-		if i == runeIdx {
+		if index == runeIdx {
 			return pos
 		}
-		i++
+		index++
 	}
 	return len(text)
 }
 
-func looksLikeAbbreviation(sentence []rune) bool {
-	s := string(sentence)
-	if !strings.HasSuffix(s, ".") {
+func looksLikeAbbreviation(sentenceRunes []rune) bool {
+	sentenceString := string(sentenceRunes)
+	if !strings.HasSuffix(sentenceString, ".") {
 		return false
 	}
-	s = strings.TrimSuffix(s, ".")
-	parts := strings.Fields(s)
+	sentenceString = strings.TrimSuffix(sentenceString, ".")
+	parts := strings.Fields(sentenceString)
 	if len(parts) == 0 {
 		return false
 	}
@@ -113,10 +113,10 @@ func looksLikeAbbreviation(sentence []rune) bool {
 	return ok
 }
 
-func isASCIIPunct(r rune) bool {
-	return r == '.' || r == '!' || r == '?'
+func isASCIIPunct(runeValue rune) bool {
+	return runeValue == '.' || runeValue == '!' || runeValue == '?'
 }
 
-func isSentenceEndRune(r rune) bool {
-	return isASCIIPunct(r) || r == '。' || r == '！' || r == '？'
+func isSentenceEndRune(runeValue rune) bool {
+	return isASCIIPunct(runeValue) || runeValue == '。' || runeValue == '！' || runeValue == '？'
 }

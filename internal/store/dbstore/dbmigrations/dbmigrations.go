@@ -64,14 +64,14 @@ func mustLoadMigrations() []Migration {
 		}
 	}
 
-	migrationIDs := make([]string, 0, len(forward))
+	migrationIds := make([]string, 0, len(forward))
 	for migrationId := range forward {
-		migrationIDs = append(migrationIDs, migrationId)
+		migrationIds = append(migrationIds, migrationId)
 	}
-	sort.Strings(migrationIDs)
+	sort.Strings(migrationIds)
 
-	result := make([]Migration, 0, len(migrationIDs))
-	for _, migrationId := range migrationIDs {
+	result := make([]Migration, 0, len(migrationIds))
+	for _, migrationId := range migrationIds {
 		result = append(result, Migration{
 			ID:         migrationId,
 			SQL:        forward[migrationId],

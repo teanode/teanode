@@ -50,7 +50,7 @@ func TestOpenAINonStreamingChatCompletion(t *testing.T) {
 				Message:      ChatMessage{Role: "assistant", Content: "Hello from OpenAI!"},
 				FinishReason: "stop",
 			}},
-			Usage: &UsageInfo{
+			Usage: &UsageInformation{
 				PromptTokens:     10,
 				CompletionTokens: 5,
 				TotalTokens:      15,
@@ -619,7 +619,7 @@ func TestOpenAINonStreamingWithTools(t *testing.T) {
 				},
 				FinishReason: "tool_calls",
 			}},
-			Usage: &UsageInfo{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
+			Usage: &UsageInformation{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
 		})
 	}))
 	defer server.Close()

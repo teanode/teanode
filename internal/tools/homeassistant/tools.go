@@ -96,17 +96,17 @@ func (self *homeAssistantTool) Definition() providers.ToolDefinition {
 }
 
 func (self *homeAssistantTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	config := configFromContext(ctx)
-	if config.baseURL == "" {
+	configuration := configurationFromContext(ctx)
+	if configuration.baseUrl == "" {
 		return "", fmt.Errorf("Home Assistant tool is not configured: baseUrl is missing")
 	}
-	if config.token == "" {
+	if configuration.token == "" {
 		return "", fmt.Errorf("Home Assistant tool is not configured: token is missing")
 	}
 
 	execution := &homeAssistantExecution{
-		client:  NewHTTPClient(config.baseURL, config.token, config.timeoutSeconds),
-		checker: NewAccessChecker(config),
+		client:  NewHTTPClient(configuration.baseUrl, configuration.token, configuration.timeoutSeconds),
+		checker: NewAccessChecker(configuration),
 	}
 
 	return execution.execute(ctx, rawArguments)

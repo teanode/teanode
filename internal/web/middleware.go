@@ -115,8 +115,8 @@ func MakeServerNameMiddleware(serverName string) Middleware {
 func MakeForwarderMiddleware(forwarderKey string) Middleware {
 	return func(handler http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if ip, _, err := net.SplitHostPort(request.RemoteAddr); err == nil {
-				request.RemoteAddr = ip
+			if ipAddress, _, err := net.SplitHostPort(request.RemoteAddr); err == nil {
+				request.RemoteAddr = ipAddress
 			}
 			if forwardedFor := request.Header.Get("X-Forwarded-For"); forwardedFor != "" {
 				if forwarderKey != "" && request.Header.Get("X-Forwarder-Key") != forwarderKey {
@@ -124,8 +124,8 @@ func MakeForwarderMiddleware(forwarderKey string) Middleware {
 					WriteError(writer, ErrServiceUnavailable)
 					return
 				}
-				ips := strings.Split(forwardedFor, ",")
-				request.RemoteAddr = ips[0]
+				ipAddresses := strings.Split(forwardedFor, ",")
+				request.RemoteAddr = ipAddresses[0]
 			}
 			delete(request.Header, "X-Forwarder-Key")
 			request.Header.Set("X-Forwarded-For", request.RemoteAddr)

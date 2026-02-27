@@ -33,7 +33,7 @@ var DefaultAllowedTools = []string{
 }
 
 // commandRunner abstracts command execution for testing.
-type commandRunner func(ctx context.Context, name string, args []string, directory string) (stdout []byte, stderr []byte, exitCode int, err error)
+type commandRunner func(ctx context.Context, name string, arguments []string, directory string) (stdout []byte, stderr []byte, exitCode int, err error)
 
 // defaultCommandRunner executes commands via cmdexec.Run.
 func defaultCommandRunner(ctx context.Context, name string, arguments []string, directory string) ([]byte, []byte, int, error) {
@@ -46,8 +46,8 @@ func defaultCommandRunner(ctx context.Context, name string, arguments []string, 
 	return result.Stdout, result.Stderr, result.ExitCode, nil
 }
 
-// sessionInfo tracks an in-memory session for convenience.
-type sessionInfo struct {
+// sessionInformation tracks an in-memory session for convenience.
+type sessionInformation struct {
 	SessionID  string    `json:"sessionId"`
 	CreatedAt  time.Time `json:"createdAt"`
 	LastUsedAt time.Time `json:"lastUsedAt"`
@@ -58,12 +58,12 @@ type sessionInfo struct {
 type claudeCodeTool struct {
 	binaryPath string
 	runner     commandRunner
-	sessions   map[string]*sessionInfo
+	sessions   map[string]*sessionInformation
 	mutex      sync.Mutex
 }
 
-// configFromContext reads the Claude Code tool configuration from the store.
-func configFromContext(ctx context.Context) (allowedTools []string, model string, timeout time.Duration) {
+// configurationFromContext reads the Claude Code tool configuration from the store.
+func configurationFromContext(ctx context.Context) (allowedTools []string, model string, timeout time.Duration) {
 	allowedTools = DefaultAllowedTools
 	timeout = defaultTimeout
 	dataStore := store.StoreFromContextSafe(ctx)
@@ -71,17 +71,17 @@ func configFromContext(ctx context.Context) (allowedTools []string, model string
 		return
 	}
 	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		configuration, err := transaction.GetConfiguration(ctx, nil)
+		storedConfiguration, err := transaction.GetConfiguration(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if configuration.Tools != nil && configuration.Tools.ClaudeCode != nil {
-			config := configuration.Tools.ClaudeCode
-			if tools := config.GetAllowedTools(); len(tools) > 0 {
+		if storedConfiguration.Tools != nil && storedConfiguration.Tools.ClaudeCode != nil {
+			configuration := storedConfiguration.Tools.ClaudeCode
+			if tools := configuration.GetAllowedTools(); len(tools) > 0 {
 				allowedTools = tools
 			}
-			model = config.GetModel()
-			if seconds := config.GetMaxTurnTimeoutSeconds(); seconds > 0 {
+			model = configuration.GetModel()
+			if seconds := configuration.GetMaxTurnTimeoutSeconds(); seconds > 0 {
 				timeout = time.Duration(seconds) * time.Second
 				if timeout > maxTimeout {
 					timeout = maxTimeout
@@ -110,7 +110,7 @@ func createTools() []tools.Tool {
 	return []tools.Tool{&claudeCodeTool{
 		binaryPath: resolvedPath,
 		runner:     defaultCommandRunner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}}
 }
 
@@ -304,7 +304,7 @@ func (self *claudeCodeTool) executeListSessions(ctx context.Context) (string, er
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
-	sessionList := make([]sessionInfo, 0, len(self.sessions))
+	sessionList := make([]sessionInformation, 0, len(self.sessions))
 	for _, session := range self.sessions {
 		sessionList = append(sessionList, *session)
 	}
@@ -336,7 +336,7 @@ func (self *claudeCodeTool) resolveConversationScope(ctx context.Context) (strin
 	return user.ID, runner.AgentID, nil
 }
 
-func (self *claudeCodeTool) loadSessionsFromConversationStore(ctx context.Context, userId, agentId string) ([]sessionInfo, error) {
+func (self *claudeCodeTool) loadSessionsFromConversationStore(ctx context.Context, userId, agentId string) ([]sessionInformation, error) {
 	conversationList := make([]*models.Conversation, 0)
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		items, listError := transaction.ListConversations(ctx, store.ConversationListOptions{
@@ -352,7 +352,7 @@ func (self *claudeCodeTool) loadSessionsFromConversationStore(ctx context.Contex
 		return nil, fmt.Errorf("listing conversations: %w", err)
 	}
 
-	sessionsById := make(map[string]*sessionInfo)
+	sessionsById := make(map[string]*sessionInformation)
 	for _, conversation := range conversationList {
 		messages := make([]*models.ConversationMessage, 0)
 		if loadError := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
@@ -385,7 +385,7 @@ func (self *claudeCodeTool) loadSessionsFromConversationStore(ctx context.Contex
 			}
 			existing := sessionsById[sessionId]
 			if existing == nil {
-				sessionsById[sessionId] = &sessionInfo{
+				sessionsById[sessionId] = &sessionInformation{
 					SessionID:  sessionId,
 					CreatedAt:  timestamp,
 					LastUsedAt: timestamp,
@@ -403,7 +403,7 @@ func (self *claudeCodeTool) loadSessionsFromConversationStore(ctx context.Contex
 		}
 	}
 
-	sessionList := make([]sessionInfo, 0, len(sessionsById))
+	sessionList := make([]sessionInformation, 0, len(sessionsById))
 	for _, session := range sessionsById {
 		sessionList = append(sessionList, *session)
 	}
@@ -437,7 +437,7 @@ func extractSessionIdFromToolResult(result string) string {
 }
 
 func (self *claudeCodeTool) buildArguments(ctx context.Context, prompt, sessionId, systemPrompt string) []string {
-	allowedTools, model, _ := configFromContext(ctx)
+	allowedTools, model, _ := configurationFromContext(ctx)
 
 	arguments := []string{"-p", prompt, "--output-format", "json"}
 
@@ -462,8 +462,8 @@ func (self *claudeCodeTool) buildArguments(ctx context.Context, prompt, sessionI
 
 func (self *claudeCodeTool) executeCommand(ctx context.Context, commandArguments []string, workingDirectory string, timeoutSeconds int) (string, error) {
 	// Resolve timeout.
-	_, _, configTimeout := configFromContext(ctx)
-	timeout := configTimeout
+	_, _, configurationTimeout := configurationFromContext(ctx)
+	timeout := configurationTimeout
 	if timeoutSeconds > 0 {
 		timeout = time.Duration(timeoutSeconds) * time.Second
 		if timeout > maxTimeout {
@@ -510,8 +510,8 @@ type claudeCodeOutput struct {
 	SessionID       string  `json:"session_id"`
 	IsError         bool    `json:"is_error"`
 	CostUSD         float64 `json:"cost_usd"`
-	NumInputTokens  int     `json:"num_input_tokens"`
-	NumOutputTokens int     `json:"num_output_tokens"`
+	NumberInputTokens  int     `json:"num_input_tokens"`
+	NumberOutputTokens int     `json:"num_output_tokens"`
 }
 
 func (self *claudeCodeTool) parseOutput(stdout, stderr []byte, exitCode int, duration float64, timedOut bool, workingDirectory string) (string, error) {
@@ -551,8 +551,8 @@ func (self *claudeCodeTool) parseOutput(stdout, stderr []byte, exitCode int, dur
 		"duration":         duration,
 		"exitCode":         exitCode,
 		"costUsd":          parsed.CostUSD,
-		"inputTokens":      parsed.NumInputTokens,
-		"outputTokens":     parsed.NumOutputTokens,
+		"inputTokens":      parsed.NumberInputTokens,
+		"outputTokens":     parsed.NumberOutputTokens,
 		"timedOut":         timedOut,
 		"workingDirectory": workingDirectory,
 	}
@@ -578,7 +578,7 @@ func (self *claudeCodeTool) trackSession(sessionId string) {
 	now := time.Now()
 	session, exists := self.sessions[sessionId]
 	if !exists {
-		self.sessions[sessionId] = &sessionInfo{
+		self.sessions[sessionId] = &sessionInformation{
 			SessionID:  sessionId,
 			CreatedAt:  now,
 			LastUsedAt: now,

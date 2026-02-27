@@ -27,7 +27,7 @@ func init() {
 
 func createTools() []tools.Tool {
 	return []tools.Tool{
-		newWorkspaceTool(workspaceToolConfig{
+		newWorkspaceTool(workspaceToolConfiguration{
 			name:        "agent_workspace",
 			description: "Persistent per-agent workspace storage shared by users of this agent.",
 			resolveScope: func(ctx context.Context, _ string) (models.Scope, string, error) {
@@ -48,7 +48,7 @@ func createTools() []tools.Tool {
 				})
 			},
 		}),
-		newWorkspaceTool(workspaceToolConfig{
+		newWorkspaceTool(workspaceToolConfiguration{
 			name:        "user_workspace",
 			description: "Persistent per-user workspace storage for user-specific memory and notes.",
 			resolveScope: func(ctx context.Context, _ string) (models.Scope, string, error) {
@@ -69,7 +69,7 @@ func createTools() []tools.Tool {
 				})
 			},
 		}),
-		newWorkspaceTool(workspaceToolConfig{
+		newWorkspaceTool(workspaceToolConfiguration{
 			name:                        "project_workspace",
 			description:                 "Manage files in a shared project's workspace. Use PROJECT.md as the canonical main project document.",
 			scopeIdParameterName:        "projectId",
@@ -96,7 +96,7 @@ func createTools() []tools.Tool {
 
 // --- workspace (consolidated) ---
 
-type workspaceToolConfig struct {
+type workspaceToolConfiguration struct {
 	name                        string
 	description                 string
 	scopeIdParameterName        string // if non-empty, add as a required parameter and read from arguments
@@ -106,11 +106,11 @@ type workspaceToolConfig struct {
 }
 
 type workspaceTool struct {
-	config workspaceToolConfig
+	configuration workspaceToolConfiguration
 }
 
-func newWorkspaceTool(config workspaceToolConfig) *workspaceTool {
-	return &workspaceTool{config: config}
+func newWorkspaceTool(configuration workspaceToolConfiguration) *workspaceTool {
+	return &workspaceTool{configuration: configuration}
 }
 
 func (self *workspaceTool) Definition() providers.ToolDefinition {
@@ -141,12 +141,12 @@ func (self *workspaceTool) Definition() providers.ToolDefinition {
 
 	required := []string{"action"}
 
-	if self.config.scopeIdParameterName != "" {
-		properties[self.config.scopeIdParameterName] = map[string]interface{}{
+	if self.configuration.scopeIdParameterName != "" {
+		properties[self.configuration.scopeIdParameterName] = map[string]interface{}{
 			"type":        "string",
-			"description": self.config.scopeIdParameterDescription,
+			"description": self.configuration.scopeIdParameterDescription,
 		}
-		required = append(required, self.config.scopeIdParameterName)
+		required = append(required, self.configuration.scopeIdParameterName)
 	}
 
 	properties["fromPath"] = map[string]interface{}{
@@ -164,8 +164,8 @@ func (self *workspaceTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
 		Function: providers.FunctionSpec{
-			Name:        self.config.name,
-			Description: self.config.description + descriptionSuffix,
+			Name:        self.configuration.name,
+			Description: self.configuration.description + descriptionSuffix,
 			Parameters: map[string]interface{}{
 				"type":       "object",
 				"properties": properties,
@@ -218,10 +218,10 @@ func (self *workspaceTool) Execute(ctx context.Context, rawArguments string) (st
 	}
 
 	// Extract scope ID from the named parameter if configured.
-	if self.config.scopeIdParameterName != "" {
+	if self.configuration.scopeIdParameterName != "" {
 		var rawMap map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(rawArguments), &rawMap); err == nil {
-			if raw, ok := rawMap[self.config.scopeIdParameterName]; ok {
+			if raw, ok := rawMap[self.configuration.scopeIdParameterName]; ok {
 				var scopeId string
 				if err := json.Unmarshal(raw, &scopeId); err == nil {
 					arguments.ScopeID = scopeId
@@ -230,7 +230,7 @@ func (self *workspaceTool) Execute(ctx context.Context, rawArguments string) (st
 		}
 	}
 
-	scope, scopeId, scopeError := self.config.resolveScope(ctx, arguments.ScopeID)
+	scope, scopeId, scopeError := self.configuration.resolveScope(ctx, arguments.ScopeID)
 	if scopeError != nil {
 		return "", scopeError
 	}
@@ -276,8 +276,8 @@ func (self *workspaceTool) Execute(ctx context.Context, rawArguments string) (st
 }
 
 func (self *workspaceTool) callAfterMutate(ctx context.Context, scopeId string) {
-	if self.config.afterMutate != nil {
-		if err := self.config.afterMutate(ctx, scopeId); err != nil {
+	if self.configuration.afterMutate != nil {
+		if err := self.configuration.afterMutate(ctx, scopeId); err != nil {
 			log.Warningf("failed to call after mutate: %v", err)
 		}
 	}

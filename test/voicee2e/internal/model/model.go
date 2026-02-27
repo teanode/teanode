@@ -2,27 +2,27 @@ package model
 
 import "time"
 
-type RunnerConfig struct {
+type RunnerConfiguration struct {
 	GatewayURL string
 	SuitePath  string
 	Scenario   string
-	OutPath    string
+	OutputPath string
 	PromptPath string
 	PromptA    string
 	PromptB    string
 	Compare    bool
 }
 
-type SuiteSpec struct {
+type SuiteSpecification struct {
 	Name      string         `yaml:"name"`
-	Scenarios []ScenarioSpec `yaml:"scenarios"`
+	Scenarios []ScenarioSpecification `yaml:"scenarios"`
 }
 
-type ScenarioSpec struct {
+type ScenarioSpecification struct {
 	ID          string               `yaml:"id"`
 	Name        string               `yaml:"name"`
 	Description string               `yaml:"description"`
-	TimeoutSec  int                  `yaml:"timeout_sec"`
+	TimeoutSeconds int                  `yaml:"timeout_sec"`
 	Audio       []AudioStep          `yaml:"audio"`
 	Expect      ScenarioExpectations `yaml:"expect"`
 }
@@ -103,6 +103,6 @@ type CompareReport struct {
 	StartedAt time.Time `json:"started_at"`
 	EndedAt   time.Time `json:"ended_at"`
 	BasePath  string    `json:"base_path"`
-	CandPath  string    `json:"cand_path"`
+	CandidatePath string    `json:"cand_path"`
 	Summary   []string  `json:"summary"`
 }

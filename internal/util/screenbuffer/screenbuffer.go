@@ -48,7 +48,7 @@ type Buffer struct {
 	primaryScrollback []string
 
 	state  int
-	csiBuf []byte
+	csiBuffer []byte
 	oscEsc bool
 }
 
@@ -59,13 +59,13 @@ func New(maxLines int) *Buffer {
 
 // NewWithSize creates a new screen buffer with a specific viewport size.
 func NewWithSize(maxLines int, rows, cols uint16) *Buffer {
-	r, c := sanitizeSize(int(rows), int(cols))
+	sanitizedRows, sanitizedCols := sanitizeSize(int(rows), int(cols))
 	buffer := &Buffer{
 		maxLines: maxLines,
-		rows:     r,
-		cols:     c,
+		rows:     sanitizedRows,
+		cols:     sanitizedCols,
 	}
-	buffer.screen = makeScreen(r, c)
+	buffer.screen = makeScreen(sanitizedRows, sanitizedCols)
 	return buffer
 }
 
@@ -74,19 +74,19 @@ func (self *Buffer) Resize(rows, cols uint16) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
-	r, c := sanitizeSize(int(rows), int(cols))
-	if r == self.rows && c == self.cols {
+	sanitizedRows, sanitizedCols := sanitizeSize(int(rows), int(cols))
+	if sanitizedRows == self.rows && sanitizedCols == self.cols {
 		return
 	}
 
 	oldRows, oldCols := self.rows, self.cols
-	self.screen = resizeScreen(self.screen, oldRows, oldCols, r, c)
+	self.screen = resizeScreen(self.screen, oldRows, oldCols, sanitizedRows, sanitizedCols)
 	if self.primaryScreen != nil {
-		self.primaryScreen = resizeScreen(self.primaryScreen, oldRows, oldCols, r, c)
+		self.primaryScreen = resizeScreen(self.primaryScreen, oldRows, oldCols, sanitizedRows, sanitizedCols)
 	}
 
-	self.rows = r
-	self.cols = c
+	self.rows = sanitizedRows
+	self.cols = sanitizedCols
 	if self.cursorRow >= self.rows {
 		self.cursorRow = self.rows - 1
 	}
@@ -101,17 +101,17 @@ func (self *Buffer) Resize(rows, cols uint16) {
 	}
 
 	if self.primaryScreen != nil {
-		if self.primaryCursorRow >= r {
-			self.primaryCursorRow = r - 1
+		if self.primaryCursorRow >= sanitizedRows {
+			self.primaryCursorRow = sanitizedRows - 1
 		}
-		if self.primaryCursorCol >= c {
-			self.primaryCursorCol = c - 1
+		if self.primaryCursorCol >= sanitizedCols {
+			self.primaryCursorCol = sanitizedCols - 1
 		}
-		if self.primarySavedRow >= r {
-			self.primarySavedRow = r - 1
+		if self.primarySavedRow >= sanitizedRows {
+			self.primarySavedRow = sanitizedRows - 1
 		}
-		if self.primarySavedCol >= c {
-			self.primarySavedCol = c - 1
+		if self.primarySavedCol >= sanitizedCols {
+			self.primarySavedCol = sanitizedCols - 1
 		}
 	}
 }
@@ -145,7 +145,7 @@ func (self *Buffer) Write(input []byte) {
 			self.state = stateEsc
 		case 0x9b: // 8-bit CSI
 			self.state = stateCSI
-			self.csiBuf = self.csiBuf[:0]
+			self.csiBuffer = self.csiBuffer[:0]
 		case '\n':
 			self.lineFeed()
 			self.cursorCol = 0
@@ -198,7 +198,7 @@ func (self *Buffer) consumeEsc(byteValue byte) {
 	switch byteValue {
 	case '[':
 		self.state = stateCSI
-		self.csiBuf = self.csiBuf[:0]
+		self.csiBuffer = self.csiBuffer[:0]
 	case ']':
 		self.state = stateOSC
 		self.oscEsc = false
@@ -237,12 +237,12 @@ func (self *Buffer) consumeEsc(byteValue byte) {
 
 func (self *Buffer) consumeCSI(byteValue byte) {
 	if byteValue >= 0x40 && byteValue <= 0x7e {
-		self.handleCSI(byteValue, string(self.csiBuf))
-		self.csiBuf = self.csiBuf[:0]
+		self.handleCSI(byteValue, string(self.csiBuffer))
+		self.csiBuffer = self.csiBuffer[:0]
 		self.state = stateNormal
 		return
 	}
-	self.csiBuf = append(self.csiBuf, byteValue)
+	self.csiBuffer = append(self.csiBuffer, byteValue)
 }
 
 func (self *Buffer) consumeOSC(byteValue byte) {
@@ -283,9 +283,9 @@ func (self *Buffer) handleCSI(final byte, raw string) {
 	}
 
 	paramsPart := raw
-	for i, b := range raw {
-		if b >= 0x20 && b <= 0x2f {
-			paramsPart = raw[:i]
+	for index, byteVal := range raw {
+		if byteVal >= 0x20 && byteVal <= 0x2f {
+			paramsPart = raw[:index]
 			break
 		}
 	}
@@ -439,7 +439,7 @@ func (self *Buffer) reset() {
 	self.savedCol = 0
 	self.scrollback = self.scrollback[:0]
 	self.state = stateNormal
-	self.csiBuf = self.csiBuf[:0]
+	self.csiBuffer = self.csiBuffer[:0]
 	self.oscEsc = false
 }
 
@@ -594,16 +594,16 @@ func trimRightSpaces(row []rune) []rune {
 	return row[:end]
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+func min(first, second int) int {
+	if first < second {
+		return first
 	}
-	return b
+	return second
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
+func max(first, second int) int {
+	if first > second {
+		return first
 	}
-	return b
+	return second
 }

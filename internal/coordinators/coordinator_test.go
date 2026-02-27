@@ -33,7 +33,7 @@ func (self *testProvider) ChatCompletionStream(_ context.Context, request provid
 						FinishReason: "stop",
 					},
 				},
-				Usage: &providers.UsageInfo{
+				Usage: &providers.UsageInformation{
 					PromptTokens:     1,
 					CompletionTokens: 1,
 					TotalTokens:      2,
@@ -45,8 +45,8 @@ func (self *testProvider) ChatCompletionStream(_ context.Context, request provid
 	return events, nil
 }
 
-func (self *testProvider) ListModels(_ context.Context) ([]providers.ModelInfo, error) {
-	return []providers.ModelInfo{{ID: "test-model"}}, nil
+func (self *testProvider) ListModels(_ context.Context) ([]providers.ModelInformation, error) {
+	return []providers.ModelInformation{{ID: "test-model"}}, nil
 }
 
 func newTestCoordinator(t *testing.T) (*Coordinator, context.Context, string) {

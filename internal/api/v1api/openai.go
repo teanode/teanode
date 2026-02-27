@@ -198,16 +198,16 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 		},
 	})
 	if sendError != nil {
-		errData, _ := json.Marshal(map[string]string{"error": sendError.Error()})
-		fmt.Fprintf(writer, "data: %s\n\n", errData)
+		errorData, _ := json.Marshal(map[string]string{"error": sendError.Error()})
+		fmt.Fprintf(writer, "data: %s\n\n", errorData)
 		flusher.Flush()
 		return nil
 	}
 
 	result, err := handle.Wait()
 	if err != nil {
-		errData, _ := json.Marshal(map[string]string{"error": err.Error()})
-		fmt.Fprintf(writer, "data: %s\n\n", errData)
+		errorData, _ := json.Marshal(map[string]string{"error": err.Error()})
+		fmt.Fprintf(writer, "data: %s\n\n", errorData)
 		flusher.Flush()
 		return nil
 	}

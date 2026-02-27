@@ -14,15 +14,15 @@ import (
 )
 
 type mockDispatcher struct {
-	mu         sync.Mutex
+	mutex      sync.Mutex
 	runCounter int
 	sendCalls  []coordinators.RunParameters
 	abortCalls []string
 }
 
 func (self *mockDispatcher) Run(_ context.Context, parameters coordinators.RunParameters, _ *runners.RunCallbacks) (*coordinators.RunHandle, error) {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	self.runCounter++
 	self.sendCalls = append(self.sendCalls, parameters)
 	handle := coordinators.NewRunHandle(fmt.Sprintf("run-%d", self.runCounter), parameters.ConversationID)
@@ -31,8 +31,8 @@ func (self *mockDispatcher) Run(_ context.Context, parameters coordinators.RunPa
 }
 
 func (self *mockDispatcher) AbortRun(runId string) bool {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	self.abortCalls = append(self.abortCalls, runId)
 	return true
 }
@@ -43,7 +43,7 @@ func (self *mockDispatcher) ProviderRegistry() *providers.ProviderRegistry {
 }
 
 type eventRecorder struct {
-	mu     sync.Mutex
+	mutex  sync.Mutex
 	events []map[string]interface{}
 }
 
@@ -52,14 +52,14 @@ func (self *eventRecorder) append(value any) {
 	if !ok {
 		return
 	}
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	self.events = append(self.events, eventMap)
 }
 
 func (self *eventRecorder) findTurnEvent(event string) map[string]interface{} {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	for index := len(self.events) - 1; index >= 0; index-- {
 		entry := self.events[index]
 		if entry["type"] != "turn.event" {
@@ -105,7 +105,7 @@ func (self *mockTranscriberProvider) ChatCompletionStream(_ context.Context, _ p
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (self *mockTranscriberProvider) ListModels(_ context.Context) ([]providers.ModelInfo, error) {
+func (self *mockTranscriberProvider) ListModels(_ context.Context) ([]providers.ModelInformation, error) {
 	return nil, nil
 }
 
@@ -114,20 +114,20 @@ func (self *mockTranscriberProvider) Transcribe(_ context.Context, _ providers.T
 }
 
 func (self *mockDispatcher) sendCount() int {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	return len(self.sendCalls)
 }
 
 func (self *mockDispatcher) lastSend() coordinators.RunParameters {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	return self.sendCalls[len(self.sendCalls)-1]
 }
 
 func (self *mockDispatcher) abortCount() int {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	return len(self.abortCalls)
 }
 
@@ -169,11 +169,11 @@ func newPipelineSessionWithEvents(text string) (*Session, *mockDispatcher, *even
 }
 
 func makePCMFrame(sample int16, samples int) []byte {
-	buf := make([]byte, samples*2)
+	buffer := make([]byte, samples*2)
 	for index := 0; index < samples; index++ {
-		binary.LittleEndian.PutUint16(buf[index*2:index*2+2], uint16(sample))
+		binary.LittleEndian.PutUint16(buffer[index*2:index*2+2], uint16(sample))
 	}
-	return buf
+	return buffer
 }
 
 func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {

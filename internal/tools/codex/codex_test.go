@@ -88,7 +88,7 @@ func TestRunWithValidJSON(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -147,7 +147,7 @@ func TestRunWithNonJSONFallback(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -177,7 +177,7 @@ func TestRunWithNonJSONFallbackError(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -206,7 +206,7 @@ func TestRunMissingPrompt(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -223,7 +223,7 @@ func TestRunRequiresResumeWhenSessionExists(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions: map[string]*sessionInfo{
+		sessions: map[string]*sessionInformation{
 			"existing-session": {SessionID: "existing-session"},
 		},
 	}
@@ -244,7 +244,7 @@ func TestRunAllowsForceNewSessionWhenSessionExists(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions: map[string]*sessionInfo{
+		sessions: map[string]*sessionInformation{
 			"existing-session": {SessionID: "existing-session"},
 		},
 	}
@@ -272,7 +272,7 @@ func TestResumeKnownSession(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions: map[string]*sessionInfo{
+		sessions: map[string]*sessionInformation{
 			"abc-123": {
 				SessionID:  "abc-123",
 				CreatedAt:  time.Now().Add(-time.Hour),
@@ -334,7 +334,7 @@ func TestResumeWithoutTrackedSession(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -378,7 +378,7 @@ func TestResumeMissingSessionID(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -396,7 +396,7 @@ func TestResumeMissingPrompt(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions: map[string]*sessionInfo{
+		sessions: map[string]*sessionInformation{
 			"abc-123": {SessionID: "abc-123"},
 		},
 	}
@@ -415,7 +415,7 @@ func TestResumeMissingPrompt(testing *testing.T) {
 
 func TestListSessionsEmpty(testing *testing.T) {
 	tool := &codexTool{
-		sessions: make(map[string]*sessionInfo),
+		sessions: make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -454,7 +454,7 @@ func TestListSessionsAfterRuns(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	// Run two tasks.
@@ -597,19 +597,19 @@ func TestLoadSessionsFromConversationStore(testing *testing.T) {
 		testing.Fatalf("expected 2 sessions, got %d", len(sessions))
 	}
 
-	sessionsByID := map[string]*sessionInfo{}
+	sessionsById := map[string]*sessionInformation{}
 	for index := range sessions {
-		sessionsByID[sessions[index].SessionID] = &sessions[index]
+		sessionsById[sessions[index].SessionID] = &sessions[index]
 	}
 
-	s1 := sessionsByID["s1"]
+	s1 := sessionsById["s1"]
 	if s1 == nil {
 		testing.Fatalf("expected session s1 in results: %+v", sessions)
 	}
 	if s1.TurnCount != 2 {
 		testing.Errorf("expected s1 turnCount 2, got %d", s1.TurnCount)
 	}
-	s2 := sessionsByID["s2"]
+	s2 := sessionsById["s2"]
 	if s2 == nil {
 		testing.Fatalf("expected session s2 in results: %+v", sessions)
 	}
@@ -736,7 +736,7 @@ func TestTimeoutCapping(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	// Request a timeout that exceeds the max — it should be capped.
@@ -755,7 +755,7 @@ func TestTimeoutCapping(testing *testing.T) {
 
 func TestUnknownAction(testing *testing.T) {
 	tool := &codexTool{
-		sessions: make(map[string]*sessionInfo),
+		sessions: make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -771,7 +771,7 @@ func TestUnknownAction(testing *testing.T) {
 
 func TestSessionTracking(testing *testing.T) {
 	tool := &codexTool{
-		sessions: make(map[string]*sessionInfo),
+		sessions: make(map[string]*sessionInformation),
 	}
 
 	// Track a new session.
@@ -806,7 +806,7 @@ func TestRunCommandExecutionError(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -828,7 +828,7 @@ func TestRunWithWorkingDirectory(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -857,7 +857,7 @@ func TestRunFallbackToStderr(testing *testing.T) {
 	tool := &codexTool{
 		binaryPath: "/usr/bin/codex",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{

@@ -104,8 +104,8 @@ func estimateMessageTokens(message providers.ChatMessage) int {
 	return tokens
 }
 
-// estimateToolDefsTokens estimates the token overhead of tool definitions.
-func estimateToolDefsTokens(tools []providers.ToolDefinition) int {
+// estimateToolDefinitionsTokens estimates the token overhead of tool definitions.
+func estimateToolDefinitionsTokens(tools []providers.ToolDefinition) int {
 	tokens := 0
 	for _, tool := range tools {
 		tokens += estimateTokens(tool.Function.Name) + estimateTokens(tool.Function.Description)
@@ -652,13 +652,13 @@ func (self *Runner) resolveContextWindow(ctx context.Context) int {
 func (self *Runner) compressContext(
 	ctx context.Context,
 	messages []providers.ChatMessage,
-	toolDefs []providers.ToolDefinition,
+	toolDefinitions []providers.ToolDefinition,
 	limits contextCompressionLimits,
 ) ([]providers.ChatMessage, error) {
 	contextWindow := self.resolveContextWindow(ctx)
 
 	// Estimate total tokens.
-	total := estimateToolDefsTokens(toolDefs)
+	total := estimateToolDefinitionsTokens(toolDefinitions)
 	for _, message := range messages {
 		total += estimateMessageTokens(message)
 	}

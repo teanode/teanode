@@ -33,7 +33,7 @@ var DefaultAllowedTools = []string{
 }
 
 // commandRunner abstracts command execution for testing.
-type commandRunner func(ctx context.Context, name string, args []string, directory string) (stdout []byte, stderr []byte, exitCode int, err error)
+type commandRunner func(ctx context.Context, name string, arguments []string, directory string) (stdout []byte, stderr []byte, exitCode int, err error)
 
 // defaultCommandRunner executes commands via cmdexec.Run.
 func defaultCommandRunner(ctx context.Context, name string, arguments []string, directory string) ([]byte, []byte, int, error) {
@@ -46,8 +46,8 @@ func defaultCommandRunner(ctx context.Context, name string, arguments []string, 
 	return result.Stdout, result.Stderr, result.ExitCode, nil
 }
 
-// sessionInfo tracks an in-memory session for convenience.
-type sessionInfo struct {
+// sessionInformation tracks an in-memory session for convenience.
+type sessionInformation struct {
 	SessionID  string    `json:"sessionId"`
 	CreatedAt  time.Time `json:"createdAt"`
 	LastUsedAt time.Time `json:"lastUsedAt"`
@@ -58,27 +58,27 @@ type sessionInfo struct {
 type codexTool struct {
 	binaryPath string
 	runner     commandRunner
-	sessions   map[string]*sessionInfo
+	sessions   map[string]*sessionInformation
 	mutex      sync.Mutex
 }
 
-// configFromContext reads the Codex tool configuration from the store.
-func configFromContext(ctx context.Context) (extraArgs []string, model string, timeout time.Duration) {
+// configurationFromContext reads the Codex tool configuration from the store.
+func configurationFromContext(ctx context.Context) (extraArguments []string, model string, timeout time.Duration) {
 	timeout = defaultTimeout
 	dataStore := store.StoreFromContextSafe(ctx)
 	if dataStore == nil {
 		return
 	}
 	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		configuration, err := transaction.GetConfiguration(ctx, nil)
+		storedConfiguration, err := transaction.GetConfiguration(ctx, nil)
 		if err != nil {
 			return err
 		}
-		if configuration.Tools != nil && configuration.Tools.Codex != nil {
-			config := configuration.Tools.Codex
-			extraArgs = config.GetExtraArgs()
-			model = config.GetModel()
-			if seconds := config.GetMaxTurnTimeoutSeconds(); seconds > 0 {
+		if storedConfiguration.Tools != nil && storedConfiguration.Tools.Codex != nil {
+			configuration := storedConfiguration.Tools.Codex
+			extraArguments = configuration.GetExtraArguments()
+			model = configuration.GetModel()
+			if seconds := configuration.GetMaxTurnTimeoutSeconds(); seconds > 0 {
 				timeout = time.Duration(seconds) * time.Second
 				if timeout > maxTimeout {
 					timeout = maxTimeout
@@ -107,7 +107,7 @@ func createTools() []tools.Tool {
 	return []tools.Tool{&codexTool{
 		binaryPath: resolvedPath,
 		runner:     defaultCommandRunner,
-		sessions:   make(map[string]*sessionInfo),
+		sessions:   make(map[string]*sessionInformation),
 	}}
 }
 
@@ -301,7 +301,7 @@ func (self *codexTool) executeListSessions(ctx context.Context) (string, error) 
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
-	sessionList := make([]sessionInfo, 0, len(self.sessions))
+	sessionList := make([]sessionInformation, 0, len(self.sessions))
 	for _, session := range self.sessions {
 		sessionList = append(sessionList, *session)
 	}
@@ -331,7 +331,7 @@ func (self *codexTool) resolveConversationScope(ctx context.Context) (string, st
 	return user.ID, runner.AgentID, nil
 }
 
-func (self *codexTool) loadSessionsFromConversationStore(ctx context.Context, userId, agentId string) ([]sessionInfo, error) {
+func (self *codexTool) loadSessionsFromConversationStore(ctx context.Context, userId, agentId string) ([]sessionInformation, error) {
 	conversationList := make([]*models.Conversation, 0)
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		items, listError := transaction.ListConversations(ctx, store.ConversationListOptions{
@@ -347,7 +347,7 @@ func (self *codexTool) loadSessionsFromConversationStore(ctx context.Context, us
 		return nil, fmt.Errorf("listing conversations: %w", err)
 	}
 
-	sessionsById := make(map[string]*sessionInfo)
+	sessionsById := make(map[string]*sessionInformation)
 	for _, conversation := range conversationList {
 		messages := make([]*models.ConversationMessage, 0)
 		if loadError := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
@@ -380,7 +380,7 @@ func (self *codexTool) loadSessionsFromConversationStore(ctx context.Context, us
 			}
 			existing := sessionsById[sessionId]
 			if existing == nil {
-				sessionsById[sessionId] = &sessionInfo{
+				sessionsById[sessionId] = &sessionInformation{
 					SessionID:  sessionId,
 					CreatedAt:  timestamp,
 					LastUsedAt: timestamp,
@@ -398,7 +398,7 @@ func (self *codexTool) loadSessionsFromConversationStore(ctx context.Context, us
 		}
 	}
 
-	sessionList := make([]sessionInfo, 0, len(sessionsById))
+	sessionList := make([]sessionInformation, 0, len(sessionsById))
 	for _, session := range sessionsById {
 		sessionList = append(sessionList, *session)
 	}
@@ -432,7 +432,7 @@ func extractSessionIdFromToolResult(result string) string {
 }
 
 func (self *codexTool) buildArguments(ctx context.Context, prompt, sessionId, systemPrompt string) []string {
-	extraArgs, model, _ := configFromContext(ctx)
+	extraArguments, model, _ := configurationFromContext(ctx)
 
 	if systemPrompt != "" {
 		prompt = fmt.Sprintf("Additional system instructions:\n%s\n\nUser request:\n%s", systemPrompt, prompt)
@@ -448,8 +448,8 @@ func (self *codexTool) buildArguments(ctx context.Context, prompt, sessionId, sy
 	if model != "" {
 		arguments = append(arguments, "--model", model)
 	}
-	if len(extraArgs) > 0 {
-		arguments = append(arguments, extraArgs...)
+	if len(extraArguments) > 0 {
+		arguments = append(arguments, extraArguments...)
 	}
 	if sessionId != "" {
 		arguments = append(arguments, sessionId)
@@ -460,7 +460,7 @@ func (self *codexTool) buildArguments(ctx context.Context, prompt, sessionId, sy
 }
 
 func (self *codexTool) executeCommand(ctx context.Context, commandArguments []string, workingDirectory string, timeoutSeconds int) (string, error) {
-	_, _, timeout := configFromContext(ctx)
+	_, _, timeout := configurationFromContext(ctx)
 	if timeoutSeconds > 0 {
 		timeout = time.Duration(timeoutSeconds) * time.Second
 		if timeout > maxTimeout {
@@ -503,8 +503,8 @@ type codexOutput struct {
 	SessionID       string  `json:"session_id"`
 	IsError         bool    `json:"is_error"`
 	CostUSD         float64 `json:"cost_usd"`
-	NumInputTokens  int     `json:"num_input_tokens"`
-	NumOutputTokens int     `json:"num_output_tokens"`
+	NumberInputTokens  int     `json:"num_input_tokens"`
+	NumberOutputTokens int     `json:"num_output_tokens"`
 }
 
 func (self *codexTool) parseOutput(stdout, stderr []byte, exitCode int, duration float64, timedOut bool, workingDirectory string) (string, error) {
@@ -542,8 +542,8 @@ func (self *codexTool) parseOutput(stdout, stderr []byte, exitCode int, duration
 		"duration":         duration,
 		"exitCode":         exitCode,
 		"costUsd":          parsed.CostUSD,
-		"inputTokens":      parsed.NumInputTokens,
-		"outputTokens":     parsed.NumOutputTokens,
+		"inputTokens":      parsed.NumberInputTokens,
+		"outputTokens":     parsed.NumberOutputTokens,
 		"timedOut":         timedOut,
 		"workingDirectory": workingDirectory,
 	}
@@ -569,7 +569,7 @@ func (self *codexTool) trackSession(sessionId string) {
 	now := time.Now()
 	session, exists := self.sessions[sessionId]
 	if !exists {
-		self.sessions[sessionId] = &sessionInfo{
+		self.sessions[sessionId] = &sessionInformation{
 			SessionID:  sessionId,
 			CreatedAt:  now,
 			LastUsedAt: now,

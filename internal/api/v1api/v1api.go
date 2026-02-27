@@ -65,32 +65,32 @@ func New(coordinator *coordinators.Coordinator, events *pubsub.PubSub, sessions 
 
 // AddRoutes registers all v1 API routes on the router. Implements web.Component.
 func (self *v1Api) AddRoutes(router *mux.Router) error {
-	sub := router.PathPrefix("/api/v1").Subrouter()
+	subrouter := router.PathPrefix("/api/v1").Subrouter()
 
-	sub.Handle("/health", web.HandlerFunc(self.handleHealth))
+	subrouter.Handle("/health", web.HandlerFunc(self.handleHealth))
 
 	// Auth endpoints (exempt from auth middleware).
-	sub.Handle("/auth/status", web.HandlerFunc(self.handleAuthStatus))
-	sub.Handle("/auth/setup", web.HandlerFunc(self.handleAuthSetup))
-	sub.Handle("/auth/login", web.HandlerFunc(self.handleAuthLogin))
-	sub.Handle("/auth/logout", web.HandlerFunc(self.handleAuthLogout))
+	subrouter.Handle("/auth/status", web.HandlerFunc(self.handleAuthStatus))
+	subrouter.Handle("/auth/setup", web.HandlerFunc(self.handleAuthSetup))
+	subrouter.Handle("/auth/login", web.HandlerFunc(self.handleAuthLogin))
+	subrouter.Handle("/auth/logout", web.HandlerFunc(self.handleAuthLogout))
 
-	sub.Handle("/websocket", web.HandlerFunc(self.handleWebSocket))
+	subrouter.Handle("/websocket", web.HandlerFunc(self.handleWebSocket))
 
 	if self.browserRelay != nil {
-		sub.Handle("/browser", web.HandlerFunc(self.handleBrowserWebSocket))
+		subrouter.Handle("/browser", web.HandlerFunc(self.handleBrowserWebSocket))
 	}
 	if self.terminalRelay != nil {
-		sub.Handle("/terminal", web.HandlerFunc(self.handleTerminalWebSocket))
+		subrouter.Handle("/terminal", web.HandlerFunc(self.handleTerminalWebSocket))
 	}
-	sub.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
-	sub.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
+	subrouter.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
+	subrouter.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
 
-	sub.Handle("/audio/transcribe", web.HandlerFunc(self.handleAudioTranscribe))
-	sub.Handle("/audio/synthesize", web.HandlerFunc(self.handleAudioSynthesize))
-	sub.Handle("/audio/stream", web.HandlerFunc(self.handleAudioStream))
+	subrouter.Handle("/audio/transcribe", web.HandlerFunc(self.handleAudioTranscribe))
+	subrouter.Handle("/audio/synthesize", web.HandlerFunc(self.handleAudioSynthesize))
+	subrouter.Handle("/audio/stream", web.HandlerFunc(self.handleAudioStream))
 
-	sub.Handle("/chat/completions", web.HandlerFunc(self.handleChatCompletions))
+	subrouter.Handle("/chat/completions", web.HandlerFunc(self.handleChatCompletions))
 	return nil
 }
 

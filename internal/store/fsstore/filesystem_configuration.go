@@ -15,11 +15,11 @@ func (self *fileSystemTransaction) ModifyConfiguration(ctx context.Context, modi
 	return self.modifyConfiguration(ctx, modifier, options)
 }
 func (self *fileSystemTransaction) getConfiguration(options *store.Option) (*models.Configuration, error) {
-	configuration, err := self.loadConfigRecord()
+	configuration, err := self.loadConfigurationRecord()
 	if err != nil {
 		return nil, err
 	}
-	return configToModel(configuration), nil
+	return configurationToModel(configuration), nil
 }
 
 func (self *fileSystemTransaction) modifyConfiguration(ctx context.Context, modifier func(*models.Configuration) error, options *store.Option) (*models.Configuration, error) {
@@ -30,14 +30,14 @@ func (self *fileSystemTransaction) modifyConfiguration(ctx context.Context, modi
 	if err := modifier(modelConfiguration); err != nil {
 		return nil, err
 	}
-	configuration := modelToConfig(modelConfiguration)
-	if err := self.saveConfigRecord(configuration); err != nil {
+	configuration := modelToConfiguration(modelConfiguration)
+	if err := self.saveConfigurationRecord(configuration); err != nil {
 		return nil, err
 	}
 	return modelConfiguration, nil
 }
 
-func configToModel(configuration *storeConfigRecord) *models.Configuration {
+func configurationToModel(configuration *storeConfigurationRecord) *models.Configuration {
 	if configuration == nil {
 		return &models.Configuration{}
 	}
@@ -96,7 +96,7 @@ func configToModel(configuration *storeConfigRecord) *models.Configuration {
 			BinaryPath:            ptrto.TrimmedString(configuration.Tools.Codex.BinaryPath),
 			AllowedTools:          ptrto.TrimmedStrings(configuration.Tools.Codex.AllowedTools),
 			Model:                 ptrto.TrimmedString(configuration.Tools.Codex.Model),
-			ExtraArgs:             ptrto.TrimmedStrings(configuration.Tools.Codex.ExtraArgs),
+			ExtraArguments:        ptrto.TrimmedStrings(configuration.Tools.Codex.ExtraArguments),
 			MaxTurnTimeoutSeconds: ptrto.Value(configuration.Tools.Codex.MaxTurnTimeoutSeconds),
 		}
 	}
@@ -158,8 +158,8 @@ func configToModel(configuration *storeConfigRecord) *models.Configuration {
 	return result
 }
 
-func modelToConfig(configuration *models.Configuration) *storeConfigRecord {
-	result := &storeConfigRecord{}
+func modelToConfiguration(configuration *models.Configuration) *storeConfigurationRecord {
+	result := &storeConfigurationRecord{}
 	if configuration == nil {
 		return result
 	}
@@ -216,7 +216,7 @@ func modelToConfig(configuration *models.Configuration) *storeConfigRecord {
 				BinaryPath:            configuration.Tools.Codex.GetBinaryPath(),
 				AllowedTools:          sliceValue(configuration.Tools.Codex.AllowedTools),
 				Model:                 configuration.Tools.Codex.GetModel(),
-				ExtraArgs:             sliceValue(configuration.Tools.Codex.ExtraArgs),
+				ExtraArguments:        sliceValue(configuration.Tools.Codex.ExtraArguments),
 				MaxTurnTimeoutSeconds: configuration.Tools.Codex.GetMaxTurnTimeoutSeconds(),
 			}
 		}

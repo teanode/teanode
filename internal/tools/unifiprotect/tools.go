@@ -95,17 +95,17 @@ func (self *unifiProtectTool) Definition() providers.ToolDefinition {
 }
 
 func (self *unifiProtectTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	config := configFromContext(ctx)
-	if config.baseURL == "" {
+	configuration := configurationFromContext(ctx)
+	if configuration.baseUrl == "" {
 		return "", fmt.Errorf("UniFi Protect tool is not configured: baseUrl is missing")
 	}
-	if config.apiKey == "" && (config.username == "" || config.password == "") {
+	if configuration.apiKey == "" && (configuration.username == "" || configuration.password == "") {
 		return "", fmt.Errorf("UniFi Protect tool is not configured: credentials are missing (need apiKey or username+password)")
 	}
 
 	execution := &unifiProtectExecution{
-		client:  NewHTTPClient(config),
-		checker: NewAccessChecker(config),
+		client:  NewHTTPClient(configuration),
+		checker: NewAccessChecker(configuration),
 	}
 
 	return execution.execute(ctx, rawArguments)

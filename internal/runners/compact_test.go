@@ -22,16 +22,16 @@ func TestEstimateTokens(t *testing.T) {
 		{strings.Repeat("x", 100), 25},
 		{strings.Repeat("x", 400), 100},
 	}
-	for _, tt := range tests {
-		got := estimateTokens(tt.input)
-		if got != tt.want {
-			t.Errorf("estimateTokens(%d chars) = %d, want %d", len(tt.input), got, tt.want)
+	for _, testCase := range tests {
+		got := estimateTokens(testCase.input)
+		if got != testCase.want {
+			t.Errorf("estimateTokens(%d chars) = %d, want %d", len(testCase.input), got, testCase.want)
 		}
 	}
 }
 
 func TestEstimateMessageTokens(t *testing.T) {
-	msg := providers.ChatMessage{
+	message := providers.ChatMessage{
 		Role:    "assistant",
 		Content: strings.Repeat("x", 100),
 		ToolCalls: []providers.ToolCall{
@@ -45,7 +45,7 @@ func TestEstimateMessageTokens(t *testing.T) {
 			},
 		},
 	}
-	tokens := estimateMessageTokens(msg)
+	tokens := estimateMessageTokens(message)
 	// Content: 25 + 4 overhead + tool call tokens
 	if tokens < 25 {
 		t.Errorf("estimateMessageTokens = %d, expected >= 25", tokens)
@@ -138,9 +138,9 @@ func TestTruncateOldToolResults(t *testing.T) {
 	}
 
 	// Recent messages should be preserved
-	lastIdx := len(result) - 1
-	if result[lastIdx].ContentText() != "recent message" {
-		t.Errorf("recent message was modified: %q", result[lastIdx].ContentText())
+	lastIndex := len(result) - 1
+	if result[lastIndex].ContentText() != "recent message" {
+		t.Errorf("recent message was modified: %q", result[lastIndex].ContentText())
 	}
 }
 

@@ -277,24 +277,24 @@ func executePressKey(ctx context.Context, browser browsers.Browser, connectionId
 		return "", err
 	}
 
-	info := keyInfo(key)
+	information := keyInformation(key)
 
 	for _, eventType := range []string{"keyDown", "keyUp"} {
-		params := map[string]interface{}{
+		parameters := map[string]interface{}{
 			"type": eventType,
-			"key":  info.key,
+			"key":  information.key,
 		}
-		if info.code != "" {
-			params["code"] = info.code
+		if information.code != "" {
+			parameters["code"] = information.code
 		}
-		if info.keyCode != 0 {
-			params["windowsVirtualKeyCode"] = info.keyCode
-			params["nativeVirtualKeyCode"] = info.keyCode
+		if information.keyCode != 0 {
+			parameters["windowsVirtualKeyCode"] = information.keyCode
+			parameters["nativeVirtualKeyCode"] = information.keyCode
 		}
-		if eventType == "keyDown" && len(info.text) > 0 {
-			params["text"] = info.text
+		if eventType == "keyDown" && len(information.text) > 0 {
+			parameters["text"] = information.text
 		}
-		_, err := browser.SendCDPCommand(ctx, "Input.dispatchKeyEvent", params, sessionId)
+		_, err := browser.SendCDPCommand(ctx, "Input.dispatchKeyEvent", parameters, sessionId)
 		if err != nil {
 			return "", err
 		}
@@ -495,11 +495,11 @@ func executeTabsClose(ctx context.Context, browser browsers.Browser, targetId st
 	if err != nil {
 		return "", err
 	}
-	params := map[string]interface{}{}
+	parameters := map[string]interface{}{}
 	if targetId != "" {
-		params["targetId"] = targetId
+		parameters["targetId"] = targetId
 	}
-	_, err = browser.SendCDPCommand(ctx, "Target.closeTarget", params, sessionId)
+	_, err = browser.SendCDPCommand(ctx, "Target.closeTarget", parameters, sessionId)
 	if err != nil {
 		return "", err
 	}
@@ -641,7 +641,7 @@ type keyData struct {
 	text    string
 }
 
-func keyInfo(key string) keyData {
+func keyInformation(key string) keyData {
 	switch key {
 	case "Enter":
 		return keyData{key: "Enter", code: "Enter", keyCode: 13, text: "\r"}
