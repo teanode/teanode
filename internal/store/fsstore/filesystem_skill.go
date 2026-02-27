@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/teanode/teanode/internal/models"
@@ -157,74 +156,52 @@ func (self *fileSystemTransaction) createSkill(skill *models.Skill, options *sto
 }
 
 func (self *fileSystemTransaction) getSkill(ctx context.Context, skillId string, options *store.Option) (*models.Skill, error) {
-	// Look up the skill directory directly instead of listing all skills.
 	skillDirectory := filepath.Join(self.skillsDirectory(), skillId)
-	versionEntries, readError := os.ReadDir(skillDirectory)
-	if readError != nil {
+	skillPath := filepath.Join(skillDirectory, "skill.md")
+	parsedSkill, parseError := self.readSkillMarkdown(skillPath)
+	if parseError != nil {
 		return nil, store.ErrNotFound
 	}
 
-	// Find the highest version that contains a valid skill.md.
-	var bestParsedSkill *fileSystemParsedSkill
-	bestVersion := ""
-	for _, versionEntry := range versionEntries {
-		if !versionEntry.IsDir() {
-			continue
-		}
-		versionDirectory := filepath.Join(skillDirectory, versionEntry.Name())
-		skillPath := filepath.Join(versionDirectory, "skill.md")
-		parsedSkill, parseError := self.readSkillMarkdown(skillPath)
-		if parseError != nil {
-			continue
-		}
-		manifestPath := filepath.Join(versionDirectory, "manifest.json")
-		manifest := fileSystemInstalledSkillManifest{}
-		enabled := true
-		if data, readManifestError := os.ReadFile(manifestPath); readManifestError == nil {
-			if unmarshalError := json.Unmarshal(data, &manifest); unmarshalError == nil {
-				if manifest.Enabled != nil {
-					enabled = *manifest.Enabled
-				}
+	manifestPath := filepath.Join(skillDirectory, "manifest.json")
+	manifest := fileSystemInstalledSkillManifest{}
+	enabled := true
+	if data, readManifestError := os.ReadFile(manifestPath); readManifestError == nil {
+		if unmarshalError := json.Unmarshal(data, &manifest); unmarshalError == nil {
+			if manifest.Enabled != nil {
+				enabled = *manifest.Enabled
 			}
 		}
-		parsedSkill.Enabled = enabled
-		parsedSkill.Source = manifest.SourceID
-		parsedSkill.Publisher = manifest.Publisher
-		parsedSkill.InstalledAt = manifest.InstalledAt
-		if parsedSkill.Name == "" {
-			parsedSkill.Name = skillId
-		}
-		if parsedSkill.Version == "" {
-			parsedSkill.Version = manifest.Version
-		}
-		installedVersion := versionEntry.Name()
-		if bestParsedSkill == nil || compareSkillVersions(installedVersion, bestVersion) > 0 {
-			bestParsedSkill = &parsedSkill
-			bestVersion = installedVersion
-		}
 	}
-	if bestParsedSkill == nil {
-		return nil, store.ErrNotFound
+	parsedSkill.Enabled = enabled
+	parsedSkill.Source = manifest.SourceID
+	parsedSkill.Publisher = manifest.Publisher
+	parsedSkill.InstalledAt = manifest.InstalledAt
+	if parsedSkill.Name == "" {
+		parsedSkill.Name = skillId
+	}
+	if parsedSkill.Version == "" {
+		parsedSkill.Version = manifest.Version
 	}
 
 	skill := &models.Skill{
-		ID:          bestParsedSkill.Name,
-		Name:        ptrto.TrimmedString(bestParsedSkill.Name),
-		Description: ptrto.TrimmedString(bestParsedSkill.Description),
-		Version:     ptrto.TrimmedString(bestParsedSkill.Version),
-		Source:      ptrto.TrimmedString(bestParsedSkill.Source),
-		Publisher:   ptrto.TrimmedString(bestParsedSkill.Publisher),
-		Prompt:      ptrto.Value(bestParsedSkill.Prompt),
+		ID:          parsedSkill.Name,
+		Name:        ptrto.TrimmedString(parsedSkill.Name),
+		Description: ptrto.TrimmedString(parsedSkill.Description),
+		Version:     ptrto.TrimmedString(parsedSkill.Version),
+		Source:      ptrto.TrimmedString(parsedSkill.Source),
+		Publisher:   ptrto.TrimmedString(parsedSkill.Publisher),
+		Prompt:      ptrto.Value(parsedSkill.Prompt),
 	}
-	if len(bestParsedSkill.AuthenticationProfiles) > 0 {
-		authenticationProfiles := bestParsedSkill.AuthenticationProfiles
+	if len(parsedSkill.AuthenticationProfiles) > 0 {
+		authenticationProfiles := parsedSkill.AuthenticationProfiles
 		skill.AuthenticationProfiles = &authenticationProfiles
 	}
-	if len(bestParsedSkill.Tools) > 0 {
-		tools := bestParsedSkill.Tools
+	if len(parsedSkill.Tools) > 0 {
+		tools := parsedSkill.Tools
 		skill.Tools = &tools
 	}
-	enabledValue := bestParsedSkill.Enabled
+	enabledValue := parsedSkill.Enabled
 	skill.Enabled = &enabledValue
 	return skill, nil
 }
@@ -259,12 +236,8 @@ func (self *fileSystemTransaction) deleteSkill(skillId string, options *store.Op
 }
 
 func (self *fileSystemTransaction) writeInstalledSkillFiles(skillId string, skill models.Skill) error {
-	version := skill.GetVersion()
-	if version == "" {
-		version = "0.0.0"
-	}
-	versionDirectory := filepath.Join(self.skillsDirectory(), skillId, version)
-	if makeDirectoryError := os.MkdirAll(versionDirectory, 0755); makeDirectoryError != nil {
+	skillDirectory := filepath.Join(self.skillsDirectory(), skillId)
+	if makeDirectoryError := os.MkdirAll(skillDirectory, 0755); makeDirectoryError != nil {
 		return makeDirectoryError
 	}
 	frontmatter := buildSkillFrontmatter(skill, skillId)
@@ -279,12 +252,16 @@ func (self *fileSystemTransaction) writeInstalledSkillFiles(skillId string, skil
 	content.WriteString("---\n\n")
 	content.WriteString(prompt)
 	content.WriteString("\n")
-	if writeError := atomicfile.WriteFile(filepath.Join(versionDirectory, "skill.md"), []byte(content.String())); writeError != nil {
+	if writeError := atomicfile.WriteFile(filepath.Join(skillDirectory, "skill.md"), []byte(content.String())); writeError != nil {
 		return writeError
 	}
 	enabled := true
 	if skill.Enabled != nil {
 		enabled = *skill.Enabled
+	}
+	version := skill.GetVersion()
+	if version == "" {
+		version = "0.0.0"
 	}
 	manifest := fileSystemInstalledSkillManifest{
 		Name:        skill.GetName(),
@@ -298,11 +275,11 @@ func (self *fileSystemTransaction) writeInstalledSkillFiles(skillId string, skil
 	if marshalError != nil {
 		return marshalError
 	}
-	return atomicfile.WriteFile(filepath.Join(versionDirectory, "manifest.json"), manifestData)
+	return atomicfile.WriteFile(filepath.Join(skillDirectory, "manifest.json"), manifestData)
 }
 
 func (self *fileSystemTransaction) loadSkillsFromFileSystem() ([]fileSystemParsedSkill, error) {
-	_, readError := os.ReadDir(self.skillsDirectory())
+	entries, readError := os.ReadDir(self.skillsDirectory())
 	if os.IsNotExist(readError) {
 		return []fileSystemParsedSkill{}, nil
 	}
@@ -310,21 +287,18 @@ func (self *fileSystemTransaction) loadSkillsFromFileSystem() ([]fileSystemParse
 		return nil, readError
 	}
 
-	results := make([]fileSystemParsedSkill, 0)
-	installedSkillsByName := map[string]struct {
-		skill   fileSystemParsedSkill
-		version string
-	}{}
-
-	installedRoot := self.skillsDirectory()
-	_ = filepath.WalkDir(installedRoot, func(path string, directoryEntry os.DirEntry, walkError error) error {
-		if walkError != nil || directoryEntry == nil || directoryEntry.IsDir() {
-			return nil
+	results := make([]fileSystemParsedSkill, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
 		}
-		if filepath.Base(path) != "skill.md" {
-			return nil
+		skillDirectory := filepath.Join(self.skillsDirectory(), entry.Name())
+		skillPath := filepath.Join(skillDirectory, "skill.md")
+		skill, parseError := self.readSkillMarkdown(skillPath)
+		if parseError != nil {
+			continue
 		}
-		manifestPath := filepath.Join(filepath.Dir(path), "manifest.json")
+		manifestPath := filepath.Join(skillDirectory, "manifest.json")
 		manifest := fileSystemInstalledSkillManifest{}
 		enabled := true
 		if data, readManifestError := os.ReadFile(manifestPath); readManifestError == nil {
@@ -334,33 +308,17 @@ func (self *fileSystemTransaction) loadSkillsFromFileSystem() ([]fileSystemParse
 				}
 			}
 		}
-		skill, parseError := self.readSkillMarkdown(path)
-		if parseError != nil {
-			return nil
-		}
 		skill.Enabled = enabled
 		skill.Source = manifest.SourceID
 		skill.Publisher = manifest.Publisher
 		skill.InstalledAt = manifest.InstalledAt
 		if skill.Name == "" {
-			skill.Name = filepath.Base(filepath.Dir(filepath.Dir(path)))
+			skill.Name = entry.Name()
 		}
 		if skill.Version == "" {
 			skill.Version = manifest.Version
 		}
-		installedVersion := filepath.Base(filepath.Dir(path))
-		existing, exists := installedSkillsByName[skill.Name]
-		if !exists || compareSkillVersions(installedVersion, existing.version) > 0 {
-			installedSkillsByName[skill.Name] = struct {
-				skill   fileSystemParsedSkill
-				version string
-			}{skill: skill, version: installedVersion}
-		}
-		return nil
-	})
-
-	for _, installedEntry := range installedSkillsByName {
-		results = append(results, installedEntry.skill)
+		results = append(results, skill)
 	}
 
 	sort.Slice(results, func(leftIndex int, rightIndex int) bool {
@@ -416,39 +374,3 @@ func parseSkillMarkdownFrontmatter(data []byte, frontmatter *fileSystemSkillFron
 	return rest[bodyStart:], nil
 }
 
-func compareSkillVersions(leftVersion string, rightVersion string) int {
-	leftParts := strings.Split(strings.TrimPrefix(leftVersion, "v"), ".")
-	rightParts := strings.Split(strings.TrimPrefix(rightVersion, "v"), ".")
-	maxLength := len(leftParts)
-	if len(rightParts) > maxLength {
-		maxLength = len(rightParts)
-	}
-	for index := 0; index < maxLength; index++ {
-		leftPart := "0"
-		rightPart := "0"
-		if index < len(leftParts) {
-			leftPart = leftParts[index]
-		}
-		if index < len(rightParts) {
-			rightPart = rightParts[index]
-		}
-		leftNumber, leftError := strconv.Atoi(leftPart)
-		rightNumber, rightError := strconv.Atoi(rightPart)
-		if leftError == nil && rightError == nil {
-			if leftNumber > rightNumber {
-				return 1
-			}
-			if leftNumber < rightNumber {
-				return -1
-			}
-			continue
-		}
-		if leftPart > rightPart {
-			return 1
-		}
-		if leftPart < rightPart {
-			return -1
-		}
-	}
-	return 0
-}
