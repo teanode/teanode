@@ -605,10 +605,7 @@ export function useBackend() {
         if (prevText) {
           setMessages((prev) => {
             const updated = [...prev];
-            const assistantIndex = findRunAssistantIndex(
-              updated,
-              eventRunId,
-            );
+            const assistantIndex = findRunAssistantIndex(updated, eventRunId);
             if (
               assistantIndex >= 0 &&
               updated[assistantIndex].type === "assistant"
@@ -632,10 +629,7 @@ export function useBackend() {
           // Empty old stream — just reset, reuse existing placeholder
           setMessages((prev) => {
             const updated = [...prev];
-            const assistantIndex = findRunAssistantIndex(
-              updated,
-              eventRunId,
-            );
+            const assistantIndex = findRunAssistantIndex(updated, eventRunId);
             if (
               assistantIndex >= 0 &&
               updated[assistantIndex].type === "assistant" &&
