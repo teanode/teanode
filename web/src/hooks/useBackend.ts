@@ -605,7 +605,10 @@ export function useBackend() {
         if (prevText) {
           setMessages((prev) => {
             const updated = [...prev];
-            const assistantIndex = findRunAssistantIndex(updated, eventRunnerId);
+            const assistantIndex = findRunAssistantIndex(
+              updated,
+              eventRunnerId,
+            );
             if (
               assistantIndex >= 0 &&
               updated[assistantIndex].type === "assistant"
@@ -629,7 +632,10 @@ export function useBackend() {
           // Empty old stream — just reset, reuse existing placeholder
           setMessages((prev) => {
             const updated = [...prev];
-            const assistantIndex = findRunAssistantIndex(updated, eventRunnerId);
+            const assistantIndex = findRunAssistantIndex(
+              updated,
+              eventRunnerId,
+            );
             if (
               assistantIndex >= 0 &&
               updated[assistantIndex].type === "assistant" &&
@@ -1329,9 +1335,9 @@ export function useBackend() {
 
   const abortRun = useCallback(() => {
     if (!currentRunnerIdRef.current) return;
-    sendRpc("conversations.abort", { runnerId: currentRunnerIdRef.current }).catch(
-      () => {},
-    );
+    sendRpc("conversations.abort", {
+      runnerId: currentRunnerIdRef.current,
+    }).catch(() => {});
   }, [sendRpc]);
 
   const setDefaultAgent = useCallback(
