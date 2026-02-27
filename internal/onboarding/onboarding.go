@@ -1,98 +1,88 @@
 package onboarding
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
 
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
-	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/ptrto"
+	"github.com/teanode/teanode/internal/util/security"
 )
 
-var userInitLocks sync.Map // map[userId]*sync.Mutex
-
-func userInitLock(userId string) *sync.Mutex {
-	if lock, ok := userInitLocks.Load(userId); ok {
-		return lock.(*sync.Mutex)
-	}
-	lock := &sync.Mutex{}
-	actual, _ := userInitLocks.LoadOrStore(userId, lock)
-	return actual.(*sync.Mutex)
-}
-
-// InitializeUser ensures user directories/workspace and seeds one onboarding
-// assistant message when ONBOARDING.md exists and the user has no user-authored messages yet.
-func InitializeUser(gateway gw.Gateway, userId string) error {
-	userId = strings.TrimSpace(userId)
-	if userId == "" {
-		return fmt.Errorf("userId is required")
+// CreateUser creates a user with seed workspace files, a default conversation,
+// and an onboarding seed message, all within the caller-provided transaction.
+func CreateUser(ctx context.Context, transaction store.Transaction, user *models.User) (*models.User, error) {
+	if user == nil {
+		return nil, fmt.Errorf("user is required")
 	}
 
-	lock := userInitLock(userId)
-	lock.Lock()
-	defer lock.Unlock()
-
-	if err := configs.EnsureUserDirectories(userId); err != nil {
-		return fmt.Errorf("ensuring user directories: %w", err)
-	}
-
-	agentId, err := gateway.EnsureDefaultAgent(userId)
+	// Resolve default agent ID: prefer "main", otherwise earliest CreatedAt.
+	agents, err := transaction.ListAgents(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("ensure default agent for user: %w", err)
+		return nil, fmt.Errorf("listing agents: %w", err)
+	}
+	defaultAgentId := ""
+	if len(agents) > 0 {
+		for _, agent := range agents {
+			if agent.ID == "main" {
+				defaultAgentId = "main"
+				break
+			}
+		}
+		if defaultAgentId == "" {
+			earliest := agents[0]
+			for _, agent := range agents[1:] {
+				if agent.CreatedAt != nil && earliest.CreatedAt != nil && agent.CreatedAt.Before(*earliest.CreatedAt) {
+					earliest = agent
+				}
+			}
+			defaultAgentId = earliest.ID
+		}
+	}
+	if defaultAgentId != "" {
+		user.DefaultAgentID = ptrto.Value(defaultAgentId)
 	}
 
-	store := gateway.ConversationStore(userId, agentId)
-	if store == nil {
-		return fmt.Errorf("conversation store unavailable")
+	// Build seed workspace files.
+	seedWorkspaceFiles := []models.WorkspaceFile{
+		{Path: ptrto.Value("USER.md"), Content: ptrto.Value([]byte(prompts.DefaultUserMarkdown()))},
+		{Path: ptrto.Value("ONBOARDING.md"), Content: ptrto.Value([]byte(prompts.DefaultOnboardingMarkdown()))},
+		{Path: ptrto.Value("MEMORY.md"), Content: ptrto.Value([]byte(prompts.DefaultMemoryMarkdown()))},
 	}
 
-	onboardingExists, err := onboardingExists(userId)
+	// Create the user with seed workspace files.
+	createdUser, createUserError := transaction.CreateUser(ctx, user, seedWorkspaceFiles, nil)
+	if createUserError != nil {
+		return nil, fmt.Errorf("creating user: %w", createUserError)
+	}
+
+	// Create default conversation.
+	conversationId := security.NewULID()
+	conversation := &models.Conversation{
+		ID:      conversationId,
+		UserID:  ptrto.Value(createdUser.ID),
+		AgentID: ptrto.Value(defaultAgentId),
+		Default: ptrto.Value(true),
+	}
+	createdConversation, err := transaction.CreateConversation(ctx, conversation, nil)
 	if err != nil {
-		return err
-	}
-	if !onboardingExists {
-		return nil
+		return nil, fmt.Errorf("creating default conversation: %w", err)
 	}
 
-	hasConversation, err := storeHasAnyConversation(store)
-	if err != nil {
-		return err
+	// Create seed onboarding message.
+	role := models.Role("assistant")
+	content, _ := json.Marshal(prompts.OnboardingSeedMessage)
+	message := &models.ConversationMessage{
+		ConversationID: ptrto.Value(createdConversation.ID),
+		Role:           &role,
+		Content:        content,
 	}
-	if hasConversation {
-		return nil
+	if _, err := transaction.CreateConversationMessage(ctx, message, nil); err != nil {
+		return nil, fmt.Errorf("creating seed message: %w", err)
 	}
 
-	conversationId := gateway.NewDefaultConversation(userId, agentId, "")
-	message := conversations.NewTextMessage("assistant", prompts.OnboardingSeedMessage, time.Now().UnixMilli())
-	if err := store.Append(conversationId, message); err != nil {
-		return fmt.Errorf("seeding onboarding conversation: %w", err)
-	}
-	return nil
-}
-
-func onboardingExists(userId string) (bool, error) {
-	userWorkspaceDirectory := configs.UserWorkspaceDirectory(userId)
-	onboardingPath := filepath.Join(userWorkspaceDirectory, "ONBOARDING.md")
-	var err error
-	_, err = os.Stat(onboardingPath)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("reading ONBOARDING.md: %w", err)
-	}
-	return true, nil
-}
-
-func storeHasAnyConversation(store *conversations.Store) (bool, error) {
-	conversationList, err := store.List()
-	if err != nil {
-		return false, fmt.Errorf("listing conversations: %w", err)
-	}
-	return len(conversationList) > 0, nil
+	return createdUser, nil
 }

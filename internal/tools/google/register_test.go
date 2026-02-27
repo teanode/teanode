@@ -4,9 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
 )
 
 func makeFakeBinary(t *testing.T, name string) func() {
@@ -21,54 +18,35 @@ func makeFakeBinary(t *testing.T, name string) func() {
 	return func() { os.Setenv("PATH", origPath) }
 }
 
-func TestRegisterTools_NilConfig_BinaryPresent(t *testing.T) {
+func TestCreateTools_BinaryPresent(t *testing.T) {
 	cleanup := makeFakeBinary(t, "gog")
 	defer cleanup()
 
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, nil)
+	tools := createTools()
+	names := map[string]bool{}
+	for _, tool := range tools {
+		names[tool.Definition().Function.Name] = true
+	}
 
 	// Default services: gmail, calendar, drive → 3 tools.
-	if registry.Get("google_gmail") == nil {
-		t.Error("expected google_gmail to be registered with nil config")
+	if !names["google_gmail"] {
+		t.Error("expected google_gmail to be created")
 	}
-	if registry.Get("google_calendar") == nil {
-		t.Error("expected google_calendar to be registered with nil config")
+	if !names["google_calendar"] {
+		t.Error("expected google_calendar to be created")
 	}
-	if registry.Get("google_drive") == nil {
-		t.Error("expected google_drive to be registered with nil config")
+	if !names["google_drive"] {
+		t.Error("expected google_drive to be created")
 	}
 }
 
-func TestRegisterTools_NilConfig_BinaryMissing(t *testing.T) {
+func TestCreateTools_BinaryMissing(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", t.TempDir())
 	defer os.Setenv("PATH", origPath)
 
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, nil)
-
-	if len(registry.Names()) != 0 {
-		t.Errorf("expected no tools when binary is missing, got %v", registry.Names())
-	}
-}
-
-func TestRegisterTools_ExplicitConfig_CustomServices(t *testing.T) {
-	cleanup := makeFakeBinary(t, "gog")
-	defer cleanup()
-
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.GoogleConfig{
-		Services: []string{"gmail", "contacts"},
-	})
-
-	if registry.Get("google_gmail") == nil {
-		t.Error("expected google_gmail to be registered")
-	}
-	if registry.Get("google_contacts") == nil {
-		t.Error("expected google_contacts to be registered")
-	}
-	if registry.Get("google_calendar") != nil {
-		t.Error("expected google_calendar to NOT be registered (not in custom services)")
+	tools := createTools()
+	if len(tools) != 0 {
+		t.Errorf("expected no tools when binary is missing, got %d", len(tools))
 	}
 }

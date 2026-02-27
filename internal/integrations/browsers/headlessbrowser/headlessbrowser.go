@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/integrations/browsers"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/pending"
 )
@@ -34,8 +36,17 @@ type Headless struct {
 	stopReconnect chan struct{}
 }
 
-// NewHeadless creates a new headless browser client for the given endpoint.
-func NewHeadless(endpoint string) *Headless {
+// NewHeadless creates a new headless browser client. The CDP endpoint is
+// resolved from the browser configuration, falling back to the
+// TEANODE_CDP_ENDPOINT environment variable, then to 127.0.0.1:9222.
+func NewHeadless(configuration *models.BrowserConfiguration) *Headless {
+	endpoint := "127.0.0.1:9222"
+	if configuration != nil && configuration.GetCDPEndpoint() != "" {
+		endpoint = configuration.GetCDPEndpoint()
+	}
+	if value := os.Getenv("TEANODE_CDP_ENDPOINT"); value != "" {
+		endpoint = value
+	}
 	return &Headless{
 		endpoint:      endpoint,
 		targets:       make(map[string]*browsers.ConnectedTarget),
@@ -482,6 +493,7 @@ type targetInfo struct {
 
 // attachTarget attaches to a target in flatten mode and registers it directly.
 func (self *Headless) attachTarget(ctx context.Context, info targetInfo) {
+	defer deferutil.Recover()
 	result, err := self.sendBrowserCommand(ctx, "Target.attachToTarget", map[string]interface{}{
 		"targetId": info.TargetID,
 		"flatten":  true,

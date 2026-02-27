@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/runners"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
 )
@@ -81,37 +82,42 @@ func (self *v1Api) handleChatCompletions(writer http.ResponseWriter, request *ht
 	// Extract the last user message.
 	lastMessage := chatRequest.Messages[len(chatRequest.Messages)-1]
 
-	userContext := gw.UserFromContext(request.Context())
-	if userContext == nil || strings.TrimSpace(userContext.UserID) == "" {
+	user := models.UserFromContext(request.Context())
+	if user == nil || user.ID == "" {
 		return web.Error(http.StatusUnauthorized, "unauthorized")
 	}
-	userId := strings.TrimSpace(userContext.UserID)
-	agentId, err := self.gateway.EnsureDefaultAgent(userId)
-	if err != nil {
-		return web.Error(500, "resolving default agent: "+err.Error())
-	}
-	runner := self.gateway.GetRunner(agentId)
-	if runner == nil {
+	agentId := user.GetDefaultAgentID()
+	agentExists := false
+	_ = store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+		if _, getError := transaction.GetAgent(ctx, agentId, nil); getError == nil {
+			agentExists = true
+		}
+		return nil
+	})
+	if !agentExists {
 		return web.Error(500, "no default agent configured")
 	}
 
 	if chatRequest.Stream {
-		return self.handleChatCompletionsStream(writer, request, chatRequest, conversationId, lastMessage, runner, userId)
+		return self.handleChatCompletionsStream(writer, request, chatRequest, agentId, conversationId, lastMessage)
 	}
-	return self.handleChatCompletionsSync(writer, request, chatRequest, conversationId, lastMessage, runner, userId)
+	return self.handleChatCompletionsSync(writer, request, chatRequest, agentId, conversationId, lastMessage)
 }
 
-func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage, runner *agents.Runner, userId string) error {
+func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, agentId string, conversationId string, lastMessage openaiMessage) error {
 	ctx, cancel := context.WithTimeout(httpRequest.Context(), 5*time.Minute)
 	defer cancel()
-	ctx = agents.ContextWithUserID(ctx, userId)
-	ctx = agents.ContextWithAdmin(ctx, self.gateway.SecurityConfig().IsAdmin(userId))
 
-	result, err := runner.Run(ctx, agents.RunParams{
+	handle, sendError := self.coordinator.Run(ctx, coordinators.RunParameters{
+		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        lastMessage.Content,
 		Model:          request.Model,
 	}, nil) // no callbacks for sync mode
+	if sendError != nil {
+		return web.Error(500, sendError.Error())
+	}
+	result, err := handle.Wait()
 	if err != nil {
 		return web.Error(500, err.Error())
 	}
@@ -139,9 +145,9 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 	}
 	if result.Usage != nil {
 		response.Usage = &openaiUsage{
-			PromptTokens:     result.Usage.Input,
-			CompletionTokens: result.Usage.Output,
-			TotalTokens:      result.Usage.Total,
+			PromptTokens:     result.Usage["input"],
+			CompletionTokens: result.Usage["output"],
+			TotalTokens:      result.Usage["totalTokens"],
 		}
 	}
 
@@ -150,7 +156,7 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 	return nil
 }
 
-func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, conversationId string, lastMessage openaiMessage, runner *agents.Runner, userId string) error {
+func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpRequest *http.Request, request openaiRequest, agentId string, conversationId string, lastMessage openaiMessage) error {
 	flusher, ok := writer.(http.Flusher)
 	if !ok {
 		return web.Error(500, "streaming not supported")
@@ -162,16 +168,15 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 
 	ctx, cancel := context.WithCancel(httpRequest.Context())
 	defer cancel()
-	ctx = agents.ContextWithUserID(ctx, userId)
-	ctx = agents.ContextWithAdmin(ctx, self.gateway.SecurityConfig().IsAdmin(userId))
 
 	responseId := security.NewULID()
 
-	result, err := runner.Run(ctx, agents.RunParams{
+	handle, sendError := self.coordinator.Run(ctx, coordinators.RunParameters{
+		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        lastMessage.Content,
 		Model:          request.Model,
-	}, &agents.RunCallbacks{
+	}, &runners.RunCallbacks{
 		OnTextDelta: func(text string) {
 			chunk := openaiResponse{
 				ID:      responseId,
@@ -192,7 +197,14 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 			flusher.Flush()
 		},
 	})
+	if sendError != nil {
+		errData, _ := json.Marshal(map[string]string{"error": sendError.Error()})
+		fmt.Fprintf(writer, "data: %s\n\n", errData)
+		flusher.Flush()
+		return nil
+	}
 
+	result, err := handle.Wait()
 	if err != nil {
 		errData, _ := json.Marshal(map[string]string{"error": err.Error()})
 		fmt.Fprintf(writer, "data: %s\n\n", errData)

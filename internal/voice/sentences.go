@@ -22,11 +22,11 @@ func ExtractCompleteSentences(text string, alreadyEnqueued int) ([]string, int) 
 // FlushRemaining returns the tail fragment after all complete sentences.
 func FlushRemaining(text string, alreadyEnqueued int) string {
 	all, consumed := splitSentences(text)
-	trimmed := strings.TrimSpace(text)
+	trimmed := text
 	if len(all) == 0 {
 		return trimmed
 	}
-	rem := strings.TrimSpace(trimmed[consumed:])
+	rem := trimmed[consumed:]
 	if alreadyEnqueued >= len(all) {
 		return rem
 	}
@@ -38,11 +38,11 @@ func FlushRemaining(text string, alreadyEnqueued int) string {
 	if partialConsumed > len(trimmed) {
 		return ""
 	}
-	return strings.TrimSpace(trimmed[partialConsumed:])
+	return trimmed[partialConsumed:]
 }
 
 func splitSentences(text string) ([]string, int) {
-	runes := []rune(strings.TrimSpace(text))
+	runes := []rune(text)
 	if len(runes) == 0 {
 		return nil, 0
 	}
@@ -70,7 +70,7 @@ func splitSentences(text string) ([]string, int) {
 				}
 			}
 		}
-		s := strings.TrimSpace(string(runes[start : i+1]))
+		s := string(runes[start : i+1])
 		if s != "" {
 			out = append(out, s)
 		}
@@ -99,7 +99,7 @@ func byteOffsetForRuneIndex(text string, runeIdx int) int {
 }
 
 func looksLikeAbbreviation(sentence []rune) bool {
-	s := strings.TrimSpace(string(sentence))
+	s := string(sentence)
 	if !strings.HasSuffix(s, ".") {
 		return false
 	}
@@ -108,7 +108,7 @@ func looksLikeAbbreviation(sentence []rune) bool {
 	if len(parts) == 0 {
 		return false
 	}
-	last := strings.ToLower(strings.Trim(parts[len(parts)-1], " \t\r\n\"'()[]{}"))
+	last := strings.ToLower(parts[len(parts)-1])
 	_, ok := abbreviations[last]
 	return ok
 }

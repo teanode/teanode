@@ -1,23 +1,22 @@
 package claudecode
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"sort"
-	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/cmdexec"
 )
 
 var log = logging.MustGetLogger("claudecode")
@@ -36,31 +35,15 @@ var DefaultAllowedTools = []string{
 // commandRunner abstracts command execution for testing.
 type commandRunner func(ctx context.Context, name string, args []string, directory string) (stdout []byte, stderr []byte, exitCode int, err error)
 
-// defaultCommandRunner executes commands via os/exec.
-func defaultCommandRunner(ctx context.Context, name string, args []string, directory string) ([]byte, []byte, int, error) {
-	command := exec.CommandContext(ctx, name, args...)
-	command.Dir = directory
-	command.Stdin = nil
-	command.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
-	}
-
-	var stdoutBuffer, stderrBuffer bytes.Buffer
-	command.Stdout = &stdoutBuffer
-	command.Stderr = &stderrBuffer
-
-	err := command.Run()
-
-	exitCode := 0
+// defaultCommandRunner executes commands via cmdexec.Run.
+func defaultCommandRunner(ctx context.Context, name string, arguments []string, directory string) ([]byte, []byte, int, error) {
+	result, err := cmdexec.Run(ctx, name, arguments, cmdexec.Options{
+		Directory: directory,
+	})
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			exitCode = exitError.ExitCode()
-		} else {
-			return stdoutBuffer.Bytes(), stderrBuffer.Bytes(), -1, err
-		}
+		return result.Stdout, result.Stderr, result.ExitCode, err
 	}
-
-	return stdoutBuffer.Bytes(), stderrBuffer.Bytes(), exitCode, nil
+	return result.Stdout, result.Stderr, result.ExitCode, nil
 }
 
 // sessionInfo tracks an in-memory session for convenience.
@@ -73,56 +56,62 @@ type sessionInfo struct {
 
 // claudeCodeTool delegates complex coding tasks to Claude Code in headless mode.
 type claudeCodeTool struct {
-	binaryPath   string
-	allowedTools []string
-	model        string
-	timeout      time.Duration
-	runner       commandRunner
-	sessions     map[string]*sessionInfo
-	mutex        sync.Mutex
+	binaryPath string
+	runner     commandRunner
+	sessions   map[string]*sessionInfo
+	mutex      sync.Mutex
 }
 
-// RegisterTools adds the claude_code tool to the registry.
-// If the claude binary is not found, no tools are registered.
-// A nil config is treated as "use defaults" — tools are registered
-// as long as the binary is present on PATH.
-func RegisterTools(registry *agents.ToolRegistry, config *configs.ClaudeCodeConfig) {
-	binaryPath := "claude"
-	allowedTools := DefaultAllowedTools
-	var model string
-	timeout := defaultTimeout
-
-	if config != nil {
-		if config.BinaryPath != "" {
-			binaryPath = config.BinaryPath
+// configFromContext reads the Claude Code tool configuration from the store.
+func configFromContext(ctx context.Context) (allowedTools []string, model string, timeout time.Duration) {
+	allowedTools = DefaultAllowedTools
+	timeout = defaultTimeout
+	dataStore := store.StoreFromContextSafe(ctx)
+	if dataStore == nil {
+		return
+	}
+	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
 		}
-		if len(config.AllowedTools) > 0 {
-			allowedTools = config.AllowedTools
-		}
-		model = config.Model
-		if config.MaxTurnTimeoutSeconds > 0 {
-			timeout = time.Duration(config.MaxTurnTimeoutSeconds) * time.Second
-			if timeout > maxTimeout {
-				timeout = maxTimeout
+		if configuration.Tools != nil && configuration.Tools.ClaudeCode != nil {
+			config := configuration.Tools.ClaudeCode
+			if tools := config.GetAllowedTools(); len(tools) > 0 {
+				allowedTools = tools
+			}
+			model = config.GetModel()
+			if seconds := config.GetMaxTurnTimeoutSeconds(); seconds > 0 {
+				timeout = time.Duration(seconds) * time.Second
+				if timeout > maxTimeout {
+					timeout = maxTimeout
+				}
 			}
 		}
-	}
+		return nil
+	})
+	return
+}
+
+func init() {
+	tools.RegisterBuiltinTool(createTools)
+}
+
+func createTools() []tools.Tool {
+	binaryPath := "claude"
 
 	resolvedPath, err := exec.LookPath(binaryPath)
 	if err != nil {
 		log.Infof("Claude Code tools skipped: %s binary not found", binaryPath)
-		return
+		return nil
 	}
 	log.Infof("Claude Code tools enabled (binary: %s)", resolvedPath)
 
-	registry.Register(&claudeCodeTool{
-		binaryPath:   resolvedPath,
-		allowedTools: allowedTools,
-		model:        model,
-		timeout:      timeout,
-		runner:       defaultCommandRunner,
-		sessions:     make(map[string]*sessionInfo),
-	})
+	return []tools.Tool{&claudeCodeTool{
+		binaryPath: resolvedPath,
+		runner:     defaultCommandRunner,
+		sessions:   make(map[string]*sessionInfo),
+	}}
 }
 
 func (self *claudeCodeTool) Definition() providers.ToolDefinition {
@@ -274,7 +263,7 @@ func (self *claudeCodeTool) executeRun(ctx context.Context, prompt, systemPrompt
 		return "", fmt.Errorf("existing session(s) detected — use action=resume with sessionId (see list_sessions), or set forceNewSession=true to start a new session")
 	}
 
-	commandArguments := self.buildArguments(prompt, "", systemPrompt)
+	commandArguments := self.buildArguments(ctx, prompt, "", systemPrompt)
 	return self.executeCommand(ctx, commandArguments, workingDirectory, timeoutSeconds)
 }
 
@@ -292,13 +281,14 @@ func (self *claudeCodeTool) executeResume(ctx context.Context, sessionId, prompt
 		return "", fmt.Errorf("prompt is required for resume action")
 	}
 
-	commandArguments := self.buildArguments(prompt, sessionId, systemPrompt)
+	commandArguments := self.buildArguments(ctx, prompt, sessionId, systemPrompt)
 	return self.executeCommand(ctx, commandArguments, workingDirectory, timeoutSeconds)
 }
 
 func (self *claudeCodeTool) executeListSessions(ctx context.Context) (string, error) {
-	if store := self.resolveConversationStore(ctx); store != nil {
-		sessions, err := self.loadSessionsFromConversationStore(store)
+	userId, agentId, scopeError := self.resolveConversationScope(ctx)
+	if scopeError == nil {
+		sessions, err := self.loadSessionsFromConversationStore(ctx, userId, agentId)
 		if err == nil {
 			result, marshalErr := json.Marshal(map[string]interface{}{"sessions": sessions})
 			if marshalErr != nil {
@@ -307,6 +297,8 @@ func (self *claudeCodeTool) executeListSessions(ctx context.Context) (string, er
 			return string(result), nil
 		}
 		log.Debugf("list_sessions: failed to load from conversation history, falling back to in-memory sessions: %v", err)
+	} else {
+		log.Debugf("list_sessions: no conversation scope available, falling back to in-memory sessions: %v", scopeError)
 	}
 
 	self.mutex.Lock()
@@ -332,41 +324,65 @@ func (self *claudeCodeTool) executeListSessions(ctx context.Context) (string, er
 	return string(result), nil
 }
 
-func (self *claudeCodeTool) resolveConversationStore(ctx context.Context) *conversations.Store {
-	runner := agents.RunnerFromContext(ctx)
+func (self *claudeCodeTool) resolveConversationScope(ctx context.Context) (string, string, error) {
+	runner := runners.RunnerFromContext(ctx)
 	if runner == nil {
-		return nil
+		return "", "", fmt.Errorf("runner context missing")
 	}
-	userId := agents.UserIDFromContext(ctx)
-	if userId == "" {
-		return nil
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
+		return "", "", fmt.Errorf("user context missing")
 	}
-	return runner.ConversationsForUser(userId)
+	return user.ID, runner.AgentID, nil
 }
 
-func (self *claudeCodeTool) loadSessionsFromConversationStore(store *conversations.Store) ([]sessionInfo, error) {
-	conversationList, err := store.List()
-	if err != nil {
+func (self *claudeCodeTool) loadSessionsFromConversationStore(ctx context.Context, userId, agentId string) ([]sessionInfo, error) {
+	conversationList := make([]*models.Conversation, 0)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		items, listError := transaction.ListConversations(ctx, store.ConversationListOptions{
+			UserID:  &userId,
+			AgentID: &agentId,
+		}, nil)
+		if listError != nil {
+			return listError
+		}
+		conversationList = append(conversationList, items...)
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("listing conversations: %w", err)
 	}
 
 	sessionsById := make(map[string]*sessionInfo)
 	for _, conversation := range conversationList {
-		messages, loadError := store.Load(conversation.ID)
-		if loadError != nil {
+		messages := make([]*models.ConversationMessage, 0)
+		if loadError := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+			items, err := transaction.ListConversationMessages(ctx, conversation.ID, nil)
+			if err != nil {
+				return err
+			}
+			messages = append(messages, items...)
+			return nil
+		}); loadError != nil {
 			log.Debugf("list_sessions: skipping conversation %q (load error: %v)", conversation.ID, loadError)
 			continue
 		}
 		for _, message := range messages {
-			if message.Role != "tool" || message.ToolName != "claude_code" {
+			if message.Role == nil || string(*message.Role) != "tool" || message.ToolName == nil || *message.ToolName != "claude_code" {
 				continue
 			}
-			sessionId := extractSessionIdFromToolResult(message.ContentText())
+			content := ""
+			if len(message.Content) > 0 {
+				_ = json.Unmarshal(message.Content, &content)
+			}
+			sessionId := extractSessionIdFromToolResult(content)
 			if sessionId == "" {
 				continue
 			}
 
-			timestamp := time.UnixMilli(message.Timestamp)
+			timestamp := time.Now()
+			if message.CreatedAt != nil {
+				timestamp = *message.CreatedAt
+			}
 			existing := sessionsById[sessionId]
 			if existing == nil {
 				sessionsById[sessionId] = &sessionInfo{
@@ -420,20 +436,22 @@ func extractSessionIdFromToolResult(result string) string {
 	return ""
 }
 
-func (self *claudeCodeTool) buildArguments(prompt, sessionId, systemPrompt string) []string {
+func (self *claudeCodeTool) buildArguments(ctx context.Context, prompt, sessionId, systemPrompt string) []string {
+	allowedTools, model, _ := configFromContext(ctx)
+
 	arguments := []string{"-p", prompt, "--output-format", "json"}
 
 	if sessionId != "" {
 		arguments = append(arguments, "--resume", sessionId)
 	}
 
-	if self.model != "" {
-		arguments = append(arguments, "--model", self.model)
+	if model != "" {
+		arguments = append(arguments, "--model", model)
 	}
 
 	// Always pass --allowedTools to prevent interactive tool approval prompts.
 	arguments = append(arguments, "--allowedTools")
-	arguments = append(arguments, self.allowedTools...)
+	arguments = append(arguments, allowedTools...)
 
 	if systemPrompt != "" {
 		arguments = append(arguments, "--append-system-prompt", systemPrompt)
@@ -444,7 +462,8 @@ func (self *claudeCodeTool) buildArguments(prompt, sessionId, systemPrompt strin
 
 func (self *claudeCodeTool) executeCommand(ctx context.Context, commandArguments []string, workingDirectory string, timeoutSeconds int) (string, error) {
 	// Resolve timeout.
-	timeout := self.timeout
+	_, _, configTimeout := configFromContext(ctx)
+	timeout := configTimeout
 	if timeoutSeconds > 0 {
 		timeout = time.Duration(timeoutSeconds) * time.Second
 		if timeout > maxTimeout {
@@ -501,9 +520,9 @@ func (self *claudeCodeTool) parseOutput(stdout, stderr []byte, exitCode int, dur
 		// Fallback: return raw stdout as result if JSON parsing fails.
 		log.Debugf("claude output is not JSON, using raw output (parse error: %v)", err)
 
-		rawResult := strings.TrimSpace(string(stdout))
+		rawResult := string(stdout)
 		if rawResult == "" && len(stderr) > 0 {
-			rawResult = strings.TrimSpace(string(stderr))
+			rawResult = string(stderr)
 		}
 
 		result, marshalError := json.Marshal(map[string]interface{}{

@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teanode/teanode/internal/conversations"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/store/fsstore"
 )
 
 // mockRunner returns a commandRunner that records calls and returns canned output.
@@ -84,11 +86,9 @@ func TestRunWithValidJSON(testing *testing.T) {
 	runner, calls := mockRunner(claudeOutput, "", 0, nil)
 
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -145,11 +145,9 @@ func TestRunWithNonJSONFallback(testing *testing.T) {
 	runner, _ := mockRunner("Some plain text output\nfrom claude", "", 0, nil)
 
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -177,11 +175,9 @@ func TestRunWithNonJSONFallbackError(testing *testing.T) {
 	runner, _ := mockRunner("Error output", "some stderr", 1, nil)
 
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -208,11 +204,9 @@ func TestRunWithNonJSONFallbackError(testing *testing.T) {
 func TestRunMissingPrompt(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -227,10 +221,8 @@ func TestRunMissingPrompt(testing *testing.T) {
 func TestRunRequiresResumeWhenSessionExists(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
 		sessions: map[string]*sessionInfo{
 			"existing-session": {SessionID: "existing-session"},
 		},
@@ -250,10 +242,8 @@ func TestRunAllowsForceNewSessionWhenSessionExists(testing *testing.T) {
 	claudeOutput := `{"result":"Started fresh","session_id":"new-session","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
 	runner, calls := mockRunner(claudeOutput, "", 0, nil)
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
 		sessions: map[string]*sessionInfo{
 			"existing-session": {SessionID: "existing-session"},
 		},
@@ -280,10 +270,8 @@ func TestResumeKnownSession(testing *testing.T) {
 	runner, calls := mockRunner(claudeOutput, "", 0, nil)
 
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
 		sessions: map[string]*sessionInfo{
 			"abc-123": {
 				SessionID:  "abc-123",
@@ -341,11 +329,9 @@ func TestResumeWithoutTrackedSession(testing *testing.T) {
 	claudeOutput := `{"result":"Continued anyway","session_id":"nonexistent","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
 	runner, calls := mockRunner(claudeOutput, "", 0, nil)
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -387,11 +373,9 @@ func TestResumeWithoutTrackedSession(testing *testing.T) {
 func TestResumeMissingSessionID(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -407,10 +391,8 @@ func TestResumeMissingSessionID(testing *testing.T) {
 func TestResumeMissingPrompt(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
 		sessions: map[string]*sessionInfo{
 			"abc-123": {SessionID: "abc-123"},
 		},
@@ -467,11 +449,9 @@ func TestListSessionsAfterRuns(testing *testing.T) {
 	}
 
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	// Run two tasks.
@@ -516,60 +496,136 @@ func TestListSessionsAfterRuns(testing *testing.T) {
 }
 
 func TestLoadSessionsFromConversationStore(testing *testing.T) {
-	store := conversations.NewStore(testing.TempDir())
+	dataDirectory := testing.TempDir()
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: dataDirectory})
+	if openError != nil {
+		testing.Fatalf("opening store: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
+		testing.Fatalf("migrating store: %v", migrateError)
+	}
+	testing.Cleanup(func() {
+		_ = openedStore.Close()
+	})
+
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	userId := "user-1"
+	agentId := "agent-1"
+
+	timestamp1 := time.Now().Add(-2 * time.Hour)
+	timestamp2 := time.Now().Add(-time.Hour)
+	timestamp3 := time.Now()
+
+	toolRole := models.RoleTool
+	contentS1 := marshalContent(`{"sessionId":"s1","result":"one"}`)
+	contentS1Resume := marshalContent(`{"resume":{"sessionId":"s1"}}`)
+	contentS2 := marshalContent(`{"sessionId":"s2","result":"two"}`)
+	contentOther := marshalContent(`{"sessionId":"ignored"}`)
+	claudeCodeName := "claude_code"
+	otherToolName := "other_tool"
+
+	if err := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		conversation1, createError := transaction.CreateConversation(ctx, &models.Conversation{
+			UserID:  &userId,
+			AgentID: &agentId,
+		}, nil)
+		if createError != nil {
+			return createError
+		}
+		conversation2, createError := transaction.CreateConversation(ctx, &models.Conversation{
+			UserID:  &userId,
+			AgentID: &agentId,
+		}, nil)
+		if createError != nil {
+			return createError
+		}
+
+		// Conversation 1: two tool messages for session s1
+		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
+			ConversationID: &conversation1.ID,
+			Role:           &toolRole,
+			Content:        contentS1,
+			ToolName:       &claudeCodeName,
+			CreatedAt:      &timestamp1,
+		}, nil); err != nil {
+			return err
+		}
+		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
+			ConversationID: &conversation1.ID,
+			Role:           &toolRole,
+			Content:        contentS1Resume,
+			ToolName:       &claudeCodeName,
+			CreatedAt:      &timestamp2,
+		}, nil); err != nil {
+			return err
+		}
+
+		// Conversation 2: one tool message for session s2, one for another tool
+		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
+			ConversationID: &conversation2.ID,
+			Role:           &toolRole,
+			Content:        contentS2,
+			ToolName:       &claudeCodeName,
+			CreatedAt:      &timestamp3,
+		}, nil); err != nil {
+			return err
+		}
+		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
+			ConversationID: &conversation2.ID,
+			Role:           &toolRole,
+			Content:        contentOther,
+			ToolName:       &otherToolName,
+			CreatedAt:      &timestamp3,
+		}, nil); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		testing.Fatalf("seeding store: %v", err)
+	}
+
 	tool := &claudeCodeTool{}
-
-	t1 := time.Now().Add(-2 * time.Hour).UnixMilli()
-	t2 := time.Now().Add(-time.Hour).UnixMilli()
-	t3 := time.Now().UnixMilli()
-
-	if err := store.Append("c1", conversations.NewToolMessage("tc1", "claude_code", `{"sessionId":"s1","result":"one"}`, t1)); err != nil {
-		testing.Fatalf("append c1/tc1: %v", err)
-	}
-	if err := store.Append("c1", conversations.NewToolMessage("tc2", "claude_code", `{"resume":{"sessionId":"s1"}}`, t2)); err != nil {
-		testing.Fatalf("append c1/tc2: %v", err)
-	}
-	if err := store.Append("c2", conversations.NewToolMessage("tc3", "claude_code", `{"sessionId":"s2","result":"two"}`, t3)); err != nil {
-		testing.Fatalf("append c2/tc3: %v", err)
-	}
-	if err := store.Append("c2", conversations.NewToolMessage("tc4", "other_tool", `{"sessionId":"ignored"}`, t3)); err != nil {
-		testing.Fatalf("append c2/tc4: %v", err)
-	}
-
-	sessions, err := tool.loadSessionsFromConversationStore(store)
+	sessions, err := tool.loadSessionsFromConversationStore(ctx, userId, agentId)
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 	if len(sessions) != 2 {
 		testing.Fatalf("expected 2 sessions, got %d", len(sessions))
 	}
-	if sessions[0].SessionID != "s2" {
-		testing.Errorf("expected newest session first to be s2, got %q", sessions[0].SessionID)
+
+	sessionsByID := map[string]*sessionInfo{}
+	for index := range sessions {
+		sessionsByID[sessions[index].SessionID] = &sessions[index]
 	}
 
-	var s1 *sessionInfo
-	for index := range sessions {
-		if sessions[index].SessionID == "s1" {
-			s1 = &sessions[index]
-			break
-		}
-	}
+	s1 := sessionsByID["s1"]
 	if s1 == nil {
 		testing.Fatalf("expected session s1 in results: %+v", sessions)
 	}
 	if s1.TurnCount != 2 {
 		testing.Errorf("expected s1 turnCount 2, got %d", s1.TurnCount)
 	}
+	s2 := sessionsByID["s2"]
+	if s2 == nil {
+		testing.Fatalf("expected session s2 in results: %+v", sessions)
+	}
+	if s2.TurnCount != 1 {
+		testing.Errorf("expected s2 turnCount 1, got %d", s2.TurnCount)
+	}
+}
+
+func marshalContent(value string) []byte {
+	data, _ := json.Marshal(value)
+	return data
 }
 
 // --- argument building tests ---
 
 func TestBuildArgumentsBasic(testing *testing.T) {
-	tool := &claudeCodeTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
 
 	// Verify -p is first.
 	if len(arguments) < 2 || arguments[0] != "-p" || arguments[1] != "Do something" {
@@ -610,11 +666,9 @@ func TestBuildArgumentsBasic(testing *testing.T) {
 }
 
 func TestBuildArgumentsWithResume(testing *testing.T) {
-	tool := &claudeCodeTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments("Continue", "session-xyz", "")
+	arguments := tool.buildArguments(context.Background(), "Continue", "session-xyz", "")
 
 	foundResume := false
 	for index, argument := range arguments {
@@ -628,32 +682,24 @@ func TestBuildArgumentsWithResume(testing *testing.T) {
 	}
 }
 
-func TestBuildArgumentsWithModel(testing *testing.T) {
-	tool := &claudeCodeTool{
-		allowedTools: DefaultAllowedTools,
-		model:        "claude-sonnet-4-5-20250514",
-	}
+func TestBuildArgumentsWithoutModelConfig(testing *testing.T) {
+	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
 
-	foundModel := false
-	for index, argument := range arguments {
-		if argument == "--model" && index+1 < len(arguments) && arguments[index+1] == "claude-sonnet-4-5-20250514" {
-			foundModel = true
+	// Without a store in context, no --model flag should be emitted.
+	for _, argument := range arguments {
+		if argument == "--model" {
+			testing.Errorf("did not expect '--model' without config, got: %v", arguments)
 			break
 		}
-	}
-	if !foundModel {
-		testing.Errorf("expected '--model claude-sonnet-4-5-20250514' in args: %v", arguments)
 	}
 }
 
 func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
-	tool := &claudeCodeTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments("Do something", "", "You are a helpful assistant")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "You are a helpful assistant")
 
 	foundSystemPrompt := false
 	for index, argument := range arguments {
@@ -667,14 +713,12 @@ func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
 	}
 }
 
-func TestBuildArgumentsAllowedToolsAlwaysPresent(testing *testing.T) {
-	tool := &claudeCodeTool{
-		allowedTools: []string{"Bash", "Read"},
-	}
+func TestBuildArgumentsDefaultAllowedToolsPresent(testing *testing.T) {
+	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
 
-	// Find the --allowedTools flag and verify the tools follow.
+	// Without a store in context, DefaultAllowedTools should be used.
 	allowedToolsIndex := -1
 	for index, argument := range arguments {
 		if argument == "--allowedTools" {
@@ -685,15 +729,16 @@ func TestBuildArgumentsAllowedToolsAlwaysPresent(testing *testing.T) {
 	if allowedToolsIndex == -1 {
 		testing.Fatalf("--allowedTools not found in args: %v", arguments)
 	}
-	// The tools should follow immediately after --allowedTools.
-	if allowedToolsIndex+2 >= len(arguments) {
-		testing.Fatalf("not enough args after --allowedTools: %v", arguments)
-	}
-	if arguments[allowedToolsIndex+1] != "Bash" {
-		testing.Errorf("expected 'Bash' after --allowedTools, got %q", arguments[allowedToolsIndex+1])
-	}
-	if arguments[allowedToolsIndex+2] != "Read" {
-		testing.Errorf("expected 'Read' after --allowedTools, got %q", arguments[allowedToolsIndex+2])
+	// The default tools should follow immediately after --allowedTools.
+	expectedTools := DefaultAllowedTools
+	for offset, expectedTool := range expectedTools {
+		position := allowedToolsIndex + 1 + offset
+		if position >= len(arguments) {
+			testing.Fatalf("not enough args after --allowedTools: %v", arguments)
+		}
+		if arguments[position] != expectedTool {
+			testing.Errorf("expected %q at position %d after --allowedTools, got %q", expectedTool, offset, arguments[position])
+		}
 	}
 }
 
@@ -704,11 +749,9 @@ func TestTimeoutCapping(testing *testing.T) {
 	runner, _ := mockRunner(claudeOutput, "", 0, nil)
 
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	// Request a timeout that exceeds the max — it should be capped.
@@ -778,11 +821,9 @@ func TestRunCommandExecutionError(testing *testing.T) {
 	runner, _ := mockRunner("", "command not found", -1, fmt.Errorf("exec: command not found"))
 
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -802,11 +843,9 @@ func TestRunWithWorkingDirectory(testing *testing.T) {
 	runner, calls := mockRunner(claudeOutput, "", 0, nil)
 
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -833,11 +872,9 @@ func TestRunFallbackToStderr(testing *testing.T) {
 	runner, _ := mockRunner("", "Error: something went wrong", 1, nil)
 
 	tool := &claudeCodeTool{
-		binaryPath:   "/usr/bin/claude",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/claude",
+		runner:     runner,
+		sessions:   make(map[string]*sessionInfo),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{

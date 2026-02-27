@@ -2,8 +2,6 @@ package unifiprotect
 
 import (
 	"strings"
-
-	"github.com/teanode/teanode/internal/configs"
 )
 
 // AccessChecker validates whether a camera or action is permitted.
@@ -15,7 +13,7 @@ type AccessChecker struct {
 }
 
 // NewAccessChecker creates an AccessChecker from the given configuration.
-func NewAccessChecker(config *configs.UniFiProtectConfig) *AccessChecker {
+func NewAccessChecker(config *resolvedConfig) *AccessChecker {
 	checker := &AccessChecker{
 		allowedCameras:        make(map[string]bool),
 		allowDangerousActions: make(map[string]bool),
@@ -26,17 +24,17 @@ func NewAccessChecker(config *configs.UniFiProtectConfig) *AccessChecker {
 		return checker
 	}
 
-	checker.readOnly = config.ReadOnly
+	checker.readOnly = config.readOnly
 
-	if len(config.AllowedCameras) == 0 {
+	if len(config.allowedCameras) == 0 {
 		checker.allowCameraAll = true
 	} else {
-		for _, camera := range config.AllowedCameras {
+		for _, camera := range config.allowedCameras {
 			checker.allowedCameras[normalizeCamera(camera)] = true
 		}
 	}
 
-	for _, action := range config.AllowDangerousActions {
+	for _, action := range config.allowDangerousActions {
 		checker.allowDangerousActions[action] = true
 	}
 
@@ -45,7 +43,7 @@ func NewAccessChecker(config *configs.UniFiProtectConfig) *AccessChecker {
 
 // normalizeCamera lowercases and trims a camera name/ID for comparison.
 func normalizeCamera(name string) string {
-	return strings.ToLower(strings.TrimSpace(name))
+	return strings.ToLower(name)
 }
 
 // IsCameraAllowed checks whether a camera is accessible by name or ID.

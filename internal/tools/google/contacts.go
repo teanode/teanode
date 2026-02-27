@@ -10,9 +10,9 @@ import (
 )
 
 type contactsTool struct {
-	binary  string
-	account string
-	runner  commandRunner
+	binary string
+
+	runner commandRunner
 }
 
 func (self *contactsTool) Definition() providers.ToolDefinition {
@@ -63,14 +63,14 @@ func (self *contactsTool) Execute(ctx context.Context, rawArguments string) (str
 		if args.Limit > 0 {
 			cmdArgs = append(cmdArgs, "--max", strconv.Itoa(args.Limit))
 		}
-		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account, cmdArgs...)
 
 	case "list":
 		cmdArgs := []string{"contacts", "list"}
 		if args.Limit > 0 {
 			cmdArgs = append(cmdArgs, "--max", strconv.Itoa(args.Limit))
 		}
-		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account, cmdArgs...)
 
 	default:
 		return "", fmt.Errorf("unknown contacts action: %s", args.Action)

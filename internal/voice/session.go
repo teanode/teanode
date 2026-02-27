@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/teanode/teanode/internal/pubsub"
+	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
@@ -50,7 +52,8 @@ type Session struct {
 	AudioOut       AudioFormat
 	Features       Features
 
-	deps         GatewayDeps
+	dispatcher   voiceDispatcher
+	pubsub       *pubsub.PubSub
 	sendJsonFn   func(any)
 	sendBinaryFn func([]byte)
 
@@ -88,7 +91,8 @@ const (
 )
 
 // NewSession creates a session with default channel capacities.
-func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioFormat, features Features, deps GatewayDeps, sendJson func(any), sendBinary func([]byte)) *Session {
+// The dispatcher parameter accepts *coordinators.Coordinator or any implementation of voiceDispatcher.
+func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioFormat, features Features, dispatcher voiceDispatcher, events *pubsub.PubSub, sendJson func(any), sendBinary func([]byte)) *Session {
 	return &Session{
 		ID:                 id,
 		ConversationID:     conversationId,
@@ -97,7 +101,8 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 		AudioIn:            in,
 		AudioOut:           out,
 		Features:           features,
-		deps:               deps,
+		dispatcher:         dispatcher,
+		pubsub:             events,
 		sendJsonFn:         sendJson,
 		sendBinaryFn:       sendBinary,
 		transcribeInFlight: make(map[string]struct{}),
@@ -115,10 +120,10 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 func (self *Session) Start() {
 	pipelineLog.Infof("voice session start: session=%s conv=%s agent=%s", self.ID, self.ConversationID, self.AgentID)
 	self.wg.Add(4)
-	go func() { defer self.wg.Done(); self.audioInputLoop() }()
-	go func() { defer self.wg.Done(); self.llmEventForwarder() }()
-	go func() { defer self.wg.Done(); self.ttsSynthLoop() }()
-	go func() { defer self.wg.Done(); self.audioOutputLoop() }()
+	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.audioInputLoop() }()
+	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.llmEventForwarder() }()
+	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.ttsSynthLoop() }()
+	go func() { defer deferutil.Recover(); defer self.wg.Done(); self.audioOutputLoop() }()
 }
 
 // Close stops the session and waits for loop termination.

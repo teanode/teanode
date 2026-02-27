@@ -3,6 +3,8 @@ package v1api
 import (
 	"encoding/json"
 
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/voice"
 )
 
@@ -27,10 +29,30 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		parameters.Features.ServerVAD, parameters.Features.ServerTurn, parameters.Features.ServerDenoise, parameters.Features.BargeIn,
 	)
 
-	if isVoiceStartConflict(self.getActiveVoiceSession()) {
+	if self.getActiveVoiceSession() != nil {
 		log.Warningf("voice.start conflict: active session already exists")
 		self.sendError(frame.ID, 409, "voice session already active")
 		return
+	}
+
+	// Resolve user and agent.
+	user := models.UserFromContext(self.ctx)
+	if user == nil || user.ID == "" {
+		self.sendError(frame.ID, 401, "userId is required")
+		return
+	}
+	agentId := user.GetDefaultAgentID()
+	if agentId == "" {
+		self.sendError(frame.ID, 500, "no default agent configured")
+		return
+	}
+
+	// Resolve or create conversation.
+	conversationId := parameters.ConversationID
+	if conversationId == "" {
+		conversationId = self.api.coordinator.NewDefaultConversation(user.ID, agentId)
+	} else {
+		self.api.coordinator.SetDefaultConversationIfUnset(user.ID, agentId, conversationId)
 	}
 
 	audioIn := voice.AudioFormat{
@@ -52,22 +74,20 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		BargeIn:       parameters.Features.BargeIn,
 	}
 
-	session, err := self.api.gateway.StartVoiceSession(
-		self.userId,
-		parameters.ConversationID,
-		parameters.AgentID,
+	sessionId := security.NewULID()
+	session := voice.NewSession(
+		sessionId,
+		conversationId,
+		agentId,
 		parameters.PromptSuffix,
 		audioIn,
 		audioOut,
 		features,
+		self.api.coordinator,
+		self.api.pubsub,
 		func(payload interface{}) { self.writeJSON(payload) },
 		func(data []byte) { self.writeBinary(data) },
 	)
-	if err != nil {
-		log.Errorf("voice.start failed to create session: %v", err)
-		self.sendError(frame.ID, 500, "failed to start voice session: "+err.Error())
-		return
-	}
 	if !self.setActiveVoiceSession(session) {
 		log.Warningf("voice.start race conflict while setting active session")
 		self.sendError(frame.ID, 409, "voice session already active")
@@ -94,7 +114,7 @@ func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) {
 		}
 	}
 	session := self.getActiveVoiceSession()
-	if isVoiceEndNotFound(session) {
+	if session == nil {
 		log.Warningf("voice.end without active session")
 		self.sendError(frame.ID, 404, "no active voice session")
 		return
@@ -171,12 +191,4 @@ func applyVoiceDefaults(parameters *voiceStartParams) {
 	if parameters.AudioOut.Channels == 0 {
 		parameters.AudioOut.Channels = 1
 	}
-}
-
-func isVoiceStartConflict(active *voice.Session) bool {
-	return active != nil
-}
-
-func isVoiceEndNotFound(active *voice.Session) bool {
-	return active == nil
 }

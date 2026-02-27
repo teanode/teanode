@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/cmd"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/urfave/cli/v3"
 )
 
@@ -35,17 +33,11 @@ func main() {
 			},
 		},
 		Before: func(ctx context.Context, command *cli.Command) (context.Context, error) {
-			if value := command.String("dir"); value != "" {
-				configs.SetDirectory(value)
-			} else if value := os.Getenv("TEANODE_DIR"); value != "" {
-				configs.SetDirectory(value)
-			} else {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return ctx, fmt.Errorf("cannot determine home directory: %v", err)
-				}
-				configs.SetDirectory(filepath.Join(home, ".teanode"))
+			dataDirectory, err := cmd.ResolveDataDirectory(command.String("dir"))
+			if err != nil {
+				return ctx, err
 			}
+			ctx = cmd.ContextWithDataDirectory(ctx, dataDirectory)
 
 			level := logging.INFO
 			if value := command.String("log-level"); value != "" {

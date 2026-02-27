@@ -1,14 +1,16 @@
 package v1api
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/onboarding"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/ratelimit"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
@@ -20,28 +22,26 @@ func (self *v1Api) handleAuthStatus(writer http.ResponseWriter, request *http.Re
 		return web.ErrMethodNotAllowed
 	}
 
-	securityConfig := self.gateway.SecurityConfig()
-	passwordSet := securityConfig.HasPasswordConfigured()
-
-	authenticated := false
-	isAdmin := false
-	if passwordSet {
-		// Check if the request has a valid session cookie.
-		cookie, err := request.Cookie("session")
-		if err == nil && cookie.Value != "" {
-			session := self.gateway.SessionStore().Get(cookie.Value)
-			if session != nil && session.UserID != "" {
-				authenticated = true
-				isAdmin = securityConfig.IsAdmin(session.UserID)
+	passwordSet := true
+	user := models.UserFromContext(request.Context())
+	if user == nil {
+		if err := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+			users, err := transaction.ListUsers(ctx, nil)
+			if err != nil {
+				return err
 			}
+			passwordSet = len(users) > 0
+			return nil
+		}); err != nil {
+			return web.Error(500, "failed to load users")
 		}
 	}
 
 	writer.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(writer).Encode(map[string]interface{}{
 		"passwordSet":   passwordSet,
-		"authenticated": authenticated,
-		"isAdmin":       isAdmin,
+		"authenticated": user != nil,
+		"isAdmin":       user != nil && user.GetAdmin(),
 	})
 	return nil
 }
@@ -56,8 +56,23 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 		return err
 	}
 
-	securityConfig := self.gateway.SecurityConfig()
-	if securityConfig.HasPasswordConfigured() {
+	passwordSet := false
+	if transactionError := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+		users, usersError := transaction.ListUsers(ctx, nil)
+		if usersError != nil {
+			return usersError
+		}
+		for _, user := range users {
+			if user.GetPassword() != "" {
+				passwordSet = true
+				break
+			}
+		}
+		return nil
+	}); transactionError != nil {
+		return web.Error(500, "failed to load users")
+	}
+	if passwordSet {
 		return web.Error(409, "password already set")
 	}
 
@@ -78,56 +93,45 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 		return web.Error(500, "failed to hash password")
 	}
 
-	username := strings.TrimSpace(body.Username)
+	username := body.Username
 	if username == "" {
 		return web.Error(400, "username is required")
 	}
-	securityConfig.Lock()
-	for _, user := range securityConfig.Users {
-		if strings.EqualFold(strings.TrimSpace(user.Username), username) {
-			securityConfig.Unlock()
+	maxAge := 14 * 24 * time.Hour
+	var session *models.Session
+	if err := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+		if existingUser, _ := transaction.GetUserByUsername(ctx, username, nil); existingUser != nil {
 			return web.Error(409, "username already exists")
 		}
-	}
-	if securityConfig.Users == nil {
-		securityConfig.Users = map[string]configs.SecurityUser{}
-	}
-	userId := security.NewULID()
-	securityConfig.Users[userId] = configs.SecurityUser{
-		Username:     username,
-		Admin:        true,
-		PasswordHash: string(hash),
-	}
+		user := &models.User{
+			Username: ptrto.Value(username),
+			Password: ptrto.TrimmedString(string(hash)),
+			Admin:    ptrto.Value(true),
+		}
+		createdUser, err := onboarding.CreateUser(ctx, transaction, user)
+		if err != nil {
+			return err
+		}
 
-	name := strings.TrimSpace(body.Name)
-	if name == "" {
-		name = configs.OSUsername()
-	}
-	profile := &configs.UserConfig{Name: name}
-	if err := configs.SaveUserConfig(userId, profile); err != nil {
-		securityConfig.Unlock()
-		return web.Error(500, "failed to save profile")
-	}
+		now := time.Now().In(time.Local)
+		expiresAt := now.Add(maxAge)
 
-	// Update in-memory and save to security.yaml.
-	if err := configs.SaveSecurity(securityConfig); err != nil {
-		securityConfig.Unlock()
-		return web.Error(500, "failed to save security config")
-	}
-	securityConfig.Unlock()
-	if err := onboarding.InitializeUser(self.gateway, userId); err != nil {
-		return web.Error(500, "failed to initialize user onboarding")
-	}
-	// Auto-create a session for the user.
-	maxAge := resolveMaxAge(self.gateway.Config())
-	session, err := self.gateway.SessionStore().Create(
-		userId,
-		request.UserAgent(),
-		request.RemoteAddr,
-		maxAge,
-	)
-	if err != nil {
-		return web.Error(500, "failed to create session")
+		createdSession, err := transaction.CreateSession(ctx, &models.Session{
+			UserID:        ptrto.Value(createdUser.ID),
+			UserAgent:     ptrto.Value(request.UserAgent()),
+			RemoteAddress: ptrto.Value(request.RemoteAddr),
+			ExpiresAt:     ptrto.Value(expiresAt),
+		}, nil)
+		if err != nil {
+			return err
+		}
+		session = createdSession
+		return nil
+	}); err != nil {
+		if typedError, ok := err.(*web.HTTPError); ok {
+			return typedError
+		}
+		return web.Error(500, "failed to create user")
 	}
 
 	setSessionCookie(writer, session.ID, maxAge)
@@ -148,11 +152,6 @@ func (self *v1Api) handleAuthLogin(writer http.ResponseWriter, request *http.Req
 		return err
 	}
 
-	securityConfig := self.gateway.SecurityConfig()
-	if !securityConfig.HasPasswordConfigured() {
-		return web.Error(400, "no password configured")
-	}
-
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -160,28 +159,44 @@ func (self *v1Api) handleAuthLogin(writer http.ResponseWriter, request *http.Req
 	if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 		return web.Error(400, "invalid request body")
 	}
-
-	username := strings.TrimSpace(body.Username)
-	userId, user, found := securityConfig.FindUserByUsername(username)
+	username := body.Username
 	if username == "" {
 		return web.Error(400, "username is required")
 	}
-	if !found {
-		return web.Error(401, "invalid credentials")
-	}
-	if match, err := security.VerifyPassword([]byte(user.PasswordHash), body.Password); err != nil || !match {
-		return web.Error(401, "invalid credentials")
-	}
+	maxAge := 14 * 24 * time.Hour
+	var session *models.Session
+	if err := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+		existingUser, err := transaction.GetUserByUsername(ctx, username, nil)
+		if err != nil {
+			return err
+		}
+		if existingUser == nil {
+			return nil
+		}
 
-	maxAge := resolveMaxAge(self.gateway.Config())
-	session, err := self.gateway.SessionStore().Create(
-		userId,
-		request.UserAgent(),
-		request.RemoteAddr,
-		maxAge,
-	)
-	if err != nil {
-		return web.Error(500, "failed to create session")
+		if match, err := security.VerifyPassword([]byte(existingUser.GetPassword()), body.Password); err != nil || !match {
+			return nil
+		}
+
+		now := time.Now().In(time.Local)
+		expiresAt := now.Add(maxAge)
+
+		createdSession, err := transaction.CreateSession(ctx, &models.Session{
+			UserID:        ptrto.Value(existingUser.ID),
+			UserAgent:     ptrto.Value(request.UserAgent()),
+			RemoteAddress: ptrto.Value(request.RemoteAddr),
+			ExpiresAt:     ptrto.Value(expiresAt),
+		}, nil)
+		if err != nil {
+			return err
+		}
+		session = createdSession
+		return nil
+	}); err != nil {
+		return web.Error(500, "failed to load users")
+	}
+	if session == nil {
+		return web.Error(401, "invalid credentials")
 	}
 
 	setSessionCookie(writer, session.ID, maxAge)
@@ -200,7 +215,9 @@ func (self *v1Api) handleAuthLogout(writer http.ResponseWriter, request *http.Re
 
 	cookie, err := request.Cookie("session")
 	if err == nil && cookie.Value != "" {
-		self.gateway.SessionStore().Delete(cookie.Value)
+		_ = store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+			return transaction.DeleteSession(ctx, cookie.Value, nil)
+		})
 	}
 
 	// Clear cookie.
@@ -220,10 +237,10 @@ func (self *v1Api) handleAuthLogout(writer http.ResponseWriter, request *http.Re
 	return nil
 }
 
-func setSessionCookie(writer http.ResponseWriter, sessionId string, maxAge time.Duration) {
+func setSessionCookie(writer http.ResponseWriter, sessionID string, maxAge time.Duration) {
 	http.SetCookie(writer, &http.Cookie{
 		Name:     "session",
-		Value:    sessionId,
+		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -231,21 +248,33 @@ func setSessionCookie(writer http.ResponseWriter, sessionId string, maxAge time.
 	})
 }
 
-func resolveMaxAge(config *configs.Config) time.Duration {
-	if config.Gateway.Auth != nil && config.Gateway.Auth.SessionMaxAgeDays > 0 {
-		return time.Duration(config.Gateway.Auth.SessionMaxAgeDays) * 24 * time.Hour
+func (self *v1Api) getSessionByID(ctx context.Context, sessionID string) (*models.Session, bool) {
+	var session *models.Session
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		existingSession, getError := transaction.GetSession(ctx, sessionID, nil)
+		if getError != nil {
+			return nil
+		}
+		if existingSession.ExpiresAt != nil && time.Now().After(*existingSession.ExpiresAt) {
+			_ = transaction.DeleteSession(ctx, sessionID, nil)
+			return nil
+		}
+		session = existingSession
+		return nil
+	}); err != nil || session == nil {
+		return nil, false
 	}
-	return 14 * 24 * time.Hour
+	return session, true
 }
 
-func authBucketKeyForRemoteAddress(remoteAddress string) string {
-	trimmedAddress := strings.TrimSpace(remoteAddress)
+func rateLimitBucketKeyForRemoteAddress(remoteAddress string) string {
+	trimmedAddress := remoteAddress
 	if trimmedAddress == "" {
 		return "unknown"
 	}
 	host, _, err := net.SplitHostPort(trimmedAddress)
 	if err == nil {
-		trimmedHost := strings.TrimSpace(host)
+		trimmedHost := host
 		if trimmedHost != "" {
 			return trimmedHost
 		}
@@ -253,33 +282,33 @@ func authBucketKeyForRemoteAddress(remoteAddress string) string {
 	return trimmedAddress
 }
 
-// authBucketForRemoteAddress returns the per-IP rate limit bucket for auth endpoints,
+// rateLimitBucketForRemoteAddress returns the per-IP rate limit bucket for auth endpoints,
 // creating one if it doesn't exist. Allows a burst of 5 requests, refilling
 // at 1 request per 10 seconds.
-func (self *v1Api) authBucketForRemoteAddress(remoteAddress string) *ratelimit.Bucket {
-	self.authBucketsMutex.Lock()
-	defer self.authBucketsMutex.Unlock()
+func (self *v1Api) rateLimitBucketForRemoteAddress(remoteAddress string) *ratelimit.Bucket {
+	self.rateLimitBucketsMutex.Lock()
+	defer self.rateLimitBucketsMutex.Unlock()
 
 	const maxAuthBucketEntries = 2048
 	const staleEntryDuration = 24 * time.Hour
 
 	now := time.Now()
-	if len(self.authBuckets) > maxAuthBucketEntries {
+	if len(self.rateLimitBuckets) > maxAuthBucketEntries {
 		staleBefore := now.Add(-staleEntryDuration)
-		for key, entry := range self.authBuckets {
+		for key, entry := range self.rateLimitBuckets {
 			if entry.lastSeen.Before(staleBefore) {
-				delete(self.authBuckets, key)
+				delete(self.rateLimitBuckets, key)
 			}
 		}
 	}
 
-	key := authBucketKeyForRemoteAddress(remoteAddress)
-	entry, exists := self.authBuckets[key]
+	key := rateLimitBucketKeyForRemoteAddress(remoteAddress)
+	entry, exists := self.rateLimitBuckets[key]
 	if !exists {
-		entry = &authBucketEntry{
+		entry = &rateLimitBucketEntry{
 			bucket: ratelimit.NewBucketWithQuantumAndInterval(1, 10*time.Second, 5),
 		}
-		self.authBuckets[key] = entry
+		self.rateLimitBuckets[key] = entry
 	}
 	entry.lastSeen = now
 	return entry.bucket
@@ -288,7 +317,7 @@ func (self *v1Api) authBucketForRemoteAddress(remoteAddress string) *ratelimit.B
 // checkAuthRateLimit consumes one token from the per-IP auth bucket.
 // Returns a 429 error if the rate limit is exceeded.
 func (self *v1Api) checkAuthRateLimit(request *http.Request) error {
-	bucket := self.authBucketForRemoteAddress(request.RemoteAddr)
+	bucket := self.rateLimitBucketForRemoteAddress(request.RemoteAddr)
 	if bucket.TakeAvailable(1) == 0 {
 		return web.Error(429, "too many requests")
 	}

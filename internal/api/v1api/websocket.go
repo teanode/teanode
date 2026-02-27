@@ -1,42 +1,121 @@
 package v1api
 
 import (
+	"context"
 	"encoding/json"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/pubsub"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/voice"
 )
 
+func loadPublicUrlFromStore(ctx context.Context) string {
+	publicUrl := ""
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, getError := transaction.GetConfiguration(ctx, nil)
+		if getError != nil || configuration == nil || configuration.Gateway == nil || configuration.Gateway.PublicURL == nil {
+			return nil
+		}
+		publicUrl = *configuration.Gateway.PublicURL
+		return nil
+	})
+	return publicUrl
+}
+
+func splitHostPortDefault(rawHost string, tls bool) (string, string) {
+	host, port, err := net.SplitHostPort(rawHost)
+	if err == nil {
+		return strings.ToLower(host), port
+	}
+	defaultPort := "80"
+	if tls {
+		defaultPort = "443"
+	}
+	return strings.ToLower(rawHost), defaultPort
+}
+
+func sameOriginHost(leftHost string, leftTls bool, rightHost string, rightTls bool) bool {
+	leftName, leftPort := splitHostPortDefault(leftHost, leftTls)
+	rightName, rightPort := splitHostPortDefault(rightHost, rightTls)
+	return leftName == rightName && leftPort == rightPort
+}
+
+func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
+	origin := request.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	originUrl, err := url.Parse(origin)
+	if err != nil || originUrl.Host == "" {
+		return false
+	}
+	originTls := strings.EqualFold(originUrl.Scheme, "https")
+	requestTls := request.TLS != nil
+	if sameOriginHost(originUrl.Host, originTls, request.Host, requestTls) {
+		return true
+	}
+
+	publicUrl := loadPublicUrlFromStore(request.Context())
+	if publicUrl == "" {
+		return false
+	}
+	parsedPublicUrl, err := url.Parse(publicUrl)
+	if err != nil || parsedPublicUrl.Host == "" {
+		return false
+	}
+	publicTls := strings.EqualFold(parsedPublicUrl.Scheme, "https")
+	return sameOriginHost(originUrl.Host, originTls, parsedPublicUrl.Host, publicTls)
+}
+
+func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Request) error {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(request *http.Request) bool {
+			return self.isWebSocketOriginAllowed(request)
+		},
+	}
+	connection, err := upgrader.Upgrade(writer, request, nil)
+	if err != nil {
+		log.Errorf("websocket upgrade error: %v", err)
+		return err
+	}
+	webSocketConnection := newWebSocketConnection(connection, self, request.Context())
+	webSocketConnection.serve()
+	return nil
+}
+
 // webSocketConnection manages a single WebSocket connection.
-// It implements gw.Subscriber to receive broadcast events from the gateway.
+// It implements pubsub.Subscriber to receive broadcast events.
 type webSocketConnection struct {
 	connection *websocket.Conn
 	api        *v1Api
+	ctx        context.Context
 	writeMutex sync.Mutex
-	sessionId  string
-	userId     string
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time
 
-	activeVoiceMu      sync.RWMutex
+	activeVoiceMutex   sync.RWMutex
 	activeVoiceSession *voice.Session
 }
 
-func newWebSocketConnection(connection *websocket.Conn, api *v1Api, sessionId, userId string) *webSocketConnection {
+func newWebSocketConnection(connection *websocket.Conn, api *v1Api, ctx context.Context) *webSocketConnection {
 	return &webSocketConnection{
 		connection: connection,
 		api:        api,
-		sessionId:  sessionId,
-		userId:     userId,
+		ctx:        ctx,
 	}
 }
 
-// OnEvent implements gw.Subscriber. It forwards gateway events to this WebSocket client.
-func (self *webSocketConnection) OnEvent(eventType gw.EventType, payload interface{}) {
+// OnEvent implements pubsub.Subscriber. It forwards events to this WebSocket client.
+func (self *webSocketConnection) OnEvent(eventType pubsub.EventType, payload interface{}) {
 	if !self.shouldDeliverEvent(payload) {
 		return
 	}
@@ -56,15 +135,19 @@ func (self *webSocketConnection) shouldDeliverEvent(payload interface{}) bool {
 	if !ok || eventUserId == "" {
 		return true
 	}
-	return eventUserId == self.userId
+	return eventUserId == self.userId()
 }
 
 func (self *webSocketConnection) serve() {
 	defer self.connection.Close()
-	self.api.gateway.MarkSessionConnected(self.sessionId)
-	defer self.api.gateway.MarkSessionDisconnected(self.sessionId)
-	self.api.gateway.Subscribe(self)
-	defer self.api.gateway.Unsubscribe(self)
+	sessionId := self.sessionId()
+
+	self.api.sessionTracker.MarkConnected(sessionId)
+	defer self.api.sessionTracker.MarkDisconnected(sessionId)
+
+	self.api.pubsub.Subscribe(self)
+	defer self.api.pubsub.Unsubscribe(self)
+
 	defer func() {
 		if sess := self.getActiveVoiceSession(); sess != nil {
 			sess.Close()
@@ -114,6 +197,35 @@ func (self *webSocketConnection) serve() {
 
 		self.dispatch(frame)
 	}
+}
+
+func (self *webSocketConnection) userId() string {
+	if user := models.UserFromContext(self.ctx); user != nil {
+		return user.ID
+	}
+	return ""
+}
+
+func (self *webSocketConnection) defaultAgentId() string {
+	if user := models.UserFromContext(self.ctx); user != nil {
+		return user.GetDefaultAgentID()
+	}
+	return ""
+}
+
+func (self *webSocketConnection) sessionId() string {
+	if session := models.SessionFromContext(self.ctx); session != nil {
+		return session.ID
+	}
+	return ""
+}
+
+func (self *webSocketConnection) isAdmin() bool {
+	user := models.UserFromContext(self.ctx)
+	if user == nil || user.Admin == nil {
+		return false
+	}
+	return *user.Admin
 }
 
 func (self *webSocketConnection) dispatch(frame requestFrame) {
@@ -198,22 +310,14 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleProfileUpdate(frame)
 	case "profile.avatar.remove":
 		self.handleProfileAvatarRemove(frame)
-	case "skills.registry.list":
-		self.handleSkillsRegistryList(frame)
-	case "skills.registry.search":
-		self.handleSkillsRegistrySearch(frame)
-	case "skills.local.list":
-		self.handleSkillsLocalList(frame)
-	case "skills.install":
-		self.handleSkillsInstall(frame)
-	case "skills.installed.list":
-		self.handleSkillsInstalledList(frame)
-	case "skills.uninstall":
-		self.handleSkillsUninstall(frame)
-	case "skills.update":
-		self.handleSkillsUpdate(frame)
-	case "skills.setEnabled":
-		self.handleSkillsSetEnabled(frame)
+	// TODO
+	// case "skills.registry.list":
+	// case "skills.registry.search":
+	// case "skills.install":
+	// case "skills.installed.list":
+	// case "skills.uninstall":
+	// case "skills.update":
+	// case "skills.setEnabled":
 	case "voice.start":
 		self.handleVoiceStart(frame)
 	case "voice.end":
@@ -253,7 +357,7 @@ func (self *webSocketConnection) sendError(id string, code int, message string) 
 	})
 }
 
-func (self *webSocketConnection) sendEvent(eventType gw.EventType, payload interface{}) {
+func (self *webSocketConnection) sendEvent(eventType pubsub.EventType, payload interface{}) {
 	self.writeJSON(eventFrame{
 		Type:    "event",
 		Event:   string(eventType),
@@ -278,14 +382,14 @@ func (self *webSocketConnection) writeBinary(data []byte) {
 }
 
 func (self *webSocketConnection) getActiveVoiceSession() *voice.Session {
-	self.activeVoiceMu.RLock()
-	defer self.activeVoiceMu.RUnlock()
+	self.activeVoiceMutex.RLock()
+	defer self.activeVoiceMutex.RUnlock()
 	return self.activeVoiceSession
 }
 
 func (self *webSocketConnection) setActiveVoiceSession(session *voice.Session) bool {
-	self.activeVoiceMu.Lock()
-	defer self.activeVoiceMu.Unlock()
+	self.activeVoiceMutex.Lock()
+	defer self.activeVoiceMutex.Unlock()
 	if self.activeVoiceSession != nil {
 		return false
 	}
@@ -294,8 +398,8 @@ func (self *webSocketConnection) setActiveVoiceSession(session *voice.Session) b
 }
 
 func (self *webSocketConnection) clearActiveVoiceSession(session *voice.Session) {
-	self.activeVoiceMu.Lock()
-	defer self.activeVoiceMu.Unlock()
+	self.activeVoiceMutex.Lock()
+	defer self.activeVoiceMutex.Unlock()
 	if self.activeVoiceSession == session {
 		self.activeVoiceSession = nil
 	}

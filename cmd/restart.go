@@ -12,7 +12,7 @@ func NewRestartCommand() *cli.Command {
 		Name:  "restart",
 		Usage: "Restart a running TeaNode gateway process",
 		Action: func(ctx context.Context, command *cli.Command) error {
-			if err := restartGatewayProcess(); err != nil {
+			if err := restartProcess(ctx); err != nil {
 				return err
 			}
 			fmt.Println("restart signal sent")

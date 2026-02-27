@@ -8,17 +8,22 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/conversations"
-	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/lifecycle"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/pubsub"
+	"github.com/teanode/teanode/internal/runners"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/deferutil"
+	"github.com/teanode/teanode/internal/util/mimetypes"
+	"github.com/teanode/teanode/internal/util/ptrto"
+	"github.com/teanode/teanode/internal/util/sessiontracker"
 	"github.com/teanode/teanode/internal/util/slashcommands"
 )
 
@@ -50,6 +55,7 @@ func newDiscordStreamPreview(session *discordgo.Session, channelId string) *disc
 }
 
 func (self *discordStreamPreview) run() {
+	defer deferutil.Recover()
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -135,17 +141,19 @@ type discordSubscribedRun struct {
 	origin          string
 	originSessionId string
 	triggerText     string
-	pendingMedia    []*media.MediaContent
+	pendingMedia    []*mimetypes.MediaContent
 	mediaMutex      sync.Mutex
 }
 
 // Bot manages a Discord bot that forwards messages to the agents.
 type Bot struct {
-	config        *configs.DiscordConfig
-	agentRegistry *agents.AgentRegistry
-	gateway       gw.Gateway
-	discord       *discordgo.Session
-	botUserId     string
+	token          string
+	ctx            context.Context
+	coordinator    *coordinators.Coordinator
+	pubsub         *pubsub.PubSub
+	sessionTracker *sessiontracker.SessionTracker
+	discord        *discordgo.Session
+	botUserId      string
 
 	// Per-channel model overrides (channelId -> model name).
 	modelMutex     sync.RWMutex
@@ -162,12 +170,14 @@ type Bot struct {
 	userChannels        map[string]string // userId -> channelId
 }
 
-// New creates a new Discord bot that dynamically resolves the default agent and conversation from the registry.
-func New(discordConfig *configs.DiscordConfig, agentRegistry *agents.AgentRegistry, gateway gw.Gateway) *Bot {
+// New creates a new Discord bot that dynamically resolves the default agent and conversation from the coordinator.
+func New(token string, ctx context.Context, coordinator *coordinators.Coordinator, events *pubsub.PubSub, sessions *sessiontracker.SessionTracker) *Bot {
 	return &Bot{
-		config:              discordConfig,
-		agentRegistry:       agentRegistry,
-		gateway:             gateway,
+		token:               token,
+		ctx:                 ctx,
+		coordinator:         coordinator,
+		pubsub:              events,
+		sessionTracker:      sessions,
 		modelOverrides:      make(map[string]string),
 		activeConversations: make(map[string]struct{}),
 		subscribedRuns:      make(map[string]*discordSubscribedRun),
@@ -177,7 +187,7 @@ func New(discordConfig *configs.DiscordConfig, agentRegistry *agents.AgentRegist
 
 // Start connects the bot to Discord.
 func (self *Bot) Start() error {
-	discordSession, err := discordgo.New("Bot " + self.config.Token)
+	discordSession, err := discordgo.New("Bot " + self.token)
 	if err != nil {
 		return fmt.Errorf("creating discord session: %w", err)
 	}
@@ -191,14 +201,14 @@ func (self *Bot) Start() error {
 
 	self.discord = discordSession
 	self.botUserId = discordSession.State.User.ID
-	self.gateway.Subscribe(self)
+	self.pubsub.Subscribe(self)
 	log.Infof("discord bot connected as %s (%s)", discordSession.State.User.Username, self.botUserId)
 	return nil
 }
 
 // Stop disconnects the bot.
 func (self *Bot) Stop() {
-	self.gateway.Unsubscribe(self)
+	self.pubsub.Unsubscribe(self)
 	if self.discord != nil {
 		self.discord.Close()
 	}
@@ -211,24 +221,29 @@ func (self *Bot) shouldForwardDisconnectedSession(userId, agentId, conversationI
 	if userId == "" {
 		return false
 	}
-	defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
-	if err != nil {
-		return false
-	}
+	var defaultAgentId string
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		user, err := transaction.GetUser(ctx, userId, nil)
+		if err != nil {
+			return nil
+		}
+		defaultAgentId = user.GetDefaultAgentID()
+		return nil
+	})
 	if agentId != defaultAgentId {
 		return false
 	}
-	defaultConversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+	defaultConversationId := self.coordinator.EnsureDefaultConversation(userId, defaultAgentId)
 	if defaultConversationId == "" || conversationId == "" {
 		return false
 	}
 	return conversationId == defaultConversationId
 }
 
-// OnEvent implements gw.Subscriber. It handles conversation events for runs
+// OnEvent implements pubsub.Subscriber. It handles conversation events for runs
 // not initiated by this bot (e.g. scheduled jobs), streaming them to the appropriate channel.
-func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
-	if eventType != gw.EventTypeConversation {
+func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
+	if eventType != pubsub.EventTypeConversation {
 		return
 	}
 	payloadMap, ok := payload.(map[string]interface{})
@@ -262,8 +277,16 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 	case "user_message":
 		agentId, _ := payloadMap["agentId"].(string)
 		// Only forward events for the default agent.
-		defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
-		if err != nil || agentId != defaultAgentId {
+		var defaultAgentId string
+		_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+			user, err := transaction.GetUser(ctx, userId, nil)
+			if err != nil {
+				return nil
+			}
+			defaultAgentId = user.GetDefaultAgentID()
+			return nil
+		})
+		if agentId != defaultAgentId {
 			return
 		}
 
@@ -331,7 +354,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil {
 			result, _ := payloadMap["result"].(string)
-			if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+			if detected := mimetypes.DetectMedia(result); detected != nil && detected.Base64 != "" && mimetypes.IsImageFormat(detected.Format) {
 				subscribedRun.mediaMutex.Lock()
 				subscribedRun.pendingMedia = append(subscribedRun.pendingMedia, detected)
 				subscribedRun.mediaMutex.Unlock()
@@ -388,7 +411,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 		}
 
 		// Session fallback: only notify when the originating web session is disconnected.
-		if subscribedRun.origin == "webui" && !self.gateway.IsSessionConnected(subscribedRun.originSessionId) {
+		if subscribedRun.origin == "webui" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
 			self.sendChunked(subscribedRun.channelId, finalText)
 		}
 
@@ -411,7 +434,7 @@ func (self *Bot) OnEvent(eventType gw.EventType, payload interface{}) {
 				errorText = "An error occurred while processing the request."
 			}
 			self.discord.ChannelMessageSend(subscribedRun.channelId, "Sorry, an error occurred: "+errorText)
-		} else if state == "error" && subscribedRun.origin == "webui" && !self.gateway.IsSessionConnected(subscribedRun.originSessionId) {
+		} else if state == "error" && subscribedRun.origin == "webui" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
 			errorText, _ := payloadMap["error"].(string)
 			if errorText == "" {
 				errorText = "An error occurred while processing the request."
@@ -434,7 +457,7 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 		return
 	}
 
-	content := strings.TrimSpace(event.Content)
+	content := event.Content
 	hasAttachments := len(event.Attachments) > 0
 
 	if content == "" && !hasAttachments {
@@ -454,46 +477,47 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 			return
 		}
 		// Strip the mention from the message.
-		content = strings.TrimSpace(strings.ReplaceAll(content, "<@"+self.botUserId+">", ""))
-		content = strings.TrimSpace(strings.ReplaceAll(content, "<@!"+self.botUserId+">", ""))
+		content = strings.ReplaceAll(content, "<@"+self.botUserId+">", "")
+		content = strings.ReplaceAll(content, "<@!"+self.botUserId+">", "")
 		if content == "" && !hasAttachments {
 			return
 		}
 	}
 
 	// Check for slash commands.
-	userId := self.linkedUserIdForDiscordUser(event.Author.ID)
-	if userId == "" {
+	user := self.linkedUserForDiscordUser(event.Author.ID)
+	if user == nil {
 		discordSession.ChannelMessageSend(event.ChannelID, unlinkedDiscordMessage(event.Author.ID))
 		return
 	}
+	userId := user.ID
 	self.setChannelForUser(userId, event.ChannelID)
 
 	if name, arguments, ok := slashcommands.Parse(content); ok {
-		self.handleCommand(userId, discordSession, event, name, arguments)
+		self.handleCommand(user, discordSession, event, name, arguments)
 		return
 	}
 
-	defaultAgentId, err := self.gateway.EnsureDefaultAgent(userId)
-	if err != nil {
+	defaultAgentId := user.GetDefaultAgentID()
+	if defaultAgentId == "" {
 		discordSession.ChannelMessageSend(event.ChannelID, "No default agent available.")
 		return
 	}
-	conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+	conversationId := self.coordinator.EnsureDefaultConversation(userId, defaultAgentId)
 
 	// Check if there's already an active run for this conversation.
-	if self.gateway.GetActiveRun(conversationId) != "" {
+	if self.coordinator.GetActiveConversationRunner(conversationId) != nil {
 		discordSession.ChannelMessageSend(event.ChannelID, "I'm still working on a previous request. Please wait.")
 		return
 	}
 
 	// Extract attachments from the message.
-	var attachments []conversations.Attachment
+	var attachments []map[string]string
 	if hasAttachments {
 		attachments = self.extractAttachments(event.Attachments)
 	}
 
-	go self.handleMessage(userId, conversationId, defaultAgentId, event.ChannelID, content, attachments)
+	go self.handleMessage(user, conversationId, defaultAgentId, event.ChannelID, content, attachments)
 }
 
 func unlinkedDiscordMessage(discordUserId string) string {
@@ -511,13 +535,13 @@ func unlinkedDiscordMessage(discordUserId string) string {
 			"channelLinks:\n"+
 			"  discord:\n"+
 			"    \"%s\": \"user-1\"",
-		configs.SecurityFilename(),
+		"security.yaml",
 		discordUserId,
 		discordUserId,
 	)
 }
 
-func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, message string, attachments []conversations.Attachment) {
+func (self *Bot) handleMessage(user *models.User, conversationId, agentId, channelId, message string, attachments []map[string]string) {
 	defer deferutil.Recover()
 
 	// Mark this conversation as actively handled by us.
@@ -534,13 +558,13 @@ func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, messa
 	// Send typing indicator.
 	self.discord.ChannelTyping(channelId)
 
-	var pendingMedia []*media.MediaContent
+	var pendingMedia []*mimetypes.MediaContent
 	var pendingMediaMutex sync.Mutex
 
 	preview := newDiscordStreamPreview(self.discord, channelId)
 
 	// Caller-specific callbacks: only preview/typing/media logic.
-	callerCallbacks := &agents.RunCallbacks{
+	callerCallbacks := &runners.RunCallbacks{
 		OnTextDelta: func(text string) {
 			preview.Update(text)
 		},
@@ -551,7 +575,7 @@ func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, messa
 		},
 		OnToolResult: func(toolName string, result string) {
 			// Collect media for sending as attachments.
-			if detected := media.DetectMedia(result); detected != nil && detected.Base64 != "" && media.IsImageFormat(detected.Format) {
+			if detected := mimetypes.DetectMedia(result); detected != nil && detected.Base64 != "" && mimetypes.IsImageFormat(detected.Format) {
 				pendingMediaMutex.Lock()
 				pendingMedia = append(pendingMedia, detected)
 				pendingMediaMutex.Unlock()
@@ -559,8 +583,8 @@ func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, messa
 		},
 	}
 
-	handle := self.gateway.SendMessage(context.Background(), gw.SendMessageParameters{
-		UserContext:    &gw.UserContext{UserID: userId},
+	runContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
+	handle, sendError := self.coordinator.Run(runContext, coordinators.RunParameters{
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
@@ -568,16 +592,22 @@ func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, messa
 		Origin:         "discord",
 		Attachments:    attachments,
 	}, callerCallbacks)
+	if sendError != nil {
+		log.Errorf("discord send message error (conversation %s): %v", conversationId, sendError)
+		preview.Stop()
+		preview.Delete()
+		self.discord.ChannelMessageSend(channelId, "Sorry, an error occurred while processing your request.")
+		return
+	}
 
 	// Wait for completion.
-	<-handle.Done
+	result, runError := handle.Wait()
 
 	previewMessageId, _ := preview.Stop()
-	outcome := handle.Outcome()
 
 	// Handle error: delete preview, send error message.
-	if outcome.Error != nil {
-		log.Errorf("discord agent run error (conversation %s): %v", handle.ConversationID, outcome.Error)
+	if runError != nil {
+		log.Errorf("discord agent run error (conversation %s): %v", handle.ConversationID, runError)
 		preview.Delete()
 		self.discord.ChannelMessageSend(channelId, "Sorry, an error occurred while processing your request.")
 		return
@@ -599,7 +629,7 @@ func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, messa
 
 	// Reuse the preview message as the final message by editing it.
 	if previewMessageId != "" {
-		finalText := outcome.Response
+		finalText := result.Response
 		firstChunk := finalText
 		remaining := ""
 		if len(finalText) > maxDiscordMessageLen {
@@ -617,8 +647,8 @@ func (self *Bot) handleMessage(userId, conversationId, agentId, channelId, messa
 		return
 	}
 
-	// No preview message was created — send as new message(s).
-	self.sendChunked(channelId, outcome.Response)
+	// No preview message was created -- send as new message(s).
+	self.sendChunked(channelId, result.Response)
 }
 
 func (self *Bot) getModel(channelId string) string {
@@ -627,39 +657,31 @@ func (self *Bot) getModel(channelId string) string {
 	return self.modelOverrides[channelId]
 }
 
-func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session, messageEvent *discordgo.MessageCreate, name, arguments string) {
+func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Session, messageEvent *discordgo.MessageCreate, name, arguments string) {
 	channelId := messageEvent.ChannelID
 	var reply string
 
-	defaultAgentId, defaultError := self.gateway.EnsureDefaultAgent(userId)
-	if defaultError != nil {
+	defaultAgentId := user.GetDefaultAgentID()
+	if defaultAgentId == "" {
 		discordSession.ChannelMessageSend(channelId, "No default agent available.")
 		return
 	}
-	runner := self.agentRegistry.GetRunner(defaultAgentId)
-
 	switch name {
 	case "new":
-		conversationId := self.gateway.NewDefaultConversation(userId, defaultAgentId, "")
+		conversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId)
 		reply = fmt.Sprintf("New conversation started. (`%s`)", conversationId)
 
 	case "reset", "clear":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
 		// Abort active run if any.
-		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
-			self.gateway.AbortRun(activeRunId)
-		}
-		if err := self.gateway.DeleteConversation(userId, defaultAgentId, conversationId); err != nil {
-			reply = fmt.Sprintf("Error clearing conversation: %v", err)
-		} else {
-			newConversationId := self.gateway.NewDefaultConversation(userId, defaultAgentId, "")
-			reply = fmt.Sprintf("Conversation cleared. New conversation started. (`%s`)", newConversationId)
-		}
+		self.coordinator.AbortConversationRun(conversationId)
+		newConversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId)
+		reply = fmt.Sprintf("Conversation cleared. New conversation started. (`%s`)", newConversationId)
 
 	case "stop":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
-		if activeRunId := self.gateway.GetActiveRun(conversationId); activeRunId != "" {
-			self.gateway.AbortRun(activeRunId)
+		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
+		if self.coordinator.GetActiveConversationRunner(conversationId) != nil {
+			self.coordinator.AbortConversationRun(conversationId)
 			reply = "Run cancelled."
 		} else {
 			reply = "No active run to cancel."
@@ -668,8 +690,8 @@ func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session,
 	case "model":
 		if arguments == "" {
 			model := self.getModel(channelId)
-			if model == "" && runner != nil {
-				model = runner.Config.Models.Default
+			if model == "" {
+				model = self.resolveDefaultModel()
 			}
 			reply = fmt.Sprintf("Current model: `%s`", model)
 		} else {
@@ -684,7 +706,7 @@ func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session,
 			var lines []string
 			lines = append(lines, fmt.Sprintf("Default agent: `%s`", defaultAgentId))
 			lines = append(lines, "Agents:")
-			for _, agentId := range self.agentRegistry.AgentIDs() {
+			for _, agentId := range self.listAgentIDsFromStore() {
 				marker := "  "
 				if agentId == defaultAgentId {
 					marker = "* "
@@ -693,53 +715,58 @@ func (self *Bot) handleCommand(userId string, discordSession *discordgo.Session,
 			}
 			reply = strings.Join(lines, "\n")
 		} else {
-			if err := self.gateway.SetDefaultAgent(userId, arguments); err != nil {
+			if !self.agentExistsInStore(arguments) {
+				reply = fmt.Sprintf("Error: agent not found: %s", arguments)
+			} else if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+				_, err := transaction.ModifyUser(ctx, user.ID, func(user *models.User) error {
+					user.DefaultAgentID = ptrto.Value(arguments)
+					return nil
+				}, nil)
+				return err
+			}); err != nil {
 				reply = fmt.Sprintf("Error: %v", err)
 			} else {
-				newConversationId := self.agentRegistry.EnsureDefaultConversation(userId, arguments)
+				self.pubsub.Broadcast(pubsub.EventTypeDefaultAgent, map[string]interface{}{
+					"defaultAgentId": arguments,
+					"userId":         user.ID,
+				})
+				newConversationId := self.coordinator.EnsureDefaultConversation(user.ID, arguments)
 				reply = fmt.Sprintf("Switched to agent `%s`. (conversation: `%s`)", arguments, newConversationId)
 			}
 		}
 
 	case "status":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
+		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
 		model := self.getModel(channelId)
-		if model == "" && runner != nil {
-			model = runner.Config.Models.Default
+		if model == "" {
+			model = self.resolveDefaultModel()
 		}
-		running := self.gateway.GetActiveRun(conversationId) != ""
+		running := self.coordinator.GetActiveConversationRunner(conversationId) != nil
 		status := "idle"
 		if running {
 			status = "running"
 		}
-		providerName := ""
-		if runner != nil {
-			providerName = runner.Config.Models.DefaultProviderName()
-		}
+		providerName := self.coordinator.ProviderRegistry().DefaultProvider()
 		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
 
 	case "compact":
-		conversationId := self.agentRegistry.EnsureDefaultConversation(userId, defaultAgentId)
-		if runner != nil {
-			contextWithUserId := agents.ContextWithUserID(context.Background(), userId)
-			result, err := runner.CompactConversation(contextWithUserId, conversationId)
-			if err != nil {
-				reply = fmt.Sprintf("Error compacting: %v", err)
-			} else {
-				reply = fmt.Sprintf("Conversation compacted. Summarized %d messages.", result.SummarizedMessages)
-			}
+		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
+		compactContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
+		compactResult, compactError := self.coordinator.CompactConversation(compactContext, defaultAgentId, conversationId)
+		if compactError != nil {
+			reply = fmt.Sprintf("Error compacting: %v", compactError)
 		} else {
-			reply = "No default agent available."
+			reply = fmt.Sprintf("Conversation compacted. Summarized %d messages.", compactResult.SummarizedMessages)
 		}
 
 	case "restart":
 		discordSession.ChannelMessageSend(channelId, "Restarting gateway...")
-		self.gateway.RequestLifecycle(gw.LifecycleRestart)
+		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Restart)
 		return
 
 	case "terminate":
 		discordSession.ChannelMessageSend(channelId, "Shutting down gateway...")
-		self.gateway.RequestLifecycle(gw.LifecycleShutdown)
+		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Shutdown)
 		return
 
 	case "help":
@@ -773,12 +800,59 @@ func (self *Bot) sendChunked(channelId, text string) {
 	}
 }
 
-func (self *Bot) linkedUserIdForDiscordUser(discordUserId string) string {
-	securityConfig := self.gateway.SecurityConfig()
-	if securityConfig == nil || securityConfig.ChannelLinks.Discord == nil {
-		return ""
-	}
-	return securityConfig.ChannelLinks.Discord[discordUserId]
+func (self *Bot) linkedUserForDiscordUser(discordUserId string) *models.User {
+	var user *models.User
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		foundUser, err := transaction.GetUserByDiscordUserID(ctx, discordUserId, nil)
+		if err == nil {
+			user = foundUser
+		}
+		return nil
+	})
+	return user
+}
+
+func (self *Bot) agentExistsInStore(agentId string) bool {
+	exists := false
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		if _, getError := transaction.GetAgent(ctx, agentId, nil); getError == nil {
+			exists = true
+		}
+		return nil
+	})
+	return exists
+}
+
+func (self *Bot) resolveDefaultModel() string {
+	var defaultModel string
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, getError := transaction.GetConfiguration(ctx, nil)
+		if getError != nil {
+			return getError
+		}
+		if configuration.Models != nil {
+			defaultModel = configuration.Models.GetDefault()
+		}
+		return nil
+	})
+	return defaultModel
+}
+
+func (self *Bot) listAgentIDsFromStore() []string {
+	agentIDs := make([]string, 0)
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		agents, listError := transaction.ListAgents(ctx, nil)
+		if listError != nil {
+			return nil
+		}
+		agentIDs = make([]string, 0, len(agents))
+		for _, agent := range agents {
+			agentIDs = append(agentIDs, agent.ID)
+		}
+		sort.Strings(agentIDs)
+		return nil
+	})
+	return agentIDs
 }
 
 func (self *Bot) setChannelForUser(userId, channelId string) {
@@ -797,14 +871,9 @@ func (self *Bot) channelIdForUser(userId string) string {
 }
 
 // extractAttachments downloads files attached to a Discord message and saves
-// them to the media store, returning conversation attachment references.
-func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttachment) []conversations.Attachment {
-	mediaStore := self.gateway.MediaStore()
-	if mediaStore == nil {
-		return nil
-	}
-
-	var attachments []conversations.Attachment
+// them through the configured store, returning conversation attachment references.
+func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttachment) []map[string]string {
+	var attachments []map[string]string
 	for _, att := range messageAttachments {
 		data, err := downloadUrl(att.URL)
 		if err != nil {
@@ -815,32 +884,44 @@ func (self *Bot) extractAttachments(messageAttachments []*discordgo.MessageAttac
 		// Determine format from filename extension, fall back to content type.
 		format := strings.TrimPrefix(filepath.Ext(att.Filename), ".")
 		if format == "" {
-			format = media.FormatFromMimeType(att.ContentType)
+			format = mimetypes.FormatFromMIMEType(att.ContentType)
 		}
 		if format == "" {
 			format = "bin"
 		}
 
-		saved, err := mediaStore.Save(data, format, media.SaveOptions{
-			SourceType:   "discord",
-			OriginalName: att.Filename,
+		contentType := att.ContentType
+		if contentType == "" {
+			contentType = mimetypes.MIMETypeFromFormat(format)
+		}
+		var createdMedia *models.Media
+		createError := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+			var saveError error
+			createdMedia, saveError = transaction.CreateMedia(ctx, bytes.NewReader(data), &models.Media{
+				Format:       &format,
+				ContentType:  &contentType,
+				Source:       ptrto.Value(models.MediaSourceDiscord),
+				OriginalName: &att.Filename,
+			}, nil)
+			return saveError
 		})
-		if err != nil {
-			log.Errorf("failed to save discord attachment: %v", err)
+		if createError != nil {
+			log.Errorf("failed to save discord attachment: %v", createError)
 			continue
 		}
-		attachments = append(attachments, conversations.Attachment{
-			MediaID:  saved.MediaID,
-			Format:   format,
-			Filename: att.Filename,
+		attachments = append(attachments, map[string]string{
+			"mediaId":  createdMedia.ID,
+			"format":   format,
+			"filename": att.Filename,
 		})
 	}
 	return attachments
 }
 
 // downloadUrl fetches data from a URL.
-func downloadUrl(url string) ([]byte, error) {
-	response, err := http.Get(url)
+func downloadUrl(targetUrl string) ([]byte, error) {
+	client := &http.Client{Timeout: 60 * time.Second}
+	response, err := client.Get(targetUrl)
 	if err != nil {
 		return nil, fmt.Errorf("downloading: %w", err)
 	}
@@ -848,5 +929,6 @@ func downloadUrl(url string) ([]byte, error) {
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned status %d", response.StatusCode)
 	}
-	return io.ReadAll(response.Body)
+	const maxFileSize = 100 * 1024 * 1024 // 100 MB
+	return io.ReadAll(io.LimitReader(response.Body, maxFileSize))
 }

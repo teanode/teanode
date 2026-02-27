@@ -11,7 +11,7 @@ import (
 func EnrichMetrics(scenario model.ScenarioSpec, timeline []model.TimelineEvent, metrics map[string]any) {
 	expected := make([]string, 0, len(scenario.Audio))
 	for _, step := range scenario.Audio {
-		if strings.TrimSpace(step.ExpectedText) != "" {
+		if step.ExpectedText != "" {
 			expected = append(expected, step.ExpectedText)
 		}
 	}
@@ -22,7 +22,7 @@ func EnrichMetrics(scenario model.ScenarioSpec, timeline []model.TimelineEvent, 
 	actual := make([]string, 0, 8)
 	for _, event := range timeline {
 		if event.Type == model.EventTranscriptFinal {
-			text := strings.TrimSpace(event.Text)
+			text := event.Text
 			if text != "" {
 				actual = append(actual, text)
 			}

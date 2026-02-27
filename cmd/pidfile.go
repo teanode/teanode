@@ -1,28 +1,29 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
 var errInvalidPIDFile = errors.New("invalid pid file")
 
-type gatewayPIDGuard struct {
+type pidGuard struct {
 	path string
 	pid  int
 }
 
-func acquireGatewayPIDGuard() (*gatewayPIDGuard, error) {
-	pidFilename := configs.GatewayPIDFilename()
+func acquirePidGuard(ctx context.Context) (*pidGuard, error) {
+	pidFilename := filepath.Join(DataDirectoryFromContext(ctx), "gateway.pid")
 
-	existingPid, err := readPIDFile(pidFilename)
+	existingPid, err := readPidFile(pidFilename)
 	switch {
 	case err == nil:
 		if processExists(existingPid) {
@@ -47,11 +48,11 @@ func acquireGatewayPIDGuard() (*gatewayPIDGuard, error) {
 	if err := atomicfile.WriteFile(pidFilename, []byte(strconv.Itoa(currentPid)+"\n")); err != nil {
 		return nil, fmt.Errorf("write gateway pid file: %w", err)
 	}
-	return &gatewayPIDGuard{path: pidFilename, pid: currentPid}, nil
+	return &pidGuard{path: pidFilename, pid: currentPid}, nil
 }
 
-func (self *gatewayPIDGuard) Release() error {
-	currentPid, err := readPIDFile(self.path)
+func (self *pidGuard) Release() error {
+	currentPid, err := readPidFile(self.path)
 	switch {
 	case err == nil:
 		if currentPid != self.pid {
@@ -70,10 +71,10 @@ func (self *gatewayPIDGuard) Release() error {
 	return nil
 }
 
-func restartGatewayProcess() error {
-	pidFilename := configs.GatewayPIDFilename()
-	var err error
-	pid, err := readPIDFile(pidFilename)
+func restartProcess(ctx context.Context) error {
+	pidFilename := filepath.Join(DataDirectoryFromContext(ctx), "gateway.pid")
+
+	pid, err := readPidFile(pidFilename)
 	switch {
 	case err == nil:
 	case errors.Is(err, os.ErrNotExist):
@@ -103,7 +104,7 @@ func restartGatewayProcess() error {
 	return nil
 }
 
-func readPIDFile(path string) (int, error) {
+func readPidFile(path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, err

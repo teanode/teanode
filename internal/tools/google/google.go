@@ -1,11 +1,12 @@
 package google
 
 import (
+	"context"
 	"os/exec"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("google")
@@ -13,50 +14,66 @@ var log = logging.MustGetLogger("google")
 // defaultServices are registered when no explicit service list is configured (Tier 1).
 var defaultServices = []string{"gmail", "calendar", "drive"}
 
-// RegisterTools adds Google Workspace tools to the registry.
-// If the gog binary is not found, no tools are registered.
-// A nil config is treated as "use defaults" — tools are registered
-// as long as the binary is present on PATH.
-func RegisterTools(registry *agents.ToolRegistry, config *configs.GoogleConfig) {
-	binary := "gog"
-	var account string
-	var services []string
-	if config != nil {
-		if config.BinaryPath != "" {
-			binary = config.BinaryPath
-		}
-		account = config.Account
-		services = config.Services
+// resolvedConfig holds the resolved Google tool configuration.
+type resolvedConfig struct {
+	binaryPath string
+	account    string
+	services   []string
+}
+
+// configFromContext reads the Google tool configuration from the store.
+func configFromContext(ctx context.Context) *resolvedConfig {
+	var config resolvedConfig
+	dataStore := store.StoreFromContextSafe(ctx)
+	if dataStore == nil {
+		return &config
 	}
+	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if configuration.Tools != nil && configuration.Tools.Google != nil {
+			config.binaryPath = configuration.Tools.Google.GetBinaryPath()
+			config.account = configuration.Tools.Google.GetAccount()
+			config.services = configuration.Tools.Google.GetServices()
+		}
+		return nil
+	})
+	return &config
+}
+
+func init() {
+	tools.RegisterBuiltinTool(createTools)
+}
+
+func createTools() []tools.Tool {
+	binary := "gog"
 
 	// Check that the binary exists on PATH.
 	resolvedPath, err := exec.LookPath(binary)
 	if err != nil {
 		log.Infof("Google tools skipped: %s binary not found", binary)
-		return
+		return nil
 	}
 	log.Infof("Google tools enabled (binary: %s)", resolvedPath)
 
-	if len(services) == 0 {
-		services = defaultServices
-	}
-
 	runner := defaultRunner
+	var result []tools.Tool
 
-	for _, service := range services {
+	for _, service := range defaultServices {
 		switch service {
 		case "gmail":
-			registry.Register(&gmailTool{binary: resolvedPath, account: account, runner: runner})
+			result = append(result, &gmailTool{binary: resolvedPath, runner: runner})
 		case "calendar":
-			registry.Register(&calendarTool{binary: resolvedPath, account: account, runner: runner})
+			result = append(result, &calendarTool{binary: resolvedPath, runner: runner})
 		case "tasks":
-			registry.Register(&tasksTool{binary: resolvedPath, account: account, runner: runner})
+			result = append(result, &tasksTool{binary: resolvedPath, runner: runner})
 		case "drive":
-			registry.Register(&driveTool{binary: resolvedPath, account: account, runner: runner})
+			result = append(result, &driveTool{binary: resolvedPath, runner: runner})
 		case "contacts":
-			registry.Register(&contactsTool{binary: resolvedPath, account: account, runner: runner})
-		default:
-			log.Warningf("unknown Google service %q, skipping", service)
+			result = append(result, &contactsTool{binary: resolvedPath, runner: runner})
 		}
 	}
+	return result
 }

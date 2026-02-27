@@ -6,13 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/pending"
+	"github.com/teanode/teanode/internal/web"
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -59,26 +61,22 @@ func NewRelay() *Relay {
 	}
 }
 
-// HandleWebSocketForUser upgrades and binds a terminal connection to one user.
-func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *http.Request, userId string) {
+// HandleWebSocket upgrades and binds a terminal connection to one user.
+func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Request) error {
 	id := request.URL.Query().Get("id")
 	if id == "" {
-		http.Error(writer, "missing terminal connection id", http.StatusBadRequest)
-		return
-	}
-	userId = strings.TrimSpace(userId)
-	if userId == "" {
-		http.Error(writer, "unauthorized", http.StatusUnauthorized)
-		return
+		return web.Error(http.StatusBadRequest, "missing terminal connection id")
 	}
 
 	websocketConnection, err := wsUpgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		log.Errorf("terminal: upgrade error: %v", err)
-		return
+		return err
 	}
 
-	connectionKey := userId + ":" + id
+	user := models.UserFromContext(request.Context())
+
+	connectionKey := user.ID + ":" + id
 	self.mutex.Lock()
 	// If a connection with this user+id already exists, replace it.
 	if existing, ok := self.connections[connectionKey]; ok {
@@ -87,7 +85,7 @@ func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *h
 	}
 	terminal := &terminalConnection{
 		id:         id,
-		userId:     userId,
+		userId:     user.ID,
 		connection: websocketConnection,
 		pending:    pending.NewRequests(),
 		done:       make(chan struct{}),
@@ -96,10 +94,11 @@ func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *h
 	done := terminal.done
 	self.mutex.Unlock()
 
-	log.Infof("terminal: client connected user=%s id=%s", userId, id)
+	log.Infof("terminal: client connected user=%s id=%s", user.ID, id)
 
 	go self.pingLoop(connectionKey, websocketConnection, done)
 	self.readLoop(connectionKey, websocketConnection, done)
+	return nil
 }
 
 // Connected reports whether at least one terminal client is connected.

@@ -10,9 +10,9 @@ import (
 )
 
 type gmailTool struct {
-	binary  string
-	account string
-	runner  commandRunner
+	binary string
+
+	runner commandRunner
 }
 
 func (self *gmailTool) Definition() providers.ToolDefinition {
@@ -84,14 +84,14 @@ func (self *gmailTool) Execute(ctx context.Context, rawArguments string) (string
 		if limit <= 0 {
 			limit = 10
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"gmail", "search", args.Query, "--max", strconv.Itoa(limit))
 
 	case "read":
 		if args.MessageID == "" {
 			return "", fmt.Errorf("message_id is required for read action")
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"gmail", "get", args.MessageID)
 
 	case "send":
@@ -104,7 +104,7 @@ func (self *gmailTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Body == "" {
 			return "", fmt.Errorf("body is required for send action")
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"gmail", "send", "--to", args.To, "--subject", args.Subject, "--body", args.Body)
 
 	case "reply":
@@ -114,14 +114,14 @@ func (self *gmailTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Body == "" {
 			return "", fmt.Errorf("body is required for reply action")
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"gmail", "send", "--reply-to-message-id", args.MessageID, "--body", args.Body)
 
 	case "trash":
 		if args.MessageID == "" {
 			return "", fmt.Errorf("message_id is required for trash action")
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configFromContext(ctx).account,
 			"gmail", "thread", "modify", args.MessageID, "--add", "TRASH")
 
 	default:

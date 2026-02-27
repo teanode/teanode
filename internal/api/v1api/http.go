@@ -1,78 +1,25 @@
 package v1api
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
-	"image"
-	"image/draw"
-	"image/jpeg"
+	_ "image/gif"
+	_ "image/png"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/gw"
-	"github.com/teanode/teanode/internal/media"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/mimetypes"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/web"
-	_ "image/gif"
-	_ "image/png"
 )
-
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(request *http.Request) bool { return false },
-}
-
-func splitHostPortDefault(rawHost string, tls bool) (string, string) {
-	host, port, err := net.SplitHostPort(rawHost)
-	if err == nil {
-		return strings.ToLower(host), port
-	}
-	defaultPort := "80"
-	if tls {
-		defaultPort = "443"
-	}
-	return strings.ToLower(strings.TrimSpace(rawHost)), defaultPort
-}
-
-func sameOriginHost(leftHost string, leftTLS bool, rightHost string, rightTLS bool) bool {
-	leftName, leftPort := splitHostPortDefault(leftHost, leftTLS)
-	rightName, rightPort := splitHostPortDefault(rightHost, rightTLS)
-	return leftName == rightName && leftPort == rightPort
-}
-
-func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
-	origin := strings.TrimSpace(request.Header.Get("Origin"))
-	if origin == "" {
-		return true
-	}
-	originUrl, err := url.Parse(origin)
-	if err != nil || originUrl.Host == "" {
-		return false
-	}
-	originTLS := strings.EqualFold(originUrl.Scheme, "https")
-	requestTLS := request.TLS != nil
-	if sameOriginHost(originUrl.Host, originTLS, request.Host, requestTLS) {
-		return true
-	}
-
-	publicUrl := strings.TrimSpace(self.gateway.Config().Gateway.PublicURL)
-	if publicUrl == "" {
-		return false
-	}
-	parsedPublicUrl, err := url.Parse(publicUrl)
-	if err != nil || parsedPublicUrl.Host == "" {
-		return false
-	}
-	publicTLS := strings.EqualFold(parsedPublicUrl.Scheme, "https")
-	return sameOriginHost(originUrl.Host, originTLS, parsedPublicUrl.Host, publicTLS)
-}
 
 func (self *v1Api) handleHealth(writer http.ResponseWriter, request *http.Request) error {
 	writer.Header().Set("Content-Type", "application/json")
@@ -85,28 +32,35 @@ func (self *v1Api) handleMedia(writer http.ResponseWriter, request *http.Request
 	if mediaId == "" {
 		return web.Error(400, "missing media id")
 	}
-	mediaFile, err := self.gateway.MediaStore().Open(mediaId)
-	if err != nil {
+	var mediaReader io.ReadCloser
+	var metadata *models.Media
+	transactionError := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+		var openError error
+		mediaReader, metadata, openError = transaction.OpenMedia(ctx, mediaId, nil)
+		return openError
+	})
+	if transactionError != nil {
 		return web.ErrNotFound
 	}
-	defer mediaFile.File.Close()
-	writer.Header().Set("Content-Type", media.MimeType(mediaFile.Format))
+	defer mediaReader.Close()
+	contentType := metadata.GetContentType()
+	if contentType == "" {
+		contentType = mimetypes.MIMETypeFromFormat(metadata.GetFormat())
+	}
+	writer.Header().Set("Content-Type", contentType)
 	writer.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	http.ServeContent(writer, request, "", time.Time{}, mediaFile.File)
+	_, copyError := io.Copy(writer, mediaReader)
+	if copyError != nil {
+		return copyError
+	}
 	return nil
 }
 
 const maxUploadSize = 50 << 20 // 50 MB
-const maxAvatarUploadSize = 10 << 20
 
 func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodPost {
 		return web.Error(405, "method not allowed")
-	}
-
-	mediaStore := self.gateway.MediaStore()
-	if mediaStore == nil {
-		return web.Error(500, "media store not available")
 	}
 
 	request.Body = http.MaxBytesReader(writer, request.Body, maxUploadSize)
@@ -120,86 +74,49 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 	}
 	defer file.Close()
 
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return web.Error(400, "failed to read file")
-	}
-
 	// Determine format from file extension, falling back to Content-Type.
 	filename := header.Filename
 	ext := strings.TrimPrefix(filepath.Ext(filename), ".")
 	format := strings.ToLower(ext)
 	if format == "" {
-		format = media.FormatFromMimeType(header.Header.Get("Content-Type"))
+		format = mimetypes.FormatFromMIMEType(header.Header.Get("Content-Type"))
 	}
 	if format == "" {
 		format = "bin"
 	}
 
-	saved, err := mediaStore.Save(data, format, media.SaveOptions{
-		SourceType:   "upload",
-		OriginalName: filename,
+	userId := ""
+	if user := models.UserFromContext(request.Context()); user != nil {
+		userId = user.ID
+	}
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = mimetypes.MIMETypeFromFormat(format)
+	}
+	metadata := &models.Media{
+		UserID:       ptrto.TrimmedString(userId),
+		Format:       ptrto.TrimmedString(format),
+		ContentType:  ptrto.TrimmedString(contentType),
+		Source:       ptrto.Value(models.MediaSourceUpload),
+		OriginalName: ptrto.TrimmedString(filename),
+	}
+	var saved *models.Media
+	createError := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+		var err error
+		saved, err = transaction.CreateMedia(ctx, file, metadata, nil)
+		return err
 	})
-	if err != nil {
-		return web.Error(500, "failed to save file: "+err.Error())
+	if createError != nil {
+		return web.Error(500, "failed to save file: "+createError.Error())
 	}
 
 	writer.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(writer).Encode(map[string]interface{}{
-		"mediaId":  saved.MediaID,
+		"mediaId":  saved.ID,
 		"format":   format,
 		"filename": filename,
 	})
 	return nil
-}
-
-func processAvatarImage(data []byte) ([]byte, string, error) {
-	img, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, "", err
-	}
-
-	bounds := img.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
-	size := width
-	if height < size {
-		size = height
-	}
-	startX := bounds.Min.X + (width-size)/2
-	startY := bounds.Min.Y + (height-size)/2
-
-	square := image.NewRGBA(image.Rect(0, 0, size, size))
-	draw.Draw(square, square.Bounds(), img, image.Point{X: startX, Y: startY}, draw.Src)
-
-	const avatarSize = 256
-	resized := image.NewRGBA(image.Rect(0, 0, avatarSize, avatarSize))
-	scaleNearestNeighbor(resized, square)
-
-	var output bytes.Buffer
-	if err := jpeg.Encode(&output, resized, &jpeg.Options{Quality: 85}); err != nil {
-		return nil, "", err
-	}
-	return output.Bytes(), "jpeg", nil
-}
-
-func scaleNearestNeighbor(destination *image.RGBA, source *image.RGBA) {
-	dstBounds := destination.Bounds()
-	srcBounds := source.Bounds()
-	dstWidth := dstBounds.Dx()
-	dstHeight := dstBounds.Dy()
-	srcWidth := srcBounds.Dx()
-	srcHeight := srcBounds.Dy()
-	if dstWidth <= 0 || dstHeight <= 0 || srcWidth <= 0 || srcHeight <= 0 {
-		return
-	}
-	for y := 0; y < dstHeight; y++ {
-		srcY := y * srcHeight / dstHeight
-		for x := 0; x < dstWidth; x++ {
-			srcX := x * srcWidth / dstWidth
-			destination.Set(x, y, source.At(srcX, srcY))
-		}
-	}
 }
 
 const maxAudioUploadSize = 25 << 20 // 25 MB (OpenAI Whisper limit)
@@ -209,12 +126,12 @@ func (self *v1Api) handleAudioTranscribe(writer http.ResponseWriter, request *ht
 		return web.Error(405, "method not allowed")
 	}
 
-	registry := self.gateway.ProviderRegistry()
-	if registry == nil {
+	providerRegistry := self.coordinator.ProviderRegistry()
+	if providerRegistry == nil {
 		return web.Error(500, "provider registry not available")
 	}
 
-	transcriber, _, ok := registry.FindTranscriber()
+	transcriber, _, ok := providerRegistry.FindTranscriber()
 	if !ok {
 		return web.Error(501, "no audio transcription provider configured")
 	}
@@ -259,12 +176,12 @@ func (self *v1Api) handleAudioSynthesize(writer http.ResponseWriter, request *ht
 		return web.Error(405, "method not allowed")
 	}
 
-	registry := self.gateway.ProviderRegistry()
-	if registry == nil {
+	providerRegistry := self.coordinator.ProviderRegistry()
+	if providerRegistry == nil {
 		return web.Error(500, "provider registry not available")
 	}
 
-	if _, _, ok := registry.FindSynthesizer(); !ok {
+	if _, _, ok := providerRegistry.FindSynthesizer(); !ok {
 		return web.Error(501, "no audio synthesis provider configured")
 	}
 
@@ -335,12 +252,12 @@ func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.R
 		return web.Error(410, "token expired")
 	}
 
-	registry := self.gateway.ProviderRegistry()
-	if registry == nil {
+	providerRegistry := self.coordinator.ProviderRegistry()
+	if providerRegistry == nil {
 		return web.Error(500, "provider registry not available")
 	}
 
-	synthesizer, _, ok := registry.FindSynthesizer()
+	synthesizer, _, ok := providerRegistry.FindSynthesizer()
 	if !ok {
 		return web.Error(501, "no audio synthesis provider configured")
 	}
@@ -373,29 +290,4 @@ func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.R
 		io.Copy(writer, result.Audio)
 	}
 	return nil
-}
-
-func (self *v1Api) handleWebSocket(writer http.ResponseWriter, request *http.Request) {
-	requestUpgrader := upgrader
-	requestUpgrader.CheckOrigin = func(request *http.Request) bool {
-		return self.isWebSocketOriginAllowed(request)
-	}
-	connection, err := requestUpgrader.Upgrade(writer, request, nil)
-	if err != nil {
-		log.Errorf("websocket upgrade error: %v", err)
-		return
-	}
-	var sessionId string
-	if cookie, err := request.Cookie("session"); err == nil {
-		sessionId = cookie.Value
-	}
-	userId := ""
-	if userContext := gw.UserFromContext(request.Context()); userContext != nil {
-		userId = userContext.UserID
-		if userContext.SessionID != "" {
-			sessionId = userContext.SessionID
-		}
-	}
-	webSocketConnection := newWebSocketConnection(connection, self, sessionId, userId)
-	webSocketConnection.serve()
 }

@@ -179,7 +179,7 @@ func (self *Buffer) Screenshot(maxLines int) string {
 	lines := append([]string{}, self.scrollback...)
 	lines = append(lines, screenLines...)
 
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
 

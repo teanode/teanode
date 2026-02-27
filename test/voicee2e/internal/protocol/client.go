@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/voice"
 	"github.com/teanode/teanode/test/voicee2e/internal/model"
 )
@@ -85,7 +84,7 @@ func NewClient(gatewayUrl string) *Client {
 }
 
 func (self *Client) SetPromptSuffix(value string) {
-	self.promptSuffix = strings.TrimSpace(value)
+	self.promptSuffix = value
 }
 
 func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) ([]model.TimelineEvent, error) {
@@ -336,7 +335,7 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 }
 
 func toWebSocketUrl(gateway string) (string, error) {
-	raw := strings.TrimSpace(gateway)
+	raw := gateway
 	if raw == "" {
 		raw = "http://127.0.0.1:8833"
 	}
@@ -362,17 +361,13 @@ func toWebSocketUrl(gateway string) (string, error) {
 
 func resolveGatewayToken() string {
 	if token, exists := os.LookupEnv("TEANODE_GATEWAY_TOKEN"); exists {
-		return strings.TrimSpace(token)
+		return token
 	}
-	securityConfig, err := configs.LoadSecurity()
-	if err != nil || securityConfig == nil {
-		return ""
-	}
-	return securityConfig.LatestToken()
+	return ""
 }
 
 func voiceE2eDebugEnabled() bool {
-	value := strings.TrimSpace(os.Getenv("VOICE_E2E_DEBUG"))
+	value := os.Getenv("VOICE_E2E_DEBUG")
 	return value == "1" || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
 }
 

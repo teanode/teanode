@@ -1,12 +1,16 @@
 package voice
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
 var pipelineLog = logging.MustGetLogger("voice.pipeline")
@@ -93,6 +97,7 @@ func (self *Session) audioInputLoop() {
 					continue
 				}
 				go func(tid string, audio []byte) {
+					defer deferutil.Recover()
 					defer self.FinishTurnTranscription(tid)
 					self.transcribeAndSend(tid, audio)
 				}(turnId, captured)
@@ -102,15 +107,15 @@ func (self *Session) audioInputLoop() {
 }
 
 func (self *Session) llmEventForwarder() {
-	if self.deps == nil {
+	if self.pubsub == nil {
 		return
 	}
 	sub := &conversationEventSubscriber{
 		conversationId: self.ConversationID,
 		eventCh:        make(chan map[string]interface{}, 128),
 	}
-	self.deps.Subscribe(sub)
-	defer self.deps.Unsubscribe(sub)
+	self.pubsub.Subscribe(sub)
+	defer self.pubsub.Unsubscribe(sub)
 
 	streamText := ""
 	sentencesEnqueued := 0
@@ -158,10 +163,10 @@ func (self *Session) llmEventForwarder() {
 				streamForFlush := streamText
 				// Some providers may only emit final text (no deltas). In that case,
 				// use the final text as the source for sentence flushing.
-				if !sawDelta && strings.TrimSpace(text) != "" {
+				if !sawDelta && text != "" {
 					streamForFlush = text
 				}
-				remaining := strings.TrimSpace(FlushRemaining(streamForFlush, sentencesEnqueued))
+				remaining := FlushRemaining(streamForFlush, sentencesEnqueued)
 				if remaining != "" {
 					select {
 					case self.ttsInCh <- remaining:
@@ -203,15 +208,11 @@ func (self *Session) ttsSynthLoop() {
 				self.ClearCurrentResponse()
 				continue
 			}
-			if self.deps == nil {
-				pipelineLog.Warningf("voice synthesis skipped: missing gateway deps")
+			if self.dispatcher == nil {
+				pipelineLog.Warningf("voice synthesis skipped: missing coordinator")
 				continue
 			}
-			if self.deps.ProviderRegistry() == nil {
-				pipelineLog.Warningf("voice synthesis skipped: provider registry unavailable")
-				continue
-			}
-			synth, _, ok := self.deps.ProviderRegistry().FindSynthesizer()
+			synth, _, ok := self.dispatcher.ProviderRegistry().FindSynthesizer()
 			if !ok || synth == nil {
 				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
@@ -243,7 +244,7 @@ func (self *Session) ttsSynthLoop() {
 				prev()
 			}
 			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseID(), self.GetCurrentTurnID(), len(sentence), sentence)
-			audio, err := synth.SynthesizePCM(ttsCtx, sentence, "alloy", self.AudioOut.SampleRateHz)
+			audio, err := synthesizePCM(ttsCtx, synth, sentence, "alloy", self.AudioOut.SampleRateHz)
 			self.SwapTTSCancel(nil)
 			if err != nil {
 				if ttsCtx.Err() != nil {
@@ -282,28 +283,23 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 	if len(captured) == 0 {
 		return
 	}
-	if self.deps == nil {
-		pipelineLog.Warningf("voice transcription skipped: missing gateway deps")
-		return
-	}
-	if self.deps.ProviderRegistry() == nil {
-		pipelineLog.Warningf("voice transcription skipped: provider registry unavailable")
+	if self.dispatcher == nil {
+		pipelineLog.Warningf("voice transcription skipped: missing coordinator")
 		return
 	}
 	pipelineLog.Infof("voice transcribe start: session=%s turn=%s bytes=%d", self.ID, turnId, len(captured))
-	transcriber, _, ok := self.deps.ProviderRegistry().FindTranscriber()
+	transcriber, _, ok := self.dispatcher.ProviderRegistry().FindTranscriber()
 	if !ok || transcriber == nil {
 		pipelineLog.Warningf("voice transcription skipped: no transcriber configured")
 		return
 	}
 
 	wav := PCMToWAV(captured, self.AudioIn.SampleRateHz, self.AudioIn.Channels)
-	result, err := transcriber.Transcribe(context.Background(), VoiceTranscribeRequest{
-		Audio:      wav,
-		Format:     "wav",
-		SampleRate: self.AudioIn.SampleRateHz,
-		Channels:   self.AudioIn.Channels,
-		Prompt:     self.transcriptionPrompt(),
+	result, err := transcriber.Transcribe(context.Background(), providers.TranscribeRequest{
+		Audio:    bytes.NewReader(wav),
+		Format:   "wav",
+		Language: "",
+		Prompt:   self.transcriptionPrompt(),
 	})
 	if err != nil || result == nil {
 		if err != nil {
@@ -354,15 +350,20 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 		"turn_id": turnId,
 		"text":    text,
 	})
-	run := self.deps.SendMessage(context.Background(), VoiceSendMessageParams{
+	handle, err := self.dispatcher.Run(context.Background(), coordinators.RunParameters{
 		AgentID:            self.AgentID,
 		ConversationID:     self.ConversationID,
 		Message:            text,
 		SystemPromptSuffix: self.effectivePromptSuffix(),
-	})
+		Origin:             "voice",
+	}, nil)
 	self.MarkTurnCommitted(turnId)
-	self.SetCurrentRunID(run.RunID)
-	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", self.ID, turnId, run.RunID)
+	if err != nil {
+		pipelineLog.Warningf("voice turn commit error: session=%s turn=%s err=%v", self.ID, turnId, err)
+		return
+	}
+	self.SetCurrentRunID(handle.RunID)
+	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", self.ID, turnId, handle.RunID)
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID: turnId,
 		Event:  "turn_committed",
@@ -370,7 +371,7 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 }
 
 func (self *Session) effectivePromptSuffix() string {
-	if strings.TrimSpace(self.PromptSuffix) != "" {
+	if self.PromptSuffix != "" {
 		return self.PromptSuffix
 	}
 	return voiceCallPromptSuffix
@@ -428,8 +429,8 @@ func (self *Session) triggerBargeIn() {
 		self.drainTTSQueue()
 		self.drainAudioOutQueue()
 		self.trySendFlushFrame()
-		if runId != "" && self.deps != nil {
-			self.deps.AbortRun(runId)
+		if runId != "" && self.dispatcher != nil {
+			self.dispatcher.AbortRun(runId)
 		}
 		self.ClearCurrentRun()
 		self.ClearCurrentResponse()
@@ -473,46 +474,4 @@ func (self *Session) trySendFlushFrame() {
 		DurationMS:  0,
 	})
 	self.enqueueAudioOut(payload)
-}
-
-type conversationEventSubscriber struct {
-	conversationId string
-	eventCh        chan map[string]interface{}
-}
-
-func (self *conversationEventSubscriber) OnVoiceEvent(eventType string, payload interface{}) {
-	if eventType != "conversation" {
-		return
-	}
-	eventMap, ok := payload.(map[string]interface{})
-	if !ok {
-		return
-	}
-	conversationId, _ := eventMap["conversationId"].(string)
-	if conversationId != self.conversationId {
-		return
-	}
-	state, _ := eventMap["state"].(string)
-	critical := state == "final" || state == "error" || state == "aborted" || state == "queued"
-	if !critical {
-		select {
-		case self.eventCh <- eventMap:
-		default:
-		}
-		return
-	}
-
-	select {
-	case self.eventCh <- eventMap:
-	default:
-		// Preserve terminal lifecycle events by making room if queue is saturated by deltas.
-		select {
-		case <-self.eventCh:
-		default:
-		}
-		select {
-		case self.eventCh <- eventMap:
-		default:
-		}
-	}
 }

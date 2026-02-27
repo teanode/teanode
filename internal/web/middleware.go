@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/gorilla/handlers"
 
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/bufferpool"
 )
 
@@ -122,11 +125,139 @@ func MakeForwarderMiddleware(forwarderKey string) Middleware {
 					return
 				}
 				ips := strings.Split(forwardedFor, ",")
-				request.RemoteAddr = strings.TrimSpace(ips[0])
+				request.RemoteAddr = ips[0]
 			}
 			delete(request.Header, "X-Forwarder-Key")
 			request.Header.Set("X-Forwarded-For", request.RemoteAddr)
 			handler.ServeHTTP(writer, request)
+		})
+	}
+}
+
+// AuthenticationMiddleware returns a middleware that enforces token/session auth
+// on API endpoints. It reads the store from the request context.
+func MakeAuthenticationMiddleware() Middleware {
+	// checkToken validates bearer auth (header or query param) and injects user context when valid.
+	checkToken := func(request *http.Request) (*http.Request, bool) {
+		tokenValue := ""
+		if authHeader := request.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+			tokenValue = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+		if tokenValue == "" {
+			tokenValue = request.URL.Query().Get("token")
+		}
+		if tokenValue == "" {
+			return request, false
+		}
+		var user *models.User
+		var token *models.Token
+		if err := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+			existingToken, err := transaction.GetTokenByToken(ctx, tokenValue, nil)
+			if err != nil {
+				return err
+			}
+			existingUser, err := transaction.GetUser(ctx, existingToken.GetUserID(), nil)
+			if err != nil {
+				return err
+			}
+			user = existingUser
+			token = existingToken
+			return nil
+		}); err != nil {
+			return request, false
+		}
+		if user == nil || user.ID == "" {
+			return request, false
+		}
+		return request.WithContext(models.ContextWithUserSessionToken(request.Context(), user, nil, token)), true
+	}
+
+	// checkSession validates session auth and injects user context when valid.
+	checkSession := func(request *http.Request) (*http.Request, bool) {
+		cookie, err := request.Cookie("session")
+		if err != nil || cookie.Value == "" {
+			return request, false
+		}
+		maxAge := 14 * 24 * time.Hour
+		var session *models.Session
+		var user *models.User
+		if err := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
+			existingSession, err := transaction.GetSession(ctx, cookie.Value, nil)
+			if err != nil {
+				return err
+			}
+			if existingSession.ExpiresAt != nil && time.Now().After(*existingSession.ExpiresAt) {
+				_ = transaction.DeleteSession(ctx, cookie.Value, nil)
+				return nil
+			}
+			if existingSession.UserID == nil || *existingSession.UserID == "" {
+				return nil
+			}
+			existingUser, err := transaction.GetUser(ctx, *existingSession.UserID, nil)
+			if err != nil {
+				return err
+			}
+			if existingSession.ModifiedAt != nil && time.Since(*existingSession.ModifiedAt) >= time.Hour {
+				updatedSession, err := transaction.ModifySession(ctx, existingSession.ID, func(session *models.Session) error {
+					expiresAt := time.Now().Add(maxAge)
+					session.ExpiresAt = &expiresAt
+					return nil
+				}, nil)
+				if err != nil {
+					return err
+				}
+				existingSession = updatedSession
+			}
+			session = existingSession
+			user = existingUser
+			return nil
+		}); err != nil {
+			return request, false
+		}
+		if session == nil || user == nil {
+			return request, false
+		}
+		return request.WithContext(models.ContextWithUserSessionToken(request.Context(), user, session, nil)), true
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			path := request.URL.Path
+
+			// 1. Non-/api/ paths (frontend static files): always allow.
+			if !strings.HasPrefix(path, "/api/") {
+				next.ServeHTTP(writer, request)
+				return
+			}
+
+			if authorizedRequest, authorized := checkSession(request); authorized {
+				next.ServeHTTP(writer, authorizedRequest)
+				return
+			}
+			if authorizedRequest, authorized := checkToken(request); authorized {
+				next.ServeHTTP(writer, authorizedRequest)
+				return
+			}
+
+			// 2. Health endpoint: always allow.
+			if path == "/api/v1/health" {
+				next.ServeHTTP(writer, request)
+				return
+			}
+
+			// 3. Auth endpoints: always allow.
+			if strings.HasPrefix(path, "/api/v1/auth/") {
+				next.ServeHTTP(writer, request)
+				return
+			}
+
+			// 4. Media GET endpoints: always allow (LLM providers fetch images).
+			if strings.HasPrefix(path, "/api/v1/media/") && request.Method == "GET" {
+				next.ServeHTTP(writer, request)
+				return
+			}
+
+			WriteError(writer, ErrUnauthorized)
 		})
 	}
 }

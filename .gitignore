@@ -3,6 +3,9 @@
 /coverage.out
 /coverage.html
 
+# Generated code
+*_gen.go
+
 # Frontend
 /web/node_modules/
 /web/dist/

@@ -3,7 +3,6 @@ package timeutil
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -35,7 +34,7 @@ func (self Timestamp) MarshalJSON() ([]byte, error) {
 }
 
 func (self *Timestamp) UnmarshalJSON(data []byte) error {
-	trimmed := strings.TrimSpace(string(data))
+	trimmed := string(data)
 	if trimmed == "" || trimmed == "null" {
 		self.Time = time.Time{}
 		return nil
@@ -76,7 +75,7 @@ func (self *Timestamp) UnmarshalYAML(node *yaml.Node) error {
 }
 
 func Parse(value string) (Timestamp, error) {
-	trimmed := strings.TrimSpace(value)
+	trimmed := value
 	if trimmed == "" {
 		return Timestamp{}, nil
 	}

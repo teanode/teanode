@@ -520,7 +520,9 @@ export function useBackend() {
       return;
     }
 
-    // Auto-detect new runs on current conversation from broadcast events
+    // Auto-detect new runs on current conversation from broadcast events.
+    // This catches events that arrive before the RPC response sets currentRunIdRef
+    // (e.g. when the run fails immediately, the "error" event races the RPC response).
     if (
       conversationEvent.runId &&
       conversationEvent.conversationId === conversationIdRef.current &&
@@ -528,7 +530,10 @@ export function useBackend() {
     ) {
       if (
         conversationEvent.state === "delta" ||
-        conversationEvent.state === "tool_call"
+        conversationEvent.state === "tool_call" ||
+        conversationEvent.state === "final" ||
+        conversationEvent.state === "error" ||
+        conversationEvent.state === "aborted"
       ) {
         currentRunIdRef.current = conversationEvent.runId;
         activeRunsRef.current.set(
@@ -1323,10 +1328,19 @@ export function useBackend() {
   );
 
   const abortRun = useCallback(() => {
-    if (!currentRunIdRef.current) return;
-    sendRpc("conversations.abort", { runId: currentRunIdRef.current }).catch(
-      () => {},
-    );
+    const conversationId = conversationIdRef.current || undefined;
+    const runId =
+      currentRunIdRef.current ||
+      (conversationId
+        ? activeRunsRef.current.get(conversationId) || undefined
+        : undefined);
+
+    if (!runId && !conversationId) return;
+
+    sendRpc("conversations.abort", {
+      runId,
+      conversationId,
+    }).catch(() => {});
   }, [sendRpc]);
 
   const setDefaultAgent = useCallback(

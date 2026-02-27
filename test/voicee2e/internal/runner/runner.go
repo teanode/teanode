@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/teanode/teanode/test/voicee2e/internal/assertions"
@@ -39,7 +38,7 @@ func (r *Runner) RunSuite(ctx context.Context, cfg model.RunnerConfig) (*model.R
 		if err != nil {
 			return nil, fmt.Errorf("read prompt file: %w", err)
 		}
-		r.client.SetPromptSuffix(strings.TrimSpace(string(raw)))
+		r.client.SetPromptSuffix(string(raw))
 	}
 
 	results := make([]model.ScenarioResult, 0, len(suite.Scenarios))

@@ -14,7 +14,20 @@ let relayConnectPromise = null
 
 let debuggerListenersInstalled = false
 
-let nextSession = 1
+function generateULID() {
+  const encoding = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+  const timestamp = Date.now()
+  let result = ''
+  let remaining = timestamp
+  for (let index = 9; index >= 0; index--) {
+    result = encoding[remaining % 32] + result
+    remaining = Math.floor(remaining / 32)
+  }
+  for (let index = 0; index < 16; index++) {
+    result += encoding[Math.floor(Math.random() * 32)]
+  }
+  return result
+}
 
 /** @type {Map<number, {state:'connecting'|'connected', sessionId?:string, targetId?:string, attachOrder?:number}>} */
 const tabs = new Map()
@@ -229,8 +242,8 @@ async function attachTab(tabId, opts = {}) {
     throw new Error('Target.getTargetInfo returned no targetId')
   }
 
-  const sessionId = `cb-tab-${nextSession++}`
-  const attachOrder = nextSession
+  const sessionId = generateULID()
+  const attachOrder = Date.now()
 
   tabs.set(tabId, { state: 'connected', sessionId, targetId, attachOrder })
   tabBySession.set(sessionId, tabId)

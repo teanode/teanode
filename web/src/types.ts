@@ -96,7 +96,8 @@ export interface ConversationHistoryResult {
 }
 
 export interface ConversationAbortParams {
-  runId: string;
+  runId?: string;
+  conversationId?: string;
 }
 
 export interface ConversationsListResult {
@@ -381,6 +382,6 @@ export interface DisplayMessage {
   toolName?: string;
   usage?: Usage;
   timestamp?: number; // ms since epoch
-  runId?: string; // associates message with a run for queuing
+  runId?: string; // associates message with a runner for queuing
   attachments?: Attachment[];
 }

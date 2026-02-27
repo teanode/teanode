@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/op/go-logging"
+
 	"github.com/teanode/teanode/internal/integrations/browsers"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/pending"
 )
@@ -47,24 +48,21 @@ func NewRelay() *Relay {
 	}
 }
 
-// HandleWebSocketForUser upgrades and binds a browser extension connection to one user.
-func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *http.Request, userId string) {
-	userId = strings.TrimSpace(userId)
-	if userId == "" {
-		http.Error(writer, "unauthorized", http.StatusUnauthorized)
-		return
-	}
+// HandleWebSocket upgrades and binds a browser extension connection to one user.
+func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Request) error {
 	conn, err := wsUpgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		log.Errorf("upgrade error: %v", err)
-		return
+		return err
 	}
+
+	user := models.UserFromContext(request.Context())
 
 	self.mutex.Lock()
 	self.nextConnection++
 	connectionId := strconv.Itoa(self.nextConnection)
 	rc := &relayConnection{
-		userId:     userId,
+		userId:     user.ID,
 		connection: conn,
 		targets:    make(map[string]*browsers.ConnectedTarget),
 		pending:    pending.NewRequests(),
@@ -74,10 +72,11 @@ func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *h
 	done := rc.done
 	self.mutex.Unlock()
 
-	log.Infof("extension connected user=%s id=%s", userId, connectionId)
+	log.Infof("extension connected user=%s id=%s", user.ID, connectionId)
 
 	go self.pingLoop(connectionId, conn, done)
 	self.readLoop(connectionId, conn, done)
+	return nil
 }
 
 // Connected reports whether at least one extension is connected.

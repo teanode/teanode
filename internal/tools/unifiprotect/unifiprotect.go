@@ -1,35 +1,60 @@
 package unifiprotect
 
 import (
+	"context"
+
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("unifiprotect")
 
-// RegisterTools adds the UniFi Protect tool to the registry.
-// If config is nil or missing BaseURL and credentials, no tools are registered.
-func RegisterTools(registry *agents.ToolRegistry, config *configs.UniFiProtectConfig) {
-	if config == nil {
-		return
-	}
-	if config.BaseURL == "" {
-		log.Infof("UniFi Protect tool skipped: baseUrl not configured")
-		return
-	}
-	if config.APIKey == "" && (config.Username == "" || config.Password == "") {
-		log.Infof("UniFi Protect tool skipped: credentials not configured (need apiKey or username+password)")
-		return
-	}
+// resolvedConfig holds the resolved UniFi Protect configuration
+// read from the store at execution time.
+type resolvedConfig struct {
+	baseURL               string
+	apiKey                string
+	username              string
+	password              string
+	verifyTls             bool
+	readOnly              bool
+	allowedCameras        []string
+	allowDangerousActions []string
+	timeoutSeconds        int
+}
 
-	client := NewHTTPClient(config)
-	checker := NewAccessChecker(config)
+// configFromContext reads the UniFi Protect tool configuration from the store.
+func configFromContext(ctx context.Context) *resolvedConfig {
+	config := &resolvedConfig{}
+	dataStore := store.StoreFromContextSafe(ctx)
+	if dataStore == nil {
+		return config
+	}
+	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if configuration.Tools != nil && configuration.Tools.UniFiProtect != nil {
+			upConfig := configuration.Tools.UniFiProtect
+			config.baseURL = upConfig.GetBaseURL()
+			config.apiKey = upConfig.GetAPIKey()
+			config.username = upConfig.GetUsername()
+			config.password = upConfig.GetPassword()
+			config.verifyTls = upConfig.GetVerifyTLS()
+			config.readOnly = upConfig.GetReadOnly()
+			config.allowedCameras = upConfig.GetAllowedCameras()
+			config.allowDangerousActions = upConfig.GetAllowDangerousActions()
+			config.timeoutSeconds = upConfig.GetTimeoutSeconds()
+		}
+		return nil
+	})
+	return config
+}
 
-	log.Infof("UniFi Protect tool enabled (url: %s, readOnly: %v)", config.BaseURL, config.ReadOnly)
-
-	registry.Register(&unifiProtectTool{
-		client:  client,
-		checker: checker,
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&unifiProtectTool{}}
 	})
 }

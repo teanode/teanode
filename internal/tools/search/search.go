@@ -10,25 +10,40 @@ import (
 	"strconv"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("search")
 
-// RegisterTools adds web search tools to the registry.
-// If apiKey is empty, no tools are registered.
-func RegisterTools(registry *agents.ToolRegistry, apiKey string) {
-	if apiKey == "" {
-		return
-	}
-	log.Infof("Brave Search tool enabled")
-	registry.Register(&searchTool{apiKey: apiKey})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&searchTool{}}
+	})
 }
 
-type searchTool struct {
-	apiKey string
+// braveAPIKeyFromContext reads the Brave API key from the store configuration.
+func braveAPIKeyFromContext(ctx context.Context) string {
+	var apiKey string
+	dataStore := store.StoreFromContextSafe(ctx)
+	if dataStore == nil {
+		return apiKey
+	}
+	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if configuration.Tools != nil {
+			apiKey = configuration.Tools.GetBraveAPIKey()
+		}
+		return nil
+	})
+	return apiKey
 }
+
+type searchTool struct{}
 
 func (self *searchTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
@@ -71,6 +86,11 @@ func (self *searchTool) Definition() providers.ToolDefinition {
 }
 
 func (self *searchTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	apiKey := braveAPIKeyFromContext(ctx)
+	if apiKey == "" {
+		return "", fmt.Errorf("Brave Search API key not configured")
+	}
+
 	var arguments struct {
 		Query string `json:"query"`
 		Count int    `json:"count"`
@@ -98,7 +118,7 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 		return "", fmt.Errorf("creating request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("X-Subscription-Token", self.apiKey)
+	request.Header.Set("X-Subscription-Token", apiKey)
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
