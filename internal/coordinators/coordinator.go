@@ -195,7 +195,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 
 		dispatch := self.dispatchMessage(runContext, resolvedAgentId, conversationId, runners.RunParameters{
 			Message:            parameters.Message,
-			Model:              parameters.Model,
+			ProviderModelName:  parameters.ProviderModelName,
 			Attachments:        parameters.Attachments,
 			SystemPromptSuffix: parameters.SystemPromptSuffix,
 			SystemPromptMode:   parameters.SystemPromptMode,
@@ -236,7 +236,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 			"agentId":        resolvedAgentId,
 			"userId":         userId,
 			"text":           result.Response,
-			"model":          result.Model,
+			"providerModelName": result.ProviderModelName,
 			"stopReason":     result.StopReason,
 		}
 		if result.Usage != nil {

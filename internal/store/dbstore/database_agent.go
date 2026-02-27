@@ -13,16 +13,16 @@ import (
 )
 
 type databaseAgentRecord struct {
-	ID            string     `gorm:"column:id;type:varchar(32);primaryKey"`
-	Name          *string    `gorm:"column:name;type:varchar(256)"`
-	Model         *string    `gorm:"column:model;type:varchar(128)"`
-	Skills        []byte     `gorm:"column:skills;type:jsonb"`
-	Tools         []byte     `gorm:"column:tools;type:jsonb"`
-	Description   *string    `gorm:"column:description"`
-	AvatarMediaID *string    `gorm:"column:avatar_media_id;type:varchar(32)"`
-	SummarizedAt  *time.Time `gorm:"column:summarized_at"`
-	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
-	ModifiedAt    time.Time  `gorm:"column:modified_at;not null"`
+	ID                string     `gorm:"column:id;type:varchar(32);primaryKey"`
+	Name              *string    `gorm:"column:name;type:varchar(256)"`
+	ProviderModelName *string    `gorm:"column:model;type:varchar(128)"`
+	Skills            []byte     `gorm:"column:skills;type:jsonb"`
+	Tools             []byte     `gorm:"column:tools;type:jsonb"`
+	Description       *string    `gorm:"column:description"`
+	AvatarMediaID     *string    `gorm:"column:avatar_media_id;type:varchar(32)"`
+	SummarizedAt      *time.Time `gorm:"column:summarized_at"`
+	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
+	ModifiedAt        time.Time  `gorm:"column:modified_at;not null"`
 }
 
 func (databaseAgentRecord) TableName() string {
@@ -96,7 +96,7 @@ func (self *databaseTransaction) ModifyAgent(ctx context.Context, agentId string
 	record.ModifiedAt = *ptrto.TimeNowInLocal()
 	saveError := self.database.Model(&databaseAgentRecord{}).Where("id = ?", record.ID).Updates(map[string]interface{}{
 		"name":            record.Name,
-		"model":           record.Model,
+		"model":           record.ProviderModelName,
 		"skills":          record.Skills,
 		"tools":           record.Tools,
 		"description":     record.Description,
@@ -127,12 +127,12 @@ func (self *databaseTransaction) DeleteAgent(ctx context.Context, agentId string
 
 func modelToAgentRecord(agent *models.Agent) (*databaseAgentRecord, error) {
 	record := &databaseAgentRecord{
-		ID:            agent.ID,
-		Name:          ptrto.TrimmedString(agent.GetName()),
-		Model:         ptrto.TrimmedString(agent.GetModel()),
-		Description:   ptrto.TrimmedString(agent.GetDescription()),
-		AvatarMediaID: ptrto.TrimmedString(agent.GetAvatarMediaID()),
-		SummarizedAt:  agent.SummarizedAt,
+		ID:                agent.ID,
+		Name:              ptrto.TrimmedString(agent.GetName()),
+		ProviderModelName: ptrto.TrimmedString(agent.GetProviderModelName()),
+		Description:       ptrto.TrimmedString(agent.GetDescription()),
+		AvatarMediaID:     ptrto.TrimmedString(agent.GetAvatarMediaID()),
+		SummarizedAt:      agent.SummarizedAt,
 	}
 	if agent.Skills != nil {
 		skillsJSON, marshalError := json.Marshal(*agent.Skills)
@@ -153,14 +153,14 @@ func modelToAgentRecord(agent *models.Agent) (*databaseAgentRecord, error) {
 
 func agentRecordToModel(record *databaseAgentRecord) (*models.Agent, error) {
 	agent := &models.Agent{
-		ID:            record.ID,
-		Name:          ptrto.TrimmedString(valueor.Zero(record.Name)),
-		Model:         ptrto.TrimmedString(valueor.Zero(record.Model)),
-		Description:   ptrto.TrimmedString(valueor.Zero(record.Description)),
-		AvatarMediaID: ptrto.TrimmedString(valueor.Zero(record.AvatarMediaID)),
-		SummarizedAt:  record.SummarizedAt,
-		CreatedAt:     &record.CreatedAt,
-		ModifiedAt:    &record.ModifiedAt,
+		ID:                record.ID,
+		Name:              ptrto.TrimmedString(valueor.Zero(record.Name)),
+		ProviderModelName: ptrto.TrimmedString(valueor.Zero(record.ProviderModelName)),
+		Description:       ptrto.TrimmedString(valueor.Zero(record.Description)),
+		AvatarMediaID:     ptrto.TrimmedString(valueor.Zero(record.AvatarMediaID)),
+		SummarizedAt:      record.SummarizedAt,
+		CreatedAt:         &record.CreatedAt,
+		ModifiedAt:        &record.ModifiedAt,
 	}
 	if len(record.Skills) > 0 {
 		skills := make([]string, 0)

@@ -30,12 +30,12 @@ type GatewayConfiguration struct {
 }
 
 type ModelsConfiguration struct {
-	Default         *string                   `json:"default,omitempty" yaml:"default,omitempty"`
-	SummarizerModel *string                   `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"`
-	ContextWindow   *int                      `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
-	Providers       *[]*ProviderConfiguration `json:"providers,omitempty" yaml:"providers,omitempty"`
-	DefaultLimits   *map[string]interface{}   `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`
-	Limits          *[]map[string]interface{} `json:"limits,omitempty" yaml:"limits,omitempty"`
+	Default                     *string                   `json:"default,omitempty" yaml:"default,omitempty"`
+	SummarizerProviderModelName *string                   `json:"summarizerProviderModelName,omitempty" yaml:"summarizerModel,omitempty"`
+	ContextWindow               *int                      `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
+	Providers                   *[]*ProviderConfiguration `json:"providers,omitempty" yaml:"providers,omitempty"`
+	DefaultLimits               *map[string]interface{}   `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`
+	Limits                      *[]map[string]interface{} `json:"limits,omitempty" yaml:"limits,omitempty"`
 }
 
 type ProviderConfiguration struct {
@@ -74,14 +74,14 @@ type GitLabConfiguration struct {
 type ClaudeCodeConfiguration struct {
 	BinaryPath            *string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`
 	AllowedTools          *[]string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
-	Model                 *string   `json:"model,omitempty" yaml:"model,omitempty"`
+	ModelName             *string   `json:"modelName,omitempty" yaml:"model,omitempty"`
 	MaxTurnTimeoutSeconds *int      `json:"maxTurnTimeoutSeconds,omitempty" yaml:"maxTurnTimeoutSeconds,omitempty"`
 }
 
 type CodexConfiguration struct {
 	BinaryPath            *string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`
 	AllowedTools          *[]string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
-	Model                 *string   `json:"model,omitempty" yaml:"model,omitempty"`
+	ModelName             *string   `json:"modelName,omitempty" yaml:"model,omitempty"`
 	ExtraArguments        *[]string `json:"extraArgs,omitempty" yaml:"extraArgs,omitempty"`
 	MaxTurnTimeoutSeconds *int      `json:"maxTurnTimeoutSeconds,omitempty" yaml:"maxTurnTimeoutSeconds,omitempty"`
 }

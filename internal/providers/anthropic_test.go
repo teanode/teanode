@@ -14,7 +14,7 @@ func TestTranslateRequest_SystemExtraction(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model: "claude-sonnet-4-20250514",
+		ModelName: "claude-sonnet-4-20250514",
 		Messages: []ChatMessage{
 			{Role: "system", Content: "You are helpful."},
 			{Role: "user", Content: "Hello"},
@@ -61,7 +61,7 @@ func TestTranslateRequest_ToolDefinitions(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model: "claude-sonnet-4-20250514",
+		ModelName: "claude-sonnet-4-20250514",
 		Messages: []ChatMessage{
 			{Role: "user", Content: "Hello"},
 		},
@@ -105,7 +105,7 @@ func TestTranslateRequest_ToolResults(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model: "claude-sonnet-4-20250514",
+		ModelName: "claude-sonnet-4-20250514",
 		Messages: []ChatMessage{
 			{Role: "user", Content: "What's the weather?"},
 			{
@@ -164,7 +164,7 @@ func TestTranslateRequest_ConsecutiveToolResults(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model: "claude-sonnet-4-20250514",
+		ModelName: "claude-sonnet-4-20250514",
 		Messages: []ChatMessage{
 			{Role: "user", Content: "Do both"},
 			{
@@ -200,8 +200,8 @@ func TestTranslateRequest_MaxTokensDefault(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "Hi"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hi"}},
 	}
 
 	translated := client.translateRequest(request, false)
@@ -215,8 +215,8 @@ func TestTranslateResponse_TextContent(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	response := anthropicResponse{
-		ID:    "msg_123",
-		Model: "claude-sonnet-4-20250514",
+		ID:        "msg_123",
+		ModelName: "claude-sonnet-4-20250514",
 		Content: []anthropicContentBlock{
 			{Type: "text", Text: "Hello! How can I help?"},
 		},
@@ -253,8 +253,8 @@ func TestTranslateResponse_ToolUseBlocks(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	response := anthropicResponse{
-		ID:    "msg_456",
-		Model: "claude-sonnet-4-20250514",
+		ID:        "msg_456",
+		ModelName: "claude-sonnet-4-20250514",
 		Content: []anthropicContentBlock{
 			{Type: "text", Text: "Let me check the weather."},
 			{
@@ -376,8 +376,8 @@ func TestAnthropicSSEStreaming(t *testing.T) {
 	client := NewAnthropicClient(server.URL, "test-key")
 
 	stream, err := client.ChatCompletionStream(context.Background(), ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletionStream: %v", err)
@@ -468,8 +468,8 @@ func TestAnthropicSSEToolUseStreaming(t *testing.T) {
 	client := NewAnthropicClient(server.URL, "test-key")
 
 	stream, err := client.ChatCompletionStream(context.Background(), ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "What's the weather?"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "What's the weather?"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletionStream: %v", err)
@@ -517,8 +517,8 @@ func TestAnthropicNonStreamingChatCompletion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(writer).Encode(anthropicResponse{
-			ID:    "msg_non_stream",
-			Model: "claude-sonnet-4-20250514",
+			ID:        "msg_non_stream",
+			ModelName: "claude-sonnet-4-20250514",
 			Content: []anthropicContentBlock{
 				{Type: "text", Text: "Non-streaming response"},
 			},
@@ -531,8 +531,8 @@ func TestAnthropicNonStreamingChatCompletion(t *testing.T) {
 	client := NewAnthropicClient(server.URL, "test-key")
 
 	response, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletion: %v", err)
@@ -572,8 +572,8 @@ func TestAnthropicListModels_Fallback(t *testing.T) {
 
 	// Check that known models are in the list.
 	hasOpus := false
-	for _, model := range models {
-		if model.ID == "claude-opus-4-20250514" {
+	for _, entry := range models {
+		if entry.ID == "claude-opus-4-20250514" {
 			hasOpus = true
 		}
 	}
@@ -648,8 +648,8 @@ func TestAnthropicNonStreamingAPIError(t *testing.T) {
 	client := NewAnthropicClient(server.URL, "test-key")
 
 	_, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err == nil {
 		t.Fatal("expected error for 400 response")
@@ -666,8 +666,8 @@ func TestAnthropicStreamingAPIError(t *testing.T) {
 	client := NewAnthropicClient(server.URL, "test-key")
 
 	_, err := client.ChatCompletionStream(context.Background(), ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err == nil {
 		t.Fatal("expected error for 429 response")
@@ -691,7 +691,7 @@ func TestAnthropicHeaders(t *testing.T) {
 		writer.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(writer).Encode(anthropicResponse{
 			ID:         "msg_hdr",
-			Model:      "claude-sonnet-4-20250514",
+			ModelName:  "claude-sonnet-4-20250514",
 			Content:    []anthropicContentBlock{{Type: "text", Text: "ok"}},
 			StopReason: "end_turn",
 			Usage:      anthropicUsage{InputTokens: 1, OutputTokens: 1},
@@ -702,8 +702,8 @@ func TestAnthropicHeaders(t *testing.T) {
 	client := NewAnthropicClient(server.URL, "sk-test-123")
 
 	_, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletion: %v", err)
@@ -714,7 +714,7 @@ func TestTranslateRequest_NoSystemMessages(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model: "claude-sonnet-4-20250514",
+		ModelName: "claude-sonnet-4-20250514",
 		Messages: []ChatMessage{
 			{Role: "user", Content: "Hello"},
 			{Role: "assistant", Content: "Hi!"},
@@ -735,7 +735,7 @@ func TestTranslateRequest_MultipleLeadingSystemMessages(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model: "claude-sonnet-4-20250514",
+		ModelName: "claude-sonnet-4-20250514",
 		Messages: []ChatMessage{
 			{Role: "system", Content: "You are helpful."},
 			{Role: "system", Content: "Be concise."},
@@ -767,7 +767,7 @@ func TestTranslateRequest_AssistantWithEmptyToolCallArguments(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model: "claude-sonnet-4-20250514",
+		ModelName: "claude-sonnet-4-20250514",
 		Messages: []ChatMessage{
 			{Role: "user", Content: "Do it"},
 			{
@@ -805,7 +805,7 @@ func TestTranslateRequest_AssistantEmptyMessage(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model: "claude-sonnet-4-20250514",
+		ModelName: "claude-sonnet-4-20250514",
 		Messages: []ChatMessage{
 			{Role: "user", Content: "Hello"},
 			{Role: "assistant", Content: ""},
@@ -831,8 +831,8 @@ func TestTranslateRequest_StreamFlag(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "Hi"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hi"}},
 	}
 
 	streamRequest := client.translateRequest(request, true)
@@ -851,7 +851,7 @@ func TestTranslateRequest_TemperaturePassthrough(t *testing.T) {
 
 	temperature := 0.7
 	request := ChatRequest{
-		Model:       "claude-sonnet-4-20250514",
+		ModelName:   "claude-sonnet-4-20250514",
 		Messages:    []ChatMessage{{Role: "user", Content: "Hi"}},
 		Temperature: &temperature,
 		MaxTokens:   4096,
@@ -875,7 +875,7 @@ func TestTranslateResponse_EmptyContent(t *testing.T) {
 
 	response := anthropicResponse{
 		ID:         "msg_empty",
-		Model:      "claude-sonnet-4-20250514",
+		ModelName:  "claude-sonnet-4-20250514",
 		Content:    []anthropicContentBlock{},
 		StopReason: "end_turn",
 		Usage:      anthropicUsage{InputTokens: 5, OutputTokens: 0},
@@ -895,8 +895,8 @@ func TestTranslateResponse_MultipleTextBlocks(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	response := anthropicResponse{
-		ID:    "msg_multi",
-		Model: "claude-sonnet-4-20250514",
+		ID:        "msg_multi",
+		ModelName: "claude-sonnet-4-20250514",
 		Content: []anthropicContentBlock{
 			{Type: "text", Text: "First part. "},
 			{Type: "text", Text: "Second part."},
@@ -917,8 +917,8 @@ func TestTranslateResponse_MultipleToolUseBlocks(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	response := anthropicResponse{
-		ID:    "msg_multi_tools",
-		Model: "claude-sonnet-4-20250514",
+		ID:        "msg_multi_tools",
+		ModelName: "claude-sonnet-4-20250514",
 		Content: []anthropicContentBlock{
 			{
 				Type:  "tool_use",
@@ -985,8 +985,8 @@ func TestAnthropicSSEStreamingContextCancellation(t *testing.T) {
 	defer cancel()
 
 	stream, err := client.ChatCompletionStream(ctx, ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletionStream: %v", err)
@@ -1024,7 +1024,7 @@ func TestTranslateRequest_CacheControlOnSystemAndTools(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model: "claude-sonnet-4-20250514",
+		ModelName: "claude-sonnet-4-20250514",
 		Messages: []ChatMessage{
 			{Role: "system", Content: "You are helpful."},
 			{Role: "system", Content: "Be concise."},
@@ -1075,7 +1075,7 @@ func TestTranslateRequest_CacheControlSingleSystem(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	request := ChatRequest{
-		Model: "claude-sonnet-4-20250514",
+		ModelName: "claude-sonnet-4-20250514",
 		Messages: []ChatMessage{
 			{Role: "system", Content: "You are helpful."},
 			{Role: "user", Content: "Hello"},
@@ -1100,8 +1100,8 @@ func TestTranslateResponse_CacheUsage(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
 
 	response := anthropicResponse{
-		ID:    "msg_cache",
-		Model: "claude-sonnet-4-20250514",
+		ID:        "msg_cache",
+		ModelName: "claude-sonnet-4-20250514",
 		Content: []anthropicContentBlock{
 			{Type: "text", Text: "Cached response"},
 		},
@@ -1158,8 +1158,8 @@ func TestAnthropicSSECacheUsage(t *testing.T) {
 
 	client := NewAnthropicClient(server.URL, "test-key")
 	stream, err := client.ChatCompletionStream(context.Background(), ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletionStream: %v", err)
@@ -1200,7 +1200,7 @@ func TestAnthropicBaseURLTrailingSlash(t *testing.T) {
 		writer.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(writer).Encode(anthropicResponse{
 			ID:         "msg_trim",
-			Model:      "claude-sonnet-4-20250514",
+			ModelName:  "claude-sonnet-4-20250514",
 			Content:    []anthropicContentBlock{{Type: "text", Text: "ok"}},
 			StopReason: "end_turn",
 			Usage:      anthropicUsage{InputTokens: 1, OutputTokens: 1},
@@ -1211,8 +1211,8 @@ func TestAnthropicBaseURLTrailingSlash(t *testing.T) {
 	client := NewAnthropicClient(server.URL+"/", "test-key")
 
 	response, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:    "claude-sonnet-4-20250514",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "claude-sonnet-4-20250514",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletion: %v", err)

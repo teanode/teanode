@@ -67,23 +67,23 @@ const JobForm = React.forwardRef<JobFormHandle, JobFormProps>(function JobForm(
   const [name, setName] = useState(initial?.name || "");
   const [schedule, setSchedule] = useState(initial?.schedule || "0 * * * *");
   const [message, setMessage] = useState(initial?.message || "");
-  const [model, setModel] = useState(initial?.model || "");
+  const [model, setModel] = useState(initial?.providerModelName || "");
   const [agentId, setAgentId] = useState(initial?.agentId || "");
 
   useEffect(() => {
     setName(initial?.name || "");
     setSchedule(initial?.schedule || "0 * * * *");
     setMessage(initial?.message || "");
-    setModel(initial?.model || "");
+    setModel(initial?.providerModelName || "");
     setAgentId(initial?.agentId || "");
   }, [initial?.id]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, ModelInfo[]>();
     for (const modelInfo of models) {
-      const list = map.get(modelInfo.provider) || [];
+      const list = map.get(modelInfo.providerName) || [];
       list.push(modelInfo);
-      map.set(modelInfo.provider, list);
+      map.set(modelInfo.providerName, list);
     }
     return map;
   }, [models]);
@@ -93,7 +93,7 @@ const JobForm = React.forwardRef<JobFormHandle, JobFormProps>(function JobForm(
     ? name !== (initial.name || "") ||
       schedule !== (initial.schedule || "") ||
       message !== (initial.message || "") ||
-      model !== (initial.model || "") ||
+      model !== (initial.providerModelName || "") ||
       agentId !== (initial.agentId || "")
     : true;
   useEffect(() => {
@@ -143,7 +143,7 @@ const JobForm = React.forwardRef<JobFormHandle, JobFormProps>(function JobForm(
       <ListSubheader key={`header-${provider}`}>{provider}</ListSubheader>,
     );
     for (const modelInfo of providerModels) {
-      const qualified = `${modelInfo.provider}:${modelInfo.id}`;
+      const qualified = `${modelInfo.providerName}:${modelInfo.id}`;
       modelMenuItems.push(
         <MenuItem key={qualified} value={qualified}>
           {modelInfo.id}

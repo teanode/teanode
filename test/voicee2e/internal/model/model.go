@@ -14,17 +14,17 @@ type RunnerConfiguration struct {
 }
 
 type SuiteSpecification struct {
-	Name      string         `yaml:"name"`
+	Name      string                  `yaml:"name"`
 	Scenarios []ScenarioSpecification `yaml:"scenarios"`
 }
 
 type ScenarioSpecification struct {
-	ID          string               `yaml:"id"`
-	Name        string               `yaml:"name"`
-	Description string               `yaml:"description"`
+	ID             string               `yaml:"id"`
+	Name           string               `yaml:"name"`
+	Description    string               `yaml:"description"`
 	TimeoutSeconds int                  `yaml:"timeout_sec"`
-	Audio       []AudioStep          `yaml:"audio"`
-	Expect      ScenarioExpectations `yaml:"expect"`
+	Audio          []AudioStep          `yaml:"audio"`
+	Expect         ScenarioExpectations `yaml:"expect"`
 }
 
 type AudioStep struct {
@@ -99,10 +99,10 @@ type RunReport struct {
 }
 
 type CompareReport struct {
-	Version   string    `json:"version"`
-	StartedAt time.Time `json:"started_at"`
-	EndedAt   time.Time `json:"ended_at"`
-	BasePath  string    `json:"base_path"`
+	Version       string    `json:"version"`
+	StartedAt     time.Time `json:"started_at"`
+	EndedAt       time.Time `json:"ended_at"`
+	BasePath      string    `json:"base_path"`
 	CandidatePath string    `json:"cand_path"`
-	Summary   []string  `json:"summary"`
+	Summary       []string  `json:"summary"`
 }

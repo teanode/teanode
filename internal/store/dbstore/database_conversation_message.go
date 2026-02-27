@@ -12,20 +12,20 @@ import (
 )
 
 type databaseConversationMessageRecord struct {
-	ID             string    `gorm:"column:id;type:varchar(32);primaryKey"`
-	ConversationID *string   `gorm:"column:conversation_id;type:varchar(32)"`
-	Role           *string   `gorm:"column:role;type:varchar(32)"`
-	Content        []byte    `gorm:"column:content;type:bytea"`
-	ToolCalls      []byte    `gorm:"column:tool_calls;type:bytea"`
-	Usage          []byte    `gorm:"column:usage;type:bytea"`
-	Metadata       []byte    `gorm:"column:metadata;type:bytea"`
-	StopReason     *string   `gorm:"column:stop_reason;type:varchar(32)"`
-	Model          *string   `gorm:"column:model;type:varchar(128)"`
-	Provider       *string   `gorm:"column:provider;type:varchar(128)"`
-	ToolCallID     *string   `gorm:"column:tool_call_id;type:varchar(128)"`
-	ToolName       *string   `gorm:"column:tool_name;type:varchar(128)"`
-	CreatedAt      time.Time `gorm:"column:created_at;not null"`
-	ModifiedAt     time.Time `gorm:"column:modified_at;not null"`
+	ID                string    `gorm:"column:id;type:varchar(32);primaryKey"`
+	ConversationID    *string   `gorm:"column:conversation_id;type:varchar(32)"`
+	Role              *string   `gorm:"column:role;type:varchar(32)"`
+	Content           []byte    `gorm:"column:content;type:bytea"`
+	ToolCalls         []byte    `gorm:"column:tool_calls;type:bytea"`
+	Usage             []byte    `gorm:"column:usage;type:bytea"`
+	Metadata          []byte    `gorm:"column:metadata;type:bytea"`
+	StopReason        *string   `gorm:"column:stop_reason;type:varchar(32)"`
+	ProviderModelName *string   `gorm:"column:model;type:varchar(128)"`
+	ProviderName      *string   `gorm:"column:provider;type:varchar(128)"`
+	ToolCallID        *string   `gorm:"column:tool_call_id;type:varchar(128)"`
+	ToolName          *string   `gorm:"column:tool_name;type:varchar(128)"`
+	CreatedAt         time.Time `gorm:"column:created_at;not null"`
+	ModifiedAt        time.Time `gorm:"column:modified_at;not null"`
 }
 
 func (databaseConversationMessageRecord) TableName() string {
@@ -78,18 +78,18 @@ func modelToConversationMessageRecord(message *models.ConversationMessage) *data
 	role := ptrto.TrimmedString(stringValue(message.Role))
 	stopReason := ptrto.TrimmedString(stringValue(message.StopReason))
 	return &databaseConversationMessageRecord{
-		ID:             message.ID,
-		ConversationID: ptrto.TrimmedString(message.GetConversationID()),
-		Role:           role,
-		Content:        []byte(message.Content),
-		ToolCalls:      []byte(message.ToolCalls),
-		Usage:          []byte(message.Usage),
-		Metadata:       []byte(message.Metadata),
-		StopReason:     stopReason,
-		Model:          ptrto.TrimmedString(message.GetModel()),
-		Provider:       ptrto.TrimmedString(message.GetProvider()),
-		ToolCallID:     ptrto.TrimmedString(message.GetToolCallID()),
-		ToolName:       ptrto.TrimmedString(message.GetToolName()),
+		ID:                message.ID,
+		ConversationID:    ptrto.TrimmedString(message.GetConversationID()),
+		Role:              role,
+		Content:           []byte(message.Content),
+		ToolCalls:         []byte(message.ToolCalls),
+		Usage:             []byte(message.Usage),
+		Metadata:          []byte(message.Metadata),
+		StopReason:        stopReason,
+		ProviderModelName: ptrto.TrimmedString(message.GetProviderModelName()),
+		ProviderName:      ptrto.TrimmedString(message.GetProviderName()),
+		ToolCallID:        ptrto.TrimmedString(message.GetToolCallID()),
+		ToolName:          ptrto.TrimmedString(message.GetToolName()),
 	}
 }
 
@@ -97,20 +97,20 @@ func conversationMessageRecordToModel(record *databaseConversationMessageRecord)
 	role := models.Role(valueor.Zero(record.Role))
 	stopReason := models.StopReason(valueor.Zero(record.StopReason))
 	message := &models.ConversationMessage{
-		ID:             record.ID,
-		ConversationID: ptrto.TrimmedString(valueor.Zero(record.ConversationID)),
-		Role:           nil,
-		Content:        copyBytes(record.Content),
-		ToolCalls:      copyBytes(record.ToolCalls),
-		Usage:          copyBytes(record.Usage),
-		Metadata:       copyBytes(record.Metadata),
-		StopReason:     nil,
-		Model:          ptrto.TrimmedString(valueor.Zero(record.Model)),
-		Provider:       ptrto.TrimmedString(valueor.Zero(record.Provider)),
-		ToolCallID:     ptrto.TrimmedString(valueor.Zero(record.ToolCallID)),
-		ToolName:       ptrto.TrimmedString(valueor.Zero(record.ToolName)),
-		CreatedAt:      &record.CreatedAt,
-		ModifiedAt:     &record.ModifiedAt,
+		ID:                record.ID,
+		ConversationID:    ptrto.TrimmedString(valueor.Zero(record.ConversationID)),
+		Role:              nil,
+		Content:           copyBytes(record.Content),
+		ToolCalls:         copyBytes(record.ToolCalls),
+		Usage:             copyBytes(record.Usage),
+		Metadata:          copyBytes(record.Metadata),
+		StopReason:        nil,
+		ProviderModelName: ptrto.TrimmedString(valueor.Zero(record.ProviderModelName)),
+		ProviderName:      ptrto.TrimmedString(valueor.Zero(record.ProviderName)),
+		ToolCallID:        ptrto.TrimmedString(valueor.Zero(record.ToolCallID)),
+		ToolName:          ptrto.TrimmedString(valueor.Zero(record.ToolName)),
+		CreatedAt:         &record.CreatedAt,
+		ModifiedAt:        &record.ModifiedAt,
 	}
 	if string(role) != "" {
 		message.Role = &role

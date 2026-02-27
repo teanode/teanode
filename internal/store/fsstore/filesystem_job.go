@@ -19,18 +19,18 @@ import (
 )
 
 type filesystemJobFrontmatter struct {
-	Name           string `yaml:"name"`
-	Schedule       string `yaml:"schedule,omitempty"`
-	Model          string `yaml:"model,omitempty"`
-	AgentID        string `yaml:"agentId,omitempty"`
-	Enabled        bool   `yaml:"enabled"`
-	ConversationID string `yaml:"conversationId,omitempty"`
-	RunAt          int64  `yaml:"runAt,omitempty"`
-	OneShot        bool   `yaml:"oneShot,omitempty"`
-	LastRun        int64  `yaml:"lastRun,omitempty"`
-	LastStatus     string `yaml:"lastStatus,omitempty"`
-	LastError      string `yaml:"lastError,omitempty"`
-	CreatedAt      int64  `yaml:"createdAt"`
+	Name              string `yaml:"name"`
+	Schedule          string `yaml:"schedule,omitempty"`
+	ProviderModelName string `yaml:"model,omitempty"`
+	AgentID           string `yaml:"agentId,omitempty"`
+	Enabled           bool   `yaml:"enabled"`
+	ConversationID    string `yaml:"conversationId,omitempty"`
+	RunAt             int64  `yaml:"runAt,omitempty"`
+	OneShot           bool   `yaml:"oneShot,omitempty"`
+	LastRun           int64  `yaml:"lastRun,omitempty"`
+	LastStatus        string `yaml:"lastStatus,omitempty"`
+	LastError         string `yaml:"lastError,omitempty"`
+	CreatedAt         int64  `yaml:"createdAt"`
 }
 
 func (self *fileSystemTransaction) ListJobs(ctx context.Context, userId string, options *store.Option) ([]*models.Job, error) {
@@ -247,36 +247,36 @@ func frontmatterToModelJob(userId string, jobId string, prompt string, frontmatt
 		lastRunAt = &lastRunTime
 	}
 	return models.Job{
-		ID:             jobId,
-		UserID:         ptrto.TrimmedString(userId),
-		Model:          ptrto.TrimmedString(frontmatter.Model),
-		AgentID:        ptrto.TrimmedString(frontmatter.AgentID),
-		ConversationID: ptrto.TrimmedString(frontmatter.ConversationID),
-		Name:           ptrto.TrimmedString(frontmatter.Name),
-		Schedule:       ptrto.TrimmedString(frontmatter.Schedule),
-		Prompt:         ptrto.TrimmedString(prompt),
-		Enabled:        ptrto.Value(frontmatter.Enabled),
-		OneShot:        ptrto.Value(frontmatter.OneShot),
-		LastStatus:     ptrto.Trimmed[models.JobStatus](frontmatter.LastStatus),
-		LastError:      ptrto.TrimmedString(frontmatter.LastError),
-		RunAt:          runAt,
-		LastRunAt:      lastRunAt,
-		CreatedAt:      &createdAt,
-		ModifiedAt:     &modifiedAt,
+		ID:                jobId,
+		UserID:            ptrto.TrimmedString(userId),
+		ProviderModelName: ptrto.TrimmedString(frontmatter.ProviderModelName),
+		AgentID:           ptrto.TrimmedString(frontmatter.AgentID),
+		ConversationID:    ptrto.TrimmedString(frontmatter.ConversationID),
+		Name:              ptrto.TrimmedString(frontmatter.Name),
+		Schedule:          ptrto.TrimmedString(frontmatter.Schedule),
+		Prompt:            ptrto.TrimmedString(prompt),
+		Enabled:           ptrto.Value(frontmatter.Enabled),
+		OneShot:           ptrto.Value(frontmatter.OneShot),
+		LastStatus:        ptrto.Trimmed[models.JobStatus](frontmatter.LastStatus),
+		LastError:         ptrto.TrimmedString(frontmatter.LastError),
+		RunAt:             runAt,
+		LastRunAt:         lastRunAt,
+		CreatedAt:         &createdAt,
+		ModifiedAt:        &modifiedAt,
 	}
 }
 
 func modelJobToFrontmatter(job models.Job) filesystemJobFrontmatter {
 	frontmatter := filesystemJobFrontmatter{
-		Name:           job.GetName(),
-		Schedule:       job.GetSchedule(),
-		Model:          job.GetModel(),
-		AgentID:        job.GetAgentID(),
-		Enabled:        job.GetEnabled(),
-		OneShot:        job.GetOneShot(),
-		LastStatus:     string(job.GetLastStatus()),
-		LastError:      job.GetLastError(),
-		ConversationID: job.GetConversationID(),
+		Name:              job.GetName(),
+		Schedule:          job.GetSchedule(),
+		ProviderModelName: job.GetProviderModelName(),
+		AgentID:           job.GetAgentID(),
+		Enabled:           job.GetEnabled(),
+		OneShot:           job.GetOneShot(),
+		LastStatus:        string(job.GetLastStatus()),
+		LastError:         job.GetLastError(),
+		ConversationID:    job.GetConversationID(),
 	}
 	if job.RunAt != nil {
 		frontmatter.RunAt = job.RunAt.UnixMilli()

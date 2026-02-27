@@ -47,9 +47,9 @@ type Buffer struct {
 	primarySavedCol   int
 	primaryScrollback []string
 
-	state  int
+	state     int
 	csiBuffer []byte
-	oscEsc bool
+	oscEsc    bool
 }
 
 // New creates a new screen buffer with a default 24x80 viewport.

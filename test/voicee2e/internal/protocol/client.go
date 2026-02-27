@@ -19,9 +19,9 @@ import (
 )
 
 type rpcRequest struct {
-	Type   string      `json:"type"`
-	ID     string      `json:"id"`
-	Method string      `json:"method"`
+	Type       string      `json:"type"`
+	ID         string      `json:"id"`
+	Method     string      `json:"method"`
 	Parameters interface{} `json:"params,omitempty"`
 }
 

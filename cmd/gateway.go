@@ -292,7 +292,7 @@ func NewGatewayCommand() *cli.Command {
 			scheduler.Broadcast = func(event string, payload interface{}) {
 				events.Broadcast(pubsub.EventType(event), payload)
 			}
-			scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, model string) (string, <-chan struct{}, func() error) {
+			scheduler.RunMessage = func(ctx context.Context, userId, agentId, conversationId, message, providerModelName string) (string, <-chan struct{}, func() error) {
 				var user *models.User
 				transactionError := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 					existingUser, getError := transaction.GetUser(ctx, userId, nil)
@@ -315,10 +315,10 @@ func NewGatewayCommand() *cli.Command {
 
 				runContext := models.ContextWithUserSessionToken(ctx, user, nil, nil)
 				handle, sendError := coordinator.Run(runContext, coordinators.RunParameters{
-					AgentID:        agentId,
-					ConversationID: conversationId,
-					Message:        message,
-					Model:          model,
+					AgentID:           agentId,
+					ConversationID:    conversationId,
+					Message:           message,
+					ProviderModelName: providerModelName,
 				}, nil)
 				if sendError != nil {
 					doneChannel := make(chan struct{})

@@ -397,7 +397,7 @@ func summarizeChunk(
 	userPrompt := prompts.BuildStructuredSummaryUserPrompt(previousSummary, focus, chunkText)
 
 	summaryRequest := providers.ChatRequest{
-		Model: modelName,
+		ModelName: modelName,
 		Messages: []providers.ChatMessage{
 			{
 				Role:    "system",
@@ -563,15 +563,15 @@ func (self *Runner) summarizeAndPersist(
 		log.Debugf("runner: failed to load configuration from store: %v", err)
 		return "", fmt.Errorf("failed to load configuration from store: %w", err)
 	}
-	qualifiedModel := ""
+	providerModelName := ""
 	if configuration != nil && configuration.Models != nil {
-		if summarizerModel := configuration.Models.GetSummarizerModel(); summarizerModel != "" {
-			qualifiedModel = summarizerModel
+		if summarizerProviderModelName := configuration.Models.GetSummarizerProviderModelName(); summarizerProviderModelName != "" {
+			providerModelName = summarizerProviderModelName
 		}
 	}
-	provider, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(qualifiedModel)
+	provider, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve summary model %q: %w", qualifiedModel, err)
+		return "", fmt.Errorf("failed to resolve summary model %q: %w", providerModelName, err)
 	}
 
 	summaryText := formatStructuredSummary(

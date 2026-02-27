@@ -50,6 +50,14 @@ type SynthesizeResponse struct {
 	ContentType string
 }
 
+// ModelInformation describes a model returned by the /models API.
+type ModelInformation struct {
+	ID            string `json:"id" yaml:"id"`
+	Created       int64  `json:"created,omitempty" yaml:"created,omitempty"`
+	OwnedBy       string `json:"owned_by,omitempty" yaml:"owned_by,omitempty"`
+	ContextLength int    `json:"context_length,omitempty" yaml:"context_length,omitempty"`
+}
+
 // NewProvider creates a Provider for the given type. Supported types:
 // "anthropic" returns an AnthropicClient; everything else returns an
 // OpenAI-compatible Client.

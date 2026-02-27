@@ -177,8 +177,8 @@ func (self *agentListTool) Execute(ctx context.Context, _ string) (string, error
 			if description := agent.GetDescription(); description != "" {
 				entry["description"] = description
 			}
-			if model := agent.GetModel(); model != "" {
-				entry["model"] = model
+			if modelName := agent.GetProviderModelName(); modelName != "" {
+				entry["model"] = modelName
 			}
 		}
 		if agentId == currentAgentId {
@@ -346,9 +346,9 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	currentAgentId := selfAgentId(ctx)
 
 	var arguments struct {
-		Task    string `json:"task"`
-		AgentID string `json:"agentId"`
-		Model   string `json:"model"`
+		Task              string `json:"task"`
+		AgentID           string `json:"agentId"`
+		ProviderModelName string `json:"model"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -407,8 +407,8 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 		Message:          prefixedTask,
 		SystemPromptMode: runners.SystemPromptModeMinimal,
 	}
-	if arguments.Model != "" {
-		sendParameters.Model = arguments.Model
+	if arguments.ProviderModelName != "" {
+		sendParameters.ProviderModelName = arguments.ProviderModelName
 	}
 
 	handle, sendError := coordinator.Run(childContext, sendParameters, nil)

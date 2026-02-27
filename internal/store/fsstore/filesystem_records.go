@@ -26,10 +26,10 @@ type storeProviderRecord struct {
 }
 
 type storeModelsRecord struct {
-	Default         string                `json:"default,omitempty" yaml:"default,omitempty"`
-	SummarizerModel string                `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"`
-	ContextWindow   int                   `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
-	Providers       []storeProviderRecord `json:"providers,omitempty" yaml:"providers,omitempty"`
+	Default                     string                `json:"default,omitempty" yaml:"default,omitempty"`
+	SummarizerProviderModelName string                `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"`
+	ContextWindow               int                   `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
+	Providers                   []storeProviderRecord `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
 
 type storeBrowserRecord struct {
@@ -92,14 +92,14 @@ type storeGitLabToolRecord struct {
 type storeClaudeCodeToolRecord struct {
 	BinaryPath            string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`
 	AllowedTools          []string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
-	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`
+	ModelName             string   `json:"model,omitempty" yaml:"model,omitempty"`
 	MaxTurnTimeoutSeconds int      `json:"maxTurnTimeoutSeconds,omitempty" yaml:"maxTurnTimeoutSeconds,omitempty"`
 }
 
 type storeCodexToolRecord struct {
 	BinaryPath            string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`
 	AllowedTools          []string `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
-	Model                 string   `json:"model,omitempty" yaml:"model,omitempty"`
+	ModelName             string   `json:"model,omitempty" yaml:"model,omitempty"`
 	ExtraArguments        []string `json:"extraArgs,omitempty" yaml:"extraArgs,omitempty"`
 	MaxTurnTimeoutSeconds int      `json:"maxTurnTimeoutSeconds,omitempty" yaml:"maxTurnTimeoutSeconds,omitempty"`
 }
@@ -137,14 +137,14 @@ type storeConfigurationRecord struct {
 }
 
 type storeAgentRecord struct {
-	ID            string             `json:"id" yaml:"id"`
-	Name          string             `json:"name,omitempty" yaml:"name,omitempty"`
-	Model         string             `json:"model,omitempty" yaml:"model,omitempty"`
-	Skills        []string           `json:"skills,omitempty" yaml:"skills,omitempty"`
-	Tools         []string           `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Description   string             `json:"description,omitempty" yaml:"description,omitempty"`
-	SummarizedAt  timeutil.Timestamp `json:"summarizedAt,omitempty" yaml:"summarizedAt,omitempty"`
-	AvatarMediaID string             `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
+	ID                string             `json:"id" yaml:"id"`
+	Name              string             `json:"name,omitempty" yaml:"name,omitempty"`
+	ProviderModelName string             `json:"model,omitempty" yaml:"model,omitempty"`
+	Skills            []string           `json:"skills,omitempty" yaml:"skills,omitempty"`
+	Tools             []string           `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Description       string             `json:"description,omitempty" yaml:"description,omitempty"`
+	SummarizedAt      timeutil.Timestamp `json:"summarizedAt,omitempty" yaml:"summarizedAt,omitempty"`
+	AvatarMediaID     string             `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
 }
 
 type storeUserRecord struct {

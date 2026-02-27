@@ -155,10 +155,6 @@ type Bot struct {
 	discord        *discordgo.Session
 	botUserId      string
 
-	// Per-channel model overrides (channelId -> model name).
-	modelMutex     sync.RWMutex
-	modelOverrides map[string]string
-
 	// Runs initiated by the bot — skip these in OnEvent.
 	activeConversationsMutex sync.RWMutex
 	activeConversations      map[string]struct{} // conversationId -> present
@@ -178,7 +174,6 @@ func New(token string, ctx context.Context, coordinator *coordinators.Coordinato
 		coordinator:         coordinator,
 		pubsub:              events,
 		sessionTracker:      sessions,
-		modelOverrides:      make(map[string]string),
 		activeConversations: make(map[string]struct{}),
 		subscribedRuns:      make(map[string]*discordSubscribedRun),
 		userChannels:        make(map[string]string),
@@ -588,7 +583,6 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
-		Model:          self.getModel(channelId),
 		Origin:         "discord",
 		Attachments:    attachments,
 	}, callerCallbacks)
@@ -651,12 +645,6 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 	self.sendChunked(channelId, result.Response)
 }
 
-func (self *Bot) getModel(channelId string) string {
-	self.modelMutex.RLock()
-	defer self.modelMutex.RUnlock()
-	return self.modelOverrides[channelId]
-}
-
 func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Session, messageEvent *discordgo.MessageCreate, name, arguments string) {
 	channelId := messageEvent.ChannelID
 	var reply string
@@ -685,20 +673,6 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 			reply = "Run cancelled."
 		} else {
 			reply = "No active run to cancel."
-		}
-
-	case "model":
-		if arguments == "" {
-			model := self.getModel(channelId)
-			if model == "" {
-				model = self.resolveDefaultModel()
-			}
-			reply = fmt.Sprintf("Current model: `%s`", model)
-		} else {
-			self.modelMutex.Lock()
-			self.modelOverrides[channelId] = arguments
-			self.modelMutex.Unlock()
-			reply = fmt.Sprintf("Model set to `%s`.", arguments)
 		}
 
 	case "agent":
@@ -737,17 +711,14 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 
 	case "status":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
-		model := self.getModel(channelId)
-		if model == "" {
-			model = self.resolveDefaultModel()
-		}
+		providerModelName := self.resolveDefaultProviderModelName()
 		running := self.coordinator.GetActiveConversationRunner(conversationId) != nil
 		status := "idle"
 		if running {
 			status = "running"
 		}
 		providerName := self.coordinator.ProviderRegistry().DefaultProvider()
-		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
+		reply = fmt.Sprintf("Agent: `%s`\nConversation: `%s`\nModel: `%s`\nProvider: `%s`\nStatus: %s", defaultAgentId, conversationId, providerModelName, providerName, status)
 
 	case "compact":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
@@ -823,19 +794,19 @@ func (self *Bot) agentExistsInStore(agentId string) bool {
 	return exists
 }
 
-func (self *Bot) resolveDefaultModel() string {
-	var defaultModel string
+func (self *Bot) resolveDefaultProviderModelName() string {
+	var defaultProviderModelName string
 	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		configuration, getError := transaction.GetConfiguration(ctx, nil)
 		if getError != nil {
 			return getError
 		}
 		if configuration.Models != nil {
-			defaultModel = configuration.Models.GetDefault()
+			defaultProviderModelName = configuration.Models.GetDefault()
 		}
 		return nil
 	})
-	return defaultModel
+	return defaultProviderModelName
 }
 
 func (self *Bot) listAgentIdsFromStore() []string {

@@ -46,7 +46,7 @@ export interface AgentInfo {
 export interface ConnectResult {
   version: string;
   capabilities: string[];
-  defaultModel: string;
+  defaultProviderModelName: string;
   agents: AgentInfo[];
   defaultAgentId: string;
   defaultConversationId?: string;
@@ -67,7 +67,7 @@ export interface ConversationsSetDefaultResult {
 export interface ConversationSendParams {
   conversationId: string;
   message: string;
-  model?: string;
+  providerModelName?: string;
   agentId?: string;
   attachments?: Attachment[];
 }
@@ -91,8 +91,8 @@ export interface ConversationHistoryResult {
   hasMore?: boolean;
   totalCount?: number;
   oldestLoadedIndex?: number;
-  provider?: string;
-  model?: string;
+  providerName?: string;
+  providerModelName?: string;
 }
 
 export interface ConversationAbortParams {
@@ -117,8 +117,8 @@ export interface Conversation {
   summary?: string;
   lastActive?: number;
   agentId?: string;
-  provider?: string;
-  model?: string;
+  providerName?: string;
+  providerModelName?: string;
 }
 
 export interface Usage {
@@ -144,8 +144,8 @@ export interface Message {
   timestamp?: number;
   stopReason?: string;
   usage?: Usage;
-  model?: string;
-  provider?: string;
+  providerModelName?: string;
+  providerName?: string;
   toolCalls?: ToolCall[] | string;
   toolCallId?: string;
   toolName?: string;
@@ -175,7 +175,7 @@ export interface ConversationEvent {
   title?: string;
   error?: string;
   usage?: Usage;
-  model?: string;
+  providerModelName?: string;
   stopReason?: string;
   originId?: string;
   contextWindow?: number;
@@ -185,14 +185,14 @@ export interface ConversationEvent {
 // Model types
 
 export interface ModelInfo {
-  provider: string;
+  providerName: string;
   id: string;
   context_length?: number;
 }
 
 export interface ModelsListResult {
   models: ModelInfo[];
-  defaultModel: string;
+  defaultProviderModelName: string;
 }
 
 // Job types
@@ -202,7 +202,7 @@ export interface Job {
   name: string;
   schedule: string;
   message: string;
-  model?: string;
+  providerModelName?: string;
   agentId?: string;
   enabled: boolean;
   conversationId: string;
@@ -218,7 +218,7 @@ export interface JobCreateParams {
   name: string;
   schedule: string;
   message: string;
-  model?: string;
+  providerModelName?: string;
   agentId?: string;
 }
 
@@ -227,7 +227,7 @@ export interface JobUpdateParams {
   name?: string;
   schedule?: string;
   message?: string;
-  model?: string;
+  providerModelName?: string;
   agentId?: string;
   enabled?: boolean;
 }
@@ -295,7 +295,7 @@ export interface AgentConfig {
   id: string;
   name?: string;
   avatarMediaId?: string;
-  model?: string;
+  providerModelName?: string;
   skills?: string[];
   tools?: string[];
 }

@@ -11,7 +11,7 @@ type RunParameters struct {
 	AgentID            string
 	ConversationID     string // empty = auto-create
 	Message            string
-	Model              string
+	ProviderModelName  string
 	OriginID           string              // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
 	Origin             string              // source of the message (e.g. "webui", "discord", "telegram"); empty for automated sources like the scheduler
 	OriginSessionID    string              // source session identifier (used for disconnect-aware notifications)

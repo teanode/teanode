@@ -109,7 +109,7 @@ export default function SettingsJobsPage() {
       if (data.name !== job.name) params.name = data.name;
       if (data.schedule !== job.schedule) params.schedule = data.schedule;
       if (data.message !== job.message) params.message = data.message;
-      if (data.model !== (job.model || "")) params.model = data.model;
+      if (data.model !== (job.providerModelName || "")) params.providerModelName = data.model;
       if (data.agentId !== (job.agentId || "")) params.agentId = data.agentId;
       backend.updateJob(params).catch(() => {});
     },
@@ -129,7 +129,7 @@ export default function SettingsJobsPage() {
         schedule: data.schedule,
         message: data.message,
       };
-      if (data.model) params.model = data.model;
+      if (data.model) params.providerModelName = data.model;
       if (data.agentId) params.agentId = data.agentId;
       backend
         .createJob(params)
@@ -145,13 +145,13 @@ export default function SettingsJobsPage() {
   const saveOneShotJob = useCallback(
     (job: Job) => {
       const message = (oneShotMessageByJob[job.id] ?? job.message).trim();
-      const model = (oneShotModelByJob[job.id] ?? (job.model || "")).trim();
+      const model = (oneShotModelByJob[job.id] ?? (job.providerModelName || "")).trim();
       const agentId = (oneShotAgentByJob[job.id] ?? (job.agentId || "")).trim();
       if (!message) return;
 
       const params: JobUpdateParams = { id: job.id };
       if (message !== job.message) params.message = message;
-      if (model !== (job.model || "")) params.model = model;
+      if (model !== (job.providerModelName || "")) params.providerModelName = model;
       if (agentId !== (job.agentId || "")) params.agentId = agentId;
       if (Object.keys(params).length === 1) return;
 
@@ -179,13 +179,13 @@ export default function SettingsJobsPage() {
           </Box>
           {jobs.map((job) => {
             const currentMessage = oneShotMessageByJob[job.id] ?? job.message;
-            const currentModel = oneShotModelByJob[job.id] ?? (job.model || "");
+            const currentModel = oneShotModelByJob[job.id] ?? (job.providerModelName || "");
             const currentAgentId =
               oneShotAgentByJob[job.id] ?? (job.agentId || "");
             const oneShotDirty =
               job.oneShot &&
               (currentMessage.trim() !== job.message ||
-                currentModel.trim() !== (job.model || "") ||
+                currentModel.trim() !== (job.providerModelName || "") ||
                 currentAgentId.trim() !== (job.agentId || ""));
             const periodicDirty = !job.oneShot && !!periodicDirtyByJob[job.id];
             const showSaveActive = job.oneShot ? oneShotDirty : periodicDirty;
@@ -341,7 +341,7 @@ export default function SettingsJobsPage() {
                       >
                         <MenuItem value="">{t("common.default")}</MenuItem>
                         {backend.models.map((modelInfo) => {
-                          const qualified = `${modelInfo.provider}:${modelInfo.id}`;
+                          const qualified = `${modelInfo.providerName}:${modelInfo.id}`;
                           return (
                             <MenuItem key={qualified} value={qualified}>
                               {qualified}

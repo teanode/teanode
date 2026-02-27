@@ -53,7 +53,7 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 // RunParameters holds the parameters for a single agent run.
 type RunParameters struct {
 	Message            string
-	Model              string // override config default
+	ProviderModelName  string // override config default
 	Attachments        []map[string]string
 	SystemPromptSuffix string // optional; appended to system prompt for this run only
 	SystemPromptMode   SystemPromptMode
@@ -61,11 +61,11 @@ type RunParameters struct {
 
 // RunResult holds the result of a completed agent run.
 type RunResult struct {
-	Response      string
-	Usage         map[string]int
-	Model         string
-	StopReason    string
-	ContextWindow int // context window size of the model used
+	Response          string
+	Usage             map[string]int
+	ProviderModelName string
+	StopReason        string
+	ContextWindow     int // context window size of the model used
 }
 
 // RunCallbacks receives events during an agent run.
@@ -91,40 +91,40 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 	userId := user.ID
 	isAdmin := user.GetAdmin()
 
-	log.Debugf("run %q start agent %q conversation %q model %q", self.ID, self.AgentID, self.ConversationID, params.Model)
+	log.Debugf("run %q start agent %q conversation %q model %q", self.ID, self.AgentID, self.ConversationID, params.ProviderModelName)
 
 	// Enrich context with conversation id and runner for tools.
 	ctx = ContextWithRunner(ctx, self)
 
 	// 1. Choose model and resolve provider (before appending, so we can stamp the header).
-	qualifiedModel, _ := self.resolveAgentModelAndName(ctx)
-	if params.Model != "" {
-		qualifiedModel = params.Model
+	providerModelName, _ := self.resolveAgentProviderModelAndName(ctx)
+	if params.ProviderModelName != "" {
+		providerModelName = params.ProviderModelName
 	}
 
 	// Validate provider/model alignment with existing conversation.
 	conversationMessagesForHeader, headerError := listConversationMessages(ctx, self.ConversationID)
 	if headerError == nil {
-		headerModel := ""
+		existingProviderModelName := ""
 		for index := len(conversationMessagesForHeader) - 1; index >= 0; index-- {
-			headerModel = conversationMessagesForHeader[index].GetModel()
-			if headerModel != "" {
+			existingProviderModelName = conversationMessagesForHeader[index].GetProviderModelName()
+			if existingProviderModelName != "" {
 				break
 			}
 		}
-		if headerModel != "" {
+		if existingProviderModelName != "" {
 			// Existing conversation with a locked model.
-			if params.Model != "" && params.Model != headerModel {
+			if params.ProviderModelName != "" && params.ProviderModelName != existingProviderModelName {
 				return nil, fmt.Errorf("model mismatch: conversation %s is locked to %q but request specified %q",
-					self.ConversationID, headerModel, params.Model)
+					self.ConversationID, existingProviderModelName, params.ProviderModelName)
 			}
-			qualifiedModel = headerModel
+			providerModelName = existingProviderModelName
 		}
 	}
 
-	provider, providerName, modelName, err := self.providerRegistry.ResolveProviderAndModel(qualifiedModel)
+	provider, providerName, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
 	if err != nil {
-		return nil, fmt.Errorf("resolving model %q: %w", qualifiedModel, err)
+		return nil, fmt.Errorf("resolving model %q: %w", providerModelName, err)
 	}
 
 	// 2. Append user message to conversation (sets provider/model on new or backfills existing).
@@ -134,8 +134,8 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 	} else {
 		userMessage = newTextMessage("user", params.Message)
 	}
-	userMessage.Provider = ptrto.Value(providerName)
-	userMessage.Model = ptrto.Value(modelName)
+	userMessage.ProviderName = ptrto.Value(providerName)
+	userMessage.ProviderModelName = ptrto.Value(providers.FormatProviderModelName(providerName, modelName))
 	if err := self.appendConversationMessage(ctx, userMessage); err != nil {
 		return nil, fmt.Errorf("saving user message: %w", err)
 	}
@@ -149,7 +149,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 	// 4. Tool-call loop.
 	var totalUsage map[string]int
 	var responseText string
-	var responseModel string
+	var responseModelName string
 	var stopReason string
 	contextWindow := self.resolveContextWindow(ctx)
 
@@ -187,7 +187,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 
 		// Build request.
 		request := providers.ChatRequest{
-			Model:         modelName,
+			ModelName:     modelName,
 			Messages:      llmMessages,
 			Stream:        true,
 			StreamOptions: &providers.StreamOptions{IncludeUsage: true},
@@ -224,8 +224,8 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 				continue
 			}
 
-			if responseModel == "" {
-				responseModel = event.Chunk.Model
+			if responseModelName == "" {
+				responseModelName = event.Chunk.ModelName
 			}
 			if event.Chunk.Usage != nil {
 				if usage == nil {
@@ -310,8 +310,8 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 
 		// Save assistant message.
 		assistantMessage := newTextMessage("assistant", responseText)
-		assistantMessage.Model = ptrto.Value(responseModel)
-		assistantMessage.Provider = ptrto.Value(providerName)
+		assistantMessage.ProviderModelName = ptrto.Value(providers.FormatProviderModelName(providerName, responseModelName))
+		assistantMessage.ProviderName = ptrto.Value(providerName)
 		if stopReason != "" {
 			stopReasonValue := models.StopReason(stopReason)
 			assistantMessage.StopReason = &stopReasonValue
@@ -469,14 +469,15 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		}
 	}
 
-	log.Debugf("run done id=%s model=%s stop=%s", self.ID, responseModel, stopReason)
+	responseProviderModelName := providers.FormatProviderModelName(providerName, responseModelName)
+	log.Debugf("run done id=%s model=%s stop=%s", self.ID, responseProviderModelName, stopReason)
 
 	return &RunResult{
-		Response:      responseText,
-		Usage:         totalUsage,
-		Model:         responseModel,
-		StopReason:    stopReason,
-		ContextWindow: contextWindow,
+		Response:          responseText,
+		Usage:             totalUsage,
+		ProviderModelName: responseProviderModelName,
+		StopReason:        stopReason,
+		ContextWindow:     contextWindow,
 	}, nil
 }
 
@@ -554,19 +555,19 @@ func parseToolAction(arguments string) string {
 	return strings.ToLower(action)
 }
 
-func (self *Runner) resolveAgentModelAndName(ctx context.Context) (string, string) {
-	resolvedModel := ""
+func (self *Runner) resolveAgentProviderModelAndName(ctx context.Context) (string, string) {
+	resolvedProviderModelName := ""
 	resolvedName := ""
 	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		agent, err := transaction.GetAgent(ctx, self.AgentID, nil)
 		if err != nil || agent == nil {
 			return nil
 		}
-		resolvedModel = agent.GetModel()
+		resolvedProviderModelName = agent.GetProviderModelName()
 		resolvedName = agent.GetName()
 		return nil
 	})
-	return resolvedModel, resolvedName
+	return resolvedProviderModelName, resolvedName
 }
 
 // buildMessages converts conversation history into LLM messages.
@@ -578,7 +579,7 @@ func (self *Runner) buildMessages(
 	systemPromptMode SystemPromptMode,
 	skillPrompts string,
 ) []providers.ChatMessage {
-	_, agentName := self.resolveAgentModelAndName(ctx)
+	_, agentName := self.resolveAgentProviderModelAndName(ctx)
 	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
 		IdentityLine: resolveIdentityLine(self.AgentID, agentName),
 		AgentID:      self.AgentID,

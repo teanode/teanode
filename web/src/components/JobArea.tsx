@@ -76,7 +76,7 @@ export default function JobArea({
                 schedule: data.schedule,
                 message: data.message,
               };
-              if (data.model) params.model = data.model;
+              if (data.model) params.providerModelName = data.model;
               if (data.agentId) params.agentId = data.agentId;
               onCreate(params).catch(() => {});
             }}
@@ -121,7 +121,7 @@ export default function JobArea({
               if (data.schedule !== job.schedule)
                 params.schedule = data.schedule;
               if (data.message !== job.message) params.message = data.message;
-              if (data.model !== (job.model || "")) params.model = data.model;
+              if (data.model !== (job.providerModelName || "")) params.providerModelName = data.model;
               if (data.agentId !== (job.agentId || ""))
                 params.agentId = data.agentId;
               onUpdate(params).catch(() => {});

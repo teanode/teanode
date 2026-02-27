@@ -2,8 +2,11 @@ package providers
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/teanode/teanode/internal/models"
 )
@@ -14,7 +17,7 @@ type mockProvider struct {
 }
 
 func (self *mockProvider) ChatCompletion(ctx context.Context, request ChatRequest) (*ChatResponse, error) {
-	return &ChatResponse{Model: self.name}, nil
+	return &ChatResponse{ModelName: self.name}, nil
 }
 
 func (self *mockProvider) ChatCompletionStream(ctx context.Context, request ChatRequest) (<-chan StreamEvent, error) {
@@ -26,12 +29,16 @@ func (self *mockProvider) ListModels(ctx context.Context) ([]ModelInformation, e
 }
 
 func TestNewRegistryNilConfig(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-openai-key")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+
 	providerRegistry := NewProviderRegistry(nil)
 	if providerRegistry.DefaultProvider() != "openai" {
 		t.Errorf("DefaultProvider() = %q, want %q", providerRegistry.DefaultProvider(), "openai")
 	}
-	if providerRegistry.DefaultModel() != "openai:gpt-5.2" {
-		t.Errorf("DefaultModel() = %q, want %q", providerRegistry.DefaultModel(), "openai:gpt-5.2")
+	if providerRegistry.DefaultProviderModelName() != "openai:gpt-5.2" {
+		t.Errorf("DefaultProviderModelName() = %q, want %q", providerRegistry.DefaultProviderModelName(), "openai:gpt-5.2")
 	}
 	// Should have registered the default openai provider.
 	if len(providerRegistry.ProviderNames()) != 1 {
@@ -39,13 +46,78 @@ func TestNewRegistryNilConfig(t *testing.T) {
 	}
 }
 
+func TestNewRegistryNilConfigAnthropicKey(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+	t.Setenv("OPENROUTER_API_KEY", "")
+
+	providerRegistry := NewProviderRegistry(nil)
+	if providerRegistry.DefaultProvider() != "anthropic" {
+		t.Errorf("DefaultProvider() = %q, want %q", providerRegistry.DefaultProvider(), "anthropic")
+	}
+	if providerRegistry.DefaultProviderModelName() != "anthropic:claude-sonnet-4-20250514" {
+		t.Errorf("DefaultProviderModelName() = %q, want %q", providerRegistry.DefaultProviderModelName(), "anthropic:claude-sonnet-4-20250514")
+	}
+	if len(providerRegistry.ProviderNames()) != 1 {
+		t.Errorf("expected 1 provider, got %v", providerRegistry.ProviderNames())
+	}
+}
+
+func TestNewRegistryNilConfigOpenRouterKey(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+	providerRegistry := NewProviderRegistry(nil)
+	if providerRegistry.DefaultProvider() != "openrouter" {
+		t.Errorf("DefaultProvider() = %q, want %q", providerRegistry.DefaultProvider(), "openrouter")
+	}
+	if providerRegistry.DefaultProviderModelName() != "openrouter:anthropic/claude-sonnet-4-20250514" {
+		t.Errorf("DefaultProviderModelName() = %q, want %q", providerRegistry.DefaultProviderModelName(), "openrouter:anthropic/claude-sonnet-4-20250514")
+	}
+	if len(providerRegistry.ProviderNames()) != 1 {
+		t.Errorf("expected 1 provider, got %v", providerRegistry.ProviderNames())
+	}
+}
+
+func TestNewRegistryNilConfigMultipleKeys(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-openai-key")
+	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+	t.Setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+	providerRegistry := NewProviderRegistry(nil)
+	// With all keys set, openai should still be the default.
+	if providerRegistry.DefaultProvider() != "openai" {
+		t.Errorf("DefaultProvider() = %q, want %q", providerRegistry.DefaultProvider(), "openai")
+	}
+	// All three providers should be registered.
+	if len(providerRegistry.ProviderNames()) != 3 {
+		t.Errorf("expected 3 providers, got %v", providerRegistry.ProviderNames())
+	}
+}
+
+func TestNewRegistryNilConfigNoKeys(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+
+	providerRegistry := NewProviderRegistry(nil)
+	// Falls back to openai with empty key.
+	if providerRegistry.DefaultProvider() != "openai" {
+		t.Errorf("DefaultProvider() = %q, want %q", providerRegistry.DefaultProvider(), "openai")
+	}
+	if len(providerRegistry.ProviderNames()) != 1 {
+		t.Errorf("expected 1 provider, got %v", providerRegistry.ProviderNames())
+	}
+}
+
 func TestNewRegistryWithConfig(t *testing.T) {
-	defaultModel := "anthropic:claude-sonnet-4-20250514"
+	defaultProviderModelName := "anthropic:claude-sonnet-4-20250514"
 	providerName := "anthropic"
 	providerBaseURL := "https://api.anthropic.com"
 	providerKey := "test-key"
 	providerRegistry := NewProviderRegistry(&models.ModelsConfiguration{
-		Default: &defaultModel,
+		Default: &defaultProviderModelName,
 		Providers: &[]*models.ProviderConfiguration{
 			{
 				Name:    &providerName,
@@ -57,8 +129,8 @@ func TestNewRegistryWithConfig(t *testing.T) {
 	if providerRegistry.DefaultProvider() != "anthropic" {
 		t.Errorf("DefaultProvider() = %q, want %q", providerRegistry.DefaultProvider(), "anthropic")
 	}
-	if providerRegistry.DefaultModel() != defaultModel {
-		t.Errorf("DefaultModel() = %q, want %q", providerRegistry.DefaultModel(), defaultModel)
+	if providerRegistry.DefaultProviderModelName() != defaultProviderModelName {
+		t.Errorf("DefaultProviderModelName() = %q, want %q", providerRegistry.DefaultProviderModelName(), defaultProviderModelName)
 	}
 }
 
@@ -71,29 +143,29 @@ func TestRegistryRegisterAndResolve(t *testing.T) {
 	providerRegistry.Register("anthropic", anthropicProvider)
 
 	// Resolve with explicit provider prefix.
-	client, _, model, err := providerRegistry.ResolveProviderAndModel("anthropic:claude-sonnet-4-20250514")
+	client, _, modelName, err := providerRegistry.ResolveProviderAndModel("anthropic:claude-sonnet-4-20250514")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if model != "claude-sonnet-4-20250514" {
-		t.Errorf("model = %q, want %q", model, "claude-sonnet-4-20250514")
+	if modelName != "claude-sonnet-4-20250514" {
+		t.Errorf("model = %q, want %q", modelName, "claude-sonnet-4-20250514")
 	}
 	response, _ := client.ChatCompletion(context.Background(), ChatRequest{})
-	if response.Model != "anthropic" {
-		t.Errorf("resolved to wrong provider: %q", response.Model)
+	if response.ModelName != "anthropic" {
+		t.Errorf("resolved to wrong provider: %q", response.ModelName)
 	}
 
 	// Resolve without prefix should use default provider.
-	client, _, model, err = providerRegistry.ResolveProviderAndModel("gpt-4o")
+	client, _, modelName, err = providerRegistry.ResolveProviderAndModel("gpt-4o")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if model != "gpt-4o" {
-		t.Errorf("model = %q, want %q", model, "gpt-4o")
+	if modelName != "gpt-4o" {
+		t.Errorf("model = %q, want %q", modelName, "gpt-4o")
 	}
 	response, _ = client.ChatCompletion(context.Background(), ChatRequest{})
-	if response.Model != "openai" {
-		t.Errorf("resolved to wrong provider: %q", response.Model)
+	if response.ModelName != "openai" {
+		t.Errorf("resolved to wrong provider: %q", response.ModelName)
 	}
 }
 
@@ -111,9 +183,9 @@ func TestRegistryResolveUnknownProvider(t *testing.T) {
 }
 
 func TestRegistryResolveNoDefaultRegistered(t *testing.T) {
-	defaultModel := "missing:model"
+	defaultProviderModelName := "missing:model"
 	providerRegistry := NewProviderRegistry(&models.ModelsConfiguration{
-		Default:   &defaultModel,
+		Default:   &defaultProviderModelName,
 		Providers: &[]*models.ProviderConfiguration{
 			// Empty providers list so nothing actually registers.
 		},
@@ -126,7 +198,7 @@ func TestRegistryResolveNoDefaultRegistered(t *testing.T) {
 }
 
 func TestRegistryProviderNames(t *testing.T) {
-	providerRegistry := NewProviderRegistry(nil)
+	providerRegistry := NewEmptyProviderRegistry()
 	providerRegistry.Register("openai", &mockProvider{})
 	providerRegistry.Register("anthropic", &mockProvider{})
 	providerRegistry.Register("local", &mockProvider{})
@@ -145,7 +217,7 @@ func TestRegistryProviderNames(t *testing.T) {
 	}
 }
 
-func TestParseQualifiedModel(t *testing.T) {
+func TestParseProviderModelName(t *testing.T) {
 	cases := []struct {
 		input           string
 		defaultProvider string
@@ -160,34 +232,200 @@ func TestParseQualifiedModel(t *testing.T) {
 		{"standalone", "", "", "standalone"},
 	}
 	for _, testCase := range cases {
-		providerName, model := ParseQualifiedModel(testCase.input, testCase.defaultProvider)
+		providerName, modelName := ParseProviderModelName(testCase.input, testCase.defaultProvider)
 		if providerName != testCase.wantProvider {
-			t.Errorf("ParseQualifiedModel(%q, %q) provider = %q, want %q",
+			t.Errorf("ParseProviderModelName(%q, %q) provider = %q, want %q",
 				testCase.input, testCase.defaultProvider, providerName, testCase.wantProvider)
 		}
-		if model != testCase.wantModel {
-			t.Errorf("ParseQualifiedModel(%q, %q) model = %q, want %q",
-				testCase.input, testCase.defaultProvider, model, testCase.wantModel)
+		if modelName != testCase.wantModel {
+			t.Errorf("ParseProviderModelName(%q, %q) model = %q, want %q",
+				testCase.input, testCase.defaultProvider, modelName, testCase.wantModel)
 		}
 	}
 }
 
-func TestQualifyModel(t *testing.T) {
+func TestFormatProviderModelName(t *testing.T) {
 	cases := []struct {
-		provider string
-		model    string
-		expected string
+		providerName string
+		modelName    string
+		expected     string
 	}{
 		{"anthropic", "claude-sonnet-4-20250514", "anthropic:claude-sonnet-4-20250514"},
 		{"openai", "gpt-4o", "openai:gpt-4o"},
 		{"", "model", ":model"},
 	}
 	for _, testCase := range cases {
-		result := QualifyModel(testCase.provider, testCase.model)
+		result := FormatProviderModelName(testCase.providerName, testCase.modelName)
 		if result != testCase.expected {
-			t.Errorf("QualifyModel(%q, %q) = %q, want %q",
-				testCase.provider, testCase.model, result, testCase.expected)
+			t.Errorf("FormatProviderModelName(%q, %q) = %q, want %q",
+				testCase.providerName, testCase.modelName, result, testCase.expected)
 		}
+	}
+}
+
+// mockProviderWithModels extends mockProvider with configurable model lists.
+type mockProviderWithModels struct {
+	mockProvider
+	modelList []ModelInformation
+	callCount atomic.Int32
+	err       error
+}
+
+func (self *mockProviderWithModels) ListModels(ctx context.Context) ([]ModelInformation, error) {
+	self.callCount.Add(1)
+	if self.err != nil {
+		return nil, self.err
+	}
+	return self.modelList, nil
+}
+
+func TestListAllModelsBasicAggregation(t *testing.T) {
+	providerRegistry := NewEmptyProviderRegistry()
+	providerRegistry.Register("openai", &mockProviderWithModels{
+		modelList: []ModelInformation{
+			{ID: "gpt-4o", ContextLength: 128000},
+			{ID: "gpt-5.2"},
+		},
+	})
+	providerRegistry.Register("anthropic", &mockProviderWithModels{
+		modelList: []ModelInformation{
+			{ID: "claude-sonnet-4-20250514", ContextLength: 200000},
+		},
+	})
+
+	results := providerRegistry.ListAllModels(context.Background())
+
+	if len(results) != 3 {
+		t.Fatalf("expected 3 models, got %d", len(results))
+	}
+
+	// Results should be ordered by provider name (alphabetical), then by ListModels order.
+	// anthropic first, then openai.
+	if results[0].ProviderName != "anthropic" || results[0].ModelName != "claude-sonnet-4-20250514" {
+		t.Errorf("results[0] = %+v, want anthropic:claude-sonnet-4-20250514", results[0])
+	}
+	if results[0].ContextLength != 200000 {
+		t.Errorf("results[0].ContextLength = %d, want 200000", results[0].ContextLength)
+	}
+	if results[1].ProviderName != "openai" || results[1].ModelName != "gpt-4o" {
+		t.Errorf("results[1] = %+v, want openai:gpt-4o", results[1])
+	}
+	if results[2].ProviderName != "openai" || results[2].ModelName != "gpt-5.2" {
+		t.Errorf("results[2] = %+v, want openai:gpt-5.2", results[2])
+	}
+}
+
+func TestListAllModelsCaching(t *testing.T) {
+	provider := &mockProviderWithModels{
+		modelList: []ModelInformation{{ID: "gpt-4o"}},
+	}
+	providerRegistry := NewEmptyProviderRegistry()
+	providerRegistry.Register("openai", provider)
+
+	// First call should fetch.
+	results := providerRegistry.ListAllModels(context.Background())
+	if len(results) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(results))
+	}
+	if provider.callCount.Load() != 1 {
+		t.Fatalf("expected 1 ListModels call, got %d", provider.callCount.Load())
+	}
+
+	// Second call should use cache.
+	results = providerRegistry.ListAllModels(context.Background())
+	if len(results) != 1 {
+		t.Fatalf("expected 1 model on second call, got %d", len(results))
+	}
+	if provider.callCount.Load() != 1 {
+		t.Errorf("expected ListModels still called once (cached), got %d", provider.callCount.Load())
+	}
+}
+
+func TestListAllModelsCacheExpiry(t *testing.T) {
+	provider := &mockProviderWithModels{
+		modelList: []ModelInformation{{ID: "gpt-4o"}},
+	}
+	providerRegistry := NewEmptyProviderRegistry()
+	providerRegistry.Register("openai", provider)
+
+	// First call populates cache.
+	providerRegistry.ListAllModels(context.Background())
+	if provider.callCount.Load() != 1 {
+		t.Fatalf("expected 1 call, got %d", provider.callCount.Load())
+	}
+
+	// Expire the cache entry manually.
+	providerRegistry.modelsCacheMutex.Lock()
+	providerRegistry.modelsCache["openai"].expiresAt = time.Now().Add(-time.Second)
+	providerRegistry.modelsCacheMutex.Unlock()
+
+	// Next call should re-fetch.
+	providerRegistry.ListAllModels(context.Background())
+	if provider.callCount.Load() != 2 {
+		t.Errorf("expected 2 calls after expiry, got %d", provider.callCount.Load())
+	}
+}
+
+func TestListAllModelsProviderFailure(t *testing.T) {
+	workingProvider := &mockProviderWithModels{
+		modelList: []ModelInformation{{ID: "gpt-4o"}},
+	}
+	failingProvider := &mockProviderWithModels{
+		err: fmt.Errorf("network error"),
+	}
+	providerRegistry := NewEmptyProviderRegistry()
+	providerRegistry.Register("openai", workingProvider)
+	providerRegistry.Register("broken", failingProvider)
+
+	results := providerRegistry.ListAllModels(context.Background())
+
+	// Should still get the working provider's models.
+	if len(results) != 1 {
+		t.Fatalf("expected 1 model, got %d: %+v", len(results), results)
+	}
+	if results[0].ProviderName != "openai" {
+		t.Errorf("expected openai provider, got %q", results[0].ProviderName)
+	}
+}
+
+func TestListAllModelsStaleOnFailure(t *testing.T) {
+	provider := &mockProviderWithModels{
+		modelList: []ModelInformation{{ID: "gpt-4o"}},
+	}
+	providerRegistry := NewEmptyProviderRegistry()
+	providerRegistry.Register("openai", provider)
+
+	// Populate cache.
+	results := providerRegistry.ListAllModels(context.Background())
+	if len(results) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(results))
+	}
+
+	// Expire cache and make provider fail.
+	providerRegistry.modelsCacheMutex.Lock()
+	providerRegistry.modelsCache["openai"].expiresAt = time.Now().Add(-time.Second)
+	providerRegistry.modelsCacheMutex.Unlock()
+	provider.err = fmt.Errorf("network error")
+
+	// Should return stale data.
+	results = providerRegistry.ListAllModels(context.Background())
+	if len(results) != 1 {
+		t.Fatalf("expected 1 stale model, got %d", len(results))
+	}
+	if results[0].ModelName != "gpt-4o" {
+		t.Errorf("expected stale gpt-4o, got %q", results[0].ModelName)
+	}
+}
+
+func TestListAllModelsEmptyRegistry(t *testing.T) {
+	providerRegistry := NewEmptyProviderRegistry()
+	results := providerRegistry.ListAllModels(context.Background())
+
+	if results == nil {
+		t.Fatal("expected non-nil empty slice, got nil")
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 models, got %d", len(results))
 	}
 }
 
@@ -204,7 +442,7 @@ func TestRegistryRegisterOverwrite(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 	response, _ := client.ChatCompletion(context.Background(), ChatRequest{})
-	if response.Model != "second" {
-		t.Errorf("expected second provider after overwrite, got %q", response.Model)
+	if response.ModelName != "second" {
+		t.Errorf("expected second provider after overwrite, got %q", response.ModelName)
 	}
 }

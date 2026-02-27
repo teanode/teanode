@@ -26,7 +26,7 @@ func (self *testProvider) ChatCompletionStream(_ context.Context, request provid
 		defer close(events)
 		events <- providers.StreamEvent{
 			Chunk: &providers.StreamChunk{
-				Model: request.Model,
+				ModelName: request.ModelName,
 				Choices: []providers.StreamChoice{
 					{
 						Delta:        providers.ChatDelta{Content: "ok"},

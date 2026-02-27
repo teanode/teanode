@@ -14,30 +14,30 @@ import (
 )
 
 type conversationFileHeader struct {
-	Type         string `json:"type"`
-	Version      int    `json:"version"`
-	ID           string `json:"id"`
-	Timestamp    string `json:"timestamp"`
-	Title        string `json:"title,omitempty"`
-	Summary      string `json:"summary,omitempty"`
-	SummarizedAt int64  `json:"summarizedAt,omitempty"`
-	Provider     string `json:"provider,omitempty"`
-	Model        string `json:"model,omitempty"`
+	Type              string `json:"type"`
+	Version           int    `json:"version"`
+	ID                string `json:"id"`
+	Timestamp         string `json:"timestamp"`
+	Title             string `json:"title,omitempty"`
+	Summary           string `json:"summary,omitempty"`
+	SummarizedAt      int64  `json:"summarizedAt,omitempty"`
+	ProviderName      string `json:"provider,omitempty"`
+	ProviderModelName string `json:"model,omitempty"`
 }
 
 type conversationFileMessage struct {
-	ID         string          `json:"id,omitempty"`
-	Role       string          `json:"role"`
-	Content    json.RawMessage `json:"content"`
-	Timestamp  int64           `json:"timestamp"`
-	Metadata   json.RawMessage `json:"metadata,omitempty"`
-	StopReason string          `json:"stopReason,omitempty"`
-	Usage      json.RawMessage `json:"usage,omitempty"`
-	Model      string          `json:"model,omitempty"`
-	Provider   string          `json:"provider,omitempty"`
-	ToolCalls  json.RawMessage `json:"toolCalls,omitempty"`
-	ToolCallID string          `json:"toolCallId,omitempty"`
-	ToolName   string          `json:"toolName,omitempty"`
+	ID                string          `json:"id,omitempty"`
+	Role              string          `json:"role"`
+	Content           json.RawMessage `json:"content"`
+	Timestamp         int64           `json:"timestamp"`
+	Metadata          json.RawMessage `json:"metadata,omitempty"`
+	StopReason        string          `json:"stopReason,omitempty"`
+	Usage             json.RawMessage `json:"usage,omitempty"`
+	ProviderModelName string          `json:"model,omitempty"`
+	ProviderName      string          `json:"provider,omitempty"`
+	ToolCalls         json.RawMessage `json:"toolCalls,omitempty"`
+	ToolCallID        string          `json:"toolCallId,omitempty"`
+	ToolName          string          `json:"toolName,omitempty"`
 }
 
 type conversationLinePeek struct {

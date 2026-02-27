@@ -492,7 +492,7 @@ func (self *Summarizer) runSynthesisRequest(
 	maxTokens int,
 ) (string, bool) {
 	request := providers.ChatRequest{
-		Model: modelName,
+		ModelName: modelName,
 		Messages: []providers.ChatMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
@@ -529,15 +529,15 @@ func (self *Summarizer) resolveSynthesisProvider() (providers.Provider, string, 
 		log.Debugf("summarizer: failed to load configuration from store: %v", err)
 		return nil, "", false
 	}
-	qualifiedModel := ""
+	providerModelName := ""
 	if configuration != nil && configuration.Models != nil {
-		if summarizerModel := configuration.Models.GetSummarizerModel(); summarizerModel != "" {
-			qualifiedModel = summarizerModel
+		if summarizerProviderModelName := configuration.Models.GetSummarizerProviderModelName(); summarizerProviderModelName != "" {
+			providerModelName = summarizerProviderModelName
 		}
 	}
-	provider, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(qualifiedModel)
+	provider, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
 	if err != nil {
-		log.Debugf("summarizer: failed to resolve synthesis model %q: %v", qualifiedModel, err)
+		log.Debugf("summarizer: failed to resolve synthesis model %q: %v", providerModelName, err)
 		return nil, "", false
 	}
 	return provider, modelName, true

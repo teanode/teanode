@@ -9,7 +9,7 @@
       "description": "Friendly display name for this agent.",
       "descriptionKey": "schema.agent.fields.name.description"
     },
-    "model": {
+    "providerModelName": {
       "type": "string",
       "title": "Model",
       "titleKey": "schema.agent.fields.model.title",
@@ -44,7 +44,7 @@
       "titleKey": "schema.agent.sections.general.title",
       "description": "Core agent settings. Model-level limits are configured under global models.",
       "descriptionKey": "schema.agent.sections.general.description",
-      "properties": ["name", "model", "tools", "skills"]
+      "properties": ["name", "providerModelName", "tools", "skills"]
     }
   ]
 }

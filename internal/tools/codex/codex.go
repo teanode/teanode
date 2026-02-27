@@ -63,7 +63,7 @@ type codexTool struct {
 }
 
 // configurationFromContext reads the Codex tool configuration from the store.
-func configurationFromContext(ctx context.Context) (extraArguments []string, model string, timeout time.Duration) {
+func configurationFromContext(ctx context.Context) (extraArguments []string, modelName string, timeout time.Duration) {
 	timeout = defaultTimeout
 	dataStore := store.StoreFromContextSafe(ctx)
 	if dataStore == nil {
@@ -77,7 +77,7 @@ func configurationFromContext(ctx context.Context) (extraArguments []string, mod
 		if storedConfiguration.Tools != nil && storedConfiguration.Tools.Codex != nil {
 			configuration := storedConfiguration.Tools.Codex
 			extraArguments = configuration.GetExtraArguments()
-			model = configuration.GetModel()
+			modelName = configuration.GetModelName()
 			if seconds := configuration.GetMaxTurnTimeoutSeconds(); seconds > 0 {
 				timeout = time.Duration(seconds) * time.Second
 				if timeout > maxTimeout {
@@ -432,7 +432,7 @@ func extractSessionIdFromToolResult(result string) string {
 }
 
 func (self *codexTool) buildArguments(ctx context.Context, prompt, sessionId, systemPrompt string) []string {
-	extraArguments, model, _ := configurationFromContext(ctx)
+	extraArguments, modelName, _ := configurationFromContext(ctx)
 
 	if systemPrompt != "" {
 		prompt = fmt.Sprintf("Additional system instructions:\n%s\n\nUser request:\n%s", systemPrompt, prompt)
@@ -445,8 +445,8 @@ func (self *codexTool) buildArguments(ctx context.Context, prompt, sessionId, sy
 
 	arguments = append(arguments, "--json", "--skip-git-repo-check")
 
-	if model != "" {
-		arguments = append(arguments, "--model", model)
+	if modelName != "" {
+		arguments = append(arguments, "--model", modelName)
 	}
 	if len(extraArguments) > 0 {
 		arguments = append(arguments, extraArguments...)
@@ -499,10 +499,10 @@ func (self *codexTool) executeCommand(ctx context.Context, commandArguments []st
 
 // codexOutput represents the JSON output from `codex -p`.
 type codexOutput struct {
-	Result          string  `json:"result"`
-	SessionID       string  `json:"session_id"`
-	IsError         bool    `json:"is_error"`
-	CostUSD         float64 `json:"cost_usd"`
+	Result             string  `json:"result"`
+	SessionID          string  `json:"session_id"`
+	IsError            bool    `json:"is_error"`
+	CostUSD            float64 `json:"cost_usd"`
 	NumberInputTokens  int     `json:"num_input_tokens"`
 	NumberOutputTokens int     `json:"num_output_tokens"`
 }

@@ -189,10 +189,8 @@
     "voiceChimes": "Indicator chimes",
     "voiceChimesDescription": "Play short audio cues when speech is captured, while the agent is busy, and when speaking is complete",
     "voiceChimesVolume": "Chime volume",
-    "voiceCallSttMode": "Voice call STT mode",
-    "voiceCallSttModeDescription": "Choose whether in-call speech-to-text runs on the server or in your browser. Call TTS remains server-side.",
-    "voiceCallSttModeServer": "Server-side STT",
-    "voiceCallSttModeClient": "Client-side STT"
+    "voiceCallSttMode": "Client-side speech recognition",
+    "voiceCallSttModeDescription": "Run in-call speech-to-text in your browser instead of on the server. Call TTS remains server-side."
   },
   "agent": {
     "selectToEdit": "Select an agent to edit",

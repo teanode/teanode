@@ -165,6 +165,7 @@ export default function ConversationsConversationPage() {
           isSynthesizing={voiceCall.isSynthesizing}
           onToggleMute={voiceCall.toggleMute}
           onEndCall={voiceCall.endCall}
+          onInterrupt={voiceCall.interruptAgent}
         />
       ) : (
         <InputArea

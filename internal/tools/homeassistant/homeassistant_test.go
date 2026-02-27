@@ -13,12 +13,12 @@ import (
 // --- mock client ---
 
 type mockClient struct {
-	states      []EntityState
-	stateById   map[string]*EntityState
-	serviceResponse json.RawMessage
-	historyResponse json.RawMessage
-	configurationResponse  json.RawMessage
-	err         error
+	states                []EntityState
+	stateById             map[string]*EntityState
+	serviceResponse       json.RawMessage
+	historyResponse       json.RawMessage
+	configurationResponse json.RawMessage
+	err                   error
 
 	// track calls
 	callServiceCalls []serviceCall

@@ -56,18 +56,18 @@ func (self *fileSystemTransaction) createConversationMessage(ctx context.Context
 	messageId := security.NewULID()
 	timestamp := time.Now().UnixMilli()
 	appendMessage := conversationFileMessage{
-		ID:         messageId,
-		Role:       string(*message.Role),
-		Content:    json.RawMessage(message.Content),
-		Timestamp:  timestamp,
-		ToolCalls:  json.RawMessage(message.ToolCalls),
-		Usage:      json.RawMessage(message.Usage),
-		Metadata:   json.RawMessage(message.Metadata),
-		StopReason: string(message.GetStopReason()),
-		Model:      message.GetModel(),
-		Provider:   message.GetProvider(),
-		ToolCallID: message.GetToolCallID(),
-		ToolName:   message.GetToolName(),
+		ID:                messageId,
+		Role:              string(*message.Role),
+		Content:           json.RawMessage(message.Content),
+		Timestamp:         timestamp,
+		ToolCalls:         json.RawMessage(message.ToolCalls),
+		Usage:             json.RawMessage(message.Usage),
+		Metadata:          json.RawMessage(message.Metadata),
+		StopReason:        string(message.GetStopReason()),
+		ProviderModelName: message.GetProviderModelName(),
+		ProviderName:      message.GetProviderName(),
+		ToolCallID:        message.GetToolCallID(),
+		ToolName:          message.GetToolName(),
 	}
 	encodedMessage, marshalError := json.Marshal(appendMessage)
 	if marshalError != nil {
@@ -99,20 +99,20 @@ func conversationRawMessageToModel(conversationId string, message conversationFi
 	createdAt := time.UnixMilli(message.Timestamp)
 	toolCalls, usage, metadata := migrateMetadataEnvelope(message)
 	return models.ConversationMessage{
-		ID:             messageId,
-		ConversationID: &conversationId,
-		Role:           &role,
-		Content:        json.RawMessage(message.Content),
-		ToolCalls:      toolCalls,
-		Usage:          usage,
-		Metadata:       metadata,
-		ToolCallID:     ptrto.TrimmedString(message.ToolCallID),
-		ToolName:       ptrto.TrimmedString(message.ToolName),
-		Model:          ptrto.TrimmedString(message.Model),
-		Provider:       ptrto.TrimmedString(message.Provider),
-		StopReason:     stopReasonPointer(message.StopReason),
-		CreatedAt:      &createdAt,
-		ModifiedAt:     &createdAt,
+		ID:                messageId,
+		ConversationID:    &conversationId,
+		Role:              &role,
+		Content:           json.RawMessage(message.Content),
+		ToolCalls:         toolCalls,
+		Usage:             usage,
+		Metadata:          metadata,
+		ToolCallID:        ptrto.TrimmedString(message.ToolCallID),
+		ToolName:          ptrto.TrimmedString(message.ToolName),
+		ProviderModelName: ptrto.TrimmedString(message.ProviderModelName),
+		ProviderName:      ptrto.TrimmedString(message.ProviderName),
+		StopReason:        stopReasonPointer(message.StopReason),
+		CreatedAt:         &createdAt,
+		ModifiedAt:        &createdAt,
 	}
 }
 

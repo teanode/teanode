@@ -63,7 +63,7 @@ type claudeCodeTool struct {
 }
 
 // configurationFromContext reads the Claude Code tool configuration from the store.
-func configurationFromContext(ctx context.Context) (allowedTools []string, model string, timeout time.Duration) {
+func configurationFromContext(ctx context.Context) (allowedTools []string, modelName string, timeout time.Duration) {
 	allowedTools = DefaultAllowedTools
 	timeout = defaultTimeout
 	dataStore := store.StoreFromContextSafe(ctx)
@@ -80,7 +80,7 @@ func configurationFromContext(ctx context.Context) (allowedTools []string, model
 			if tools := configuration.GetAllowedTools(); len(tools) > 0 {
 				allowedTools = tools
 			}
-			model = configuration.GetModel()
+			modelName = configuration.GetModelName()
 			if seconds := configuration.GetMaxTurnTimeoutSeconds(); seconds > 0 {
 				timeout = time.Duration(seconds) * time.Second
 				if timeout > maxTimeout {
@@ -437,7 +437,7 @@ func extractSessionIdFromToolResult(result string) string {
 }
 
 func (self *claudeCodeTool) buildArguments(ctx context.Context, prompt, sessionId, systemPrompt string) []string {
-	allowedTools, model, _ := configurationFromContext(ctx)
+	allowedTools, modelName, _ := configurationFromContext(ctx)
 
 	arguments := []string{"-p", prompt, "--output-format", "json"}
 
@@ -445,8 +445,8 @@ func (self *claudeCodeTool) buildArguments(ctx context.Context, prompt, sessionI
 		arguments = append(arguments, "--resume", sessionId)
 	}
 
-	if model != "" {
-		arguments = append(arguments, "--model", model)
+	if modelName != "" {
+		arguments = append(arguments, "--model", modelName)
 	}
 
 	// Always pass --allowedTools to prevent interactive tool approval prompts.
@@ -506,10 +506,10 @@ func (self *claudeCodeTool) executeCommand(ctx context.Context, commandArguments
 
 // claudeCodeOutput represents the JSON output from `claude -p --output-format json`.
 type claudeCodeOutput struct {
-	Result          string  `json:"result"`
-	SessionID       string  `json:"session_id"`
-	IsError         bool    `json:"is_error"`
-	CostUSD         float64 `json:"cost_usd"`
+	Result             string  `json:"result"`
+	SessionID          string  `json:"session_id"`
+	IsError            bool    `json:"is_error"`
+	CostUSD            float64 `json:"cost_usd"`
 	NumberInputTokens  int     `json:"num_input_tokens"`
 	NumberOutputTokens int     `json:"num_output_tokens"`
 }

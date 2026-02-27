@@ -111,13 +111,13 @@ func (self *fileSystemTransaction) deleteAgent(agentId string, options *store.Op
 
 func agentConfigurationToModel(configuration storeAgentRecord) models.Agent {
 	agent := models.Agent{
-		ID:            configuration.ID,
-		Name:          ptrto.TrimmedString(configuration.Name),
-		Model:         ptrto.TrimmedString(configuration.Model),
-		Skills:        ptrto.TrimmedStrings(configuration.Skills),
-		Tools:         ptrto.TrimmedStrings(configuration.Tools),
-		Description:   ptrto.TrimmedString(configuration.Description),
-		AvatarMediaID: ptrto.TrimmedString(configuration.AvatarMediaID),
+		ID:                configuration.ID,
+		Name:              ptrto.TrimmedString(configuration.Name),
+		ProviderModelName: ptrto.TrimmedString(configuration.ProviderModelName),
+		Skills:            ptrto.TrimmedStrings(configuration.Skills),
+		Tools:             ptrto.TrimmedStrings(configuration.Tools),
+		Description:       ptrto.TrimmedString(configuration.Description),
+		AvatarMediaID:     ptrto.TrimmedString(configuration.AvatarMediaID),
 	}
 	if !configuration.SummarizedAt.Time.IsZero() {
 		agent.SummarizedAt = &configuration.SummarizedAt.Time
@@ -127,13 +127,13 @@ func agentConfigurationToModel(configuration storeAgentRecord) models.Agent {
 
 func modelToAgentConfiguration(agent models.Agent) storeAgentRecord {
 	record := storeAgentRecord{
-		ID:            agent.ID,
-		Name:          agent.GetName(),
-		Model:         agent.GetModel(),
-		Skills:        sliceValue(agent.Skills),
-		Tools:         sliceValue(agent.Tools),
-		Description:   agent.GetDescription(),
-		AvatarMediaID: agent.GetAvatarMediaID(),
+		ID:                agent.ID,
+		Name:              agent.GetName(),
+		ProviderModelName: agent.GetProviderModelName(),
+		Skills:            sliceValue(agent.Skills),
+		Tools:             sliceValue(agent.Tools),
+		Description:       agent.GetDescription(),
+		AvatarMediaID:     agent.GetAvatarMediaID(),
 	}
 	if agent.SummarizedAt != nil {
 		record.SummarizedAt = timeutil.Timestamp{Time: *agent.SummarizedAt}

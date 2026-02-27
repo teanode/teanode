@@ -45,10 +45,10 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 		agentInfos = append(agentInfos, info)
 	}
 
-	defaultModel := ""
+	defaultProviderModelName := ""
 	if configuration, err := self.loadConfiguration(); err == nil {
 		if configuration.Models != nil && configuration.Models.Default != nil {
-			defaultModel = *configuration.Models.Default
+			defaultProviderModelName = *configuration.Models.Default
 		}
 	}
 
@@ -62,8 +62,8 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"version":               version.Version(),
 		"capabilities":          capabilities,
-		"defaultModel":          defaultModel,
-		"agents":                agentInfos,
+		"defaultProviderModelName": defaultProviderModelName,
+		"agents":                   agentInfos,
 		"defaultAgentId":        defaultAgentId,
 		"defaultConversationId": self.api.coordinator.EnsureDefaultConversation(self.userId(), defaultAgentId),
 		"isAdmin":               self.isAdmin(),
@@ -228,7 +228,7 @@ func (self *webSocketConnection) handleConversationsSetDefault(frame requestFram
 type conversationSendParameters struct {
 	ConversationID     string              `json:"conversationId"`
 	Message            string              `json:"message"`
-	Model              string              `json:"model,omitempty"`
+	ProviderModelName  string              `json:"providerModelName,omitempty"`
 	AgentID            string              `json:"agentId,omitempty"`
 	OriginID           string              `json:"originId,omitempty"`
 	Attachments        []map[string]string `json:"attachments,omitempty"`
@@ -256,7 +256,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 		AgentID:            parameters.AgentID,
 		ConversationID:     parameters.ConversationID,
 		Message:            parameters.Message,
-		Model:              parameters.Model,
+		ProviderModelName:  parameters.ProviderModelName,
 		OriginID:           parameters.OriginID,
 		Origin:             "webui",
 		OriginSessionID:    self.sessionId(),
@@ -316,7 +316,7 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 		return
 	}
 	pageMessages, totalCount, oldestLoadedIndex, hasMore := pageConversationMessages(messages, limit, parameters.BeforeIndex)
-	provider, model := resolveConversationProviderAndModel(messages)
+	providerName, providerModelName := resolveConversationProviderAndModel(messages)
 
 	response := map[string]interface{}{
 		"conversationId":    parameters.ConversationID,
@@ -331,11 +331,11 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 			response["running"] = activeRunId
 		}
 	}
-	if provider != "" {
-		response["provider"] = provider
+	if providerName != "" {
+		response["providerName"] = providerName
 	}
-	if model != "" {
-		response["model"] = model
+	if providerModelName != "" {
+		response["providerModelName"] = providerModelName
 	}
 	self.sendResponse(frame.ID, response)
 }
@@ -473,13 +473,13 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 
 	// Aggregate conversations from all agents.
 	type conversationWithAgent struct {
-		ID         string `json:"id"`
-		LastActive int64  `json:"lastActive"`
-		Title      string `json:"title,omitempty"`
-		Summary    string `json:"summary,omitempty"`
-		AgentID    string `json:"agentId,omitempty"`
-		Provider   string `json:"provider,omitempty"`
-		Model      string `json:"model,omitempty"`
+		ID                string `json:"id"`
+		LastActive        int64  `json:"lastActive"`
+		Title             string `json:"title,omitempty"`
+		Summary           string `json:"summary,omitempty"`
+		AgentID           string `json:"agentId,omitempty"`
+		ProviderName      string `json:"providerName,omitempty"`
+		ProviderModelName string `json:"providerModelName,omitempty"`
 	}
 
 	var allConversations []conversationWithAgent
@@ -523,25 +523,41 @@ func (self *webSocketConnection) handleConversationsList(frame requestFrame) {
 
 // modelsListEntry is a single model in the models.list response.
 type modelsListEntry struct {
-	Provider      string `json:"provider"`
+	ProviderName  string `json:"providerName"`
 	ID            string `json:"id"`
 	ContextLength int    `json:"context_length,omitempty"`
 }
 
 // handleModelsList: return available models from all providers.
 func (self *webSocketConnection) handleModelsList(frame requestFrame) {
-	defaultModel := ""
+	defaultProviderModelName := ""
 	if configuration, err := self.loadConfiguration(); err == nil && configuration != nil {
 		if configuration.Models != nil {
 			if configuration.Models.Default != nil {
-				defaultModel = *configuration.Models.Default
+				defaultProviderModelName = *configuration.Models.Default
 			}
 		}
 	}
 
+	var entries []modelsListEntry
+	if providerRegistry := self.api.coordinator.ProviderRegistry(); providerRegistry != nil {
+		providerModels := providerRegistry.ListAllModels(self.ctx)
+		entries = make([]modelsListEntry, len(providerModels))
+		for index, entry := range providerModels {
+			entries[index] = modelsListEntry{
+				ProviderName:  entry.ProviderName,
+				ID:            entry.ModelName,
+				ContextLength: entry.ContextLength,
+			}
+		}
+	}
+	if entries == nil {
+		entries = []modelsListEntry{}
+	}
+
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"models":       nil, // TODO
-		"defaultModel": defaultModel,
+		"models":       entries,
+		"defaultProviderModelName": defaultProviderModelName,
 	})
 }
 
@@ -681,8 +697,8 @@ func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
 			if name := agent.GetName(); name != "" {
 				entry["name"] = name
 			}
-			if modelName := agent.GetModel(); modelName != "" {
-				entry["model"] = modelName
+			if modelName := agent.GetProviderModelName(); modelName != "" {
+				entry["providerModelName"] = modelName
 			}
 			if agent.Tools != nil && len(*agent.Tools) > 0 {
 				entry["tools"] = *agent.Tools
@@ -708,13 +724,13 @@ func (self *webSocketConnection) handleAgentsConfigList(frame requestFrame) {
 // agentsConfigSaveParameters are the parameters for agents.config.save.
 type agentsConfigSaveParameters struct {
 	Agent struct {
-		ID            string   `json:"id"`
-		Name          string   `json:"name,omitempty"`
-		Model         string   `json:"model,omitempty"`
-		Tools         []string `json:"tools,omitempty"`
-		Skills        []string `json:"skills,omitempty"`
-		Description   string   `json:"description,omitempty"`
-		AvatarMediaID string   `json:"avatarMediaId,omitempty"`
+		ID                string   `json:"id"`
+		Name              string   `json:"name,omitempty"`
+		ProviderModelName string   `json:"providerModelName,omitempty"`
+		Tools             []string `json:"tools,omitempty"`
+		Skills            []string `json:"skills,omitempty"`
+		Description       string   `json:"description,omitempty"`
+		AvatarMediaID     string   `json:"avatarMediaId,omitempty"`
 	} `json:"agent"`
 }
 
@@ -754,7 +770,7 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) {
 			}
 			_, err = transaction.ModifyAgent(ctx, agentID, func(agent *models.Agent) error {
 				agent.Name = ptrto.TrimmedString(agentConfig.Name)
-				agent.Model = ptrto.TrimmedString(agentConfig.Model)
+				agent.ProviderModelName = ptrto.TrimmedString(agentConfig.ProviderModelName)
 				agent.Tools = ptrto.Value(agentConfig.Tools)
 				agent.Skills = ptrto.Value(agentConfig.Skills)
 				agent.Description = ptrto.TrimmedString(agentConfig.Description)
@@ -765,13 +781,13 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) {
 		}
 
 		_, err = transaction.CreateAgent(ctx, &models.Agent{
-			ID:            agentID,
-			Name:          ptrto.TrimmedString(agentConfig.Name),
-			Model:         ptrto.TrimmedString(agentConfig.Model),
-			Tools:         ptrto.Value(agentConfig.Tools),
-			Skills:        ptrto.Value(agentConfig.Skills),
-			Description:   ptrto.TrimmedString(agentConfig.Description),
-			AvatarMediaID: ptrto.TrimmedString(agentConfig.AvatarMediaID),
+			ID:                agentID,
+			Name:              ptrto.TrimmedString(agentConfig.Name),
+			ProviderModelName: ptrto.TrimmedString(agentConfig.ProviderModelName),
+			Tools:             ptrto.Value(agentConfig.Tools),
+			Skills:            ptrto.Value(agentConfig.Skills),
+			Description:       ptrto.TrimmedString(agentConfig.Description),
+			AvatarMediaID:     ptrto.TrimmedString(agentConfig.AvatarMediaID),
 		}, nil, nil)
 		return err
 	}); err != nil {
@@ -2015,20 +2031,20 @@ func listConversationMessages(ctx context.Context, conversationId string) ([]*mo
 }
 
 func resolveConversationProviderAndModel(messages []*models.ConversationMessage) (string, string) {
-	provider := ""
-	model := ""
+	providerName := ""
+	providerModelName := ""
 	for index := len(messages) - 1; index >= 0; index-- {
-		if provider == "" && messages[index].Provider != nil {
-			provider = *messages[index].Provider
+		if providerName == "" && messages[index].ProviderName != nil {
+			providerName = *messages[index].ProviderName
 		}
-		if model == "" && messages[index].Model != nil {
-			model = *messages[index].Model
+		if providerModelName == "" && messages[index].ProviderModelName != nil {
+			providerModelName = *messages[index].ProviderModelName
 		}
-		if provider != "" && model != "" {
+		if providerName != "" && providerModelName != "" {
 			break
 		}
 	}
-	return provider, model
+	return providerName, providerModelName
 }
 
 func pageConversationMessages(messages []*models.ConversationMessage, limit int, beforeIndex int) ([]*models.ConversationMessage, int, int, bool) {
@@ -2074,11 +2090,11 @@ func marshalConversationMessages(messages []*models.ConversationMessage) []map[s
 		if message.StopReason != nil {
 			entry["stopReason"] = string(*message.StopReason)
 		}
-		if message.Model != nil {
-			entry["model"] = *message.Model
+		if message.ProviderModelName != nil {
+			entry["providerModelName"] = *message.ProviderModelName
 		}
-		if message.Provider != nil {
-			entry["provider"] = *message.Provider
+		if message.ProviderName != nil {
+			entry["providerName"] = *message.ProviderName
 		}
 		if message.ToolCallID != nil {
 			entry["toolCallId"] = *message.ToolCallID

@@ -33,7 +33,7 @@ func NewAnthropicClient(baseUrl, apiKey string) *AnthropicClient {
 // --- Anthropic API types ---
 
 type anthropicRequest struct {
-	Model       string             `json:"model"`
+	ModelName   string             `json:"model"`
 	Messages    []anthropicMessage `json:"messages"`
 	System      json.RawMessage    `json:"system,omitempty"`
 	MaxTokens   int                `json:"max_tokens"`
@@ -79,7 +79,7 @@ type anthropicToolDef struct {
 type anthropicResponse struct {
 	ID         string                  `json:"id"`
 	Type       string                  `json:"type"`
-	Model      string                  `json:"model"`
+	ModelName  string                  `json:"model"`
 	Role       string                  `json:"role"`
 	Content    []anthropicContentBlock `json:"content"`
 	StopReason string                  `json:"stop_reason"`
@@ -146,7 +146,7 @@ func (self *AnthropicClient) ChatCompletion(ctx context.Context, request ChatReq
 	anthropicRequest := self.translateRequest(request, false)
 	body, _ := json.Marshal(anthropicRequest)
 
-	log.Debugf("POST %s/messages model=%s messages=%d stream=false", self.baseUrl, request.Model, len(request.Messages))
+	log.Debugf("POST %s/messages model=%s messages=%d stream=false", self.baseUrl, request.ModelName, len(request.Messages))
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/messages", bytes.NewReader(body))
 	if err != nil {
@@ -175,7 +175,7 @@ func (self *AnthropicClient) ChatCompletion(ctx context.Context, request ChatReq
 	chatResponse := self.translateResponse(anthropicResponse)
 
 	if chatResponse.Usage != nil {
-		log.Debugf("chat completion done model=%s prompt_tokens=%d completion_tokens=%d", chatResponse.Model, chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens)
+		log.Debugf("chat completion done model=%s prompt_tokens=%d completion_tokens=%d", chatResponse.ModelName, chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens)
 	}
 
 	return chatResponse, nil
@@ -186,7 +186,7 @@ func (self *AnthropicClient) ChatCompletionStream(ctx context.Context, request C
 	anthropicRequest := self.translateRequest(request, true)
 	body, _ := json.Marshal(anthropicRequest)
 
-	log.Debugf("POST %s/messages model=%s messages=%d stream=true", self.baseUrl, request.Model, len(request.Messages))
+	log.Debugf("POST %s/messages model=%s messages=%d stream=true", self.baseUrl, request.ModelName, len(request.Messages))
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/messages", bytes.NewReader(body))
 	if err != nil {
@@ -251,8 +251,8 @@ func (self *AnthropicClient) ListModels(ctx context.Context) ([]ModelInformation
 	}
 
 	models := make([]ModelInformation, len(result.Data))
-	for index, model := range result.Data {
-		models[index] = ModelInformation{ID: model.ID}
+	for index, entry := range result.Data {
+		models[index] = ModelInformation{ID: entry.ID}
 	}
 
 	sort.Slice(models, func(first, second int) bool {
@@ -283,7 +283,7 @@ func (self *AnthropicClient) translateRequest(request ChatRequest, stream bool) 
 	}
 
 	result := anthropicRequest{
-		Model:       request.Model,
+		ModelName:   request.ModelName,
 		Messages:    messages,
 		MaxTokens:   maxTokens,
 		Temperature: request.Temperature,
@@ -507,8 +507,8 @@ func (self *AnthropicClient) translateResponse(response anthropicResponse) *Chat
 	message.ToolCalls = toolCalls
 
 	return &ChatResponse{
-		ID:    response.ID,
-		Model: response.Model,
+		ID:        response.ID,
+		ModelName: response.ModelName,
 		Choices: []Choice{{
 			Index:        0,
 			Message:      message,
@@ -581,14 +581,14 @@ func (self *AnthropicClient) readSse(ctx context.Context, reader io.Reader, even
 				return
 			}
 			messageId = event.Message.ID
-			messageModel = event.Message.Model
+			messageModel = event.Message.ModelName
 
 			// Emit input token usage (including cache metrics) from message_start.
 			if event.Message.Usage.InputTokens > 0 || event.Message.Usage.CacheCreationInputTokens > 0 || event.Message.Usage.CacheReadInputTokens > 0 {
 				events <- StreamEvent{
 					Chunk: &StreamChunk{
-						ID:    messageId,
-						Model: messageModel,
+						ID:        messageId,
+						ModelName: messageModel,
 						Usage: &UsageInformation{
 							PromptTokens:             event.Message.Usage.InputTokens,
 							CacheCreationInputTokens: event.Message.Usage.CacheCreationInputTokens,
@@ -613,8 +613,8 @@ func (self *AnthropicClient) readSse(ctx context.Context, reader io.Reader, even
 			if event.ContentBlock.Type == "tool_use" {
 				events <- StreamEvent{
 					Chunk: &StreamChunk{
-						ID:    messageId,
-						Model: messageModel,
+						ID:        messageId,
+						ModelName: messageModel,
 						Choices: []StreamChoice{{
 							Index: 0,
 							Delta: ChatDelta{
@@ -644,8 +644,8 @@ func (self *AnthropicClient) readSse(ctx context.Context, reader io.Reader, even
 			case "text":
 				events <- StreamEvent{
 					Chunk: &StreamChunk{
-						ID:    messageId,
-						Model: messageModel,
+						ID:        messageId,
+						ModelName: messageModel,
 						Choices: []StreamChoice{{
 							Index: 0,
 							Delta: ChatDelta{
@@ -657,8 +657,8 @@ func (self *AnthropicClient) readSse(ctx context.Context, reader io.Reader, even
 			case "tool_use":
 				events <- StreamEvent{
 					Chunk: &StreamChunk{
-						ID:    messageId,
-						Model: messageModel,
+						ID:        messageId,
+						ModelName: messageModel,
 						Choices: []StreamChoice{{
 							Index: 0,
 							Delta: ChatDelta{
@@ -683,8 +683,8 @@ func (self *AnthropicClient) readSse(ctx context.Context, reader io.Reader, even
 			finishReason := translateStopReason(event.Delta.StopReason)
 			events <- StreamEvent{
 				Chunk: &StreamChunk{
-					ID:    messageId,
-					Model: messageModel,
+					ID:        messageId,
+					ModelName: messageModel,
 					Choices: []StreamChoice{{
 						Index:        0,
 						FinishReason: finishReason,

@@ -241,10 +241,6 @@ type Bot struct {
 	api            *tgbotapi.BotAPI
 	stopChannel    chan struct{}
 
-	// Per-chat model overrides (chatId string -> model name).
-	modelMutex     sync.RWMutex
-	modelOverrides map[string]string
-
 	// Runs initiated by the bot — skip these in OnEvent.
 	activeConversationsMutex sync.RWMutex
 	activeConversations      map[string]struct{} // conversationId -> present
@@ -262,7 +258,6 @@ func New(ctx context.Context, token string, coordinator *coordinators.Coordinato
 		coordinator:         coordinator,
 		pubsub:              events,
 		sessionTracker:      sessions,
-		modelOverrides:      make(map[string]string),
 		stopChannel:         make(chan struct{}),
 		activeConversations: make(map[string]struct{}),
 		subscribedRuns:      make(map[string]*telegramSubscribedRun),
@@ -285,7 +280,6 @@ func (self *Bot) Start() error {
 		tgbotapi.BotCommand{Command: "reset", Description: "Clear current conversation history"},
 		tgbotapi.BotCommand{Command: "clear", Description: "Clear current conversation and start new"},
 		tgbotapi.BotCommand{Command: "stop", Description: "Cancel the current run"},
-		tgbotapi.BotCommand{Command: "model", Description: "Show or set the model"},
 		tgbotapi.BotCommand{Command: "agent", Description: "Show or switch the default agent"},
 		tgbotapi.BotCommand{Command: "status", Description: "Show bot status"},
 		tgbotapi.BotCommand{Command: "compact", Description: "Compact current conversation history"},
@@ -728,7 +722,6 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
-		Model:          self.getModel(chatIdString),
 		Origin:         "telegram",
 		Attachments:    attachments,
 	}, callerCallbacks)
@@ -801,12 +794,6 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 	self.sendChunked(chatId, replyTo, result.Response)
 }
 
-func (self *Bot) getModel(chatIdString string) string {
-	self.modelMutex.RLock()
-	defer self.modelMutex.RUnlock()
-	return self.modelOverrides[chatIdString]
-}
-
 func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, chatIdString, name, arguments string) {
 	var reply string
 
@@ -836,20 +823,6 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 			reply = "Run cancelled."
 		} else {
 			reply = "No active run to cancel."
-		}
-
-	case "model":
-		if arguments == "" {
-			model := self.getModel(chatIdString)
-			if model == "" {
-				model = self.resolveDefaultModel()
-			}
-			reply = fmt.Sprintf("Current model: %s", model)
-		} else {
-			self.modelMutex.Lock()
-			self.modelOverrides[chatIdString] = arguments
-			self.modelMutex.Unlock()
-			reply = fmt.Sprintf("Model set to %s.", arguments)
 		}
 
 	case "agent":
@@ -888,17 +861,14 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 
 	case "status":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
-		model := self.getModel(chatIdString)
-		if model == "" {
-			model = self.resolveDefaultModel()
-		}
+		providerModelName := self.resolveDefaultProviderModelName()
 		running := self.coordinator.GetActiveConversationRunner(conversationId) != nil
 		status := "idle"
 		if running {
 			status = "running"
 		}
 		providerName := self.coordinator.ProviderRegistry().DefaultProvider()
-		reply = fmt.Sprintf("Agent: %s\nConversation: %s\nModel: %s\nProvider: %s\nStatus: %s", defaultAgentId, conversationId, model, providerName, status)
+		reply = fmt.Sprintf("Agent: %s\nConversation: %s\nModel: %s\nProvider: %s\nStatus: %s", defaultAgentId, conversationId, providerModelName, providerName, status)
 
 	case "compact":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
@@ -962,19 +932,19 @@ func (self *Bot) agentExistsInStore(agentId string) bool {
 	return exists
 }
 
-func (self *Bot) resolveDefaultModel() string {
-	var defaultModel string
+func (self *Bot) resolveDefaultProviderModelName() string {
+	var defaultProviderModelName string
 	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		configuration, getError := transaction.GetConfiguration(ctx, nil)
 		if getError != nil {
 			return getError
 		}
 		if configuration.Models != nil {
-			defaultModel = configuration.Models.GetDefault()
+			defaultProviderModelName = configuration.Models.GetDefault()
 		}
 		return nil
 	})
-	return defaultModel
+	return defaultProviderModelName
 }
 
 func (self *Bot) listAgentIdsFromStore() []string {

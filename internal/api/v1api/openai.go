@@ -18,12 +18,12 @@ import (
 
 // openaiRequest mirrors the OpenAI chat completions request format.
 type openaiRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openaiMessage `json:"messages"`
-	Stream      bool            `json:"stream"`
-	MaxTokens   int             `json:"max_tokens,omitempty"`
-	Temperature *float64        `json:"temperature,omitempty"`
-	User        string          `json:"user,omitempty"`
+	ProviderModelName string          `json:"model"`
+	Messages          []openaiMessage `json:"messages"`
+	Stream            bool            `json:"stream"`
+	MaxTokens         int             `json:"max_tokens,omitempty"`
+	Temperature       *float64        `json:"temperature,omitempty"`
+	User              string          `json:"user,omitempty"`
 }
 
 type openaiMessage struct {
@@ -33,12 +33,12 @@ type openaiMessage struct {
 
 // openaiResponse mirrors the OpenAI chat completions response format.
 type openaiResponse struct {
-	ID      string         `json:"id"`
-	Object  string         `json:"object"`
-	Created int64          `json:"created"`
-	Model   string         `json:"model"`
-	Choices []openaiChoice `json:"choices"`
-	Usage   *openaiUsage   `json:"usage,omitempty"`
+	ID                string         `json:"id"`
+	Object            string         `json:"object"`
+	Created           int64          `json:"created"`
+	ProviderModelName string         `json:"model"`
+	Choices           []openaiChoice `json:"choices"`
+	Usage             *openaiUsage   `json:"usage,omitempty"`
 }
 
 type openaiChoice struct {
@@ -109,10 +109,10 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 	defer cancel()
 
 	handle, sendError := self.coordinator.Run(ctx, coordinators.RunParameters{
-		AgentID:        agentId,
-		ConversationID: conversationId,
-		Message:        lastMessage.Content,
-		Model:          request.Model,
+		AgentID:           agentId,
+		ConversationID:    conversationId,
+		Message:           lastMessage.Content,
+		ProviderModelName: request.ProviderModelName,
 	}, nil) // no callbacks for sync mode
 	if sendError != nil {
 		return web.Error(500, sendError.Error())
@@ -128,10 +128,10 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 	}
 
 	response := openaiResponse{
-		ID:      security.NewULID(),
-		Object:  "chat.completion",
-		Created: time.Now().Unix(),
-		Model:   result.Model,
+		ID:                security.NewULID(),
+		Object:            "chat.completion",
+		Created:           time.Now().Unix(),
+		ProviderModelName: result.ProviderModelName,
 		Choices: []openaiChoice{
 			{
 				Index: 0,
@@ -172,17 +172,17 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 	responseId := security.NewULID()
 
 	handle, sendError := self.coordinator.Run(ctx, coordinators.RunParameters{
-		AgentID:        agentId,
-		ConversationID: conversationId,
-		Message:        lastMessage.Content,
-		Model:          request.Model,
+		AgentID:           agentId,
+		ConversationID:    conversationId,
+		Message:           lastMessage.Content,
+		ProviderModelName: request.ProviderModelName,
 	}, &runners.RunCallbacks{
 		OnTextDelta: func(text string) {
 			chunk := openaiResponse{
-				ID:      responseId,
-				Object:  "chat.completion.chunk",
-				Created: time.Now().Unix(),
-				Model:   request.Model,
+				ID:                responseId,
+				Object:            "chat.completion.chunk",
+				Created:           time.Now().Unix(),
+				ProviderModelName: request.ProviderModelName,
 				Choices: []openaiChoice{
 					{
 						Index: 0,
@@ -218,10 +218,10 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 		finishReason = result.StopReason
 	}
 	finalChunk := openaiResponse{
-		ID:      responseId,
-		Object:  "chat.completion.chunk",
-		Created: time.Now().Unix(),
-		Model:   result.Model,
+		ID:                responseId,
+		Object:            "chat.completion.chunk",
+		Created:           time.Now().Unix(),
+		ProviderModelName: result.ProviderModelName,
 		Choices: []openaiChoice{
 			{
 				Index:        0,

@@ -245,8 +245,8 @@ func TestRunnerRun(t *testing.T) {
 	if result.StopReason != "stop" {
 		t.Errorf("stopReason = %q, want %q", result.StopReason, "stop")
 	}
-	if result.Model != "mock-model" {
-		t.Errorf("model = %q, want %q", result.Model, "mock-model")
+	if result.ProviderModelName != "mock:mock-model" {
+		t.Errorf("model = %q, want %q", result.ProviderModelName, "mock:mock-model")
 	}
 	if len(chunks) == 0 {
 		t.Error("expected chunks, got none")
@@ -735,8 +735,8 @@ func TestRunnerModelMismatchError(t *testing.T) {
 
 	// Second run: same conversation, explicitly different model — should error.
 	_, err = runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParameters{
-		Message: "hello again",
-		Model:   "mock:other-model",
+		Message:           "hello again",
+		ProviderModelName: "mock:other-model",
 	}, nil)
 	if err == nil {
 		t.Fatal("expected model mismatch error, got nil")

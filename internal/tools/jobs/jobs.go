@@ -96,16 +96,16 @@ func (self *jobsTool) Definition() providers.ToolDefinition {
 
 func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
-		Action   string `json:"action"`
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Schedule string `json:"schedule"`
-		Message  string `json:"message"`
-		Model    string `json:"model"`
-		AgentID  string `json:"agentId"`
-		Delay    string `json:"delay"`
-		OneShot  *bool  `json:"oneShot"`
-		Enabled  *bool  `json:"enabled"`
+		Action            string `json:"action"`
+		ID                string `json:"id"`
+		Name              string `json:"name"`
+		Schedule          string `json:"schedule"`
+		Message           string `json:"message"`
+		ProviderModelName string `json:"model"`
+		AgentID           string `json:"agentId"`
+		Delay             string `json:"delay"`
+		OneShot           *bool  `json:"oneShot"`
+		Enabled           *bool  `json:"enabled"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -121,9 +121,9 @@ func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string,
 	case "list":
 		return self.executeList(ctx, userId)
 	case "create":
-		return self.executeCreate(ctx, userId, arguments.Name, arguments.Schedule, arguments.Message, arguments.Model, arguments.AgentID, arguments.Delay, arguments.OneShot)
+		return self.executeCreate(ctx, userId, arguments.Name, arguments.Schedule, arguments.Message, arguments.ProviderModelName, arguments.AgentID, arguments.Delay, arguments.OneShot)
 	case "update":
-		return self.executeUpdate(ctx, userId, arguments.ID, arguments.Name, arguments.Schedule, arguments.Message, arguments.Model, arguments.Enabled)
+		return self.executeUpdate(ctx, userId, arguments.ID, arguments.Name, arguments.Schedule, arguments.Message, arguments.ProviderModelName, arguments.Enabled)
 	case "delete":
 		return self.executeDelete(ctx, userId, arguments.ID)
 	case "trigger":
@@ -152,7 +152,7 @@ func (self *jobsTool) executeList(ctx context.Context, userId string) (string, e
 	return string(result), nil
 }
 
-func (self *jobsTool) executeCreate(ctx context.Context, userId string, name string, schedule string, message string, model string, agentId string, delay string, oneShot *bool) (string, error) {
+func (self *jobsTool) executeCreate(ctx context.Context, userId string, name string, schedule string, message string, providerModelName string, agentId string, delay string, oneShot *bool) (string, error) {
 	if name == "" || message == "" {
 		return "", fmt.Errorf("name and message are required")
 	}
@@ -191,15 +191,15 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 	}
 
 	job := models.Job{
-		Name:           ptrto.Value(name),
-		Schedule:       ptrto.TrimmedString(schedule),
-		Prompt:         ptrto.Value(message),
-		Model:          ptrto.TrimmedString(model),
-		AgentID:        ptrto.TrimmedString(agentId),
-		Enabled:        ptrto.Value(true),
-		ConversationID: ptrto.TrimmedString(conversationId),
-		RunAt:          runAt,
-		OneShot:        ptrto.Value(isOneShot),
+		Name:              ptrto.Value(name),
+		Schedule:          ptrto.TrimmedString(schedule),
+		Prompt:            ptrto.Value(message),
+		ProviderModelName: ptrto.TrimmedString(providerModelName),
+		AgentID:           ptrto.TrimmedString(agentId),
+		Enabled:           ptrto.Value(true),
+		ConversationID:    ptrto.TrimmedString(conversationId),
+		RunAt:             runAt,
+		OneShot:           ptrto.Value(isOneShot),
 	}
 	job.UserID = ptrto.Value(userId)
 
@@ -226,7 +226,7 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 	return string(result), nil
 }
 
-func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name string, schedule string, message string, model string, enabled *bool) (string, error) {
+func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name string, schedule string, message string, providerModelName string, enabled *bool) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
@@ -258,8 +258,8 @@ func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name
 	if message != "" {
 		job.Prompt = ptrto.Value(message)
 	}
-	if model != "" {
-		job.Model = ptrto.Value(model)
+	if providerModelName != "" {
+		job.ProviderModelName = ptrto.Value(providerModelName)
 	}
 	if enabled != nil {
 		job.Enabled = ptrto.Value(*enabled)

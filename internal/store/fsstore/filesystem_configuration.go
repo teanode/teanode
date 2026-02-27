@@ -50,7 +50,7 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 
 	modelsConfiguration := &models.ModelsConfiguration{}
 	modelsConfiguration.Default = ptrto.TrimmedString(configuration.Models.Default)
-	modelsConfiguration.SummarizerModel = ptrto.TrimmedString(configuration.Models.SummarizerModel)
+	modelsConfiguration.SummarizerProviderModelName = ptrto.TrimmedString(configuration.Models.SummarizerProviderModelName)
 	modelsConfiguration.ContextWindow = ptrto.Value(configuration.Models.ContextWindow)
 	providerConfigurations := make([]*models.ProviderConfiguration, 0, len(configuration.Models.Providers))
 	for _, providerConfiguration := range configuration.Models.Providers {
@@ -87,7 +87,7 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 		toolsConfiguration.ClaudeCode = &models.ClaudeCodeConfiguration{
 			BinaryPath:            ptrto.TrimmedString(configuration.Tools.ClaudeCode.BinaryPath),
 			AllowedTools:          ptrto.TrimmedStrings(configuration.Tools.ClaudeCode.AllowedTools),
-			Model:                 ptrto.TrimmedString(configuration.Tools.ClaudeCode.Model),
+			ModelName:             ptrto.TrimmedString(configuration.Tools.ClaudeCode.ModelName),
 			MaxTurnTimeoutSeconds: ptrto.Value(configuration.Tools.ClaudeCode.MaxTurnTimeoutSeconds),
 		}
 	}
@@ -95,7 +95,7 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 		toolsConfiguration.Codex = &models.CodexConfiguration{
 			BinaryPath:            ptrto.TrimmedString(configuration.Tools.Codex.BinaryPath),
 			AllowedTools:          ptrto.TrimmedStrings(configuration.Tools.Codex.AllowedTools),
-			Model:                 ptrto.TrimmedString(configuration.Tools.Codex.Model),
+			ModelName:             ptrto.TrimmedString(configuration.Tools.Codex.ModelName),
 			ExtraArguments:        ptrto.TrimmedStrings(configuration.Tools.Codex.ExtraArguments),
 			MaxTurnTimeoutSeconds: ptrto.Value(configuration.Tools.Codex.MaxTurnTimeoutSeconds),
 		}
@@ -170,7 +170,7 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 	}
 	if configuration.Models != nil {
 		result.Models.Default = configuration.Models.GetDefault()
-		result.Models.SummarizerModel = configuration.Models.GetSummarizerModel()
+		result.Models.SummarizerProviderModelName = configuration.Models.GetSummarizerProviderModelName()
 		result.Models.ContextWindow = configuration.Models.GetContextWindow()
 		if configuration.Models.Providers != nil {
 			for _, providerConfiguration := range *configuration.Models.Providers {
@@ -207,7 +207,7 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 			result.Tools.ClaudeCode = &storeClaudeCodeToolRecord{
 				BinaryPath:            configuration.Tools.ClaudeCode.GetBinaryPath(),
 				AllowedTools:          sliceValue(configuration.Tools.ClaudeCode.AllowedTools),
-				Model:                 configuration.Tools.ClaudeCode.GetModel(),
+				ModelName:             configuration.Tools.ClaudeCode.GetModelName(),
 				MaxTurnTimeoutSeconds: configuration.Tools.ClaudeCode.GetMaxTurnTimeoutSeconds(),
 			}
 		}
@@ -215,7 +215,7 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 			result.Tools.Codex = &storeCodexToolRecord{
 				BinaryPath:            configuration.Tools.Codex.GetBinaryPath(),
 				AllowedTools:          sliceValue(configuration.Tools.Codex.AllowedTools),
-				Model:                 configuration.Tools.Codex.GetModel(),
+				ModelName:             configuration.Tools.Codex.GetModelName(),
 				ExtraArguments:        sliceValue(configuration.Tools.Codex.ExtraArguments),
 				MaxTurnTimeoutSeconds: configuration.Tools.Codex.GetMaxTurnTimeoutSeconds(),
 			}

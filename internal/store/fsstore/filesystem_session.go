@@ -18,13 +18,13 @@ import (
 )
 
 type fileSystemSessionRecord struct {
-	ID         string    `yaml:"id"`
-	UserID     string    `yaml:"userId"`
-	CreatedAt  time.Time `yaml:"createdAt"`
-	ExpiresAt  time.Time `yaml:"expiresAt"`
-	UserAgent  string    `yaml:"userAgent"`
+	ID            string    `yaml:"id"`
+	UserID        string    `yaml:"userId"`
+	CreatedAt     time.Time `yaml:"createdAt"`
+	ExpiresAt     time.Time `yaml:"expiresAt"`
+	UserAgent     string    `yaml:"userAgent"`
 	RemoteAddress string    `yaml:"remoteAddr"`
-	LastSeenAt time.Time `yaml:"lastSeenAt"`
+	LastSeenAt    time.Time `yaml:"lastSeenAt"`
 }
 
 func (self *fileSystemTransaction) ListSessions(ctx context.Context, options *store.Option) ([]*models.Session, error) {
@@ -90,13 +90,13 @@ func (self *fileSystemTransaction) createSession(session *models.Session, option
 		expiresAt = *session.ExpiresAt
 	}
 	record := fileSystemSessionRecord{
-		ID:         sessionId,
-		UserID:     *session.UserID,
-		CreatedAt:  now,
-		ExpiresAt:  expiresAt,
-		UserAgent:  session.GetUserAgent(),
+		ID:            sessionId,
+		UserID:        *session.UserID,
+		CreatedAt:     now,
+		ExpiresAt:     expiresAt,
+		UserAgent:     session.GetUserAgent(),
 		RemoteAddress: session.GetRemoteAddress(),
-		LastSeenAt: now,
+		LastSeenAt:    now,
 	}
 	if writeError := self.writeSessionRecord(record); writeError != nil {
 		return nil, writeError
@@ -198,9 +198,9 @@ func sessionRecordToModel(record fileSystemSessionRecord) models.Session {
 
 func modelToSessionRecord(session models.Session) fileSystemSessionRecord {
 	record := fileSystemSessionRecord{
-		ID:         session.ID,
-		UserID:     session.GetUserID(),
-		UserAgent:  session.GetUserAgent(),
+		ID:            session.ID,
+		UserID:        session.GetUserID(),
+		UserAgent:     session.GetUserAgent(),
 		RemoteAddress: session.GetRemoteAddress(),
 	}
 	if session.CreatedAt != nil {

@@ -38,7 +38,7 @@ type StreamOptions struct {
 
 // ChatRequest is the request body for chat completions.
 type ChatRequest struct {
-	Model               string           `json:"model"`
+	ModelName           string           `json:"model"`
 	Messages            []ChatMessage    `json:"messages"`
 	Stream              bool             `json:"stream"`
 	StreamOptions       *StreamOptions   `json:"stream_options,omitempty"`
@@ -192,10 +192,10 @@ type FunctionCallDelta struct {
 
 // ChatResponse is the non-streaming response.
 type ChatResponse struct {
-	ID      string     `json:"id"`
-	Model   string     `json:"model"`
-	Choices []Choice   `json:"choices"`
-	Usage   *UsageInformation `json:"usage,omitempty"`
+	ID        string            `json:"id"`
+	ModelName string            `json:"model"`
+	Choices   []Choice          `json:"choices"`
+	Usage     *UsageInformation `json:"usage,omitempty"`
 }
 
 // Choice is a single completion choice.
@@ -216,10 +216,10 @@ type UsageInformation struct {
 
 // StreamChunk is one piece of a streaming response.
 type StreamChunk struct {
-	ID      string         `json:"id"`
-	Model   string         `json:"model"`
-	Choices []StreamChoice `json:"choices"`
-	Usage   *UsageInformation     `json:"usage,omitempty"`
+	ID        string            `json:"id"`
+	ModelName string            `json:"model"`
+	Choices   []StreamChoice    `json:"choices"`
+	Usage     *UsageInformation `json:"usage,omitempty"`
 }
 
 // StreamChoice is a choice delta in a stream chunk.
@@ -245,7 +245,7 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 	request.Stream = false
 	body, _ := json.Marshal(request)
 
-	log.Debugf("POST %s/chat/completions model=%s messages=%d stream=false", self.baseUrl, request.Model, len(request.Messages))
+	log.Debugf("POST %s/chat/completions model=%s messages=%d stream=false", self.baseUrl, request.ModelName, len(request.Messages))
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -274,7 +274,7 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 	}
 
 	if chatResponse.Usage != nil {
-		log.Debugf("chat completion done model=%s prompt_tokens=%d completion_tokens=%d", chatResponse.Model, chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens)
+		log.Debugf("chat completion done model=%s prompt_tokens=%d completion_tokens=%d", chatResponse.ModelName, chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens)
 	}
 
 	return &chatResponse, nil
@@ -289,7 +289,7 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 	request.Stream = true
 	body, _ := json.Marshal(request)
 
-	log.Debugf("POST %s/chat/completions model=%s messages=%d stream=true", self.baseUrl, request.Model, len(request.Messages))
+	log.Debugf("POST %s/chat/completions model=%s messages=%d stream=true", self.baseUrl, request.ModelName, len(request.Messages))
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -327,14 +327,14 @@ func (self *ChatRequest) normalizeMaxTokensParam() {
 	if self.MaxCompletionTokens > 0 || self.MaxTokens <= 0 {
 		return
 	}
-	if usesMaxCompletionTokens(self.Model) {
+	if usesMaxCompletionTokens(self.ModelName) {
 		self.MaxCompletionTokens = self.MaxTokens
 		self.MaxTokens = 0
 	}
 }
 
-func usesMaxCompletionTokens(model string) bool {
-	lower := strings.ToLower(model)
+func usesMaxCompletionTokens(modelName string) bool {
+	lower := strings.ToLower(modelName)
 	return strings.HasPrefix(lower, "gpt-5")
 }
 
@@ -376,14 +376,6 @@ func (self *Client) readSse(ctx context.Context, reader io.Reader, events chan<-
 	if err := scanner.Err(); err != nil {
 		events <- StreamEvent{Err: fmt.Errorf("reading stream: %w", err)}
 	}
-}
-
-// ModelInformation describes a model returned by the /models API.
-type ModelInformation struct {
-	ID            string `json:"id" yaml:"id"`
-	Created       int64  `json:"created,omitempty" yaml:"created,omitempty"`
-	OwnedBy       string `json:"owned_by,omitempty" yaml:"owned_by,omitempty"`
-	ContextLength int    `json:"context_length,omitempty" yaml:"context_length,omitempty"`
 }
 
 // ListModels fetches available models from the provider's /models endpoint.

@@ -241,7 +241,7 @@ function convertHistory(
         });
         const usageNumbers = getUsageNumbers(message.usage);
         if (usageNumbers) {
-          const contextWindow = findContextWindow(models, message.model);
+          const contextWindow = findContextWindow(models, message.providerModelName);
           displayMessages.push({
             id: nextMessageId(),
             type: "usage",
@@ -270,7 +270,7 @@ export function useBackend() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState("connecting...");
-  const [defaultModel, setDefaultModel] = useState("");
+  const [defaultProviderModelName, setDefaultProviderModelName] = useState("");
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [streamText, setStreamText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -769,7 +769,7 @@ export function useBackend() {
         if (usageNumbers) {
           const contextWindow =
             conversationEvent.contextWindow ||
-            findContextWindow(modelsRef.current, conversationEvent.model);
+            findContextWindow(modelsRef.current, conversationEvent.providerModelName);
           // Insert usage after the assistant message (or at the position it was)
           const insertPosition = finalText
             ? assistantIndex + 1
@@ -854,8 +854,8 @@ export function useBackend() {
     setIsAdmin(!!result.isAdmin);
     setCurrentUserId(result.userId || "");
     setAudioCapability(result.capabilities?.includes("audio") ?? false);
-    if (result.defaultModel) {
-      setDefaultModel(result.defaultModel);
+    if (result.defaultProviderModelName) {
+      setDefaultProviderModelName(result.defaultProviderModelName);
     }
     if (result.agents) {
       setAgents(result.agents);
@@ -928,7 +928,7 @@ export function useBackend() {
           oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
           setHasMoreHistory(res.hasMore ?? false);
 
-          setConversationModel(res.model || null);
+          setConversationModel(res.providerModelName || null);
 
           const reconciledRunState = reconcileRunStateFromHistory(
             activeRunsRef.current,
@@ -1093,7 +1093,7 @@ export function useBackend() {
           oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
           setHasMoreHistory(res.hasMore ?? false);
 
-          setConversationModel(res.model || null);
+          setConversationModel(res.providerModelName || null);
 
           // Use activeRunId from server response to detect active runs
           if (res.activeRunId) {
@@ -1243,7 +1243,7 @@ export function useBackend() {
       };
       // Use conversation's locked model, fall back to explicit model param.
       const resolvedModel = conversationModelRef.current || model;
-      if (resolvedModel) rpcParams.model = resolvedModel;
+      if (resolvedModel) rpcParams.providerModelName = resolvedModel;
       if (currentAgentIdRef.current)
         rpcParams.agentId = currentAgentIdRef.current;
       if (attachments && attachments.length > 0)
@@ -1497,7 +1497,7 @@ export function useBackend() {
     messages,
     isRunning,
     status,
-    defaultModel,
+    defaultProviderModelName,
     models,
     streamText,
     isStreaming,

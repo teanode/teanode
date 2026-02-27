@@ -10,6 +10,7 @@ import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
 import Divider from "@mui/material/Divider";
+import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
@@ -198,9 +199,9 @@ export default function MessageList({
     wasEmptyRef.current = items.length === 0;
   }, [items.length]);
 
-  // Scroll to bottom when streaming text updates and user hasn't scrolled up.
-  // Virtuoso's followOutput handles new items, but streaming updates only change
-  // content of the last item without adding new ones.
+  // Scroll to bottom when streaming text or interim transcript updates and user
+  // hasn't scrolled up. Virtuoso's followOutput handles new items, but content
+  // updates don't add new items.
   useEffect(() => {
     if (atBottomRef.current && virtuosoRef.current && items.length > 0) {
       virtuosoRef.current.scrollToIndex({
