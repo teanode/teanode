@@ -94,20 +94,20 @@ func newTestCoordinator(t *testing.T) (*Coordinator, context.Context, string) {
 
 func waitRunHandle(t *testing.T, handle *RunHandle) {
 	t.Helper()
-	_, _, err := handle.Wait()
+	_, err := handle.Wait()
 	if err != nil {
 		t.Fatalf("run error: %v", err)
 	}
 }
 
-func TestSendMessageAutoCreateDoesNotOverwriteExistingDefaultConversation(t *testing.T) {
+func TestRunAutoCreateDoesNotOverwriteExistingDefaultConversation(t *testing.T) {
 	coordinator, contextWithStore, agentId := newTestCoordinator(t)
 	userId := "user-1"
 
 	existingDefaultConversationId := coordinator.NewDefaultConversation(userId, agentId)
 
 	runContext := models.ContextWithUserSessionToken(contextWithStore, &models.User{ID: userId}, nil, nil)
-	handle, sendError := coordinator.SendMessage(runContext, SendMessageParameters{
+	handle, sendError := coordinator.Run(runContext, RunParameters{
 		AgentID:        agentId,
 		ConversationID: "",
 		Message:        "hello",
@@ -126,12 +126,12 @@ func TestSendMessageAutoCreateDoesNotOverwriteExistingDefaultConversation(t *tes
 	}
 }
 
-func TestSendMessageAutoCreateSetsDefaultWhenUnset(t *testing.T) {
+func TestRunAutoCreateSetsDefaultWhenUnset(t *testing.T) {
 	coordinator, contextWithStore, agentId := newTestCoordinator(t)
 	userId := "user-1"
 
 	runContext := models.ContextWithUserSessionToken(contextWithStore, &models.User{ID: userId}, nil, nil)
-	handle, sendError := coordinator.SendMessage(runContext, SendMessageParameters{
+	handle, sendError := coordinator.Run(runContext, RunParameters{
 		AgentID:        agentId,
 		ConversationID: "",
 		Message:        "hello",
@@ -170,7 +170,7 @@ func TestDeferredLifecycleFiresAfterRunDone(t *testing.T) {
 	lifecycleManager.ScheduleLifecycle(lifecycle.Restart)
 
 	runContext := models.ContextWithUserSessionToken(contextWithStore, &models.User{ID: userId}, nil, nil)
-	handle, sendError := coordinator.SendMessage(runContext, SendMessageParameters{
+	handle, sendError := coordinator.Run(runContext, RunParameters{
 		AgentID:        agentId,
 		ConversationID: "",
 		Message:        "restart after response",
@@ -201,7 +201,7 @@ func TestDeferredLifecycleFiresAfterRunDone(t *testing.T) {
 	}
 
 	// Ensure run completed successfully.
-	_, _, waitError := handle.Wait()
+	_, waitError := handle.Wait()
 	if waitError != nil {
 		t.Fatalf("run error: %v", waitError)
 	}

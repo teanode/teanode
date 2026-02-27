@@ -16,8 +16,8 @@ import (
 // voiceDispatcher is the minimal coordinator interface needed by voice sessions.
 // *coordinators.Coordinator satisfies this interface.
 type voiceDispatcher interface {
-	SendMessage(ctx context.Context, parameters coordinators.SendMessageParameters, callbacks *runners.RunCallbacks) (*coordinators.RunHandle, error)
-	AbortRunner(runnerId string) bool
+	Run(ctx context.Context, parameters coordinators.RunParameters, callbacks *runners.RunCallbacks) (*coordinators.RunHandle, error)
+	AbortRun(runId string) bool
 	ProviderRegistry() *providers.ProviderRegistry
 }
 

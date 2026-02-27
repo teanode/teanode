@@ -6,8 +6,8 @@ import (
 	"github.com/teanode/teanode/internal/runners"
 )
 
-// SendMessageParameters are the parameters for sending a message through the coordinator.
-type SendMessageParameters struct {
+// RunParameters are the parameters for sending a message through the coordinator.
+type RunParameters struct {
 	AgentID            string
 	ConversationID     string // empty = auto-create
 	Message            string
@@ -20,21 +20,20 @@ type SendMessageParameters struct {
 	SystemPromptMode   runners.SystemPromptMode
 }
 
-// RunHandle is returned by SendMessage and CompactConversation and allows the caller to wait for completion.
+// RunHandle is returned by Run and allows the caller to wait for completion.
 type RunHandle struct {
-	RunnerID       string
+	RunID          string
 	ConversationID string
 	done           chan struct{}
 	once           sync.Once
 	result         *runners.RunResult
-	compactResult  *runners.CompactResult
 	err            error
 }
 
 // NewRunHandle creates a new RunHandle.
-func NewRunHandle(runnerId, conversationId string) *RunHandle {
+func NewRunHandle(runId, conversationId string) *RunHandle {
 	return &RunHandle{
-		RunnerID:       runnerId,
+		RunID:          runId,
 		ConversationID: conversationId,
 		done:           make(chan struct{}),
 	}
@@ -46,17 +45,16 @@ func (self *RunHandle) Done() <-chan struct{} {
 }
 
 // Wait blocks until the handle completes and returns both result types and the error.
-func (self *RunHandle) Wait() (*runners.RunResult, *runners.CompactResult, error) {
+func (self *RunHandle) Wait() (*runners.RunResult, error) {
 	<-self.done
-	return self.result, self.compactResult, self.err
+	return self.result, self.err
 }
 
 // Resolve completes the handle with the given results and error.
 // It is safe to call Resolve multiple times; only the first call takes effect.
-func (self *RunHandle) Resolve(runResult *runners.RunResult, compactResult *runners.CompactResult, err error) {
+func (self *RunHandle) Resolve(runResult *runners.RunResult, err error) {
 	self.once.Do(func() {
 		self.result = runResult
-		self.compactResult = compactResult
 		self.err = err
 		close(self.done)
 	})

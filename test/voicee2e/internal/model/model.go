@@ -65,7 +65,7 @@ type TimelineEvent struct {
 	SessionID  string         `json:"session_id,omitempty"`
 	TurnID     string         `json:"turn_id,omitempty"`
 	ResponseID string         `json:"response_id,omitempty"`
-	RunnerID   string         `json:"runner_id,omitempty"`
+	RunID      string         `json:"run_id,omitempty"`
 	Text       string         `json:"text,omitempty"`
 	Value      int64          `json:"value,omitempty"`
 	Raw        map[string]any `json:"raw,omitempty"`

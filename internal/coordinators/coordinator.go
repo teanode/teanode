@@ -24,13 +24,14 @@ var log = logging.MustGetLogger("coordinator")
 // default conversation management, and event broadcasting via pubsub.
 // It implements RunCoordinator.
 type Coordinator struct {
-	ctx              context.Context
-	config           *models.Configuration
-	providerRegistry *providers.ProviderRegistry
-	summarizer       *summarizers.Summarizer
-	pubsub           *pubsub.PubSub
-	activeRunners    sync.Map // conversationId -> *conversationRunner
-	runnerIndex      sync.Map // runnerId -> conversationId
+	ctx                        context.Context
+	config                     *models.Configuration
+	providerRegistry           *providers.ProviderRegistry
+	summarizer                 *summarizers.Summarizer
+	pubsub                     *pubsub.PubSub
+	activeRunners              sync.Map // conversationId -> *conversationRunner
+	activeRunIdConversationIds sync.Map // runId -> conversationId
+	activeConversationIdRunIds sync.Map // conversationId -> runId
 }
 
 type conversationRunner struct {
@@ -45,7 +46,7 @@ type conversationRunner struct {
 type queuedMessage struct {
 	ctx        context.Context
 	agentId    string
-	params     runners.RunParams
+	params     runners.RunParameters
 	callbacks  *runners.RunCallbacks
 	resultChan chan<- messageResult
 	compact    bool // true for compact operations
@@ -55,6 +56,7 @@ type messageResult struct {
 	runResult     *runners.RunResult
 	compactResult *runners.CompactResult
 	err           error
+	aborted       bool
 }
 
 // New creates a Coordinator.
@@ -79,10 +81,10 @@ func (self *Coordinator) ProviderRegistry() *providers.ProviderRegistry {
 	return self.providerRegistry
 }
 
-// SendMessage orchestrates an agent run: resolves conversation, generates
+// Run orchestrates an agent run: resolves conversation, generates
 // a runner ID, tracks the run, broadcasts all events, merges caller callbacks, and cleans
 // up on completion. Returns a RunHandle immediately so the caller can wait or proceed.
-func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessageParameters, callerCallbacks *runners.RunCallbacks) (*RunHandle, error) {
+func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, callerCallbacks *runners.RunCallbacks) (*RunHandle, error) {
 	userId := ""
 	if user := models.UserFromContext(ctx); user != nil {
 		userId = user.ID
@@ -124,19 +126,20 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 	self.SetDefaultConversationIfUnset(userId, resolvedAgentId, conversationId)
 
 	// Generate runner ID and create cancellable context.
-	runnerId := security.NewULID()
+	runId := security.NewULID()
 	runContext, cancel := context.WithCancel(ctx)
 
 	// Track runner in index.
-	self.runnerIndex.Store(runnerId, conversationId)
+	self.activeRunIdConversationIds.Store(runId, conversationId)
+	self.activeConversationIdRunIds.Store(conversationId, runId)
 
 	// Create handle.
-	handle := NewRunHandle(runnerId, conversationId)
+	handle := NewRunHandle(runId, conversationId)
 
 	// Broadcast user message and conversations list update.
 	userMessagePayload := map[string]interface{}{
 		"state":          "user_message",
-		"runnerId":       runnerId,
+		"runId":          runId,
 		"conversationId": conversationId,
 		"agentId":        resolvedAgentId,
 		"userId":         userId,
@@ -158,7 +161,7 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 	self.pubsub.Broadcast(pubsub.EventTypeConversations, nil)
 
 	// Build merged callbacks (broadcast + caller).
-	mergedCallbacks := self.buildMergedCallbacks(runnerId, conversationId, resolvedAgentId, userId, callerCallbacks)
+	mergedCallbacks := self.buildMergedCallbacks(runId, conversationId, resolvedAgentId, userId, callerCallbacks)
 
 	// Ensure coordinator is on context.
 	runContext = ContextWithCoordinator(runContext, self)
@@ -171,11 +174,12 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 			// goroutine panics before reaching the normal Resolve calls.
 			// RunHandle.Resolve is sync.Once-protected so this is a no-op
 			// when the handle was already resolved normally.
-			handle.Resolve(nil, nil, fmt.Errorf("run terminated unexpectedly"))
+			handle.Resolve(nil, fmt.Errorf("run terminated unexpectedly"))
 		}()
 		defer func() {
 			// Clean up runner index.
-			self.runnerIndex.Delete(runnerId)
+			self.activeRunIdConversationIds.Delete(runId)
+			self.activeConversationIdRunIds.Delete(conversationId)
 			cancel()
 
 			// Notify summarizer.
@@ -189,7 +193,7 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 			}
 		}()
 
-		result, err := self.dispatchMessage(runContext, resolvedAgentId, conversationId, runners.RunParams{
+		dispatch := self.dispatchMessage(runContext, resolvedAgentId, conversationId, runners.RunParameters{
 			Message:            parameters.Message,
 			Model:              parameters.Model,
 			Attachments:        parameters.Attachments,
@@ -197,34 +201,37 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 			SystemPromptMode:   parameters.SystemPromptMode,
 		}, mergedCallbacks)
 
-		if err != nil {
-			if runContext.Err() != nil {
-				log.Warningf("run aborted runner=%s conversation=%s: %v", runnerId, conversationId, err)
-				self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
-					"state":          "aborted",
-					"runnerId":       runnerId,
-					"conversationId": conversationId,
-					"agentId":        resolvedAgentId,
-					"userId":         userId,
-				})
-			} else {
-				log.Errorf("run error runner=%s conversation=%s: %v", runnerId, conversationId, err)
-				self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
-					"state":          "error",
-					"runnerId":       runnerId,
-					"conversationId": conversationId,
-					"agentId":        resolvedAgentId,
-					"userId":         userId,
-					"error":          err.Error(),
-				})
-			}
-			handle.Resolve(nil, nil, err)
+		if dispatch.aborted {
+			log.Warningf("run aborted run %q conversation %q err=%v", runId, conversationId, dispatch.err)
+			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
+				"state":          "aborted",
+				"runId":          runId,
+				"conversationId": conversationId,
+				"agentId":        resolvedAgentId,
+				"userId":         userId,
+			})
+			handle.Resolve(nil, dispatch.err)
 			return
 		}
 
+		if dispatch.err != nil {
+			log.Errorf("run error run %q conversation %q: %v", runId, conversationId, dispatch.err)
+			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
+				"state":          "error",
+				"runId":          runId,
+				"conversationId": conversationId,
+				"agentId":        resolvedAgentId,
+				"userId":         userId,
+				"error":          dispatch.err.Error(),
+			})
+			handle.Resolve(nil, dispatch.err)
+			return
+		}
+
+		result := dispatch.runResult
 		payload := map[string]interface{}{
 			"state":          "final",
-			"runnerId":       runnerId,
+			"runId":          runId,
 			"conversationId": conversationId,
 			"agentId":        resolvedAgentId,
 			"userId":         userId,
@@ -239,21 +246,21 @@ func (self *Coordinator) SendMessage(ctx context.Context, parameters SendMessage
 			payload["contextWindow"] = result.ContextWindow
 		}
 		self.pubsub.Broadcast(pubsub.EventTypeConversation, payload)
-		handle.Resolve(result, nil, nil)
+		handle.Resolve(result, nil)
 	}()
 
 	return handle, nil
 }
 
 // buildMergedCallbacks creates RunCallbacks that both broadcast events and call the caller's optional callbacks.
-func (self *Coordinator) buildMergedCallbacks(runnerId, conversationId, agentId, userId string, callerCallbacks *runners.RunCallbacks) *runners.RunCallbacks {
+func (self *Coordinator) buildMergedCallbacks(runId, conversationId, agentId, userId string, callerCallbacks *runners.RunCallbacks) *runners.RunCallbacks {
 	var notifyOnce sync.Once
 
 	return &runners.RunCallbacks{
 		OnQueued: func() {
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "queued",
-				"runnerId":       runnerId,
+				"runId":          runId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
 				"userId":         userId,
@@ -265,7 +272,7 @@ func (self *Coordinator) buildMergedCallbacks(runnerId, conversationId, agentId,
 		OnTextDelta: func(text string) {
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "delta",
-				"runnerId":       runnerId,
+				"runId":          runId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
 				"userId":         userId,
@@ -281,7 +288,7 @@ func (self *Coordinator) buildMergedCallbacks(runnerId, conversationId, agentId,
 		OnToolCall: func(toolName string, arguments string) {
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "tool_call",
-				"runnerId":       runnerId,
+				"runId":          runId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
 				"userId":         userId,
@@ -295,7 +302,7 @@ func (self *Coordinator) buildMergedCallbacks(runnerId, conversationId, agentId,
 		OnToolResult: func(toolName string, result string) {
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "tool_result",
-				"runnerId":       runnerId,
+				"runId":          runId,
 				"conversationId": conversationId,
 				"agentId":        agentId,
 				"userId":         userId,
@@ -311,34 +318,26 @@ func (self *Coordinator) buildMergedCallbacks(runnerId, conversationId, agentId,
 
 // CompactConversation queues a compaction request to the conversation's runner.
 // Returns a RunHandle immediately.
-func (self *Coordinator) CompactConversation(ctx context.Context, agentId, conversationId string) (*RunHandle, error) {
-	handle := NewRunHandle("", conversationId)
+func (self *Coordinator) CompactConversation(ctx context.Context, agentId, conversationId string) (*runners.CompactResult, error) {
 	resultChan := make(chan messageResult, 1)
-	queued := &queuedMessage{
+	self.enqueueMessage(agentId, conversationId, &queuedMessage{
 		ctx:        ctx,
 		agentId:    agentId,
 		resultChan: resultChan,
 		compact:    true,
+	})
+
+	select {
+	case result := <-resultChan:
+		return result.compactResult, result.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-
-	self.enqueueMessage(conversationId, agentId, queued)
-
-	go func() {
-		defer deferutil.Recover()
-		select {
-		case result := <-resultChan:
-			handle.Resolve(nil, result.compactResult, result.err)
-		case <-ctx.Done():
-			handle.Resolve(nil, nil, ctx.Err())
-		}
-	}()
-
-	return handle, nil
 }
 
-// AbortConversationRunner cancels the current run and rejects all queued messages
+// AbortConversationRun cancels the current run and rejects all queued messages
 // for the given conversation.
-func (self *Coordinator) AbortConversationRunner(conversationId string) bool {
+func (self *Coordinator) AbortConversationRun(conversationId string) bool {
 	value, ok := self.activeRunners.Load(conversationId)
 	if !ok {
 		return false
@@ -361,14 +360,14 @@ func (self *Coordinator) AbortConversationRunner(conversationId string) bool {
 	return true
 }
 
-// AbortRunner looks up the conversation for a runner ID and aborts it.
-func (self *Coordinator) AbortRunner(runnerId string) bool {
-	value, ok := self.runnerIndex.Load(runnerId)
+// AbortRun looks up the conversation for a runner ID and aborts it.
+func (self *Coordinator) AbortRun(runId string) bool {
+	value, ok := self.activeRunIdConversationIds.Load(runId)
 	if !ok {
 		return false
 	}
 	conversationId := value.(string)
-	return self.AbortConversationRunner(conversationId)
+	return self.AbortConversationRun(conversationId)
 }
 
 // GetActiveConversationRunner returns the active runner for the conversation, or nil.
@@ -384,8 +383,24 @@ func (self *Coordinator) GetActiveConversationRunner(conversationId string) *run
 	return runner
 }
 
+// GetActiveConversationRunID returns the active runId for the conversation, or empty string.
+func (self *Coordinator) GetActiveConversationRunID(conversationId string) string {
+	value, ok := self.activeConversationIdRunIds.Load(conversationId)
+	if !ok {
+		return ""
+	}
+	return value.(string)
+}
+
+// dispatchResult holds the outcome of a dispatched message.
+type dispatchResult struct {
+	runResult *runners.RunResult
+	err       error
+	aborted   bool
+}
+
 // dispatchMessage routes a message to the per-conversation queue, blocking until processed.
-func (self *Coordinator) dispatchMessage(ctx context.Context, agentId, conversationId string, params runners.RunParams, callbacks *runners.RunCallbacks) (*runners.RunResult, error) {
+func (self *Coordinator) dispatchMessage(ctx context.Context, agentId, conversationId string, params runners.RunParameters, callbacks *runners.RunCallbacks) dispatchResult {
 	resultChan := make(chan messageResult, 1)
 	queued := &queuedMessage{
 		ctx:        ctx,
@@ -395,18 +410,18 @@ func (self *Coordinator) dispatchMessage(ctx context.Context, agentId, conversat
 		resultChan: resultChan,
 	}
 
-	self.enqueueMessage(conversationId, agentId, queued)
+	self.enqueueMessage(agentId, conversationId, queued)
 
 	// Block until result.
 	select {
 	case result := <-resultChan:
-		return result.runResult, result.err
+		return dispatchResult{runResult: result.runResult, err: result.err, aborted: result.aborted}
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return dispatchResult{err: ctx.Err(), aborted: true}
 	}
 }
 
-func (self *Coordinator) enqueueMessage(conversationId, agentId string, message *queuedMessage) {
+func (self *Coordinator) enqueueMessage(agentId, conversationId string, message *queuedMessage) {
 	value, _ := self.activeRunners.LoadOrStore(conversationId, &conversationRunner{})
 	conversationRunnerInstance := value.(*conversationRunner)
 
@@ -423,16 +438,9 @@ func (self *Coordinator) enqueueMessage(conversationId, agentId string, message 
 	if !conversationRunnerInstance.processing {
 		conversationRunnerInstance.processing = true
 
-		// Create runner using the coordinator's long-lived context rather than the
-		// first message's context, which may be cancelled independently. Carry over
-		// the authenticated user so downstream code (tools, system prompt) can access it.
-		runnerContext := models.ContextWithUserSessionToken(
-			self.ctx,
-			models.UserFromContext(message.ctx),
-			models.SessionFromContext(message.ctx),
-			models.TokenFromContext(message.ctx),
-		)
-		runner := self.createRunner(runnerContext, agentId, conversationId)
+		// It is ok to use the first message's ctx to create the runner
+		// createRunner and runners.NewRunner do not actually save this ctx
+		runner := self.createRunner(message.ctx, agentId, conversationId)
 		conversationRunnerInstance.runner = runner
 
 		conversationRunnerInstance.mutex.Unlock()
@@ -464,17 +472,24 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 		message := conversationRunnerInstance.queue[0]
 		conversationRunnerInstance.queue = conversationRunnerInstance.queue[1:]
 
-		// Build a run context from the coordinator's long-lived context so the
-		// runner keeps running even if the caller (e.g. WebSocket) disconnects.
-		// Carry over the authenticated user from the caller's context.
-		// Ensure coordinator is on the context.
-		runnerContext, cancel := context.WithCancel(ContextWithCoordinator(models.ContextWithUserSessionToken(
-			self.ctx,
-			models.UserFromContext(message.ctx),
-			models.SessionFromContext(message.ctx),
-			models.TokenFromContext(message.ctx),
-		), self))
-		conversationRunnerInstance.cancel = cancel
+		var ctx context.Context
+		var cancel context.CancelFunc
+		if message.compact {
+			// For compact, just pass in the caller's
+			ctx, cancel = context.WithCancel(message.ctx)
+		} else {
+			// Build a run context from the coordinator's long-lived context so the
+			// runner keeps running even if the caller (e.g. WebSocket) disconnects.
+			// Carry over the authenticated user from the caller's context.
+			// Ensure coordinator is on the context.
+			ctx, cancel = context.WithCancel(ContextWithCoordinator(models.ContextWithUserSessionToken(
+				self.ctx,
+				models.UserFromContext(message.ctx),
+				models.SessionFromContext(message.ctx),
+				models.TokenFromContext(message.ctx),
+			), self))
+			conversationRunnerInstance.cancel = cancel
+		}
 
 		runner := conversationRunnerInstance.runner
 
@@ -484,10 +499,10 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 		var result messageResult
 		if runner != nil {
 			if message.compact {
-				compactResult, err := runner.CompactConversation(runnerContext)
+				compactResult, err := runner.CompactConversation(ctx)
 				result = messageResult{compactResult: compactResult, err: err}
 			} else {
-				runResult, err := runner.Run(runnerContext, message.params, message.callbacks)
+				runResult, err := runner.Run(ctx, message.params, message.callbacks)
 				result = messageResult{runResult: runResult, err: err}
 			}
 		} else {
@@ -495,6 +510,14 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 		}
 
 		cancel()
+
+		// Tag the result if this run was aborted.
+		conversationRunnerInstance.mutex.Lock()
+		if conversationRunnerInstance.aborted {
+			result.aborted = true
+		}
+		conversationRunnerInstance.mutex.Unlock()
+
 		message.resultChan <- result
 	}
 }

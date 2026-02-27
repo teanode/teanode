@@ -252,7 +252,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 		parameters.AgentID = self.defaultAgentId()
 	}
 
-	handle, sendError := self.api.coordinator.SendMessage(self.ctx, coordinators.SendMessageParameters{
+	handle, sendError := self.api.coordinator.Run(self.ctx, coordinators.RunParameters{
 		AgentID:            parameters.AgentID,
 		ConversationID:     parameters.ConversationID,
 		Message:            parameters.Message,
@@ -269,7 +269,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"runnerId":       handle.RunnerID,
+		"runId":          handle.RunID,
 		"conversationId": handle.ConversationID,
 	})
 }
@@ -327,6 +327,9 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 	}
 	if self.api.coordinator.GetActiveConversationRunner(parameters.ConversationID) != nil {
 		response["running"] = true
+		if activeRunId := self.api.coordinator.GetActiveConversationRunID(parameters.ConversationID); activeRunId != "" {
+			response["running"] = activeRunId
+		}
 	}
 	if provider != "" {
 		response["provider"] = provider
@@ -339,7 +342,8 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 
 // conversationAbortParameters are the parameters for conversations.abort.
 type conversationAbortParameters struct {
-	RunnerID string `json:"runnerId"`
+	RunID          string `json:"runId"`
+	ConversationID string `json:"conversationId,omitempty"`
 }
 
 // handleConversationsAbort: cancel a running agent. Works cross-tab and cross-channel.
@@ -350,13 +354,34 @@ func (self *webSocketConnection) handleConversationsAbort(frame requestFrame) {
 		return
 	}
 
-	if self.api.coordinator.AbortRunner(parameters.RunnerID) {
+	if parameters.RunID == "" && parameters.ConversationID == "" {
+		self.sendError(frame.ID, 400, "runId or conversationId is required")
+		return
+	}
+
+	if parameters.RunID != "" && self.api.coordinator.AbortRun(parameters.RunID) {
 		self.sendResponse(frame.ID, map[string]interface{}{
 			"aborted": true,
 		})
-	} else {
-		self.sendError(frame.ID, 404, "run not found: "+parameters.RunnerID)
+		return
 	}
+
+	if parameters.ConversationID != "" {
+		if err := self.verifyConversationOwnership(parameters.ConversationID); err != nil {
+			self.sendError(frame.ID, 404, "conversation not found")
+			return
+		}
+		if self.api.coordinator.AbortConversationRun(parameters.ConversationID) {
+			self.sendResponse(frame.ID, map[string]interface{}{
+				"aborted": true,
+			})
+			return
+		}
+		self.sendError(frame.ID, 404, "conversation has no active run: "+parameters.ConversationID)
+		return
+	}
+
+	self.sendError(frame.ID, 404, "run not found: "+parameters.RunID)
 }
 
 // conversationsDeleteParameters are the parameters for conversations.delete.

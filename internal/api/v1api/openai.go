@@ -108,7 +108,7 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 	ctx, cancel := context.WithTimeout(httpRequest.Context(), 5*time.Minute)
 	defer cancel()
 
-	handle, sendError := self.coordinator.SendMessage(ctx, coordinators.SendMessageParameters{
+	handle, sendError := self.coordinator.Run(ctx, coordinators.RunParameters{
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        lastMessage.Content,
@@ -117,7 +117,7 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 	if sendError != nil {
 		return web.Error(500, sendError.Error())
 	}
-	result, _, err := handle.Wait()
+	result, err := handle.Wait()
 	if err != nil {
 		return web.Error(500, err.Error())
 	}
@@ -171,7 +171,7 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 
 	responseId := security.NewULID()
 
-	handle, sendError := self.coordinator.SendMessage(ctx, coordinators.SendMessageParameters{
+	handle, sendError := self.coordinator.Run(ctx, coordinators.RunParameters{
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        lastMessage.Content,
@@ -204,7 +204,7 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 		return nil
 	}
 
-	result, _, err := handle.Wait()
+	result, err := handle.Wait()
 	if err != nil {
 		errData, _ := json.Marshal(map[string]string{"error": err.Error()})
 		fmt.Fprintf(writer, "data: %s\n\n", errData)

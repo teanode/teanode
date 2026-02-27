@@ -141,7 +141,7 @@ export default function ConversationsConversationPage() {
         streamText={backend.streamText}
         toolActivity={backend.toolActivity}
         status={backend.status}
-        activeRunnerId={backend.currentRunnerId}
+        activeRunId={backend.currentRunId}
         hasMoreHistory={backend.hasMoreHistory}
         loadingOlderMessages={backend.loadingOlderMessages}
         onLoadOlderMessages={backend.loadOlderMessages}

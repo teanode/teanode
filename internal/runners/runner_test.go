@@ -223,12 +223,12 @@ func TestRunnerRun(t *testing.T) {
 	runner := &Runner{
 		AgentID:          "main",
 		ConversationID:   "test-run",
-		ProviderRegistry: mockProviderRegistry(server.URL),
-		ToolRegistry:     toolregistry.NewEmptyToolRegistry(),
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolregistry.NewEmptyToolRegistry(),
 	}
 
 	var chunks []string
-	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
+	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParameters{
 		Message: "hi",
 	}, &RunCallbacks{
 		OnTextDelta: func(text string) {
@@ -289,8 +289,8 @@ func TestRunnerRunAbort(t *testing.T) {
 	runner := &Runner{
 		AgentID:          "main",
 		ConversationID:   "abort-test",
-		ProviderRegistry: mockProviderRegistry(server.URL),
-		ToolRegistry:     toolregistry.NewEmptyToolRegistry(),
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolregistry.NewEmptyToolRegistry(),
 	}
 
 	ctx, cancel := context.WithCancel(contextWithUserAndStore("user-1", testStore.persistenceStore))
@@ -300,7 +300,7 @@ func TestRunnerRunAbort(t *testing.T) {
 	var closeChunk sync.Once
 	go func() {
 		defer close(done)
-		runner.Run(ctx, RunParams{
+		runner.Run(ctx, RunParameters{
 			Message: "abort me",
 		}, &RunCallbacks{
 			OnTextDelta: func(text string) {
@@ -359,12 +359,12 @@ func TestRunnerToolCallLoop(t *testing.T) {
 	runner := &Runner{
 		AgentID:          "main",
 		ConversationID:   "tool-test",
-		ProviderRegistry: mockProviderRegistry(server.URL),
-		ToolRegistry:     toolRegistry,
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolRegistry,
 	}
 
 	var toolCalls []string
-	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
+	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParameters{
 		Message: "remember hello",
 	}, &RunCallbacks{
 		OnToolCall: func(name string, args string) {
@@ -721,12 +721,12 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	runner := &Runner{
 		AgentID:          "main",
 		ConversationID:   "mismatch-test",
-		ProviderRegistry: mockProviderRegistry(server.URL),
-		ToolRegistry:     toolregistry.NewEmptyToolRegistry(),
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolregistry.NewEmptyToolRegistry(),
 	}
 
 	// First run: creates the conversation and locks it to "mock:mock-model".
-	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
+	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParameters{
 		Message: "hello",
 	}, nil)
 	if err != nil {
@@ -734,7 +734,7 @@ func TestRunnerModelMismatchError(t *testing.T) {
 	}
 
 	// Second run: same conversation, explicitly different model — should error.
-	_, err = runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
+	_, err = runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParameters{
 		Message: "hello again",
 		Model:   "mock:other-model",
 	}, nil)
@@ -753,10 +753,10 @@ func TestRunnerNoModelError(t *testing.T) {
 	runner := &Runner{
 		AgentID:          "main",
 		ConversationID:   "no-model-test",
-		ProviderRegistry: providers.NewEmptyProviderRegistry(),
+		providerRegistry: providers.NewEmptyProviderRegistry(),
 	}
 
-	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParams{
+	_, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParameters{
 		Message: "hello",
 	}, nil)
 	if err == nil {
@@ -772,10 +772,10 @@ func TestRunnerRunRequiresUserID(t *testing.T) {
 	runner := &Runner{
 		AgentID:          "main",
 		ConversationID:   "missing-user-id",
-		ProviderRegistry: providers.NewProviderRegistry(nil),
+		providerRegistry: providers.NewProviderRegistry(nil),
 	}
 
-	_, err := runner.Run(store.ContextWithStore(context.Background(), testStore.persistenceStore), RunParams{
+	_, err := runner.Run(store.ContextWithStore(context.Background(), testStore.persistenceStore), RunParameters{
 		Message: "hello",
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "userId is required") {

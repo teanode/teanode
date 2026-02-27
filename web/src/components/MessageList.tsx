@@ -31,7 +31,7 @@ interface MessageListProps {
   streamText: string;
   toolActivity: string | null;
   status: string;
-  activeRunnerId: string | null;
+  activeRunId: string | null;
   hasMoreHistory?: boolean;
   loadingOlderMessages?: boolean;
   onLoadOlderMessages?: () => void;
@@ -119,7 +119,7 @@ export default function MessageList({
   streamText,
   toolActivity,
   status,
-  activeRunnerId,
+  activeRunId,
   hasMoreHistory,
   loadingOlderMessages,
   onLoadOlderMessages,
@@ -166,17 +166,17 @@ export default function MessageList({
   // text.  Earlier assistant messages (from before tool call boundaries) have
   // their content committed and must not be overwritten by the current stream.
   const lastStreamingAssistantId = useMemo(() => {
-    if (!activeRunnerId || !isStreaming) return null;
+    if (!activeRunId || !isStreaming) return null;
     for (let index = messages.length - 1; index >= 0; index--) {
       if (
         messages[index].type === "assistant" &&
-        messages[index].runnerId === activeRunnerId
+        messages[index].runId === activeRunId
       ) {
         return messages[index].id;
       }
     }
     return null;
-  }, [messages, activeRunnerId, isStreaming]);
+  }, [messages, activeRunId, isStreaming]);
 
   const itemsLengthRef = useRef(items.length);
   itemsLengthRef.current = items.length;
@@ -270,7 +270,7 @@ export default function MessageList({
       }
 
       const message = item.message;
-      const isActiveRun = message.runnerId === activeRunnerId;
+      const isActiveRun = message.runId === activeRunId;
       const isStreamingMessage = message.id === lastStreamingAssistantId;
 
       if (message.type === "user") {
@@ -297,7 +297,7 @@ export default function MessageList({
           !message.content &&
           !isStreaming &&
           isRunning &&
-          (isActiveRun || !message.runnerId)
+          (isActiveRun || !message.runId)
         ) {
           return (
             <Container
@@ -359,7 +359,7 @@ export default function MessageList({
         }
 
         // Queued run — show queued indicator
-        if (!isActiveRun && !message.content && message.runnerId) {
+        if (!isActiveRun && !message.content && message.runId) {
           return (
             <Container
               maxWidth="md"
@@ -448,7 +448,7 @@ export default function MessageList({
       return <div />;
     },
     [
-      activeRunnerId,
+      activeRunId,
       agentAvatarMediaId,
       isRunning,
       isStreaming,

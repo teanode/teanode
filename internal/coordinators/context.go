@@ -14,8 +14,8 @@ const (
 
 // RunCoordinator routes messages to runners, creating or reusing runners as needed.
 type RunCoordinator interface {
-	SendMessage(ctx context.Context, parameters SendMessageParameters, callbacks *runners.RunCallbacks) (*RunHandle, error)
-	CompactConversation(ctx context.Context, agentId, conversationId string) (*RunHandle, error)
+	Run(ctx context.Context, parameters RunParameters, callbacks *runners.RunCallbacks) (*RunHandle, error)
+	CompactConversation(ctx context.Context, agentId, conversationId string) (*runners.CompactResult, error)
 }
 
 // ContextWithCoordinator enriches a context with a RunCoordinator.

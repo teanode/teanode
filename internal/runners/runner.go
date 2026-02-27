@@ -26,11 +26,12 @@ import (
 
 // Runner orchestrates: load conversation -> build prompt -> call LLM -> save response.
 type Runner struct {
+	ID               string
 	AgentID          string
 	ConversationID   string
-	ProviderRegistry *providers.ProviderRegistry
-	ToolRegistry     *tools.ToolRegistry
-	SkillPrompts     string
+	providerRegistry *providers.ProviderRegistry
+	toolRegistry     *tools.ToolRegistry
+	skillPrompts     string
 }
 
 // NewRunner creates a new Runner. It builds the tool registry from the agent's
@@ -40,16 +41,17 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 	skillPrompts := skills.RegisterSkills(ctx, toolRegistry, agent.GetSkills())
 	toolRegistry.ApplyFilter(agent.GetTools())
 	return &Runner{
+		ID:               security.NewULID(),
 		AgentID:          agentId,
 		ConversationID:   conversationId,
-		ProviderRegistry: providerRegistry,
-		ToolRegistry:     toolRegistry,
-		SkillPrompts:     skillPrompts,
+		providerRegistry: providerRegistry,
+		toolRegistry:     toolRegistry,
+		skillPrompts:     skillPrompts,
 	}
 }
 
-// RunParams holds the parameters for a single agent run.
-type RunParams struct {
+// RunParameters holds the parameters for a single agent run.
+type RunParameters struct {
 	Message            string
 	Model              string // override config default
 	Attachments        []map[string]string
@@ -59,7 +61,6 @@ type RunParams struct {
 
 // RunResult holds the result of a completed agent run.
 type RunResult struct {
-	RunnerID      string
 	Response      string
 	Usage         map[string]int
 	Model         string
@@ -76,22 +77,21 @@ type RunCallbacks struct {
 }
 
 // Run directly executes a run for this runner's conversation.
-func (self *Runner) Run(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
+func (self *Runner) Run(ctx context.Context, params RunParameters, callbacks *RunCallbacks) (*RunResult, error) {
 	return self.executeRun(ctx, params, callbacks)
 }
 
 // executeRun performs the actual chat turn: appends the user message, calls the LLM
 // (streaming), and appends the assistant response. Loops when the LLM requests tool calls.
-func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks *RunCallbacks) (*RunResult, error) {
+func (self *Runner) executeRun(ctx context.Context, params RunParameters, callbacks *RunCallbacks) (*RunResult, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
 		return nil, fmt.Errorf("userId is required")
 	}
 	userId := user.ID
 	isAdmin := user.GetAdmin()
-	runnerId := security.NewULID()
 
-	log.Debugf("run start id=%s conversation=%s model=%s", runnerId, self.ConversationID, params.Model)
+	log.Debugf("run %q start agent %q conversation %q model %q", self.ID, self.AgentID, self.ConversationID, params.Model)
 
 	// Enrich context with conversation id and runner for tools.
 	ctx = ContextWithRunner(ctx, self)
@@ -122,7 +122,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		}
 	}
 
-	provider, providerName, modelName, err := self.ProviderRegistry.ResolveProviderAndModel(qualifiedModel)
+	provider, providerName, modelName, err := self.providerRegistry.ResolveProviderAndModel(qualifiedModel)
 	if err != nil {
 		return nil, fmt.Errorf("resolving model %q: %w", qualifiedModel, err)
 	}
@@ -154,16 +154,20 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 	contextWindow := self.resolveContextWindow(ctx)
 
 	for round := 0; round < 250; round++ {
-		log.Debugf("run id=%s round=%d history_len=%d", runnerId, round, len(history))
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		log.Debugf("run id %q round %d history %d", self.ID, round, len(history))
 
 		// Build messages for the LLM.
-		llmMessages := self.buildMessages(ctx, history, params.SystemPromptSuffix, params.SystemPromptMode, self.SkillPrompts)
+		llmMessages := self.buildMessages(ctx, history, params.SystemPromptSuffix, params.SystemPromptMode, self.skillPrompts)
 
 		// Tier 1: truncate old tool results.
 		llmMessages = truncateOldToolResults(llmMessages, 10, 8000)
 
 		// Build tool definitions for the request.
-		toolDefinitions := self.ToolRegistry.Definitions()
+		toolDefinitions := self.toolRegistry.Definitions()
 
 		// Tier 2: compress context if approaching the context window limit.
 		// Re-read models configuration for fresh values.
@@ -273,6 +277,10 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			return nil, streamError
 		}
 
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		// Flatten tool call map to sorted slice.
 		if len(toolCallMap) > 0 {
 			indices := make([]int, 0, len(toolCallMap))
@@ -333,7 +341,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		history = append(history, &assistantMessage)
 
 		// If no tool calls, we're done.
-		if len(toolCalls) == 0 || self.ToolRegistry == nil {
+		if len(toolCalls) == 0 || self.toolRegistry == nil {
 			break
 		}
 
@@ -346,7 +354,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 
 		var workItems []toolWorkItem
 		for _, toolCall := range toolCalls {
-			tool := self.ToolRegistry.Get(toolCall.Function.Name)
+			tool := self.toolRegistry.Get(toolCall.Function.Name)
 			if tool == nil {
 				continue
 			}
@@ -400,6 +408,10 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 			}(position, item)
 		}
 		waitGroup.Wait()
+
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 
 		// Phase 3 — Sequential persist: process results in original order
 		// so conversation JSONL ordering and callbacks remain deterministic.
@@ -457,10 +469,9 @@ func (self *Runner) executeRun(ctx context.Context, params RunParams, callbacks 
 		}
 	}
 
-	log.Debugf("run done id=%s model=%s stop=%s", runnerId, responseModel, stopReason)
+	log.Debugf("run done id=%s model=%s stop=%s", self.ID, responseModel, stopReason)
 
 	return &RunResult{
-		RunnerID:      runnerId,
 		Response:      responseText,
 		Usage:         totalUsage,
 		Model:         responseModel,

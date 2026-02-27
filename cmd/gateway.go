@@ -314,7 +314,7 @@ func NewGatewayCommand() *cli.Command {
 				}
 
 				runContext := models.ContextWithUserSessionToken(ctx, user, nil, nil)
-				handle, sendError := coordinator.SendMessage(runContext, coordinators.SendMessageParameters{
+				handle, sendError := coordinator.Run(runContext, coordinators.RunParameters{
 					AgentID:        agentId,
 					ConversationID: conversationId,
 					Message:        message,
@@ -325,8 +325,8 @@ func NewGatewayCommand() *cli.Command {
 					close(doneChannel)
 					return "", doneChannel, func() error { return sendError }
 				}
-				return handle.RunnerID, handle.Done(), func() error {
-					_, _, waitError := handle.Wait()
+				return handle.RunID, handle.Done(), func() error {
+					_, waitError := handle.Wait()
 					return waitError
 				}
 			}

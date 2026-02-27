@@ -128,15 +128,15 @@ func (self *Session) llmEventForwarder() {
 		case event := <-sub.eventCh:
 			state, _ := event["state"].(string)
 			text, _ := event["text"].(string)
-			runnerId, _ := event["runnerId"].(string)
-			if runnerId != "" && self.IsRunCanceled(runnerId) {
+			runId, _ := event["runId"].(string)
+			if runId != "" && self.IsRunCanceled(runId) {
 				if state == "final" || state == "aborted" || state == "error" {
-					self.ClearCanceledRun(runnerId)
+					self.ClearCanceledRun(runId)
 				}
 				continue
 			}
-			if runnerId != "" && (state == "queued" || state == "delta") {
-				self.SetCurrentRunID(runnerId)
+			if runId != "" && (state == "queued" || state == "delta") {
+				self.SetCurrentRunID(runId)
 			}
 			if state == "queued" || state == "final" || state == "error" || state == "aborted" {
 				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", self.ID, self.GetCurrentTurnID(), state, len(text), self.GetCurrentRunID())
@@ -181,7 +181,7 @@ func (self *Session) llmEventForwarder() {
 				}
 				// Response stream is complete; allow next transcript to commit a new run.
 				self.ClearCurrentRun()
-				self.ClearCanceledRun(runnerId)
+				self.ClearCanceledRun(runId)
 				streamText = ""
 				sentencesEnqueued = 0
 				sawDelta = false
@@ -350,7 +350,7 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 		"turn_id": turnId,
 		"text":    text,
 	})
-	handle, err := self.dispatcher.SendMessage(context.Background(), coordinators.SendMessageParameters{
+	handle, err := self.dispatcher.Run(context.Background(), coordinators.RunParameters{
 		AgentID:            self.AgentID,
 		ConversationID:     self.ConversationID,
 		Message:            text,
@@ -362,8 +362,8 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 		pipelineLog.Warningf("voice turn commit error: session=%s turn=%s err=%v", self.ID, turnId, err)
 		return
 	}
-	self.SetCurrentRunID(handle.RunnerID)
-	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", self.ID, turnId, handle.RunnerID)
+	self.SetCurrentRunID(handle.RunID)
+	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", self.ID, turnId, handle.RunID)
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID: turnId,
 		Event:  "turn_committed",
@@ -421,16 +421,16 @@ func (self *Session) commitNextPendingTurn() {
 func (self *Session) triggerBargeIn() {
 	self.bargeInOnce.Do(func() {
 		pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunID(), self.GetCurrentResponseID())
-		runnerId := self.GetCurrentRunID()
-		self.MarkRunCanceled(runnerId)
+		runId := self.GetCurrentRunID()
+		self.MarkRunCanceled(runId)
 		if prev := self.SwapTTSCancel(nil); prev != nil {
 			prev()
 		}
 		self.drainTTSQueue()
 		self.drainAudioOutQueue()
 		self.trySendFlushFrame()
-		if runnerId != "" && self.dispatcher != nil {
-			self.dispatcher.AbortRunner(runnerId)
+		if runId != "" && self.dispatcher != nil {
+			self.dispatcher.AbortRun(runId)
 		}
 		self.ClearCurrentRun()
 		self.ClearCurrentResponse()

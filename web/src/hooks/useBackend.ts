@@ -147,16 +147,16 @@ function findContextWindow(
   return match?.context_length;
 }
 
-/** Find the assistant message placeholder for a given runnerId. */
+/** Find the assistant message placeholder for a given runId. */
 function findRunAssistantIndex(
   messages: DisplayMessage[],
-  runnerId: string | null,
+  runId: string | null,
 ): number {
-  if (!runnerId) return messages.length - 1;
+  if (!runId) return messages.length - 1;
   for (let index = messages.length - 1; index >= 0; index--) {
     if (
       messages[index].type === "assistant" &&
-      messages[index].runnerId === runnerId
+      messages[index].runId === runId
     ) {
       return index;
     }
@@ -165,7 +165,7 @@ function findRunAssistantIndex(
 }
 
 interface ReconciledRunState {
-  currentRunnerId: string | null;
+  currentRunId: string | null;
   runQueue: string[];
   isRunning: boolean;
 }
@@ -173,20 +173,20 @@ interface ReconciledRunState {
 export function reconcileRunStateFromHistory(
   activeRuns: Map<string, string>,
   conversationKey: string,
-  activeRunnerId?: string,
+  activeRunId?: string,
 ): ReconciledRunState {
-  if (activeRunnerId) {
-    activeRuns.set(conversationKey, activeRunnerId);
+  if (activeRunId) {
+    activeRuns.set(conversationKey, activeRunId);
     return {
-      currentRunnerId: activeRunnerId,
-      runQueue: [activeRunnerId],
+      currentRunId: activeRunId,
+      runQueue: [activeRunId],
       isRunning: true,
     };
   }
 
   activeRuns.delete(conversationKey);
   return {
-    currentRunnerId: null,
+    currentRunId: null,
     runQueue: [],
     isRunning: false,
   };
@@ -298,7 +298,7 @@ export function useBackend() {
   currentAgentIdRef.current = currentAgentId;
   modelsRef.current = models;
 
-  const currentRunnerIdRef = useRef<string | null>(null);
+  const currentRunIdRef = useRef<string | null>(null);
   const activeRunsRef = useRef<Map<string, string>>(new Map());
   const afterToolCallsRef = useRef(false);
   const streamTextRef = useRef("");
@@ -342,18 +342,18 @@ export function useBackend() {
     setToolActivity(null);
 
     // Remove finished run from queue
-    if (currentRunnerIdRef.current) {
-      const index = runQueueRef.current.indexOf(currentRunnerIdRef.current);
+    if (currentRunIdRef.current) {
+      const index = runQueueRef.current.indexOf(currentRunIdRef.current);
       if (index !== -1) runQueueRef.current.splice(index, 1);
     }
 
     // Promote next queued run or finish
     if (runQueueRef.current.length > 0) {
-      currentRunnerIdRef.current = runQueueRef.current[0];
+      currentRunIdRef.current = runQueueRef.current[0];
       setStatus("thinking...");
       // Keep isRunning = true
     } else {
-      currentRunnerIdRef.current = null;
+      currentRunIdRef.current = null;
       if (conversationIdRef.current) {
         activeRunsRef.current.delete(conversationIdRef.current);
       }
@@ -432,7 +432,7 @@ export function useBackend() {
       if (
         conversationEvent.conversationId &&
         activeRunsRef.current.get(conversationEvent.conversationId) ===
-          conversationEvent.runnerId
+          conversationEvent.runId
       ) {
         activeRunsRef.current.delete(conversationEvent.conversationId);
       }
@@ -481,16 +481,16 @@ export function useBackend() {
         // If this run is already tracked (e.g. from history load), skip adding
         // duplicate messages — the history already contains them.
         const alreadyTracked =
-          currentRunnerIdRef.current === conversationEvent.runnerId;
-        currentRunnerIdRef.current = conversationEvent.runnerId || null;
-        if (conversationEvent.runnerId && conversationEvent.conversationId) {
+          currentRunIdRef.current === conversationEvent.runId;
+        currentRunIdRef.current = conversationEvent.runId || null;
+        if (conversationEvent.runId && conversationEvent.conversationId) {
           activeRunsRef.current.set(
             conversationEvent.conversationId,
-            conversationEvent.runnerId,
+            conversationEvent.runId,
           );
         }
-        if (conversationEvent.runnerId && !alreadyTracked) {
-          runQueueRef.current.push(conversationEvent.runnerId);
+        if (conversationEvent.runId && !alreadyTracked) {
+          runQueueRef.current.push(conversationEvent.runId);
         }
         setIsRunning(true);
         setStatus("thinking...");
@@ -509,7 +509,7 @@ export function useBackend() {
               id: assistantMessageId,
               type: "assistant",
               content: "",
-              runnerId: conversationEvent.runnerId || undefined,
+              runId: conversationEvent.runId || undefined,
             },
           ]);
           streamTextRef.current = "";
@@ -521,12 +521,12 @@ export function useBackend() {
     }
 
     // Auto-detect new runs on current conversation from broadcast events.
-    // This catches events that arrive before the RPC response sets currentRunnerIdRef
+    // This catches events that arrive before the RPC response sets currentRunIdRef
     // (e.g. when the run fails immediately, the "error" event races the RPC response).
     if (
-      conversationEvent.runnerId &&
+      conversationEvent.runId &&
       conversationEvent.conversationId === conversationIdRef.current &&
-      !currentRunnerIdRef.current
+      !currentRunIdRef.current
     ) {
       if (
         conversationEvent.state === "delta" ||
@@ -535,29 +535,29 @@ export function useBackend() {
         conversationEvent.state === "error" ||
         conversationEvent.state === "aborted"
       ) {
-        currentRunnerIdRef.current = conversationEvent.runnerId;
+        currentRunIdRef.current = conversationEvent.runId;
         activeRunsRef.current.set(
           conversationEvent.conversationId,
-          conversationEvent.runnerId,
+          conversationEvent.runId,
         );
-        if (!runQueueRef.current.includes(conversationEvent.runnerId)) {
-          runQueueRef.current.push(conversationEvent.runnerId);
+        if (!runQueueRef.current.includes(conversationEvent.runId)) {
+          runQueueRef.current.push(conversationEvent.runId);
         }
         setIsRunning(true);
         setStatus("thinking...");
         setMessages((prev) => {
           // If sendMessage already created an untagged assistant placeholder,
-          // tag it with the runnerId instead of creating a duplicate.
+          // tag it with the runId instead of creating a duplicate.
           const lastMessage = prev[prev.length - 1];
           if (
             lastMessage &&
             lastMessage.type === "assistant" &&
             !lastMessage.content &&
-            !lastMessage.runnerId
+            !lastMessage.runId
           ) {
             return prev.map((message, index) =>
               index === prev.length - 1
-                ? { ...message, runnerId: conversationEvent.runnerId }
+                ? { ...message, runId: conversationEvent.runId }
                 : message,
             );
           }
@@ -567,7 +567,7 @@ export function useBackend() {
               id: nextMessageId(),
               type: "assistant",
               content: "",
-              runnerId: conversationEvent.runnerId || undefined,
+              runId: conversationEvent.runId || undefined,
             },
           ];
         });
@@ -581,21 +581,21 @@ export function useBackend() {
     )
       return;
     if (
-      currentRunnerIdRef.current &&
-      conversationEvent.runnerId !== currentRunnerIdRef.current
+      currentRunIdRef.current &&
+      conversationEvent.runId !== currentRunIdRef.current
     )
       return;
 
     // Guard: skip final/error/aborted if we have no active run (avoids corrupting history)
     if (
-      !currentRunnerIdRef.current &&
+      !currentRunIdRef.current &&
       (conversationEvent.state === "final" ||
         conversationEvent.state === "error" ||
         conversationEvent.state === "aborted")
     )
       return;
 
-    const eventRunnerId = conversationEvent.runnerId || null;
+    const eventRunId = conversationEvent.runId || null;
 
     if (conversationEvent.state === "delta") {
       setToolActivity(null);
@@ -607,7 +607,7 @@ export function useBackend() {
             const updated = [...prev];
             const assistantIndex = findRunAssistantIndex(
               updated,
-              eventRunnerId,
+              eventRunId,
             );
             if (
               assistantIndex >= 0 &&
@@ -623,7 +623,7 @@ export function useBackend() {
               id: nextMessageId(),
               type: "assistant",
               content: "",
-              runnerId: eventRunnerId || undefined,
+              runId: eventRunId || undefined,
             };
             updated.splice(assistantIndex + 1, 0, newAssistant);
             return updated;
@@ -634,7 +634,7 @@ export function useBackend() {
             const updated = [...prev];
             const assistantIndex = findRunAssistantIndex(
               updated,
-              eventRunnerId,
+              eventRunId,
             );
             if (
               assistantIndex >= 0 &&
@@ -647,7 +647,7 @@ export function useBackend() {
                 id: nextMessageId(),
                 type: "assistant",
                 content: "",
-                runnerId: eventRunnerId || undefined,
+                runId: eventRunId || undefined,
               };
               updated.splice(assistantIndex + 1, 0, newAssistant);
             }
@@ -671,7 +671,7 @@ export function useBackend() {
       setStreamText("");
       setMessages((prev) => {
         const updated = [...prev];
-        const assistantIndex = findRunAssistantIndex(updated, eventRunnerId);
+        const assistantIndex = findRunAssistantIndex(updated, eventRunId);
         const toolMsg: DisplayMessage = {
           id: nextMessageId(),
           type: "tool-invoke",
@@ -695,7 +695,7 @@ export function useBackend() {
             id: nextMessageId(),
             type: "assistant",
             content: "",
-            runnerId: eventRunnerId || undefined,
+            runId: eventRunId || undefined,
           };
           updated.splice(assistantIndex + 2, 0, newTail);
         } else {
@@ -710,7 +710,7 @@ export function useBackend() {
     } else if (conversationEvent.state === "tool_result") {
       setMessages((prev) => {
         const updated = [...prev];
-        const assistantIndex = findRunAssistantIndex(updated, eventRunnerId);
+        const assistantIndex = findRunAssistantIndex(updated, eventRunId);
         const toolMsg: DisplayMessage = {
           id: nextMessageId(),
           type: "tool-result",
@@ -735,7 +735,7 @@ export function useBackend() {
       const capturedStreamText = streamTextRef.current;
       setMessages((prev) => {
         const updated = [...prev];
-        const assistantIndex = findRunAssistantIndex(updated, eventRunnerId);
+        const assistantIndex = findRunAssistantIndex(updated, eventRunId);
         // When tool calls split the response into multiple assistant messages,
         // use only the current segment's stream text to avoid duplicating
         // pre-tool content already committed to earlier messages.
@@ -743,7 +743,7 @@ export function useBackend() {
           (message, index) =>
             index !== assistantIndex &&
             message.type === "assistant" &&
-            message.runnerId === eventRunnerId,
+            message.runId === eventRunId,
         );
         const finalText = hasToolSplits
           ? capturedStreamText
@@ -796,7 +796,7 @@ export function useBackend() {
       const capturedStreamText = streamTextRef.current;
       setMessages((prev) => {
         const updated = [...prev];
-        const assistantIndex = findRunAssistantIndex(updated, eventRunnerId);
+        const assistantIndex = findRunAssistantIndex(updated, eventRunId);
         if (
           assistantIndex >= 0 &&
           updated[assistantIndex].type === "assistant"
@@ -821,7 +821,7 @@ export function useBackend() {
       const capturedStreamText = streamTextRef.current;
       setMessages((prev) => {
         const updated = [...prev];
-        const assistantIndex = findRunAssistantIndex(updated, eventRunnerId);
+        const assistantIndex = findRunAssistantIndex(updated, eventRunId);
         if (
           assistantIndex >= 0 &&
           updated[assistantIndex].type === "assistant"
@@ -939,9 +939,9 @@ export function useBackend() {
           const reconciledRunState = reconcileRunStateFromHistory(
             activeRunsRef.current,
             key,
-            res.activeRunnerId,
+            res.activeRunId,
           );
-          currentRunnerIdRef.current = reconciledRunState.currentRunnerId;
+          currentRunIdRef.current = reconciledRunState.currentRunId;
           runQueueRef.current = reconciledRunState.runQueue;
           setIsRunning(reconciledRunState.isRunning);
           if (reconciledRunState.isRunning) {
@@ -950,7 +950,7 @@ export function useBackend() {
               id: nextMessageId(),
               type: "assistant",
               content: "",
-              runnerId: res.activeRunnerId,
+              runId: res.activeRunId,
             });
           } else {
             streamTextRef.current = "";
@@ -1041,7 +1041,7 @@ export function useBackend() {
   const switchConversation = useCallback(
     (key: string, agentId?: string) => {
       // Detach current streaming state
-      currentRunnerIdRef.current = null;
+      currentRunIdRef.current = null;
       streamTextRef.current = "";
       afterToolCallsRef.current = false;
       runQueueRef.current = [];
@@ -1102,17 +1102,17 @@ export function useBackend() {
           setConversationModel(res.model || null);
 
           // Use activeRunId from server response to detect active runs
-          if (res.activeRunnerId) {
-            currentRunnerIdRef.current = res.activeRunnerId;
-            activeRunsRef.current.set(key, res.activeRunnerId);
-            runQueueRef.current = [res.activeRunnerId];
+          if (res.activeRunId) {
+            currentRunIdRef.current = res.activeRunId;
+            activeRunsRef.current.set(key, res.activeRunId);
+            runQueueRef.current = [res.activeRunId];
             setIsRunning(true);
             setStatus("thinking...");
             displayMessages.push({
               id: nextMessageId(),
               type: "assistant",
               content: "",
-              runnerId: res.activeRunnerId,
+              runId: res.activeRunId,
             });
           }
 
@@ -1120,7 +1120,7 @@ export function useBackend() {
           historyLoadedRef.current = true;
 
           // Replay buffered events (only if run is still active — otherwise history is complete)
-          if (res.activeRunnerId && pendingEventsRef.current.length > 0) {
+          if (res.activeRunId && pendingEventsRef.current.length > 0) {
             for (const event of pendingEventsRef.current) {
               handleEvent(event);
             }
@@ -1133,7 +1133,7 @@ export function useBackend() {
   );
 
   const newConversation = useCallback(() => {
-    currentRunnerIdRef.current = null;
+    currentRunIdRef.current = null;
     streamTextRef.current = "";
     afterToolCallsRef.current = false;
     runQueueRef.current = [];
@@ -1258,21 +1258,21 @@ export function useBackend() {
 
       sendRpc<ConversationSendResult>("conversations.send", rpcParams)
         .then((res) => {
-          // Tag assistant placeholder with runnerId
+          // Tag assistant placeholder with runId
           setMessages((prev) =>
             prev.map((message) =>
               message.id === assistantMessageId
-                ? { ...message, runnerId: res.runnerId }
+                ? { ...message, runId: res.runId }
                 : message,
             ),
           );
-          if (!runQueueRef.current.includes(res.runnerId)) {
-            runQueueRef.current.push(res.runnerId);
+          if (!runQueueRef.current.includes(res.runId)) {
+            runQueueRef.current.push(res.runId);
           }
-          if (!currentRunnerIdRef.current) {
-            currentRunnerIdRef.current = res.runnerId;
+          if (!currentRunIdRef.current) {
+            currentRunIdRef.current = res.runId;
           }
-          activeRunsRef.current.set(res.conversationId, res.runnerId);
+          activeRunsRef.current.set(res.conversationId, res.runId);
           touchConversation(res.conversationId);
           // Lock conversation model on first send.
           if (!conversationModelRef.current && resolvedModel) {
@@ -1334,9 +1334,18 @@ export function useBackend() {
   );
 
   const abortRun = useCallback(() => {
-    if (!currentRunnerIdRef.current) return;
+    const conversationId = conversationIdRef.current || undefined;
+    const runId =
+      currentRunIdRef.current ||
+      (conversationId
+        ? activeRunsRef.current.get(conversationId) || undefined
+        : undefined);
+
+    if (!runId && !conversationId) return;
+
     sendRpc("conversations.abort", {
-      runnerId: currentRunnerIdRef.current,
+      runId,
+      conversationId,
     }).catch(() => {});
   }, [sendRpc]);
 
@@ -1506,7 +1515,7 @@ export function useBackend() {
     hasConnectedOnce,
     isAdmin,
     currentUserId,
-    currentRunnerId: currentRunnerIdRef.current,
+    currentRunId: currentRunIdRef.current,
     conversationModel,
     serverDefaultAgentId,
     audioCapability,

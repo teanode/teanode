@@ -16,24 +16,24 @@ import (
 type mockDispatcher struct {
 	mu         sync.Mutex
 	runCounter int
-	sendCalls  []coordinators.SendMessageParameters
+	sendCalls  []coordinators.RunParameters
 	abortCalls []string
 }
 
-func (self *mockDispatcher) SendMessage(_ context.Context, parameters coordinators.SendMessageParameters, _ *runners.RunCallbacks) (*coordinators.RunHandle, error) {
+func (self *mockDispatcher) Run(_ context.Context, parameters coordinators.RunParameters, _ *runners.RunCallbacks) (*coordinators.RunHandle, error) {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	self.runCounter++
 	self.sendCalls = append(self.sendCalls, parameters)
 	handle := coordinators.NewRunHandle(fmt.Sprintf("run-%d", self.runCounter), parameters.ConversationID)
-	handle.Resolve(&runners.RunResult{Response: "ok"}, nil, nil)
+	handle.Resolve(&runners.RunResult{Response: "ok"}, nil)
 	return handle, nil
 }
 
-func (self *mockDispatcher) AbortRunner(runnerId string) bool {
+func (self *mockDispatcher) AbortRun(runId string) bool {
 	self.mu.Lock()
 	defer self.mu.Unlock()
-	self.abortCalls = append(self.abortCalls, runnerId)
+	self.abortCalls = append(self.abortCalls, runId)
 	return true
 }
 
@@ -119,7 +119,7 @@ func (self *mockDispatcher) sendCount() int {
 	return len(self.sendCalls)
 }
 
-func (self *mockDispatcher) lastSend() coordinators.SendMessageParameters {
+func (self *mockDispatcher) lastSend() coordinators.RunParameters {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	return self.sendCalls[len(self.sendCalls)-1]

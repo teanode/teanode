@@ -569,7 +569,7 @@ func (self *Runner) summarizeAndPersist(
 			qualifiedModel = summarizerModel
 		}
 	}
-	provider, _, modelName, err := self.ProviderRegistry.ResolveProviderAndModel(qualifiedModel)
+	provider, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(qualifiedModel)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve summary model %q: %w", qualifiedModel, err)
 	}
@@ -615,7 +615,7 @@ func (self *Runner) CompactConversation(ctx context.Context) (*CompactResult, er
 	}
 
 	// Build messages via the same pipeline used for normal runs.
-	llmMessages := self.buildMessages(ctx, history, "", SystemPromptModeFull, self.SkillPrompts)
+	llmMessages := self.buildMessages(ctx, history, "", SystemPromptModeFull, self.skillPrompts)
 
 	summaryText, err := self.summarizeAndPersist(ctx, llmMessages, self.resolveContextWindow(ctx))
 	if err != nil {

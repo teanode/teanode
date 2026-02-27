@@ -251,7 +251,7 @@ type Bot struct {
 
 	// Subscriber-driven streaming state.
 	subscribedRunsMutex sync.Mutex
-	subscribedRuns      map[string]*telegramSubscribedRun // runnerId -> state
+	subscribedRuns      map[string]*telegramSubscribedRun // runId -> state
 }
 
 // New creates a new Telegram bot that dynamically resolves the default agent and conversation from the coordinator.
@@ -349,11 +349,11 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 		return
 	}
 
-	runnerId, _ := payloadMap["runnerId"].(string)
+	runId, _ := payloadMap["runId"].(string)
 	state, _ := payloadMap["state"].(string)
 	conversationId, _ := payloadMap["conversationId"].(string)
 
-	if runnerId == "" || state == "" {
+	if runId == "" || state == "" {
 		return
 	}
 
@@ -399,7 +399,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			}
 			preview := newTelegramStreamPreview(self.api, chatId, 0)
 			self.subscribedRunsMutex.Lock()
-			self.subscribedRuns[runnerId] = &telegramSubscribedRun{
+			self.subscribedRuns[runId] = &telegramSubscribedRun{
 				preview:     preview,
 				chatId:      chatId,
 				origin:      origin,
@@ -422,7 +422,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 		// Session runs are only delivered to Telegram if the originating web session disconnects.
 		self.subscribedRunsMutex.Lock()
-		self.subscribedRuns[runnerId] = &telegramSubscribedRun{
+		self.subscribedRuns[runId] = &telegramSubscribedRun{
 			chatId:          chatId,
 			origin:          origin,
 			originSessionId: originSessionId,
@@ -432,7 +432,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "delta":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runnerId]
+		subscribedRun := self.subscribedRuns[runId]
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil && subscribedRun.preview != nil {
 			text, _ := payloadMap["text"].(string)
@@ -441,7 +441,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "tool_call":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runnerId]
+		subscribedRun := self.subscribedRuns[runId]
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil && subscribedRun.preview != nil {
 			subscribedRun.preview.Reset()
@@ -451,7 +451,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "tool_result":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runnerId]
+		subscribedRun := self.subscribedRuns[runId]
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil {
 			result, _ := payloadMap["result"].(string)
@@ -464,8 +464,8 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "final":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runnerId]
-		delete(self.subscribedRuns, runnerId)
+		subscribedRun := self.subscribedRuns[runId]
+		delete(self.subscribedRuns, runId)
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun == nil {
 			return
@@ -522,8 +522,8 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 
 	case "error", "aborted":
 		self.subscribedRunsMutex.Lock()
-		subscribedRun := self.subscribedRuns[runnerId]
-		delete(self.subscribedRuns, runnerId)
+		subscribedRun := self.subscribedRuns[runId]
+		delete(self.subscribedRuns, runId)
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun == nil {
 			return
@@ -724,7 +724,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 	}
 
 	runContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
-	handle, sendError := self.coordinator.SendMessage(runContext, coordinators.SendMessageParameters{
+	handle, sendError := self.coordinator.Run(runContext, coordinators.RunParameters{
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
@@ -744,7 +744,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 	}
 
 	// Wait for completion.
-	result, _, runError := handle.Wait()
+	result, runError := handle.Wait()
 
 	previewMessageId, _ := preview.Stop()
 
@@ -825,14 +825,14 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 	case "reset", "clear":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
 		// Abort active run if any.
-		self.coordinator.AbortConversationRunner(conversationId)
+		self.coordinator.AbortConversationRun(conversationId)
 		newConversationId := self.coordinator.NewDefaultConversation(user.ID, defaultAgentId)
 		reply = fmt.Sprintf("Conversation cleared. New conversation started. (%s)", newConversationId)
 
 	case "stop":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
 		if self.coordinator.GetActiveConversationRunner(conversationId) != nil {
-			self.coordinator.AbortConversationRunner(conversationId)
+			self.coordinator.AbortConversationRun(conversationId)
 			reply = "Run cancelled."
 		} else {
 			reply = "No active run to cancel."
@@ -903,16 +903,11 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 	case "compact":
 		conversationId := self.coordinator.EnsureDefaultConversation(user.ID, defaultAgentId)
 		compactContext := models.ContextWithUserSessionToken(self.ctx, user, nil, nil)
-		compactHandle, compactError := self.coordinator.CompactConversation(compactContext, defaultAgentId, conversationId)
+		compactResult, compactError := self.coordinator.CompactConversation(compactContext, defaultAgentId, conversationId)
 		if compactError != nil {
 			reply = fmt.Sprintf("Error compacting: %v", compactError)
 		} else {
-			_, compactResult, waitError := compactHandle.Wait()
-			if waitError != nil {
-				reply = fmt.Sprintf("Error compacting: %v", waitError)
-			} else {
-				reply = fmt.Sprintf("Conversation compacted. Summarized %d messages.", compactResult.SummarizedMessages)
-			}
+			reply = fmt.Sprintf("Conversation compacted. Summarized %d messages.", compactResult.SummarizedMessages)
 		}
 
 	case "restart":

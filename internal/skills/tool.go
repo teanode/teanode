@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -10,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +17,7 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/cmdexec"
 )
 
 const (
@@ -429,27 +428,28 @@ func executeShellAction(ctx context.Context, action models.SkillAction, argument
 	defer cancel()
 
 	log.Debugf("shell exec: %v", commandParts)
-	command := exec.CommandContext(runCtx, commandParts[0], commandParts[1:]...)
-	if action.WorkingDirectory != "" {
-		command.Dir = action.WorkingDirectory
-	}
-	command.Stdin = strings.NewReader(stdin)
-
-	var stdout, stderr bytes.Buffer
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-
-	if err := command.Run(); err != nil {
-		stderrStr := stderr.String()
-		if stderrStr != "" {
-			log.Debugf("shell stderr: %s", stderrStr)
+	result, err := cmdexec.Run(runCtx, commandParts[0], commandParts[1:], cmdexec.Options{
+		Directory: action.WorkingDirectory,
+		Stdin:     stdin,
+	})
+	if err != nil {
+		stderrString := string(result.Stderr)
+		if stderrString != "" {
+			log.Debugf("shell stderr: %s", stderrString)
 		}
-		return "", fmt.Errorf("command failed: %v\n%s", err, stderrStr)
+		return "", fmt.Errorf("command failed: %v\n%s", err, stderrString)
 	}
-	if stderrStr := stderr.String(); stderrStr != "" {
-		log.Debugf("shell stderr: %s", stderrStr)
+	if result.ExitCode != 0 {
+		stderrString := string(result.Stderr)
+		if stderrString != "" {
+			log.Debugf("shell stderr: %s", stderrString)
+		}
+		return "", fmt.Errorf("command failed with exit code %d\n%s", result.ExitCode, stderrString)
 	}
-	return truncate(strings.TrimRight(stdout.String(), "\n"), maxResultBytes), nil
+	if stderrString := string(result.Stderr); stderrString != "" {
+		log.Debugf("shell stderr: %s", stderrString)
+	}
+	return truncate(strings.TrimRight(string(result.Stdout), "\n"), maxResultBytes), nil
 }
 
 func executeHTTPAction(ctx context.Context, action models.SkillAction, arguments map[string]interface{}, authenticationProfiles map[string]models.SkillAuthenticationProfiles) (string, error) {

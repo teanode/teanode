@@ -73,7 +73,7 @@ export interface ConversationSendParams {
 }
 
 export interface ConversationSendResult {
-  runnerId: string;
+  runId: string;
   conversationId: string;
 }
 
@@ -87,7 +87,7 @@ export interface ConversationHistoryParams {
 export interface ConversationHistoryResult {
   conversationId: string;
   messages: Message[];
-  activeRunnerId?: string;
+  activeRunId?: string;
   hasMore?: boolean;
   totalCount?: number;
   oldestLoadedIndex?: number;
@@ -96,7 +96,8 @@ export interface ConversationHistoryResult {
 }
 
 export interface ConversationAbortParams {
-  runnerId: string;
+  runId?: string;
+  conversationId?: string;
 }
 
 export interface ConversationsListResult {
@@ -165,7 +166,7 @@ export type ConversationEventState =
 
 export interface ConversationEvent {
   state: ConversationEventState;
-  runnerId?: string;
+  runId?: string;
   conversationId?: string;
   text?: string;
   toolName?: string;
@@ -381,6 +382,6 @@ export interface DisplayMessage {
   toolName?: string;
   usage?: Usage;
   timestamp?: number; // ms since epoch
-  runnerId?: string; // associates message with a runner for queuing
+  runId?: string; // associates message with a runner for queuing
   attachments?: Attachment[];
 }

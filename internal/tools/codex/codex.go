@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"os/exec"
 	"sort"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/op/go-logging"
@@ -18,6 +16,7 @@ import (
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/cmdexec"
 )
 
 var log = logging.MustGetLogger("codex")
@@ -36,29 +35,15 @@ var DefaultAllowedTools = []string{
 // commandRunner abstracts command execution for testing.
 type commandRunner func(ctx context.Context, name string, args []string, directory string) (stdout []byte, stderr []byte, exitCode int, err error)
 
-// defaultCommandRunner executes commands via os/exec.
-func defaultCommandRunner(ctx context.Context, name string, args []string, directory string) ([]byte, []byte, int, error) {
-	command := exec.CommandContext(ctx, name, args...)
-	command.Dir = directory
-	command.Stdin = nil
-	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-
-	var stdoutBuffer, stderrBuffer bytes.Buffer
-	command.Stdout = &stdoutBuffer
-	command.Stderr = &stderrBuffer
-
-	err := command.Run()
-
-	exitCode := 0
+// defaultCommandRunner executes commands via cmdexec.Run.
+func defaultCommandRunner(ctx context.Context, name string, arguments []string, directory string) ([]byte, []byte, int, error) {
+	result, err := cmdexec.Run(ctx, name, arguments, cmdexec.Options{
+		Directory: directory,
+	})
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			exitCode = exitError.ExitCode()
-		} else {
-			return stdoutBuffer.Bytes(), stderrBuffer.Bytes(), -1, err
-		}
+		return result.Stdout, result.Stderr, result.ExitCode, err
 	}
-
-	return stdoutBuffer.Bytes(), stderrBuffer.Bytes(), exitCode, nil
+	return result.Stdout, result.Stderr, result.ExitCode, nil
 }
 
 // sessionInfo tracks an in-memory session for convenience.

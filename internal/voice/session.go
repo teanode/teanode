@@ -63,7 +63,7 @@ type Session struct {
 
 	stateMu            sync.RWMutex
 	currentTurnId      string
-	currentRunnerId    string
+	currentRunId       string
 	currentResponseId  string
 	lastCommittedText  string
 	runCancel          func()
@@ -227,13 +227,13 @@ func (self *Session) SetCurrentTurnID(id string) {
 func (self *Session) GetCurrentRunID() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
-	return self.currentRunnerId
+	return self.currentRunId
 }
 
 func (self *Session) SetCurrentRunID(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
-	self.currentRunnerId = id
+	self.currentRunId = id
 }
 
 func (self *Session) ClearCurrentRun() {
@@ -332,32 +332,32 @@ func (self *Session) MarkTurnCommitted(turnId string) {
 	self.committedTurns[turnId] = struct{}{}
 }
 
-func (self *Session) MarkRunCanceled(runnerId string) {
-	if runnerId == "" {
+func (self *Session) MarkRunCanceled(runId string) {
+	if runId == "" {
 		return
 	}
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
-	self.canceledRuns[runnerId] = struct{}{}
+	self.canceledRuns[runId] = struct{}{}
 }
 
-func (self *Session) IsRunCanceled(runnerId string) bool {
-	if runnerId == "" {
+func (self *Session) IsRunCanceled(runId string) bool {
+	if runId == "" {
 		return false
 	}
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
-	_, exists := self.canceledRuns[runnerId]
+	_, exists := self.canceledRuns[runId]
 	return exists
 }
 
-func (self *Session) ClearCanceledRun(runnerId string) {
-	if runnerId == "" {
+func (self *Session) ClearCanceledRun(runId string) {
+	if runId == "" {
 		return
 	}
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
-	delete(self.canceledRuns, runnerId)
+	delete(self.canceledRuns, runId)
 }
 
 func (self *Session) EnqueuePendingTurn(turnId, text string) (dropped *PendingTurn, queueDepth int) {
