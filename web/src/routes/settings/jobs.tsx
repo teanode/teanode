@@ -109,7 +109,8 @@ export default function SettingsJobsPage() {
       if (data.name !== job.name) params.name = data.name;
       if (data.schedule !== job.schedule) params.schedule = data.schedule;
       if (data.message !== job.message) params.message = data.message;
-      if (data.model !== (job.providerModelName || "")) params.providerModelName = data.model;
+      if (data.model !== (job.providerModelName || ""))
+        params.providerModelName = data.model;
       if (data.agentId !== (job.agentId || "")) params.agentId = data.agentId;
       backend.updateJob(params).catch(() => {});
     },
@@ -145,13 +146,17 @@ export default function SettingsJobsPage() {
   const saveOneShotJob = useCallback(
     (job: Job) => {
       const message = (oneShotMessageByJob[job.id] ?? job.message).trim();
-      const model = (oneShotModelByJob[job.id] ?? (job.providerModelName || "")).trim();
+      const model = (
+        oneShotModelByJob[job.id] ??
+        (job.providerModelName || "")
+      ).trim();
       const agentId = (oneShotAgentByJob[job.id] ?? (job.agentId || "")).trim();
       if (!message) return;
 
       const params: JobUpdateParams = { id: job.id };
       if (message !== job.message) params.message = message;
-      if (model !== (job.providerModelName || "")) params.providerModelName = model;
+      if (model !== (job.providerModelName || ""))
+        params.providerModelName = model;
       if (agentId !== (job.agentId || "")) params.agentId = agentId;
       if (Object.keys(params).length === 1) return;
 
@@ -179,7 +184,8 @@ export default function SettingsJobsPage() {
           </Box>
           {jobs.map((job) => {
             const currentMessage = oneShotMessageByJob[job.id] ?? job.message;
-            const currentModel = oneShotModelByJob[job.id] ?? (job.providerModelName || "");
+            const currentModel =
+              oneShotModelByJob[job.id] ?? (job.providerModelName || "");
             const currentAgentId =
               oneShotAgentByJob[job.id] ?? (job.agentId || "");
             const oneShotDirty =

@@ -230,14 +230,14 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 
 		result := dispatch.runResult
 		payload := map[string]interface{}{
-			"state":          "final",
-			"runId":          runId,
-			"conversationId": conversationId,
-			"agentId":        resolvedAgentId,
-			"userId":         userId,
-			"text":           result.Response,
+			"state":             "final",
+			"runId":             runId,
+			"conversationId":    conversationId,
+			"agentId":           resolvedAgentId,
+			"userId":            userId,
+			"text":              result.Response,
 			"providerModelName": result.ProviderModelName,
-			"stopReason":     result.StopReason,
+			"stopReason":        result.StopReason,
 		}
 		if result.Usage != nil {
 			payload["usage"] = result.Usage
