@@ -28,6 +28,11 @@ type ConversationListOptions struct {
 	Default *bool
 }
 
+type TodoListOptions struct {
+	ProjectID      *string
+	ConversationID *string
+}
+
 type MediaListOptions struct {
 	UserID         *string
 	ConversationID *string

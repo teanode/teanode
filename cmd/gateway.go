@@ -45,6 +45,7 @@ import (
 	_ "github.com/teanode/teanode/internal/tools/codex"
 	_ "github.com/teanode/teanode/internal/tools/configs"
 	_ "github.com/teanode/teanode/internal/tools/conversation"
+	_ "github.com/teanode/teanode/internal/tools/conversations"
 	_ "github.com/teanode/teanode/internal/tools/datetime"
 	_ "github.com/teanode/teanode/internal/tools/fetch"
 	_ "github.com/teanode/teanode/internal/tools/filesystem"

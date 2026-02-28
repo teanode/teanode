@@ -482,12 +482,12 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 			// runner keeps running even if the caller (e.g. WebSocket) disconnects.
 			// Carry over the authenticated user from the caller's context.
 			// Ensure coordinator is on the context.
-			ctx, cancel = context.WithCancel(ContextWithCoordinator(models.ContextWithUserSessionToken(
+			ctx, cancel = context.WithCancel(ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
 				self.ctx,
 				models.UserFromContext(message.ctx),
 				models.SessionFromContext(message.ctx),
 				models.TokenFromContext(message.ctx),
-			), self))
+			), self.pubsub), self))
 			conversationRunnerInstance.cancel = cancel
 		}
 

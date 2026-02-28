@@ -26,6 +26,7 @@ type Transaction interface {
 	SessionOperation
 	MediaOperation
 	SkillOperation
+	TodoOperation
 }
 
 type ConfigurationOperation interface {
@@ -116,6 +117,14 @@ type MediaOperation interface {
 	OpenMedia(ctx context.Context, mediaId string, options *Option) (io.ReadCloser, *models.Media, error)
 	ModifyMedia(ctx context.Context, mediaId string, modifier func(*models.Media) error, options *Option) (*models.Media, error)
 	DeleteMedia(ctx context.Context, mediaId string, options *Option) error
+}
+
+type TodoOperation interface {
+	ListTodos(ctx context.Context, listOptions TodoListOptions, options *Option) ([]*models.Todo, error)
+	CreateTodo(ctx context.Context, todo *models.Todo, options *Option) (*models.Todo, error)
+	GetTodo(ctx context.Context, todoId string, options *Option) (*models.Todo, error)
+	ModifyTodo(ctx context.Context, todoId string, modifier func(*models.Todo) error, options *Option) (*models.Todo, error)
+	DeleteTodo(ctx context.Context, todoId string, options *Option) error
 }
 
 type SkillOperation interface {

@@ -94,6 +94,22 @@ func (self *fileSystemTransaction) skillsDirectory() string {
 	return filepath.Join(self.dataDirectory(), "skills")
 }
 
+func (self *fileSystemTransaction) projectTodosDirectory(projectId string) string {
+	return filepath.Join(self.projectDirectory(projectId), "todos")
+}
+
+func (self *fileSystemTransaction) projectTodoFilePath(projectId, todoId string) string {
+	return filepath.Join(self.projectTodosDirectory(projectId), todoId+".yaml")
+}
+
+func (self *fileSystemTransaction) conversationTodosDirectory(userId, agentId, conversationId string) string {
+	return filepath.Join(self.userAgentConversationsDirectory(userId, agentId), conversationId+".todos")
+}
+
+func (self *fileSystemTransaction) conversationTodoFilePath(userId, agentId, conversationId, todoId string) string {
+	return filepath.Join(self.conversationTodosDirectory(userId, agentId, conversationId), todoId+".yaml")
+}
+
 func (self *fileSystemTransaction) trashDirectory() string {
 	return filepath.Join(self.dataDirectory(), ".trash")
 }

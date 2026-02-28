@@ -26,6 +26,9 @@ const (
 
 	// EventTypeJobs signals that the scheduled jobs list has changed.
 	EventTypeJobs EventType = "jobs"
+
+	// EventTypeConversationTodos signals that a conversation's todo list has changed.
+	EventTypeConversationTodos EventType = "conversation_todos"
 )
 
 // Subscriber receives broadcast events.
