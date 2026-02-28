@@ -60,14 +60,14 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"version":               version.Version(),
-		"capabilities":          capabilities,
+		"version":                  version.Version(),
+		"capabilities":             capabilities,
 		"defaultProviderModelName": defaultProviderModelName,
 		"agents":                   agentInfos,
-		"defaultAgentId":        defaultAgentId,
-		"defaultConversationId": self.api.coordinator.EnsureDefaultConversation(self.userId(), defaultAgentId),
-		"isAdmin":               self.isAdmin(),
-		"userId":                self.userId(),
+		"defaultAgentId":           defaultAgentId,
+		"defaultConversationId":    self.api.coordinator.EnsureDefaultConversation(self.userId(), defaultAgentId),
+		"isAdmin":                  self.isAdmin(),
+		"userId":                   self.userId(),
 	})
 }
 
@@ -556,7 +556,7 @@ func (self *webSocketConnection) handleModelsList(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"models":       entries,
+		"models":                   entries,
 		"defaultProviderModelName": defaultProviderModelName,
 	})
 }

@@ -121,7 +121,8 @@ export default function JobArea({
               if (data.schedule !== job.schedule)
                 params.schedule = data.schedule;
               if (data.message !== job.message) params.message = data.message;
-              if (data.model !== (job.providerModelName || "")) params.providerModelName = data.model;
+              if (data.model !== (job.providerModelName || ""))
+                params.providerModelName = data.model;
               if (data.agentId !== (job.agentId || ""))
                 params.agentId = data.agentId;
               onUpdate(params).catch(() => {});

@@ -241,7 +241,10 @@ function convertHistory(
         });
         const usageNumbers = getUsageNumbers(message.usage);
         if (usageNumbers) {
-          const contextWindow = findContextWindow(models, message.providerModelName);
+          const contextWindow = findContextWindow(
+            models,
+            message.providerModelName,
+          );
           displayMessages.push({
             id: nextMessageId(),
             type: "usage",
@@ -769,7 +772,10 @@ export function useBackend() {
         if (usageNumbers) {
           const contextWindow =
             conversationEvent.contextWindow ||
-            findContextWindow(modelsRef.current, conversationEvent.providerModelName);
+            findContextWindow(
+              modelsRef.current,
+              conversationEvent.providerModelName,
+            );
           // Insert usage after the assistant message (or at the position it was)
           const insertPosition = finalText
             ? assistantIndex + 1
