@@ -30,6 +30,8 @@ export interface AppContextValue {
   setVoiceCallSttMode: (value: VoiceCallSTTMode) => void;
   languagePreference: LanguagePreference;
   setLanguagePreference: (value: LanguagePreference) => void;
+  todosPanelCollapsed: boolean;
+  setTodosPanelCollapsed: (value: boolean) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -86,6 +88,9 @@ export function AppProvider({
       if (stored === "ja") return "ja";
       return "auto";
     });
+  const [todosPanelCollapsed, setTodosPanelCollapsedState] = useState(() => {
+    return localStorage.getItem("teanode-todos-collapsed") === "true";
+  });
 
   const setShowToolCalls = useCallback((value: boolean) => {
     setShowToolCallsState(value);
@@ -132,6 +137,11 @@ export function AppProvider({
     localStorage.setItem(LANGUAGE_PREFERENCE_STORAGE_KEY, value);
   }, []);
 
+  const setTodosPanelCollapsed = useCallback((value: boolean) => {
+    setTodosPanelCollapsedState(value);
+    localStorage.setItem("teanode-todos-collapsed", String(value));
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
@@ -156,6 +166,8 @@ export function AppProvider({
         setVoiceCallSttMode,
         languagePreference,
         setLanguagePreference,
+        todosPanelCollapsed,
+        setTodosPanelCollapsed,
       }}
     >
       {children}

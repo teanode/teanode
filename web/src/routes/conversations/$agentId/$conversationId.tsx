@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useAppContext } from "../../../context";
 import MessageList from "../../../components/MessageList";
+import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
 import VoiceCallBar from "../../../components/VoiceCallBar";
 import { useTts } from "../../../hooks/useTts";
@@ -15,7 +16,13 @@ export default function ConversationsConversationPage() {
     agentId: string;
     conversationId: string;
   };
-  const { backend, voiceAutoSend, ttsVoice } = useAppContext();
+  const {
+    backend,
+    voiceAutoSend,
+    ttsVoice,
+    todosPanelCollapsed,
+    setTodosPanelCollapsed,
+  } = useAppContext();
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;
   const [profile, setProfile] = useState<Profile>({
@@ -155,6 +162,15 @@ export default function ConversationsConversationPage() {
         onStopSpeaking={handleStopSpeaking}
         showAbortOnStatusLine={backend.isRunning && !inputFocused}
         onAbort={backend.abortRun}
+      />
+      <TodoPanel
+        todos={backend.todos}
+        collapsed={todosPanelCollapsed}
+        onToggleCollapsed={setTodosPanelCollapsed}
+        onAdd={backend.addTodo}
+        onComplete={backend.completeTodo}
+        onReopen={backend.reopenTodo}
+        onDelete={backend.deleteTodo}
       />
       {voiceCall.isCallActive ? (
         <VoiceCallBar

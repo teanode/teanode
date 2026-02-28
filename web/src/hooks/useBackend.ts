@@ -22,6 +22,9 @@ import type {
   JobCreateParams,
   JobUpdateParams,
   JobsListResult,
+  Todo,
+  ConversationTodosEvent,
+  ConversationTodosListResult,
 } from "../types";
 import { useWebSocket } from "./useWebSocket";
 
@@ -401,6 +404,33 @@ export function useBackend() {
               : agent,
           ),
         );
+      }
+      return;
+    }
+
+    if (frame.event === "conversation_todos") {
+      const payload = frame.payload as ConversationTodosEvent | undefined;
+      if (
+        payload &&
+        payload.conversationId === conversationIdRef.current
+      ) {
+        if (payload.action === "add" && payload.todo) {
+          setTodos((prev) => {
+            if (prev.some((t) => t.id === payload.todo!.id)) return prev;
+            return [payload.todo!, ...prev];
+          });
+        } else if (
+          (payload.action === "update" ||
+            payload.action === "complete" ||
+            payload.action === "reopen") &&
+          payload.todo
+        ) {
+          setTodos((prev) =>
+            prev.map((t) => (t.id === payload.todoId ? payload.todo! : t)),
+          );
+        } else if (payload.action === "delete") {
+          setTodos((prev) => prev.filter((t) => t.id !== payload.todoId));
+        }
       }
       return;
     }
@@ -1079,6 +1109,10 @@ export function useBackend() {
       oldestLoadedIndexRef.current = 0;
       setHasMoreHistory(false);
 
+      // Reset todos for new conversation
+      setTodos([]);
+      todosConversationIdRef.current = key;
+
       // Buffer events while history is loading
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
@@ -1126,6 +1160,18 @@ export function useBackend() {
             }
           }
           pendingEventsRef.current = [];
+
+          // Load todos for this conversation
+          sendRpc<ConversationTodosListResult>("conversations.todos.list", {
+            conversationId: key,
+          })
+            .then((todosResult) => {
+              if (conversationIdRef.current !== key) return;
+              setTodos(todosResult.todos || []);
+            })
+            .catch((error) =>
+              console.error("conversations.todos.list:", error),
+            );
         })
         .catch((error) => console.error("conversations.history:", error));
     },
@@ -1149,6 +1195,9 @@ export function useBackend() {
     // Reset pagination state
     oldestLoadedIndexRef.current = 0;
     setHasMoreHistory(false);
+    // Clear todos
+    setTodos([]);
+    todosConversationIdRef.current = null;
   }, []);
 
   const loadOlderMessages = useCallback(() => {
@@ -1497,6 +1546,112 @@ export function useBackend() {
     lastSentViaMicRef.current = false;
   }, []);
 
+  // ── Conversation Todos ──────────────────────────────────────────────
+
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const todosConversationIdRef = useRef<string | null>(null);
+
+  const loadTodos = useCallback(
+    (targetConversationId?: string) => {
+      const convId = targetConversationId || conversationIdRef.current;
+      if (!convId) {
+        setTodos([]);
+        return;
+      }
+      todosConversationIdRef.current = convId;
+      sendRpc<ConversationTodosListResult>("conversations.todos.list", {
+        conversationId: convId,
+      })
+        .then((result) => {
+          if (todosConversationIdRef.current !== convId) return;
+          setTodos(result.todos || []);
+        })
+        .catch((error) => console.error("conversations.todos.list:", error));
+    },
+    [sendRpc],
+  );
+
+  const addTodo = useCallback(
+    (title: string, priority?: string) => {
+      const convId = conversationIdRef.current;
+      if (!convId || !title.trim()) return;
+      sendRpc<{ todo: Todo }>("conversations.todos.add", {
+        conversationId: convId,
+        title,
+        priority,
+      })
+        .then((result) => {
+          if (result.todo) {
+            setTodos((prev) => [result.todo, ...prev]);
+          }
+        })
+        .catch((error) => console.error("conversations.todos.add:", error));
+    },
+    [sendRpc],
+  );
+
+  const completeTodo = useCallback(
+    (todoId: string) => {
+      const convId = conversationIdRef.current;
+      if (!convId) return;
+      sendRpc<{ todo: Todo }>("conversations.todos.complete", {
+        conversationId: convId,
+        todoId,
+      })
+        .then((result) => {
+          if (result.todo) {
+            setTodos((prev) =>
+              prev.map((t) => (t.id === todoId ? result.todo : t)),
+            );
+          }
+        })
+        .catch((error) =>
+          console.error("conversations.todos.complete:", error),
+        );
+    },
+    [sendRpc],
+  );
+
+  const reopenTodo = useCallback(
+    (todoId: string) => {
+      const convId = conversationIdRef.current;
+      if (!convId) return;
+      sendRpc<{ todo: Todo }>("conversations.todos.reopen", {
+        conversationId: convId,
+        todoId,
+      })
+        .then((result) => {
+          if (result.todo) {
+            setTodos((prev) =>
+              prev.map((t) => (t.id === todoId ? result.todo : t)),
+            );
+          }
+        })
+        .catch((error) =>
+          console.error("conversations.todos.reopen:", error),
+        );
+    },
+    [sendRpc],
+  );
+
+  const deleteTodo = useCallback(
+    (todoId: string) => {
+      const convId = conversationIdRef.current;
+      if (!convId) return;
+      sendRpc("conversations.todos.delete", {
+        conversationId: convId,
+        todoId,
+      })
+        .then(() => {
+          setTodos((prev) => prev.filter((t) => t.id !== todoId));
+        })
+        .catch((error) =>
+          console.error("conversations.todos.delete:", error),
+        );
+    },
+    [sendRpc],
+  );
+
   return {
     conversations,
     conversationId,
@@ -1546,5 +1701,11 @@ export function useBackend() {
     updateJob,
     deleteJob,
     triggerJob,
+    todos,
+    loadTodos,
+    addTodo,
+    completeTodo,
+    reopenTodo,
+    deleteTodo,
   };
 }
