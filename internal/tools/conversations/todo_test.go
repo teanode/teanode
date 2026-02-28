@@ -201,6 +201,104 @@ func TestConvTodoOwnershipDenied(t *testing.T) {
 	}
 }
 
+func TestConvTodoClearDone(t *testing.T) {
+	s := setupConvTodoStore(t)
+	ctx := store.ContextWithStore(context.Background(), s)
+	convId := createConv(t, ctx, s, "user1", "agent1")
+	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
+
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(conversations.NewConversationTodoTool())
+	todoTool := registry.Get("conversation_todo")
+
+	// Add two todos, complete one.
+	todoTool.Execute(todoCtx, `{"action":"add","title":"Open Item"}`)
+	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"Done Item"}`)
+	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	json.Unmarshal([]byte(addResult), &added)
+	todoTool.Execute(todoCtx, `{"action":"complete","todoId":"`+added.Todo.ID+`"}`)
+
+	// clear_done should remove only the done item.
+	clearResult, err := todoTool.Execute(todoCtx, `{"action":"clear_done"}`)
+	if err != nil {
+		t.Fatalf("clear_done failed: %v", err)
+	}
+	var cleared struct {
+		Action    string `json:"action"`
+		Success   bool   `json:"success"`
+		DoneCount int    `json:"doneCount"`
+	}
+	json.Unmarshal([]byte(clearResult), &cleared)
+	if !cleared.Success {
+		t.Fatal("expected success=true")
+	}
+	if cleared.DoneCount != 1 {
+		t.Fatalf("doneCount = %d, want 1", cleared.DoneCount)
+	}
+
+	// Verify only the open item remains.
+	listResult, _ := todoTool.Execute(todoCtx, `{"action":"list"}`)
+	var listed struct {
+		Todos      []interface{} `json:"todos"`
+		TotalCount int           `json:"totalCount"`
+		OpenCount  int           `json:"openCount"`
+	}
+	json.Unmarshal([]byte(listResult), &listed)
+	if len(listed.Todos) != 1 {
+		t.Fatalf("expected 1 todo after clear_done, got %d", len(listed.Todos))
+	}
+	if listed.OpenCount != 1 {
+		t.Fatalf("openCount = %d, want 1", listed.OpenCount)
+	}
+}
+
+func TestConvTodoReset(t *testing.T) {
+	s := setupConvTodoStore(t)
+	ctx := store.ContextWithStore(context.Background(), s)
+	convId := createConv(t, ctx, s, "user1", "agent1")
+	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
+
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(conversations.NewConversationTodoTool())
+	todoTool := registry.Get("conversation_todo")
+
+	// Add two todos, complete one.
+	todoTool.Execute(todoCtx, `{"action":"add","title":"Open Item"}`)
+	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"Done Item"}`)
+	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	json.Unmarshal([]byte(addResult), &added)
+	todoTool.Execute(todoCtx, `{"action":"complete","todoId":"`+added.Todo.ID+`"}`)
+
+	// reset should remove all items.
+	resetResult, err := todoTool.Execute(todoCtx, `{"action":"reset"}`)
+	if err != nil {
+		t.Fatalf("reset failed: %v", err)
+	}
+	var resetResp struct {
+		Action     string `json:"action"`
+		Success    bool   `json:"success"`
+		TotalCount int    `json:"totalCount"`
+	}
+	json.Unmarshal([]byte(resetResult), &resetResp)
+	if !resetResp.Success {
+		t.Fatal("expected success=true")
+	}
+	if resetResp.TotalCount != 2 {
+		t.Fatalf("totalCount = %d, want 2", resetResp.TotalCount)
+	}
+
+	// Verify list is empty.
+	listResult, _ := todoTool.Execute(todoCtx, `{"action":"list"}`)
+	var listed struct {
+		Todos      []interface{} `json:"todos"`
+		TotalCount int           `json:"totalCount"`
+	}
+	json.Unmarshal([]byte(listResult), &listed)
+	if len(listed.Todos) != 0 {
+		t.Fatalf("expected 0 todos after reset, got %d", len(listed.Todos))
+	}
+}
+
 func TestConvTodoAdminCrossAccess(t *testing.T) {
 	s := setupConvTodoStore(t)
 	ctx := store.ContextWithStore(context.Background(), s)

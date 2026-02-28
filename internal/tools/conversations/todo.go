@@ -42,13 +42,13 @@ func (self *conversationTodoTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name:        "conversation_todo",
-			Description: "Manage conversation-scoped todos/tasks. Actions: list, add, update, complete, reopen, delete. Todos are private to the conversation.",
+			Description: "Manage conversation-scoped todos/tasks. Actions: list, add, update, complete, reopen, delete, clear_done, reset. Todos are private to the conversation.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type": "string",
-						"enum": []string{"list", "add", "update", "complete", "reopen", "delete"},
+						"enum": []string{"list", "add", "update", "complete", "reopen", "delete", "clear_done", "reset"},
 						"description": "The todo action to perform.",
 					},
 					"conversationId": map[string]interface{}{
@@ -157,6 +157,10 @@ func (self *conversationTodoTool) Execute(ctx context.Context, rawArguments stri
 		return self.executeReopen(ctx, conversationId, user.ID, arguments.TodoID)
 	case "delete":
 		return self.executeDelete(ctx, conversationId, user.ID, arguments.TodoID)
+	case "clear_done":
+		return self.executeClearDone(ctx, conversationId, user.ID)
+	case "reset":
+		return self.executeReset(ctx, conversationId, user.ID)
 	default:
 		return "", fmt.Errorf("unknown conversation_todo action: %s", action)
 	}
@@ -335,6 +339,60 @@ func (self *conversationTodoTool) executeDelete(ctx context.Context, conversatio
 	afterMutateConversation(ctx, conversationId)
 	emitTodoEvent(ctx, conversationId, userId, &models.Todo{ID: todoId}, "delete")
 	output, _ := json.Marshal(conversationTodoResponse{Action: "delete", Success: true})
+	return string(output), nil
+}
+
+func (self *conversationTodoTool) executeClearDone(ctx context.Context, conversationId, userId string) (string, error) {
+	var deleted int
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		todos, err := tx.ListTodos(ctx, store.TodoListOptions{ConversationID: &conversationId}, nil)
+		if err != nil {
+			return err
+		}
+		for _, todo := range todos {
+			if todo.GetStatus() == "done" {
+				if err := tx.DeleteTodo(ctx, todo.ID, nil); err != nil {
+					return err
+				}
+				deleted++
+			}
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+
+	if deleted > 0 {
+		afterMutateConversation(ctx, conversationId)
+		emitTodoEvent(ctx, conversationId, userId, &models.Todo{}, "clear_done")
+	}
+	output, _ := json.Marshal(conversationTodoResponse{Action: "clear_done", Success: true, DoneCount: deleted})
+	return string(output), nil
+}
+
+func (self *conversationTodoTool) executeReset(ctx context.Context, conversationId, userId string) (string, error) {
+	var deleted int
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		todos, err := tx.ListTodos(ctx, store.TodoListOptions{ConversationID: &conversationId}, nil)
+		if err != nil {
+			return err
+		}
+		for _, todo := range todos {
+			if err := tx.DeleteTodo(ctx, todo.ID, nil); err != nil {
+				return err
+			}
+			deleted++
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+
+	if deleted > 0 {
+		afterMutateConversation(ctx, conversationId)
+		emitTodoEvent(ctx, conversationId, userId, &models.Todo{}, "reset")
+	}
+	output, _ := json.Marshal(conversationTodoResponse{Action: "reset", Success: true, TotalCount: deleted})
 	return string(output), nil
 }
 

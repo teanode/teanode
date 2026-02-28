@@ -167,10 +167,6 @@ export default function ConversationsConversationPage() {
         todos={backend.todos}
         collapsed={todosPanelCollapsed}
         onToggleCollapsed={setTodosPanelCollapsed}
-        onAdd={backend.addTodo}
-        onComplete={backend.completeTodo}
-        onReopen={backend.reopenTodo}
-        onDelete={backend.deleteTodo}
       />
       {voiceCall.isCallActive ? (
         <VoiceCallBar

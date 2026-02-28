@@ -40,13 +40,13 @@ func (self *projectTodoTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name:        "project_todo",
-			Description: "Manage project-scoped todos/tasks. Actions: list, add, update, complete, reopen, delete.",
+			Description: "Manage project-scoped todos/tasks. Actions: list, add, update, complete, reopen, delete, clear_done, reset.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type": "string",
-						"enum": []string{"list", "add", "update", "complete", "reopen", "delete"},
+						"enum": []string{"list", "add", "update", "complete", "reopen", "delete", "clear_done", "reset"},
 						"description": "The todo action to perform.",
 					},
 					"projectId": map[string]interface{}{
@@ -116,7 +116,7 @@ func (self *projectTodoTool) Execute(ctx context.Context, rawArguments string) (
 
 	// Mutating actions require admin access.
 	switch action {
-	case "add", "update", "complete", "reopen", "delete":
+	case "add", "update", "complete", "reopen", "delete", "clear_done", "reset":
 		user := models.UserFromContext(ctx)
 		if user == nil || !user.GetAdmin() {
 			return "", fmt.Errorf("admin access required to %s project todos", action)
@@ -142,6 +142,10 @@ func (self *projectTodoTool) Execute(ctx context.Context, rawArguments string) (
 		return self.executeReopen(ctx, projectId, arguments.TodoID)
 	case "delete":
 		return self.executeDelete(ctx, projectId, arguments.TodoID)
+	case "clear_done":
+		return self.executeClearDone(ctx, projectId)
+	case "reset":
+		return self.executeReset(ctx, projectId)
 	default:
 		return "", fmt.Errorf("unknown project_todo action: %s", action)
 	}
@@ -315,6 +319,58 @@ func (self *projectTodoTool) executeDelete(ctx context.Context, projectId, todoI
 
 	afterMutateProject(ctx, projectId)
 	output, _ := json.Marshal(projectTodoResponse{Action: "delete", Success: true})
+	return string(output), nil
+}
+
+func (self *projectTodoTool) executeClearDone(ctx context.Context, projectId string) (string, error) {
+	var deleted int
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		todos, err := tx.ListTodos(ctx, store.TodoListOptions{ProjectID: &projectId}, nil)
+		if err != nil {
+			return err
+		}
+		for _, todo := range todos {
+			if todo.GetStatus() == "done" {
+				if err := tx.DeleteTodo(ctx, todo.ID, nil); err != nil {
+					return err
+				}
+				deleted++
+			}
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+
+	if deleted > 0 {
+		afterMutateProject(ctx, projectId)
+	}
+	output, _ := json.Marshal(projectTodoResponse{Action: "clear_done", Success: true, DoneCount: deleted})
+	return string(output), nil
+}
+
+func (self *projectTodoTool) executeReset(ctx context.Context, projectId string) (string, error) {
+	var deleted int
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		todos, err := tx.ListTodos(ctx, store.TodoListOptions{ProjectID: &projectId}, nil)
+		if err != nil {
+			return err
+		}
+		for _, todo := range todos {
+			if err := tx.DeleteTodo(ctx, todo.ID, nil); err != nil {
+				return err
+			}
+			deleted++
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+
+	if deleted > 0 {
+		afterMutateProject(ctx, projectId)
+	}
+	output, _ := json.Marshal(projectTodoResponse{Action: "reset", Success: true, TotalCount: deleted})
 	return string(output), nil
 }
 

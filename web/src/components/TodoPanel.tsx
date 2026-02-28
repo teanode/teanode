@@ -1,17 +1,14 @@
-import React, { useState, useCallback } from "react";
+import React from "react";
 import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
-import TextField from "@mui/material/TextField";
-import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
-import Tooltip from "@mui/material/Tooltip";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import AddIcon from "@mui/icons-material/Add";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 
 import type { Todo } from "../types";
 
@@ -19,10 +16,6 @@ interface TodoPanelProps {
   todos: Todo[];
   collapsed: boolean;
   onToggleCollapsed: (collapsed: boolean) => void;
-  onAdd: (title: string, priority?: string) => void;
-  onComplete: (todoId: string) => void;
-  onReopen: (todoId: string) => void;
-  onDelete: (todoId: string) => void;
 }
 
 const priorityColor: Record<string, "error" | "warning" | "default"> = {
@@ -35,34 +28,12 @@ export default function TodoPanel({
   todos,
   collapsed,
   onToggleCollapsed,
-  onAdd,
-  onComplete,
-  onReopen,
-  onDelete,
 }: TodoPanelProps) {
   const { t } = useTranslation();
-  const [newTitle, setNewTitle] = useState("");
 
   const openTodos = todos.filter((todo) => todo.status === "open");
   const doneTodos = todos.filter((todo) => todo.status === "done");
   const openCount = openTodos.length;
-
-  const handleAdd = useCallback(() => {
-    const title = newTitle.trim();
-    if (!title) return;
-    onAdd(title);
-    setNewTitle("");
-  }, [newTitle, onAdd]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        handleAdd();
-      }
-    },
-    [handleAdd],
-  );
 
   if (todos.length === 0) return null;
 
@@ -104,44 +75,14 @@ export default function TodoPanel({
 
       <Collapse in={!collapsed}>
         <Box sx={{ px: 2, pb: 1 }}>
-          {/* Add todo input */}
-          <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-            <TextField
-              size="small"
-              fullWidth
-              placeholder={t("todos.addPlaceholder")}
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              onKeyDown={handleKeyDown}
-              sx={{ mr: 0.5 }}
-            />
-            <IconButton
-              size="small"
-              onClick={handleAdd}
-              disabled={!newTitle.trim()}
-            >
-              <AddIcon fontSize="small" />
-            </IconButton>
-          </Box>
-
           {/* Open todos */}
           {openTodos.map((todo) => (
-            <TodoItem
-              key={todo.id}
-              todo={todo}
-              onToggle={() => onComplete(todo.id)}
-              onDelete={() => onDelete(todo.id)}
-            />
+            <TodoItem key={todo.id} todo={todo} />
           ))}
 
           {/* Done todos */}
           {doneTodos.map((todo) => (
-            <TodoItem
-              key={todo.id}
-              todo={todo}
-              onToggle={() => onReopen(todo.id)}
-              onDelete={() => onDelete(todo.id)}
-            />
+            <TodoItem key={todo.id} todo={todo} />
           ))}
         </Box>
       </Collapse>
@@ -149,15 +90,7 @@ export default function TodoPanel({
   );
 }
 
-function TodoItem({
-  todo,
-  onToggle,
-  onDelete,
-}: {
-  todo: Todo;
-  onToggle: () => void;
-  onDelete: () => void;
-}) {
+function TodoItem({ todo }: { todo: Todo }) {
   const isDone = todo.status === "done";
   const priority = todo.priority || "medium";
 
@@ -167,15 +100,19 @@ function TodoItem({
         display: "flex",
         alignItems: "center",
         py: 0.25,
-        "&:hover .todo-delete": { opacity: 1 },
       }}
     >
-      <Checkbox
-        size="small"
-        checked={isDone}
-        onChange={onToggle}
-        sx={{ p: 0.5 }}
-      />
+      <Box sx={{ p: 0.5, display: "flex", alignItems: "center" }}>
+        {isDone ? (
+          <CheckCircleOutlineIcon
+            sx={{ fontSize: 20, color: "success.main", opacity: 0.6 }}
+          />
+        ) : (
+          <RadioButtonUncheckedIcon
+            sx={{ fontSize: 20, color: "text.secondary" }}
+          />
+        )}
+      </Box>
       <Typography
         variant="body2"
         sx={{
@@ -196,16 +133,6 @@ function TodoItem({
           sx={{ height: 18, fontSize: "0.65rem", mr: 0.5 }}
         />
       )}
-      <Tooltip title="Delete">
-        <IconButton
-          size="small"
-          className="todo-delete"
-          onClick={onDelete}
-          sx={{ opacity: 0, transition: "opacity 0.2s" }}
-        >
-          <DeleteOutlineIcon sx={{ fontSize: 16 }} />
-        </IconButton>
-      </Tooltip>
     </Box>
   );
 }

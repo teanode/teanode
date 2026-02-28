@@ -206,6 +206,97 @@ func TestProjectTodoDelete(t *testing.T) {
 	}
 }
 
+func TestProjectTodoClearDone(t *testing.T) {
+	s := setupTodoToolStore(t)
+	ctx := store.ContextWithStore(context.Background(), s)
+	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
+	projectId := createProject(t, ctx, s)
+
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(projects.NewProjectTodoTool())
+	todoTool := registry.Get("project_todo")
+
+	// Add two, complete one.
+	todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Open Item"}`)
+	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Done Item"}`)
+	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	json.Unmarshal([]byte(addResult), &added)
+	todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
+
+	// clear_done should remove only the done item.
+	clearResult, err := todoTool.Execute(ctx, `{"action":"clear_done","projectId":"`+projectId+`"}`)
+	if err != nil {
+		t.Fatalf("clear_done failed: %v", err)
+	}
+	var cleared struct {
+		Success   bool `json:"success"`
+		DoneCount int  `json:"doneCount"`
+	}
+	json.Unmarshal([]byte(clearResult), &cleared)
+	if !cleared.Success {
+		t.Fatal("expected success=true")
+	}
+	if cleared.DoneCount != 1 {
+		t.Fatalf("doneCount = %d, want 1", cleared.DoneCount)
+	}
+
+	// Verify only the open item remains.
+	listResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`"}`)
+	var listed struct {
+		Todos      []interface{} `json:"todos"`
+		TotalCount int           `json:"totalCount"`
+	}
+	json.Unmarshal([]byte(listResult), &listed)
+	if len(listed.Todos) != 1 {
+		t.Fatalf("expected 1 todo after clear_done, got %d", len(listed.Todos))
+	}
+}
+
+func TestProjectTodoReset(t *testing.T) {
+	s := setupTodoToolStore(t)
+	ctx := store.ContextWithStore(context.Background(), s)
+	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
+	projectId := createProject(t, ctx, s)
+
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(projects.NewProjectTodoTool())
+	todoTool := registry.Get("project_todo")
+
+	// Add two, complete one.
+	todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Open Item"}`)
+	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Done Item"}`)
+	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	json.Unmarshal([]byte(addResult), &added)
+	todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
+
+	// reset should remove all.
+	resetResult, err := todoTool.Execute(ctx, `{"action":"reset","projectId":"`+projectId+`"}`)
+	if err != nil {
+		t.Fatalf("reset failed: %v", err)
+	}
+	var resetResp struct {
+		Success    bool `json:"success"`
+		TotalCount int  `json:"totalCount"`
+	}
+	json.Unmarshal([]byte(resetResult), &resetResp)
+	if !resetResp.Success {
+		t.Fatal("expected success=true")
+	}
+	if resetResp.TotalCount != 2 {
+		t.Fatalf("totalCount = %d, want 2", resetResp.TotalCount)
+	}
+
+	// Verify empty.
+	listResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`"}`)
+	var listed struct {
+		Todos []interface{} `json:"todos"`
+	}
+	json.Unmarshal([]byte(listResult), &listed)
+	if len(listed.Todos) != 0 {
+		t.Fatalf("expected 0 todos after reset, got %d", len(listed.Todos))
+	}
+}
+
 func TestProjectTodoNonAdminReadOnly(t *testing.T) {
 	s := setupTodoToolStore(t)
 	adminCtx := store.ContextWithStore(context.Background(), s)

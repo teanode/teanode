@@ -111,6 +111,15 @@ Showing up to {{.ProjectLimit}} projects from metadata. Use `projects` with `act
 {{.ProjectList}}
 {{- end}}
 
+## TODO Tools
+
+You have two todo tools for tracking tasks:
+
+- **conversation_todo**: Track multi-step tasks within the current conversation. Use it to break down work into steps and update their status as you complete each one. The user sees a live read-only panel of these todos. These todos are NOT shared with subagents.
+- **project_todo**: Track tasks at the project level. These ARE shared across agents and conversations, making them the right medium for coordinating work with subagents. Use project todos when handing off tasks so subagents can pick up and complete different items in parallel.
+
+Both tools support `clear_done` (remove completed items) and `reset` (remove all items) actions for list hygiene.
+
 ## Agentic Loop Behavior
 
 For each user request, you may perform multiple internal rounds of tool usage before returning a final answer.

@@ -430,6 +430,11 @@ export function useBackend() {
           );
         } else if (payload.action === "delete") {
           setTodos((prev) => prev.filter((t) => t.id !== payload.todoId));
+        } else if (
+          payload.action === "clear_done" ||
+          payload.action === "reset"
+        ) {
+          loadTodos();
         }
       }
       return;
@@ -1571,87 +1576,6 @@ export function useBackend() {
     [sendRpc],
   );
 
-  const addTodo = useCallback(
-    (title: string, priority?: string) => {
-      const convId = conversationIdRef.current;
-      if (!convId || !title.trim()) return;
-      sendRpc<{ todo: Todo }>("conversations.todos.add", {
-        conversationId: convId,
-        title,
-        priority,
-      })
-        .then((result) => {
-          if (result.todo) {
-            setTodos((prev) => [result.todo, ...prev]);
-          }
-        })
-        .catch((error) => console.error("conversations.todos.add:", error));
-    },
-    [sendRpc],
-  );
-
-  const completeTodo = useCallback(
-    (todoId: string) => {
-      const convId = conversationIdRef.current;
-      if (!convId) return;
-      sendRpc<{ todo: Todo }>("conversations.todos.complete", {
-        conversationId: convId,
-        todoId,
-      })
-        .then((result) => {
-          if (result.todo) {
-            setTodos((prev) =>
-              prev.map((t) => (t.id === todoId ? result.todo : t)),
-            );
-          }
-        })
-        .catch((error) =>
-          console.error("conversations.todos.complete:", error),
-        );
-    },
-    [sendRpc],
-  );
-
-  const reopenTodo = useCallback(
-    (todoId: string) => {
-      const convId = conversationIdRef.current;
-      if (!convId) return;
-      sendRpc<{ todo: Todo }>("conversations.todos.reopen", {
-        conversationId: convId,
-        todoId,
-      })
-        .then((result) => {
-          if (result.todo) {
-            setTodos((prev) =>
-              prev.map((t) => (t.id === todoId ? result.todo : t)),
-            );
-          }
-        })
-        .catch((error) =>
-          console.error("conversations.todos.reopen:", error),
-        );
-    },
-    [sendRpc],
-  );
-
-  const deleteTodo = useCallback(
-    (todoId: string) => {
-      const convId = conversationIdRef.current;
-      if (!convId) return;
-      sendRpc("conversations.todos.delete", {
-        conversationId: convId,
-        todoId,
-      })
-        .then(() => {
-          setTodos((prev) => prev.filter((t) => t.id !== todoId));
-        })
-        .catch((error) =>
-          console.error("conversations.todos.delete:", error),
-        );
-    },
-    [sendRpc],
-  );
-
   return {
     conversations,
     conversationId,
@@ -1703,9 +1627,5 @@ export function useBackend() {
     triggerJob,
     todos,
     loadTodos,
-    addTodo,
-    completeTodo,
-    reopenTodo,
-    deleteTodo,
   };
 }

@@ -262,12 +262,8 @@
     "currentPasswordIncorrect": "Current password is incorrect"
   },
   "todos": {
-    "title": "Todos",
-    "addPlaceholder": "Add a todo...",
+    "title": "TODOs",
     "noTodos": "No todos yet",
-    "complete": "Complete",
-    "reopen": "Reopen",
-    "delete": "Delete",
     "open": "Open",
     "done": "Done",
     "high": "High",
