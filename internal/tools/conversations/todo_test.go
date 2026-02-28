@@ -113,14 +113,20 @@ func TestConvTodoComplete(t *testing.T) {
 	todoTool := registry.Get("conversation_todo")
 
 	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"To Complete"}`)
-	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	var added struct {
+		Todo struct {
+			ID string `json:"id"`
+		} `json:"todo"`
+	}
 	json.Unmarshal([]byte(addResult), &added)
 
 	completeResult, err := todoTool.Execute(todoCtx, `{"action":"complete","todoId":"`+added.Todo.ID+`"}`)
 	if err != nil {
 		t.Fatalf("complete failed: %v", err)
 	}
-	var completed struct{ Todo models.Todo `json:"todo"` }
+	var completed struct {
+		Todo models.Todo `json:"todo"`
+	}
 	json.Unmarshal([]byte(completeResult), &completed)
 	if completed.Todo.GetStatus() != "done" {
 		t.Fatalf("status = %q, want done", completed.Todo.GetStatus())
@@ -138,7 +144,11 @@ func TestConvTodoReopen(t *testing.T) {
 	todoTool := registry.Get("conversation_todo")
 
 	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"To Reopen"}`)
-	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	var added struct {
+		Todo struct {
+			ID string `json:"id"`
+		} `json:"todo"`
+	}
 	json.Unmarshal([]byte(addResult), &added)
 	todoTool.Execute(todoCtx, `{"action":"complete","todoId":"`+added.Todo.ID+`"}`)
 
@@ -146,7 +156,9 @@ func TestConvTodoReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen failed: %v", err)
 	}
-	var reopened struct{ Todo models.Todo `json:"todo"` }
+	var reopened struct {
+		Todo models.Todo `json:"todo"`
+	}
 	json.Unmarshal([]byte(reopenResult), &reopened)
 	if reopened.Todo.GetStatus() != "open" {
 		t.Fatalf("status = %q, want open", reopened.Todo.GetStatus())
@@ -164,14 +176,20 @@ func TestConvTodoDelete(t *testing.T) {
 	todoTool := registry.Get("conversation_todo")
 
 	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"To Delete"}`)
-	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	var added struct {
+		Todo struct {
+			ID string `json:"id"`
+		} `json:"todo"`
+	}
 	json.Unmarshal([]byte(addResult), &added)
 
 	deleteResult, err := todoTool.Execute(todoCtx, `{"action":"delete","todoId":"`+added.Todo.ID+`"}`)
 	if err != nil {
 		t.Fatalf("delete failed: %v", err)
 	}
-	var deleted struct{ Success bool `json:"success"` }
+	var deleted struct {
+		Success bool `json:"success"`
+	}
 	json.Unmarshal([]byte(deleteResult), &deleted)
 	if !deleted.Success {
 		t.Fatal("expected success=true")
@@ -214,7 +232,11 @@ func TestConvTodoClearDone(t *testing.T) {
 	// Add two todos, complete one.
 	todoTool.Execute(todoCtx, `{"action":"add","title":"Open Item"}`)
 	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"Done Item"}`)
-	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	var added struct {
+		Todo struct {
+			ID string `json:"id"`
+		} `json:"todo"`
+	}
 	json.Unmarshal([]byte(addResult), &added)
 	todoTool.Execute(todoCtx, `{"action":"complete","todoId":"`+added.Todo.ID+`"}`)
 
@@ -265,7 +287,11 @@ func TestConvTodoReset(t *testing.T) {
 	// Add two todos, complete one.
 	todoTool.Execute(todoCtx, `{"action":"add","title":"Open Item"}`)
 	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"Done Item"}`)
-	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	var added struct {
+		Todo struct {
+			ID string `json:"id"`
+		} `json:"todo"`
+	}
 	json.Unmarshal([]byte(addResult), &added)
 	todoTool.Execute(todoCtx, `{"action":"complete","todoId":"`+added.Todo.ID+`"}`)
 

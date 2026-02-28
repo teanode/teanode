@@ -410,10 +410,7 @@ export function useBackend() {
 
     if (frame.event === "conversation_todos") {
       const payload = frame.payload as ConversationTodosEvent | undefined;
-      if (
-        payload &&
-        payload.conversationId === conversationIdRef.current
-      ) {
+      if (payload && payload.conversationId === conversationIdRef.current) {
         if (payload.action === "add" && payload.todo) {
           setTodos((prev) => {
             if (prev.some((t) => t.id === payload.todo!.id)) return prev;

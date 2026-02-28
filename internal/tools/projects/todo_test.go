@@ -145,7 +145,9 @@ func TestProjectTodoReopen(t *testing.T) {
 	// Add, complete, reopen.
 	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"To Reopen"}`)
 	var added struct {
-		Todo struct{ ID string `json:"id"` } `json:"todo"`
+		Todo struct {
+			ID string `json:"id"`
+		} `json:"todo"`
 	}
 	json.Unmarshal([]byte(addResult), &added)
 	todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
@@ -179,7 +181,9 @@ func TestProjectTodoDelete(t *testing.T) {
 	// Add, delete, list.
 	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"To Delete"}`)
 	var added struct {
-		Todo struct{ ID string `json:"id"` } `json:"todo"`
+		Todo struct {
+			ID string `json:"id"`
+		} `json:"todo"`
 	}
 	json.Unmarshal([]byte(addResult), &added)
 
@@ -219,7 +223,11 @@ func TestProjectTodoClearDone(t *testing.T) {
 	// Add two, complete one.
 	todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Open Item"}`)
 	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Done Item"}`)
-	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	var added struct {
+		Todo struct {
+			ID string `json:"id"`
+		} `json:"todo"`
+	}
 	json.Unmarshal([]byte(addResult), &added)
 	todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
 
@@ -265,7 +273,11 @@ func TestProjectTodoReset(t *testing.T) {
 	// Add two, complete one.
 	todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Open Item"}`)
 	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Done Item"}`)
-	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	var added struct {
+		Todo struct {
+			ID string `json:"id"`
+		} `json:"todo"`
+	}
 	json.Unmarshal([]byte(addResult), &added)
 	todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
 
@@ -390,14 +402,20 @@ func TestProjectTodoListFilters(t *testing.T) {
 
 	// Add multiple todos.
 	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"High Open","priority":"high","tags":["backend"]}`)
-	var added struct{ Todo struct{ ID string `json:"id"` } `json:"todo"` }
+	var added struct {
+		Todo struct {
+			ID string `json:"id"`
+		} `json:"todo"`
+	}
 	json.Unmarshal([]byte(addResult), &added)
 	todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Low Open","priority":"low","tags":["frontend"]}`)
 	todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
 
 	// Filter by status.
 	openResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`","status":"open"}`)
-	var openList struct{ Todos []interface{} `json:"todos"` }
+	var openList struct {
+		Todos []interface{} `json:"todos"`
+	}
 	json.Unmarshal([]byte(openResult), &openList)
 	if len(openList.Todos) != 1 {
 		t.Fatalf("open filter: expected 1, got %d", len(openList.Todos))
@@ -405,7 +423,9 @@ func TestProjectTodoListFilters(t *testing.T) {
 
 	// Filter by priority.
 	highResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`","priority":"high"}`)
-	var highList struct{ Todos []interface{} `json:"todos"` }
+	var highList struct {
+		Todos []interface{} `json:"todos"`
+	}
 	json.Unmarshal([]byte(highResult), &highList)
 	if len(highList.Todos) != 1 {
 		t.Fatalf("high priority filter: expected 1, got %d", len(highList.Todos))
@@ -413,7 +433,9 @@ func TestProjectTodoListFilters(t *testing.T) {
 
 	// Filter by tag.
 	tagResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`","tag":"frontend"}`)
-	var tagList struct{ Todos []interface{} `json:"todos"` }
+	var tagList struct {
+		Todos []interface{} `json:"todos"`
+	}
 	json.Unmarshal([]byte(tagResult), &tagList)
 	if len(tagList.Todos) != 1 {
 		t.Fatalf("tag filter: expected 1, got %d", len(tagList.Todos))

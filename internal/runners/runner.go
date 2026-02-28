@@ -550,7 +550,7 @@ func validateToolAuthorization(toolName, arguments string, isAdmin bool) error {
 			}
 			return fmt.Errorf("admin access required for project_todo.%s", action)
 		}
-	// conversation_todo: all actions allowed at runner level — ownership checked in tool.
+		// conversation_todo: all actions allowed at runner level — ownership checked in tool.
 	}
 	return nil
 }

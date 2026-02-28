@@ -26,13 +26,13 @@ func NewProjectTodoTool() *projectTodoTool { return &projectTodoTool{} }
 type projectTodoTool struct{}
 
 type projectTodoResponse struct {
-	Action     string        `json:"action"`
-	Todo       *models.Todo  `json:"todo,omitempty"`
+	Action     string         `json:"action"`
+	Todo       *models.Todo   `json:"todo,omitempty"`
 	Todos      []*models.Todo `json:"todos,omitempty"`
-	TotalCount int           `json:"totalCount,omitempty"`
-	OpenCount  int           `json:"openCount,omitempty"`
-	DoneCount  int           `json:"doneCount,omitempty"`
-	Success    bool          `json:"success,omitempty"`
+	TotalCount int            `json:"totalCount,omitempty"`
+	OpenCount  int            `json:"openCount,omitempty"`
+	DoneCount  int            `json:"doneCount,omitempty"`
+	Success    bool           `json:"success,omitempty"`
 }
 
 func (self *projectTodoTool) Definition() providers.ToolDefinition {
@@ -45,8 +45,8 @@ func (self *projectTodoTool) Definition() providers.ToolDefinition {
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
-						"type": "string",
-						"enum": []string{"list", "add", "update", "complete", "reopen", "delete", "clear_done", "reset"},
+						"type":        "string",
+						"enum":        []string{"list", "add", "update", "complete", "reopen", "delete", "clear_done", "reset"},
 						"description": "The todo action to perform.",
 					},
 					"projectId": map[string]interface{}{

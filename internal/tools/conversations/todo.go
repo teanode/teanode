@@ -47,8 +47,8 @@ func (self *conversationTodoTool) Definition() providers.ToolDefinition {
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
-						"type": "string",
-						"enum": []string{"list", "add", "update", "complete", "reopen", "delete", "clear_done", "reset"},
+						"type":        "string",
+						"enum":        []string{"list", "add", "update", "complete", "reopen", "delete", "clear_done", "reset"},
 						"description": "The todo action to perform.",
 					},
 					"conversationId": map[string]interface{}{

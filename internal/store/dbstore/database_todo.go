@@ -125,16 +125,16 @@ func (self *databaseTransaction) DeleteTodo(ctx context.Context, todoId string, 
 
 func todoRecordToModel(record *databaseTodoRecord) *models.Todo {
 	todo := &models.Todo{
-		ID:          record.ID,
-		ProjectID:   record.ProjectID,
+		ID:             record.ID,
+		ProjectID:      record.ProjectID,
 		ConversationID: record.ConversationID,
-		Title:       ptrto.Value(record.Title),
-		Description: record.Description,
-		Status:      ptrto.Value(record.Status),
-		Priority:    ptrto.Value(record.Priority),
-		CompletedAt: record.CompletedAt,
-		CreatedAt:   &record.CreatedAt,
-		ModifiedAt:  &record.ModifiedAt,
+		Title:          ptrto.Value(record.Title),
+		Description:    record.Description,
+		Status:         ptrto.Value(record.Status),
+		Priority:       ptrto.Value(record.Priority),
+		CompletedAt:    record.CompletedAt,
+		CreatedAt:      &record.CreatedAt,
+		ModifiedAt:     &record.ModifiedAt,
 	}
 	if record.Tags != nil {
 		var tags []string
