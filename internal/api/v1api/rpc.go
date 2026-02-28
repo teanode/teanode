@@ -326,9 +326,8 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 		"hasMore":           hasMore,
 	}
 	if self.api.coordinator.GetActiveConversationRunner(parameters.ConversationID) != nil {
-		response["running"] = true
 		if activeRunId := self.api.coordinator.GetActiveConversationRunID(parameters.ConversationID); activeRunId != "" {
-			response["running"] = activeRunId
+			response["activeRunId"] = activeRunId
 		}
 	}
 	if providerName != "" {
