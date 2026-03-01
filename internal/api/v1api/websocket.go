@@ -350,6 +350,8 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleQuestionsList(frame)
 	case "questions.answer":
 		self.handleQuestionsAnswer(frame)
+	case "questions.answer_batch":
+		self.handleQuestionsAnswerBatch(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

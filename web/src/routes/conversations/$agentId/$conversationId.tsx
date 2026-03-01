@@ -4,6 +4,7 @@ import { useAppContext } from "../../../context";
 import MessageList from "../../../components/MessageList";
 import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
+import QuestionPanel from "../../../components/QuestionPanel";
 import VoiceCallBar from "../../../components/VoiceCallBar";
 import { useTts } from "../../../hooks/useTts";
 import { useAgentVoiceCall } from "./route";
@@ -162,8 +163,6 @@ export default function ConversationsConversationPage() {
         onStopSpeaking={handleStopSpeaking}
         showAbortOnStatusLine={backend.isRunning && !inputFocused}
         onAbort={backend.abortRun}
-        pendingQuestions={backend.pendingQuestions}
-        onAnswerQuestion={backend.answerQuestion}
       />
       <TodoPanel
         todos={backend.todos}
@@ -180,6 +179,11 @@ export default function ConversationsConversationPage() {
           onToggleMute={voiceCall.toggleMute}
           onEndCall={voiceCall.endCall}
           onInterrupt={voiceCall.interruptAgent}
+        />
+      ) : backend.pendingQuestions.length > 0 ? (
+        <QuestionPanel
+          questions={backend.pendingQuestions}
+          onSubmitAll={backend.answerQuestionBatch}
         />
       ) : (
         <InputArea

@@ -703,7 +703,7 @@ describe("reconnect question rehydration", () => {
 
     sim.runRehydrationEffect();
 
-    // QuestionBubble renders when pendingQuestions.length > 0.
+    // QuestionPanel renders when pendingQuestions.length > 0.
     expect(sim.pendingQuestions.length > 0).toBe(true);
     expect(sim.pendingQuestions).toEqual([q1, q2]);
   });

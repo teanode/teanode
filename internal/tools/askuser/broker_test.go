@@ -210,6 +210,114 @@ func TestAnswerWithOtherPayload(t *testing.T) {
 	}
 }
 
+// ── AnswerBatch tests ─────────────────────────────────────────────────
+
+func TestAnswerBatchHappyPath(t *testing.T) {
+	b := NewQuestionBroker()
+	q1 := &PendingQuestion{ID: "q1", UserID: "u1", answerChan: MakeAnswerChan()}
+	q2 := &PendingQuestion{ID: "q2", UserID: "u1", answerChan: MakeAnswerChan()}
+	b.Register(q1)
+	b.Register(q2)
+
+	answers := map[string]AnswerPayload{
+		"q1": {Answer: "A"},
+		"q2": {Answer: "B", Other: "custom"},
+	}
+	if err := b.AnswerBatch(answers, "u1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Both channels should have received their answers.
+	select {
+	case p := <-q1.answerChan:
+		if p.Answer != "A" {
+			t.Errorf("q1: expected A, got %s", p.Answer)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("q1: timed out")
+	}
+	select {
+	case p := <-q2.answerChan:
+		if p.Answer != "B" || p.Other != "custom" {
+			t.Errorf("q2: expected B/custom, got %s/%s", p.Answer, p.Other)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("q2: timed out")
+	}
+
+	// Both should be removed from pending.
+	if pending := b.PendingForConversation(""); len(pending) != 0 {
+		t.Errorf("expected no pending questions, got %d", len(pending))
+	}
+}
+
+func TestAnswerBatchRejectsUnknownQuestion(t *testing.T) {
+	b := NewQuestionBroker()
+	q1 := &PendingQuestion{ID: "q1", ConversationID: "c1", UserID: "u1", answerChan: MakeAnswerChan()}
+	b.Register(q1)
+
+	answers := map[string]AnswerPayload{
+		"q1":          {Answer: "A"},
+		"nonexistent": {Answer: "B"},
+	}
+	err := b.AnswerBatch(answers, "u1")
+	if err == nil {
+		t.Fatal("expected error for unknown question")
+	}
+
+	// q1 should NOT have been answered (atomic rollback).
+	select {
+	case <-q1.answerChan:
+		t.Fatal("q1 should not have received an answer")
+	default:
+		// Good — channel is empty.
+	}
+
+	// q1 should still be pending.
+	pending := b.PendingForConversation("c1")
+	if len(pending) != 1 || pending[0].ID != "q1" {
+		t.Error("q1 should still be pending after failed batch")
+	}
+}
+
+func TestAnswerBatchRejectsWrongUser(t *testing.T) {
+	b := NewQuestionBroker()
+	q1 := &PendingQuestion{ID: "q1", ConversationID: "c1", UserID: "u1", answerChan: MakeAnswerChan()}
+	q2 := &PendingQuestion{ID: "q2", ConversationID: "c1", UserID: "u2", answerChan: MakeAnswerChan()}
+	b.Register(q1)
+	b.Register(q2)
+
+	// u1 tries to answer q2 which belongs to u2.
+	answers := map[string]AnswerPayload{
+		"q1": {Answer: "A"},
+		"q2": {Answer: "B"},
+	}
+	err := b.AnswerBatch(answers, "u1")
+	if err == nil {
+		t.Fatal("expected error for wrong user")
+	}
+
+	// Neither should have been answered.
+	select {
+	case <-q1.answerChan:
+		t.Fatal("q1 should not have received an answer")
+	default:
+	}
+	select {
+	case <-q2.answerChan:
+		t.Fatal("q2 should not have received an answer")
+	default:
+	}
+}
+
+func TestAnswerBatchEmptyMap(t *testing.T) {
+	b := NewQuestionBroker()
+	// Empty batch should succeed (no-op).
+	if err := b.AnswerBatch(map[string]AnswerPayload{}, "u1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestPendingQuestionAllowOtherFields(t *testing.T) {
 	b := NewQuestionBroker()
 	q := &PendingQuestion{

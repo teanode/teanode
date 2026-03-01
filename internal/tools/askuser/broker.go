@@ -105,6 +105,34 @@ func (b *QuestionBroker) VerifyOwnership(questionId, callerUserId string) error 
 	return nil
 }
 
+// AnswerBatch atomically delivers answers to multiple questions.
+// It validates all questions first (existence + ownership), and only delivers
+// if every question is valid — avoiding partial state.
+func (b *QuestionBroker) AnswerBatch(answers map[string]AnswerPayload, callerUserId string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Phase 1: validate all questions exist and belong to the caller.
+	questions := make(map[string]*PendingQuestion, len(answers))
+	for qid := range answers {
+		q, ok := b.pending[qid]
+		if !ok {
+			return fmt.Errorf("question not found or already answered: %s", qid)
+		}
+		if q.UserID != callerUserId {
+			return fmt.Errorf("not authorized to answer question: %s", qid)
+		}
+		questions[qid] = q
+	}
+
+	// Phase 2: all valid — remove from pending and deliver.
+	for qid, q := range questions {
+		delete(b.pending, qid)
+		q.answerChan <- answers[qid]
+	}
+	return nil
+}
+
 // MakeAnswerChan creates a buffered channel for a PendingQuestion.
 // This is a helper used by the tool's Execute method.
 func MakeAnswerChan() chan AnswerPayload {

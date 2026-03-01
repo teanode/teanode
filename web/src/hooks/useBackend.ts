@@ -1683,6 +1683,17 @@ export function useBackend() {
     [sendRpc],
   );
 
+  const answerQuestionBatch = useCallback(
+    async (
+      answers: { questionId: string; answer: string; other?: string }[],
+    ) => {
+      await sendRpc("questions.answer_batch", { answers });
+      const answeredIds = new Set(answers.map((a) => a.questionId));
+      setPendingQuestions((prev) => prev.filter((q) => !answeredIds.has(q.id)));
+    },
+    [sendRpc],
+  );
+
   const loadPendingQuestions = useCallback(
     (targetConversationId?: string) => {
       const convId = targetConversationId || conversationIdRef.current;
@@ -1766,6 +1777,7 @@ export function useBackend() {
     loadTodos,
     pendingQuestions,
     answerQuestion,
+    answerQuestionBatch,
     loadPendingQuestions,
   };
 }
