@@ -261,6 +261,15 @@
     "currentPasswordRequired": "Current password is required",
     "currentPasswordIncorrect": "Current password is incorrect"
   },
+  "todos": {
+    "title": "TODOs",
+    "noTodos": "No todos yet",
+    "open": "Open",
+    "done": "Done",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  },
   "schema": {
     "addItemPlaceholder": "Add item...",
     "baseUrlPlaceholder": "Base URL (e.g. https://api.openai.com/v1)",

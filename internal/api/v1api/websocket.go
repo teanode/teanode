@@ -334,6 +334,18 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleProjectsRename(frame)
 	case "projects.delete":
 		self.handleProjectsDelete(frame)
+	case "conversations.todos.list":
+		self.handleConversationsTodosList(frame)
+	case "conversations.todos.add":
+		self.handleConversationsTodosAdd(frame)
+	case "conversations.todos.complete":
+		self.handleConversationsTodosComplete(frame)
+	case "conversations.todos.reopen":
+		self.handleConversationsTodosReopen(frame)
+	case "conversations.todos.update":
+		self.handleConversationsTodosUpdate(frame)
+	case "conversations.todos.delete":
+		self.handleConversationsTodosDelete(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

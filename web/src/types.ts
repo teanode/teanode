@@ -366,6 +366,38 @@ export interface Attachment {
   filename: string;
 }
 
+// Todo types
+
+export interface Todo {
+  id: string;
+  projectId?: string;
+  conversationId?: string;
+  title?: string;
+  description?: string;
+  status?: string;
+  priority?: string;
+  tags?: string[];
+  completedAt?: string;
+  createdAt?: string;
+  modifiedAt?: string;
+}
+
+export interface ConversationTodosEvent {
+  conversationId: string;
+  userId: string;
+  action: string;
+  todoId: string;
+  todo?: Todo;
+}
+
+export interface ConversationTodosListResult {
+  action: string;
+  todos: Todo[];
+  totalCount: number;
+  openCount: number;
+  doneCount: number;
+}
+
 // Display message types for the UI
 
 export type DisplayMessageType =

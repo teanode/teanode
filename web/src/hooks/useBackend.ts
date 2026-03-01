@@ -22,6 +22,9 @@ import type {
   JobCreateParams,
   JobUpdateParams,
   JobsListResult,
+  Todo,
+  ConversationTodosEvent,
+  ConversationTodosListResult,
 } from "../types";
 import { useWebSocket } from "./useWebSocket";
 
@@ -170,6 +173,22 @@ interface ReconciledRunState {
   isRunning: boolean;
 }
 
+/**
+ * Decides whether handleConnect should hydrate the default conversation.
+ * Returns false when the user is deliberately on the new-conversation page.
+ */
+export function shouldHydrateConversation(
+  currentConversationId: string | null,
+  hydrationDefaultConversationId: string | undefined,
+  wantsNewConversation: boolean,
+): boolean {
+  return (
+    !currentConversationId &&
+    !!hydrationDefaultConversationId &&
+    !wantsNewConversation
+  );
+}
+
 export function reconcileRunStateFromHistory(
   activeRuns: Map<string, string>,
   conversationKey: string,
@@ -308,6 +327,10 @@ export function useBackend() {
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
 
+  // When true, the user deliberately navigated to the "new conversation" page.
+  // Prevents handleConnect from hydrating a default conversation on reconnect.
+  const wantsNewConversationRef = useRef(false);
+
   const conversationsRefreshRef = useRef(0);
   const historyLoadedRef = useRef(true);
   const pendingEventsRef = useRef<EventFrame[]>([]);
@@ -401,6 +424,35 @@ export function useBackend() {
               : agent,
           ),
         );
+      }
+      return;
+    }
+
+    if (frame.event === "conversation_todos") {
+      const payload = frame.payload as ConversationTodosEvent | undefined;
+      if (payload && payload.conversationId === conversationIdRef.current) {
+        if (payload.action === "add" && payload.todo) {
+          setTodos((prev) => {
+            if (prev.some((t) => t.id === payload.todo!.id)) return prev;
+            return [payload.todo!, ...prev];
+          });
+        } else if (
+          (payload.action === "update" ||
+            payload.action === "complete" ||
+            payload.action === "reopen") &&
+          payload.todo
+        ) {
+          setTodos((prev) =>
+            prev.map((t) => (t.id === payload.todoId ? payload.todo! : t)),
+          );
+        } else if (payload.action === "delete") {
+          setTodos((prev) => prev.filter((t) => t.id !== payload.todoId));
+        } else if (
+          payload.action === "clear_done" ||
+          payload.action === "reset"
+        ) {
+          loadTodos();
+        }
       }
       return;
     }
@@ -889,9 +941,15 @@ export function useBackend() {
         ? result.defaultConversationId
         : undefined);
 
-    if (!conversationIdRef.current && hydrationDefaultConversationId) {
-      setConversationId(hydrationDefaultConversationId);
-      conversationIdRef.current = hydrationDefaultConversationId;
+    if (
+      shouldHydrateConversation(
+        conversationIdRef.current,
+        hydrationDefaultConversationId,
+        wantsNewConversationRef.current,
+      )
+    ) {
+      setConversationId(hydrationDefaultConversationId!);
+      conversationIdRef.current = hydrationDefaultConversationId!;
     }
     // Fetch available models
     sendRpcRef
@@ -1040,6 +1098,7 @@ export function useBackend() {
 
   const switchConversation = useCallback(
     (key: string, agentId?: string) => {
+      wantsNewConversationRef.current = false;
       // Detach current streaming state
       currentRunIdRef.current = null;
       streamTextRef.current = "";
@@ -1078,6 +1137,10 @@ export function useBackend() {
       // Reset pagination state
       oldestLoadedIndexRef.current = 0;
       setHasMoreHistory(false);
+
+      // Reset todos for new conversation
+      setTodos([]);
+      todosConversationIdRef.current = key;
 
       // Buffer events while history is loading
       historyLoadedRef.current = false;
@@ -1126,6 +1189,18 @@ export function useBackend() {
             }
           }
           pendingEventsRef.current = [];
+
+          // Load todos for this conversation
+          sendRpc<ConversationTodosListResult>("conversations.todos.list", {
+            conversationId: key,
+          })
+            .then((todosResult) => {
+              if (conversationIdRef.current !== key) return;
+              setTodos(todosResult.todos || []);
+            })
+            .catch((error) =>
+              console.error("conversations.todos.list:", error),
+            );
         })
         .catch((error) => console.error("conversations.history:", error));
     },
@@ -1143,12 +1218,16 @@ export function useBackend() {
     setToolActivity(null);
     setConversationId(null);
     conversationIdRef.current = null;
+    wantsNewConversationRef.current = true;
     setMessages([]);
     setStatus("connected");
     setConversationModel(null);
     // Reset pagination state
     oldestLoadedIndexRef.current = 0;
     setHasMoreHistory(false);
+    // Clear todos
+    setTodos([]);
+    todosConversationIdRef.current = null;
   }, []);
 
   const loadOlderMessages = useCallback(() => {
@@ -1280,6 +1359,7 @@ export function useBackend() {
             conversationModelRef.current = resolvedModel;
           }
           if (!conversationIdRef.current) {
+            wantsNewConversationRef.current = false;
             setConversationId(res.conversationId);
             conversationIdRef.current = res.conversationId;
             setConversations((prev) => {
@@ -1497,6 +1577,31 @@ export function useBackend() {
     lastSentViaMicRef.current = false;
   }, []);
 
+  // ── Conversation Todos ──────────────────────────────────────────────
+
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const todosConversationIdRef = useRef<string | null>(null);
+
+  const loadTodos = useCallback(
+    (targetConversationId?: string) => {
+      const convId = targetConversationId || conversationIdRef.current;
+      if (!convId) {
+        setTodos([]);
+        return;
+      }
+      todosConversationIdRef.current = convId;
+      sendRpc<ConversationTodosListResult>("conversations.todos.list", {
+        conversationId: convId,
+      })
+        .then((result) => {
+          if (todosConversationIdRef.current !== convId) return;
+          setTodos(result.todos || []);
+        })
+        .catch((error) => console.error("conversations.todos.list:", error));
+    },
+    [sendRpc],
+  );
+
   return {
     conversations,
     conversationId,
@@ -1546,5 +1651,7 @@ export function useBackend() {
     updateJob,
     deleteJob,
     triggerJob,
+    todos,
+    loadTodos,
   };
 }
