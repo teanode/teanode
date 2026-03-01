@@ -151,7 +151,8 @@ export default function QuestionPanel({
       } else {
         // Go to next unanswered question.
         const nextIdx = questions.findIndex(
-          (q, i) => i > currentIndex && !isAnswered(answers.get(q.id) || emptyAnswer()),
+          (q, i) =>
+            i > currentIndex && !isAnswered(answers.get(q.id) || emptyAnswer()),
         );
         if (nextIdx >= 0) setCurrentIndex(nextIdx);
       }

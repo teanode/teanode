@@ -14,9 +14,7 @@ function formatToolResultAnswer(content: string): string | null {
   try {
     const parsed = JSON.parse(content);
     if (!parsed.answer) return null;
-    return parsed.other
-      ? `${parsed.answer}: ${parsed.other}`
-      : parsed.answer;
+    return parsed.other ? `${parsed.answer}: ${parsed.other}` : parsed.answer;
   } catch {
     return null;
   }
@@ -30,14 +28,14 @@ describe("ToolResult answer display", () => {
 
   it("formats an Other answer with freeform text", () => {
     const result = formatToolResultAnswer(
-      '{"answer":"Other","other":"MongoDB with sharding"}'
+      '{"answer":"Other","other":"MongoDB with sharding"}',
     );
     expect(result).toBe("Other: MongoDB with sharding");
   });
 
   it("formats a custom Other label with text", () => {
     const result = formatToolResultAnswer(
-      '{"answer":"Custom","other":"My custom DB"}'
+      '{"answer":"Custom","other":"My custom DB"}',
     );
     expect(result).toBe("Custom: My custom DB");
   });
@@ -77,28 +75,28 @@ function formatToolInvokeChoices(args: string): string | null {
 describe("ToolInvoke choices display", () => {
   it("lists choices without Other when allowOther is not set", () => {
     const result = formatToolInvokeChoices(
-      '{"question":"Pick","choices":["A","B"]}'
+      '{"question":"Pick","choices":["A","B"]}',
     );
     expect(result).toBe("A, B");
   });
 
   it("appends default Other label when allowOther is true", () => {
     const result = formatToolInvokeChoices(
-      '{"question":"Pick","choices":["A","B"],"allowOther":true}'
+      '{"question":"Pick","choices":["A","B"],"allowOther":true}',
     );
     expect(result).toBe("A, B, Other");
   });
 
   it("appends custom Other label", () => {
     const result = formatToolInvokeChoices(
-      '{"question":"Pick","choices":["A","B"],"allowOther":true,"otherLabel":"Custom"}'
+      '{"question":"Pick","choices":["A","B"],"allowOther":true,"otherLabel":"Custom"}',
     );
     expect(result).toBe("A, B, Custom");
   });
 
   it("does not append Other when allowOther is false", () => {
     const result = formatToolInvokeChoices(
-      '{"question":"Pick","choices":["A","B"],"allowOther":false}'
+      '{"question":"Pick","choices":["A","B"],"allowOther":false}',
     );
     expect(result).toBe("A, B");
   });

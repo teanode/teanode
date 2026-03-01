@@ -199,7 +199,8 @@ describe("QuestionBubble submit behavior", () => {
     const showOtherInput = false;
 
     // Component logic: if (submitted) return;
-    const wouldSubmit = !submitted && (showOtherInput ? false : selected !== null);
+    const wouldSubmit =
+      !submitted && (showOtherInput ? false : selected !== null);
     expect(wouldSubmit).toBe(false);
   });
 });

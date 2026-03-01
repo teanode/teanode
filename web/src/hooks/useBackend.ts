@@ -1078,9 +1078,7 @@ export function useBackend() {
               if (conversationIdRef.current !== key) return;
               setPendingQuestions(qResult?.questions ?? []);
             })
-            .catch((error: unknown) =>
-              console.error("questions.list:", error),
-            );
+            .catch((error: unknown) => console.error("questions.list:", error));
         })
         .catch((error: unknown) =>
           console.error("conversations.history reconnect:", error),
@@ -1262,9 +1260,7 @@ export function useBackend() {
               if (conversationIdRef.current !== key) return;
               setPendingQuestions(qResult?.questions ?? []);
             })
-            .catch((error) =>
-              console.error("questions.list:", error),
-            );
+            .catch((error) => console.error("questions.list:", error));
         })
         .catch((error) => console.error("conversations.history:", error));
     },

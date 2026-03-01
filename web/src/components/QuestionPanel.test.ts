@@ -8,11 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import type { PendingQuestion } from "../types";
-import {
-  type QuestionAnswer,
-  isAnswered,
-  allAnswered,
-} from "./QuestionPanel";
+import { type QuestionAnswer, isAnswered, allAnswered } from "./QuestionPanel";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -99,18 +95,14 @@ describe("allAnswered", () => {
   });
 
   it("counts Other with text as answered", () => {
-    const questions = [
-      makeQuestion("q1", { allowOther: true }),
-    ];
+    const questions = [makeQuestion("q1", { allowOther: true })];
     const answers = new Map<string, QuestionAnswer>();
     answers.set("q1", { selected: null, showOther: true, otherText: "Custom" });
     expect(allAnswered(questions, answers)).toBe(true);
   });
 
   it("does not count Other with empty text as answered", () => {
-    const questions = [
-      makeQuestion("q1", { allowOther: true }),
-    ];
+    const questions = [makeQuestion("q1", { allowOther: true })];
     const answers = new Map<string, QuestionAnswer>();
     answers.set("q1", { selected: null, showOther: true, otherText: "" });
     expect(allAnswered(questions, answers)).toBe(false);

@@ -145,12 +145,7 @@ export default function MessageList({
   const normalizedAgentFallback = (agentName || "Agent").trim() || "Agent";
 
   const items = useMemo(() => {
-    let filteredItems = buildItems(
-      messages,
-      t,
-      showToolCalls,
-      showTokenUsage,
-    );
+    let filteredItems = buildItems(messages, t, showToolCalls, showTokenUsage);
     const hasVisibleMessage = filteredItems.some(
       (item) => item.kind === "message",
     );

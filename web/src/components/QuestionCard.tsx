@@ -12,7 +12,10 @@ interface QuestionCardProps {
   onAnswer: (questionId: string, answer: string, other?: string) => void;
 }
 
-export default function QuestionCard({ question, onAnswer }: QuestionCardProps) {
+export default function QuestionCard({
+  question,
+  onAnswer,
+}: QuestionCardProps) {
   const { t } = useTranslation();
   const [answered, setAnswered] = useState(false);
   const [showOtherInput, setShowOtherInput] = useState(false);
