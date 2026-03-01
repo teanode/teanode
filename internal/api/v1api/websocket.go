@@ -346,6 +346,10 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleConversationsTodosUpdate(frame)
 	case "conversations.todos.delete":
 		self.handleConversationsTodosDelete(frame)
+	case "questions.list":
+		self.handleQuestionsList(frame)
+	case "questions.answer":
+		self.handleQuestionsAnswer(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

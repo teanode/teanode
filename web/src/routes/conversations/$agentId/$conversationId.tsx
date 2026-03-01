@@ -162,6 +162,8 @@ export default function ConversationsConversationPage() {
         onStopSpeaking={handleStopSpeaking}
         showAbortOnStatusLine={backend.isRunning && !inputFocused}
         onAbort={backend.abortRun}
+        pendingQuestions={backend.pendingQuestions}
+        onAnswerQuestion={backend.answerQuestion}
       />
       <TodoPanel
         todos={backend.todos}

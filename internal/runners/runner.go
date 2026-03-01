@@ -57,6 +57,7 @@ type RunParameters struct {
 	Attachments        []map[string]string
 	SystemPromptSuffix string // optional; appended to system prompt for this run only
 	SystemPromptMode   SystemPromptMode
+	Origin             string // channel origin (e.g. "webui", "telegram"); propagated to context for tool gating
 }
 
 // RunResult holds the result of a completed agent run.

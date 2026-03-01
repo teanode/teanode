@@ -6,6 +6,7 @@ import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
+import CheckCircleOutlineRounded from "@mui/icons-material/CheckCircleOutlineRounded";
 import { highlightJson } from "../markdown";
 
 interface ToolResultProps {
@@ -46,6 +47,49 @@ function escapeHtml(str: string): string {
 export default function ToolResult({ toolName, content }: ToolResultProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+
+  // Special rendering for ask_user_question tool results.
+  if (toolName === "ask_user_question") {
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed.answer) {
+        return (
+          <Box
+            sx={{
+              alignSelf: "flex-start",
+              maxWidth: "75%",
+              px: 1.5,
+              py: 1,
+              borderRadius: 1,
+              fontSize: "0.75rem",
+              bgcolor: (theme) =>
+                theme.palette.mode === "dark"
+                  ? "rgba(46, 125, 50, 0.08)"
+                  : "rgba(46, 125, 50, 0.05)",
+              border: 1,
+              borderColor: "success.main",
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+              <CheckCircleOutlineRounded
+                sx={{ fontSize: 14, color: "success.main" }}
+              />
+              <Typography
+                variant="caption"
+                color="success.main"
+                sx={{ fontWeight: 600 }}
+              >
+                {t("tool.askUserAnswered", { answer: parsed.answer })}
+              </Typography>
+            </Box>
+          </Box>
+        );
+      }
+    } catch {
+      // Fall through to default rendering.
+    }
+  }
+
   const mediaInfo = detectMedia(content);
 
   function handleCopy() {

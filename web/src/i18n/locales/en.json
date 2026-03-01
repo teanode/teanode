@@ -215,7 +215,10 @@
   "tool": {
     "called": "called",
     "result": "result",
-    "outputAlt": "{{toolName}} output"
+    "outputAlt": "{{toolName}} output",
+    "askUserQuestion": "Agent is asking:",
+    "askUserAnswered": "Answered: {{answer}}",
+    "askUserChoices": "Choices"
   },
   "auth": {
     "loginTitle": "Welcome back",

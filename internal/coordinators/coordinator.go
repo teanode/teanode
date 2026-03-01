@@ -14,6 +14,7 @@ import (
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/summarizers"
+	"github.com/teanode/teanode/internal/tools/askuser"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/security"
 )
@@ -29,6 +30,7 @@ type Coordinator struct {
 	providerRegistry           *providers.ProviderRegistry
 	summarizer                 *summarizers.Summarizer
 	pubsub                     *pubsub.PubSub
+	questionBroker             *askuser.QuestionBroker
 	activeRunners              sync.Map // conversationId -> *conversationRunner
 	activeRunIdConversationIds sync.Map // runId -> conversationId
 	activeConversationIdRunIds sync.Map // conversationId -> runId
@@ -73,12 +75,18 @@ func New(
 		providerRegistry: providerRegistry,
 		summarizer:       summarizerInstance,
 		pubsub:           events,
+		questionBroker:   askuser.NewQuestionBroker(),
 	}
 }
 
 // ProviderRegistry returns the provider registry.
 func (self *Coordinator) ProviderRegistry() *providers.ProviderRegistry {
 	return self.providerRegistry
+}
+
+// QuestionBroker returns the in-memory question broker.
+func (self *Coordinator) QuestionBroker() *askuser.QuestionBroker {
+	return self.questionBroker
 }
 
 // Run orchestrates an agent run: resolves conversation, generates
@@ -199,6 +207,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 			Attachments:        parameters.Attachments,
 			SystemPromptSuffix: parameters.SystemPromptSuffix,
 			SystemPromptMode:   parameters.SystemPromptMode,
+			Origin:             parameters.Origin,
 		}, mergedCallbacks)
 
 		if dispatch.aborted {
@@ -482,12 +491,19 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 			// runner keeps running even if the caller (e.g. WebSocket) disconnects.
 			// Carry over the authenticated user from the caller's context.
 			// Ensure coordinator is on the context.
-			ctx, cancel = context.WithCancel(ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
-				self.ctx,
-				models.UserFromContext(message.ctx),
-				models.SessionFromContext(message.ctx),
-				models.TokenFromContext(message.ctx),
-			), self.pubsub), self))
+			ctx, cancel = context.WithCancel(
+				askuser.ContextWithQuestionBroker(
+					runners.ContextWithOrigin(
+						ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
+							self.ctx,
+							models.UserFromContext(message.ctx),
+							models.SessionFromContext(message.ctx),
+							models.TokenFromContext(message.ctx),
+						), self.pubsub), self),
+						message.parameters.Origin,
+					),
+					self.questionBroker,
+				))
 			conversationRunnerInstance.cancel = cancel
 		}
 

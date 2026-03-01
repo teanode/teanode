@@ -7,6 +7,7 @@ type contextKey int
 const (
 	contextKeySpawnDepth contextKey = iota
 	contextKeyRunner
+	contextKeyOrigin
 )
 
 // DefaultMaxSpawnDepth is the maximum recursion depth for subagent spawning.
@@ -31,5 +32,16 @@ func ContextWithRunner(ctx context.Context, runner *Runner) context.Context {
 // RunnerFromContext returns the Runner from the context, or nil.
 func RunnerFromContext(ctx context.Context) *Runner {
 	value, _ := ctx.Value(contextKeyRunner).(*Runner)
+	return value
+}
+
+// ContextWithOrigin returns a context annotated with the channel origin (e.g. "webui", "telegram").
+func ContextWithOrigin(ctx context.Context, origin string) context.Context {
+	return context.WithValue(ctx, contextKeyOrigin, origin)
+}
+
+// OriginFromContext returns the channel origin from the context, or "".
+func OriginFromContext(ctx context.Context) string {
+	value, _ := ctx.Value(contextKeyOrigin).(string)
 	return value
 }
