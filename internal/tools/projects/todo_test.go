@@ -70,10 +70,10 @@ func TestProjectTodoAddAndList(t *testing.T) {
 	if added.Todo.GetTitle() != "Implement auth" {
 		t.Fatalf("title = %q, want 'Implement auth'", added.Todo.GetTitle())
 	}
-	if added.Todo.GetPriority() != "high" {
+	if added.Todo.GetPriority() != models.TodoPriorityHigh {
 		t.Fatalf("priority = %q, want high", added.Todo.GetPriority())
 	}
-	if added.Todo.GetStatus() != "open" {
+	if added.Todo.GetStatus() != models.TodoStatusOpen {
 		t.Fatalf("status = %q, want open", added.Todo.GetStatus())
 	}
 
@@ -124,7 +124,7 @@ func TestProjectTodoComplete(t *testing.T) {
 		Todo models.Todo `json:"todo"`
 	}
 	json.Unmarshal([]byte(completeResult), &completed)
-	if completed.Todo.GetStatus() != "done" {
+	if completed.Todo.GetStatus() != models.TodoStatusDone {
 		t.Fatalf("status = %q, want done", completed.Todo.GetStatus())
 	}
 	if completed.Todo.CompletedAt == nil {
@@ -160,7 +160,7 @@ func TestProjectTodoReopen(t *testing.T) {
 		Todo models.Todo `json:"todo"`
 	}
 	json.Unmarshal([]byte(reopenResult), &reopened)
-	if reopened.Todo.GetStatus() != "open" {
+	if reopened.Todo.GetStatus() != models.TodoStatusOpen {
 		t.Fatalf("status = %q, want open", reopened.Todo.GetStatus())
 	}
 	if reopened.Todo.CompletedAt != nil {

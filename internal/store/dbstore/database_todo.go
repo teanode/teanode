@@ -64,10 +64,10 @@ func (self *databaseTransaction) CreateTodo(ctx context.Context, todo *models.To
 	record.CreatedAt = now
 	record.ModifiedAt = now
 	if record.Status == "" {
-		record.Status = "open"
+		record.Status = string(models.TodoStatusOpen)
 	}
 	if record.Priority == "" {
-		record.Priority = "medium"
+		record.Priority = string(models.TodoPriorityMedium)
 	}
 	if record.Tags == nil {
 		record.Tags = []byte("[]")
@@ -130,8 +130,8 @@ func todoRecordToModel(record *databaseTodoRecord) *models.Todo {
 		ConversationID: record.ConversationID,
 		Title:          ptrto.Value(record.Title),
 		Description:    record.Description,
-		Status:         ptrto.Value(record.Status),
-		Priority:       ptrto.Value(record.Priority),
+		Status:         ptrto.Value(models.TodoStatus(record.Status)),
+		Priority:       ptrto.Value(models.TodoPriority(record.Priority)),
 		CompletedAt:    record.CompletedAt,
 		CreatedAt:      &record.CreatedAt,
 		ModifiedAt:     &record.ModifiedAt,
@@ -156,8 +156,8 @@ func modelToTodoRecord(todo *models.Todo) *databaseTodoRecord {
 		ConversationID: todo.ConversationID,
 		Title:          todo.GetTitle(),
 		Description:    todo.Description,
-		Status:         todo.GetStatus(),
-		Priority:       todo.GetPriority(),
+		Status:         string(todo.GetStatus()),
+		Priority:       string(todo.GetPriority()),
 		CompletedAt:    todo.CompletedAt,
 	}
 	if todo.CreatedAt != nil {

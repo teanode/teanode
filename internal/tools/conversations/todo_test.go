@@ -128,7 +128,7 @@ func TestConvTodoComplete(t *testing.T) {
 		Todo models.Todo `json:"todo"`
 	}
 	json.Unmarshal([]byte(completeResult), &completed)
-	if completed.Todo.GetStatus() != "done" {
+	if completed.Todo.GetStatus() != models.TodoStatusDone {
 		t.Fatalf("status = %q, want done", completed.Todo.GetStatus())
 	}
 }
@@ -160,7 +160,7 @@ func TestConvTodoReopen(t *testing.T) {
 		Todo models.Todo `json:"todo"`
 	}
 	json.Unmarshal([]byte(reopenResult), &reopened)
-	if reopened.Todo.GetStatus() != "open" {
+	if reopened.Todo.GetStatus() != models.TodoStatusOpen {
 		t.Fatalf("status = %q, want open", reopened.Todo.GetStatus())
 	}
 }

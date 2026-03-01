@@ -79,7 +79,7 @@ func TestTodoCreateAndGet(t *testing.T) {
 			ProjectID:   ptrto.Value(project.ID),
 			Title:       ptrto.Value("Test Todo"),
 			Description: ptrto.Value("A test description"),
-			Priority:    ptrto.Value("high"),
+			Priority:    ptrto.Value(models.TodoPriorityHigh),
 			Tags:        &[]string{"backend", "test"},
 		}, nil)
 		if err != nil {
@@ -97,11 +97,11 @@ func TestTodoCreateAndGet(t *testing.T) {
 	if created.GetTitle() != "Test Todo" {
 		t.Fatalf("title = %q, want %q", created.GetTitle(), "Test Todo")
 	}
-	if created.GetStatus() != "open" {
-		t.Fatalf("status = %q, want %q", created.GetStatus(), "open")
+	if created.GetStatus() != models.TodoStatusOpen {
+		t.Fatalf("status = %q, want %q", created.GetStatus(), models.TodoStatusOpen)
 	}
-	if created.GetPriority() != "high" {
-		t.Fatalf("priority = %q, want %q", created.GetPriority(), "high")
+	if created.GetPriority() != models.TodoPriorityHigh {
+		t.Fatalf("priority = %q, want %q", created.GetPriority(), models.TodoPriorityHigh)
 	}
 	if created.CreatedAt == nil {
 		t.Fatal("createdAt should be set")
@@ -123,8 +123,8 @@ func TestTodoCreateAndGet(t *testing.T) {
 	if fetched.GetTitle() != "Test Todo" {
 		t.Fatalf("fetched title = %q, want %q", fetched.GetTitle(), "Test Todo")
 	}
-	if fetched.GetPriority() != "high" {
-		t.Fatalf("fetched priority = %q, want %q", fetched.GetPriority(), "high")
+	if fetched.GetPriority() != models.TodoPriorityHigh {
+		t.Fatalf("fetched priority = %q, want %q", fetched.GetPriority(), models.TodoPriorityHigh)
 	}
 }
 
@@ -216,7 +216,7 @@ func TestTodoModify(t *testing.T) {
 		todo, _ := tx.CreateTodo(ctx, &models.Todo{
 			ProjectID: ptrto.Value(project.ID),
 			Title:     ptrto.Value("Original Title"),
-			Priority:  ptrto.Value("low"),
+			Priority:  ptrto.Value(models.TodoPriorityLow),
 		}, nil)
 		created = todo
 		return nil
@@ -226,8 +226,8 @@ func TestTodoModify(t *testing.T) {
 	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		todo, err := tx.ModifyTodo(ctx, created.ID, func(t *models.Todo) error {
 			t.Title = ptrto.Value("Updated Title")
-			t.Priority = ptrto.Value("high")
-			t.Status = ptrto.Value("done")
+			t.Priority = ptrto.Value(models.TodoPriorityHigh)
+			t.Status = ptrto.Value(models.TodoStatusDone)
 			return nil
 		}, nil)
 		if err != nil {
@@ -242,11 +242,11 @@ func TestTodoModify(t *testing.T) {
 	if modified.GetTitle() != "Updated Title" {
 		t.Fatalf("title = %q, want %q", modified.GetTitle(), "Updated Title")
 	}
-	if modified.GetPriority() != "high" {
-		t.Fatalf("priority = %q, want %q", modified.GetPriority(), "high")
+	if modified.GetPriority() != models.TodoPriorityHigh {
+		t.Fatalf("priority = %q, want %q", modified.GetPriority(), models.TodoPriorityHigh)
 	}
-	if modified.GetStatus() != "done" {
-		t.Fatalf("status = %q, want %q", modified.GetStatus(), "done")
+	if modified.GetStatus() != models.TodoStatusDone {
+		t.Fatalf("status = %q, want %q", modified.GetStatus(), models.TodoStatusDone)
 	}
 }
 
@@ -332,11 +332,11 @@ func TestTodoDefaultValues(t *testing.T) {
 		return nil
 	})
 
-	if created.GetStatus() != "open" {
-		t.Fatalf("default status = %q, want %q", created.GetStatus(), "open")
+	if created.GetStatus() != models.TodoStatusOpen {
+		t.Fatalf("default status = %q, want %q", created.GetStatus(), models.TodoStatusOpen)
 	}
-	if created.GetPriority() != "medium" {
-		t.Fatalf("default priority = %q, want %q", created.GetPriority(), "medium")
+	if created.GetPriority() != models.TodoPriorityMedium {
+		t.Fatalf("default priority = %q, want %q", created.GetPriority(), models.TodoPriorityMedium)
 	}
 	tags := created.GetTags()
 	if tags == nil || len(tags) != 0 {

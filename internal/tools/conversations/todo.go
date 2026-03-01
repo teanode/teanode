@@ -197,7 +197,7 @@ func (self *conversationTodoTool) executeAdd(ctx context.Context, conversationId
 		return "", fmt.Errorf("title is required")
 	}
 	if priority == "" {
-		priority = "medium"
+		priority = string(models.TodoPriorityMedium)
 	}
 	if tags == nil {
 		tags = make([]string, 0)
@@ -209,8 +209,8 @@ func (self *conversationTodoTool) executeAdd(ctx context.Context, conversationId
 			ID:             security.NewULID(),
 			ConversationID: ptrto.Value(conversationId),
 			Title:          ptrto.Value(title),
-			Status:         ptrto.Value("open"),
-			Priority:       ptrto.Value(priority),
+			Status:         ptrto.Value(models.TodoStatusOpen),
+			Priority:       ptrto.Value(models.TodoPriority(priority)),
 			Tags:           &tags,
 		}
 		if description != "" {
@@ -247,7 +247,7 @@ func (self *conversationTodoTool) executeUpdate(ctx context.Context, conversatio
 				todo.Description = ptrto.Value(description)
 			}
 			if priority != "" {
-				todo.Priority = ptrto.Value(priority)
+				todo.Priority = ptrto.Value(models.TodoPriority(priority))
 			}
 			if tags != nil {
 				todo.Tags = &tags
@@ -277,7 +277,7 @@ func (self *conversationTodoTool) executeComplete(ctx context.Context, conversat
 	var updated *models.Todo
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		result, err := tx.ModifyTodo(ctx, todoId, func(todo *models.Todo) error {
-			todo.Status = ptrto.Value("done")
+			todo.Status = ptrto.Value(models.TodoStatusDone)
 			now := time.Now()
 			todo.CompletedAt = &now
 			return nil
@@ -305,7 +305,7 @@ func (self *conversationTodoTool) executeReopen(ctx context.Context, conversatio
 	var updated *models.Todo
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		result, err := tx.ModifyTodo(ctx, todoId, func(todo *models.Todo) error {
-			todo.Status = ptrto.Value("open")
+			todo.Status = ptrto.Value(models.TodoStatusOpen)
 			todo.CompletedAt = nil
 			return nil
 		}, nil)
@@ -350,7 +350,7 @@ func (self *conversationTodoTool) executeClearDone(ctx context.Context, conversa
 			return err
 		}
 		for _, todo := range todos {
-			if todo.GetStatus() == "done" {
+			if todo.GetStatus() == models.TodoStatusDone {
 				if err := tx.DeleteTodo(ctx, todo.ID, nil); err != nil {
 					return err
 				}
@@ -430,10 +430,10 @@ func filterTodos(todos []*models.Todo, status, priority, tag string) []*models.T
 	}
 	filtered := make([]*models.Todo, 0, len(todos))
 	for _, todo := range todos {
-		if status != "" && todo.GetStatus() != status {
+		if status != "" && todo.GetStatus() != models.TodoStatus(status) {
 			continue
 		}
-		if priority != "" && todo.GetPriority() != priority {
+		if priority != "" && todo.GetPriority() != models.TodoPriority(priority) {
 			continue
 		}
 		if tag != "" && !containsTag(todo.GetTags(), tag) {
@@ -457,9 +457,9 @@ func containsTag(tags []string, tag string) bool {
 func countByStatus(todos []*models.Todo) (openCount, doneCount int) {
 	for _, todo := range todos {
 		switch todo.GetStatus() {
-		case "open":
+		case models.TodoStatusOpen:
 			openCount++
-		case "done":
+		case models.TodoStatusDone:
 			doneCount++
 		}
 	}

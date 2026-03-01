@@ -47,9 +47,9 @@ func (self *webSocketConnection) handleConversationsTodosList(frame requestFrame
 	openCount, doneCount := 0, 0
 	for _, todo := range todos {
 		switch todo.GetStatus() {
-		case "open":
+		case models.TodoStatusOpen:
 			openCount++
-		case "done":
+		case models.TodoStatusDone:
 			doneCount++
 		}
 	}
@@ -87,9 +87,9 @@ func (self *webSocketConnection) handleConversationsTodosAdd(frame requestFrame)
 		return
 	}
 
-	priority := parameters.Priority
+	priority := models.TodoPriority(parameters.Priority)
 	if priority == "" {
-		priority = "medium"
+		priority = models.TodoPriorityMedium
 	}
 	tags := parameters.Tags
 	if tags == nil {
@@ -102,7 +102,7 @@ func (self *webSocketConnection) handleConversationsTodosAdd(frame requestFrame)
 			ID:             security.NewULID(),
 			ConversationID: ptrto.Value(parameters.ConversationID),
 			Title:          ptrto.Value(parameters.Title),
-			Status:         ptrto.Value("open"),
+			Status:         ptrto.Value(models.TodoStatusOpen),
 			Priority:       ptrto.Value(priority),
 			Tags:           &tags,
 		}
@@ -144,7 +144,7 @@ func (self *webSocketConnection) handleConversationsTodosComplete(frame requestF
 	var updated *models.Todo
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
 		result, err := tx.ModifyTodo(ctx, parameters.TodoID, func(todo *models.Todo) error {
-			todo.Status = ptrto.Value("done")
+			todo.Status = ptrto.Value(models.TodoStatusDone)
 			now := time.Now()
 			todo.CompletedAt = &now
 			return nil
@@ -186,7 +186,7 @@ func (self *webSocketConnection) handleConversationsTodosReopen(frame requestFra
 	var updated *models.Todo
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
 		result, err := tx.ModifyTodo(ctx, parameters.TodoID, func(todo *models.Todo) error {
-			todo.Status = ptrto.Value("open")
+			todo.Status = ptrto.Value(models.TodoStatusOpen)
 			todo.CompletedAt = nil
 			return nil
 		}, nil)
@@ -234,7 +234,7 @@ func (self *webSocketConnection) handleConversationsTodosUpdate(frame requestFra
 				todo.Title = ptrto.Value(parameters.Title)
 			}
 			if parameters.Priority != "" {
-				todo.Priority = ptrto.Value(parameters.Priority)
+				todo.Priority = ptrto.Value(models.TodoPriority(parameters.Priority))
 			}
 			if parameters.Tags != nil {
 				todo.Tags = &parameters.Tags
