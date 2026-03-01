@@ -76,10 +76,10 @@ func (self *fileSystemTransaction) CreateTodo(ctx context.Context, todo *models.
 	result.ModifiedAt = &now
 
 	if result.Status == nil {
-		result.Status = ptrto.Value("open")
+		result.Status = ptrto.Value(models.TodoStatusOpen)
 	}
 	if result.Priority == nil {
-		result.Priority = ptrto.Value("medium")
+		result.Priority = ptrto.Value(models.TodoPriorityMedium)
 	}
 	if result.Tags == nil {
 		emptyTags := make([]string, 0)
@@ -196,7 +196,7 @@ func writeTodoFile(filePath string, todo *models.Todo) error {
 	return os.WriteFile(filePath, data, 0644)
 }
 
-var priorityOrder = map[string]int{"high": 0, "medium": 1, "low": 2}
+var priorityOrder = map[models.TodoPriority]int{models.TodoPriorityHigh: 0, models.TodoPriorityMedium: 1, models.TodoPriorityLow: 2}
 
 func sortTodos(todos []*models.Todo) {
 	sort.Slice(todos, func(i, j int) bool {
@@ -205,7 +205,7 @@ func sortTodos(todos []*models.Todo) {
 		aStatus := a.GetStatus()
 		bStatus := b.GetStatus()
 		if aStatus != bStatus {
-			return aStatus == "open"
+			return aStatus == models.TodoStatusOpen
 		}
 		// Then by priority (high > medium > low)
 		aPri := priorityOrder[a.GetPriority()]
