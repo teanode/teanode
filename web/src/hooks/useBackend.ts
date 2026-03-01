@@ -1702,6 +1702,17 @@ export function useBackend() {
     [sendRpc],
   );
 
+  // Rehydrate pending questions whenever the WebSocket (re)connects and a
+  // conversation is active.  The questions.list calls inside handleConnect and
+  // switchConversation are nested in conversations.history .then() chains —
+  // if history loading fails or runs for the wrong conversation, those calls
+  // are skipped.  This standalone effect guarantees rehydration on reconnect.
+  useEffect(() => {
+    if (connected && conversationId) {
+      loadPendingQuestions(conversationId);
+    }
+  }, [connected, conversationId, loadPendingQuestions]);
+
   return {
     conversations,
     conversationId,
