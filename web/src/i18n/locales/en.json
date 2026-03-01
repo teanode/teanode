@@ -223,7 +223,9 @@
     "askUserOtherPlaceholder": "Type your answer...",
     "questionCount": "{{current}} of {{total}}",
     "questionPrev": "Previous question",
-    "questionNext": "Next question"
+    "questionNext": "Next question",
+    "askUserSubmit": "Submit answer",
+    "askUserBack": "Back"
   },
   "auth": {
     "loginTitle": "Welcome back",

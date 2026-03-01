@@ -17,9 +17,10 @@ import IconButton from "@mui/material/IconButton";
 import HourglassEmptyRounded from "@mui/icons-material/HourglassEmptyRounded";
 import KeyboardArrowDownRounded from "@mui/icons-material/KeyboardArrowDownRounded";
 import StopRounded from "@mui/icons-material/StopRounded";
-import type { DisplayMessage } from "../types";
+import type { DisplayMessage, PendingQuestion } from "../types";
 import { useAppContext } from "../context";
 import MessageBubble from "./MessageBubble";
+import QuestionBubble from "./QuestionBubble";
 import ToolInvoke from "./ToolInvoke";
 import ToolResult, { detectMedia } from "./ToolResult";
 import UsageIndicator from "./UsageIndicator";
@@ -46,13 +47,16 @@ interface MessageListProps {
   onStopSpeaking?: () => void;
   showAbortOnStatusLine?: boolean;
   onAbort?: () => void;
+  pendingQuestions?: PendingQuestion[];
+  onAnswerQuestion?: (questionId: string, answer: string, other?: string) => void;
 }
 
 const VIRTUAL_START = 1_000_000;
 
 type ListItem =
   | { kind: "separator"; label: string; key: string }
-  | { kind: "message"; message: DisplayMessage };
+  | { kind: "message"; message: DisplayMessage }
+  | { kind: "question"; question: PendingQuestion };
 
 function dateLabelFor(timestamp: number, t: (key: string) => string): string {
   const messageDate = new Date(timestamp);
@@ -134,6 +138,8 @@ export default function MessageList({
   onStopSpeaking,
   showAbortOnStatusLine,
   onAbort,
+  pendingQuestions,
+  onAnswerQuestion,
 }: MessageListProps) {
   const { t } = useTranslation();
   const { showToolCalls, showTokenUsage } = useAppContext();
@@ -145,7 +151,7 @@ export default function MessageList({
   const normalizedAgentFallback = (agentName || "Agent").trim() || "Agent";
 
   const items = useMemo(() => {
-    const filteredItems = buildItems(
+    let filteredItems = buildItems(
       messages,
       t,
       showToolCalls,
@@ -154,14 +160,21 @@ export default function MessageList({
     const hasVisibleMessage = filteredItems.some(
       (item) => item.kind === "message",
     );
-    if (hasVisibleMessage || messages.length === 0) {
-      return filteredItems;
+    if (!hasVisibleMessage && messages.length > 0) {
+      // If filters hide everything (e.g. a conversation that starts with tool
+      // messages), show the raw timeline so the page never appears empty.
+      filteredItems = buildItems(messages, t, true, true);
     }
 
-    // If filters hide everything (e.g. a conversation that starts with tool
-    // messages), show the raw timeline so the page never appears empty.
-    return buildItems(messages, t, true, true);
-  }, [messages, t, showToolCalls, showTokenUsage]);
+    // Append pending questions as inline bubbles at the end.
+    if (pendingQuestions && pendingQuestions.length > 0) {
+      for (const q of pendingQuestions) {
+        filteredItems.push({ kind: "question", question: q });
+      }
+    }
+
+    return filteredItems;
+  }, [messages, t, showToolCalls, showTokenUsage, pendingQuestions]);
 
   // Only the last assistant message for the active run should show streaming
   // text.  Earlier assistant messages (from before tool call boundaries) have
@@ -266,6 +279,20 @@ export default function MessageList({
                 {item.label}
               </Typography>
             </Divider>
+          </Container>
+        );
+      }
+
+      if (item.kind === "question") {
+        return (
+          <Container
+            maxWidth="md"
+            sx={{ py: 0.5, display: "flex", flexDirection: "column" }}
+          >
+            <QuestionBubble
+              question={item.question}
+              onAnswer={onAnswerQuestion!}
+            />
           </Container>
         );
       }
@@ -456,6 +483,7 @@ export default function MessageList({
       lastStreamingAssistantId,
       normalizedAgentFallback,
       normalizedUserFallback,
+      onAnswerQuestion,
       onSpeak,
       onStopSpeaking,
       speakingMessageId,
@@ -470,7 +498,9 @@ export default function MessageList({
   );
 
   const computeItemKey = useCallback((_index: number, item: ListItem) => {
-    return item.kind === "separator" ? item.key : item.message.id;
+    if (item.kind === "separator") return item.key;
+    if (item.kind === "question") return `q-${item.question.id}`;
+    return item.message.id;
   }, []);
 
   // Track firstItemIndex in a ref — only decreases when older messages are
