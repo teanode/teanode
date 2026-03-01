@@ -40,6 +40,7 @@ import (
 
 	// Blank imports ensure each tool package's init() registers its tools.
 	_ "github.com/teanode/teanode/internal/tools/agent"
+	_ "github.com/teanode/teanode/internal/tools/askuser"
 	_ "github.com/teanode/teanode/internal/tools/browser"
 	_ "github.com/teanode/teanode/internal/tools/claudecode"
 	_ "github.com/teanode/teanode/internal/tools/codex"

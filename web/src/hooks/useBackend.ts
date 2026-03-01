@@ -25,6 +25,9 @@ import type {
   Todo,
   ConversationTodosEvent,
   ConversationTodosListResult,
+  PendingQuestion,
+  PendingQuestionsListResult,
+  ConversationQuestionsEvent,
 } from "../types";
 import { useWebSocket } from "./useWebSocket";
 
@@ -452,6 +455,41 @@ export function useBackend() {
           payload.action === "reset"
         ) {
           loadTodos();
+        }
+      }
+      return;
+    }
+
+    if (frame.event === "conversation_questions") {
+      const payload = frame.payload as ConversationQuestionsEvent | undefined;
+      if (payload) {
+        if (
+          payload.action === "asked" &&
+          payload.conversationId === conversationIdRef.current
+        ) {
+          setPendingQuestions((prev) => {
+            if (prev.some((q) => q.id === payload.questionId)) return prev;
+            const q: PendingQuestion = {
+              id: payload.questionId,
+              conversationId: payload.conversationId!,
+              agentId: payload.agentId || "",
+              runId: payload.runId || "",
+              question: payload.question || "",
+              choices: payload.choices || [],
+            };
+            if (payload.allowOther) {
+              q.allowOther = true;
+              if (payload.otherLabel) q.otherLabel = payload.otherLabel;
+              if (payload.otherPlaceholder)
+                q.otherPlaceholder = payload.otherPlaceholder;
+            }
+            return [...prev, q];
+          });
+          setStatus("waiting for your answer...");
+        } else if (payload.action === "answered") {
+          setPendingQuestions((prev) =>
+            prev.filter((q) => q.id !== payload.questionId),
+          );
         }
       }
       return;
@@ -1030,6 +1068,17 @@ export function useBackend() {
             }
           }
           pendingEventsRef.current = [];
+
+          // Recover pending questions from the in-memory broker.
+          sendRpcRef
+            .current<PendingQuestionsListResult>("questions.list", {
+              conversationId: key,
+            })
+            .then((qResult) => {
+              if (conversationIdRef.current !== key) return;
+              setPendingQuestions(qResult?.questions ?? []);
+            })
+            .catch((error: unknown) => console.error("questions.list:", error));
         })
         .catch((error: unknown) =>
           console.error("conversations.history reconnect:", error),
@@ -1138,9 +1187,10 @@ export function useBackend() {
       oldestLoadedIndexRef.current = 0;
       setHasMoreHistory(false);
 
-      // Reset todos for new conversation
+      // Reset todos and pending questions for new conversation
       setTodos([]);
       todosConversationIdRef.current = key;
+      setPendingQuestions([]);
 
       // Buffer events while history is loading
       historyLoadedRef.current = false;
@@ -1201,6 +1251,16 @@ export function useBackend() {
             .catch((error) =>
               console.error("conversations.todos.list:", error),
             );
+
+          // Recover pending questions from the in-memory broker.
+          sendRpc<PendingQuestionsListResult>("questions.list", {
+            conversationId: key,
+          })
+            .then((qResult) => {
+              if (conversationIdRef.current !== key) return;
+              setPendingQuestions(qResult?.questions ?? []);
+            })
+            .catch((error) => console.error("questions.list:", error));
         })
         .catch((error) => console.error("conversations.history:", error));
     },
@@ -1225,9 +1285,10 @@ export function useBackend() {
     // Reset pagination state
     oldestLoadedIndexRef.current = 0;
     setHasMoreHistory(false);
-    // Clear todos
+    // Clear todos and pending questions
     setTodos([]);
     todosConversationIdRef.current = null;
+    setPendingQuestions([]);
   }, []);
 
   const loadOlderMessages = useCallback(() => {
@@ -1602,6 +1663,63 @@ export function useBackend() {
     [sendRpc],
   );
 
+  // ── Pending Questions (ask_user_question tool) ────────────────────
+
+  const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>(
+    [],
+  );
+
+  const answerQuestion = useCallback(
+    async (questionId: string, answer: string, other?: string) => {
+      const params: Record<string, string> = { questionId, answer };
+      if (other) params.other = other;
+      await sendRpc("questions.answer", params);
+      setPendingQuestions((prev) => prev.filter((q) => q.id !== questionId));
+    },
+    [sendRpc],
+  );
+
+  const answerQuestionBatch = useCallback(
+    async (
+      answers: { questionId: string; answer: string; other?: string }[],
+    ) => {
+      await sendRpc("questions.answer_batch", { answers });
+      const answeredIds = new Set(answers.map((a) => a.questionId));
+      setPendingQuestions((prev) => prev.filter((q) => !answeredIds.has(q.id)));
+    },
+    [sendRpc],
+  );
+
+  const loadPendingQuestions = useCallback(
+    (targetConversationId?: string) => {
+      const convId = targetConversationId || conversationIdRef.current;
+      if (!convId) {
+        setPendingQuestions([]);
+        return;
+      }
+      sendRpc<PendingQuestionsListResult>("questions.list", {
+        conversationId: convId,
+      })
+        .then((result) => {
+          if (conversationIdRef.current !== convId) return;
+          setPendingQuestions(result?.questions ?? []);
+        })
+        .catch((error) => console.error("questions.list:", error));
+    },
+    [sendRpc],
+  );
+
+  // Rehydrate pending questions whenever the WebSocket (re)connects and a
+  // conversation is active.  The questions.list calls inside handleConnect and
+  // switchConversation are nested in conversations.history .then() chains —
+  // if history loading fails or runs for the wrong conversation, those calls
+  // are skipped.  This standalone effect guarantees rehydration on reconnect.
+  useEffect(() => {
+    if (connected && conversationId) {
+      loadPendingQuestions(conversationId);
+    }
+  }, [connected, conversationId, loadPendingQuestions]);
+
   return {
     conversations,
     conversationId,
@@ -1653,5 +1771,9 @@ export function useBackend() {
     triggerJob,
     todos,
     loadTodos,
+    pendingQuestions,
+    answerQuestion,
+    answerQuestionBatch,
+    loadPendingQuestions,
   };
 }

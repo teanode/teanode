@@ -215,7 +215,17 @@
   "tool": {
     "called": "called",
     "result": "result",
-    "outputAlt": "{{toolName}} output"
+    "outputAlt": "{{toolName}} output",
+    "askUserQuestion": "Agent is asking:",
+    "askUserAnswered": "Answered: {{answer}}",
+    "askUserChoices": "Choices",
+    "askUserOther": "Other",
+    "askUserOtherPlaceholder": "Type your answer...",
+    "questionCount": "{{current}} of {{total}}",
+    "questionPrev": "Previous question",
+    "questionNext": "Next question",
+    "askUserSubmit": "Submit answer",
+    "askUserBack": "Back"
   },
   "auth": {
     "loginTitle": "Welcome back",

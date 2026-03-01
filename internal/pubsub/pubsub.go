@@ -29,6 +29,9 @@ const (
 
 	// EventTypeConversationTodos signals that a conversation's todo list has changed.
 	EventTypeConversationTodos EventType = "conversation_todos"
+
+	// EventTypeConversationQuestions signals that a question has been asked or answered.
+	EventTypeConversationQuestions EventType = "conversation_questions"
 )
 
 // Subscriber receives broadcast events.

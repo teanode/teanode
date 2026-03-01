@@ -398,6 +398,40 @@ export interface ConversationTodosListResult {
   doneCount: number;
 }
 
+// Pending question types (ask_user_question tool)
+
+export interface PendingQuestion {
+  id: string;
+  conversationId: string;
+  agentId: string;
+  runId: string;
+  question: string;
+  choices: string[];
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPlaceholder?: string;
+}
+
+export interface PendingQuestionsListResult {
+  questions: PendingQuestion[];
+}
+
+export interface ConversationQuestionsEvent {
+  action: string;
+  conversationId?: string;
+  agentId?: string;
+  userId?: string;
+  runId?: string;
+  questionId: string;
+  question?: string;
+  choices?: string[];
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPlaceholder?: string;
+  answer?: string;
+  other?: string;
+}
+
 // Display message types for the UI
 
 export type DisplayMessageType =

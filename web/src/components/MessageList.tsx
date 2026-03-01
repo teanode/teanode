@@ -145,22 +145,17 @@ export default function MessageList({
   const normalizedAgentFallback = (agentName || "Agent").trim() || "Agent";
 
   const items = useMemo(() => {
-    const filteredItems = buildItems(
-      messages,
-      t,
-      showToolCalls,
-      showTokenUsage,
-    );
+    let filteredItems = buildItems(messages, t, showToolCalls, showTokenUsage);
     const hasVisibleMessage = filteredItems.some(
       (item) => item.kind === "message",
     );
-    if (hasVisibleMessage || messages.length === 0) {
-      return filteredItems;
+    if (!hasVisibleMessage && messages.length > 0) {
+      // If filters hide everything (e.g. a conversation that starts with tool
+      // messages), show the raw timeline so the page never appears empty.
+      filteredItems = buildItems(messages, t, true, true);
     }
 
-    // If filters hide everything (e.g. a conversation that starts with tool
-    // messages), show the raw timeline so the page never appears empty.
-    return buildItems(messages, t, true, true);
+    return filteredItems;
   }, [messages, t, showToolCalls, showTokenUsage]);
 
   // Only the last assistant message for the active run should show streaming
@@ -470,7 +465,8 @@ export default function MessageList({
   );
 
   const computeItemKey = useCallback((_index: number, item: ListItem) => {
-    return item.kind === "separator" ? item.key : item.message.id;
+    if (item.kind === "separator") return item.key;
+    return item.message.id;
   }, []);
 
   // Track firstItemIndex in a ref — only decreases when older messages are
@@ -592,7 +588,9 @@ export default function MessageList({
         rangeChanged={handleRangeChanged}
         increaseViewportBy={{ top: 500, bottom: 200 }}
         itemContent={renderItem}
-        components={{ Header: headerComponent }}
+        components={{
+          Header: headerComponent,
+        }}
       />
       {showScrollToBottom && items.length > 0 && (
         <IconButton

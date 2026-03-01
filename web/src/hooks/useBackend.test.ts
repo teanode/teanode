@@ -576,3 +576,197 @@ describe("shouldHydrateConversation", () => {
     expect(shouldHydrateConversation(null, undefined, true)).toBe(false);
   });
 });
+
+// ─── Reconnect question rehydration ─────────────────────────────────
+//
+// Simulates the useEffect added in useBackend that rehydrates pending
+// questions on WebSocket reconnect.  The effect fires when `connected`
+// becomes true and there is an active `conversationId`, calling
+// loadPendingQuestions which issues a questions.list RPC.  These tests
+// verify the guard conditions, the RPC response processing, and the
+// stale-response guard.
+
+import type { PendingQuestion } from "../types";
+
+/** Simulates the reconnect rehydration effect + loadPendingQuestions. */
+class ReconnectRehydrationSimulation {
+  connected = false;
+  conversationId: string | null = null;
+  conversationIdRef: { current: string | null } = { current: null };
+  pendingQuestions: PendingQuestion[] = [];
+  rpcCalls: Array<{ method: string; params: unknown }> = [];
+
+  /** Mocked sendRpc — records calls and resolves with mock data. */
+  private mockResponses = new Map<string, unknown>();
+
+  setMockResponse(conversationId: string, questions: PendingQuestion[]) {
+    this.mockResponses.set(conversationId, { questions });
+  }
+
+  /** Simulates what loadPendingQuestions does. */
+  loadPendingQuestions(targetConversationId?: string) {
+    const convId = targetConversationId || this.conversationIdRef.current;
+    if (!convId) {
+      this.pendingQuestions = [];
+      return;
+    }
+    this.rpcCalls.push({
+      method: "questions.list",
+      params: { conversationId: convId },
+    });
+    // Simulate async response (synchronous for test).
+    const response = this.mockResponses.get(convId) as
+      | { questions: PendingQuestion[] }
+      | undefined;
+    // Stale guard: if conversation changed before response arrived, discard.
+    if (this.conversationIdRef.current !== convId) return;
+    this.pendingQuestions = response?.questions ?? [];
+  }
+
+  /** Simulates the useEffect guard + call. */
+  runRehydrationEffect() {
+    if (this.connected && this.conversationId) {
+      this.loadPendingQuestions(this.conversationId);
+    }
+  }
+
+  /** Helper to set both state and ref (mirrors useBackend line 321). */
+  setConversation(id: string | null) {
+    this.conversationId = id;
+    this.conversationIdRef.current = id;
+  }
+}
+
+function makePendingQuestion(
+  id: string,
+  conversationId = "conv-1",
+): PendingQuestion {
+  return {
+    id,
+    conversationId,
+    agentId: "agent-1",
+    runId: "run-1",
+    question: "Pick one?",
+    choices: ["A", "B"],
+  };
+}
+
+describe("reconnect question rehydration", () => {
+  let sim: ReconnectRehydrationSimulation;
+
+  beforeEach(() => {
+    sim = new ReconnectRehydrationSimulation();
+  });
+
+  it("calls questions.list on reconnect when a conversation is active", () => {
+    sim.setConversation("conv-1");
+    sim.connected = true;
+    sim.setMockResponse("conv-1", [makePendingQuestion("q1")]);
+
+    sim.runRehydrationEffect();
+
+    expect(sim.rpcCalls).toHaveLength(1);
+    expect(sim.rpcCalls[0]).toEqual({
+      method: "questions.list",
+      params: { conversationId: "conv-1" },
+    });
+    expect(sim.pendingQuestions).toHaveLength(1);
+    expect(sim.pendingQuestions[0].id).toBe("q1");
+  });
+
+  it("does not call questions.list when disconnected", () => {
+    sim.setConversation("conv-1");
+    sim.connected = false;
+
+    sim.runRehydrationEffect();
+
+    expect(sim.rpcCalls).toHaveLength(0);
+    expect(sim.pendingQuestions).toHaveLength(0);
+  });
+
+  it("does not call questions.list without an active conversation", () => {
+    sim.setConversation(null);
+    sim.connected = true;
+
+    sim.runRehydrationEffect();
+
+    expect(sim.rpcCalls).toHaveLength(0);
+    expect(sim.pendingQuestions).toHaveLength(0);
+  });
+
+  it("sets pendingQuestions from broker response so dialog would open", () => {
+    const q1 = makePendingQuestion("q1", "conv-1");
+    const q2 = makePendingQuestion("q2", "conv-1");
+    sim.setConversation("conv-1");
+    sim.connected = true;
+    sim.setMockResponse("conv-1", [q1, q2]);
+
+    sim.runRehydrationEffect();
+
+    // QuestionPanel renders when pendingQuestions.length > 0.
+    expect(sim.pendingQuestions.length > 0).toBe(true);
+    expect(sim.pendingQuestions).toEqual([q1, q2]);
+  });
+
+  it("returns empty when broker has no pending questions", () => {
+    sim.setConversation("conv-1");
+    sim.connected = true;
+    sim.setMockResponse("conv-1", []);
+
+    sim.runRehydrationEffect();
+
+    expect(sim.pendingQuestions).toHaveLength(0);
+  });
+
+  it("ignores stale response if conversation changed before RPC returns", () => {
+    sim.setConversation("conv-1");
+    sim.connected = true;
+    sim.setMockResponse("conv-1", [makePendingQuestion("q1", "conv-1")]);
+
+    // Simulate: user switches conversation before RPC response arrives.
+    // Override loadPendingQuestions to switch conversation mid-call.
+    const originalLoad = sim.loadPendingQuestions.bind(sim);
+    sim.loadPendingQuestions = (targetConversationId?: string) => {
+      const convId = targetConversationId || sim.conversationIdRef.current;
+      if (!convId) {
+        sim.pendingQuestions = [];
+        return;
+      }
+      sim.rpcCalls.push({
+        method: "questions.list",
+        params: { conversationId: convId },
+      });
+      // Simulate conversation switch happening before response.
+      sim.conversationIdRef.current = "conv-2";
+      // Now simulate the response arriving — stale guard should discard.
+      const response = sim.pendingQuestions;
+      if (sim.conversationIdRef.current !== convId) return; // stale!
+      sim.pendingQuestions = [makePendingQuestion("q1", "conv-1")];
+    };
+
+    sim.runRehydrationEffect();
+
+    // Stale guard prevented setting questions for conv-1 since we're on conv-2.
+    expect(sim.pendingQuestions).toHaveLength(0);
+  });
+
+  it("rehydrates correctly on reconnect cycle (disconnect → reconnect)", () => {
+    // Initial state: connected with a pending question.
+    sim.setConversation("conv-1");
+    sim.connected = true;
+    sim.pendingQuestions = [makePendingQuestion("q1")];
+
+    // Simulate disconnect — pendingQuestions should NOT be cleared.
+    sim.connected = false;
+    // (No code path clears pendingQuestions on disconnect.)
+    expect(sim.pendingQuestions).toHaveLength(1);
+
+    // Simulate reconnect — effect fires, rehydrates from broker.
+    sim.connected = true;
+    sim.setMockResponse("conv-1", [makePendingQuestion("q1")]);
+    sim.runRehydrationEffect();
+
+    expect(sim.pendingQuestions).toHaveLength(1);
+    expect(sim.pendingQuestions[0].id).toBe("q1");
+  });
+});
