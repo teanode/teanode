@@ -8,7 +8,10 @@
  * correctness of the merge at each stage of a streaming run.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { reconcileRunStateFromHistory } from "./useBackend";
+import {
+  reconcileRunStateFromHistory,
+  shouldHydrateConversation,
+} from "./useBackend";
 
 // ─── Types (subset of src/types.ts needed for the test) ────────────
 
@@ -549,5 +552,27 @@ describe("reconcileRunStateFromHistory", () => {
       isRunning: true,
     });
     expect(activeRuns.get("conv-1")).toBe("run-123");
+  });
+});
+
+describe("shouldHydrateConversation", () => {
+  it("hydrates when no current conversation and default exists", () => {
+    expect(shouldHydrateConversation(null, "conv-1", false)).toBe(true);
+  });
+
+  it("does not hydrate when user wants a new conversation", () => {
+    expect(shouldHydrateConversation(null, "conv-1", true)).toBe(false);
+  });
+
+  it("does not hydrate when a conversation is already active", () => {
+    expect(shouldHydrateConversation("conv-2", "conv-1", false)).toBe(false);
+  });
+
+  it("does not hydrate when no default conversation exists", () => {
+    expect(shouldHydrateConversation(null, undefined, false)).toBe(false);
+  });
+
+  it("does not hydrate when no default and user wants new", () => {
+    expect(shouldHydrateConversation(null, undefined, true)).toBe(false);
   });
 });

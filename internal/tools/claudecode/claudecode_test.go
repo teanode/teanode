@@ -6,11 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/teanode/teanode/internal/models"
-	"github.com/teanode/teanode/internal/store"
-	"github.com/teanode/teanode/internal/store/fsstore"
 )
 
 // mockRunner returns a commandRunner that records calls and returns canned output.
@@ -51,6 +46,9 @@ func TestDefinition(testing *testing.T) {
 	if definition.Function.Description == "" {
 		testing.Error("expected non-empty description")
 	}
+	if !strings.Contains(definition.Function.Description, "plan or progress log") {
+		testing.Error("expected description to mention file-based continuity")
+	}
 	if definition.Function.Parameters == nil {
 		testing.Error("expected non-nil parameters")
 	}
@@ -58,28 +56,55 @@ func TestDefinition(testing *testing.T) {
 		testing.Error("expected non-nil returns")
 	}
 
-	// Verify action enum exists.
+	// Verify prompt is required (not action).
 	parameters, ok := definition.Function.Parameters.(map[string]interface{})
 	if !ok {
 		testing.Fatal("parameters should be a map")
 	}
+	required, ok := parameters["required"].([]string)
+	if !ok {
+		testing.Fatal("required should be a string slice")
+	}
+	if len(required) != 1 || required[0] != "prompt" {
+		testing.Errorf("expected required=[prompt], got %v", required)
+	}
+
+	// Verify no action parameter exists.
 	properties, ok := parameters["properties"].(map[string]interface{})
 	if !ok {
 		testing.Fatal("properties should be a map")
 	}
-	action, ok := properties["action"].(map[string]interface{})
+	if _, hasAction := properties["action"]; hasAction {
+		testing.Error("action parameter should not exist")
+	}
+	if _, hasSessionId := properties["sessionId"]; hasSessionId {
+		testing.Error("sessionId parameter should not exist")
+	}
+	if _, hasForceNew := properties["forceNewSession"]; hasForceNew {
+		testing.Error("forceNewSession parameter should not exist")
+	}
+
+	// Verify no session-related fields in returns.
+	returns, ok := definition.Function.Returns.(map[string]interface{})
 	if !ok {
-		testing.Fatal("action property should exist")
+		testing.Fatal("returns should be a map")
 	}
-	if action["type"] != "string" {
-		testing.Error("action should be type string")
+	returnProps, ok := returns["properties"].(map[string]interface{})
+	if !ok {
+		testing.Fatal("return properties should be a map")
 	}
-	if action["enum"] == nil {
-		testing.Error("action should have enum")
+	if _, hasSessionId := returnProps["sessionId"]; hasSessionId {
+		testing.Error("sessionId return field should not exist")
+	}
+	if _, hasResume := returnProps["resume"]; hasResume {
+		testing.Error("resume return field should not exist")
+	}
+	if _, hasSessions := returnProps["sessions"]; hasSessions {
+		testing.Error("sessions return field should not exist")
 	}
 }
 
-// --- run action tests ---
+// --- run tests ---
 
 func TestRunWithValidJSON(testing *testing.T) {
 	claudeOutput := `{"result":"Files listed successfully","session_id":"abc-123","is_error":false,"cost_usd":0.05,"num_input_tokens":100,"num_output_tokens":50}`
@@ -88,11 +113,9 @@ func TestRunWithValidJSON(testing *testing.T) {
 	tool := &claudeCodeTool{
 		binaryPath: "/usr/bin/claude",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
 		"prompt": "List files in the current directory",
 	})
 	result, err := tool.Execute(context.Background(), string(arguments))
@@ -104,9 +127,6 @@ func TestRunWithValidJSON(testing *testing.T) {
 	var parsed map[string]interface{}
 	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
 		testing.Fatalf("result is not valid JSON: %v", err)
-	}
-	if parsed["sessionId"] != "abc-123" {
-		testing.Errorf("expected sessionId 'abc-123', got %v", parsed["sessionId"])
 	}
 	if parsed["result"] != "Files listed successfully" {
 		testing.Errorf("unexpected result: %v", parsed["result"])
@@ -120,15 +140,12 @@ func TestRunWithValidJSON(testing *testing.T) {
 	if parsed["timedOut"] != false {
 		testing.Errorf("expected timedOut false, got %v", parsed["timedOut"])
 	}
-	resume, ok := parsed["resume"].(map[string]interface{})
-	if !ok {
-		testing.Fatalf("expected resume payload, got: %v", parsed["resume"])
+	// Verify no session-related fields in output.
+	if _, hasSessionId := parsed["sessionId"]; hasSessionId {
+		testing.Error("sessionId should not be in output")
 	}
-	if resume["action"] != "resume" {
-		testing.Errorf("expected resume.action 'resume', got %v", resume["action"])
-	}
-	if resume["sessionId"] != "abc-123" {
-		testing.Errorf("expected resume.sessionId 'abc-123', got %v", resume["sessionId"])
+	if _, hasResume := parsed["resume"]; hasResume {
+		testing.Error("resume should not be in output")
 	}
 
 	// Verify command was called correctly.
@@ -147,11 +164,9 @@ func TestRunWithNonJSONFallback(testing *testing.T) {
 	tool := &claudeCodeTool{
 		binaryPath: "/usr/bin/claude",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
 		"prompt": "Do something",
 	})
 	result, err := tool.Execute(context.Background(), string(arguments))
@@ -177,11 +192,9 @@ func TestRunWithNonJSONFallbackError(testing *testing.T) {
 	tool := &claudeCodeTool{
 		binaryPath: "/usr/bin/claude",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
 		"prompt": "Do something",
 	})
 	result, err := tool.Execute(context.Background(), string(arguments))
@@ -206,418 +219,13 @@ func TestRunMissingPrompt(testing *testing.T) {
 	tool := &claudeCodeTool{
 		binaryPath: "/usr/bin/claude",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
 	}
 
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
-	})
+	arguments, _ := json.Marshal(map[string]interface{}{})
 	_, err := tool.Execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "prompt is required") {
 		testing.Errorf("expected 'prompt is required' error, got: %v", err)
 	}
-}
-
-func TestRunRequiresResumeWhenSessionExists(testing *testing.T) {
-	runner, _ := mockRunner("", "", 0, nil)
-	tool := &claudeCodeTool{
-		binaryPath: "/usr/bin/claude",
-		runner:     runner,
-		sessions: map[string]*sessionInformation{
-			"existing-session": {SessionID: "existing-session"},
-		},
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
-		"prompt": "Do something",
-	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err == nil || !strings.Contains(err.Error(), "existing session(s) detected") {
-		testing.Errorf("expected existing session guidance error, got: %v", err)
-	}
-}
-
-func TestRunAllowsForceNewSessionWhenSessionExists(testing *testing.T) {
-	claudeOutput := `{"result":"Started fresh","session_id":"new-session","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
-	runner, calls := mockRunner(claudeOutput, "", 0, nil)
-	tool := &claudeCodeTool{
-		binaryPath: "/usr/bin/claude",
-		runner:     runner,
-		sessions: map[string]*sessionInformation{
-			"existing-session": {SessionID: "existing-session"},
-		},
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":          "run",
-		"prompt":          "Start a new task",
-		"forceNewSession": true,
-	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-	if len(*calls) != 1 {
-		testing.Fatalf("expected 1 call, got %d", len(*calls))
-	}
-}
-
-// --- resume action tests ---
-
-func TestResumeKnownSession(testing *testing.T) {
-	claudeOutput := `{"result":"Continued work","session_id":"abc-123","is_error":false,"cost_usd":0.03,"num_input_tokens":50,"num_output_tokens":30}`
-	runner, calls := mockRunner(claudeOutput, "", 0, nil)
-
-	tool := &claudeCodeTool{
-		binaryPath: "/usr/bin/claude",
-		runner:     runner,
-		sessions: map[string]*sessionInformation{
-			"abc-123": {
-				SessionID:  "abc-123",
-				CreatedAt:  time.Now().Add(-time.Hour),
-				LastUsedAt: time.Now().Add(-time.Minute),
-				TurnCount:  1,
-			},
-		},
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":    "resume",
-		"sessionId": "abc-123",
-		"prompt":    "Continue working on the task",
-	})
-	result, err := tool.Execute(context.Background(), string(arguments))
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		testing.Fatalf("result is not valid JSON: %v", err)
-	}
-	if parsed["sessionId"] != "abc-123" {
-		testing.Errorf("expected sessionId 'abc-123', got %v", parsed["sessionId"])
-	}
-
-	// Verify --resume flag was passed.
-	if len(*calls) != 1 {
-		testing.Fatalf("expected 1 call, got %d", len(*calls))
-	}
-	commandArguments := (*calls)[0].Arguments
-	foundResume := false
-	for index, argument := range commandArguments {
-		if argument == "--resume" && index+1 < len(commandArguments) && commandArguments[index+1] == "abc-123" {
-			foundResume = true
-			break
-		}
-	}
-	if !foundResume {
-		testing.Errorf("expected '--resume abc-123' in args: %v", commandArguments)
-	}
-
-	// Verify turn count was incremented.
-	tool.mutex.Lock()
-	session := tool.sessions["abc-123"]
-	tool.mutex.Unlock()
-	if session.TurnCount != 2 {
-		testing.Errorf("expected turnCount 2, got %d", session.TurnCount)
-	}
-}
-
-func TestResumeWithoutTrackedSession(testing *testing.T) {
-	claudeOutput := `{"result":"Continued anyway","session_id":"nonexistent","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
-	runner, calls := mockRunner(claudeOutput, "", 0, nil)
-	tool := &claudeCodeTool{
-		binaryPath: "/usr/bin/claude",
-		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":    "resume",
-		"sessionId": "nonexistent",
-		"prompt":    "Continue",
-	})
-	result, err := tool.Execute(context.Background(), string(arguments))
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-	if len(*calls) != 1 {
-		testing.Fatalf("expected 1 call, got %d", len(*calls))
-	}
-	commandArguments := (*calls)[0].Arguments
-	foundResume := false
-	foundSessionId := false
-	for index, argument := range commandArguments {
-		if argument == "--resume" && index+1 < len(commandArguments) && commandArguments[index+1] == "nonexistent" {
-			foundResume = true
-		}
-		if argument == "nonexistent" {
-			foundSessionId = true
-		}
-	}
-	if !foundResume || !foundSessionId {
-		testing.Errorf("expected '--resume nonexistent' in args: %v", commandArguments)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		testing.Fatalf("result is not valid JSON: %v", err)
-	}
-	if parsed["sessionId"] != "nonexistent" {
-		testing.Errorf("expected sessionId 'nonexistent', got %v", parsed["sessionId"])
-	}
-}
-
-func TestResumeMissingSessionID(testing *testing.T) {
-	runner, _ := mockRunner("", "", 0, nil)
-	tool := &claudeCodeTool{
-		binaryPath: "/usr/bin/claude",
-		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "resume",
-		"prompt": "Continue",
-	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err == nil || !strings.Contains(err.Error(), "sessionId is required") {
-		testing.Errorf("expected 'sessionId is required' error, got: %v", err)
-	}
-}
-
-func TestResumeMissingPrompt(testing *testing.T) {
-	runner, _ := mockRunner("", "", 0, nil)
-	tool := &claudeCodeTool{
-		binaryPath: "/usr/bin/claude",
-		runner:     runner,
-		sessions: map[string]*sessionInformation{
-			"abc-123": {SessionID: "abc-123"},
-		},
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":    "resume",
-		"sessionId": "abc-123",
-	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err == nil || !strings.Contains(err.Error(), "prompt is required") {
-		testing.Errorf("expected 'prompt is required' error, got: %v", err)
-	}
-}
-
-// --- list_sessions tests ---
-
-func TestListSessionsEmpty(testing *testing.T) {
-	tool := &claudeCodeTool{
-		sessions: make(map[string]*sessionInformation),
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "list_sessions",
-	})
-	result, err := tool.Execute(context.Background(), string(arguments))
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		testing.Fatalf("result is not valid JSON: %v", err)
-	}
-	sessions, ok := parsed["sessions"].([]interface{})
-	if !ok {
-		testing.Fatal("expected sessions to be an array")
-	}
-	if len(sessions) != 0 {
-		testing.Errorf("expected 0 sessions, got %d", len(sessions))
-	}
-}
-
-func TestListSessionsAfterRuns(testing *testing.T) {
-	claudeOutput1 := `{"result":"Done 1","session_id":"session-1","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
-	claudeOutput2 := `{"result":"Done 2","session_id":"session-2","is_error":false,"cost_usd":0.02,"num_input_tokens":20,"num_output_tokens":10}`
-
-	callCount := 0
-	outputs := []string{claudeOutput1, claudeOutput2}
-	runner := func(ctx context.Context, name string, args []string, directory string) ([]byte, []byte, int, error) {
-		output := outputs[callCount]
-		callCount++
-		return []byte(output), nil, 0, nil
-	}
-
-	tool := &claudeCodeTool{
-		binaryPath: "/usr/bin/claude",
-		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
-	}
-
-	// Run two tasks.
-	for index, prompt := range []string{"Task 1", "Task 2"} {
-		arguments, _ := json.Marshal(map[string]interface{}{
-			"action": "run",
-			"prompt": prompt,
-		})
-		if index == 1 {
-			arguments, _ = json.Marshal(map[string]interface{}{
-				"action":          "run",
-				"prompt":          prompt,
-				"forceNewSession": true,
-			})
-		}
-		_, err := tool.Execute(context.Background(), string(arguments))
-		if err != nil {
-			testing.Fatalf("unexpected error: %v", err)
-		}
-	}
-
-	// List sessions.
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "list_sessions",
-	})
-	result, err := tool.Execute(context.Background(), string(arguments))
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		testing.Fatalf("result is not valid JSON: %v", err)
-	}
-	sessions, ok := parsed["sessions"].([]interface{})
-	if !ok {
-		testing.Fatal("expected sessions to be an array")
-	}
-	if len(sessions) != 2 {
-		testing.Errorf("expected 2 sessions, got %d", len(sessions))
-	}
-}
-
-func TestLoadSessionsFromConversationStore(testing *testing.T) {
-	dataDirectory := testing.TempDir()
-	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: dataDirectory})
-	if openError != nil {
-		testing.Fatalf("opening store: %v", openError)
-	}
-	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
-		testing.Fatalf("migrating store: %v", migrateError)
-	}
-	testing.Cleanup(func() {
-		_ = openedStore.Close()
-	})
-
-	ctx := store.ContextWithStore(context.Background(), openedStore)
-	userId := "user-1"
-	agentId := "agent-1"
-
-	timestamp1 := time.Now().Add(-2 * time.Hour)
-	timestamp2 := time.Now().Add(-time.Hour)
-	timestamp3 := time.Now()
-
-	toolRole := models.RoleTool
-	contentS1 := marshalContent(`{"sessionId":"s1","result":"one"}`)
-	contentS1Resume := marshalContent(`{"resume":{"sessionId":"s1"}}`)
-	contentS2 := marshalContent(`{"sessionId":"s2","result":"two"}`)
-	contentOther := marshalContent(`{"sessionId":"ignored"}`)
-	claudeCodeName := "claude_code"
-	otherToolName := "other_tool"
-
-	if err := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		conversation1, createError := transaction.CreateConversation(ctx, &models.Conversation{
-			UserID:  &userId,
-			AgentID: &agentId,
-		}, nil)
-		if createError != nil {
-			return createError
-		}
-		conversation2, createError := transaction.CreateConversation(ctx, &models.Conversation{
-			UserID:  &userId,
-			AgentID: &agentId,
-		}, nil)
-		if createError != nil {
-			return createError
-		}
-
-		// Conversation 1: two tool messages for session s1
-		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
-			ConversationID: &conversation1.ID,
-			Role:           &toolRole,
-			Content:        contentS1,
-			ToolName:       &claudeCodeName,
-			CreatedAt:      &timestamp1,
-		}, nil); err != nil {
-			return err
-		}
-		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
-			ConversationID: &conversation1.ID,
-			Role:           &toolRole,
-			Content:        contentS1Resume,
-			ToolName:       &claudeCodeName,
-			CreatedAt:      &timestamp2,
-		}, nil); err != nil {
-			return err
-		}
-
-		// Conversation 2: one tool message for session s2, one for another tool
-		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
-			ConversationID: &conversation2.ID,
-			Role:           &toolRole,
-			Content:        contentS2,
-			ToolName:       &claudeCodeName,
-			CreatedAt:      &timestamp3,
-		}, nil); err != nil {
-			return err
-		}
-		if _, err := transaction.CreateConversationMessage(ctx, &models.ConversationMessage{
-			ConversationID: &conversation2.ID,
-			Role:           &toolRole,
-			Content:        contentOther,
-			ToolName:       &otherToolName,
-			CreatedAt:      &timestamp3,
-		}, nil); err != nil {
-			return err
-		}
-
-		return nil
-	}); err != nil {
-		testing.Fatalf("seeding store: %v", err)
-	}
-
-	tool := &claudeCodeTool{}
-	sessions, err := tool.loadSessionsFromConversationStore(ctx, userId, agentId)
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-	if len(sessions) != 2 {
-		testing.Fatalf("expected 2 sessions, got %d", len(sessions))
-	}
-
-	sessionsById := map[string]*sessionInformation{}
-	for index := range sessions {
-		sessionsById[sessions[index].SessionID] = &sessions[index]
-	}
-
-	s1 := sessionsById["s1"]
-	if s1 == nil {
-		testing.Fatalf("expected session s1 in results: %+v", sessions)
-	}
-	if s1.TurnCount != 2 {
-		testing.Errorf("expected s1 turnCount 2, got %d", s1.TurnCount)
-	}
-	s2 := sessionsById["s2"]
-	if s2 == nil {
-		testing.Fatalf("expected session s2 in results: %+v", sessions)
-	}
-	if s2.TurnCount != 1 {
-		testing.Errorf("expected s2 turnCount 1, got %d", s2.TurnCount)
-	}
-}
-
-func marshalContent(value string) []byte {
-	data, _ := json.Marshal(value)
-	return data
 }
 
 // --- argument building tests ---
@@ -625,7 +233,7 @@ func marshalContent(value string) []byte {
 func TestBuildArgumentsBasic(testing *testing.T) {
 	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "")
 
 	// Verify -p is first.
 	if len(arguments) < 2 || arguments[0] != "-p" || arguments[1] != "Do something" {
@@ -665,27 +273,10 @@ func TestBuildArgumentsBasic(testing *testing.T) {
 	}
 }
 
-func TestBuildArgumentsWithResume(testing *testing.T) {
-	tool := &claudeCodeTool{}
-
-	arguments := tool.buildArguments(context.Background(), "Continue", "session-xyz", "")
-
-	foundResume := false
-	for index, argument := range arguments {
-		if argument == "--resume" && index+1 < len(arguments) && arguments[index+1] == "session-xyz" {
-			foundResume = true
-			break
-		}
-	}
-	if !foundResume {
-		testing.Errorf("expected '--resume session-xyz' in args: %v", arguments)
-	}
-}
-
 func TestBuildArgumentsWithoutModelConfig(testing *testing.T) {
 	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "")
 
 	// Without a store in context, no --model flag should be emitted.
 	for _, argument := range arguments {
@@ -699,7 +290,7 @@ func TestBuildArgumentsWithoutModelConfig(testing *testing.T) {
 func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
 	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments(context.Background(), "Do something", "", "You are a helpful assistant")
+	arguments := tool.buildArguments(context.Background(), "Do something", "You are a helpful assistant")
 
 	foundSystemPrompt := false
 	for index, argument := range arguments {
@@ -716,7 +307,7 @@ func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
 func TestBuildArgumentsDefaultAllowedToolsPresent(testing *testing.T) {
 	tool := &claudeCodeTool{}
 
-	arguments := tool.buildArguments(context.Background(), "Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "")
 
 	// Without a store in context, DefaultAllowedTools should be used.
 	allowedToolsIndex := -1
@@ -751,12 +342,10 @@ func TestTimeoutCapping(testing *testing.T) {
 	tool := &claudeCodeTool{
 		binaryPath: "/usr/bin/claude",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
 	}
 
 	// Request a timeout that exceeds the max — it should be capped.
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":         "run",
 		"prompt":         "Do something",
 		"timeoutSeconds": 9999,
 	})
@@ -768,53 +357,6 @@ func TestTimeoutCapping(testing *testing.T) {
 	// the timeout value, but the command executed successfully.
 }
 
-// --- unknown action test ---
-
-func TestUnknownAction(testing *testing.T) {
-	tool := &claudeCodeTool{
-		sessions: make(map[string]*sessionInformation),
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "unknown",
-	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err == nil || !strings.Contains(err.Error(), "unknown claude_code action") {
-		testing.Errorf("expected 'unknown claude_code action' error, got: %v", err)
-	}
-}
-
-// --- session tracking tests ---
-
-func TestSessionTracking(testing *testing.T) {
-	tool := &claudeCodeTool{
-		sessions: make(map[string]*sessionInformation),
-	}
-
-	// Track a new session.
-	tool.trackSession("session-1")
-
-	tool.mutex.Lock()
-	session, exists := tool.sessions["session-1"]
-	tool.mutex.Unlock()
-	if !exists {
-		testing.Fatal("expected session to be tracked")
-	}
-	if session.TurnCount != 1 {
-		testing.Errorf("expected turnCount 1, got %d", session.TurnCount)
-	}
-
-	// Track the same session again.
-	tool.trackSession("session-1")
-
-	tool.mutex.Lock()
-	session = tool.sessions["session-1"]
-	tool.mutex.Unlock()
-	if session.TurnCount != 2 {
-		testing.Errorf("expected turnCount 2, got %d", session.TurnCount)
-	}
-}
-
 // --- command execution error test ---
 
 func TestRunCommandExecutionError(testing *testing.T) {
@@ -823,11 +365,9 @@ func TestRunCommandExecutionError(testing *testing.T) {
 	tool := &claudeCodeTool{
 		binaryPath: "/usr/bin/claude",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
 		"prompt": "Do something",
 	})
 	_, err := tool.Execute(context.Background(), string(arguments))
@@ -845,11 +385,9 @@ func TestRunWithWorkingDirectory(testing *testing.T) {
 	tool := &claudeCodeTool{
 		binaryPath: "/usr/bin/claude",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":           "run",
 		"prompt":           "List files",
 		"workingDirectory": "/tmp/test",
 	})
@@ -874,11 +412,9 @@ func TestRunFallbackToStderr(testing *testing.T) {
 	tool := &claudeCodeTool{
 		binaryPath: "/usr/bin/claude",
 		runner:     runner,
-		sessions:   make(map[string]*sessionInformation),
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
 		"prompt": "Do something",
 	})
 	result, err := tool.Execute(context.Background(), string(arguments))
