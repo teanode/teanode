@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useAppContext } from "../../../context";
 import MessageList from "../../../components/MessageList";
+import QuestionDialog from "../../../components/QuestionDialog";
 import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
 import VoiceCallBar from "../../../components/VoiceCallBar";
@@ -162,8 +163,10 @@ export default function ConversationsConversationPage() {
         onStopSpeaking={handleStopSpeaking}
         showAbortOnStatusLine={backend.isRunning && !inputFocused}
         onAbort={backend.abortRun}
+      />
+      <QuestionDialog
         pendingQuestions={backend.pendingQuestions}
-        onAnswerQuestion={backend.answerQuestion}
+        onAnswer={backend.answerQuestion}
       />
       <TodoPanel
         todos={backend.todos}

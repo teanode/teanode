@@ -220,7 +220,10 @@
     "askUserAnswered": "Answered: {{answer}}",
     "askUserChoices": "Choices",
     "askUserOther": "Other",
-    "askUserOtherPlaceholder": "Type your answer..."
+    "askUserOtherPlaceholder": "Type your answer...",
+    "questionCount": "{{current}} of {{total}}",
+    "questionPrev": "Previous question",
+    "questionNext": "Next question"
   },
   "auth": {
     "loginTitle": "Welcome back",

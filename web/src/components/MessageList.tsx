@@ -17,14 +17,13 @@ import IconButton from "@mui/material/IconButton";
 import HourglassEmptyRounded from "@mui/icons-material/HourglassEmptyRounded";
 import KeyboardArrowDownRounded from "@mui/icons-material/KeyboardArrowDownRounded";
 import StopRounded from "@mui/icons-material/StopRounded";
-import type { DisplayMessage, PendingQuestion } from "../types";
+import type { DisplayMessage } from "../types";
 import { useAppContext } from "../context";
 import MessageBubble from "./MessageBubble";
 import ToolInvoke from "./ToolInvoke";
 import ToolResult, { detectMedia } from "./ToolResult";
 import UsageIndicator from "./UsageIndicator";
 import ConversationAvatar from "./ConversationAvatar";
-import QuestionCard from "./QuestionCard";
 
 interface MessageListProps {
   messages: DisplayMessage[];
@@ -47,8 +46,6 @@ interface MessageListProps {
   onStopSpeaking?: () => void;
   showAbortOnStatusLine?: boolean;
   onAbort?: () => void;
-  pendingQuestions?: PendingQuestion[];
-  onAnswerQuestion?: (questionId: string, answer: string, other?: string) => void;
 }
 
 const VIRTUAL_START = 1_000_000;
@@ -137,8 +134,6 @@ export default function MessageList({
   onStopSpeaking,
   showAbortOnStatusLine,
   onAbort,
-  pendingQuestions,
-  onAnswerQuestion,
 }: MessageListProps) {
   const { t } = useTranslation();
   const { showToolCalls, showTokenUsage } = useAppContext();
@@ -599,21 +594,6 @@ export default function MessageList({
         itemContent={renderItem}
         components={{
           Header: headerComponent,
-          Footer: () =>
-            pendingQuestions && pendingQuestions.length > 0 ? (
-              <Container maxWidth="md" sx={{ py: 0.5 }}>
-                {pendingQuestions.map((q) => (
-                  <Box key={q.id} sx={{ py: 0.5 }}>
-                    <QuestionCard
-                      question={q}
-                      onAnswer={onAnswerQuestion || (() => {})}
-                    />
-                  </Box>
-                ))}
-              </Container>
-            ) : (
-              <div />
-            ),
         }}
       />
       {showScrollToBottom && items.length > 0 && (
