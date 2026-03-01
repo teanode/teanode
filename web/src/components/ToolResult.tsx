@@ -53,6 +53,9 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
     try {
       const parsed = JSON.parse(content);
       if (parsed.answer) {
+        const displayAnswer = parsed.other
+          ? `${parsed.answer}: ${parsed.other}`
+          : parsed.answer;
         return (
           <Box
             sx={{
@@ -79,7 +82,7 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
                 color="success.main"
                 sx={{ fontWeight: 600 }}
               >
-                {t("tool.askUserAnswered", { answer: parsed.answer })}
+                {t("tool.askUserAnswered", { answer: displayAnswer })}
               </Typography>
             </Box>
           </Box>

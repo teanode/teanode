@@ -469,17 +469,21 @@ export function useBackend() {
         ) {
           setPendingQuestions((prev) => {
             if (prev.some((q) => q.id === payload.questionId)) return prev;
-            return [
-              ...prev,
-              {
-                id: payload.questionId,
-                conversationId: payload.conversationId!,
-                agentId: payload.agentId || "",
-                runId: payload.runId || "",
-                question: payload.question || "",
-                choices: payload.choices || [],
-              },
-            ];
+            const q: PendingQuestion = {
+              id: payload.questionId,
+              conversationId: payload.conversationId!,
+              agentId: payload.agentId || "",
+              runId: payload.runId || "",
+              question: payload.question || "",
+              choices: payload.choices || [],
+            };
+            if (payload.allowOther) {
+              q.allowOther = true;
+              if (payload.otherLabel) q.otherLabel = payload.otherLabel;
+              if (payload.otherPlaceholder)
+                q.otherPlaceholder = payload.otherPlaceholder;
+            }
+            return [...prev, q];
           });
           setStatus("waiting for your answer...");
         } else if (payload.action === "answered") {
@@ -1670,8 +1674,10 @@ export function useBackend() {
   );
 
   const answerQuestion = useCallback(
-    async (questionId: string, answer: string) => {
-      await sendRpc("questions.answer", { questionId, answer });
+    async (questionId: string, answer: string, other?: string) => {
+      const params: Record<string, string> = { questionId, answer };
+      if (other) params.other = other;
+      await sendRpc("questions.answer", params);
       setPendingQuestions((prev) => prev.filter((q) => q.id !== questionId));
     },
     [sendRpc],

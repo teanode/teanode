@@ -19,15 +19,15 @@ func TestRegisterAndAnswer(t *testing.T) {
 
 	// Answer should deliver to the channel.
 	go func() {
-		if err := b.Answer("q1", "A"); err != nil {
+		if err := b.Answer("q1", AnswerPayload{Answer: "A"}); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 	}()
 
 	select {
-	case answer := <-q.answerChan:
-		if answer != "A" {
-			t.Errorf("expected A, got %s", answer)
+	case payload := <-q.answerChan:
+		if payload.Answer != "A" {
+			t.Errorf("expected A, got %s", payload.Answer)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for answer")
@@ -36,7 +36,7 @@ func TestRegisterAndAnswer(t *testing.T) {
 
 func TestAnswerUnknownID(t *testing.T) {
 	b := NewQuestionBroker()
-	err := b.Answer("nonexistent", "A")
+	err := b.Answer("nonexistent", AnswerPayload{Answer: "A"})
 	if err == nil {
 		t.Fatal("expected error for unknown question ID")
 	}
@@ -51,12 +51,12 @@ func TestDoubleAnswer(t *testing.T) {
 	}
 	b.Register(q)
 
-	if err := b.Answer("q1", "A"); err != nil {
+	if err := b.Answer("q1", AnswerPayload{Answer: "A"}); err != nil {
 		t.Fatalf("first answer failed: %v", err)
 	}
 
 	// Second answer should fail.
-	err := b.Answer("q1", "B")
+	err := b.Answer("q1", AnswerPayload{Answer: "B"})
 	if err == nil {
 		t.Fatal("expected error on double answer")
 	}
@@ -83,7 +83,7 @@ func TestCancel(t *testing.T) {
 	}
 
 	// After cancel, answer should fail.
-	err := b.Answer("q1", "A")
+	err := b.Answer("q1", AnswerPayload{Answer: "A"})
 	if err == nil {
 		t.Fatal("expected error after cancel")
 	}
@@ -161,7 +161,7 @@ func TestMultipleConcurrentQuestions(t *testing.T) {
 	// Answer in reverse order.
 	for i := 2; i >= 0; i-- {
 		answer := "answer-" + string(rune('0'+i))
-		if err := b.Answer(questions[i].ID, answer); err != nil {
+		if err := b.Answer(questions[i].ID, AnswerPayload{Answer: answer}); err != nil {
 			t.Fatalf("failed to answer q%d: %v", i, err)
 		}
 	}
@@ -170,12 +170,70 @@ func TestMultipleConcurrentQuestions(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		expected := "answer-" + string(rune('0'+i))
 		select {
-		case answer := <-questions[i].answerChan:
-			if answer != expected {
-				t.Errorf("q%d: expected %s, got %s", i, expected, answer)
+		case payload := <-questions[i].answerChan:
+			if payload.Answer != expected {
+				t.Errorf("q%d: expected %s, got %s", i, expected, payload.Answer)
 			}
 		case <-time.After(time.Second):
 			t.Fatalf("q%d: timed out", i)
 		}
+	}
+}
+
+func TestAnswerWithOtherPayload(t *testing.T) {
+	b := NewQuestionBroker()
+	q := &PendingQuestion{
+		ID:         "q1",
+		UserID:     "u1",
+		AllowOther: true,
+		OtherLabel: "Custom",
+		answerChan: MakeAnswerChan(),
+	}
+	b.Register(q)
+
+	go func() {
+		if err := b.Answer("q1", AnswerPayload{Answer: "Custom", Other: "my freeform text"}); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	}()
+
+	select {
+	case payload := <-q.answerChan:
+		if payload.Answer != "Custom" {
+			t.Errorf("expected answer 'Custom', got %s", payload.Answer)
+		}
+		if payload.Other != "my freeform text" {
+			t.Errorf("expected other 'my freeform text', got %s", payload.Other)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for answer")
+	}
+}
+
+func TestPendingQuestionAllowOtherFields(t *testing.T) {
+	b := NewQuestionBroker()
+	q := &PendingQuestion{
+		ID:               "q1",
+		ConversationID:   "c1",
+		UserID:           "u1",
+		AllowOther:       true,
+		OtherLabel:       "Something else",
+		OtherPlaceholder: "Describe...",
+		answerChan:       MakeAnswerChan(),
+	}
+	b.Register(q)
+
+	pending := b.PendingForConversation("c1")
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending, got %d", len(pending))
+	}
+	if !pending[0].AllowOther {
+		t.Error("expected AllowOther to be true")
+	}
+	if pending[0].OtherLabel != "Something else" {
+		t.Errorf("expected OtherLabel 'Something else', got %s", pending[0].OtherLabel)
+	}
+	if pending[0].OtherPlaceholder != "Describe..." {
+		t.Errorf("expected OtherPlaceholder 'Describe...', got %s", pending[0].OtherPlaceholder)
 	}
 }

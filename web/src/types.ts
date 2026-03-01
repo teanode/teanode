@@ -407,6 +407,9 @@ export interface PendingQuestion {
   runId: string;
   question: string;
   choices: string[];
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPlaceholder?: string;
 }
 
 export interface PendingQuestionsListResult {
@@ -422,7 +425,11 @@ export interface ConversationQuestionsEvent {
   questionId: string;
   question?: string;
   choices?: string[];
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPlaceholder?: string;
   answer?: string;
+  other?: string;
 }
 
 // Display message types for the UI

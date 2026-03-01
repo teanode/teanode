@@ -218,7 +218,9 @@
     "outputAlt": "{{toolName}} output",
     "askUserQuestion": "Agent is asking:",
     "askUserAnswered": "Answered: {{answer}}",
-    "askUserChoices": "Choices"
+    "askUserChoices": "Choices",
+    "askUserOther": "Other",
+    "askUserOtherPlaceholder": "Type your answer..."
   },
   "auth": {
     "loginTitle": "Welcome back",

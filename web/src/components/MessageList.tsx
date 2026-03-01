@@ -48,7 +48,7 @@ interface MessageListProps {
   showAbortOnStatusLine?: boolean;
   onAbort?: () => void;
   pendingQuestions?: PendingQuestion[];
-  onAnswerQuestion?: (questionId: string, answer: string) => void;
+  onAnswerQuestion?: (questionId: string, answer: string, other?: string) => void;
 }
 
 const VIRTUAL_START = 1_000_000;

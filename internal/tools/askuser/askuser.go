@@ -40,6 +40,18 @@ func (self *askUserQuestionTool) Definition() providers.ToolDefinition {
 						"minItems":    2,
 						"description": "List of choices the user can pick from.",
 					},
+					"allowOther": map[string]interface{}{
+						"type":        "boolean",
+						"description": "If true, show an extra \"Other\" option that lets the user type a freeform answer.",
+					},
+					"otherLabel": map[string]interface{}{
+						"type":        "string",
+						"description": "Label for the Other option (default \"Other\").",
+					},
+					"otherPlaceholder": map[string]interface{}{
+						"type":        "string",
+						"description": "Placeholder text for the Other text input.",
+					},
 				},
 				"required": []string{"question", "choices"},
 			},
@@ -63,8 +75,11 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 
 	// Parse arguments.
 	var args struct {
-		Question string   `json:"question"`
-		Choices  []string `json:"choices"`
+		Question         string   `json:"question"`
+		Choices          []string `json:"choices"`
+		AllowOther       bool     `json:"allowOther"`
+		OtherLabel       string   `json:"otherLabel"`
+		OtherPlaceholder string   `json:"otherPlaceholder"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -89,21 +104,24 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 
 	// Register pending question (in-memory only).
 	pending := &PendingQuestion{
-		ID:             security.NewULID(),
-		ConversationID: runner.ConversationID,
-		AgentID:        runner.AgentID,
-		UserID:         user.ID,
-		RunID:          runner.ID,
-		Question:       args.Question,
-		Choices:        args.Choices,
-		answerChan:     MakeAnswerChan(),
+		ID:               security.NewULID(),
+		ConversationID:   runner.ConversationID,
+		AgentID:          runner.AgentID,
+		UserID:           user.ID,
+		RunID:            runner.ID,
+		Question:         args.Question,
+		Choices:          args.Choices,
+		AllowOther:       args.AllowOther,
+		OtherLabel:       args.OtherLabel,
+		OtherPlaceholder: args.OtherPlaceholder,
+		answerChan:       MakeAnswerChan(),
 	}
 	broker.Register(pending)
 
 	// Broadcast question event via pubsub.
 	ps := pubsub.PubSubFromContext(ctx)
 	if ps != nil {
-		ps.Broadcast(pubsub.EventTypeConversationQuestions, map[string]interface{}{
+		event := map[string]interface{}{
 			"action":         "asked",
 			"conversationId": pending.ConversationID,
 			"agentId":        pending.AgentID,
@@ -112,17 +130,31 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 			"questionId":     pending.ID,
 			"question":       pending.Question,
 			"choices":        pending.Choices,
-		})
+		}
+		if pending.AllowOther {
+			event["allowOther"] = true
+			if pending.OtherLabel != "" {
+				event["otherLabel"] = pending.OtherLabel
+			}
+			if pending.OtherPlaceholder != "" {
+				event["otherPlaceholder"] = pending.OtherPlaceholder
+			}
+		}
+		ps.Broadcast(pubsub.EventTypeConversationQuestions, event)
 	}
 
 	// Block until answer or cancellation.
 	select {
-	case answer, ok := <-pending.answerChan:
+	case payload, ok := <-pending.answerChan:
 		if !ok {
 			return "", fmt.Errorf("question cancelled")
 		}
-		result, _ := json.Marshal(map[string]string{"answer": answer})
-		return string(result), nil
+		result := map[string]string{"answer": payload.Answer}
+		if payload.Other != "" {
+			result["other"] = payload.Other
+		}
+		encoded, _ := json.Marshal(result)
+		return string(encoded), nil
 	case <-ctx.Done():
 		broker.Cancel(pending.ID)
 		return "", ctx.Err()

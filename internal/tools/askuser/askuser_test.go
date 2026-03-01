@@ -103,7 +103,7 @@ func TestHappyPath(t *testing.T) {
 		t.Fatalf("expected 1 pending question, got %d", len(pending))
 	}
 
-	if err := broker.Answer(pending[0].ID, "PostgreSQL"); err != nil {
+	if err := broker.Answer(pending[0].ID, AnswerPayload{Answer: "PostgreSQL"}); err != nil {
 		t.Fatalf("failed to answer: %v", err)
 	}
 
@@ -115,6 +115,9 @@ func TestHappyPath(t *testing.T) {
 		}
 		if parsed["answer"] != "PostgreSQL" {
 			t.Errorf("expected PostgreSQL, got %s", parsed["answer"])
+		}
+		if _, hasOther := parsed["other"]; hasOther {
+			t.Error("expected no 'other' key for normal choice")
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for Execute to return")
@@ -177,5 +180,127 @@ func TestNoBroker(t *testing.T) {
 	_, err := tool.Execute(ctx, `{"question":"Pick","choices":["A","B"]}`)
 	if err == nil {
 		t.Fatal("expected error when broker is not available")
+	}
+}
+
+func TestHappyPathWithOther(t *testing.T) {
+	tool := &askUserQuestionTool{}
+	ctx, broker := stubContext("webui")
+
+	done := make(chan string, 1)
+	go func() {
+		result, err := tool.Execute(ctx, `{"question":"Pick a DB","choices":["PostgreSQL","SQLite"],"allowOther":true,"otherLabel":"Custom"}`)
+		if err != nil {
+			done <- "error:" + err.Error()
+			return
+		}
+		done <- result
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	pending := broker.PendingForConversation("conv1")
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending question, got %d", len(pending))
+	}
+	if !pending[0].AllowOther {
+		t.Error("expected AllowOther to be true")
+	}
+	if pending[0].OtherLabel != "Custom" {
+		t.Errorf("expected OtherLabel 'Custom', got %s", pending[0].OtherLabel)
+	}
+
+	if err := broker.Answer(pending[0].ID, AnswerPayload{Answer: "Custom", Other: "MongoDB"}); err != nil {
+		t.Fatalf("failed to answer: %v", err)
+	}
+
+	select {
+	case result := <-done:
+		var parsed map[string]string
+		if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+			t.Fatalf("failed to parse result: %v", err)
+		}
+		if parsed["answer"] != "Custom" {
+			t.Errorf("expected 'Custom', got %s", parsed["answer"])
+		}
+		if parsed["other"] != "MongoDB" {
+			t.Errorf("expected other 'MongoDB', got %s", parsed["other"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for Execute to return")
+	}
+}
+
+func TestAllowOtherDefaultValues(t *testing.T) {
+	tool := &askUserQuestionTool{}
+	ctx, broker := stubContext("webui")
+
+	done := make(chan string, 1)
+	go func() {
+		// Only allowOther, no otherLabel or otherPlaceholder.
+		result, err := tool.Execute(ctx, `{"question":"Pick","choices":["A","B"],"allowOther":true}`)
+		if err != nil {
+			done <- "error:" + err.Error()
+			return
+		}
+		done <- result
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	pending := broker.PendingForConversation("conv1")
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending question, got %d", len(pending))
+	}
+	if !pending[0].AllowOther {
+		t.Error("expected AllowOther to be true")
+	}
+	if pending[0].OtherLabel != "" {
+		t.Errorf("expected empty OtherLabel (uses frontend default), got %s", pending[0].OtherLabel)
+	}
+
+	broker.Answer(pending[0].ID, AnswerPayload{Answer: "A"})
+	<-done
+}
+
+func TestBackwardCompatibleNoAllowOther(t *testing.T) {
+	tool := &askUserQuestionTool{}
+	ctx, broker := stubContext("webui")
+
+	done := make(chan string, 1)
+	go func() {
+		// Old-style call without any allowOther fields.
+		result, err := tool.Execute(ctx, `{"question":"Pick","choices":["X","Y"]}`)
+		if err != nil {
+			done <- "error:" + err.Error()
+			return
+		}
+		done <- result
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	pending := broker.PendingForConversation("conv1")
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending question, got %d", len(pending))
+	}
+	if pending[0].AllowOther {
+		t.Error("expected AllowOther to be false by default")
+	}
+
+	broker.Answer(pending[0].ID, AnswerPayload{Answer: "X"})
+
+	select {
+	case result := <-done:
+		var parsed map[string]string
+		json.Unmarshal([]byte(result), &parsed)
+		if parsed["answer"] != "X" {
+			t.Errorf("expected X, got %s", parsed["answer"])
+		}
+		if _, hasOther := parsed["other"]; hasOther {
+			t.Error("expected no 'other' key")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out")
 	}
 }

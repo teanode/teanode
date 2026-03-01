@@ -67,6 +67,8 @@ export default function ToolInvoke({ toolName, args }: ToolInvokeProps) {
             {parsed.choices && (
               <Typography variant="caption" color="text.secondary">
                 {t("tool.askUserChoices")}: {parsed.choices.join(", ")}
+                {parsed.allowOther &&
+                  `, ${parsed.otherLabel || t("tool.askUserOther")}`}
               </Typography>
             )}
           </Box>

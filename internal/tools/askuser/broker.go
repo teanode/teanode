@@ -5,18 +5,27 @@ import (
 	"sync"
 )
 
+// AnswerPayload carries the user's answer through the broker channel.
+type AnswerPayload struct {
+	Answer string // The selected choice (or the otherLabel for freeform).
+	Other  string // Non-empty when the user chose the "Other" option.
+}
+
 // PendingQuestion represents a question waiting for a user answer.
 // The answerChan is unexported and exists only in memory.
 type PendingQuestion struct {
-	ID             string   `json:"id"`
-	ConversationID string   `json:"conversationId"`
-	AgentID        string   `json:"agentId"`
-	UserID         string   `json:"userId"`
-	RunID          string   `json:"runId"`
-	ToolCallID     string   `json:"toolCallId"`
-	Question       string   `json:"question"`
-	Choices        []string `json:"choices"`
-	answerChan     chan string
+	ID               string   `json:"id"`
+	ConversationID   string   `json:"conversationId"`
+	AgentID          string   `json:"agentId"`
+	UserID           string   `json:"userId"`
+	RunID            string   `json:"runId"`
+	ToolCallID       string   `json:"toolCallId"`
+	Question         string   `json:"question"`
+	Choices          []string `json:"choices"`
+	AllowOther       bool     `json:"allowOther,omitempty"`
+	OtherLabel       string   `json:"otherLabel,omitempty"`
+	OtherPlaceholder string   `json:"otherPlaceholder,omitempty"`
+	answerChan       chan AnswerPayload
 }
 
 // QuestionBroker is an in-memory registry that routes answers from the
@@ -42,7 +51,7 @@ func (b *QuestionBroker) Register(q *PendingQuestion) {
 
 // Answer delivers an answer to a pending question and removes it from the broker.
 // Returns an error if the question is not found (already answered or cancelled).
-func (b *QuestionBroker) Answer(questionId, answer string) error {
+func (b *QuestionBroker) Answer(questionId string, payload AnswerPayload) error {
 	b.mu.Lock()
 	q, ok := b.pending[questionId]
 	if ok {
@@ -52,7 +61,7 @@ func (b *QuestionBroker) Answer(questionId, answer string) error {
 	if !ok {
 		return fmt.Errorf("question not found or already answered: %s", questionId)
 	}
-	q.answerChan <- answer
+	q.answerChan <- payload
 	return nil
 }
 
@@ -98,6 +107,6 @@ func (b *QuestionBroker) VerifyOwnership(questionId, callerUserId string) error 
 
 // MakeAnswerChan creates a buffered channel for a PendingQuestion.
 // This is a helper used by the tool's Execute method.
-func MakeAnswerChan() chan string {
-	return make(chan string, 1)
+func MakeAnswerChan() chan AnswerPayload {
+	return make(chan AnswerPayload, 1)
 }

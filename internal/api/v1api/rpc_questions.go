@@ -2,6 +2,7 @@ package v1api
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/tools/askuser"
@@ -49,6 +50,7 @@ func (self *webSocketConnection) handleQuestionsAnswer(frame requestFrame) {
 	var parameters struct {
 		QuestionID string `json:"questionId"`
 		Answer     string `json:"answer"`
+		Other      string `json:"other"` // freeform text when "Other" is selected
 	}
 	if frame.Params != nil {
 		json.Unmarshal(frame.Params, &parameters)
@@ -66,18 +68,32 @@ func (self *webSocketConnection) handleQuestionsAnswer(frame requestFrame) {
 		return
 	}
 
-	if err := broker.Answer(parameters.QuestionID, parameters.Answer); err != nil {
+	// Validate: if Other text is expected (answer matches the other label), text must be non-empty.
+	if parameters.Other != "" && strings.TrimSpace(parameters.Other) == "" {
+		self.sendError(frame.ID, 400, "other text must not be blank")
+		return
+	}
+
+	payload := askuser.AnswerPayload{
+		Answer: parameters.Answer,
+		Other:  parameters.Other,
+	}
+	if err := broker.Answer(parameters.QuestionID, payload); err != nil {
 		self.sendError(frame.ID, 404, err.Error())
 		return
 	}
 
 	// Broadcast "answered" event so other tabs dismiss the question.
-	self.api.pubsub.Broadcast(pubsub.EventTypeConversationQuestions, map[string]interface{}{
+	event := map[string]interface{}{
 		"action":     "answered",
 		"userId":     self.userId(),
 		"questionId": parameters.QuestionID,
 		"answer":     parameters.Answer,
-	})
+	}
+	if parameters.Other != "" {
+		event["other"] = parameters.Other
+	}
+	self.api.pubsub.Broadcast(pubsub.EventTypeConversationQuestions, event)
 
 	self.sendResponse(frame.ID, map[string]interface{}{"ok": true})
 }
