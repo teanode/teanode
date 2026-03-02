@@ -72,6 +72,21 @@ export function ChatView({
   const [toolActivity, setToolActivity] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [uploading, setUploading] = useState(false);
+
+  // Resolve backend base URL + token so avatar media URLs work in the
+  // extension context (chrome-extension:// origin can't use relative paths).
+  const [baseInfo, setBaseInfo] = useState<{ url: string; token: string } | null>(null);
+  useEffect(() => {
+    getBaseUrl().then(setBaseInfo);
+  }, []);
+
+  function resolveMediaUrl(mediaId: string | undefined): string | undefined {
+    if (!mediaId || !baseInfo) return undefined;
+    const base = baseInfo.url.replace(/\/+$/, "");
+    let url = `${base}/api/v1/media/${mediaId}`;
+    if (baseInfo.token) url += `?token=${encodeURIComponent(baseInfo.token)}`;
+    return url;
+  }
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -426,6 +441,11 @@ export function ChatView({
                   ? userAvatarMediaId
                   : agentAvatarMediaId
               }
+              avatarSrc={resolveMediaUrl(
+                msg.role === "user"
+                  ? userAvatarMediaId
+                  : agentAvatarMediaId
+              )}
               avatarFallback={
                 msg.role === "user"
                   ? userName || "You"
@@ -441,6 +461,7 @@ export function ChatView({
             isStreaming
             streamText={streamingText}
             avatarMediaId={agentAvatarMediaId}
+            avatarSrc={resolveMediaUrl(agentAvatarMediaId)}
             avatarFallback={agentName || "Agent"}
           />
         )}

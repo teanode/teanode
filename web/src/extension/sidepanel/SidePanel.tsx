@@ -10,7 +10,11 @@ import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
 import AddRounded from "@mui/icons-material/AddRounded";
 import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
+import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime";
 import { sendRpc, onEvent, ensureConnected, disconnect } from "./rpc";
+
+dayjs.extend(relativeTime);
 import { ChatView } from "./ChatView";
 import type {
   RpcEventFrame,
@@ -33,6 +37,7 @@ interface Conversation {
   id: string;
   summary?: string;
   agentId?: string;
+  lastActive?: number;
 }
 
 interface BoundTab {
@@ -549,7 +554,29 @@ export function SidePanel() {
               >
                 <ListItemText
                   primary={c.summary || c.id.slice(0, 16)}
-                  primaryTypographyProps={{ variant: "body2", noWrap: true }}
+                  secondary={
+                    c.lastActive
+                      ? dayjs(c.lastActive).fromNow()
+                      : undefined
+                  }
+                  primaryTypographyProps={{
+                    variant: "body2",
+                    noWrap: true,
+                    title: c.summary || c.id,
+                  }}
+                  secondaryTypographyProps={{
+                    variant: "caption",
+                    fontSize: "10px",
+                    title: c.lastActive
+                      ? dayjs(c.lastActive).format("YYYY-MM-DD HH:mm:ss")
+                      : undefined,
+                    color: "text.disabled",
+                    sx: {
+                      opacity: 0,
+                      transition: "opacity 0.15s",
+                      ".MuiListItemButton-root:hover &": { opacity: 1 },
+                    },
+                  }}
                 />
               </ListItemButton>
             ))}
