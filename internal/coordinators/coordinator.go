@@ -15,6 +15,7 @@ import (
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/summarizers"
 	"github.com/teanode/teanode/internal/tools/askuser"
+	"github.com/teanode/teanode/internal/tools/tab"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/security"
 )
@@ -31,6 +32,7 @@ type Coordinator struct {
 	summarizer                 *summarizers.Summarizer
 	pubsub                     *pubsub.PubSub
 	questionBroker             *askuser.QuestionBroker
+	tabToolBroker              *tab.TabToolBroker
 	activeRunners              sync.Map // conversationId -> *conversationRunner
 	activeRunIdConversationIds sync.Map // runId -> conversationId
 	activeConversationIdRunIds sync.Map // conversationId -> runId
@@ -76,6 +78,7 @@ func New(
 		summarizer:       summarizerInstance,
 		pubsub:           events,
 		questionBroker:   askuser.NewQuestionBroker(),
+		tabToolBroker:    tab.NewTabToolBroker(),
 	}
 }
 
@@ -87,6 +90,11 @@ func (self *Coordinator) ProviderRegistry() *providers.ProviderRegistry {
 // QuestionBroker returns the in-memory question broker.
 func (self *Coordinator) QuestionBroker() *askuser.QuestionBroker {
 	return self.questionBroker
+}
+
+// TabToolBroker returns the in-memory tab tool broker.
+func (self *Coordinator) TabToolBroker() *tab.TabToolBroker {
+	return self.tabToolBroker
 }
 
 // Run orchestrates an agent run: resolves conversation, generates
@@ -494,17 +502,20 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 			// Carry over the authenticated user from the caller's context.
 			// Ensure coordinator is on the context.
 			ctx, cancel = context.WithCancel(
-				askuser.ContextWithQuestionBroker(
-					runners.ContextWithOrigin(
-						ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
-							self.ctx,
-							models.UserFromContext(message.ctx),
-							models.SessionFromContext(message.ctx),
-							models.TokenFromContext(message.ctx),
-						), self.pubsub), self),
-						message.parameters.Origin,
+				tab.ContextWithTabToolBroker(
+					askuser.ContextWithQuestionBroker(
+						runners.ContextWithOrigin(
+							ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
+								self.ctx,
+								models.UserFromContext(message.ctx),
+								models.SessionFromContext(message.ctx),
+								models.TokenFromContext(message.ctx),
+							), self.pubsub), self),
+							message.parameters.Origin,
+						),
+						self.questionBroker,
 					),
-					self.questionBroker,
+					self.tabToolBroker,
 				))
 			conversationRunnerInstance.cancel = cancel
 		}

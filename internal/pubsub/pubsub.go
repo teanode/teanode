@@ -32,6 +32,12 @@ const (
 
 	// EventTypeConversationQuestions signals that a question has been asked or answered.
 	EventTypeConversationQuestions EventType = "conversation_questions"
+
+	// EventTypeTabToolCall signals a pending tab tool call for the extension to execute.
+	EventTypeTabToolCall EventType = "tab_tool_call"
+
+	// EventTypeTabAttachment signals a tab attach/detach event.
+	EventTypeTabAttachment EventType = "tab_attachment"
 )
 
 // Subscriber receives broadcast events.

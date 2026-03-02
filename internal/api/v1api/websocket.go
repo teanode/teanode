@@ -14,6 +14,7 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/voice"
 )
 
@@ -98,6 +99,7 @@ type webSocketConnection struct {
 	api        *v1Api
 	ctx        context.Context
 	writeMutex sync.Mutex
+	id         string // unique connection identifier (for tab broker cleanup)
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time
@@ -111,7 +113,13 @@ func newWebSocketConnection(connection *websocket.Conn, api *v1Api, ctx context.
 		connection: connection,
 		api:        api,
 		ctx:        ctx,
+		id:         security.NewULID(),
 	}
+}
+
+// connID returns the unique identifier for this connection.
+func (self *webSocketConnection) connID() string {
+	return self.id
 }
 
 // OnEvent implements pubsub.Subscriber. It forwards events to this WebSocket client.
@@ -152,6 +160,13 @@ func (self *webSocketConnection) serve() {
 		if session := self.getActiveVoiceSession(); session != nil {
 			session.Close()
 			self.clearActiveVoiceSession(session)
+		}
+	}()
+
+	// Clean up tab attachments owned by this connection.
+	defer func() {
+		if broker := self.api.coordinator.TabToolBroker(); broker != nil {
+			broker.DetachAllForConnection(self.connID())
 		}
 	}()
 
@@ -352,6 +367,14 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleQuestionsAnswer(frame)
 	case "questions.answer_batch":
 		self.handleQuestionsAnswerBatch(frame)
+	case "tab.attach":
+		self.handleTabAttach(frame)
+	case "tab.detach":
+		self.handleTabDetach(frame)
+	case "tab.tool_result":
+		self.handleTabToolResult(frame)
+	case "tab.attachments.list":
+		self.handleTabAttachmentsList(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

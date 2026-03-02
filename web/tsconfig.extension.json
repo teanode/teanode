@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["chrome-types"]
+  },
+  "include": ["src/extension"],
+  "exclude": []
+}

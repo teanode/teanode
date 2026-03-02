@@ -6,7 +6,9 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 module.exports = (env, argv) => {
   const isProd = argv.mode === "production";
 
-  return {
+  // ---- Config 1: Existing web app (unchanged) ----
+  const webAppConfig = {
+    name: "webapp",
     entry: "./src/index.tsx",
     output: {
       path: path.resolve(__dirname, "../internal/frontend/static"),
@@ -32,7 +34,7 @@ module.exports = (env, argv) => {
         {
           test: /\.tsx?$/,
           use: "ts-loader",
-          exclude: /node_modules/,
+          exclude: [/node_modules/, path.resolve(__dirname, "src/extension")],
         },
         {
           test: /\.css$/,
@@ -90,4 +92,58 @@ module.exports = (env, argv) => {
     },
     devtool: isProd ? false : "eval-source-map",
   };
+
+  // ---- Config 2: Chrome extension ----
+  const extensionConfig = {
+    name: "extension",
+    entry: {
+      background: "./src/extension/background/index.ts",
+      sidepanel: "./src/extension/sidepanel/index.tsx",
+      "content-script": "./src/extension/content/contentScript.ts",
+      "page-bridge": "./src/extension/content/pageBridge.ts",
+    },
+    output: {
+      path: path.resolve(__dirname, "../assets/chrome-extension/dist"),
+      filename: "[name].js",
+      clean: true,
+    },
+    resolve: {
+      extensions: [".ts", ".tsx", ".js"],
+    },
+    module: {
+      rules: [
+        {
+          test: /\.tsx?$/,
+          use: [
+            {
+              loader: "ts-loader",
+              options: {
+                configFile: "tsconfig.extension.json",
+              },
+            },
+          ],
+          exclude: /node_modules/,
+        },
+        {
+          test: /\.css$/,
+          use: ["style-loader", "css-loader"],
+        },
+      ],
+    },
+    plugins: [
+      new HtmlWebpackPlugin({
+        template: "./src/extension/sidepanel/sidepanel.html",
+        filename: "sidepanel.html",
+        chunks: ["sidepanel"],
+      }),
+    ],
+    optimization: {
+      // content-script and page-bridge must be single files (no chunks)
+      splitChunks: false,
+    },
+    // Background SW cannot use eval-based source maps
+    devtool: isProd ? false : "cheap-module-source-map",
+  };
+
+  return [webAppConfig, extensionConfig];
 };

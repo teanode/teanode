@@ -1,19 +1,30 @@
 {
   "manifest_version": 3,
   "name": "TeaNode Browser Relay",
-  "version": "0.1.0",
-  "description": "Attach TeaNode to your existing Chrome tab via a local CDP relay server.",
+  "version": "0.2.0",
+  "description": "Attach TeaNode to your browser — CDP relay + credentialed tab tools.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["debugger", "tabs", "activeTab", "storage"],
-  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
-  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": [
+    "debugger",
+    "tabs",
+    "activeTab",
+    "storage",
+    "cookies",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "dist/background.js", "type": "module" },
+  "side_panel": {
+    "default_path": "dist/sidepanel.html"
+  },
   "action": {
-    "default_title": "TeaNode Browser Relay (click to attach/detach)",
+    "default_title": "TeaNode (click to open side panel)",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -21,5 +32,5 @@
       "128": "icons/icon128.png"
     }
   },
-  "options_ui": { "page": "options.html", "open_in_tab": true }
+  "options_page": "options.html"
 }
