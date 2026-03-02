@@ -336,6 +336,7 @@ export function useBackend() {
 
   const conversationsRefreshRef = useRef(0);
   const historyLoadedRef = useRef(true);
+  const historyLoadVersionRef = useRef(0);
   const pendingEventsRef = useRef<EventFrame[]>([]);
   const runQueueRef = useRef<string[]>([]); // ordered run IDs: [active, queued1, queued2, ...]
   const selfOriginIdsRef = useRef<Set<string>>(new Set()); // origin IDs for self-sent messages
@@ -1013,6 +1014,7 @@ export function useBackend() {
     if (key) {
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
+      const loadVersion = ++historyLoadVersionRef.current;
       sendRpcRef
         .current<ConversationHistoryResult>("conversations.history", {
           conversationId: key,
@@ -1021,6 +1023,8 @@ export function useBackend() {
         })
         .then((res) => {
           if (conversationIdRef.current !== key) return;
+          // A newer load (e.g. switchConversation) superseded this one.
+          if (historyLoadVersionRef.current !== loadVersion) return;
           const displayMessages = convertHistory(
             res.messages || [],
             modelsRef.current,
@@ -1040,6 +1044,13 @@ export function useBackend() {
           currentRunIdRef.current = reconciledRunState.currentRunId;
           runQueueRef.current = reconciledRunState.runQueue;
           setIsRunning(reconciledRunState.isRunning);
+          // Always reset streaming state — stale isStreaming/streamText from
+          // a prior connection would prevent the spinner from rendering.
+          streamTextRef.current = "";
+          afterToolCallsRef.current = false;
+          setStreamText("");
+          setIsStreaming(false);
+          setToolActivity(null);
           if (reconciledRunState.isRunning) {
             setStatus("thinking...");
             displayMessages.push({
@@ -1049,11 +1060,6 @@ export function useBackend() {
               runId: res.activeRunId,
             });
           } else {
-            streamTextRef.current = "";
-            afterToolCallsRef.current = false;
-            setStreamText("");
-            setIsStreaming(false);
-            setToolActivity(null);
             setStatus("connected");
           }
           setMessages(displayMessages);
@@ -1080,9 +1086,19 @@ export function useBackend() {
             })
             .catch((error: unknown) => console.error("questions.list:", error));
         })
-        .catch((error: unknown) =>
-          console.error("conversations.history reconnect:", error),
-        );
+        .catch((error: unknown) => {
+          console.error("conversations.history reconnect:", error);
+          // Unblock event processing so that events arriving after a failed
+          // history load are not buffered forever.
+          if (historyLoadVersionRef.current === loadVersion) {
+            historyLoadedRef.current = true;
+            pendingEventsRef.current = [];
+          }
+        });
+    } else {
+      // No conversation to load — stop buffering events.
+      historyLoadedRef.current = true;
+      pendingEventsRef.current = [];
     }
   }, []);
 
@@ -1093,6 +1109,11 @@ export function useBackend() {
         clearTimeout(disconnectGraceTimerRef.current);
         disconnectGraceTimerRef.current = null;
       }
+      // Buffer events immediately so that conversation events arriving
+      // between socket open and the handleConnect history reload are not
+      // processed against stale state.
+      historyLoadedRef.current = false;
+      pendingEventsRef.current = [];
       setConnecting(false);
       setConnected(true);
       return;
@@ -1195,6 +1216,7 @@ export function useBackend() {
       // Buffer events while history is loading
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
+      const loadVersion = ++historyLoadVersionRef.current;
 
       sendRpc<ConversationHistoryResult>("conversations.history", {
         conversationId: key,
@@ -1203,6 +1225,8 @@ export function useBackend() {
       })
         .then((res) => {
           if (conversationIdRef.current !== key) return;
+          // A newer load (e.g. handleConnect reconnect) superseded this one.
+          if (historyLoadVersionRef.current !== loadVersion) return;
           const displayMessages = convertHistory(
             res.messages || [],
             modelsRef.current,
@@ -1213,6 +1237,14 @@ export function useBackend() {
           setHasMoreHistory(res.hasMore ?? false);
 
           setConversationModel(res.providerModelName || null);
+
+          // Reset streaming state — ensures the spinner renders correctly
+          // even if stale isStreaming was left from a prior load or connection.
+          streamTextRef.current = "";
+          afterToolCallsRef.current = false;
+          setStreamText("");
+          setIsStreaming(false);
+          setToolActivity(null);
 
           // Use activeRunId from server response to detect active runs
           if (res.activeRunId) {
@@ -1262,7 +1294,15 @@ export function useBackend() {
             })
             .catch((error) => console.error("questions.list:", error));
         })
-        .catch((error) => console.error("conversations.history:", error));
+        .catch((error) => {
+          console.error("conversations.history:", error);
+          // Unblock event processing so that events arriving after a failed
+          // history load are not buffered forever.
+          if (historyLoadVersionRef.current === loadVersion) {
+            historyLoadedRef.current = true;
+            pendingEventsRef.current = [];
+          }
+        });
     },
     [sendRpc, handleEvent],
   );

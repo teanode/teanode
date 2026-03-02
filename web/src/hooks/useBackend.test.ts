@@ -770,3 +770,400 @@ describe("reconnect question rehydration", () => {
     expect(sim.pendingQuestions[0].id).toBe("q1");
   });
 });
+
+// ─── Reconnect busy-state rehydration ───────────────────────────────
+//
+// Simulates the state transitions that occur when a WebSocket reconnects
+// (or the page is refreshed) while a run is active.  The key invariant:
+// after history loads with an activeRunId, the UI must show a spinner
+// (isRunning=true, isStreaming=false) until streaming events arrive.
+
+interface ReconnectState {
+  isRunning: boolean;
+  isStreaming: boolean;
+  streamText: string;
+  toolActivity: string | null;
+  status: string;
+  currentRunId: string | null;
+  messages: DisplayMessage[];
+  historyLoaded: boolean;
+  pendingEvents: Array<{ state: string; runId?: string; text?: string; toolName?: string }>;
+  loadVersion: number;
+}
+
+/**
+ * Simulates the reconnect flow: history load → state reconciliation →
+ * event replay.  Mirrors the logic in handleConnect and switchConversation.
+ */
+class ReconnectSimulation {
+  state: ReconnectState;
+
+  constructor() {
+    this.state = {
+      isRunning: false,
+      isStreaming: false,
+      streamText: "",
+      toolActivity: null,
+      status: "connected",
+      currentRunId: null,
+      messages: [],
+      historyLoaded: true,
+      pendingEvents: [],
+      loadVersion: 0,
+    };
+  }
+
+  /** Simulate starting a run (pre-disconnect state). */
+  setPreDisconnectState(opts: {
+    isRunning: boolean;
+    isStreaming: boolean;
+    streamText: string;
+    currentRunId: string | null;
+    messages: DisplayMessage[];
+  }) {
+    this.state.isRunning = opts.isRunning;
+    this.state.isStreaming = opts.isStreaming;
+    this.state.streamText = opts.streamText;
+    this.state.currentRunId = opts.currentRunId;
+    this.state.messages = opts.messages;
+  }
+
+  /** Simulate handleStatusChange("connected") on reconnect. */
+  onSocketOpen() {
+    this.state.historyLoaded = false;
+    this.state.pendingEvents = [];
+  }
+
+  /** Buffer an event (arrives while history is loading). */
+  bufferEvent(event: { state: string; runId?: string; text?: string; toolName?: string }) {
+    if (!this.state.historyLoaded) {
+      this.state.pendingEvents.push(event);
+    }
+  }
+
+  /**
+   * Simulate handleConnect's history load completing.
+   * Mirrors the .then() in handleConnect / switchConversation.
+   */
+  processHistoryResponse(opts: {
+    activeRunId?: string;
+    historyMessages: DisplayMessage[];
+    loadVersion: number;
+  }) {
+    // Load version guard
+    if (this.state.loadVersion !== opts.loadVersion) return;
+
+    const displayMessages = [...opts.historyMessages];
+
+    // Reconcile run state
+    const reconciled = reconcileRunStateFromHistory(
+      new Map(),
+      "conv-1",
+      opts.activeRunId,
+    );
+    this.state.currentRunId = reconciled.currentRunId;
+    this.state.isRunning = reconciled.isRunning;
+
+    // Always reset streaming state (the fix)
+    this.state.streamText = "";
+    this.state.isStreaming = false;
+    this.state.toolActivity = null;
+
+    if (reconciled.isRunning) {
+      this.state.status = "thinking...";
+      displayMessages.push({
+        id: nextMessageId(),
+        type: "assistant",
+        content: "",
+        runId: opts.activeRunId,
+      });
+    } else {
+      this.state.status = "connected";
+    }
+
+    this.state.messages = displayMessages;
+    this.state.historyLoaded = true;
+
+    // Replay buffered events
+    if (reconciled.isRunning && this.state.pendingEvents.length > 0) {
+      for (const event of this.state.pendingEvents) {
+        this.replayEvent(event);
+      }
+    }
+    this.state.pendingEvents = [];
+  }
+
+  /** Start a history load (increments version). */
+  startHistoryLoad(): number {
+    this.state.historyLoaded = false;
+    this.state.pendingEvents = [];
+    return ++this.state.loadVersion;
+  }
+
+  /** Apply a replayed or live event (simplified). */
+  private replayEvent(event: { state: string; runId?: string; text?: string; toolName?: string }) {
+    if (event.state === "delta") {
+      this.state.streamText += event.text || "";
+      this.state.isStreaming = true;
+      this.state.toolActivity = null;
+    } else if (event.state === "tool_call") {
+      this.state.isStreaming = false;
+      this.state.toolActivity = event.toolName || null;
+      this.state.status = `calling ${event.toolName}...`;
+    } else if (event.state === "tool_result") {
+      this.state.toolActivity = null;
+      this.state.status = "tool done, thinking...";
+    } else if (event.state === "final") {
+      this.state.isRunning = false;
+      this.state.isStreaming = false;
+      this.state.streamText = "";
+      this.state.currentRunId = null;
+      this.state.status = "connected";
+    }
+  }
+
+  /** Check if the spinner should be visible (mirrors MessageList condition). */
+  spinnerVisible(): boolean {
+    if (!this.state.isRunning) return false;
+    if (this.state.isStreaming) return false;
+    // Check for empty assistant placeholder matching active run
+    const placeholder = this.state.messages.find(
+      (m) =>
+        m.type === "assistant" &&
+        !m.content &&
+        (m.runId === this.state.currentRunId || !m.runId),
+    );
+    return !!placeholder;
+  }
+}
+
+describe("reconnect busy-state rehydration", () => {
+  let sim: ReconnectSimulation;
+
+  beforeEach(() => {
+    messageIdCounter = 100; // avoid collision with other tests
+    sim = new ReconnectSimulation();
+  });
+
+  it("shows spinner when history reports an active run", () => {
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    sim.processHistoryResponse({
+      activeRunId: "run-1",
+      historyMessages: [
+        { id: "h1", type: "user", content: "Hello" },
+      ],
+      loadVersion: version,
+    });
+
+    expect(sim.state.isRunning).toBe(true);
+    expect(sim.state.isStreaming).toBe(false);
+    expect(sim.state.status).toBe("thinking...");
+    expect(sim.state.currentRunId).toBe("run-1");
+    expect(sim.spinnerVisible()).toBe(true);
+  });
+
+  it("resets stale isStreaming so spinner is visible after reconnect", () => {
+    // Simulate pre-disconnect state: streaming was active
+    sim.setPreDisconnectState({
+      isRunning: true,
+      isStreaming: true,
+      streamText: "partial response...",
+      currentRunId: "run-1",
+      messages: [
+        { id: "m1", type: "user", content: "Hello" },
+        { id: "m2", type: "assistant", content: "", runId: "run-1" },
+      ],
+    });
+
+    // Reconnect
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    sim.processHistoryResponse({
+      activeRunId: "run-1",
+      historyMessages: [
+        { id: "h1", type: "user", content: "Hello" },
+      ],
+      loadVersion: version,
+    });
+
+    // The stale isStreaming must be reset to false so the spinner shows
+    expect(sim.state.isStreaming).toBe(false);
+    expect(sim.state.streamText).toBe("");
+    expect(sim.spinnerVisible()).toBe(true);
+  });
+
+  it("replays buffered delta events after history loads", () => {
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    // Events arrive while history is loading
+    sim.bufferEvent({ state: "delta", runId: "run-1", text: "Hello " });
+    sim.bufferEvent({ state: "delta", runId: "run-1", text: "world" });
+
+    sim.processHistoryResponse({
+      activeRunId: "run-1",
+      historyMessages: [
+        { id: "h1", type: "user", content: "Hi" },
+      ],
+      loadVersion: version,
+    });
+
+    // After replay, streaming should be active with accumulated text
+    expect(sim.state.isRunning).toBe(true);
+    expect(sim.state.isStreaming).toBe(true);
+    expect(sim.state.streamText).toBe("Hello world");
+  });
+
+  it("replays buffered tool_call event after history loads", () => {
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    sim.bufferEvent({ state: "tool_call", runId: "run-1", toolName: "search" });
+
+    sim.processHistoryResponse({
+      activeRunId: "run-1",
+      historyMessages: [
+        { id: "h1", type: "user", content: "Search for X" },
+        { id: "h2", type: "assistant", content: "Let me search" },
+        { id: "h3", type: "tool-invoke", content: "{}", toolName: "search" },
+      ],
+      loadVersion: version,
+    });
+
+    expect(sim.state.isRunning).toBe(true);
+    expect(sim.state.isStreaming).toBe(false);
+    expect(sim.state.toolActivity).toBe("search");
+    expect(sim.state.status).toBe("calling search...");
+  });
+
+  it("does not show spinner when history reports no active run", () => {
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    sim.processHistoryResponse({
+      activeRunId: undefined,
+      historyMessages: [
+        { id: "h1", type: "user", content: "Hello" },
+        { id: "h2", type: "assistant", content: "Hi there!" },
+      ],
+      loadVersion: version,
+    });
+
+    expect(sim.state.isRunning).toBe(false);
+    expect(sim.state.status).toBe("connected");
+    expect(sim.spinnerVisible()).toBe(false);
+  });
+
+  it("handles run completing during history load (final event buffered)", () => {
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    // Run completes while history is loading
+    sim.bufferEvent({ state: "final", runId: "run-1", text: "Done!" });
+
+    // History arrives still showing the run as active (race window)
+    sim.processHistoryResponse({
+      activeRunId: "run-1",
+      historyMessages: [
+        { id: "h1", type: "user", content: "Hello" },
+      ],
+      loadVersion: version,
+    });
+
+    // The replayed final event should clear the running state
+    expect(sim.state.isRunning).toBe(false);
+    expect(sim.state.status).toBe("connected");
+    expect(sim.spinnerVisible()).toBe(false);
+  });
+
+  it("discards stale history response when load version is superseded", () => {
+    sim.onSocketOpen();
+    const version1 = sim.startHistoryLoad();
+
+    // A newer load (e.g. switchConversation) supersedes
+    const version2 = sim.startHistoryLoad();
+
+    // Stale response arrives first
+    sim.processHistoryResponse({
+      activeRunId: "run-old",
+      historyMessages: [
+        { id: "h1", type: "user", content: "Old" },
+      ],
+      loadVersion: version1,
+    });
+
+    // State should NOT have changed (stale response discarded)
+    expect(sim.state.isRunning).toBe(false);
+    expect(sim.state.historyLoaded).toBe(false);
+
+    // Fresh response arrives
+    sim.processHistoryResponse({
+      activeRunId: "run-new",
+      historyMessages: [
+        { id: "h2", type: "user", content: "New" },
+      ],
+      loadVersion: version2,
+    });
+
+    // Now state should be updated
+    expect(sim.state.isRunning).toBe(true);
+    expect(sim.state.currentRunId).toBe("run-new");
+    expect(sim.spinnerVisible()).toBe(true);
+  });
+
+  it("drops buffered events when history shows run is not active", () => {
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    // Events buffered during history load
+    sim.bufferEvent({ state: "delta", runId: "run-1", text: "stale" });
+
+    // History shows no active run (run already finished)
+    sim.processHistoryResponse({
+      activeRunId: undefined,
+      historyMessages: [
+        { id: "h1", type: "user", content: "Hello" },
+        { id: "h2", type: "assistant", content: "Done" },
+      ],
+      loadVersion: version,
+    });
+
+    // Buffered events should have been dropped, not replayed
+    expect(sim.state.isStreaming).toBe(false);
+    expect(sim.state.streamText).toBe("");
+    expect(sim.state.pendingEvents).toHaveLength(0);
+  });
+
+  it("clears tool activity on reconnect even when run is active", () => {
+    // Pre-disconnect: tool was running
+    sim.setPreDisconnectState({
+      isRunning: true,
+      isStreaming: false,
+      streamText: "",
+      currentRunId: "run-1",
+      messages: [
+        { id: "m1", type: "user", content: "Hello" },
+        { id: "m2", type: "assistant", content: "", runId: "run-1" },
+      ],
+    });
+    sim.state.toolActivity = "web_search";
+
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    sim.processHistoryResponse({
+      activeRunId: "run-1",
+      historyMessages: [
+        { id: "h1", type: "user", content: "Hello" },
+      ],
+      loadVersion: version,
+    });
+
+    // toolActivity should be reset (will be re-set if a tool_call event replays)
+    expect(sim.state.toolActivity).toBeNull();
+    expect(sim.spinnerVisible()).toBe(true);
+  });
+});
