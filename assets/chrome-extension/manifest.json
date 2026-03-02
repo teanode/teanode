@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TeaNode",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Attach TeaNode to your browser — CDP relay + credentialed tab tools.",
   "icons": {
     "16": "icons/icon16.png",
@@ -15,14 +15,10 @@
     "activeTab",
     "storage",
     "cookies",
-    "scripting",
-    "sidePanel"
+    "scripting"
   ],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "dist/background.js", "type": "module" },
-  "side_panel": {
-    "default_path": "dist/sidepanel.html"
-  },
   "action": {
     "default_title": "TeaNode",
     "default_icon": {

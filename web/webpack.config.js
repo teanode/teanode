@@ -98,7 +98,6 @@ module.exports = (env, argv) => {
     name: "extension",
     entry: {
       background: "./src/extension/background/index.ts",
-      sidepanel: "./src/extension/sidepanel/index.tsx",
       overlay: "./src/extension/overlay/index.tsx",
       "content-script": "./src/extension/content/contentScript.ts",
       "overlay-content": "./src/extension/content/overlayContent.ts",
@@ -133,11 +132,6 @@ module.exports = (env, argv) => {
       ],
     },
     plugins: [
-      new HtmlWebpackPlugin({
-        template: "./src/extension/sidepanel/sidepanel.html",
-        filename: "sidepanel.html",
-        chunks: ["sidepanel"],
-      }),
       new HtmlWebpackPlugin({
         template: "./src/extension/overlay/overlay.html",
         filename: "overlay.html",

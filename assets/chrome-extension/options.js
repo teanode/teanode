@@ -71,23 +71,11 @@ async function checkAll(baseUrl) {
   await checkTokenValidity(baseUrl)
 }
 
-async function loadUiMode() {
-  const stored = await chrome.storage.local.get(['uiMode'])
-  const mode = stored.uiMode || 'sidepanel'
-  const radio = document.getElementById(mode === 'overlay' ? 'mode-overlay' : 'mode-sidepanel')
-  if (radio) radio.checked = true
-}
-
-async function saveUiMode(mode) {
-  await chrome.storage.local.set({ uiMode: mode })
-}
-
 async function load() {
   const stored = await chrome.storage.local.get(['relayUrl', 'relayToken'])
   const url = normalizeUrl(stored.relayUrl)
   document.getElementById('url').value = url
   document.getElementById('token').value = stored.relayToken || ''
-  await loadUiMode()
   await checkAll(url)
 }
 
@@ -109,7 +97,4 @@ async function saveToken() {
 
 document.getElementById('save').addEventListener('click', () => void save())
 document.getElementById('save-token').addEventListener('click', () => void saveToken())
-document.querySelectorAll('input[name="uiMode"]').forEach((radio) => {
-  radio.addEventListener('change', (e) => void saveUiMode(e.target.value))
-})
 void load()

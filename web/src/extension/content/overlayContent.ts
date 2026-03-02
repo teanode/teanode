@@ -381,7 +381,13 @@ function createOverlay(): void {
 
   closeBtn.addEventListener("click", () => {
     saveGeometryImmediate(geo);
-    host.remove();
+    // Signal the iframe to detach the tab before we tear it down.
+    iframe.contentWindow?.postMessage({ type: "tn:closing" }, "*");
+    setTimeout(() => {
+      host.remove();
+      // Notify background SW so it stops tracking this tab.
+      chrome.runtime.sendMessage({ type: "tn:overlay-closed" }).catch(() => {});
+    }, 300);
   });
 
   // ---- Window resize: clamp overlay ----

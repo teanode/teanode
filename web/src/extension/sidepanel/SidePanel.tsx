@@ -10,9 +10,7 @@ import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
 import AddRounded from "@mui/icons-material/AddRounded";
 import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
-import LinkRounded from "@mui/icons-material/LinkRounded";
-import LinkOffRounded from "@mui/icons-material/LinkOffRounded";
-import { sendRpc, onEvent, ensureConnected } from "./rpc";
+import { sendRpc, onEvent, ensureConnected, disconnect } from "./rpc";
 import { ChatView } from "./ChatView";
 import type {
   RpcEventFrame,
@@ -47,10 +45,8 @@ export function SidePanel() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectionRestored, setSelectionRestored] = useState(false);
 
-  // --- Tab binding state (C6) ---
+  // --- Tab binding state ---
   const [boundTab, setBoundTab] = useState<BoundTab | null>(null);
-  const [tabBusy, setTabBusy] = useState(false);
-  const [tabError, setTabError] = useState("");
   const boundTabRef = useRef<BoundTab | null>(null);
   boundTabRef.current = boundTab;
 
@@ -157,43 +153,71 @@ export function SidePanel() {
     });
   }, [agentId]);
 
-  // Refs for current agentId/conversationId (used in tab-change callbacks).
+  // Refs for current agentId/conversationId (used in callbacks).
   const agentIdRef = useRef(agentId);
   agentIdRef.current = agentId;
   const conversationIdRef = useRef(conversationId);
   conversationIdRef.current = conversationId;
 
-  // --- Tab binding: auto-detach when user switches to a different tab (C6) ---
+  // --- Auto-attach: bind the current tab when agent+conversation are ready ---
   useEffect(() => {
+    if (!connected || !agentId || !conversationId) return;
     if (typeof chrome === "undefined" || !chrome.tabs) return;
 
-    const autoDetachIfNeeded = async () => {
-      const bt = boundTabRef.current;
-      if (!bt) return;
+    let cancelled = false;
+
+    (async () => {
       try {
         const [active] = await chrome.tabs.query({
           active: true,
           currentWindow: true,
         });
-        if (active?.id && active.id !== bt.tabId) {
-          // User navigated to a different tab — auto-detach.
-          sendRpc("tab.detach", {
-            agentId: agentIdRef.current,
-            conversationId: conversationIdRef.current,
-          }).catch(() => {});
-          setBoundTab(null);
+        if (cancelled || !active?.id || !active.url) return;
+
+        await sendRpc("tab.attach", {
+          agentId,
+          conversationId,
+          tabUrl: active.url,
+          tabTitle: active.title || "",
+          tabId: active.id,
+        });
+
+        if (!cancelled) {
+          setBoundTab({
+            tabId: active.id,
+            url: active.url,
+            title: active.title || "",
+          });
         }
       } catch {
-        // ignore
+        // ignore attach errors
       }
-    };
-
-    const onActivated = () => { autoDetachIfNeeded(); };
-    chrome.tabs.onActivated.addListener(onActivated);
+    })();
 
     return () => {
-      chrome.tabs.onActivated.removeListener(onActivated);
+      cancelled = true;
+      // Detach on cleanup (conversation change or unmount).
+      sendRpc("tab.detach", { agentId, conversationId }).catch(() => {});
+      setBoundTab(null);
     };
+  }, [connected, agentId, conversationId]);
+
+  // --- Handle overlay close: detach tab and disconnect before iframe is torn down ---
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type !== "tn:closing") return;
+      const aid = agentIdRef.current;
+      const cid = conversationIdRef.current;
+      if (boundTabRef.current && aid && cid) {
+        sendRpc("tab.detach", { agentId: aid, conversationId: cid })
+          .catch(() => {})
+          .finally(() => disconnect());
+      } else {
+        disconnect();
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
   }, []);
 
   // Listen for tab URL changes and tab closure from background SW.
@@ -214,22 +238,25 @@ export function SidePanel() {
         };
         setBoundTab(updated);
         sendRpc("tab.attach", {
-          agentId,
-          conversationId,
+          agentId: agentIdRef.current,
+          conversationId: conversationIdRef.current,
           tabUrl: message.url,
           tabTitle: message.title,
           tabId: message.tabId,
         }).catch(() => {});
       }
       if (message.type === "tab_closed" && message.tabId === bt.tabId) {
-        sendRpc("tab.detach", { agentId, conversationId }).catch(() => {});
+        sendRpc("tab.detach", {
+          agentId: agentIdRef.current,
+          conversationId: conversationIdRef.current,
+        }).catch(() => {});
         setBoundTab(null);
       }
       return undefined;
     };
     chrome.runtime.onMessage.addListener(onMessage);
     return () => chrome.runtime.onMessage.removeListener(onMessage);
-  }, [agentId, conversationId]);
+  }, []);
 
   // Listen for tab_attachment events from server.
   useEffect(() => {
@@ -242,12 +269,6 @@ export function SidePanel() {
       }
     });
   }, [agentId, conversationId]);
-
-  // Reset tab binding when conversation changes.
-  useEffect(() => {
-    setBoundTab(null);
-    setTabError("");
-  }, [conversationId]);
 
   // Handle tab_tool_call events: forward to background SW using bound tab.
   useEffect(() => {
@@ -292,52 +313,6 @@ export function SidePanel() {
       }
     });
   }, [connected, agentId, conversationId]);
-
-  // --- Tab binding actions ---
-  const handleAttachTab = useCallback(async () => {
-    if (!conversationId) return;
-    setTabBusy(true);
-    setTabError("");
-    try {
-      const [active] = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-      if (!active?.id || !active.url) {
-        setTabError("No active tab");
-        return;
-      }
-      await sendRpc("tab.attach", {
-        agentId,
-        conversationId,
-        tabUrl: active.url,
-        tabTitle: active.title || "",
-        tabId: active.id,
-      });
-      setBoundTab({
-        tabId: active.id,
-        url: active.url,
-        title: active.title || "",
-      });
-    } catch (err) {
-      setTabError(String(err));
-    } finally {
-      setTabBusy(false);
-    }
-  }, [agentId, conversationId]);
-
-  const handleDetachTab = useCallback(async () => {
-    setTabBusy(true);
-    setTabError("");
-    try {
-      await sendRpc("tab.detach", { agentId, conversationId });
-      setBoundTab(null);
-    } catch (err) {
-      setTabError(String(err));
-    } finally {
-      setTabBusy(false);
-    }
-  }, [agentId, conversationId]);
 
   const handleNewConversation = useCallback(() => {
     setConversationId("");
@@ -435,74 +410,10 @@ export function SidePanel() {
         <ExpandMoreRounded sx={{ color: "text.secondary", fontSize: 20 }} />
       </Box>
 
-      {/* Tab attachment indicator */}
-      <Box
-        sx={{
-          px: 1.5,
-          py: 0.75,
-          borderBottom: 1,
-          borderColor: "divider",
-          display: "flex",
-          alignItems: "center",
-          gap: 1,
-        }}
-      >
-        <Box
-          sx={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            bgcolor: boundTab ? "success.main" : "action.disabled",
-            flexShrink: 0,
-          }}
-        />
-        {boundTab ? (
-          <Typography
-            variant="caption"
-            sx={{
-              flex: 1,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {boundTab.title || boundTab.url}
-          </Typography>
-        ) : (
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ flex: 1 }}
-          >
-            No tab bound
-          </Typography>
-        )}
-        <IconButton
-          size="small"
-          onClick={boundTab ? handleDetachTab : handleAttachTab}
-          disabled={tabBusy || !conversationId}
-          sx={{ width: 28, height: 28 }}
-        >
-          {boundTab ? (
-            <LinkOffRounded sx={{ fontSize: 16 }} />
-          ) : (
-            <LinkRounded sx={{ fontSize: 16 }} />
-          )}
-        </IconButton>
-      </Box>
-
-      {tabError && (
-        <Box sx={{ px: 1.5, py: 0.5 }}>
-          <Typography variant="caption" color="error.main">
-            {tabError}
-          </Typography>
-        </Box>
-      )}
-
       {/* Chat */}
       <ChatView agentId={agentId} conversationId={conversationId} />
 
-      {/* Bottom sheet drawer for choosing conversation (B3) */}
+      {/* Bottom sheet drawer for choosing conversation */}
       <Drawer
         anchor="bottom"
         open={drawerOpen}

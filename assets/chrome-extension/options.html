@@ -108,24 +108,6 @@
         border-color: color-mix(in oklab, var(--accent) 70%, transparent);
         box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 20%, transparent);
       }
-      .radio-group {
-        display: flex;
-        gap: 16px;
-      }
-      .radio-group label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-        font-size: 14px;
-        color: canvasText;
-        margin-bottom: 0;
-      }
-      .radio-group input[type="radio"] {
-        accent-color: var(--accent);
-        width: auto;
-        margin: 0;
-      }
       button {
         padding: 10px 14px;
         border-radius: 12px;
@@ -177,7 +159,7 @@
         </div>
         <div>
           <h1>TeaNode</h1>
-          <p class="subtitle">Click the toolbar button on a tab to attach / detach.</p>
+          <p class="subtitle">Click the toolbar button to toggle the floating overlay.</p>
         </div>
       </header>
 
@@ -201,24 +183,6 @@
             Default: <code>http://127.0.0.1:8833</code>. The URL of your TeaNode gateway.
           </div>
           <div class="status" id="relay-status"></div>
-        </div>
-
-        <div class="card">
-          <h2>UI Mode</h2>
-          <div class="radio-group">
-            <label>
-              <input type="radio" name="uiMode" value="sidepanel" id="mode-sidepanel" checked />
-              Side Panel
-            </label>
-            <label>
-              <input type="radio" name="uiMode" value="overlay" id="mode-overlay" />
-              Floating Overlay
-            </label>
-          </div>
-          <div class="hint">
-            <strong>Side Panel</strong>: opens in Chrome's built-in side panel.
-            <strong>Floating Overlay</strong>: injects a draggable, resizable widget on the page.
-          </div>
         </div>
 
         <div class="card">
