@@ -187,7 +187,9 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 		defer func() {
 			// Clean up runner index.
 			self.activeRunIdConversationIds.Delete(runId)
-			self.activeConversationIdRunIds.Delete(conversationId)
+			// Only remove conversation→run mapping if it still points to this run,
+			// to avoid clobbering a newer run's entry.
+			self.activeConversationIdRunIds.CompareAndDelete(conversationId, runId)
 			cancel()
 
 			// Notify summarizer.
@@ -421,13 +423,13 @@ func (self *Coordinator) dispatchMessage(ctx context.Context, agentId, conversat
 
 	self.enqueueMessage(agentId, conversationId, queued)
 
-	// Block until result.
-	select {
-	case result := <-resultChan:
-		return dispatchResult{runResult: result.runResult, err: result.err, aborted: result.aborted}
-	case <-ctx.Done():
-		return dispatchResult{err: ctx.Err(), aborted: true}
-	}
+	// Block until the runner finishes. processQueue uses the coordinator's
+	// long-lived context, so the run continues even if the caller disconnects.
+	// We must wait for the actual result rather than short-circuiting on
+	// ctx.Done(), because premature return would trigger cleanup of the
+	// activeRunId tracking while the tool is still executing.
+	result := <-resultChan
+	return dispatchResult{runResult: result.runResult, err: result.err, aborted: result.aborted}
 }
 
 func (self *Coordinator) enqueueMessage(agentId, conversationId string, message *queuedMessage) {
