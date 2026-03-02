@@ -58,6 +58,9 @@ func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
 	if err != nil || originUrl.Host == "" {
 		return false
 	}
+	if strings.EqualFold(originUrl.Scheme, "chrome-extension") {
+		return true
+	}
 	originTls := strings.EqualFold(originUrl.Scheme, "https")
 	requestTls := request.TLS != nil
 	if sameOriginHost(originUrl.Host, originTls, request.Host, requestTls) {
