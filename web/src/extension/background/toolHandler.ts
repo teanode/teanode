@@ -1,6 +1,6 @@
 /**
  * Tool execution handler for the background service worker.
- * Manages content script injection and routes tool requests.
+ * Manages content script injection and routes tool requests by action.
  */
 
 import type {
@@ -76,23 +76,24 @@ export function handleTabRemoved(tabId: number): void {
 export async function handleToolExecute(
   request: ToolExecuteRequest,
 ): Promise<ToolExecuteResponse> {
-  const { toolName, requestId, tabId, arguments: args } = request;
+  const { requestId, tabId, arguments: args } = request;
+  const action = args.action as string;
 
   try {
-    if (toolName === "tab.http_request") {
-      return await executeHttpRequest(requestId, tabId, args);
+    switch (action) {
+      case "fetch":
+        return await executeFetch(requestId, tabId, args);
+      case "listCookies":
+        return await executeListCookies(requestId, args);
+      case "getCookie":
+        return await executeGetCookie(requestId, args);
+      default:
+        return {
+          type: "tool_execute_response",
+          requestId,
+          error: `unknown action: ${action}`,
+        };
     }
-    if (toolName === "tab.cookies.list") {
-      return await executeCookiesList(requestId, args);
-    }
-    if (toolName === "tab.cookies.get") {
-      return await executeCookiesGet(requestId, args);
-    }
-    return {
-      type: "tool_execute_response",
-      requestId,
-      error: `unknown tool: ${toolName}`,
-    };
   } catch (err) {
     return {
       type: "tool_execute_response",
@@ -102,14 +103,14 @@ export async function handleToolExecute(
   }
 }
 
-async function executeHttpRequest(
+async function executeFetch(
   requestId: string,
   tabId: number,
   args: Record<string, unknown>,
 ): Promise<ToolExecuteResponse> {
   const nonce = await ensureInjected(tabId);
 
-  const fetchReq: PageFetchRequest = {
+  const fetchRequest: PageFetchRequest = {
     type: "page_fetch_request",
     requestId,
     nonce,
@@ -117,10 +118,10 @@ async function executeHttpRequest(
     url: args.url as string,
     headers: args.headers as Record<string, string> | undefined,
     body: args.body as string | undefined,
-    timeout_ms: (args.timeout_ms as number) || 30000,
+    timeoutMs: (args.timeoutMs as number) || 30000,
   };
 
-  const response = await chrome.tabs.sendMessage(tabId, fetchReq) as PageFetchResponse;
+  const response = await chrome.tabs.sendMessage(tabId, fetchRequest) as PageFetchResponse;
 
   if (response.error) {
     return { type: "tool_execute_response", requestId, error: response.error };
@@ -133,7 +134,7 @@ async function executeHttpRequest(
   };
 }
 
-async function executeCookiesList(
+async function executeListCookies(
   requestId: string,
   args: Record<string, unknown>,
 ): Promise<ToolExecuteResponse> {
@@ -149,7 +150,7 @@ async function executeCookiesList(
   };
 }
 
-async function executeCookiesGet(
+async function executeGetCookie(
   requestId: string,
   args: Record<string, unknown>,
 ): Promise<ToolExecuteResponse> {
@@ -166,7 +167,7 @@ async function executeCookiesGet(
     return {
       type: "tool_execute_response",
       requestId,
-      error: "url is required for cookies.get",
+      error: "url is required for getCookie",
     };
   }
   const cookie = await getCookie({ url, name });

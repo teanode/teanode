@@ -3,7 +3,7 @@
 /** Side panel → Background SW: execute a tab tool */
 export interface ToolExecuteRequest {
   type: "tool_execute";
-  toolName: "tab.http_request" | "tab.cookies.list" | "tab.cookies.get";
+  toolName: "tab";
   requestId: string;
   tabId: number;
   arguments: Record<string, unknown>;
@@ -26,7 +26,7 @@ export interface PageFetchRequest {
   url: string;
   headers?: Record<string, string>;
   body?: string;
-  timeout_ms: number;
+  timeoutMs: number;
 }
 
 /** Content script → Background SW response */
@@ -59,7 +59,7 @@ export interface FetchResult {
   body: string;
   url: string;
   truncated: boolean;
-  duration_ms: number;
+  durationMs: number;
 }
 
 // ---- postMessage between content script and page bridge ----
@@ -73,7 +73,7 @@ export interface BridgeRequest {
     url: string;
     headers?: Record<string, string>;
     body?: string;
-    timeout_ms: number;
+    timeoutMs: number;
   };
 }
 

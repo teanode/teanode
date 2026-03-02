@@ -41,7 +41,7 @@ chrome.runtime.onMessage.addListener(
             error: "page bridge timeout",
           });
         }
-      }, (message.timeout_ms || 30000) + 5000);
+      }, (message.timeoutMs || 30000) + 5000);
     });
 
     // Forward to page bridge via postMessage.
@@ -55,7 +55,7 @@ chrome.runtime.onMessage.addListener(
           url: message.url,
           headers: message.headers,
           body: message.body,
-          timeout_ms: message.timeout_ms,
+          timeoutMs: message.timeoutMs,
         },
       },
       "*",

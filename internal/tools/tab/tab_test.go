@@ -30,12 +30,12 @@ func testContext(broker *TabToolBroker) context.Context {
 	return ctx
 }
 
-func TestHTTPRequestTool_NoAttachment(t *testing.T) {
+func TestTabTool_FetchNoAttachment(t *testing.T) {
 	broker := NewTabToolBroker()
 	ctx := testContext(broker)
 
-	tool := &httpRequestTool{}
-	result, err := tool.Execute(ctx, `{"url":"/api/test"}`)
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"fetch","url":"/api/test"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestHTTPRequestTool_NoAttachment(t *testing.T) {
 	}
 }
 
-func TestHTTPRequestTool_HappyPath(t *testing.T) {
+func TestTabTool_FetchHappyPath(t *testing.T) {
 	broker := NewTabToolBroker()
 	broker.Attach(TabAttachment{
 		UserID: "u1", AgentID: "a1", ConversationID: "c1",
@@ -56,11 +56,10 @@ func TestHTTPRequestTool_HappyPath(t *testing.T) {
 
 	ctx := testContext(broker)
 
-	tool := &httpRequestTool{}
+	tool := &tabTool{}
 
 	// Resolve the pending call in a goroutine.
 	go func() {
-		// Wait for the pending call to be registered.
 		time.Sleep(50 * time.Millisecond)
 		broker.mu.Lock()
 		var pendingID string
@@ -77,7 +76,7 @@ func TestHTTPRequestTool_HappyPath(t *testing.T) {
 		}
 	}()
 
-	result, err := tool.Execute(ctx, `{"url":"/api/test","method":"GET"}`)
+	result, err := tool.Execute(ctx, `{"action":"fetch","url":"/api/test","method":"GET"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -86,7 +85,7 @@ func TestHTTPRequestTool_HappyPath(t *testing.T) {
 	}
 }
 
-func TestHTTPRequestTool_ContextCancel(t *testing.T) {
+func TestTabTool_FetchContextCancel(t *testing.T) {
 	broker := NewTabToolBroker()
 	broker.Attach(TabAttachment{
 		UserID: "u1", AgentID: "a1", ConversationID: "c1",
@@ -96,21 +95,20 @@ func TestHTTPRequestTool_ContextCancel(t *testing.T) {
 	ctx := testContext(broker)
 	ctx, cancel := context.WithCancel(ctx)
 
-	tool := &httpRequestTool{}
+	tool := &tabTool{}
 
-	// Cancel context shortly after.
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		cancel()
 	}()
 
-	_, err := tool.Execute(ctx, `{"url":"/api/test"}`)
+	_, err := tool.Execute(ctx, `{"action":"fetch","url":"/api/test"}`)
 	if err == nil {
 		t.Fatal("expected error on context cancel")
 	}
 }
 
-func TestHTTPRequestTool_OversizedBody(t *testing.T) {
+func TestTabTool_FetchOversizedBody(t *testing.T) {
 	broker := NewTabToolBroker()
 	broker.Attach(TabAttachment{
 		UserID: "u1", AgentID: "a1", ConversationID: "c1",
@@ -119,9 +117,9 @@ func TestHTTPRequestTool_OversizedBody(t *testing.T) {
 
 	ctx := testContext(broker)
 
-	tool := &httpRequestTool{}
+	tool := &tabTool{}
 	bigBody := strings.Repeat("x", maxRequestBodySize+1)
-	result, err := tool.Execute(ctx, `{"url":"/api/test","body":"`+bigBody+`"}`)
+	result, err := tool.Execute(ctx, `{"action":"fetch","url":"/api/test","body":"`+bigBody+`"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -133,7 +131,7 @@ func TestHTTPRequestTool_OversizedBody(t *testing.T) {
 	}
 }
 
-func TestHTTPRequestTool_NonWebuiOrigin(t *testing.T) {
+func TestTabTool_NonWebuiOrigin(t *testing.T) {
 	ctx := context.Background()
 	user := &models.User{ID: "u1"}
 	ctx = models.ContextWithUserSessionToken(ctx, user, nil, nil)
@@ -141,8 +139,8 @@ func TestHTTPRequestTool_NonWebuiOrigin(t *testing.T) {
 	broker := NewTabToolBroker()
 	ctx = ContextWithTabToolBroker(ctx, broker)
 
-	tool := &httpRequestTool{}
-	result, err := tool.Execute(ctx, `{"url":"/api/test"}`)
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"fetch","url":"/api/test"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -151,5 +149,104 @@ func TestHTTPRequestTool_NonWebuiOrigin(t *testing.T) {
 	json.Unmarshal([]byte(result), &parsed)
 	if !strings.Contains(parsed["error"], "only supported on the webui channel") {
 		t.Errorf("expected webui-only error, got: %s", result)
+	}
+}
+
+func TestTabTool_FetchURLRequired(t *testing.T) {
+	broker := NewTabToolBroker()
+	broker.Attach(TabAttachment{
+		UserID: "u1", AgentID: "a1", ConversationID: "c1",
+		TabURL: "https://example.com",
+	}, "conn1")
+
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"fetch"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed map[string]string
+	json.Unmarshal([]byte(result), &parsed)
+	if !strings.Contains(parsed["error"], "url is required") {
+		t.Errorf("expected 'url is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_GetCookieNameRequired(t *testing.T) {
+	broker := NewTabToolBroker()
+	broker.Attach(TabAttachment{
+		UserID: "u1", AgentID: "a1", ConversationID: "c1",
+		TabURL: "https://example.com",
+	}, "conn1")
+
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"getCookie"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed map[string]string
+	json.Unmarshal([]byte(result), &parsed)
+	if !strings.Contains(parsed["error"], "name is required") {
+		t.Errorf("expected 'name is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_ListCookiesHappyPath(t *testing.T) {
+	broker := NewTabToolBroker()
+	broker.Attach(TabAttachment{
+		UserID: "u1", AgentID: "a1", ConversationID: "c1",
+		TabURL: "https://example.com",
+	}, "conn1")
+
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		broker.mu.Lock()
+		var pendingID string
+		for id := range broker.pending {
+			pendingID = id
+			break
+		}
+		broker.mu.Unlock()
+
+		if pendingID != "" {
+			broker.Resolve(pendingID, ToolCallResult{
+				Result: `{"cookies":[]}`,
+			})
+		}
+	}()
+
+	result, err := tool.Execute(ctx, `{"action":"listCookies"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "cookies") {
+		t.Errorf("expected cookies in result, got: %s", result)
+	}
+}
+
+func TestTabTool_UnknownAction(t *testing.T) {
+	broker := NewTabToolBroker()
+	broker.Attach(TabAttachment{
+		UserID: "u1", AgentID: "a1", ConversationID: "c1",
+		TabURL: "https://example.com",
+	}, "conn1")
+
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	_, err := tool.Execute(ctx, `{"action":"unknown"}`)
+	if err == nil {
+		t.Fatal("expected error for unknown action")
+	}
+	if !strings.Contains(err.Error(), "unknown tab action") {
+		t.Errorf("expected 'unknown tab action' error, got: %v", err)
 	}
 }

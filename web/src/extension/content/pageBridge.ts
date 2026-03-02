@@ -21,7 +21,7 @@ if (NONCE) {
     if (event.data?.__tn !== NONCE || event.data?.type !== "req") return;
 
     const { id, payload } = event.data;
-    const { method, url, headers, body, timeout_ms } = payload;
+    const { method, url, headers, body, timeoutMs } = payload;
 
     const start = performance.now();
 
@@ -29,7 +29,7 @@ if (NONCE) {
       const controller = new AbortController();
       const timer = setTimeout(
         () => controller.abort(),
-        timeout_ms || 30000,
+        timeoutMs || 30000,
       );
 
       const response = await fetch(url, {
@@ -77,7 +77,7 @@ if (NONCE) {
         }
       }
 
-      const duration_ms = Math.round(performance.now() - start);
+      const durationMs = Math.round(performance.now() - start);
 
       window.postMessage({
         __tn: NONCE,
@@ -90,7 +90,7 @@ if (NONCE) {
           body: respBody,
           url: response.url,
           truncated,
-          duration_ms,
+          durationMs,
         },
       });
     } catch (err) {
