@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   reconcileRunStateFromHistory,
   shouldHydrateConversation,
+  inferToolActivityFromHistory,
 } from "./useBackend";
 
 // ─── Types (subset of src/types.ts needed for the test) ────────────
@@ -577,6 +578,82 @@ describe("shouldHydrateConversation", () => {
   });
 });
 
+describe("inferToolActivityFromHistory", () => {
+  it("returns tool name when last message is assistant with toolCalls", () => {
+    const messages = [
+      { role: "user" as const, content: "Hello" },
+      {
+        role: "assistant" as const,
+        content: "Let me search",
+        toolCalls: [
+          { id: "tc-1", function: { name: "web_search", arguments: '{"q":"test"}' } },
+        ],
+        stopReason: "tool_use",
+      },
+    ];
+    expect(inferToolActivityFromHistory(messages)).toBe("web_search");
+  });
+
+  it("returns last tool name when multiple tool calls", () => {
+    const messages = [
+      { role: "user" as const, content: "Hello" },
+      {
+        role: "assistant" as const,
+        content: "Let me look",
+        toolCalls: [
+          { id: "tc-1", function: { name: "search", arguments: "{}" } },
+          { id: "tc-2", function: { name: "shell", arguments: '{"cmd":"ls"}' } },
+        ],
+        stopReason: "tool_use",
+      },
+    ];
+    expect(inferToolActivityFromHistory(messages)).toBe("shell");
+  });
+
+  it("returns null when last message is a tool result", () => {
+    const messages = [
+      { role: "user" as const, content: "Hello" },
+      {
+        role: "assistant" as const,
+        content: "Let me search",
+        toolCalls: [
+          { id: "tc-1", function: { name: "search", arguments: "{}" } },
+        ],
+        stopReason: "tool_use",
+      },
+      { role: "tool" as const, content: "result here", toolName: "search" },
+    ];
+    expect(inferToolActivityFromHistory(messages)).toBeNull();
+  });
+
+  it("returns null when last message is assistant without toolCalls", () => {
+    const messages = [
+      { role: "user" as const, content: "Hello" },
+      { role: "assistant" as const, content: "Hi there!" },
+    ];
+    expect(inferToolActivityFromHistory(messages)).toBeNull();
+  });
+
+  it("returns null for empty messages array", () => {
+    expect(inferToolActivityFromHistory([])).toBeNull();
+  });
+
+  it("handles toolCalls as JSON string", () => {
+    const messages = [
+      { role: "user" as const, content: "Hello" },
+      {
+        role: "assistant" as const,
+        content: "Searching",
+        toolCalls: JSON.stringify([
+          { id: "tc-1", function: { name: "browser_fetch", arguments: "{}" } },
+        ]),
+        stopReason: "tool_use",
+      },
+    ];
+    expect(inferToolActivityFromHistory(messages)).toBe("browser_fetch");
+  });
+});
+
 // ─── Reconnect question rehydration ─────────────────────────────────
 //
 // Simulates the useEffect added in useBackend that rehydrates pending
@@ -849,6 +926,7 @@ class ReconnectSimulation {
     activeRunId?: string;
     historyMessages: DisplayMessage[];
     loadVersion: number;
+    rawMessages?: Array<{ role: string; content: string | null; toolCalls?: unknown; stopReason?: string; toolName?: string }>;
   }) {
     // Load version guard
     if (this.state.loadVersion !== opts.loadVersion) return;
@@ -864,13 +942,21 @@ class ReconnectSimulation {
     this.state.currentRunId = reconciled.currentRunId;
     this.state.isRunning = reconciled.isRunning;
 
-    // Always reset streaming state (the fix)
+    // Always reset streaming state
     this.state.streamText = "";
     this.state.isStreaming = false;
-    this.state.toolActivity = null;
 
     if (reconciled.isRunning) {
-      this.state.status = "thinking...";
+      // Infer tool activity from raw history (mirrors the fix)
+      const inferredTool = opts.rawMessages
+        ? inferToolActivityFromHistory(opts.rawMessages as any)
+        : null;
+      this.state.toolActivity = inferredTool;
+      if (inferredTool) {
+        this.state.status = `calling ${inferredTool}...`;
+      } else {
+        this.state.status = "thinking...";
+      }
       displayMessages.push({
         id: nextMessageId(),
         type: "assistant",
@@ -878,6 +964,7 @@ class ReconnectSimulation {
         runId: opts.activeRunId,
       });
     } else {
+      this.state.toolActivity = null;
       this.state.status = "connected";
     }
 
@@ -1137,7 +1224,7 @@ describe("reconnect busy-state rehydration", () => {
     expect(sim.state.pendingEvents).toHaveLength(0);
   });
 
-  it("clears tool activity on reconnect even when run is active", () => {
+  it("clears stale tool activity when history shows no tool in progress", () => {
     // Pre-disconnect: tool was running
     sim.setPreDisconnectState({
       isRunning: true,
@@ -1154,16 +1241,118 @@ describe("reconnect busy-state rehydration", () => {
     sim.onSocketOpen();
     const version = sim.startHistoryLoad();
 
+    // History shows the tool already returned — last message is a tool result.
     sim.processHistoryResponse({
       activeRunId: "run-1",
       historyMessages: [
         { id: "h1", type: "user", content: "Hello" },
       ],
       loadVersion: version,
+      rawMessages: [
+        { role: "user", content: "Hello" },
+        {
+          role: "assistant",
+          content: "Searching",
+          toolCalls: [{ id: "tc-1", function: { name: "web_search", arguments: "{}" } }],
+          stopReason: "tool_use",
+        },
+        { role: "tool", content: "result", toolName: "web_search" },
+      ],
     });
 
-    // toolActivity should be reset (will be re-set if a tool_call event replays)
+    // toolActivity should be null — last message is a tool result, so LLM is thinking
     expect(sim.state.toolActivity).toBeNull();
+    expect(sim.state.status).toBe("thinking...");
     expect(sim.spinnerVisible()).toBe(true);
+  });
+
+  it("restores tool activity from history when tool call is in progress", () => {
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    // History shows an assistant message with toolCalls as the last message —
+    // tools are still executing.
+    sim.processHistoryResponse({
+      activeRunId: "run-1",
+      historyMessages: [
+        { id: "h1", type: "user", content: "Hello" },
+        { id: "h2", type: "assistant", content: "Let me search" },
+        { id: "h3", type: "tool-invoke", content: '{"q":"test"}', toolName: "web_search" },
+      ],
+      loadVersion: version,
+      rawMessages: [
+        { role: "user", content: "Hello" },
+        {
+          role: "assistant",
+          content: "Let me search",
+          toolCalls: [{ id: "tc-1", function: { name: "web_search", arguments: '{"q":"test"}' } }],
+          stopReason: "tool_use",
+        },
+      ],
+    });
+
+    // toolActivity should be restored from history
+    expect(sim.state.toolActivity).toBe("web_search");
+    expect(sim.state.status).toBe("calling web_search...");
+    expect(sim.state.isRunning).toBe(true);
+    expect(sim.spinnerVisible()).toBe(true);
+  });
+
+  it("restores tool activity for multiple parallel tool calls (uses last)", () => {
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    sim.processHistoryResponse({
+      activeRunId: "run-1",
+      historyMessages: [
+        { id: "h1", type: "user", content: "Hello" },
+      ],
+      loadVersion: version,
+      rawMessages: [
+        { role: "user", content: "Hello" },
+        {
+          role: "assistant",
+          content: "Let me look",
+          toolCalls: [
+            { id: "tc-1", function: { name: "search", arguments: "{}" } },
+            { id: "tc-2", function: { name: "shell", arguments: '{"cmd":"sleep 60"}' } },
+          ],
+          stopReason: "tool_use",
+        },
+      ],
+    });
+
+    // Should show the last tool name
+    expect(sim.state.toolActivity).toBe("shell");
+    expect(sim.state.status).toBe("calling shell...");
+  });
+
+  it("tool_result event clears inferred tool activity", () => {
+    sim.onSocketOpen();
+    const version = sim.startHistoryLoad();
+
+    // Buffer a tool_result event that arrives during history load
+    sim.bufferEvent({ state: "tool_result", runId: "run-1", toolName: "shell" });
+
+    sim.processHistoryResponse({
+      activeRunId: "run-1",
+      historyMessages: [
+        { id: "h1", type: "user", content: "Hello" },
+      ],
+      loadVersion: version,
+      rawMessages: [
+        { role: "user", content: "Hello" },
+        {
+          role: "assistant",
+          content: "Running",
+          toolCalls: [{ id: "tc-1", function: { name: "shell", arguments: "{}" } }],
+          stopReason: "tool_use",
+        },
+      ],
+    });
+
+    // After replay, tool_result should have cleared the inferred activity
+    expect(sim.state.toolActivity).toBeNull();
+    expect(sim.state.status).toBe("tool done, thinking...");
   });
 });

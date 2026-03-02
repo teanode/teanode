@@ -119,6 +119,22 @@ function parseToolCalls(raw: ToolCall[] | string | undefined): ToolCall[] {
   return raw;
 }
 
+/**
+ * When a run is active, infer the current tool activity from the raw history.
+ * If the most recent message is an assistant with toolCalls, tools are still
+ * executing — return the last tool name so the spinner shows "calling <tool>"
+ * instead of generic "thinking…".
+ */
+export function inferToolActivityFromHistory(messages: Message[]): string | null {
+  if (messages.length === 0) return null;
+  const last = messages[messages.length - 1];
+  if (last.role !== "assistant") return null;
+  const toolCalls = parseToolCalls(last.toolCalls);
+  if (toolCalls.length === 0) return null;
+  const lastToolCall = toolCalls[toolCalls.length - 1];
+  return lastToolCall.function?.name || null;
+}
+
 function getUsageNumbers(
   usage: Usage | undefined,
 ): { input: number; output: number; total: number } | null {
@@ -1050,9 +1066,19 @@ export function useBackend() {
           afterToolCallsRef.current = false;
           setStreamText("");
           setIsStreaming(false);
-          setToolActivity(null);
           if (reconciledRunState.isRunning) {
-            setStatus("thinking...");
+            // Infer tool activity from the last message in history: if it's
+            // an assistant with toolCalls, tools are still executing.
+            const inferredTool = inferToolActivityFromHistory(
+              res.messages || [],
+            );
+            setToolActivity(inferredTool);
+            if (inferredTool) {
+              afterToolCallsRef.current = true;
+              setStatus(`calling ${inferredTool}...`);
+            } else {
+              setStatus("thinking...");
+            }
             displayMessages.push({
               id: nextMessageId(),
               type: "assistant",
@@ -1060,6 +1086,7 @@ export function useBackend() {
               runId: res.activeRunId,
             });
           } else {
+            setToolActivity(null);
             setStatus("connected");
           }
           setMessages(displayMessages);
@@ -1244,7 +1271,6 @@ export function useBackend() {
           afterToolCallsRef.current = false;
           setStreamText("");
           setIsStreaming(false);
-          setToolActivity(null);
 
           // Use activeRunId from server response to detect active runs
           if (res.activeRunId) {
@@ -1252,13 +1278,25 @@ export function useBackend() {
             activeRunsRef.current.set(key, res.activeRunId);
             runQueueRef.current = [res.activeRunId];
             setIsRunning(true);
-            setStatus("thinking...");
+            // Infer tool activity from the last message in history.
+            const inferredTool = inferToolActivityFromHistory(
+              res.messages || [],
+            );
+            setToolActivity(inferredTool);
+            if (inferredTool) {
+              afterToolCallsRef.current = true;
+              setStatus(`calling ${inferredTool}...`);
+            } else {
+              setStatus("thinking...");
+            }
             displayMessages.push({
               id: nextMessageId(),
               type: "assistant",
               content: "",
               runId: res.activeRunId,
             });
+          } else {
+            setToolActivity(null);
           }
 
           setMessages(displayMessages);
