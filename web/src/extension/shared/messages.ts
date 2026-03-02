@@ -6,4 +6,6 @@ export const MSG = {
   PAGE_FETCH_RESPONSE: "page_fetch_response",
   TAB_URL_CHANGED: "tab_url_changed",
   TAB_CLOSED: "tab_closed",
+  OVERLAY_TOGGLE: "tn:toggle-overlay",
+  OVERLAY_CLOSE: "tn:close-overlay",
 } as const;

@@ -24,7 +24,7 @@
     "default_path": "dist/sidepanel.html"
   },
   "action": {
-    "default_title": "TeaNode (click to open side panel)",
+    "default_title": "TeaNode",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -32,5 +32,11 @@
       "128": "icons/icon128.png"
     }
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["dist/overlay.html", "dist/overlay.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "options_page": "options.html"
 }

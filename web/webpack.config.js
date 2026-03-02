@@ -99,7 +99,9 @@ module.exports = (env, argv) => {
     entry: {
       background: "./src/extension/background/index.ts",
       sidepanel: "./src/extension/sidepanel/index.tsx",
+      overlay: "./src/extension/overlay/index.tsx",
       "content-script": "./src/extension/content/contentScript.ts",
+      "overlay-content": "./src/extension/content/overlayContent.ts",
       "page-bridge": "./src/extension/content/pageBridge.ts",
     },
     output: {
@@ -135,6 +137,11 @@ module.exports = (env, argv) => {
         template: "./src/extension/sidepanel/sidepanel.html",
         filename: "sidepanel.html",
         chunks: ["sidepanel"],
+      }),
+      new HtmlWebpackPlugin({
+        template: "./src/extension/overlay/overlay.html",
+        filename: "overlay.html",
+        chunks: ["overlay"],
       }),
     ],
     optimization: {
