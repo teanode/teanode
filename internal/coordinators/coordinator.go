@@ -21,6 +21,14 @@ import (
 
 var log = logging.MustGetLogger("coordinator")
 
+// ActiveRunState describes the current phase of an active run.
+// It is returned in conversations.history so reconnecting clients can
+// immediately show the correct busy indicator.
+type ActiveRunState struct {
+	Phase    string `json:"phase"`              // "thinking", "tool", "streaming"
+	ToolName string `json:"toolName,omitempty"` // set when Phase == "tool"
+}
+
 // Coordinator owns runner creation, the active runner map, message routing,
 // default conversation management, and event broadcasting via pubsub.
 // It implements RunCoordinator.
@@ -34,6 +42,7 @@ type Coordinator struct {
 	activeRunners              sync.Map // conversationId -> *conversationRunner
 	activeRunIdConversationIds sync.Map // runId -> conversationId
 	activeConversationIdRunIds sync.Map // conversationId -> runId
+	activeRunStates            sync.Map // conversationId -> *ActiveRunState
 }
 
 type conversationRunner struct {
@@ -140,6 +149,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 	// Track runner in index.
 	self.activeRunIdConversationIds.Store(runId, conversationId)
 	self.activeConversationIdRunIds.Store(conversationId, runId)
+	self.activeRunStates.Store(conversationId, &ActiveRunState{Phase: "thinking"})
 
 	// Create handle.
 	handle := NewRunHandle(runId, conversationId)
@@ -188,6 +198,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 			// Clean up runner index.
 			self.activeRunIdConversationIds.Delete(runId)
 			self.activeConversationIdRunIds.Delete(conversationId)
+			self.activeRunStates.Delete(conversationId)
 			cancel()
 
 			// Notify summarizer.
@@ -279,6 +290,7 @@ func (self *Coordinator) buildMergedCallbacks(runId, conversationId, agentId, us
 			}
 		},
 		OnTextDelta: func(text string) {
+			self.activeRunStates.Store(conversationId, &ActiveRunState{Phase: "streaming"})
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "delta",
 				"runId":          runId,
@@ -295,6 +307,7 @@ func (self *Coordinator) buildMergedCallbacks(runId, conversationId, agentId, us
 			}
 		},
 		OnToolCall: func(toolName string, arguments string) {
+			self.activeRunStates.Store(conversationId, &ActiveRunState{Phase: "tool", ToolName: toolName})
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "tool_call",
 				"runId":          runId,
@@ -309,6 +322,7 @@ func (self *Coordinator) buildMergedCallbacks(runId, conversationId, agentId, us
 			}
 		},
 		OnToolResult: func(toolName string, result string) {
+			self.activeRunStates.Store(conversationId, &ActiveRunState{Phase: "thinking"})
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "tool_result",
 				"runId":          runId,
@@ -399,6 +413,15 @@ func (self *Coordinator) GetActiveConversationRunID(conversationId string) strin
 		return ""
 	}
 	return value.(string)
+}
+
+// GetActiveRunState returns the current phase of the active run for the conversation, or nil.
+func (self *Coordinator) GetActiveRunState(conversationId string) *ActiveRunState {
+	value, ok := self.activeRunStates.Load(conversationId)
+	if !ok {
+		return nil
+	}
+	return value.(*ActiveRunState)
 }
 
 // dispatchResult holds the outcome of a dispatched message.

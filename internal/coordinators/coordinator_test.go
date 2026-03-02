@@ -2,6 +2,7 @@ package coordinators
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,9 +10,13 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/pubsub"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/util/ptrto"
+
+	// Register the datetime tool so toolCallingProvider tests can resolve it.
+	_ "github.com/teanode/teanode/internal/tools/datetime"
 )
 
 type testProvider struct{}
@@ -159,6 +164,217 @@ func TestNewConversationReplacesDefaultConversation(t *testing.T) {
 	}
 	if got := coordinator.EnsureDefaultConversation(userId, agentId); got != secondConversationId {
 		t.Fatalf("default conversation id = %q, want %q", got, secondConversationId)
+	}
+}
+
+func TestActiveRunStateThinkingDuringRun(t *testing.T) {
+	coordinator, contextWithStore, agentId := newTestCoordinator(t)
+	userId := "user-1"
+
+	// Replace mock provider with a blocking one so we can inspect state mid-run.
+	gate := make(chan struct{})
+	coordinator.providerRegistry.Register("mock", &blockingProvider{gate: gate})
+
+	runContext := models.ContextWithUserSessionToken(contextWithStore, &models.User{ID: userId}, nil, nil)
+	conversationId := coordinator.NewDefaultConversation(userId, agentId)
+
+	handle, sendError := coordinator.Run(runContext, RunParameters{
+		AgentID:        agentId,
+		ConversationID: conversationId,
+		Message:        "hello",
+		Origin:         "webui",
+	}, nil)
+	if sendError != nil {
+		t.Fatalf("send error: %v", sendError)
+	}
+
+	// Wait for the run to actually start streaming (provider blocks on gate).
+	select {
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for provider to be called")
+	case <-gate: // provider signals it was called
+	}
+
+	// While the run is in-flight, state should be "thinking".
+	state := coordinator.GetActiveRunState(conversationId)
+	if state == nil {
+		t.Fatal("expected non-nil active run state during run")
+	}
+	if state.Phase != "thinking" {
+		t.Fatalf("phase = %q, want %q", state.Phase, "thinking")
+	}
+
+	// Unblock the provider.
+	gate <- struct{}{}
+
+	waitRunHandle(t, handle)
+
+	// After completion, state should be cleaned up.
+	if got := coordinator.GetActiveRunState(conversationId); got != nil {
+		t.Fatalf("expected nil active run state after run, got %+v", got)
+	}
+}
+
+// blockingProvider blocks on a gate channel during streaming.
+// It sends on gate when called (so the test knows the run started),
+// then waits on gate again before returning results.
+type blockingProvider struct {
+	gate chan struct{}
+}
+
+func (self *blockingProvider) ChatCompletion(_ context.Context, _ providers.ChatRequest) (*providers.ChatResponse, error) {
+	return &providers.ChatResponse{}, nil
+}
+
+func (self *blockingProvider) ChatCompletionStream(_ context.Context, request providers.ChatRequest) (<-chan providers.StreamEvent, error) {
+	events := make(chan providers.StreamEvent, 2)
+	go func() {
+		defer close(events)
+		// Signal that the provider was called.
+		self.gate <- struct{}{}
+		// Wait for test to unblock.
+		<-self.gate
+		events <- providers.StreamEvent{
+			Chunk: &providers.StreamChunk{
+				ModelName: request.ModelName,
+				Choices: []providers.StreamChoice{
+					{
+						Delta:        providers.ChatDelta{Content: "ok"},
+						FinishReason: "stop",
+					},
+				},
+				Usage: &providers.UsageInformation{
+					PromptTokens:     1,
+					CompletionTokens: 1,
+					TotalTokens:      2,
+				},
+			},
+		}
+		events <- providers.StreamEvent{Done: true}
+	}()
+	return events, nil
+}
+
+func (self *blockingProvider) ListModels(_ context.Context) ([]providers.ModelInformation, error) {
+	return []providers.ModelInformation{{ID: "test-model"}}, nil
+}
+
+// toolCallingProvider emits a tool call for the "datetime" builtin tool on the
+// first stream, then responds with plain text on the second stream (after tool
+// results have been appended to the conversation).
+type toolCallingProvider struct {
+	calls atomic.Int32
+}
+
+func (self *toolCallingProvider) ChatCompletion(_ context.Context, _ providers.ChatRequest) (*providers.ChatResponse, error) {
+	return &providers.ChatResponse{}, nil
+}
+
+func (self *toolCallingProvider) ChatCompletionStream(_ context.Context, request providers.ChatRequest) (<-chan providers.StreamEvent, error) {
+	call := self.calls.Add(1)
+	events := make(chan providers.StreamEvent, 3)
+	go func() {
+		defer close(events)
+		if call == 1 {
+			// First call: emit a tool call for "datetime".
+			events <- providers.StreamEvent{
+				Chunk: &providers.StreamChunk{
+					ModelName: request.ModelName,
+					Choices: []providers.StreamChoice{
+						{
+							Delta: providers.ChatDelta{
+								ToolCalls: []providers.ToolCallDelta{
+									{
+										Index: 0,
+										ID:    "call-1",
+										Type:  "function",
+										Function: providers.FunctionCallDelta{
+											Name:      "datetime",
+											Arguments: "{}",
+										},
+									},
+								},
+							},
+							FinishReason: "tool_calls",
+						},
+					},
+					Usage: &providers.UsageInformation{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+				},
+			}
+		} else {
+			// Second call (after tool result): return final text.
+			events <- providers.StreamEvent{
+				Chunk: &providers.StreamChunk{
+					ModelName: request.ModelName,
+					Choices: []providers.StreamChoice{
+						{
+							Delta:        providers.ChatDelta{Content: "done"},
+							FinishReason: "stop",
+						},
+					},
+					Usage: &providers.UsageInformation{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+				},
+			}
+		}
+		events <- providers.StreamEvent{Done: true}
+	}()
+	return events, nil
+}
+
+func (self *toolCallingProvider) ListModels(_ context.Context) ([]providers.ModelInformation, error) {
+	return []providers.ModelInformation{{ID: "test-model"}}, nil
+}
+
+func TestActiveRunStateToolPhaseViaCallbacks(t *testing.T) {
+	coordinator, contextWithStore, agentId := newTestCoordinator(t)
+	userId := "user-1"
+
+	// We use caller callbacks to observe the run state at each transition.
+	// The merged callbacks update the state *before* calling caller callbacks,
+	// so by the time our callback runs the state reflects the new phase.
+	var stateAtToolCall, stateAtToolResult *ActiveRunState
+
+	runContext := models.ContextWithUserSessionToken(contextWithStore, &models.User{ID: userId}, nil, nil)
+	conversationId := coordinator.NewDefaultConversation(userId, agentId)
+
+	// Replace mock provider with a tool-calling one.
+	coordinator.providerRegistry.Register("mock", &toolCallingProvider{})
+
+	handle, sendError := coordinator.Run(runContext, RunParameters{
+		AgentID:        agentId,
+		ConversationID: conversationId,
+		Message:        "hello",
+		Origin:         "webui",
+	}, &runners.RunCallbacks{
+		OnToolCall: func(toolName string, arguments string) {
+			stateAtToolCall = coordinator.GetActiveRunState(conversationId)
+		},
+		OnToolResult: func(toolName string, result string) {
+			stateAtToolResult = coordinator.GetActiveRunState(conversationId)
+		},
+	})
+	if sendError != nil {
+		t.Fatalf("send error: %v", sendError)
+	}
+	waitRunHandle(t, handle)
+
+	// During tool call, state should have been "tool" with the tool name.
+	if stateAtToolCall == nil {
+		t.Fatal("expected non-nil state at tool call")
+	}
+	if stateAtToolCall.Phase != "tool" {
+		t.Fatalf("tool call phase = %q, want %q", stateAtToolCall.Phase, "tool")
+	}
+	if stateAtToolCall.ToolName != "datetime" {
+		t.Fatalf("tool call toolName = %q, want %q", stateAtToolCall.ToolName, "datetime")
+	}
+
+	// After tool result, state should revert to "thinking".
+	if stateAtToolResult == nil {
+		t.Fatal("expected non-nil state at tool result")
+	}
+	if stateAtToolResult.Phase != "thinking" {
+		t.Fatalf("tool result phase = %q, want %q", stateAtToolResult.Phase, "thinking")
 	}
 }
 

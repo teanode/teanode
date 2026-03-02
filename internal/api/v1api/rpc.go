@@ -328,6 +328,9 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 	if self.api.coordinator.GetActiveConversationRunner(parameters.ConversationID) != nil {
 		if activeRunId := self.api.coordinator.GetActiveConversationRunID(parameters.ConversationID); activeRunId != "" {
 			response["activeRunId"] = activeRunId
+			if runState := self.api.coordinator.GetActiveRunState(parameters.ConversationID); runState != nil {
+				response["activeRunState"] = runState
+			}
 		}
 	}
 	if providerName != "" {

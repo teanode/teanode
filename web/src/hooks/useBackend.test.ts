@@ -11,6 +11,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   reconcileRunStateFromHistory,
   shouldHydrateConversation,
+  resolveToolActivity,
+  inferToolActivityFromHistory,
 } from "./useBackend";
 
 // ─── Types (subset of src/types.ts needed for the test) ────────────
@@ -768,5 +770,97 @@ describe("reconnect question rehydration", () => {
 
     expect(sim.pendingQuestions).toHaveLength(1);
     expect(sim.pendingQuestions[0].id).toBe("q1");
+  });
+});
+
+// ─── resolveToolActivity ─────────────────────────────────────────────
+
+import type { ActiveRunState, Message } from "../types";
+
+describe("resolveToolActivity", () => {
+  it("returns toolName when activeRunState has phase=tool", () => {
+    const state: ActiveRunState = { phase: "tool", toolName: "web_search" };
+    expect(resolveToolActivity(state, [])).toBe("web_search");
+  });
+
+  it("returns null when activeRunState has phase=thinking", () => {
+    const state: ActiveRunState = { phase: "thinking" };
+    expect(resolveToolActivity(state, [])).toBeNull();
+  });
+
+  it("returns null when activeRunState has phase=streaming", () => {
+    const state: ActiveRunState = { phase: "streaming" };
+    expect(resolveToolActivity(state, [])).toBeNull();
+  });
+
+  it("returns null when activeRunState has phase=tool but no toolName", () => {
+    const state: ActiveRunState = { phase: "tool" };
+    expect(resolveToolActivity(state, [])).toBeNull();
+  });
+
+  it("falls back to history inference when activeRunState is undefined", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [{ id: "tc1", function: { name: "datetime", arguments: "{}" } }],
+      },
+    ];
+    expect(resolveToolActivity(undefined, messages)).toBe("datetime");
+  });
+
+  it("falls back to null when no activeRunState and no tool calls in history", () => {
+    const messages: Message[] = [
+      { role: "user", content: "hello" },
+    ];
+    expect(resolveToolActivity(undefined, messages)).toBeNull();
+  });
+});
+
+describe("inferToolActivityFromHistory", () => {
+  it("returns tool name from last assistant message with toolCalls", () => {
+    const messages: Message[] = [
+      { role: "user", content: "do something" },
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [
+          { id: "tc1", function: { name: "search", arguments: '{"q":"test"}' } },
+          { id: "tc2", function: { name: "fetch", arguments: '{"url":"x"}' } },
+        ],
+      },
+    ];
+    expect(inferToolActivityFromHistory(messages)).toBe("fetch");
+  });
+
+  it("returns null when last message is not assistant", () => {
+    const messages: Message[] = [
+      { role: "user", content: "hello" },
+    ];
+    expect(inferToolActivityFromHistory(messages)).toBeNull();
+  });
+
+  it("returns null when assistant has no tool calls", () => {
+    const messages: Message[] = [
+      { role: "assistant", content: "thinking..." },
+    ];
+    expect(inferToolActivityFromHistory(messages)).toBeNull();
+  });
+
+  it("returns null for empty messages", () => {
+    expect(inferToolActivityFromHistory([])).toBeNull();
+  });
+
+  it("parses stringified toolCalls", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: JSON.stringify([
+          { id: "tc1", function: { name: "shell", arguments: "{}" } },
+        ]),
+      },
+    ];
+    expect(inferToolActivityFromHistory(messages)).toBe("shell");
   });
 });

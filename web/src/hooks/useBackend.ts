@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type {
+  ActiveRunState,
   Attachment,
   Conversation,
   DisplayMessage,
@@ -117,6 +118,40 @@ function parseToolCalls(raw: ToolCall[] | string | undefined): ToolCall[] {
     }
   }
   return raw;
+}
+
+/**
+ * When a run is active, infer the current tool activity from the raw history.
+ * If the most recent message is an assistant with toolCalls, tools are still
+ * executing — return the last tool name so the spinner shows "calling <tool>"
+ * instead of generic "thinking...".
+ */
+export function inferToolActivityFromHistory(messages: Message[]): string | null {
+  if (messages.length === 0) return null;
+  const last = messages[messages.length - 1];
+  if (last.role !== "assistant") return null;
+  const toolCalls = parseToolCalls(last.toolCalls);
+  if (toolCalls.length === 0) return null;
+  const lastToolCall = toolCalls[toolCalls.length - 1];
+  return lastToolCall.function?.name || null;
+}
+
+/**
+ * Resolve tool activity from the server-provided activeRunState, falling back
+ * to history inference for older servers that don't send activeRunState.
+ */
+export function resolveToolActivity(
+  activeRunState: ActiveRunState | undefined,
+  messages: Message[],
+): string | null {
+  if (activeRunState) {
+    if (activeRunState.phase === "tool" && activeRunState.toolName) {
+      return activeRunState.toolName;
+    }
+    return null;
+  }
+  // Fallback: infer from history for backwards compatibility.
+  return inferToolActivityFromHistory(messages);
 }
 
 function getUsageNumbers(
@@ -1040,8 +1075,24 @@ export function useBackend() {
           currentRunIdRef.current = reconciledRunState.currentRunId;
           runQueueRef.current = reconciledRunState.runQueue;
           setIsRunning(reconciledRunState.isRunning);
+          // Always reset streaming state — stale isStreaming/streamText from
+          // a prior connection would prevent the spinner from rendering.
+          streamTextRef.current = "";
+          afterToolCallsRef.current = false;
+          setStreamText("");
+          setIsStreaming(false);
           if (reconciledRunState.isRunning) {
-            setStatus("thinking...");
+            const inferredTool = resolveToolActivity(
+              res.activeRunState,
+              res.messages || [],
+            );
+            setToolActivity(inferredTool);
+            if (inferredTool) {
+              afterToolCallsRef.current = true;
+              setStatus(`calling ${inferredTool}...`);
+            } else {
+              setStatus("thinking...");
+            }
             displayMessages.push({
               id: nextMessageId(),
               type: "assistant",
@@ -1049,10 +1100,6 @@ export function useBackend() {
               runId: res.activeRunId,
             });
           } else {
-            streamTextRef.current = "";
-            afterToolCallsRef.current = false;
-            setStreamText("");
-            setIsStreaming(false);
             setToolActivity(null);
             setStatus("connected");
           }
@@ -1214,19 +1261,37 @@ export function useBackend() {
 
           setConversationModel(res.providerModelName || null);
 
+          // Reset streaming state
+          streamTextRef.current = "";
+          afterToolCallsRef.current = false;
+          setStreamText("");
+          setIsStreaming(false);
+
           // Use activeRunId from server response to detect active runs
           if (res.activeRunId) {
             currentRunIdRef.current = res.activeRunId;
             activeRunsRef.current.set(key, res.activeRunId);
             runQueueRef.current = [res.activeRunId];
             setIsRunning(true);
-            setStatus("thinking...");
+            const inferredTool = resolveToolActivity(
+              res.activeRunState,
+              res.messages || [],
+            );
+            setToolActivity(inferredTool);
+            if (inferredTool) {
+              afterToolCallsRef.current = true;
+              setStatus(`calling ${inferredTool}...`);
+            } else {
+              setStatus("thinking...");
+            }
             displayMessages.push({
               id: nextMessageId(),
               type: "assistant",
               content: "",
               runId: res.activeRunId,
             });
+          } else {
+            setToolActivity(null);
           }
 
           setMessages(displayMessages);

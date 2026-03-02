@@ -84,10 +84,16 @@ export interface ConversationHistoryParams {
   beforeIndex?: number;
 }
 
+export interface ActiveRunState {
+  phase: "thinking" | "tool" | "streaming";
+  toolName?: string;
+}
+
 export interface ConversationHistoryResult {
   conversationId: string;
   messages: Message[];
   activeRunId?: string;
+  activeRunState?: ActiveRunState;
   hasMore?: boolean;
   totalCount?: number;
   oldestLoadedIndex?: number;
