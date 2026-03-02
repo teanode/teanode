@@ -1,11 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { sendRpc, onEvent } from "./rpc";
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import AttachFileRounded from "@mui/icons-material/AttachFileRounded";
+import SendRounded from "@mui/icons-material/SendRounded";
+import MessageBubble from "../../components/MessageBubble";
+import ToolInvoke from "../../components/ToolInvoke";
+import ToolResult from "../../components/ToolResult";
+import { sendRpc, onEvent, getBaseUrl } from "./rpc";
 import type { RpcEventFrame } from "../shared/types";
+import type { Attachment } from "../../types";
 
 interface Message {
   role: "user" | "assistant" | "tool_call" | "tool_result";
   content: string;
   toolName?: string;
+  attachments?: Attachment[];
+}
+
+interface PendingFile {
+  file: File;
+  previewUrl?: string;
 }
 
 interface Props {
@@ -13,12 +29,36 @@ interface Props {
   conversationId: string;
 }
 
+function isImageFile(file: File): boolean {
+  return file.type.startsWith("image/");
+}
+
+async function uploadMedia(file: File): Promise<Attachment> {
+  const { url, token } = await getBaseUrl();
+  const base = url.replace(/\/+$/, "");
+  const formData = new FormData();
+  formData.append("file", file);
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const response = await fetch(`${base}/api/v1/media/upload`, {
+    method: "POST",
+    body: formData,
+    headers,
+  });
+  if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+  return response.json();
+}
+
 export function ChatView({ agentId, conversationId }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [uploading, setUploading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load history on conversation change.
   useEffect(() => {
@@ -30,12 +70,23 @@ export function ChatView({ agentId, conversationId }: Props) {
     setStreamingText("");
     sendRpc("conversations.history", { conversationId })
       .then((payload) => {
-        const data = payload as { messages?: Array<{ role: string; content: string; name?: string }> };
+        const data = payload as {
+          messages?: Array<{
+            role: string;
+            content: string;
+            name?: string;
+            attachments?: Attachment[];
+          }>;
+        };
         if (data.messages) {
           setMessages(
             data.messages
               .filter((m) => m.role === "user" || m.role === "assistant")
-              .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+              .map((m) => ({
+                role: m.role as "user" | "assistant",
+                content: m.content,
+                attachments: m.attachments,
+              })),
           );
         }
       })
@@ -57,7 +108,11 @@ export function ChatView({ agentId, conversationId }: Props) {
         case "tool_call":
           setMessages((prev) => [
             ...prev,
-            { role: "tool_call", content: p.arguments as string, toolName: p.toolName as string },
+            {
+              role: "tool_call",
+              content: (p.arguments as string) || "",
+              toolName: p.toolName as string,
+            },
           ]);
           break;
         case "tool_result":
@@ -65,14 +120,17 @@ export function ChatView({ agentId, conversationId }: Props) {
             ...prev,
             {
               role: "tool_result",
-              content: (p.result as string).slice(0, 500),
+              content: ((p.result as string) || "").slice(0, 500),
               toolName: p.toolName as string,
             },
           ]);
           break;
         case "final":
           setStreaming(false);
-          setMessages((prev) => [...prev, { role: "assistant", content: (p.text as string) || "" }]);
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: (p.text as string) || "" },
+          ]);
           setStreamingText("");
           break;
         case "error":
@@ -92,113 +150,330 @@ export function ChatView({ agentId, conversationId }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingText]);
 
+  // Clean up file preview URLs.
+  useEffect(() => {
+    return () => {
+      pendingFiles.forEach((pf) => {
+        if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl);
+      });
+    };
+  }, [pendingFiles]);
+
+  const addFiles = useCallback((files: FileList | File[]) => {
+    const newFiles: PendingFile[] = Array.from(files).map((file) => ({
+      file,
+      previewUrl: isImageFile(file) ? URL.createObjectURL(file) : undefined,
+    }));
+    setPendingFiles((prev) => [...prev, ...newFiles]);
+  }, []);
+
+  const removeFile = useCallback((index: number) => {
+    setPendingFiles((prev) => {
+      const removed = prev[index];
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || !conversationId || streaming) return;
+    if ((!text && pendingFiles.length === 0) || !conversationId || streaming)
+      return;
+
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+
+    let attachments: Attachment[] | undefined;
+    if (pendingFiles.length > 0) {
+      setUploading(true);
+      try {
+        attachments = await Promise.all(
+          pendingFiles.map((pf) => uploadMedia(pf.file)),
+        );
+      } catch (err) {
+        console.error("File upload failed:", err);
+        setUploading(false);
+        return;
+      }
+      pendingFiles.forEach((pf) => {
+        if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl);
+      });
+      setPendingFiles([]);
+      setUploading(false);
+    }
+
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: text, attachments },
+    ]);
+
     try {
       await sendRpc("conversations.send", {
         conversationId,
         agentId,
         message: text,
+        attachments,
         origin: "webui",
       });
     } catch {
       // Error will come via event.
     }
-  }, [input, conversationId, agentId, streaming]);
+  }, [input, conversationId, agentId, streaming, pendingFiles]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [handleSend],
+  );
+
+  const handleInput = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  }, []);
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files.length > 0) {
+        addFiles(e.target.files);
+        e.target.value = "";
+      }
+    },
+    [addFiles],
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files);
+    },
+    [addFiles],
+  );
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const items = e.clipboardData.items;
+      const images: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          const file = items[i].getAsFile();
+          if (file) images.push(file);
+        }
+      }
+      if (images.length > 0) {
+        e.preventDefault();
+        addFiles(images);
+      }
+    },
+    [addFiles],
+  );
+
+  const hasContent = !!input.trim() || pendingFiles.length > 0;
+
+  // Handle copy button clicks in code blocks (delegated).
+  const handleMessageAreaClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement;
+      const copyBtn = target.closest(".copy-btn") as HTMLElement | null;
+      if (!copyBtn) return;
+      const codeBlock = copyBtn.closest(".code-block");
+      const code = codeBlock?.querySelector("pre code");
+      if (code) {
+        navigator.clipboard.writeText(code.textContent || "").then(() => {
+          copyBtn.classList.add("copied");
+          setTimeout(() => copyBtn.classList.remove("copied"), 1500);
+        });
+      }
+    },
+    [],
+  );
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <Box
+      sx={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            style={{
-              marginBottom: 8,
-              padding: "6px 10px",
-              borderRadius: 8,
-              fontSize: 13,
-              lineHeight: 1.4,
-              background:
-                msg.role === "user"
-                  ? "#e3f2fd"
-                  : msg.role === "tool_call" || msg.role === "tool_result"
-                    ? "#f5f5f5"
-                    : "#fff",
-              border: "1px solid #e0e0e0",
-              wordBreak: "break-word",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {msg.role === "tool_call" && (
-              <div style={{ fontSize: 11, color: "#666", marginBottom: 2 }}>
-                Tool: {msg.toolName}
-              </div>
-            )}
-            {msg.role === "tool_result" && (
-              <div style={{ fontSize: 11, color: "#666", marginBottom: 2 }}>
-                Result: {msg.toolName}
-              </div>
-            )}
-            {msg.content}
-          </div>
-        ))}
+      <Box
+        sx={{
+          flex: 1,
+          overflowY: "auto",
+          px: 1,
+          py: 1,
+          display: "flex",
+          flexDirection: "column",
+          gap: 1,
+        }}
+        onClick={handleMessageAreaClick}
+      >
+        {messages.map((msg, i) => {
+          if (msg.role === "tool_call") {
+            return (
+              <ToolInvoke
+                key={i}
+                toolName={msg.toolName || "unknown"}
+                args={msg.content}
+              />
+            );
+          }
+          if (msg.role === "tool_result") {
+            return (
+              <ToolResult
+                key={i}
+                toolName={msg.toolName || "unknown"}
+                content={msg.content}
+              />
+            );
+          }
+          return (
+            <MessageBubble
+              key={i}
+              role={msg.role}
+              content={msg.content}
+              attachments={msg.attachments}
+            />
+          );
+        })}
         {streaming && streamingText && (
-          <div
-            style={{
-              marginBottom: 8,
-              padding: "6px 10px",
-              borderRadius: 8,
-              fontSize: 13,
-              lineHeight: 1.4,
-              background: "#fff",
-              border: "1px solid #e0e0e0",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {streamingText}
-            <span style={{ opacity: 0.5 }}>▌</span>
-          </div>
+          <MessageBubble
+            role="assistant"
+            content=""
+            isStreaming
+            streamText={streamingText}
+          />
         )}
         <div ref={bottomRef} />
-      </div>
+      </Box>
 
-      {/* Input */}
-      <div style={{ padding: "8px 12px", borderTop: "1px solid #e0e0e0", display: "flex", gap: 8 }}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-          placeholder={conversationId ? "Type a message…" : "Select a conversation"}
-          disabled={!conversationId || streaming}
-          style={{
-            flex: 1,
-            padding: "6px 10px",
-            border: "1px solid #ccc",
-            borderRadius: 6,
-            fontSize: 13,
-            outline: "none",
-          }}
-        />
-        <button
-          onClick={handleSend}
-          disabled={!input.trim() || !conversationId || streaming}
-          style={{
-            padding: "6px 14px",
-            fontSize: 13,
-            border: "none",
-            borderRadius: 6,
-            background: "#2d8c5a",
-            color: "#fff",
-            cursor: "pointer",
+      {/* Input area with file upload (B5) */}
+      <Box
+        sx={{ px: 1, py: 1, borderTop: 1, borderColor: "divider" }}
+        onDragOver={(e: React.DragEvent) => e.preventDefault()}
+        onDrop={handleDrop}
+      >
+        {/* Pending files chips */}
+        {pendingFiles.length > 0 && (
+          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.5 }}>
+            {pendingFiles.map((pf, index) => (
+              <Chip
+                key={index}
+                label={pf.file.name}
+                size="small"
+                onDelete={() => removeFile(index)}
+                avatar={
+                  pf.previewUrl ? (
+                    <Box
+                      component="img"
+                      src={pf.previewUrl}
+                      sx={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: "50%",
+                        objectFit: "cover",
+                      }}
+                    />
+                  ) : undefined
+                }
+                sx={{ maxWidth: 180, fontSize: 11 }}
+              />
+            ))}
+          </Box>
+        )}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "flex-end",
+            gap: 0.5,
+            bgcolor: "surface2",
+            borderRadius: 1.5,
+            border: 1,
+            borderColor: "divider",
+            px: 1,
+            py: 0.5,
+            "&:focus-within": { borderColor: "primary.main" },
           }}
         >
-          Send
-        </button>
-      </div>
-    </div>
+          <Box
+            component="textarea"
+            ref={textareaRef}
+            value={input}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+              setInput(e.target.value)
+            }
+            onKeyDown={handleKeyDown}
+            onInput={handleInput}
+            onPaste={handlePaste}
+            placeholder={
+              conversationId ? "Type a message..." : "Select a conversation"
+            }
+            disabled={!conversationId || streaming}
+            rows={1}
+            sx={{
+              flex: 1,
+              border: "none",
+              outline: "none",
+              bgcolor: "transparent",
+              color: "text.primary",
+              fontSize: "0.8125rem",
+              fontFamily: "inherit",
+              lineHeight: 1.5,
+              resize: "none",
+              overflow: "auto",
+              py: 0.5,
+              "&::placeholder": { color: "text.secondary", opacity: 1 },
+            }}
+          />
+          <input
+            type="file"
+            ref={fileInputRef}
+            multiple
+            onChange={handleFileChange}
+            style={{ display: "none" }}
+          />
+          <IconButton
+            size="small"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!conversationId || streaming}
+            sx={{
+              width: 28,
+              height: 28,
+              color: "text.secondary",
+              "&:hover": { color: "primary.main" },
+            }}
+          >
+            <AttachFileRounded sx={{ fontSize: 16 }} />
+          </IconButton>
+          <IconButton
+            size="small"
+            color="primary"
+            onClick={handleSend}
+            disabled={uploading || streaming || !hasContent || !conversationId}
+            sx={{ width: 28, height: 28 }}
+          >
+            <SendRounded sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+        {uploading && (
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ mt: 0.5, display: "block" }}
+          >
+            Uploading...
+          </Typography>
+        )}
+      </Box>
+    </Box>
   );
 }

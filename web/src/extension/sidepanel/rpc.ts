@@ -132,6 +132,10 @@ export function onEvent(handler: EventHandler): () => void {
   return () => { eventHandlers.delete(handler); };
 }
 
+export async function getBaseUrl(): Promise<{ url: string; token: string }> {
+  return getConfig();
+}
+
 export function disconnect(): void {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);

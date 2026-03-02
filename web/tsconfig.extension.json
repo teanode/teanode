@@ -3,6 +3,18 @@
   "compilerOptions": {
     "types": ["chrome-types"]
   },
-  "include": ["src/extension"],
+  "include": [
+    "src/extension",
+    "src/theme.ts",
+    "src/themePreference.ts",
+    "src/types.ts",
+    "src/markdown.ts",
+    "src/rpc.ts",
+    "src/i18n",
+    "src/components/MessageBubble.tsx",
+    "src/components/ToolInvoke.tsx",
+    "src/components/ToolResult.tsx",
+    "src/components/ConversationAvatar.tsx"
+  ],
   "exclude": []
 }

@@ -14,6 +14,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import type { Theme } from "@mui/material/styles";
 import { router } from "./router";
 import { getTheme } from "./theme";
+import { useResolvedTheme } from "./themePreference";
 import { useAppContext, AppProvider } from "./context";
 import { useBackend } from "./hooks/useBackend";
 import { authStatus } from "./rpc";
@@ -167,7 +168,8 @@ function markdownStyles(theme: Theme) {
 function ThemedApp({ children }: { children: React.ReactNode }) {
   const { themeMode, languagePreference } = useAppContext();
   const { i18n } = useTranslation();
-  const theme = useMemo(() => getTheme(themeMode), [themeMode]);
+  const resolvedTheme = useResolvedTheme(themeMode);
+  const theme = useMemo(() => getTheme(resolvedTheme), [resolvedTheme]);
 
   useEffect(() => {
     const targetLanguage = resolveLanguageFromPreference(languagePreference);
