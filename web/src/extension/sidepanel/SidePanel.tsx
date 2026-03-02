@@ -8,16 +8,10 @@ import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogContentText from "@mui/material/DialogContentText";
-import DialogTitle from "@mui/material/DialogTitle";
 import AddRounded from "@mui/icons-material/AddRounded";
 import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
 import LinkRounded from "@mui/icons-material/LinkRounded";
 import LinkOffRounded from "@mui/icons-material/LinkOffRounded";
-import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
 import { sendRpc, onEvent, ensureConnected } from "./rpc";
 import { ChatView } from "./ChatView";
 import type {
@@ -46,42 +40,90 @@ interface BoundTab {
 export function SidePanel() {
   const [connected, setConnected] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [agentId, setAgentId] = useState("default-agent");
+  const [agentId, setAgentId] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState("");
   const [error, setError] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectionRestored, setSelectionRestored] = useState(false);
 
   // --- Tab binding state (C6) ---
   const [boundTab, setBoundTab] = useState<BoundTab | null>(null);
-  const [activeTabDiffers, setActiveTabDiffers] = useState(false);
-  const [activeTabTitle, setActiveTabTitle] = useState("");
   const [tabBusy, setTabBusy] = useState(false);
   const [tabError, setTabError] = useState("");
-  const [rebindConfirmOpen, setRebindConfirmOpen] = useState(false);
   const boundTabRef = useRef<BoundTab | null>(null);
   boundTabRef.current = boundTab;
 
-  // Connect on mount.
+  // Persist selection to chrome.storage.local.
   useEffect(() => {
-    ensureConnected()
-      .then(() => {
+    if (!selectionRestored) return;
+    if (typeof chrome !== "undefined" && chrome.storage) {
+      chrome.storage.local.set({
+        sidepanelAgentId: agentId,
+        sidepanelConversationId: conversationId,
+      });
+    }
+  }, [agentId, conversationId, selectionRestored]);
+
+  // Connect on mount + restore saved selection.
+  useEffect(() => {
+    (async () => {
+      // Restore saved selection from storage.
+      if (typeof chrome !== "undefined" && chrome.storage) {
+        try {
+          const stored = await chrome.storage.local.get([
+            "sidepanelAgentId",
+            "sidepanelConversationId",
+          ]);
+          if (stored.sidepanelAgentId) {
+            setAgentId(stored.sidepanelAgentId);
+          }
+          if (stored.sidepanelConversationId) {
+            setConversationId(stored.sidepanelConversationId);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      setSelectionRestored(true);
+
+      try {
+        await ensureConnected();
         setConnected(true);
         setError("");
-      })
-      .catch((err) => setError(String(err)));
+      } catch (err) {
+        setError(String(err));
+      }
+    })();
   }, []);
 
-  // Load agents.
+  // Load agents + apply defaults.
   useEffect(() => {
-    if (!connected) return;
+    if (!connected || !selectionRestored) return;
     sendRpc("agents.list")
       .then((payload) => {
-        const data = payload as { agents?: Agent[] };
+        const data = payload as {
+          agents?: (Agent & { defaultConversationId?: string })[];
+          defaultAgentId?: string;
+        };
         if (data.agents) setAgents(data.agents);
+        // If no agent selected (nothing was persisted), use server default.
+        setAgentId((prev) => {
+          if (prev) return prev;
+          return data.defaultAgentId || data.agents?.[0]?.id || "";
+        });
+        // If no conversation selected, use the default agent's defaultConversationId.
+        setConversationId((prev) => {
+          if (prev) return prev;
+          const resolvedAgentId =
+            agentId || data.defaultAgentId || data.agents?.[0]?.id || "";
+          const agent = data.agents?.find((a) => a.id === resolvedAgentId);
+          return (agent as { defaultConversationId?: string })
+            ?.defaultConversationId || "";
+        });
       })
       .catch(() => {});
-  }, [connected]);
+  }, [connected, selectionRestored]);
 
   // Load conversations when agent changes.
   useEffect(() => {
@@ -91,9 +133,11 @@ export function SidePanel() {
         const data = payload as { conversations?: Conversation[] };
         if (data.conversations) {
           setConversations(data.conversations);
-          if (!conversationId && data.conversations.length > 0) {
-            setConversationId(data.conversations[0].id);
-          }
+          // If no conversation selected, pick first available.
+          setConversationId((prev) => {
+            if (prev) return prev;
+            return data.conversations?.[0]?.id || "";
+          });
         }
       })
       .catch(() => {});
@@ -113,44 +157,42 @@ export function SidePanel() {
     });
   }, [agentId]);
 
-  // --- Tab binding: track active tab changes (C6) ---
+  // Refs for current agentId/conversationId (used in tab-change callbacks).
+  const agentIdRef = useRef(agentId);
+  agentIdRef.current = agentId;
+  const conversationIdRef = useRef(conversationId);
+  conversationIdRef.current = conversationId;
+
+  // --- Tab binding: auto-detach when user switches to a different tab (C6) ---
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.tabs) return;
 
-    const checkActiveTab = async () => {
+    const autoDetachIfNeeded = async () => {
       const bt = boundTabRef.current;
-      if (!bt) {
-        setActiveTabDiffers(false);
-        return;
-      }
+      if (!bt) return;
       try {
         const [active] = await chrome.tabs.query({
           active: true,
           currentWindow: true,
         });
         if (active?.id && active.id !== bt.tabId) {
-          setActiveTabDiffers(true);
-          setActiveTabTitle(active.title || active.url || "");
-        } else {
-          setActiveTabDiffers(false);
+          // User navigated to a different tab — auto-detach.
+          sendRpc("tab.detach", {
+            agentId: agentIdRef.current,
+            conversationId: conversationIdRef.current,
+          }).catch(() => {});
+          setBoundTab(null);
         }
       } catch {
         // ignore
       }
     };
 
-    const onActivated = () => {
-      checkActiveTab();
-    };
+    const onActivated = () => { autoDetachIfNeeded(); };
     chrome.tabs.onActivated.addListener(onActivated);
-    const onFocusChanged = () => {
-      checkActiveTab();
-    };
-    chrome.windows.onFocusChanged.addListener(onFocusChanged);
 
     return () => {
       chrome.tabs.onActivated.removeListener(onActivated);
-      chrome.windows.onFocusChanged.removeListener(onFocusChanged);
     };
   }, []);
 
@@ -182,7 +224,6 @@ export function SidePanel() {
       if (message.type === "tab_closed" && message.tabId === bt.tabId) {
         sendRpc("tab.detach", { agentId, conversationId }).catch(() => {});
         setBoundTab(null);
-        setActiveTabDiffers(false);
       }
       return undefined;
     };
@@ -198,7 +239,6 @@ export function SidePanel() {
       if (p.agentId !== agentId || p.conversationId !== conversationId) return;
       if (p.action === "detached") {
         setBoundTab(null);
-        setActiveTabDiffers(false);
       }
     });
   }, [agentId, conversationId]);
@@ -206,7 +246,6 @@ export function SidePanel() {
   // Reset tab binding when conversation changes.
   useEffect(() => {
     setBoundTab(null);
-    setActiveTabDiffers(false);
     setTabError("");
   }, [conversationId]);
 
@@ -280,7 +319,6 @@ export function SidePanel() {
         url: active.url,
         title: active.title || "",
       });
-      setActiveTabDiffers(false);
     } catch (err) {
       setTabError(String(err));
     } finally {
@@ -294,23 +332,12 @@ export function SidePanel() {
     try {
       await sendRpc("tab.detach", { agentId, conversationId });
       setBoundTab(null);
-      setActiveTabDiffers(false);
     } catch (err) {
       setTabError(String(err));
     } finally {
       setTabBusy(false);
     }
   }, [agentId, conversationId]);
-
-  const handleRebindConfirm = useCallback(async () => {
-    setRebindConfirmOpen(false);
-    try {
-      await sendRpc("tab.detach", { agentId, conversationId }).catch(() => {});
-    } catch {
-      // ignore
-    }
-    await handleAttachTab();
-  }, [agentId, conversationId, handleAttachTab]);
 
   const handleNewConversation = useCallback(() => {
     setConversationId("");
@@ -464,51 +491,6 @@ export function SidePanel() {
         </IconButton>
       </Box>
 
-      {/* Rebind banner (C6): shown when active tab differs from bound tab */}
-      {boundTab && activeTabDiffers && (
-        <Box
-          sx={{
-            px: 1.5,
-            py: 0.75,
-            bgcolor: "warning.main",
-            color: "warning.contrastText",
-            display: "flex",
-            alignItems: "center",
-            gap: 1,
-          }}
-        >
-          <WarningAmberRounded sx={{ fontSize: 14 }} />
-          <Typography
-            variant="caption"
-            sx={{
-              flex: 1,
-              fontWeight: 500,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Bound to: {boundTab.title || boundTab.url}
-          </Typography>
-          <Button
-            size="small"
-            variant="outlined"
-            onClick={() => setRebindConfirmOpen(true)}
-            sx={{
-              fontSize: 10,
-              py: 0,
-              px: 1,
-              minWidth: 0,
-              color: "inherit",
-              borderColor: "inherit",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Bind to current tab
-          </Button>
-        </Box>
-      )}
-
       {tabError && (
         <Box sx={{ px: 1.5, py: 0.5 }}>
           <Typography variant="caption" color="error.main">
@@ -604,32 +586,6 @@ export function SidePanel() {
           </List>
         </Box>
       </Drawer>
-
-      {/* Rebind confirmation dialog (C6) */}
-      <Dialog
-        open={rebindConfirmOpen}
-        onClose={() => setRebindConfirmOpen(false)}
-      >
-        <DialogTitle sx={{ fontSize: 14 }}>Rebind tab?</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ fontSize: 13 }}>
-            Switch from &ldquo;{boundTab?.title || "current tab"}&rdquo; to the
-            active tab &ldquo;{activeTabTitle || "unknown"}&rdquo;?
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button size="small" onClick={() => setRebindConfirmOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            size="small"
-            variant="contained"
-            onClick={handleRebindConfirm}
-          >
-            Rebind
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "TeaNode Browser Relay",
+  "name": "TeaNode",
   "version": "0.2.0",
   "description": "Attach TeaNode to your browser — CDP relay + credentialed tab tools.",
   "icons": {

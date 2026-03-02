@@ -134,7 +134,7 @@ function onRelayClosed(reason: string): void {
     setBadge(tabId, "connecting");
     void chrome.action.setTitle({
       tabId,
-      title: "TeaNode Browser Relay: disconnected (click to re-attach)",
+      title: "TeaNode: disconnected (click to re-attach)",
     });
   }
   tabs.clear();
@@ -220,7 +220,7 @@ async function attachTab(tabId: number, opts: { skipAttachedEvent?: boolean } = 
 
   tabs.set(tabId, { state: "connected", sessionId, targetId, attachOrder });
   tabBySession.set(sessionId, tabId);
-  void chrome.action.setTitle({ tabId, title: "TeaNode Browser Relay: attached (click to detach)" });
+  void chrome.action.setTitle({ tabId, title: "TeaNode: attached (click to detach)" });
 
   if (!opts.skipAttachedEvent) {
     sendToRelay({
@@ -257,7 +257,7 @@ async function detachTab(tabId: number, reason: string): Promise<void> {
   try { await chrome.debugger.detach({ tabId }); } catch { /* ignore */ }
 
   setBadge(tabId, "off");
-  void chrome.action.setTitle({ tabId, title: "TeaNode Browser Relay (click to attach/detach)" });
+  void chrome.action.setTitle({ tabId, title: "TeaNode (click to attach/detach)" });
 }
 
 async function handleForwardCdpCommand(msg: any): Promise<unknown> {
@@ -371,7 +371,7 @@ export async function connectOrToggleCdpForActiveTab(): Promise<void> {
 
   tabs.set(tabId, { state: "connecting" });
   setBadge(tabId, "connecting");
-  void chrome.action.setTitle({ tabId, title: "TeaNode Browser Relay: connecting to local relay…" });
+  void chrome.action.setTitle({ tabId, title: "TeaNode: connecting to local relay…" });
 
   try {
     await ensureRelayConnection();
@@ -379,7 +379,7 @@ export async function connectOrToggleCdpForActiveTab(): Promise<void> {
   } catch {
     tabs.delete(tabId);
     setBadge(tabId, "error");
-    void chrome.action.setTitle({ tabId, title: "TeaNode Browser Relay: relay not running (open options for setup)" });
+    void chrome.action.setTitle({ tabId, title: "TeaNode: relay not running (open options for setup)" });
     void maybeOpenHelpOnce();
   }
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import AttachFileRounded from "@mui/icons-material/AttachFileRounded";
@@ -54,6 +55,8 @@ export function ChatView({ agentId, conversationId }: Props) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [isRunning, setIsRunning] = useState(false);
+  const [toolActivity, setToolActivity] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -64,10 +67,14 @@ export function ChatView({ agentId, conversationId }: Props) {
   useEffect(() => {
     if (!conversationId) {
       setMessages([]);
+      setIsRunning(false);
+      setToolActivity(null);
       return;
     }
     setMessages([]);
     setStreamingText("");
+    setIsRunning(false);
+    setToolActivity(null);
     sendRpc("conversations.history", { conversationId })
       .then((payload) => {
         const data = payload as {
@@ -77,6 +84,8 @@ export function ChatView({ agentId, conversationId }: Props) {
             name?: string;
             attachments?: Attachment[];
           }>;
+          activeRunId?: string;
+          activeRunState?: { phase: string; toolName?: string };
         };
         if (data.messages) {
           setMessages(
@@ -88,6 +97,13 @@ export function ChatView({ agentId, conversationId }: Props) {
                 attachments: m.attachments,
               })),
           );
+        }
+        // Restore busy state from server if a run is active.
+        if (data.activeRunId) {
+          setIsRunning(true);
+          if (data.activeRunState?.phase === "tool") {
+            setToolActivity(data.activeRunState.toolName || null);
+          }
         }
       })
       .catch(() => {});
@@ -101,11 +117,20 @@ export function ChatView({ agentId, conversationId }: Props) {
       if (p.conversationId !== conversationId) return;
 
       switch (p.state) {
+        case "queued":
+          setIsRunning(true);
+          setToolActivity(null);
+          break;
         case "delta":
+          setIsRunning(true);
+          setToolActivity(null);
           setStreaming(true);
           setStreamingText((prev) => prev + (p.text as string));
           break;
         case "tool_call":
+          setIsRunning(true);
+          setStreaming(false);
+          setToolActivity((p.toolName as string) || null);
           setMessages((prev) => [
             ...prev,
             {
@@ -116,6 +141,7 @@ export function ChatView({ agentId, conversationId }: Props) {
           ]);
           break;
         case "tool_result":
+          setToolActivity(null);
           setMessages((prev) => [
             ...prev,
             {
@@ -126,7 +152,9 @@ export function ChatView({ agentId, conversationId }: Props) {
           ]);
           break;
         case "final":
+          setIsRunning(false);
           setStreaming(false);
+          setToolActivity(null);
           setMessages((prev) => [
             ...prev,
             { role: "assistant", content: (p.text as string) || "" },
@@ -134,11 +162,15 @@ export function ChatView({ agentId, conversationId }: Props) {
           setStreamingText("");
           break;
         case "error":
+          setIsRunning(false);
           setStreaming(false);
+          setToolActivity(null);
           setStreamingText("");
           break;
         case "aborted":
+          setIsRunning(false);
           setStreaming(false);
+          setToolActivity(null);
           setStreamingText("");
           break;
       }
@@ -148,7 +180,7 @@ export function ChatView({ agentId, conversationId }: Props) {
   // Auto-scroll.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingText]);
+  }, [messages, streamingText, isRunning]);
 
   // Clean up file preview URLs.
   useEffect(() => {
@@ -208,6 +240,8 @@ export function ChatView({ agentId, conversationId }: Props) {
       ...prev,
       { role: "user", content: text, attachments },
     ]);
+    setIsRunning(true);
+    setToolActivity(null);
 
     try {
       await sendRpc("conversations.send", {
@@ -352,6 +386,29 @@ export function ChatView({ agentId, conversationId }: Props) {
             isStreaming
             streamText={streamingText}
           />
+        )}
+        {isRunning && !streaming && (
+          <Box
+            sx={{
+              alignSelf: "flex-start",
+              px: 1.5,
+              py: 0.5,
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+            }}
+          >
+            <CircularProgress size={12} color="primary" />
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ fontStyle: "italic" }}
+            >
+              {toolActivity
+                ? `Calling ${toolActivity}...`
+                : "Thinking..."}
+            </Typography>
+          </Box>
         )}
         <div ref={bottomRef} />
       </Box>
