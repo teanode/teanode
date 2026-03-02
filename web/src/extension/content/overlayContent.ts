@@ -184,31 +184,7 @@ function createOverlay(): void {
       border-right: 2px solid rgba(205, 214, 244, 0.3);
       border-bottom: 2px solid rgba(205, 214, 244, 0.3);
     }
-    .minimized-btn {
-      pointer-events: auto;
-      position: absolute;
-      width: 44px;
-      height: 44px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #2d8c5a, #1e6b43);
-      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-      cursor: pointer;
-      border: none;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 0;
-      color: white;
-      font-size: 20px;
-      font-weight: 700;
-    }
-    .minimized-btn:hover {
-      transform: scale(1.08);
-    }
-    .minimized-btn.visible {
-      display: flex;
-    }
-  `;
+`;
   shadow.appendChild(style);
 
   // Container
@@ -224,15 +200,10 @@ function createOverlay(): void {
   title.textContent = "TeaNode";
   handle.appendChild(title);
 
-  const minimizeBtn = document.createElement("button");
-  minimizeBtn.textContent = "−";
-  minimizeBtn.title = "Minimize";
-  handle.appendChild(minimizeBtn);
-
-  const closeBtn = document.createElement("button");
-  closeBtn.textContent = "✕";
-  closeBtn.title = "Close";
-  handle.appendChild(closeBtn);
+  const hideBtn = document.createElement("button");
+  hideBtn.textContent = "✕";
+  hideBtn.title = "Hide";
+  handle.appendChild(hideBtn);
 
   container.appendChild(handle);
 
@@ -247,14 +218,7 @@ function createOverlay(): void {
   resizeHandle.className = "resize-handle";
   container.appendChild(resizeHandle);
 
-  // Minimized button (shown when minimized)
-  const minBtn = document.createElement("button");
-  minBtn.className = "minimized-btn";
-  minBtn.textContent = "T";
-  minBtn.title = "Restore TeaNode";
-
   shadow.appendChild(container);
-  shadow.appendChild(minBtn);
   document.documentElement.appendChild(host);
 
   // ---- State ----
@@ -281,12 +245,8 @@ function createOverlay(): void {
 
     if (geo.minimized) {
       container.classList.add("minimized");
-      minBtn.classList.add("visible");
-      minBtn.style.left = `${x}px`;
-      minBtn.style.top = `${y}px`;
     } else {
       container.classList.remove("minimized");
-      minBtn.classList.remove("visible");
     }
   }
 
@@ -366,28 +326,13 @@ function createOverlay(): void {
     saveGeometry(geo);
   });
 
-  // ---- Minimize / Restore / Close ----
-  minimizeBtn.addEventListener("click", () => {
+  // ---- Hide (minimize → hidden, restore via extension icon) ----
+  hideBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     geo.minimized = true;
     applyGeo();
     saveGeometryImmediate(geo);
-  });
-
-  minBtn.addEventListener("click", () => {
-    geo.minimized = false;
-    applyGeo();
-    saveGeometryImmediate(geo);
-  });
-
-  closeBtn.addEventListener("click", () => {
-    saveGeometryImmediate(geo);
-    // Signal the iframe to detach the tab before we tear it down.
-    iframe.contentWindow?.postMessage({ type: "tn:closing" }, "*");
-    setTimeout(() => {
-      host.remove();
-      // Notify background SW so it stops tracking this tab.
-      chrome.runtime.sendMessage({ type: "tn:overlay-closed" }).catch(() => {});
-    }, 300);
   });
 
   // ---- Window resize: clamp overlay ----
