@@ -84,10 +84,16 @@ export interface ConversationHistoryParams {
   beforeIndex?: number;
 }
 
+export interface ActiveRunState {
+  phase: "thinking" | "tool" | "streaming";
+  toolName?: string;
+}
+
 export interface ConversationHistoryResult {
   conversationId: string;
   messages: Message[];
   activeRunId?: string;
+  activeRunState?: ActiveRunState;
   hasMore?: boolean;
   totalCount?: number;
   oldestLoadedIndex?: number;
@@ -446,6 +452,7 @@ export interface DisplayMessage {
   type: DisplayMessageType;
   content: string;
   toolName?: string;
+  toolCallId?: string; // links tool-invoke ↔ tool-result for stable ordering
   usage?: Usage;
   timestamp?: number; // ms since epoch
   runId?: string; // associates message with a runner for queuing

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type {
+  ActiveRunState,
   Attachment,
   Conversation,
   DisplayMessage,
@@ -214,7 +215,7 @@ export function reconcileRunStateFromHistory(
   };
 }
 
-function convertHistory(
+export function convertHistory(
   msgs: Message[],
   models: ModelInfo[],
 ): DisplayMessage[] {
@@ -251,6 +252,7 @@ function convertHistory(
             type: "tool-invoke",
             content: functionData.arguments || "{}",
             toolName: functionData.name || "tool",
+            toolCallId: toolCall.id,
             timestamp,
           });
         }
@@ -277,13 +279,32 @@ function convertHistory(
         }
       }
     } else if (message.role === "tool") {
-      displayMessages.push({
+      const toolResult: DisplayMessage = {
         id: nextMessageId(),
         type: "tool-result",
         content,
         toolName: message.toolName || "tool",
+        toolCallId: message.toolCallId,
         timestamp,
-      });
+      };
+      // Place tool-result immediately after its matching tool-invoke so
+      // invoke always renders above result, even with parallel tool calls.
+      if (message.toolCallId) {
+        let inserted = false;
+        for (let i = displayMessages.length - 1; i >= 0; i--) {
+          if (
+            displayMessages[i].type === "tool-invoke" &&
+            displayMessages[i].toolCallId === message.toolCallId
+          ) {
+            displayMessages.splice(i + 1, 0, toolResult);
+            inserted = true;
+            break;
+          }
+        }
+        if (!inserted) displayMessages.push(toolResult);
+      } else {
+        displayMessages.push(toolResult);
+      }
     }
   }
   return displayMessages;
@@ -312,6 +333,7 @@ export function useBackend() {
     null,
   );
   const [audioCapability, setAudioCapability] = useState(false);
+  const [lastActiveRunState, setLastActiveRunState] = useState<ActiveRunState | null>(null);
   const lastSentViaMicRef = useRef(false);
   const currentAgentIdRef = useRef(currentAgentId);
   const modelsRef = useRef(models);
@@ -805,8 +827,17 @@ export function useBackend() {
           toolName: conversationEvent.toolName,
           timestamp: Date.now(),
         };
-        // Insert tool result before the run's assistant (streaming) message
-        updated.splice(assistantIndex, 0, toolMsg);
+        // Place tool-result right after the last tool-invoke (before the
+        // streaming assistant placeholder) so invoke always renders above
+        // result.  Falls back to assistantIndex when no invoke is found.
+        let insertPos = assistantIndex;
+        for (let i = assistantIndex - 1; i >= 0; i--) {
+          if (updated[i].type === "tool-invoke") {
+            insertPos = i + 1;
+            break;
+          }
+        }
+        updated.splice(insertPos, 0, toolMsg);
         return updated;
       });
       setToolActivity(null);
@@ -1031,6 +1062,7 @@ export function useBackend() {
           setHasMoreHistory(res.hasMore ?? false);
 
           setConversationModel(res.providerModelName || null);
+          setLastActiveRunState(res.activeRunState || null);
 
           const reconciledRunState = reconcileRunStateFromHistory(
             activeRunsRef.current,
@@ -1213,6 +1245,7 @@ export function useBackend() {
           setHasMoreHistory(res.hasMore ?? false);
 
           setConversationModel(res.providerModelName || null);
+          setLastActiveRunState(res.activeRunState || null);
 
           // Use activeRunId from server response to detect active runs
           if (res.activeRunId) {
@@ -1775,5 +1808,6 @@ export function useBackend() {
     answerQuestion,
     answerQuestionBatch,
     loadPendingQuestions,
+    lastActiveRunState,
   };
 }
