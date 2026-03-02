@@ -43,7 +43,7 @@ export default function DebugReadout(props: DebugReadoutProps) {
     <div
       style={{
         position: "fixed",
-        bottom: 80,
+        top: 8,
         right: 8,
         zIndex: 9999,
         background: "rgba(0,0,0,0.82)",
@@ -69,12 +69,10 @@ export default function DebugReadout(props: DebugReadoutProps) {
         <b>activeRunId:</b> {activeRunId ?? "null"}
       </div>
       <div>
-        <b>activeRunState.phase:</b>{" "}
-        {lastActiveRunState?.phase ?? "null"}
+        <b>activeRunState.phase:</b> {lastActiveRunState?.phase ?? "null"}
       </div>
       <div>
-        <b>activeRunState.toolName:</b>{" "}
-        {lastActiveRunState?.toolName ?? "null"}
+        <b>activeRunState.toolName:</b> {lastActiveRunState?.toolName ?? "null"}
       </div>
       <hr style={{ borderColor: "#333", margin: "4px 0" }} />
       <div>

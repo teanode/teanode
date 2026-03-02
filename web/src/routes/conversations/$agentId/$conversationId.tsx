@@ -6,7 +6,9 @@ import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
 import QuestionPanel from "../../../components/QuestionPanel";
 import VoiceCallBar from "../../../components/VoiceCallBar";
-import DebugReadout, { useDebugEnabled } from "../../../components/DebugReadout";
+import DebugReadout, {
+  useDebugEnabled,
+} from "../../../components/DebugReadout";
 import { useTts } from "../../../hooks/useTts";
 import { useAgentVoiceCall } from "./route";
 import { profileGetRpc } from "../../../rpc";

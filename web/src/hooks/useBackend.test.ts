@@ -797,8 +797,18 @@ describe("convertHistory tool ordering", () => {
           { id: "tc2", function: { name: "fetch", arguments: '{"url":"b"}' } },
         ],
       },
-      { role: "tool", content: "result-a", toolCallId: "tc1", toolName: "search" },
-      { role: "tool", content: "result-b", toolCallId: "tc2", toolName: "fetch" },
+      {
+        role: "tool",
+        content: "result-a",
+        toolCallId: "tc1",
+        toolName: "search",
+      },
+      {
+        role: "tool",
+        content: "result-b",
+        toolCallId: "tc2",
+        toolName: "fetch",
+      },
       { role: "assistant", content: "Done." },
     ];
 
@@ -808,11 +818,11 @@ describe("convertHistory tool ordering", () => {
     // Expected: invoke-tc1, result-tc1, invoke-tc2, result-tc2, assistant
     expect(types).toEqual([
       "user",
-      "tool-invoke",  // search
-      "tool-result",  // search result
-      "tool-invoke",  // fetch
-      "tool-result",  // fetch result
-      "assistant",    // "Done."
+      "tool-invoke", // search
+      "tool-result", // search result
+      "tool-invoke", // fetch
+      "tool-result", // fetch result
+      "assistant", // "Done."
     ]);
     expect(display[1].toolCallId).toBe("tc1");
     expect(display[2].toolCallId).toBe("tc1");
@@ -826,9 +836,7 @@ describe("convertHistory tool ordering", () => {
       {
         role: "assistant",
         content: null,
-        toolCalls: [
-          { function: { name: "search", arguments: "{}" } },
-        ],
+        toolCalls: [{ function: { name: "search", arguments: "{}" } }],
       },
       { role: "tool", content: "ok", toolName: "search" },
     ];
@@ -845,7 +853,10 @@ describe("convertHistory tool ordering", () => {
         role: "assistant",
         content: "Let me search",
         toolCalls: [
-          { id: "tc1", function: { name: "search", arguments: '{"q":"test"}' } },
+          {
+            id: "tc1",
+            function: { name: "search", arguments: '{"q":"test"}' },
+          },
         ],
       },
       { role: "tool", content: "found", toolCallId: "tc1", toolName: "search" },
@@ -856,10 +867,10 @@ describe("convertHistory tool ordering", () => {
     const types = display.map((m) => m.type);
     expect(types).toEqual([
       "user",
-      "assistant",    // "Let me search"
-      "tool-invoke",  // search
-      "tool-result",  // found
-      "assistant",    // "Here it is."
+      "assistant", // "Let me search"
+      "tool-invoke", // search
+      "tool-result", // found
+      "assistant", // "Here it is."
     ]);
   });
 
@@ -927,10 +938,10 @@ describe("streaming tool-result ordering", () => {
       .filter((m) => m.type !== "user")
       .map((m) => m.type);
     expect(types).toEqual([
-      "assistant",    // "text"
+      "assistant", // "text"
       "tool-invoke",
       "tool-result",
-      "assistant",    // streaming tail
+      "assistant", // streaming tail
     ]);
   });
 
@@ -949,10 +960,10 @@ describe("streaming tool-result ordering", () => {
     // Each tool-result should immediately follow its tool-invoke
     const toolMsgs = types.filter((t) => t.startsWith("tool"));
     expect(toolMsgs).toEqual([
-      "tool-invoke",  // tool1
-      "tool-result",  // tool1 result
-      "tool-invoke",  // tool2
-      "tool-result",  // tool2 result
+      "tool-invoke", // tool1
+      "tool-result", // tool1 result
+      "tool-invoke", // tool2
+      "tool-result", // tool2 result
     ]);
   });
 });

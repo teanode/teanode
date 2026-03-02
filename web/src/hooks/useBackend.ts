@@ -333,7 +333,8 @@ export function useBackend() {
     null,
   );
   const [audioCapability, setAudioCapability] = useState(false);
-  const [lastActiveRunState, setLastActiveRunState] = useState<ActiveRunState | null>(null);
+  const [lastActiveRunState, setLastActiveRunState] =
+    useState<ActiveRunState | null>(null);
   const lastSentViaMicRef = useRef(false);
   const currentAgentIdRef = useRef(currentAgentId);
   const modelsRef = useRef(models);
