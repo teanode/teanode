@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   reconcileRunStateFromHistory,
   shouldHydrateConversation,
+  convertHistory,
 } from "./useBackend";
 
 // ─── Types (subset of src/types.ts needed for the test) ────────────
@@ -20,6 +21,7 @@ interface DisplayMessage {
   type: "user" | "assistant" | "tool-invoke" | "tool-result" | "usage";
   content: string;
   toolName?: string;
+  toolCallId?: string;
   runId?: string;
   timestamp?: number;
 }
@@ -175,7 +177,15 @@ class StreamingSimulation {
       toolName,
       timestamp: Date.now(),
     };
-    updated.splice(assistantIndex, 0, toolMessage);
+    // Insert after the last tool-invoke (mirrors updated useBackend logic).
+    let insertPos = assistantIndex;
+    for (let i = assistantIndex - 1; i >= 0; i--) {
+      if (updated[i].type === "tool-invoke") {
+        insertPos = i + 1;
+        break;
+      }
+    }
+    updated.splice(insertPos, 0, toolMessage);
     this.messages = updated;
   }
 
@@ -768,5 +778,232 @@ describe("reconnect question rehydration", () => {
 
     expect(sim.pendingQuestions).toHaveLength(1);
     expect(sim.pendingQuestions[0].id).toBe("q1");
+  });
+});
+
+// ─── convertHistory tool ordering ────────────────────────────────────
+
+import type { Message } from "../types";
+
+describe("convertHistory tool ordering", () => {
+  it("places tool-result after its matching tool-invoke by toolCallId", () => {
+    const msgs: Message[] = [
+      { role: "user", content: "do both" },
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [
+          { id: "tc1", function: { name: "search", arguments: '{"q":"a"}' } },
+          { id: "tc2", function: { name: "fetch", arguments: '{"url":"b"}' } },
+        ],
+      },
+      {
+        role: "tool",
+        content: "result-a",
+        toolCallId: "tc1",
+        toolName: "search",
+      },
+      {
+        role: "tool",
+        content: "result-b",
+        toolCallId: "tc2",
+        toolName: "fetch",
+      },
+      { role: "assistant", content: "Done." },
+    ];
+
+    const display = convertHistory(msgs, []);
+    const types = display.map((m) => m.type);
+
+    // Expected: invoke-tc1, result-tc1, invoke-tc2, result-tc2, assistant
+    expect(types).toEqual([
+      "user",
+      "tool-invoke", // search
+      "tool-result", // search result
+      "tool-invoke", // fetch
+      "tool-result", // fetch result
+      "assistant", // "Done."
+    ]);
+    expect(display[1].toolCallId).toBe("tc1");
+    expect(display[2].toolCallId).toBe("tc1");
+    expect(display[3].toolCallId).toBe("tc2");
+    expect(display[4].toolCallId).toBe("tc2");
+  });
+
+  it("falls back to append when toolCallId is missing", () => {
+    const msgs: Message[] = [
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [{ function: { name: "search", arguments: "{}" } }],
+      },
+      { role: "tool", content: "ok", toolName: "search" },
+    ];
+
+    const display = convertHistory(msgs, []);
+    const types = display.map((m) => m.type);
+    expect(types).toEqual(["user", "tool-invoke", "tool-result"]);
+  });
+
+  it("handles single tool call correctly", () => {
+    const msgs: Message[] = [
+      { role: "user", content: "search" },
+      {
+        role: "assistant",
+        content: "Let me search",
+        toolCalls: [
+          {
+            id: "tc1",
+            function: { name: "search", arguments: '{"q":"test"}' },
+          },
+        ],
+      },
+      { role: "tool", content: "found", toolCallId: "tc1", toolName: "search" },
+      { role: "assistant", content: "Here it is." },
+    ];
+
+    const display = convertHistory(msgs, []);
+    const types = display.map((m) => m.type);
+    expect(types).toEqual([
+      "user",
+      "assistant", // "Let me search"
+      "tool-invoke", // search
+      "tool-result", // found
+      "assistant", // "Here it is."
+    ]);
+  });
+
+  it("handles three parallel tool calls", () => {
+    const msgs: Message[] = [
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [
+          { id: "a", function: { name: "t1", arguments: "{}" } },
+          { id: "b", function: { name: "t2", arguments: "{}" } },
+          { id: "c", function: { name: "t3", arguments: "{}" } },
+        ],
+      },
+      { role: "tool", content: "r1", toolCallId: "a", toolName: "t1" },
+      { role: "tool", content: "r2", toolCallId: "b", toolName: "t2" },
+      { role: "tool", content: "r3", toolCallId: "c", toolName: "t3" },
+    ];
+
+    const display = convertHistory(msgs, []);
+    const toolMsgs = display.filter(
+      (m) => m.type === "tool-invoke" || m.type === "tool-result",
+    );
+    // Each invoke immediately followed by its result
+    expect(toolMsgs.map((m) => `${m.type}:${m.toolCallId}`)).toEqual([
+      "tool-invoke:a",
+      "tool-result:a",
+      "tool-invoke:b",
+      "tool-result:b",
+      "tool-invoke:c",
+      "tool-result:c",
+    ]);
+  });
+});
+
+// ─── Streaming tool-result ordering ──────────────────────────────────
+
+describe("streaming tool-result ordering", () => {
+  let simulation: StreamingSimulation;
+  const runId = "run-1";
+
+  beforeEach(() => {
+    messageIdCounter = 0;
+    simulation = new StreamingSimulation();
+    simulation.startRun(runId, "Hello");
+  });
+
+  it("places tool-result directly after tool-invoke (no pre-tool text)", () => {
+    simulation.toolCall(runId, "search", "{}");
+    simulation.toolResult(runId, "search", "found");
+
+    const types = simulation.messages
+      .filter((m) => m.type !== "user")
+      .map((m) => m.type);
+    expect(types).toEqual(["tool-invoke", "tool-result", "assistant"]);
+  });
+
+  it("places tool-result directly after tool-invoke (with pre-tool text)", () => {
+    simulation.delta(runId, "text");
+    simulation.toolCall(runId, "search", "{}");
+    simulation.toolResult(runId, "search", "found");
+
+    const types = simulation.messages
+      .filter((m) => m.type !== "user")
+      .map((m) => m.type);
+    expect(types).toEqual([
+      "assistant", // "text"
+      "tool-invoke",
+      "tool-result",
+      "assistant", // streaming tail
+    ]);
+  });
+
+  it("consecutive tool calls keep invoke-result pairs together", () => {
+    simulation.delta(runId, "A");
+    simulation.toolCall(runId, "tool1", "{}");
+    simulation.toolResult(runId, "tool1", "r1");
+    simulation.toolCall(runId, "tool2", "{}");
+    simulation.toolResult(runId, "tool2", "r2");
+    simulation.final(runId);
+
+    const types = simulation.messages
+      .filter((m) => m.type !== "user")
+      .map((m) => m.type);
+
+    // Each tool-result should immediately follow its tool-invoke
+    const toolMsgs = types.filter((t) => t.startsWith("tool"));
+    expect(toolMsgs).toEqual([
+      "tool-invoke", // tool1
+      "tool-result", // tool1 result
+      "tool-invoke", // tool2
+      "tool-result", // tool2 result
+    ]);
+  });
+});
+
+// ─── useDebugEnabled ─────────────────────────────────────────────────
+
+import { useDebugEnabled } from "../components/DebugReadout";
+import { vi } from "vitest";
+
+describe("useDebugEnabled", () => {
+  it("returns true when URL has ?debug=1", () => {
+    vi.stubGlobal("window", {
+      location: { search: "?debug=1" },
+    });
+    vi.stubGlobal("localStorage", {
+      getItem: () => null,
+    });
+    expect(useDebugEnabled()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("returns true when localStorage debug is 1", () => {
+    vi.stubGlobal("window", {
+      location: { search: "" },
+    });
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => (key === "debug" ? "1" : null),
+    });
+    expect(useDebugEnabled()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("returns false when neither flag is set", () => {
+    vi.stubGlobal("window", {
+      location: { search: "" },
+    });
+    vi.stubGlobal("localStorage", {
+      getItem: () => null,
+    });
+    expect(useDebugEnabled()).toBe(false);
+    vi.unstubAllGlobals();
   });
 });
