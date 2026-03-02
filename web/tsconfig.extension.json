@@ -8,6 +8,7 @@
     "src/theme.ts",
     "src/themePreference.ts",
     "src/types.ts",
+    "src/contentUtils.ts",
     "src/markdown.ts",
     "src/rpc.ts",
     "src/i18n",

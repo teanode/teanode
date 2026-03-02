@@ -12,6 +12,7 @@ import ToolResult from "../../components/ToolResult";
 import { sendRpc, onEvent, getBaseUrl } from "./rpc";
 import type { RpcEventFrame } from "../shared/types";
 import type { Attachment } from "../../types";
+import { normalizeContent } from "../../contentUtils";
 
 interface Message {
   role: "user" | "assistant" | "tool_call" | "tool_result";
@@ -126,7 +127,7 @@ export function ChatView({
         const data = payload as {
           messages?: Array<{
             role: string;
-            content: string;
+            content: unknown;
             name?: string;
             attachments?: Attachment[];
           }>;
@@ -137,11 +138,14 @@ export function ChatView({
           setMessages(
             data.messages
               .filter((m) => m.role === "user" || m.role === "assistant")
-              .map((m) => ({
-                role: m.role as "user" | "assistant",
-                content: m.content,
-                attachments: m.attachments,
-              })),
+              .map((m) => {
+                const extracted = normalizeContent(m.content);
+                return {
+                  role: m.role as "user" | "assistant",
+                  content: extracted.text,
+                  attachments: extracted.attachments ?? m.attachments,
+                };
+              }),
           );
         }
         // Restore busy state from server if a run is active.
