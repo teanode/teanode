@@ -28,6 +28,11 @@ interface PendingFile {
 interface Props {
   agentId: string;
   conversationId: string;
+  onConversationCreated?: (id: string) => void;
+  agentAvatarMediaId?: string;
+  agentName?: string;
+  userAvatarMediaId?: string;
+  userName?: string;
 }
 
 function isImageFile(file: File): boolean {
@@ -50,7 +55,15 @@ async function uploadMedia(file: File): Promise<Attachment> {
   return response.json();
 }
 
-export function ChatView({ agentId, conversationId }: Props) {
+export function ChatView({
+  agentId,
+  conversationId,
+  onConversationCreated,
+  agentAvatarMediaId,
+  agentName,
+  userAvatarMediaId,
+  userName,
+}: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -63,12 +76,30 @@ export function ChatView({ agentId, conversationId }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Track the active conversation id via ref so event handlers always see the
+  // latest value, even before the parent re-renders with a new prop.
+  const activeConvIdRef = useRef(conversationId);
+  useEffect(() => {
+    activeConvIdRef.current = conversationId;
+  }, [conversationId]);
+
+  // When a new conversation is created via handleSend, skip the next history
+  // load triggered by the conversationId prop change (optimistic messages are
+  // already in state).
+  const skipNextHistoryLoadRef = useRef(false);
+
   // Load history on conversation change.
   useEffect(() => {
     if (!conversationId) {
       setMessages([]);
       setIsRunning(false);
       setToolActivity(null);
+      return;
+    }
+    // Skip history load when we just created this conversation via handleSend
+    // (the optimistic user message is already in state).
+    if (skipNextHistoryLoadRef.current) {
+      skipNextHistoryLoadRef.current = false;
       return;
     }
     setMessages([]);
@@ -110,11 +141,17 @@ export function ChatView({ agentId, conversationId }: Props) {
   }, [conversationId]);
 
   // Subscribe to conversation events.
+  // Uses activeConvIdRef so events for a just-created conversation are caught
+  // immediately, even before the parent re-renders with the new prop value.
   useEffect(() => {
     return onEvent((frame: RpcEventFrame) => {
       if (frame.event !== "conversation") return;
       const p = frame.payload as Record<string, unknown>;
-      if (p.conversationId !== conversationId) return;
+      if (
+        !activeConvIdRef.current ||
+        p.conversationId !== activeConvIdRef.current
+      )
+        return;
 
       switch (p.state) {
         case "queued":
@@ -175,7 +212,7 @@ export function ChatView({ agentId, conversationId }: Props) {
           break;
       }
     });
-  }, [conversationId]);
+  }, []);
 
   // Auto-scroll.
   useEffect(() => {
@@ -209,8 +246,7 @@ export function ChatView({ agentId, conversationId }: Props) {
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if ((!text && pendingFiles.length === 0) || !conversationId || streaming)
-      return;
+    if ((!text && pendingFiles.length === 0) || streaming) return;
 
     setInput("");
     if (textareaRef.current) {
@@ -244,17 +280,26 @@ export function ChatView({ agentId, conversationId }: Props) {
     setToolActivity(null);
 
     try {
-      await sendRpc("conversations.send", {
-        conversationId,
+      const res = (await sendRpc("conversations.send", {
+        conversationId: conversationId || "",
         agentId,
         message: text,
         attachments,
         origin: "webui",
-      });
+      })) as { conversationId?: string } | undefined;
+
+      // When sending without a conversationId, the server creates a new one
+      // and returns it. Update the ref immediately so incoming events for this
+      // conversation are matched, then notify the parent.
+      if (!conversationId && res?.conversationId) {
+        activeConvIdRef.current = res.conversationId;
+        skipNextHistoryLoadRef.current = true;
+        onConversationCreated?.(res.conversationId);
+      }
     } catch {
       // Error will come via event.
     }
-  }, [input, conversationId, agentId, streaming, pendingFiles]);
+  }, [input, conversationId, agentId, streaming, pendingFiles, onConversationCreated]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -376,6 +421,16 @@ export function ChatView({ agentId, conversationId }: Props) {
               role={msg.role}
               content={msg.content}
               attachments={msg.attachments}
+              avatarMediaId={
+                msg.role === "user"
+                  ? userAvatarMediaId
+                  : agentAvatarMediaId
+              }
+              avatarFallback={
+                msg.role === "user"
+                  ? userName || "You"
+                  : agentName || "Agent"
+              }
             />
           );
         })}
@@ -385,6 +440,8 @@ export function ChatView({ agentId, conversationId }: Props) {
             content=""
             isStreaming
             streamText={streamingText}
+            avatarMediaId={agentAvatarMediaId}
+            avatarFallback={agentName || "Agent"}
           />
         )}
         {isRunning && !streaming && (
@@ -472,9 +529,11 @@ export function ChatView({ agentId, conversationId }: Props) {
             onInput={handleInput}
             onPaste={handlePaste}
             placeholder={
-              conversationId ? "Type a message..." : "Select a conversation"
+              conversationId
+                ? "Type a message..."
+                : "Start a new conversation..."
             }
-            disabled={!conversationId || streaming}
+            disabled={streaming}
             rows={1}
             sx={{
               flex: 1,
@@ -501,7 +560,7 @@ export function ChatView({ agentId, conversationId }: Props) {
           <IconButton
             size="small"
             onClick={() => fileInputRef.current?.click()}
-            disabled={!conversationId || streaming}
+            disabled={streaming}
             sx={{
               width: 28,
               height: 28,
@@ -515,7 +574,7 @@ export function ChatView({ agentId, conversationId }: Props) {
             size="small"
             color="primary"
             onClick={handleSend}
-            disabled={uploading || streaming || !hasContent || !conversationId}
+            disabled={uploading || streaming || !hasContent}
             sx={{ width: 28, height: 28 }}
           >
             <SendRounded sx={{ fontSize: 16 }} />

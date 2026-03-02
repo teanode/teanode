@@ -21,6 +21,12 @@ import type {
 interface Agent {
   id: string;
   name?: string;
+  avatarMediaId?: string;
+}
+
+interface UserProfile {
+  name: string;
+  avatarMediaId: string;
 }
 
 interface Conversation {
@@ -44,6 +50,12 @@ export function SidePanel() {
   const [error, setError] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectionRestored, setSelectionRestored] = useState(false);
+
+  // --- User profile for avatar display ---
+  const [profile, setProfile] = useState<UserProfile>({
+    name: "",
+    avatarMediaId: "",
+  });
 
   // --- Tab binding state ---
   const [boundTab, setBoundTab] = useState<BoundTab | null>(null);
@@ -120,6 +132,28 @@ export function SidePanel() {
       })
       .catch(() => {});
   }, [connected, selectionRestored]);
+
+  // Fetch user profile for avatar display.
+  useEffect(() => {
+    if (!connected) return;
+    let mounted = true;
+    sendRpc("profile.get", {})
+      .then((payload) => {
+        if (!mounted) return;
+        const data = payload as {
+          name?: string;
+          avatarMediaId?: string;
+        };
+        setProfile({
+          name: data.name || "",
+          avatarMediaId: data.avatarMediaId || "",
+        });
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [connected]);
 
   // Load conversations when agent changes.
   useEffect(() => {
@@ -319,6 +353,23 @@ export function SidePanel() {
     setDrawerOpen(false);
   }, []);
 
+  // Called by ChatView when a new conversation is created via the first message.
+  const handleConversationCreated = useCallback(
+    (id: string) => {
+      setConversationId(id);
+      // Refresh conversation list so the new entry appears in the drawer.
+      if (agentId) {
+        sendRpc("conversations.list", { agentId })
+          .then((payload) => {
+            const data = payload as { conversations?: Conversation[] };
+            if (data.conversations) setConversations(data.conversations);
+          })
+          .catch(() => {});
+      }
+    },
+    [agentId],
+  );
+
   const currentConversation = conversations.find(
     (c) => c.id === conversationId,
   );
@@ -411,7 +462,15 @@ export function SidePanel() {
       </Box>
 
       {/* Chat */}
-      <ChatView agentId={agentId} conversationId={conversationId} />
+      <ChatView
+        agentId={agentId}
+        conversationId={conversationId}
+        onConversationCreated={handleConversationCreated}
+        agentAvatarMediaId={currentAgent?.avatarMediaId}
+        agentName={currentAgent?.name || agentId}
+        userAvatarMediaId={profile.avatarMediaId || undefined}
+        userName={profile.name || "You"}
+      />
 
       {/* Bottom sheet drawer for choosing conversation */}
       <Drawer
