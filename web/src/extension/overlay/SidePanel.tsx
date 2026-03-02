@@ -571,11 +571,6 @@ export function SidePanel() {
                       ? dayjs(c.lastActive).format("YYYY-MM-DD HH:mm:ss")
                       : undefined,
                     color: "text.disabled",
-                    sx: {
-                      opacity: 0,
-                      transition: "opacity 0.15s",
-                      ".MuiListItemButton-root:hover &": { opacity: 1 },
-                    },
                   }}
                 />
               </ListItemButton>

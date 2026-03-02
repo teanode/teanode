@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
+import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import AttachFileRounded from "@mui/icons-material/AttachFileRounded";
@@ -14,11 +16,33 @@ import type { RpcEventFrame } from "../shared/types";
 import type { Attachment } from "../../types";
 import { normalizeContent } from "../../contentUtils";
 
+function dateLabelFor(timestamp: number, t: (key: string) => string): string {
+  const messageDate = new Date(timestamp);
+  const now = new Date();
+  const messageDay = new Date(
+    messageDate.getFullYear(),
+    messageDate.getMonth(),
+    messageDate.getDate(),
+  );
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diff = today.getTime() - messageDay.getTime();
+  if (diff === 0) return t("conversations.today");
+  if (diff === 86_400_000) return t("conversations.yesterday");
+  return messageDate.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year:
+      messageDate.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+  });
+}
+
 interface Message {
   role: "user" | "assistant" | "tool_call" | "tool_result";
   content: string;
   toolName?: string;
   attachments?: Attachment[];
+  timestamp?: number;
 }
 
 interface PendingFile {
@@ -130,6 +154,7 @@ export function ChatView({
             content: unknown;
             name?: string;
             attachments?: Attachment[];
+            timestamp?: number;
           }>;
           activeRunId?: string;
           activeRunState?: { phase: string; toolName?: string };
@@ -144,6 +169,7 @@ export function ChatView({
                   role: m.role as "user" | "assistant",
                   content: extracted.text,
                   attachments: extracted.attachments ?? m.attachments,
+                  timestamp: m.timestamp,
                 };
               }),
           );
@@ -213,7 +239,7 @@ export function ChatView({
           setToolActivity(null);
           setMessages((prev) => [
             ...prev,
-            { role: "assistant", content: (p.text as string) || "" },
+            { role: "assistant", content: (p.text as string) || "", timestamp: Date.now() },
           ]);
           setStreamingText("");
           break;
@@ -293,7 +319,7 @@ export function ChatView({
 
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: text, attachments },
+      { role: "user", content: text, attachments, timestamp: Date.now() },
     ]);
     setIsRunning(true);
     setToolActivity(null);
@@ -373,6 +399,7 @@ export function ChatView({
     [addFiles],
   );
 
+  const { t } = useTranslation();
   const hasContent = !!input.trim() || pendingFiles.length > 0;
 
   // Handle copy button clicks in code blocks (delegated).
@@ -416,47 +443,84 @@ export function ChatView({
         onClick={handleMessageAreaClick}
       >
         {messages.map((msg, i) => {
+          const elements: React.ReactNode[] = [];
+
+          // Insert date separator when the date changes between user/assistant messages.
+          if (
+            msg.timestamp &&
+            (msg.role === "user" || msg.role === "assistant")
+          ) {
+            const label = dateLabelFor(msg.timestamp, t);
+            let prevLabel = "";
+            for (let j = i - 1; j >= 0; j--) {
+              const prev = messages[j];
+              if (
+                prev.timestamp &&
+                (prev.role === "user" || prev.role === "assistant")
+              ) {
+                prevLabel = dateLabelFor(prev.timestamp, t);
+                break;
+              }
+            }
+            if (label !== prevLabel) {
+              elements.push(
+                <Divider key={`sep-${i}`} sx={{ my: 0.5 }}>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontSize: "11px", fontWeight: 500 }}
+                  >
+                    {label}
+                  </Typography>
+                </Divider>,
+              );
+            }
+          }
+
           if (msg.role === "tool_call") {
-            return (
+            elements.push(
               <ToolInvoke
                 key={i}
                 toolName={msg.toolName || "unknown"}
                 args={msg.content}
-              />
+              />,
             );
-          }
-          if (msg.role === "tool_result") {
-            return (
+          } else if (msg.role === "tool_result") {
+            elements.push(
               <ToolResult
                 key={i}
                 toolName={msg.toolName || "unknown"}
                 content={msg.content}
-              />
+              />,
+            );
+          } else {
+            elements.push(
+              <MessageBubble
+                key={i}
+                role={msg.role}
+                content={msg.content}
+                timestamp={msg.timestamp}
+                attachments={msg.attachments}
+                avatarMediaId={
+                  msg.role === "user"
+                    ? userAvatarMediaId
+                    : agentAvatarMediaId
+                }
+                avatarSrc={resolveMediaUrl(
+                  msg.role === "user"
+                    ? userAvatarMediaId
+                    : agentAvatarMediaId
+                )}
+                avatarFallback={
+                  msg.role === "user"
+                    ? userName || "You"
+                    : agentName || "Agent"
+                }
+              />,
             );
           }
-          return (
-            <MessageBubble
-              key={i}
-              role={msg.role}
-              content={msg.content}
-              attachments={msg.attachments}
-              avatarMediaId={
-                msg.role === "user"
-                  ? userAvatarMediaId
-                  : agentAvatarMediaId
-              }
-              avatarSrc={resolveMediaUrl(
-                msg.role === "user"
-                  ? userAvatarMediaId
-                  : agentAvatarMediaId
-              )}
-              avatarFallback={
-                msg.role === "user"
-                  ? userName || "You"
-                  : agentName || "Agent"
-              }
-            />
-          );
+
+          return elements;
         })}
         {streaming && streamingText && (
           <MessageBubble

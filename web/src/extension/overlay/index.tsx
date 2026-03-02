@@ -15,7 +15,7 @@ import {
   loadThemePreference,
   type ThemePreference,
 } from "../../themePreference";
-import { SidePanel } from "../sidepanel/SidePanel";
+import { SidePanel } from "./SidePanel";
 import "../../i18n/config";
 import "highlight.js/styles/github-dark.css";
 
