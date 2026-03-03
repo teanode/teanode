@@ -49,12 +49,10 @@ async function injectScripts(tabId: number): Promise<string> {
   injectedTabs.set(tabId, nonce);
 
   // Inject page bridge first (MAIN world) with nonce as global.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (chrome.scripting.executeScript as any)({
     target: { tabId },
     world: "MAIN",
     func: (n: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (globalThis as any).__tn_nonce = n;
     },
     args: [nonce],

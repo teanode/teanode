@@ -18,7 +18,6 @@ const MAX_EVAL_RESULT_SIZE = 512 * 1024; // 512 KB
 const MAX_QUERY_RESULTS = 50;
 
 // The nonce is set as a global by the background SW before injecting this script.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const NONCE: string = (globalThis as any).__tn_nonce || "";
 
 /**
@@ -73,7 +72,6 @@ if (NONCE) {
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleFetchRequest(data: any): Promise<void> {
   const { id, payload } = data;
   const { method, url, headers, body, timeoutMs } = payload;
@@ -155,7 +153,6 @@ async function handleFetchRequest(data: any): Promise<void> {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleActionRequest(data: any): Promise<void> {
   const { id, action, params } = data;
 
@@ -329,7 +326,6 @@ async function handleEval(params: Record<string, unknown>): Promise<unknown> {
 
   try {
     // Execute in page context. Use indirect eval to run in global scope.
-    // eslint-disable-next-line no-eval
     const evalFn = eval;
     const raw = await evalFn(code);
 

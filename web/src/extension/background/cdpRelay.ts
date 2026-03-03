@@ -198,7 +198,6 @@ async function maybeOpenHelpOnce(): Promise<void> {
   }
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 async function onRelayMessage(text: string): Promise<void> {
   let msg: any;
   try {
@@ -463,7 +462,6 @@ function onDebuggerDetach(
   if (!tabs.has(tabId)) return;
   void detachTab(tabId, reason);
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /** Toggle CDP relay on the active tab (original click handler). */
 export async function connectOrToggleCdpForActiveTab(): Promise<void> {

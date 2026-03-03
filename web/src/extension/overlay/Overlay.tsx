@@ -299,7 +299,6 @@ export function Overlay() {
   // Listen for tab URL changes, tab closure, and CDP state from background SW.
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.runtime) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const onMessage = (message: any): undefined => {
       // CDP state broadcasts (not filtered by boundTab — may arrive before binding).
       if (message.type === MSG.CDP_STATE) {
