@@ -12,7 +12,12 @@ import type {
   PageActionResponse,
   PageActionType,
 } from "../shared/types";
-import { listCookies, getCookie } from "./cookieHandler";
+import {
+  listCookies,
+  getCookie,
+  setCookie,
+  deleteCookie,
+} from "./cookieHandler";
 
 // Actions that require page bridge execution via content script.
 const PAGE_ACTIONS: Set<string> = new Set([
@@ -100,6 +105,10 @@ export async function handleToolExecute(
         return await executeListCookies(requestId, args);
       case "getCookie":
         return await executeGetCookie(requestId, args);
+      case "setCookie":
+        return await executeSetCookie(requestId, args);
+      case "deleteCookie":
+        return await executeDeleteCookie(requestId, args);
       default:
         if (PAGE_ACTIONS.has(action)) {
           return await executePageAction(
@@ -199,6 +208,73 @@ async function executeGetCookie(
     type: "tool_execute_response",
     requestId,
     result: JSON.stringify({ cookie }),
+  };
+}
+
+async function executeSetCookie(
+  requestId: string,
+  args: Record<string, unknown>,
+): Promise<ToolExecuteResponse> {
+  const url = args.url as string;
+  const name = args.name as string;
+  const value = args.value as string;
+  if (!url) {
+    return {
+      type: "tool_execute_response",
+      requestId,
+      error: "url is required for setCookie",
+    };
+  }
+  if (!name) {
+    return {
+      type: "tool_execute_response",
+      requestId,
+      error: "name is required for setCookie",
+    };
+  }
+  const cookie = await setCookie({
+    url,
+    name,
+    value: value ?? "",
+    domain: args.domain as string | undefined,
+    path: args.path as string | undefined,
+    secure: args.secure as boolean | undefined,
+    httpOnly: args.httpOnly as boolean | undefined,
+    sameSite: args.sameSite as chrome.cookies.SameSiteStatus | undefined,
+    expirationDate: args.expirationDate as number | undefined,
+  });
+  return {
+    type: "tool_execute_response",
+    requestId,
+    result: JSON.stringify({ cookie }),
+  };
+}
+
+async function executeDeleteCookie(
+  requestId: string,
+  args: Record<string, unknown>,
+): Promise<ToolExecuteResponse> {
+  const url = args.url as string;
+  const name = args.name as string;
+  if (!url) {
+    return {
+      type: "tool_execute_response",
+      requestId,
+      error: "url is required for deleteCookie",
+    };
+  }
+  if (!name) {
+    return {
+      type: "tool_execute_response",
+      requestId,
+      error: "name is required for deleteCookie",
+    };
+  }
+  const details = await deleteCookie({ url, name });
+  return {
+    type: "tool_execute_response",
+    requestId,
+    result: JSON.stringify({ ok: details !== null }),
   };
 }
 

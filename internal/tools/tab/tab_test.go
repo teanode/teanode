@@ -204,6 +204,132 @@ func TestTabTool_UnknownAction(t *testing.T) {
 	}
 }
 
+// ---- setCookie action tests ----
+
+func TestTabTool_SetCookie_URLRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"setCookie","name":"foo","value":"bar"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "url is required") {
+		t.Errorf("expected 'url is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_SetCookie_NameRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"setCookie","url":"https://example.com","value":"bar"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "name is required") {
+		t.Errorf("expected 'name is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_SetCookie_ValueRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"setCookie","url":"https://example.com","name":"foo"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "value is required") {
+		t.Errorf("expected 'value is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_SetCookie_InvalidSameSite(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"setCookie","url":"https://example.com","name":"foo","value":"bar","sameSite":"bad"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "invalid sameSite") {
+		t.Errorf("expected 'invalid sameSite' error, got: %s", result)
+	}
+}
+
+func TestTabTool_SetCookie_HappyPath(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"cookie":{"name":"foo","value":"bar"}}`})
+
+	result, err := tool.Execute(ctx, `{"action":"setCookie","url":"https://example.com","name":"foo","value":"bar"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"cookie"`) {
+		t.Errorf("expected cookie in result, got: %s", result)
+	}
+}
+
+// ---- deleteCookie action tests ----
+
+func TestTabTool_DeleteCookie_URLRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"deleteCookie","name":"foo"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "url is required") {
+		t.Errorf("expected 'url is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_DeleteCookie_NameRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"deleteCookie","url":"https://example.com"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "name is required") {
+		t.Errorf("expected 'name is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_DeleteCookie_HappyPath(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"ok":true}`})
+
+	result, err := tool.Execute(ctx, `{"action":"deleteCookie","url":"https://example.com","name":"foo"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"ok":true`) {
+		t.Errorf("expected ok:true in result, got: %s", result)
+	}
+}
+
 // ---- localStorage action tests ----
 
 func TestTabTool_SetLocalStorage_KeyRequired(t *testing.T) {
@@ -364,6 +490,65 @@ func TestTabTool_SnapshotDom_HappyPath(t *testing.T) {
 	}
 }
 
+func TestTabTool_SnapshotDom_Truncated(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	bigHTML := strings.Repeat("x", maxSnapshotDomSize+100)
+	resolvePending(broker, tabs.ToolCallResult{
+		Result: `{"html":"` + bigHTML + `","truncated":false}`,
+	})
+
+	result, err := tool.Execute(ctx, `{"action":"snapshotDom"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var snap struct {
+		HTML      string `json:"html"`
+		Truncated bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(result), &snap); err != nil {
+		t.Fatalf("failed to parse result JSON: %v", err)
+	}
+	if !snap.Truncated {
+		t.Error("expected truncated to be true")
+	}
+	if len(snap.HTML) != maxSnapshotDomSize {
+		t.Errorf("expected html length %d, got %d", maxSnapshotDomSize, len(snap.HTML))
+	}
+}
+
+func TestTabTool_SnapshotDom_NotTruncated(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	resolvePending(broker, tabs.ToolCallResult{
+		Result: `{"html":"<html>small</html>","truncated":false}`,
+	})
+
+	result, err := tool.Execute(ctx, `{"action":"snapshotDom"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var snap struct {
+		HTML      string `json:"html"`
+		Truncated bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(result), &snap); err != nil {
+		t.Fatalf("failed to parse result JSON: %v", err)
+	}
+	if snap.Truncated {
+		t.Error("expected truncated to be false for small snapshot")
+	}
+	if snap.HTML != "<html>small</html>" {
+		t.Errorf("unexpected html: %s", snap.HTML)
+	}
+}
+
 // ---- eval action tests ----
 
 func TestTabTool_Eval_CodeRequired(t *testing.T) {
@@ -441,7 +626,7 @@ func TestTabTool_Definition_ContainsNewActions(t *testing.T) {
 	actions := actionProp["enum"].([]string)
 
 	expected := map[string]bool{
-		"fetch": true, "listCookies": true, "getCookie": true,
+		"fetch": true, "listCookies": true, "getCookie": true, "setCookie": true, "deleteCookie": true,
 		"getLocalStorage": true, "setLocalStorage": true, "removeLocalStorage": true,
 		"snapshotDom": true, "querySelector": true, "eval": true,
 	}
@@ -458,7 +643,7 @@ func TestTabTool_Definition_ContainsNewActions(t *testing.T) {
 	}
 
 	// Verify new parameters exist.
-	for _, param := range []string{"key", "value", "selector", "mode", "all", "code"} {
+	for _, param := range []string{"key", "value", "selector", "mode", "all", "code", "path", "secure", "httpOnly", "sameSite", "expirationDate"} {
 		if _, ok := props[param]; !ok {
 			t.Errorf("missing parameter in definition: %s", param)
 		}

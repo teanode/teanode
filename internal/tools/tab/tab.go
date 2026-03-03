@@ -19,6 +19,7 @@ const (
 	maxToolResultSize    = 768 << 10 // 768 KB
 	maxEvalCodeSize      = 64 << 10  // 64 KB
 	maxLocalStorageValue = 1 << 20   // 1 MB
+	maxSnapshotDomSize   = 512 << 10 // 512 KB for the html field
 )
 
 func init() {
@@ -36,7 +37,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 			Name: "tab",
 			Description: "Interact with the attached browser tab. Actions: " +
 				"fetch (HTTP request with tab session), " +
-				"listCookies / getCookie (cookie access), " +
+				"listCookies / getCookie / setCookie / deleteCookie (cookie access), " +
 				"getLocalStorage / setLocalStorage / removeLocalStorage (localStorage access), " +
 				"snapshotDom (lightweight DOM snapshot), " +
 				"querySelector (query DOM elements), " +
@@ -47,7 +48,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					"action": map[string]interface{}{
 						"type": "string",
 						"enum": []string{
-							"fetch", "listCookies", "getCookie",
+							"fetch", "listCookies", "getCookie", "setCookie", "deleteCookie",
 							"getLocalStorage", "setLocalStorage", "removeLocalStorage",
 							"snapshotDom", "querySelector", "eval",
 						},
@@ -62,7 +63,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					},
 					"url": map[string]interface{}{
 						"type":        "string",
-						"description": "Absolute or relative URL (required for fetch). URL scope (for listCookies, getCookie; defaults to tab URL if omitted).",
+						"description": "Absolute or relative URL (required for fetch, setCookie, deleteCookie). URL scope (for listCookies, getCookie; defaults to tab URL if omitted).",
 					},
 					"headers": map[string]interface{}{
 						"type":                 "object",
@@ -81,11 +82,32 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					// cookie params
 					"domain": map[string]interface{}{
 						"type":        "string",
-						"description": "Filter by domain (for listCookies action).",
+						"description": "Cookie domain (filter for listCookies; optional for setCookie).",
+					},
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "Cookie path (for setCookie).",
+					},
+					"secure": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Secure flag (for setCookie).",
+					},
+					"httpOnly": map[string]interface{}{
+						"type":        "boolean",
+						"description": "HttpOnly flag (for setCookie).",
+					},
+					"sameSite": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"no_restriction", "lax", "strict"},
+						"description": "SameSite attribute (for setCookie).",
+					},
+					"expirationDate": map[string]interface{}{
+						"type":        "number",
+						"description": "Cookie expiration as Unix epoch seconds (for setCookie). Omit for session cookie.",
 					},
 					"name": map[string]interface{}{
 						"type":        "string",
-						"description": "Cookie name (required for getCookie, optional filter for listCookies).",
+						"description": "Cookie name (required for getCookie, setCookie, deleteCookie; optional filter for listCookies).",
 					},
 					// localStorage params
 					"key": map[string]interface{}{
@@ -94,7 +116,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					},
 					"value": map[string]interface{}{
 						"type":        "string",
-						"description": "Value to store (required for setLocalStorage).",
+						"description": "Value to store (required for setLocalStorage, setCookie).",
 					},
 					// DOM params
 					"selector": map[string]interface{}{
@@ -124,7 +146,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 				"type": "object",
 				"description": "Action-dependent result. " +
 					"fetch: {status, statusText, headers, body, url, truncated, durationMs}. " +
-					"listCookies: {cookies}. getCookie: {cookie}. " +
+					"listCookies: {cookies}. getCookie: {cookie}. setCookie: {cookie}. deleteCookie: {ok}. " +
 					"getLocalStorage: {entries} or {value}. setLocalStorage/removeLocalStorage: {ok}. " +
 					"snapshotDom: {html, truncated}. " +
 					"querySelector: {results}. " +
@@ -206,6 +228,11 @@ type tabArguments struct {
 	TimeoutMilliseconds int               `json:"timeoutMs,omitempty"`
 	Domain              string            `json:"domain,omitempty"`
 	Name                string            `json:"name,omitempty"`
+	Path                string            `json:"path,omitempty"`
+	Secure              *bool             `json:"secure,omitempty"`
+	HttpOnly            *bool             `json:"httpOnly,omitempty"`
+	SameSite            string            `json:"sameSite,omitempty"`
+	ExpirationDate      float64           `json:"expirationDate,omitempty"`
 	Key                 string            `json:"key,omitempty"`
 	Value               string            `json:"value,omitempty"`
 	Selector            string            `json:"selector,omitempty"`
@@ -267,6 +294,30 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 	case "getCookie":
 		if arguments.Name == "" {
 			return jsonError("name is required for getCookie action"), nil
+		}
+	case "setCookie":
+		if arguments.URL == "" {
+			return jsonError("url is required for setCookie action"), nil
+		}
+		if arguments.Name == "" {
+			return jsonError("name is required for setCookie action"), nil
+		}
+		if arguments.Value == "" {
+			return jsonError("value is required for setCookie action"), nil
+		}
+		if arguments.SameSite != "" {
+			switch arguments.SameSite {
+			case "no_restriction", "lax", "strict":
+			default:
+				return jsonError(fmt.Sprintf("invalid sameSite %q: must be 'no_restriction', 'lax', or 'strict'", arguments.SameSite)), nil
+			}
+		}
+	case "deleteCookie":
+		if arguments.URL == "" {
+			return jsonError("url is required for deleteCookie action"), nil
+		}
+		if arguments.Name == "" {
+			return jsonError("name is required for deleteCookie action"), nil
 		}
 
 	// localStorage actions
@@ -345,14 +396,36 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		if result.Error != "" {
 			return jsonError(result.Error), nil
 		}
-		if len(result.Result) > maxToolResultSize {
-			return result.Result[:maxToolResultSize], nil
+		out := result.Result
+		if arguments.Action == "snapshotDom" {
+			out = truncateSnapshotDom(out, maxSnapshotDomSize)
 		}
-		return result.Result, nil
+		if len(out) > maxToolResultSize {
+			out = out[:maxToolResultSize]
+		}
+		return out, nil
 	case <-ctx.Done():
 		broker.CancelPending(pending.ID)
 		return "", ctx.Err()
 	}
+}
+
+// truncateSnapshotDom caps the html field to maxSize bytes, preserving valid JSON.
+func truncateSnapshotDom(raw string, maxSize int) string {
+	var snap struct {
+		HTML      string `json:"html"`
+		Truncated bool   `json:"truncated"`
+	}
+	if json.Unmarshal([]byte(raw), &snap) != nil {
+		return raw
+	}
+	if len(snap.HTML) <= maxSize {
+		return raw
+	}
+	snap.HTML = snap.HTML[:maxSize]
+	snap.Truncated = true
+	out, _ := json.Marshal(snap)
+	return string(out)
 }
 
 func jsonError(message string) string {

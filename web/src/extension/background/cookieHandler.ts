@@ -21,3 +21,26 @@ export async function getCookie(args: {
   const result = await chrome.cookies.get({ url: args.url, name: args.name });
   return result ?? null;
 }
+
+export async function setCookie(args: {
+  url: string;
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: chrome.cookies.SameSiteStatus;
+  expirationDate?: number;
+}): Promise<chrome.cookies.Cookie | null> {
+  const result = await chrome.cookies.set(args);
+  return result ?? null;
+}
+
+export async function deleteCookie(args: {
+  url: string;
+  name: string;
+}): Promise<{ url: string; name: string } | null> {
+  const result = await chrome.cookies.remove(args);
+  return result ?? null;
+}
