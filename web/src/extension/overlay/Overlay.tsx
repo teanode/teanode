@@ -2,10 +2,12 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Drawer from "@mui/material/Drawer";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
+import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
 import Alert from "@mui/material/Alert";
@@ -85,6 +87,10 @@ export function Overlay() {
   // --- Displacement warning ---
   const [displaced, setDisplaced] = useState(false);
 
+  // --- Display settings ---
+  const [showToolCalls, setShowToolCalls] = useState(false);
+  const [showTokenUsage, setShowTokenUsage] = useState(false);
+
   // Persist selection to chrome.storage.local.
   useEffect(() => {
     if (!selectionRestored) return;
@@ -96,21 +102,40 @@ export function Overlay() {
     }
   }, [agentId, conversationId, selectionRestored]);
 
+  // Persist display settings to chrome.storage.local.
+  useEffect(() => {
+    if (!selectionRestored) return;
+    if (typeof chrome !== "undefined" && chrome.storage) {
+      chrome.storage.local.set({
+        overlayShowToolCalls: showToolCalls,
+        overlayShowTokenUsage: showTokenUsage,
+      });
+    }
+  }, [showToolCalls, showTokenUsage, selectionRestored]);
+
   // Connect on mount + restore saved selection.
   useEffect(() => {
     (async () => {
-      // Restore saved selection from storage.
+      // Restore saved selection and display settings from storage.
       if (typeof chrome !== "undefined" && chrome.storage) {
         try {
           const stored = await chrome.storage.local.get([
             "sidepanelAgentId",
             "sidepanelConversationId",
+            "overlayShowToolCalls",
+            "overlayShowTokenUsage",
           ]);
           if (stored.sidepanelAgentId) {
             setAgentId(stored.sidepanelAgentId);
           }
           if (stored.sidepanelConversationId) {
             setConversationId(stored.sidepanelConversationId);
+          }
+          if (stored.overlayShowToolCalls === true) {
+            setShowToolCalls(true);
+          }
+          if (stored.overlayShowTokenUsage === true) {
+            setShowTokenUsage(true);
           }
         } catch {
           // ignore
@@ -624,6 +649,8 @@ export function Overlay() {
         agentName={currentAgent?.name || agentId}
         userAvatarMediaId={profile.avatarMediaId || undefined}
         userName={profile.name || "You"}
+        showToolCalls={showToolCalls}
+        showTokenUsage={showTokenUsage}
       />
 
       {/* Bottom sheet drawer for choosing conversation */}
@@ -723,6 +750,38 @@ export function Overlay() {
               </ListItemButton>
             ))}
           </List>
+
+          <Divider sx={{ my: 1.5 }} />
+
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+            Display
+          </Typography>
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showToolCalls}
+                onChange={(_, checked) => setShowToolCalls(checked)}
+              />
+            }
+            label={
+              <Typography variant="body2">Show tool calls</Typography>
+            }
+            sx={{ ml: 0, gap: 0.5 }}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showTokenUsage}
+                onChange={(_, checked) => setShowTokenUsage(checked)}
+              />
+            }
+            label={
+              <Typography variant="body2">Show token usage</Typography>
+            }
+            sx={{ ml: 0, gap: 0.5 }}
+          />
         </Box>
       </Drawer>
     </Box>

@@ -10,6 +10,7 @@ import SendRounded from "@mui/icons-material/SendRounded";
 import MessageBubble from "../../components/MessageBubble";
 import ToolInvoke from "../../components/ToolInvoke";
 import ToolResult from "../../components/ToolResult";
+import UsageIndicator from "../../components/UsageIndicator";
 import { dateLabelFor } from "../../dateUtils";
 import DateSeparator from "../../components/DateSeparator";
 import { sendRpc, onEvent, getBaseUrl } from "./rpc";
@@ -18,7 +19,7 @@ import type { Attachment } from "../../types";
 import { normalizeContent } from "../../contentUtils";
 
 interface Message {
-  role: "user" | "assistant" | "tool_call" | "tool_result";
+  role: "user" | "assistant" | "tool_call" | "tool_result" | "usage";
   content: string;
   toolName?: string;
   attachments?: Attachment[];
@@ -38,6 +39,8 @@ interface Props {
   agentName?: string;
   userAvatarMediaId?: string;
   userName?: string;
+  showToolCalls?: boolean;
+  showTokenUsage?: boolean;
 }
 
 function isImageFile(file: File): boolean {
@@ -60,6 +63,14 @@ async function uploadMedia(file: File): Promise<Attachment> {
   return response.json();
 }
 
+function formatUsageText(usage: Record<string, unknown>): string {
+  const input = (usage.input ?? usage.Input ?? 0) as number;
+  const output = (usage.output ?? usage.Output ?? 0) as number;
+  const total = (usage.total ?? usage.Total ?? input + output) as number;
+  if (!total) return "";
+  return `${input} in / ${output} out \u00b7 ${total} tokens`;
+}
+
 export function ChatView({
   agentId,
   conversationId,
@@ -68,6 +79,8 @@ export function ChatView({
   agentName,
   userAvatarMediaId,
   userName,
+  showToolCalls = false,
+  showTokenUsage = false,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -77,6 +90,12 @@ export function ChatView({
   const [toolActivity, setToolActivity] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [uploading, setUploading] = useState(false);
+
+  // Keep a ref to the current streaming text so event handlers can capture it.
+  const streamingTextRef = useRef("");
+  useEffect(() => {
+    streamingTextRef.current = streamingText;
+  }, [streamingText]);
 
   // Resolve backend base URL + token so avatar media URLs work in the
   // extension context (chrome-extension:// origin can't use relative paths).
@@ -90,9 +109,14 @@ export function ChatView({
 
   function resolveMediaUrl(mediaId: string | undefined): string | undefined {
     if (!mediaId || !baseInfo) return undefined;
-    const base = baseInfo.url.replace(/\/+$/, "");
+    return resolveMediaId(mediaId);
+  }
+
+  function resolveMediaId(mediaId: string): string {
+    const base = (baseInfo?.url || "").replace(/\/+$/, "");
     let url = `${base}/api/v1/media/${mediaId}`;
-    if (baseInfo.token) url += `?token=${encodeURIComponent(baseInfo.token)}`;
+    if (baseInfo?.token)
+      url += `?token=${encodeURIComponent(baseInfo.token)}`;
     return url;
   }
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -190,21 +214,47 @@ export function ChatView({
           setIsRunning(true);
           setToolActivity(null);
           setStreaming(true);
-          setStreamingText((prev) => prev + (p.text as string));
+          setStreamingText((prev) => {
+            const next = prev + (p.text as string);
+            streamingTextRef.current = next;
+            return next;
+          });
           break;
-        case "tool_call":
+        case "tool_call": {
           setIsRunning(true);
           setStreaming(false);
           setToolActivity((p.toolName as string) || null);
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "tool_call",
-              content: (p.arguments as string) || "",
-              toolName: p.toolName as string,
-            },
-          ]);
+          // Flush any accumulated streaming text into a committed message
+          // before appending the tool call, so it doesn't disappear.
+          const pendingText = streamingTextRef.current;
+          if (pendingText) {
+            streamingTextRef.current = "";
+            setStreamingText("");
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: pendingText,
+                timestamp: Date.now(),
+              },
+              {
+                role: "tool_call",
+                content: (p.arguments as string) || "",
+                toolName: p.toolName as string,
+              },
+            ]);
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "tool_call",
+                content: (p.arguments as string) || "",
+                toolName: p.toolName as string,
+              },
+            ]);
+          }
           break;
+        }
         case "tool_result":
           setToolActivity(null);
           setMessages((prev) => [
@@ -216,32 +266,92 @@ export function ChatView({
             },
           ]);
           break;
-        case "final":
+        case "final": {
           setIsRunning(false);
           setStreaming(false);
           setToolActivity(null);
-          setMessages((prev) => [
-            ...prev,
+          const finalTimestamp = Date.now();
+          const newMessages: Message[] = [
             {
               role: "assistant",
               content: (p.text as string) || "",
-              timestamp: Date.now(),
+              timestamp: finalTimestamp,
             },
-          ]);
+          ];
+          // Append usage indicator if available.
+          const usage = p.usage as Record<string, unknown> | undefined;
+          if (usage) {
+            const usageText = formatUsageText(usage);
+            if (usageText) {
+              newMessages.push({
+                role: "usage",
+                content: usageText,
+                timestamp: finalTimestamp,
+              });
+            }
+          }
+          setMessages((prev) => [...prev, ...newMessages]);
           setStreamingText("");
           break;
-        case "error":
+        }
+        case "error": {
           setIsRunning(false);
           setStreaming(false);
           setToolActivity(null);
+          const capturedText = streamingTextRef.current;
           setStreamingText("");
+          if (capturedText) {
+            // Preserve whatever was streamed before the error.
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: capturedText,
+                timestamp: Date.now(),
+              },
+            ]);
+          } else {
+            // Show the error message from the backend.
+            const errorMessage =
+              (p.error as string) || "Unknown error";
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: `__error__:${errorMessage}`,
+                timestamp: Date.now(),
+              },
+            ]);
+          }
           break;
-        case "aborted":
+        }
+        case "aborted": {
           setIsRunning(false);
           setStreaming(false);
           setToolActivity(null);
+          const capturedAbortText = streamingTextRef.current;
           setStreamingText("");
+          if (capturedAbortText) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: capturedAbortText,
+                timestamp: Date.now(),
+              },
+            ]);
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: "__aborted__",
+                timestamp: Date.now(),
+              },
+            ]);
+          }
           break;
+        }
       }
     });
   }, []);
@@ -437,6 +547,11 @@ export function ChatView({
         onClick={handleMessageAreaClick}
       >
         {messages.map((msg, i) => {
+          // Filter based on display settings.
+          if (msg.role === "tool_call" && !showToolCalls) return null;
+          if (msg.role === "tool_result" && !showToolCalls) return null;
+          if (msg.role === "usage" && !showTokenUsage) return null;
+
           const elements: React.ReactNode[] = [];
 
           // Insert date separator when the date changes between user/assistant messages.
@@ -477,6 +592,10 @@ export function ChatView({
                 content={msg.content}
               />,
             );
+          } else if (msg.role === "usage") {
+            elements.push(
+              <UsageIndicator key={i} text={msg.content} />,
+            );
           } else {
             elements.push(
               <MessageBubble
@@ -494,6 +613,7 @@ export function ChatView({
                 avatarFallback={
                   msg.role === "user" ? userName || "You" : agentName || "Agent"
                 }
+                resolveMediaUrl={resolveMediaId}
               />,
             );
           }
@@ -509,6 +629,7 @@ export function ChatView({
             avatarMediaId={agentAvatarMediaId}
             avatarSrc={resolveMediaUrl(agentAvatarMediaId)}
             avatarFallback={agentName || "Agent"}
+            resolveMediaUrl={resolveMediaId}
           />
         )}
         {isRunning && !streaming && (

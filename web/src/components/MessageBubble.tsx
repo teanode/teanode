@@ -23,6 +23,8 @@ interface MessageBubbleProps {
   /** Pre-resolved avatar URL (for extension contexts where withToken doesn't work). */
   avatarSrc?: string;
   avatarFallback?: string;
+  /** Resolve a media ID to a full URL (for extension contexts where relative paths don't work). */
+  resolveMediaUrl?: (mediaId: string) => string;
   voiceEnabled?: boolean;
   isSpeakingThis?: boolean;
   onSpeak?: (text: string) => void;
@@ -40,12 +42,21 @@ function isImageFormat(format: string): boolean {
   return ["png", "jpeg", "jpg", "gif", "webp"].includes(format.toLowerCase());
 }
 
-function AttachmentDisplay({ attachment }: { attachment: Attachment }) {
+function AttachmentDisplay({
+  attachment,
+  resolveMediaUrl,
+}: {
+  attachment: Attachment;
+  resolveMediaUrl?: (mediaId: string) => string;
+}) {
+  const mediaUrl = resolveMediaUrl
+    ? resolveMediaUrl(attachment.mediaId)
+    : `/api/v1/media/${attachment.mediaId}`;
   if (isImageFormat(attachment.format)) {
     return (
       <Box
         component="img"
-        src={`/api/v1/media/${attachment.mediaId}`}
+        src={mediaUrl}
         alt={attachment.filename}
         sx={{
           maxWidth: 300,
@@ -54,9 +65,7 @@ function AttachmentDisplay({ attachment }: { attachment: Attachment }) {
           objectFit: "contain",
           cursor: "pointer",
         }}
-        onClick={() =>
-          window.open(`/api/v1/media/${attachment.mediaId}`, "_blank")
-        }
+        onClick={() => window.open(mediaUrl, "_blank")}
       />
     );
   }
@@ -69,7 +78,7 @@ function AttachmentDisplay({ attachment }: { attachment: Attachment }) {
       size="small"
       variant="outlined"
       component="a"
-      href={`/api/v1/media/${attachment.mediaId}`}
+      href={mediaUrl}
       target="_blank"
       clickable
       sx={{ maxWidth: 250 }}
@@ -101,6 +110,7 @@ export default function MessageBubble({
   avatarMediaId,
   avatarSrc,
   avatarFallback,
+  resolveMediaUrl,
   voiceEnabled,
   isSpeakingThis,
   onSpeak,
@@ -157,7 +167,7 @@ export default function MessageBubble({
             }}
           >
             {attachments.map((att, index) => (
-              <AttachmentDisplay key={index} attachment={att} />
+              <AttachmentDisplay key={index} attachment={att} resolveMediaUrl={resolveMediaUrl} />
             ))}
           </Box>
         )}
