@@ -433,6 +433,43 @@ export function ChatView({
           break;
         }
 
+        case "text_done": {
+          // Text streaming ended; tool calls will follow. Commit streamed
+          // text and show the thinking spinner during the gap.
+          const textDoneAccumulated = streamingTextRef.current;
+          streamingTextRef.current = "";
+          setStreamingText("");
+          setStreaming(false);
+          if (textDoneAccumulated) {
+            setMessages((prev) => {
+              const updated = [...prev];
+              const assistantIndex = findRunAssistantIndex(
+                updated,
+                activeRunIdRef.current,
+              );
+              if (
+                assistantIndex >= 0 &&
+                updated[assistantIndex].type === "assistant"
+              ) {
+                updated[assistantIndex] = {
+                  ...updated[assistantIndex],
+                  content: textDoneAccumulated,
+                };
+                const newTail: DisplayMessage = {
+                  id: nextMessageId(),
+                  type: "assistant",
+                  content: "",
+                  runId: activeRunIdRef.current || undefined,
+                };
+                updated.splice(assistantIndex + 1, 0, newTail);
+              }
+              return updated;
+            });
+          }
+          setToolActivity(null);
+          break;
+        }
+
         case "tool_call": {
           afterToolCallsRef.current = true;
           setIsRunning(true);

@@ -304,6 +304,19 @@ func (self *Coordinator) buildMergedCallbacks(runId, conversationId, agentId, us
 				callerCallbacks.OnTextDelta(text)
 			}
 		},
+		OnTextDone: func(text string) {
+			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
+				"state":          "text_done",
+				"runId":          runId,
+				"conversationId": conversationId,
+				"agentId":        agentId,
+				"userId":         userId,
+				"text":           text,
+			})
+			if callerCallbacks != nil && callerCallbacks.OnTextDone != nil {
+				callerCallbacks.OnTextDone(text)
+			}
+		},
 		OnToolCall: func(toolName string, arguments string) {
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "tool_call",

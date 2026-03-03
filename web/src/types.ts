@@ -163,6 +163,7 @@ export type ConversationEventState =
   | "user_message"
   | "queued"
   | "delta"
+  | "text_done"
   | "tool_call"
   | "tool_result"
   | "title"

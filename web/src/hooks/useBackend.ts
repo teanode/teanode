@@ -587,6 +587,7 @@ export function useBackend() {
     ) {
       if (
         conversationEvent.state === "delta" ||
+        conversationEvent.state === "text_done" ||
         conversationEvent.state === "tool_call" ||
         conversationEvent.state === "final" ||
         conversationEvent.state === "error" ||
@@ -712,6 +713,39 @@ export function useBackend() {
       streamTextRef.current += conversationEvent.text || "";
       setStreamText(streamTextRef.current);
       setIsStreaming(true);
+    } else if (conversationEvent.state === "text_done") {
+      // Text streaming ended; tool calls will follow. Commit streamed text
+      // to the assistant message and transition to "thinking" state so the
+      // spinner appears during the gap before the first tool_call event.
+      const accumulatedText = streamTextRef.current;
+      streamTextRef.current = "";
+      setStreamText("");
+      setIsStreaming(false);
+      if (accumulatedText) {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const assistantIndex = findRunAssistantIndex(updated, eventRunId);
+          if (
+            assistantIndex >= 0 &&
+            updated[assistantIndex].type === "assistant"
+          ) {
+            updated[assistantIndex] = {
+              ...updated[assistantIndex],
+              content: accumulatedText,
+            };
+            const newTail: DisplayMessage = {
+              id: nextMessageId(),
+              type: "assistant",
+              content: "",
+              runId: eventRunId || undefined,
+            };
+            updated.splice(assistantIndex + 1, 0, newTail);
+          }
+          return updated;
+        });
+      }
+      setToolActivity(null);
+      setStatus("thinking...");
     } else if (conversationEvent.state === "tool_call") {
       afterToolCallsRef.current = true;
       // Commit accumulated stream text to the assistant message before clearing

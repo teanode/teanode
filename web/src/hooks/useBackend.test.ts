@@ -128,6 +128,31 @@ class StreamingSimulation {
     this.isStreaming = true;
   }
 
+  /** Process a text_done event (text streaming ended, tool calls follow). */
+  textDone(runId: string) {
+    const accumulatedText = this.streamText;
+    this.streamText = "";
+    this.isStreaming = false;
+    if (accumulatedText) {
+      const updated = [...this.messages];
+      const assistantIndex = findRunAssistantIndex(updated, runId);
+      if (assistantIndex >= 0 && updated[assistantIndex].type === "assistant") {
+        updated[assistantIndex] = {
+          ...updated[assistantIndex],
+          content: accumulatedText,
+        };
+        const newTail: DisplayMessage = {
+          id: nextMessageId(),
+          type: "assistant",
+          content: "",
+          runId,
+        };
+        updated.splice(assistantIndex + 1, 0, newTail);
+      }
+      this.messages = updated;
+    }
+  }
+
   /** Process a tool_call event. */
   toolCall(runId: string, toolName: string, args: string) {
     this.afterToolCalls = true;
@@ -502,6 +527,71 @@ describe("streaming message merge", () => {
     );
     const nonEmpty = assistants.filter((message) => message.content);
     expect(nonEmpty.map((message) => message.content)).toEqual(["A", "B", "C"]);
+  });
+
+  it("textDone commits text and shows spinner before tool_call", () => {
+    simulation.delta(runId, "Before tool");
+    simulation.textDone(runId);
+
+    // Text is committed, streaming is off — spinner condition met.
+    expect(simulation.isStreaming).toBe(false);
+    const assistants = simulation.messages.filter(
+      (message) => message.type === "assistant",
+    );
+    expect(assistants).toHaveLength(2);
+    expect(assistants[0].content).toBe("Before tool");
+    expect(assistants[1].content).toBe(""); // empty tail for spinner
+    expect(simulation.streamText).toBe("");
+  });
+
+  it("delta -> textDone -> toolCall -> toolResult -> delta -> final flow", () => {
+    simulation.delta(runId, "Hello ");
+    simulation.textDone(runId);
+    simulation.toolCall(runId, "search", '{"q":"test"}');
+    simulation.toolResult(runId, "search", "found");
+    simulation.delta(runId, "Results");
+    simulation.final(runId);
+
+    const assistants = simulation.messages.filter(
+      (message) => message.type === "assistant",
+    );
+    const nonEmpty = assistants.filter((message) => message.content);
+    expect(nonEmpty.map((message) => message.content)).toEqual([
+      "Hello ",
+      "Results",
+    ]);
+
+    const types = simulation.messages
+      .filter((message) => message.type !== "user")
+      .map((message) => message.type);
+    expect(types).toEqual([
+      "assistant", // "Hello "
+      "tool-invoke",
+      "tool-result",
+      "assistant", // "Results"
+    ]);
+  });
+
+  it("delta -> textDone -> toolCall -> toolCall works with multiple tools", () => {
+    simulation.delta(runId, "Plan");
+    simulation.textDone(runId);
+    simulation.toolCall(runId, "tool1", "{}");
+    simulation.toolResult(runId, "tool1", "r1");
+    simulation.toolCall(runId, "tool2", "{}");
+    simulation.toolResult(runId, "tool2", "r2");
+    simulation.final(runId);
+
+    const assistants = simulation.messages.filter(
+      (message) => message.type === "assistant",
+    );
+    const nonEmpty = assistants.filter((message) => message.content);
+    expect(nonEmpty.map((message) => message.content)).toEqual(["Plan"]);
+
+    const toolMsgs = simulation.messages.filter(
+      (message) =>
+        message.type === "tool-invoke" || message.type === "tool-result",
+    );
+    expect(toolMsgs).toHaveLength(4);
   });
 });
 

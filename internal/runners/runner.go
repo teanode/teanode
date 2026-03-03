@@ -73,6 +73,7 @@ type RunResult struct {
 type RunCallbacks struct {
 	OnQueued     func() // called when the run must wait for the semaphore
 	OnTextDelta  func(text string)
+	OnTextDone   func(text string) // fired when text streaming ends and tool calls follow
 	OnToolCall   func(toolName string, arguments string)
 	OnToolResult func(toolName string, result string)
 }
@@ -308,6 +309,11 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		}
 
 		responseText = textBuilder.String()
+
+		// Signal that text streaming is done before tool calls begin.
+		if len(toolCalls) > 0 && callbacks != nil && callbacks.OnTextDone != nil {
+			callbacks.OnTextDone(responseText)
+		}
 
 		// Save assistant message.
 		assistantMessage := newTextMessage("assistant", responseText)
