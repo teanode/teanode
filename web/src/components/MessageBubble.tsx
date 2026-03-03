@@ -167,7 +167,11 @@ export default function MessageBubble({
             }}
           >
             {attachments.map((att, index) => (
-              <AttachmentDisplay key={index} attachment={att} resolveMediaUrl={resolveMediaUrl} />
+              <AttachmentDisplay
+                key={index}
+                attachment={att}
+                resolveMediaUrl={resolveMediaUrl}
+              />
             ))}
           </Box>
         )}

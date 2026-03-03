@@ -9,7 +9,13 @@ import SendRounded from "@mui/icons-material/SendRounded";
 import MessageList from "../../components/MessageList";
 import { sendRpc, onEvent, getBaseUrl } from "./rpc";
 import type { RpcEventFrame } from "../shared/types";
-import type { Attachment, DisplayMessage, ToolCall, Message, Usage } from "../../types";
+import type {
+  Attachment,
+  DisplayMessage,
+  ToolCall,
+  Message,
+  Usage,
+} from "../../types";
 import { normalizeContent } from "../../contentUtils";
 
 interface PendingFile {
@@ -241,8 +247,7 @@ export function ChatView({
   function resolveMediaId(mediaId: string): string {
     const base = (baseInfo?.url || "").replace(/\/+$/, "");
     let url = `${base}/api/v1/media/${mediaId}`;
-    if (baseInfo?.token)
-      url += `?token=${encodeURIComponent(baseInfo.token)}`;
+    if (baseInfo?.token) url += `?token=${encodeURIComponent(baseInfo.token)}`;
     return url;
   }
 
@@ -370,7 +375,10 @@ export function ChatView({
             if (previousText) {
               setMessages((prev) => {
                 const updated = [...prev];
-                const assistantIndex = findRunAssistantIndex(updated, activeRunIdRef.current);
+                const assistantIndex = findRunAssistantIndex(
+                  updated,
+                  activeRunIdRef.current,
+                );
                 if (
                   assistantIndex >= 0 &&
                   updated[assistantIndex].type === "assistant"
@@ -392,7 +400,10 @@ export function ChatView({
             } else {
               setMessages((prev) => {
                 const updated = [...prev];
-                const assistantIndex = findRunAssistantIndex(updated, activeRunIdRef.current);
+                const assistantIndex = findRunAssistantIndex(
+                  updated,
+                  activeRunIdRef.current,
+                );
                 if (
                   assistantIndex >= 0 &&
                   updated[assistantIndex].type === "assistant" &&
@@ -434,7 +445,10 @@ export function ChatView({
 
           setMessages((prev) => {
             const updated = [...prev];
-            const assistantIndex = findRunAssistantIndex(updated, activeRunIdRef.current);
+            const assistantIndex = findRunAssistantIndex(
+              updated,
+              activeRunIdRef.current,
+            );
             const toolMessage: DisplayMessage = {
               id: nextMessageId(),
               type: "tool-invoke",
@@ -471,7 +485,10 @@ export function ChatView({
           setToolActivity(null);
           setMessages((prev) => {
             const updated = [...prev];
-            const assistantIndex = findRunAssistantIndex(updated, activeRunIdRef.current);
+            const assistantIndex = findRunAssistantIndex(
+              updated,
+              activeRunIdRef.current,
+            );
             const toolMessage: DisplayMessage = {
               id: nextMessageId(),
               type: "tool-result",
@@ -496,7 +513,10 @@ export function ChatView({
           const capturedStreamText = streamingTextRef.current;
           setMessages((prev) => {
             const updated = [...prev];
-            const assistantIndex = findRunAssistantIndex(updated, activeRunIdRef.current);
+            const assistantIndex = findRunAssistantIndex(
+              updated,
+              activeRunIdRef.current,
+            );
             const hasToolSplits = updated.some(
               (message, index) =>
                 index !== assistantIndex &&
@@ -551,7 +571,10 @@ export function ChatView({
           const capturedText = streamingTextRef.current;
           setMessages((prev) => {
             const updated = [...prev];
-            const assistantIndex = findRunAssistantIndex(updated, activeRunIdRef.current);
+            const assistantIndex = findRunAssistantIndex(
+              updated,
+              activeRunIdRef.current,
+            );
             if (
               assistantIndex >= 0 &&
               updated[assistantIndex].type === "assistant"
@@ -578,7 +601,10 @@ export function ChatView({
           const capturedAbortText = streamingTextRef.current;
           setMessages((prev) => {
             const updated = [...prev];
-            const assistantIndex = findRunAssistantIndex(updated, activeRunIdRef.current);
+            const assistantIndex = findRunAssistantIndex(
+              updated,
+              activeRunIdRef.current,
+            );
             if (
               assistantIndex >= 0 &&
               updated[assistantIndex].type === "assistant"
@@ -750,7 +776,8 @@ export function ChatView({
   const handleDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-      if (event.dataTransfer.files.length > 0) addFiles(event.dataTransfer.files);
+      if (event.dataTransfer.files.length > 0)
+        addFiles(event.dataTransfer.files);
     },
     [addFiles],
   );

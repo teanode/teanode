@@ -46,7 +46,11 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
-export default function ToolResult({ toolName, content, resolveMediaUrl }: ToolResultProps) {
+export default function ToolResult({
+  toolName,
+  content,
+  resolveMediaUrl,
+}: ToolResultProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 

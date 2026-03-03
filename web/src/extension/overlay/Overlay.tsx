@@ -764,9 +764,7 @@ export function Overlay() {
                 onChange={(_, checked) => setShowToolCalls(checked)}
               />
             }
-            label={
-              <Typography variant="body2">Show tool calls</Typography>
-            }
+            label={<Typography variant="body2">Show tool calls</Typography>}
             sx={{ ml: 0, gap: 0.5 }}
           />
           <FormControlLabel
@@ -777,9 +775,7 @@ export function Overlay() {
                 onChange={(_, checked) => setShowTokenUsage(checked)}
               />
             }
-            label={
-              <Typography variant="body2">Show token usage</Typography>
-            }
+            label={<Typography variant="body2">Show token usage</Typography>}
             sx={{ ml: 0, gap: 0.5 }}
           />
         </Box>
