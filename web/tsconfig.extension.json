@@ -12,10 +12,14 @@
     "src/markdown.ts",
     "src/rpc.ts",
     "src/i18n",
+    "src/components/MessageList.tsx",
     "src/components/MessageBubble.tsx",
     "src/components/ToolInvoke.tsx",
     "src/components/ToolResult.tsx",
-    "src/components/ConversationAvatar.tsx"
+    "src/components/UsageIndicator.tsx",
+    "src/components/DateSeparator.tsx",
+    "src/components/ConversationAvatar.tsx",
+    "src/dateUtils.ts"
   ],
   "exclude": []
 }

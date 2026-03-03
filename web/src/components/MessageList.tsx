@@ -17,7 +17,6 @@ import HourglassEmptyRounded from "@mui/icons-material/HourglassEmptyRounded";
 import KeyboardArrowDownRounded from "@mui/icons-material/KeyboardArrowDownRounded";
 import StopRounded from "@mui/icons-material/StopRounded";
 import type { DisplayMessage } from "../types";
-import { useAppContext } from "../context";
 import { dateLabelFor } from "../dateUtils";
 import DateSeparator from "./DateSeparator";
 import MessageBubble from "./MessageBubble";
@@ -34,13 +33,21 @@ interface MessageListProps {
   toolActivity: string | null;
   status: string;
   activeRunId: string | null;
+  showToolCalls: boolean;
+  showTokenUsage: boolean;
   hasMoreHistory?: boolean;
   loadingOlderMessages?: boolean;
   onLoadOlderMessages?: () => void;
   agentName?: string;
   agentAvatarMediaId?: string;
+  /** Pre-resolved agent avatar URL (for extension contexts). */
+  agentAvatarSrc?: string;
   userName?: string;
   userAvatarMediaId?: string;
+  /** Pre-resolved user avatar URL (for extension contexts). */
+  userAvatarSrc?: string;
+  /** Resolve a media ID to a full URL (for extension contexts). */
+  resolveMediaUrl?: (mediaId: string) => string;
   voiceEnabled?: boolean;
   speakingMessageId?: string | null;
   onSpeak?: (messageId: string, text: string) => void;
@@ -102,10 +109,15 @@ export default function MessageList({
   hasMoreHistory,
   loadingOlderMessages,
   onLoadOlderMessages,
+  showToolCalls,
+  showTokenUsage,
   agentName,
   agentAvatarMediaId,
+  agentAvatarSrc,
   userName,
   userAvatarMediaId,
+  userAvatarSrc,
+  resolveMediaUrl,
   voiceEnabled,
   speakingMessageId,
   onSpeak,
@@ -114,7 +126,6 @@ export default function MessageList({
   onAbort,
 }: MessageListProps) {
   const { t } = useTranslation();
-  const { showToolCalls, showTokenUsage } = useAppContext();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const atBottomRef = useRef(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -251,7 +262,9 @@ export default function MessageList({
               timestamp={message.timestamp}
               attachments={message.attachments}
               avatarMediaId={userAvatarMediaId}
+              avatarSrc={userAvatarSrc}
               avatarFallback={normalizedUserFallback}
+              resolveMediaUrl={resolveMediaUrl}
             />
           </Container>
         );
@@ -292,6 +305,7 @@ export default function MessageList({
                 >
                   <ConversationAvatar
                     avatarMediaId={agentAvatarMediaId}
+                    src={agentAvatarSrc}
                     fallback={normalizedAgentFallback}
                   />
                   <CircularProgress size={12} color="primary" />
@@ -343,6 +357,7 @@ export default function MessageList({
               >
                 <ConversationAvatar
                   avatarMediaId={agentAvatarMediaId}
+                  src={agentAvatarSrc}
                   fallback={normalizedAgentFallback}
                 />
                 <HourglassEmptyRounded sx={{ fontSize: 12 }} color="disabled" />
@@ -371,7 +386,9 @@ export default function MessageList({
               streamText={isStreamingMessage ? streamText : undefined}
               timestamp={message.timestamp}
               avatarMediaId={agentAvatarMediaId}
+              avatarSrc={agentAvatarSrc}
               avatarFallback={normalizedAgentFallback}
+              resolveMediaUrl={resolveMediaUrl}
               voiceEnabled={voiceEnabled}
               isSpeakingThis={speakingMessageId === message.id}
               onSpeak={(text) => onSpeak?.(message.id, text)}
@@ -398,6 +415,7 @@ export default function MessageList({
             <ToolResult
               toolName={message.toolName || "tool"}
               content={message.content}
+              resolveMediaUrl={resolveMediaUrl}
             />
           </Container>
         );
@@ -416,6 +434,7 @@ export default function MessageList({
     [
       activeRunId,
       agentAvatarMediaId,
+      agentAvatarSrc,
       isRunning,
       isStreaming,
       lastStreamingAssistantId,
@@ -423,6 +442,7 @@ export default function MessageList({
       normalizedUserFallback,
       onSpeak,
       onStopSpeaking,
+      resolveMediaUrl,
       speakingMessageId,
       streamText,
       t,
@@ -430,6 +450,7 @@ export default function MessageList({
       showAbortOnStatusLine,
       onAbort,
       userAvatarMediaId,
+      userAvatarSrc,
       voiceEnabled,
     ],
   );

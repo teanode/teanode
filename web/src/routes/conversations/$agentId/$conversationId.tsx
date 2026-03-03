@@ -26,6 +26,8 @@ export default function ConversationsConversationPage() {
     ttsVoice,
     todosPanelCollapsed,
     setTodosPanelCollapsed,
+    showToolCalls,
+    showTokenUsage,
   } = useAppContext();
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;
@@ -154,6 +156,8 @@ export default function ConversationsConversationPage() {
         toolActivity={backend.toolActivity}
         status={backend.status}
         activeRunId={backend.currentRunId}
+        showToolCalls={showToolCalls}
+        showTokenUsage={showTokenUsage}
         hasMoreHistory={backend.hasMoreHistory}
         loadingOlderMessages={backend.loadingOlderMessages}
         onLoadOlderMessages={backend.loadOlderMessages}

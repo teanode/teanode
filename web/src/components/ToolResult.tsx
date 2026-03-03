@@ -12,6 +12,8 @@ import { highlightJson } from "../markdown";
 interface ToolResultProps {
   toolName: string;
   content: string;
+  /** Resolve a media ID to a full URL (for extension contexts). */
+  resolveMediaUrl?: (mediaId: string) => string;
 }
 
 interface MediaInfo {
@@ -44,7 +46,7 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
-export default function ToolResult({ toolName, content }: ToolResultProps) {
+export default function ToolResult({ toolName, content, resolveMediaUrl }: ToolResultProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
@@ -129,7 +131,9 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
   if (mediaInfo) {
     const source = mediaInfo.base64
       ? `data:image/${mediaInfo.format};base64,${mediaInfo.base64}`
-      : `/api/v1/media/${mediaInfo.mediaId}`;
+      : resolveMediaUrl && mediaInfo.mediaId
+        ? resolveMediaUrl(mediaInfo.mediaId)
+        : `/api/v1/media/${mediaInfo.mediaId}`;
 
     return (
       <Box
