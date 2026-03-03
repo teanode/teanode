@@ -19,7 +19,7 @@ const (
 	maxToolResultSize    = 768 << 10 // 768 KB
 	maxEvalCodeSize      = 64 << 10  // 64 KB
 	maxLocalStorageValue = 1 << 20   // 1 MB
-	maxSnapshotDomSize   = 512 << 10 // 512 KB for the html field
+	maxDomResultSize     = 128 << 10 // 128 KB for snapshotDom / querySelector results
 )
 
 func init() {
@@ -397,8 +397,11 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 			return jsonError(result.Error), nil
 		}
 		out := result.Result
-		if arguments.Action == "snapshotDom" {
-			out = truncateSnapshotDom(out, maxSnapshotDomSize)
+		switch arguments.Action {
+		case "snapshotDom":
+			out = truncateSnapshotDom(out, maxDomResultSize)
+		case "querySelector":
+			out = truncateQuerySelector(out, maxDomResultSize)
 		}
 		if len(out) > maxToolResultSize {
 			out = out[:maxToolResultSize]
@@ -425,6 +428,32 @@ func truncateSnapshotDom(raw string, maxSize int) string {
 	snap.HTML = snap.HTML[:maxSize]
 	snap.Truncated = true
 	out, _ := json.Marshal(snap)
+	return string(out)
+}
+
+// truncateQuerySelector caps the raw querySelector result to maxSize bytes.
+// It drops trailing elements from the results array until the output fits.
+func truncateQuerySelector(raw string, maxSize int) string {
+	if len(raw) <= maxSize {
+		return raw
+	}
+	var qs struct {
+		Results   []json.RawMessage `json:"results"`
+		Truncated bool              `json:"truncated"`
+	}
+	if json.Unmarshal([]byte(raw), &qs) != nil || len(qs.Results) == 0 {
+		// Can't parse or no results to trim — fall back to raw slice.
+		return raw[:maxSize]
+	}
+	qs.Truncated = true
+	for len(qs.Results) > 0 {
+		out, _ := json.Marshal(qs)
+		if len(out) <= maxSize {
+			return string(out)
+		}
+		qs.Results = qs.Results[:len(qs.Results)-1]
+	}
+	out, _ := json.Marshal(qs)
 	return string(out)
 }
 

@@ -474,6 +474,43 @@ func TestTabTool_QuerySelector_DefaultMode(t *testing.T) {
 	}
 }
 
+func TestTabTool_QuerySelector_Truncated(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	// Build a results array that exceeds maxDomResultSize.
+	elem := `{"tagName":"div","content":"` + strings.Repeat("a", 1024) + `","attributes":{}}`
+	var elems []string
+	for i := 0; i < (maxDomResultSize/1024)+10; i++ {
+		elems = append(elems, elem)
+	}
+	bigResult := `{"results":[` + strings.Join(elems, ",") + `]}`
+	resolvePending(broker, tabs.ToolCallResult{Result: bigResult})
+
+	result, err := tool.Execute(ctx, `{"action":"querySelector","selector":"div","all":true}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) > maxDomResultSize {
+		t.Errorf("result should be at most %d bytes, got %d", maxDomResultSize, len(result))
+	}
+
+	var parsed struct {
+		Results   []json.RawMessage `json:"results"`
+		Truncated bool              `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("result should be valid JSON: %v", err)
+	}
+	if !parsed.Truncated {
+		t.Error("expected truncated to be true")
+	}
+	if len(parsed.Results) >= len(elems) {
+		t.Errorf("expected fewer results after truncation, got %d (original %d)", len(parsed.Results), len(elems))
+	}
+}
+
 func TestTabTool_SnapshotDom_HappyPath(t *testing.T) {
 	broker := attachedBroker()
 	ctx := testContext(broker)
@@ -495,7 +532,7 @@ func TestTabTool_SnapshotDom_Truncated(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	bigHTML := strings.Repeat("x", maxSnapshotDomSize+100)
+	bigHTML := strings.Repeat("x", maxDomResultSize+100)
 	resolvePending(broker, tabs.ToolCallResult{
 		Result: `{"html":"` + bigHTML + `","truncated":false}`,
 	})
@@ -515,8 +552,8 @@ func TestTabTool_SnapshotDom_Truncated(t *testing.T) {
 	if !snap.Truncated {
 		t.Error("expected truncated to be true")
 	}
-	if len(snap.HTML) != maxSnapshotDomSize {
-		t.Errorf("expected html length %d, got %d", maxSnapshotDomSize, len(snap.HTML))
+	if len(snap.HTML) != maxDomResultSize {
+		t.Errorf("expected html length %d, got %d", maxDomResultSize, len(snap.HTML))
 	}
 }
 
