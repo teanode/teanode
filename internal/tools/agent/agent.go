@@ -9,10 +9,12 @@ import (
 
 	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
@@ -92,10 +94,15 @@ func (self *agentCreateTool) Execute(ctx context.Context, rawArguments string) (
 		if err != store.ErrNotFound {
 			return err
 		}
+		seedWorkspaceFiles := []models.WorkspaceFile{
+			{Path: ptrto.Value("AGENT.md"), Content: ptrto.Value([]byte(prompts.DefaultAgentMarkdown()))},
+			{Path: ptrto.Value("MEMORY.md"), Content: ptrto.Value([]byte(prompts.DefaultMemoryMarkdown()))},
+			{Path: ptrto.Value("SKILLS.md"), Content: ptrto.Value([]byte(prompts.DefaultSkillsMarkdown()))},
+		}
 		_, createError := transaction.CreateAgent(ctx, &models.Agent{
 			ID:   arguments.AgentID,
 			Name: &arguments.Name,
-		}, nil, nil)
+		}, seedWorkspaceFiles, nil)
 		return createError
 	}); err != nil {
 		return "", err

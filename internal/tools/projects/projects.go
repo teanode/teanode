@@ -54,18 +54,14 @@ func createProject(ctx context.Context, name, description, purpose string) (*mod
 	var createdProject *models.Project
 	if transactionError := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		projectId := security.NewULID()
-		seedWorkspaceFiles := make([]models.WorkspaceFile, 0)
-		if trimmedPurpose != "" {
-			projectMarkdown, buildError := prompts.BuildProjectMarkdown(trimmedName, projectId, trimmedDescription, trimmedPurpose)
-			if buildError != nil {
-				return buildError
-			}
-			relativePath := defaultProjectDocumentName
-			contentBytes := []byte(projectMarkdown)
-			seedWorkspaceFiles = append(seedWorkspaceFiles, models.WorkspaceFile{
-				Path:    &relativePath,
-				Content: &contentBytes,
-			})
+		projectMarkdown, buildError := prompts.BuildProjectMarkdown(trimmedName, projectId, trimmedDescription, trimmedPurpose)
+		if buildError != nil {
+			return buildError
+		}
+		relativePath := defaultProjectDocumentName
+		contentBytes := []byte(projectMarkdown)
+		seedWorkspaceFiles := []models.WorkspaceFile{
+			{Path: &relativePath, Content: &contentBytes},
 		}
 		projectModel, createError := transaction.CreateProject(ctx, &models.Project{
 			ID:          projectId,

@@ -68,7 +68,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					"headers": map[string]interface{}{
 						"type":                 "object",
 						"additionalProperties": map[string]interface{}{"type": "string"},
-						"description":          "Request headers (for fetch action).",
+						"description":          "Additional HTTP request headers as key-value pairs (for fetch action). Use to set Authorization, Content-Type, Accept, or custom headers (e.g. X-Custom-Header). Example: {\"Authorization\": \"Bearer token\", \"Accept\": \"application/json\"}.",
 					},
 					"body": map[string]interface{}{
 						"type":        "string",

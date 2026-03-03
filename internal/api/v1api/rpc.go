@@ -13,6 +13,7 @@ import (
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/onboarding"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/schemas"
 	"github.com/teanode/teanode/internal/store"
@@ -779,6 +780,11 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) {
 			return err
 		}
 
+		seedWorkspaceFiles := []models.WorkspaceFile{
+			{Path: ptrto.Value("AGENT.md"), Content: ptrto.Value([]byte(prompts.DefaultAgentMarkdown()))},
+			{Path: ptrto.Value("MEMORY.md"), Content: ptrto.Value([]byte(prompts.DefaultMemoryMarkdown()))},
+			{Path: ptrto.Value("SKILLS.md"), Content: ptrto.Value([]byte(prompts.DefaultSkillsMarkdown()))},
+		}
 		_, err = transaction.CreateAgent(ctx, &models.Agent{
 			ID:                agentID,
 			Name:              ptrto.TrimmedString(agentConfig.Name),
@@ -787,7 +793,7 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) {
 			Skills:            ptrto.Value(agentConfig.Skills),
 			Description:       ptrto.TrimmedString(agentConfig.Description),
 			AvatarMediaID:     ptrto.TrimmedString(agentConfig.AvatarMediaID),
-		}, nil, nil)
+		}, seedWorkspaceFiles, nil)
 		return err
 	}); err != nil {
 		self.sendError(frame.ID, 500, "saving agent: "+err.Error())
@@ -1887,15 +1893,14 @@ func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) {
 	var createdProject *models.Project
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		projectId := security.NewULID()
-		workspaceFiles := make([]models.WorkspaceFile, 0)
-		purpose := parameters.Purpose
-		if purpose != "" {
-			relativePath := "PURPOSE.md"
-			content := []byte(purpose)
-			workspaceFiles = append(workspaceFiles, models.WorkspaceFile{
-				Path:    &relativePath,
-				Content: &content,
-			})
+		projectMarkdown, buildError := prompts.BuildProjectMarkdown(parameters.Name, projectId, parameters.Description, parameters.Purpose)
+		if buildError != nil {
+			return buildError
+		}
+		relativePath := "PROJECT.md"
+		contentBytes := []byte(projectMarkdown)
+		workspaceFiles := []models.WorkspaceFile{
+			{Path: &relativePath, Content: &contentBytes},
 		}
 		project, err := transaction.CreateProject(ctx, &models.Project{
 			ID:          projectId,
