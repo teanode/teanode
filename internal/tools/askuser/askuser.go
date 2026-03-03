@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/teanode/teanode/internal/integrations/questions"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/pubsub"
@@ -89,7 +90,7 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 	}
 
 	// Get broker and runner metadata from context.
-	broker := QuestionBrokerFromContext(ctx)
+	broker := questions.QuestionBrokerFromContext(ctx)
 	if broker == nil {
 		return "", fmt.Errorf("question broker not available")
 	}
@@ -103,7 +104,7 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 	}
 
 	// Register pending question (in-memory only).
-	pending := &PendingQuestion{
+	pending := &questions.PendingQuestion{
 		ID:               security.NewULID(),
 		ConversationID:   runner.ConversationID,
 		AgentID:          runner.AgentID,
@@ -114,8 +115,8 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 		AllowOther:       args.AllowOther,
 		OtherLabel:       args.OtherLabel,
 		OtherPlaceholder: args.OtherPlaceholder,
-		answerChan:       MakeAnswerChan(),
 	}
+	pending.SetAnswerChan(questions.MakeAnswerChan())
 	broker.Register(pending)
 
 	// Broadcast question event via pubsub.
@@ -145,7 +146,7 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 
 	// Block until answer or cancellation.
 	select {
-	case payload, ok := <-pending.answerChan:
+	case payload, ok := <-pending.AnswerChan():
 		if !ok {
 			return "", fmt.Errorf("question cancelled")
 		}

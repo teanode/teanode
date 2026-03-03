@@ -120,8 +120,8 @@ func newWebSocketConnection(connection *websocket.Conn, api *v1Api, ctx context.
 	}
 }
 
-// connID returns the unique identifier for this connection.
-func (self *webSocketConnection) connID() string {
+// connectionId returns the unique identifier for this connection.
+func (self *webSocketConnection) connectionId() string {
 	return self.id
 }
 
@@ -168,8 +168,8 @@ func (self *webSocketConnection) serve() {
 
 	// Clean up tab attachments owned by this connection.
 	defer func() {
-		if broker := self.api.coordinator.TabToolBroker(); broker != nil {
-			broker.DetachAllForConnection(self.connID())
+		if broker := self.api.coordinator.TabBroker(); broker != nil {
+			broker.DetachAllForConnection(self.connectionId())
 		}
 	}()
 
@@ -354,30 +354,18 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleProjectsDelete(frame)
 	case "conversations.todos.list":
 		self.handleConversationsTodosList(frame)
-	case "conversations.todos.add":
-		self.handleConversationsTodosAdd(frame)
-	case "conversations.todos.complete":
-		self.handleConversationsTodosComplete(frame)
-	case "conversations.todos.reopen":
-		self.handleConversationsTodosReopen(frame)
-	case "conversations.todos.update":
-		self.handleConversationsTodosUpdate(frame)
-	case "conversations.todos.delete":
-		self.handleConversationsTodosDelete(frame)
+	case "conversations.todos.batch":
+		self.handleConversationsTodosBatch(frame)
 	case "questions.list":
 		self.handleQuestionsList(frame)
 	case "questions.answer":
 		self.handleQuestionsAnswer(frame)
-	case "questions.answer_batch":
-		self.handleQuestionsAnswerBatch(frame)
 	case "tab.attach":
 		self.handleTabAttach(frame)
 	case "tab.detach":
 		self.handleTabDetach(frame)
-	case "tab.tool_result":
-		self.handleTabToolResult(frame)
-	case "tab.attachments.list":
-		self.handleTabAttachmentsList(frame)
+	case "tab.commandResult":
+		self.handleTabCommandResult(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

@@ -8,15 +8,22 @@ import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
+import Alert from "@mui/material/Alert";
 import AddRounded from "@mui/icons-material/AddRounded";
+import BugReportRounded from "@mui/icons-material/BugReportRounded";
 import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
+import Tooltip from "@mui/material/Tooltip";
+import { keyframes } from "@mui/material/styles";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { sendRpc, onEvent, ensureConnected, disconnect } from "./rpc";
 
 dayjs.extend(relativeTime);
 import { ChatView } from "./ChatView";
+import { MSG } from "../shared/messages";
 import type {
+  CdpState,
+  CdpStateChanged,
   RpcEventFrame,
   ToolExecuteRequest,
   ToolExecuteResponse,
@@ -46,7 +53,12 @@ interface BoundTab {
   title: string;
 }
 
-export function SidePanel() {
+const pulseAnimation = keyframes`
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+`;
+
+export function Overlay() {
   const [connected, setConnected] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState("");
@@ -66,6 +78,12 @@ export function SidePanel() {
   const [boundTab, setBoundTab] = useState<BoundTab | null>(null);
   const boundTabRef = useRef<BoundTab | null>(null);
   boundTabRef.current = boundTab;
+
+  // --- CDP relay state ---
+  const [cdpState, setCdpState] = useState<CdpState>("detached");
+
+  // --- Displacement warning ---
+  const [displaced, setDisplaced] = useState(false);
 
   // Persist selection to chrome.storage.local.
   useEffect(() => {
@@ -131,8 +149,10 @@ export function SidePanel() {
           const resolvedAgentId =
             agentId || data.defaultAgentId || data.agents?.[0]?.id || "";
           const agent = data.agents?.find((a) => a.id === resolvedAgentId);
-          return (agent as { defaultConversationId?: string })
-            ?.defaultConversationId || "";
+          return (
+            (agent as { defaultConversationId?: string })
+              ?.defaultConversationId || ""
+          );
         });
       })
       .catch(() => {});
@@ -227,6 +247,7 @@ export function SidePanel() {
             url: active.url,
             title: active.title || "",
           });
+          setDisplaced(false);
         }
       } catch {
         // ignore attach errors
@@ -240,6 +261,22 @@ export function SidePanel() {
       setBoundTab(null);
     };
   }, [connected, agentId, conversationId]);
+
+  // --- Query CDP state when bound tab is known ---
+  useEffect(() => {
+    if (!boundTab) {
+      setCdpState("detached");
+      return;
+    }
+    if (typeof chrome === "undefined" || !chrome.runtime) return;
+    chrome.runtime
+      .sendMessage({ type: MSG.CDP_STATE_QUERY, tabId: boundTab.tabId })
+      .then((resp: unknown) => {
+        const msg = resp as CdpStateChanged | undefined;
+        if (msg?.state) setCdpState(msg.state);
+      })
+      .catch(() => {});
+  }, [boundTab?.tabId]);
 
   // --- Handle overlay close: detach tab and disconnect before iframe is torn down ---
   useEffect(() => {
@@ -259,17 +296,24 @@ export function SidePanel() {
     return () => window.removeEventListener("message", handler);
   }, []);
 
-  // Listen for tab URL changes and tab closure from background SW.
+  // Listen for tab URL changes, tab closure, and CDP state from background SW.
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.runtime) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const onMessage = (message: any): undefined => {
+      // CDP state broadcasts (not filtered by boundTab — may arrive before binding).
+      if (message.type === MSG.CDP_STATE) {
+        const msg = message as CdpStateChanged;
+        const bt = boundTabRef.current;
+        if (bt && msg.tabId === bt.tabId) {
+          setCdpState(msg.state);
+        }
+        return undefined;
+      }
+
       const bt = boundTabRef.current;
       if (!bt) return;
-      if (
-        message.type === "tab_url_changed" &&
-        message.tabId === bt.tabId
-      ) {
+      if (message.type === "tab_url_changed" && message.tabId === bt.tabId) {
         const updated: BoundTab = {
           tabId: message.tabId,
           url: message.url,
@@ -297,30 +341,51 @@ export function SidePanel() {
     return () => chrome.runtime.onMessage.removeListener(onMessage);
   }, []);
 
-  // Listen for tab_attachment events from server.
+  // Listen for tabAttachment events from server.
   useEffect(() => {
     return onEvent((frame: RpcEventFrame) => {
-      if (frame.event !== "tab_attachment") return;
+      if (frame.event !== "tabAttachment") return;
       const p = frame.payload as Record<string, unknown>;
       if (p.agentId !== agentId || p.conversationId !== conversationId) return;
-      if (p.action === "detached") {
-        setBoundTab(null);
+      if (p.action === "attached") {
+        const bt = boundTabRef.current;
+        // Another tab took over — we've been displaced.
+        if (bt && typeof p.tabId === "number" && p.tabId !== bt.tabId) {
+          setBoundTab(null);
+          setDisplaced(true);
+        }
+      } else if (p.action === "detached") {
+        const bt = boundTabRef.current;
+        // If this detach targets our tab (or is a displacement broadcast), clear binding.
+        if (
+          bt &&
+          (p.displaced || (typeof p.tabId === "number" && p.tabId === bt.tabId))
+        ) {
+          setBoundTab(null);
+          setDisplaced(true);
+        } else if (!bt) {
+          // Already unbound, nothing to do.
+        }
       }
     });
   }, [agentId, conversationId]);
 
-  // Handle tab_tool_call events: forward to background SW using bound tab.
+  // Handle tabCommand events: forward to background SW using bound tab.
   useEffect(() => {
     if (!connected) return;
     return onEvent(async (frame: RpcEventFrame) => {
-      if (frame.event !== "tab_tool_call") return;
+      if (frame.event !== "tabCommand") return;
       const p = frame.payload as Record<string, unknown>;
       if (p.agentId !== agentId || p.conversationId !== conversationId) return;
 
       const bt = boundTabRef.current;
       const tabId = bt?.tabId;
+
+      // If the command targets a specific tab that isn't ours, skip silently.
+      if (typeof p.tabId === "number" && tabId && p.tabId !== tabId) return;
+
       if (!tabId) {
-        await sendRpc("tab.tool_result", {
+        await sendRpc("tab.commandResult", {
           requestId: p.requestId,
           error: "no tab bound",
         }).catch(() => {});
@@ -339,19 +404,56 @@ export function SidePanel() {
         const response = (await chrome.runtime.sendMessage(
           request,
         )) as ToolExecuteResponse;
-        await sendRpc("tab.tool_result", {
+        await sendRpc("tab.commandResult", {
           requestId: p.requestId,
           result: response.result || "",
           error: response.error || "",
         });
       } catch (err) {
-        await sendRpc("tab.tool_result", {
+        await sendRpc("tab.commandResult", {
           requestId: p.requestId,
           error: String(err),
         }).catch(() => {});
       }
     });
   }, [connected, agentId, conversationId]);
+
+  const handleCdpToggle = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation(); // Prevent header click → drawer open.
+      if (typeof chrome === "undefined" || !chrome.runtime) return;
+      chrome.runtime
+        .sendMessage({ type: MSG.CDP_TOGGLE, tabId: boundTab?.tabId })
+        .catch(() => {});
+    },
+    [boundTab?.tabId],
+  );
+
+  const handleReattach = useCallback(async () => {
+    if (typeof chrome === "undefined" || !chrome.tabs) return;
+    try {
+      const [active] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      if (!active?.id || !active.url) return;
+      await sendRpc("tab.attach", {
+        agentId: agentIdRef.current,
+        conversationId: conversationIdRef.current,
+        tabUrl: active.url,
+        tabTitle: active.title || "",
+        tabId: active.id,
+      });
+      setBoundTab({
+        tabId: active.id,
+        url: active.url,
+        title: active.title || "",
+      });
+      setDisplaced(false);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const handleNewConversation = useCallback(() => {
     setConversationId("");
@@ -463,8 +565,56 @@ export function SidePanel() {
             {headerLabel}
           </Typography>
         </Box>
+        <Tooltip
+          title={
+            cdpState === "attached"
+              ? "CDP attached (click to detach)"
+              : cdpState === "connecting"
+                ? "Connecting CDP..."
+                : cdpState === "error"
+                  ? "CDP error (click to retry)"
+                  : "Attach CDP debugger"
+          }
+          arrow
+        >
+          <IconButton size="small" onClick={handleCdpToggle} sx={{ p: 0.5 }}>
+            <BugReportRounded
+              sx={{
+                fontSize: 18,
+                color:
+                  cdpState === "attached"
+                    ? "primary.main"
+                    : cdpState === "error"
+                      ? "error.main"
+                      : cdpState === "connecting"
+                        ? "warning.main"
+                        : "text.disabled",
+                opacity: cdpState === "detached" ? 0.4 : 1,
+                ...(cdpState === "connecting" && {
+                  animation: `${pulseAnimation} 1.2s ease-in-out infinite`,
+                }),
+              }}
+            />
+          </IconButton>
+        </Tooltip>
         <ExpandMoreRounded sx={{ color: "text.secondary", fontSize: 20 }} />
       </Box>
+
+      {/* Displacement warning */}
+      {displaced && (
+        <Alert
+          severity="warning"
+          variant="outlined"
+          sx={{ mx: 1, mt: 0.5, py: 0, fontSize: 12 }}
+          action={
+            <Button size="small" onClick={handleReattach} sx={{ fontSize: 11 }}>
+              Re-attach
+            </Button>
+          }
+        >
+          Tab control moved to another tab.
+        </Alert>
+      )}
 
       {/* Chat */}
       <ChatView
@@ -555,9 +705,7 @@ export function SidePanel() {
                 <ListItemText
                   primary={c.summary || c.id.slice(0, 16)}
                   secondary={
-                    c.lastActive
-                      ? dayjs(c.lastActive).fromNow()
-                      : undefined
+                    c.lastActive ? dayjs(c.lastActive).fromNow() : undefined
                   }
                   primaryTypographyProps={{
                     variant: "body2",

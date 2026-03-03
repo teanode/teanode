@@ -3,8 +3,8 @@ package v1api
 import (
 	"encoding/json"
 
+	"github.com/teanode/teanode/internal/integrations/tabs"
 	"github.com/teanode/teanode/internal/pubsub"
-	"github.com/teanode/teanode/internal/tools/tab"
 )
 
 // --- tab.attach ---
@@ -35,16 +35,30 @@ func (self *webSocketConnection) handleTabAttach(frame requestFrame) {
 		return
 	}
 
-	broker := self.api.coordinator.TabToolBroker()
-	connID := self.connID()
-	broker.Attach(tab.TabAttachment{
+	broker := self.api.coordinator.TabBroker()
+	connectionId := self.connectionId()
+	displaced := broker.Attach(tabs.Attachment{
 		UserID:         userId,
 		AgentID:        params.AgentID,
 		ConversationID: params.ConversationID,
 		TabURL:         params.TabURL,
 		TabTitle:       params.TabTitle,
 		TabID:          params.TabID,
-	}, connID)
+	}, connectionId)
+
+	// If a different tab/connection was displaced, cancel its pending calls
+	// and notify it before broadcasting the new attachment.
+	if displaced != nil {
+		broker.CancelPendingForAttachment(userId, params.AgentID, params.ConversationID)
+		self.api.pubsub.Broadcast(pubsub.EventTypeTabAttachment, map[string]interface{}{
+			"action":         "detached",
+			"userId":         userId,
+			"agentId":        params.AgentID,
+			"conversationId": params.ConversationID,
+			"displaced":      true,
+			"tabId":          displaced.TabID,
+		})
+	}
 
 	self.api.pubsub.Broadcast(pubsub.EventTypeTabAttachment, map[string]interface{}{
 		"action":         "attached",
@@ -53,6 +67,7 @@ func (self *webSocketConnection) handleTabAttach(frame requestFrame) {
 		"conversationId": params.ConversationID,
 		"tabUrl":         params.TabURL,
 		"tabTitle":       params.TabTitle,
+		"tabId":          params.TabID,
 	})
 
 	self.sendResponse(frame.ID, nil)
@@ -74,11 +89,11 @@ func (self *webSocketConnection) handleTabDetach(frame requestFrame) {
 	}
 
 	userId := self.userId()
-	broker := self.api.coordinator.TabToolBroker()
-	connID := self.connID()
+	broker := self.api.coordinator.TabBroker()
+	connectionId := self.connectionId()
 
 	broker.CancelPendingForAttachment(userId, params.AgentID, params.ConversationID)
-	broker.Detach(userId, params.AgentID, params.ConversationID, connID)
+	broker.Detach(userId, params.AgentID, params.ConversationID, connectionId)
 
 	self.api.pubsub.Broadcast(pubsub.EventTypeTabAttachment, map[string]interface{}{
 		"action":         "detached",
@@ -92,7 +107,7 @@ func (self *webSocketConnection) handleTabDetach(frame requestFrame) {
 
 // --- tab.tool_result ---
 
-func (self *webSocketConnection) handleTabToolResult(frame requestFrame) {
+func (self *webSocketConnection) handleTabCommandResult(frame requestFrame) {
 	var params struct {
 		RequestID string `json:"requestId"`
 		Result    string `json:"result"`
@@ -106,8 +121,8 @@ func (self *webSocketConnection) handleTabToolResult(frame requestFrame) {
 		return
 	}
 
-	broker := self.api.coordinator.TabToolBroker()
-	if err := broker.Resolve(params.RequestID, tab.ToolCallResult{
+	broker := self.api.coordinator.TabBroker()
+	if err := broker.Resolve(params.RequestID, tabs.ToolCallResult{
 		Result: params.Result,
 		Error:  params.Error,
 	}); err != nil {
@@ -116,18 +131,4 @@ func (self *webSocketConnection) handleTabToolResult(frame requestFrame) {
 	}
 
 	self.sendResponse(frame.ID, nil)
-}
-
-// --- tab.attachments.list ---
-
-func (self *webSocketConnection) handleTabAttachmentsList(frame requestFrame) {
-	userId := self.userId()
-	broker := self.api.coordinator.TabToolBroker()
-	attachments := broker.ListForUser(userId)
-	if attachments == nil {
-		attachments = []tab.TabAttachment{}
-	}
-	self.sendResponse(frame.ID, map[string]interface{}{
-		"attachments": attachments,
-	})
 }

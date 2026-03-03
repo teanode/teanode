@@ -10,4 +10,7 @@ export const MSG = {
   TAB_CLOSED: "tab_closed",
   OVERLAY_TOGGLE: "tn:toggle-overlay",
   OVERLAY_CLOSE: "tn:close-overlay",
+  CDP_TOGGLE: "tn:toggle-cdp",
+  CDP_STATE_QUERY: "tn:cdp-state-query",
+  CDP_STATE: "tn:cdp-state",
 } as const;

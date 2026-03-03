@@ -42,7 +42,9 @@ async function loadGeometry(): Promise<OverlayGeometry> {
     const stored = await chrome.storage.local.get([storageKey()]);
     const geo = stored[storageKey()] as OverlayGeometry | undefined;
     if (geo && typeof geo.xRatio === "number") return geo;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // Default: bottom-right corner
   const vw = window.innerWidth;
@@ -77,7 +79,10 @@ function clamp(val: number, min: number, max: number): number {
 }
 
 function clampRect(
-  x: number, y: number, w: number, h: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
 ): { x: number; y: number; w: number; h: number } {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -236,7 +241,10 @@ function createOverlay(): void {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const { x, y, w, h } = clampRect(
-      geo.xRatio * vw, geo.yRatio * vh, geo.width, geo.height,
+      geo.xRatio * vw,
+      geo.yRatio * vh,
+      geo.width,
+      geo.height,
     );
     container.style.left = `${x}px`;
     container.style.top = `${y}px`;

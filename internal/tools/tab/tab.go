@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/teanode/teanode/internal/integrations/tabs"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/pubsub"
@@ -14,10 +15,10 @@ import (
 )
 
 const (
-	maxRequestBodySize = 1 << 20   // 1 MB
-	maxToolResultSize  = 768 << 10 // 768 KB
-	maxEvalCodeSize    = 64 << 10  // 64 KB
-	maxLocalStorageVal = 1 << 20   // 1 MB
+	maxRequestBodySize   = 1 << 20   // 1 MB
+	maxToolResultSize    = 768 << 10 // 768 KB
+	maxEvalCodeSize      = 64 << 10  // 64 KB
+	maxLocalStorageValue = 1 << 20   // 1 MB
 )
 
 func init() {
@@ -114,7 +115,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					// eval params
 					"code": map[string]interface{}{
 						"type":        "string",
-						"description": "JavaScript code to execute in the page context (for eval action). Must return a JSON-serializable value.",
+						"description": "JavaScript code to execute in the page context (for eval action). Must evaluate to a JSON-serializable value.",
 					},
 				},
 				"required": []string{"action"},
@@ -197,20 +198,20 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 }
 
 type tabArguments struct {
-	Action    string            `json:"action"`
-	Method    string            `json:"method,omitempty"`
-	URL       string            `json:"url,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
-	Body      string            `json:"body,omitempty"`
-	TimeoutMs int               `json:"timeoutMs,omitempty"`
-	Domain    string            `json:"domain,omitempty"`
-	Name      string            `json:"name,omitempty"`
-	Key       string            `json:"key,omitempty"`
-	Value     string            `json:"value,omitempty"`
-	Selector  string            `json:"selector,omitempty"`
-	Mode      string            `json:"mode,omitempty"`
-	All       bool              `json:"all,omitempty"`
-	Code      string            `json:"code,omitempty"`
+	Action              string            `json:"action"`
+	Method              string            `json:"method,omitempty"`
+	URL                 string            `json:"url,omitempty"`
+	Headers             map[string]string `json:"headers,omitempty"`
+	Body                string            `json:"body,omitempty"`
+	TimeoutMilliseconds int               `json:"timeoutMs,omitempty"`
+	Domain              string            `json:"domain,omitempty"`
+	Name                string            `json:"name,omitempty"`
+	Key                 string            `json:"key,omitempty"`
+	Value               string            `json:"value,omitempty"`
+	Selector            string            `json:"selector,omitempty"`
+	Mode                string            `json:"mode,omitempty"`
+	All                 bool              `json:"all,omitempty"`
+	Code                string            `json:"code,omitempty"`
 }
 
 func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, error) {
@@ -223,7 +224,7 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		return jsonError(fmt.Sprintf("tab tool is only supported on the webui channel, not %s", channel)), nil
 	}
 
-	broker := TabToolBrokerFromContext(ctx)
+	broker := tabs.TabBrokerFromContext(ctx)
 	if broker == nil {
 		return jsonError("tab tool broker not available"), nil
 	}
@@ -237,7 +238,8 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		return "", fmt.Errorf("authentication required")
 	}
 
-	if !broker.HasAttachment(user.ID, runner.AgentID, runner.ConversationID) {
+	attachment := broker.GetAttachment(user.ID, runner.AgentID, runner.ConversationID)
+	if attachment == nil {
 		return jsonError("no browser tab attached to this conversation"), nil
 	}
 
@@ -257,8 +259,8 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		if len(arguments.Body) > maxRequestBodySize {
 			return jsonError(fmt.Sprintf("request body too large (%d bytes, max %d)", len(arguments.Body), maxRequestBodySize)), nil
 		}
-		if arguments.TimeoutMs <= 0 {
-			arguments.TimeoutMs = 30000
+		if arguments.TimeoutMilliseconds <= 0 {
+			arguments.TimeoutMilliseconds = 30000
 		}
 	case "listCookies":
 		// No required fields.
@@ -274,8 +276,8 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		if arguments.Key == "" {
 			return jsonError("key is required for setLocalStorage action"), nil
 		}
-		if len(arguments.Value) > maxLocalStorageVal {
-			return jsonError(fmt.Sprintf("value too large (%d bytes, max %d)", len(arguments.Value), maxLocalStorageVal)), nil
+		if len(arguments.Value) > maxLocalStorageValue {
+			return jsonError(fmt.Sprintf("value too large (%d bytes, max %d)", len(arguments.Value), maxLocalStorageValue)), nil
 		}
 	case "removeLocalStorage":
 		if arguments.Key == "" {
@@ -309,33 +311,34 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		return "", fmt.Errorf("unknown tab action: %s", arguments.Action)
 	}
 
-	argumentsJSON, _ := json.Marshal(arguments)
+	argumentsJson, _ := json.Marshal(arguments)
 
-	pending := &PendingToolCall{
+	pending := &tabs.PendingToolCall{
 		ID:             security.NewULID(),
 		UserID:         user.ID,
 		AgentID:        runner.AgentID,
 		ConversationID: runner.ConversationID,
 		ToolName:       "tab",
-		Arguments:      argumentsJSON,
-		resultChan:     MakeResultChan(),
+		Arguments:      argumentsJson,
 	}
+	pending.SetResultChan(tabs.MakeResultChan())
 	broker.RegisterPending(pending)
 
-	ps := pubsub.PubSubFromContext(ctx)
-	if ps != nil {
-		ps.Broadcast(pubsub.EventTypeTabToolCall, map[string]interface{}{
+	events := pubsub.PubSubFromContext(ctx)
+	if events != nil {
+		events.Broadcast(pubsub.EventTypeTabCommand, map[string]interface{}{
 			"requestId":      pending.ID,
 			"userId":         user.ID,
 			"agentId":        runner.AgentID,
 			"conversationId": runner.ConversationID,
 			"toolName":       "tab",
 			"arguments":      arguments,
+			"tabId":          attachment.TabID,
 		})
 	}
 
 	select {
-	case result, ok := <-pending.resultChan:
+	case result, ok := <-pending.ResultChan():
 		if !ok {
 			return jsonError("tool call cancelled"), nil
 		}

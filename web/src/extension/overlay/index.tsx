@@ -1,5 +1,5 @@
 /**
- * Overlay entry point — renders the same SidePanel UI inside a floating iframe.
+ * Overlay entry point — renders the Overlay UI inside a floating iframe.
  * Listens for postMessage from the content script for close/minimize commands.
  */
 
@@ -15,7 +15,7 @@ import {
   loadThemePreference,
   type ThemePreference,
 } from "../../themePreference";
-import { SidePanel } from "./SidePanel";
+import { Overlay } from "./Overlay";
 import "../../i18n/config";
 import "highlight.js/styles/github-dark.css";
 
@@ -181,7 +181,7 @@ function Root() {
       <GlobalStyles
         styles={(currentTheme: Theme) => markdownStyles(currentTheme)}
       />
-      <SidePanel />
+      <Overlay />
     </ThemeProvider>
   );
 }

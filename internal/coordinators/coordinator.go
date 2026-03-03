@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/integrations/questions"
+	"github.com/teanode/teanode/internal/integrations/tabs"
 	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
@@ -14,8 +16,6 @@ import (
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/summarizers"
-	"github.com/teanode/teanode/internal/tools/askuser"
-	"github.com/teanode/teanode/internal/tools/tab"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/security"
 )
@@ -31,8 +31,8 @@ type Coordinator struct {
 	providerRegistry           *providers.ProviderRegistry
 	summarizer                 *summarizers.Summarizer
 	pubsub                     *pubsub.PubSub
-	questionBroker             *askuser.QuestionBroker
-	tabToolBroker              *tab.TabToolBroker
+	questionBroker             *questions.QuestionBroker
+	tabBroker                  *tabs.TabBroker
 	activeRunners              sync.Map // conversationId -> *conversationRunner
 	activeRunIdConversationIds sync.Map // runId -> conversationId
 	activeConversationIdRunIds sync.Map // conversationId -> runId
@@ -77,8 +77,8 @@ func New(
 		providerRegistry: providerRegistry,
 		summarizer:       summarizerInstance,
 		pubsub:           events,
-		questionBroker:   askuser.NewQuestionBroker(),
-		tabToolBroker:    tab.NewTabToolBroker(),
+		questionBroker:   questions.NewQuestionBroker(),
+		tabBroker:        tabs.NewTabBroker(),
 	}
 }
 
@@ -88,13 +88,13 @@ func (self *Coordinator) ProviderRegistry() *providers.ProviderRegistry {
 }
 
 // QuestionBroker returns the in-memory question broker.
-func (self *Coordinator) QuestionBroker() *askuser.QuestionBroker {
+func (self *Coordinator) QuestionBroker() *questions.QuestionBroker {
 	return self.questionBroker
 }
 
-// TabToolBroker returns the in-memory tab tool broker.
-func (self *Coordinator) TabToolBroker() *tab.TabToolBroker {
-	return self.tabToolBroker
+// TabBroker returns the in-memory tab tool broker.
+func (self *Coordinator) TabBroker() *tabs.TabBroker {
+	return self.tabBroker
 }
 
 // Run orchestrates an agent run: resolves conversation, generates
@@ -502,8 +502,8 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 			// Carry over the authenticated user from the caller's context.
 			// Ensure coordinator is on the context.
 			ctx, cancel = context.WithCancel(
-				tab.ContextWithTabToolBroker(
-					askuser.ContextWithQuestionBroker(
+				tabs.ContextWithTabBroker(
+					questions.ContextWithQuestionBroker(
 						runners.ContextWithOrigin(
 							ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
 								self.ctx,
@@ -515,7 +515,7 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 						),
 						self.questionBroker,
 					),
-					self.tabToolBroker,
+					self.tabBroker,
 				))
 			conversationRunnerInstance.cancel = cancel
 		}

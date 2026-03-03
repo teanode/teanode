@@ -38,17 +38,11 @@ function extractFromBlocks(blocks: ContentBlock[]): ExtractedContent {
  * can be either a JSON string or an array of content blocks like:
  *   [{type:"text", text:"..."}, {type:"attachment", mediaId:"...", ...}]
  */
-export function normalizeContent(
-  content: unknown,
-): ExtractedContent {
+export function normalizeContent(content: unknown): ExtractedContent {
   if (!content) return { text: "" };
 
   // Already a parsed array of content blocks.
-  if (
-    Array.isArray(content) &&
-    content.length > 0 &&
-    content[0].type
-  ) {
+  if (Array.isArray(content) && content.length > 0 && content[0].type) {
     return extractFromBlocks(content);
   }
 

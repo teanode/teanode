@@ -22,10 +22,7 @@ let currentNonce = "";
 const pendingFetches = new Map<string, (resp: BridgeResponse) => void>();
 
 // Pending action requests: requestId → resolve callback
-const pendingActions = new Map<
-  string,
-  (resp: BridgeActionResponse) => void
->();
+const pendingActions = new Map<string, (resp: BridgeActionResponse) => void>();
 
 // Listen for messages from the background SW.
 chrome.runtime.onMessage.addListener(
@@ -60,17 +57,20 @@ function handleFetchRequest(
     pendingFetches.set(requestId, resolve);
 
     // Timeout: if the page bridge doesn't respond, reject.
-    setTimeout(() => {
-      if (pendingFetches.has(requestId)) {
-        pendingFetches.delete(requestId);
-        resolve({
-          __tn: currentNonce,
-          type: "res",
-          id: requestId,
-          error: "page bridge timeout",
-        });
-      }
-    }, (message.timeoutMs || 30000) + 5000);
+    setTimeout(
+      () => {
+        if (pendingFetches.has(requestId)) {
+          pendingFetches.delete(requestId);
+          resolve({
+            __tn: currentNonce,
+            type: "res",
+            id: requestId,
+            error: "page bridge timeout",
+          });
+        }
+      },
+      (message.timeoutMs || 30000) + 5000,
+    );
   });
 
   // Forward to page bridge via postMessage.
@@ -142,7 +142,10 @@ function handleActionRequest(
     const response: PageActionResponse = {
       type: "page_action_response",
       requestId,
-      result: bridgeResp.result != null ? JSON.stringify(bridgeResp.result) : undefined,
+      result:
+        bridgeResp.result != null
+          ? JSON.stringify(bridgeResp.result)
+          : undefined,
       error: bridgeResp.error,
     };
     sendResponse(response);

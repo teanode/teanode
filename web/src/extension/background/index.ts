@@ -4,8 +4,20 @@
  * UI mode: floating overlay (injected iframe on the active tab).
  */
 
-import { handleToolExecute, handleTabNavigation, handleTabRemoved } from "./toolHandler";
-import type { ToolExecuteRequest, ToolExecuteResponse, TabUrlChanged, TabClosed } from "../shared/types";
+import {
+  handleToolExecute,
+  handleTabNavigation,
+  handleTabRemoved,
+} from "./toolHandler";
+import { connectOrToggleCdpForActiveTab, getCdpStateForTab } from "./cdpRelay";
+import { MSG } from "../shared/messages";
+import type {
+  ToolExecuteRequest,
+  ToolExecuteResponse,
+  TabUrlChanged,
+  TabClosed,
+  CdpStateChanged,
+} from "../shared/types";
 
 // Track which tabs have the overlay content script injected.
 const overlayInjectedTabs = new Set<number>();
@@ -25,7 +37,9 @@ chrome.action.onClicked.addListener(async (tab) => {
 
   if (overlayInjectedTabs.has(tab.id)) {
     // Already injected — send toggle message.
-    chrome.tabs.sendMessage(tab.id, { type: "tn:toggle-overlay" }).catch(() => {});
+    chrome.tabs
+      .sendMessage(tab.id, { type: "tn:toggle-overlay" })
+      .catch(() => {});
   } else {
     try {
       await injectOverlay(tab.id);
@@ -89,15 +103,32 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
+    // CDP toggle request from overlay.
+    if (message.type === MSG.CDP_TOGGLE) {
+      connectOrToggleCdpForActiveTab().catch(() => {});
+      return false;
+    }
+
+    // CDP state query from overlay.
+    if (message.type === MSG.CDP_STATE_QUERY) {
+      const tabId = message.tabId as number;
+      const state = getCdpStateForTab(tabId);
+      const resp: CdpStateChanged = { type: MSG.CDP_STATE, tabId, state };
+      sendResponse(resp as unknown as ToolExecuteResponse);
+      return true;
+    }
+
     if (message.type !== "tool_execute") return false;
 
-    handleToolExecute(message as unknown as ToolExecuteRequest).then(sendResponse).catch((err) => {
-      sendResponse({
-        type: "tool_execute_response",
-        requestId: (message as unknown as ToolExecuteRequest).requestId,
-        error: String(err),
+    handleToolExecute(message as unknown as ToolExecuteRequest)
+      .then(sendResponse)
+      .catch((err) => {
+        sendResponse({
+          type: "tool_execute_response",
+          requestId: (message as unknown as ToolExecuteRequest).requestId,
+          error: String(err),
+        });
       });
-    });
 
     return true; // Keep channel open for async response.
   },

@@ -142,7 +142,10 @@ async function executeFetch(
     timeoutMs: (args.timeoutMs as number) || 30000,
   };
 
-  const response = await chrome.tabs.sendMessage(tabId, fetchRequest) as PageFetchResponse;
+  const response = (await chrome.tabs.sendMessage(
+    tabId,
+    fetchRequest,
+  )) as PageFetchResponse;
 
   if (response.error) {
     return { type: "tool_execute_response", requestId, error: response.error };
@@ -223,7 +226,10 @@ async function executePageAction(
     params,
   };
 
-  const response = await chrome.tabs.sendMessage(tabId, actionRequest) as PageActionResponse;
+  const response = (await chrome.tabs.sendMessage(
+    tabId,
+    actionRequest,
+  )) as PageActionResponse;
 
   if (response.error) {
     return { type: "tool_execute_response", requestId, error: response.error };

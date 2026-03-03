@@ -28,16 +28,16 @@ const (
 	EventTypeJobs EventType = "jobs"
 
 	// EventTypeConversationTodos signals that a conversation's todo list has changed.
-	EventTypeConversationTodos EventType = "conversation_todos"
+	EventTypeConversationTodos EventType = "conversationTodos"
 
 	// EventTypeConversationQuestions signals that a question has been asked or answered.
-	EventTypeConversationQuestions EventType = "conversation_questions"
+	EventTypeConversationQuestions EventType = "conversationQuestions"
 
-	// EventTypeTabToolCall signals a pending tab tool call for the extension to execute.
-	EventTypeTabToolCall EventType = "tab_tool_call"
+	// EventTypeTabCommand signals a pending tab command for the extension to execute.
+	EventTypeTabCommand EventType = "tabCommand"
 
 	// EventTypeTabAttachment signals a tab attach/detach event.
-	EventTypeTabAttachment EventType = "tab_attachment"
+	EventTypeTabAttachment EventType = "tabAttachment"
 )
 
 // Subscriber receives broadcast events.

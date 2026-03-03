@@ -80,7 +80,10 @@ export function ChatView({
 
   // Resolve backend base URL + token so avatar media URLs work in the
   // extension context (chrome-extension:// origin can't use relative paths).
-  const [baseInfo, setBaseInfo] = useState<{ url: string; token: string } | null>(null);
+  const [baseInfo, setBaseInfo] = useState<{
+    url: string;
+    token: string;
+  } | null>(null);
   useEffect(() => {
     getBaseUrl().then(setBaseInfo);
   }, []);
@@ -219,7 +222,11 @@ export function ChatView({
           setToolActivity(null);
           setMessages((prev) => [
             ...prev,
-            { role: "assistant", content: (p.text as string) || "", timestamp: Date.now() },
+            {
+              role: "assistant",
+              content: (p.text as string) || "",
+              timestamp: Date.now(),
+            },
           ]);
           setStreamingText("");
           break;
@@ -324,7 +331,14 @@ export function ChatView({
     } catch {
       // Error will come via event.
     }
-  }, [input, conversationId, agentId, streaming, pendingFiles, onConversationCreated]);
+  }, [
+    input,
+    conversationId,
+    agentId,
+    streaming,
+    pendingFiles,
+    onConversationCreated,
+  ]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -443,9 +457,7 @@ export function ChatView({
               }
             }
             if (label !== prevLabel) {
-              elements.push(
-                <DateSeparator key={`sep-${i}`} label={label} />,
-              );
+              elements.push(<DateSeparator key={`sep-${i}`} label={label} />);
             }
           }
 
@@ -474,19 +486,13 @@ export function ChatView({
                 timestamp={msg.timestamp}
                 attachments={msg.attachments}
                 avatarMediaId={
-                  msg.role === "user"
-                    ? userAvatarMediaId
-                    : agentAvatarMediaId
+                  msg.role === "user" ? userAvatarMediaId : agentAvatarMediaId
                 }
                 avatarSrc={resolveMediaUrl(
-                  msg.role === "user"
-                    ? userAvatarMediaId
-                    : agentAvatarMediaId
+                  msg.role === "user" ? userAvatarMediaId : agentAvatarMediaId,
                 )}
                 avatarFallback={
-                  msg.role === "user"
-                    ? userName || "You"
-                    : agentName || "Agent"
+                  msg.role === "user" ? userName || "You" : agentName || "Agent"
                 }
               />,
             );
@@ -522,9 +528,7 @@ export function ChatView({
               color="text.secondary"
               sx={{ fontStyle: "italic" }}
             >
-              {toolActivity
-                ? `Calling ${toolActivity}...`
-                : "Thinking..."}
+              {toolActivity ? `Calling ${toolActivity}...` : "Thinking..."}
             </Typography>
           </Box>
         )}

@@ -1,4 +1,4 @@
-package askuser
+package questions
 
 import (
 	"testing"

@@ -25,6 +25,9 @@ interface PendingRequest {
   reject: (e: Error) => void;
 }
 
+import type { CdpState, CdpStateChanged } from "../shared/types";
+import { MSG } from "../shared/messages";
+
 let relayWs: WebSocket | null = null;
 let relayConnectPromise: Promise<void> | null = null;
 let debuggerListenersInstalled = false;
@@ -33,6 +36,19 @@ const tabs = new Map<number, TabState>();
 const tabBySession = new Map<string, number>();
 const childSessionToTab = new Map<string, number>();
 const pending = new Map<number, PendingRequest>();
+
+function broadcastCdpState(tabId: number, state: CdpState): void {
+  const msg: CdpStateChanged = { type: MSG.CDP_STATE, tabId, state };
+  chrome.runtime.sendMessage(msg).catch(() => {});
+}
+
+/** Return the current CDP state for a given tab. */
+export function getCdpStateForTab(tabId: number): CdpState {
+  const tab = tabs.get(tabId);
+  if (!tab) return "detached";
+  if (tab.state === "connecting") return "connecting";
+  return "attached";
+}
 
 function generateULID(): string {
   const encoding = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -69,7 +85,9 @@ function setBadge(tabId: number, kind: keyof typeof BADGE): void {
   const cfg = BADGE[kind];
   void chrome.action.setBadgeText({ tabId, text: cfg.text });
   void chrome.action.setBadgeBackgroundColor({ tabId, color: cfg.color });
-  void chrome.action.setBadgeTextColor({ tabId, color: "#FFFFFF" }).catch(() => {});
+  void chrome.action
+    .setBadgeTextColor({ tabId, color: "#FFFFFF" })
+    .catch(() => {});
 }
 
 async function ensureRelayConnection(): Promise<void> {
@@ -91,17 +109,35 @@ async function ensureRelayConnection(): Promise<void> {
         headers,
       });
     } catch (err) {
-      throw new Error(`Relay server not reachable at ${baseUrl} (${String(err)})`);
+      throw new Error(
+        `Relay server not reachable at ${baseUrl} (${String(err)})`,
+      );
     }
 
     const ws = new WebSocket(wsUrl);
     relayWs = ws;
 
     await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error("WebSocket connect timeout")), 5000);
-      ws.onopen = () => { clearTimeout(t); resolve(); };
-      ws.onerror = () => { clearTimeout(t); reject(new Error("WebSocket connect failed")); };
-      ws.onclose = (ev) => { clearTimeout(t); reject(new Error(`WebSocket closed (${ev.code} ${ev.reason || "no reason"})`)); };
+      const t = setTimeout(
+        () => reject(new Error("WebSocket connect timeout")),
+        5000,
+      );
+      ws.onopen = () => {
+        clearTimeout(t);
+        resolve();
+      };
+      ws.onerror = () => {
+        clearTimeout(t);
+        reject(new Error("WebSocket connect failed"));
+      };
+      ws.onclose = (ev) => {
+        clearTimeout(t);
+        reject(
+          new Error(
+            `WebSocket closed (${ev.code} ${ev.reason || "no reason"})`,
+          ),
+        );
+      };
     });
 
     ws.onmessage = (event) => void onRelayMessage(String(event.data || ""));
@@ -136,6 +172,7 @@ function onRelayClosed(reason: string): void {
       tabId,
       title: "TeaNode: disconnected (click to re-attach)",
     });
+    broadcastCdpState(tabId, "detached");
   }
   tabs.clear();
   tabBySession.clear();
@@ -164,14 +201,26 @@ async function maybeOpenHelpOnce(): Promise<void> {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 async function onRelayMessage(text: string): Promise<void> {
   let msg: any;
-  try { msg = JSON.parse(text); } catch { return; }
-
-  if (msg && msg.method === "ping") {
-    try { sendToRelay({ method: "pong" }); } catch { /* ignore */ }
+  try {
+    msg = JSON.parse(text);
+  } catch {
     return;
   }
 
-  if (msg && typeof msg.id === "number" && (msg.result !== undefined || msg.error !== undefined)) {
+  if (msg && msg.method === "ping") {
+    try {
+      sendToRelay({ method: "pong" });
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+
+  if (
+    msg &&
+    typeof msg.id === "number" &&
+    (msg.result !== undefined || msg.error !== undefined)
+  ) {
     const p = pending.get(msg.id);
     if (!p) return;
     pending.delete(msg.id);
@@ -190,7 +239,9 @@ async function onRelayMessage(text: string): Promise<void> {
   }
 }
 
-function getTabBySessionId(sessionId: string): { tabId: number; kind: string } | null {
+function getTabBySessionId(
+  sessionId: string,
+): { tabId: number; kind: string } | null {
   const direct = tabBySession.get(sessionId);
   if (direct) return { tabId: direct, kind: "main" };
   const child = childSessionToTab.get(sessionId);
@@ -205,12 +256,18 @@ function getTabByTargetId(targetId: string): number | null {
   return null;
 }
 
-async function attachTab(tabId: number, opts: { skipAttachedEvent?: boolean } = {}): Promise<{ sessionId: string; targetId: string }> {
+async function attachTab(
+  tabId: number,
+  opts: { skipAttachedEvent?: boolean } = {},
+): Promise<{ sessionId: string; targetId: string }> {
   const debuggee: chrome.debugger.Debuggee = { tabId };
   await chrome.debugger.attach(debuggee, "1.3");
   await chrome.debugger.sendCommand(debuggee, "Page.enable").catch(() => {});
 
-  const info = await chrome.debugger.sendCommand(debuggee, "Target.getTargetInfo") as any;
+  const info = (await chrome.debugger.sendCommand(
+    debuggee,
+    "Target.getTargetInfo",
+  )) as any;
   const targetInfo = info?.targetInfo;
   const targetId = String(targetInfo?.targetId || "").trim();
   if (!targetId) throw new Error("Target.getTargetInfo returned no targetId");
@@ -220,19 +277,27 @@ async function attachTab(tabId: number, opts: { skipAttachedEvent?: boolean } = 
 
   tabs.set(tabId, { state: "connected", sessionId, targetId, attachOrder });
   tabBySession.set(sessionId, tabId);
-  void chrome.action.setTitle({ tabId, title: "TeaNode: attached (click to detach)" });
+  void chrome.action.setTitle({
+    tabId,
+    title: "TeaNode: attached (click to detach)",
+  });
 
   if (!opts.skipAttachedEvent) {
     sendToRelay({
       method: "forwardCDPEvent",
       params: {
         method: "Target.attachedToTarget",
-        params: { sessionId, targetInfo: { ...targetInfo, attached: true }, waitingForDebugger: false },
+        params: {
+          sessionId,
+          targetInfo: { ...targetInfo, attached: true },
+          waitingForDebugger: false,
+        },
       },
     });
   }
 
   setBadge(tabId, "on");
+  broadcastCdpState(tabId, "attached");
   return { sessionId, targetId };
 }
 
@@ -242,9 +307,14 @@ async function detachTab(tabId: number, reason: string): Promise<void> {
     try {
       sendToRelay({
         method: "forwardCDPEvent",
-        params: { method: "Target.detachedFromTarget", params: { sessionId: tab.sessionId, targetId: tab.targetId, reason } },
+        params: {
+          method: "Target.detachedFromTarget",
+          params: { sessionId: tab.sessionId, targetId: tab.targetId, reason },
+        },
       });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   if (tab?.sessionId) tabBySession.delete(tab.sessionId);
@@ -254,19 +324,31 @@ async function detachTab(tabId: number, reason: string): Promise<void> {
     if (parentTabId === tabId) childSessionToTab.delete(childSessionId);
   }
 
-  try { await chrome.debugger.detach({ tabId }); } catch { /* ignore */ }
+  try {
+    await chrome.debugger.detach({ tabId });
+  } catch {
+    /* ignore */
+  }
 
   setBadge(tabId, "off");
-  void chrome.action.setTitle({ tabId, title: "TeaNode (click to attach/detach)" });
+  void chrome.action.setTitle({
+    tabId,
+    title: "TeaNode (click to attach/detach)",
+  });
+  broadcastCdpState(tabId, "detached");
 }
 
 async function handleForwardCdpCommand(msg: any): Promise<unknown> {
   const method = String(msg?.params?.method || "").trim();
   const params = msg?.params?.params || undefined;
-  const sessionId: string | undefined = typeof msg?.params?.sessionId === "string" ? msg.params.sessionId : undefined;
+  const sessionId: string | undefined =
+    typeof msg?.params?.sessionId === "string"
+      ? msg.params.sessionId
+      : undefined;
 
   const bySession = sessionId ? getTabBySessionId(sessionId) : null;
-  const targetId: string | undefined = typeof params?.targetId === "string" ? params.targetId : undefined;
+  const targetId: string | undefined =
+    typeof params?.targetId === "string" ? params.targetId : undefined;
   const tabId =
     bySession?.tabId ||
     (targetId ? getTabByTargetId(targetId) : null) ||
@@ -285,8 +367,14 @@ async function handleForwardCdpCommand(msg: any): Promise<unknown> {
     try {
       await chrome.debugger.sendCommand(debuggee, "Runtime.disable");
       await new Promise((r) => setTimeout(r, 50));
-    } catch { /* ignore */ }
-    return await chrome.debugger.sendCommand(debuggee, "Runtime.enable", params);
+    } catch {
+      /* ignore */
+    }
+    return await chrome.debugger.sendCommand(
+      debuggee,
+      "Runtime.enable",
+      params,
+    );
   }
 
   if (method === "Target.createTarget") {
@@ -302,7 +390,11 @@ async function handleForwardCdpCommand(msg: any): Promise<unknown> {
     const target = typeof params?.targetId === "string" ? params.targetId : "";
     const toClose = target ? getTabByTargetId(target) : tabId;
     if (!toClose) return { success: false };
-    try { await chrome.tabs.remove(toClose); } catch { return { success: false }; }
+    try {
+      await chrome.tabs.remove(toClose);
+    } catch {
+      return { success: false };
+    }
     return { success: true };
   }
 
@@ -312,7 +404,10 @@ async function handleForwardCdpCommand(msg: any): Promise<unknown> {
     if (!toActivate) return {};
     const t = await chrome.tabs.get(toActivate).catch(() => null);
     if (!t) return {};
-    if (t.windowId) await chrome.windows.update(t.windowId, { focused: true }).catch(() => {});
+    if (t.windowId)
+      await chrome.windows
+        .update(t.windowId, { focused: true })
+        .catch(() => {});
     await chrome.tabs.update(toActivate, { active: true }).catch(() => {});
     return {};
   }
@@ -328,7 +423,11 @@ async function handleForwardCdpCommand(msg: any): Promise<unknown> {
   return await chrome.debugger.sendCommand(debuggerSession, method, params);
 }
 
-function onDebuggerEvent(source: chrome.debugger.Debuggee, method: string, params?: object): void {
+function onDebuggerEvent(
+  source: chrome.debugger.Debuggee,
+  method: string,
+  params?: object,
+): void {
   const tabId = source.tabId;
   if (!tabId) return;
   const tab = tabs.get(tabId);
@@ -344,12 +443,21 @@ function onDebuggerEvent(source: chrome.debugger.Debuggee, method: string, param
   try {
     sendToRelay({
       method: "forwardCDPEvent",
-      params: { sessionId: (source as any).sessionId || tab.sessionId, method, params },
+      params: {
+        sessionId: (source as any).sessionId || tab.sessionId,
+        method,
+        params,
+      },
     });
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
-function onDebuggerDetach(source: chrome.debugger.Debuggee, reason: string): void {
+function onDebuggerDetach(
+  source: chrome.debugger.Debuggee,
+  reason: string,
+): void {
   const tabId = source.tabId;
   if (!tabId) return;
   if (!tabs.has(tabId)) return;
@@ -359,11 +467,18 @@ function onDebuggerDetach(source: chrome.debugger.Debuggee, reason: string): voi
 
 /** Toggle CDP relay on the active tab (original click handler). */
 export async function connectOrToggleCdpForActiveTab(): Promise<void> {
-  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const [active] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
   const tabId = active?.id;
   if (!tabId) return;
 
   const existing = tabs.get(tabId);
+
+  // Ignore toggle while already connecting.
+  if (existing?.state === "connecting") return;
+
   if (existing?.state === "connected") {
     await detachTab(tabId, "toggle");
     return;
@@ -371,7 +486,11 @@ export async function connectOrToggleCdpForActiveTab(): Promise<void> {
 
   tabs.set(tabId, { state: "connecting" });
   setBadge(tabId, "connecting");
-  void chrome.action.setTitle({ tabId, title: "TeaNode: connecting to local relay…" });
+  broadcastCdpState(tabId, "connecting");
+  void chrome.action.setTitle({
+    tabId,
+    title: "TeaNode: connecting to local relay…",
+  });
 
   try {
     await ensureRelayConnection();
@@ -379,7 +498,11 @@ export async function connectOrToggleCdpForActiveTab(): Promise<void> {
   } catch {
     tabs.delete(tabId);
     setBadge(tabId, "error");
-    void chrome.action.setTitle({ tabId, title: "TeaNode: relay not running (open options for setup)" });
+    broadcastCdpState(tabId, "error");
+    void chrome.action.setTitle({
+      tabId,
+      title: "TeaNode: relay not running (open options for setup)",
+    });
     void maybeOpenHelpOnce();
   }
 }

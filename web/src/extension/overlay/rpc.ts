@@ -14,14 +14,18 @@ type EventHandler = (event: RpcEventFrame) => void;
 
 let ws: WebSocket | null = null;
 let connectPromise: Promise<void> | null = null;
-const pending = new Map<string, { resolve: (r: RpcResponseFrame) => void; reject: (e: Error) => void }>();
+const pending = new Map<
+  string,
+  { resolve: (r: RpcResponseFrame) => void; reject: (e: Error) => void }
+>();
 const eventHandlers = new Set<EventHandler>();
 let idCounter = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function getConfig(): Promise<{ url: string; token: string }> {
   const stored = await chrome.storage.local.get(["relayUrl", "relayToken"]);
-  const url = ((stored.relayUrl as string) || "").trim() || "http://127.0.0.1:8833";
+  const url =
+    ((stored.relayUrl as string) || "").trim() || "http://127.0.0.1:8833";
   const token = (stored.relayToken as string) || "";
   return { url, token };
 }
@@ -47,9 +51,18 @@ export async function ensureConnected(): Promise<void> {
 
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error("WS connect timeout")), 5000);
-      socket.onopen = () => { clearTimeout(t); resolve(); };
-      socket.onerror = () => { clearTimeout(t); reject(new Error("WS connect error")); };
-      socket.onclose = (e) => { clearTimeout(t); reject(new Error(`WS closed: ${e.code}`)); };
+      socket.onopen = () => {
+        clearTimeout(t);
+        resolve();
+      };
+      socket.onerror = () => {
+        clearTimeout(t);
+        reject(new Error("WS connect error"));
+      };
+      socket.onclose = (e) => {
+        clearTimeout(t);
+        reject(new Error(`WS closed: ${e.code}`));
+      };
     });
 
     socket.onmessage = (event) => {
@@ -63,10 +76,16 @@ export async function ensureConnected(): Promise<void> {
           }
         } else if (frame.type === "event") {
           for (const handler of eventHandlers) {
-            try { handler(frame as RpcEventFrame); } catch { /* ignore */ }
+            try {
+              handler(frame as RpcEventFrame);
+            } catch {
+              /* ignore */
+            }
           }
         }
-      } catch { /* ignore parse errors */ }
+      } catch {
+        /* ignore parse errors */
+      }
     };
 
     socket.onclose = () => {
@@ -75,7 +94,9 @@ export async function ensureConnected(): Promise<void> {
       pending.clear();
       scheduleReconnect();
     };
-    socket.onerror = () => { /* onclose will fire */ };
+    socket.onerror = () => {
+      /* onclose will fire */
+    };
   })();
 
   try {
@@ -93,7 +114,10 @@ function scheduleReconnect(): void {
   }, 3000);
 }
 
-export async function sendRpc(method: string, params?: unknown): Promise<unknown> {
+export async function sendRpc(
+  method: string,
+  params?: unknown,
+): Promise<unknown> {
   await ensureConnected();
   const id = `ext-${++idCounter}`;
   const frame: RpcRequestFrame = { type: "req", id, method, params };
@@ -129,7 +153,9 @@ export async function sendRpc(method: string, params?: unknown): Promise<unknown
 
 export function onEvent(handler: EventHandler): () => void {
   eventHandlers.add(handler);
-  return () => { eventHandlers.delete(handler); };
+  return () => {
+    eventHandlers.delete(handler);
+  };
 }
 
 export async function getBaseUrl(): Promise<{ url: string; token: string }> {

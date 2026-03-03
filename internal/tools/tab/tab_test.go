@@ -7,19 +7,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/teanode/teanode/internal/integrations/tabs"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/runners"
 )
 
 // testContext builds a context enriched with user, runner, origin, pubsub, and tab broker.
-func testContext(broker *TabToolBroker) context.Context {
+func testContext(broker *tabs.TabBroker) context.Context {
 	ctx := context.Background()
 	user := &models.User{ID: "u1"}
 	ctx = models.ContextWithUserSessionToken(ctx, user, nil, nil)
 	ctx = runners.ContextWithOrigin(ctx, "webui")
 	ctx = pubsub.ContextWithPubSub(ctx, pubsub.New())
-	ctx = ContextWithTabToolBroker(ctx, broker)
+	ctx = tabs.ContextWithTabBroker(ctx, broker)
 
 	runner := &runners.Runner{
 		ID:             "run1",
@@ -31,9 +32,9 @@ func testContext(broker *TabToolBroker) context.Context {
 }
 
 // attachedBroker returns a broker with a tab already attached for user u1/a1/c1.
-func attachedBroker() *TabToolBroker {
-	broker := NewTabToolBroker()
-	broker.Attach(TabAttachment{
+func attachedBroker() *tabs.TabBroker {
+	broker := tabs.NewTabBroker()
+	broker.Attach(tabs.Attachment{
 		UserID: "u1", AgentID: "a1", ConversationID: "c1",
 		TabURL: "https://example.com",
 	}, "conn1")
@@ -41,19 +42,12 @@ func attachedBroker() *TabToolBroker {
 }
 
 // resolvePending waits briefly then resolves the first pending call.
-func resolvePending(broker *TabToolBroker, result ToolCallResult) {
+func resolvePending(broker *tabs.TabBroker, result tabs.ToolCallResult) {
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		broker.mu.Lock()
-		var pendingID string
-		for id := range broker.pending {
-			pendingID = id
-			break
-		}
-		broker.mu.Unlock()
-
-		if pendingID != "" {
-			broker.Resolve(pendingID, result)
+		pendingId := broker.FirstPendingID()
+		if pendingId != "" {
+			broker.Resolve(pendingId, result)
 		}
 	}()
 }
@@ -67,7 +61,7 @@ func parseError(result string) string {
 // ---- fetch action tests ----
 
 func TestTabTool_FetchNoAttachment(t *testing.T) {
-	broker := NewTabToolBroker()
+	broker := tabs.NewTabBroker()
 	ctx := testContext(broker)
 
 	tool := &tabTool{}
@@ -86,7 +80,7 @@ func TestTabTool_FetchHappyPath(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, ToolCallResult{Result: `{"status":200,"body":"hello"}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"status":200,"body":"hello"}`})
 
 	result, err := tool.Execute(ctx, `{"action":"fetch","url":"/api/test","method":"GET"}`)
 	if err != nil {
@@ -136,8 +130,8 @@ func TestTabTool_NonWebuiOrigin(t *testing.T) {
 	user := &models.User{ID: "u1"}
 	ctx = models.ContextWithUserSessionToken(ctx, user, nil, nil)
 	ctx = runners.ContextWithOrigin(ctx, "telegram")
-	broker := NewTabToolBroker()
-	ctx = ContextWithTabToolBroker(ctx, broker)
+	broker := tabs.NewTabBroker()
+	ctx = tabs.ContextWithTabBroker(ctx, broker)
 
 	tool := &tabTool{}
 	result, err := tool.Execute(ctx, `{"action":"fetch","url":"/api/test"}`)
@@ -185,7 +179,7 @@ func TestTabTool_ListCookiesHappyPath(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, ToolCallResult{Result: `{"cookies":[]}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"cookies":[]}`})
 
 	result, err := tool.Execute(ctx, `{"action":"listCookies"}`)
 	if err != nil {
@@ -232,7 +226,7 @@ func TestTabTool_SetLocalStorage_ValueTooLarge(t *testing.T) {
 	ctx := testContext(broker)
 
 	tool := &tabTool{}
-	bigVal := strings.Repeat("v", maxLocalStorageVal+1)
+	bigVal := strings.Repeat("v", maxLocalStorageValue+1)
 	result, err := tool.Execute(ctx, `{"action":"setLocalStorage","key":"k","value":"`+bigVal+`"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -263,7 +257,7 @@ func TestTabTool_GetLocalStorage_HappyPath(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, ToolCallResult{Result: `{"entries":{"foo":"bar"},"truncated":false}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"entries":{"foo":"bar"},"truncated":false}`})
 
 	result, err := tool.Execute(ctx, `{"action":"getLocalStorage"}`)
 	if err != nil {
@@ -279,7 +273,7 @@ func TestTabTool_GetLocalStorage_WithKey(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, ToolCallResult{Result: `{"value":"bar"}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"value":"bar"}`})
 
 	result, err := tool.Execute(ctx, `{"action":"getLocalStorage","key":"foo"}`)
 	if err != nil {
@@ -295,7 +289,7 @@ func TestTabTool_SetLocalStorage_HappyPath(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, ToolCallResult{Result: `{"ok":true}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"ok":true}`})
 
 	result, err := tool.Execute(ctx, `{"action":"setLocalStorage","key":"foo","value":"bar"}`)
 	if err != nil {
@@ -343,7 +337,7 @@ func TestTabTool_QuerySelector_DefaultMode(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, ToolCallResult{Result: `{"results":[{"tagName":"div","content":"hello","attributes":{}}]}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"results":[{"tagName":"div","content":"hello","attributes":{}}]}`})
 
 	result, err := tool.Execute(ctx, `{"action":"querySelector","selector":"div"}`)
 	if err != nil {
@@ -359,7 +353,7 @@ func TestTabTool_SnapshotDom_HappyPath(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, ToolCallResult{Result: `{"html":"<html></html>","truncated":false}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"html":"<html></html>","truncated":false}`})
 
 	result, err := tool.Execute(ctx, `{"action":"snapshotDom"}`)
 	if err != nil {
@@ -408,7 +402,7 @@ func TestTabTool_Eval_HappyPath(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, ToolCallResult{Result: `{"value":42,"truncated":false}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"value":42,"truncated":false}`})
 
 	result, err := tool.Execute(ctx, `{"action":"eval","code":"1+1"}`)
 	if err != nil {
@@ -424,7 +418,7 @@ func TestTabTool_Eval_ErrorResult(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, ToolCallResult{Result: `{"error":{"message":"ReferenceError: x is not defined","name":"ReferenceError"}}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"error":{"message":"ReferenceError: x is not defined","name":"ReferenceError"}}`})
 
 	result, err := tool.Execute(ctx, `{"action":"eval","code":"x"}`)
 	if err != nil {

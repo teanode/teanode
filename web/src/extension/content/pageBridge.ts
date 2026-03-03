@@ -24,7 +24,10 @@ const NONCE: string = (globalThis as any).__tn_nonce || "";
 /**
  * Safely serialize a value to JSON, handling cycles, functions, and size caps.
  */
-function safeStringify(value: unknown, maxSize: number): { json: string; truncated: boolean } {
+function safeStringify(
+  value: unknown,
+  maxSize: number,
+): { json: string; truncated: boolean } {
   const seen = new WeakSet();
 
   function replacer(_key: string, val: unknown): unknown {
@@ -79,10 +82,7 @@ async function handleFetchRequest(data: any): Promise<void> {
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      timeoutMs || 30000,
-    );
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 30000);
 
     const response = await fetch(url, {
       method: method || "GET",

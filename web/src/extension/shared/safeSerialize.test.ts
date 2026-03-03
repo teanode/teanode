@@ -4,7 +4,10 @@ import { safeSerialize } from "./safeSerialize";
 describe("safeSerialize", () => {
   it("serializes primitive values", () => {
     expect(safeSerialize(42)).toEqual({ value: 42, truncated: false });
-    expect(safeSerialize("hello")).toEqual({ value: "hello", truncated: false });
+    expect(safeSerialize("hello")).toEqual({
+      value: "hello",
+      truncated: false,
+    });
     expect(safeSerialize(true)).toEqual({ value: true, truncated: false });
     expect(safeSerialize(null)).toEqual({ value: null, truncated: false });
   });

@@ -27,10 +27,36 @@ func NewConversationTodoTool() *conversationTodoTool { return &conversationTodoT
 
 type conversationTodoTool struct{}
 
+type batchItem struct {
+	Op          string   `json:"op"`
+	TodoID      string   `json:"todoId"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Priority    string   `json:"priority"`
+	Tags        []string `json:"tags"`
+}
+
+type batchResult struct {
+	Index   int          `json:"index"`
+	Op      string       `json:"op"`
+	Success bool         `json:"success"`
+	Todo    *models.Todo `json:"todo,omitempty"`
+	Error   string       `json:"error,omitempty"`
+	TodoID  string       `json:"todoId,omitempty"`
+}
+
+type batchSummary struct {
+	Total     int `json:"total"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+}
+
 type conversationTodoResponse struct {
 	Action     string         `json:"action"`
 	Todo       *models.Todo   `json:"todo,omitempty"`
 	Todos      []*models.Todo `json:"todos,omitempty"`
+	Results    []batchResult  `json:"results,omitempty"`
+	Summary    *batchSummary  `json:"summary,omitempty"`
 	TotalCount int            `json:"totalCount,omitempty"`
 	OpenCount  int            `json:"openCount,omitempty"`
 	DoneCount  int            `json:"doneCount,omitempty"`
@@ -42,49 +68,61 @@ func (self *conversationTodoTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name:        "conversation_todo",
-			Description: "Manage conversation-scoped todos/tasks. Actions: list, add, update, complete, reopen, delete, clear_done, reset. Todos are private to the conversation.",
+			Description: "Manage conversation-scoped todos/tasks. Use 'list' to view, 'batch' to create/update/complete/reopen/delete one or more todos in a single call, 'prune' to remove all completed todos.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"list", "add", "update", "complete", "reopen", "delete", "clear_done", "reset"},
+						"enum":        []string{"list", "batch", "prune"},
 						"description": "The todo action to perform.",
 					},
 					"conversationId": map[string]interface{}{
 						"type":        "string",
 						"description": "Conversation ID. If omitted, uses the current conversation.",
 					},
-					"todoId": map[string]interface{}{
+					"status": map[string]interface{}{
 						"type":        "string",
-						"description": "Todo ID (for update, complete, reopen, delete).",
-					},
-					"title": map[string]interface{}{
-						"type":        "string",
-						"description": "Todo title (for add, update).",
-					},
-					"description": map[string]interface{}{
-						"type":        "string",
-						"description": "Optional longer description (for add, update).",
-					},
-					"priority": map[string]interface{}{
-						"type":        "string",
-						"enum":        []string{"low", "medium", "high"},
-						"description": "Priority level (for add, update, list filter).",
-					},
-					"tags": map[string]interface{}{
-						"type":        "array",
-						"items":       map[string]interface{}{"type": "string"},
-						"description": "Labels/tags (for add, update).",
+						"enum":        []string{"open", "done"},
+						"description": "Filter by status (for list). Default: returns all.",
 					},
 					"tag": map[string]interface{}{
 						"type":        "string",
 						"description": "Filter by tag (for list).",
 					},
-					"status": map[string]interface{}{
-						"type":        "string",
-						"enum":        []string{"open", "done"},
-						"description": "Filter by status (for list). Default: returns all.",
+					"items": map[string]interface{}{
+						"type":        "array",
+						"minItems":    1,
+						"maxItems":    50,
+						"description": "Required when action is 'batch'. Each element describes one operation.",
+						"items": map[string]interface{}{
+							"type":     "object",
+							"required": []string{"op"},
+							"properties": map[string]interface{}{
+								"op": map[string]interface{}{
+									"type": "string",
+									"enum": []string{"add", "update", "complete", "reopen", "delete"},
+								},
+								"todoId": map[string]interface{}{
+									"type": "string",
+								},
+								"title": map[string]interface{}{
+									"type":      "string",
+									"maxLength": 512,
+								},
+								"description": map[string]interface{}{
+									"type": "string",
+								},
+								"priority": map[string]interface{}{
+									"type": "string",
+									"enum": []string{"low", "medium", "high"},
+								},
+								"tags": map[string]interface{}{
+									"type":  "array",
+									"items": map[string]interface{}{"type": "string"},
+								},
+							},
+						},
 					},
 				},
 				"required": []string{"action"},
@@ -95,15 +133,11 @@ func (self *conversationTodoTool) Definition() providers.ToolDefinition {
 
 func (self *conversationTodoTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
-		Action         string   `json:"action"`
-		ConversationID string   `json:"conversationId"`
-		TodoID         string   `json:"todoId"`
-		Title          string   `json:"title"`
-		Description    string   `json:"description"`
-		Priority       string   `json:"priority"`
-		Tags           []string `json:"tags"`
-		Tag            string   `json:"tag"`
-		Status         string   `json:"status"`
+		Action         string      `json:"action"`
+		ConversationID string      `json:"conversationId"`
+		Status         string      `json:"status"`
+		Tag            string      `json:"tag"`
+		Items          []batchItem `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -143,30 +177,19 @@ func (self *conversationTodoTool) Execute(ctx context.Context, rawArguments stri
 		return "", fmt.Errorf("access denied: conversation belongs to another user")
 	}
 
-	action := arguments.Action
-	switch action {
+	switch arguments.Action {
 	case "list":
-		return self.executeList(ctx, conversationId, arguments.Status, arguments.Priority, arguments.Tag)
-	case "add":
-		return self.executeAdd(ctx, conversationId, user.ID, arguments.Title, arguments.Description, arguments.Priority, arguments.Tags)
-	case "update":
-		return self.executeUpdate(ctx, conversationId, user.ID, arguments.TodoID, arguments.Title, arguments.Description, arguments.Priority, arguments.Tags)
-	case "complete":
-		return self.executeComplete(ctx, conversationId, user.ID, arguments.TodoID)
-	case "reopen":
-		return self.executeReopen(ctx, conversationId, user.ID, arguments.TodoID)
-	case "delete":
-		return self.executeDelete(ctx, conversationId, user.ID, arguments.TodoID)
-	case "clear_done":
-		return self.executeClearDone(ctx, conversationId, user.ID)
-	case "reset":
-		return self.executeReset(ctx, conversationId, user.ID)
+		return self.executeList(ctx, conversationId, arguments.Status, arguments.Tag)
+	case "batch":
+		return self.executeBatch(ctx, conversationId, user.ID, arguments.Items)
+	case "prune":
+		return self.executePrune(ctx, conversationId, user.ID)
 	default:
-		return "", fmt.Errorf("unknown conversation_todo action: %s", action)
+		return "", fmt.Errorf("unknown conversation_todo action: %s", arguments.Action)
 	}
 }
 
-func (self *conversationTodoTool) executeList(ctx context.Context, conversationId, statusFilter, priorityFilter, tagFilter string) (string, error) {
+func (self *conversationTodoTool) executeList(ctx context.Context, conversationId, statusFilter, tagFilter string) (string, error) {
 	var todos []*models.Todo
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		listed, err := tx.ListTodos(ctx, store.TodoListOptions{ConversationID: &conversationId}, nil)
@@ -179,7 +202,7 @@ func (self *conversationTodoTool) executeList(ctx context.Context, conversationI
 		return "", err
 	}
 
-	filtered := filterTodos(todos, statusFilter, priorityFilter, tagFilter)
+	filtered := filterTodos(todos, statusFilter, "", tagFilter)
 	openCount, doneCount := countByStatus(todos)
 
 	output, _ := json.Marshal(conversationTodoResponse{
@@ -192,157 +215,179 @@ func (self *conversationTodoTool) executeList(ctx context.Context, conversationI
 	return string(output), nil
 }
 
-func (self *conversationTodoTool) executeAdd(ctx context.Context, conversationId, userId, title, description, priority string, tags []string) (string, error) {
-	if title == "" {
-		return "", fmt.Errorf("title is required")
+func (self *conversationTodoTool) executeBatch(ctx context.Context, conversationId, userId string, items []batchItem) (string, error) {
+	if len(items) == 0 {
+		return "", fmt.Errorf("items is required and must contain 1-50 entries")
 	}
+	if len(items) > 50 {
+		return "", fmt.Errorf("items must contain at most 50 entries, got %d", len(items))
+	}
+
+	results := make([]batchResult, len(items))
+	succeeded := 0
+	anySuccess := false
+
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		for i, item := range items {
+			results[i] = self.executeBatchItem(ctx, tx, conversationId, i, item)
+			if results[i].Success {
+				succeeded++
+				anySuccess = true
+			}
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+
+	if anySuccess {
+		afterMutateConversation(ctx, conversationId)
+	}
+
+	// Compute aggregate counts.
+	var todos []*models.Todo
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		listed, err := tx.ListTodos(ctx, store.TodoListOptions{ConversationID: &conversationId}, nil)
+		if err != nil {
+			return err
+		}
+		todos = listed
+		return nil
+	})
+	openCount, doneCount := countByStatus(todos)
+
+	// Emit single pubsub event.
+	emitTodoBatchEvent(ctx, conversationId, userId, results)
+
+	output, _ := json.Marshal(conversationTodoResponse{
+		Action:  "batch",
+		Results: results,
+		Summary: &batchSummary{
+			Total:     len(items),
+			Succeeded: succeeded,
+			Failed:    len(items) - succeeded,
+		},
+		TotalCount: len(todos),
+		OpenCount:  openCount,
+		DoneCount:  doneCount,
+	})
+	return string(output), nil
+}
+
+func (self *conversationTodoTool) executeBatchItem(ctx context.Context, tx store.Transaction, conversationId string, index int, item batchItem) batchResult {
+	switch item.Op {
+	case "add":
+		return self.batchAdd(ctx, tx, conversationId, index, item)
+	case "update":
+		return self.batchUpdate(ctx, tx, index, item)
+	case "complete":
+		return self.batchComplete(ctx, tx, index, item)
+	case "reopen":
+		return self.batchReopen(ctx, tx, index, item)
+	case "delete":
+		return self.batchDelete(ctx, tx, index, item)
+	default:
+		return batchResult{Index: index, Op: item.Op, Success: false, Error: fmt.Sprintf("unknown op: %s", item.Op)}
+	}
+}
+
+func (self *conversationTodoTool) batchAdd(ctx context.Context, tx store.Transaction, conversationId string, index int, item batchItem) batchResult {
+	if item.Title == "" {
+		return batchResult{Index: index, Op: "add", Success: false, Error: "title is required for add"}
+	}
+	priority := item.Priority
 	if priority == "" {
 		priority = string(models.TodoPriorityMedium)
 	}
+	tags := item.Tags
 	if tags == nil {
 		tags = make([]string, 0)
 	}
+	todo := &models.Todo{
+		ID:             security.NewULID(),
+		ConversationID: ptrto.Value(conversationId),
+		Title:          ptrto.Value(item.Title),
+		Status:         ptrto.Value(models.TodoStatusOpen),
+		Priority:       ptrto.Value(models.TodoPriority(priority)),
+		Tags:           &tags,
+	}
+	if item.Description != "" {
+		todo.Description = ptrto.Value(item.Description)
+	}
+	created, err := tx.CreateTodo(ctx, todo, nil)
+	if err != nil {
+		return batchResult{Index: index, Op: "add", Success: false, Error: err.Error()}
+	}
+	return batchResult{Index: index, Op: "add", Success: true, Todo: created}
+}
 
-	var created *models.Todo
-	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		todo := &models.Todo{
-			ID:             security.NewULID(),
-			ConversationID: ptrto.Value(conversationId),
-			Title:          ptrto.Value(title),
-			Status:         ptrto.Value(models.TodoStatusOpen),
-			Priority:       ptrto.Value(models.TodoPriority(priority)),
-			Tags:           &tags,
+func (self *conversationTodoTool) batchUpdate(ctx context.Context, tx store.Transaction, index int, item batchItem) batchResult {
+	if item.TodoID == "" {
+		return batchResult{Index: index, Op: "update", Success: false, Error: "todoId is required for update"}
+	}
+	updated, err := tx.ModifyTodo(ctx, item.TodoID, func(todo *models.Todo) error {
+		if item.Title != "" {
+			todo.Title = ptrto.Value(item.Title)
 		}
-		if description != "" {
-			todo.Description = ptrto.Value(description)
+		if item.Description != "" {
+			todo.Description = ptrto.Value(item.Description)
 		}
-		result, err := tx.CreateTodo(ctx, todo, nil)
-		if err != nil {
-			return err
+		if item.Priority != "" {
+			todo.Priority = ptrto.Value(models.TodoPriority(item.Priority))
 		}
-		created = result
+		if item.Tags != nil {
+			todo.Tags = &item.Tags
+		}
 		return nil
-	}); err != nil {
-		return "", err
+	}, nil)
+	if err != nil {
+		return batchResult{Index: index, Op: "update", Success: false, Error: err.Error(), TodoID: item.TodoID}
 	}
-
-	afterMutateConversation(ctx, conversationId)
-	emitTodoEvent(ctx, conversationId, userId, created, "add")
-	output, _ := json.Marshal(conversationTodoResponse{Action: "add", Todo: created})
-	return string(output), nil
+	return batchResult{Index: index, Op: "update", Success: true, Todo: updated}
 }
 
-func (self *conversationTodoTool) executeUpdate(ctx context.Context, conversationId, userId, todoId, title, description, priority string, tags []string) (string, error) {
-	if todoId == "" {
-		return "", fmt.Errorf("todoId is required")
+func (self *conversationTodoTool) batchComplete(ctx context.Context, tx store.Transaction, index int, item batchItem) batchResult {
+	if item.TodoID == "" {
+		return batchResult{Index: index, Op: "complete", Success: false, Error: "todoId is required for complete"}
 	}
-
-	var updated *models.Todo
-	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.ModifyTodo(ctx, todoId, func(todo *models.Todo) error {
-			if title != "" {
-				todo.Title = ptrto.Value(title)
-			}
-			if description != "" {
-				todo.Description = ptrto.Value(description)
-			}
-			if priority != "" {
-				todo.Priority = ptrto.Value(models.TodoPriority(priority))
-			}
-			if tags != nil {
-				todo.Tags = &tags
-			}
-			return nil
-		}, nil)
-		if err != nil {
-			return err
-		}
-		updated = result
+	updated, err := tx.ModifyTodo(ctx, item.TodoID, func(todo *models.Todo) error {
+		todo.Status = ptrto.Value(models.TodoStatusDone)
+		now := time.Now()
+		todo.CompletedAt = &now
 		return nil
-	}); err != nil {
-		return "", err
+	}, nil)
+	if err != nil {
+		return batchResult{Index: index, Op: "complete", Success: false, Error: err.Error(), TodoID: item.TodoID}
 	}
-
-	afterMutateConversation(ctx, conversationId)
-	emitTodoEvent(ctx, conversationId, userId, updated, "update")
-	output, _ := json.Marshal(conversationTodoResponse{Action: "update", Todo: updated})
-	return string(output), nil
+	return batchResult{Index: index, Op: "complete", Success: true, Todo: updated}
 }
 
-func (self *conversationTodoTool) executeComplete(ctx context.Context, conversationId, userId, todoId string) (string, error) {
-	if todoId == "" {
-		return "", fmt.Errorf("todoId is required")
+func (self *conversationTodoTool) batchReopen(ctx context.Context, tx store.Transaction, index int, item batchItem) batchResult {
+	if item.TodoID == "" {
+		return batchResult{Index: index, Op: "reopen", Success: false, Error: "todoId is required for reopen"}
 	}
-
-	var updated *models.Todo
-	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.ModifyTodo(ctx, todoId, func(todo *models.Todo) error {
-			todo.Status = ptrto.Value(models.TodoStatusDone)
-			now := time.Now()
-			todo.CompletedAt = &now
-			return nil
-		}, nil)
-		if err != nil {
-			return err
-		}
-		updated = result
+	updated, err := tx.ModifyTodo(ctx, item.TodoID, func(todo *models.Todo) error {
+		todo.Status = ptrto.Value(models.TodoStatusOpen)
+		todo.CompletedAt = nil
 		return nil
-	}); err != nil {
-		return "", err
+	}, nil)
+	if err != nil {
+		return batchResult{Index: index, Op: "reopen", Success: false, Error: err.Error(), TodoID: item.TodoID}
 	}
-
-	afterMutateConversation(ctx, conversationId)
-	emitTodoEvent(ctx, conversationId, userId, updated, "complete")
-	output, _ := json.Marshal(conversationTodoResponse{Action: "complete", Todo: updated})
-	return string(output), nil
+	return batchResult{Index: index, Op: "reopen", Success: true, Todo: updated}
 }
 
-func (self *conversationTodoTool) executeReopen(ctx context.Context, conversationId, userId, todoId string) (string, error) {
-	if todoId == "" {
-		return "", fmt.Errorf("todoId is required")
+func (self *conversationTodoTool) batchDelete(ctx context.Context, tx store.Transaction, index int, item batchItem) batchResult {
+	if item.TodoID == "" {
+		return batchResult{Index: index, Op: "delete", Success: false, Error: "todoId is required for delete"}
 	}
-
-	var updated *models.Todo
-	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.ModifyTodo(ctx, todoId, func(todo *models.Todo) error {
-			todo.Status = ptrto.Value(models.TodoStatusOpen)
-			todo.CompletedAt = nil
-			return nil
-		}, nil)
-		if err != nil {
-			return err
-		}
-		updated = result
-		return nil
-	}); err != nil {
-		return "", err
+	if err := tx.DeleteTodo(ctx, item.TodoID, nil); err != nil {
+		return batchResult{Index: index, Op: "delete", Success: false, Error: err.Error(), TodoID: item.TodoID}
 	}
-
-	afterMutateConversation(ctx, conversationId)
-	emitTodoEvent(ctx, conversationId, userId, updated, "reopen")
-	output, _ := json.Marshal(conversationTodoResponse{Action: "reopen", Todo: updated})
-	return string(output), nil
+	return batchResult{Index: index, Op: "delete", Success: true, TodoID: item.TodoID}
 }
 
-func (self *conversationTodoTool) executeDelete(ctx context.Context, conversationId, userId, todoId string) (string, error) {
-	if todoId == "" {
-		return "", fmt.Errorf("todoId is required")
-	}
-
-	// Get the todo before deleting so we can emit event with the ID.
-	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		return tx.DeleteTodo(ctx, todoId, nil)
-	}); err != nil {
-		return "", err
-	}
-
-	afterMutateConversation(ctx, conversationId)
-	emitTodoEvent(ctx, conversationId, userId, &models.Todo{ID: todoId}, "delete")
-	output, _ := json.Marshal(conversationTodoResponse{Action: "delete", Success: true})
-	return string(output), nil
-}
-
-func (self *conversationTodoTool) executeClearDone(ctx context.Context, conversationId, userId string) (string, error) {
+func (self *conversationTodoTool) executePrune(ctx context.Context, conversationId, userId string) (string, error) {
 	var deleted int
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		todos, err := tx.ListTodos(ctx, store.TodoListOptions{ConversationID: &conversationId}, nil)
@@ -364,35 +409,9 @@ func (self *conversationTodoTool) executeClearDone(ctx context.Context, conversa
 
 	if deleted > 0 {
 		afterMutateConversation(ctx, conversationId)
-		emitTodoEvent(ctx, conversationId, userId, &models.Todo{}, "clear_done")
+		emitTodoEvent(ctx, conversationId, userId, &models.Todo{}, "prune")
 	}
-	output, _ := json.Marshal(conversationTodoResponse{Action: "clear_done", Success: true, DoneCount: deleted})
-	return string(output), nil
-}
-
-func (self *conversationTodoTool) executeReset(ctx context.Context, conversationId, userId string) (string, error) {
-	var deleted int
-	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		todos, err := tx.ListTodos(ctx, store.TodoListOptions{ConversationID: &conversationId}, nil)
-		if err != nil {
-			return err
-		}
-		for _, todo := range todos {
-			if err := tx.DeleteTodo(ctx, todo.ID, nil); err != nil {
-				return err
-			}
-			deleted++
-		}
-		return nil
-	}); err != nil {
-		return "", err
-	}
-
-	if deleted > 0 {
-		afterMutateConversation(ctx, conversationId)
-		emitTodoEvent(ctx, conversationId, userId, &models.Todo{}, "reset")
-	}
-	output, _ := json.Marshal(conversationTodoResponse{Action: "reset", Success: true, TotalCount: deleted})
+	output, _ := json.Marshal(conversationTodoResponse{Action: "prune", Success: true, DoneCount: deleted})
 	return string(output), nil
 }
 
@@ -422,6 +441,19 @@ func emitTodoEvent(ctx context.Context, conversationId, userId string, todo *mod
 		payload["todo"] = todo
 	}
 	ps.Broadcast(pubsub.EventTypeConversationTodos, payload)
+}
+
+func emitTodoBatchEvent(ctx context.Context, conversationId, userId string, results []batchResult) {
+	ps := pubsub.PubSubFromContext(ctx)
+	if ps == nil {
+		return
+	}
+	ps.Broadcast(pubsub.EventTypeConversationTodos, map[string]interface{}{
+		"conversationId": conversationId,
+		"userId":         userId,
+		"action":         "batch",
+		"results":        results,
+	})
 }
 
 func filterTodos(todos []*models.Todo, status, priority, tag string) []*models.Todo {

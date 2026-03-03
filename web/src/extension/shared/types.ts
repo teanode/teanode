@@ -156,8 +156,34 @@ export interface RpcEventFrame {
 
 export type RpcFrame = RpcResponseFrame | RpcEventFrame;
 
+// ---- CDP relay state types ----
+
+export type CdpState = "detached" | "connecting" | "attached" | "error";
+
+/** Overlay → Background SW: toggle CDP attachment for a tab */
+export interface CdpToggleRequest {
+  type: "tn:toggle-cdp";
+  tabId: number;
+}
+
+/** Overlay → Background SW: query current CDP state for a tab */
+export interface CdpStateQuery {
+  type: "tn:cdp-state-query";
+  tabId: number;
+}
+
+/** Background SW → Overlay: CDP state changed for a tab */
+export interface CdpStateChanged {
+  type: "tn:cdp-state";
+  tabId: number;
+  state: CdpState;
+}
+
 export type ExtensionMessage =
   | ToolExecuteRequest
   | ToolExecuteResponse
   | TabUrlChanged
-  | TabClosed;
+  | TabClosed
+  | CdpToggleRequest
+  | CdpStateQuery
+  | CdpStateChanged;

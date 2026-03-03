@@ -44,211 +44,187 @@ func createProject(t *testing.T, ctx context.Context, s store.Store) string {
 	return created.Project.ID
 }
 
-func TestProjectTodoAddAndList(t *testing.T) {
+type projectBatchResponse struct {
+	Action     string `json:"action"`
+	TotalCount int    `json:"totalCount"`
+	OpenCount  int    `json:"openCount"`
+	DoneCount  int    `json:"doneCount"`
+	Results    []struct {
+		Index   int          `json:"index"`
+		Op      string       `json:"op"`
+		Success bool         `json:"success"`
+		Todo    *models.Todo `json:"todo,omitempty"`
+		Error   string       `json:"error,omitempty"`
+		TodoID  string       `json:"todoId,omitempty"`
+	} `json:"results"`
+	Summary *struct {
+		Total     int `json:"total"`
+		Succeeded int `json:"succeeded"`
+		Failed    int `json:"failed"`
+	} `json:"summary"`
+}
+
+func newProjectTodoTool(t *testing.T) tools.Tool {
+	t.Helper()
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(projects.NewProjectTodoTool())
+	return registry.Get("project_todo")
+}
+
+func TestProjectTodoBatchAdd(t *testing.T) {
 	s := setupTodoToolStore(t)
 	ctx := store.ContextWithStore(context.Background(), s)
 	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
 	projectId := createProject(t, ctx, s)
+	todoTool := newProjectTodoTool(t)
 
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(projects.NewProjectTodoTool())
-	todoTool := registry.Get("project_todo")
-
-	// Add a todo.
-	addResult, err := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Implement auth","priority":"high","tags":["backend"]}`)
+	result, err := todoTool.Execute(ctx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"add","title":"Implement auth","priority":"high","tags":["backend"]},{"op":"add","title":"Write docs"}]}`)
 	if err != nil {
-		t.Fatalf("add failed: %v", err)
-	}
-	var added struct {
-		Action string      `json:"action"`
-		Todo   models.Todo `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-	if added.Action != "add" {
-		t.Fatalf("action = %q, want add", added.Action)
-	}
-	if added.Todo.GetTitle() != "Implement auth" {
-		t.Fatalf("title = %q, want 'Implement auth'", added.Todo.GetTitle())
-	}
-	if added.Todo.GetPriority() != models.TodoPriorityHigh {
-		t.Fatalf("priority = %q, want high", added.Todo.GetPriority())
-	}
-	if added.Todo.GetStatus() != models.TodoStatusOpen {
-		t.Fatalf("status = %q, want open", added.Todo.GetStatus())
+		t.Fatalf("batch add failed: %v", err)
 	}
 
-	// List todos.
-	listResult, err := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`"}`)
-	if err != nil {
-		t.Fatalf("list failed: %v", err)
+	var resp projectBatchResponse
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Action != "batch" {
+		t.Fatalf("action = %q, want batch", resp.Action)
 	}
-	var listed struct {
-		Todos      []models.Todo `json:"todos"`
-		TotalCount int           `json:"totalCount"`
-		OpenCount  int           `json:"openCount"`
+	if len(resp.Results) != 2 {
+		t.Fatalf("results count = %d, want 2", len(resp.Results))
 	}
-	json.Unmarshal([]byte(listResult), &listed)
-	if len(listed.Todos) != 1 {
-		t.Fatalf("expected 1 todo, got %d", len(listed.Todos))
+	for i, r := range resp.Results {
+		if !r.Success {
+			t.Fatalf("result[%d] failed: %s", i, r.Error)
+		}
+		if r.Todo == nil {
+			t.Fatalf("result[%d] todo is nil", i)
+		}
 	}
-	if listed.TotalCount != 1 || listed.OpenCount != 1 {
-		t.Fatalf("counts: total=%d open=%d, want 1/1", listed.TotalCount, listed.OpenCount)
+	if resp.Results[0].Todo.GetTitle() != "Implement auth" {
+		t.Fatalf("result[0] title = %q, want 'Implement auth'", resp.Results[0].Todo.GetTitle())
+	}
+	if resp.Results[0].Todo.GetPriority() != models.TodoPriorityHigh {
+		t.Fatalf("result[0] priority = %q, want high", resp.Results[0].Todo.GetPriority())
+	}
+	if resp.Summary.Total != 2 || resp.Summary.Succeeded != 2 {
+		t.Fatalf("summary = %+v", resp.Summary)
+	}
+	if resp.OpenCount != 2 {
+		t.Fatalf("openCount = %d, want 2", resp.OpenCount)
 	}
 }
 
-func TestProjectTodoComplete(t *testing.T) {
+func TestProjectTodoBatchMixedOps(t *testing.T) {
 	s := setupTodoToolStore(t)
 	ctx := store.ContextWithStore(context.Background(), s)
 	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
 	projectId := createProject(t, ctx, s)
+	todoTool := newProjectTodoTool(t)
 
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(projects.NewProjectTodoTool())
-	todoTool := registry.Get("project_todo")
+	// Setup: add 3 items.
+	setupResult, _ := todoTool.Execute(ctx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"add","title":"To Complete"},{"op":"add","title":"To Delete"},{"op":"add","title":"To Update"}]}`)
+	var setup projectBatchResponse
+	json.Unmarshal([]byte(setupResult), &setup)
 
-	// Add.
-	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"To Complete"}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
+	completeId := setup.Results[0].Todo.ID
+	deleteId := setup.Results[1].Todo.ID
+	updateId := setup.Results[2].Todo.ID
 
-	// Complete.
-	completeResult, err := todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
+	// Mixed batch.
+	mixedArgs, _ := json.Marshal(map[string]interface{}{
+		"action":    "batch",
+		"projectId": projectId,
+		"items": []map[string]interface{}{
+			{"op": "add", "title": "New Item"},
+			{"op": "complete", "todoId": completeId},
+			{"op": "delete", "todoId": deleteId},
+			{"op": "update", "todoId": updateId, "title": "Updated", "priority": "low"},
+		},
+	})
+
+	result, err := todoTool.Execute(ctx, string(mixedArgs))
 	if err != nil {
-		t.Fatalf("complete failed: %v", err)
+		t.Fatalf("mixed batch failed: %v", err)
 	}
-	var completed struct {
-		Todo models.Todo `json:"todo"`
+
+	var resp projectBatchResponse
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Results) != 4 {
+		t.Fatalf("results count = %d, want 4", len(resp.Results))
 	}
-	json.Unmarshal([]byte(completeResult), &completed)
-	if completed.Todo.GetStatus() != models.TodoStatusDone {
-		t.Fatalf("status = %q, want done", completed.Todo.GetStatus())
+	for i, r := range resp.Results {
+		if !r.Success {
+			t.Fatalf("result[%d] (%s) failed: %s", i, r.Op, r.Error)
+		}
 	}
-	if completed.Todo.CompletedAt == nil {
-		t.Fatal("completedAt should be set")
+	if resp.Results[1].Todo.GetStatus() != models.TodoStatusDone {
+		t.Fatalf("complete result status = %q, want done", resp.Results[1].Todo.GetStatus())
+	}
+	if resp.Results[3].Todo.GetTitle() != "Updated" {
+		t.Fatalf("update result title = %q, want Updated", resp.Results[3].Todo.GetTitle())
+	}
+	if resp.Summary.Succeeded != 4 {
+		t.Fatalf("summary succeeded = %d, want 4", resp.Summary.Succeeded)
 	}
 }
 
-func TestProjectTodoReopen(t *testing.T) {
+func TestProjectTodoBatchPartialFailure(t *testing.T) {
 	s := setupTodoToolStore(t)
 	ctx := store.ContextWithStore(context.Background(), s)
 	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
 	projectId := createProject(t, ctx, s)
+	todoTool := newProjectTodoTool(t)
 
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(projects.NewProjectTodoTool())
-	todoTool := registry.Get("project_todo")
-
-	// Add, complete, reopen.
-	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"To Reopen"}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-	todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
-
-	reopenResult, err := todoTool.Execute(ctx, `{"action":"reopen","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
+	result, err := todoTool.Execute(ctx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"add","title":"Good"},{"op":"complete","todoId":"nonexistent"}]}`)
 	if err != nil {
-		t.Fatalf("reopen failed: %v", err)
+		t.Fatalf("batch failed: %v", err)
 	}
-	var reopened struct {
-		Todo models.Todo `json:"todo"`
+
+	var resp projectBatchResponse
+	json.Unmarshal([]byte(result), &resp)
+	if !resp.Results[0].Success {
+		t.Fatal("result[0] should succeed")
 	}
-	json.Unmarshal([]byte(reopenResult), &reopened)
-	if reopened.Todo.GetStatus() != models.TodoStatusOpen {
-		t.Fatalf("status = %q, want open", reopened.Todo.GetStatus())
+	if resp.Results[1].Success {
+		t.Fatal("result[1] should fail")
 	}
-	if reopened.Todo.CompletedAt != nil {
-		t.Fatal("completedAt should be nil after reopen")
+	if resp.Summary.Succeeded != 1 || resp.Summary.Failed != 1 {
+		t.Fatalf("summary = %+v", resp.Summary)
 	}
 }
 
-func TestProjectTodoDelete(t *testing.T) {
+func TestProjectTodoPrune(t *testing.T) {
 	s := setupTodoToolStore(t)
 	ctx := store.ContextWithStore(context.Background(), s)
 	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
 	projectId := createProject(t, ctx, s)
+	todoTool := newProjectTodoTool(t)
 
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(projects.NewProjectTodoTool())
-	todoTool := registry.Get("project_todo")
+	// Add 2, complete 1.
+	setupResult, _ := todoTool.Execute(ctx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"add","title":"Open Item"},{"op":"add","title":"Done Item"}]}`)
+	var setup projectBatchResponse
+	json.Unmarshal([]byte(setupResult), &setup)
+	doneId := setup.Results[1].Todo.ID
+	todoTool.Execute(ctx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"complete","todoId":"`+doneId+`"}]}`)
 
-	// Add, delete, list.
-	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"To Delete"}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-
-	deleteResult, err := todoTool.Execute(ctx, `{"action":"delete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
+	// Prune.
+	pruneResult, err := todoTool.Execute(ctx, `{"action":"prune","projectId":"`+projectId+`"}`)
 	if err != nil {
-		t.Fatalf("delete failed: %v", err)
+		t.Fatalf("prune failed: %v", err)
 	}
-	var deleted struct {
-		Success bool `json:"success"`
+	var pruneResp struct {
+		Action    string `json:"action"`
+		Success   bool   `json:"success"`
+		DoneCount int    `json:"doneCount"`
 	}
-	json.Unmarshal([]byte(deleteResult), &deleted)
-	if !deleted.Success {
+	json.Unmarshal([]byte(pruneResult), &pruneResp)
+	if !pruneResp.Success {
 		t.Fatal("expected success=true")
 	}
-
-	// Verify list is empty.
-	listResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`"}`)
-	var listed struct {
-		Todos []interface{} `json:"todos"`
-	}
-	json.Unmarshal([]byte(listResult), &listed)
-	if len(listed.Todos) != 0 {
-		t.Fatalf("expected 0 todos after delete, got %d", len(listed.Todos))
-	}
-}
-
-func TestProjectTodoClearDone(t *testing.T) {
-	s := setupTodoToolStore(t)
-	ctx := store.ContextWithStore(context.Background(), s)
-	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
-	projectId := createProject(t, ctx, s)
-
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(projects.NewProjectTodoTool())
-	todoTool := registry.Get("project_todo")
-
-	// Add two, complete one.
-	todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Open Item"}`)
-	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Done Item"}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-	todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
-
-	// clear_done should remove only the done item.
-	clearResult, err := todoTool.Execute(ctx, `{"action":"clear_done","projectId":"`+projectId+`"}`)
-	if err != nil {
-		t.Fatalf("clear_done failed: %v", err)
-	}
-	var cleared struct {
-		Success   bool `json:"success"`
-		DoneCount int  `json:"doneCount"`
-	}
-	json.Unmarshal([]byte(clearResult), &cleared)
-	if !cleared.Success {
-		t.Fatal("expected success=true")
-	}
-	if cleared.DoneCount != 1 {
-		t.Fatalf("doneCount = %d, want 1", cleared.DoneCount)
+	if pruneResp.DoneCount != 1 {
+		t.Fatalf("doneCount = %d, want 1", pruneResp.DoneCount)
 	}
 
-	// Verify only the open item remains.
+	// Verify only open item remains.
 	listResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`"}`)
 	var listed struct {
 		Todos      []interface{} `json:"todos"`
@@ -256,56 +232,7 @@ func TestProjectTodoClearDone(t *testing.T) {
 	}
 	json.Unmarshal([]byte(listResult), &listed)
 	if len(listed.Todos) != 1 {
-		t.Fatalf("expected 1 todo after clear_done, got %d", len(listed.Todos))
-	}
-}
-
-func TestProjectTodoReset(t *testing.T) {
-	s := setupTodoToolStore(t)
-	ctx := store.ContextWithStore(context.Background(), s)
-	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
-	projectId := createProject(t, ctx, s)
-
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(projects.NewProjectTodoTool())
-	todoTool := registry.Get("project_todo")
-
-	// Add two, complete one.
-	todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Open Item"}`)
-	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Done Item"}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-	todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
-
-	// reset should remove all.
-	resetResult, err := todoTool.Execute(ctx, `{"action":"reset","projectId":"`+projectId+`"}`)
-	if err != nil {
-		t.Fatalf("reset failed: %v", err)
-	}
-	var resetResp struct {
-		Success    bool `json:"success"`
-		TotalCount int  `json:"totalCount"`
-	}
-	json.Unmarshal([]byte(resetResult), &resetResp)
-	if !resetResp.Success {
-		t.Fatal("expected success=true")
-	}
-	if resetResp.TotalCount != 2 {
-		t.Fatalf("totalCount = %d, want 2", resetResp.TotalCount)
-	}
-
-	// Verify empty.
-	listResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`"}`)
-	var listed struct {
-		Todos []interface{} `json:"todos"`
-	}
-	json.Unmarshal([]byte(listResult), &listed)
-	if len(listed.Todos) != 0 {
-		t.Fatalf("expected 0 todos after reset, got %d", len(listed.Todos))
+		t.Fatalf("expected 1 todo after prune, got %d", len(listed.Todos))
 	}
 }
 
@@ -314,12 +241,10 @@ func TestProjectTodoNonAdminReadOnly(t *testing.T) {
 	adminCtx := store.ContextWithStore(context.Background(), s)
 	adminCtx = models.ContextWithUserSessionToken(adminCtx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
 	projectId := createProject(t, adminCtx, s)
+	todoTool := newProjectTodoTool(t)
 
 	// Add a todo as admin.
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(projects.NewProjectTodoTool())
-	todoTool := registry.Get("project_todo")
-	todoTool.Execute(adminCtx, `{"action":"add","projectId":"`+projectId+`","title":"Admin Todo"}`)
+	todoTool.Execute(adminCtx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"add","title":"Admin Todo"}]}`)
 
 	// Non-admin should be able to list.
 	userCtx := store.ContextWithStore(context.Background(), s)
@@ -337,32 +262,16 @@ func TestProjectTodoNonAdminReadOnly(t *testing.T) {
 		t.Fatalf("non-admin should see 1 todo, got %d", len(listed.Todos))
 	}
 
-	// Non-admin should not be able to add.
-	_, err = todoTool.Execute(userCtx, `{"action":"add","projectId":"`+projectId+`","title":"User Todo"}`)
+	// Non-admin should not be able to batch.
+	_, err = todoTool.Execute(userCtx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"add","title":"User Todo"}]}`)
 	if err == nil {
-		t.Fatal("non-admin add should fail")
+		t.Fatal("non-admin batch should fail")
 	}
 
-	// Non-admin should not be able to delete.
-	_, err = todoTool.Execute(userCtx, `{"action":"delete","projectId":"`+projectId+`","todoId":"whatever"}`)
+	// Non-admin should not be able to prune.
+	_, err = todoTool.Execute(userCtx, `{"action":"prune","projectId":"`+projectId+`"}`)
 	if err == nil {
-		t.Fatal("non-admin delete should fail")
-	}
-}
-
-func TestProjectTodoAddMissingTitle(t *testing.T) {
-	s := setupTodoToolStore(t)
-	ctx := store.ContextWithStore(context.Background(), s)
-	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
-	projectId := createProject(t, ctx, s)
-
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(projects.NewProjectTodoTool())
-	todoTool := registry.Get("project_todo")
-
-	_, err := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`"}`)
-	if err == nil {
-		t.Fatal("add without title should fail")
+		t.Fatal("non-admin prune should fail")
 	}
 }
 
@@ -371,73 +280,16 @@ func TestProjectTodoProjectNameLookup(t *testing.T) {
 	ctx := store.ContextWithStore(context.Background(), s)
 	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
 	createProject(t, ctx, s) // Creates "TestProject"
-
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(projects.NewProjectTodoTool())
-	todoTool := registry.Get("project_todo")
+	todoTool := newProjectTodoTool(t)
 
 	// Use projectName instead of projectId.
-	addResult, err := todoTool.Execute(ctx, `{"action":"add","projectName":"testproject","title":"By Name"}`)
+	result, err := todoTool.Execute(ctx, `{"action":"batch","projectName":"testproject","items":[{"op":"add","title":"By Name"}]}`)
 	if err != nil {
-		t.Fatalf("add by projectName failed: %v", err)
+		t.Fatalf("batch by projectName failed: %v", err)
 	}
-	var added struct {
-		Todo models.Todo `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-	if added.Todo.GetTitle() != "By Name" {
-		t.Fatalf("title = %q, want 'By Name'", added.Todo.GetTitle())
-	}
-}
-
-func TestProjectTodoListFilters(t *testing.T) {
-	s := setupTodoToolStore(t)
-	ctx := store.ContextWithStore(context.Background(), s)
-	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "admin", Admin: ptrto.Value(true)}, nil, nil)
-	projectId := createProject(t, ctx, s)
-
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(projects.NewProjectTodoTool())
-	todoTool := registry.Get("project_todo")
-
-	// Add multiple todos.
-	addResult, _ := todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"High Open","priority":"high","tags":["backend"]}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-	todoTool.Execute(ctx, `{"action":"add","projectId":"`+projectId+`","title":"Low Open","priority":"low","tags":["frontend"]}`)
-	todoTool.Execute(ctx, `{"action":"complete","projectId":"`+projectId+`","todoId":"`+added.Todo.ID+`"}`)
-
-	// Filter by status.
-	openResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`","status":"open"}`)
-	var openList struct {
-		Todos []interface{} `json:"todos"`
-	}
-	json.Unmarshal([]byte(openResult), &openList)
-	if len(openList.Todos) != 1 {
-		t.Fatalf("open filter: expected 1, got %d", len(openList.Todos))
-	}
-
-	// Filter by priority.
-	highResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`","priority":"high"}`)
-	var highList struct {
-		Todos []interface{} `json:"todos"`
-	}
-	json.Unmarshal([]byte(highResult), &highList)
-	if len(highList.Todos) != 1 {
-		t.Fatalf("high priority filter: expected 1, got %d", len(highList.Todos))
-	}
-
-	// Filter by tag.
-	tagResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`","tag":"frontend"}`)
-	var tagList struct {
-		Todos []interface{} `json:"todos"`
-	}
-	json.Unmarshal([]byte(tagResult), &tagList)
-	if len(tagList.Todos) != 1 {
-		t.Fatalf("tag filter: expected 1, got %d", len(tagList.Todos))
+	var resp projectBatchResponse
+	json.Unmarshal([]byte(result), &resp)
+	if !resp.Results[0].Success || resp.Results[0].Todo.GetTitle() != "By Name" {
+		t.Fatalf("unexpected result: %+v", resp.Results[0])
 	}
 }

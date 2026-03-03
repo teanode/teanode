@@ -187,7 +187,7 @@ export default function ConversationsConversationPage() {
       ) : backend.pendingQuestions.length > 0 ? (
         <QuestionPanel
           questions={backend.pendingQuestions}
-          onSubmitAll={backend.answerQuestionBatch}
+          onSubmitAll={backend.answerQuestion}
         />
       ) : (
         <InputArea

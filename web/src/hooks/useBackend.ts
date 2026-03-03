@@ -31,10 +31,7 @@ import type {
   ConversationQuestionsEvent,
 } from "../types";
 import { useWebSocket } from "./useWebSocket";
-import {
-  normalizeContent,
-  type ExtractedContent,
-} from "../contentUtils";
+import { normalizeContent, type ExtractedContent } from "../contentUtils";
 
 const VOICE_INPUT_PROMPT =
   "The user dictated this message using voice input and the response may be read aloud. Keep the response concise and avoid heavy markdown formatting.";
@@ -398,7 +395,7 @@ export function useBackend() {
       return;
     }
 
-    if (frame.event === "conversation_todos") {
+    if (frame.event === "conversationTodos") {
       const payload = frame.payload as ConversationTodosEvent | undefined;
       if (payload && payload.conversationId === conversationIdRef.current) {
         if (payload.action === "add" && payload.todo) {
@@ -427,7 +424,7 @@ export function useBackend() {
       return;
     }
 
-    if (frame.event === "conversation_questions") {
+    if (frame.event === "conversationQuestions") {
       const payload = frame.payload as ConversationQuestionsEvent | undefined;
       if (payload) {
         if (
@@ -1648,20 +1645,10 @@ export function useBackend() {
   );
 
   const answerQuestion = useCallback(
-    async (questionId: string, answer: string, other?: string) => {
-      const params: Record<string, string> = { questionId, answer };
-      if (other) params.other = other;
-      await sendRpc("questions.answer", params);
-      setPendingQuestions((prev) => prev.filter((q) => q.id !== questionId));
-    },
-    [sendRpc],
-  );
-
-  const answerQuestionBatch = useCallback(
     async (
       answers: { questionId: string; answer: string; other?: string }[],
     ) => {
-      await sendRpc("questions.answer_batch", { answers });
+      await sendRpc("questions.answer", { answers });
       const answeredIds = new Set(answers.map((a) => a.questionId));
       setPendingQuestions((prev) => prev.filter((q) => !answeredIds.has(q.id)));
     },
@@ -1751,7 +1738,6 @@ export function useBackend() {
     loadTodos,
     pendingQuestions,
     answerQuestion,
-    answerQuestionBatch,
     loadPendingQuestions,
     lastActiveRunState,
   };
