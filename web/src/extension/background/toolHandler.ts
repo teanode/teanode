@@ -8,8 +8,21 @@ import type {
   ToolExecuteResponse,
   PageFetchRequest,
   PageFetchResponse,
+  PageActionRequest,
+  PageActionResponse,
+  PageActionType,
 } from "../shared/types";
 import { listCookies, getCookie } from "./cookieHandler";
+
+// Actions that require page bridge execution via content script.
+const PAGE_ACTIONS: Set<string> = new Set([
+  "getLocalStorage",
+  "setLocalStorage",
+  "removeLocalStorage",
+  "snapshotDom",
+  "querySelector",
+  "eval",
+]);
 
 // Tracks injected tabs: tabId → nonce
 const injectedTabs = new Map<number, string>();
@@ -88,6 +101,14 @@ export async function handleToolExecute(
       case "getCookie":
         return await executeGetCookie(requestId, args);
       default:
+        if (PAGE_ACTIONS.has(action)) {
+          return await executePageAction(
+            requestId,
+            tabId,
+            action as PageActionType,
+            args,
+          );
+        }
         return {
           type: "tool_execute_response",
           requestId,
@@ -175,5 +196,42 @@ async function executeGetCookie(
     type: "tool_execute_response",
     requestId,
     result: JSON.stringify({ cookie }),
+  };
+}
+
+/**
+ * Execute a page action (localStorage, DOM, eval) via content script relay.
+ * Sends a PageActionRequest to the content script, which forwards it to the
+ * page bridge via postMessage.
+ */
+async function executePageAction(
+  requestId: string,
+  tabId: number,
+  action: PageActionType,
+  args: Record<string, unknown>,
+): Promise<ToolExecuteResponse> {
+  const nonce = await ensureInjected(tabId);
+
+  // Build the params object from the args, excluding meta fields.
+  const { action: _action, ...params } = args;
+
+  const actionRequest: PageActionRequest = {
+    type: "page_action_request",
+    requestId,
+    nonce,
+    action,
+    params,
+  };
+
+  const response = await chrome.tabs.sendMessage(tabId, actionRequest) as PageActionResponse;
+
+  if (response.error) {
+    return { type: "tool_execute_response", requestId, error: response.error };
+  }
+
+  return {
+    type: "tool_execute_response",
+    requestId,
+    result: response.result,
   };
 }

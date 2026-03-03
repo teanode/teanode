@@ -9,7 +9,6 @@ import { useTranslation } from "react-i18next";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
-import Divider from "@mui/material/Divider";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -19,6 +18,8 @@ import KeyboardArrowDownRounded from "@mui/icons-material/KeyboardArrowDownRound
 import StopRounded from "@mui/icons-material/StopRounded";
 import type { DisplayMessage } from "../types";
 import { useAppContext } from "../context";
+import { dateLabelFor } from "../dateUtils";
+import DateSeparator from "./DateSeparator";
 import MessageBubble from "./MessageBubble";
 import ToolInvoke from "./ToolInvoke";
 import ToolResult, { detectMedia } from "./ToolResult";
@@ -53,29 +54,6 @@ const VIRTUAL_START = 1_000_000;
 type ListItem =
   | { kind: "separator"; label: string; key: string }
   | { kind: "message"; message: DisplayMessage };
-
-function dateLabelFor(timestamp: number, t: (key: string) => string): string {
-  const messageDate = new Date(timestamp);
-  const now = new Date();
-
-  const messageDay = new Date(
-    messageDate.getFullYear(),
-    messageDate.getMonth(),
-    messageDate.getDate(),
-  );
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diff = today.getTime() - messageDay.getTime();
-
-  if (diff === 0) return t("conversations.today");
-  if (diff === 86_400_000) return t("conversations.yesterday");
-  return messageDate.toLocaleDateString([], {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year:
-      messageDate.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
-  });
-}
 
 function buildItems(
   messages: DisplayMessage[],
@@ -252,15 +230,7 @@ export default function MessageList({
             maxWidth="md"
             sx={{ py: 0.5, display: "flex", flexDirection: "column" }}
           >
-            <Divider sx={{ my: 1 }}>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ fontSize: "11px", fontWeight: 500 }}
-              >
-                {item.label}
-              </Typography>
-            </Divider>
+            <DateSeparator label={item.label} />
           </Container>
         );
       }

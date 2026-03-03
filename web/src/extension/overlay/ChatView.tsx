@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
-import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import AttachFileRounded from "@mui/icons-material/AttachFileRounded";
@@ -11,31 +10,12 @@ import SendRounded from "@mui/icons-material/SendRounded";
 import MessageBubble from "../../components/MessageBubble";
 import ToolInvoke from "../../components/ToolInvoke";
 import ToolResult from "../../components/ToolResult";
+import { dateLabelFor } from "../../dateUtils";
+import DateSeparator from "../../components/DateSeparator";
 import { sendRpc, onEvent, getBaseUrl } from "./rpc";
 import type { RpcEventFrame } from "../shared/types";
 import type { Attachment } from "../../types";
 import { normalizeContent } from "../../contentUtils";
-
-function dateLabelFor(timestamp: number, t: (key: string) => string): string {
-  const messageDate = new Date(timestamp);
-  const now = new Date();
-  const messageDay = new Date(
-    messageDate.getFullYear(),
-    messageDate.getMonth(),
-    messageDate.getDate(),
-  );
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diff = today.getTime() - messageDay.getTime();
-  if (diff === 0) return t("conversations.today");
-  if (diff === 86_400_000) return t("conversations.yesterday");
-  return messageDate.toLocaleDateString([], {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year:
-      messageDate.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
-  });
-}
 
 interface Message {
   role: "user" | "assistant" | "tool_call" | "tool_result";
@@ -464,15 +444,7 @@ export function ChatView({
             }
             if (label !== prevLabel) {
               elements.push(
-                <Divider key={`sep-${i}`} sx={{ my: 0.5 }}>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ fontSize: "11px", fontWeight: 500 }}
-                  >
-                    {label}
-                  </Typography>
-                </Divider>,
+                <DateSeparator key={`sep-${i}`} label={label} />,
               );
             }
           }

@@ -37,6 +37,34 @@ export interface PageFetchResponse {
   error?: string;
 }
 
+/**
+ * Background SW → Content script: generic page action request.
+ * Used for localStorage, DOM, and eval actions that execute in page context.
+ */
+export interface PageActionRequest {
+  type: "page_action_request";
+  requestId: string;
+  nonce: string;
+  action: PageActionType;
+  params: Record<string, unknown>;
+}
+
+export type PageActionType =
+  | "getLocalStorage"
+  | "setLocalStorage"
+  | "removeLocalStorage"
+  | "snapshotDom"
+  | "querySelector"
+  | "eval";
+
+/** Content script → Background SW: page action response */
+export interface PageActionResponse {
+  type: "page_action_response";
+  requestId: string;
+  result?: string; // JSON-serialized result
+  error?: string;
+}
+
 /** Background SW → Side panel: tab URL changed */
 export interface TabUrlChanged {
   type: "tab_url_changed";
@@ -82,6 +110,24 @@ export interface BridgeResponse {
   type: "res";
   id: string;
   result?: FetchResult;
+  error?: string;
+}
+
+/** Generic bridge action request (localStorage, DOM, eval) */
+export interface BridgeActionRequest {
+  __tn: string; // nonce
+  type: "action_req";
+  id: string;
+  action: PageActionType;
+  params: Record<string, unknown>;
+}
+
+/** Generic bridge action response */
+export interface BridgeActionResponse {
+  __tn: string; // nonce
+  type: "action_res";
+  id: string;
+  result?: unknown;
   error?: string;
 }
 

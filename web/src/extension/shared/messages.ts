@@ -4,6 +4,8 @@ export const MSG = {
   TOOL_EXECUTE_RESPONSE: "tool_execute_response",
   PAGE_FETCH_REQUEST: "page_fetch_request",
   PAGE_FETCH_RESPONSE: "page_fetch_response",
+  PAGE_ACTION_REQUEST: "page_action_request",
+  PAGE_ACTION_RESPONSE: "page_action_response",
   TAB_URL_CHANGED: "tab_url_changed",
   TAB_CLOSED: "tab_closed",
   OVERLAY_TOGGLE: "tn:toggle-overlay",
