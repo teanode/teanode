@@ -31,6 +31,7 @@ import type {
   ConversationQuestionsEvent,
 } from "../types";
 import { useWebSocket } from "./useWebSocket";
+import { normalizeContent, type ExtractedContent } from "../contentUtils";
 
 const VOICE_INPUT_PROMPT =
   "The user dictated this message using voice input and the response may be read aloud. Keep the response concise and avoid heavy markdown formatting.";
@@ -40,72 +41,12 @@ function nextMessageId(): string {
   return `msg-${++messageIdCounter}`;
 }
 
-interface ExtractedContent {
-  text: string;
-  attachments?: Attachment[];
-}
-
 function extractContent(message: Message): string {
   return extractContentWithAttachments(message).text;
 }
 
-function extractFromBlocks(
-  blocks: {
-    type: string;
-    text?: string;
-    mediaId?: string;
-    format?: string;
-    filename?: string;
-  }[],
-): ExtractedContent {
-  let text = "";
-  const attachments: Attachment[] = [];
-  for (const block of blocks) {
-    if (block.type === "text") text += block.text || "";
-    else if (block.type === "attachment") {
-      attachments.push({
-        mediaId: block.mediaId!,
-        format: block.format!,
-        filename: block.filename!,
-      });
-    }
-  }
-  return {
-    text,
-    attachments: attachments.length > 0 ? attachments : undefined,
-  };
-}
-
 function extractContentWithAttachments(message: Message): ExtractedContent {
-  if (!message.content) return { text: "" };
-
-  // Content may already be a parsed array (json.RawMessage deserializes to native types).
-  if (
-    Array.isArray(message.content) &&
-    message.content.length > 0 &&
-    message.content[0].type
-  ) {
-    return extractFromBlocks(message.content);
-  }
-
-  if (typeof message.content === "string") {
-    // Try parsing as JSON (could be a JSON string or array of content blocks).
-    try {
-      const parsed = JSON.parse(message.content);
-      if (typeof parsed === "string") return { text: parsed };
-      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].type) {
-        return extractFromBlocks(parsed);
-      }
-      // Parsed to an object/number/etc — keep the original string representation
-      // (e.g. tool results that are JSON objects like {"mediaId":"..."}).
-      return { text: message.content };
-    } catch {
-      return { text: message.content };
-    }
-  }
-
-  // Content is already a parsed JS value (json.RawMessage → native type).
-  return { text: JSON.stringify(message.content) };
+  return normalizeContent(message.content);
 }
 
 function parseToolCalls(raw: ToolCall[] | string | undefined): ToolCall[] {
@@ -454,7 +395,7 @@ export function useBackend() {
       return;
     }
 
-    if (frame.event === "conversation_todos") {
+    if (frame.event === "conversationTodos") {
       const payload = frame.payload as ConversationTodosEvent | undefined;
       if (payload && payload.conversationId === conversationIdRef.current) {
         if (payload.action === "add" && payload.todo) {
@@ -483,7 +424,7 @@ export function useBackend() {
       return;
     }
 
-    if (frame.event === "conversation_questions") {
+    if (frame.event === "conversationQuestions") {
       const payload = frame.payload as ConversationQuestionsEvent | undefined;
       if (payload) {
         if (
@@ -1704,20 +1645,10 @@ export function useBackend() {
   );
 
   const answerQuestion = useCallback(
-    async (questionId: string, answer: string, other?: string) => {
-      const params: Record<string, string> = { questionId, answer };
-      if (other) params.other = other;
-      await sendRpc("questions.answer", params);
-      setPendingQuestions((prev) => prev.filter((q) => q.id !== questionId));
-    },
-    [sendRpc],
-  );
-
-  const answerQuestionBatch = useCallback(
     async (
       answers: { questionId: string; answer: string; other?: string }[],
     ) => {
-      await sendRpc("questions.answer_batch", { answers });
+      await sendRpc("questions.answer", { answers });
       const answeredIds = new Set(answers.map((a) => a.questionId));
       setPendingQuestions((prev) => prev.filter((q) => !answeredIds.has(q.id)));
     },
@@ -1807,7 +1738,6 @@ export function useBackend() {
     loadTodos,
     pendingQuestions,
     answerQuestion,
-    answerQuestionBatch,
     loadPendingQuestions,
     lastActiveRunState,
   };

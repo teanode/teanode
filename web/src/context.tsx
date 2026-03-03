@@ -5,7 +5,7 @@ import {
   type LanguagePreference,
 } from "./i18n/config";
 
-export type ThemeMode = "dark" | "light";
+export type ThemeMode = "dark" | "light" | "system";
 export type VoiceCallSTTMode = "server" | "client";
 
 export interface AppContextValue {
@@ -60,7 +60,8 @@ export function AppProvider({
   });
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
     const stored = localStorage.getItem("teanode-theme-mode");
-    return stored === "light" ? "light" : "dark";
+    if (stored === "light" || stored === "system") return stored;
+    return "dark";
   });
   const [voiceAutoSend, setVoiceAutoSendState] = useState(() => {
     return localStorage.getItem("teanode-voice-auto-send") !== "false";

@@ -20,6 +20,8 @@ interface MessageBubbleProps {
   timestamp?: number;
   attachments?: Attachment[];
   avatarMediaId?: string;
+  /** Pre-resolved avatar URL (for extension contexts where withToken doesn't work). */
+  avatarSrc?: string;
   avatarFallback?: string;
   voiceEnabled?: boolean;
   isSpeakingThis?: boolean;
@@ -97,6 +99,7 @@ export default function MessageBubble({
   timestamp,
   attachments,
   avatarMediaId,
+  avatarSrc,
   avatarFallback,
   voiceEnabled,
   isSpeakingThis,
@@ -271,6 +274,7 @@ export default function MessageBubble({
       >
         <ConversationAvatar
           avatarMediaId={avatarMediaId}
+          src={avatarSrc}
           fallback={avatarFallback || "U"}
         />
         {bubble}
@@ -319,6 +323,7 @@ export default function MessageBubble({
         >
           <ConversationAvatar
             avatarMediaId={avatarMediaId}
+            src={avatarSrc}
             fallback={avatarFallback || "A"}
           />
         </Box>

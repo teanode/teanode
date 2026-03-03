@@ -13,6 +13,9 @@
 # Frontend build artifacts (webpack output into backend embed dir)
 /internal/frontend/static/
 
+# Chrome extension build artifacts
+/assets/chrome-extension/dist/
+
 # Voice e2e generated reports
 /test/voicee2e/reports/*.json
 /test/voicee2e/reports/*.md

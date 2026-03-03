@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TeaNode Browser Relay</title>
+    <title>TeaNode</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -95,7 +95,7 @@
         color: var(--muted);
         margin-bottom: 6px;
       }
-      input {
+      input[type="text"] {
         width: 160px;
         padding: 10px 12px;
         border-radius: 12px;
@@ -104,7 +104,7 @@
         color: canvasText;
         outline: none;
       }
-      input:focus {
+      input[type="text"]:focus {
         border-color: color-mix(in oklab, var(--accent) 70%, transparent);
         box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 20%, transparent);
       }
@@ -158,8 +158,8 @@
           <img src="icons/icon128.png" alt="" />
         </div>
         <div>
-          <h1>TeaNode Browser Relay</h1>
-          <p class="subtitle">Click the toolbar button on a tab to attach / detach.</p>
+          <h1>TeaNode</h1>
+          <p class="subtitle">Click the toolbar button to toggle the floating overlay.</p>
         </div>
       </header>
 

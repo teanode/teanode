@@ -52,7 +52,6 @@ func createConv(t *testing.T, ctx context.Context, s store.Store, userId, agentI
 func buildConvTodoCtx(s store.Store, userId string, isAdmin bool, conversationId, agentId string) context.Context {
 	ctx := store.ContextWithStore(context.Background(), s)
 	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: userId, Admin: ptrto.Value(isAdmin)}, nil, nil)
-	// Provide runner context so the tool can infer conversationId.
 	ctx = runners.ContextWithRunner(ctx, &runners.Runner{
 		ConversationID: conversationId,
 		AgentID:        agentId,
@@ -60,28 +59,288 @@ func buildConvTodoCtx(s store.Store, userId string, isAdmin bool, conversationId
 	return ctx
 }
 
-func TestConvTodoAddAndList(t *testing.T) {
+type batchResponse struct {
+	Action     string `json:"action"`
+	TotalCount int    `json:"totalCount"`
+	OpenCount  int    `json:"openCount"`
+	DoneCount  int    `json:"doneCount"`
+	Results    []struct {
+		Index   int          `json:"index"`
+		Op      string       `json:"op"`
+		Success bool         `json:"success"`
+		Todo    *models.Todo `json:"todo,omitempty"`
+		Error   string       `json:"error,omitempty"`
+		TodoID  string       `json:"todoId,omitempty"`
+	} `json:"results"`
+	Summary *struct {
+		Total     int `json:"total"`
+		Succeeded int `json:"succeeded"`
+		Failed    int `json:"failed"`
+	} `json:"summary"`
+}
+
+func newConvTodoTool(t *testing.T) tools.Tool {
+	t.Helper()
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(conversations.NewConversationTodoTool())
+	return registry.Get("conversation_todo")
+}
+
+func TestConvTodoBatchAdd(t *testing.T) {
 	s := setupConvTodoStore(t)
 	ctx := store.ContextWithStore(context.Background(), s)
 	convId := createConv(t, ctx, s, "user1", "agent1")
-
 	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(conversations.NewConversationTodoTool())
-	todoTool := registry.Get("conversation_todo")
+	todoTool := newConvTodoTool(t)
+
+	result, err := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add","title":"Task A","priority":"high"},{"op":"add","title":"Task B","tags":["backend"]}]}`)
+	if err != nil {
+		t.Fatalf("batch add failed: %v", err)
+	}
+
+	var resp batchResponse
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Action != "batch" {
+		t.Fatalf("action = %q, want batch", resp.Action)
+	}
+	if len(resp.Results) != 2 {
+		t.Fatalf("results count = %d, want 2", len(resp.Results))
+	}
+	for i, r := range resp.Results {
+		if !r.Success {
+			t.Fatalf("result[%d] failed: %s", i, r.Error)
+		}
+		if r.Todo == nil {
+			t.Fatalf("result[%d] todo is nil", i)
+		}
+	}
+	if resp.Results[0].Todo.GetTitle() != "Task A" {
+		t.Fatalf("result[0] title = %q, want Task A", resp.Results[0].Todo.GetTitle())
+	}
+	if resp.Results[0].Todo.GetPriority() != models.TodoPriorityHigh {
+		t.Fatalf("result[0] priority = %q, want high", resp.Results[0].Todo.GetPriority())
+	}
+	if resp.Results[1].Todo.GetTitle() != "Task B" {
+		t.Fatalf("result[1] title = %q, want Task B", resp.Results[1].Todo.GetTitle())
+	}
+	if resp.Summary.Total != 2 || resp.Summary.Succeeded != 2 || resp.Summary.Failed != 0 {
+		t.Fatalf("summary = %+v, want 2/2/0", resp.Summary)
+	}
+	if resp.OpenCount != 2 {
+		t.Fatalf("openCount = %d, want 2", resp.OpenCount)
+	}
+}
+
+func TestConvTodoBatchMixedOps(t *testing.T) {
+	s := setupConvTodoStore(t)
+	ctx := store.ContextWithStore(context.Background(), s)
+	convId := createConv(t, ctx, s, "user1", "agent1")
+	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
+	todoTool := newConvTodoTool(t)
+
+	// First, add two items.
+	addResult, err := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add","title":"To Complete"},{"op":"add","title":"To Delete"},{"op":"add","title":"To Update"}]}`)
+	if err != nil {
+		t.Fatalf("setup batch failed: %v", err)
+	}
+	var setup batchResponse
+	json.Unmarshal([]byte(addResult), &setup)
+
+	completeId := setup.Results[0].Todo.ID
+	deleteId := setup.Results[1].Todo.ID
+	updateId := setup.Results[2].Todo.ID
+
+	// Now batch: add + complete + delete + update.
+	mixedArgs, _ := json.Marshal(map[string]interface{}{
+		"action": "batch",
+		"items": []map[string]interface{}{
+			{"op": "add", "title": "New Item"},
+			{"op": "complete", "todoId": completeId},
+			{"op": "delete", "todoId": deleteId},
+			{"op": "update", "todoId": updateId, "title": "Updated Title", "priority": "high"},
+		},
+	})
+
+	result, err := todoTool.Execute(todoCtx, string(mixedArgs))
+	if err != nil {
+		t.Fatalf("mixed batch failed: %v", err)
+	}
+
+	var resp batchResponse
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Results) != 4 {
+		t.Fatalf("results count = %d, want 4", len(resp.Results))
+	}
+	for i, r := range resp.Results {
+		if !r.Success {
+			t.Fatalf("result[%d] failed: %s", i, r.Error)
+		}
+	}
+	// Verify ops
+	if resp.Results[0].Op != "add" || resp.Results[0].Todo.GetTitle() != "New Item" {
+		t.Fatalf("result[0] unexpected: op=%s", resp.Results[0].Op)
+	}
+	if resp.Results[1].Op != "complete" || resp.Results[1].Todo.GetStatus() != models.TodoStatusDone {
+		t.Fatalf("result[1] unexpected: status=%s", resp.Results[1].Todo.GetStatus())
+	}
+	if resp.Results[2].Op != "delete" || resp.Results[2].TodoID != deleteId {
+		t.Fatalf("result[2] unexpected: todoId=%s", resp.Results[2].TodoID)
+	}
+	if resp.Results[3].Op != "update" || resp.Results[3].Todo.GetTitle() != "Updated Title" {
+		t.Fatalf("result[3] unexpected: title=%s", resp.Results[3].Todo.GetTitle())
+	}
+	if resp.Summary.Total != 4 || resp.Summary.Succeeded != 4 {
+		t.Fatalf("summary = %+v", resp.Summary)
+	}
+}
+
+func TestConvTodoBatchPartialFailure(t *testing.T) {
+	s := setupConvTodoStore(t)
+	ctx := store.ContextWithStore(context.Background(), s)
+	convId := createConv(t, ctx, s, "user1", "agent1")
+	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
+	todoTool := newConvTodoTool(t)
+
+	// Batch with one good add and one bad update (nonexistent todoId).
+	result, err := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add","title":"Good"},{"op":"update","todoId":"nonexistent","title":"Bad"}]}`)
+	if err != nil {
+		t.Fatalf("batch failed: %v", err)
+	}
+
+	var resp batchResponse
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Results) != 2 {
+		t.Fatalf("results count = %d, want 2", len(resp.Results))
+	}
+	if !resp.Results[0].Success {
+		t.Fatalf("result[0] should succeed")
+	}
+	if resp.Results[1].Success {
+		t.Fatalf("result[1] should fail")
+	}
+	if resp.Results[1].Error == "" {
+		t.Fatalf("result[1] error should be non-empty")
+	}
+	if resp.Summary.Succeeded != 1 || resp.Summary.Failed != 1 {
+		t.Fatalf("summary = %+v, want 1/1", resp.Summary)
+	}
+}
+
+func TestConvTodoBatchValidation(t *testing.T) {
+	s := setupConvTodoStore(t)
+	ctx := store.ContextWithStore(context.Background(), s)
+	convId := createConv(t, ctx, s, "user1", "agent1")
+	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
+	todoTool := newConvTodoTool(t)
+
+	// Empty items.
+	_, err := todoTool.Execute(todoCtx, `{"action":"batch","items":[]}`)
+	if err == nil {
+		t.Fatal("empty items should fail")
+	}
+
+	// Missing title on add → per-item error.
+	result, err := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add"}]}`)
+	if err != nil {
+		t.Fatalf("batch failed: %v", err)
+	}
+	var resp batchResponse
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Results[0].Success {
+		t.Fatal("add without title should fail")
+	}
+
+	// Missing todoId on update → per-item error.
+	result2, err := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"update","title":"no id"}]}`)
+	if err != nil {
+		t.Fatalf("batch failed: %v", err)
+	}
+	var resp2 batchResponse
+	json.Unmarshal([]byte(result2), &resp2)
+	if resp2.Results[0].Success {
+		t.Fatal("update without todoId should fail")
+	}
+}
+
+func TestConvTodoBatchSingleItem(t *testing.T) {
+	s := setupConvTodoStore(t)
+	ctx := store.ContextWithStore(context.Background(), s)
+	convId := createConv(t, ctx, s, "user1", "agent1")
+	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
+	todoTool := newConvTodoTool(t)
+
+	result, err := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add","title":"Single"}]}`)
+	if err != nil {
+		t.Fatalf("batch failed: %v", err)
+	}
+
+	var resp batchResponse
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Results) != 1 {
+		t.Fatalf("results count = %d, want 1", len(resp.Results))
+	}
+	if !resp.Results[0].Success || resp.Results[0].Todo.GetTitle() != "Single" {
+		t.Fatalf("unexpected result: %+v", resp.Results[0])
+	}
+}
+
+func TestConvTodoPrune(t *testing.T) {
+	s := setupConvTodoStore(t)
+	ctx := store.ContextWithStore(context.Background(), s)
+	convId := createConv(t, ctx, s, "user1", "agent1")
+	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
+	todoTool := newConvTodoTool(t)
+
+	// Add 2, complete 1.
+	addResult, _ := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add","title":"Open Item"},{"op":"add","title":"Done Item"}]}`)
+	var setup batchResponse
+	json.Unmarshal([]byte(addResult), &setup)
+	doneId := setup.Results[1].Todo.ID
+	todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"complete","todoId":"`+doneId+`"}]}`)
+
+	// Prune.
+	pruneResult, err := todoTool.Execute(todoCtx, `{"action":"prune"}`)
+	if err != nil {
+		t.Fatalf("prune failed: %v", err)
+	}
+	var pruneResp struct {
+		Action    string `json:"action"`
+		Success   bool   `json:"success"`
+		DoneCount int    `json:"doneCount"`
+	}
+	json.Unmarshal([]byte(pruneResult), &pruneResp)
+	if !pruneResp.Success {
+		t.Fatal("expected success=true")
+	}
+	if pruneResp.DoneCount != 1 {
+		t.Fatalf("doneCount = %d, want 1", pruneResp.DoneCount)
+	}
+
+	// Verify only the open item remains.
+	listResult, _ := todoTool.Execute(todoCtx, `{"action":"list"}`)
+	var listed struct {
+		Todos      []interface{} `json:"todos"`
+		TotalCount int           `json:"totalCount"`
+		OpenCount  int           `json:"openCount"`
+	}
+	json.Unmarshal([]byte(listResult), &listed)
+	if len(listed.Todos) != 1 {
+		t.Fatalf("expected 1 todo after prune, got %d", len(listed.Todos))
+	}
+	if listed.OpenCount != 1 {
+		t.Fatalf("openCount = %d, want 1", listed.OpenCount)
+	}
+}
+
+func TestConvTodoList(t *testing.T) {
+	s := setupConvTodoStore(t)
+	ctx := store.ContextWithStore(context.Background(), s)
+	convId := createConv(t, ctx, s, "user1", "agent1")
+	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
+	todoTool := newConvTodoTool(t)
 
 	// Add.
-	addResult, err := todoTool.Execute(todoCtx, `{"action":"add","title":"Conv Todo","priority":"high"}`)
-	if err != nil {
-		t.Fatalf("add failed: %v", err)
-	}
-	var added struct {
-		Todo models.Todo `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-	if added.Todo.GetTitle() != "Conv Todo" {
-		t.Fatalf("title = %q, want Conv Todo", added.Todo.GetTitle())
-	}
+	todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add","title":"Conv Todo","priority":"high"}]}`)
 
 	// List.
 	listResult, err := todoTool.Execute(todoCtx, `{"action":"list"}`)
@@ -102,226 +361,22 @@ func TestConvTodoAddAndList(t *testing.T) {
 	}
 }
 
-func TestConvTodoComplete(t *testing.T) {
-	s := setupConvTodoStore(t)
-	ctx := store.ContextWithStore(context.Background(), s)
-	convId := createConv(t, ctx, s, "user1", "agent1")
-	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
-
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(conversations.NewConversationTodoTool())
-	todoTool := registry.Get("conversation_todo")
-
-	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"To Complete"}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-
-	completeResult, err := todoTool.Execute(todoCtx, `{"action":"complete","todoId":"`+added.Todo.ID+`"}`)
-	if err != nil {
-		t.Fatalf("complete failed: %v", err)
-	}
-	var completed struct {
-		Todo models.Todo `json:"todo"`
-	}
-	json.Unmarshal([]byte(completeResult), &completed)
-	if completed.Todo.GetStatus() != models.TodoStatusDone {
-		t.Fatalf("status = %q, want done", completed.Todo.GetStatus())
-	}
-}
-
-func TestConvTodoReopen(t *testing.T) {
-	s := setupConvTodoStore(t)
-	ctx := store.ContextWithStore(context.Background(), s)
-	convId := createConv(t, ctx, s, "user1", "agent1")
-	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
-
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(conversations.NewConversationTodoTool())
-	todoTool := registry.Get("conversation_todo")
-
-	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"To Reopen"}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-	todoTool.Execute(todoCtx, `{"action":"complete","todoId":"`+added.Todo.ID+`"}`)
-
-	reopenResult, err := todoTool.Execute(todoCtx, `{"action":"reopen","todoId":"`+added.Todo.ID+`"}`)
-	if err != nil {
-		t.Fatalf("reopen failed: %v", err)
-	}
-	var reopened struct {
-		Todo models.Todo `json:"todo"`
-	}
-	json.Unmarshal([]byte(reopenResult), &reopened)
-	if reopened.Todo.GetStatus() != models.TodoStatusOpen {
-		t.Fatalf("status = %q, want open", reopened.Todo.GetStatus())
-	}
-}
-
-func TestConvTodoDelete(t *testing.T) {
-	s := setupConvTodoStore(t)
-	ctx := store.ContextWithStore(context.Background(), s)
-	convId := createConv(t, ctx, s, "user1", "agent1")
-	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
-
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(conversations.NewConversationTodoTool())
-	todoTool := registry.Get("conversation_todo")
-
-	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"To Delete"}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-
-	deleteResult, err := todoTool.Execute(todoCtx, `{"action":"delete","todoId":"`+added.Todo.ID+`"}`)
-	if err != nil {
-		t.Fatalf("delete failed: %v", err)
-	}
-	var deleted struct {
-		Success bool `json:"success"`
-	}
-	json.Unmarshal([]byte(deleteResult), &deleted)
-	if !deleted.Success {
-		t.Fatal("expected success=true")
-	}
-}
-
 func TestConvTodoOwnershipDenied(t *testing.T) {
 	s := setupConvTodoStore(t)
 	ctx := store.ContextWithStore(context.Background(), s)
-	// Create conv owned by user1.
 	convId := createConv(t, ctx, s, "user1", "agent1")
-	// Create user2 (non-admin).
 	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		tx.CreateUser(ctx, &models.User{ID: "user2", Username: ptrto.Value("user2"), Admin: ptrto.Value(false)}, nil, nil)
 		return nil
 	})
 
-	// user2 tries to access user1's conversation todos.
 	user2Ctx := buildConvTodoCtx(s, "user2", false, convId, "agent1")
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(conversations.NewConversationTodoTool())
-	todoTool := registry.Get("conversation_todo")
+	todoTool := newConvTodoTool(t)
 
-	_, err := todoTool.Execute(user2Ctx, `{"action":"list","conversationId":"`+convId+`"}`)
+	// user2 tries batch on user1's conversation.
+	_, err := todoTool.Execute(user2Ctx, `{"action":"batch","conversationId":"`+convId+`","items":[{"op":"add","title":"Nope"}]}`)
 	if err == nil {
-		t.Fatal("user2 should not be able to list user1's conversation todos")
-	}
-}
-
-func TestConvTodoClearDone(t *testing.T) {
-	s := setupConvTodoStore(t)
-	ctx := store.ContextWithStore(context.Background(), s)
-	convId := createConv(t, ctx, s, "user1", "agent1")
-	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
-
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(conversations.NewConversationTodoTool())
-	todoTool := registry.Get("conversation_todo")
-
-	// Add two todos, complete one.
-	todoTool.Execute(todoCtx, `{"action":"add","title":"Open Item"}`)
-	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"Done Item"}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-	todoTool.Execute(todoCtx, `{"action":"complete","todoId":"`+added.Todo.ID+`"}`)
-
-	// clear_done should remove only the done item.
-	clearResult, err := todoTool.Execute(todoCtx, `{"action":"clear_done"}`)
-	if err != nil {
-		t.Fatalf("clear_done failed: %v", err)
-	}
-	var cleared struct {
-		Action    string `json:"action"`
-		Success   bool   `json:"success"`
-		DoneCount int    `json:"doneCount"`
-	}
-	json.Unmarshal([]byte(clearResult), &cleared)
-	if !cleared.Success {
-		t.Fatal("expected success=true")
-	}
-	if cleared.DoneCount != 1 {
-		t.Fatalf("doneCount = %d, want 1", cleared.DoneCount)
-	}
-
-	// Verify only the open item remains.
-	listResult, _ := todoTool.Execute(todoCtx, `{"action":"list"}`)
-	var listed struct {
-		Todos      []interface{} `json:"todos"`
-		TotalCount int           `json:"totalCount"`
-		OpenCount  int           `json:"openCount"`
-	}
-	json.Unmarshal([]byte(listResult), &listed)
-	if len(listed.Todos) != 1 {
-		t.Fatalf("expected 1 todo after clear_done, got %d", len(listed.Todos))
-	}
-	if listed.OpenCount != 1 {
-		t.Fatalf("openCount = %d, want 1", listed.OpenCount)
-	}
-}
-
-func TestConvTodoReset(t *testing.T) {
-	s := setupConvTodoStore(t)
-	ctx := store.ContextWithStore(context.Background(), s)
-	convId := createConv(t, ctx, s, "user1", "agent1")
-	todoCtx := buildConvTodoCtx(s, "user1", true, convId, "agent1")
-
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(conversations.NewConversationTodoTool())
-	todoTool := registry.Get("conversation_todo")
-
-	// Add two todos, complete one.
-	todoTool.Execute(todoCtx, `{"action":"add","title":"Open Item"}`)
-	addResult, _ := todoTool.Execute(todoCtx, `{"action":"add","title":"Done Item"}`)
-	var added struct {
-		Todo struct {
-			ID string `json:"id"`
-		} `json:"todo"`
-	}
-	json.Unmarshal([]byte(addResult), &added)
-	todoTool.Execute(todoCtx, `{"action":"complete","todoId":"`+added.Todo.ID+`"}`)
-
-	// reset should remove all items.
-	resetResult, err := todoTool.Execute(todoCtx, `{"action":"reset"}`)
-	if err != nil {
-		t.Fatalf("reset failed: %v", err)
-	}
-	var resetResp struct {
-		Action     string `json:"action"`
-		Success    bool   `json:"success"`
-		TotalCount int    `json:"totalCount"`
-	}
-	json.Unmarshal([]byte(resetResult), &resetResp)
-	if !resetResp.Success {
-		t.Fatal("expected success=true")
-	}
-	if resetResp.TotalCount != 2 {
-		t.Fatalf("totalCount = %d, want 2", resetResp.TotalCount)
-	}
-
-	// Verify list is empty.
-	listResult, _ := todoTool.Execute(todoCtx, `{"action":"list"}`)
-	var listed struct {
-		Todos      []interface{} `json:"todos"`
-		TotalCount int           `json:"totalCount"`
-	}
-	json.Unmarshal([]byte(listResult), &listed)
-	if len(listed.Todos) != 0 {
-		t.Fatalf("expected 0 todos after reset, got %d", len(listed.Todos))
+		t.Fatal("user2 should not be able to batch on user1's conversation")
 	}
 }
 
@@ -329,20 +384,16 @@ func TestConvTodoAdminCrossAccess(t *testing.T) {
 	s := setupConvTodoStore(t)
 	ctx := store.ContextWithStore(context.Background(), s)
 	convId := createConv(t, ctx, s, "user1", "agent1")
-	// Create admin user.
 	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		tx.CreateUser(ctx, &models.User{ID: "admin2", Username: ptrto.Value("admin2"), Admin: ptrto.Value(true)}, nil, nil)
 		return nil
 	})
 
-	// Admin should access any user's conversation todos.
 	adminCtx := buildConvTodoCtx(s, "admin2", true, convId, "agent1")
-	registry := tools.NewEmptyToolRegistry()
-	registry.Register(conversations.NewConversationTodoTool())
-	todoTool := registry.Get("conversation_todo")
+	todoTool := newConvTodoTool(t)
 
-	_, err := todoTool.Execute(adminCtx, `{"action":"add","conversationId":"`+convId+`","title":"Admin Todo"}`)
+	_, err := todoTool.Execute(adminCtx, `{"action":"batch","conversationId":"`+convId+`","items":[{"op":"add","title":"Admin Todo"}]}`)
 	if err != nil {
-		t.Fatalf("admin cross-access add failed: %v", err)
+		t.Fatalf("admin cross-access batch failed: %v", err)
 	}
 }

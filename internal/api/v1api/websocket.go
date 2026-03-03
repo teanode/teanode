@@ -14,6 +14,7 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/voice"
 )
 
@@ -57,6 +58,9 @@ func (self *v1Api) isWebSocketOriginAllowed(request *http.Request) bool {
 	if err != nil || originUrl.Host == "" {
 		return false
 	}
+	if strings.EqualFold(originUrl.Scheme, "chrome-extension") {
+		return true
+	}
 	originTls := strings.EqualFold(originUrl.Scheme, "https")
 	requestTls := request.TLS != nil
 	if sameOriginHost(originUrl.Host, originTls, request.Host, requestTls) {
@@ -98,6 +102,7 @@ type webSocketConnection struct {
 	api        *v1Api
 	ctx        context.Context
 	writeMutex sync.Mutex
+	id         string // unique connection identifier (for tab broker cleanup)
 
 	// Idempotency deduplication: method+id -> expiry time
 	deduplication sync.Map // map[string]time.Time
@@ -111,7 +116,13 @@ func newWebSocketConnection(connection *websocket.Conn, api *v1Api, ctx context.
 		connection: connection,
 		api:        api,
 		ctx:        ctx,
+		id:         security.NewULID(),
 	}
+}
+
+// connectionId returns the unique identifier for this connection.
+func (self *webSocketConnection) connectionId() string {
+	return self.id
 }
 
 // OnEvent implements pubsub.Subscriber. It forwards events to this WebSocket client.
@@ -152,6 +163,13 @@ func (self *webSocketConnection) serve() {
 		if session := self.getActiveVoiceSession(); session != nil {
 			session.Close()
 			self.clearActiveVoiceSession(session)
+		}
+	}()
+
+	// Clean up tab attachments owned by this connection.
+	defer func() {
+		if broker := self.api.coordinator.TabBroker(); broker != nil {
+			broker.DetachAllForConnection(self.connectionId())
 		}
 	}()
 
@@ -336,22 +354,18 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleProjectsDelete(frame)
 	case "conversations.todos.list":
 		self.handleConversationsTodosList(frame)
-	case "conversations.todos.add":
-		self.handleConversationsTodosAdd(frame)
-	case "conversations.todos.complete":
-		self.handleConversationsTodosComplete(frame)
-	case "conversations.todos.reopen":
-		self.handleConversationsTodosReopen(frame)
-	case "conversations.todos.update":
-		self.handleConversationsTodosUpdate(frame)
-	case "conversations.todos.delete":
-		self.handleConversationsTodosDelete(frame)
+	case "conversations.todos.batch":
+		self.handleConversationsTodosBatch(frame)
 	case "questions.list":
 		self.handleQuestionsList(frame)
 	case "questions.answer":
 		self.handleQuestionsAnswer(frame)
-	case "questions.answer_batch":
-		self.handleQuestionsAnswerBatch(frame)
+	case "tab.attach":
+		self.handleTabAttach(frame)
+	case "tab.detach":
+		self.handleTabDetach(frame)
+	case "tab.commandResult":
+		self.handleTabCommandResult(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}

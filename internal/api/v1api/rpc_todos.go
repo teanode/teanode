@@ -3,6 +3,7 @@ package v1api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/teanode/teanode/internal/models"
@@ -61,14 +62,30 @@ func (self *webSocketConnection) handleConversationsTodosList(frame requestFrame
 	})
 }
 
-// --- conversations.todos.add ---
+// --- conversations.todos.batch ---
 
-func (self *webSocketConnection) handleConversationsTodosAdd(frame requestFrame) {
+type rpcBatchItem struct {
+	Op          string   `json:"op"`
+	TodoID      string   `json:"todoId"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Priority    string   `json:"priority"`
+	Tags        []string `json:"tags"`
+}
+
+type rpcBatchResult struct {
+	Index   int          `json:"index"`
+	Op      string       `json:"op"`
+	Success bool         `json:"success"`
+	Todo    *models.Todo `json:"todo,omitempty"`
+	Error   string       `json:"error,omitempty"`
+	TodoID  string       `json:"todoId,omitempty"`
+}
+
+func (self *webSocketConnection) handleConversationsTodosBatch(frame requestFrame) {
 	var parameters struct {
-		ConversationID string   `json:"conversationId"`
-		Title          string   `json:"title"`
-		Priority       string   `json:"priority"`
-		Tags           []string `json:"tags"`
+		ConversationID string         `json:"conversationId"`
+		Items          []rpcBatchItem `json:"items"`
 	}
 	if frame.Params != nil {
 		json.Unmarshal(frame.Params, &parameters)
@@ -77,8 +94,12 @@ func (self *webSocketConnection) handleConversationsTodosAdd(frame requestFrame)
 		self.sendError(frame.ID, 400, "conversationId is required")
 		return
 	}
-	if parameters.Title == "" {
-		self.sendError(frame.ID, 400, "title is required")
+	if len(parameters.Items) == 0 {
+		self.sendError(frame.ID, 400, "items is required and must contain 1-50 entries")
+		return
+	}
+	if len(parameters.Items) > 50 {
+		self.sendError(frame.ID, 400, fmt.Sprintf("items must contain at most 50 entries, got %d", len(parameters.Items)))
 		return
 	}
 
@@ -87,203 +108,188 @@ func (self *webSocketConnection) handleConversationsTodosAdd(frame requestFrame)
 		return
 	}
 
-	priority := models.TodoPriority(parameters.Priority)
+	results := make([]rpcBatchResult, len(parameters.Items))
+	succeeded := 0
+	anySuccess := false
+
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
+		for i, item := range parameters.Items {
+			results[i] = self.executeRpcBatchItem(ctx, tx, parameters.ConversationID, i, item)
+			if results[i].Success {
+				succeeded++
+				anySuccess = true
+			}
+		}
+		return nil
+	}); err != nil {
+		self.sendError(frame.ID, 500, "batch operation failed: "+err.Error())
+		return
+	}
+
+	if anySuccess {
+		// Update conversation modified timestamp.
+		_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
+			_, err := tx.ModifyConversation(ctx, parameters.ConversationID, func(c *models.Conversation) error {
+				now := time.Now()
+				c.ModifiedAt = &now
+				return nil
+			}, nil)
+			return err
+		})
+	}
+
+	// Compute aggregate counts.
+	var todos []*models.Todo
+	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
+		listed, err := tx.ListTodos(ctx, store.TodoListOptions{ConversationID: &parameters.ConversationID}, nil)
+		if err != nil {
+			return err
+		}
+		todos = listed
+		return nil
+	})
+	openCount, doneCount := 0, 0
+	for _, todo := range todos {
+		switch todo.GetStatus() {
+		case models.TodoStatusOpen:
+			openCount++
+		case models.TodoStatusDone:
+			doneCount++
+		}
+	}
+
+	// Emit single pubsub event.
+	self.api.pubsub.Broadcast(pubsub.EventTypeConversationTodos, map[string]interface{}{
+		"conversationId": parameters.ConversationID,
+		"userId":         self.userId(),
+		"action":         "batch",
+		"results":        results,
+	})
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"results": results,
+		"summary": map[string]interface{}{
+			"total":     len(parameters.Items),
+			"succeeded": succeeded,
+			"failed":    len(parameters.Items) - succeeded,
+		},
+		"totalCount": len(todos),
+		"openCount":  openCount,
+		"doneCount":  doneCount,
+	})
+}
+
+func (self *webSocketConnection) executeRpcBatchItem(ctx context.Context, tx store.Transaction, conversationId string, index int, item rpcBatchItem) rpcBatchResult {
+	switch item.Op {
+	case "add":
+		return self.rpcBatchAdd(ctx, tx, conversationId, index, item)
+	case "update":
+		return self.rpcBatchUpdate(ctx, tx, index, item)
+	case "complete":
+		return self.rpcBatchComplete(ctx, tx, index, item)
+	case "reopen":
+		return self.rpcBatchReopen(ctx, tx, index, item)
+	case "delete":
+		return self.rpcBatchDelete(ctx, tx, index, item)
+	default:
+		return rpcBatchResult{Index: index, Op: item.Op, Success: false, Error: fmt.Sprintf("unknown op: %s", item.Op)}
+	}
+}
+
+func (self *webSocketConnection) rpcBatchAdd(ctx context.Context, tx store.Transaction, conversationId string, index int, item rpcBatchItem) rpcBatchResult {
+	if item.Title == "" {
+		return rpcBatchResult{Index: index, Op: "add", Success: false, Error: "title is required for add"}
+	}
+	priority := models.TodoPriority(item.Priority)
 	if priority == "" {
 		priority = models.TodoPriorityMedium
 	}
-	tags := parameters.Tags
+	tags := item.Tags
 	if tags == nil {
 		tags = make([]string, 0)
 	}
-
-	var created *models.Todo
-	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		todo := &models.Todo{
-			ID:             security.NewULID(),
-			ConversationID: ptrto.Value(parameters.ConversationID),
-			Title:          ptrto.Value(parameters.Title),
-			Status:         ptrto.Value(models.TodoStatusOpen),
-			Priority:       ptrto.Value(priority),
-			Tags:           &tags,
-		}
-		result, err := tx.CreateTodo(ctx, todo, nil)
-		if err != nil {
-			return err
-		}
-		created = result
-		return nil
-	}); err != nil {
-		self.sendError(frame.ID, 500, "creating todo: "+err.Error())
-		return
+	todo := &models.Todo{
+		ID:             security.NewULID(),
+		ConversationID: ptrto.Value(conversationId),
+		Title:          ptrto.Value(item.Title),
+		Status:         ptrto.Value(models.TodoStatusOpen),
+		Priority:       ptrto.Value(priority),
+		Tags:           &tags,
 	}
-
-	self.emitConversationTodoEvent(parameters.ConversationID, created, "add")
-	self.sendResponse(frame.ID, map[string]interface{}{"todo": created})
+	if item.Description != "" {
+		todo.Description = ptrto.Value(item.Description)
+	}
+	created, err := tx.CreateTodo(ctx, todo, nil)
+	if err != nil {
+		return rpcBatchResult{Index: index, Op: "add", Success: false, Error: err.Error()}
+	}
+	return rpcBatchResult{Index: index, Op: "add", Success: true, Todo: created}
 }
 
-// --- conversations.todos.complete ---
-
-func (self *webSocketConnection) handleConversationsTodosComplete(frame requestFrame) {
-	var parameters struct {
-		ConversationID string `json:"conversationId"`
-		TodoID         string `json:"todoId"`
+func (self *webSocketConnection) rpcBatchUpdate(ctx context.Context, tx store.Transaction, index int, item rpcBatchItem) rpcBatchResult {
+	if item.TodoID == "" {
+		return rpcBatchResult{Index: index, Op: "update", Success: false, Error: "todoId is required for update"}
 	}
-	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
-	}
-	if parameters.ConversationID == "" || parameters.TodoID == "" {
-		self.sendError(frame.ID, 400, "conversationId and todoId are required")
-		return
-	}
-
-	if err := self.verifyConversationAccess(parameters.ConversationID); err != nil {
-		self.sendError(frame.ID, 403, err.Error())
-		return
-	}
-
-	var updated *models.Todo
-	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.ModifyTodo(ctx, parameters.TodoID, func(todo *models.Todo) error {
-			todo.Status = ptrto.Value(models.TodoStatusDone)
-			now := time.Now()
-			todo.CompletedAt = &now
-			return nil
-		}, nil)
-		if err != nil {
-			return err
+	updated, err := tx.ModifyTodo(ctx, item.TodoID, func(todo *models.Todo) error {
+		if item.Title != "" {
+			todo.Title = ptrto.Value(item.Title)
 		}
-		updated = result
+		if item.Description != "" {
+			todo.Description = ptrto.Value(item.Description)
+		}
+		if item.Priority != "" {
+			todo.Priority = ptrto.Value(models.TodoPriority(item.Priority))
+		}
+		if item.Tags != nil {
+			todo.Tags = &item.Tags
+		}
 		return nil
-	}); err != nil {
-		self.sendError(frame.ID, 500, "completing todo: "+err.Error())
-		return
+	}, nil)
+	if err != nil {
+		return rpcBatchResult{Index: index, Op: "update", Success: false, Error: err.Error(), TodoID: item.TodoID}
 	}
-
-	self.emitConversationTodoEvent(parameters.ConversationID, updated, "complete")
-	self.sendResponse(frame.ID, map[string]interface{}{"todo": updated})
+	return rpcBatchResult{Index: index, Op: "update", Success: true, Todo: updated}
 }
 
-// --- conversations.todos.reopen ---
-
-func (self *webSocketConnection) handleConversationsTodosReopen(frame requestFrame) {
-	var parameters struct {
-		ConversationID string `json:"conversationId"`
-		TodoID         string `json:"todoId"`
+func (self *webSocketConnection) rpcBatchComplete(ctx context.Context, tx store.Transaction, index int, item rpcBatchItem) rpcBatchResult {
+	if item.TodoID == "" {
+		return rpcBatchResult{Index: index, Op: "complete", Success: false, Error: "todoId is required for complete"}
 	}
-	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
-	}
-	if parameters.ConversationID == "" || parameters.TodoID == "" {
-		self.sendError(frame.ID, 400, "conversationId and todoId are required")
-		return
-	}
-
-	if err := self.verifyConversationAccess(parameters.ConversationID); err != nil {
-		self.sendError(frame.ID, 403, err.Error())
-		return
-	}
-
-	var updated *models.Todo
-	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.ModifyTodo(ctx, parameters.TodoID, func(todo *models.Todo) error {
-			todo.Status = ptrto.Value(models.TodoStatusOpen)
-			todo.CompletedAt = nil
-			return nil
-		}, nil)
-		if err != nil {
-			return err
-		}
-		updated = result
+	updated, err := tx.ModifyTodo(ctx, item.TodoID, func(todo *models.Todo) error {
+		todo.Status = ptrto.Value(models.TodoStatusDone)
+		now := time.Now()
+		todo.CompletedAt = &now
 		return nil
-	}); err != nil {
-		self.sendError(frame.ID, 500, "reopening todo: "+err.Error())
-		return
+	}, nil)
+	if err != nil {
+		return rpcBatchResult{Index: index, Op: "complete", Success: false, Error: err.Error(), TodoID: item.TodoID}
 	}
-
-	self.emitConversationTodoEvent(parameters.ConversationID, updated, "reopen")
-	self.sendResponse(frame.ID, map[string]interface{}{"todo": updated})
+	return rpcBatchResult{Index: index, Op: "complete", Success: true, Todo: updated}
 }
 
-// --- conversations.todos.update ---
-
-func (self *webSocketConnection) handleConversationsTodosUpdate(frame requestFrame) {
-	var parameters struct {
-		ConversationID string   `json:"conversationId"`
-		TodoID         string   `json:"todoId"`
-		Title          string   `json:"title"`
-		Priority       string   `json:"priority"`
-		Tags           []string `json:"tags"`
+func (self *webSocketConnection) rpcBatchReopen(ctx context.Context, tx store.Transaction, index int, item rpcBatchItem) rpcBatchResult {
+	if item.TodoID == "" {
+		return rpcBatchResult{Index: index, Op: "reopen", Success: false, Error: "todoId is required for reopen"}
 	}
-	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
-	}
-	if parameters.ConversationID == "" || parameters.TodoID == "" {
-		self.sendError(frame.ID, 400, "conversationId and todoId are required")
-		return
-	}
-
-	if err := self.verifyConversationAccess(parameters.ConversationID); err != nil {
-		self.sendError(frame.ID, 403, err.Error())
-		return
-	}
-
-	var updated *models.Todo
-	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.ModifyTodo(ctx, parameters.TodoID, func(todo *models.Todo) error {
-			if parameters.Title != "" {
-				todo.Title = ptrto.Value(parameters.Title)
-			}
-			if parameters.Priority != "" {
-				todo.Priority = ptrto.Value(models.TodoPriority(parameters.Priority))
-			}
-			if parameters.Tags != nil {
-				todo.Tags = &parameters.Tags
-			}
-			return nil
-		}, nil)
-		if err != nil {
-			return err
-		}
-		updated = result
+	updated, err := tx.ModifyTodo(ctx, item.TodoID, func(todo *models.Todo) error {
+		todo.Status = ptrto.Value(models.TodoStatusOpen)
+		todo.CompletedAt = nil
 		return nil
-	}); err != nil {
-		self.sendError(frame.ID, 500, "updating todo: "+err.Error())
-		return
+	}, nil)
+	if err != nil {
+		return rpcBatchResult{Index: index, Op: "reopen", Success: false, Error: err.Error(), TodoID: item.TodoID}
 	}
-
-	self.emitConversationTodoEvent(parameters.ConversationID, updated, "update")
-	self.sendResponse(frame.ID, map[string]interface{}{"todo": updated})
+	return rpcBatchResult{Index: index, Op: "reopen", Success: true, Todo: updated}
 }
 
-// --- conversations.todos.delete ---
-
-func (self *webSocketConnection) handleConversationsTodosDelete(frame requestFrame) {
-	var parameters struct {
-		ConversationID string `json:"conversationId"`
-		TodoID         string `json:"todoId"`
+func (self *webSocketConnection) rpcBatchDelete(ctx context.Context, tx store.Transaction, index int, item rpcBatchItem) rpcBatchResult {
+	if item.TodoID == "" {
+		return rpcBatchResult{Index: index, Op: "delete", Success: false, Error: "todoId is required for delete"}
 	}
-	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+	if err := tx.DeleteTodo(ctx, item.TodoID, nil); err != nil {
+		return rpcBatchResult{Index: index, Op: "delete", Success: false, Error: err.Error(), TodoID: item.TodoID}
 	}
-	if parameters.ConversationID == "" || parameters.TodoID == "" {
-		self.sendError(frame.ID, 400, "conversationId and todoId are required")
-		return
-	}
-
-	if err := self.verifyConversationAccess(parameters.ConversationID); err != nil {
-		self.sendError(frame.ID, 403, err.Error())
-		return
-	}
-
-	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		return tx.DeleteTodo(ctx, parameters.TodoID, nil)
-	}); err != nil {
-		self.sendError(frame.ID, 500, "deleting todo: "+err.Error())
-		return
-	}
-
-	self.emitConversationTodoEvent(parameters.ConversationID, &models.Todo{ID: parameters.TodoID}, "delete")
-	self.sendResponse(frame.ID, map[string]interface{}{"success": true})
+	return rpcBatchResult{Index: index, Op: "delete", Success: true, TodoID: item.TodoID}
 }
 
 // --- helpers ---

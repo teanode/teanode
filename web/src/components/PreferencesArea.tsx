@@ -13,6 +13,7 @@ import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import LightModeIcon from "@mui/icons-material/LightMode";
+import SettingsBrightnessIcon from "@mui/icons-material/SettingsBrightness";
 import { useAppContext, type ThemeMode } from "../context";
 import type { LanguagePreference } from "../i18n/config";
 
@@ -103,6 +104,9 @@ export default function PreferencesArea() {
             </ToggleButton>
             <ToggleButton value="light" aria-label={t("settings.lightMode")}>
               <LightModeIcon sx={{ fontSize: 18 }} />
+            </ToggleButton>
+            <ToggleButton value="system" aria-label={t("settings.systemMode")}>
+              <SettingsBrightnessIcon sx={{ fontSize: 18 }} />
             </ToggleButton>
           </ToggleButtonGroup>
         </Paper>

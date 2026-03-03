@@ -4,6 +4,8 @@ import { withToken } from "../rpc";
 
 interface ConversationAvatarProps {
   avatarMediaId?: string;
+  /** Pre-resolved avatar URL (takes precedence over avatarMediaId). */
+  src?: string;
   fallback: string;
   size?: number;
 }
@@ -15,14 +17,18 @@ function normalizeFallback(value: string): string {
 
 export default function ConversationAvatar({
   avatarMediaId,
+  src: srcProp,
   fallback,
   size = 22,
 }: ConversationAvatarProps) {
+  const resolvedSrc = srcProp
+    ? srcProp
+    : avatarMediaId
+      ? withToken(`/api/v1/media/${avatarMediaId}`)
+      : undefined;
   return (
     <Avatar
-      src={
-        avatarMediaId ? withToken(`/api/v1/media/${avatarMediaId}`) : undefined
-      }
+      src={resolvedSrc}
       sx={{
         width: { xs: Math.max(20, size - 2), sm: size },
         height: { xs: Math.max(20, size - 2), sm: size },

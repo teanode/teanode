@@ -59,6 +59,7 @@ import (
 	_ "github.com/teanode/teanode/internal/tools/projects"
 	_ "github.com/teanode/teanode/internal/tools/search"
 	_ "github.com/teanode/teanode/internal/tools/shell"
+	_ "github.com/teanode/teanode/internal/tools/tab"
 	_ "github.com/teanode/teanode/internal/tools/terminal"
 	_ "github.com/teanode/teanode/internal/tools/unifiprotect"
 	_ "github.com/teanode/teanode/internal/tools/workspace"

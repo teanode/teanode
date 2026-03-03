@@ -6,15 +6,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/teanode/teanode/internal/integrations/questions"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/runners"
 )
 
 // stubRunner creates a minimal context with runner, user, broker, origin, and pubsub.
-func stubContext(origin string) (context.Context, *QuestionBroker) {
+func stubContext(origin string) (context.Context, *questions.QuestionBroker) {
 	ctx := context.Background()
-	broker := NewQuestionBroker()
+	broker := questions.NewQuestionBroker()
 	ps := pubsub.New()
 
 	// Create a minimal runner with exported fields.
@@ -25,7 +26,7 @@ func stubContext(origin string) (context.Context, *QuestionBroker) {
 	}
 	ctx = runners.ContextWithRunner(ctx, runner)
 	ctx = runners.ContextWithOrigin(ctx, origin)
-	ctx = ContextWithQuestionBroker(ctx, broker)
+	ctx = questions.ContextWithQuestionBroker(ctx, broker)
 	ctx = pubsub.ContextWithPubSub(ctx, ps)
 	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: "user1"}, nil, nil)
 	return ctx, broker
@@ -103,7 +104,7 @@ func TestHappyPath(t *testing.T) {
 		t.Fatalf("expected 1 pending question, got %d", len(pending))
 	}
 
-	if err := broker.Answer(pending[0].ID, AnswerPayload{Answer: "PostgreSQL"}); err != nil {
+	if err := broker.Answer(pending[0].ID, questions.AnswerPayload{Answer: "PostgreSQL"}); err != nil {
 		t.Fatalf("failed to answer: %v", err)
 	}
 
@@ -210,7 +211,7 @@ func TestHappyPathWithOther(t *testing.T) {
 		t.Errorf("expected OtherLabel 'Custom', got %s", pending[0].OtherLabel)
 	}
 
-	if err := broker.Answer(pending[0].ID, AnswerPayload{Answer: "Custom", Other: "MongoDB"}); err != nil {
+	if err := broker.Answer(pending[0].ID, questions.AnswerPayload{Answer: "Custom", Other: "MongoDB"}); err != nil {
 		t.Fatalf("failed to answer: %v", err)
 	}
 
@@ -259,7 +260,7 @@ func TestAllowOtherDefaultValues(t *testing.T) {
 		t.Errorf("expected empty OtherLabel (uses frontend default), got %s", pending[0].OtherLabel)
 	}
 
-	broker.Answer(pending[0].ID, AnswerPayload{Answer: "A"})
+	broker.Answer(pending[0].ID, questions.AnswerPayload{Answer: "A"})
 	<-done
 }
 
@@ -288,7 +289,7 @@ func TestBackwardCompatibleNoAllowOther(t *testing.T) {
 		t.Error("expected AllowOther to be false by default")
 	}
 
-	broker.Answer(pending[0].ID, AnswerPayload{Answer: "X"})
+	broker.Answer(pending[0].ID, questions.AnswerPayload{Answer: "X"})
 
 	select {
 	case result := <-done:
