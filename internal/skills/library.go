@@ -81,16 +81,16 @@ func FetchIndex(ctx context.Context) (*Index, error) {
 
 // verifyEntrySignature verifies the Ed25519 signature for a skill entry.
 func verifyEntrySignature(entry SkillEntry) error {
-	pubKeyBytes, err := base64.StdEncoding.DecodeString(officialPublicKey)
+	publicKeyBytes, err := base64.StdEncoding.DecodeString(officialPublicKey)
 	if err != nil {
 		return fmt.Errorf("decoding public key: %w", err)
 	}
-	if len(pubKeyBytes) != ed25519.PublicKeySize {
-		return fmt.Errorf("invalid public key length: %d", len(pubKeyBytes))
+	if len(publicKeyBytes) != ed25519.PublicKeySize {
+		return fmt.Errorf("invalid public key length: %d", len(publicKeyBytes))
 	}
-	pubKey := ed25519.PublicKey(pubKeyBytes)
+	publicKey := ed25519.PublicKey(publicKeyBytes)
 
-	sigBytes, err := base64.StdEncoding.DecodeString(entry.Signature)
+	signatureBytes, err := base64.StdEncoding.DecodeString(entry.Signature)
 	if err != nil {
 		return fmt.Errorf("decoding signature: %w", err)
 	}
@@ -98,7 +98,7 @@ func verifyEntrySignature(entry SkillEntry) error {
 	// Message format matches sign-index.sh: "name\nversion\nurl\nlowercase(sha256)"
 	message := entry.Name + "\n" + entry.Version + "\n" + entry.URL + "\n" + strings.ToLower(entry.SHA256)
 
-	if !ed25519.Verify(pubKey, []byte(message), sigBytes) {
+	if !ed25519.Verify(publicKey, []byte(message), signatureBytes) {
 		return fmt.Errorf("signature verification failed for %s", entry.Name)
 	}
 	return nil
@@ -187,8 +187,8 @@ func Install(ctx context.Context, name, version string) (*InstalledSkillInfo, er
 		skill.Tools = &tools
 	}
 	if len(frontmatter.AuthenticationProfiles) > 0 {
-		authProfiles := frontmatter.AuthenticationProfiles
-		skill.AuthenticationProfiles = &authProfiles
+		authenticationProfiles := frontmatter.AuthenticationProfiles
+		skill.AuthenticationProfiles = &authenticationProfiles
 	}
 
 	// Upsert in store.
@@ -374,4 +374,3 @@ func parseFrontmatter(data []byte) (*libraryFrontmatter, string, error) {
 	}
 	return &parsed, prompt, nil
 }
-

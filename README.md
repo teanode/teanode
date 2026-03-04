@@ -18,6 +18,8 @@ The gateway listens on `http://localhost:8833` by default.
 
 ## Development
 
+Before commit and push, please run formatter and linter for both backend and frontend.
+
 ### Naming Convention (IMPORTANT!)
 
 When first alphabetical character is capitalized, also capitalize acronyms:

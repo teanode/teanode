@@ -123,7 +123,7 @@
     "cannotDeleteCurrentUser": "Cannot delete the current user",
     "jobsDescription": "Schedule, edit, and monitor recurring jobs.",
     "projectsDescription": "Browse shared projects, rename them, or delete ones you no longer need.",
-    "skillsDescription": "Browse local and installed skills, uninstall them, and check for updates.",
+    "skillsDescription": "Manage installed skills, uninstall them, and check for updates.",
     "noProjects": "No projects found",
     "projectUpdated": "Updated: {{updated}}",
     "projectRenamed": "{{name}} renamed",

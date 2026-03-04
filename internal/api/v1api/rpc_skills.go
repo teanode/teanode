@@ -74,9 +74,9 @@ func (self *webSocketConnection) handleSkillsInstalledList(frame requestFrame) {
 	}
 	var installed []*models.Skill
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		var listErr error
-		installed, listErr = tx.ListSkills(ctx, nil)
-		return listErr
+		var err error
+		installed, err = tx.ListSkills(ctx, nil)
+		return err
 	}); err != nil {
 		self.sendError(frame.ID, 500, "listing skills: "+err.Error())
 		return
@@ -173,11 +173,11 @@ func (self *webSocketConnection) handleSkillsSetEnabled(frame requestFrame) {
 		return
 	}
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		_, modErr := tx.ModifySkill(ctx, parameters.Name, func(skill *models.Skill) error {
+		_, err := tx.ModifySkill(ctx, parameters.Name, func(skill *models.Skill) error {
 			skill.Enabled = ptrto.Value(*parameters.Enabled)
 			return nil
 		}, nil)
-		return modErr
+		return err
 	}); err != nil {
 		self.sendError(frame.ID, 500, "setting skill enabled: "+err.Error())
 		return

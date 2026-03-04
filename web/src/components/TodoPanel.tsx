@@ -43,7 +43,6 @@ export default function TodoPanel({
       sx={{
         borderTop: 1,
         borderColor: "divider",
-        bgcolor: "background.paper",
       }}
     >
       <Container maxWidth="md" disableGutters>
@@ -54,10 +53,7 @@ export default function TodoPanel({
             alignItems: "center",
             px: 2,
             py: 0.5,
-            cursor: "pointer",
-            "&:hover": { bgcolor: "action.hover" },
           }}
-          onClick={() => onToggleCollapsed(!collapsed)}
         >
           <Typography variant="subtitle2" sx={{ flex: 1 }}>
             {t("todos.title")}
@@ -70,7 +66,10 @@ export default function TodoPanel({
               />
             )}
           </Typography>
-          <IconButton size="small">
+          <IconButton
+            size="small"
+            onClick={() => onToggleCollapsed(!collapsed)}
+          >
             {collapsed ? <ExpandLessIcon /> : <ExpandMoreIcon />}
           </IconButton>
         </Box>
