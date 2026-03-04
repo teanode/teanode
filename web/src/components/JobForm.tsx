@@ -32,7 +32,7 @@ interface JobFormProps {
   onSave: (data: {
     name: string;
     schedule: string;
-    message: string;
+    prompt: string;
     model: string;
     agentId: string;
   }) => void;
@@ -66,14 +66,14 @@ const JobForm = React.forwardRef<JobFormHandle, JobFormProps>(function JobForm(
   const { t } = useTranslation();
   const [name, setName] = useState(initial?.name || "");
   const [schedule, setSchedule] = useState(initial?.schedule || "0 * * * *");
-  const [message, setMessage] = useState(initial?.message || "");
+  const [message, setMessage] = useState(initial?.prompt || "");
   const [model, setModel] = useState(initial?.providerModelName || "");
   const [agentId, setAgentId] = useState(initial?.agentId || "");
 
   useEffect(() => {
     setName(initial?.name || "");
     setSchedule(initial?.schedule || "0 * * * *");
-    setMessage(initial?.message || "");
+    setMessage(initial?.prompt || "");
     setModel(initial?.providerModelName || "");
     setAgentId(initial?.agentId || "");
   }, [initial?.id]);
@@ -92,7 +92,7 @@ const JobForm = React.forwardRef<JobFormHandle, JobFormProps>(function JobForm(
   const dirty = initial
     ? name !== (initial.name || "") ||
       schedule !== (initial.schedule || "") ||
-      message !== (initial.message || "") ||
+      message !== (initial.prompt || "") ||
       model !== (initial.providerModelName || "") ||
       agentId !== (initial.agentId || "")
     : true;
@@ -108,7 +108,7 @@ const JobForm = React.forwardRef<JobFormHandle, JobFormProps>(function JobForm(
     onSave({
       name: name.trim(),
       schedule: schedule.trim(),
-      message: message.trim(),
+      prompt: message.trim(),
       model: model.trim(),
       agentId: agentId.trim(),
     });

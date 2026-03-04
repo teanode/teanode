@@ -208,7 +208,7 @@ export interface Job {
   id: string;
   name: string;
   schedule: string;
-  message: string;
+  prompt: string;
   providerModelName?: string;
   agentId?: string;
   enabled: boolean;
@@ -224,7 +224,7 @@ export interface Job {
 export interface JobCreateParams {
   name: string;
   schedule: string;
-  message: string;
+  prompt: string;
   providerModelName?: string;
   agentId?: string;
 }
@@ -233,7 +233,7 @@ export interface JobUpdateParams {
   id: string;
   name?: string;
   schedule?: string;
-  message?: string;
+  prompt?: string;
   providerModelName?: string;
   agentId?: string;
   enabled?: boolean;

@@ -100,7 +100,7 @@ export default function SettingsJobsPage() {
       data: {
         name: string;
         schedule: string;
-        message: string;
+        prompt: string;
         model: string;
         agentId: string;
       },
@@ -108,7 +108,7 @@ export default function SettingsJobsPage() {
       const params: JobUpdateParams = { id: job.id };
       if (data.name !== job.name) params.name = data.name;
       if (data.schedule !== job.schedule) params.schedule = data.schedule;
-      if (data.message !== job.message) params.message = data.message;
+      if (data.prompt !== job.prompt) params.prompt = data.prompt;
       if (data.model !== (job.providerModelName || ""))
         params.providerModelName = data.model;
       if (data.agentId !== (job.agentId || "")) params.agentId = data.agentId;
@@ -121,14 +121,14 @@ export default function SettingsJobsPage() {
     (data: {
       name: string;
       schedule: string;
-      message: string;
+      prompt: string;
       model: string;
       agentId: string;
     }) => {
       const params: JobCreateParams = {
         name: data.name,
         schedule: data.schedule,
-        message: data.message,
+        prompt: data.prompt,
       };
       if (data.model) params.providerModelName = data.model;
       if (data.agentId) params.agentId = data.agentId;
@@ -145,7 +145,7 @@ export default function SettingsJobsPage() {
 
   const saveOneShotJob = useCallback(
     (job: Job) => {
-      const message = (oneShotMessageByJob[job.id] ?? job.message).trim();
+      const message = (oneShotMessageByJob[job.id] ?? job.prompt).trim();
       const model = (
         oneShotModelByJob[job.id] ??
         (job.providerModelName || "")
@@ -154,7 +154,7 @@ export default function SettingsJobsPage() {
       if (!message) return;
 
       const params: JobUpdateParams = { id: job.id };
-      if (message !== job.message) params.message = message;
+      if (message !== job.prompt) params.prompt = message;
       if (model !== (job.providerModelName || ""))
         params.providerModelName = model;
       if (agentId !== (job.agentId || "")) params.agentId = agentId;
@@ -183,14 +183,14 @@ export default function SettingsJobsPage() {
             </Typography>
           </Box>
           {jobs.map((job) => {
-            const currentMessage = oneShotMessageByJob[job.id] ?? job.message;
+            const currentMessage = oneShotMessageByJob[job.id] ?? job.prompt;
             const currentModel =
               oneShotModelByJob[job.id] ?? (job.providerModelName || "");
             const currentAgentId =
               oneShotAgentByJob[job.id] ?? (job.agentId || "");
             const oneShotDirty =
               job.oneShot &&
-              (currentMessage.trim() !== job.message ||
+              (currentMessage.trim() !== job.prompt ||
                 currentModel.trim() !== (job.providerModelName || "") ||
                 currentAgentId.trim() !== (job.agentId || ""));
             const periodicDirty = !job.oneShot && !!periodicDirtyByJob[job.id];

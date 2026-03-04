@@ -1582,7 +1582,7 @@ export function useBackend() {
 
   const createJob = useCallback(
     (params: JobCreateParams) => {
-      return sendRpc<{ job: Job }>("jobs.create", params)
+      return sendRpc<{ job: Job }>("jobs.create", { job: params })
         .then((result) => {
           loadJobs();
           return result.job;
@@ -1597,7 +1597,7 @@ export function useBackend() {
 
   const updateJob = useCallback(
     (params: JobUpdateParams) => {
-      return sendRpc<{ job: Job }>("jobs.update", params)
+      return sendRpc<{ job: Job }>("jobs.update", { job: params })
         .then(() => {
           loadJobs();
         })
