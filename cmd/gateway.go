@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/urfave/cli/v3"
+
 	"github.com/teanode/teanode/internal/api/v1api"
 	"github.com/teanode/teanode/internal/channels/discord"
 	"github.com/teanode/teanode/internal/channels/telegram"
@@ -36,33 +38,6 @@ import (
 	"github.com/teanode/teanode/internal/util/sessiontracker"
 	"github.com/teanode/teanode/internal/version"
 	"github.com/teanode/teanode/internal/web"
-	"github.com/urfave/cli/v3"
-
-	// Blank imports ensure each tool package's init() registers its tools.
-	_ "github.com/teanode/teanode/internal/tools/agent"
-	_ "github.com/teanode/teanode/internal/tools/askuser"
-	_ "github.com/teanode/teanode/internal/tools/browser"
-	_ "github.com/teanode/teanode/internal/tools/claudecode"
-	_ "github.com/teanode/teanode/internal/tools/codex"
-	_ "github.com/teanode/teanode/internal/tools/configs"
-	_ "github.com/teanode/teanode/internal/tools/conversation"
-	_ "github.com/teanode/teanode/internal/tools/conversations"
-	_ "github.com/teanode/teanode/internal/tools/datetime"
-	_ "github.com/teanode/teanode/internal/tools/fetch"
-	_ "github.com/teanode/teanode/internal/tools/filesystem"
-	_ "github.com/teanode/teanode/internal/tools/gateway"
-	_ "github.com/teanode/teanode/internal/tools/github"
-	_ "github.com/teanode/teanode/internal/tools/gitlab"
-	_ "github.com/teanode/teanode/internal/tools/google"
-	_ "github.com/teanode/teanode/internal/tools/homeassistant"
-	_ "github.com/teanode/teanode/internal/tools/jobs"
-	_ "github.com/teanode/teanode/internal/tools/projects"
-	_ "github.com/teanode/teanode/internal/tools/search"
-	_ "github.com/teanode/teanode/internal/tools/shell"
-	_ "github.com/teanode/teanode/internal/tools/tab"
-	_ "github.com/teanode/teanode/internal/tools/terminal"
-	_ "github.com/teanode/teanode/internal/tools/unifiprotect"
-	_ "github.com/teanode/teanode/internal/tools/workspace"
 )
 
 // ErrRestart is returned from the gateway command when a restart was requested.

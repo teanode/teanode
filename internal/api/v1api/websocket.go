@@ -328,14 +328,20 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleProfileUpdate(frame)
 	case "profile.avatar.remove":
 		self.handleProfileAvatarRemove(frame)
-	// TODO
-	// case "skills.registry.list":
-	// case "skills.registry.search":
-	// case "skills.install":
-	// case "skills.installed.list":
-	// case "skills.uninstall":
-	// case "skills.update":
-	// case "skills.setEnabled":
+	case "skills.local.list":
+		self.handleSkillsLocalList(frame)
+	case "skills.library.search":
+		self.handleSkillsLibrarySearch(frame)
+	case "skills.install":
+		self.handleSkillsInstall(frame)
+	case "skills.installed.list":
+		self.handleSkillsInstalledList(frame)
+	case "skills.uninstall":
+		self.handleSkillsUninstall(frame)
+	case "skills.update":
+		self.handleSkillsUpdate(frame)
+	case "skills.setEnabled":
+		self.handleSkillsSetEnabled(frame)
 	case "voice.start":
 		self.handleVoiceStart(frame)
 	case "voice.end":

@@ -1,6 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
+import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import Chip from "@mui/material/Chip";
@@ -45,47 +46,49 @@ export default function TodoPanel({
         bgcolor: "background.paper",
       }}
     >
-      {/* Header */}
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          px: 2,
-          py: 0.5,
-          cursor: "pointer",
-          "&:hover": { bgcolor: "action.hover" },
-        }}
-        onClick={() => onToggleCollapsed(!collapsed)}
-      >
-        <Typography variant="subtitle2" sx={{ flex: 1 }}>
-          {t("todos.title")}
-          {openCount > 0 && (
-            <Chip
-              label={openCount}
-              size="small"
-              color="primary"
-              sx={{ ml: 1, height: 20, fontSize: "0.7rem" }}
-            />
-          )}
-        </Typography>
-        <IconButton size="small">
-          {collapsed ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-        </IconButton>
-      </Box>
-
-      <Collapse in={!collapsed}>
-        <Box sx={{ px: 2, pb: 1 }}>
-          {/* Open todos */}
-          {openTodos.map((todo) => (
-            <TodoItem key={todo.id} todo={todo} />
-          ))}
-
-          {/* Done todos */}
-          {doneTodos.map((todo) => (
-            <TodoItem key={todo.id} todo={todo} />
-          ))}
+      <Container maxWidth="md" disableGutters>
+        {/* Header */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            px: 2,
+            py: 0.5,
+            cursor: "pointer",
+            "&:hover": { bgcolor: "action.hover" },
+          }}
+          onClick={() => onToggleCollapsed(!collapsed)}
+        >
+          <Typography variant="subtitle2" sx={{ flex: 1 }}>
+            {t("todos.title")}
+            {openCount > 0 && (
+              <Chip
+                label={openCount}
+                size="small"
+                color="primary"
+                sx={{ ml: 1, height: 20, fontSize: "0.7rem" }}
+              />
+            )}
+          </Typography>
+          <IconButton size="small">
+            {collapsed ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </IconButton>
         </Box>
-      </Collapse>
+
+        <Collapse in={!collapsed}>
+          <Box sx={{ px: 2, pb: 1 }}>
+            {/* Open todos */}
+            {openTodos.map((todo) => (
+              <TodoItem key={todo.id} todo={todo} />
+            ))}
+
+            {/* Done todos */}
+            {doneTodos.map((todo) => (
+              <TodoItem key={todo.id} todo={todo} />
+            ))}
+          </Box>
+        </Collapse>
+      </Container>
     </Box>
   );
 }

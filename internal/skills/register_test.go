@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 func TestRegisterSkills(t *testing.T) {
@@ -25,7 +25,7 @@ tools:
 Use deploy tools carefully.
 `, true)
 
-	registry := toolregistry.NewEmptyToolRegistry()
+	registry := tools.NewEmptyToolRegistry()
 	ctx := store.ContextWithStore(context.Background(), openedStore)
 	prompt := RegisterSkills(ctx, registry, nil)
 
@@ -72,7 +72,7 @@ tools:
 ---
 `, true)
 
-	registry := toolregistry.NewEmptyToolRegistry()
+	registry := tools.NewEmptyToolRegistry()
 	ctx := store.ContextWithStore(context.Background(), openedStore)
 	prompt := RegisterSkills(ctx, registry, []string{"alpha", "gamma"})
 	if registry.Get("alpha_tool") == nil {

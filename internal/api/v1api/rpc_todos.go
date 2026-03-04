@@ -313,15 +313,3 @@ func (self *webSocketConnection) verifyConversationAccess(conversationId string)
 	return nil
 }
 
-func (self *webSocketConnection) emitConversationTodoEvent(conversationId string, todo *models.Todo, action string) {
-	payload := map[string]interface{}{
-		"conversationId": conversationId,
-		"userId":         self.userId(),
-		"action":         action,
-		"todoId":         todo.ID,
-	}
-	if action != "delete" {
-		payload["todo"] = todo
-	}
-	self.api.pubsub.Broadcast(pubsub.EventTypeConversationTodos, payload)
-}

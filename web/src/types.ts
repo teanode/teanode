@@ -389,12 +389,20 @@ export interface Todo {
   modifiedAt?: string;
 }
 
+export interface ConversationTodoBatchResult {
+  index: number;
+  op: string;
+  success: boolean;
+  todo?: Todo;
+  todoId?: string;
+  error?: string;
+}
+
 export interface ConversationTodosEvent {
   conversationId: string;
   userId: string;
   action: string;
-  todoId: string;
-  todo?: Todo;
+  results?: ConversationTodoBatchResult[];
 }
 
 export interface ConversationTodosListResult {

@@ -398,26 +398,31 @@ export function useBackend() {
     if (frame.event === "conversationTodos") {
       const payload = frame.payload as ConversationTodosEvent | undefined;
       if (payload && payload.conversationId === conversationIdRef.current) {
-        if (payload.action === "add" && payload.todo) {
+        if (payload.action === "batch" && payload.results) {
           setTodos((prev) => {
-            if (prev.some((t) => t.id === payload.todo!.id)) return prev;
-            return [payload.todo!, ...prev];
+            let updated = [...prev];
+            for (const result of payload.results!) {
+              if (!result.success) continue;
+              if (result.op === "add" && result.todo) {
+                if (!updated.some((t) => t.id === result.todo!.id)) {
+                  updated = [result.todo!, ...updated];
+                }
+              } else if (
+                (result.op === "update" ||
+                  result.op === "complete" ||
+                  result.op === "reopen") &&
+                result.todo
+              ) {
+                updated = updated.map((t) =>
+                  t.id === result.todo!.id ? result.todo! : t,
+                );
+              } else if (result.op === "delete" && result.todoId) {
+                updated = updated.filter((t) => t.id !== result.todoId);
+              }
+            }
+            return updated;
           });
-        } else if (
-          (payload.action === "update" ||
-            payload.action === "complete" ||
-            payload.action === "reopen") &&
-          payload.todo
-        ) {
-          setTodos((prev) =>
-            prev.map((t) => (t.id === payload.todoId ? payload.todo! : t)),
-          );
-        } else if (payload.action === "delete") {
-          setTodos((prev) => prev.filter((t) => t.id !== payload.todoId));
-        } else if (
-          payload.action === "clear_done" ||
-          payload.action === "reset"
-        ) {
+        } else if (payload.action === "prune") {
           loadTodos();
         }
       }

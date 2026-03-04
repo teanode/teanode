@@ -13,7 +13,7 @@ import (
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
-var errInvalidPIDFile = errors.New("invalid pid file")
+var errInvalidPidFile = errors.New("invalid pid file")
 
 type pidGuard struct {
 	path string
@@ -35,7 +35,7 @@ func acquirePidGuard(ctx context.Context) (*pidGuard, error) {
 		}
 	case errors.Is(err, os.ErrNotExist):
 		// No existing pid file.
-	case errors.Is(err, errInvalidPIDFile):
+	case errors.Is(err, errInvalidPidFile):
 		log.Warningf("removing invalid gateway pid file at %s: %v", pidFilename, err)
 		if err := os.Remove(pidFilename); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("remove invalid gateway pid file: %w", err)
@@ -60,7 +60,7 @@ func (self *pidGuard) Release() error {
 		}
 	case errors.Is(err, os.ErrNotExist):
 		return nil
-	case errors.Is(err, errInvalidPIDFile):
+	case errors.Is(err, errInvalidPidFile):
 		return nil
 	default:
 		return err
@@ -79,7 +79,7 @@ func restartProcess(ctx context.Context) error {
 	case err == nil:
 	case errors.Is(err, os.ErrNotExist):
 		return fmt.Errorf("gateway is not running (pid file not found: %s)", pidFilename)
-	case errors.Is(err, errInvalidPIDFile):
+	case errors.Is(err, errInvalidPidFile):
 		return fmt.Errorf("gateway pid file is invalid: %s", pidFilename)
 	default:
 		return fmt.Errorf("read gateway pid file: %w", err)
@@ -112,7 +112,7 @@ func readPidFile(path string) (int, error) {
 	value := strings.TrimSpace(string(data))
 	pid, err := strconv.Atoi(value)
 	if err != nil || pid <= 0 {
-		return 0, fmt.Errorf("%w: %q", errInvalidPIDFile, value)
+		return 0, fmt.Errorf("%w: %q", errInvalidPidFile, value)
 	}
 	return pid, nil
 }

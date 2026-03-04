@@ -6,14 +6,14 @@ import (
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
-	toolregistry "github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/allowlist"
 )
 
 // RegisterSkills loads skills from store and registers their tools,
 // filtering by the given allow list. A nil list means all skills are loaded.
 // Returns the combined prompt text from all registered skills (empty if none).
-func RegisterSkills(ctx context.Context, registry *toolregistry.ToolRegistry, allowed []string) string {
+func RegisterSkills(ctx context.Context, registry *tools.ToolRegistry, allowed []string) string {
 	var skills []*models.Skill
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		var err error

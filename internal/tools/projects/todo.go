@@ -51,7 +51,6 @@ type projectBatchSummary struct {
 
 type projectTodoResponse struct {
 	Action     string               `json:"action"`
-	Todo       *models.Todo         `json:"todo,omitempty"`
 	Todos      []*models.Todo       `json:"todos,omitempty"`
 	Results    []projectBatchResult `json:"results,omitempty"`
 	Summary    *projectBatchSummary `json:"summary,omitempty"`

@@ -53,7 +53,6 @@ type batchSummary struct {
 
 type conversationTodoResponse struct {
 	Action     string         `json:"action"`
-	Todo       *models.Todo   `json:"todo,omitempty"`
 	Todos      []*models.Todo `json:"todos,omitempty"`
 	Results    []batchResult  `json:"results,omitempty"`
 	Summary    *batchSummary  `json:"summary,omitempty"`
@@ -409,7 +408,7 @@ func (self *conversationTodoTool) executePrune(ctx context.Context, conversation
 
 	if deleted > 0 {
 		afterMutateConversation(ctx, conversationId)
-		emitTodoEvent(ctx, conversationId, userId, &models.Todo{}, "prune")
+		emitTodoPruneEvent(ctx, conversationId, userId)
 	}
 	output, _ := json.Marshal(conversationTodoResponse{Action: "prune", Success: true, DoneCount: deleted})
 	return string(output), nil
@@ -426,23 +425,6 @@ func afterMutateConversation(ctx context.Context, conversationId string) {
 	})
 }
 
-func emitTodoEvent(ctx context.Context, conversationId, userId string, todo *models.Todo, action string) {
-	ps := pubsub.PubSubFromContext(ctx)
-	if ps == nil {
-		return
-	}
-	payload := map[string]interface{}{
-		"conversationId": conversationId,
-		"userId":         userId,
-		"action":         action,
-		"todoId":         todo.ID,
-	}
-	if action != "delete" {
-		payload["todo"] = todo
-	}
-	ps.Broadcast(pubsub.EventTypeConversationTodos, payload)
-}
-
 func emitTodoBatchEvent(ctx context.Context, conversationId, userId string, results []batchResult) {
 	ps := pubsub.PubSubFromContext(ctx)
 	if ps == nil {
@@ -453,6 +435,18 @@ func emitTodoBatchEvent(ctx context.Context, conversationId, userId string, resu
 		"userId":         userId,
 		"action":         "batch",
 		"results":        results,
+	})
+}
+
+func emitTodoPruneEvent(ctx context.Context, conversationId, userId string) {
+	ps := pubsub.PubSubFromContext(ctx)
+	if ps == nil {
+		return
+	}
+	ps.Broadcast(pubsub.EventTypeConversationTodos, map[string]interface{}{
+		"conversationId": conversationId,
+		"userId":         userId,
+		"action":         "prune",
 	})
 }
 
