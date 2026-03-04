@@ -23,6 +23,7 @@ type fileSystemSkillFrontmatter struct {
 	Description            string                                        `yaml:"description,omitempty"`
 	Version                string                                        `yaml:"version,omitempty"`
 	AuthenticationProfiles map[string]models.SkillAuthenticationProfiles `yaml:"authenticationProfiles,omitempty"`
+	Secrets                []*models.SkillSecret                         `yaml:"secrets,omitempty"`
 	Tools                  []*models.SkillTool                           `yaml:"tools,omitempty"`
 }
 
@@ -41,6 +42,7 @@ type fileSystemParsedSkill struct {
 	Description            string
 	Version                string
 	AuthenticationProfiles map[string]models.SkillAuthenticationProfiles
+	Secrets                []*models.SkillSecret
 	Tools                  []*models.SkillTool
 	Prompt                 string
 	Source                 string
@@ -66,6 +68,9 @@ func buildSkillFrontmatter(skill models.Skill, skillId string) map[string]interf
 	}
 	if skill.AuthenticationProfiles != nil {
 		frontmatter["authenticationProfiles"] = *skill.AuthenticationProfiles
+	}
+	if skill.Secrets != nil {
+		frontmatter["secrets"] = *skill.Secrets
 	}
 	if skill.Tools != nil {
 		frontmatter["tools"] = *skill.Tools
@@ -115,6 +120,10 @@ func (self *fileSystemTransaction) listSkills(options *store.Option) ([]*models.
 		if len(parsedSkill.AuthenticationProfiles) > 0 {
 			authenticationProfiles := parsedSkill.AuthenticationProfiles
 			skill.AuthenticationProfiles = &authenticationProfiles
+		}
+		if len(parsedSkill.Secrets) > 0 {
+			secrets := parsedSkill.Secrets
+			skill.Secrets = &secrets
 		}
 		if len(parsedSkill.Tools) > 0 {
 			tools := parsedSkill.Tools
@@ -196,6 +205,10 @@ func (self *fileSystemTransaction) getSkill(ctx context.Context, skillId string,
 	if len(parsedSkill.AuthenticationProfiles) > 0 {
 		authenticationProfiles := parsedSkill.AuthenticationProfiles
 		skill.AuthenticationProfiles = &authenticationProfiles
+	}
+	if len(parsedSkill.Secrets) > 0 {
+		secrets := parsedSkill.Secrets
+		skill.Secrets = &secrets
 	}
 	if len(parsedSkill.Tools) > 0 {
 		tools := parsedSkill.Tools
@@ -343,6 +356,7 @@ func (self *fileSystemTransaction) readSkillMarkdown(path string) (fileSystemPar
 		Description:            frontmatter.Description,
 		Version:                frontmatter.Version,
 		AuthenticationProfiles: frontmatter.AuthenticationProfiles,
+		Secrets:                frontmatter.Secrets,
 		Tools:                  frontmatter.Tools,
 		Prompt:                 strings.TrimSpace(body),
 	}, nil

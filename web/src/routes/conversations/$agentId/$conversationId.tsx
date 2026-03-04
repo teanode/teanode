@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
-import { useAppContext } from "../../../context";
+import { useAppContext, useStreamingContext } from "../../../context";
 import MessageList from "../../../components/MessageList";
 import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
@@ -20,6 +20,7 @@ export default function ConversationsConversationPage() {
     agentId: string;
     conversationId: string;
   };
+  useStreamingContext();
   const {
     backend,
     voiceAutoSend,

@@ -453,7 +453,7 @@ func executeShellAction(ctx context.Context, action models.SkillAction, argument
 }
 
 func executeHTTPAction(ctx context.Context, action models.SkillAction, arguments map[string]interface{}, authenticationProfiles map[string]models.SkillAuthenticationProfiles) (string, error) {
-	targetUrl := applyTemplate(ctx, action.URL, arguments)
+	targetUrl := applyUrlTemplate(ctx, action.URL, arguments)
 	body := applyTemplate(ctx, action.Body, arguments)
 	method := action.Method
 	if method == "" {
@@ -625,6 +625,65 @@ func applyTemplate(ctx context.Context, template string, args map[string]interfa
 		}
 		return fmt.Sprintf("%v", value)
 	})
+}
+
+// applyUrlTemplate applies template substitution to a URL string, automatically
+// URL-encoding substituted values in the query string portion. Path and host
+// portions use plain substitution. If a placeholder already has an explicit
+// encoding filter (urlencode, base64), automatic encoding is skipped.
+func applyUrlTemplate(ctx context.Context, urlTemplate string, args map[string]interface{}) string {
+	if args == nil {
+		return urlTemplate
+	}
+
+	// Split template at first '?' to separate path from query string.
+	pathPart := urlTemplate
+	queryPart := ""
+	if qIndex := strings.Index(urlTemplate, "?"); qIndex >= 0 {
+		pathPart = urlTemplate[:qIndex]
+		queryPart = urlTemplate[qIndex+1:]
+	}
+
+	// Apply plain substitution to path+host portion (no auto-encoding).
+	expandedPath := applyTemplate(ctx, pathPart, args)
+
+	if queryPart == "" {
+		return expandedPath
+	}
+
+	// Apply substitution to query portion with automatic URL encoding.
+	expandedQuery := placeholderPattern.ReplaceAllStringFunc(queryPart, func(match string) string {
+		submatches := placeholderPattern.FindStringSubmatch(match)
+		if len(submatches) < 2 {
+			return match
+		}
+		expression := submatches[1]
+		value, ok := evaluateTemplateExpression(ctx, args, expression)
+		if !ok {
+			return match
+		}
+		text := fmt.Sprintf("%v", value)
+		// Skip automatic encoding if an explicit encoding filter was used.
+		if hasExplicitEncodingFilter(expression) {
+			return text
+		}
+		return url.QueryEscape(text)
+	})
+
+	return expandedPath + "?" + expandedQuery
+}
+
+// hasExplicitEncodingFilter returns true if the template expression contains
+// a urlencode or base64 filter, meaning the value is already encoded.
+func hasExplicitEncodingFilter(expression string) bool {
+	parts := strings.Split(expression, "|")
+	for _, part := range parts[1:] {
+		name, _ := parseFilter(strings.TrimSpace(part))
+		if name == "urlencode" || name == "base64" {
+			return true
+		}
+	}
+	return false
 }
 
 func evaluateTemplateExpression(ctx context.Context, values map[string]interface{}, expression string) (interface{}, bool) {

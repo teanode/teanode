@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 
 	"github.com/op/go-logging"
@@ -23,8 +24,8 @@ func init() {
 	})
 }
 
-// braveAPIKeyFromContext reads the Brave API key from the store configuration.
-func braveAPIKeyFromContext(ctx context.Context) string {
+// braveApiKeyFromContext reads the Brave API key from the store configuration.
+func braveApiKeyFromContext(ctx context.Context) string {
 	var apiKey string
 	dataStore := store.StoreFromContextSafe(ctx)
 	if dataStore == nil {
@@ -86,7 +87,10 @@ func (self *searchTool) Definition() providers.ToolDefinition {
 }
 
 func (self *searchTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	apiKey := braveAPIKeyFromContext(ctx)
+	apiKey := braveApiKeyFromContext(ctx)
+	if apiKey == "" {
+		apiKey = os.Getenv("BRAVE_API_KEY")
+	}
 	if apiKey == "" {
 		return "", fmt.Errorf("Brave Search API key not configured")
 	}

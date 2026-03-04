@@ -190,6 +190,10 @@ func Install(ctx context.Context, name, version string) (*InstalledSkillInfo, er
 		authenticationProfiles := frontmatter.AuthenticationProfiles
 		skill.AuthenticationProfiles = &authenticationProfiles
 	}
+	if len(frontmatter.Secrets) > 0 {
+		secrets := frontmatter.Secrets
+		skill.Secrets = &secrets
+	}
 
 	// Upsert in store.
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
@@ -209,6 +213,7 @@ func Install(ctx context.Context, name, version string) (*InstalledSkillInfo, er
 			existingSkill.Prompt = skill.Prompt
 			existingSkill.Tools = skill.Tools
 			existingSkill.AuthenticationProfiles = skill.AuthenticationProfiles
+			existingSkill.Secrets = skill.Secrets
 			// Preserve enabled state on reinstall.
 			return nil
 		}, nil)
@@ -344,6 +349,7 @@ type libraryFrontmatter struct {
 	Description            string                                        `yaml:"description,omitempty"`
 	Version                string                                        `yaml:"version,omitempty"`
 	AuthenticationProfiles map[string]models.SkillAuthenticationProfiles `yaml:"authenticationProfiles,omitempty"`
+	Secrets                []*models.SkillSecret                         `yaml:"secrets,omitempty"`
 	Tools                  []*models.SkillTool                           `yaml:"tools,omitempty"`
 }
 

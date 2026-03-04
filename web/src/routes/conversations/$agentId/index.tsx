@@ -6,7 +6,7 @@ import Container from "@mui/material/Container";
 import MenuItem from "@mui/material/MenuItem";
 import ListSubheader from "@mui/material/ListSubheader";
 import Select from "@mui/material/Select";
-import { useAppContext } from "../../../context";
+import { useAppContext, useStreamingContext } from "../../../context";
 import InputArea from "../../../components/InputArea";
 import VoiceCallBar from "../../../components/VoiceCallBar";
 import { useAgentVoiceCall } from "./route";
@@ -16,6 +16,7 @@ import type { Attachment, ModelInfo } from "../../../types";
 export default function ConversationsNewPage() {
   const { t } = useTranslation();
   const { agentId } = useParams({ strict: false }) as { agentId: string };
+  useStreamingContext();
   const { backend, voiceAutoSend } = useAppContext();
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;

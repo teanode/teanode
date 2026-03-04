@@ -129,6 +129,9 @@ func modelToSkillRecord(skill *models.Skill) (*databaseSkillRecord, error) {
 	if skill.AuthenticationProfiles != nil && len(*skill.AuthenticationProfiles) > 0 {
 		metadata["authenticationProfiles"] = *skill.AuthenticationProfiles
 	}
+	if skill.Secrets != nil && len(*skill.Secrets) > 0 {
+		metadata["secrets"] = *skill.Secrets
+	}
 	if skill.Tools != nil && len(*skill.Tools) > 0 {
 		metadata["tools"] = *skill.Tools
 	}
@@ -176,6 +179,17 @@ func skillRecordToModel(record *databaseSkillRecord) (*models.Skill, error) {
 				return nil, unmarshalError
 			}
 			skill.AuthenticationProfiles = &authenticationProfiles
+		}
+		if value, exists := metadata["secrets"]; exists {
+			secretsData, marshalError := json.Marshal(value)
+			if marshalError != nil {
+				return nil, marshalError
+			}
+			secrets := []*models.SkillSecret{}
+			if unmarshalError := json.Unmarshal(secretsData, &secrets); unmarshalError != nil {
+				return nil, unmarshalError
+			}
+			skill.Secrets = &secrets
 		}
 		if value, exists := metadata["tools"]; exists {
 			toolsData, marshalError := json.Marshal(value)

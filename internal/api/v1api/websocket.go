@@ -342,6 +342,10 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleSkillsUpdate(frame)
 	case "skills.setEnabled":
 		self.handleSkillsSetEnabled(frame)
+	case "secrets.list":
+		self.handleSecretsList(frame)
+	case "secrets.set":
+		self.handleSecretsSet(frame)
 	case "voice.start":
 		self.handleVoiceStart(frame)
 	case "voice.end":

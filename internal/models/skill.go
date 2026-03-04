@@ -41,12 +41,18 @@ const (
 	SkillErrorPolicyContinue SkillErrorPolicy = "continue"
 )
 
+type SkillSecret struct {
+	Key         string `json:"key" yaml:"key"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
 type Skill struct {
 	ID                     string                                  `json:"id,omitempty" yaml:"id,omitempty"`
 	Name                   *string                                 `json:"name,omitempty" yaml:"name,omitempty"`
 	Description            *string                                 `json:"description,omitempty" yaml:"description,omitempty"`
 	Version                *string                                 `json:"version,omitempty" yaml:"version,omitempty"`
 	AuthenticationProfiles *map[string]SkillAuthenticationProfiles `json:"authenticationProfiles,omitempty" yaml:"authenticationProfiles,omitempty"`
+	Secrets                *[]*SkillSecret                         `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	Tools                  *[]*SkillTool                           `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Enabled                *bool                                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Source                 *string                                 `json:"source,omitempty" yaml:"source,omitempty"`

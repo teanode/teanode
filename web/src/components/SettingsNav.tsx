@@ -256,6 +256,34 @@ export default function SettingsNav({
           {backend.isAdmin && (
             <ListItemButton
               dense
+              onClick={() => onNavigate("/settings/secrets")}
+              sx={{
+                borderRadius: 1,
+                mb: 0.25,
+                ...(activeSectionId === "secrets"
+                  ? {
+                      bgcolor: "accentDim",
+                      color: "#fff",
+                      "&:hover": { bgcolor: "accentDim" },
+                    }
+                  : {}),
+              }}
+            >
+              <ListItemText
+                primary={t("settings.secrets")}
+                primaryTypographyProps={{
+                  variant: "caption",
+                  fontSize: "13px",
+                  color:
+                    activeSectionId === "secrets" ? "#fff" : "text.secondary",
+                }}
+              />
+            </ListItemButton>
+          )}
+
+          {backend.isAdmin && (
+            <ListItemButton
+              dense
               onClick={() => onNavigate("/settings/users")}
               sx={{
                 borderRadius: 1,

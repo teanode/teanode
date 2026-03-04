@@ -29,6 +29,7 @@ import SettingsAgentPage from "./routes/settings/agents/$agentId";
 import SettingsJobsPage from "./routes/settings/jobs";
 import SettingsProjectsPage from "./routes/settings/projects";
 import SettingsSkillsPage from "./routes/settings/skills";
+import SettingsSecretsPage from "./routes/settings/secrets";
 import LoginRoute from "./routes/login";
 import SetupRoute from "./routes/setup";
 
@@ -208,6 +209,13 @@ const settingsSkillsRoute = createRoute({
   component: SettingsSkillsPage,
 });
 
+// /settings/secrets → secrets management page
+const settingsSecretsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "secrets",
+  component: SettingsSecretsPage,
+});
+
 // /settings/agents/$agentId → individual agent editor
 const settingsAgentRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -256,6 +264,7 @@ const routeTree = rootRoute.addChildren([
     settingsJobsRoute,
     settingsProjectsRoute,
     settingsSkillsRoute,
+    settingsSecretsRoute,
     settingsAgentRoute,
     settingsSectionRoute,
   ]),
