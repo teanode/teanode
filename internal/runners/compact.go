@@ -384,7 +384,7 @@ func parseStructuredSummaryResponse(rawText string) structuredSummary {
 
 func summarizeChunk(
 	ctx context.Context,
-	provider providers.Provider,
+	provider providers.ChatProvider,
 	modelName string,
 	chunkText string,
 	previousSummary string,
@@ -451,7 +451,7 @@ func splitMessagesByTokenBudget(messages []providers.ChatMessage, maxTokens int)
 
 func summarizeMessagesInStages(
 	ctx context.Context,
-	provider providers.Provider,
+	provider providers.ChatProvider,
 	modelName string,
 	messages []providers.ChatMessage,
 	contextWindow int,
@@ -506,7 +506,7 @@ func buildLastMessagesFallback(messages []providers.ChatMessage) structuredSumma
 
 func summarizeMessagesWithFallback(
 	ctx context.Context,
-	provider providers.Provider,
+	provider providers.ChatProvider,
 	modelName string,
 	messages []providers.ChatMessage,
 	contextWindow int,
@@ -569,9 +569,13 @@ func (self *Runner) summarizeAndPersist(
 			providerModelName = summarizerProviderModelName
 		}
 	}
-	provider, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
+	resolved, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve summary model %q: %w", providerModelName, err)
+	}
+	provider, ok := resolved.(providers.ChatProvider)
+	if !ok {
+		return "", fmt.Errorf("provider does not support chat for summarization")
 	}
 
 	summaryText := formatStructuredSummary(

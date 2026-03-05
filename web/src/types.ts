@@ -296,6 +296,13 @@ export interface ConfigUpdateParams {
   config: Record<string, unknown>;
 }
 
+export interface VoiceProvidersResult {
+  transcribers: string[];
+  streamingTranscribers: string[];
+  synthesizers: string[];
+  streamingSynthesizers: string[];
+}
+
 // Agent config types for the editor
 
 export interface AgentConfig {

@@ -484,7 +484,7 @@ func (self *Summarizer) summarizeProjectDescriptionModel(ctx context.Context, pr
 
 func (self *Summarizer) runSynthesisRequest(
 	ctx context.Context,
-	provider providers.Provider,
+	provider providers.ChatProvider,
 	modelName string,
 	mode summarizerMode,
 	systemPrompt string,
@@ -516,7 +516,7 @@ func (self *Summarizer) runSynthesisRequest(
 	return content, true
 }
 
-func (self *Summarizer) resolveSynthesisProvider() (providers.Provider, string, bool) {
+func (self *Summarizer) resolveSynthesisProvider() (providers.ChatProvider, string, bool) {
 	var configuration *models.Configuration
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		loadedConfiguration, err := transaction.GetConfiguration(ctx, nil)
@@ -535,9 +535,14 @@ func (self *Summarizer) resolveSynthesisProvider() (providers.Provider, string, 
 			providerModelName = summarizerProviderModelName
 		}
 	}
-	provider, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
+	resolved, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
 	if err != nil {
 		log.Debugf("summarizer: failed to resolve synthesis model %q: %v", providerModelName, err)
+		return nil, "", false
+	}
+	provider, ok := resolved.(providers.ChatProvider)
+	if !ok {
+		log.Debugf("summarizer: provider does not support chat")
 		return nil, "", false
 	}
 	return provider, modelName, true

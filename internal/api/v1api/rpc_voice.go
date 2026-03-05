@@ -2,8 +2,10 @@ package v1api
 
 import (
 	"encoding/json"
+	"sort"
 
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/voice"
 )
@@ -22,11 +24,11 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		self.sendError(frame.ID, 400, err.Error())
 		return
 	}
-	log.Infof("voice.start requested: agent=%s conv=%s in=%s/%dHz/%dch out=%s/%dHz/%dch features[vad=%v turn=%v denoise=%v barge=%v]",
+	log.Infof("voice.start requested: agent=%s conv=%s in=%s/%dHz/%dch out=%s/%dHz/%dch features[vad=%v turn=%v barge=%v strategy=%s]",
 		parameters.AgentID, parameters.ConversationID,
 		parameters.AudioIn.Codec, parameters.AudioIn.SampleRateHz, parameters.AudioIn.Channels,
 		parameters.AudioOut.Codec, parameters.AudioOut.SampleRateHz, parameters.AudioOut.Channels,
-		parameters.Features.ServerVAD, parameters.Features.ServerTurn, parameters.Features.ServerDenoise, parameters.Features.BargeIn,
+		parameters.Features.ServerVAD, parameters.Features.ServerTurn, parameters.Features.BargeIn, parameters.Features.TurnStrategy,
 	)
 
 	if self.getActiveVoiceSession() != nil {
@@ -68,10 +70,10 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		FrameMS:      parameters.AudioOut.FrameMilliseconds,
 	}
 	features := voice.Features{
-		ServerVAD:     parameters.Features.ServerVAD,
-		ServerTurn:    parameters.Features.ServerTurn,
-		ServerDenoise: parameters.Features.ServerDenoise,
-		BargeIn:       parameters.Features.BargeIn,
+		ServerVAD:    parameters.Features.ServerVAD,
+		ServerTurn:   parameters.Features.ServerTurn,
+		BargeIn:      parameters.Features.BargeIn,
+		TurnStrategy: parameters.Features.TurnStrategy,
 	}
 
 	sessionId := security.NewULID()
@@ -100,7 +102,12 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		SessionID:      session.ID,
 		ConversationID: session.ConversationID,
 		AudioOut:       parameters.AudioOut,
-		Features:       parameters.Features,
+		Features: voiceFeatures{
+			ServerVAD:    features.ServerVAD,
+			ServerTurn:   features.ServerTurn,
+			BargeIn:      features.BargeIn,
+			TurnStrategy: features.TurnStrategy,
+		},
 	})
 }
 
@@ -164,8 +171,50 @@ func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) {
 		return
 	}
 	log.Infof("voice.input.commit session=%s reason=%s", session.ID, parameters.Reason)
-	session.InputCommit()
+	session.InputCommit(parameters.Reason)
 	self.sendResponse(frame.ID, map[string]any{"committed": true})
+}
+
+func (self *webSocketConnection) handleVoiceProviders(frame requestFrame) {
+	providerRegistry := self.api.coordinator.ProviderRegistry()
+	var transcribers, streamingTranscribers, synthesizers, streamingSynthesizers []string
+	if providerRegistry != nil {
+		for _, name := range providerRegistry.ProviderNames() {
+			client, ok := providerRegistry.ClientByName(name)
+			if !ok {
+				continue
+			}
+			if _, ok := client.(providers.TranscribeProvider); ok {
+				transcribers = append(transcribers, name)
+			}
+			if _, ok := client.(providers.StreamingTranscribeProvider); ok {
+				streamingTranscribers = append(streamingTranscribers, name)
+			}
+			if _, ok := client.(providers.SynthesizeProvider); ok {
+				synthesizers = append(synthesizers, name)
+			}
+			if _, ok := client.(providers.StreamingSynthesizeProvider); ok {
+				streamingSynthesizers = append(streamingSynthesizers, name)
+			}
+		}
+		sort.Strings(transcribers)
+		sort.Strings(streamingTranscribers)
+		sort.Strings(synthesizers)
+		sort.Strings(streamingSynthesizers)
+	}
+	self.sendResponse(frame.ID, map[string]any{
+		"transcribers":          orEmptySlice(transcribers),
+		"streamingTranscribers": orEmptySlice(streamingTranscribers),
+		"synthesizers":          orEmptySlice(synthesizers),
+		"streamingSynthesizers": orEmptySlice(streamingSynthesizers),
+	})
+}
+
+func orEmptySlice(slice []string) []string {
+	if slice == nil {
+		return []string{}
+	}
+	return slice
 }
 
 func applyVoiceDefaults(parameters *voiceStartParameters) {

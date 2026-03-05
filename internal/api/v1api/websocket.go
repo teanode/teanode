@@ -346,6 +346,8 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleSecretsList(frame)
 	case "secrets.set":
 		self.handleSecretsSet(frame)
+	case "voice.providers":
+		self.handleVoiceProviders(frame)
 	case "voice.start":
 		self.handleVoiceStart(frame)
 	case "voice.end":

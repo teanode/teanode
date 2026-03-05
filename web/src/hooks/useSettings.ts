@@ -3,6 +3,7 @@ import type {
   ConfigSchema,
   ConfigSchemaResult,
   ConfigGetResult,
+  VoiceProvidersResult,
 } from "../types";
 
 /** Build a nested object from dot-path entries. e.g. [["a.b", 1]] -> {a:{b:1}} */
@@ -25,6 +26,40 @@ function buildNestedObject(
   return result;
 }
 
+function injectVoiceProviderEnums(
+  schema: ConfigSchema,
+  voiceProviders: VoiceProvidersResult,
+): ConfigSchema {
+  const voiceProps = schema.properties?.voice?.properties;
+  if (!voiceProps) return schema;
+
+  const inject = (key: string, providers: string[]) => {
+    const field = voiceProps[key];
+    if (!field || providers.length === 0) return;
+    field.enum = ["", ...providers];
+    field["x-enumLabels"] = {
+      ...field["x-enumLabels"],
+      "": "Auto (default)",
+    };
+  };
+
+  const uniqueTranscribers = [
+    ...new Set([
+      ...voiceProviders.transcribers,
+      ...voiceProviders.streamingTranscribers,
+    ]),
+  ].sort();
+  const uniqueSynthesizers = [
+    ...new Set([
+      ...voiceProviders.synthesizers,
+      ...voiceProviders.streamingSynthesizers,
+    ]),
+  ].sort();
+  inject("transcriberProvider", uniqueTranscribers);
+  inject("synthesizerProvider", uniqueSynthesizers);
+  return schema;
+}
+
 export function useSettings(
   sendRpc: <T = unknown>(method: string, params: unknown) => Promise<T>,
   active: boolean,
@@ -44,9 +79,22 @@ export function useSettings(
     Promise.all([
       sendRpc<ConfigSchemaResult>("config.schema", {}),
       sendRpc<ConfigGetResult>("config.get", {}),
+      sendRpc<VoiceProvidersResult>("voice.providers", {}).catch(
+        () =>
+          ({
+            transcribers: [],
+            streamingTranscribers: [],
+            synthesizers: [],
+            streamingSynthesizers: [],
+          }) as VoiceProvidersResult,
+      ),
     ])
-      .then(([schemaResult, configResult]) => {
-        setSchema(schemaResult.schema);
+      .then(([schemaResult, configResult, voiceProviders]) => {
+        const schema = injectVoiceProviderEnums(
+          schemaResult.schema,
+          voiceProviders,
+        );
+        setSchema(schema);
         setValues(configResult.config);
         changesRef.current = new Map();
         setDirty(false);

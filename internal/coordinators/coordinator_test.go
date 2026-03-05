@@ -14,7 +14,9 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-type testProvider struct{}
+type testProvider struct {
+	providers.BaseProvider
+}
 
 func (self *testProvider) ChatCompletion(_ context.Context, _ providers.ChatRequest) (*providers.ChatResponse, error) {
 	return &providers.ChatResponse{}, nil
@@ -52,6 +54,7 @@ func (self *testProvider) ListModels(_ context.Context) ([]providers.ModelInform
 // blockingStreamProvider blocks in ChatCompletionStream until unblock is closed.
 // It signals on started when the stream begins.
 type blockingStreamProvider struct {
+	providers.BaseProvider
 	started chan struct{}
 	unblock chan struct{}
 }
@@ -94,7 +97,7 @@ func (self *blockingStreamProvider) ListModels(_ context.Context) ([]providers.M
 	return []providers.ModelInformation{{ID: "test-model"}}, nil
 }
 
-func newTestCoordinatorWithProvider(t *testing.T, provider providers.Provider) (*Coordinator, context.Context, string) {
+func newTestCoordinatorWithProvider(t *testing.T, provider providers.ChatProvider) (*Coordinator, context.Context, string) {
 	t.Helper()
 	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
 	if openError != nil {

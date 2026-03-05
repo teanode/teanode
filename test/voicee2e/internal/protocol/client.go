@@ -43,40 +43,41 @@ type eventFrame struct {
 }
 
 type voiceStartParams struct {
-	ConversationID string `json:"conversation_id"`
-	AgentID        string `json:"agent_id"`
-	PromptSuffix   string `json:"prompt_suffix,omitempty"`
+	ConversationID string `json:"conversationId"`
+	AgentID        string `json:"agentId"`
+	PromptSuffix   string `json:"promptSuffix,omitempty"`
 	AudioIn        struct {
 		Codec        string `json:"codec"`
-		SampleRateHz int    `json:"sample_rate_hz"`
+		SampleRateHz int    `json:"sampleRateHz"`
 		Channels     int    `json:"channels"`
-		FrameMS      int    `json:"frame_ms"`
-	} `json:"audio_in"`
+		FrameMS      int    `json:"frameMs"`
+	} `json:"audioIn"`
 	AudioOut struct {
 		Codec        string `json:"codec"`
-		SampleRateHz int    `json:"sample_rate_hz"`
+		SampleRateHz int    `json:"sampleRateHz"`
 		Channels     int    `json:"channels"`
-	} `json:"audio_out"`
+	} `json:"audioOut"`
 	Features struct {
-		ServerVAD     bool `json:"server_vad"`
-		ServerTurn    bool `json:"server_turn"`
-		ServerDenoise bool `json:"server_denoise"`
-		BargeIn       bool `json:"barge_in"`
+		ServerVAD    bool   `json:"serverVad"`
+		ServerTurn   bool   `json:"serverTurn"`
+		BargeIn      bool   `json:"bargeIn"`
+		TurnStrategy string `json:"turnStrategy,omitempty"`
 	} `json:"features"`
 }
 
 type voiceEnvelope struct {
 	V         int             `json:"v"`
 	Type      string          `json:"type"`
-	SessionID string          `json:"session_id"`
+	SessionID string          `json:"sessionId"`
 	Sequence  uint64          `json:"seq"`
-	TSMS      int64           `json:"ts_ms"`
+	TSMS      int64           `json:"tsMs"`
 	Payload   json.RawMessage `json:"payload"`
 }
 
 type Client struct {
 	gatewayUrl   string
 	promptSuffix string
+	configJSON   string
 }
 
 func NewClient(gatewayUrl string) *Client {
@@ -85,6 +86,10 @@ func NewClient(gatewayUrl string) *Client {
 
 func (self *Client) SetPromptSuffix(value string) {
 	self.promptSuffix = value
+}
+
+func (self *Client) SetConfigJSON(value string) {
+	self.configJSON = strings.TrimSpace(value)
 }
 
 func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpecification) ([]model.TimelineEvent, error) {
@@ -114,6 +119,7 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	var timelineMutex sync.Mutex
 	var seq atomic.Uint64
 	var responseStartedCount atomic.Int32
+	responseStartedByRun := map[string]bool{}
 
 	record := func(event model.TimelineEvent) {
 		if event.Type == model.EventResponseStarted {
@@ -181,6 +187,16 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 					continue
 				}
 				if frame.Event == "conversation" {
+					var payload map[string]any
+					if err := json.Unmarshal(frame.Payload, &payload); err == nil {
+						state, _ := payload["state"].(string)
+						text, _ := payload["text"].(string)
+						runId, _ := payload["runId"].(string)
+						if state == "delta" && strings.TrimSpace(text) != "" && runId != "" && !responseStartedByRun[runId] {
+							responseStartedByRun[runId] = true
+							record(model.TimelineEvent{At: now, Type: model.EventResponseStarted, RunID: runId, Raw: payload})
+						}
+					}
 					debugf(debugEnabled, "conversation event")
 					convertConversationEvent(record, now, frame.Payload)
 				}
@@ -236,8 +252,10 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	start.AudioOut.Channels = 1
 	start.Features.ServerVAD = true
 	start.Features.ServerTurn = true
-	start.Features.ServerDenoise = false
 	start.Features.BargeIn = true
+	if self.configJSON != "" {
+		self.applyConfig(&start)
+	}
 	if err := sendRpc("voice.start", start); err != nil {
 		return nil, err
 	}
@@ -334,6 +352,34 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	return append([]model.TimelineEvent(nil), timeline...), nil
 }
 
+func (self *Client) applyConfig(start *voiceStartParams) {
+	var cfg struct {
+		Features struct {
+			ServerVAD  *bool `json:"serverVad"`
+			ServerTurn *bool `json:"serverTurn"`
+			BargeIn    *bool `json:"bargeIn"`
+		} `json:"features"`
+		Voice struct {
+			TurnStrategy string `json:"turnStrategy"`
+		} `json:"voice"`
+	}
+	if err := json.Unmarshal([]byte(self.configJSON), &cfg); err != nil {
+		return
+	}
+	if cfg.Features.ServerVAD != nil {
+		start.Features.ServerVAD = *cfg.Features.ServerVAD
+	}
+	if cfg.Features.ServerTurn != nil {
+		start.Features.ServerTurn = *cfg.Features.ServerTurn
+	}
+	if cfg.Features.BargeIn != nil {
+		start.Features.BargeIn = *cfg.Features.BargeIn
+	}
+	if text := strings.TrimSpace(cfg.Voice.TurnStrategy); text != "" {
+		start.Features.TurnStrategy = text
+	}
+}
+
 func toWebSocketUrl(gateway string) (string, error) {
 	raw := gateway
 	if raw == "" {
@@ -411,20 +457,22 @@ func convertVoiceEnvelope(record func(model.TimelineEvent), now time.Time, envel
 			record(model.TimelineEvent{At: now, Type: model.EventTurnQueued, SessionID: envelope.SessionID, Raw: payload})
 		case "turn_dropped":
 			record(model.TimelineEvent{At: now, Type: model.EventTurnDropped, SessionID: envelope.SessionID, Raw: payload})
-		case "barge_in_triggered":
+		case "bargeInTriggered":
 			record(model.TimelineEvent{At: now, Type: model.EventBargeInTriggered, SessionID: envelope.SessionID, Raw: payload})
 		}
 	case "transcript.final":
 		text, _ := payload["text"].(string)
-		turnId, _ := payload["turn_id"].(string)
+		turnId, _ := payload["turnId"].(string)
 		record(model.TimelineEvent{At: now, Type: model.EventTranscriptFinal, SessionID: envelope.SessionID, TurnID: turnId, Text: text, Raw: payload})
 	case "response.started":
-		responseId, _ := payload["response_id"].(string)
-		turnId, _ := payload["turn_id"].(string)
+		responseId, _ := payload["responseId"].(string)
+		turnId, _ := payload["turnId"].(string)
 		record(model.TimelineEvent{At: now, Type: model.EventResponseStarted, SessionID: envelope.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
 	case "response.completed":
-		responseId, _ := payload["response_id"].(string)
-		turnId, _ := payload["turn_id"].(string)
+		responseId, _ := payload["responseId"].(string)
+		turnId, _ := payload["turnId"].(string)
 		record(model.TimelineEvent{At: now, Type: model.EventResponseCompleted, SessionID: envelope.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
+	case "turn.metrics":
+		record(model.TimelineEvent{At: now, Type: model.EventTurnMetrics, SessionID: envelope.SessionID, Raw: payload})
 	}
 }

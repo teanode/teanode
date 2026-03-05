@@ -16,6 +16,7 @@ import (
 
 // AnthropicClient talks to the Anthropic Messages API.
 type AnthropicClient struct {
+	BaseProvider
 	baseUrl    string
 	apiKey     string
 	httpClient *http.Client

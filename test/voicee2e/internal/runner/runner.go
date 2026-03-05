@@ -40,6 +40,7 @@ func (self *Runner) RunSuite(ctx context.Context, configuration model.RunnerConf
 		}
 		self.client.SetPromptSuffix(string(raw))
 	}
+	self.client.SetConfigJSON(configuration.ConfigJSON)
 
 	results := make([]model.ScenarioResult, 0, len(suite.Scenarios))
 	for _, scenario := range suite.Scenarios {
@@ -86,6 +87,7 @@ func (self *Runner) runScenario(ctx context.Context, scenario model.ScenarioSpec
 
 	timeline, runErr := self.client.RunScenario(scenarioContext, scenario)
 	result.Timeline = timeline
+	result.TurnMetrics = collectTurnMetrics(timeline)
 	if runErr != nil {
 		result.Failures = append(result.Failures, fmt.Sprintf("scenario run failed: %v", runErr))
 	}
@@ -103,4 +105,50 @@ func (self *Runner) runScenario(ctx context.Context, scenario model.ScenarioSpec
 	result.DurationMS = result.EndedAt.Sub(start).Milliseconds()
 	result.Passed = len(result.Failures) == 0
 	return result
+}
+
+func collectTurnMetrics(timeline []model.TimelineEvent) []model.TurnMetrics {
+	metrics := make([]model.TurnMetrics, 0, 8)
+	for _, event := range timeline {
+		if event.Type != model.EventTurnMetrics {
+			continue
+		}
+		raw := event.Raw
+		metric := model.TurnMetrics{
+			TurnID:              toString(raw["turnId"]),
+			ResponseID:          toString(raw["responseId"]),
+			SpeechStartedMS:     toInt64(raw["speechStartedMs"]),
+			SpeechEndedMS:       toInt64(raw["speechEndedMs"]),
+			TranscriptFinalMS:   toInt64(raw["transcriptFinalMs"]),
+			TurnCommittedMS:     toInt64(raw["turnCommittedMs"]),
+			ResponseStartedMS:   toInt64(raw["responseStartedMs"]),
+			ResponseCompletedMS: toInt64(raw["responseCompletedMs"]),
+			STTMS:               toInt64(raw["sttMs"]),
+			LLMTTFBMS:           toInt64(raw["llmTtfbMs"]),
+			TTSMS:               toInt64(raw["ttsMs"]),
+			E2EMS:               toInt64(raw["e2eMs"]),
+		}
+		metrics = append(metrics, metric)
+	}
+	return metrics
+}
+
+func toInt64(value any) int64 {
+	switch v := value.(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+func toString(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return ""
 }

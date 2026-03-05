@@ -7,6 +7,7 @@ type RunnerConfiguration struct {
 	SuitePath  string
 	Scenario   string
 	OutputPath string
+	ConfigJSON string
 	PromptPath string
 	PromptA    string
 	PromptB    string
@@ -53,19 +54,35 @@ const (
 	EventTurnCommitted     EventType = "turn_committed"
 	EventTurnQueued        EventType = "turn_queued"
 	EventTurnDropped       EventType = "turn_dropped"
-	EventBargeInTriggered  EventType = "barge_in_triggered"
+	EventBargeInTriggered  EventType = "bargeInTriggered"
 	EventResponseStarted   EventType = "response.started"
 	EventResponseCompleted EventType = "response.completed"
 	EventTTSInput          EventType = "tts.input"
+	EventTurnMetrics       EventType = "turn.metrics"
 )
+
+type TurnMetrics struct {
+	TurnID              string `json:"turnId,omitempty"`
+	ResponseID          string `json:"responseId,omitempty"`
+	SpeechStartedMS     int64  `json:"speechStartedMs,omitempty"`
+	SpeechEndedMS       int64  `json:"speechEndedMs,omitempty"`
+	TranscriptFinalMS   int64  `json:"transcriptFinalMs,omitempty"`
+	TurnCommittedMS     int64  `json:"turnCommittedMs,omitempty"`
+	ResponseStartedMS   int64  `json:"responseStartedMs,omitempty"`
+	ResponseCompletedMS int64  `json:"responseCompletedMs,omitempty"`
+	STTMS               int64  `json:"sttMs,omitempty"`
+	LLMTTFBMS           int64  `json:"llmTtfbMs,omitempty"`
+	TTSMS               int64  `json:"ttsMs,omitempty"`
+	E2EMS               int64  `json:"e2eMs,omitempty"`
+}
 
 type TimelineEvent struct {
 	At         time.Time      `json:"at"`
 	Type       EventType      `json:"type"`
-	SessionID  string         `json:"session_id,omitempty"`
-	TurnID     string         `json:"turn_id,omitempty"`
-	ResponseID string         `json:"response_id,omitempty"`
-	RunID      string         `json:"run_id,omitempty"`
+	SessionID  string         `json:"sessionId,omitempty"`
+	TurnID     string         `json:"turnId,omitempty"`
+	ResponseID string         `json:"responseId,omitempty"`
+	RunID      string         `json:"runId,omitempty"`
 	Text       string         `json:"text,omitempty"`
 	Value      int64          `json:"value,omitempty"`
 	Raw        map[string]any `json:"raw,omitempty"`
@@ -81,6 +98,7 @@ type ScenarioResult struct {
 	Failures      []string        `json:"failures,omitempty"`
 	Warnings      []string        `json:"warnings,omitempty"`
 	Metrics       map[string]any  `json:"metrics,omitempty"`
+	TurnMetrics   []TurnMetrics   `json:"turn_metrics,omitempty"`
 	Timeline      []TimelineEvent `json:"timeline,omitempty"`
 	PromptVariant string          `json:"prompt_variant,omitempty"`
 }

@@ -16,9 +16,9 @@ func TestEvaluateRequireBargeIn(t *testing.T) {
 		},
 	}
 	metrics := map[string]any{
-		"transcript_count": int64(1),
-		"response_count":   int64(1),
-		"barge_in_count":   int64(0),
+		"transcriptCount": int64(1),
+		"responseCount":   int64(1),
+		"bargeInCount":    int64(0),
 	}
 	failures, _ := Evaluate(scenario, nil, metrics)
 	if len(failures) == 0 {

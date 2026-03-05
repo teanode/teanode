@@ -80,6 +80,36 @@
         }
       }
     },
+    "voice": {
+      "type": "object",
+      "title": "Voice",
+      "properties": {
+        "transcriberProvider": {
+          "type": "string",
+          "title": "Transcriber Provider",
+          "description": "Optional preferred provider name for speech-to-text. Falls back to first available transcriber when unset or invalid.",
+          "x-placeholder": "openai"
+        },
+        "synthesizerProvider": {
+          "type": "string",
+          "title": "Synthesizer Provider",
+          "description": "Optional preferred provider name for text-to-speech. Falls back to first available synthesizer when unset or invalid.",
+          "x-placeholder": "openai"
+        },
+        "turnStrategy": {
+          "type": "string",
+          "title": "Turn Strategy",
+          "description": "Controls barge-in and turn commit policy for voice sessions.",
+          "default": "legacy",
+          "enum": ["legacy", "balanced"]
+        },
+        "bargeIn": {
+          "type": "boolean",
+          "title": "Barge-In",
+          "description": "Gateway-wide policy for barge-in interruption. When set, overrides the per-session client value. Unset means the client controls barge-in per session (default: true)."
+        }
+      }
+    },
     "tools": {
       "type": "object",
       "title": "Tools",
@@ -475,6 +505,12 @@
       "description": "HTTP server and authentication settings.",
       "descriptionKey": "schema.config.sections.gateway.description",
       "path": "gateway"
+    },
+    {
+      "id": "voice",
+      "title": "Voice",
+      "description": "Voice provider selection preferences.",
+      "path": "voice"
     },
     {
       "id": "tools",

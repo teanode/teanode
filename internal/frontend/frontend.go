@@ -5,6 +5,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 )
@@ -37,11 +38,14 @@ func frontendHandler(fileSystem http.FileSystem) http.Handler {
 
 		// Determine whether we're serving index.html (directly or as SPA fallback).
 		servingIndex := path == "/" || path == "/index.html"
-		if file, err := fileSystem.Open(path); err != nil {
-			request.URL.Path = "/"
-			servingIndex = true
-		} else {
-			file.Close()
+		if !servingIndex {
+			lookupPath := strings.TrimPrefix(path, "/")
+			if file, err := fileSystem.Open(lookupPath); err != nil {
+				request.URL.Path = "/"
+				servingIndex = true
+			} else {
+				file.Close()
+			}
 		}
 
 		// Enable cross-origin isolation so SharedArrayBuffer is available.

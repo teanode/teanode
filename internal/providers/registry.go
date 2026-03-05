@@ -67,6 +67,20 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 				APIKey:  ptrto.Value(apiKey),
 			})
 		}
+		if apiKey := os.Getenv("DEEPGRAM_API_KEY"); apiKey != "" {
+			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
+				Name:    ptrto.Value("deepgram"),
+				BaseURL: ptrto.Value("https://api.deepgram.com"),
+				APIKey:  ptrto.Value(apiKey),
+			})
+		}
+		if apiKey := os.Getenv("ELEVENLABS_API_KEY"); apiKey != "" {
+			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
+				Name:    ptrto.Value("elevenlabs"),
+				BaseURL: ptrto.Value("https://api.elevenlabs.io"),
+				APIKey:  ptrto.Value(apiKey),
+			})
+		}
 		if len(defaultProviders) == 0 {
 			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
 				Name:    ptrto.Value("openai"),
@@ -109,7 +123,7 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 		}
 	}
 	if !hasKey {
-		log.Warning("no API key configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, or models.apiKey in config)")
+		log.Warning("no API key configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, or models.apiKey in config)")
 	}
 
 	return providerRegistry
@@ -145,6 +159,12 @@ func (self *ProviderRegistry) ResolveProviderAndModel(providerModelName string) 
 		return nil, "", "", fmt.Errorf("unknown provider: %q", providerName)
 	}
 	return client, providerName, modelName, nil
+}
+
+// ClientByName returns the provider client registered under the given name.
+func (self *ProviderRegistry) ClientByName(name string) (Provider, bool) {
+	client, ok := self.clients[name]
+	return client, ok
 }
 
 // ProviderNames returns sorted provider names.
@@ -238,8 +258,12 @@ func (self *ProviderRegistry) cachedModelsForProvider(ctx context.Context, provi
 	if !ok {
 		return nil
 	}
+	chatProvider, ok := client.(ChatProvider)
+	if !ok {
+		return nil
+	}
 
-	fetched, err := client.ListModels(ctx)
+	fetched, err := chatProvider.ListModels(ctx)
 	if err != nil {
 		log.Warningf("listing models for provider %q: %v", providerName, err)
 		// Return stale data if available.
@@ -259,22 +283,74 @@ func (self *ProviderRegistry) cachedModelsForProvider(ctx context.Context, provi
 	return fetched
 }
 
-// FindTranscriber returns the first registered provider that implements AudioTranscriber.
-func (self *ProviderRegistry) FindTranscriber() (AudioTranscriber, string, bool) {
-	for name, client := range self.clients {
-		if transcriber, ok := client.(AudioTranscriber); ok {
+// FindTranscriber returns the first registered provider that implements TranscribeProvider.
+func (self *ProviderRegistry) FindTranscriber() (TranscribeProvider, string, bool) {
+	for _, name := range self.ProviderNames() {
+		if transcriber, ok := self.clients[name].(TranscribeProvider); ok {
 			return transcriber, name, true
 		}
 	}
 	return nil, "", false
 }
 
-// FindSynthesizer returns the first registered provider that implements AudioSynthesizer.
-func (self *ProviderRegistry) FindSynthesizer() (AudioSynthesizer, string, bool) {
-	for name, client := range self.clients {
-		if synthesizer, ok := client.(AudioSynthesizer); ok {
+// FindStreamingTranscriber returns the first registered provider that implements StreamingTranscribeProvider.
+func (self *ProviderRegistry) FindStreamingTranscriber() (StreamingTranscribeProvider, string, bool) {
+	for _, name := range self.ProviderNames() {
+		if transcriber, ok := self.clients[name].(StreamingTranscribeProvider); ok {
+			return transcriber, name, true
+		}
+	}
+	return nil, "", false
+}
+
+// FindSynthesizer returns the first registered provider that implements SynthesizeProvider.
+func (self *ProviderRegistry) FindSynthesizer() (SynthesizeProvider, string, bool) {
+	for _, name := range self.ProviderNames() {
+		if synthesizer, ok := self.clients[name].(SynthesizeProvider); ok {
 			return synthesizer, name, true
 		}
 	}
 	return nil, "", false
+}
+
+// FindTranscriberByName resolves a named provider and returns it only when the
+// provider supports TranscribeProvider.
+func (self *ProviderRegistry) FindTranscriberByName(name string) (TranscribeProvider, bool) {
+	client, ok := self.clients[name]
+	if !ok {
+		return nil, false
+	}
+	transcriber, ok := client.(TranscribeProvider)
+	if !ok {
+		return nil, false
+	}
+	return transcriber, true
+}
+
+// FindStreamingTranscriberByName resolves a named provider and returns it only
+// when the provider supports StreamingTranscribeProvider.
+func (self *ProviderRegistry) FindStreamingTranscriberByName(name string) (StreamingTranscribeProvider, bool) {
+	client, ok := self.clients[name]
+	if !ok {
+		return nil, false
+	}
+	transcriber, ok := client.(StreamingTranscribeProvider)
+	if !ok {
+		return nil, false
+	}
+	return transcriber, true
+}
+
+// FindSynthesizerByName resolves a named provider and returns it only when the
+// provider supports SynthesizeProvider.
+func (self *ProviderRegistry) FindSynthesizerByName(name string) (SynthesizeProvider, bool) {
+	client, ok := self.clients[name]
+	if !ok {
+		return nil, false
+	}
+	synthesizer, ok := client.(SynthesizeProvider)
+	if !ok {
+		return nil, false
+	}
+	return synthesizer, true
 }

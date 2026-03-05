@@ -3,7 +3,9 @@ package providers
 import (
 	"context"
 	"fmt"
+	"io"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,8 +13,9 @@ import (
 	"github.com/teanode/teanode/internal/models"
 )
 
-// mockProvider implements Provider for testing the providerRegistry.
+// mockProvider implements ChatProvider for testing the providerRegistry.
 type mockProvider struct {
+	BaseProvider
 	name string
 }
 
@@ -26,6 +29,34 @@ func (self *mockProvider) ChatCompletionStream(ctx context.Context, request Chat
 
 func (self *mockProvider) ListModels(ctx context.Context) ([]ModelInformation, error) {
 	return nil, nil
+}
+
+type mockTranscriberProvider struct {
+	mockProvider
+}
+
+func (self *mockTranscriberProvider) Transcribe(ctx context.Context, request TranscribeRequest) (*TranscribeResponse, error) {
+	return &TranscribeResponse{Text: "ok"}, nil
+}
+
+type mockStreamingTranscriberProvider struct {
+	mockProvider
+}
+
+func (self *mockStreamingTranscriberProvider) TranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error) {
+	return nil, nil
+}
+
+type mockSynthProvider struct {
+	mockProvider
+}
+
+func (self *mockSynthProvider) Synthesize(ctx context.Context, request SynthesizeRequest) (*SynthesizeResponse, error) {
+	return &SynthesizeResponse{
+		Audio:       io.NopCloser(strings.NewReader("audio")),
+		Format:      "wav",
+		ContentType: "audio/wav",
+	}, nil
 }
 
 func TestNewRegistryNilConfig(t *testing.T) {
@@ -150,7 +181,8 @@ func TestRegistryRegisterAndResolve(t *testing.T) {
 	if modelName != "claude-sonnet-4-20250514" {
 		t.Errorf("model = %q, want %q", modelName, "claude-sonnet-4-20250514")
 	}
-	response, _ := client.ChatCompletion(context.Background(), ChatRequest{})
+	chatClient := client.(ChatProvider)
+	response, _ := chatClient.ChatCompletion(context.Background(), ChatRequest{})
 	if response.ModelName != "anthropic" {
 		t.Errorf("resolved to wrong provider: %q", response.ModelName)
 	}
@@ -163,7 +195,8 @@ func TestRegistryRegisterAndResolve(t *testing.T) {
 	if modelName != "gpt-4o" {
 		t.Errorf("model = %q, want %q", modelName, "gpt-4o")
 	}
-	response, _ = client.ChatCompletion(context.Background(), ChatRequest{})
+	chatClient = client.(ChatProvider)
+	response, _ = chatClient.ChatCompletion(context.Background(), ChatRequest{})
 	if response.ModelName != "openai" {
 		t.Errorf("resolved to wrong provider: %q", response.ModelName)
 	}
@@ -441,8 +474,115 @@ func TestRegistryRegisterOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	response, _ := client.ChatCompletion(context.Background(), ChatRequest{})
+	chatClient := client.(ChatProvider)
+	response, _ := chatClient.ChatCompletion(context.Background(), ChatRequest{})
 	if response.ModelName != "second" {
 		t.Errorf("expected second provider after overwrite, got %q", response.ModelName)
+	}
+}
+
+func TestFindTranscriber_Deterministic(t *testing.T) {
+	registry := NewEmptyProviderRegistry()
+	registry.Register("openai", &mockProvider{name: "openai"})
+	registry.Register("t1", &mockTranscriberProvider{mockProvider{name: "t1"}})
+	registry.Register("t2", &mockTranscriberProvider{mockProvider{name: "t2"}})
+
+	var firstName string
+	for i := 0; i < 100; i++ {
+		transcriber, name, ok := registry.FindTranscriber()
+		if !ok || transcriber == nil {
+			t.Fatalf("FindTranscriber returned no transcriber at iteration %d", i)
+		}
+		if i == 0 {
+			firstName = name
+		} else if name != firstName {
+			t.Fatalf("FindTranscriber changed selection from %q to %q at iteration %d", firstName, name, i)
+		}
+	}
+}
+
+func TestFindStreamingTranscriber_Deterministic(t *testing.T) {
+	registry := NewEmptyProviderRegistry()
+	registry.Register("openai", &mockProvider{name: "openai"})
+	registry.Register("stream-a", &mockStreamingTranscriberProvider{mockProvider{name: "stream-a"}})
+	registry.Register("stream-b", &mockStreamingTranscriberProvider{mockProvider{name: "stream-b"}})
+
+	var firstName string
+	for i := 0; i < 100; i++ {
+		transcriber, name, ok := registry.FindStreamingTranscriber()
+		if !ok || transcriber == nil {
+			t.Fatalf("FindStreamingTranscriber returned no transcriber at iteration %d", i)
+		}
+		if i == 0 {
+			firstName = name
+		} else if name != firstName {
+			t.Fatalf("FindStreamingTranscriber changed selection from %q to %q at iteration %d", firstName, name, i)
+		}
+	}
+}
+
+func TestFindTranscriberByName_Found(t *testing.T) {
+	registry := NewEmptyProviderRegistry()
+	registry.Register("t1", &mockTranscriberProvider{mockProvider{name: "t1"}})
+
+	transcriber, ok := registry.FindTranscriberByName("t1")
+	if !ok || transcriber == nil {
+		t.Fatalf("expected named transcriber lookup to succeed")
+	}
+}
+
+func TestFindTranscriberByName_NotFound(t *testing.T) {
+	registry := NewEmptyProviderRegistry()
+	registry.Register("openai", &mockProvider{name: "openai"})
+
+	transcriber, ok := registry.FindTranscriberByName("missing")
+	if ok {
+		t.Fatalf("expected lookup miss")
+	}
+	if transcriber != nil {
+		t.Fatalf("expected nil transcriber on miss")
+	}
+}
+
+func TestFindTranscriberByName_WrongCapability(t *testing.T) {
+	registry := NewEmptyProviderRegistry()
+	registry.Register("openai", &mockProvider{name: "openai"})
+
+	transcriber, ok := registry.FindTranscriberByName("openai")
+	if ok {
+		t.Fatalf("expected capability mismatch to fail")
+	}
+	if transcriber != nil {
+		t.Fatalf("expected nil transcriber for capability mismatch")
+	}
+}
+
+func TestFindStreamingTranscriberByName_Found(t *testing.T) {
+	registry := NewEmptyProviderRegistry()
+	registry.Register("stream-a", &mockStreamingTranscriberProvider{mockProvider{name: "stream-a"}})
+
+	transcriber, ok := registry.FindStreamingTranscriberByName("stream-a")
+	if !ok || transcriber == nil {
+		t.Fatalf("expected named streaming transcriber lookup to succeed")
+	}
+}
+
+func TestFindStreamingTranscriberByName_NotFound(t *testing.T) {
+	registry := NewEmptyProviderRegistry()
+	registry.Register("openai", &mockProvider{name: "openai"})
+
+	transcriber, ok := registry.FindStreamingTranscriberByName("missing")
+	if ok || transcriber != nil {
+		t.Fatalf("expected missing streaming transcriber lookup to fail")
+	}
+}
+
+func TestFindStreamingTranscriberByName_WrongCapability(t *testing.T) {
+	registry := NewEmptyProviderRegistry()
+	registry.Register("openai", &mockProvider{name: "openai"})
+
+	transcriber, ok := registry.FindStreamingTranscriberByName("openai")
+	if ok || transcriber != nil {
+		t.Fatalf("expected non-streaming provider lookup to fail")
 	}
 }
