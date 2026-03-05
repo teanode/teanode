@@ -11,6 +11,8 @@ import (
 
 	"encoding/base64"
 
+	"time"
+
 	"github.com/kaptinlin/jsonrepair"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
@@ -346,10 +348,16 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 			assistantMessage.Usage = usageJson
 		}
 
+		assistantMessage.ID = security.NewULID()
 		if err := self.appendConversationMessage(ctx, assistantMessage); err != nil {
 			return nil, fmt.Errorf("saving assistant message: %w", err)
 		}
 		history = append(history, &assistantMessage)
+
+		// Record usage event and upsert stat entries.
+		if usage != nil {
+			self.recordModelUsage(ctx, userId, assistantMessage.ID, providerName, responseModelName, usage)
+		}
 
 		// If no tool calls, we're done.
 		if len(toolCalls) == 0 || self.toolRegistry == nil {
@@ -826,7 +834,9 @@ func (self *Runner) appendConversationMessage(ctx context.Context, message model
 				return createError
 			}
 		}
-		message.ID = security.NewULID()
+		if message.ID == "" {
+			message.ID = security.NewULID()
+		}
 		message.ConversationID = ptrto.Value(self.ConversationID)
 		_, err := transaction.CreateConversationMessage(ctx, &message, nil)
 		return err
@@ -920,5 +930,44 @@ func conversationMessageContentBlocks(message models.ConversationMessage) []map[
 			"type": "text",
 			"text": conversationMessageContentText(message),
 		},
+	}
+}
+
+// recordModelUsage writes a ModelUsageEvent and upserts hourly+daily stat entries.
+// Errors are logged but not propagated to avoid failing a successful run.
+func (self *Runner) recordModelUsage(ctx context.Context, userId, messageID, providerName, modelName string, usage *providers.UsageInformation) {
+	now := time.Now()
+	event := &models.ModelUsageEvent{
+		ID:                  security.NewULID(),
+		UserID:              userId,
+		ConversationID:      self.ConversationID,
+		MessageID:           messageID,
+		RunID:               self.ID,
+		ProviderName:        providerName,
+		ModelName:           modelName,
+		PromptTokens:        uint64(usage.PromptTokens),
+		CompletionTokens:    uint64(usage.CompletionTokens),
+		CacheCreationTokens: uint64(usage.CacheCreationInputTokens),
+		CacheReadTokens:     uint64(usage.CacheReadInputTokens),
+		TotalTokens:         uint64(usage.TotalTokens),
+		CreatedAt:           now,
+	}
+	loc := time.Local
+	err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		if err := transaction.CreateModelUsageEvent(ctx, event, nil); err != nil {
+			return err
+		}
+		hourStart := models.BucketStartedAt(now, models.IntervalHourly, loc)
+		if err := transaction.UpsertModelUsageStatEntry(ctx, event, models.IntervalHourly, hourStart, nil); err != nil {
+			return err
+		}
+		dayStart := models.BucketStartedAt(now, models.IntervalDaily, loc)
+		if err := transaction.UpsertModelUsageStatEntry(ctx, event, models.IntervalDaily, dayStart, nil); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		log.Warningf("failed to record model usage: %v", err)
 	}
 }
