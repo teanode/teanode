@@ -13,8 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const defaultDeepgramBaseURL = "https://api.deepgram.com"
-
 // DeepgramClient provides streaming STT.
 type DeepgramClient struct {
 	BaseProvider
@@ -63,7 +61,7 @@ func (self *DeepgramClient) OpenTranscribeStream(ctx context.Context, request St
 func deepgramListenURL(baseURL string, request StreamTranscribeRequest) (string, error) {
 	base := strings.TrimSpace(baseURL)
 	if base == "" {
-		base = defaultDeepgramBaseURL
+		return "", fmt.Errorf("deepgram base url is required")
 	}
 	parsed, err := url.Parse(base)
 	if err != nil {

@@ -13,8 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const defaultElevenLabsBaseURL = "https://api.elevenlabs.io"
-
 // ElevenLabsClient provides streaming TTS.
 type ElevenLabsClient struct {
 	BaseProvider
@@ -145,7 +143,7 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, request Synt
 func elevenLabsStreamURL(baseURL, voice string, sampleRateHz int) (string, error) {
 	base := strings.TrimSpace(baseURL)
 	if base == "" {
-		base = defaultElevenLabsBaseURL
+		return "", fmt.Errorf("elevenlabs base url is required")
 	}
 	parsed, err := url.Parse(base)
 	if err != nil {

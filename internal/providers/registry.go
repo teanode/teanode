@@ -67,6 +67,20 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 				APIKey:  ptrto.Value(apiKey),
 			})
 		}
+		if apiKey := os.Getenv("DEEPGRAM_API_KEY"); apiKey != "" {
+			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
+				Name:    ptrto.Value("deepgram"),
+				BaseURL: ptrto.Value("https://api.deepgram.com"),
+				APIKey:  ptrto.Value(apiKey),
+			})
+		}
+		if apiKey := os.Getenv("ELEVENLABS_API_KEY"); apiKey != "" {
+			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
+				Name:    ptrto.Value("elevenlabs"),
+				BaseURL: ptrto.Value("https://api.elevenlabs.io"),
+				APIKey:  ptrto.Value(apiKey),
+			})
+		}
 		if len(defaultProviders) == 0 {
 			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
 				Name:    ptrto.Value("openai"),
@@ -109,7 +123,7 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 		}
 	}
 	if !hasKey {
-		log.Warning("no API key configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, or models.apiKey in config)")
+		log.Warning("no API key configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, or models.apiKey in config)")
 	}
 
 	return providerRegistry
