@@ -6,6 +6,7 @@ import Typography from "@mui/material/Typography";
 import CallEndRounded from "@mui/icons-material/CallEndRounded";
 import MicRounded from "@mui/icons-material/MicRounded";
 import MicOffRounded from "@mui/icons-material/MicOffRounded";
+import SkipNextRounded from "@mui/icons-material/SkipNextRounded";
 
 interface VoiceCallBarProps {
   callDuration: number;
@@ -15,6 +16,7 @@ interface VoiceCallBarProps {
   isSynthesizing: boolean;
   onToggleMute: () => void;
   onEndCall: () => void;
+  onInterrupt?: () => void;
   /** When true, renders without a Container wrapper. */
   bare?: boolean;
 }
@@ -44,6 +46,7 @@ export default function VoiceCallBar({
   isSynthesizing,
   onToggleMute,
   onEndCall,
+  onInterrupt,
   bare,
 }: VoiceCallBarProps) {
   const statusText = getStatusText(isUserSpeaking, isSynthesizing, isPlaying);
@@ -114,6 +117,16 @@ export default function VoiceCallBar({
           {statusText}
         </Typography>
       </Box>
+
+      {(isPlaying || isSynthesizing) && onInterrupt && (
+        <IconButton
+          size="small"
+          onClick={onInterrupt}
+          sx={{ color: "text.secondary" }}
+        >
+          <SkipNextRounded fontSize="small" />
+        </IconButton>
+      )}
 
       <Typography
         variant="body2"

@@ -7,19 +7,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 // --- mock client ---
 
 type mockClient struct {
-	states      []EntityState
-	stateById   map[string]*EntityState
-	serviceResp json.RawMessage
-	historyResp json.RawMessage
-	configResp  json.RawMessage
-	err         error
+	states                []EntityState
+	stateById             map[string]*EntityState
+	serviceResponse       json.RawMessage
+	historyResponse       json.RawMessage
+	configurationResponse json.RawMessage
+	err                   error
 
 	// track calls
 	callServiceCalls []serviceCall
@@ -57,8 +56,8 @@ func (self *mockClient) CallService(ctx context.Context, domain string, service 
 		Service: service,
 		Data:    data,
 	})
-	if self.serviceResp != nil {
-		return self.serviceResp, nil
+	if self.serviceResponse != nil {
+		return self.serviceResponse, nil
 	}
 	return json.RawMessage(`[]`), nil
 }
@@ -67,8 +66,8 @@ func (self *mockClient) GetHistory(ctx context.Context, entityId string, hours i
 	if self.err != nil {
 		return nil, self.err
 	}
-	if self.historyResp != nil {
-		return self.historyResp, nil
+	if self.historyResponse != nil {
+		return self.historyResponse, nil
 	}
 	return json.RawMessage(`[[]]`), nil
 }
@@ -77,8 +76,8 @@ func (self *mockClient) GetConfig(ctx context.Context) (json.RawMessage, error) 
 	if self.err != nil {
 		return nil, self.err
 	}
-	if self.configResp != nil {
-		return self.configResp, nil
+	if self.configurationResponse != nil {
+		return self.configurationResponse, nil
 	}
 	return json.RawMessage(`{}`), nil
 }
@@ -89,11 +88,11 @@ func newMockClient() *mockClient {
 	}
 }
 
-func newTestTool(client *mockClient, config *configs.HomeAssistantConfig) *homeAssistantTool {
+func newTestTool(client *mockClient, config *resolvedConfiguration) *homeAssistantExecution {
 	if config == nil {
-		config = &configs.HomeAssistantConfig{}
+		config = &resolvedConfiguration{}
 	}
-	return &homeAssistantTool{
+	return &homeAssistantExecution{
 		client:  client,
 		checker: NewAccessChecker(config),
 	}
@@ -142,8 +141,8 @@ func TestAccessChecker_DefaultEntityAccess(testing *testing.T) {
 }
 
 func TestAccessChecker_CustomAllowedDomains(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{
-		AllowedDomains: []string{"light", "switch"},
+	config := &resolvedConfiguration{
+		allowedDomains: []string{"light", "switch"},
 	}
 	checker := NewAccessChecker(config)
 
@@ -160,8 +159,8 @@ func TestAccessChecker_CustomAllowedDomains(testing *testing.T) {
 }
 
 func TestAccessChecker_CustomBlockedDomains(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{
-		BlockedDomains: []string{"lock", "alarm_control_panel", "light"},
+	config := &resolvedConfiguration{
+		blockedDomains: []string{"lock", "alarm_control_panel", "light"},
 	}
 	checker := NewAccessChecker(config)
 
@@ -175,8 +174,8 @@ func TestAccessChecker_CustomBlockedDomains(testing *testing.T) {
 }
 
 func TestAccessChecker_AllowedEntities(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{
-		AllowedEntities: []string{"light.kitchen", "switch.garage"},
+	config := &resolvedConfiguration{
+		allowedEntities: []string{"light.kitchen", "switch.garage"},
 	}
 	checker := NewAccessChecker(config)
 
@@ -193,8 +192,8 @@ func TestAccessChecker_AllowedEntities(testing *testing.T) {
 }
 
 func TestAccessChecker_BlockedDomainOverridesAllowedEntity(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{
-		AllowedEntities: []string{"lock.front_door"},
+	config := &resolvedConfiguration{
+		allowedEntities: []string{"lock.front_door"},
 		// lock is blocked by default
 	}
 	checker := NewAccessChecker(config)
@@ -205,14 +204,14 @@ func TestAccessChecker_BlockedDomainOverridesAllowedEntity(testing *testing.T) {
 }
 
 func TestAccessChecker_ReadOnly(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{ReadOnly: true}
+	config := &resolvedConfiguration{readOnly: true}
 	checker := NewAccessChecker(config)
 
 	if checker.IsWriteAllowed() {
 		testing.Error("expected write to be blocked in read-only mode")
 	}
 
-	config2 := &configs.HomeAssistantConfig{ReadOnly: false}
+	config2 := &resolvedConfiguration{readOnly: false}
 	checker2 := NewAccessChecker(config2)
 	if !checker2.IsWriteAllowed() {
 		testing.Error("expected write to be allowed when not read-only")
@@ -259,8 +258,7 @@ func TestDomainOf(testing *testing.T) {
 // --- Tool Definition tests ---
 
 func TestToolDefinition(testing *testing.T) {
-	tool := newTestTool(newMockClient(), nil)
-	definition := tool.Definition()
+	definition := (&homeAssistantTool{}).Definition()
 
 	if definition.Type != "function" {
 		testing.Errorf("expected type 'function', got %q", definition.Type)
@@ -306,7 +304,7 @@ func TestListEntities_Basic(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "list_entities"})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -337,7 +335,7 @@ func TestListEntities_FilterByDomain(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "list_entities", "domain": "light"})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -357,7 +355,7 @@ func TestListEntities_ClientError(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "list_entities"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil {
 		testing.Fatal("expected error")
 	}
@@ -378,7 +376,7 @@ func TestGetState_Basic(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_state", "entityId": "light.living_room"})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -399,7 +397,7 @@ func TestGetState_MissingEntityID(testing *testing.T) {
 	tool := newTestTool(newMockClient(), nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_state"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "entityId is required") {
 		testing.Errorf("expected 'entityId is required' error, got: %v", err)
 	}
@@ -409,7 +407,7 @@ func TestGetState_BlockedEntity(testing *testing.T) {
 	tool := newTestTool(newMockClient(), nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_state", "entityId": "lock.front_door"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "not accessible") {
 		testing.Errorf("expected access denied error, got: %v", err)
 	}
@@ -429,7 +427,7 @@ func TestControl_TurnOn(testing *testing.T) {
 			"brightness": 128,
 		},
 	})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -472,7 +470,7 @@ func TestControl_Toggle(testing *testing.T) {
 		"entityId": "switch.garage",
 		"command":  "toggle",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -492,7 +490,7 @@ func TestControl_TurnOff(testing *testing.T) {
 		"entityId": "fan.bedroom",
 		"command":  "turn_off",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -504,7 +502,7 @@ func TestControl_TurnOff(testing *testing.T) {
 }
 
 func TestControl_ReadOnlyBlocked(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{ReadOnly: true}
+	config := &resolvedConfiguration{readOnly: true}
 	tool := newTestTool(newMockClient(), config)
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -512,7 +510,7 @@ func TestControl_ReadOnlyBlocked(testing *testing.T) {
 		"entityId": "light.living_room",
 		"command":  "turn_on",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "read-only mode") {
 		testing.Errorf("expected read-only error, got: %v", err)
 	}
@@ -526,7 +524,7 @@ func TestControl_BlockedDomain(testing *testing.T) {
 		"entityId": "lock.front_door",
 		"command":  "turn_on",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "not accessible") {
 		testing.Errorf("expected access denied error, got: %v", err)
 	}
@@ -540,7 +538,7 @@ func TestControl_InvalidCommand(testing *testing.T) {
 		"entityId": "light.living_room",
 		"command":  "set_brightness",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "not allowed") {
 		testing.Errorf("expected command not allowed error, got: %v", err)
 	}
@@ -553,7 +551,7 @@ func TestControl_MissingEntityID(testing *testing.T) {
 		"action":  "control",
 		"command": "turn_on",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "entityId is required") {
 		testing.Errorf("expected 'entityId is required' error, got: %v", err)
 	}
@@ -566,7 +564,7 @@ func TestControl_MissingCommand(testing *testing.T) {
 		"action":   "control",
 		"entityId": "light.living_room",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "command is required") {
 		testing.Errorf("expected 'command is required' error, got: %v", err)
 	}
@@ -582,7 +580,7 @@ func TestTriggerScene_Basic(testing *testing.T) {
 		"action":   "trigger_scene",
 		"entityId": "scene.movie_night",
 	})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -601,14 +599,14 @@ func TestTriggerScene_Basic(testing *testing.T) {
 }
 
 func TestTriggerScene_ReadOnlyBlocked(testing *testing.T) {
-	config := &configs.HomeAssistantConfig{ReadOnly: true}
+	config := &resolvedConfiguration{readOnly: true}
 	tool := newTestTool(newMockClient(), config)
 
 	arguments, _ := json.Marshal(map[string]interface{}{
 		"action":   "trigger_scene",
 		"entityId": "scene.movie_night",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "read-only mode") {
 		testing.Errorf("expected read-only error, got: %v", err)
 	}
@@ -621,7 +619,7 @@ func TestTriggerScene_NonSceneEntity(testing *testing.T) {
 		"action":   "trigger_scene",
 		"entityId": "light.living_room",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "requires a scene entity") {
 		testing.Errorf("expected scene entity error, got: %v", err)
 	}
@@ -633,7 +631,7 @@ func TestTriggerScene_MissingEntityID(testing *testing.T) {
 	arguments, _ := json.Marshal(map[string]interface{}{
 		"action": "trigger_scene",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "entityId is required") {
 		testing.Errorf("expected 'entityId is required' error, got: %v", err)
 	}
@@ -645,7 +643,7 @@ func TestListAreas_ReturnsEmpty(testing *testing.T) {
 	tool := newTestTool(newMockClient(), nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "list_areas"})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -666,7 +664,7 @@ func TestListAreas_ReturnsEmpty(testing *testing.T) {
 
 func TestGetHistory_Basic(testing *testing.T) {
 	client := newMockClient()
-	client.historyResp = json.RawMessage(`[[{"state":"on","last_changed":"2026-01-01T00:00:00Z"},{"state":"off","last_changed":"2026-01-01T01:00:00Z"}]]`)
+	client.historyResponse = json.RawMessage(`[[{"state":"on","last_changed":"2026-01-01T00:00:00Z"},{"state":"off","last_changed":"2026-01-01T01:00:00Z"}]]`)
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -674,7 +672,7 @@ func TestGetHistory_Basic(testing *testing.T) {
 		"entityId": "light.living_room",
 		"hours":    2,
 	})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -701,10 +699,10 @@ func TestGetHistory_Truncation(testing *testing.T) {
 		})
 	}
 	entriesJSON, _ := json.Marshal(entries)
-	historyResp, _ := json.Marshal([]json.RawMessage{json.RawMessage(entriesJSON)})
+	historyResponse, _ := json.Marshal([]json.RawMessage{json.RawMessage(entriesJSON)})
 
 	client := newMockClient()
-	client.historyResp = json.RawMessage(historyResp)
+	client.historyResponse = json.RawMessage(historyResponse)
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{
@@ -712,7 +710,7 @@ func TestGetHistory_Truncation(testing *testing.T) {
 		"entityId": "sensor.temperature",
 		"hours":    24,
 	})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -733,7 +731,7 @@ func TestGetHistory_MissingEntityID(testing *testing.T) {
 	tool := newTestTool(newMockClient(), nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_history"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "entityId is required") {
 		testing.Errorf("expected 'entityId is required' error, got: %v", err)
 	}
@@ -746,7 +744,7 @@ func TestGetHistory_BlockedEntity(testing *testing.T) {
 		"action":   "get_history",
 		"entityId": "lock.front_door",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "not accessible") {
 		testing.Errorf("expected access denied error, got: %v", err)
 	}
@@ -754,14 +752,14 @@ func TestGetHistory_BlockedEntity(testing *testing.T) {
 
 func TestGetHistory_EmptyResult(testing *testing.T) {
 	client := newMockClient()
-	client.historyResp = json.RawMessage(`[]`)
+	client.historyResponse = json.RawMessage(`[]`)
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{
 		"action":   "get_history",
 		"entityId": "light.living_room",
 	})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -781,7 +779,7 @@ func TestUnknownAction(testing *testing.T) {
 	tool := newTestTool(newMockClient(), nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "unknown"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "unknown home_assistant action") {
 		testing.Errorf("expected unknown action error, got: %v", err)
 	}
@@ -790,48 +788,17 @@ func TestUnknownAction(testing *testing.T) {
 func TestInvalidJSON(testing *testing.T) {
 	tool := newTestTool(newMockClient(), nil)
 
-	_, err := tool.Execute(context.Background(), "not json")
+	_, err := tool.execute(context.Background(), "not json")
 	if err == nil || !strings.Contains(err.Error(), "parsing arguments") {
 		testing.Errorf("expected parsing error, got: %v", err)
 	}
 }
 
-// --- RegisterTools tests ---
+// --- Registration tests ---
 
-func TestRegisterTools_NilConfig(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, nil)
-	if registry.Get("home_assistant") != nil {
-		testing.Error("expected no tool registered with nil config")
-	}
-}
-
-func TestRegisterTools_MissingBaseURL(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.HomeAssistantConfig{
-		Token: "test-token",
-	})
-	if registry.Get("home_assistant") != nil {
-		testing.Error("expected no tool registered without baseUrl")
-	}
-}
-
-func TestRegisterTools_MissingToken(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.HomeAssistantConfig{
-		BaseURL: "http://localhost:8123",
-	})
-	if registry.Get("home_assistant") != nil {
-		testing.Error("expected no tool registered without token")
-	}
-}
-
-func TestRegisterTools_ValidConfig(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.HomeAssistantConfig{
-		BaseURL: "http://localhost:8123",
-		Token:   "test-token",
-	})
+func TestRegisterTools(testing *testing.T) {
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(&homeAssistantTool{})
 	if registry.Get("home_assistant") == nil {
 		testing.Error("expected home_assistant tool to be registered")
 	}

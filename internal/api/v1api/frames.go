@@ -38,19 +38,19 @@ type apiError struct {
 
 // voiceEnvelope is the canonical wrapper for server/client voice JSON control messages.
 type voiceEnvelope struct {
-	V         int         `json:"v"`
-	Type      string      `json:"type"`
-	SessionID string      `json:"session_id"`
-	Seq       uint64      `json:"seq"`
-	TSMS      int64       `json:"ts_ms"`
-	Payload   interface{} `json:"payload,omitempty"`
+	Version               int         `json:"v"`
+	Type                  string      `json:"type"`
+	SessionID             string      `json:"session_id"`
+	Sequence              uint64      `json:"seq"`
+	TimestampMilliseconds int64       `json:"ts_ms"`
+	Payload               interface{} `json:"payload,omitempty"`
 }
 
 type voiceAudioFormat struct {
-	Codec        string `json:"codec"`
-	SampleRateHz int    `json:"sample_rate_hz"`
-	Channels     int    `json:"channels"`
-	FrameMS      int    `json:"frame_ms,omitempty"`
+	Codec             string `json:"codec"`
+	SampleRateHz      int    `json:"sample_rate_hz"`
+	Channels          int    `json:"channels"`
+	FrameMilliseconds int    `json:"frame_ms,omitempty"`
 }
 
 type voiceFeatures struct {
@@ -60,19 +60,19 @@ type voiceFeatures struct {
 	TurnStrategy string `json:"turn_strategy,omitempty"`
 }
 
-type voiceClientInfo struct {
+type voiceClientInformation struct {
 	Platform   string `json:"platform,omitempty"`
 	AppVersion string `json:"app_version,omitempty"`
 }
 
-type voiceStartParams struct {
-	ConversationID string           `json:"conversation_id"`
-	AgentID        string           `json:"agent_id"`
-	PromptSuffix   string           `json:"prompt_suffix,omitempty"`
-	AudioIn        voiceAudioFormat `json:"audio_in"`
-	AudioOut       voiceAudioFormat `json:"audio_out"`
-	Features       voiceFeatures    `json:"features"`
-	Client         voiceClientInfo  `json:"client,omitempty"`
+type voiceStartParameters struct {
+	ConversationID string                 `json:"conversation_id"`
+	AgentID        string                 `json:"agent_id"`
+	PromptSuffix   string                 `json:"prompt_suffix,omitempty"`
+	AudioIn        voiceAudioFormat       `json:"audio_in"`
+	AudioOut       voiceAudioFormat       `json:"audio_out"`
+	Features       voiceFeatures          `json:"features"`
+	Client         voiceClientInformation `json:"client,omitempty"`
 }
 
 type voiceSessionReadyPayload struct {
@@ -82,24 +82,24 @@ type voiceSessionReadyPayload struct {
 	Features       voiceFeatures    `json:"features"`
 }
 
-type voiceEndParams struct {
+type voiceEndParameters struct {
 	SessionID string `json:"session_id"`
 }
 
-type voiceResponseCancelParams struct {
+type voiceResponseCancelParameters struct {
 	ResponseID string `json:"response_id"`
 	Reason     string `json:"reason,omitempty"`
 }
 
-type voiceInputCommitParams struct {
+type voiceInputCommitParameters struct {
 	Reason string `json:"reason,omitempty"`
 }
 
 type turnEventPayload struct {
-	TurnID      string  `json:"turn_id,omitempty"`
-	Event       string  `json:"event"`
-	VADScore    float64 `json:"vad_score,omitempty"`
-	AudioSeqRef uint64  `json:"audio_seq_ref,omitempty"`
+	TurnID                 string  `json:"turn_id,omitempty"`
+	Event                  string  `json:"event"`
+	VADScore               float64 `json:"vad_score,omitempty"`
+	AudioSequenceReference uint64  `json:"audio_seq_ref,omitempty"`
 }
 
 type transcriptFinalPayload struct {
@@ -118,10 +118,10 @@ type responseCompletedPayload struct {
 }
 
 type voiceErrorPayload struct {
-	Code         string `json:"code"`
-	Message      string `json:"message"`
-	Recoverable  bool   `json:"recoverable"`
-	RetryAfterMS int    `json:"retry_after_ms,omitempty"`
+	Code                   string `json:"code"`
+	Message                string `json:"message"`
+	Recoverable            bool   `json:"recoverable"`
+	RetryAfterMilliseconds int    `json:"retry_after_ms,omitempty"`
 }
 
 type sessionEndedPayload struct {
@@ -130,8 +130,8 @@ type sessionEndedPayload struct {
 }
 
 func validateVoiceAudioFormats(audioIn, audioOut voiceAudioFormat) error {
-	inCodec := strings.ToLower(strings.TrimSpace(audioIn.Codec))
-	outCodec := strings.ToLower(strings.TrimSpace(audioOut.Codec))
+	inCodec := strings.ToLower(audioIn.Codec)
+	outCodec := strings.ToLower(audioOut.Codec)
 
 	if inCodec == "" {
 		inCodec = "pcm_s16le"

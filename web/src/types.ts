@@ -46,7 +46,7 @@ export interface AgentInfo {
 export interface ConnectResult {
   version: string;
   capabilities: string[];
-  defaultModel: string;
+  defaultProviderModelName: string;
   agents: AgentInfo[];
   defaultAgentId: string;
   defaultConversationId?: string;
@@ -67,7 +67,7 @@ export interface ConversationsSetDefaultResult {
 export interface ConversationSendParams {
   conversationId: string;
   message: string;
-  model?: string;
+  providerModelName?: string;
   agentId?: string;
   attachments?: Attachment[];
 }
@@ -84,19 +84,26 @@ export interface ConversationHistoryParams {
   beforeIndex?: number;
 }
 
+export interface ActiveRunState {
+  phase: "thinking" | "tool" | "streaming";
+  toolName?: string;
+}
+
 export interface ConversationHistoryResult {
   conversationId: string;
   messages: Message[];
   activeRunId?: string;
+  activeRunState?: ActiveRunState;
   hasMore?: boolean;
   totalCount?: number;
   oldestLoadedIndex?: number;
-  provider?: string;
-  model?: string;
+  providerName?: string;
+  providerModelName?: string;
 }
 
 export interface ConversationAbortParams {
-  runId: string;
+  runId?: string;
+  conversationId?: string;
 }
 
 export interface ConversationsListResult {
@@ -116,8 +123,8 @@ export interface Conversation {
   summary?: string;
   lastActive?: number;
   agentId?: string;
-  provider?: string;
-  model?: string;
+  providerName?: string;
+  providerModelName?: string;
 }
 
 export interface Usage {
@@ -143,8 +150,8 @@ export interface Message {
   timestamp?: number;
   stopReason?: string;
   usage?: Usage;
-  model?: string;
-  provider?: string;
+  providerModelName?: string;
+  providerName?: string;
   toolCalls?: ToolCall[] | string;
   toolCallId?: string;
   toolName?: string;
@@ -156,6 +163,7 @@ export type ConversationEventState =
   | "user_message"
   | "queued"
   | "delta"
+  | "text_done"
   | "tool_call"
   | "tool_result"
   | "title"
@@ -174,7 +182,7 @@ export interface ConversationEvent {
   title?: string;
   error?: string;
   usage?: Usage;
-  model?: string;
+  providerModelName?: string;
   stopReason?: string;
   originId?: string;
   contextWindow?: number;
@@ -184,14 +192,14 @@ export interface ConversationEvent {
 // Model types
 
 export interface ModelInfo {
-  provider: string;
+  providerName: string;
   id: string;
   context_length?: number;
 }
 
 export interface ModelsListResult {
   models: ModelInfo[];
-  defaultModel: string;
+  defaultProviderModelName: string;
 }
 
 // Job types
@@ -200,8 +208,8 @@ export interface Job {
   id: string;
   name: string;
   schedule: string;
-  message: string;
-  model?: string;
+  prompt: string;
+  providerModelName?: string;
   agentId?: string;
   enabled: boolean;
   conversationId: string;
@@ -216,8 +224,8 @@ export interface Job {
 export interface JobCreateParams {
   name: string;
   schedule: string;
-  message: string;
-  model?: string;
+  prompt: string;
+  providerModelName?: string;
   agentId?: string;
 }
 
@@ -225,8 +233,8 @@ export interface JobUpdateParams {
   id: string;
   name?: string;
   schedule?: string;
-  message?: string;
-  model?: string;
+  prompt?: string;
+  providerModelName?: string;
   agentId?: string;
   enabled?: boolean;
 }
@@ -294,7 +302,7 @@ export interface AgentConfig {
   id: string;
   name?: string;
   avatarMediaId?: string;
-  model?: string;
+  providerModelName?: string;
   skills?: string[];
   tools?: string[];
 }
@@ -331,6 +339,8 @@ export interface AuthTokenInfo {
   token: string;
   createdAt?: string;
   lastUsedAt?: string;
+  remoteAddress?: string;
+  userAgent?: string;
 }
 
 export interface UserInfo {
@@ -348,7 +358,7 @@ export interface SessionInfo {
   createdAt: string;
   expiresAt: string;
   userAgent: string;
-  remoteAddr: string;
+  remoteAddress: string;
   lastSeenAt: string;
 }
 
@@ -365,6 +375,80 @@ export interface Attachment {
   filename: string;
 }
 
+// Todo types
+
+export interface Todo {
+  id: string;
+  projectId?: string;
+  conversationId?: string;
+  title?: string;
+  description?: string;
+  status?: string;
+  priority?: string;
+  tags?: string[];
+  completedAt?: string;
+  createdAt?: string;
+  modifiedAt?: string;
+}
+
+export interface ConversationTodoBatchResult {
+  index: number;
+  op: string;
+  success: boolean;
+  todo?: Todo;
+  todoId?: string;
+  error?: string;
+}
+
+export interface ConversationTodosEvent {
+  conversationId: string;
+  userId: string;
+  action: string;
+  results?: ConversationTodoBatchResult[];
+}
+
+export interface ConversationTodosListResult {
+  action: string;
+  todos: Todo[];
+  totalCount: number;
+  openCount: number;
+  doneCount: number;
+}
+
+// Pending question types (ask_user_question tool)
+
+export interface PendingQuestion {
+  id: string;
+  conversationId: string;
+  agentId: string;
+  runId: string;
+  question: string;
+  choices: string[];
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPlaceholder?: string;
+}
+
+export interface PendingQuestionsListResult {
+  questions: PendingQuestion[];
+}
+
+export interface ConversationQuestionsEvent {
+  action: string;
+  conversationId?: string;
+  agentId?: string;
+  userId?: string;
+  runId?: string;
+  questionId: string;
+  question?: string;
+  choices?: string[];
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherPlaceholder?: string;
+  answer?: string;
+  other?: string;
+}
+
 // Display message types for the UI
 
 export type DisplayMessageType =
@@ -379,8 +463,9 @@ export interface DisplayMessage {
   type: DisplayMessageType;
   content: string;
   toolName?: string;
+  toolCallId?: string; // links tool-invoke ↔ tool-result for stable ordering
   usage?: Usage;
   timestamp?: number; // ms since epoch
-  runId?: string; // associates message with a run for queuing
+  runId?: string; // associates message with a runner for queuing
   attachments?: Attachment[];
 }

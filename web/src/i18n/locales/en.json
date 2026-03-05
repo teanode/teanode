@@ -109,6 +109,12 @@
     "jobs": "Jobs",
     "projects": "Projects",
     "skills": "Skills",
+    "secrets": "Secrets",
+    "secretsDescription": "Configure secret values required by installed skills.",
+    "noSecretsRequired": "No secrets required. Install skills that need authentication.",
+    "secretConfigured": "Configured",
+    "secretMissing": "Not configured",
+    "secretUsedBy": "Used by {{skills}}",
     "agentsDescription": "Manage your agents, defaults, and behavior settings.",
     "usersDescription": "Manage local users and reset passwords.",
     "userDescription": "Description",
@@ -123,7 +129,7 @@
     "cannotDeleteCurrentUser": "Cannot delete the current user",
     "jobsDescription": "Schedule, edit, and monitor recurring jobs.",
     "projectsDescription": "Browse shared projects, rename them, or delete ones you no longer need.",
-    "skillsDescription": "Browse local and installed skills, uninstall them, and check for updates.",
+    "skillsDescription": "Manage installed skills, uninstall them, and check for updates.",
     "noProjects": "No projects found",
     "projectUpdated": "Updated: {{updated}}",
     "projectRenamed": "{{name}} renamed",
@@ -167,7 +173,8 @@
     "loadingSettings": "Loading settings...",
     "sectionNotFound": "Section not found",
     "theme": "Theme",
-    "themeDescription": "Choose between dark and light mode",
+    "themeDescription": "Choose between dark, light, or system mode",
+    "systemMode": "System theme",
     "language": "Language",
     "languageDescription": "Override the browser-detected locale used for the interface.",
     "languageAuto": "Use browser language (detected: {{locale}})",
@@ -189,10 +196,8 @@
     "voiceChimes": "Indicator chimes",
     "voiceChimesDescription": "Play short audio cues when speech is captured, while the agent is busy, and when speaking is complete",
     "voiceChimesVolume": "Chime volume",
-    "voiceCallSttMode": "Voice call STT mode",
-    "voiceCallSttModeDescription": "Choose whether in-call speech-to-text runs on the server or in your browser. Call TTS remains server-side.",
-    "voiceCallSttModeServer": "Server-side STT",
-    "voiceCallSttModeClient": "Client-side STT"
+    "voiceCallSttMode": "Client-side speech recognition",
+    "voiceCallSttModeDescription": "Run in-call speech-to-text in your browser instead of on the server. Call TTS remains server-side."
   },
   "agent": {
     "selectToEdit": "Select an agent to edit",
@@ -217,7 +222,17 @@
   "tool": {
     "called": "called",
     "result": "result",
-    "outputAlt": "{{toolName}} output"
+    "outputAlt": "{{toolName}} output",
+    "askUserQuestion": "Agent is asking:",
+    "askUserAnswered": "Answered: {{answer}}",
+    "askUserChoices": "Choices",
+    "askUserOther": "Other",
+    "askUserOtherPlaceholder": "Type your answer...",
+    "questionCount": "{{current}} of {{total}}",
+    "questionPrev": "Previous question",
+    "questionNext": "Next question",
+    "askUserSubmit": "Submit answer",
+    "askUserBack": "Back"
   },
   "auth": {
     "loginTitle": "Welcome back",
@@ -262,6 +277,15 @@
     "noPasswordSet": "No password set",
     "currentPasswordRequired": "Current password is required",
     "currentPasswordIncorrect": "Current password is incorrect"
+  },
+  "todos": {
+    "title": "TODOs",
+    "noTodos": "No todos yet",
+    "open": "Open",
+    "done": "Done",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
   },
   "schema": {
     "addItemPlaceholder": "Add item...",

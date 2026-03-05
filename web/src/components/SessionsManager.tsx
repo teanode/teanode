@@ -40,12 +40,7 @@ function SessionItem({
       disableGutters
       secondaryAction={
         onRevoke ? (
-          <IconButton
-            size="small"
-            edge="end"
-            sx={{ opacity: 0.4 }}
-            onClick={onRevoke}
-          >
+          <IconButton size="small" edge="end" color="error" onClick={onRevoke}>
             <DeleteOutlineIcon fontSize="small" />
           </IconButton>
         ) : undefined
@@ -59,7 +54,7 @@ function SessionItem({
         }
         secondary={
           <>
-            {session.remoteAddr}
+            {session.remoteAddress || "-"}
             {" · "}
             <Tooltip title={lastSeen.format("YYYY-MM-DD HH:mm:ss")} arrow>
               <span>{lastSeen.fromNow()}</span>

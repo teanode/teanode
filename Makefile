@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := all
 
-.PHONY: all help teanode web web-deps test coverage coverage-html format lint clean \
+.PHONY: all help generate teanode web web-deps test coverage coverage-html format lint clean \
 	test-voice-e2e test-voice-e2e-smoke test-voice-e2e-compare test-voice-e2e-scenario
 
 GO ?= go
@@ -26,7 +26,10 @@ LDFLAGS := -s -w -extldflags "-static" \
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; print "Targets:"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-all: teanode ## Build backend binary and frontend bundle
+all: web teanode ## Build backend binary and frontend bundle
+
+generate: ## Run code generators
+	$(GO) generate ./...
 
 web: web-deps ## Build frontend bundle
 	cd $(WEB_DIR) && $(NPM) run build
@@ -37,7 +40,7 @@ $(WEB_DIR)/node_modules: $(WEB_DIR)/package.json $(WEB_DIR)/package-lock.json
 	cd $(WEB_DIR) && $(NPM) install
 	@touch $@
 
-teanode: web ## Build teanode binary
+teanode: generate ## Build teanode binary
 	CGO_ENABLED=0 $(GO) build -ldflags '$(LDFLAGS)' -o $(BINARY) .
 
 test: ## Run backend tests

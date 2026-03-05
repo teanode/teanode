@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/schemas"
 )
 
 type schemaMockProvider struct{}
@@ -21,7 +21,7 @@ func (self *schemaMockProvider) ChatCompletionStream(ctx context.Context, reques
 	return make(chan providers.StreamEvent), nil
 }
 
-func (self *schemaMockProvider) ListModels(ctx context.Context) ([]providers.ModelInfo, error) {
+func (self *schemaMockProvider) ListModels(ctx context.Context) ([]providers.ModelInformation, error) {
 	return nil, nil
 }
 
@@ -73,7 +73,7 @@ func TestWithVoiceProviderEnums_AddsVoiceProviderEnums(t *testing.T) {
 	registry.Register("elevenlabs", &schemaMockSynth{})
 	registry.Register("openai_tts", &schemaMockSynth{})
 
-	schema := withVoiceProviderEnums(configs.ConfigSchema(), registry)
+	schema := withVoiceProviderEnums(schemas.ConfigSchema(), registry)
 
 	var parsed map[string]interface{}
 	if err := json.Unmarshal(schema, &parsed); err != nil {

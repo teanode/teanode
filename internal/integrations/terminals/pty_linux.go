@@ -47,14 +47,14 @@ func OpenPTY() (master, slave *os.File, err error) {
 }
 
 // SetWinSize sets the terminal window size on a file descriptor.
-func SetWinSize(fd int, rows, cols uint16) error {
+func SetWinSize(fileDescriptor int, rows, cols uint16) error {
 	windowSize := unix.Winsize{Row: rows, Col: cols}
-	return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &windowSize)
+	return unix.IoctlSetWinsize(fileDescriptor, unix.TIOCSWINSZ, &windowSize)
 }
 
 // GetWinSize returns the terminal window size for a file descriptor.
-func GetWinSize(fd int) (rows, cols uint16, err error) {
-	windowSize, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ)
+func GetWinSize(fileDescriptor int) (rows, cols uint16, err error) {
+	windowSize, err := unix.IoctlGetWinsize(fileDescriptor, unix.TIOCGWINSZ)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -62,27 +62,27 @@ func GetWinSize(fd int) (rows, cols uint16, err error) {
 }
 
 // MakeRaw puts the terminal into raw mode and returns the original state for later restore.
-func MakeRaw(fd int) (*TermState, error) {
-	orig, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+func MakeRaw(fileDescriptor int) (*TermState, error) {
+	original, err := unix.IoctlGetTermios(fileDescriptor, unix.TCGETS)
 	if err != nil {
 		return nil, err
 	}
-	raw := *orig
+	raw := *original
 	raw.Iflag &^= unix.BRKINT | unix.ICRNL | unix.INPCK | unix.ISTRIP | unix.IXON
 	raw.Oflag &^= unix.OPOST
 	raw.Cflag |= unix.CS8
 	raw.Lflag &^= unix.ECHO | unix.ICANON | unix.IEXTEN | unix.ISIG
 	raw.Cc[unix.VMIN] = 1
 	raw.Cc[unix.VTIME] = 0
-	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &raw); err != nil {
+	if err := unix.IoctlSetTermios(fileDescriptor, unix.TCSETS, &raw); err != nil {
 		return nil, err
 	}
-	return &TermState{termios: orig}, nil
+	return &TermState{termios: original}, nil
 }
 
 // RestoreTermios restores the terminal to its original mode.
-func RestoreTermios(fd int, state *TermState) {
+func RestoreTermios(fileDescriptor int, state *TermState) {
 	if state != nil && state.termios != nil {
-		unix.IoctlSetTermios(fd, unix.TCSETS, state.termios)
+		unix.IoctlSetTermios(fileDescriptor, unix.TCSETS, state.termios)
 	}
 }

@@ -6,20 +6,20 @@ import (
 )
 
 func makeFrame(sample int16, samples int) []byte {
-	buf := make([]byte, samples*2)
-	for i := 0; i < samples; i++ {
-		binary.LittleEndian.PutUint16(buf[i*2:i*2+2], uint16(sample))
+	buffer := make([]byte, samples*2)
+	for index := 0; index < samples; index++ {
+		binary.LittleEndian.PutUint16(buffer[index*2:index*2+2], uint16(sample))
 	}
-	return buf
+	return buffer
 }
 
 func TestVADSilenceNoEvents(t *testing.T) {
 	v := &EnergyVAD{}
 	silence := makeFrame(0, 320)
-	for i := 0; i < 20; i++ {
+	for index := 0; index < 20; index++ {
 		started, ended, _ := v.ProcessFrame(silence)
 		if started || ended {
-			t.Fatalf("unexpected event at frame %d", i)
+			t.Fatalf("unexpected event at frame %d", index)
 		}
 	}
 }
@@ -27,12 +27,12 @@ func TestVADSilenceNoEvents(t *testing.T) {
 func TestVADStartsAtFrameTen(t *testing.T) {
 	v := &EnergyVAD{}
 	loud := makeFrame(12000, 320)
-	for i := 1; i <= 10; i++ {
+	for index := 1; index <= 10; index++ {
 		started, _, _ := v.ProcessFrame(loud)
-		if i < 10 && started {
-			t.Fatalf("started too early at frame %d", i)
+		if index < 10 && started {
+			t.Fatalf("started too early at frame %d", index)
 		}
-		if i == 10 && !started {
+		if index == 10 && !started {
 			t.Fatalf("expected start at frame 10")
 		}
 	}
@@ -42,15 +42,15 @@ func TestVADEndsAfterSixteenRedemptionFrames(t *testing.T) {
 	v := &EnergyVAD{}
 	loud := makeFrame(12000, 320)
 	silence := makeFrame(0, 320)
-	for i := 0; i < 10; i++ {
+	for index := 0; index < 10; index++ {
 		v.ProcessFrame(loud)
 	}
-	for i := 1; i <= 16; i++ {
+	for index := 1; index <= 16; index++ {
 		_, ended, _ := v.ProcessFrame(silence)
-		if i < 16 && ended {
-			t.Fatalf("ended too early at frame %d", i)
+		if index < 16 && ended {
+			t.Fatalf("ended too early at frame %d", index)
 		}
-		if i == 16 && !ended {
+		if index == 16 && !ended {
 			t.Fatalf("expected ended at frame 16")
 		}
 	}

@@ -13,11 +13,8 @@ import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import LightModeIcon from "@mui/icons-material/LightMode";
-import {
-  useAppContext,
-  type ThemeMode,
-  type VoiceCallSTTMode,
-} from "../context";
+import SettingsBrightnessIcon from "@mui/icons-material/SettingsBrightness";
+import { useAppContext, type ThemeMode } from "../context";
 import type { LanguagePreference } from "../i18n/config";
 
 export default function PreferencesArea() {
@@ -107,6 +104,9 @@ export default function PreferencesArea() {
             </ToggleButton>
             <ToggleButton value="light" aria-label={t("settings.lightMode")}>
               <LightModeIcon sx={{ fontSize: 18 }} />
+            </ToggleButton>
+            <ToggleButton value="system" aria-label={t("settings.systemMode")}>
+              <SettingsBrightnessIcon sx={{ fontSize: 18 }} />
             </ToggleButton>
           </ToggleButtonGroup>
         </Paper>
@@ -212,29 +212,30 @@ export default function PreferencesArea() {
                   )}
                 </Select>
               </Box>
-              <Box sx={{ mt: 1 }}>
-                <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
-                  {t("settings.voiceCallSttMode")}
-                </Typography>
-                <Select
-                  value={voiceCallSttMode}
-                  onChange={(event) =>
-                    setVoiceCallSttMode(event.target.value as VoiceCallSTTMode)
-                  }
-                  size="small"
-                  sx={{ minWidth: 220 }}
-                >
-                  <MenuItem value="server">
-                    {t("settings.voiceCallSttModeServer")}
-                  </MenuItem>
-                  <MenuItem value="client">
-                    {t("settings.voiceCallSttModeClient")}
-                  </MenuItem>
-                </Select>
-                <Typography variant="caption" color="text.secondary">
-                  {t("settings.voiceCallSttModeDescription")}
-                </Typography>
-              </Box>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={voiceCallSttMode === "client"}
+                    onChange={(event) =>
+                      setVoiceCallSttMode(
+                        event.target.checked ? "client" : "server",
+                      )
+                    }
+                    color="primary"
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {t("settings.voiceCallSttMode")}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {t("settings.voiceCallSttModeDescription")}
+                    </Typography>
+                  </Box>
+                }
+                sx={{ alignItems: "flex-start", ml: 0, mt: 1 }}
+              />
 
               {/* Voice call indicator chimes */}
               <FormControlLabel

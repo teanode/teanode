@@ -1,17 +1,21 @@
 package voice
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/teanode/teanode/internal/pubsub"
+)
 
 func (self *Session) llmEventForwarder() {
-	if self.deps == nil {
+	if self.events == nil {
 		return
 	}
 	sub := &conversationEventSubscriber{
 		conversationId: self.ConversationID,
 		eventCh:        make(chan map[string]interface{}, 128),
 	}
-	self.deps.Subscribe(sub)
-	defer self.deps.Unsubscribe(sub)
+	self.events.Subscribe(sub)
+	defer self.events.Unsubscribe(sub)
 
 	streamText := ""
 	sentencesEnqueued := 0
@@ -93,8 +97,8 @@ type conversationEventSubscriber struct {
 	eventCh        chan map[string]interface{}
 }
 
-func (self *conversationEventSubscriber) OnVoiceEvent(eventType string, payload interface{}) {
-	if eventType != "conversation" {
+func (self *conversationEventSubscriber) OnEvent(eventType pubsub.EventType, payload interface{}) {
+	if eventType != pubsub.EventTypeConversation {
 		return
 	}
 	eventMap, ok := payload.(map[string]interface{})

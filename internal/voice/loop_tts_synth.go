@@ -2,7 +2,10 @@ package voice
 
 import (
 	"context"
+	"io"
 	"time"
+
+	"github.com/teanode/teanode/internal/providers"
 )
 
 func (self *Session) ttsSynthLoop() {
@@ -30,11 +33,11 @@ func (self *Session) ttsSynthLoop() {
 				self.ClearCurrentResponse()
 				continue
 			}
-			if self.deps == nil {
-				pipelineLog.Warningf("voice synthesis skipped: missing gateway deps")
+			if self.dispatcher == nil {
+				pipelineLog.Warningf("voice synthesis skipped: missing dispatcher")
 				continue
 			}
-			if self.deps.ProviderRegistry() == nil {
+			if self.dispatcher.ProviderRegistry() == nil {
 				pipelineLog.Warningf("voice synthesis skipped: provider registry unavailable")
 				continue
 			}
@@ -50,7 +53,7 @@ func (self *Session) ttsSynthLoop() {
 					// channel closed by setUserSpeaking(false) - user stopped speaking
 				}
 			}
-			synth, synthProvider, ok := self.deps.ProviderRegistry().FindSynthesizer()
+			synth, synthProvider, ok := self.dispatcher.ProviderRegistry().FindSynthesizer()
 			if !ok || synth == nil {
 				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
@@ -65,7 +68,7 @@ func (self *Session) ttsSynthLoop() {
 			}
 			voiceName := "alloy"
 			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s provider=%s model=%s voice=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseId(), self.GetCurrentTurnId(), synthProvider, voiceProviderModelHint("synthesizer", synthProvider), voiceName, len(sentence), sentence)
-			chunks, err := synth.SynthesizePCMStream(ttsCtx, sentence, voiceName, self.AudioOut.SampleRateHz)
+			chunks, err := synthesizeToChunks(ttsCtx, synth, sentence, voiceName, self.AudioOut.SampleRateHz)
 			if err != nil {
 				cancel()
 				self.SwapTTSCancel(nil)
@@ -138,4 +141,54 @@ func (self *Session) ttsSynthLoop() {
 			self.SwapTTSCancel(nil)
 		}
 	}
+}
+
+// synthesizeToChunks converts an AudioSynthesizer call into a channel of PCM chunks.
+// It tries StreamingAudioSynthesizer first, falling back to batch Synthesize.
+func synthesizeToChunks(ctx context.Context, synth providers.AudioSynthesizer, text, voice string, sampleRateHz int) (<-chan []byte, error) {
+	// Try streaming synthesis first.
+	if streamer, ok := synth.(providers.StreamingAudioSynthesizer); ok {
+		chunks, err := streamer.SynthesizeStream(ctx, providers.SynthesizeStreamRequest{
+			Text:         text,
+			Voice:        voice,
+			SampleRateHz: sampleRateHz,
+		})
+		if err == nil {
+			out := make(chan []byte, 32)
+			go func() {
+				defer close(out)
+				for chunk := range chunks {
+					if chunk.Err != nil {
+						return
+					}
+					if len(chunk.Audio) > 0 {
+						select {
+						case out <- chunk.Audio:
+						case <-ctx.Done():
+							return
+						}
+					}
+				}
+			}()
+			return out, nil
+		}
+	}
+	// Fall back to batch synthesis.
+	resp, err := synth.Synthesize(ctx, providers.SynthesizeRequest{
+		Text:   text,
+		Voice:  voice,
+		Format: "wav",
+		Speed:  1.0,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Audio.Close()
+	buf, _ := io.ReadAll(resp.Audio)
+	out := make(chan []byte, 1)
+	if len(buf) > 0 {
+		out <- buf
+	}
+	close(out)
+	return out, nil
 }

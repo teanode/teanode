@@ -1,9 +1,14 @@
 import React, { useEffect, useCallback, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
-import { useAppContext } from "../../../context";
+import { useAppContext, useStreamingContext } from "../../../context";
 import MessageList from "../../../components/MessageList";
+import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
+import QuestionPanel from "../../../components/QuestionPanel";
 import VoiceCallBar from "../../../components/VoiceCallBar";
+import DebugReadout, {
+  useDebugEnabled,
+} from "../../../components/DebugReadout";
 import { useTts } from "../../../hooks/useTts";
 import { useAgentVoiceCall } from "./route";
 import { profileGetRpc } from "../../../rpc";
@@ -15,7 +20,16 @@ export default function ConversationsConversationPage() {
     agentId: string;
     conversationId: string;
   };
-  const { backend, voiceAutoSend, ttsVoice } = useAppContext();
+  useStreamingContext();
+  const {
+    backend,
+    voiceAutoSend,
+    ttsVoice,
+    todosPanelCollapsed,
+    setTodosPanelCollapsed,
+    showToolCalls,
+    showTokenUsage,
+  } = useAppContext();
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;
   const [profile, setProfile] = useState<Profile>({
@@ -30,6 +44,7 @@ export default function ConversationsConversationPage() {
   const [inputFocused, setInputFocused] = useState(false);
 
   const voiceCall = useAgentVoiceCall();
+  const debugEnabled = useDebugEnabled();
 
   // Load current user profile for message avatar display.
   useEffect(() => {
@@ -142,6 +157,8 @@ export default function ConversationsConversationPage() {
         toolActivity={backend.toolActivity}
         status={backend.status}
         activeRunId={backend.currentRunId}
+        showToolCalls={showToolCalls}
+        showTokenUsage={showTokenUsage}
         hasMoreHistory={backend.hasMoreHistory}
         loadingOlderMessages={backend.loadingOlderMessages}
         onLoadOlderMessages={backend.loadOlderMessages}
@@ -156,6 +173,11 @@ export default function ConversationsConversationPage() {
         showAbortOnStatusLine={backend.isRunning && !inputFocused}
         onAbort={backend.abortRun}
       />
+      <TodoPanel
+        todos={backend.todos}
+        collapsed={todosPanelCollapsed}
+        onToggleCollapsed={setTodosPanelCollapsed}
+      />
       {voiceCall.isCallActive ? (
         <VoiceCallBar
           callDuration={voiceCall.callDuration}
@@ -165,6 +187,12 @@ export default function ConversationsConversationPage() {
           isSynthesizing={voiceCall.isSynthesizing}
           onToggleMute={voiceCall.toggleMute}
           onEndCall={voiceCall.endCall}
+          onInterrupt={voiceCall.interruptAgent}
+        />
+      ) : backend.pendingQuestions.length > 0 ? (
+        <QuestionPanel
+          questions={backend.pendingQuestions}
+          onSubmitAll={backend.answerQuestion}
         />
       ) : (
         <InputArea
@@ -183,6 +211,19 @@ export default function ConversationsConversationPage() {
           onFocusChange={setInputFocused}
           showAbortInCollapsedInput={false}
           onVoiceMessage={handleVoiceMessage}
+        />
+      )}
+      {debugEnabled && (
+        <DebugReadout
+          conversationId={conversationId}
+          connected={backend.connected}
+          activeRunId={backend.currentRunId}
+          lastActiveRunState={backend.lastActiveRunState}
+          isRunning={backend.isRunning}
+          status={backend.status}
+          isStreaming={backend.isStreaming}
+          toolActivity={backend.toolActivity}
+          currentRunId={backend.currentRunId}
         />
       )}
     </>

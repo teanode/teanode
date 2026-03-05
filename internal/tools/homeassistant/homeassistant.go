@@ -1,35 +1,56 @@
 package homeassistant
 
 import (
+	"context"
+
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("homeassistant")
 
-// RegisterTools adds the Home Assistant tool to the registry.
-// If config is nil or missing BaseURL/Token, no tools are registered.
-func RegisterTools(registry *agents.ToolRegistry, config *configs.HomeAssistantConfig) {
-	if config == nil {
-		return
-	}
-	if config.BaseURL == "" {
-		log.Infof("Home Assistant tool skipped: baseUrl not configured")
-		return
-	}
-	if config.Token == "" {
-		log.Infof("Home Assistant tool skipped: token not configured")
-		return
-	}
+// resolvedConfiguration holds the resolved Home Assistant configuration
+// read from the store at execution time.
+type resolvedConfiguration struct {
+	baseUrl         string
+	token           string
+	readOnly        bool
+	allowedDomains  []string
+	blockedDomains  []string
+	allowedEntities []string
+	timeoutSeconds  int
+}
 
-	client := NewHTTPClient(config.BaseURL, config.Token, config.TimeoutSeconds)
-	checker := NewAccessChecker(config)
+// configurationFromContext reads the Home Assistant tool configuration from the store.
+func configurationFromContext(ctx context.Context) *resolvedConfiguration {
+	configuration := &resolvedConfiguration{}
+	dataStore := store.StoreFromContextSafe(ctx)
+	if dataStore == nil {
+		return configuration
+	}
+	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		storedConfiguration, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if storedConfiguration.Tools != nil && storedConfiguration.Tools.HomeAssistant != nil {
+			homeAssistantConfiguration := storedConfiguration.Tools.HomeAssistant
+			configuration.baseUrl = homeAssistantConfiguration.GetBaseURL()
+			configuration.token = homeAssistantConfiguration.GetToken()
+			configuration.readOnly = homeAssistantConfiguration.GetReadOnly()
+			configuration.allowedDomains = homeAssistantConfiguration.GetAllowedDomains()
+			configuration.blockedDomains = homeAssistantConfiguration.GetBlockedDomains()
+			configuration.allowedEntities = homeAssistantConfiguration.GetAllowedEntities()
+			configuration.timeoutSeconds = homeAssistantConfiguration.GetTimeoutSeconds()
+		}
+		return nil
+	})
+	return configuration
+}
 
-	log.Infof("Home Assistant tool enabled (url: %s, readOnly: %v)", config.BaseURL, config.ReadOnly)
-
-	registry.Register(&homeAssistantTool{
-		client:  client,
-		checker: checker,
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&homeAssistantTool{}}
 	})
 }

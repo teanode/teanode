@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
@@ -52,7 +54,8 @@ type Session struct {
 	AudioOut       AudioFormat
 	Features       Features
 
-	deps         GatewayDeps
+	dispatcher   Dispatcher
+	events       *pubsub.PubSub
 	sendJsonFn   func(any)
 	sendBinaryFn func([]byte)
 
@@ -101,7 +104,7 @@ type Session struct {
 
 	// Streaming STT: live transcription stream and interim results.
 	explicitAudioBuf     []byte
-	streamingSTTStream   VoiceTranscribeStream
+	streamingSTTStream   providers.TranscribeStream
 	interimText          string
 	interimBestText      string
 	streamingFinalTurnID string
@@ -127,7 +130,7 @@ const (
 )
 
 // NewSession creates a session with default channel capacities.
-func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioFormat, features Features, deps GatewayDeps, sendJson func(any), sendBinary func([]byte)) *Session {
+func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioFormat, features Features, dispatcher Dispatcher, events *pubsub.PubSub, sendJson func(any), sendBinary func([]byte)) *Session {
 	session := &Session{
 		ID:                 id,
 		ConversationID:     conversationId,
@@ -136,7 +139,8 @@ func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioF
 		AudioIn:            in,
 		AudioOut:           out,
 		Features:           features,
-		deps:               deps,
+		dispatcher:         dispatcher,
+		events:             events,
 		sendJsonFn:         sendJson,
 		sendBinaryFn:       sendBinary,
 		transcribeInFlight: make(map[string]struct{}),
@@ -582,14 +586,14 @@ func (self *Session) takeExplicitAudio() []byte {
 }
 
 func (self *Session) startStreamingTranscriber() bool {
-	if self.deps == nil || self.deps.ProviderRegistry() == nil {
+	if self.dispatcher == nil || self.dispatcher.ProviderRegistry() == nil {
 		return false
 	}
-	streaming, provider, ok := self.deps.ProviderRegistry().FindStreamingTranscriber()
+	streaming, provider, ok := self.dispatcher.ProviderRegistry().FindStreamingTranscriber()
 	if !ok || streaming == nil {
 		return false
 	}
-	stream, err := streaming.OpenTranscribeStream(context.Background(), VoiceStreamTranscribeRequest{
+	stream, err := streaming.OpenTranscribeStream(context.Background(), providers.StreamTranscribeRequest{
 		SampleRate: self.AudioIn.SampleRateHz,
 		Channels:   self.AudioIn.Channels,
 		Prompt:     self.transcriptionPrompt(),
@@ -605,13 +609,13 @@ func (self *Session) startStreamingTranscriber() bool {
 	return true
 }
 
-func (self *Session) getStreamingTranscribeStream() VoiceTranscribeStream {
+func (self *Session) getStreamingTranscribeStream() providers.TranscribeStream {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.streamingSTTStream
 }
 
-func (self *Session) setStreamingTranscribeStream(stream VoiceTranscribeStream) {
+func (self *Session) setStreamingTranscribeStream(stream providers.TranscribeStream) {
 	self.stateMu.Lock()
 	self.streamingSTTStream = stream
 	self.stateMu.Unlock()

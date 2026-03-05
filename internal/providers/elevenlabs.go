@@ -42,8 +42,8 @@ func (self *ElevenLabsClient) ChatCompletionStream(_ context.Context, _ ChatRequ
 }
 
 // ListModels returns an empty list for ElevenLabs in this integration.
-func (self *ElevenLabsClient) ListModels(_ context.Context) ([]ModelInfo, error) {
-	return []ModelInfo{}, nil
+func (self *ElevenLabsClient) ListModels(_ context.Context) ([]ModelInformation, error) {
+	return []ModelInformation{}, nil
 }
 
 // Synthesize is intentionally unsupported; voice path uses streaming synthesis.

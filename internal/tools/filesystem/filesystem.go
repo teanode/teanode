@@ -7,15 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/atomicfile"
-	"github.com/teanode/teanode/internal/util/trash"
 )
 
 var log = logging.MustGetLogger("filesystem")
@@ -25,9 +22,10 @@ const (
 	maxDirectoryEntries = 1000
 )
 
-// RegisterTools adds the filesystem tool to the registry.
-func RegisterTools(registry *agents.ToolRegistry) {
-	registry.Register(&filesystemTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&filesystemTool{}}
+	})
 }
 
 type filesystemTool struct{}
@@ -149,7 +147,7 @@ func (self *filesystemTool) Execute(ctx context.Context, rawArguments string) (s
 	case "mkdir":
 		return executeMkdir(arguments.Path, arguments.Recursive)
 	case "delete":
-		return executeDelete(arguments.Path, arguments.Recursive)
+		return self.executeDelete(arguments.Path, arguments.Recursive)
 	case "move":
 		return executeMove(arguments.Path, arguments.Destination)
 	default:
@@ -171,7 +169,7 @@ func executeRead(path string, offset, limit int64) (string, error) {
 	}
 	defer file.Close()
 
-	fileInfo, err := file.Stat()
+	fileInformation, err := file.Stat()
 	if err != nil {
 		return "", fmt.Errorf("getting file info: %w", err)
 	}
@@ -196,7 +194,7 @@ func executeRead(path string, offset, limit int64) (string, error) {
 	result, err := json.Marshal(map[string]interface{}{
 		"action":    "read",
 		"content":   string(data),
-		"size":      fileInfo.Size(),
+		"size":      fileInformation.Size(),
 		"truncated": truncated,
 	})
 	if err != nil {
@@ -256,9 +254,9 @@ func executeList(path string) (string, error) {
 
 		var size int64
 		var modifiedAt string
-		if info, err := entry.Info(); err == nil {
-			size = info.Size()
-			modifiedAt = info.ModTime().Format(time.RFC3339)
+		if information, err := entry.Info(); err == nil {
+			size = information.Size()
+			modifiedAt = information.ModTime().Format(time.RFC3339)
 		}
 
 		outputEntries = append(outputEntries, directoryEntry{
@@ -281,17 +279,17 @@ func executeList(path string) (string, error) {
 }
 
 func executeInfo(path string) (string, error) {
-	info, err := os.Stat(path)
+	information, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("getting file info: %w", err)
 	}
 
 	result, err := json.Marshal(map[string]interface{}{
 		"action":      "info",
-		"size":        info.Size(),
-		"isDirectory": info.IsDir(),
-		"permissions": info.Mode().String(),
-		"modifiedAt":  info.ModTime().Format(time.RFC3339),
+		"size":        information.Size(),
+		"isDirectory": information.IsDir(),
+		"permissions": information.Mode().String(),
+		"modifiedAt":  information.ModTime().Format(time.RFC3339),
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshaling result: %w", err)
@@ -320,12 +318,12 @@ func executeMkdir(path string, recursive bool) (string, error) {
 	return string(result), nil
 }
 
-func executeDelete(path string, recursive bool) (string, error) {
-	info, err := os.Stat(path)
+func (self *filesystemTool) executeDelete(path string, recursive bool) (string, error) {
+	information, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("deleting path: %w", err)
 	}
-	if info.IsDir() && !recursive {
+	if information.IsDir() && !recursive {
 		entries, readError := os.ReadDir(path)
 		if readError != nil {
 			return "", fmt.Errorf("deleting path: %w", readError)
@@ -335,21 +333,13 @@ func executeDelete(path string, recursive bool) (string, error) {
 		}
 	}
 
-	dataDirectory := configs.Directory()
-	if isPathInsideDirectory(path, dataDirectory) {
-		trashDirectory := configs.TrashDirectory()
-		if err := trash.Move(path, trashDirectory); err != nil {
-			return "", fmt.Errorf("deleting path: %w", err)
-		}
+	if recursive {
+		err = os.RemoveAll(path)
 	} else {
-		if recursive {
-			err = os.RemoveAll(path)
-		} else {
-			err = os.Remove(path)
-		}
-		if err != nil {
-			return "", fmt.Errorf("deleting path: %w", err)
-		}
+		err = os.Remove(path)
+	}
+	if err != nil {
+		return "", fmt.Errorf("deleting path: %w", err)
 	}
 
 	result, err := json.Marshal(map[string]interface{}{
@@ -360,22 +350,6 @@ func executeDelete(path string, recursive bool) (string, error) {
 		return "", fmt.Errorf("marshaling result: %w", err)
 	}
 	return string(result), nil
-}
-
-func isPathInsideDirectory(path, directory string) bool {
-	absolutePath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-	absoluteDirectory, err := filepath.Abs(directory)
-	if err != nil {
-		return false
-	}
-	relativePath, err := filepath.Rel(absoluteDirectory, absolutePath)
-	if err != nil {
-		return false
-	}
-	return relativePath == "." || (!strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) && relativePath != "..")
 }
 
 func executeMove(path, destination string) (string, error) {

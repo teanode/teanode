@@ -17,20 +17,11 @@ import CheckIcon from "@mui/icons-material/Check";
 import { useAppContext } from "../../context";
 import { setInstalledSkillEnabled } from "./skills.helpers";
 
-interface LocalSkill {
-  name: string;
-  description?: string;
-  toolCount: number;
-}
-
 interface InstalledSkill {
   name: string;
   description?: string;
   version: string;
   enabled?: boolean;
-  sourceId?: string;
-  publisher?: string;
-  installedAt?: string;
 }
 
 type UpdateIndicatorState = "idle" | "loading" | "success";
@@ -38,7 +29,6 @@ type UpdateIndicatorState = "idle" | "loading" | "success";
 export default function SettingsSkillsPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
-  const [localSkills, setLocalSkills] = useState<LocalSkill[]>([]);
   const [installedSkills, setInstalledSkills] = useState<InstalledSkill[]>([]);
   const [loading, setLoading] = useState(false);
   const [busySkillName, setBusySkillName] = useState<string | null>(null);
@@ -51,14 +41,9 @@ export default function SettingsSkillsPage() {
     if (!backend.connected) return;
     setLoading(true);
     try {
-      const [localResult, installedResult] = await Promise.all([
-        backend.sendRpc<{ skills: LocalSkill[] }>("skills.local.list", {}),
-        backend.sendRpc<{ skills: InstalledSkill[] }>(
-          "skills.installed.list",
-          {},
-        ),
-      ]);
-      setLocalSkills(localResult.skills || []);
+      const installedResult = await backend.sendRpc<{
+        skills: InstalledSkill[];
+      }>("skills.installed.list", {});
       setInstalledSkills(installedResult.skills || []);
     } catch (error) {
       console.error("skills load failed:", error);
@@ -216,40 +201,6 @@ export default function SettingsSkillsPage() {
           )}
 
           <Box sx={{ mt: 3 }}>
-            {localSkills.length > 0 && (
-              <List
-                disablePadding
-                subheader={
-                  <ListSubheader disableGutters disableSticky>
-                    {t("settings.localSkills")}
-                  </ListSubheader>
-                }
-              >
-                {localSkills.map((skill) => (
-                  <ListItem key={skill.name} disableGutters>
-                    <ListItemText
-                      primary={
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          {skill.name}
-                        </Typography>
-                      }
-                      secondary={
-                        skill.description ? (
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{ display: "block" }}
-                          >
-                            {skill.description}
-                          </Typography>
-                        ) : undefined
-                      }
-                    />
-                  </ListItem>
-                ))}
-              </List>
-            )}
-
             <List
               disablePadding
               subheader={
@@ -336,25 +287,15 @@ export default function SettingsSkillsPage() {
                         </Typography>
                       }
                       secondary={
-                        <>
-                          {skill.description && (
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{ display: "block" }}
-                            >
-                              {skill.description}
-                            </Typography>
-                          )}
-                          {(skill.publisher || skill.sourceId) && (
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              {skill.publisher || skill.sourceId}
-                            </Typography>
-                          )}
-                        </>
+                        skill.description ? (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ display: "block" }}
+                          >
+                            {skill.description}
+                          </Typography>
+                        ) : undefined
                       }
                     />
                   </ListItem>

@@ -10,13 +10,13 @@ The `internal/jobs` package provides a cron-like scheduler used by TeaNode for b
     - A one-shot delay for reminder-style jobs.
   - A payload describing what should happen when the job fires (typically an agent message or RPC call).
 - The scheduler wakes up on an internal polling tick (**currently every 5 seconds**) and checks due jobs.
-- When a job is due, the scheduler enqueues work to be handled by the gateway / agents layer; the exact integration is handled in the gateway code rather than in this package.
+- When a job is due, the scheduler enqueues work to be handled by the coordinators / runners layer; the exact integration is handled in the coordinator code rather than in this package.
 
 ## Concepts
 
 At a high level, `internal/jobs` is split into:
 
-- **Store**: persistent JSONL-backed storage for job definitions and last-run metadata.
+- **Store**: persistent storage for job definitions and last-run metadata (via `internal/store` backends).
 - **Scheduler**: an in-memory loop that:
   - Computes the next run time for each job.
   - Deduplicates runs to avoid double-firing (e.g. if multiple polling ticks occur within the same scheduled minute).
@@ -27,11 +27,11 @@ At a high level, `internal/jobs` is split into:
   - `delete`: remove jobs from the store.
   - `trigger`: fire a job immediately regardless of schedule.
 
-For concrete type and field names, see the Go types under `internal/jobs` (store, scheduler, and tools wiring).
+For concrete type and field names, see the Go types under `internal/jobs` (scheduler and context) and `internal/store` (job operations).
 
 ## Relation to Agents and Conversations
 
-- Jobs typically send a message into a specific agent (via the gateway), optionally pointing at a conversation ID.
+- Jobs typically send a message into a specific agent (via the coordinator), optionally pointing at a conversation ID.
 - This makes it possible to build features like:
   - Periodic summaries ("summarize this conversation every evening").
   - One-shot reminders ("remind me in 30 minutes").

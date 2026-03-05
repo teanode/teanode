@@ -6,13 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/pending"
+	"github.com/teanode/teanode/internal/web"
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -26,11 +28,11 @@ type terminalConnection struct {
 	connection *websocket.Conn
 	pending    *pending.Requests
 	done       chan struct{}
-	machine    MachineInfo
+	machine    MachineInformation
 }
 
-// MachineInfo holds metadata sent by the terminal client on attach.
-type MachineInfo struct {
+// MachineInformation holds metadata sent by the terminal client on attach.
+type MachineInformation struct {
 	Hostname         string `json:"hostname,omitempty"`
 	Username         string `json:"username,omitempty"`
 	OS               string `json:"os,omitempty"`
@@ -40,10 +42,10 @@ type MachineInfo struct {
 	Timezone         string `json:"timezone,omitempty"`
 }
 
-// ConnectionInfo describes a connected terminal for listing purposes.
-type ConnectionInfo struct {
+// ConnectionInformation describes a connected terminal for listing purposes.
+type ConnectionInformation struct {
 	ID      string
-	Machine MachineInfo
+	Machine MachineInformation
 }
 
 // Relay manages WebSocket connections from terminal CLI clients.
@@ -59,26 +61,22 @@ func NewRelay() *Relay {
 	}
 }
 
-// HandleWebSocketForUser upgrades and binds a terminal connection to one user.
-func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *http.Request, userId string) {
+// HandleWebSocket upgrades and binds a terminal connection to one user.
+func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Request) error {
 	id := request.URL.Query().Get("id")
 	if id == "" {
-		http.Error(writer, "missing terminal connection id", http.StatusBadRequest)
-		return
-	}
-	userId = strings.TrimSpace(userId)
-	if userId == "" {
-		http.Error(writer, "unauthorized", http.StatusUnauthorized)
-		return
+		return web.Error(http.StatusBadRequest, "missing terminal connection id")
 	}
 
 	websocketConnection, err := wsUpgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		log.Errorf("terminal: upgrade error: %v", err)
-		return
+		return err
 	}
 
-	connectionKey := userId + ":" + id
+	user := models.UserFromContext(request.Context())
+
+	connectionKey := user.ID + ":" + id
 	self.mutex.Lock()
 	// If a connection with this user+id already exists, replace it.
 	if existing, ok := self.connections[connectionKey]; ok {
@@ -87,7 +85,7 @@ func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *h
 	}
 	terminal := &terminalConnection{
 		id:         id,
-		userId:     userId,
+		userId:     user.ID,
 		connection: websocketConnection,
 		pending:    pending.NewRequests(),
 		done:       make(chan struct{}),
@@ -96,10 +94,11 @@ func (self *Relay) HandleWebSocketForUser(writer http.ResponseWriter, request *h
 	done := terminal.done
 	self.mutex.Unlock()
 
-	log.Infof("terminal: client connected user=%s id=%s", userId, id)
+	log.Infof("terminal: client connected user=%s id=%s", user.ID, id)
 
 	go self.pingLoop(connectionKey, websocketConnection, done)
 	self.readLoop(connectionKey, websocketConnection, done)
+	return nil
 }
 
 // Connected reports whether at least one terminal client is connected.
@@ -110,15 +109,15 @@ func (self *Relay) Connected() bool {
 }
 
 // ConnectionsForUser returns the caller's terminal connections.
-func (self *Relay) ConnectionsForUser(userId string) []ConnectionInfo {
+func (self *Relay) ConnectionsForUser(userId string) []ConnectionInformation {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	out := make([]ConnectionInfo, 0)
-	for _, tc := range self.connections {
-		if tc.userId != userId {
+	out := make([]ConnectionInformation, 0)
+	for _, terminalConnection := range self.connections {
+		if terminalConnection.userId != userId {
 			continue
 		}
-		out = append(out, ConnectionInfo{ID: tc.id, Machine: tc.machine})
+		out = append(out, ConnectionInformation{ID: terminalConnection.id, Machine: terminalConnection.machine})
 	}
 	return out
 }
@@ -127,9 +126,9 @@ func (self *Relay) ConnectionsForUser(userId string) []ConnectionInfo {
 func (self *Relay) DefaultConnectionForUser(userId string) (string, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	for _, tc := range self.connections {
-		if tc.userId == userId {
-			return tc.id, nil
+	for _, terminalConnection := range self.connections {
+		if terminalConnection.userId == userId {
+			return terminalConnection.id, nil
 		}
 	}
 	return "", errors.New("terminal client not connected")
@@ -212,14 +211,14 @@ func (self *Relay) readLoop(connectionKey string, connection *websocket.Conn, do
 
 		// Client sends machine info on connect.
 		if frame.Method == "attach" && frame.Params != nil {
-			var info MachineInfo
-			if json.Unmarshal(frame.Params, &info) == nil {
+			var information MachineInformation
+			if json.Unmarshal(frame.Params, &information) == nil {
 				self.mutex.Lock()
-				if tc, ok := self.connections[connectionKey]; ok {
-					tc.machine = info
+				if terminalConnection, ok := self.connections[connectionKey]; ok {
+					terminalConnection.machine = information
 				}
 				self.mutex.Unlock()
-				log.Infof("terminal: attach key=%s host=%s user=%s tz=%s", connectionKey, info.Hostname, info.Username, info.Timezone)
+				log.Infof("terminal: attach key=%s host=%s user=%s tz=%s", connectionKey, information.Hostname, information.Username, information.Timezone)
 			}
 			continue
 		}

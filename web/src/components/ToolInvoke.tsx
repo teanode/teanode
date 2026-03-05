@@ -6,6 +6,7 @@ import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
+import HelpOutlineRounded from "@mui/icons-material/HelpOutlineRounded";
 import { highlightJson } from "../markdown";
 
 interface ToolInvokeProps {
@@ -22,6 +23,60 @@ export default function ToolInvoke({ toolName, args }: ToolInvokeProps) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
+  }
+
+  // Special rendering for ask_user_question tool invocations.
+  if (toolName === "ask_user_question") {
+    try {
+      const parsed = JSON.parse(args);
+      if (parsed.question) {
+        return (
+          <Box
+            sx={{
+              alignSelf: "flex-start",
+              maxWidth: "75%",
+              px: 1.5,
+              py: 1,
+              borderRadius: 1,
+              fontSize: "0.75rem",
+              bgcolor: (theme) =>
+                theme.palette.mode === "dark"
+                  ? "rgba(25, 118, 210, 0.08)"
+                  : "rgba(25, 118, 210, 0.05)",
+              border: 1,
+              borderColor: "primary.main",
+            }}
+          >
+            <Box
+              sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5 }}
+            >
+              <HelpOutlineRounded
+                sx={{ fontSize: 14, color: "primary.main" }}
+              />
+              <Typography
+                variant="caption"
+                color="primary.main"
+                sx={{ fontWeight: 600 }}
+              >
+                {t("tool.askUserQuestion")}
+              </Typography>
+            </Box>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>
+              {parsed.question}
+            </Typography>
+            {parsed.choices && (
+              <Typography variant="caption" color="text.secondary">
+                {t("tool.askUserChoices")}: {parsed.choices.join(", ")}
+                {parsed.allowOther &&
+                  `, ${parsed.otherLabel || t("tool.askUserOther")}`}
+              </Typography>
+            )}
+          </Box>
+        );
+      }
+    } catch {
+      // Fall through to default rendering.
+    }
   }
 
   return (

@@ -1,9 +1,13 @@
 package voice
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"time"
+
+	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/providers"
 )
 
 func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
@@ -31,7 +35,7 @@ func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
 				return
 			}
 			finalText := strings.TrimSpace(self.takeStreamingFinalText(tid))
-			if finalText != "" {
+			if finalText != "" && len([]rune(finalText)) >= minStreamingFinalRunes {
 				self.handleFinalTranscript(tid, finalText)
 				return
 			}
@@ -55,15 +59,15 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 	if len(captured) == 0 {
 		return
 	}
-	if self.deps == nil {
-		pipelineLog.Warningf("voice transcription skipped: missing gateway deps")
+	if self.dispatcher == nil {
+		pipelineLog.Warningf("voice transcription skipped: missing dispatcher")
 		return
 	}
-	if self.deps.ProviderRegistry() == nil {
+	if self.dispatcher.ProviderRegistry() == nil {
 		pipelineLog.Warningf("voice transcription skipped: provider registry unavailable")
 		return
 	}
-	transcriber, transcriberProvider, ok := self.deps.ProviderRegistry().FindTranscriber()
+	transcriber, transcriberProvider, ok := self.dispatcher.ProviderRegistry().FindTranscriber()
 	if !ok || transcriber == nil {
 		pipelineLog.Warningf("voice transcription skipped: no transcriber configured")
 		return
@@ -71,12 +75,11 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 	pipelineLog.Infof("voice transcribe start: session=%s turn=%s bytes=%d provider=%s model=%s", self.ID, turnId, len(captured), transcriberProvider, voiceProviderModelHint("transcriber", transcriberProvider))
 
 	wav := PCMToWAV(captured, self.AudioIn.SampleRateHz, self.AudioIn.Channels)
-	result, err := transcriber.Transcribe(context.Background(), VoiceTranscribeRequest{
-		Audio:      wav,
-		Format:     "wav",
-		SampleRate: self.AudioIn.SampleRateHz,
-		Channels:   self.AudioIn.Channels,
-		Prompt:     self.transcriptionPrompt(),
+	result, err := transcriber.Transcribe(context.Background(), providers.TranscribeRequest{
+		Audio:    bytes.NewReader(wav),
+		Format:   "wav",
+		Language: "",
+		Prompt:   self.transcriptionPrompt(),
 	})
 	if err != nil || result == nil {
 		if err != nil {
@@ -146,17 +149,21 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 	self.notifyObservers(func(observer TurnObserver) {
 		observer.OnTranscriptFinal(turnId, nowMs)
 	})
-	run := self.deps.SendMessage(context.Background(), VoiceSendMessageParams{
+	handle, err := self.dispatcher.Run(context.Background(), coordinators.RunParameters{
 		AgentID:            self.AgentID,
 		ConversationID:     self.ConversationID,
 		Message:            text,
 		SystemPromptSuffix: self.effectivePromptSuffix(),
-		MaxContextTokens:   voiceMaxContextTokens,
-	})
+		Origin:             "voice",
+	}, nil)
+	if err != nil {
+		pipelineLog.Warningf("voice commitVoiceTurn Run error: %v", err)
+		return
+	}
 	self.MarkTurnCommitted(turnId)
-	self.SetCurrentRunId(run.RunID)
-	self.MapRunToTurn(run.RunID, turnId)
-	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", self.ID, turnId, run.RunID)
+	self.SetCurrentRunId(handle.RunID)
+	self.MapRunToTurn(handle.RunID, turnId)
+	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", self.ID, turnId, handle.RunID)
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID: turnId,
 		Event:  "turn_committed",

@@ -162,7 +162,8 @@
     "loadingSettings": "設定を読み込み中...",
     "sectionNotFound": "セクションが見つかりません",
     "theme": "テーマ",
-    "themeDescription": "ダークモードとライトモードを切り替えます",
+    "themeDescription": "ダーク、ライト、またはシステムモードを切り替えます",
+    "systemMode": "システムテーマ",
     "language": "言語",
     "languageDescription": "ブラウザで検出したロケールを上書きします。",
     "languageAuto": "ブラウザ言語を使用（検出: {{locale}}）",
@@ -184,10 +185,8 @@
     "voiceChimes": "通知チャイム",
     "voiceChimesDescription": "音声の取得時、agent の処理中、発話完了時に短い通知音を再生します",
     "voiceChimesVolume": "チャイム音量",
-    "voiceCallSttMode": "音声通話 STT モード",
-    "voiceCallSttModeDescription": "通話中の音声認識をサーバー側かブラウザ側で行うか選択します。通話中の TTS はサーバー側のままです。",
-    "voiceCallSttModeServer": "サーバー側 STT",
-    "voiceCallSttModeClient": "ブラウザ側 STT"
+    "voiceCallSttMode": "ブラウザ側音声認識",
+    "voiceCallSttModeDescription": "通話中の音声認識をサーバー側ではなくブラウザ側で実行します。通話中の TTS はサーバー側のままです。"
   },
   "auth": {
     "loginTitle": "おかえりなさい",

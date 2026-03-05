@@ -9,7 +9,7 @@ import (
 type Provider interface {
 	ChatCompletion(ctx context.Context, request ChatRequest) (*ChatResponse, error)
 	ChatCompletionStream(ctx context.Context, request ChatRequest) (<-chan StreamEvent, error)
-	ListModels(ctx context.Context) ([]ModelInfo, error)
+	ListModels(ctx context.Context) ([]ModelInformation, error)
 }
 
 // AudioTranscriber is an optional capability interface for speech-to-text.
@@ -94,6 +94,14 @@ type SynthesizeResponse struct {
 	Audio       io.ReadCloser
 	Format      string
 	ContentType string
+}
+
+// ModelInformation describes a model returned by the /models API.
+type ModelInformation struct {
+	ID            string `json:"id" yaml:"id"`
+	Created       int64  `json:"created,omitempty" yaml:"created,omitempty"`
+	OwnedBy       string `json:"owned_by,omitempty" yaml:"owned_by,omitempty"`
+	ContextLength int    `json:"context_length,omitempty" yaml:"context_length,omitempty"`
 }
 
 // NewProvider creates a Provider for the given type. Supported types:

@@ -10,9 +10,9 @@ import (
 )
 
 type contactsTool struct {
-	binary  string
-	account string
-	runner  commandRunner
+	binary string
+
+	runner commandRunner
 }
 
 func (self *contactsTool) Definition() providers.ToolDefinition {
@@ -59,18 +59,18 @@ func (self *contactsTool) Execute(ctx context.Context, rawArguments string) (str
 		if args.Query == "" {
 			return "", fmt.Errorf("query is required for search action")
 		}
-		cmdArgs := []string{"contacts", "search", args.Query}
+		commandArguments := []string{"contacts", "search", args.Query}
 		if args.Limit > 0 {
-			cmdArgs = append(cmdArgs, "--max", strconv.Itoa(args.Limit))
+			commandArguments = append(commandArguments, "--max", strconv.Itoa(args.Limit))
 		}
-		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account, commandArguments...)
 
 	case "list":
-		cmdArgs := []string{"contacts", "list"}
+		commandArguments := []string{"contacts", "list"}
 		if args.Limit > 0 {
-			cmdArgs = append(cmdArgs, "--max", strconv.Itoa(args.Limit))
+			commandArguments = append(commandArguments, "--max", strconv.Itoa(args.Limit))
 		}
-		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account, commandArguments...)
 
 	default:
 		return "", fmt.Errorf("unknown contacts action: %s", args.Action)

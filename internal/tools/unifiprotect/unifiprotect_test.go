@@ -7,8 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 // --- mock client ---
@@ -66,11 +65,11 @@ func newMockClient() *mockClient {
 	}
 }
 
-func newTestTool(client *mockClient, config *configs.UniFiProtectConfig) *unifiProtectTool {
+func newTestTool(client *mockClient, config *resolvedConfiguration) *unifiProtectExecution {
 	if config == nil {
-		config = &configs.UniFiProtectConfig{}
+		config = &resolvedConfiguration{}
 	}
-	return &unifiProtectTool{
+	return &unifiProtectExecution{
 		client:  client,
 		checker: NewAccessChecker(config),
 	}
@@ -90,8 +89,8 @@ func TestAccessChecker_AllCamerasAllowed(testing *testing.T) {
 }
 
 func TestAccessChecker_AllowedCamerasByName(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		AllowedCameras: []string{"Front Door", "Backyard"},
+	config := &resolvedConfiguration{
+		allowedCameras: []string{"Front Door", "Backyard"},
 	}
 	checker := NewAccessChecker(config)
 
@@ -107,8 +106,8 @@ func TestAccessChecker_AllowedCamerasByName(testing *testing.T) {
 }
 
 func TestAccessChecker_AllowedCamerasByID(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		AllowedCameras: []string{"cam001"},
+	config := &resolvedConfiguration{
+		allowedCameras: []string{"cam001"},
 	}
 	checker := NewAccessChecker(config)
 
@@ -121,8 +120,8 @@ func TestAccessChecker_AllowedCamerasByID(testing *testing.T) {
 }
 
 func TestAccessChecker_CaseInsensitive(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		AllowedCameras: []string{"front door"},
+	config := &resolvedConfiguration{
+		allowedCameras: []string{"front door"},
 	}
 	checker := NewAccessChecker(config)
 
@@ -132,8 +131,8 @@ func TestAccessChecker_CaseInsensitive(testing *testing.T) {
 }
 
 func TestAccessChecker_EmptyAllowlist(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		AllowedCameras: []string{},
+	config := &resolvedConfiguration{
+		allowedCameras: []string{},
 	}
 	checker := NewAccessChecker(config)
 
@@ -143,14 +142,14 @@ func TestAccessChecker_EmptyAllowlist(testing *testing.T) {
 }
 
 func TestAccessChecker_ReadOnly(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{ReadOnly: true}
+	config := &resolvedConfiguration{readOnly: true}
 	checker := NewAccessChecker(config)
 
 	if checker.IsWriteAllowed() {
 		testing.Error("expected write to be blocked in read-only mode")
 	}
 
-	config2 := &configs.UniFiProtectConfig{ReadOnly: false}
+	config2 := &resolvedConfiguration{readOnly: false}
 	checker2 := NewAccessChecker(config2)
 	if !checker2.IsWriteAllowed() {
 		testing.Error("expected write to be allowed when not read-only")
@@ -158,8 +157,8 @@ func TestAccessChecker_ReadOnly(testing *testing.T) {
 }
 
 func TestAccessChecker_IsActionAllowed(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		AllowDangerousActions: []string{"set_status_light", "set_recording_mode"},
+	config := &resolvedConfiguration{
+		allowDangerousActions: []string{"set_status_light", "set_recording_mode"},
 	}
 	checker := NewAccessChecker(config)
 
@@ -175,9 +174,9 @@ func TestAccessChecker_IsActionAllowed(testing *testing.T) {
 }
 
 func TestAccessChecker_ReadOnlyBlocksActions(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		ReadOnly:              true,
-		AllowDangerousActions: []string{"set_status_light"},
+	config := &resolvedConfiguration{
+		readOnly:              true,
+		allowDangerousActions: []string{"set_status_light"},
 	}
 	checker := NewAccessChecker(config)
 
@@ -203,8 +202,7 @@ func TestAccessChecker_NilConfig(testing *testing.T) {
 // --- Tool Definition tests ---
 
 func TestToolDefinition(testing *testing.T) {
-	tool := newTestTool(newMockClient(), nil)
-	definition := tool.Definition()
+	definition := (&unifiProtectTool{}).Definition()
 
 	if definition.Type != "function" {
 		testing.Errorf("expected type 'function', got %q", definition.Type)
@@ -245,7 +243,7 @@ func TestListCameras_Basic(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "list_cameras"})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -270,7 +268,7 @@ func TestListCameras_FilterDoorbell(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "list_cameras", "isDoorbell": true})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -294,7 +292,7 @@ func TestListCameras_FilterNonDoorbell(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "list_cameras", "isDoorbell": false})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -310,13 +308,13 @@ func TestListCameras_FilterNonDoorbell(testing *testing.T) {
 
 func TestListCameras_AllowlistFilter(testing *testing.T) {
 	client := newMockClient()
-	config := &configs.UniFiProtectConfig{
-		AllowedCameras: []string{"Front Door"},
+	config := &resolvedConfiguration{
+		allowedCameras: []string{"Front Door"},
 	}
 	tool := newTestTool(client, config)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "list_cameras"})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -336,7 +334,7 @@ func TestListCameras_ClientError(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "list_cameras"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil {
 		testing.Fatal("expected error")
 	}
@@ -352,7 +350,7 @@ func TestGetCamera_ByID(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_camera", "cameraId": "cam001"})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -377,7 +375,7 @@ func TestGetCamera_ByName(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_camera", "cameraId": "Backyard"})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -396,7 +394,7 @@ func TestGetCamera_NotFound(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_camera", "cameraId": "nonexistent"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		testing.Errorf("expected not found error, got: %v", err)
 	}
@@ -404,13 +402,13 @@ func TestGetCamera_NotFound(testing *testing.T) {
 
 func TestGetCamera_BlockedByAllowlist(testing *testing.T) {
 	client := newMockClient()
-	config := &configs.UniFiProtectConfig{
-		AllowedCameras: []string{"Front Door"},
+	config := &resolvedConfiguration{
+		allowedCameras: []string{"Front Door"},
 	}
 	tool := newTestTool(client, config)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_camera", "cameraId": "Backyard"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "not accessible") {
 		testing.Errorf("expected access denied error, got: %v", err)
 	}
@@ -420,7 +418,7 @@ func TestGetCamera_MissingCameraID(testing *testing.T) {
 	tool := newTestTool(newMockClient(), nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_camera"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "cameraId is required") {
 		testing.Errorf("expected 'cameraId is required' error, got: %v", err)
 	}
@@ -434,7 +432,7 @@ func TestGetSnapshot_Basic(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_snapshot", "cameraId": "cam001"})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -456,7 +454,7 @@ func TestGetSnapshot_ByName(testing *testing.T) {
 	tool := newTestTool(client, nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_snapshot", "cameraId": "Front Door"})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -471,13 +469,13 @@ func TestGetSnapshot_ByName(testing *testing.T) {
 
 func TestGetSnapshot_BlockedCamera(testing *testing.T) {
 	client := newMockClient()
-	config := &configs.UniFiProtectConfig{
-		AllowedCameras: []string{"Backyard"},
+	config := &resolvedConfiguration{
+		allowedCameras: []string{"Backyard"},
 	}
 	tool := newTestTool(client, config)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_snapshot", "cameraId": "Front Door"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "not accessible") {
 		testing.Errorf("expected access denied error, got: %v", err)
 	}
@@ -487,7 +485,7 @@ func TestGetSnapshot_MissingCameraID(testing *testing.T) {
 	tool := newTestTool(newMockClient(), nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "get_snapshot"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "cameraId is required") {
 		testing.Errorf("expected 'cameraId is required' error, got: %v", err)
 	}
@@ -497,8 +495,8 @@ func TestGetSnapshot_MissingCameraID(testing *testing.T) {
 
 func TestSetStatusLight_Allowed(testing *testing.T) {
 	client := newMockClient()
-	config := &configs.UniFiProtectConfig{
-		AllowDangerousActions: []string{"set_status_light"},
+	config := &resolvedConfiguration{
+		allowDangerousActions: []string{"set_status_light"},
 	}
 	tool := newTestTool(client, config)
 
@@ -507,7 +505,7 @@ func TestSetStatusLight_Allowed(testing *testing.T) {
 		"cameraId": "cam001",
 		"enabled":  true,
 	})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -531,9 +529,9 @@ func TestSetStatusLight_Allowed(testing *testing.T) {
 }
 
 func TestSetStatusLight_ReadOnlyBlocked(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		ReadOnly:              true,
-		AllowDangerousActions: []string{"set_status_light"},
+	config := &resolvedConfiguration{
+		readOnly:              true,
+		allowDangerousActions: []string{"set_status_light"},
 	}
 	tool := newTestTool(newMockClient(), config)
 
@@ -542,15 +540,15 @@ func TestSetStatusLight_ReadOnlyBlocked(testing *testing.T) {
 		"cameraId": "cam001",
 		"enabled":  true,
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "read-only mode") {
 		testing.Errorf("expected read-only error, got: %v", err)
 	}
 }
 
 func TestSetStatusLight_NotInAllowlist(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		AllowDangerousActions: []string{"set_recording_mode"},
+	config := &resolvedConfiguration{
+		allowDangerousActions: []string{"set_recording_mode"},
 	}
 	tool := newTestTool(newMockClient(), config)
 
@@ -559,15 +557,15 @@ func TestSetStatusLight_NotInAllowlist(testing *testing.T) {
 		"cameraId": "cam001",
 		"enabled":  true,
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "allowDangerousActions") {
 		testing.Errorf("expected allowDangerousActions error, got: %v", err)
 	}
 }
 
 func TestSetStatusLight_MissingEnabled(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		AllowDangerousActions: []string{"set_status_light"},
+	config := &resolvedConfiguration{
+		allowDangerousActions: []string{"set_status_light"},
 	}
 	tool := newTestTool(newMockClient(), config)
 
@@ -575,7 +573,7 @@ func TestSetStatusLight_MissingEnabled(testing *testing.T) {
 		"action":   "set_status_light",
 		"cameraId": "cam001",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "enabled is required") {
 		testing.Errorf("expected 'enabled is required' error, got: %v", err)
 	}
@@ -585,8 +583,8 @@ func TestSetStatusLight_MissingEnabled(testing *testing.T) {
 
 func TestSetRecordingMode_Allowed(testing *testing.T) {
 	client := newMockClient()
-	config := &configs.UniFiProtectConfig{
-		AllowDangerousActions: []string{"set_recording_mode"},
+	config := &resolvedConfiguration{
+		allowDangerousActions: []string{"set_recording_mode"},
 	}
 	tool := newTestTool(client, config)
 
@@ -595,7 +593,7 @@ func TestSetRecordingMode_Allowed(testing *testing.T) {
 		"cameraId":      "cam001",
 		"recordingMode": "detections",
 	})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -616,8 +614,8 @@ func TestSetRecordingMode_Allowed(testing *testing.T) {
 }
 
 func TestSetRecordingMode_InvalidMode(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		AllowDangerousActions: []string{"set_recording_mode"},
+	config := &resolvedConfiguration{
+		allowDangerousActions: []string{"set_recording_mode"},
 	}
 	tool := newTestTool(newMockClient(), config)
 
@@ -626,16 +624,16 @@ func TestSetRecordingMode_InvalidMode(testing *testing.T) {
 		"cameraId":      "cam001",
 		"recordingMode": "invalid",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "must be one of") {
 		testing.Errorf("expected invalid mode error, got: %v", err)
 	}
 }
 
 func TestSetRecordingMode_ReadOnlyBlocked(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		ReadOnly:              true,
-		AllowDangerousActions: []string{"set_recording_mode"},
+	config := &resolvedConfiguration{
+		readOnly:              true,
+		allowDangerousActions: []string{"set_recording_mode"},
 	}
 	tool := newTestTool(newMockClient(), config)
 
@@ -644,15 +642,15 @@ func TestSetRecordingMode_ReadOnlyBlocked(testing *testing.T) {
 		"cameraId":      "cam001",
 		"recordingMode": "always",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "read-only mode") {
 		testing.Errorf("expected read-only error, got: %v", err)
 	}
 }
 
 func TestSetRecordingMode_MissingMode(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		AllowDangerousActions: []string{"set_recording_mode"},
+	config := &resolvedConfiguration{
+		allowDangerousActions: []string{"set_recording_mode"},
 	}
 	tool := newTestTool(newMockClient(), config)
 
@@ -660,7 +658,7 @@ func TestSetRecordingMode_MissingMode(testing *testing.T) {
 		"action":   "set_recording_mode",
 		"cameraId": "cam001",
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "recordingMode is required") {
 		testing.Errorf("expected 'recordingMode is required' error, got: %v", err)
 	}
@@ -670,8 +668,8 @@ func TestSetRecordingMode_MissingMode(testing *testing.T) {
 
 func TestSetPrivacyMode_Enable(testing *testing.T) {
 	client := newMockClient()
-	config := &configs.UniFiProtectConfig{
-		AllowDangerousActions: []string{"set_privacy_mode"},
+	config := &resolvedConfiguration{
+		allowDangerousActions: []string{"set_privacy_mode"},
 	}
 	tool := newTestTool(client, config)
 
@@ -680,7 +678,7 @@ func TestSetPrivacyMode_Enable(testing *testing.T) {
 		"cameraId": "cam001",
 		"enabled":  true,
 	})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -708,8 +706,8 @@ func TestSetPrivacyMode_Enable(testing *testing.T) {
 
 func TestSetPrivacyMode_Disable(testing *testing.T) {
 	client := newMockClient()
-	config := &configs.UniFiProtectConfig{
-		AllowDangerousActions: []string{"set_privacy_mode"},
+	config := &resolvedConfiguration{
+		allowDangerousActions: []string{"set_privacy_mode"},
 	}
 	tool := newTestTool(client, config)
 
@@ -718,7 +716,7 @@ func TestSetPrivacyMode_Disable(testing *testing.T) {
 		"cameraId": "cam001",
 		"enabled":  false,
 	})
-	result, err := tool.Execute(context.Background(), string(arguments))
+	result, err := tool.execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
 	}
@@ -739,8 +737,8 @@ func TestSetPrivacyMode_Disable(testing *testing.T) {
 }
 
 func TestSetPrivacyMode_NotInAllowlist(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		AllowDangerousActions: []string{"set_status_light"},
+	config := &resolvedConfiguration{
+		allowDangerousActions: []string{"set_status_light"},
 	}
 	tool := newTestTool(newMockClient(), config)
 
@@ -749,16 +747,16 @@ func TestSetPrivacyMode_NotInAllowlist(testing *testing.T) {
 		"cameraId": "cam001",
 		"enabled":  true,
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "allowDangerousActions") {
 		testing.Errorf("expected allowDangerousActions error, got: %v", err)
 	}
 }
 
 func TestSetPrivacyMode_ReadOnlyBlocked(testing *testing.T) {
-	config := &configs.UniFiProtectConfig{
-		ReadOnly:              true,
-		AllowDangerousActions: []string{"set_privacy_mode"},
+	config := &resolvedConfiguration{
+		readOnly:              true,
+		allowDangerousActions: []string{"set_privacy_mode"},
 	}
 	tool := newTestTool(newMockClient(), config)
 
@@ -767,7 +765,7 @@ func TestSetPrivacyMode_ReadOnlyBlocked(testing *testing.T) {
 		"cameraId": "cam001",
 		"enabled":  true,
 	})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "read-only mode") {
 		testing.Errorf("expected read-only error, got: %v", err)
 	}
@@ -779,7 +777,7 @@ func TestUnknownAction(testing *testing.T) {
 	tool := newTestTool(newMockClient(), nil)
 
 	arguments, _ := json.Marshal(map[string]interface{}{"action": "unknown"})
-	_, err := tool.Execute(context.Background(), string(arguments))
+	_, err := tool.execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "unknown unifi_protect action") {
 		testing.Errorf("expected unknown action error, got: %v", err)
 	}
@@ -788,72 +786,18 @@ func TestUnknownAction(testing *testing.T) {
 func TestInvalidJSON(testing *testing.T) {
 	tool := newTestTool(newMockClient(), nil)
 
-	_, err := tool.Execute(context.Background(), "not json")
+	_, err := tool.execute(context.Background(), "not json")
 	if err == nil || !strings.Contains(err.Error(), "parsing arguments") {
 		testing.Errorf("expected parsing error, got: %v", err)
 	}
 }
 
-// --- RegisterTools tests ---
+// --- Registration tests ---
 
-func TestRegisterTools_NilConfig(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, nil)
-	if registry.Get("unifi_protect") != nil {
-		testing.Error("expected no tool registered with nil config")
-	}
-}
-
-func TestRegisterTools_MissingBaseURL(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.UniFiProtectConfig{
-		APIKey: "test-key",
-	})
-	if registry.Get("unifi_protect") != nil {
-		testing.Error("expected no tool registered without baseUrl")
-	}
-}
-
-func TestRegisterTools_MissingCredentials(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.UniFiProtectConfig{
-		BaseURL: "https://protect.local",
-	})
-	if registry.Get("unifi_protect") != nil {
-		testing.Error("expected no tool registered without credentials")
-	}
-}
-
-func TestRegisterTools_MissingPassword(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.UniFiProtectConfig{
-		BaseURL:  "https://protect.local",
-		Username: "admin",
-	})
-	if registry.Get("unifi_protect") != nil {
-		testing.Error("expected no tool registered with username but no password")
-	}
-}
-
-func TestRegisterTools_ValidAPIKey(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.UniFiProtectConfig{
-		BaseURL: "https://protect.local",
-		APIKey:  "test-api-key",
-	})
+func TestRegisterTools(testing *testing.T) {
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(&unifiProtectTool{})
 	if registry.Get("unifi_protect") == nil {
-		testing.Error("expected unifi_protect tool to be registered with API key")
-	}
-}
-
-func TestRegisterTools_ValidUsernamePassword(testing *testing.T) {
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.UniFiProtectConfig{
-		BaseURL:  "https://protect.local",
-		Username: "admin",
-		Password: "password",
-	})
-	if registry.Get("unifi_protect") == nil {
-		testing.Error("expected unifi_protect tool to be registered with username/password")
+		testing.Error("expected unifi_protect tool to be registered")
 	}
 }

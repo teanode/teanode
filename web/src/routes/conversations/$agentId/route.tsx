@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo } from "react";
 import { Outlet, useParams } from "@tanstack/react-router";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import { useAppContext } from "../../../context";
+import { useAppContext, useStreamingContext } from "../../../context";
 import {
   useVoiceCall,
   type UseVoiceCallReturn,
@@ -23,6 +23,7 @@ export function useAgentVoiceCall(): UseVoiceCallReturn {
 /** /conversations/$agentId — layout that syncs the current agent and renders child routes. */
 export default function ConversationsAgentLayout() {
   const { agentId } = useParams({ strict: false }) as { agentId: string };
+  useStreamingContext();
   const {
     backend,
     ttsVoice,

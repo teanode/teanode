@@ -37,20 +37,20 @@ func TestOpenAINonStreamingChatCompletion(t *testing.T) {
 		if chatRequest.Stream {
 			t.Error("expected stream=false for non-streaming")
 		}
-		if chatRequest.Model != "gpt-4o" {
-			t.Errorf("model = %q, want gpt-4o", chatRequest.Model)
+		if chatRequest.ModelName != "gpt-4o" {
+			t.Errorf("model = %q, want gpt-4o", chatRequest.ModelName)
 		}
 
 		writer.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(writer).Encode(ChatResponse{
-			ID:    "chatcmpl-123",
-			Model: "gpt-4o",
+			ID:        "chatcmpl-123",
+			ModelName: "gpt-4o",
 			Choices: []Choice{{
 				Index:        0,
 				Message:      ChatMessage{Role: "assistant", Content: "Hello from OpenAI!"},
 				FinishReason: "stop",
 			}},
-			Usage: &UsageInfo{
+			Usage: &UsageInformation{
 				PromptTokens:     10,
 				CompletionTokens: 5,
 				TotalTokens:      15,
@@ -62,8 +62,8 @@ func TestOpenAINonStreamingChatCompletion(t *testing.T) {
 	client := NewClient(server.URL, "test-key")
 
 	response, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:    "gpt-4o",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "gpt-4o",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletion: %v", err)
@@ -72,8 +72,8 @@ func TestOpenAINonStreamingChatCompletion(t *testing.T) {
 	if response.ID != "chatcmpl-123" {
 		t.Errorf("id = %q, want chatcmpl-123", response.ID)
 	}
-	if response.Model != "gpt-4o" {
-		t.Errorf("model = %q, want gpt-4o", response.Model)
+	if response.ModelName != "gpt-4o" {
+		t.Errorf("model = %q, want gpt-4o", response.ModelName)
 	}
 	if len(response.Choices) != 1 {
 		t.Fatalf("expected 1 choice, got %d", len(response.Choices))
@@ -105,8 +105,8 @@ func TestOpenAINonStreamingAPIError(t *testing.T) {
 	client := NewClient(server.URL, "test-key")
 
 	_, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:    "gpt-4o",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "gpt-4o",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err == nil {
 		t.Fatal("expected error for 429 response")
@@ -126,8 +126,8 @@ func TestOpenAINonStreamingInvalidJSON(t *testing.T) {
 	client := NewClient(server.URL, "test-key")
 
 	_, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:    "gpt-4o",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "gpt-4o",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid JSON response")
@@ -150,32 +150,32 @@ func TestOpenAIStreamingChatCompletion(t *testing.T) {
 		// Send content deltas.
 		chunks := []StreamChunk{
 			{
-				ID:    "chatcmpl-stream",
-				Model: "gpt-4o",
+				ID:        "chatcmpl-stream",
+				ModelName: "gpt-4o",
 				Choices: []StreamChoice{{
 					Index: 0,
 					Delta: ChatDelta{Role: "assistant"},
 				}},
 			},
 			{
-				ID:    "chatcmpl-stream",
-				Model: "gpt-4o",
+				ID:        "chatcmpl-stream",
+				ModelName: "gpt-4o",
 				Choices: []StreamChoice{{
 					Index: 0,
 					Delta: ChatDelta{Content: "Hello"},
 				}},
 			},
 			{
-				ID:    "chatcmpl-stream",
-				Model: "gpt-4o",
+				ID:        "chatcmpl-stream",
+				ModelName: "gpt-4o",
 				Choices: []StreamChoice{{
 					Index: 0,
 					Delta: ChatDelta{Content: " world!"},
 				}},
 			},
 			{
-				ID:    "chatcmpl-stream",
-				Model: "gpt-4o",
+				ID:        "chatcmpl-stream",
+				ModelName: "gpt-4o",
 				Choices: []StreamChoice{{
 					Index:        0,
 					Delta:        ChatDelta{},
@@ -198,8 +198,8 @@ func TestOpenAIStreamingChatCompletion(t *testing.T) {
 	client := NewClient(server.URL, "test-key")
 
 	stream, err := client.ChatCompletionStream(context.Background(), ChatRequest{
-		Model:    "gpt-4o",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "gpt-4o",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletionStream: %v", err)
@@ -246,8 +246,8 @@ func TestOpenAIStreamingWithToolCalls(t *testing.T) {
 
 		chunks := []StreamChunk{
 			{
-				ID:    "chatcmpl-tools",
-				Model: "gpt-4o",
+				ID:        "chatcmpl-tools",
+				ModelName: "gpt-4o",
 				Choices: []StreamChoice{{
 					Index: 0,
 					Delta: ChatDelta{
@@ -265,8 +265,8 @@ func TestOpenAIStreamingWithToolCalls(t *testing.T) {
 				}},
 			},
 			{
-				ID:    "chatcmpl-tools",
-				Model: "gpt-4o",
+				ID:        "chatcmpl-tools",
+				ModelName: "gpt-4o",
 				Choices: []StreamChoice{{
 					Index: 0,
 					Delta: ChatDelta{
@@ -280,8 +280,8 @@ func TestOpenAIStreamingWithToolCalls(t *testing.T) {
 				}},
 			},
 			{
-				ID:    "chatcmpl-tools",
-				Model: "gpt-4o",
+				ID:        "chatcmpl-tools",
+				ModelName: "gpt-4o",
 				Choices: []StreamChoice{{
 					Index: 0,
 					Delta: ChatDelta{
@@ -295,8 +295,8 @@ func TestOpenAIStreamingWithToolCalls(t *testing.T) {
 				}},
 			},
 			{
-				ID:    "chatcmpl-tools",
-				Model: "gpt-4o",
+				ID:        "chatcmpl-tools",
+				ModelName: "gpt-4o",
 				Choices: []StreamChoice{{
 					Index:        0,
 					Delta:        ChatDelta{},
@@ -319,8 +319,8 @@ func TestOpenAIStreamingWithToolCalls(t *testing.T) {
 	client := NewClient(server.URL, "test-key")
 
 	stream, err := client.ChatCompletionStream(context.Background(), ChatRequest{
-		Model:    "gpt-4o",
-		Messages: []ChatMessage{{Role: "user", Content: "What's the weather?"}},
+		ModelName: "gpt-4o",
+		Messages:  []ChatMessage{{Role: "user", Content: "What's the weather?"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletionStream: %v", err)
@@ -377,8 +377,8 @@ func TestOpenAIStreamingAPIError(t *testing.T) {
 	client := NewClient(server.URL, "test-key")
 
 	_, err := client.ChatCompletionStream(context.Background(), ChatRequest{
-		Model:    "gpt-4o",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "gpt-4o",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err == nil {
 		t.Fatal("expected error for 500 response")
@@ -392,8 +392,8 @@ func TestOpenAIStreamingContextCancellation(t *testing.T) {
 
 		// Send one chunk then hang — the client should cancel.
 		chunk := StreamChunk{
-			ID:    "chatcmpl-cancel",
-			Model: "gpt-4o",
+			ID:        "chatcmpl-cancel",
+			ModelName: "gpt-4o",
 			Choices: []StreamChoice{{
 				Index: 0,
 				Delta: ChatDelta{Content: "partial"},
@@ -413,8 +413,8 @@ func TestOpenAIStreamingContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	stream, err := client.ChatCompletionStream(ctx, ChatRequest{
-		Model:    "gpt-4o",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "gpt-4o",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletionStream: %v", err)
@@ -500,8 +500,8 @@ func TestOpenAINoAuthHeader(t *testing.T) {
 		}
 		writer.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(writer).Encode(ChatResponse{
-			ID:    "chatcmpl-noauth",
-			Model: "local-model",
+			ID:        "chatcmpl-noauth",
+			ModelName: "local-model",
 			Choices: []Choice{{
 				Index:        0,
 				Message:      ChatMessage{Role: "assistant", Content: "ok"},
@@ -514,8 +514,8 @@ func TestOpenAINoAuthHeader(t *testing.T) {
 	client := NewClient(server.URL, "")
 
 	response, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:    "local-model",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "local-model",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletion: %v", err)
@@ -532,9 +532,9 @@ func TestOpenAIBaseURLTrailingSlash(t *testing.T) {
 		}
 		writer.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(writer).Encode(ChatResponse{
-			ID:      "chatcmpl-trim",
-			Model:   "gpt-4o",
-			Choices: []Choice{{Message: ChatMessage{Content: "ok"}, FinishReason: "stop"}},
+			ID:        "chatcmpl-trim",
+			ModelName: "gpt-4o",
+			Choices:   []Choice{{Message: ChatMessage{Content: "ok"}, FinishReason: "stop"}},
 		})
 	}))
 	defer server.Close()
@@ -543,8 +543,8 @@ func TestOpenAIBaseURLTrailingSlash(t *testing.T) {
 	client := NewClient(server.URL+"/", "key")
 
 	response, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:    "gpt-4o",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "gpt-4o",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletion: %v", err)
@@ -567,8 +567,8 @@ func TestOpenAIStreamingInvalidChunkJSON(t *testing.T) {
 	client := NewClient(server.URL, "test-key")
 
 	stream, err := client.ChatCompletionStream(context.Background(), ChatRequest{
-		Model:    "gpt-4o",
-		Messages: []ChatMessage{{Role: "user", Content: "Hello"}},
+		ModelName: "gpt-4o",
+		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletionStream: %v", err)
@@ -602,8 +602,8 @@ func TestOpenAINonStreamingWithTools(t *testing.T) {
 
 		writer.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(writer).Encode(ChatResponse{
-			ID:    "chatcmpl-tool",
-			Model: "gpt-4o",
+			ID:        "chatcmpl-tool",
+			ModelName: "gpt-4o",
 			Choices: []Choice{{
 				Index: 0,
 				Message: ChatMessage{
@@ -619,7 +619,7 @@ func TestOpenAINonStreamingWithTools(t *testing.T) {
 				},
 				FinishReason: "tool_calls",
 			}},
-			Usage: &UsageInfo{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
+			Usage: &UsageInformation{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30},
 		})
 	}))
 	defer server.Close()
@@ -627,8 +627,8 @@ func TestOpenAINonStreamingWithTools(t *testing.T) {
 	client := NewClient(server.URL, "test-key")
 
 	response, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:    "gpt-4o",
-		Messages: []ChatMessage{{Role: "user", Content: "Search for Go testing"}},
+		ModelName: "gpt-4o",
+		Messages:  []ChatMessage{{Role: "user", Content: "Search for Go testing"}},
 		Tools: []ToolDefinition{{
 			Type: "function",
 			Function: FunctionSpec{
@@ -674,16 +674,16 @@ func TestOpenAIMaxTokensUsesMaxCompletionTokensForGpt5(t *testing.T) {
 
 		writer.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(writer).Encode(ChatResponse{
-			ID:      "chatcmpl-gpt5",
-			Model:   "gpt-5",
-			Choices: []Choice{{Message: ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
+			ID:        "chatcmpl-gpt5",
+			ModelName: "gpt-5",
+			Choices:   []Choice{{Message: ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
 		})
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-key")
 	_, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:     "gpt-5",
+		ModelName: "gpt-5",
 		MaxTokens: 123,
 		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})
@@ -709,16 +709,16 @@ func TestOpenAIMaxTokensStaysLegacyForNonGpt5(t *testing.T) {
 
 		writer.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(writer).Encode(ChatResponse{
-			ID:      "chatcmpl-gpt4o",
-			Model:   "gpt-4o",
-			Choices: []Choice{{Message: ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
+			ID:        "chatcmpl-gpt4o",
+			ModelName: "gpt-4o",
+			Choices:   []Choice{{Message: ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
 		})
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-key")
 	_, err := client.ChatCompletion(context.Background(), ChatRequest{
-		Model:     "gpt-4o",
+		ModelName: "gpt-4o",
 		MaxTokens: 77,
 		Messages:  []ChatMessage{{Role: "user", Content: "Hello"}},
 	})

@@ -4,99 +4,172 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
+	"github.com/op/go-logging"
+
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
-	"github.com/teanode/teanode/internal/util/atomicfile"
-	"github.com/teanode/teanode/internal/util/trash"
+	"github.com/teanode/teanode/internal/runners"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/ptrto"
+	"github.com/teanode/teanode/internal/util/valueor"
 )
 
-// RegisterTools adds memory tools to the registry.
-func RegisterTools(registry *agents.ToolRegistry, agentWorkspaceDirectory string) {
-	registry.Register(newWorkspaceTool(
-		"agent_workspace",
-		"Persistent per-agent workspace storage shared by users of this agent.",
-		func(context.Context) (string, error) { return agentWorkspaceDirectory, nil },
-	))
-	registry.Register(newWorkspaceTool(
-		"user_workspace",
-		"Persistent per-user workspace storage for user-specific memory and notes.",
-		func(ctx context.Context) (string, error) {
-			userId := agents.UserIDFromContext(ctx)
-			if userId == "" {
-				return "", fmt.Errorf("missing user context")
-			}
-			return configs.UserWorkspaceDirectory(userId), nil
-		},
-	))
+var log = logging.MustGetLogger("workspace")
+
+func init() {
+	tools.RegisterBuiltinTool(createTools)
 }
 
-// safePath resolves a relative path inside memoryDirectory and rejects traversal.
-func safePath(memoryDirectory, rel string) (string, error) {
-	cleaned := filepath.Clean(rel)
-	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
-		return "", fmt.Errorf("invalid path: %s", rel)
+func createTools() []tools.Tool {
+	return []tools.Tool{
+		newWorkspaceTool(workspaceToolConfiguration{
+			name:        "agent_workspace",
+			description: "Persistent per-agent workspace storage shared by users of this agent.",
+			resolveScope: func(ctx context.Context, _ string) (models.Scope, string, error) {
+				runner := runners.RunnerFromContext(ctx)
+				if runner == nil || runner.AgentID == "" {
+					return "", "", fmt.Errorf("missing runner context")
+				}
+				return models.ScopeAgent, runner.AgentID, nil
+			},
+			afterMutate: func(ctx context.Context, scopeId string) error {
+				return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+					_, modifyError := transaction.ModifyAgent(ctx, scopeId, func(agent *models.Agent) error {
+						now := time.Now()
+						agent.ModifiedAt = &now
+						return nil
+					}, nil)
+					return modifyError
+				})
+			},
+		}),
+		newWorkspaceTool(workspaceToolConfiguration{
+			name:        "user_workspace",
+			description: "Persistent per-user workspace storage for user-specific memory and notes.",
+			resolveScope: func(ctx context.Context, _ string) (models.Scope, string, error) {
+				user := models.UserFromContext(ctx)
+				if user == nil || user.ID == "" {
+					return "", "", fmt.Errorf("missing user context")
+				}
+				return models.ScopeUser, user.ID, nil
+			},
+			afterMutate: func(ctx context.Context, scopeId string) error {
+				return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+					_, modifyError := transaction.ModifyUser(ctx, scopeId, func(user *models.User) error {
+						now := time.Now()
+						user.ModifiedAt = &now
+						return nil
+					}, nil)
+					return modifyError
+				})
+			},
+		}),
+		newWorkspaceTool(workspaceToolConfiguration{
+			name:                        "project_workspace",
+			description:                 "Manage files in a shared project's workspace. Use PROJECT.md as the canonical main project document.",
+			scopeIdParameterName:        "projectId",
+			scopeIdParameterDescription: "Project ID for project's workspace operations.",
+			resolveScope: func(_ context.Context, scopeId string) (models.Scope, string, error) {
+				if scopeId == "" {
+					return "", "", fmt.Errorf("projectId is required")
+				}
+				return models.ScopeProject, scopeId, nil
+			},
+			afterMutate: func(ctx context.Context, scopeId string) error {
+				return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+					_, modifyError := transaction.ModifyProject(ctx, scopeId, func(project *models.Project) error {
+						now := time.Now()
+						project.ModifiedAt = &now
+						return nil
+					}, nil)
+					return modifyError
+				})
+			},
+		}),
 	}
-	full := filepath.Join(memoryDirectory, cleaned)
-	if !strings.HasPrefix(full, memoryDirectory) {
-		return "", fmt.Errorf("path traversal denied: %s", rel)
-	}
-	return full, nil
 }
 
 // --- workspace (consolidated) ---
 
-type workspaceTool struct {
-	name             string
-	description      string
-	resolveDirectory func(ctx context.Context) (string, error)
+type workspaceToolConfiguration struct {
+	name                        string
+	description                 string
+	scopeIdParameterName        string // if non-empty, add as a required parameter and read from arguments
+	scopeIdParameterDescription string
+	resolveScope                func(ctx context.Context, scopeId string) (models.Scope, string, error)
+	afterMutate                 func(ctx context.Context, scopeId string) error // called after write/append/delete/move
 }
 
-func newWorkspaceTool(name, description string, resolveDirectory func(ctx context.Context) (string, error)) *workspaceTool {
-	return &workspaceTool{
-		name:             name,
-		description:      description,
-		resolveDirectory: resolveDirectory,
-	}
+type workspaceTool struct {
+	configuration workspaceToolConfiguration
+}
+
+func newWorkspaceTool(configuration workspaceToolConfiguration) *workspaceTool {
+	return &workspaceTool{configuration: configuration}
 }
 
 func (self *workspaceTool) Definition() providers.ToolDefinition {
+	actions := []string{"read", "write", "list", "append", "search", "delete", "move"}
+	properties := map[string]interface{}{
+		"action": map[string]interface{}{
+			"type":        "string",
+			"enum":        actions,
+			"description": "The workspace action to perform.",
+		},
+		"path": map[string]interface{}{
+			"type":        "string",
+			"description": "Relative path of the file (for read, write, append, delete actions).",
+		},
+		"content": map[string]interface{}{
+			"type":        "string",
+			"description": "Content to write or append (for write, append actions).",
+		},
+		"query": map[string]interface{}{
+			"type":        "string",
+			"description": "Text to search for, case-insensitive substring match (for search action).",
+		},
+		"maxResults": map[string]interface{}{
+			"type":        "integer",
+			"description": "Maximum number of matching lines to return, default 10 (for search action).",
+		},
+	}
+
+	required := []string{"action"}
+
+	if self.configuration.scopeIdParameterName != "" {
+		properties[self.configuration.scopeIdParameterName] = map[string]interface{}{
+			"type":        "string",
+			"description": self.configuration.scopeIdParameterDescription,
+		}
+		required = append(required, self.configuration.scopeIdParameterName)
+	}
+
+	properties["fromPath"] = map[string]interface{}{
+		"type":        "string",
+		"description": "Source relative path for move.",
+	}
+	properties["toPath"] = map[string]interface{}{
+		"type":        "string",
+		"description": "Destination relative path for move.",
+	}
+
+	descriptionSuffix := " Actions: read (read a file), write (create/overwrite a file), " +
+		"list (list all files), append (append to a file), search (search across files), delete (delete a file), move (move a file)."
+
 	return providers.ToolDefinition{
 		Type: "function",
 		Function: providers.FunctionSpec{
-			Name: self.name,
-			Description: self.description + " Actions: read (read a file), write (create/overwrite a file), " +
-				"list (list all files), append (append to a file), search (search across files), delete (delete a file).",
+			Name:        self.configuration.name,
+			Description: self.configuration.description + descriptionSuffix,
 			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"action": map[string]interface{}{
-						"type":        "string",
-						"enum":        []string{"read", "write", "list", "append", "search", "delete"},
-						"description": "The workspace action to perform.",
-					},
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Relative path of the file (for read, write, append, delete actions).",
-					},
-					"content": map[string]interface{}{
-						"type":        "string",
-						"description": "Content to write or append (for write, append actions).",
-					},
-					"query": map[string]interface{}{
-						"type":        "string",
-						"description": "Text to search for, case-insensitive substring match (for search action).",
-					},
-					"maxResults": map[string]interface{}{
-						"type":        "integer",
-						"description": "Maximum number of matching lines to return, default 10 (for search action).",
-					},
-				},
-				"required": []string{"action"},
+				"type":       "object",
+				"properties": properties,
+				"required":   required,
 			},
 			Returns: map[string]interface{}{
 				"type":        "object",
@@ -132,59 +205,145 @@ func (self *workspaceTool) Execute(ctx context.Context, rawArguments string) (st
 	var arguments struct {
 		Action     string `json:"action"`
 		Path       string `json:"path"`
+		FromPath   string `json:"fromPath"`
+		ToPath     string `json:"toPath"`
 		Content    string `json:"content"`
 		Query      string `json:"query"`
 		MaxResults int    `json:"maxResults"`
+		// Generic scope ID field — read dynamically below.
+		ScopeID string `json:"-"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
 
-	directory, err := self.resolveDirectory(ctx)
-	if err != nil {
-		return "", err
+	// Extract scope ID from the named parameter if configured.
+	if self.configuration.scopeIdParameterName != "" {
+		var rawMap map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(rawArguments), &rawMap); err == nil {
+			if raw, ok := rawMap[self.configuration.scopeIdParameterName]; ok {
+				var scopeId string
+				if err := json.Unmarshal(raw, &scopeId); err == nil {
+					arguments.ScopeID = scopeId
+				}
+			}
+		}
+	}
+
+	scope, scopeId, scopeError := self.configuration.resolveScope(ctx, arguments.ScopeID)
+	if scopeError != nil {
+		return "", scopeError
 	}
 
 	switch arguments.Action {
 	case "read":
-		return self.executeRead(directory, arguments.Path)
+		return self.executeRead(ctx, scope, scopeId, arguments.Path)
 	case "write":
-		return self.executeWrite(directory, arguments.Path, arguments.Content)
+		result, err := self.executeWrite(ctx, scope, scopeId, arguments.Path, arguments.Content)
+		if err != nil {
+			return "", err
+		}
+		self.callAfterMutate(ctx, scopeId)
+		return result, nil
 	case "list":
-		return self.executeList(directory)
+		return self.executeList(ctx, scope, scopeId)
 	case "append":
-		return self.executeAppend(directory, arguments.Path, arguments.Content)
+		result, err := self.executeAppend(ctx, scope, scopeId, arguments.Path, arguments.Content)
+		if err != nil {
+			return "", err
+		}
+		self.callAfterMutate(ctx, scopeId)
+		return result, nil
 	case "search":
-		return self.executeSearch(directory, arguments.Query, arguments.MaxResults)
+		return self.executeSearch(ctx, scope, scopeId, arguments.Query, arguments.MaxResults)
 	case "delete":
-		return self.executeDelete(directory, arguments.Path)
+		result, err := self.executeDelete(ctx, scope, scopeId, arguments.Path)
+		if err != nil {
+			return "", err
+		}
+		self.callAfterMutate(ctx, scopeId)
+		return result, nil
+	case "move":
+		result, err := self.executeMove(ctx, scope, scopeId, arguments.FromPath, arguments.ToPath)
+		if err != nil {
+			return "", err
+		}
+		self.callAfterMutate(ctx, scopeId)
+		return result, nil
 	default:
 		return "", fmt.Errorf("unknown workspace action: %s", arguments.Action)
 	}
 }
 
-func (self *workspaceTool) executeRead(directory, path string) (string, error) {
-	full, err := safePath(directory, path)
+func (self *workspaceTool) callAfterMutate(ctx context.Context, scopeId string) {
+	if self.configuration.afterMutate != nil {
+		if err := self.configuration.afterMutate(ctx, scopeId); err != nil {
+			log.Warningf("failed to call after mutate: %v", err)
+		}
+	}
+}
+
+func (self *workspaceTool) executeRead(
+	ctx context.Context,
+	scope models.Scope,
+	scopeId string,
+	path string,
+) (string, error) {
+	normalizedPath, err := normalizeRelativePath(path)
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(full)
-	if err != nil {
+	content := ""
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		file, err := transaction.GetWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, nil)
+		if err != nil {
+			return err
+		}
+		if file.Content != nil {
+			content = string(*file.Content)
+		}
+		return nil
+	}); err != nil {
 		return "", fmt.Errorf("reading file: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":  "read",
-		"content": string(data),
+		"content": content,
 	})
 	return string(output), nil
 }
 
-func (self *workspaceTool) executeWrite(directory, path string, content string) (string, error) {
-	full, err := safePath(directory, path)
+func (self *workspaceTool) executeWrite(
+	ctx context.Context,
+	scope models.Scope,
+	scopeId string,
+	path string,
+	content string,
+) (string, error) {
+	normalizedPath, err := normalizeRelativePath(path)
 	if err != nil {
 		return "", err
 	}
-	if err := atomicfile.WriteFile(full, []byte(content)); err != nil {
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		contentBytes := []byte(content)
+		_, modifyError := transaction.ModifyWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, func(file *models.WorkspaceFile) error {
+			file.Content = &contentBytes
+			return nil
+		}, nil)
+		if modifyError == nil {
+			return nil
+		}
+		if modifyError != store.ErrNotFound {
+			return modifyError
+		}
+		_, createError := transaction.CreateWorkspaceFile(ctx, &models.WorkspaceFile{
+			Scope:   &scope,
+			ScopeID: &scopeId,
+			Path:    &normalizedPath,
+			Content: &contentBytes,
+		}, nil)
+		return createError
+	}); err != nil {
 		return "", fmt.Errorf("writing file: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
@@ -194,23 +353,27 @@ func (self *workspaceTool) executeWrite(directory, path string, content string) 
 	return string(output), nil
 }
 
-func (self *workspaceTool) executeList(directory string) (string, error) {
-	var files []string
-	err := filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
+func (self *workspaceTool) executeList(
+	ctx context.Context,
+	scope models.Scope,
+	scopeId string,
+) (string, error) {
+	files := []string{}
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		workspaceFiles, err := transaction.ListWorkspaceFilesByPath(ctx, scope, scopeId, "", nil)
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() {
-			relative, _ := filepath.Rel(directory, path)
-			files = append(files, relative)
+		files = make([]string, 0, len(workspaceFiles))
+		for _, file := range workspaceFiles {
+			path := file.GetPath()
+			if path != "" {
+				files = append(files, path)
+			}
 		}
 		return nil
-	})
-	if err != nil && !os.IsNotExist(err) {
+	}); err != nil {
 		return "", fmt.Errorf("listing files: %w", err)
-	}
-	if files == nil {
-		files = []string{}
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action": "list",
@@ -219,20 +382,43 @@ func (self *workspaceTool) executeList(directory string) (string, error) {
 	return string(output), nil
 }
 
-func (self *workspaceTool) executeAppend(directory, path string, content string) (string, error) {
-	full, err := safePath(directory, path)
+func (self *workspaceTool) executeAppend(
+	ctx context.Context,
+	scope models.Scope,
+	scopeId string,
+	path string,
+	content string,
+) (string, error) {
+	normalizedPath, err := normalizeRelativePath(path)
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
-		return "", fmt.Errorf("creating directories: %w", err)
-	}
-	file, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return "", fmt.Errorf("opening file: %w", err)
-	}
-	defer file.Close()
-	if _, err := file.WriteString(content + "\n"); err != nil {
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		existingContent := ""
+		file, getError := transaction.GetWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, nil)
+		if getError == nil && file.Content != nil {
+			existingContent = string(*file.Content)
+		}
+		nextContent := existingContent + content + "\n"
+		contentBytes := []byte(nextContent)
+		if getError == nil {
+			_, modifyError := transaction.ModifyWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, func(file *models.WorkspaceFile) error {
+				file.Content = &contentBytes
+				return nil
+			}, nil)
+			return modifyError
+		}
+		if getError != store.ErrNotFound {
+			return getError
+		}
+		_, createError := transaction.CreateWorkspaceFile(ctx, &models.WorkspaceFile{
+			Scope:   &scope,
+			ScopeID: &scopeId,
+			Path:    &normalizedPath,
+			Content: &contentBytes,
+		}, nil)
+		return createError
+	}); err != nil {
 		return "", fmt.Errorf("appending to file: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
@@ -242,58 +428,51 @@ func (self *workspaceTool) executeAppend(directory, path string, content string)
 	return string(output), nil
 }
 
-func (self *workspaceTool) executeSearch(directory, query string, maxResults int) (string, error) {
+func (self *workspaceTool) executeSearch(
+	ctx context.Context,
+	scope models.Scope,
+	scopeId string,
+	query string,
+	maxResults int,
+) (string, error) {
 	if query == "" {
 		return "", fmt.Errorf("query is required")
 	}
 	if maxResults <= 0 {
 		maxResults = 10
 	}
-
-	queryLower := strings.ToLower(query)
 	type matchEntry struct {
 		Path string `json:"path"`
 		Line int    `json:"line"`
 		Text string `json:"text"`
 	}
-	var matches []matchEntry
-
-	err := filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
+	matches := []matchEntry{}
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		limit := uint64(maxResults)
+		includeContent := true
+		results, err := transaction.SearchWorkspaceFiles(ctx, scope, scopeId, query, store.WorkspaceSearchOptions{
+			Limit:          &limit,
+			IncludeContent: &includeContent,
+		}, nil)
 		if err != nil {
-			return nil // skip errors
+			return err
 		}
-		if info.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(path, ".md") && !strings.HasSuffix(path, ".txt") {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		relative, _ := filepath.Rel(directory, path)
-		lines := strings.Split(string(data), "\n")
-		for index, line := range lines {
-			if len(matches) >= maxResults {
-				return filepath.SkipAll
+		for _, result := range results {
+			path := valueor.Zero(result.Path)
+			if path == "" || !isSearchableFile(path) {
+				continue
 			}
-			if strings.Contains(strings.ToLower(line), queryLower) {
-				matches = append(matches, matchEntry{
-					Path: relative,
-					Line: index + 1,
-					Text: line,
-				})
+			lines := valueor.Zero(result.MatchedLines)
+			for index, line := range lines {
+				matches = append(matches, matchEntry{Path: path, Line: index + 1, Text: line})
+				if len(matches) >= maxResults {
+					return nil
+				}
 			}
 		}
 		return nil
-	})
-	if err != nil && !os.IsNotExist(err) {
+	}); err != nil {
 		return "", fmt.Errorf("searching files: %w", err)
-	}
-
-	if matches == nil {
-		matches = []matchEntry{}
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":  "search",
@@ -302,38 +481,20 @@ func (self *workspaceTool) executeSearch(directory, query string, maxResults int
 	return string(output), nil
 }
 
-func (self *workspaceTool) executeDelete(directory, path string) (string, error) {
-	full, err := safePath(directory, path)
+func (self *workspaceTool) executeDelete(
+	ctx context.Context,
+	scope models.Scope,
+	scopeId string,
+	path string,
+) (string, error) {
+	normalizedPath, err := normalizeRelativePath(path)
 	if err != nil {
 		return "", err
 	}
-	info, err := os.Stat(full)
-	if err != nil {
-		return "", fmt.Errorf("file not found: %w", err)
-	}
-	if info.IsDir() {
-		return "", fmt.Errorf("cannot delete directories, only files")
-	}
-	dataDirectory := configs.Directory()
-	if isPathInsideDirectory(full, dataDirectory) {
-		trashDirectory := configs.TrashDirectory()
-		if err := trash.Move(full, trashDirectory); err != nil {
-			return "", fmt.Errorf("deleting file: %w", err)
-		}
-	} else {
-		if err := os.Remove(full); err != nil {
-			return "", fmt.Errorf("deleting file: %w", err)
-		}
-	}
-	// Remove empty parent directories up to the workspace root.
-	currentDirectory := filepath.Dir(full)
-	for currentDirectory != directory {
-		entries, err := os.ReadDir(currentDirectory)
-		if err != nil || len(entries) > 0 {
-			break
-		}
-		os.Remove(currentDirectory)
-		currentDirectory = filepath.Dir(currentDirectory)
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		return transaction.DeleteWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, nil)
+	}); err != nil {
+		return "", fmt.Errorf("deleting file: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":  "delete",
@@ -342,18 +503,80 @@ func (self *workspaceTool) executeDelete(directory, path string) (string, error)
 	return string(output), nil
 }
 
-func isPathInsideDirectory(path, directory string) bool {
-	absolutePath, err := filepath.Abs(path)
-	if err != nil {
+func (self *workspaceTool) executeMove(
+	ctx context.Context,
+	scope models.Scope,
+	scopeId string,
+	fromPath string,
+	toPath string,
+) (string, error) {
+	normalizedFromPath, fromError := normalizeRelativePath(fromPath)
+	if fromError != nil {
+		return "", fromError
+	}
+	normalizedToPath, toError := normalizeRelativePath(toPath)
+	if toError != nil {
+		return "", toError
+	}
+	if normalizedFromPath == normalizedToPath {
+		output, _ := json.Marshal(map[string]interface{}{"action": "move", "success": true})
+		return string(output), nil
+	}
+
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		sourceFile, getError := transaction.GetWorkspaceFileByPath(ctx, scope, scopeId, normalizedFromPath, nil)
+		if getError != nil {
+			return getError
+		}
+		contentBytes := []byte{}
+		if sourceFile.Content != nil {
+			contentBytes = append(contentBytes, (*sourceFile.Content)...)
+		}
+		_, createError := transaction.CreateWorkspaceFile(ctx, &models.WorkspaceFile{
+			Scope:   ptrto.Value(scope),
+			ScopeID: ptrto.Value(scopeId),
+			Path:    &normalizedToPath,
+			Content: &contentBytes,
+		}, nil)
+		if createError != nil {
+			if createError != store.ErrAlreadyExists {
+				return createError
+			}
+			_, modifyError := transaction.ModifyWorkspaceFileByPath(ctx, scope, scopeId, normalizedToPath, func(existingFile *models.WorkspaceFile) error {
+				existingFile.Content = &contentBytes
+				return nil
+			}, nil)
+			if modifyError != nil {
+				return modifyError
+			}
+		}
+		return transaction.DeleteWorkspaceFileByPath(ctx, scope, scopeId, normalizedFromPath, nil)
+	}); err != nil {
+		return "", fmt.Errorf("moving file: %w", err)
+	}
+	output, _ := json.Marshal(map[string]interface{}{
+		"action":  "move",
+		"success": true,
+	})
+	return string(output), nil
+}
+
+// isSearchableFile returns true if the file extension indicates a text-based
+// file that can be meaningfully searched for content matches.
+func isSearchableFile(path string) bool {
+	extension := strings.ToLower(filepath.Ext(path))
+	switch extension {
+	case ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".xml", ".csv", ".log", ".ini", ".cfg", ".conf", ".env", ".sh", ".bat", ".ps1":
+		return true
+	default:
 		return false
 	}
-	absoluteDirectory, err := filepath.Abs(directory)
-	if err != nil {
-		return false
+}
+
+func normalizeRelativePath(path string) (string, error) {
+	cleanedPath := filepath.Clean(path)
+	if cleanedPath == "." || cleanedPath == "" || filepath.IsAbs(cleanedPath) || cleanedPath == ".." || strings.HasPrefix(cleanedPath, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid path: %s", path)
 	}
-	relativePath, err := filepath.Rel(absoluteDirectory, absolutePath)
-	if err != nil {
-		return false
-	}
-	return relativePath == "." || (!strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) && relativePath != "..")
+	return cleanedPath, nil
 }

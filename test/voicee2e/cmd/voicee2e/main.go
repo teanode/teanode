@@ -15,24 +15,24 @@ import (
 )
 
 func main() {
-	var cfg model.RunnerConfig
-	flag.StringVar(&cfg.GatewayURL, "gateway-url", "http://127.0.0.1:8833", "TeaNode gateway base URL")
-	flag.StringVar(&cfg.SuitePath, "suite", "test/voicee2e/scenarios/suite.yaml", "Path to suite YAML")
-	flag.StringVar(&cfg.Scenario, "scenario", "", "Run only one scenario ID")
-	flag.StringVar(&cfg.OutPath, "out", "", "Output JSON report path")
-	flag.StringVar(&cfg.ConfigJSON, "config", "", "Inline JSON config overrides (e.g. feature flags)")
-	flag.StringVar(&cfg.PromptPath, "prompt", "", "Prompt variant file path")
-	flag.BoolVar(&cfg.Compare, "compare", false, "Compare mode")
-	flag.StringVar(&cfg.PromptA, "prompt-a", "", "Prompt A report JSON path")
-	flag.StringVar(&cfg.PromptB, "prompt-b", "", "Prompt B report JSON path")
+	var configuration model.RunnerConfiguration
+	flag.StringVar(&configuration.GatewayURL, "gateway-url", "http://127.0.0.1:8833", "TeaNode gateway base URL")
+	flag.StringVar(&configuration.SuitePath, "suite", "test/voicee2e/scenarios/suite.yaml", "Path to suite YAML")
+	flag.StringVar(&configuration.Scenario, "scenario", "", "Run only one scenario ID")
+	flag.StringVar(&configuration.OutputPath, "out", "", "Output JSON report path")
+	flag.StringVar(&configuration.ConfigJSON, "config", "", "Inline JSON config overrides (e.g. feature flags)")
+	flag.StringVar(&configuration.PromptPath, "prompt", "", "Prompt variant file path")
+	flag.BoolVar(&configuration.Compare, "compare", false, "Compare mode")
+	flag.StringVar(&configuration.PromptA, "prompt-a", "", "Prompt A report JSON path")
+	flag.StringVar(&configuration.PromptB, "prompt-b", "", "Prompt B report JSON path")
 	flag.Parse()
 
-	if cfg.OutPath == "" {
-		cfg.OutPath = filepath.Join("test", "voicee2e", "reports", fmt.Sprintf("report-%d.json", time.Now().Unix()))
+	if configuration.OutputPath == "" {
+		configuration.OutputPath = filepath.Join("test", "voicee2e", "reports", fmt.Sprintf("report-%d.json", time.Now().Unix()))
 	}
 
-	if cfg.Compare {
-		if err := compareReports(cfg); err != nil {
+	if configuration.Compare {
+		if err := compareReports(configuration); err != nil {
 			fmt.Fprintf(os.Stderr, "compare failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -40,63 +40,63 @@ func main() {
 	}
 
 	ctx := context.Background()
-	run := runner.New(cfg.GatewayURL)
-	result, err := run.RunSuite(ctx, cfg)
+	run := runner.New(configuration.GatewayURL)
+	result, err := run.RunSuite(ctx, configuration)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run failed: %v\n", err)
 		os.Exit(1)
 	}
-	if err := report.WriteJSON(cfg.OutPath, result); err != nil {
+	if err := report.WriteJSON(configuration.OutputPath, result); err != nil {
 		fmt.Fprintf(os.Stderr, "write report failed: %v\n", err)
 		os.Exit(1)
 	}
-	mdPath := cfg.OutPath + ".md"
-	if err := os.WriteFile(mdPath, []byte(report.RenderMarkdown(result)), 0o644); err != nil {
+	markdownPath := configuration.OutputPath + ".md"
+	if err := os.WriteFile(markdownPath, []byte(report.RenderMarkdown(result)), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "write markdown report failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("voicee2e report: %s\n", cfg.OutPath)
+	fmt.Printf("voicee2e report: %s\n", configuration.OutputPath)
 	if result.FailedCount > 0 {
 		os.Exit(2)
 	}
 }
 
-func compareReports(cfg model.RunnerConfig) error {
-	if cfg.PromptA == "" || cfg.PromptB == "" {
+func compareReports(configuration model.RunnerConfiguration) error {
+	if configuration.PromptA == "" || configuration.PromptB == "" {
 		return fmt.Errorf("--compare requires --prompt-a and --prompt-b")
 	}
 	var base model.RunReport
-	var cand model.RunReport
-	if err := readJson(cfg.PromptA, &base); err != nil {
+	var candidate model.RunReport
+	if err := readJson(configuration.PromptA, &base); err != nil {
 		return fmt.Errorf("read prompt-a: %w", err)
 	}
-	if err := readJson(cfg.PromptB, &cand); err != nil {
+	if err := readJson(configuration.PromptB, &candidate); err != nil {
 		return fmt.Errorf("read prompt-b: %w", err)
 	}
 	start := time.Now()
 	summary := []string{
 		fmt.Sprintf("base failed=%d/%d", base.FailedCount, base.ScenarioCount),
-		fmt.Sprintf("candidate failed=%d/%d", cand.FailedCount, cand.ScenarioCount),
+		fmt.Sprintf("candidate failed=%d/%d", candidate.FailedCount, candidate.ScenarioCount),
 	}
-	comp := model.CompareReport{
-		Version:   "v1",
-		StartedAt: start,
-		EndedAt:   time.Now(),
-		BasePath:  cfg.PromptA,
-		CandPath:  cfg.PromptB,
-		Summary:   summary,
+	comparison := model.CompareReport{
+		Version:       "v1",
+		StartedAt:     start,
+		EndedAt:       time.Now(),
+		BasePath:      configuration.PromptA,
+		CandidatePath: configuration.PromptB,
+		Summary:       summary,
 	}
-	out := cfg.OutPath
-	if out == "" {
-		out = filepath.Join("test", "voicee2e", "reports", fmt.Sprintf("compare-%d.json", time.Now().Unix()))
+	output := configuration.OutputPath
+	if output == "" {
+		output = filepath.Join("test", "voicee2e", "reports", fmt.Sprintf("compare-%d.json", time.Now().Unix()))
 	}
-	return report.WriteJSON(out, comp)
+	return report.WriteJSON(output, comparison)
 }
 
-func readJson(path string, out any) error {
+func readJson(path string, output any) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(raw, out)
+	return json.Unmarshal(raw, output)
 }

@@ -22,11 +22,11 @@ func ExtractCompleteSentences(text string, alreadyEnqueued int) ([]string, int) 
 // FlushRemaining returns the tail fragment after all complete sentences.
 func FlushRemaining(text string, alreadyEnqueued int) string {
 	all, consumed := splitSentences(text)
-	trimmed := strings.TrimSpace(text)
+	trimmed := text
 	if len(all) == 0 {
 		return trimmed
 	}
-	rem := strings.TrimSpace(trimmed[consumed:])
+	rem := trimmed[consumed:]
 	if alreadyEnqueued >= len(all) {
 		return rem
 	}
@@ -38,43 +38,43 @@ func FlushRemaining(text string, alreadyEnqueued int) string {
 	if partialConsumed > len(trimmed) {
 		return ""
 	}
-	return strings.TrimSpace(trimmed[partialConsumed:])
+	return trimmed[partialConsumed:]
 }
 
 func splitSentences(text string) ([]string, int) {
-	runes := []rune(strings.TrimSpace(text))
+	runes := []rune(text)
 	if len(runes) == 0 {
 		return nil, 0
 	}
 	var out []string
 	start := 0
 	lastConsumedRune := 0
-	for i := 0; i < len(runes); i++ {
-		if !isSentenceEndRune(runes[i]) {
+	for index := 0; index < len(runes); index++ {
+		if !isSentenceEndRune(runes[index]) {
 			continue
 		}
-		if runes[i] == '.' && looksLikeAbbreviation(runes[start:i+1]) {
+		if runes[index] == '.' && looksLikeAbbreviation(runes[start:index+1]) {
 			continue
 		}
-		if isASCIIPunct(runes[i]) {
-			if i+1 < len(runes) && !unicode.IsSpace(runes[i+1]) {
+		if isASCIIPunct(runes[index]) {
+			if index+1 < len(runes) && !unicode.IsSpace(runes[index+1]) {
 				continue
 			}
-			if i+1 < len(runes) {
-				j := i + 1
-				for j < len(runes) && unicode.IsSpace(runes[j]) {
-					j++
+			if index+1 < len(runes) {
+				innerIndex := index + 1
+				for innerIndex < len(runes) && unicode.IsSpace(runes[innerIndex]) {
+					innerIndex++
 				}
-				if j < len(runes) && !unicode.IsUpper(runes[j]) {
+				if innerIndex < len(runes) && !unicode.IsUpper(runes[innerIndex]) {
 					continue
 				}
 			}
 		}
-		s := strings.TrimSpace(string(runes[start : i+1]))
-		if s != "" {
-			out = append(out, s)
+		sentence := string(runes[start : index+1])
+		if sentence != "" {
+			out = append(out, sentence)
 		}
-		start = i + 1
+		start = index + 1
 		lastConsumedRune = start
 		for start < len(runes) && unicode.IsSpace(runes[start]) {
 			start++
@@ -88,35 +88,35 @@ func byteOffsetForRuneIndex(text string, runeIdx int) int {
 	if runeIdx <= 0 {
 		return 0
 	}
-	i := 0
+	index := 0
 	for pos := range text {
-		if i == runeIdx {
+		if index == runeIdx {
 			return pos
 		}
-		i++
+		index++
 	}
 	return len(text)
 }
 
-func looksLikeAbbreviation(sentence []rune) bool {
-	s := strings.TrimSpace(string(sentence))
-	if !strings.HasSuffix(s, ".") {
+func looksLikeAbbreviation(sentenceRunes []rune) bool {
+	sentenceString := string(sentenceRunes)
+	if !strings.HasSuffix(sentenceString, ".") {
 		return false
 	}
-	s = strings.TrimSuffix(s, ".")
-	parts := strings.Fields(s)
+	sentenceString = strings.TrimSuffix(sentenceString, ".")
+	parts := strings.Fields(sentenceString)
 	if len(parts) == 0 {
 		return false
 	}
-	last := strings.ToLower(strings.Trim(parts[len(parts)-1], " \t\r\n\"'()[]{}"))
+	last := strings.ToLower(parts[len(parts)-1])
 	_, ok := abbreviations[last]
 	return ok
 }
 
-func isASCIIPunct(r rune) bool {
-	return r == '.' || r == '!' || r == '?'
+func isASCIIPunct(runeValue rune) bool {
+	return runeValue == '.' || runeValue == '!' || runeValue == '?'
 }
 
-func isSentenceEndRune(r rune) bool {
-	return isASCIIPunct(r) || r == '。' || r == '！' || r == '？'
+func isSentenceEndRune(runeValue rune) bool {
+	return isASCIIPunct(runeValue) || runeValue == '。' || runeValue == '！' || runeValue == '？'
 }

@@ -18,7 +18,9 @@ The gateway listens on `http://localhost:8833` by default.
 
 ## Development
 
-### Naming Convention
+Before commit and push, please run formatter and linter for both backend and frontend.
+
+### Naming Convention (IMPORTANT!)
 
 When first alphabetical character is capitalized, also capitalize acronyms:
 
@@ -46,6 +48,8 @@ Do not abbreviate, spell things out clearly. For example:
 - prefer "request" over "req"
 
 Package names being the exception, they should be brief.
+
+Errors should be named `err` whenever possible.
 
 Avoid single letter variables.
 
@@ -104,39 +108,3 @@ After changing dependencies:
 go mod tidy
 go mod vendor
 ```
-
-## Configuration
-
-TeaNode reads config from `~/.teanode/config.json`. Environment variables take precedence:
-
-| Variable | Description |
-|---|---|
-| `OPENAI_API_KEY` | API key for the LLM provider |
-| `TEANODE_GATEWAY_PORT` | Gateway listen port |
-| `TEANODE_GATEWAY_TOKEN` | Bearer token for authentication |
-
-Example `config.json`:
-
-```json
-{
-  "gateway": {
-    "port": 8833,
-    "bind": "loopback"
-  },
-  "models": {
-    "default": "gpt-5.1",
-    "provider": "openai",
-    "baseUrl": "https://api.openai.com/v1"
-  }
-}
-```
-
-## Workspace
-
-On first run, TeaNode creates `~/.teanode/workspace/` with:
-
-- `AGENTS.md` -- agent operating instructions (editable by the agent or user)
-- `MEMORY.md` -- long-term curated memories
-- `memory/` -- daily logs (`YYYY-MM-DD.md`)
-
-These files are injected into the system prompt each session. The agent can read, write, append, and search workspace files using its built-in memory tools.

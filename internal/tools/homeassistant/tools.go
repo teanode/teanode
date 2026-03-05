@@ -11,7 +11,11 @@ import (
 const maxHistoryEntries = 50
 
 // homeAssistantTool implements the consolidated home_assistant tool.
-type homeAssistantTool struct {
+type homeAssistantTool struct{}
+
+// homeAssistantExecution holds per-call client and access checker
+// built from the current store configuration.
+type homeAssistantExecution struct {
 	client  Client
 	checker *AccessChecker
 }
@@ -92,6 +96,23 @@ func (self *homeAssistantTool) Definition() providers.ToolDefinition {
 }
 
 func (self *homeAssistantTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	configuration := configurationFromContext(ctx)
+	if configuration.baseUrl == "" {
+		return "", fmt.Errorf("Home Assistant tool is not configured: baseUrl is missing")
+	}
+	if configuration.token == "" {
+		return "", fmt.Errorf("Home Assistant tool is not configured: token is missing")
+	}
+
+	execution := &homeAssistantExecution{
+		client:  NewHTTPClient(configuration.baseUrl, configuration.token, configuration.timeoutSeconds),
+		checker: NewAccessChecker(configuration),
+	}
+
+	return execution.execute(ctx, rawArguments)
+}
+
+func (self *homeAssistantExecution) execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action     string                 `json:"action"`
 		Domain     string                 `json:"domain"`
@@ -122,7 +143,7 @@ func (self *homeAssistantTool) Execute(ctx context.Context, rawArguments string)
 	}
 }
 
-func (self *homeAssistantTool) executeListEntities(ctx context.Context, domain string) (string, error) {
+func (self *homeAssistantExecution) executeListEntities(ctx context.Context, domain string) (string, error) {
 	states, err := self.client.GetStates(ctx)
 	if err != nil {
 		return "", fmt.Errorf("listing entities: %w", err)
@@ -163,7 +184,7 @@ func (self *homeAssistantTool) executeListEntities(ctx context.Context, domain s
 	})
 }
 
-func (self *homeAssistantTool) executeGetState(ctx context.Context, entityId string) (string, error) {
+func (self *homeAssistantExecution) executeGetState(ctx context.Context, entityId string) (string, error) {
 	if entityId == "" {
 		return "", fmt.Errorf("entityId is required for get_state action")
 	}
@@ -182,7 +203,7 @@ func (self *homeAssistantTool) executeGetState(ctx context.Context, entityId str
 	})
 }
 
-func (self *homeAssistantTool) executeControl(ctx context.Context, entityId string, command string, attributes map[string]interface{}) (string, error) {
+func (self *homeAssistantExecution) executeControl(ctx context.Context, entityId string, command string, attributes map[string]interface{}) (string, error) {
 	if !self.checker.IsWriteAllowed() {
 		return "", fmt.Errorf("control action is blocked: Home Assistant is configured in read-only mode")
 	}
@@ -226,7 +247,7 @@ func (self *homeAssistantTool) executeControl(ctx context.Context, entityId stri
 	})
 }
 
-func (self *homeAssistantTool) executeTriggerScene(ctx context.Context, entityId string) (string, error) {
+func (self *homeAssistantExecution) executeTriggerScene(ctx context.Context, entityId string) (string, error) {
 	if !self.checker.IsWriteAllowed() {
 		return "", fmt.Errorf("trigger_scene action is blocked: Home Assistant is configured in read-only mode")
 	}
@@ -258,7 +279,7 @@ func (self *homeAssistantTool) executeTriggerScene(ctx context.Context, entityId
 	})
 }
 
-func (self *homeAssistantTool) executeListAreas(ctx context.Context) (string, error) {
+func (self *homeAssistantExecution) executeListAreas(ctx context.Context) (string, error) {
 	// TODO: HA areas require WebSocket API (config/area_registry/list).
 	// For now, return an empty list. A future version should use the WS API.
 	log.Debugf("list_areas: returning empty list (WebSocket API not yet implemented)")
@@ -269,7 +290,7 @@ func (self *homeAssistantTool) executeListAreas(ctx context.Context) (string, er
 	})
 }
 
-func (self *homeAssistantTool) executeGetHistory(ctx context.Context, entityId string, hours int) (string, error) {
+func (self *homeAssistantExecution) executeGetHistory(ctx context.Context, entityId string, hours int) (string, error) {
 	if entityId == "" {
 		return "", fmt.Errorf("entityId is required for get_history action")
 	}

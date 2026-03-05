@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/integrations/terminals"
+	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/screenbuffer"
 	"github.com/urfave/cli/v3"
 )
@@ -113,11 +113,13 @@ func NewTerminalCommand() *cli.Command {
 
 			// Goroutine: stdin -> PTY master.
 			go func() {
+				defer deferutil.Recover()
 				io.Copy(master, os.Stdin)
 			}()
 
 			// Goroutine: PTY master -> stdout + screen buffer.
 			go func() {
+				defer deferutil.Recover()
 				chunk := make([]byte, 4096)
 				for {
 					bytesRead, err := master.Read(chunk)
@@ -136,6 +138,7 @@ func NewTerminalCommand() *cli.Command {
 			signal.Notify(sigwinch, syscall.SIGWINCH)
 			defer signal.Stop(sigwinch)
 			go func() {
+				defer deferutil.Recover()
 				for range sigwinch {
 					rows, cols := currentTerminalSize()
 					_ = terminals.SetWinSize(int(master.Fd()), rows, cols)
@@ -146,13 +149,7 @@ func NewTerminalCommand() *cli.Command {
 			// Connect to gateway WebSocket.
 			gatewayUrl := command.String("gateway")
 			token := command.String("token")
-			// Default token from security.yaml if --token is not provided.
-			if token == "" {
-				if securityConfig, err := configs.LoadSecurity(); err == nil {
-					token = securityConfig.LatestToken()
-				}
-			}
-			name := strings.TrimSpace(command.String("name"))
+			name := command.String("name")
 			if name == "" {
 				name = defaultTerminalConnectionId()
 			}
@@ -167,18 +164,24 @@ func NewTerminalCommand() *cli.Command {
 }
 
 func defaultTerminalConnectionId() string {
+	username := "teanode"
+	if currentUser, err := user.Current(); err == nil {
+		if value := currentUser.Username; value != "" {
+			username = value
+		}
+	}
 	hostname, _ := os.Hostname()
 	hostname = strings.TrimSpace(hostname)
 	if hostname == "" {
 		hostname = "host"
 	}
-	return fmt.Sprintf("%s@%s:%d", configs.OSUsername(), hostname, os.Getpid())
+	return fmt.Sprintf("%s@%s:%d", username, hostname, os.Getpid())
 }
 
 func currentTerminalSize() (rows, cols uint16) {
 	candidates := []int{int(os.Stdout.Fd()), int(os.Stderr.Fd()), int(os.Stdin.Fd())}
-	for _, fd := range candidates {
-		if rows, cols, err := terminals.GetWinSize(fd); err == nil && rows > 0 && cols > 0 {
+	for _, fileDescriptor := range candidates {
+		if rows, cols, err := terminals.GetWinSize(fileDescriptor); err == nil && rows > 0 && cols > 0 {
 			return rows, cols
 		}
 	}
@@ -186,6 +189,7 @@ func currentTerminalSize() (rows, cols uint16) {
 }
 
 func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand string, master *os.File, buffer *screenbuffer.Buffer) {
+	defer deferutil.Recover()
 	parsedUrl, err := url.Parse(gatewayUrl)
 	if err != nil {
 		log.Errorf("terminal: invalid gateway URL: %v", err)
@@ -265,10 +269,10 @@ func serveGatewayConnection(ctx context.Context, url string, shellCommand string
 			}
 			_, writeErr := master.Write([]byte(parameters.Data))
 			if writeErr != nil {
-				errStr := writeErr.Error()
+				errorString := writeErr.Error()
 				response, _ := json.Marshal(map[string]interface{}{
 					"id":    message.ID,
-					"error": errStr,
+					"error": errorString,
 				})
 				connection.WriteMessage(websocket.TextMessage, response)
 			} else {

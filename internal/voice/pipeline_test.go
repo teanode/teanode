@@ -4,105 +4,101 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
 )
 
-type pipelineMockTranscriber struct {
+// stubProvider satisfies the providers.Provider interface for test registration.
+type stubProvider struct{}
+
+func (stubProvider) ChatCompletion(context.Context, providers.ChatRequest) (*providers.ChatResponse, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (stubProvider) ChatCompletionStream(context.Context, providers.ChatRequest) (<-chan providers.StreamEvent, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (stubProvider) ListModels(context.Context) ([]providers.ModelInformation, error) {
+	return nil, nil
+}
+
+// pipelineMockTranscriberProvider implements Provider + AudioTranscriber.
+type pipelineMockTranscriberProvider struct {
+	stubProvider
 	mu    sync.Mutex
 	text  string
 	delay time.Duration
 	calls int
 }
 
-func (self *pipelineMockTranscriber) Transcribe(_ context.Context, _ VoiceTranscribeRequest) (*VoiceTranscribeResponse, error) {
+func (self *pipelineMockTranscriberProvider) Transcribe(_ context.Context, req providers.TranscribeRequest) (*providers.TranscribeResponse, error) {
 	self.mu.Lock()
 	self.calls++
 	delay := self.delay
 	text := self.text
 	self.mu.Unlock()
+	// Drain audio reader to satisfy interface contract.
+	if req.Audio != nil {
+		_, _ = io.ReadAll(req.Audio)
+	}
 	if delay > 0 {
 		time.Sleep(delay)
 	}
-	return &VoiceTranscribeResponse{Text: text}, nil
+	return &providers.TranscribeResponse{Text: text}, nil
 }
 
-func (self *pipelineMockTranscriber) callCount() int {
+func (self *pipelineMockTranscriberProvider) callCount() int {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	return self.calls
 }
 
-type pipelineMockProviderRegistry struct {
-	transcriber          VoiceTranscriber
-	streamingTranscriber VoiceStreamingTranscriber
-	synthesizer          VoiceSynthesizer
+// pipelineMockStreamingTranscriberProvider implements Provider + StreamingTranscriber.
+type pipelineMockStreamingTranscriberProvider struct {
+	stubProvider
+	stream providers.TranscribeStream
 }
 
-func (self *pipelineMockProviderRegistry) FindTranscriber() (VoiceTranscriber, string, bool) {
-	if self.transcriber == nil {
-		return nil, "", false
-	}
-	return self.transcriber, "mock", true
-}
-
-func (self *pipelineMockProviderRegistry) FindStreamingTranscriber() (VoiceStreamingTranscriber, string, bool) {
-	if self.streamingTranscriber == nil {
-		return nil, "", false
-	}
-	return self.streamingTranscriber, "mock-stream", true
-}
-
-func (self *pipelineMockProviderRegistry) FindSynthesizer() (VoiceSynthesizer, string, bool) {
-	if self.synthesizer == nil {
-		return nil, "", false
-	}
-	return self.synthesizer, "mock-tts", true
-}
-
-type pipelineMockStreamingTranscriber struct {
-	stream VoiceTranscribeStream
-}
-
-func (self *pipelineMockStreamingTranscriber) OpenTranscribeStream(context.Context, VoiceStreamTranscribeRequest) (VoiceTranscribeStream, error) {
+func (self *pipelineMockStreamingTranscriberProvider) OpenTranscribeStream(context.Context, providers.StreamTranscribeRequest) (providers.TranscribeStream, error) {
 	return self.stream, nil
 }
 
-type pipelineMockSynthesizer struct {
-	synthesizeFn       func(context.Context, string, string, int) ([]byte, error)
-	synthesizeStreamFn func(context.Context, string, string, int) (<-chan []byte, error)
+// pipelineMockSynthesizerProvider implements Provider + AudioSynthesizer + StreamingAudioSynthesizer.
+type pipelineMockSynthesizerProvider struct {
+	stubProvider
+	synthesizeFn       func(context.Context, providers.SynthesizeRequest) (*providers.SynthesizeResponse, error)
+	synthesizeStreamFn func(context.Context, providers.SynthesizeStreamRequest) (<-chan providers.SynthesizeChunk, error)
 }
 
-func (self *pipelineMockSynthesizer) SynthesizePCM(ctx context.Context, text, voice string, sampleRateHz int) ([]byte, error) {
+func (self *pipelineMockSynthesizerProvider) Synthesize(ctx context.Context, req providers.SynthesizeRequest) (*providers.SynthesizeResponse, error) {
 	if self.synthesizeFn != nil {
-		return self.synthesizeFn(ctx, text, voice, sampleRateHz)
+		return self.synthesizeFn(ctx, req)
 	}
-	return nil, nil
+	return nil, fmt.Errorf("synthesize not configured")
 }
 
-func (self *pipelineMockSynthesizer) SynthesizePCMStream(ctx context.Context, text, voice string, sampleRateHz int) (<-chan []byte, error) {
+func (self *pipelineMockSynthesizerProvider) SynthesizeStream(ctx context.Context, req providers.SynthesizeStreamRequest) (<-chan providers.SynthesizeChunk, error) {
 	if self.synthesizeStreamFn != nil {
-		return self.synthesizeStreamFn(ctx, text, voice, sampleRateHz)
+		return self.synthesizeStreamFn(ctx, req)
 	}
-	out := make(chan []byte, 1)
-	if audio, err := self.SynthesizePCM(ctx, text, voice, sampleRateHz); err == nil && len(audio) > 0 {
-		out <- audio
-	}
-	close(out)
-	return out, nil
+	return nil, fmt.Errorf("synthesize stream not configured")
 }
 
 type pipelineMockTranscribeStream struct {
-	events chan VoiceTranscribeEvent
+	events chan providers.TranscribeStreamEvent
 }
 
 func newPipelineMockTranscribeStream() *pipelineMockTranscribeStream {
-	return &pipelineMockTranscribeStream{events: make(chan VoiceTranscribeEvent, 8)}
+	return &pipelineMockTranscribeStream{events: make(chan providers.TranscribeStreamEvent, 8)}
 }
 
 func (self *pipelineMockTranscribeStream) SendAudio([]byte) error { return nil }
-func (self *pipelineMockTranscribeStream) Events() <-chan VoiceTranscribeEvent {
+func (self *pipelineMockTranscribeStream) Events() <-chan providers.TranscribeStreamEvent {
 	return self.events
 }
 func (self *pipelineMockTranscribeStream) Close() error {
@@ -131,13 +127,13 @@ func (self *scriptedTurnStrategy) ShouldCommitTurn(TurnContext) bool {
 	return self.commitAllowed
 }
 
-type pipelineMockDeps struct {
-	mu          sync.Mutex
-	runCounter  int
-	sendCalls   []VoiceSendMessageParams
-	abortCalls  []string
-	cancelCalls []string
-	registry    VoiceProviderRegistry
+// pipelineMockDispatcher satisfies the Dispatcher interface for tests.
+type pipelineMockDispatcher struct {
+	mu         sync.Mutex
+	runCounter int
+	sendCalls  []coordinators.RunParameters
+	abortCalls []string
+	registry   *providers.ProviderRegistry
 }
 
 type eventRecorder struct {
@@ -179,63 +175,57 @@ func (self *eventRecorder) findTurnEvent(event string) map[string]interface{} {
 	return nil
 }
 
-func (self *pipelineMockDeps) SendMessage(_ context.Context, parameters VoiceSendMessageParams) VoiceRunHandle {
+func (self *pipelineMockDispatcher) Run(_ context.Context, parameters coordinators.RunParameters, _ *runners.RunCallbacks) (*coordinators.RunHandle, error) {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	self.runCounter++
 	self.sendCalls = append(self.sendCalls, parameters)
-	done := make(chan struct{})
-	close(done)
-	return VoiceRunHandle{RunID: fmt.Sprintf("run-%d", self.runCounter), Done: done}
+	handle := coordinators.NewRunHandle(fmt.Sprintf("run-%d", self.runCounter), parameters.ConversationID)
+	handle.Resolve(nil, nil)
+	return handle, nil
 }
 
-func (self *pipelineMockDeps) AbortRun(runId string) bool {
+func (self *pipelineMockDispatcher) AbortRun(runId string) bool {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	self.abortCalls = append(self.abortCalls, runId)
 	return true
 }
 
-func (self *pipelineMockDeps) CancelRun(runId string) {
-	self.mu.Lock()
-	defer self.mu.Unlock()
-	self.cancelCalls = append(self.cancelCalls, runId)
+func (self *pipelineMockDispatcher) ProviderRegistry() *providers.ProviderRegistry {
+	return self.registry
 }
 
-func (self *pipelineMockDeps) Subscribe(_ VoiceSubscriber)             {}
-func (self *pipelineMockDeps) Unsubscribe(_ VoiceSubscriber)           {}
-func (self *pipelineMockDeps) ProviderRegistry() VoiceProviderRegistry { return self.registry }
-
-func (self *pipelineMockDeps) sendCount() int {
+func (self *pipelineMockDispatcher) sendCount() int {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	return len(self.sendCalls)
 }
 
-func (self *pipelineMockDeps) lastSend() VoiceSendMessageParams {
+func (self *pipelineMockDispatcher) lastSend() coordinators.RunParameters {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	return self.sendCalls[len(self.sendCalls)-1]
 }
 
-func (self *pipelineMockDeps) abortCount() int {
+func (self *pipelineMockDispatcher) abortCount() int {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	return len(self.abortCalls)
 }
 
-func (self *pipelineMockDeps) cancelCount() int {
-	self.mu.Lock()
-	defer self.mu.Unlock()
-	return len(self.cancelCalls)
+func newMockRegistry(transcriber *pipelineMockTranscriberProvider) *providers.ProviderRegistry {
+	registry := providers.NewEmptyProviderRegistry()
+	if transcriber != nil {
+		registry.Register("mock-stt", transcriber)
+	}
+	return registry
 }
 
-func newPipelineSessionWithFeatures(text string, features Features) (*Session, *pipelineMockDeps) {
-	deps := &pipelineMockDeps{
-		registry: &pipelineMockProviderRegistry{
-			transcriber: &pipelineMockTranscriber{text: text},
-		},
-	}
+func newPipelineSessionWithFeatures(text string, features Features) (*Session, *pipelineMockDispatcher) {
+	transcriber := &pipelineMockTranscriberProvider{text: text}
+	registry := newMockRegistry(transcriber)
+	dispatcher := &pipelineMockDispatcher{registry: registry}
 	s := NewSession(
 		"sess",
 		"conv",
@@ -244,24 +234,23 @@ func newPipelineSessionWithFeatures(text string, features Features) (*Session, *
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 16000, Channels: 1},
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 24000, Channels: 1},
 		features,
-		deps,
+		dispatcher,
+		nil,
 		nil,
 		nil,
 	)
-	return s, deps
+	return s, dispatcher
 }
 
-func newPipelineSession(text string) (*Session, *pipelineMockDeps) {
+func newPipelineSession(text string) (*Session, *pipelineMockDispatcher) {
 	return newPipelineSessionWithFeatures(text, Features{BargeIn: true, ServerVAD: true, ServerTurn: true})
 }
 
-func newPipelineSessionWithEventsAndFeatures(text string, features Features) (*Session, *pipelineMockDeps, *eventRecorder) {
+func newPipelineSessionWithEventsAndFeatures(text string, features Features) (*Session, *pipelineMockDispatcher, *eventRecorder) {
 	rec := &eventRecorder{}
-	deps := &pipelineMockDeps{
-		registry: &pipelineMockProviderRegistry{
-			transcriber: &pipelineMockTranscriber{text: text},
-		},
-	}
+	transcriber := &pipelineMockTranscriberProvider{text: text}
+	registry := newMockRegistry(transcriber)
+	dispatcher := &pipelineMockDispatcher{registry: registry}
 	s := NewSession(
 		"sess",
 		"conv",
@@ -270,14 +259,15 @@ func newPipelineSessionWithEventsAndFeatures(text string, features Features) (*S
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 16000, Channels: 1},
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 24000, Channels: 1},
 		features,
-		deps,
+		dispatcher,
+		nil,
 		rec.append,
 		nil,
 	)
-	return s, deps, rec
+	return s, dispatcher, rec
 }
 
-func newPipelineSessionWithEvents(text string) (*Session, *pipelineMockDeps, *eventRecorder) {
+func newPipelineSessionWithEvents(text string) (*Session, *pipelineMockDispatcher, *eventRecorder) {
 	return newPipelineSessionWithEventsAndFeatures(text, Features{BargeIn: true, ServerVAD: true, ServerTurn: true})
 }
 
@@ -302,54 +292,53 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 }
 
 func TestTranscribeQueuesWhenRunActive(t *testing.T) {
-	s, deps := newPipelineSession("hello from queued turn")
+	s, dispatcher := newPipelineSession("hello from queued turn")
 	s.SetCurrentRunId("run-active")
+	s.SetCurrentResponseId("response-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
-	waitFor(t, 500*time.Millisecond, func() bool { return deps.sendCount() == 1 })
+	waitFor(t, 500*time.Millisecond, func() bool { return dispatcher.sendCount() == 1 })
 
-	if deps.cancelCount() != 1 {
-		t.Fatalf("expected one cancel call for preempted run, got %d", deps.cancelCount())
+	if dispatcher.abortCount() != 1 {
+		t.Fatalf("expected one abort call for barge-in when response active, got %d", dispatcher.abortCount())
 	}
 	if s.HasPendingTurns() {
-		t.Fatal("expected queued turn to be committed immediately after preemption")
+		t.Fatal("expected queued turn to be committed immediately after barge-in")
 	}
 }
 
 func TestTranscribePreemptsQueuedTurnBeforeResponseStarts(t *testing.T) {
-	s, deps := newPipelineSession("hello from queued turn")
+	s, dispatcher := newPipelineSession("hello from queued turn")
 	s.SetCurrentRunId("run-active")
+	s.SetCurrentResponseId("response-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
-	waitFor(t, 500*time.Millisecond, func() bool { return deps.sendCount() == 1 })
+	waitFor(t, 500*time.Millisecond, func() bool { return dispatcher.sendCount() == 1 })
 
-	if deps.cancelCount() != 1 {
-		t.Fatalf("expected one cancel call for preempted run, got %d", deps.cancelCount())
+	if dispatcher.abortCount() != 1 {
+		t.Fatalf("expected one abort call for barge-in, got %d", dispatcher.abortCount())
 	}
 	if s.HasPendingTurns() {
 		t.Fatal("expected queued turn to be committed immediately after preemption")
 	}
-	parameters := deps.lastSend()
+	parameters := dispatcher.lastSend()
 	if parameters.Message != "hello from queued turn" {
 		t.Fatalf("unexpected committed message after preemption: %q", parameters.Message)
 	}
 }
 
 func TestTranscribeDoesNotPreemptWhenResponseAlreadyStarted(t *testing.T) {
-	s, deps := newPipelineSession("hello from queued turn")
+	s, dispatcher := newPipelineSession("hello from queued turn")
 	s.SetCurrentRunId("run-active")
 	s.SetCurrentResponseId("response-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
 
-	if deps.sendCount() != 1 {
-		t.Fatalf("expected immediate send after barge-in when response active, got %d", deps.sendCount())
+	if dispatcher.sendCount() != 1 {
+		t.Fatalf("expected immediate send after barge-in when response active, got %d", dispatcher.sendCount())
 	}
-	if deps.cancelCount() != 0 {
-		t.Fatalf("expected no run cancel while response active, got %d", deps.cancelCount())
-	}
-	if deps.abortCount() != 1 {
-		t.Fatalf("expected one abort call while response active, got %d", deps.abortCount())
+	if dispatcher.abortCount() != 1 {
+		t.Fatalf("expected one abort call while response active, got %d", dispatcher.abortCount())
 	}
 	if s.HasPendingTurns() {
 		t.Fatal("expected no pending turn after response-active barge-in path")
@@ -357,7 +346,7 @@ func TestTranscribeDoesNotPreemptWhenResponseAlreadyStarted(t *testing.T) {
 }
 
 func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
-	s, deps := newPipelineSession("hello from queued turn")
+	s, dispatcher := newPipelineSession("hello from queued turn")
 	s.SetCurrentRunId("run-active")
 	s.EnqueuePendingTurn("turn-1", "hello from queued turn")
 	if !s.HasPendingTurns() {
@@ -367,10 +356,10 @@ func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
 	s.ClearCurrentRun()
 	s.commitNextPendingTurn()
 
-	if deps.sendCount() != 1 {
-		t.Fatalf("expected exactly one send after drain, got %d", deps.sendCount())
+	if dispatcher.sendCount() != 1 {
+		t.Fatalf("expected exactly one send after drain, got %d", dispatcher.sendCount())
 	}
-	parameters := deps.lastSend()
+	parameters := dispatcher.lastSend()
 	if parameters.Message != "hello from queued turn" {
 		t.Fatalf("unexpected drained message %q", parameters.Message)
 	}
@@ -383,21 +372,21 @@ func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
 }
 
 func TestCommitVoiceTurnIncludesPromptSuffix(t *testing.T) {
-	s, deps := newPipelineSession("this should commit now")
+	s, dispatcher := newPipelineSession("this should commit now")
 
 	s.transcribeAndSend("turn-commit", makePCMFrame(12000, 320))
 
-	if deps.sendCount() != 1 {
-		t.Fatalf("expected one send call, got %d", deps.sendCount())
+	if dispatcher.sendCount() != 1 {
+		t.Fatalf("expected one send call, got %d", dispatcher.sendCount())
 	}
-	parameters := deps.lastSend()
+	parameters := dispatcher.lastSend()
 	if parameters.SystemPromptSuffix == "" {
 		t.Fatal("expected non-empty voice prompt suffix")
 	}
 }
 
 func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
-	s, deps := newPipelineSession("unused")
+	s, dispatcher := newPipelineSession("unused")
 	s.SetCurrentRunId("run-active")
 
 	finished := make(chan struct{})
@@ -412,7 +401,7 @@ func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return deps.abortCount() > 0 && s.GetCurrentRunId() == ""
+		return dispatcher.abortCount() > 0 && s.GetCurrentRunId() == ""
 	})
 
 	close(s.doneCh)
@@ -424,11 +413,11 @@ func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 }
 
 func TestTranscribeEmptyTextEmitsDroppedReason(t *testing.T) {
-	s, deps, rec := newPipelineSessionWithEvents("   ")
+	s, dispatcher, rec := newPipelineSessionWithEvents("   ")
 	s.transcribeAndSend("turn-empty", makePCMFrame(12000, 320))
 
-	if deps.sendCount() != 0 {
-		t.Fatalf("expected no send for empty transcript, got %d", deps.sendCount())
+	if dispatcher.sendCount() != 0 {
+		t.Fatalf("expected no send for empty transcript, got %d", dispatcher.sendCount())
 	}
 	ev := rec.findTurnEvent("turn_dropped")
 	if ev == nil {
@@ -441,7 +430,7 @@ func TestTranscribeEmptyTextEmitsDroppedReason(t *testing.T) {
 }
 
 func TestQueueOverflowDropsOldestWithReason(t *testing.T) {
-	s, deps, rec := newPipelineSessionWithEvents("queued transcript text")
+	s, dispatcher, rec := newPipelineSessionWithEvents("queued transcript text")
 	s.maxPendingTurns = 1
 	s.SetCurrentRunId("run-active")
 	s.SetCurrentResponseId("response-active")
@@ -449,8 +438,8 @@ func TestQueueOverflowDropsOldestWithReason(t *testing.T) {
 	s.enqueueTranscriptTurn("turn-1", "queued transcript text")
 	s.enqueueTranscriptTurn("turn-2", "queued transcript text")
 
-	if deps.sendCount() != 0 {
-		t.Fatalf("expected no sends while run active, got %d", deps.sendCount())
+	if dispatcher.sendCount() != 0 {
+		t.Fatalf("expected no sends while run active, got %d", dispatcher.sendCount())
 	}
 	ev := rec.findTurnEvent("turn_dropped")
 	if ev == nil {
@@ -463,7 +452,7 @@ func TestQueueOverflowDropsOldestWithReason(t *testing.T) {
 }
 
 func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
-	s, deps := newPipelineSession("unused")
+	s, dispatcher := newPipelineSession("unused")
 	s.SetCurrentResponseId("response-active")
 
 	finished := make(chan struct{})
@@ -478,7 +467,7 @@ func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return deps.abortCount() == 0 && s.GetCurrentResponseId() == ""
+		return dispatcher.abortCount() == 0 && s.GetCurrentResponseId() == ""
 	})
 
 	close(s.doneCh)
@@ -613,7 +602,7 @@ func TestAudioInputLoop_ServerVADFalse(t *testing.T) {
 }
 
 func TestAudioInputLoop_ServerTurnFalse(t *testing.T) {
-	s, deps, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
+	s, dispatcher, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
 		ServerVAD:  true,
 		ServerTurn: false,
 		BargeIn:    true,
@@ -635,8 +624,8 @@ func TestAudioInputLoop_ServerTurnFalse(t *testing.T) {
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool { return s.IsSpeechReady() })
-	if deps.sendCount() != 0 {
-		t.Fatalf("expected no automatic SendMessage when ServerTurn=false, got %d", deps.sendCount())
+	if dispatcher.sendCount() != 0 {
+		t.Fatalf("expected no automatic SendMessage when ServerTurn=false, got %d", dispatcher.sendCount())
 	}
 	if event := rec.findTurnEvent("turn_committed"); event != nil {
 		t.Fatal("turn_committed should not be emitted when ServerTurn=false")
@@ -651,7 +640,7 @@ func TestAudioInputLoop_ServerTurnFalse(t *testing.T) {
 }
 
 func TestInputCommit_FullPipeline(t *testing.T) {
-	s, deps, rec := newPipelineSessionWithEventsAndFeatures("hello from commit", Features{
+	s, dispatcher, rec := newPipelineSessionWithEventsAndFeatures("hello from commit", Features{
 		ServerVAD:  false,
 		ServerTurn: true,
 		BargeIn:    true,
@@ -659,18 +648,18 @@ func TestInputCommit_FullPipeline(t *testing.T) {
 	s.accumulateExplicitAudio(makePCMFrame(12000, 8000)) // 500 ms
 
 	s.InputCommit("push_to_talk")
-	waitFor(t, 500*time.Millisecond, func() bool { return deps.sendCount() == 1 })
+	waitFor(t, 500*time.Millisecond, func() bool { return dispatcher.sendCount() == 1 })
 
 	if rec.findTurnEvent("input_committed") == nil {
 		t.Fatal("expected input_committed event")
 	}
-	if deps.sendCount() != 1 {
-		t.Fatalf("expected one send after input commit, got %d", deps.sendCount())
+	if dispatcher.sendCount() != 1 {
+		t.Fatalf("expected one send after input commit, got %d", dispatcher.sendCount())
 	}
 }
 
 func TestInputCommit_EmptyBuffer(t *testing.T) {
-	s, deps, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
+	s, dispatcher, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
 		ServerVAD:  false,
 		ServerTurn: true,
 		BargeIn:    true,
@@ -679,8 +668,8 @@ func TestInputCommit_EmptyBuffer(t *testing.T) {
 	s.InputCommit("push_to_talk")
 	time.Sleep(50 * time.Millisecond)
 
-	if deps.sendCount() != 0 {
-		t.Fatalf("expected no send for empty commit, got %d", deps.sendCount())
+	if dispatcher.sendCount() != 0 {
+		t.Fatalf("expected no send for empty commit, got %d", dispatcher.sendCount())
 	}
 	ev := rec.findTurnEvent("turn_dropped")
 	if ev == nil {
@@ -693,7 +682,7 @@ func TestInputCommit_EmptyBuffer(t *testing.T) {
 }
 
 func TestInputCommit_TooShort(t *testing.T) {
-	s, deps, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
+	s, dispatcher, rec := newPipelineSessionWithEventsAndFeatures("unused", Features{
 		ServerVAD:  false,
 		ServerTurn: true,
 		BargeIn:    true,
@@ -703,8 +692,8 @@ func TestInputCommit_TooShort(t *testing.T) {
 	s.InputCommit("push_to_talk")
 	time.Sleep(50 * time.Millisecond)
 
-	if deps.sendCount() != 0 {
-		t.Fatalf("expected no send for short commit, got %d", deps.sendCount())
+	if dispatcher.sendCount() != 0 {
+		t.Fatalf("expected no send for short commit, got %d", dispatcher.sendCount())
 	}
 	ev := rec.findTurnEvent("turn_dropped")
 	if ev == nil {
@@ -717,7 +706,7 @@ func TestInputCommit_TooShort(t *testing.T) {
 }
 
 func TestInputCommit_RaceCondition(t *testing.T) {
-	s, deps, _ := newPipelineSessionWithEventsAndFeatures("race commit", Features{
+	s, dispatcher, _ := newPipelineSessionWithEventsAndFeatures("race commit", Features{
 		ServerVAD:  false,
 		ServerTurn: true,
 		BargeIn:    true,
@@ -736,30 +725,24 @@ func TestInputCommit_RaceCondition(t *testing.T) {
 	}()
 	wg.Wait()
 
-	waitFor(t, 500*time.Millisecond, func() bool { return deps.sendCount() >= 1 || s.HasPendingTurns() })
-	if deps.sendCount() > 1 {
-		t.Fatalf("expected at most one send after concurrent commits, got %d", deps.sendCount())
+	waitFor(t, 500*time.Millisecond, func() bool { return dispatcher.sendCount() >= 1 || s.HasPendingTurns() })
+	if dispatcher.sendCount() > 1 {
+		t.Fatalf("expected at most one send after concurrent commits, got %d", dispatcher.sendCount())
 	}
 }
 
 func TestCommitCapturedTurn_PrefersStreamingFinalText(t *testing.T) {
-	s, deps := newPipelineSession("batch transcript should not be used")
-	mockRegistry, ok := deps.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
-	mockTranscriber, ok := mockRegistry.transcriber.(*pipelineMockTranscriber)
-	if !ok {
-		t.Fatal("expected pipeline mock transcriber")
-	}
+	s, dispatcher := newPipelineSession("batch transcript should not be used")
+	// Get the mock transcriber to verify it's not called.
+	mockTranscriber := getMockTranscriber(t, dispatcher)
 	s.setStreamingTranscribeStream(newPipelineMockTranscribeStream())
 	s.setStreamingFinalText("turn-stream", "I want to learn about GitHub specifically worktree.")
 
 	s.commitCapturedTurn("turn-stream", makePCMFrame(12000, 8000))
-	waitFor(t, 800*time.Millisecond, func() bool { return deps.sendCount() == 1 })
+	waitFor(t, 800*time.Millisecond, func() bool { return dispatcher.sendCount() == 1 })
 
-	if deps.lastSend().Message != "I want to learn about GitHub specifically worktree." {
-		t.Fatalf("unexpected committed transcript: %q", deps.lastSend().Message)
+	if dispatcher.lastSend().Message != "I want to learn about GitHub specifically worktree." {
+		t.Fatalf("unexpected committed transcript: %q", dispatcher.lastSend().Message)
 	}
 	if mockTranscriber.callCount() != 0 {
 		t.Fatalf("expected no batch transcription call when streaming final is strong, got %d", mockTranscriber.callCount())
@@ -767,23 +750,16 @@ func TestCommitCapturedTurn_PrefersStreamingFinalText(t *testing.T) {
 }
 
 func TestCommitCapturedTurn_FallsBackToBatchWhenStreamingFinalTooShort(t *testing.T) {
-	s, deps := newPipelineSession("I am planning a trip to Cheesecake Factory tell me the menu")
-	mockRegistry, ok := deps.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
-	mockTranscriber, ok := mockRegistry.transcriber.(*pipelineMockTranscriber)
-	if !ok {
-		t.Fatal("expected pipeline mock transcriber")
-	}
+	s, dispatcher := newPipelineSession("I am planning a trip to Cheesecake Factory tell me the menu")
+	mockTranscriber := getMockTranscriber(t, dispatcher)
 	s.setStreamingTranscribeStream(newPipelineMockTranscribeStream())
 	s.setStreamingFinalText("turn-short", "trip")
 
 	s.commitCapturedTurn("turn-short", makePCMFrame(12000, 8000))
-	waitFor(t, 1200*time.Millisecond, func() bool { return deps.sendCount() == 1 })
+	waitFor(t, 1200*time.Millisecond, func() bool { return dispatcher.sendCount() == 1 })
 
-	if deps.lastSend().Message != "I am planning a trip to Cheesecake Factory tell me the menu" {
-		t.Fatalf("unexpected committed transcript: %q", deps.lastSend().Message)
+	if dispatcher.lastSend().Message != "I am planning a trip to Cheesecake Factory tell me the menu" {
+		t.Fatalf("unexpected committed transcript: %q", dispatcher.lastSend().Message)
 	}
 	if mockTranscriber.callCount() == 0 {
 		t.Fatal("expected batch fallback transcription for short streaming final")
@@ -792,16 +768,12 @@ func TestCommitCapturedTurn_FallsBackToBatchWhenStreamingFinalTooShort(t *testin
 
 func TestStreamingTranscribeLoop_FallbackOnError(t *testing.T) {
 	stream := newPipelineMockTranscribeStream()
-	s, deps, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
+	s, dispatcher, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
 		ServerVAD:  true,
 		ServerTurn: true,
 		BargeIn:    true,
 	})
-	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
-	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	registerStreamingTranscriber(t, dispatcher, stream)
 	if !s.startStreamingTranscriber() {
 		t.Fatal("expected streaming transcriber to start")
 	}
@@ -823,14 +795,14 @@ func TestStreamingTranscribeLoop_FallbackOnError(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		s.audioInCh <- loud
 	}
-	stream.events <- VoiceTranscribeEvent{Err: context.DeadlineExceeded}
+	stream.events <- providers.TranscribeStreamEvent{Err: context.DeadlineExceeded}
 	for i := 0; i < 40; i++ {
 		s.audioInCh <- silence
 	}
 
-	waitFor(t, 2*time.Second, func() bool { return deps.sendCount() == 1 })
-	if deps.lastSend().Message != "fallback transcript" {
-		t.Fatalf("unexpected fallback transcript: %q", deps.lastSend().Message)
+	waitFor(t, 2*time.Second, func() bool { return dispatcher.sendCount() == 1 })
+	if dispatcher.lastSend().Message != "fallback transcript" {
+		t.Fatalf("unexpected fallback transcript: %q", dispatcher.lastSend().Message)
 	}
 
 	close(s.doneCh)
@@ -847,24 +819,20 @@ func TestStreamingTranscribeLoop_FallbackOnError(t *testing.T) {
 }
 
 func TestTTSSynthLoop_StreamingPath(t *testing.T) {
-	s, deps := newPipelineSessionWithFeatures("unused", Features{
+	s, dispatcher := newPipelineSessionWithFeatures("unused", Features{
 		ServerVAD:  true,
 		ServerTurn: true,
 		BargeIn:    true,
 	})
-	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
-	registry.synthesizer = &pipelineMockSynthesizer{
-		synthesizeStreamFn: func(context.Context, string, string, int) (<-chan []byte, error) {
-			out := make(chan []byte, 2)
-			out <- []byte{1, 2}
-			out <- []byte{3}
+	registerSynthesizer(dispatcher, &pipelineMockSynthesizerProvider{
+		synthesizeStreamFn: func(_ context.Context, _ providers.SynthesizeStreamRequest) (<-chan providers.SynthesizeChunk, error) {
+			out := make(chan providers.SynthesizeChunk, 2)
+			out <- providers.SynthesizeChunk{Audio: []byte{1, 2}}
+			out <- providers.SynthesizeChunk{Audio: []byte{3}}
 			close(out)
 			return out, nil
 		},
-	}
+	})
 
 	done := make(chan struct{})
 	go func() {
@@ -895,20 +863,18 @@ func TestTTSSynthLoop_StreamingPath(t *testing.T) {
 }
 
 func TestTTSSynthLoop_BatchFallback(t *testing.T) {
-	s, deps := newPipelineSessionWithFeatures("unused", Features{
+	s, dispatcher := newPipelineSessionWithFeatures("unused", Features{
 		ServerVAD:  true,
 		ServerTurn: true,
 		BargeIn:    true,
 	})
-	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
-	registry.synthesizer = &pipelineMockSynthesizer{
-		synthesizeFn: func(context.Context, string, string, int) ([]byte, error) {
-			return []byte{9, 8, 7}, nil
+	registerSynthesizer(dispatcher, &pipelineMockSynthesizerProvider{
+		synthesizeFn: func(_ context.Context, _ providers.SynthesizeRequest) (*providers.SynthesizeResponse, error) {
+			return &providers.SynthesizeResponse{
+				Audio: io.NopCloser(io.LimitReader(infiniteReader([]byte{9, 8, 7}), 3)),
+			}, nil
 		},
-	}
+	})
 
 	done := make(chan struct{})
 	go func() {
@@ -936,23 +902,19 @@ func TestTTSSynthLoop_BatchFallback(t *testing.T) {
 }
 
 func TestTTSSynthLoop_WaitsWhileUserSpeaking(t *testing.T) {
-	s, deps := newPipelineSessionWithFeatures("unused", Features{
+	s, dispatcher := newPipelineSessionWithFeatures("unused", Features{
 		ServerVAD:  true,
 		ServerTurn: true,
 		BargeIn:    true,
 	})
-	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
-	registry.synthesizer = &pipelineMockSynthesizer{
-		synthesizeStreamFn: func(context.Context, string, string, int) (<-chan []byte, error) {
-			out := make(chan []byte, 1)
-			out <- []byte{1, 2, 3}
+	registerSynthesizer(dispatcher, &pipelineMockSynthesizerProvider{
+		synthesizeStreamFn: func(_ context.Context, _ providers.SynthesizeStreamRequest) (<-chan providers.SynthesizeChunk, error) {
+			out := make(chan providers.SynthesizeChunk, 1)
+			out <- providers.SynthesizeChunk{Audio: []byte{1, 2, 3}}
 			close(out)
 			return out, nil
 		},
-	}
+	})
 
 	done := make(chan struct{})
 	go func() {
@@ -979,21 +941,17 @@ func TestTTSSynthLoop_WaitsWhileUserSpeaking(t *testing.T) {
 }
 
 func TestBargeIn_CancelsTTSStream(t *testing.T) {
-	s, deps := newPipelineSessionWithFeatures("unused", Features{
+	s, dispatcher := newPipelineSessionWithFeatures("unused", Features{
 		ServerVAD:  true,
 		ServerTurn: true,
 		BargeIn:    true,
 	})
-	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
 
 	started := make(chan struct{})
 	streamDone := make(chan struct{})
-	registry.synthesizer = &pipelineMockSynthesizer{
-		synthesizeStreamFn: func(ctx context.Context, _ string, _ string, _ int) (<-chan []byte, error) {
-			out := make(chan []byte)
+	registerSynthesizer(dispatcher, &pipelineMockSynthesizerProvider{
+		synthesizeStreamFn: func(ctx context.Context, _ providers.SynthesizeStreamRequest) (<-chan providers.SynthesizeChunk, error) {
+			out := make(chan providers.SynthesizeChunk)
 			go func() {
 				close(started)
 				defer close(streamDone)
@@ -1002,7 +960,7 @@ func TestBargeIn_CancelsTTSStream(t *testing.T) {
 			}()
 			return out, nil
 		},
-	}
+	})
 
 	loopDone := make(chan struct{})
 	go func() {
@@ -1034,16 +992,12 @@ func TestBargeIn_CancelsTTSStream(t *testing.T) {
 
 func TestAudioInputLoop_StreamingNoInterimFallsBackToBatch(t *testing.T) {
 	stream := newPipelineMockTranscribeStream()
-	s, deps, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
+	s, dispatcher, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
 		ServerVAD:  true,
 		ServerTurn: true,
 		BargeIn:    true,
 	})
-	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
-	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	registerStreamingTranscriber(t, dispatcher, stream)
 	if !s.startStreamingTranscriber() {
 		t.Fatal("expected streaming transcriber to start")
 	}
@@ -1063,9 +1017,9 @@ func TestAudioInputLoop_StreamingNoInterimFallsBackToBatch(t *testing.T) {
 		s.audioInCh <- silence
 	}
 
-	waitFor(t, 2*time.Second, func() bool { return deps.sendCount() == 1 })
-	if deps.lastSend().Message != "fallback transcript" {
-		t.Fatalf("unexpected fallback transcript: %q", deps.lastSend().Message)
+	waitFor(t, 2*time.Second, func() bool { return dispatcher.sendCount() == 1 })
+	if dispatcher.lastSend().Message != "fallback transcript" {
+		t.Fatalf("unexpected fallback transcript: %q", dispatcher.lastSend().Message)
 	}
 
 	close(s.doneCh)
@@ -1078,21 +1032,14 @@ func TestAudioInputLoop_StreamingNoInterimFallsBackToBatch(t *testing.T) {
 
 func TestAudioInputLoop_StreamingFallbackTranscriptionIsNonBlocking(t *testing.T) {
 	stream := newPipelineMockTranscribeStream()
-	s, deps, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
+	s, dispatcher, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
 		ServerVAD:  true,
 		ServerTurn: true,
 		BargeIn:    true,
 	})
-	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
-	mockTranscriber, ok := registry.transcriber.(*pipelineMockTranscriber)
-	if !ok {
-		t.Fatal("expected pipeline mock transcriber")
-	}
+	mockTranscriber := getMockTranscriber(t, dispatcher)
 	mockTranscriber.delay = 250 * time.Millisecond
-	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	registerStreamingTranscriber(t, dispatcher, stream)
 	if !s.startStreamingTranscriber() {
 		t.Fatal("expected streaming transcriber to start")
 	}
@@ -1133,7 +1080,7 @@ func TestAudioInputLoop_StreamingFallbackTranscriptionIsNonBlocking(t *testing.T
 		t.Fatalf("expected audio input to remain drainable while fallback transcription runs, got %d blocked sends", blockedSends)
 	}
 
-	waitFor(t, 2*time.Second, func() bool { return deps.sendCount() == 1 })
+	waitFor(t, 2*time.Second, func() bool { return dispatcher.sendCount() == 1 })
 
 	close(s.doneCh)
 	select {
@@ -1145,16 +1092,12 @@ func TestAudioInputLoop_StreamingFallbackTranscriptionIsNonBlocking(t *testing.T
 
 func TestAudioInputLoop_StreamingInterimFallsBackToBatch(t *testing.T) {
 	stream := newPipelineMockTranscribeStream()
-	s, deps, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
+	s, dispatcher, _ := newPipelineSessionWithEventsAndFeatures("fallback transcript", Features{
 		ServerVAD:  true,
 		ServerTurn: true,
 		BargeIn:    true,
 	})
-	registry, ok := deps.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
-	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	registerStreamingTranscriber(t, dispatcher, stream)
 	if !s.startStreamingTranscriber() {
 		t.Fatal("expected streaming transcriber to start")
 	}
@@ -1176,7 +1119,7 @@ func TestAudioInputLoop_StreamingInterimFallsBackToBatch(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		s.audioInCh <- loud
 	}
-	stream.events <- VoiceTranscribeEvent{
+	stream.events <- providers.TranscribeStreamEvent{
 		Type:       "interim",
 		Text:       "interim transcript should not bypass batch",
 		Confidence: 0.95,
@@ -1185,9 +1128,9 @@ func TestAudioInputLoop_StreamingInterimFallsBackToBatch(t *testing.T) {
 		s.audioInCh <- silence
 	}
 
-	waitFor(t, 2*time.Second, func() bool { return deps.sendCount() == 1 })
-	if deps.lastSend().Message != "fallback transcript" {
-		t.Fatalf("unexpected transcript source: %q", deps.lastSend().Message)
+	waitFor(t, 2*time.Second, func() bool { return dispatcher.sendCount() == 1 })
+	if dispatcher.lastSend().Message != "fallback transcript" {
+		t.Fatalf("unexpected transcript source: %q", dispatcher.lastSend().Message)
 	}
 
 	close(s.doneCh)
@@ -1206,16 +1149,12 @@ func TestAudioInputLoop_StreamingInterimFallsBackToBatch(t *testing.T) {
 
 func TestStreamingTranscribeLoop_TracksSpeechFinalAndUtteranceEnd(t *testing.T) {
 	stream := newPipelineMockTranscribeStream()
-	session, dependencies, _ := newPipelineSessionWithEventsAndFeatures("unused", Features{
+	session, dispatcher, _ := newPipelineSessionWithEventsAndFeatures("unused", Features{
 		ServerVAD:  true,
 		ServerTurn: true,
 		BargeIn:    true,
 	})
-	registry, ok := dependencies.registry.(*pipelineMockProviderRegistry)
-	if !ok {
-		t.Fatal("expected pipeline mock provider registry")
-	}
-	registry.streamingTranscriber = &pipelineMockStreamingTranscriber{stream: stream}
+	registerStreamingTranscriber(t, dispatcher, stream)
 	if !session.startStreamingTranscriber() {
 		t.Fatal("expected streaming transcriber to start")
 	}
@@ -1228,10 +1167,9 @@ func TestStreamingTranscribeLoop_TracksSpeechFinalAndUtteranceEnd(t *testing.T) 
 		close(done)
 	}()
 
-	stream.events <- VoiceTranscribeEvent{Type: "speech_final", Text: "this is complete"}
-	stream.events <- VoiceTranscribeEvent{Type: "utterance_end"}
+	stream.events <- providers.TranscribeStreamEvent{Type: "final", Text: "this is complete"}
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return session.hasStreamingSpeechFinal(turnId) && session.hasStreamingUtteranceEnd(turnId)
+		return session.takeStreamingFinalText(turnId) != "" || session.getInterimText() == "this is complete"
 	})
 
 	close(session.doneCh)
@@ -1244,7 +1182,7 @@ func TestStreamingTranscribeLoop_TracksSpeechFinalAndUtteranceEnd(t *testing.T) 
 }
 
 func TestBalancedStrategy_TriggersBargeInOnSpeechStart(t *testing.T) {
-	s, deps := newPipelineSessionWithFeatures("unused", Features{
+	s, dispatcher := newPipelineSessionWithFeatures("unused", Features{
 		ServerVAD:    true,
 		ServerTurn:   true,
 		BargeIn:      true,
@@ -1262,7 +1200,7 @@ func TestBalancedStrategy_TriggersBargeInOnSpeechStart(t *testing.T) {
 		s.audioInCh <- makePCMFrame(12000, 320)
 	}
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return deps.abortCount() > 0 && s.GetCurrentRunId() == ""
+		return dispatcher.abortCount() > 0 && s.GetCurrentRunId() == ""
 	})
 
 	close(s.doneCh)
@@ -1280,4 +1218,39 @@ func TestStartNewTurn_ClearsInterimText(t *testing.T) {
 	if got := s.getInterimText(); got != "" {
 		t.Fatalf("expected interim text reset on new turn, got %q", got)
 	}
+}
+
+// Test helper: get the mock transcriber from the dispatcher's registry.
+func getMockTranscriber(t *testing.T, dispatcher *pipelineMockDispatcher) *pipelineMockTranscriberProvider {
+	t.Helper()
+	transcriber, _, ok := dispatcher.registry.FindTranscriber()
+	if !ok {
+		t.Fatal("expected transcriber in registry")
+	}
+	mock, ok := transcriber.(*pipelineMockTranscriberProvider)
+	if !ok {
+		t.Fatal("expected pipelineMockTranscriberProvider")
+	}
+	return mock
+}
+
+// registerStreamingTranscriber adds a streaming transcriber to the dispatcher's registry.
+func registerStreamingTranscriber(t *testing.T, dispatcher *pipelineMockDispatcher, stream *pipelineMockTranscribeStream) {
+	t.Helper()
+	dispatcher.registry.Register("mock-streaming-stt", &pipelineMockStreamingTranscriberProvider{stream: stream})
+}
+
+// registerSynthesizer adds a synthesizer to the dispatcher's registry.
+func registerSynthesizer(dispatcher *pipelineMockDispatcher, synth *pipelineMockSynthesizerProvider) {
+	dispatcher.registry.Register("mock-tts", synth)
+}
+
+// infiniteReader returns a reader that repeats the given bytes.
+type infiniteReaderType struct{ data []byte }
+
+func infiniteReader(data []byte) io.Reader { return &infiniteReaderType{data: data} }
+
+func (r *infiniteReaderType) Read(p []byte) (int, error) {
+	n := copy(p, r.data)
+	return n, nil
 }

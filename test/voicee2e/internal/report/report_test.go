@@ -27,8 +27,8 @@ func TestWriteJSONAndRenderMarkdown(t *testing.T) {
 	if err := WriteJSON(path, report); err != nil {
 		t.Fatalf("write report: %v", err)
 	}
-	md := RenderMarkdown(report)
-	if !strings.Contains(md, "Voice E2E Report") {
-		t.Fatalf("missing report header in markdown: %s", md)
+	markdown := RenderMarkdown(report)
+	if !strings.Contains(markdown, "Voice E2E Report") {
+		t.Fatalf("missing report header in markdown: %s", markdown)
 	}
 }

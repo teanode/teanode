@@ -162,7 +162,8 @@
     "loadingSettings": "设置加载中...",
     "sectionNotFound": "未找到该分区",
     "theme": "主题",
-    "themeDescription": "在深色和浅色模式之间切换",
+    "themeDescription": "在深色、浅色或跟随系统模式之间切换",
+    "systemMode": "跟随系统",
     "language": "语言",
     "languageDescription": "覆盖浏览器检测到的界面语言。",
     "languageAuto": "使用浏览器语言（检测到：{{locale}}）",
@@ -184,10 +185,8 @@
     "voiceChimes": "提示音",
     "voiceChimesDescription": "在捕获语音、agent 忙碌和发言完成时播放提示音",
     "voiceChimesVolume": "提示音音量",
-    "voiceCallSttMode": "语音通话 STT 模式",
-    "voiceCallSttModeDescription": "选择通话内语音转写在服务端还是浏览器端执行。通话 TTS 仍保持服务端。",
-    "voiceCallSttModeServer": "服务端 STT",
-    "voiceCallSttModeClient": "浏览器端 STT"
+    "voiceCallSttMode": "浏览器端语音识别",
+    "voiceCallSttModeDescription": "在浏览器端执行通话内语音转写，而非服务端。通话 TTS 仍保持服务端。"
   },
   "auth": {
     "loginTitle": "欢迎回来",

@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "webpack serve --mode development",
     "build": "webpack --mode production",
+    "build:extension": "webpack --mode production --config-name extension",
     "watch": "webpack --mode development --watch",
+    "watch:extension": "webpack --mode development --watch --config-name extension",
     "test": "vitest run",
     "lint": "eslint \"src/**/*.{ts,tsx}\" webpack.config.js && tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{js,json,ts,tsx,css,html}\"",
@@ -31,6 +33,7 @@
   "devDependencies": {
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",
+    "chrome-types": "^0.1.420",
     "copy-webpack-plugin": "^12.0.2",
     "css-loader": "^7.1.2",
     "eslint": "^9.39.3",

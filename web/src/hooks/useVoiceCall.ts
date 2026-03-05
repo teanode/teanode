@@ -3,9 +3,36 @@ import { useChimePlayer, type ChimeConfig } from "./useChimePlayer";
 import { useVoiceSession } from "./useVoiceSession";
 import type { VoiceCallSTTMode } from "../context";
 
+/** Interval between periodic "agent is busy" chime tones. */
 const AGENT_WAITING_CHIME_MS = 3200;
+/** Minimum gap between consecutive waiting chimes to avoid overlapping. */
 const AGENT_WAITING_CHIME_MIN_GAP_MS = 1400;
-const MIN_INTERRUPT_MS = 500;
+/** How long the user must speak before we interrupt queued/in-flight TTS (normal path). */
+const MIN_INTERRUPT_MS = 1500;
+/** After TTS stops, ignore VAD speech events for this long to suppress echo artifacts. */
+const TTS_ECHO_COOLDOWN_MS = 800;
+/** During active TTS, the user must speak continuously for this long to trigger a barge-in. */
+const TTS_BARGE_IN_MS = 2000;
+
+/** VAD parameters when TTS is idle — sensitive, quick to detect speech. */
+const VAD_PARAMS_SENSITIVE = {
+  /** Probability threshold (0–1) above which a frame is classified as speech. */
+  positiveSpeechThreshold: 0.8,
+  /** Probability threshold (0–1) below which a frame is classified as silence. */
+  negativeSpeechThreshold: 0.4,
+  /** Minimum consecutive speech frames required before triggering onSpeechStart. */
+  minSpeechFrames: 5,
+  /** Silence frames tolerated within speech before triggering onSpeechEnd. */
+  redemptionFrames: 12,
+};
+/** VAD parameters during TTS playback — less sensitive to reduce echo false positives. */
+const VAD_PARAMS_DURING_TTS = {
+  positiveSpeechThreshold: 0.92,
+  negativeSpeechThreshold: 0.65,
+  minSpeechFrames: 8,
+  redemptionFrames: 6,
+};
+
 const VOICE_CALL_PROMPT =
   "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists.";
 
@@ -81,6 +108,7 @@ export interface UseVoiceCallReturn {
   isPlaying: boolean;
   isSynthesizing: boolean;
   callError: string | null;
+  interruptAgent: () => void;
   startCall: () => Promise<void>;
   endCall: () => void;
   toggleMute: () => void;
@@ -109,7 +137,6 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const [callError, setCallError] = useState<string | null>(null);
   const [isAgentBusy, setIsAgentBusy] = useState(false);
   const [isClientUserSpeaking, setIsClientUserSpeaking] = useState(false);
-
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const vadRef = useRef<{
@@ -136,6 +163,10 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   const isCallActiveRef = useRef(false);
   const speechStartTimeRef = useRef<number | null>(null);
   const pendingInterruptRef = useRef(false);
+  const ttsActiveRef = useRef(false);
+  const ttsEndedAtRef = useRef(0);
+  const bargeInTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bargedInRef = useRef(false);
 
   const chimePlayer = useChimePlayer(chimeConfig);
   const playWaitingChime = useCallback(() => {
@@ -162,6 +193,26 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     conversationId,
     agentId,
   });
+
+  useEffect(() => {
+    const active = isPlaying || isSynthesizing;
+    const wasActive = ttsActiveRef.current;
+    ttsActiveRef.current = active;
+    if (wasActive && !active) {
+      ttsEndedAtRef.current = Date.now();
+    }
+    // Swap VAD sensitivity: less sensitive during TTS to reduce echo triggers,
+    // more sensitive when idle so user speech is caught quickly.
+    // frameProcessor is private in TS but accessible at runtime.
+    const vad = vadRef.current as Record<string, unknown> | null;
+    const frameProcessor = vad?.frameProcessor as
+      | { options: Record<string, number> }
+      | undefined;
+    if (frameProcessor?.options) {
+      const params = active ? VAD_PARAMS_DURING_TTS : VAD_PARAMS_SENSITIVE;
+      Object.assign(frameProcessor.options, params);
+    }
+  }, [isPlaying, isSynthesizing]);
 
   const startCall = useCallback(async () => {
     if (isCallActive) return;
@@ -195,6 +246,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
           mediaStream,
         });
         sourceNodeRef.current = sourceNode;
+
         const { AudioNodeVAD } = await import("@ricky0123/vad-web");
         const vad = await AudioNodeVAD.new(audioContext, {
           ortConfig: (ort) => {
@@ -208,6 +260,32 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
           },
           onSpeechStart: () => {
             if (!isCallActiveRef.current) return;
+
+            // Echo cooldown after TTS ends — always reject.
+            if (
+              !ttsActiveRef.current &&
+              Date.now() - ttsEndedAtRef.current < TTS_ECHO_COOLDOWN_MS
+            ) {
+              return;
+            }
+
+            // During active TTS — start sustained-speech barge-in timer.
+            if (ttsActiveRef.current) {
+              if (bargeInTimeoutRef.current) {
+                clearTimeout(bargeInTimeoutRef.current);
+              }
+              bargeInTimeoutRef.current = setTimeout(() => {
+                if (!isCallActiveRef.current) return;
+                bargedInRef.current = true;
+                interruptPlayback();
+                cancelResponse("client_barge_in").catch(() => {});
+                setIsClientUserSpeaking(true);
+                speechStartTimeRef.current = Date.now();
+              }, TTS_BARGE_IN_MS);
+              return;
+            }
+
+            // Normal (non-TTS) speech start.
             setIsClientUserSpeaking(true);
             speechStartTimeRef.current = Date.now();
             pendingInterruptRef.current = true;
@@ -238,6 +316,22 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
               clearTimeout(interruptTimeoutRef.current);
               interruptTimeoutRef.current = null;
             }
+            // Clear barge-in timer if speech ended before threshold.
+            if (bargeInTimeoutRef.current) {
+              clearTimeout(bargeInTimeoutRef.current);
+              bargeInTimeoutRef.current = null;
+            }
+            // If user successfully barged in, skip the echo gate.
+            if (bargedInRef.current) {
+              bargedInRef.current = false;
+            } else if (
+              ttsActiveRef.current ||
+              Date.now() - ttsEndedAtRef.current < TTS_ECHO_COOLDOWN_MS
+            ) {
+              // Echo gate — discard audio.
+              return;
+            }
+
             vadRef.current?.pause();
             chimePlayer.play("inputCaptured");
             setTimeout(() => {
@@ -262,10 +356,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
               // ignore transcription failures
             }
           },
-          positiveSpeechThreshold: 0.8,
-          negativeSpeechThreshold: 0.4,
-          minSpeechFrames: 5,
-          redemptionFrames: 12,
+          ...VAD_PARAMS_SENSITIVE,
         });
         vad.receive(sourceNode);
         vad.start();
@@ -459,6 +550,11 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       clearTimeout(interruptTimeoutRef.current);
       interruptTimeoutRef.current = null;
     }
+    if (bargeInTimeoutRef.current) {
+      clearTimeout(bargeInTimeoutRef.current);
+      bargeInTimeoutRef.current = null;
+    }
+    bargedInRef.current = false;
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
@@ -479,6 +575,11 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
   }, [chimePlayer, stopVoiceSession]);
 
   endCallRef.current = endCall;
+
+  const interruptAgent = useCallback(() => {
+    interruptPlayback();
+    cancelResponse("client_manual_interrupt").catch(() => {});
+  }, [interruptPlayback, cancelResponse]);
 
   const toggleMute = useCallback(() => {
     const nextMuted = !isMuted;
@@ -506,6 +607,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     isPlaying,
     isSynthesizing,
     callError,
+    interruptAgent,
     startCall,
     endCall,
     toggleMute,

@@ -2,11 +2,11 @@ package model
 
 import "time"
 
-type RunnerConfig struct {
+type RunnerConfiguration struct {
 	GatewayURL string
 	SuitePath  string
 	Scenario   string
-	OutPath    string
+	OutputPath string
 	ConfigJSON string
 	PromptPath string
 	PromptA    string
@@ -14,18 +14,18 @@ type RunnerConfig struct {
 	Compare    bool
 }
 
-type SuiteSpec struct {
-	Name      string         `yaml:"name"`
-	Scenarios []ScenarioSpec `yaml:"scenarios"`
+type SuiteSpecification struct {
+	Name      string                  `yaml:"name"`
+	Scenarios []ScenarioSpecification `yaml:"scenarios"`
 }
 
-type ScenarioSpec struct {
-	ID          string               `yaml:"id"`
-	Name        string               `yaml:"name"`
-	Description string               `yaml:"description"`
-	TimeoutSec  int                  `yaml:"timeout_sec"`
-	Audio       []AudioStep          `yaml:"audio"`
-	Expect      ScenarioExpectations `yaml:"expect"`
+type ScenarioSpecification struct {
+	ID             string               `yaml:"id"`
+	Name           string               `yaml:"name"`
+	Description    string               `yaml:"description"`
+	TimeoutSeconds int                  `yaml:"timeout_sec"`
+	Audio          []AudioStep          `yaml:"audio"`
+	Expect         ScenarioExpectations `yaml:"expect"`
 }
 
 type AudioStep struct {
@@ -117,10 +117,10 @@ type RunReport struct {
 }
 
 type CompareReport struct {
-	Version   string    `json:"version"`
-	StartedAt time.Time `json:"started_at"`
-	EndedAt   time.Time `json:"ended_at"`
-	BasePath  string    `json:"base_path"`
-	CandPath  string    `json:"cand_path"`
-	Summary   []string  `json:"summary"`
+	Version       string    `json:"version"`
+	StartedAt     time.Time `json:"started_at"`
+	EndedAt       time.Time `json:"ended_at"`
+	BasePath      string    `json:"base_path"`
+	CandidatePath string    `json:"cand_path"`
+	Summary       []string  `json:"summary"`
 }

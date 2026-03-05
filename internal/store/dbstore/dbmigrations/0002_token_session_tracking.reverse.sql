@@ -1,0 +1,3 @@
+ALTER TABLE tokens DROP COLUMN IF EXISTS remote_address;
+ALTER TABLE tokens DROP COLUMN IF EXISTS user_agent;
+ALTER TABLE sessions DROP COLUMN IF EXISTS last_seen_at;

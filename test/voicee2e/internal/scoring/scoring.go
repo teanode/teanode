@@ -1,8 +1,6 @@
 package scoring
 
 import (
-	"strings"
-
 	"github.com/teanode/teanode/test/voicee2e/internal/model"
 )
 
@@ -36,7 +34,7 @@ func Compute(events []model.TimelineEvent) map[string]any {
 			metrics["barge_in_count"] = metrics["barge_in_count"].(int64) + 1
 		case model.EventTTSInput:
 			metrics["tts_sentence_count"] = metrics["tts_sentence_count"].(int64) + 1
-			metrics["tts_char_count"] = metrics["tts_char_count"].(int64) + int64(len(strings.TrimSpace(event.Text)))
+			metrics["tts_char_count"] = metrics["tts_char_count"].(int64) + int64(len(event.Text))
 		}
 	}
 

@@ -6,11 +6,14 @@ import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
+import CheckCircleOutlineRounded from "@mui/icons-material/CheckCircleOutlineRounded";
 import { highlightJson } from "../markdown";
 
 interface ToolResultProps {
   toolName: string;
   content: string;
+  /** Resolve a media ID to a full URL (for extension contexts). */
+  resolveMediaUrl?: (mediaId: string) => string;
 }
 
 interface MediaInfo {
@@ -43,9 +46,59 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
-export default function ToolResult({ toolName, content }: ToolResultProps) {
+export default function ToolResult({
+  toolName,
+  content,
+  resolveMediaUrl,
+}: ToolResultProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+
+  // Special rendering for ask_user_question tool results.
+  if (toolName === "ask_user_question") {
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed.answer) {
+        const displayAnswer = parsed.other
+          ? `${parsed.answer}: ${parsed.other}`
+          : parsed.answer;
+        return (
+          <Box
+            sx={{
+              alignSelf: "flex-start",
+              maxWidth: "75%",
+              px: 1.5,
+              py: 1,
+              borderRadius: 1,
+              fontSize: "0.75rem",
+              bgcolor: (theme) =>
+                theme.palette.mode === "dark"
+                  ? "rgba(46, 125, 50, 0.08)"
+                  : "rgba(46, 125, 50, 0.05)",
+              border: 1,
+              borderColor: "success.main",
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+              <CheckCircleOutlineRounded
+                sx={{ fontSize: 14, color: "success.main" }}
+              />
+              <Typography
+                variant="caption"
+                color="success.main"
+                sx={{ fontWeight: 600 }}
+              >
+                {t("tool.askUserAnswered", { answer: displayAnswer })}
+              </Typography>
+            </Box>
+          </Box>
+        );
+      }
+    } catch {
+      // Fall through to default rendering.
+    }
+  }
+
   const mediaInfo = detectMedia(content);
 
   function handleCopy() {
@@ -82,7 +135,9 @@ export default function ToolResult({ toolName, content }: ToolResultProps) {
   if (mediaInfo) {
     const source = mediaInfo.base64
       ? `data:image/${mediaInfo.format};base64,${mediaInfo.base64}`
-      : `/api/v1/media/${mediaInfo.mediaId}`;
+      : resolveMediaUrl && mediaInfo.mediaId
+        ? resolveMediaUrl(mediaInfo.mediaId)
+        : `/api/v1/media/${mediaInfo.mediaId}`;
 
     return (
       <Box

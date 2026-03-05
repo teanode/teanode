@@ -1,54 +1,64 @@
 # Conversations
 
-The `internal/conversations` package is responsible for storing and retrieving conversational state for TeaNode agents.
+The `internal/store` package (with backends `fsstore` and `dbstore`) is responsible for storing and retrieving conversational state for TeaNode agents.
 
 ## Overview
 
-A **conversation** is a logical session between a user (or channel) and an agent. It ties together:
+A **conversation** is a logical session between a user and an agent. It ties together:
 
 - A unique ID.
-- Metadata (titles, timestamps, associated channel / agent IDs).
+- Metadata (titles, timestamps, associated user / agent IDs).
 - A history of messages.
 - Optional summaries for older parts of the history.
 
-High-level responsibilities of `internal/conversations`:
+High-level responsibilities of the conversation layer:
 
-- Persist conversations to disk so they survive process restarts.
+- Persist conversations so they survive process restarts.
 - Provide efficient append/read operations for message history.
 - Maintain basic metadata (e.g. title, created/updated times).
 - Support listing and lookup by ID.
 
-## Storage Model
+## Store Interface
 
-TeaNode uses a **JSONL-based** storage format for conversations (see also `docs/architecture.md` and TODO section "Conversation Management"):
+Conversation persistence is defined by two interfaces in `internal/store/interfaces.go`:
 
-- Each conversation is stored as one or more JSONL files under a workspace directory (by default under `~/.teanode/agents/<agent-id>/conversations/`, but this can be overridden via `--dir` or config).
-- Each line is a single JSON object (message or summary record).
+- `ConversationOperation` – CRUD for conversation metadata (list, create, get, modify, delete, find/set default).
+- `ConversationMessageOperation` – append and list messages within a conversation.
+
+These interfaces are part of the unified `Transaction` interface, meaning conversation operations share the same transactional scope as agents, users, jobs, media, sessions, and other domain objects.
+
+## Store Backends
+
+TeaNode ships with two backend implementations:
+
+### `fsstore` (filesystem)
+
+- Conversations are stored as JSONL files under the data directory (by default `~/.teanode/users/<userId>/conversations/<agentId>/<conversationId>.jsonl`).
+- Each line is a single JSON object (message record).
 - This makes appends cheap and streaming-friendly, while keeping the format simple to inspect and debug.
+- Key files: `filesystem_conversation.go` (metadata), `filesystem_conversation_message.go` (message append/read), `filesystem_conversation_storage.go` (JSONL I/O).
 
-The `store.go` implementation under `internal/conversations` handles:
+### `dbstore` (database)
 
-- Opening/creating files for a given conversation ID.
-- Appending new records (messages, summaries, metadata updates).
-- Reading back history in order when requested.
-- Caching or indexing minimal metadata for fast `list` operations.
+- Uses PostgreSQL via GORM.
+- Conversations and messages are stored in relational tables.
+- Key files: `database_conversation.go` (metadata), `database_conversation_message.go` (messages).
 
-## Types and Responsibilities
+## Types
 
-Key types (see `types.go`):
+Conversation and message types live in `internal/models`:
 
-- Conversation identifiers and metadata structs.
-- Message and summary record types written to/read from JSONL.
+- `conversation.go` – `Conversation` struct (ID, title, timestamps, user/agent associations).
+- `conversation_message.go` – `ConversationMessage` struct (role, content, tool calls, metadata).
+- `context.go` – context types for messages, tool calls, and conversation state.
 
-Key components:
+## Higher-Level Behaviors
 
-- `store.go` – file-backed store implementation for conversations.
-- `conversation.go` – small helpers/types for working with a single conversation instance.
+On top of the store layer, other packages implement higher-level behaviors:
 
-On top of this package, the agents and API layers implement higher-level behaviors such as:
+- `internal/runners` – context compaction and pruning of old messages while preserving summaries.
+- `internal/summarizers` – auto-generating conversation titles and descriptions.
+- `internal/coordinators` – orchestrating message send, active run tracking, and broadcasting events.
+- `internal/api/v1api` – exposing WebSocket RPC methods like `conversations.send`, `conversations.history`, and `conversations.list`.
 
-- Auto-generating conversation titles and summaries.
-- Pruning or compacting old messages while preserving summaries.
-- Exposing RPC methods like `conversations.send`, `conversations.history`, and `conversations.list`.
-
-This document is intentionally high-level and describes the intended model; refer to the Go source in `internal/conversations` for exact field names and behaviors.
+This document is intentionally high-level; refer to the Go source in `internal/store` and `internal/models` for exact field names and behaviors.

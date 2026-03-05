@@ -8,7 +8,11 @@
  * correctness of the merge at each stage of a streaming run.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { reconcileRunStateFromHistory } from "./useBackend";
+import {
+  reconcileRunStateFromHistory,
+  shouldHydrateConversation,
+  convertHistory,
+} from "./useBackend";
 
 // ─── Types (subset of src/types.ts needed for the test) ────────────
 
@@ -17,6 +21,7 @@ interface DisplayMessage {
   type: "user" | "assistant" | "tool-invoke" | "tool-result" | "usage";
   content: string;
   toolName?: string;
+  toolCallId?: string;
   runId?: string;
   timestamp?: number;
 }
@@ -123,6 +128,31 @@ class StreamingSimulation {
     this.isStreaming = true;
   }
 
+  /** Process a text_done event (text streaming ended, tool calls follow). */
+  textDone(runId: string) {
+    const accumulatedText = this.streamText;
+    this.streamText = "";
+    this.isStreaming = false;
+    if (accumulatedText) {
+      const updated = [...this.messages];
+      const assistantIndex = findRunAssistantIndex(updated, runId);
+      if (assistantIndex >= 0 && updated[assistantIndex].type === "assistant") {
+        updated[assistantIndex] = {
+          ...updated[assistantIndex],
+          content: accumulatedText,
+        };
+        const newTail: DisplayMessage = {
+          id: nextMessageId(),
+          type: "assistant",
+          content: "",
+          runId,
+        };
+        updated.splice(assistantIndex + 1, 0, newTail);
+      }
+      this.messages = updated;
+    }
+  }
+
   /** Process a tool_call event. */
   toolCall(runId: string, toolName: string, args: string) {
     this.afterToolCalls = true;
@@ -172,7 +202,15 @@ class StreamingSimulation {
       toolName,
       timestamp: Date.now(),
     };
-    updated.splice(assistantIndex, 0, toolMessage);
+    // Insert after the last tool-invoke (mirrors updated useBackend logic).
+    let insertPos = assistantIndex;
+    for (let i = assistantIndex - 1; i >= 0; i--) {
+      if (updated[i].type === "tool-invoke") {
+        insertPos = i + 1;
+        break;
+      }
+    }
+    updated.splice(insertPos, 0, toolMessage);
     this.messages = updated;
   }
 
@@ -490,6 +528,71 @@ describe("streaming message merge", () => {
     const nonEmpty = assistants.filter((message) => message.content);
     expect(nonEmpty.map((message) => message.content)).toEqual(["A", "B", "C"]);
   });
+
+  it("textDone commits text and shows spinner before tool_call", () => {
+    simulation.delta(runId, "Before tool");
+    simulation.textDone(runId);
+
+    // Text is committed, streaming is off — spinner condition met.
+    expect(simulation.isStreaming).toBe(false);
+    const assistants = simulation.messages.filter(
+      (message) => message.type === "assistant",
+    );
+    expect(assistants).toHaveLength(2);
+    expect(assistants[0].content).toBe("Before tool");
+    expect(assistants[1].content).toBe(""); // empty tail for spinner
+    expect(simulation.streamText).toBe("");
+  });
+
+  it("delta -> textDone -> toolCall -> toolResult -> delta -> final flow", () => {
+    simulation.delta(runId, "Hello ");
+    simulation.textDone(runId);
+    simulation.toolCall(runId, "search", '{"q":"test"}');
+    simulation.toolResult(runId, "search", "found");
+    simulation.delta(runId, "Results");
+    simulation.final(runId);
+
+    const assistants = simulation.messages.filter(
+      (message) => message.type === "assistant",
+    );
+    const nonEmpty = assistants.filter((message) => message.content);
+    expect(nonEmpty.map((message) => message.content)).toEqual([
+      "Hello ",
+      "Results",
+    ]);
+
+    const types = simulation.messages
+      .filter((message) => message.type !== "user")
+      .map((message) => message.type);
+    expect(types).toEqual([
+      "assistant", // "Hello "
+      "tool-invoke",
+      "tool-result",
+      "assistant", // "Results"
+    ]);
+  });
+
+  it("delta -> textDone -> toolCall -> toolCall works with multiple tools", () => {
+    simulation.delta(runId, "Plan");
+    simulation.textDone(runId);
+    simulation.toolCall(runId, "tool1", "{}");
+    simulation.toolResult(runId, "tool1", "r1");
+    simulation.toolCall(runId, "tool2", "{}");
+    simulation.toolResult(runId, "tool2", "r2");
+    simulation.final(runId);
+
+    const assistants = simulation.messages.filter(
+      (message) => message.type === "assistant",
+    );
+    const nonEmpty = assistants.filter((message) => message.content);
+    expect(nonEmpty.map((message) => message.content)).toEqual(["Plan"]);
+
+    const toolMsgs = simulation.messages.filter(
+      (message) =>
+        message.type === "tool-invoke" || message.type === "tool-result",
+    );
+    expect(toolMsgs).toHaveLength(4);
+  });
 });
 
 describe("findRunAssistantIndex", () => {
@@ -549,5 +652,448 @@ describe("reconcileRunStateFromHistory", () => {
       isRunning: true,
     });
     expect(activeRuns.get("conv-1")).toBe("run-123");
+  });
+});
+
+describe("shouldHydrateConversation", () => {
+  it("hydrates when no current conversation and default exists", () => {
+    expect(shouldHydrateConversation(null, "conv-1", false)).toBe(true);
+  });
+
+  it("does not hydrate when user wants a new conversation", () => {
+    expect(shouldHydrateConversation(null, "conv-1", true)).toBe(false);
+  });
+
+  it("does not hydrate when a conversation is already active", () => {
+    expect(shouldHydrateConversation("conv-2", "conv-1", false)).toBe(false);
+  });
+
+  it("does not hydrate when no default conversation exists", () => {
+    expect(shouldHydrateConversation(null, undefined, false)).toBe(false);
+  });
+
+  it("does not hydrate when no default and user wants new", () => {
+    expect(shouldHydrateConversation(null, undefined, true)).toBe(false);
+  });
+});
+
+// ─── Reconnect question rehydration ─────────────────────────────────
+//
+// Simulates the useEffect added in useBackend that rehydrates pending
+// questions on WebSocket reconnect.  The effect fires when `connected`
+// becomes true and there is an active `conversationId`, calling
+// loadPendingQuestions which issues a questions.list RPC.  These tests
+// verify the guard conditions, the RPC response processing, and the
+// stale-response guard.
+
+import type { PendingQuestion } from "../types";
+
+/** Simulates the reconnect rehydration effect + loadPendingQuestions. */
+class ReconnectRehydrationSimulation {
+  connected = false;
+  conversationId: string | null = null;
+  conversationIdRef: { current: string | null } = { current: null };
+  pendingQuestions: PendingQuestion[] = [];
+  rpcCalls: Array<{ method: string; params: unknown }> = [];
+
+  /** Mocked sendRpc — records calls and resolves with mock data. */
+  private mockResponses = new Map<string, unknown>();
+
+  setMockResponse(conversationId: string, questions: PendingQuestion[]) {
+    this.mockResponses.set(conversationId, { questions });
+  }
+
+  /** Simulates what loadPendingQuestions does. */
+  loadPendingQuestions(targetConversationId?: string) {
+    const convId = targetConversationId || this.conversationIdRef.current;
+    if (!convId) {
+      this.pendingQuestions = [];
+      return;
+    }
+    this.rpcCalls.push({
+      method: "questions.list",
+      params: { conversationId: convId },
+    });
+    // Simulate async response (synchronous for test).
+    const response = this.mockResponses.get(convId) as
+      | { questions: PendingQuestion[] }
+      | undefined;
+    // Stale guard: if conversation changed before response arrived, discard.
+    if (this.conversationIdRef.current !== convId) return;
+    this.pendingQuestions = response?.questions ?? [];
+  }
+
+  /** Simulates the useEffect guard + call. */
+  runRehydrationEffect() {
+    if (this.connected && this.conversationId) {
+      this.loadPendingQuestions(this.conversationId);
+    }
+  }
+
+  /** Helper to set both state and ref (mirrors useBackend line 321). */
+  setConversation(id: string | null) {
+    this.conversationId = id;
+    this.conversationIdRef.current = id;
+  }
+}
+
+function makePendingQuestion(
+  id: string,
+  conversationId = "conv-1",
+): PendingQuestion {
+  return {
+    id,
+    conversationId,
+    agentId: "agent-1",
+    runId: "run-1",
+    question: "Pick one?",
+    choices: ["A", "B"],
+  };
+}
+
+describe("reconnect question rehydration", () => {
+  let sim: ReconnectRehydrationSimulation;
+
+  beforeEach(() => {
+    sim = new ReconnectRehydrationSimulation();
+  });
+
+  it("calls questions.list on reconnect when a conversation is active", () => {
+    sim.setConversation("conv-1");
+    sim.connected = true;
+    sim.setMockResponse("conv-1", [makePendingQuestion("q1")]);
+
+    sim.runRehydrationEffect();
+
+    expect(sim.rpcCalls).toHaveLength(1);
+    expect(sim.rpcCalls[0]).toEqual({
+      method: "questions.list",
+      params: { conversationId: "conv-1" },
+    });
+    expect(sim.pendingQuestions).toHaveLength(1);
+    expect(sim.pendingQuestions[0].id).toBe("q1");
+  });
+
+  it("does not call questions.list when disconnected", () => {
+    sim.setConversation("conv-1");
+    sim.connected = false;
+
+    sim.runRehydrationEffect();
+
+    expect(sim.rpcCalls).toHaveLength(0);
+    expect(sim.pendingQuestions).toHaveLength(0);
+  });
+
+  it("does not call questions.list without an active conversation", () => {
+    sim.setConversation(null);
+    sim.connected = true;
+
+    sim.runRehydrationEffect();
+
+    expect(sim.rpcCalls).toHaveLength(0);
+    expect(sim.pendingQuestions).toHaveLength(0);
+  });
+
+  it("sets pendingQuestions from broker response so dialog would open", () => {
+    const q1 = makePendingQuestion("q1", "conv-1");
+    const q2 = makePendingQuestion("q2", "conv-1");
+    sim.setConversation("conv-1");
+    sim.connected = true;
+    sim.setMockResponse("conv-1", [q1, q2]);
+
+    sim.runRehydrationEffect();
+
+    // QuestionPanel renders when pendingQuestions.length > 0.
+    expect(sim.pendingQuestions.length > 0).toBe(true);
+    expect(sim.pendingQuestions).toEqual([q1, q2]);
+  });
+
+  it("returns empty when broker has no pending questions", () => {
+    sim.setConversation("conv-1");
+    sim.connected = true;
+    sim.setMockResponse("conv-1", []);
+
+    sim.runRehydrationEffect();
+
+    expect(sim.pendingQuestions).toHaveLength(0);
+  });
+
+  it("ignores stale response if conversation changed before RPC returns", () => {
+    sim.setConversation("conv-1");
+    sim.connected = true;
+    sim.setMockResponse("conv-1", [makePendingQuestion("q1", "conv-1")]);
+
+    // Simulate: user switches conversation before RPC response arrives.
+    // Override loadPendingQuestions to switch conversation mid-call.
+    const originalLoad = sim.loadPendingQuestions.bind(sim);
+    sim.loadPendingQuestions = (targetConversationId?: string) => {
+      const convId = targetConversationId || sim.conversationIdRef.current;
+      if (!convId) {
+        sim.pendingQuestions = [];
+        return;
+      }
+      sim.rpcCalls.push({
+        method: "questions.list",
+        params: { conversationId: convId },
+      });
+      // Simulate conversation switch happening before response.
+      sim.conversationIdRef.current = "conv-2";
+      // Now simulate the response arriving — stale guard should discard.
+      const response = sim.pendingQuestions;
+      if (sim.conversationIdRef.current !== convId) return; // stale!
+      sim.pendingQuestions = [makePendingQuestion("q1", "conv-1")];
+    };
+
+    sim.runRehydrationEffect();
+
+    // Stale guard prevented setting questions for conv-1 since we're on conv-2.
+    expect(sim.pendingQuestions).toHaveLength(0);
+  });
+
+  it("rehydrates correctly on reconnect cycle (disconnect → reconnect)", () => {
+    // Initial state: connected with a pending question.
+    sim.setConversation("conv-1");
+    sim.connected = true;
+    sim.pendingQuestions = [makePendingQuestion("q1")];
+
+    // Simulate disconnect — pendingQuestions should NOT be cleared.
+    sim.connected = false;
+    // (No code path clears pendingQuestions on disconnect.)
+    expect(sim.pendingQuestions).toHaveLength(1);
+
+    // Simulate reconnect — effect fires, rehydrates from broker.
+    sim.connected = true;
+    sim.setMockResponse("conv-1", [makePendingQuestion("q1")]);
+    sim.runRehydrationEffect();
+
+    expect(sim.pendingQuestions).toHaveLength(1);
+    expect(sim.pendingQuestions[0].id).toBe("q1");
+  });
+});
+
+// ─── convertHistory tool ordering ────────────────────────────────────
+
+import type { Message } from "../types";
+
+describe("convertHistory tool ordering", () => {
+  it("places tool-result after its matching tool-invoke by toolCallId", () => {
+    const msgs: Message[] = [
+      { role: "user", content: "do both" },
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [
+          { id: "tc1", function: { name: "search", arguments: '{"q":"a"}' } },
+          { id: "tc2", function: { name: "fetch", arguments: '{"url":"b"}' } },
+        ],
+      },
+      {
+        role: "tool",
+        content: "result-a",
+        toolCallId: "tc1",
+        toolName: "search",
+      },
+      {
+        role: "tool",
+        content: "result-b",
+        toolCallId: "tc2",
+        toolName: "fetch",
+      },
+      { role: "assistant", content: "Done." },
+    ];
+
+    const display = convertHistory(msgs, []);
+    const types = display.map((m) => m.type);
+
+    // Expected: invoke-tc1, result-tc1, invoke-tc2, result-tc2, assistant
+    expect(types).toEqual([
+      "user",
+      "tool-invoke", // search
+      "tool-result", // search result
+      "tool-invoke", // fetch
+      "tool-result", // fetch result
+      "assistant", // "Done."
+    ]);
+    expect(display[1].toolCallId).toBe("tc1");
+    expect(display[2].toolCallId).toBe("tc1");
+    expect(display[3].toolCallId).toBe("tc2");
+    expect(display[4].toolCallId).toBe("tc2");
+  });
+
+  it("falls back to append when toolCallId is missing", () => {
+    const msgs: Message[] = [
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [{ function: { name: "search", arguments: "{}" } }],
+      },
+      { role: "tool", content: "ok", toolName: "search" },
+    ];
+
+    const display = convertHistory(msgs, []);
+    const types = display.map((m) => m.type);
+    expect(types).toEqual(["user", "tool-invoke", "tool-result"]);
+  });
+
+  it("handles single tool call correctly", () => {
+    const msgs: Message[] = [
+      { role: "user", content: "search" },
+      {
+        role: "assistant",
+        content: "Let me search",
+        toolCalls: [
+          {
+            id: "tc1",
+            function: { name: "search", arguments: '{"q":"test"}' },
+          },
+        ],
+      },
+      { role: "tool", content: "found", toolCallId: "tc1", toolName: "search" },
+      { role: "assistant", content: "Here it is." },
+    ];
+
+    const display = convertHistory(msgs, []);
+    const types = display.map((m) => m.type);
+    expect(types).toEqual([
+      "user",
+      "assistant", // "Let me search"
+      "tool-invoke", // search
+      "tool-result", // found
+      "assistant", // "Here it is."
+    ]);
+  });
+
+  it("handles three parallel tool calls", () => {
+    const msgs: Message[] = [
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [
+          { id: "a", function: { name: "t1", arguments: "{}" } },
+          { id: "b", function: { name: "t2", arguments: "{}" } },
+          { id: "c", function: { name: "t3", arguments: "{}" } },
+        ],
+      },
+      { role: "tool", content: "r1", toolCallId: "a", toolName: "t1" },
+      { role: "tool", content: "r2", toolCallId: "b", toolName: "t2" },
+      { role: "tool", content: "r3", toolCallId: "c", toolName: "t3" },
+    ];
+
+    const display = convertHistory(msgs, []);
+    const toolMsgs = display.filter(
+      (m) => m.type === "tool-invoke" || m.type === "tool-result",
+    );
+    // Each invoke immediately followed by its result
+    expect(toolMsgs.map((m) => `${m.type}:${m.toolCallId}`)).toEqual([
+      "tool-invoke:a",
+      "tool-result:a",
+      "tool-invoke:b",
+      "tool-result:b",
+      "tool-invoke:c",
+      "tool-result:c",
+    ]);
+  });
+});
+
+// ─── Streaming tool-result ordering ──────────────────────────────────
+
+describe("streaming tool-result ordering", () => {
+  let simulation: StreamingSimulation;
+  const runId = "run-1";
+
+  beforeEach(() => {
+    messageIdCounter = 0;
+    simulation = new StreamingSimulation();
+    simulation.startRun(runId, "Hello");
+  });
+
+  it("places tool-result directly after tool-invoke (no pre-tool text)", () => {
+    simulation.toolCall(runId, "search", "{}");
+    simulation.toolResult(runId, "search", "found");
+
+    const types = simulation.messages
+      .filter((m) => m.type !== "user")
+      .map((m) => m.type);
+    expect(types).toEqual(["tool-invoke", "tool-result", "assistant"]);
+  });
+
+  it("places tool-result directly after tool-invoke (with pre-tool text)", () => {
+    simulation.delta(runId, "text");
+    simulation.toolCall(runId, "search", "{}");
+    simulation.toolResult(runId, "search", "found");
+
+    const types = simulation.messages
+      .filter((m) => m.type !== "user")
+      .map((m) => m.type);
+    expect(types).toEqual([
+      "assistant", // "text"
+      "tool-invoke",
+      "tool-result",
+      "assistant", // streaming tail
+    ]);
+  });
+
+  it("consecutive tool calls keep invoke-result pairs together", () => {
+    simulation.delta(runId, "A");
+    simulation.toolCall(runId, "tool1", "{}");
+    simulation.toolResult(runId, "tool1", "r1");
+    simulation.toolCall(runId, "tool2", "{}");
+    simulation.toolResult(runId, "tool2", "r2");
+    simulation.final(runId);
+
+    const types = simulation.messages
+      .filter((m) => m.type !== "user")
+      .map((m) => m.type);
+
+    // Each tool-result should immediately follow its tool-invoke
+    const toolMsgs = types.filter((t) => t.startsWith("tool"));
+    expect(toolMsgs).toEqual([
+      "tool-invoke", // tool1
+      "tool-result", // tool1 result
+      "tool-invoke", // tool2
+      "tool-result", // tool2 result
+    ]);
+  });
+});
+
+// ─── useDebugEnabled ─────────────────────────────────────────────────
+
+import { useDebugEnabled } from "../components/DebugReadout";
+import { vi } from "vitest";
+
+describe("useDebugEnabled", () => {
+  it("returns true when URL has ?debug=1", () => {
+    vi.stubGlobal("window", {
+      location: { search: "?debug=1" },
+    });
+    vi.stubGlobal("localStorage", {
+      getItem: () => null,
+    });
+    expect(useDebugEnabled()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("returns true when localStorage debug is 1", () => {
+    vi.stubGlobal("window", {
+      location: { search: "" },
+    });
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => (key === "debug" ? "1" : null),
+    });
+    expect(useDebugEnabled()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("returns false when neither flag is set", () => {
+    vi.stubGlobal("window", {
+      location: { search: "" },
+    });
+    vi.stubGlobal("localStorage", {
+      getItem: () => null,
+    });
+    expect(useDebugEnabled()).toBe(false);
+    vi.unstubAllGlobals();
   });
 });

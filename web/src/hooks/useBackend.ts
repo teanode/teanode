@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type {
+  ActiveRunState,
   Attachment,
   Conversation,
   DisplayMessage,
@@ -22,8 +23,15 @@ import type {
   JobCreateParams,
   JobUpdateParams,
   JobsListResult,
+  Todo,
+  ConversationTodosEvent,
+  ConversationTodosListResult,
+  PendingQuestion,
+  PendingQuestionsListResult,
+  ConversationQuestionsEvent,
 } from "../types";
 import { useWebSocket } from "./useWebSocket";
+import { normalizeContent, type ExtractedContent } from "../contentUtils";
 
 const VOICE_INPUT_PROMPT =
   "The user dictated this message using voice input and the response may be read aloud. Keep the response concise and avoid heavy markdown formatting.";
@@ -33,72 +41,12 @@ function nextMessageId(): string {
   return `msg-${++messageIdCounter}`;
 }
 
-interface ExtractedContent {
-  text: string;
-  attachments?: Attachment[];
-}
-
 function extractContent(message: Message): string {
   return extractContentWithAttachments(message).text;
 }
 
-function extractFromBlocks(
-  blocks: {
-    type: string;
-    text?: string;
-    mediaId?: string;
-    format?: string;
-    filename?: string;
-  }[],
-): ExtractedContent {
-  let text = "";
-  const attachments: Attachment[] = [];
-  for (const block of blocks) {
-    if (block.type === "text") text += block.text || "";
-    else if (block.type === "attachment") {
-      attachments.push({
-        mediaId: block.mediaId!,
-        format: block.format!,
-        filename: block.filename!,
-      });
-    }
-  }
-  return {
-    text,
-    attachments: attachments.length > 0 ? attachments : undefined,
-  };
-}
-
 function extractContentWithAttachments(message: Message): ExtractedContent {
-  if (!message.content) return { text: "" };
-
-  // Content may already be a parsed array (json.RawMessage deserializes to native types).
-  if (
-    Array.isArray(message.content) &&
-    message.content.length > 0 &&
-    message.content[0].type
-  ) {
-    return extractFromBlocks(message.content);
-  }
-
-  if (typeof message.content === "string") {
-    // Try parsing as JSON (could be a JSON string or array of content blocks).
-    try {
-      const parsed = JSON.parse(message.content);
-      if (typeof parsed === "string") return { text: parsed };
-      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].type) {
-        return extractFromBlocks(parsed);
-      }
-      // Parsed to an object/number/etc — keep the original string representation
-      // (e.g. tool results that are JSON objects like {"mediaId":"..."}).
-      return { text: message.content };
-    } catch {
-      return { text: message.content };
-    }
-  }
-
-  // Content is already a parsed JS value (json.RawMessage → native type).
-  return { text: JSON.stringify(message.content) };
+  return normalizeContent(message.content);
 }
 
 function parseToolCalls(raw: ToolCall[] | string | undefined): ToolCall[] {
@@ -170,6 +118,22 @@ interface ReconciledRunState {
   isRunning: boolean;
 }
 
+/**
+ * Decides whether handleConnect should hydrate the default conversation.
+ * Returns false when the user is deliberately on the new-conversation page.
+ */
+export function shouldHydrateConversation(
+  currentConversationId: string | null,
+  hydrationDefaultConversationId: string | undefined,
+  wantsNewConversation: boolean,
+): boolean {
+  return (
+    !currentConversationId &&
+    !!hydrationDefaultConversationId &&
+    !wantsNewConversation
+  );
+}
+
 export function reconcileRunStateFromHistory(
   activeRuns: Map<string, string>,
   conversationKey: string,
@@ -192,7 +156,7 @@ export function reconcileRunStateFromHistory(
   };
 }
 
-function convertHistory(
+export function convertHistory(
   msgs: Message[],
   models: ModelInfo[],
 ): DisplayMessage[] {
@@ -229,6 +193,7 @@ function convertHistory(
             type: "tool-invoke",
             content: functionData.arguments || "{}",
             toolName: functionData.name || "tool",
+            toolCallId: toolCall.id,
             timestamp,
           });
         }
@@ -241,7 +206,10 @@ function convertHistory(
         });
         const usageNumbers = getUsageNumbers(message.usage);
         if (usageNumbers) {
-          const contextWindow = findContextWindow(models, message.model);
+          const contextWindow = findContextWindow(
+            models,
+            message.providerModelName,
+          );
           displayMessages.push({
             id: nextMessageId(),
             type: "usage",
@@ -252,13 +220,32 @@ function convertHistory(
         }
       }
     } else if (message.role === "tool") {
-      displayMessages.push({
+      const toolResult: DisplayMessage = {
         id: nextMessageId(),
         type: "tool-result",
         content,
         toolName: message.toolName || "tool",
+        toolCallId: message.toolCallId,
         timestamp,
-      });
+      };
+      // Place tool-result immediately after its matching tool-invoke so
+      // invoke always renders above result, even with parallel tool calls.
+      if (message.toolCallId) {
+        let inserted = false;
+        for (let i = displayMessages.length - 1; i >= 0; i--) {
+          if (
+            displayMessages[i].type === "tool-invoke" &&
+            displayMessages[i].toolCallId === message.toolCallId
+          ) {
+            displayMessages.splice(i + 1, 0, toolResult);
+            inserted = true;
+            break;
+          }
+        }
+        if (!inserted) displayMessages.push(toolResult);
+      } else {
+        displayMessages.push(toolResult);
+      }
     }
   }
   return displayMessages;
@@ -270,7 +257,7 @@ export function useBackend() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState("connecting...");
-  const [defaultModel, setDefaultModel] = useState("");
+  const [defaultProviderModelName, setDefaultProviderModelName] = useState("");
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [streamText, setStreamText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -287,6 +274,8 @@ export function useBackend() {
     null,
   );
   const [audioCapability, setAudioCapability] = useState(false);
+  const [lastActiveRunState, setLastActiveRunState] =
+    useState<ActiveRunState | null>(null);
   const lastSentViaMicRef = useRef(false);
   const currentAgentIdRef = useRef(currentAgentId);
   const modelsRef = useRef(models);
@@ -304,6 +293,10 @@ export function useBackend() {
   const streamTextRef = useRef("");
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
+
+  // When true, the user deliberately navigated to the "new conversation" page.
+  // Prevents handleConnect from hydrating a default conversation on reconnect.
+  const wantsNewConversationRef = useRef(false);
 
   const conversationsRefreshRef = useRef(0);
   const historyLoadedRef = useRef(true);
@@ -398,6 +391,75 @@ export function useBackend() {
               : agent,
           ),
         );
+      }
+      return;
+    }
+
+    if (frame.event === "conversationTodos") {
+      const payload = frame.payload as ConversationTodosEvent | undefined;
+      if (payload && payload.conversationId === conversationIdRef.current) {
+        if (payload.action === "batch" && payload.results) {
+          setTodos((prev) => {
+            let updated = [...prev];
+            for (const result of payload.results!) {
+              if (!result.success) continue;
+              if (result.op === "add" && result.todo) {
+                if (!updated.some((t) => t.id === result.todo!.id)) {
+                  updated = [result.todo!, ...updated];
+                }
+              } else if (
+                (result.op === "update" ||
+                  result.op === "complete" ||
+                  result.op === "reopen") &&
+                result.todo
+              ) {
+                updated = updated.map((t) =>
+                  t.id === result.todo!.id ? result.todo! : t,
+                );
+              } else if (result.op === "delete" && result.todoId) {
+                updated = updated.filter((t) => t.id !== result.todoId);
+              }
+            }
+            return updated;
+          });
+        } else if (payload.action === "prune") {
+          loadTodos();
+        }
+      }
+      return;
+    }
+
+    if (frame.event === "conversationQuestions") {
+      const payload = frame.payload as ConversationQuestionsEvent | undefined;
+      if (payload) {
+        if (
+          payload.action === "asked" &&
+          payload.conversationId === conversationIdRef.current
+        ) {
+          setPendingQuestions((prev) => {
+            if (prev.some((q) => q.id === payload.questionId)) return prev;
+            const q: PendingQuestion = {
+              id: payload.questionId,
+              conversationId: payload.conversationId!,
+              agentId: payload.agentId || "",
+              runId: payload.runId || "",
+              question: payload.question || "",
+              choices: payload.choices || [],
+            };
+            if (payload.allowOther) {
+              q.allowOther = true;
+              if (payload.otherLabel) q.otherLabel = payload.otherLabel;
+              if (payload.otherPlaceholder)
+                q.otherPlaceholder = payload.otherPlaceholder;
+            }
+            return [...prev, q];
+          });
+          setStatus("waiting for your answer...");
+        } else if (payload.action === "answered") {
+          setPendingQuestions((prev) =>
+            prev.filter((q) => q.id !== payload.questionId),
+          );
+        }
       }
       return;
     }
@@ -520,7 +582,9 @@ export function useBackend() {
       return;
     }
 
-    // Auto-detect new runs on current conversation from broadcast events
+    // Auto-detect new runs on current conversation from broadcast events.
+    // This catches events that arrive before the RPC response sets currentRunIdRef
+    // (e.g. when the run fails immediately, the "error" event races the RPC response).
     if (
       conversationEvent.runId &&
       conversationEvent.conversationId === conversationIdRef.current &&
@@ -528,7 +592,11 @@ export function useBackend() {
     ) {
       if (
         conversationEvent.state === "delta" ||
-        conversationEvent.state === "tool_call"
+        conversationEvent.state === "text_done" ||
+        conversationEvent.state === "tool_call" ||
+        conversationEvent.state === "final" ||
+        conversationEvent.state === "error" ||
+        conversationEvent.state === "aborted"
       ) {
         currentRunIdRef.current = conversationEvent.runId;
         activeRunsRef.current.set(
@@ -650,6 +718,39 @@ export function useBackend() {
       streamTextRef.current += conversationEvent.text || "";
       setStreamText(streamTextRef.current);
       setIsStreaming(true);
+    } else if (conversationEvent.state === "text_done") {
+      // Text streaming ended; tool calls will follow. Commit streamed text
+      // to the assistant message and transition to "thinking" state so the
+      // spinner appears during the gap before the first tool_call event.
+      const accumulatedText = streamTextRef.current;
+      streamTextRef.current = "";
+      setStreamText("");
+      setIsStreaming(false);
+      if (accumulatedText) {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const assistantIndex = findRunAssistantIndex(updated, eventRunId);
+          if (
+            assistantIndex >= 0 &&
+            updated[assistantIndex].type === "assistant"
+          ) {
+            updated[assistantIndex] = {
+              ...updated[assistantIndex],
+              content: accumulatedText,
+            };
+            const newTail: DisplayMessage = {
+              id: nextMessageId(),
+              type: "assistant",
+              content: "",
+              runId: eventRunId || undefined,
+            };
+            updated.splice(assistantIndex + 1, 0, newTail);
+          }
+          return updated;
+        });
+      }
+      setToolActivity(null);
+      setStatus("thinking...");
     } else if (conversationEvent.state === "tool_call") {
       afterToolCallsRef.current = true;
       // Commit accumulated stream text to the assistant message before clearing
@@ -707,8 +808,17 @@ export function useBackend() {
           toolName: conversationEvent.toolName,
           timestamp: Date.now(),
         };
-        // Insert tool result before the run's assistant (streaming) message
-        updated.splice(assistantIndex, 0, toolMsg);
+        // Place tool-result right after the last tool-invoke (before the
+        // streaming assistant placeholder) so invoke always renders above
+        // result.  Falls back to assistantIndex when no invoke is found.
+        let insertPos = assistantIndex;
+        for (let i = assistantIndex - 1; i >= 0; i--) {
+          if (updated[i].type === "tool-invoke") {
+            insertPos = i + 1;
+            break;
+          }
+        }
+        updated.splice(insertPos, 0, toolMsg);
         return updated;
       });
       setToolActivity(null);
@@ -764,7 +874,10 @@ export function useBackend() {
         if (usageNumbers) {
           const contextWindow =
             conversationEvent.contextWindow ||
-            findContextWindow(modelsRef.current, conversationEvent.model);
+            findContextWindow(
+              modelsRef.current,
+              conversationEvent.providerModelName,
+            );
           // Insert usage after the assistant message (or at the position it was)
           const insertPosition = finalText
             ? assistantIndex + 1
@@ -849,8 +962,8 @@ export function useBackend() {
     setIsAdmin(!!result.isAdmin);
     setCurrentUserId(result.userId || "");
     setAudioCapability(result.capabilities?.includes("audio") ?? false);
-    if (result.defaultModel) {
-      setDefaultModel(result.defaultModel);
+    if (result.defaultProviderModelName) {
+      setDefaultProviderModelName(result.defaultProviderModelName);
     }
     if (result.agents) {
       setAgents(result.agents);
@@ -878,9 +991,15 @@ export function useBackend() {
         ? result.defaultConversationId
         : undefined);
 
-    if (!conversationIdRef.current && hydrationDefaultConversationId) {
-      setConversationId(hydrationDefaultConversationId);
-      conversationIdRef.current = hydrationDefaultConversationId;
+    if (
+      shouldHydrateConversation(
+        conversationIdRef.current,
+        hydrationDefaultConversationId,
+        wantsNewConversationRef.current,
+      )
+    ) {
+      setConversationId(hydrationDefaultConversationId!);
+      conversationIdRef.current = hydrationDefaultConversationId!;
     }
     // Fetch available models
     sendRpcRef
@@ -923,7 +1042,8 @@ export function useBackend() {
           oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
           setHasMoreHistory(res.hasMore ?? false);
 
-          setConversationModel(res.model || null);
+          setConversationModel(res.providerModelName || null);
+          setLastActiveRunState(res.activeRunState || null);
 
           const reconciledRunState = reconcileRunStateFromHistory(
             activeRunsRef.current,
@@ -961,6 +1081,17 @@ export function useBackend() {
             }
           }
           pendingEventsRef.current = [];
+
+          // Recover pending questions from the in-memory broker.
+          sendRpcRef
+            .current<PendingQuestionsListResult>("questions.list", {
+              conversationId: key,
+            })
+            .then((qResult) => {
+              if (conversationIdRef.current !== key) return;
+              setPendingQuestions(qResult?.questions ?? []);
+            })
+            .catch((error: unknown) => console.error("questions.list:", error));
         })
         .catch((error: unknown) =>
           console.error("conversations.history reconnect:", error),
@@ -1029,6 +1160,7 @@ export function useBackend() {
 
   const switchConversation = useCallback(
     (key: string, agentId?: string) => {
+      wantsNewConversationRef.current = false;
       // Detach current streaming state
       currentRunIdRef.current = null;
       streamTextRef.current = "";
@@ -1068,6 +1200,11 @@ export function useBackend() {
       oldestLoadedIndexRef.current = 0;
       setHasMoreHistory(false);
 
+      // Reset todos and pending questions for new conversation
+      setTodos([]);
+      todosConversationIdRef.current = key;
+      setPendingQuestions([]);
+
       // Buffer events while history is loading
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
@@ -1088,7 +1225,8 @@ export function useBackend() {
           oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
           setHasMoreHistory(res.hasMore ?? false);
 
-          setConversationModel(res.model || null);
+          setConversationModel(res.providerModelName || null);
+          setLastActiveRunState(res.activeRunState || null);
 
           // Use activeRunId from server response to detect active runs
           if (res.activeRunId) {
@@ -1115,6 +1253,28 @@ export function useBackend() {
             }
           }
           pendingEventsRef.current = [];
+
+          // Load todos for this conversation
+          sendRpc<ConversationTodosListResult>("conversations.todos.list", {
+            conversationId: key,
+          })
+            .then((todosResult) => {
+              if (conversationIdRef.current !== key) return;
+              setTodos(todosResult.todos || []);
+            })
+            .catch((error) =>
+              console.error("conversations.todos.list:", error),
+            );
+
+          // Recover pending questions from the in-memory broker.
+          sendRpc<PendingQuestionsListResult>("questions.list", {
+            conversationId: key,
+          })
+            .then((qResult) => {
+              if (conversationIdRef.current !== key) return;
+              setPendingQuestions(qResult?.questions ?? []);
+            })
+            .catch((error) => console.error("questions.list:", error));
         })
         .catch((error) => console.error("conversations.history:", error));
     },
@@ -1132,12 +1292,17 @@ export function useBackend() {
     setToolActivity(null);
     setConversationId(null);
     conversationIdRef.current = null;
+    wantsNewConversationRef.current = true;
     setMessages([]);
     setStatus("connected");
     setConversationModel(null);
     // Reset pagination state
     oldestLoadedIndexRef.current = 0;
     setHasMoreHistory(false);
+    // Clear todos and pending questions
+    setTodos([]);
+    todosConversationIdRef.current = null;
+    setPendingQuestions([]);
   }, []);
 
   const loadOlderMessages = useCallback(() => {
@@ -1238,7 +1403,7 @@ export function useBackend() {
       };
       // Use conversation's locked model, fall back to explicit model param.
       const resolvedModel = conversationModelRef.current || model;
-      if (resolvedModel) rpcParams.model = resolvedModel;
+      if (resolvedModel) rpcParams.providerModelName = resolvedModel;
       if (currentAgentIdRef.current)
         rpcParams.agentId = currentAgentIdRef.current;
       if (attachments && attachments.length > 0)
@@ -1269,6 +1434,7 @@ export function useBackend() {
             conversationModelRef.current = resolvedModel;
           }
           if (!conversationIdRef.current) {
+            wantsNewConversationRef.current = false;
             setConversationId(res.conversationId);
             conversationIdRef.current = res.conversationId;
             setConversations((prev) => {
@@ -1323,10 +1489,19 @@ export function useBackend() {
   );
 
   const abortRun = useCallback(() => {
-    if (!currentRunIdRef.current) return;
-    sendRpc("conversations.abort", { runId: currentRunIdRef.current }).catch(
-      () => {},
-    );
+    const conversationId = conversationIdRef.current || undefined;
+    const runId =
+      currentRunIdRef.current ||
+      (conversationId
+        ? activeRunsRef.current.get(conversationId) || undefined
+        : undefined);
+
+    if (!runId && !conversationId) return;
+
+    sendRpc("conversations.abort", {
+      runId,
+      conversationId,
+    }).catch(() => {});
   }, [sendRpc]);
 
   const setDefaultAgent = useCallback(
@@ -1407,7 +1582,7 @@ export function useBackend() {
 
   const createJob = useCallback(
     (params: JobCreateParams) => {
-      return sendRpc<{ job: Job }>("jobs.create", params)
+      return sendRpc<{ job: Job }>("jobs.create", { job: params })
         .then((result) => {
           loadJobs();
           return result.job;
@@ -1422,7 +1597,7 @@ export function useBackend() {
 
   const updateJob = useCallback(
     (params: JobUpdateParams) => {
-      return sendRpc<{ job: Job }>("jobs.update", params)
+      return sendRpc<{ job: Job }>("jobs.update", { job: params })
         .then(() => {
           loadJobs();
         })
@@ -1477,13 +1652,85 @@ export function useBackend() {
     lastSentViaMicRef.current = false;
   }, []);
 
+  // ── Conversation Todos ──────────────────────────────────────────────
+
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const todosConversationIdRef = useRef<string | null>(null);
+
+  const loadTodos = useCallback(
+    (targetConversationId?: string) => {
+      const convId = targetConversationId || conversationIdRef.current;
+      if (!convId) {
+        setTodos([]);
+        return;
+      }
+      todosConversationIdRef.current = convId;
+      sendRpc<ConversationTodosListResult>("conversations.todos.list", {
+        conversationId: convId,
+      })
+        .then((result) => {
+          if (todosConversationIdRef.current !== convId) return;
+          setTodos(result.todos || []);
+        })
+        .catch((error) => console.error("conversations.todos.list:", error));
+    },
+    [sendRpc],
+  );
+
+  // ── Pending Questions (ask_user_question tool) ────────────────────
+
+  const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>(
+    [],
+  );
+
+  const answerQuestion = useCallback(
+    async (
+      answers: { questionId: string; answer: string; other?: string }[],
+    ) => {
+      await sendRpc("questions.answer", { answers });
+      const answeredIds = new Set(answers.map((a) => a.questionId));
+      setPendingQuestions((prev) => prev.filter((q) => !answeredIds.has(q.id)));
+    },
+    [sendRpc],
+  );
+
+  const loadPendingQuestions = useCallback(
+    (targetConversationId?: string) => {
+      const convId = targetConversationId || conversationIdRef.current;
+      if (!convId) {
+        setPendingQuestions([]);
+        return;
+      }
+      sendRpc<PendingQuestionsListResult>("questions.list", {
+        conversationId: convId,
+      })
+        .then((result) => {
+          if (conversationIdRef.current !== convId) return;
+          setPendingQuestions(result?.questions ?? []);
+        })
+        .catch((error) => console.error("questions.list:", error));
+    },
+    [sendRpc],
+  );
+
+  // Rehydrate pending questions whenever the WebSocket (re)connects and a
+  // conversation is active.  The questions.list calls inside handleConnect and
+  // switchConversation are nested in conversations.history .then() chains —
+  // if history loading fails or runs for the wrong conversation, those calls
+  // are skipped.  This standalone effect guarantees rehydration on reconnect.
+  useEffect(() => {
+    if (connected && conversationId) {
+      loadPendingQuestions(conversationId);
+    }
+  }, [connected, conversationId, loadPendingQuestions]);
+
   return {
     conversations,
     conversationId,
     messages,
     isRunning,
     status,
-    defaultModel,
+    defaultProviderModelName,
     models,
     streamText,
     isStreaming,
@@ -1526,5 +1773,11 @@ export function useBackend() {
     updateJob,
     deleteJob,
     triggerJob,
+    todos,
+    loadTodos,
+    pendingQuestions,
+    answerQuestion,
+    loadPendingQuestions,
+    lastActiveRunState,
   };
 }

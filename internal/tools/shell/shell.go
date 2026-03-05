@@ -1,18 +1,16 @@
 package shell
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
-	"syscall"
 	"time"
 
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/agents"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/cmdexec"
 )
 
 var log = logging.MustGetLogger("shell")
@@ -23,9 +21,10 @@ const (
 	maxOutputBytes = 256 * 1024 // 256 KB per stream
 )
 
-// RegisterTools adds the shell tool to the registry.
-func RegisterTools(registry *agents.ToolRegistry) {
-	registry.Register(&shellTool{})
+func init() {
+	tools.RegisterBuiltinTool(func() []tools.Tool {
+		return []tools.Tool{&shellTool{}}
+	})
 }
 
 type shellTool struct{}
@@ -134,60 +133,45 @@ func (self *shellTool) Execute(ctx context.Context, rawArguments string) (string
 	commandContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	command := exec.CommandContext(commandContext, "sh", "-c", arguments.Command)
-	command.Dir = directory
-	command.Stdin = nil // Reads return EOF immediately.
-	command.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true, // New session with no controlling terminal; prevents /dev/tty access (e.g. sudo password prompts).
+	// Build environment variables.
+	var environment []string
+	for key, value := range arguments.Environment {
+		environment = append(environment, key+"="+value)
 	}
-
-	// Set environment variables.
-	if len(arguments.Environment) > 0 {
-		command.Env = os.Environ()
-		for key, value := range arguments.Environment {
-			command.Env = append(command.Env, key+"="+value)
-		}
-	}
-
-	// Capture stdout and stderr separately.
-	var stdoutBuffer, stderrBuffer bytes.Buffer
-	command.Stdout = &stdoutBuffer
-	command.Stderr = &stderrBuffer
 
 	startTime := time.Now()
-	err := command.Run()
+	result, err := cmdexec.Run(commandContext, "sh", []string{"-c", arguments.Command}, cmdexec.Options{
+		Directory:   directory,
+		Environment: environment,
+	})
 	duration := time.Since(startTime).Seconds()
 
 	// Determine if we timed out.
 	timedOut := commandContext.Err() == context.DeadlineExceeded
 
-	// Extract exit code.
-	exitCode := 0
+	exitCode := result.ExitCode
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			exitCode = exitError.ExitCode()
-		} else if timedOut {
+		if timedOut {
 			exitCode = -1
 		} else {
-			// Command failed to start entirely.
 			return "", fmt.Errorf("executing command: %w", err)
 		}
 	}
 
 	// Truncate output if needed.
-	stdout := stdoutBuffer.Bytes()
+	stdout := result.Stdout
 	stdoutTruncated := len(stdout) > maxOutputBytes
 	if stdoutTruncated {
 		stdout = stdout[:maxOutputBytes]
 	}
 
-	stderr := stderrBuffer.Bytes()
+	stderr := result.Stderr
 	stderrTruncated := len(stderr) > maxOutputBytes
 	if stderrTruncated {
 		stderr = stderr[:maxOutputBytes]
 	}
 
-	result, err := json.Marshal(map[string]interface{}{
+	output, marshalError := json.Marshal(map[string]interface{}{
 		"stdout":          string(stdout),
 		"stderr":          string(stderr),
 		"exitCode":        exitCode,
@@ -196,8 +180,8 @@ func (self *shellTool) Execute(ctx context.Context, rawArguments string) (string
 		"timedOut":        timedOut,
 		"duration":        duration,
 	})
-	if err != nil {
-		return "", fmt.Errorf("marshaling result: %w", err)
+	if marshalError != nil {
+		return "", fmt.Errorf("marshaling result: %w", marshalError)
 	}
-	return string(result), nil
+	return string(output), nil
 }

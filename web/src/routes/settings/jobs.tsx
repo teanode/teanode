@@ -100,7 +100,7 @@ export default function SettingsJobsPage() {
       data: {
         name: string;
         schedule: string;
-        message: string;
+        prompt: string;
         model: string;
         agentId: string;
       },
@@ -108,8 +108,9 @@ export default function SettingsJobsPage() {
       const params: JobUpdateParams = { id: job.id };
       if (data.name !== job.name) params.name = data.name;
       if (data.schedule !== job.schedule) params.schedule = data.schedule;
-      if (data.message !== job.message) params.message = data.message;
-      if (data.model !== (job.model || "")) params.model = data.model;
+      if (data.prompt !== job.prompt) params.prompt = data.prompt;
+      if (data.model !== (job.providerModelName || ""))
+        params.providerModelName = data.model;
       if (data.agentId !== (job.agentId || "")) params.agentId = data.agentId;
       backend.updateJob(params).catch(() => {});
     },
@@ -120,16 +121,16 @@ export default function SettingsJobsPage() {
     (data: {
       name: string;
       schedule: string;
-      message: string;
+      prompt: string;
       model: string;
       agentId: string;
     }) => {
       const params: JobCreateParams = {
         name: data.name,
         schedule: data.schedule,
-        message: data.message,
+        prompt: data.prompt,
       };
-      if (data.model) params.model = data.model;
+      if (data.model) params.providerModelName = data.model;
       if (data.agentId) params.agentId = data.agentId;
       backend
         .createJob(params)
@@ -144,14 +145,18 @@ export default function SettingsJobsPage() {
 
   const saveOneShotJob = useCallback(
     (job: Job) => {
-      const message = (oneShotMessageByJob[job.id] ?? job.message).trim();
-      const model = (oneShotModelByJob[job.id] ?? (job.model || "")).trim();
+      const message = (oneShotMessageByJob[job.id] ?? job.prompt).trim();
+      const model = (
+        oneShotModelByJob[job.id] ??
+        (job.providerModelName || "")
+      ).trim();
       const agentId = (oneShotAgentByJob[job.id] ?? (job.agentId || "")).trim();
       if (!message) return;
 
       const params: JobUpdateParams = { id: job.id };
-      if (message !== job.message) params.message = message;
-      if (model !== (job.model || "")) params.model = model;
+      if (message !== job.prompt) params.prompt = message;
+      if (model !== (job.providerModelName || ""))
+        params.providerModelName = model;
       if (agentId !== (job.agentId || "")) params.agentId = agentId;
       if (Object.keys(params).length === 1) return;
 
@@ -178,14 +183,15 @@ export default function SettingsJobsPage() {
             </Typography>
           </Box>
           {jobs.map((job) => {
-            const currentMessage = oneShotMessageByJob[job.id] ?? job.message;
-            const currentModel = oneShotModelByJob[job.id] ?? (job.model || "");
+            const currentMessage = oneShotMessageByJob[job.id] ?? job.prompt;
+            const currentModel =
+              oneShotModelByJob[job.id] ?? (job.providerModelName || "");
             const currentAgentId =
               oneShotAgentByJob[job.id] ?? (job.agentId || "");
             const oneShotDirty =
               job.oneShot &&
-              (currentMessage.trim() !== job.message ||
-                currentModel.trim() !== (job.model || "") ||
+              (currentMessage.trim() !== job.prompt ||
+                currentModel.trim() !== (job.providerModelName || "") ||
                 currentAgentId.trim() !== (job.agentId || ""));
             const periodicDirty = !job.oneShot && !!periodicDirtyByJob[job.id];
             const showSaveActive = job.oneShot ? oneShotDirty : periodicDirty;
@@ -341,7 +347,7 @@ export default function SettingsJobsPage() {
                       >
                         <MenuItem value="">{t("common.default")}</MenuItem>
                         {backend.models.map((modelInfo) => {
-                          const qualified = `${modelInfo.provider}:${modelInfo.id}`;
+                          const qualified = `${modelInfo.providerName}:${modelInfo.id}`;
                           return (
                             <MenuItem key={qualified} value={qualified}>
                               {qualified}

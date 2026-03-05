@@ -1,11 +1,18 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import type { useBackend } from "./hooks/useBackend";
 import {
   LANGUAGE_PREFERENCE_STORAGE_KEY,
   type LanguagePreference,
 } from "./i18n/config";
 
-export type ThemeMode = "dark" | "light";
+export type ThemeMode = "dark" | "light" | "system";
 export type VoiceCallSTTMode = "server" | "client";
 
 export interface AppContextValue {
@@ -30,9 +37,18 @@ export interface AppContextValue {
   setVoiceCallSttMode: (value: VoiceCallSTTMode) => void;
   languagePreference: LanguagePreference;
   setLanguagePreference: (value: LanguagePreference) => void;
+  todosPanelCollapsed: boolean;
+  setTodosPanelCollapsed: (value: boolean) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
+
+/**
+ * Streaming context — a separate context whose value changes whenever
+ * streaming-related backend properties change. Conversation pages subscribe
+ * to this so they re-render during streaming; settings pages do not.
+ */
+const StreamingContext = createContext<object | null>(null);
 
 export function useAppContext(): AppContextValue {
   const context = useContext(AppContext);
@@ -40,6 +56,15 @@ export function useAppContext(): AppContextValue {
     throw new Error("useAppContext must be used within AppProvider");
   }
   return context;
+}
+
+/**
+ * Subscribe to streaming updates. Call this in any component that needs to
+ * re-render when streaming-related backend properties change (messages,
+ * streamText, isStreaming, isRunning, status, toolActivity, todos, etc.).
+ */
+export function useStreamingContext(): void {
+  useContext(StreamingContext);
 }
 
 export function AppProvider({
@@ -58,7 +83,8 @@ export function AppProvider({
   });
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
     const stored = localStorage.getItem("teanode-theme-mode");
-    return stored === "light" ? "light" : "dark";
+    if (stored === "light" || stored === "system") return stored;
+    return "dark";
   });
   const [voiceAutoSend, setVoiceAutoSendState] = useState(() => {
     return localStorage.getItem("teanode-voice-auto-send") !== "false";
@@ -86,6 +112,9 @@ export function AppProvider({
       if (stored === "ja") return "ja";
       return "auto";
     });
+  const [todosPanelCollapsed, setTodosPanelCollapsedState] = useState(() => {
+    return localStorage.getItem("teanode-todos-collapsed") === "true";
+  });
 
   const setShowToolCalls = useCallback((value: boolean) => {
     setShowToolCallsState(value);
@@ -132,33 +161,126 @@ export function AppProvider({
     localStorage.setItem(LANGUAGE_PREFERENCE_STORAGE_KEY, value);
   }, []);
 
+  const setTodosPanelCollapsed = useCallback((value: boolean) => {
+    setTodosPanelCollapsedState(value);
+    localStorage.setItem("teanode-todos-collapsed", String(value));
+  }, []);
+
+  // Keep a ref to the latest backend object, updated every render.
+  const backendRef = useRef(backend);
+  backendRef.current = backend;
+
+  // Stable proxy with a fixed identity that delegates all property reads
+  // to backendRef.current, so consumers always get the latest values
+  // without the proxy reference itself changing.
+  const stableBackendProxy = useMemo(
+    () =>
+      new Proxy({} as ReturnType<typeof useBackend>, {
+        get(_target, prop, receiver) {
+          return Reflect.get(backendRef.current, prop, receiver);
+        },
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // Memoize context value on stable backend deps + UI pref deps.
+  // During streaming, none of these change, so settings pages won't re-render.
+  const contextValue = useMemo<AppContextValue>(
+    () => ({
+      backend: stableBackendProxy,
+      showToolCalls,
+      setShowToolCalls,
+      showTokenUsage,
+      setShowTokenUsage,
+      mobileSidebarOpen,
+      setMobileSidebarOpen,
+      themeMode,
+      setThemeMode,
+      voiceAutoSend,
+      setVoiceAutoSend,
+      ttsVoice,
+      setTtsVoice,
+      voiceChimesEnabled,
+      setVoiceChimesEnabled,
+      voiceChimesVolume,
+      setVoiceChimesVolume,
+      voiceCallSttMode,
+      setVoiceCallSttMode,
+      languagePreference,
+      setLanguagePreference,
+      todosPanelCollapsed,
+      setTodosPanelCollapsed,
+    }),
+    [
+      stableBackendProxy,
+      // Stable backend deps (change infrequently, NOT during streaming)
+      backend.connected,
+      backend.connecting,
+      backend.hasConnectedOnce,
+      backend.isAdmin,
+      backend.currentUserId,
+      backend.agents,
+      backend.models,
+      backend.conversations,
+      backend.currentAgentId,
+      backend.serverDefaultAgentId,
+      backend.conversationId,
+      backend.defaultProviderModelName,
+      backend.conversationModel,
+      backend.audioCapability,
+      backend.jobs,
+      backend.jobsLoading,
+      backend.hasMoreHistory,
+      backend.loadingOlderMessages,
+      // UI prefs
+      showToolCalls,
+      setShowToolCalls,
+      showTokenUsage,
+      setShowTokenUsage,
+      mobileSidebarOpen,
+      setMobileSidebarOpen,
+      themeMode,
+      setThemeMode,
+      voiceAutoSend,
+      setVoiceAutoSend,
+      ttsVoice,
+      setTtsVoice,
+      voiceChimesEnabled,
+      setVoiceChimesEnabled,
+      voiceChimesVolume,
+      setVoiceChimesVolume,
+      voiceCallSttMode,
+      setVoiceCallSttMode,
+      languagePreference,
+      setLanguagePreference,
+      todosPanelCollapsed,
+      setTodosPanelCollapsed,
+    ],
+  );
+
+  // Streaming token — a new object ref whenever streaming props change.
+  // Conversation pages subscribe to this context to get re-renders during
+  // streaming, then read fresh data through the proxy.
+  const streamingToken = useMemo(
+    () => ({}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      backend.messages,
+      backend.streamText,
+      backend.isStreaming,
+      backend.isRunning,
+      backend.status,
+      backend.toolActivity,
+      backend.todos,
+      backend.lastActiveRunState,
+      backend.pendingQuestions,
+    ],
+  );
+
   return (
-    <AppContext.Provider
-      value={{
-        backend,
-        showToolCalls,
-        setShowToolCalls,
-        showTokenUsage,
-        setShowTokenUsage,
-        mobileSidebarOpen,
-        setMobileSidebarOpen,
-        themeMode,
-        setThemeMode,
-        voiceAutoSend,
-        setVoiceAutoSend,
-        ttsVoice,
-        setTtsVoice,
-        voiceChimesEnabled,
-        setVoiceChimesEnabled,
-        voiceChimesVolume,
-        setVoiceChimesVolume,
-        voiceCallSttMode,
-        setVoiceCallSttMode,
-        languagePreference,
-        setLanguagePreference,
-      }}
-    >
-      {children}
-    </AppContext.Provider>
+    <StreamingContext.Provider value={streamingToken}>
+      <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>
+    </StreamingContext.Provider>
   );
 }

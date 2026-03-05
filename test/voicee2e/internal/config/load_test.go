@@ -8,8 +8,8 @@ import (
 
 func TestLoadSuite(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "suite.yaml")
+	directory := t.TempDir()
+	path := filepath.Join(directory, "suite.yaml")
 	content := `
 name: test-suite
 scenarios:

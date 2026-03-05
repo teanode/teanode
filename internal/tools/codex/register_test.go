@@ -4,73 +4,43 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
 )
 
 func makeFakeBinary(t *testing.T, name string) func() {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, name)
+	directory := t.TempDir()
+	path := filepath.Join(directory, name)
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("creating fake binary: %v", err)
 	}
-	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", dir+string(os.PathListSeparator)+origPath)
-	return func() { os.Setenv("PATH", origPath) }
+	originalPath := os.Getenv("PATH")
+	os.Setenv("PATH", directory+string(os.PathListSeparator)+originalPath)
+	return func() { os.Setenv("PATH", originalPath) }
 }
 
-func TestRegisterTools_NilConfig_BinaryPresent(t *testing.T) {
+func TestCreateTools_BinaryPresent(t *testing.T) {
 	cleanup := makeFakeBinary(t, "codex")
 	defer cleanup()
 
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, nil)
-
-	if registry.Get("codex") == nil {
-		t.Error("expected codex to be registered with nil config")
+	tools := createTools()
+	found := false
+	for _, tool := range tools {
+		if tool.Definition().Function.Name == "codex" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected codex to be created")
 	}
 }
 
-func TestRegisterTools_NilConfig_BinaryMissing(t *testing.T) {
-	origPath := os.Getenv("PATH")
+func TestCreateTools_BinaryMissing(t *testing.T) {
+	originalPath := os.Getenv("PATH")
 	os.Setenv("PATH", t.TempDir())
-	defer os.Setenv("PATH", origPath)
+	defer os.Setenv("PATH", originalPath)
 
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, nil)
-
-	if registry.Get("codex") != nil {
-		t.Error("expected no codex tool when binary is missing")
-	}
-}
-
-func TestRegisterTools_ExplicitConfig_UsesDefaults(t *testing.T) {
-	cleanup := makeFakeBinary(t, "codex")
-	defer cleanup()
-
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.CodexConfig{})
-
-	if registry.Get("codex") == nil {
-		t.Error("expected codex to be registered with empty config")
-	}
-}
-
-func TestRegisterTools_ExplicitConfig_CustomBinaryPath(t *testing.T) {
-	dir := t.TempDir()
-	customBinary := filepath.Join(dir, "my-codex")
-	if err := os.WriteFile(customBinary, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("creating fake binary: %v", err)
-	}
-
-	registry := agents.NewToolRegistry()
-	RegisterTools(registry, &configs.CodexConfig{
-		BinaryPath: customBinary,
-	})
-
-	if registry.Get("codex") == nil {
-		t.Error("expected codex to be registered with custom binary path")
+	tools := createTools()
+	if len(tools) != 0 {
+		t.Errorf("expected no tools when binary is missing, got %d", len(tools))
 	}
 }

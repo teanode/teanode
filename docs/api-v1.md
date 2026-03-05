@@ -7,7 +7,7 @@ TeaNode exposes an OpenAI-compatible HTTP API under `/api/v1`. This document giv
 ### `POST /api/v1/chat/completions`
 
 - **Purpose:** OpenAI-compatible Chat Completions endpoint.
-- **Backed by:** `internal/api/v1api` handlers and the TeaNode agents layer.
+- **Backed by:** `internal/api/v1api` handlers and the TeaNode coordinators/runners layer.
 - **Behavior:**
   - Accepts a subset of the OpenAI Chat Completions schema (models, messages, tools, etc.).
   - Routes the request to a configured TeaNode agent and provider.
@@ -36,7 +36,7 @@ Planned enhancements (see `TODO.md` under **Features**):
 ### `GET /api/v1/profile` and `PUT /api/v1/profile`
 
 - **Purpose:** Read and update user profile data used by the frontend and prompt personalization.
-- **Backed by:** `internal/api/v1api/profile.go` and `internal/configs/profile.go`.
+- **Backed by:** `internal/api/v1api` handlers and the `internal/store` user operations.
 - **Behavior:**
   - `GET` returns the current profile.
   - `PUT` updates profile fields (`name`, `avatarMediaId`).
@@ -47,9 +47,10 @@ Planned enhancements (see `TODO.md` under **Features**):
 ## Relationship to Internals
 
 - The v1 API is a thin HTTP layer over:
-  - `internal/agents` for conversation orchestration and tool calls.
-  - `internal/provider` for model-specific HTTP calls.
-  - `internal/conversations` for persistent conversation storage.
-- Authentication, logging, and error handling are also implemented in `internal/api/v1api` and related middleware.
+  - `internal/coordinators` for conversation orchestration and active run management.
+  - `internal/runners` for LLM turn execution and tool calls.
+  - `internal/providers` for model-specific HTTP calls.
+  - `internal/store` for persistent conversation and entity storage.
+- Authentication, logging, and error handling are also implemented in `internal/api/v1api` and related middleware (`internal/web`).
 
 This document is intentionally high-level and meant as a starting point for navigating the v1 API implementation rather than a full reference.

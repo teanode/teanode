@@ -6,7 +6,7 @@ import Container from "@mui/material/Container";
 import MenuItem from "@mui/material/MenuItem";
 import ListSubheader from "@mui/material/ListSubheader";
 import Select from "@mui/material/Select";
-import { useAppContext } from "../../../context";
+import { useAppContext, useStreamingContext } from "../../../context";
 import InputArea from "../../../components/InputArea";
 import VoiceCallBar from "../../../components/VoiceCallBar";
 import { useAgentVoiceCall } from "./route";
@@ -16,6 +16,7 @@ import type { Attachment, ModelInfo } from "../../../types";
 export default function ConversationsNewPage() {
   const { t } = useTranslation();
   const { agentId } = useParams({ strict: false }) as { agentId: string };
+  useStreamingContext();
   const { backend, voiceAutoSend } = useAppContext();
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;
@@ -67,9 +68,9 @@ export default function ConversationsNewPage() {
   const grouped = useMemo(() => {
     const map = new Map<string, ModelInfo[]>();
     for (const modelInfo of backend.models) {
-      const list = map.get(modelInfo.provider) || [];
+      const list = map.get(modelInfo.providerName) || [];
       list.push(modelInfo);
-      map.set(modelInfo.provider, list);
+      map.set(modelInfo.providerName, list);
     }
     return map;
   }, [backend.models]);
@@ -84,7 +85,7 @@ export default function ConversationsNewPage() {
       <ListSubheader key={`header-${provider}`}>{provider}</ListSubheader>,
     );
     for (const modelInfo of providerModels) {
-      const qualified = `${modelInfo.provider}:${modelInfo.id}`;
+      const qualified = `${modelInfo.providerName}:${modelInfo.id}`;
       modelMenuItems.push(
         <MenuItem key={qualified} value={qualified}>
           {modelInfo.id}
@@ -104,9 +105,7 @@ export default function ConversationsNewPage() {
         onChange={(event) => setSelectedModel(event.target.value as string)}
         renderValue={(value) => {
           if (!value) return t("common.default");
-          return value.includes(":")
-            ? value.split(":").slice(1).join(":")
-            : value;
+          return value;
         }}
         IconComponent={() => null}
         sx={{

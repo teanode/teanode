@@ -3,11 +3,13 @@ package v1api
 import (
 	"encoding/json"
 
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/voice"
 )
 
 func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
-	var parameters voiceStartParams
+	var parameters voiceStartParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		log.Warningf("voice.start invalid parameters: %v", err)
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -27,23 +29,43 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		parameters.Features.ServerVAD, parameters.Features.ServerTurn, parameters.Features.BargeIn, parameters.Features.TurnStrategy,
 	)
 
-	if isVoiceStartConflict(self.getActiveVoiceSession()) {
+	if self.getActiveVoiceSession() != nil {
 		log.Warningf("voice.start conflict: active session already exists")
 		self.sendError(frame.ID, 409, "voice session already active")
 		return
+	}
+
+	// Resolve user and agent.
+	user := models.UserFromContext(self.ctx)
+	if user == nil || user.ID == "" {
+		self.sendError(frame.ID, 401, "userId is required")
+		return
+	}
+	agentId := user.GetDefaultAgentID()
+	if agentId == "" {
+		self.sendError(frame.ID, 500, "no default agent configured")
+		return
+	}
+
+	// Resolve or create conversation.
+	conversationId := parameters.ConversationID
+	if conversationId == "" {
+		conversationId = self.api.coordinator.NewDefaultConversation(user.ID, agentId)
+	} else {
+		self.api.coordinator.SetDefaultConversationIfUnset(user.ID, agentId, conversationId)
 	}
 
 	audioIn := voice.AudioFormat{
 		Codec:        parameters.AudioIn.Codec,
 		SampleRateHz: parameters.AudioIn.SampleRateHz,
 		Channels:     parameters.AudioIn.Channels,
-		FrameMS:      parameters.AudioIn.FrameMS,
+		FrameMS:      parameters.AudioIn.FrameMilliseconds,
 	}
 	audioOut := voice.AudioFormat{
 		Codec:        parameters.AudioOut.Codec,
 		SampleRateHz: parameters.AudioOut.SampleRateHz,
 		Channels:     parameters.AudioOut.Channels,
-		FrameMS:      parameters.AudioOut.FrameMS,
+		FrameMS:      parameters.AudioOut.FrameMilliseconds,
 	}
 	features := voice.Features{
 		ServerVAD:    parameters.Features.ServerVAD,
@@ -52,22 +74,20 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		TurnStrategy: parameters.Features.TurnStrategy,
 	}
 
-	session, err := self.api.gateway.StartVoiceSession(
-		self.userId,
-		parameters.ConversationID,
-		parameters.AgentID,
+	sessionId := security.NewULID()
+	session := voice.NewSession(
+		sessionId,
+		conversationId,
+		agentId,
 		parameters.PromptSuffix,
 		audioIn,
 		audioOut,
 		features,
+		self.api.coordinator,
+		self.api.pubsub,
 		func(payload interface{}) { self.writeJSON(payload) },
 		func(data []byte) { self.writeBinary(data) },
 	)
-	if err != nil {
-		log.Errorf("voice.start failed to create session: %v", err)
-		self.sendError(frame.ID, 500, "failed to start voice session: "+err.Error())
-		return
-	}
 	if !self.setActiveVoiceSession(session) {
 		log.Warningf("voice.start race conflict while setting active session")
 		self.sendError(frame.ID, 409, "voice session already active")
@@ -90,7 +110,7 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 }
 
 func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) {
-	var parameters voiceEndParams
+	var parameters voiceEndParameters
 	if len(frame.Params) > 0 {
 		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 			log.Warningf("voice.end invalid parameters: %v", err)
@@ -99,7 +119,7 @@ func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) {
 		}
 	}
 	session := self.getActiveVoiceSession()
-	if isVoiceEndNotFound(session) {
+	if session == nil {
 		log.Warningf("voice.end without active session")
 		self.sendError(frame.ID, 404, "no active voice session")
 		return
@@ -116,7 +136,7 @@ func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) {
 }
 
 func (self *webSocketConnection) handleVoiceResponseCancel(frame requestFrame) {
-	var parameters voiceResponseCancelParams
+	var parameters voiceResponseCancelParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		log.Warningf("voice.response.cancel invalid parameters: %v", err)
 		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
@@ -134,7 +154,7 @@ func (self *webSocketConnection) handleVoiceResponseCancel(frame requestFrame) {
 }
 
 func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) {
-	var parameters voiceInputCommitParams
+	var parameters voiceInputCommitParameters
 	if len(frame.Params) > 0 {
 		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 			log.Warningf("voice.input.commit invalid parameters: %v", err)
@@ -153,7 +173,7 @@ func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) {
 	self.sendResponse(frame.ID, map[string]any{"committed": true})
 }
 
-func applyVoiceDefaults(parameters *voiceStartParams) {
+func applyVoiceDefaults(parameters *voiceStartParameters) {
 	if parameters.AudioIn.Codec == "" {
 		parameters.AudioIn.Codec = "pcm_s16le"
 	}
@@ -163,8 +183,8 @@ func applyVoiceDefaults(parameters *voiceStartParams) {
 	if parameters.AudioIn.Channels == 0 {
 		parameters.AudioIn.Channels = 1
 	}
-	if parameters.AudioIn.FrameMS == 0 {
-		parameters.AudioIn.FrameMS = 20
+	if parameters.AudioIn.FrameMilliseconds == 0 {
+		parameters.AudioIn.FrameMilliseconds = 20
 	}
 
 	if parameters.AudioOut.Codec == "" {
@@ -176,12 +196,4 @@ func applyVoiceDefaults(parameters *voiceStartParams) {
 	if parameters.AudioOut.Channels == 0 {
 		parameters.AudioOut.Channels = 1
 	}
-}
-
-func isVoiceStartConflict(active *voice.Session) bool {
-	return active != nil
-}
-
-func isVoiceEndNotFound(active *voice.Session) bool {
-	return active == nil
 }

@@ -227,7 +227,9 @@ const AgentEditor = React.forwardRef<AgentEditorHandle, AgentEditorProps>(
       );
     }
     const suggestionMap: Record<string, string[]> = {
-      model: models.map((modelInfo) => `${modelInfo.provider}:${modelInfo.id}`),
+      model: models.map(
+        (modelInfo) => `${modelInfo.providerName}:${modelInfo.id}`,
+      ),
       ...suggestions,
     };
 

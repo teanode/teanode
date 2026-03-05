@@ -22,8 +22,8 @@ func (self *Session) triggerBargeIn() {
 	self.drainTTSQueue()
 	self.drainAudioOutQueue()
 	self.trySendFlushFrame()
-	if runId != "" && self.deps != nil {
-		self.deps.AbortRun(runId)
+	if runId != "" && self.dispatcher != nil {
+		self.dispatcher.AbortRun(runId)
 	}
 	self.ClearCurrentRun()
 	self.ClearCurrentResponse()

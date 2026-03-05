@@ -44,8 +44,8 @@ func (self *DeepgramClient) ChatCompletionStream(_ context.Context, _ ChatReques
 }
 
 // ListModels returns an empty list for Deepgram in this integration.
-func (self *DeepgramClient) ListModels(_ context.Context) ([]ModelInfo, error) {
-	return []ModelInfo{}, nil
+func (self *DeepgramClient) ListModels(_ context.Context) ([]ModelInformation, error) {
+	return []ModelInformation{}, nil
 }
 
 // OpenTranscribeStream creates a realtime transcription websocket session.

@@ -335,12 +335,7 @@ export default function InputArea({
   const showStopInInput = showStop && (expanded || showAbortInCollapsedInput);
   const sendDisabled = !showStop && !connected;
 
-  // Extract the short model name (after the colon) for display.
-  const displayModel = model
-    ? model.includes(":")
-      ? model.split(":").slice(1).join(":")
-      : model
-    : null;
+  const displayModel = model || null;
 
   const resolvedPlaceholder =
     voiceState === "recording"

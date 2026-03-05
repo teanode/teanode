@@ -1,100 +1,19 @@
 package voice
 
-import "context"
+import (
+	"context"
 
-// GatewayDeps is the minimum gateway surface the voice session depends on.
-type GatewayDeps interface {
-	SendMessage(ctx context.Context, parameters VoiceSendMessageParams) VoiceRunHandle
+	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
+)
+
+// Dispatcher is the minimal coordinator surface the voice session depends on.
+// *coordinators.Coordinator satisfies this interface directly — no adapter needed.
+type Dispatcher interface {
+	Run(ctx context.Context, parameters coordinators.RunParameters, callerCallbacks *runners.RunCallbacks) (*coordinators.RunHandle, error)
 	AbortRun(runId string) bool
-	CancelRun(runId string)
-	Subscribe(sub VoiceSubscriber)
-	Unsubscribe(sub VoiceSubscriber)
-	ProviderRegistry() VoiceProviderRegistry
-}
-
-// VoiceSendMessageParams holds message creation fields required by voice.
-type VoiceSendMessageParams struct {
-	AgentID            string
-	ConversationID     string
-	Message            string
-	Model              string
-	SystemPromptSuffix string
-	// MaxContextTokens caps how many estimated tokens of conversation history
-	// are included in the LLM request. Zero means no voice-specific cap.
-	MaxContextTokens int
-}
-
-// VoiceRunHandle is a simplified run-handle used by voice.
-type VoiceRunHandle struct {
-	RunID          string
-	ConversationID string
-	Done           <-chan struct{}
-}
-
-// VoiceSubscriber receives gateway broadcasts used by voice.
-type VoiceSubscriber interface {
-	OnVoiceEvent(eventType string, payload interface{})
-}
-
-// VoiceProviderRegistry exposes optional voice-capable providers.
-type VoiceProviderRegistry interface {
-	FindTranscriber() (VoiceTranscriber, string, bool)
-	FindStreamingTranscriber() (VoiceStreamingTranscriber, string, bool)
-	FindSynthesizer() (VoiceSynthesizer, string, bool)
-}
-
-// VoiceTranscriber converts user audio to text.
-type VoiceTranscriber interface {
-	Transcribe(ctx context.Context, request VoiceTranscribeRequest) (*VoiceTranscribeResponse, error)
-}
-
-// VoiceTranscribeRequest is the normalized STT request used in voice.
-type VoiceTranscribeRequest struct {
-	Audio      []byte
-	Format     string
-	Language   string
-	Prompt     string
-	SampleRate int
-	Channels   int
-}
-
-// VoiceTranscribeResponse is the normalized STT result.
-type VoiceTranscribeResponse struct {
-	Text string
-}
-
-// VoiceStreamingTranscriber opens a realtime STT stream.
-type VoiceStreamingTranscriber interface {
-	OpenTranscribeStream(ctx context.Context, request VoiceStreamTranscribeRequest) (VoiceTranscribeStream, error)
-}
-
-// VoiceStreamTranscribeRequest configures realtime STT.
-type VoiceStreamTranscribeRequest struct {
-	SampleRate int
-	Channels   int
-	Language   string
-	Prompt     string
-}
-
-// VoiceTranscribeEvent is emitted by realtime STT streams.
-type VoiceTranscribeEvent struct {
-	Type       string // "interim" | "final"
-	Text       string
-	Confidence float64
-	Err        error
-}
-
-// VoiceTranscribeStream is a duplex voice STT stream.
-type VoiceTranscribeStream interface {
-	SendAudio(pcm []byte) error
-	Events() <-chan VoiceTranscribeEvent
-	Close() error
-}
-
-// VoiceSynthesizer generates speech audio bytes.
-type VoiceSynthesizer interface {
-	SynthesizePCM(ctx context.Context, text, voice string, sampleRateHz int) ([]byte, error)
-	SynthesizePCMStream(ctx context.Context, text, voice string, sampleRateHz int) (<-chan []byte, error)
+	ProviderRegistry() *providers.ProviderRegistry
 }
 
 // AudioDenoiser is a placeholder capability for future server-side denoise.

@@ -28,17 +28,17 @@ This document describes the current Go backend architecture in this repository (
                     +-----------+-----------+               +-----------------------+
                                 |
                                 v
-                    +-----------------------+
-                    |   internal/gw.Gateway |
-                    |  (domain orchestrator)|
-                    +----+----+----+----+---+
+                    +----------------------------+
+                    | internal/coordinators      |
+                    | Coordinator (orchestrator) |
+                    +----+----+----+----+--------+
                          |    |    |    |
                          |    |    |    +------------------------------------+
                          |    |    |                                         |
                          |    |    v                                         v
                          |    |  +-------------------+            +-----------------------+
-                         |    |  | sessions.Store    |            | media.Store           |
-                         |    |  | security config   |            | uploads + generated   |
+                         |    |  | store (sessions,  |            | store (media)         |
+                         |    |  | security, config) |            | uploads + generated   |
                          |    |  +-------------------+            | media files           |
                          |    |                                   +-----------------------+
                          |    |
@@ -46,13 +46,13 @@ This document describes the current Go backend architecture in this repository (
                          |                                 |
                          v                                 v
             +-----------------------------+     +-----------------------------+
-            | agents.AgentRegistry        |     | jobs.Scheduler              |
+            | runners.Registry            |     | jobs.Scheduler              |
             | Runner per configured agent |     | users/*/jobs/*.md           |
             +--------------+--------------+     +---------------+-------------+
                            |                                    |
                            v                                    |
                   +-------------------+                         |
-                  | agents.Runner     |<------------------------+
+                  | runners.Runner    |<------------------------+
                   | per-conversation  |  jobs trigger SendMessage
                   | serialization     |
                   +---------+---------+
@@ -82,7 +82,7 @@ This document describes the current Go backend architecture in this repository (
 - Creates config/security/session/provider/tool/agent/scheduler/gateway/api/frontend components.
 - Starts HTTP server and graceful shutdown loop.
 
-- `internal/gw`
+- `internal/coordinators`
 - Central domain orchestrator used by API, bots, and voice sessions.
 - Owns active run tracking, broadcasts, lifecycle actions, defaults (agent/conversation), model cache.
 
@@ -91,14 +91,22 @@ This document describes the current Go backend architecture in this repository (
 - HTTP routes (health, auth, media, audio, OpenAI-compatible `/chat/completions`).
 - WebSocket RPC endpoint (`/api/v1/websocket`) for conversations, jobs, config, skills, users, voice, projects.
 
-- `internal/agents`
+- `internal/runners`
 - `Runner` handles a full LLM turn, including streaming, tool loops, and conversation persistence.
-- `AgentRegistry` manages multiple agents and per-user default agent/conversation state.
-- Includes summarizer/describer and inter-agent tooling.
+- `Registry` manages multiple runners and per-user default agent/conversation state.
+- Includes context compaction logic.
 
-- `internal/conversations`
-- File-based JSONL conversation store (per user + per agent).
-- Persists conversation header and message stream.
+- `internal/summarizers`
+- Background summarizer for conversation titles and descriptions.
+
+- `internal/store`
+- Unified store abstraction with backend implementations:
+  - `fsstore` — file-based store (YAML + JSONL) for conversations, agents, users, sessions, media, config, jobs, skills, projects, workspace files.
+  - `dbstore` — database-backed store (PostgreSQL via GORM) implementing the same interface.
+- Persists conversation headers and message streams as JSONL.
+
+- `internal/models`
+- Shared data types: Agent, Conversation, ConversationMessage, User, Session, Job, Skill, Media, Token, Project, WorkspaceFile, Configuration.
 
 - `internal/jobs`
 - Markdown + YAML-frontmatter job store (`users/<userId>/jobs/<jobId>.md`).
@@ -115,9 +123,6 @@ This document describes the current Go backend architecture in this repository (
 - `internal/frontend`
 - Serves embedded web assets with SPA fallback and COOP/COEP headers.
 
-- `internal/watcher`
-- Debounced hot reload for `config.yaml`, `agents/*/config.yaml`, `skills/**`, `users/*/jobs/*`.
-
 - `internal/channels/discord`, `internal/channels/telegram`
 - Optional bot channels that forward messages into the same gateway run pipeline.
 
@@ -133,12 +138,12 @@ CLI "teanode gateway"
   -> create sessions store
   -> build providers registry
   -> setup browser relay/headless + terminal relay + media store
-  -> create AgentRegistry and Runner per configured agent
+  -> create runners Registry and Runner per configured agent
   -> build tools per agent (built-ins + skills + inter-agent + jobs)
-  -> create Scheduler + Summarizer + Describer
-  -> create Gateway
+  -> create Scheduler + Summarizer
+  -> create Coordinator
   -> mount v1 API + frontend into mux server
-  -> start watcher, scheduler, summarizer, describer
+  -> start scheduler, summarizer
   -> start HTTP listener and serve
 ```
 
@@ -146,7 +151,7 @@ CLI "teanode gateway"
 
 ```text
 HTTP/WS/Bot request
-  -> gw.SendMessage(userId, agentId, conversationId, message, ...)
+  -> coordinator.SendMessage(userId, agentId, conversationId, message, ...)
   -> resolve default agent/conversation when omitted
   -> track active run + broadcast "user_message"
   -> Runner.Run(...)
@@ -155,7 +160,7 @@ HTTP/WS/Bot request
        -> call provider stream
        -> emit deltas + tool calls/results
        -> append assistant result
-  -> gw broadcasts "final" (or "error" / "aborted")
+  -> coordinator broadcasts "final" (or "error" / "aborted")
   -> summarizer notified
 ```
 
@@ -207,8 +212,17 @@ HTTP/WS/Bot request
   .backup/
 ```
 
-## Notes on Current State
+## Additional Packages
 
-- The old architecture description mentioning `internal/api` and `internal/provider` is outdated.
-- Current code uses `internal/api/v1api` and `internal/providers`.
+- `internal/lifecycle` — Process lifecycle management.
+- `internal/onboarding` — First-run onboarding and workspace bootstrapping.
+- `internal/prompts` — System prompt templates and composition.
+- `internal/pubsub` — In-process publish/subscribe for event broadcasting.
+- `internal/schemas` — JSON schema definitions for configuration validation.
+- `internal/version` — Build version metadata.
+- `internal/web` — HTTP server, middleware (auth, compression, logging, forwarding), and error handling.
+- `internal/util/` — Utility packages: `atomicfile`, `bufferpool`, `cmdexec`, `cronexpr`, `datastruct`, `debugutil`, `deferutil`, `mimetypes`, `pending`, `ptrto`, `ratelimit`, `screenbuffer`, `security`, `sessiontracker`, `slashcommands`, `timeutil`, `trash`, `valueor`.
+
+## Notes
+
 - Config and state are YAML-based (`config.yaml`, `security.yaml`, `state.yaml`), not JSON.

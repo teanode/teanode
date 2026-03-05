@@ -8,8 +8,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/op/go-logging"
-	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/integrations/browsers/relaybrowser"
+	"github.com/teanode/teanode/internal/integrations/terminals"
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/util/ratelimit"
+	"github.com/teanode/teanode/internal/util/sessiontracker"
 	"github.com/teanode/teanode/internal/web"
 )
 
@@ -24,82 +28,76 @@ type synthesisToken struct {
 	ExpiresAt time.Time
 }
 
-type authBucketEntry struct {
+type rateLimitBucketEntry struct {
 	bucket   *ratelimit.Bucket
 	lastSeen time.Time
 }
 
 // v1Api is the v1 API component. It implements web.Component.
 type v1Api struct {
-	gateway         gw.Gateway
-	onSkillsChanged func()
+	coordinator    *coordinators.Coordinator
+	pubsub         *pubsub.PubSub
+	sessionTracker *sessiontracker.SessionTracker
+	browserRelay   *relaybrowser.Relay
+	terminalRelay  *terminals.Relay
 
 	// Per-IP rate limiter for auth endpoints (login, setup).
-	authBucketsMutex sync.Mutex
-	authBuckets      map[string]*authBucketEntry
+	rateLimitBucketsMutex sync.Mutex
+	rateLimitBuckets      map[string]*rateLimitBucketEntry
 
 	// Pending TTS synthesis requests keyed by token.
 	synthesisTokensMutex sync.Mutex
 	synthesisTokens      map[string]synthesisToken
 }
 
-// New creates a new v1 API wired to the given Gateway.
-func New(gateway gw.Gateway, onSkillsChanged func()) *v1Api {
+// New creates a new v1 API wired to the given coordinator and pubsub.
+func New(coordinator *coordinators.Coordinator, events *pubsub.PubSub, sessions *sessiontracker.SessionTracker, browserRelay *relaybrowser.Relay, terminalRelay *terminals.Relay) *v1Api {
 	return &v1Api{
-		gateway:         gateway,
-		onSkillsChanged: onSkillsChanged,
-		authBuckets:     make(map[string]*authBucketEntry),
-		synthesisTokens: make(map[string]synthesisToken),
+		coordinator:      coordinator,
+		pubsub:           events,
+		sessionTracker:   sessions,
+		browserRelay:     browserRelay,
+		terminalRelay:    terminalRelay,
+		rateLimitBuckets: make(map[string]*rateLimitBucketEntry),
+		synthesisTokens:  make(map[string]synthesisToken),
 	}
 }
 
 // AddRoutes registers all v1 API routes on the router. Implements web.Component.
 func (self *v1Api) AddRoutes(router *mux.Router) error {
-	sub := router.PathPrefix("/api/v1").Subrouter()
+	subrouter := router.PathPrefix("/api/v1").Subrouter()
 
-	sub.Handle("/health", web.HandlerFunc(self.handleHealth))
+	subrouter.Handle("/health", web.HandlerFunc(self.handleHealth))
 
 	// Auth endpoints (exempt from auth middleware).
-	sub.Handle("/auth/status", web.HandlerFunc(self.handleAuthStatus))
-	sub.Handle("/auth/setup", web.HandlerFunc(self.handleAuthSetup))
-	sub.Handle("/auth/login", web.HandlerFunc(self.handleAuthLogin))
-	sub.Handle("/auth/logout", web.HandlerFunc(self.handleAuthLogout))
+	subrouter.Handle("/auth/status", web.HandlerFunc(self.handleAuthStatus))
+	subrouter.Handle("/auth/setup", web.HandlerFunc(self.handleAuthSetup))
+	subrouter.Handle("/auth/login", web.HandlerFunc(self.handleAuthLogin))
+	subrouter.Handle("/auth/logout", web.HandlerFunc(self.handleAuthLogout))
 
-	sub.HandleFunc("/websocket", self.handleWebSocket)
+	subrouter.Handle("/websocket", web.HandlerFunc(self.handleWebSocket))
 
-	if self.gateway.BrowserRelay() != nil {
-		sub.HandleFunc("/browser", self.handleBrowserWebSocket)
+	if self.browserRelay != nil {
+		subrouter.Handle("/browser", web.HandlerFunc(self.handleBrowserWebSocket))
 	}
-	if self.gateway.TerminalRelay() != nil {
-		sub.HandleFunc("/terminal", self.handleTerminalWebSocket)
+	if self.terminalRelay != nil {
+		subrouter.Handle("/terminal", web.HandlerFunc(self.handleTerminalWebSocket))
 	}
-	if self.gateway.MediaStore() != nil {
-		sub.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
-		sub.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
-	}
+	subrouter.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
+	subrouter.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
 
-	sub.Handle("/audio/transcribe", web.HandlerFunc(self.handleAudioTranscribe))
-	sub.Handle("/audio/synthesize", web.HandlerFunc(self.handleAudioSynthesize))
-	sub.Handle("/audio/stream", web.HandlerFunc(self.handleAudioStream))
+	subrouter.Handle("/audio/transcribe", web.HandlerFunc(self.handleAudioTranscribe))
+	subrouter.Handle("/audio/synthesize", web.HandlerFunc(self.handleAudioSynthesize))
+	subrouter.Handle("/audio/stream", web.HandlerFunc(self.handleAudioStream))
 
-	sub.Handle("/chat/completions", web.HandlerFunc(self.handleChatCompletions))
+	subrouter.Handle("/chat/completions", web.HandlerFunc(self.handleChatCompletions))
 	return nil
 }
 
-func (self *v1Api) handleBrowserWebSocket(writer http.ResponseWriter, request *http.Request) {
-	userContext := gw.UserFromContext(request.Context())
-	if userContext == nil || userContext.UserID == "" {
-		http.Error(writer, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	self.gateway.BrowserRelay().HandleWebSocketForUser(writer, request, userContext.UserID)
+func (self *v1Api) handleBrowserWebSocket(writer http.ResponseWriter, request *http.Request) error {
+	return self.browserRelay.HandleWebSocket(writer, request)
 }
 
-func (self *v1Api) handleTerminalWebSocket(writer http.ResponseWriter, request *http.Request) {
-	userContext := gw.UserFromContext(request.Context())
-	if userContext == nil || userContext.UserID == "" {
-		http.Error(writer, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	self.gateway.TerminalRelay().HandleWebSocketForUser(writer, request, userContext.UserID)
+func (self *v1Api) handleTerminalWebSocket(writer http.ResponseWriter, request *http.Request) error {
+	return self.terminalRelay.HandleWebSocket(writer, request)
 }

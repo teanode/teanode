@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
-import Divider from "@mui/material/Divider";
+import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
@@ -17,7 +17,8 @@ import HourglassEmptyRounded from "@mui/icons-material/HourglassEmptyRounded";
 import KeyboardArrowDownRounded from "@mui/icons-material/KeyboardArrowDownRounded";
 import StopRounded from "@mui/icons-material/StopRounded";
 import type { DisplayMessage } from "../types";
-import { useAppContext } from "../context";
+import { dateLabelFor } from "../dateUtils";
+import DateSeparator from "./DateSeparator";
 import MessageBubble from "./MessageBubble";
 import ToolInvoke from "./ToolInvoke";
 import ToolResult, { detectMedia } from "./ToolResult";
@@ -32,13 +33,21 @@ interface MessageListProps {
   toolActivity: string | null;
   status: string;
   activeRunId: string | null;
+  showToolCalls: boolean;
+  showTokenUsage: boolean;
   hasMoreHistory?: boolean;
   loadingOlderMessages?: boolean;
   onLoadOlderMessages?: () => void;
   agentName?: string;
   agentAvatarMediaId?: string;
+  /** Pre-resolved agent avatar URL (for extension contexts). */
+  agentAvatarSrc?: string;
   userName?: string;
   userAvatarMediaId?: string;
+  /** Pre-resolved user avatar URL (for extension contexts). */
+  userAvatarSrc?: string;
+  /** Resolve a media ID to a full URL (for extension contexts). */
+  resolveMediaUrl?: (mediaId: string) => string;
   voiceEnabled?: boolean;
   speakingMessageId?: string | null;
   onSpeak?: (messageId: string, text: string) => void;
@@ -52,29 +61,6 @@ const VIRTUAL_START = 1_000_000;
 type ListItem =
   | { kind: "separator"; label: string; key: string }
   | { kind: "message"; message: DisplayMessage };
-
-function dateLabelFor(timestamp: number, t: (key: string) => string): string {
-  const messageDate = new Date(timestamp);
-  const now = new Date();
-
-  const messageDay = new Date(
-    messageDate.getFullYear(),
-    messageDate.getMonth(),
-    messageDate.getDate(),
-  );
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diff = today.getTime() - messageDay.getTime();
-
-  if (diff === 0) return t("conversations.today");
-  if (diff === 86_400_000) return t("conversations.yesterday");
-  return messageDate.toLocaleDateString([], {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year:
-      messageDate.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
-  });
-}
 
 function buildItems(
   messages: DisplayMessage[],
@@ -123,10 +109,15 @@ export default function MessageList({
   hasMoreHistory,
   loadingOlderMessages,
   onLoadOlderMessages,
+  showToolCalls,
+  showTokenUsage,
   agentName,
   agentAvatarMediaId,
+  agentAvatarSrc,
   userName,
   userAvatarMediaId,
+  userAvatarSrc,
+  resolveMediaUrl,
   voiceEnabled,
   speakingMessageId,
   onSpeak,
@@ -135,7 +126,6 @@ export default function MessageList({
   onAbort,
 }: MessageListProps) {
   const { t } = useTranslation();
-  const { showToolCalls, showTokenUsage } = useAppContext();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const atBottomRef = useRef(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -144,22 +134,17 @@ export default function MessageList({
   const normalizedAgentFallback = (agentName || "Agent").trim() || "Agent";
 
   const items = useMemo(() => {
-    const filteredItems = buildItems(
-      messages,
-      t,
-      showToolCalls,
-      showTokenUsage,
-    );
+    let filteredItems = buildItems(messages, t, showToolCalls, showTokenUsage);
     const hasVisibleMessage = filteredItems.some(
       (item) => item.kind === "message",
     );
-    if (hasVisibleMessage || messages.length === 0) {
-      return filteredItems;
+    if (!hasVisibleMessage && messages.length > 0) {
+      // If filters hide everything (e.g. a conversation that starts with tool
+      // messages), show the raw timeline so the page never appears empty.
+      filteredItems = buildItems(messages, t, true, true);
     }
 
-    // If filters hide everything (e.g. a conversation that starts with tool
-    // messages), show the raw timeline so the page never appears empty.
-    return buildItems(messages, t, true, true);
+    return filteredItems;
   }, [messages, t, showToolCalls, showTokenUsage]);
 
   // Only the last assistant message for the active run should show streaming
@@ -198,9 +183,9 @@ export default function MessageList({
     wasEmptyRef.current = items.length === 0;
   }, [items.length]);
 
-  // Scroll to bottom when streaming text updates and user hasn't scrolled up.
-  // Virtuoso's followOutput handles new items, but streaming updates only change
-  // content of the last item without adding new ones.
+  // Scroll to bottom when streaming text or interim transcript updates and user
+  // hasn't scrolled up. Virtuoso's followOutput handles new items, but content
+  // updates don't add new items.
   useEffect(() => {
     if (atBottomRef.current && virtuosoRef.current && items.length > 0) {
       virtuosoRef.current.scrollToIndex({
@@ -256,15 +241,7 @@ export default function MessageList({
             maxWidth="md"
             sx={{ py: 0.5, display: "flex", flexDirection: "column" }}
           >
-            <Divider sx={{ my: 1 }}>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ fontSize: "11px", fontWeight: 500 }}
-              >
-                {item.label}
-              </Typography>
-            </Divider>
+            <DateSeparator label={item.label} />
           </Container>
         );
       }
@@ -285,7 +262,9 @@ export default function MessageList({
               timestamp={message.timestamp}
               attachments={message.attachments}
               avatarMediaId={userAvatarMediaId}
+              avatarSrc={userAvatarSrc}
               avatarFallback={normalizedUserFallback}
+              resolveMediaUrl={resolveMediaUrl}
             />
           </Container>
         );
@@ -326,6 +305,7 @@ export default function MessageList({
                 >
                   <ConversationAvatar
                     avatarMediaId={agentAvatarMediaId}
+                    src={agentAvatarSrc}
                     fallback={normalizedAgentFallback}
                   />
                   <CircularProgress size={12} color="primary" />
@@ -377,6 +357,7 @@ export default function MessageList({
               >
                 <ConversationAvatar
                   avatarMediaId={agentAvatarMediaId}
+                  src={agentAvatarSrc}
                   fallback={normalizedAgentFallback}
                 />
                 <HourglassEmptyRounded sx={{ fontSize: 12 }} color="disabled" />
@@ -405,7 +386,9 @@ export default function MessageList({
               streamText={isStreamingMessage ? streamText : undefined}
               timestamp={message.timestamp}
               avatarMediaId={agentAvatarMediaId}
+              avatarSrc={agentAvatarSrc}
               avatarFallback={normalizedAgentFallback}
+              resolveMediaUrl={resolveMediaUrl}
               voiceEnabled={voiceEnabled}
               isSpeakingThis={speakingMessageId === message.id}
               onSpeak={(text) => onSpeak?.(message.id, text)}
@@ -432,6 +415,7 @@ export default function MessageList({
             <ToolResult
               toolName={message.toolName || "tool"}
               content={message.content}
+              resolveMediaUrl={resolveMediaUrl}
             />
           </Container>
         );
@@ -450,6 +434,7 @@ export default function MessageList({
     [
       activeRunId,
       agentAvatarMediaId,
+      agentAvatarSrc,
       isRunning,
       isStreaming,
       lastStreamingAssistantId,
@@ -457,6 +442,7 @@ export default function MessageList({
       normalizedUserFallback,
       onSpeak,
       onStopSpeaking,
+      resolveMediaUrl,
       speakingMessageId,
       streamText,
       t,
@@ -464,12 +450,14 @@ export default function MessageList({
       showAbortOnStatusLine,
       onAbort,
       userAvatarMediaId,
+      userAvatarSrc,
       voiceEnabled,
     ],
   );
 
   const computeItemKey = useCallback((_index: number, item: ListItem) => {
-    return item.kind === "separator" ? item.key : item.message.id;
+    if (item.kind === "separator") return item.key;
+    return item.message.id;
   }, []);
 
   // Track firstItemIndex in a ref — only decreases when older messages are
@@ -591,7 +579,9 @@ export default function MessageList({
         rangeChanged={handleRangeChanged}
         increaseViewportBy={{ top: 500, bottom: 200 }}
         itemContent={renderItem}
-        components={{ Header: headerComponent }}
+        components={{
+          Header: headerComponent,
+        }}
       />
       {showScrollToBottom && items.length > 0 && (
         <IconButton

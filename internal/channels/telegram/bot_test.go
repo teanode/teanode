@@ -1,33 +1,52 @@
 package telegram
 
 import (
+	"context"
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
-	"github.com/teanode/teanode/internal/configs"
-	"github.com/teanode/teanode/internal/gw"
+	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/pubsub"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/store/fsstore"
 )
 
 func TestShouldForwardDisconnectedWebUI(t *testing.T) {
-	configs.SetDirectory(t.TempDir())
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store backend: %v", openError)
+	}
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
+		t.Fatalf("migrating store backend: %v", migrateError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	contextWithStore := store.ContextWithStore(context.Background(), openedStore)
 
-	registry := agents.NewAgentRegistry()
-	registry.Register("main", &agents.Runner{AgentID: "main"})
-	registry.SetDefaultConversation("user-1", "main", "default-conversation")
+	// Seed a user with DefaultAgentID so shouldForwardDisconnectedSession can read it from the store.
+	defaultAgentId := "main"
+	_ = openedStore.Transaction(contextWithStore, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.CreateUser(ctx, &models.User{
+			ID:             "user-1",
+			DefaultAgentID: &defaultAgentId,
+		}, nil, nil)
+		return err
+	})
 
-	gateway := gw.New(
-		&configs.Config{AgentConfigs: []configs.AgentConfig{{ID: "main"}}},
-		&configs.SecurityConfig{Users: map[string]configs.SecurityUser{}},
-		registry,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-	)
-	bot := &Bot{agentRegistry: registry, gateway: gateway}
+	// Seed agent in store.
+	_ = openedStore.Transaction(contextWithStore, func(ctx context.Context, transaction store.Transaction) error {
+		_, _ = transaction.CreateAgent(ctx, &models.Agent{ID: "main"}, nil, nil)
+		return nil
+	})
+
+	events := pubsub.New()
+	coordinator := coordinators.New(contextWithStore, &models.Configuration{}, nil, nil, events)
+	coordinator.SetDefaultConversation("user-1", "main", "default-conversation")
+
+	bot := &Bot{
+		ctx:         contextWithStore,
+		coordinator: coordinator,
+	}
 
 	if !bot.shouldForwardDisconnectedSession("user-1", "main", "default-conversation", "session-1") {
 		t.Fatal("expected default agent/default conversation to be eligible for disconnected WebUI forwarding")
@@ -44,7 +63,6 @@ func TestShouldForwardDisconnectedWebUI(t *testing.T) {
 }
 
 func TestUnlinkedTelegramMessage(t *testing.T) {
-	configs.SetDirectory(t.TempDir())
 	message := unlinkedTelegramMessage("12345")
 	for _, want := range []string{
 		"not linked",

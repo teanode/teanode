@@ -10,9 +10,9 @@ import (
 )
 
 type driveTool struct {
-	binary  string
-	account string
-	runner  commandRunner
+	binary string
+
+	runner commandRunner
 }
 
 func (self *driveTool) Definition() providers.ToolDefinition {
@@ -51,10 +51,10 @@ func (self *driveTool) Definition() providers.ToolDefinition {
 
 func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var args struct {
-		Action string `json:"action"`
-		Query  string `json:"query"`
-		FileID string `json:"file_id"`
-		Limit  int    `json:"limit"`
+		Action          string `json:"action"`
+		Query           string `json:"query"`
+		WorkspaceFileID string `json:"file_id"`
+		Limit           int    `json:"limit"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -66,25 +66,25 @@ func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string
 		if limit <= 0 {
 			limit = 10
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
 			"drive", "ls", "--max", strconv.Itoa(limit))
 
 	case "search":
 		if args.Query == "" {
 			return "", fmt.Errorf("query is required for search action")
 		}
-		cmdArgs := []string{"drive", "search", args.Query}
+		commandArguments := []string{"drive", "search", args.Query}
 		if args.Limit > 0 {
-			cmdArgs = append(cmdArgs, "--max", strconv.Itoa(args.Limit))
+			commandArguments = append(commandArguments, "--max", strconv.Itoa(args.Limit))
 		}
-		return execGog(ctx, self.runner, self.binary, self.account, cmdArgs...)
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account, commandArguments...)
 
 	case "info":
-		if args.FileID == "" {
+		if args.WorkspaceFileID == "" {
 			return "", fmt.Errorf("file_id is required for info action")
 		}
-		return execGog(ctx, self.runner, self.binary, self.account,
-			"drive", "get", args.FileID)
+		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
+			"drive", "get", args.WorkspaceFileID)
 
 	default:
 		return "", fmt.Errorf("unknown drive action: %s", args.Action)

@@ -146,7 +146,7 @@ export default function SettingsSectionPage() {
 
   const suggestionMap: Record<string, string[]> = {
     model: backend.models.map(
-      (modelInfo) => `${modelInfo.provider}:${modelInfo.id}`,
+      (modelInfo) => `${modelInfo.providerName}:${modelInfo.id}`,
     ),
     agent: backend.agents.map((agent) => agent.id),
   };

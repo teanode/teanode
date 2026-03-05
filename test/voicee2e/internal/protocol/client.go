@@ -14,16 +14,15 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/teanode/teanode/internal/configs"
 	"github.com/teanode/teanode/internal/voice"
 	"github.com/teanode/teanode/test/voicee2e/internal/model"
 )
 
 type rpcRequest struct {
-	Type   string      `json:"type"`
-	ID     string      `json:"id"`
-	Method string      `json:"method"`
-	Params interface{} `json:"params,omitempty"`
+	Type       string      `json:"type"`
+	ID         string      `json:"id"`
+	Method     string      `json:"method"`
+	Parameters interface{} `json:"params,omitempty"`
 }
 
 type rpcResponse struct {
@@ -70,7 +69,7 @@ type voiceEnvelope struct {
 	V         int             `json:"v"`
 	Type      string          `json:"type"`
 	SessionID string          `json:"session_id"`
-	Seq       uint64          `json:"seq"`
+	Sequence  uint64          `json:"seq"`
 	TSMS      int64           `json:"ts_ms"`
 	Payload   json.RawMessage `json:"payload"`
 }
@@ -86,17 +85,17 @@ func NewClient(gatewayUrl string) *Client {
 }
 
 func (self *Client) SetPromptSuffix(value string) {
-	self.promptSuffix = strings.TrimSpace(value)
+	self.promptSuffix = value
 }
 
 func (self *Client) SetConfigJSON(value string) {
 	self.configJSON = strings.TrimSpace(value)
 }
 
-func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec) ([]model.TimelineEvent, error) {
+func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpecification) ([]model.TimelineEvent, error) {
 	debugEnabled := voiceE2eDebugEnabled()
 
-	wsUrl, err := toWebSocketUrl(self.gatewayUrl)
+	websocketUrl, err := toWebSocketUrl(self.gatewayUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -104,20 +103,20 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	if token := resolveGatewayToken(); token != "" {
 		headers.Set("Authorization", "Bearer "+token)
 	}
-	debugf(debugEnabled, "dial websocket url=%s auth_header=%t", wsUrl, headers.Get("Authorization") != "")
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsUrl, headers)
+	debugf(debugEnabled, "dial websocket url=%s auth_header=%t", websocketUrl, headers.Get("Authorization") != "")
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, websocketUrl, headers)
 	if err != nil {
 		return nil, fmt.Errorf("dial websocket: %w", err)
 	}
 	defer conn.Close()
 
 	type responseWaiter struct {
-		ch chan rpcResponse
+		channel chan rpcResponse
 	}
 	waiters := map[string]responseWaiter{}
-	var waitersMu sync.Mutex
+	var waitersMutex sync.Mutex
 	timeline := make([]model.TimelineEvent, 0, 256)
-	var timelineMu sync.Mutex
+	var timelineMutex sync.Mutex
 	var seq atomic.Uint64
 	var responseStartedCount atomic.Int32
 	responseStartedByRun := map[string]bool{}
@@ -126,22 +125,22 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 		if event.Type == model.EventResponseStarted {
 			responseStartedCount.Add(1)
 		}
-		timelineMu.Lock()
+		timelineMutex.Lock()
 		timeline = append(timeline, event)
-		timelineMu.Unlock()
+		timelineMutex.Unlock()
 	}
 
 	readerDone := make(chan error, 1)
 	go func() {
 		for {
-			msgType, data, readErr := conn.ReadMessage()
+			messageType, data, readErr := conn.ReadMessage()
 			if readErr != nil {
 				debugf(debugEnabled, "read message error: %v", readErr)
 				readerDone <- readErr
 				return
 			}
 			now := time.Now()
-			if msgType == websocket.BinaryMessage {
+			if messageType == websocket.BinaryMessage {
 				frame, parseErr := voice.ParseBinaryAudioFrame(data)
 				if parseErr != nil {
 					continue
@@ -157,32 +156,32 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 				continue
 			}
 
-			if typ, _ := raw["type"].(string); typ == "res" {
+			if frameType, _ := raw["type"].(string); frameType == "res" {
 				var response rpcResponse
 				if err := json.Unmarshal(data, &response); err != nil {
 					continue
 				}
 				debugf(debugEnabled, "rpc response id=%s ok=%t", response.ID, response.OK)
-				waitersMu.Lock()
+				waitersMutex.Lock()
 				waiter, ok := waiters[response.ID]
-				waitersMu.Unlock()
+				waitersMutex.Unlock()
 				if ok {
-					waiter.ch <- response
+					waiter.channel <- response
 				}
 				continue
 			}
 
 			if _, ok := raw["v"]; ok {
-				var env voiceEnvelope
-				if err := json.Unmarshal(data, &env); err != nil {
+				var envelope voiceEnvelope
+				if err := json.Unmarshal(data, &envelope); err != nil {
 					continue
 				}
-				debugf(debugEnabled, "voice envelope type=%s session=%s", env.Type, env.SessionID)
-				convertVoiceEnvelope(record, now, env)
+				debugf(debugEnabled, "voice envelope type=%s session=%s", envelope.Type, envelope.SessionID)
+				convertVoiceEnvelope(record, now, envelope)
 				continue
 			}
 
-			if typ, _ := raw["type"].(string); typ == "event" {
+			if frameType, _ := raw["type"].(string); frameType == "event" {
 				var frame eventFrame
 				if err := json.Unmarshal(data, &frame); err != nil {
 					continue
@@ -207,17 +206,17 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 
 	sendRpc := func(method string, parameters any) error {
 		id := fmt.Sprintf("r-%d", seq.Add(1))
-		wait := responseWaiter{ch: make(chan rpcResponse, 1)}
-		waitersMu.Lock()
+		wait := responseWaiter{channel: make(chan rpcResponse, 1)}
+		waitersMutex.Lock()
 		waiters[id] = wait
-		waitersMu.Unlock()
+		waitersMutex.Unlock()
 		defer func() {
-			waitersMu.Lock()
+			waitersMutex.Lock()
 			delete(waiters, id)
-			waitersMu.Unlock()
+			waitersMutex.Unlock()
 		}()
 
-		request := rpcRequest{Type: "req", ID: id, Method: method, Params: parameters}
+		request := rpcRequest{Type: "req", ID: id, Method: method, Parameters: parameters}
 		debugf(debugEnabled, "send rpc method=%s id=%s", method, id)
 		if err := conn.WriteJSON(request); err != nil {
 			return err
@@ -228,7 +227,7 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 			return ctx.Err()
 		case err := <-readerDone:
 			return err
-		case response := <-wait.ch:
+		case response := <-wait.channel:
 			if !response.OK {
 				if response.Error != nil {
 					return fmt.Errorf("%s failed: %s", method, response.Error.Message)
@@ -348,8 +347,8 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 	debugf(debugEnabled, "voice.end sent")
 	_ = conn.Close()
 
-	timelineMu.Lock()
-	defer timelineMu.Unlock()
+	timelineMutex.Lock()
+	defer timelineMutex.Unlock()
 	return append([]model.TimelineEvent(nil), timeline...), nil
 }
 
@@ -382,7 +381,7 @@ func (self *Client) applyConfig(start *voiceStartParams) {
 }
 
 func toWebSocketUrl(gateway string) (string, error) {
-	raw := strings.TrimSpace(gateway)
+	raw := gateway
 	if raw == "" {
 		raw = "http://127.0.0.1:8833"
 	}
@@ -408,25 +407,21 @@ func toWebSocketUrl(gateway string) (string, error) {
 
 func resolveGatewayToken() string {
 	if token, exists := os.LookupEnv("TEANODE_GATEWAY_TOKEN"); exists {
-		return strings.TrimSpace(token)
+		return token
 	}
-	securityConfig, err := configs.LoadSecurity()
-	if err != nil || securityConfig == nil {
-		return ""
-	}
-	return securityConfig.LatestToken()
+	return ""
 }
 
 func voiceE2eDebugEnabled() bool {
-	value := strings.TrimSpace(os.Getenv("VOICE_E2E_DEBUG"))
+	value := os.Getenv("VOICE_E2E_DEBUG")
 	return value == "1" || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
 }
 
-func debugf(enabled bool, format string, args ...interface{}) {
+func debugf(enabled bool, format string, arguments ...interface{}) {
 	if !enabled {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "[voicee2e] "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "[voicee2e] "+format+"\n", arguments...)
 }
 
 func convertConversationEvent(record func(model.TimelineEvent), now time.Time, payload json.RawMessage) {
@@ -445,39 +440,39 @@ func convertConversationEvent(record func(model.TimelineEvent), now time.Time, p
 	}
 }
 
-func convertVoiceEnvelope(record func(model.TimelineEvent), now time.Time, env voiceEnvelope) {
+func convertVoiceEnvelope(record func(model.TimelineEvent), now time.Time, envelope voiceEnvelope) {
 	var payload map[string]any
-	_ = json.Unmarshal(env.Payload, &payload)
-	switch env.Type {
+	_ = json.Unmarshal(envelope.Payload, &payload)
+	switch envelope.Type {
 	case "turn.event":
 		event, _ := payload["event"].(string)
 		switch event {
 		case "speech_started":
-			record(model.TimelineEvent{At: now, Type: model.EventSpeechStarted, SessionID: env.SessionID, Raw: payload})
+			record(model.TimelineEvent{At: now, Type: model.EventSpeechStarted, SessionID: envelope.SessionID, Raw: payload})
 		case "speech_ended":
-			record(model.TimelineEvent{At: now, Type: model.EventSpeechEnded, SessionID: env.SessionID, Raw: payload})
+			record(model.TimelineEvent{At: now, Type: model.EventSpeechEnded, SessionID: envelope.SessionID, Raw: payload})
 		case "turn_committed":
-			record(model.TimelineEvent{At: now, Type: model.EventTurnCommitted, SessionID: env.SessionID, Raw: payload})
+			record(model.TimelineEvent{At: now, Type: model.EventTurnCommitted, SessionID: envelope.SessionID, Raw: payload})
 		case "turn_queued":
-			record(model.TimelineEvent{At: now, Type: model.EventTurnQueued, SessionID: env.SessionID, Raw: payload})
+			record(model.TimelineEvent{At: now, Type: model.EventTurnQueued, SessionID: envelope.SessionID, Raw: payload})
 		case "turn_dropped":
-			record(model.TimelineEvent{At: now, Type: model.EventTurnDropped, SessionID: env.SessionID, Raw: payload})
+			record(model.TimelineEvent{At: now, Type: model.EventTurnDropped, SessionID: envelope.SessionID, Raw: payload})
 		case "barge_in_triggered":
-			record(model.TimelineEvent{At: now, Type: model.EventBargeInTriggered, SessionID: env.SessionID, Raw: payload})
+			record(model.TimelineEvent{At: now, Type: model.EventBargeInTriggered, SessionID: envelope.SessionID, Raw: payload})
 		}
 	case "transcript.final":
 		text, _ := payload["text"].(string)
 		turnId, _ := payload["turn_id"].(string)
-		record(model.TimelineEvent{At: now, Type: model.EventTranscriptFinal, SessionID: env.SessionID, TurnID: turnId, Text: text, Raw: payload})
+		record(model.TimelineEvent{At: now, Type: model.EventTranscriptFinal, SessionID: envelope.SessionID, TurnID: turnId, Text: text, Raw: payload})
 	case "response.started":
 		responseId, _ := payload["response_id"].(string)
 		turnId, _ := payload["turn_id"].(string)
-		record(model.TimelineEvent{At: now, Type: model.EventResponseStarted, SessionID: env.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
+		record(model.TimelineEvent{At: now, Type: model.EventResponseStarted, SessionID: envelope.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
 	case "response.completed":
 		responseId, _ := payload["response_id"].(string)
 		turnId, _ := payload["turn_id"].(string)
-		record(model.TimelineEvent{At: now, Type: model.EventResponseCompleted, SessionID: env.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
+		record(model.TimelineEvent{At: now, Type: model.EventResponseCompleted, SessionID: envelope.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
 	case "turn.metrics":
-		record(model.TimelineEvent{At: now, Type: model.EventTurnMetrics, SessionID: env.SessionID, Raw: payload})
+		record(model.TimelineEvent{At: now, Type: model.EventTurnMetrics, SessionID: envelope.SessionID, Raw: payload})
 	}
 }

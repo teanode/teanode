@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teanode/teanode/internal/agents"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
 )
 
 func TestParseArguments(t *testing.T) {
@@ -53,7 +54,7 @@ func TestParseArguments(t *testing.T) {
 
 func TestApplyTemplate(t *testing.T) {
 	t.Run("single substitution", func(t *testing.T) {
-		result := applyTemplate("hello {{name}}", map[string]interface{}{"name": "world"})
+		result := applyTemplate(context.Background(), "hello {{name}}", map[string]interface{}{"name": "world"})
 		if result != "hello world" {
 			t.Errorf("got %q, want %q", result, "hello world")
 		}
@@ -61,42 +62,42 @@ func TestApplyTemplate(t *testing.T) {
 
 	t.Run("multiple substitutions", func(t *testing.T) {
 		args := map[string]interface{}{"host": "localhost", "port": float64(8080)}
-		result := applyTemplate("{{host}}:{{port}}", args)
+		result := applyTemplate(context.Background(), "{{host}}:{{port}}", args)
 		if result != "localhost:8080" {
 			t.Errorf("got %q, want %q", result, "localhost:8080")
 		}
 	})
 
 	t.Run("repeated placeholder", func(t *testing.T) {
-		result := applyTemplate("{{x}} and {{x}}", map[string]interface{}{"x": "a"})
+		result := applyTemplate(context.Background(), "{{x}} and {{x}}", map[string]interface{}{"x": "a"})
 		if result != "a and a" {
 			t.Errorf("got %q, want %q", result, "a and a")
 		}
 	})
 
 	t.Run("no placeholders", func(t *testing.T) {
-		result := applyTemplate("no placeholders", map[string]interface{}{"key": "value"})
+		result := applyTemplate(context.Background(), "no placeholders", map[string]interface{}{"key": "value"})
 		if result != "no placeholders" {
 			t.Errorf("got %q, want %q", result, "no placeholders")
 		}
 	})
 
 	t.Run("nil args", func(t *testing.T) {
-		result := applyTemplate("hello {{name}}", nil)
+		result := applyTemplate(context.Background(), "hello {{name}}", nil)
 		if result != "hello {{name}}" {
 			t.Errorf("got %q, want template unchanged", result)
 		}
 	})
 
 	t.Run("missing key left as-is", func(t *testing.T) {
-		result := applyTemplate("{{known}} {{unknown}}", map[string]interface{}{"known": "yes"})
+		result := applyTemplate(context.Background(), "{{known}} {{unknown}}", map[string]interface{}{"known": "yes"})
 		if result != "yes {{unknown}}" {
 			t.Errorf("got %q, want %q", result, "yes {{unknown}}")
 		}
 	})
 
 	t.Run("dot path substitution", func(t *testing.T) {
-		result := applyTemplate("id={{steps.fetch}}", map[string]interface{}{
+		result := applyTemplate(context.Background(), "id={{steps.fetch}}", map[string]interface{}{
 			"steps": map[string]interface{}{
 				"fetch": "abc123",
 			},
@@ -111,7 +112,7 @@ func TestApplyTemplate(t *testing.T) {
 			"query": "hello world",
 			"tags":  []interface{}{"a", "b"},
 		}
-		got := applyTemplate("{{query|urlencode}}|{{tags|join:;}}|{{missing|default:na}}", args)
+		got := applyTemplate(context.Background(), "{{query|urlencode}}|{{tags|join:;}}|{{missing|default:na}}", args)
 		want := "hello+world|a;b|na"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -119,10 +120,78 @@ func TestApplyTemplate(t *testing.T) {
 	})
 
 	t.Run("secret and env resolution", func(t *testing.T) {
-		SetRuntimeSecrets(map[string]string{"API_TOKEN": "from-config"})
+		ctx := contextWithSecrets(t, map[string]string{
+			"API_TOKEN": "from-config",
+		})
 		t.Setenv("ONLY_ENV", "from-env")
-		got := applyTemplate("{{secret:API_TOKEN}}|{{secret:ONLY_ENV}}|{{env:ONLY_ENV}}", map[string]interface{}{})
+		got := applyTemplate(ctx, "{{secret:API_TOKEN}}|{{secret:ONLY_ENV}}|{{env:ONLY_ENV}}", map[string]interface{}{})
 		want := "from-config|from-env|from-env"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+}
+
+func TestApplyUrlTemplate(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("query values are URL-encoded", func(t *testing.T) {
+		args := map[string]interface{}{"query": "hello world", "limit": float64(10)}
+		got := applyUrlTemplate(ctx, "https://api.example.com/v2/search?q={{query}}&limit={{limit}}", args)
+		want := "https://api.example.com/v2/search?q=hello+world&limit=10"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("special characters in query are encoded", func(t *testing.T) {
+		args := map[string]interface{}{"q": "a&b=c"}
+		got := applyUrlTemplate(ctx, "https://example.com/search?q={{q}}", args)
+		want := "https://example.com/search?q=a%26b%3Dc"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("path values are not encoded", func(t *testing.T) {
+		args := map[string]interface{}{"host": "nvr.local", "id": "cam-001"}
+		got := applyUrlTemplate(ctx, "https://{{host}}/api/cameras/{{id}}", args)
+		want := "https://nvr.local/api/cameras/cam-001"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no query string passes through", func(t *testing.T) {
+		args := map[string]interface{}{"host": "example.com"}
+		got := applyUrlTemplate(ctx, "https://{{host}}/api/data", args)
+		want := "https://example.com/api/data"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("explicit urlencode filter skips double-encoding", func(t *testing.T) {
+		args := map[string]interface{}{"query": "hello world"}
+		got := applyUrlTemplate(ctx, "https://example.com/search?q={{query|urlencode}}", args)
+		want := "https://example.com/search?q=hello+world"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("nil args returns template unchanged", func(t *testing.T) {
+		got := applyUrlTemplate(ctx, "https://example.com?q={{query}}", nil)
+		want := "https://example.com?q={{query}}"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("missing key left as-is in query", func(t *testing.T) {
+		args := map[string]interface{}{"known": "yes"}
+		got := applyUrlTemplate(ctx, "https://example.com?a={{known}}&b={{unknown}}", args)
+		want := "https://example.com?a=yes&b={{unknown}}"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -160,7 +229,7 @@ func TestTruncate(t *testing.T) {
 }
 
 func TestShellToolDefinition(t *testing.T) {
-	tool := &ShellTool{definition: ToolDefinition{
+	tool := &ShellTool{definition: models.SkillTool{
 		Name:        "list_files",
 		Description: "List directory contents",
 		Parameters: map[string]interface{}{
@@ -182,73 +251,75 @@ func TestShellToolDefinition(t *testing.T) {
 }
 
 func TestShellToolExecute(t *testing.T) {
+	ctx := adminContext()
+
 	t.Run("simple echo", func(t *testing.T) {
-		tool := &ShellTool{definition: ToolDefinition{
+		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "echo_test",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"echo", "hello"},
 		}}
 
-		result, err := tool.Execute(context.Background(), "{}")
+		result, err := tool.Execute(ctx, "{}")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if strings.TrimSpace(result) != "hello" {
-			t.Errorf("got %q, want %q", strings.TrimSpace(result), "hello")
+		if result != "hello" {
+			t.Errorf("got %q, want %q", result, "hello")
 		}
 	})
 
 	t.Run("template substitution", func(t *testing.T) {
-		tool := &ShellTool{definition: ToolDefinition{
+		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "greet",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"echo", "hello {{name}}"},
 		}}
 
-		result, err := tool.Execute(context.Background(), `{"name":"world"}`)
+		result, err := tool.Execute(ctx, `{"name":"world"}`)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if strings.TrimSpace(result) != "hello world" {
-			t.Errorf("got %q, want %q", strings.TrimSpace(result), "hello world")
+		if result != "hello world" {
+			t.Errorf("got %q, want %q", result, "hello world")
 		}
 	})
 
 	t.Run("default timeout used", func(t *testing.T) {
-		tool := &ShellTool{definition: ToolDefinition{
+		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "fast",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"true"},
 		}}
 
-		_, err := tool.Execute(context.Background(), "{}")
+		_, err := tool.Execute(ctx, "{}")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("custom timeout", func(t *testing.T) {
-		tool := &ShellTool{definition: ToolDefinition{
+		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "fast",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"true"},
 			Timeout: 5,
 		}}
 
-		_, err := tool.Execute(context.Background(), "{}")
+		_, err := tool.Execute(ctx, "{}")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("command failure returns error", func(t *testing.T) {
-		tool := &ShellTool{definition: ToolDefinition{
+		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "fail",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"false"},
 		}}
 
-		_, err := tool.Execute(context.Background(), "{}")
+		_, err := tool.Execute(ctx, "{}")
 		if err == nil {
 			t.Fatal("expected error for failing command")
 		}
@@ -256,32 +327,32 @@ func TestShellToolExecute(t *testing.T) {
 
 	t.Run("working directory", func(t *testing.T) {
 		directory := t.TempDir()
-		tool := &ShellTool{definition: ToolDefinition{
+		tool := &ShellTool{definition: models.SkillTool{
 			Name:             "pwd_test",
-			Type:             "shell",
+			Type:             models.SkillToolTypeShell,
 			Command:          []string{"pwd"},
 			WorkingDirectory: directory,
 		}}
 
-		result, err := tool.Execute(context.Background(), "{}")
+		result, err := tool.Execute(ctx, "{}")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if strings.TrimSpace(result) != directory {
-			t.Errorf("got %q, want %q", strings.TrimSpace(result), directory)
+		if result != directory {
+			t.Errorf("got %q, want %q", result, directory)
 		}
 	})
 
 	t.Run("output truncation", func(t *testing.T) {
 		// Generate output larger than maxResultBytes.
 		repeatCount := (maxResultBytes / 10) + 100
-		tool := &ShellTool{definition: ToolDefinition{
+		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "big_output",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"sh", "-c", fmt.Sprintf("yes 'aaaaaaaaaa' | head -n %d", repeatCount)},
 		}}
 
-		result, err := tool.Execute(context.Background(), "{}")
+		result, err := tool.Execute(ctx, "{}")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -291,32 +362,32 @@ func TestShellToolExecute(t *testing.T) {
 	})
 
 	t.Run("stdin receives raw arguments", func(t *testing.T) {
-		tool := &ShellTool{definition: ToolDefinition{
+		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "stdin_test",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"cat"},
 		}}
 
-		result, err := tool.Execute(context.Background(), `{"message":"from stdin"}`)
+		result, err := tool.Execute(ctx, `{"message":"from stdin"}`)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if strings.TrimSpace(result) != `{"message":"from stdin"}` {
-			t.Errorf("got %q, want raw arguments echoed", strings.TrimSpace(result))
+		if result != `{"message":"from stdin"}` {
+			t.Errorf("got %q, want raw arguments echoed", result)
 		}
 	})
 
 	t.Run("required parameters enforced", func(t *testing.T) {
-		tool := &ShellTool{definition: ToolDefinition{
+		tool := &ShellTool{definition: models.SkillTool{
 			Name:    "required_test",
-			Type:    "shell",
+			Type:    models.SkillToolTypeShell,
 			Command: []string{"echo", "{{path}}"},
 			Parameters: map[string]interface{}{
 				"type":     "object",
 				"required": []interface{}{"path"},
 			},
 		}}
-		_, err := tool.Execute(context.Background(), `{}`)
+		_, err := tool.Execute(ctx, `{}`)
 		if err == nil || !strings.Contains(err.Error(), "missing required parameter: path") {
 			t.Fatalf("expected required parameter error, got: %v", err)
 		}
@@ -324,7 +395,7 @@ func TestShellToolExecute(t *testing.T) {
 }
 
 func TestHTTPToolDefinition(t *testing.T) {
-	tool := &HTTPTool{definition: ToolDefinition{
+	tool := &HTTPTool{definition: models.SkillTool{
 		Name:        "fetch_data",
 		Description: "Fetch data from API",
 		Parameters: map[string]interface{}{
@@ -355,9 +426,9 @@ func TestHTTPToolExecute(t *testing.T) {
 		}))
 		defer server.Close()
 
-		tool := &HTTPTool{definition: ToolDefinition{
+		tool := &HTTPTool{definition: models.SkillTool{
 			Name:   "get_test",
-			Type:   "http",
+			Type:   models.SkillToolTypeHTTP,
 			Method: "GET",
 			URL:    server.URL,
 		}}
@@ -380,9 +451,9 @@ func TestHTTPToolExecute(t *testing.T) {
 		}))
 		defer server.Close()
 
-		tool := &HTTPTool{definition: ToolDefinition{
+		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "default_method",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL,
 		}}
 
@@ -407,9 +478,9 @@ func TestHTTPToolExecute(t *testing.T) {
 		}))
 		defer server.Close()
 
-		tool := &HTTPTool{definition: ToolDefinition{
+		tool := &HTTPTool{definition: models.SkillTool{
 			Name:   "post_test",
-			Type:   "http",
+			Type:   models.SkillToolTypeHTTP,
 			Method: "POST",
 			URL:    server.URL,
 			Body:   `{"query":"{{query}}"}`,
@@ -432,9 +503,9 @@ func TestHTTPToolExecute(t *testing.T) {
 		}))
 		defer server.Close()
 
-		tool := &HTTPTool{definition: ToolDefinition{
+		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "url_template",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL + "/items/{{itemId}}",
 		}}
 
@@ -459,9 +530,9 @@ func TestHTTPToolExecute(t *testing.T) {
 		}))
 		defer server.Close()
 
-		tool := &HTTPTool{definition: ToolDefinition{
+		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "headers_test",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL,
 			Headers: map[string]string{
 				"X-Api-Key":    "secret123",
@@ -482,9 +553,9 @@ func TestHTTPToolExecute(t *testing.T) {
 		}))
 		defer server.Close()
 
-		tool := &HTTPTool{definition: ToolDefinition{
+		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "error_test",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL,
 		}}
 
@@ -504,9 +575,9 @@ func TestHTTPToolExecute(t *testing.T) {
 		}))
 		defer server.Close()
 
-		tool := &HTTPTool{definition: ToolDefinition{
+		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "server_error",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL,
 		}}
 
@@ -526,9 +597,9 @@ func TestHTTPToolExecute(t *testing.T) {
 		}))
 		defer server.Close()
 
-		tool := &HTTPTool{definition: ToolDefinition{
+		tool := &HTTPTool{definition: models.SkillTool{
 			Name: "big_response",
-			Type: "http",
+			Type: models.SkillToolTypeHTTP,
 			URL:  server.URL,
 		}}
 
@@ -542,7 +613,9 @@ func TestHTTPToolExecute(t *testing.T) {
 	})
 
 	t.Run("auth profile bearer", func(t *testing.T) {
-		SetRuntimeSecrets(map[string]string{"AUTH_TOKEN": "top-secret"})
+		ctx := contextWithSecrets(t, map[string]string{
+			"AUTH_TOKEN": "top-secret",
+		})
 		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			if request.Header.Get("Authorization") != "Bearer top-secret" {
 				t.Fatalf("unexpected Authorization header: %q", request.Header.Get("Authorization"))
@@ -552,24 +625,50 @@ func TestHTTPToolExecute(t *testing.T) {
 		defer server.Close()
 
 		tool := &HTTPTool{
-			definition: ToolDefinition{
+			definition: models.SkillTool{
 				Name: "auth_test",
-				Type: "http",
+				Type: models.SkillToolTypeHTTP,
 				URL:  server.URL,
 				Auth: "main",
 			},
-			httpAuthProfiles: map[string]HTTPAuthProfile{
+			authenticationProfiles: map[string]models.SkillAuthenticationProfiles{
 				"main": {
-					Type:  "bearer",
+					Type:  models.SkillAuthenticationTypeBearer,
 					Token: "{{secret:AUTH_TOKEN}}",
 				},
 			},
 		}
 
-		if _, err := tool.Execute(context.Background(), "{}"); err != nil {
+		if _, err := tool.Execute(ctx, "{}"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+}
+
+func contextWithSecrets(t *testing.T, secrets map[string]string) context.Context {
+	t.Helper()
+	openedStore := setupSkillStore(t)
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	transactionError := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, modifyError := transaction.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
+			secretConfigurations := make([]*models.SecretConfiguration, 0, len(secrets))
+			for key, value := range secrets {
+				keyCopy := key
+				valueCopy := value
+				secretConfigurations = append(secretConfigurations, &models.SecretConfiguration{
+					Key:   &keyCopy,
+					Value: &valueCopy,
+				})
+			}
+			configuration.Secrets = &secretConfigurations
+			return nil
+		}, nil)
+		return modifyError
+	})
+	if transactionError != nil {
+		t.Fatalf("storing secrets in configuration: %v", transactionError)
+	}
+	return ctx
 }
 
 func TestWorkflowToolExecute(t *testing.T) {
@@ -578,24 +677,24 @@ func TestWorkflowToolExecute(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := &WorkflowTool{definition: ToolDefinition{
+	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "multi_action",
-		Type: "workflow",
-		Steps: []ActionDefinition{
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
 			{
 				Name: "fetch",
-				Type: "http",
+				Type: models.SkillActionTypeHTTP,
 				URL:  server.URL,
 			},
 			{
 				Name:    "compose",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "hello {{steps.fetch}}"},
 			},
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -617,36 +716,36 @@ func TestWorkflowToolConditionAndContinueOnError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := &WorkflowTool{definition: ToolDefinition{
+	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "conditional_flow",
-		Type: "workflow",
-		Steps: []ActionDefinition{
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
 			{
 				Name:    "gate",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "run"},
 			},
 			{
 				Name:    "skipped",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				If:      "false",
 				Command: []string{"echo", "should_not_run"},
 			},
 			{
 				Name:    "fails",
-				Type:    "http",
+				Type:    models.SkillActionTypeHTTP,
 				URL:     server.URL,
-				OnError: "continue",
+				OnError: models.SkillErrorPolicyContinue,
 			},
 			{
 				Name:    "after_error",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "ok"},
 			},
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -662,20 +761,20 @@ func TestWorkflowToolConditionAndContinueOnError(t *testing.T) {
 }
 
 func TestWorkflowToolConditionMissingPathIsFalse(t *testing.T) {
-	tool := &WorkflowTool{definition: ToolDefinition{
+	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "conditional_missing_path",
-		Type: "workflow",
-		Steps: []ActionDefinition{
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
 			{
 				Name:    "guarded",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				If:      "missing.path",
 				Command: []string{"echo", "should_not_run"},
 			},
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -685,32 +784,32 @@ func TestWorkflowToolConditionMissingPathIsFalse(t *testing.T) {
 }
 
 func TestWorkflowToolConditionComparison(t *testing.T) {
-	tool := &WorkflowTool{definition: ToolDefinition{
+	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "conditional_comparison",
-		Type: "workflow",
-		Steps: []ActionDefinition{
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
 			{
 				Name:    "match",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				If:      "mode == \"prod\"",
 				Command: []string{"echo", "matched"},
 			},
 			{
 				Name:    "missing_is_null",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				If:      "missing.value == null",
 				Command: []string{"echo", "null_match"},
 			},
 			{
 				Name:    "mismatch",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				If:      "mode != \"prod\"",
 				Command: []string{"echo", "should_not_run"},
 			},
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), `{"mode":"prod"}`)
+	result, err := tool.Execute(adminContext(), `{"mode":"prod"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -731,25 +830,25 @@ func TestWorkflowToolJSONResultReuse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := &WorkflowTool{definition: ToolDefinition{
+	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "json_reuse",
-		Type: "workflow",
-		Steps: []ActionDefinition{
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
 			{
 				Name:   "fetch",
-				Type:   "http",
+				Type:   models.SkillActionTypeHTTP,
 				URL:    server.URL,
-				Result: "json",
+				Result: models.SkillResultFormatJSON,
 			},
 			{
 				Name:    "use",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "id={{steps.fetch.id}}"},
 			},
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -764,15 +863,15 @@ func TestWorkflowToolJSONSelectAndExtract(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := &WorkflowTool{definition: ToolDefinition{
+	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "json_select",
-		Type: "workflow",
-		Steps: []ActionDefinition{
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
 			{
 				Name:    "fetch",
-				Type:    "http",
+				Type:    models.SkillActionTypeHTTP,
 				URL:     server.URL,
-				Result:  "json",
+				Result:  models.SkillResultFormatJSON,
 				Extract: "data",
 				Select: map[string]string{
 					"id": "id",
@@ -780,13 +879,13 @@ func TestWorkflowToolJSONSelectAndExtract(t *testing.T) {
 			},
 			{
 				Name:    "use",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "{{steps.fetch.id}}"},
 			},
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -799,52 +898,52 @@ func TestWorkflowToolJSONSelectAndExtract(t *testing.T) {
 }
 
 func TestWorkflowForEachSwitchAndFinally(t *testing.T) {
-	tool := &WorkflowTool{definition: ToolDefinition{
+	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "control_flow",
-		Type: "workflow",
-		Steps: []ActionDefinition{
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
 			{
 				Name:    "init",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", `[1,2,3]`},
-				Result:  "json",
+				Result:  models.SkillResultFormatJSON,
 				SaveAs:  "numbers",
 			},
 			{
 				Name:    "loop",
-				Type:    "forEach",
+				Type:    models.SkillActionTypeForEach,
 				ForEach: "steps.numbers",
 				As:      "num",
-				Steps: []ActionDefinition{
+				Steps: []*models.SkillAction{
 					{
 						Name:   "route",
-						Type:   "switch",
+						Type:   models.SkillActionTypeSwitch,
 						Switch: "num",
-						Cases: []SwitchCase{
+						Cases: []*models.SkillCase{
 							{
 								Match: "2",
-								Steps: []ActionDefinition{
-									{Name: "mark_two", Type: "shell", Command: []string{"echo", "two-{{num}}"}},
+								Steps: []*models.SkillAction{
+									{Name: "mark_two", Type: models.SkillActionTypeShell, Command: []string{"echo", "two-{{num}}"}},
 								},
 							},
 						},
-						Default: []ActionDefinition{
-							{Name: "mark_other", Type: "shell", Command: []string{"echo", "other-{{num}}"}},
+						Default: []*models.SkillAction{
+							{Name: "mark_other", Type: models.SkillActionTypeShell, Command: []string{"echo", "other-{{num}}"}},
 						},
 					},
 				},
 			},
 		},
-		Finally: []ActionDefinition{
+		Finally: []*models.SkillAction{
 			{
 				Name:    "cleanup",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "done"},
 			},
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), "{}")
+	result, err := tool.Execute(adminContext(), "{}")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -860,56 +959,57 @@ func TestWorkflowForEachSwitchAndFinally(t *testing.T) {
 }
 
 func TestWorkflowForEachRestoresAliasIndex(t *testing.T) {
-	tool := &WorkflowTool{definition: ToolDefinition{
+	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "for_each_alias_restore",
-		Type: "workflow",
-		Steps: []ActionDefinition{
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
 			{
 				Name:    "loop",
-				Type:    "forEach",
+				Type:    models.SkillActionTypeForEach,
 				ForEach: "items",
 				As:      "item",
-				Steps: []ActionDefinition{
+				Steps: []*models.SkillAction{
 					{
 						Name:    "work",
-						Type:    "shell",
+						Type:    models.SkillActionTypeShell,
 						Command: []string{"echo", "{{itemIndex}}"},
 					},
 				},
 			},
 			{
 				Name:    "after",
-				Type:    "shell",
+				Type:    models.SkillActionTypeShell,
 				Command: []string{"echo", "{{itemIndex}}"},
 			},
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), `{"items":[1,2],"itemIndex":"seed"}`)
+	result, err := tool.Execute(adminContext(), `{"items":[1,2],"itemIndex":"seed"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(result, `"name":"after","type":"shell","status":"ok","attempts":1`) {
 		t.Fatalf("missing after step: %s", result)
 	}
-	if !strings.Contains(result, `"output":"seed\n"`) {
+	if !strings.Contains(result, `"output":"seed"`) {
 		t.Fatalf("expected alias index to restore original value: %s", result)
 	}
 }
 
 func TestWorkflowActionRouting(t *testing.T) {
-	tool := &WorkflowTool{definition: ToolDefinition{
+	tool := &WorkflowTool{definition: models.SkillTool{
 		Name:        "router",
-		Type:        "workflow",
+		Type:        models.SkillToolTypeWorkflow,
 		ActionField: "op",
-		Actions: map[string][]ActionDefinition{
+		Actions: map[string][]*models.SkillAction{
 			"ping": {
-				{Name: "echo", Type: "shell", Command: []string{"echo", "pong"}},
+				{Name: "echo", Type: models.SkillActionTypeShell, Command: []string{"echo", "pong"}},
 			},
 		},
 	}}
 
-	result, err := tool.Execute(context.Background(), `{"op":"ping"}`)
+	ctx := adminContext()
+	result, err := tool.Execute(ctx, `{"op":"ping"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -917,7 +1017,7 @@ func TestWorkflowActionRouting(t *testing.T) {
 		t.Fatalf("missing routed action output: %s", result)
 	}
 
-	if _, err := tool.Execute(context.Background(), `{"op":"missing"}`); err == nil {
+	if _, err := tool.Execute(ctx, `{"op":"missing"}`); err == nil {
 		t.Fatal("expected unknown action error")
 	}
 }
@@ -929,11 +1029,11 @@ func TestToolOutputSchemaValidation(t *testing.T) {
 	defer server.Close()
 
 	t.Run("pass", func(t *testing.T) {
-		tool := &HTTPTool{definition: ToolDefinition{
+		tool := &HTTPTool{definition: models.SkillTool{
 			Name:   "schema_pass",
-			Type:   "http",
+			Type:   models.SkillToolTypeHTTP,
 			URL:    server.URL,
-			Result: "json",
+			Result: models.SkillResultFormatJSON,
 			OutputSchema: map[string]interface{}{
 				"type": "object",
 				"required": []interface{}{
@@ -951,11 +1051,11 @@ func TestToolOutputSchemaValidation(t *testing.T) {
 	})
 
 	t.Run("fail", func(t *testing.T) {
-		tool := &HTTPTool{definition: ToolDefinition{
+		tool := &HTTPTool{definition: models.SkillTool{
 			Name:   "schema_fail",
-			Type:   "http",
+			Type:   models.SkillToolTypeHTTP,
 			URL:    server.URL,
-			Result: "json",
+			Result: models.SkillResultFormatJSON,
 			OutputSchema: map[string]interface{}{
 				"type": "object",
 				"required": []interface{}{
@@ -971,12 +1071,12 @@ func TestToolOutputSchemaValidation(t *testing.T) {
 }
 
 func TestShellSkillToolsDeniedForNonAdmin(t *testing.T) {
-	tool := &ShellTool{definition: ToolDefinition{
+	tool := &ShellTool{definition: models.SkillTool{
 		Name:    "echo",
-		Type:    "shell",
+		Type:    models.SkillToolTypeShell,
 		Command: []string{"echo", "ok"},
 	}}
-	nonAdminContext := agents.ContextWithAdmin(context.Background(), false)
+	nonAdminContext := models.ContextWithUserSessionToken(context.Background(), &models.User{ID: "non-admin"}, nil, nil)
 	_, err := tool.Execute(nonAdminContext, "{}")
 	if err == nil || !strings.Contains(err.Error(), "admin access required") {
 		t.Fatalf("expected admin access required error, got: %v", err)
@@ -984,14 +1084,14 @@ func TestShellSkillToolsDeniedForNonAdmin(t *testing.T) {
 }
 
 func TestWorkflowShellStepsDeniedForNonAdmin(t *testing.T) {
-	tool := &WorkflowTool{definition: ToolDefinition{
+	tool := &WorkflowTool{definition: models.SkillTool{
 		Name: "workflow_shell",
-		Type: "workflow",
-		Steps: []ActionDefinition{
-			{Name: "echo", Type: "shell", Command: []string{"echo", "ok"}},
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
+			{Name: "echo", Type: models.SkillActionTypeShell, Command: []string{"echo", "ok"}},
 		},
 	}}
-	nonAdminContext := agents.ContextWithAdmin(context.Background(), false)
+	nonAdminContext := models.ContextWithUserSessionToken(context.Background(), &models.User{ID: "non-admin"}, nil, nil)
 	_, err := tool.Execute(nonAdminContext, "{}")
 	if err == nil || !strings.Contains(err.Error(), "admin access required") {
 		t.Fatalf("expected admin access required error, got: %v", err)

@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/teanode/teanode/internal/conversations"
 )
 
 // mockRunner returns a commandRunner that records calls and returns canned output.
@@ -49,6 +46,9 @@ func TestDefinition(testing *testing.T) {
 	if definition.Function.Description == "" {
 		testing.Error("expected non-empty description")
 	}
+	if !strings.Contains(definition.Function.Description, "plan or progress log") {
+		testing.Error("expected description to mention file-based continuity")
+	}
 	if definition.Function.Parameters == nil {
 		testing.Error("expected non-nil parameters")
 	}
@@ -56,43 +56,66 @@ func TestDefinition(testing *testing.T) {
 		testing.Error("expected non-nil returns")
 	}
 
-	// Verify action enum exists.
+	// Verify prompt is required (not action).
 	parameters, ok := definition.Function.Parameters.(map[string]interface{})
 	if !ok {
 		testing.Fatal("parameters should be a map")
 	}
+	required, ok := parameters["required"].([]string)
+	if !ok {
+		testing.Fatal("required should be a string slice")
+	}
+	if len(required) != 1 || required[0] != "prompt" {
+		testing.Errorf("expected required=[prompt], got %v", required)
+	}
+
+	// Verify no action parameter exists.
 	properties, ok := parameters["properties"].(map[string]interface{})
 	if !ok {
 		testing.Fatal("properties should be a map")
 	}
-	action, ok := properties["action"].(map[string]interface{})
+	if _, hasAction := properties["action"]; hasAction {
+		testing.Error("action parameter should not exist")
+	}
+	if _, hasSessionId := properties["sessionId"]; hasSessionId {
+		testing.Error("sessionId parameter should not exist")
+	}
+	if _, hasForceNew := properties["forceNewSession"]; hasForceNew {
+		testing.Error("forceNewSession parameter should not exist")
+	}
+
+	// Verify no session-related fields in returns.
+	returns, ok := definition.Function.Returns.(map[string]interface{})
 	if !ok {
-		testing.Fatal("action property should exist")
+		testing.Fatal("returns should be a map")
 	}
-	if action["type"] != "string" {
-		testing.Error("action should be type string")
+	returnProps, ok := returns["properties"].(map[string]interface{})
+	if !ok {
+		testing.Fatal("return properties should be a map")
 	}
-	if action["enum"] == nil {
-		testing.Error("action should have enum")
+	if _, hasSessionId := returnProps["sessionId"]; hasSessionId {
+		testing.Error("sessionId return field should not exist")
+	}
+	if _, hasResume := returnProps["resume"]; hasResume {
+		testing.Error("resume return field should not exist")
+	}
+	if _, hasSessions := returnProps["sessions"]; hasSessions {
+		testing.Error("sessions return field should not exist")
 	}
 }
 
-// --- run action tests ---
+// --- run tests ---
 
 func TestRunWithValidJSON(testing *testing.T) {
 	codexOutput := `{"result":"Files listed successfully","session_id":"abc-123","is_error":false,"cost_usd":0.05,"num_input_tokens":100,"num_output_tokens":50}`
 	runner, calls := mockRunner(codexOutput, "", 0, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
 		"prompt": "List files in the current directory",
 	})
 	result, err := tool.Execute(context.Background(), string(arguments))
@@ -104,9 +127,6 @@ func TestRunWithValidJSON(testing *testing.T) {
 	var parsed map[string]interface{}
 	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
 		testing.Fatalf("result is not valid JSON: %v", err)
-	}
-	if parsed["sessionId"] != "abc-123" {
-		testing.Errorf("expected sessionId 'abc-123', got %v", parsed["sessionId"])
 	}
 	if parsed["result"] != "Files listed successfully" {
 		testing.Errorf("unexpected result: %v", parsed["result"])
@@ -120,15 +140,12 @@ func TestRunWithValidJSON(testing *testing.T) {
 	if parsed["timedOut"] != false {
 		testing.Errorf("expected timedOut false, got %v", parsed["timedOut"])
 	}
-	resume, ok := parsed["resume"].(map[string]interface{})
-	if !ok {
-		testing.Fatalf("expected resume payload, got: %v", parsed["resume"])
+	// Verify no session-related fields in output.
+	if _, hasSessionId := parsed["sessionId"]; hasSessionId {
+		testing.Error("sessionId should not be in output")
 	}
-	if resume["action"] != "resume" {
-		testing.Errorf("expected resume.action 'resume', got %v", resume["action"])
-	}
-	if resume["sessionId"] != "abc-123" {
-		testing.Errorf("expected resume.sessionId 'abc-123', got %v", resume["sessionId"])
+	if _, hasResume := parsed["resume"]; hasResume {
+		testing.Error("resume should not be in output")
 	}
 
 	// Verify command was called correctly.
@@ -145,15 +162,11 @@ func TestRunWithNonJSONFallback(testing *testing.T) {
 	runner, _ := mockRunner("Some plain text output\nfrom codex", "", 0, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
 		"prompt": "Do something",
 	})
 	result, err := tool.Execute(context.Background(), string(arguments))
@@ -177,15 +190,11 @@ func TestRunWithNonJSONFallbackError(testing *testing.T) {
 	runner, _ := mockRunner("Error output", "some stderr", 1, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
 		"prompt": "Do something",
 	})
 	result, err := tool.Execute(context.Background(), string(arguments))
@@ -208,371 +217,23 @@ func TestRunWithNonJSONFallbackError(testing *testing.T) {
 func TestRunMissingPrompt(testing *testing.T) {
 	runner, _ := mockRunner("", "", 0, nil)
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 	}
 
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
-	})
+	arguments, _ := json.Marshal(map[string]interface{}{})
 	_, err := tool.Execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "prompt is required") {
 		testing.Errorf("expected 'prompt is required' error, got: %v", err)
-	}
-}
-
-func TestRunRequiresResumeWhenSessionExists(testing *testing.T) {
-	runner, _ := mockRunner("", "", 0, nil)
-	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions: map[string]*sessionInfo{
-			"existing-session": {SessionID: "existing-session"},
-		},
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
-		"prompt": "Do something",
-	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err == nil || !strings.Contains(err.Error(), "existing session(s) detected") {
-		testing.Errorf("expected existing session guidance error, got: %v", err)
-	}
-}
-
-func TestRunAllowsForceNewSessionWhenSessionExists(testing *testing.T) {
-	codexOutput := `{"result":"Started fresh","session_id":"new-session","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
-	runner, calls := mockRunner(codexOutput, "", 0, nil)
-	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions: map[string]*sessionInfo{
-			"existing-session": {SessionID: "existing-session"},
-		},
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":          "run",
-		"prompt":          "Start a new task",
-		"forceNewSession": true,
-	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-	if len(*calls) != 1 {
-		testing.Fatalf("expected 1 call, got %d", len(*calls))
-	}
-}
-
-// --- resume action tests ---
-
-func TestResumeKnownSession(testing *testing.T) {
-	codexOutput := `{"result":"Continued work","session_id":"abc-123","is_error":false,"cost_usd":0.03,"num_input_tokens":50,"num_output_tokens":30}`
-	runner, calls := mockRunner(codexOutput, "", 0, nil)
-
-	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions: map[string]*sessionInfo{
-			"abc-123": {
-				SessionID:  "abc-123",
-				CreatedAt:  time.Now().Add(-time.Hour),
-				LastUsedAt: time.Now().Add(-time.Minute),
-				TurnCount:  1,
-			},
-		},
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":    "resume",
-		"sessionId": "abc-123",
-		"prompt":    "Continue working on the task",
-	})
-	result, err := tool.Execute(context.Background(), string(arguments))
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		testing.Fatalf("result is not valid JSON: %v", err)
-	}
-	if parsed["sessionId"] != "abc-123" {
-		testing.Errorf("expected sessionId 'abc-123', got %v", parsed["sessionId"])
-	}
-
-	// Verify resume subcommand and session id were passed.
-	if len(*calls) != 1 {
-		testing.Fatalf("expected 1 call, got %d", len(*calls))
-	}
-	commandArguments := (*calls)[0].Arguments
-	foundResume := false
-	foundSessionId := false
-	for _, argument := range commandArguments {
-		if argument == "resume" {
-			foundResume = true
-		}
-		if argument == "abc-123" {
-			foundSessionId = true
-		}
-	}
-	if !foundResume || !foundSessionId {
-		testing.Errorf("expected 'exec resume ... abc-123 ...' in args: %v", commandArguments)
-	}
-
-	// Verify turn count was incremented.
-	tool.mutex.Lock()
-	session := tool.sessions["abc-123"]
-	tool.mutex.Unlock()
-	if session.TurnCount != 2 {
-		testing.Errorf("expected turnCount 2, got %d", session.TurnCount)
-	}
-}
-
-func TestResumeWithoutTrackedSession(testing *testing.T) {
-	codexOutput := `{"result":"Continued anyway","session_id":"nonexistent","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
-	runner, calls := mockRunner(codexOutput, "", 0, nil)
-	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":    "resume",
-		"sessionId": "nonexistent",
-		"prompt":    "Continue",
-	})
-	result, err := tool.Execute(context.Background(), string(arguments))
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-	if len(*calls) != 1 {
-		testing.Fatalf("expected 1 call, got %d", len(*calls))
-	}
-	commandArguments := (*calls)[0].Arguments
-	foundResume := false
-	foundSessionId := false
-	for _, argument := range commandArguments {
-		if argument == "resume" {
-			foundResume = true
-		}
-		if argument == "nonexistent" {
-			foundSessionId = true
-		}
-	}
-	if !foundResume || !foundSessionId {
-		testing.Errorf("expected resume args for explicit session ID, got: %v", commandArguments)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		testing.Fatalf("result is not valid JSON: %v", err)
-	}
-	if parsed["sessionId"] != "nonexistent" {
-		testing.Errorf("expected sessionId 'nonexistent', got %v", parsed["sessionId"])
-	}
-}
-
-func TestResumeMissingSessionID(testing *testing.T) {
-	runner, _ := mockRunner("", "", 0, nil)
-	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "resume",
-		"prompt": "Continue",
-	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err == nil || !strings.Contains(err.Error(), "sessionId is required") {
-		testing.Errorf("expected 'sessionId is required' error, got: %v", err)
-	}
-}
-
-func TestResumeMissingPrompt(testing *testing.T) {
-	runner, _ := mockRunner("", "", 0, nil)
-	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions: map[string]*sessionInfo{
-			"abc-123": {SessionID: "abc-123"},
-		},
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":    "resume",
-		"sessionId": "abc-123",
-	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err == nil || !strings.Contains(err.Error(), "prompt is required") {
-		testing.Errorf("expected 'prompt is required' error, got: %v", err)
-	}
-}
-
-// --- list_sessions tests ---
-
-func TestListSessionsEmpty(testing *testing.T) {
-	tool := &codexTool{
-		sessions: make(map[string]*sessionInfo),
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "list_sessions",
-	})
-	result, err := tool.Execute(context.Background(), string(arguments))
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		testing.Fatalf("result is not valid JSON: %v", err)
-	}
-	sessions, ok := parsed["sessions"].([]interface{})
-	if !ok {
-		testing.Fatal("expected sessions to be an array")
-	}
-	if len(sessions) != 0 {
-		testing.Errorf("expected 0 sessions, got %d", len(sessions))
-	}
-}
-
-func TestListSessionsAfterRuns(testing *testing.T) {
-	codexOutput1 := `{"result":"Done 1","session_id":"session-1","is_error":false,"cost_usd":0.01,"num_input_tokens":10,"num_output_tokens":5}`
-	codexOutput2 := `{"result":"Done 2","session_id":"session-2","is_error":false,"cost_usd":0.02,"num_input_tokens":20,"num_output_tokens":10}`
-
-	callCount := 0
-	outputs := []string{codexOutput1, codexOutput2}
-	runner := func(ctx context.Context, name string, args []string, directory string) ([]byte, []byte, int, error) {
-		output := outputs[callCount]
-		callCount++
-		return []byte(output), nil, 0, nil
-	}
-
-	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
-	}
-
-	// Run two tasks.
-	for index, prompt := range []string{"Task 1", "Task 2"} {
-		arguments, _ := json.Marshal(map[string]interface{}{
-			"action": "run",
-			"prompt": prompt,
-		})
-		if index == 1 {
-			arguments, _ = json.Marshal(map[string]interface{}{
-				"action":          "run",
-				"prompt":          prompt,
-				"forceNewSession": true,
-			})
-		}
-		_, err := tool.Execute(context.Background(), string(arguments))
-		if err != nil {
-			testing.Fatalf("unexpected error: %v", err)
-		}
-	}
-
-	// List sessions.
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "list_sessions",
-	})
-	result, err := tool.Execute(context.Background(), string(arguments))
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		testing.Fatalf("result is not valid JSON: %v", err)
-	}
-	sessions, ok := parsed["sessions"].([]interface{})
-	if !ok {
-		testing.Fatal("expected sessions to be an array")
-	}
-	if len(sessions) != 2 {
-		testing.Errorf("expected 2 sessions, got %d", len(sessions))
-	}
-}
-
-func TestLoadSessionsFromConversationStore(testing *testing.T) {
-	store := conversations.NewStore(testing.TempDir())
-	tool := &codexTool{}
-
-	t1 := time.Now().Add(-2 * time.Hour).UnixMilli()
-	t2 := time.Now().Add(-time.Hour).UnixMilli()
-	t3 := time.Now().UnixMilli()
-
-	if err := store.Append("c1", conversations.NewToolMessage("tc1", "codex", `{"sessionId":"s1","result":"one"}`, t1)); err != nil {
-		testing.Fatalf("append c1/tc1: %v", err)
-	}
-	if err := store.Append("c1", conversations.NewToolMessage("tc2", "codex", `{"resume":{"sessionId":"s1"}}`, t2)); err != nil {
-		testing.Fatalf("append c1/tc2: %v", err)
-	}
-	if err := store.Append("c2", conversations.NewToolMessage("tc3", "codex", `{"sessionId":"s2","result":"two"}`, t3)); err != nil {
-		testing.Fatalf("append c2/tc3: %v", err)
-	}
-	if err := store.Append("c2", conversations.NewToolMessage("tc4", "other_tool", `{"sessionId":"ignored"}`, t3)); err != nil {
-		testing.Fatalf("append c2/tc4: %v", err)
-	}
-
-	sessions, err := tool.loadSessionsFromConversationStore(store)
-	if err != nil {
-		testing.Fatalf("unexpected error: %v", err)
-	}
-	if len(sessions) != 2 {
-		testing.Fatalf("expected 2 sessions, got %d", len(sessions))
-	}
-	if sessions[0].SessionID != "s2" {
-		testing.Errorf("expected newest session first to be s2, got %q", sessions[0].SessionID)
-	}
-
-	var s1 *sessionInfo
-	for index := range sessions {
-		if sessions[index].SessionID == "s1" {
-			s1 = &sessions[index]
-			break
-		}
-	}
-	if s1 == nil {
-		testing.Fatalf("expected session s1 in results: %+v", sessions)
-	}
-	if s1.TurnCount != 2 {
-		testing.Errorf("expected s1 turnCount 2, got %d", s1.TurnCount)
 	}
 }
 
 // --- argument building tests ---
 
 func TestBuildArgumentsBasic(testing *testing.T) {
-	tool := &codexTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &codexTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "")
 
 	// Verify exec mode and prompt placement.
 	if len(arguments) < 2 || arguments[0] != "exec" {
@@ -611,57 +272,24 @@ func TestBuildArgumentsBasic(testing *testing.T) {
 	}
 }
 
-func TestBuildArgumentsWithResume(testing *testing.T) {
-	tool := &codexTool{
-		allowedTools: DefaultAllowedTools,
-	}
+func TestBuildArgumentsWithoutModelConfig(testing *testing.T) {
+	tool := &codexTool{}
 
-	arguments := tool.buildArguments("Continue", "session-xyz", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "")
 
-	foundResumeSubcommand := false
-	foundSessionId := false
-	for index, argument := range arguments {
-		if argument == "resume" {
-			foundResumeSubcommand = true
-		}
-		if argument == "session-xyz" {
-			foundSessionId = true
-		}
-		if foundResumeSubcommand && foundSessionId && index > 0 {
+	// Without a store in context, no --model flag should be emitted.
+	for _, argument := range arguments {
+		if argument == "--model" {
+			testing.Errorf("did not expect '--model' without config, got: %v", arguments)
 			break
 		}
-	}
-	if !foundResumeSubcommand || !foundSessionId {
-		testing.Errorf("expected 'exec resume ... session-xyz ...' in args: %v", arguments)
-	}
-}
-
-func TestBuildArgumentsWithModel(testing *testing.T) {
-	tool := &codexTool{
-		allowedTools: DefaultAllowedTools,
-		model:        "codex-sonnet-4-5-20250514",
-	}
-
-	arguments := tool.buildArguments("Do something", "", "")
-
-	foundModel := false
-	for index, argument := range arguments {
-		if argument == "--model" && index+1 < len(arguments) && arguments[index+1] == "codex-sonnet-4-5-20250514" {
-			foundModel = true
-			break
-		}
-	}
-	if !foundModel {
-		testing.Errorf("expected '--model codex-sonnet-4-5-20250514' in args: %v", arguments)
 	}
 }
 
 func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
-	tool := &codexTool{
-		allowedTools: DefaultAllowedTools,
-	}
+	tool := &codexTool{}
 
-	arguments := tool.buildArguments("Do something", "", "You are a helpful assistant")
+	arguments := tool.buildArguments(context.Background(), "Do something", "You are a helpful assistant")
 
 	combinedPrompt := arguments[len(arguments)-1]
 	if !strings.Contains(combinedPrompt, "Additional system instructions:\nYou are a helpful assistant") {
@@ -670,11 +298,9 @@ func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
 }
 
 func TestBuildArgumentsDoesNotEmitUnsupportedLegacyFlags(testing *testing.T) {
-	tool := &codexTool{
-		allowedTools: []string{"Bash", "Read"},
-	}
+	tool := &codexTool{}
 
-	arguments := tool.buildArguments("Do something", "", "")
+	arguments := tool.buildArguments(context.Background(), "Do something", "")
 
 	for _, argument := range arguments {
 		if argument == "--allowedTools" || argument == "--append-system-prompt" || argument == "--resume" {
@@ -690,71 +316,18 @@ func TestTimeoutCapping(testing *testing.T) {
 	runner, _ := mockRunner(codexOutput, "", 0, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 	}
 
 	// Request a timeout that exceeds the max — it should be capped.
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":         "run",
 		"prompt":         "Do something",
 		"timeoutSeconds": 9999,
 	})
 	_, err := tool.Execute(context.Background(), string(arguments))
 	if err != nil {
 		testing.Fatalf("unexpected error: %v", err)
-	}
-	// If it didn't hang or error, the cap worked. No direct way to assert
-	// the timeout value, but the command executed successfully.
-}
-
-// --- unknown action test ---
-
-func TestUnknownAction(testing *testing.T) {
-	tool := &codexTool{
-		sessions: make(map[string]*sessionInfo),
-	}
-
-	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "unknown",
-	})
-	_, err := tool.Execute(context.Background(), string(arguments))
-	if err == nil || !strings.Contains(err.Error(), "unknown codex action") {
-		testing.Errorf("expected 'unknown codex action' error, got: %v", err)
-	}
-}
-
-// --- session tracking tests ---
-
-func TestSessionTracking(testing *testing.T) {
-	tool := &codexTool{
-		sessions: make(map[string]*sessionInfo),
-	}
-
-	// Track a new session.
-	tool.trackSession("session-1")
-
-	tool.mutex.Lock()
-	session, exists := tool.sessions["session-1"]
-	tool.mutex.Unlock()
-	if !exists {
-		testing.Fatal("expected session to be tracked")
-	}
-	if session.TurnCount != 1 {
-		testing.Errorf("expected turnCount 1, got %d", session.TurnCount)
-	}
-
-	// Track the same session again.
-	tool.trackSession("session-1")
-
-	tool.mutex.Lock()
-	session = tool.sessions["session-1"]
-	tool.mutex.Unlock()
-	if session.TurnCount != 2 {
-		testing.Errorf("expected turnCount 2, got %d", session.TurnCount)
 	}
 }
 
@@ -764,15 +337,11 @@ func TestRunCommandExecutionError(testing *testing.T) {
 	runner, _ := mockRunner("", "command not found", -1, fmt.Errorf("exec: command not found"))
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
 		"prompt": "Do something",
 	})
 	_, err := tool.Execute(context.Background(), string(arguments))
@@ -788,15 +357,11 @@ func TestRunWithWorkingDirectory(testing *testing.T) {
 	runner, calls := mockRunner(codexOutput, "", 0, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action":           "run",
 		"prompt":           "List files",
 		"workingDirectory": "/tmp/test",
 	})
@@ -819,15 +384,11 @@ func TestRunFallbackToStderr(testing *testing.T) {
 	runner, _ := mockRunner("", "Error: something went wrong", 1, nil)
 
 	tool := &codexTool{
-		binaryPath:   "/usr/bin/codex",
-		allowedTools: DefaultAllowedTools,
-		timeout:      defaultTimeout,
-		runner:       runner,
-		sessions:     make(map[string]*sessionInfo),
+		binaryPath: "/usr/bin/codex",
+		runner:     runner,
 	}
 
 	arguments, _ := json.Marshal(map[string]interface{}{
-		"action": "run",
 		"prompt": "Do something",
 	})
 	result, err := tool.Execute(context.Background(), string(arguments))

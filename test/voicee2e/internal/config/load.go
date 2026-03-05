@@ -9,13 +9,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func LoadSuite(path string) (*model.SuiteSpec, error) {
+func LoadSuite(path string) (*model.SuiteSpecification, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read suite: %w", err)
 	}
 
-	var suite model.SuiteSpec
+	var suite model.SuiteSpecification
 	if err := yaml.Unmarshal(raw, &suite); err != nil {
 		return nil, fmt.Errorf("parse suite yaml: %w", err)
 	}
@@ -25,22 +25,22 @@ func LoadSuite(path string) (*model.SuiteSpec, error) {
 	return &suite, nil
 }
 
-func FilterScenario(suite *model.SuiteSpec, scenarioId string) (*model.SuiteSpec, error) {
+func FilterScenario(suite *model.SuiteSpecification, scenarioId string) (*model.SuiteSpecification, error) {
 	if scenarioId == "" {
 		return suite, nil
 	}
 	for _, scenario := range suite.Scenarios {
 		if scenario.ID == scenarioId {
-			return &model.SuiteSpec{
+			return &model.SuiteSpecification{
 				Name:      suite.Name,
-				Scenarios: []model.ScenarioSpec{scenario},
+				Scenarios: []model.ScenarioSpecification{scenario},
 			}, nil
 		}
 	}
 	return nil, fmt.Errorf("scenario not found: %s", scenarioId)
 }
 
-func validateSuite(suite *model.SuiteSpec) error {
+func validateSuite(suite *model.SuiteSpecification) error {
 	if suite.Name == "" {
 		return errors.New("suite.name is required")
 	}
