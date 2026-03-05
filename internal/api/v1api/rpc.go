@@ -14,7 +14,6 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/onboarding"
 	"github.com/teanode/teanode/internal/prompts"
-	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/schemas"
 	"github.com/teanode/teanode/internal/store"
@@ -569,98 +568,9 @@ func (self *webSocketConnection) handleConfigSchema(frame requestFrame) {
 	if !self.requireAdmin(frame) {
 		return
 	}
-	schema := schemas.ConfigSchema()
-	if providerRegistry := self.api.coordinator.ProviderRegistry(); providerRegistry != nil {
-		schema = withVoiceProviderEnums(schema, providerRegistry)
-	}
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"schema": schema,
+		"schema": schemas.ConfigSchema(),
 	})
-}
-
-func withVoiceProviderEnums(base json.RawMessage, providerRegistry *providers.ProviderRegistry) json.RawMessage {
-	if providerRegistry == nil {
-		return base
-	}
-	var schema map[string]interface{}
-	if err := json.Unmarshal(base, &schema); err != nil {
-		return base
-	}
-	properties, ok := schema["properties"].(map[string]interface{})
-	if !ok {
-		return base
-	}
-	voiceRaw, ok := properties["voice"].(map[string]interface{})
-	if !ok {
-		return base
-	}
-	voiceProps, ok := voiceRaw["properties"].(map[string]interface{})
-	if !ok {
-		return base
-	}
-	transcriberProviders := voiceProviderNamesByCapability(providerRegistry, func(client providers.Provider) bool {
-		_, ok := client.(providers.TranscribeProvider)
-		return ok
-	})
-	synthesizerProviders := voiceProviderNamesByCapability(providerRegistry, func(client providers.Provider) bool {
-		_, ok := client.(providers.SynthesizeProvider)
-		return ok
-	})
-	setVoiceProviderFieldEnum(voiceProps, "transcriberProvider", transcriberProviders)
-	setVoiceProviderFieldEnum(voiceProps, "synthesizerProvider", synthesizerProviders)
-
-	updated, err := json.Marshal(schema)
-	if err != nil {
-		return base
-	}
-	return json.RawMessage(updated)
-}
-
-func voiceProviderNamesByCapability(providerRegistry *providers.ProviderRegistry, supports func(providers.Provider) bool) []string {
-	if providerRegistry == nil {
-		return nil
-	}
-	names := make([]string, 0)
-	for _, name := range providerRegistry.ProviderNames() {
-		client, ok := providerRegistry.ClientByName(name)
-		if !ok {
-			continue
-		}
-		if supports(client) {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	for i, name := range names {
-		if name == "openai" {
-			if i > 0 {
-				copy(names[1:i+1], names[:i])
-				names[0] = "openai"
-			}
-			break
-		}
-	}
-	return names
-}
-
-func setVoiceProviderFieldEnum(voiceProps map[string]interface{}, key string, providersList []string) {
-	if len(providersList) == 0 {
-		return
-	}
-	field, ok := voiceProps[key].(map[string]interface{})
-	if !ok {
-		return
-	}
-	enumValues := make([]string, 0, len(providersList)+1)
-	enumValues = append(enumValues, "")
-	enumValues = append(enumValues, providersList...)
-	field["enum"] = enumValues
-	enumLabels, _ := field["x-enumLabels"].(map[string]interface{})
-	if enumLabels == nil {
-		enumLabels = map[string]interface{}{}
-	}
-	enumLabels[""] = "Auto (default: openai)"
-	field["x-enumLabels"] = enumLabels
 }
 
 // handleConfigGet: return the raw on-disk config.

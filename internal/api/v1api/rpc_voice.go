@@ -2,8 +2,10 @@ package v1api
 
 import (
 	"encoding/json"
+	"sort"
 
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/voice"
 )
@@ -171,6 +173,37 @@ func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) {
 	log.Infof("voice.input.commit session=%s reason=%s", session.ID, parameters.Reason)
 	session.InputCommit(parameters.Reason)
 	self.sendResponse(frame.ID, map[string]any{"committed": true})
+}
+
+func (self *webSocketConnection) handleVoiceProviders(frame requestFrame) {
+	providerRegistry := self.api.coordinator.ProviderRegistry()
+	var transcribers, synthesizers []string
+	if providerRegistry != nil {
+		for _, name := range providerRegistry.ProviderNames() {
+			client, ok := providerRegistry.ClientByName(name)
+			if !ok {
+				continue
+			}
+			if _, ok := client.(providers.TranscribeProvider); ok {
+				transcribers = append(transcribers, name)
+			}
+			if _, ok := client.(providers.SynthesizeProvider); ok {
+				synthesizers = append(synthesizers, name)
+			}
+		}
+		sort.Strings(transcribers)
+		sort.Strings(synthesizers)
+	}
+	if transcribers == nil {
+		transcribers = []string{}
+	}
+	if synthesizers == nil {
+		synthesizers = []string{}
+	}
+	self.sendResponse(frame.ID, map[string]any{
+		"transcribers": transcribers,
+		"synthesizers": synthesizers,
+	})
 }
 
 func applyVoiceDefaults(parameters *voiceStartParameters) {
