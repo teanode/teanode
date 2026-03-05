@@ -43,8 +43,20 @@ function injectVoiceProviderEnums(
     };
   };
 
-  inject("transcriberProvider", voiceProviders.transcribers);
-  inject("synthesizerProvider", voiceProviders.synthesizers);
+  const uniqueTranscribers = [
+    ...new Set([
+      ...voiceProviders.transcribers,
+      ...voiceProviders.streamingTranscribers,
+    ]),
+  ].sort();
+  const uniqueSynthesizers = [
+    ...new Set([
+      ...voiceProviders.synthesizers,
+      ...voiceProviders.streamingSynthesizers,
+    ]),
+  ].sort();
+  inject("transcriberProvider", uniqueTranscribers);
+  inject("synthesizerProvider", uniqueSynthesizers);
   return schema;
 }
 
@@ -68,7 +80,13 @@ export function useSettings(
       sendRpc<ConfigSchemaResult>("config.schema", {}),
       sendRpc<ConfigGetResult>("config.get", {}),
       sendRpc<VoiceProvidersResult>("voice.providers", {}).catch(
-        () => ({ transcribers: [], synthesizers: [] }) as VoiceProvidersResult,
+        () =>
+          ({
+            transcribers: [],
+            streamingTranscribers: [],
+            synthesizers: [],
+            streamingSynthesizers: [],
+          }) as VoiceProvidersResult,
       ),
     ])
       .then(([schemaResult, configResult, voiceProviders]) => {

@@ -177,7 +177,7 @@ func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) {
 
 func (self *webSocketConnection) handleVoiceProviders(frame requestFrame) {
 	providerRegistry := self.api.coordinator.ProviderRegistry()
-	var transcribers, synthesizers []string
+	var transcribers, streamingTranscribers, synthesizers, streamingSynthesizers []string
 	if providerRegistry != nil {
 		for _, name := range providerRegistry.ProviderNames() {
 			client, ok := providerRegistry.ClientByName(name)
@@ -187,23 +187,34 @@ func (self *webSocketConnection) handleVoiceProviders(frame requestFrame) {
 			if _, ok := client.(providers.TranscribeProvider); ok {
 				transcribers = append(transcribers, name)
 			}
+			if _, ok := client.(providers.StreamingTranscribeProvider); ok {
+				streamingTranscribers = append(streamingTranscribers, name)
+			}
 			if _, ok := client.(providers.SynthesizeProvider); ok {
 				synthesizers = append(synthesizers, name)
 			}
+			if _, ok := client.(providers.StreamingSynthesizeProvider); ok {
+				streamingSynthesizers = append(streamingSynthesizers, name)
+			}
 		}
 		sort.Strings(transcribers)
+		sort.Strings(streamingTranscribers)
 		sort.Strings(synthesizers)
-	}
-	if transcribers == nil {
-		transcribers = []string{}
-	}
-	if synthesizers == nil {
-		synthesizers = []string{}
+		sort.Strings(streamingSynthesizers)
 	}
 	self.sendResponse(frame.ID, map[string]any{
-		"transcribers": transcribers,
-		"synthesizers": synthesizers,
+		"transcribers":          orEmptySlice(transcribers),
+		"streamingTranscribers": orEmptySlice(streamingTranscribers),
+		"synthesizers":          orEmptySlice(synthesizers),
+		"streamingSynthesizers": orEmptySlice(streamingSynthesizers),
 	})
+}
+
+func orEmptySlice(slice []string) []string {
+	if slice == nil {
+		return []string{}
+	}
+	return slice
 }
 
 func applyVoiceDefaults(parameters *voiceStartParameters) {

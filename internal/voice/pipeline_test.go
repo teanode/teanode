@@ -52,7 +52,7 @@ type pipelineMockStreamingTranscriberProvider struct {
 	stream providers.TranscribeStream
 }
 
-func (self *pipelineMockStreamingTranscriberProvider) OpenTranscribeStream(context.Context, providers.StreamTranscribeRequest) (providers.TranscribeStream, error) {
+func (self *pipelineMockStreamingTranscriberProvider) TranscribeStream(context.Context, providers.StreamTranscribeRequest) (providers.TranscribeStream, error) {
 	return self.stream, nil
 }
 

@@ -33,7 +33,7 @@ type TranscribeProvider interface {
 
 // StreamingTranscribeProvider is an optional capability interface for real-time STT.
 type StreamingTranscribeProvider interface {
-	OpenTranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error)
+	TranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error)
 }
 
 // SynthesizeProvider is an optional capability interface for text-to-speech.

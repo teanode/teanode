@@ -298,7 +298,9 @@ export interface ConfigUpdateParams {
 
 export interface VoiceProvidersResult {
   transcribers: string[];
+  streamingTranscribers: string[];
   synthesizers: string[];
+  streamingSynthesizers: string[];
 }
 
 // Agent config types for the editor

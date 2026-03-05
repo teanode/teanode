@@ -32,8 +32,8 @@ func NewDeepgramClient(baseURL, apiKey string) *DeepgramClient {
 	}
 }
 
-// OpenTranscribeStream creates a realtime transcription websocket session.
-func (self *DeepgramClient) OpenTranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error) {
+// TranscribeStream creates a realtime transcription websocket session.
+func (self *DeepgramClient) TranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error) {
 	if strings.TrimSpace(self.apiKey) == "" {
 		return nil, fmt.Errorf("deepgram api key is required")
 	}

@@ -43,7 +43,7 @@ type mockStreamingTranscriberProvider struct {
 	mockProvider
 }
 
-func (self *mockStreamingTranscriberProvider) OpenTranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error) {
+func (self *mockStreamingTranscriberProvider) TranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error) {
 	return nil, nil
 }
 

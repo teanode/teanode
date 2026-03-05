@@ -593,7 +593,7 @@ func (self *Session) startStreamingTranscriber() bool {
 	if !ok || streaming == nil {
 		return false
 	}
-	stream, err := streaming.OpenTranscribeStream(context.Background(), providers.StreamTranscribeRequest{
+	stream, err := streaming.TranscribeStream(context.Background(), providers.StreamTranscribeRequest{
 		SampleRate: self.AudioIn.SampleRateHz,
 		Channels:   self.AudioIn.Channels,
 		Prompt:     self.transcriptionPrompt(),

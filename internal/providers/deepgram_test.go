@@ -38,12 +38,12 @@ func TestDeepgramClient_StreamTranscribe(t *testing.T) {
 
 	client := NewDeepgramClient(server.URL, "token")
 	client.keepAliveInterval = time.Hour
-	stream, err := client.OpenTranscribeStream(context.Background(), StreamTranscribeRequest{
+	stream, err := client.TranscribeStream(context.Background(), StreamTranscribeRequest{
 		SampleRate: 16000,
 		Channels:   1,
 	})
 	if err != nil {
-		t.Fatalf("OpenTranscribeStream: %v", err)
+		t.Fatalf("TranscribeStream: %v", err)
 	}
 	defer stream.Close()
 
@@ -96,12 +96,12 @@ func TestDeepgramClient_KeepAlive(t *testing.T) {
 
 	client := NewDeepgramClient(server.URL, "token")
 	client.keepAliveInterval = 20 * time.Millisecond
-	stream, err := client.OpenTranscribeStream(context.Background(), StreamTranscribeRequest{
+	stream, err := client.TranscribeStream(context.Background(), StreamTranscribeRequest{
 		SampleRate: 16000,
 		Channels:   1,
 	})
 	if err != nil {
-		t.Fatalf("OpenTranscribeStream: %v", err)
+		t.Fatalf("TranscribeStream: %v", err)
 	}
 	defer stream.Close()
 
@@ -125,12 +125,12 @@ func TestDeepgramClient_ErrorMidStream(t *testing.T) {
 	defer server.Close()
 
 	client := NewDeepgramClient(server.URL, "token")
-	stream, err := client.OpenTranscribeStream(context.Background(), StreamTranscribeRequest{
+	stream, err := client.TranscribeStream(context.Background(), StreamTranscribeRequest{
 		SampleRate: 16000,
 		Channels:   1,
 	})
 	if err != nil {
-		t.Fatalf("OpenTranscribeStream: %v", err)
+		t.Fatalf("TranscribeStream: %v", err)
 	}
 	defer stream.Close()
 
