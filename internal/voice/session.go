@@ -88,7 +88,7 @@ type Session struct {
 	// Run/response lifecycle: active run and TTS cancellation.
 	currentRunId          string
 	currentResponseId     string
-	currentResponseTurnID string
+	currentResponseTurnId string
 	runCancel             func()
 	ttsCancel             func()
 	canceledRuns          map[string]struct{}
@@ -365,7 +365,7 @@ func (self *Session) SetCurrentResponseId(id string) {
 	defer self.stateMu.Unlock()
 	self.currentResponseId = id
 	if id == "" {
-		self.currentResponseTurnID = ""
+		self.currentResponseTurnId = ""
 	}
 }
 
@@ -373,16 +373,16 @@ func (self *Session) ClearCurrentResponse() {
 	self.SetCurrentResponseId("")
 }
 
-func (self *Session) GetCurrentResponseTurnID() string {
+func (self *Session) GetCurrentResponseTurnId() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
-	return self.currentResponseTurnID
+	return self.currentResponseTurnId
 }
 
-func (self *Session) SetCurrentResponseTurnID(turnId string) {
+func (self *Session) SetCurrentResponseTurnId(turnId string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
-	self.currentResponseTurnID = turnId
+	self.currentResponseTurnId = turnId
 }
 
 func (self *Session) GetLastCommittedTranscript() string {
@@ -536,7 +536,7 @@ func (self *Session) HasPendingTurns() bool {
 	return len(self.pendingTurns) > 0
 }
 
-func (self *Session) DropOldestPendingTurn(_ string) (PendingTurn, bool) {
+func (self *Session) DropOldestPendingTurn() (PendingTurn, bool) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	if len(self.pendingTurns) == 0 {

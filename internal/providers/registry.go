@@ -39,9 +39,6 @@ type ProviderRegistry struct {
 	modelsCache              map[string]*cachedModelList
 }
 
-// Registry is an alias for ProviderRegistry for backward compatibility.
-type Registry = ProviderRegistry
-
 // NewProviderRegistry creates a provider registry from the given models configuration.
 // If modelsConfiguration is nil, sensible defaults are applied (openai:gpt-5.2
 // with the OPENAI_API_KEY environment variable).
@@ -149,9 +146,9 @@ func (self *ProviderRegistry) Register(name string, client Provider) {
 	_, existed := self.clients[name]
 	self.clients[name] = client
 	if !existed {
-		if _, ok := client.(AudioTranscriber); ok {
-			self.transcriberOrder = append(self.transcriberOrder, name)
-		} else if _, ok := client.(StreamingTranscriber); ok {
+		_, isBatchTranscriber := client.(AudioTranscriber)
+		_, isStreamingTranscriber := client.(StreamingTranscriber)
+		if isBatchTranscriber || isStreamingTranscriber {
 			self.transcriberOrder = append(self.transcriberOrder, name)
 		}
 		if _, ok := client.(AudioSynthesizer); ok {
@@ -178,15 +175,10 @@ func (self *ProviderRegistry) ResolveProviderAndModel(providerModelName string) 
 	return client, providerName, modelName, nil
 }
 
-// Resolve splits a qualified model ID ("provider:model") and returns the
-// corresponding client and bare model name.
-func (self *ProviderRegistry) Resolve(qualifiedModel string) (client Provider, bareModel string, err error) {
-	providerName, model := ParseProviderModelName(qualifiedModel, self.defaultProvider)
-	client, ok := self.clients[providerName]
-	if !ok {
-		return nil, "", fmt.Errorf("unknown provider: %q", providerName)
-	}
-	return client, model, nil
+// ClientByName returns the provider client registered under the given name.
+func (self *ProviderRegistry) ClientByName(name string) (Provider, bool) {
+	client, ok := self.clients[name]
+	return client, ok
 }
 
 // ProviderNames returns sorted provider names.
@@ -218,19 +210,9 @@ func ParseProviderModelName(providerModelName, defaultProvider string) (string, 
 	return defaultProvider, providerModelName
 }
 
-// ParseQualifiedModel is an alias for ParseProviderModelName.
-func ParseQualifiedModel(qualified, defaultProvider string) (string, string) {
-	return ParseProviderModelName(qualified, defaultProvider)
-}
-
 // FormatProviderModelName joins a provider name and model into "provider:model".
 func FormatProviderModelName(providerName, modelName string) string {
 	return providerName + ":" + modelName
-}
-
-// QualifyModel is an alias for FormatProviderModelName.
-func QualifyModel(providerName, model string) string {
-	return FormatProviderModelName(providerName, model)
 }
 
 // defaultProviderModelName picks a sensible default model from the configured providers.

@@ -622,8 +622,8 @@ func voiceProviderNamesByCapability(registry *providers.ProviderRegistry, suppor
 	}
 	names := make([]string, 0)
 	for _, name := range registry.ProviderNames() {
-		client, _, err := registry.Resolve(providers.FormatProviderModelName(name, "placeholder"))
-		if err != nil {
+		client, ok := registry.ClientByName(name)
+		if !ok {
 			continue
 		}
 		if supports(client) {

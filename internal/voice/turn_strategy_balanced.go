@@ -2,6 +2,14 @@ package voice
 
 import "strings"
 
+const (
+	balancedBargeInMinScore    = 0.12
+	balancedBargeInMinSpeechMs = 120
+	balancedCommitMaxSilenceMs = 700
+	balancedCommitMidSilenceMs = 300
+	balancedCommitMinSilenceMs = 120
+)
+
 var danglingConjunctions = []string{
 	"and", "or", "but", "so", "because", "if", "then",
 }
@@ -13,30 +21,30 @@ func (BalancedStrategy) EvaluateBargeIn(ctx TurnContext) TurnDecision {
 	if !ctx.RunActive && !ctx.ResponseActive {
 		return TurnDecisionIgnore
 	}
-	if ctx.VADScore < 0.12 {
+	if ctx.VADScore < balancedBargeInMinScore {
 		return TurnDecisionIgnore
 	}
-	if ctx.SpeechDurationMs < 120 {
+	if ctx.SpeechDurationMs < balancedBargeInMinSpeechMs {
 		return TurnDecisionCandidate
 	}
 	return TurnDecisionTrigger
 }
 
 func (BalancedStrategy) ShouldCommitTurn(ctx TurnContext) bool {
-	if ctx.SilenceDurationMs >= 700 {
+	if ctx.SilenceDurationMs >= balancedCommitMaxSilenceMs {
 		return true
 	}
 	text := strings.TrimSpace(ctx.InterimText)
 	if text == "" {
 		return false
 	}
-	if endsWithSentenceTerminator(text) && ctx.SilenceDurationMs >= 120 {
+	if endsWithSentenceTerminator(text) && ctx.SilenceDurationMs >= balancedCommitMinSilenceMs {
 		return true
 	}
 	if endsWithDanglingConjunction(text) {
 		return false
 	}
-	return ctx.SilenceDurationMs >= 300
+	return ctx.SilenceDurationMs >= balancedCommitMidSilenceMs
 }
 
 func endsWithSentenceTerminator(text string) bool {

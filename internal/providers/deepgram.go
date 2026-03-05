@@ -159,7 +159,10 @@ func (self *deepgramStream) readLoop() {
 	for {
 		_, payload, err := self.conn.ReadMessage()
 		if err != nil {
-			self.events <- TranscribeStreamEvent{Err: fmt.Errorf("deepgram read: %w", err)}
+			select {
+			case self.events <- TranscribeStreamEvent{Err: fmt.Errorf("deepgram read: %w", err)}:
+			case <-self.done:
+			}
 			_ = self.Close()
 			return
 		}

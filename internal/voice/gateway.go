@@ -15,8 +15,3 @@ type Dispatcher interface {
 	AbortRun(runId string) bool
 	ProviderRegistry() *providers.ProviderRegistry
 }
-
-// AudioDenoiser is a placeholder capability for future server-side denoise.
-type AudioDenoiser interface {
-	Denoise(ctx context.Context, pcm []byte, sampleRateHz int, channels int) ([]byte, error)
-}

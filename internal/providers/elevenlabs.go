@@ -85,6 +85,8 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, req Synthesi
 		defer close(out)
 		defer closeConn()
 
+		// ElevenLabs streaming protocol requires an initial whitespace-only
+		// text message to prime the connection before sending actual content.
 		if err := conn.WriteJSON(map[string]any{
 			"text": " ",
 		}); err != nil {

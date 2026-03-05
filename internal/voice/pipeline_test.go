@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -868,10 +869,12 @@ func TestTTSSynthLoop_BatchFallback(t *testing.T) {
 		ServerTurn: true,
 		BargeIn:    true,
 	})
+	pcmData := []byte{9, 8, 7, 6}
+	wavData := PCMToWAV(pcmData, 24000, 1)
 	registerSynthesizer(dispatcher, &pipelineMockSynthesizerProvider{
 		synthesizeFn: func(_ context.Context, _ providers.SynthesizeRequest) (*providers.SynthesizeResponse, error) {
 			return &providers.SynthesizeResponse{
-				Audio: io.NopCloser(io.LimitReader(infiniteReader([]byte{9, 8, 7}), 3)),
+				Audio: io.NopCloser(bytes.NewReader(wavData)),
 			}, nil
 		},
 	})
@@ -889,8 +892,8 @@ func TestTTSSynthLoop_BatchFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse frame: %v", err)
 	}
-	if len(parsed.Data) != 3 {
-		t.Fatalf("expected one batch fallback chunk, got %d bytes", len(parsed.Data))
+	if len(parsed.Data) != len(pcmData) {
+		t.Fatalf("expected %d batch fallback bytes, got %d", len(pcmData), len(parsed.Data))
 	}
 
 	close(s.doneCh)

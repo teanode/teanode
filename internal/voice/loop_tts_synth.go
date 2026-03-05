@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"time"
 
@@ -18,7 +19,7 @@ func (self *Session) ttsSynthLoop() {
 				nowMs := time.Now().UnixMilli()
 				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseId())
 				if rid := self.GetCurrentResponseId(); rid != "" {
-					turnId := self.GetCurrentResponseTurnID()
+					turnId := self.GetCurrentResponseTurnId()
 					if turnId == "" {
 						turnId = self.GetCurrentTurnId()
 					}
@@ -115,7 +116,7 @@ func (self *Session) ttsSynthLoop() {
 					if turnId == "" {
 						turnId = self.GetCurrentTurnId()
 					}
-					self.SetCurrentResponseTurnID(turnId)
+					self.SetCurrentResponseTurnId(turnId)
 					nowMs := time.Now().UnixMilli()
 					pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", self.ID, responseId, turnId)
 					self.sendVoiceEvent("response.started", map[string]interface{}{
@@ -184,10 +185,14 @@ func synthesizeToChunks(ctx context.Context, synth providers.AudioSynthesizer, t
 		return nil, err
 	}
 	defer resp.Audio.Close()
-	buf, _ := io.ReadAll(resp.Audio)
+	wavData, _ := io.ReadAll(resp.Audio)
+	pcm, err := wavToPCM16LE(wavData)
+	if err != nil {
+		return nil, fmt.Errorf("batch tts wav decode: %w", err)
+	}
 	out := make(chan []byte, 1)
-	if len(buf) > 0 {
-		out <- buf
+	if len(pcm) > 0 {
+		out <- pcm
 	}
 	close(out)
 	return out, nil

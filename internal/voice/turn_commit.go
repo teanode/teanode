@@ -36,7 +36,7 @@ func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
 			}
 			finalText := strings.TrimSpace(self.takeStreamingFinalText(tid))
 			if finalText != "" && len([]rune(finalText)) >= minStreamingFinalRunes {
-				self.handleFinalTranscript(tid, finalText)
+				self.transcribeTextAndSend(tid, finalText)
 				return
 			}
 			self.transcribeAndSend(tid, audio)
@@ -90,7 +90,7 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 		return
 	}
 	text := strings.TrimSpace(result.Text)
-	self.handleFinalTranscript(turnId, text)
+	self.transcribeTextAndSend(turnId, text)
 }
 
 func (self *Session) transcribeTextAndSend(turnId, rawText string) {
@@ -132,10 +132,6 @@ func (self *Session) transcribeTextAndSend(turnId, rawText string) {
 		return
 	}
 	self.commitVoiceTurn(turnId, text)
-}
-
-func (self *Session) handleFinalTranscript(turnId, rawText string) {
-	self.transcribeTextAndSend(turnId, strings.TrimSpace(rawText))
 }
 
 func (self *Session) commitVoiceTurn(turnId, text string) {
