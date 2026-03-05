@@ -478,7 +478,7 @@ func TestRegistryRegisterOverwrite(t *testing.T) {
 }
 
 func TestFindTranscriber_Deterministic(t *testing.T) {
-	registry := NewRegistry("openai")
+	registry := NewEmptyProviderRegistry()
 	registry.Register("openai", &mockProvider{name: "openai"})
 	registry.Register("t1", &mockTranscriberProvider{mockProvider{name: "t1"}})
 	registry.Register("t2", &mockTranscriberProvider{mockProvider{name: "t2"}})
@@ -498,7 +498,7 @@ func TestFindTranscriber_Deterministic(t *testing.T) {
 }
 
 func TestFindStreamingTranscriber_Deterministic(t *testing.T) {
-	registry := NewRegistry("openai")
+	registry := NewEmptyProviderRegistry()
 	registry.Register("openai", &mockProvider{name: "openai"})
 	registry.Register("stream-a", &mockStreamingTranscriberProvider{mockProvider{name: "stream-a"}})
 	registry.Register("stream-b", &mockStreamingTranscriberProvider{mockProvider{name: "stream-b"}})
@@ -518,7 +518,7 @@ func TestFindStreamingTranscriber_Deterministic(t *testing.T) {
 }
 
 func TestFindTranscriberByName_Found(t *testing.T) {
-	registry := NewRegistry("openai")
+	registry := NewEmptyProviderRegistry()
 	registry.Register("t1", &mockTranscriberProvider{mockProvider{name: "t1"}})
 
 	transcriber, ok := registry.FindTranscriberByName("t1")
@@ -528,7 +528,7 @@ func TestFindTranscriberByName_Found(t *testing.T) {
 }
 
 func TestFindTranscriberByName_NotFound(t *testing.T) {
-	registry := NewRegistry("openai")
+	registry := NewEmptyProviderRegistry()
 	registry.Register("openai", &mockProvider{name: "openai"})
 
 	transcriber, ok := registry.FindTranscriberByName("missing")
@@ -541,7 +541,7 @@ func TestFindTranscriberByName_NotFound(t *testing.T) {
 }
 
 func TestFindTranscriberByName_WrongCapability(t *testing.T) {
-	registry := NewRegistry("openai")
+	registry := NewEmptyProviderRegistry()
 	registry.Register("openai", &mockProvider{name: "openai"})
 
 	transcriber, ok := registry.FindTranscriberByName("openai")
@@ -554,7 +554,7 @@ func TestFindTranscriberByName_WrongCapability(t *testing.T) {
 }
 
 func TestFindStreamingTranscriberByName_Found(t *testing.T) {
-	registry := NewRegistry("openai")
+	registry := NewEmptyProviderRegistry()
 	registry.Register("stream-a", &mockStreamingTranscriberProvider{mockProvider{name: "stream-a"}})
 
 	transcriber, ok := registry.FindStreamingTranscriberByName("stream-a")
@@ -564,7 +564,7 @@ func TestFindStreamingTranscriberByName_Found(t *testing.T) {
 }
 
 func TestFindStreamingTranscriberByName_NotFound(t *testing.T) {
-	registry := NewRegistry("openai")
+	registry := NewEmptyProviderRegistry()
 	registry.Register("openai", &mockProvider{name: "openai"})
 
 	transcriber, ok := registry.FindStreamingTranscriberByName("missing")
@@ -574,7 +574,7 @@ func TestFindStreamingTranscriberByName_NotFound(t *testing.T) {
 }
 
 func TestFindStreamingTranscriberByName_WrongCapability(t *testing.T) {
-	registry := NewRegistry("openai")
+	registry := NewEmptyProviderRegistry()
 	registry.Register("openai", &mockProvider{name: "openai"})
 
 	transcriber, ok := registry.FindStreamingTranscriberByName("openai")

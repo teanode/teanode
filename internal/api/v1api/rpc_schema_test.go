@@ -67,7 +67,7 @@ func getSchemaStringList(t *testing.T, schema map[string]interface{}, path ...st
 }
 
 func TestWithVoiceProviderEnums_AddsVoiceProviderEnums(t *testing.T) {
-	registry := providers.NewRegistry("openai")
+	registry := providers.NewEmptyProviderRegistry()
 	registry.Register("deepgram", &schemaMockTranscriber{})
 	registry.Register("openai", &schemaMockTranscriber{})
 	registry.Register("elevenlabs", &schemaMockSynth{})

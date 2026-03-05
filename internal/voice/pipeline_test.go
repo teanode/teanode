@@ -142,8 +142,8 @@ type eventRecorder struct {
 	events []map[string]interface{}
 }
 
-func (self *eventRecorder) append(v any) {
-	m, ok := v.(map[string]interface{})
+func (self *eventRecorder) append(value any) {
+	m, ok := value.(map[string]interface{})
 	if !ok {
 		return
 	}
@@ -156,20 +156,20 @@ func (self *eventRecorder) findTurnEvent(event string) map[string]interface{} {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	for i := len(self.events) - 1; i >= 0; i-- {
-		e := self.events[i]
-		if e["type"] != "turn.event" {
+		entry := self.events[i]
+		if entry["type"] != "turn.event" {
 			continue
 		}
-		if payload, ok := e["payload"].(turnEventPayload); ok {
+		if payload, ok := entry["payload"].(turnEventPayload); ok {
 			if payload.Event == event {
-				return e
+				return entry
 			}
 			continue
 		}
-		if payload, ok := e["payload"].(map[string]interface{}); ok {
+		if payload, ok := entry["payload"].(map[string]interface{}); ok {
 			name, _ := payload["event"].(string)
 			if name == event {
-				return e
+				return entry
 			}
 		}
 	}

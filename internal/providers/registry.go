@@ -33,8 +33,6 @@ type ProviderRegistry struct {
 	clients                  map[string]Provider
 	defaultProvider          string
 	defaultProviderModelName string
-	transcriberOrder         []string
-	synthesizerOrder         []string
 	modelsCacheMutex         sync.Mutex
 	modelsCache              map[string]*cachedModelList
 }
@@ -88,8 +86,6 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 		clients:                  make(map[string]Provider),
 		defaultProvider:          defaultProviderName,
 		defaultProviderModelName: modelsConfiguration.GetDefault(),
-		transcriberOrder:         make([]string, 0),
-		synthesizerOrder:         make([]string, 0),
 		modelsCache:              make(map[string]*cachedModelList),
 	}
 
@@ -123,38 +119,14 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 // defaults. Useful in tests that verify "no model configured" behaviour.
 func NewEmptyProviderRegistry() *ProviderRegistry {
 	return &ProviderRegistry{
-		clients:          make(map[string]Provider),
-		transcriberOrder: make([]string, 0),
-		synthesizerOrder: make([]string, 0),
-		modelsCache:      make(map[string]*cachedModelList),
-	}
-}
-
-// NewRegistry creates a provider registry with the given default provider name.
-func NewRegistry(defaultProvider string) *ProviderRegistry {
-	return &ProviderRegistry{
-		clients:          make(map[string]Provider),
-		defaultProvider:  defaultProvider,
-		transcriberOrder: make([]string, 0),
-		synthesizerOrder: make([]string, 0),
-		modelsCache:      make(map[string]*cachedModelList),
+		clients:     make(map[string]Provider),
+		modelsCache: make(map[string]*cachedModelList),
 	}
 }
 
 // Register adds a named provider client.
 func (self *ProviderRegistry) Register(name string, client Provider) {
-	_, existed := self.clients[name]
 	self.clients[name] = client
-	if !existed {
-		_, isBatchTranscriber := client.(AudioTranscriber)
-		_, isStreamingTranscriber := client.(StreamingTranscriber)
-		if isBatchTranscriber || isStreamingTranscriber {
-			self.transcriberOrder = append(self.transcriberOrder, name)
-		}
-		if _, ok := client.(AudioSynthesizer); ok {
-			self.synthesizerOrder = append(self.synthesizerOrder, name)
-		}
-	}
 }
 
 // ResolveProviderAndModel splits a provider model name ("provider:model") and returns the
@@ -295,12 +267,8 @@ func (self *ProviderRegistry) cachedModelsForProvider(ctx context.Context, provi
 
 // FindTranscriber returns the first registered provider that implements AudioTranscriber.
 func (self *ProviderRegistry) FindTranscriber() (AudioTranscriber, string, bool) {
-	for _, name := range self.transcriberOrder {
-		client, exists := self.clients[name]
-		if !exists {
-			continue
-		}
-		if transcriber, ok := client.(AudioTranscriber); ok {
+	for _, name := range self.ProviderNames() {
+		if transcriber, ok := self.clients[name].(AudioTranscriber); ok {
 			return transcriber, name, true
 		}
 	}
@@ -309,12 +277,8 @@ func (self *ProviderRegistry) FindTranscriber() (AudioTranscriber, string, bool)
 
 // FindStreamingTranscriber returns the first registered provider that implements StreamingTranscriber.
 func (self *ProviderRegistry) FindStreamingTranscriber() (StreamingTranscriber, string, bool) {
-	for _, name := range self.transcriberOrder {
-		client, exists := self.clients[name]
-		if !exists {
-			continue
-		}
-		if transcriber, ok := client.(StreamingTranscriber); ok {
+	for _, name := range self.ProviderNames() {
+		if transcriber, ok := self.clients[name].(StreamingTranscriber); ok {
 			return transcriber, name, true
 		}
 	}
@@ -323,12 +287,8 @@ func (self *ProviderRegistry) FindStreamingTranscriber() (StreamingTranscriber, 
 
 // FindSynthesizer returns the first registered provider that implements AudioSynthesizer.
 func (self *ProviderRegistry) FindSynthesizer() (AudioSynthesizer, string, bool) {
-	for _, name := range self.synthesizerOrder {
-		client, exists := self.clients[name]
-		if !exists {
-			continue
-		}
-		if synthesizer, ok := client.(AudioSynthesizer); ok {
+	for _, name := range self.ProviderNames() {
+		if synthesizer, ok := self.clients[name].(AudioSynthesizer); ok {
 			return synthesizer, name, true
 		}
 	}
