@@ -215,7 +215,7 @@ func TestRegistryResolveUnknownProvider(t *testing.T) {
 func TestRegistryResolveNoDefaultRegistered(t *testing.T) {
 	defaultProviderModelName := "missing:model"
 	providerRegistry := NewProviderRegistry(&models.ModelsConfiguration{
-		Default: &defaultProviderModelName,
+		Default:   &defaultProviderModelName,
 		Providers: &[]*models.ProviderConfiguration{
 			// Empty providers list so nothing actually registers.
 		},
