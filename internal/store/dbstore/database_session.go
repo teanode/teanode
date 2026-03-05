@@ -17,6 +17,7 @@ type databaseSessionRecord struct {
 	UserAgent     *string    `gorm:"column:user_agent;type:varchar(256)"`
 	RemoteAddress *string    `gorm:"column:remote_address;type:varchar(128)"`
 	ExpiresAt     *time.Time `gorm:"column:expires_at"`
+	LastSeenAt    *time.Time `gorm:"column:last_seen_at"`
 	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
 	ModifiedAt    time.Time  `gorm:"column:modified_at;not null"`
 }
@@ -82,6 +83,7 @@ func (self *databaseTransaction) ModifySession(ctx context.Context, sessionId st
 		"user_agent":     record.UserAgent,
 		"remote_address": record.RemoteAddress,
 		"expires_at":     record.ExpiresAt,
+		"last_seen_at":   record.LastSeenAt,
 		"modified_at":    record.ModifiedAt,
 	}).Error
 	if updateError != nil {
@@ -108,6 +110,7 @@ func modelToSessionRecord(session *models.Session) *databaseSessionRecord {
 		UserAgent:     ptrto.TrimmedString(session.GetUserAgent()),
 		RemoteAddress: ptrto.TrimmedString(session.GetRemoteAddress()),
 		ExpiresAt:     session.ExpiresAt,
+		LastSeenAt:    session.LastSeenAt,
 	}
 }
 
@@ -118,6 +121,7 @@ func sessionRecordToModel(record *databaseSessionRecord) *models.Session {
 		UserAgent:     ptrto.TrimmedString(valueor.Zero(record.UserAgent)),
 		RemoteAddress: ptrto.TrimmedString(valueor.Zero(record.RemoteAddress)),
 		ExpiresAt:     record.ExpiresAt,
+		LastSeenAt:    record.LastSeenAt,
 		CreatedAt:     &record.CreatedAt,
 		ModifiedAt:    &record.ModifiedAt,
 	}

@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
-	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/trash"
@@ -23,7 +21,7 @@ type fileSystemSessionRecord struct {
 	CreatedAt     time.Time `yaml:"createdAt"`
 	ExpiresAt     time.Time `yaml:"expiresAt"`
 	UserAgent     string    `yaml:"userAgent"`
-	RemoteAddress string    `yaml:"remoteAddr"`
+	RemoteAddress string    `yaml:"remoteAddress"`
 	LastSeenAt    time.Time `yaml:"lastSeenAt"`
 }
 
@@ -48,30 +46,33 @@ func (self *fileSystemTransaction) DeleteSession(ctx context.Context, sessionId 
 }
 
 func (self *fileSystemTransaction) listSessions(options *store.Option) ([]*models.Session, error) {
-	entries, readError := os.ReadDir(self.sessionsDirectory())
-	if os.IsNotExist(readError) {
-		return []*models.Session{}, nil
-	}
-	if readError != nil {
-		return nil, readError
+	userRecords, err := self.listUserRecords()
+	if err != nil {
+		return nil, err
 	}
 	now := time.Now()
 	results := make([]*models.Session, 0)
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+	for _, userRecord := range userRecords {
+		entries, readError := os.ReadDir(self.userSessionsDirectory(userRecord.ID))
+		if readError != nil {
 			continue
 		}
-		sessionId := strings.TrimSuffix(entry.Name(), ".yaml")
-		record, loadError := self.readSessionRecord(sessionId)
-		if loadError != nil {
-			continue
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+				continue
+			}
+			sessionId := strings.TrimSuffix(entry.Name(), ".yaml")
+			record, loadError := self.readSessionRecord(userRecord.ID, sessionId)
+			if loadError != nil {
+				continue
+			}
+			if now.After(record.ExpiresAt) {
+				_ = self.moveSessionToTrash(userRecord.ID, sessionId)
+				continue
+			}
+			session := sessionRecordToModel(record)
+			results = append(results, &session)
 		}
-		if now.After(record.ExpiresAt) {
-			_ = self.moveSessionToTrash(sessionId)
-			continue
-		}
-		session := sessionRecordToModel(record)
-		results = append(results, &session)
 	}
 	return applyOffsetLimit(results, options), nil
 }
@@ -80,6 +81,7 @@ func (self *fileSystemTransaction) createSession(session *models.Session, option
 	if session == nil || session.UserID == nil || *session.UserID == "" {
 		return nil, store.ErrInvalidOptions
 	}
+	userId := *session.UserID
 	sessionId := session.ID
 	if sessionId == "" {
 		sessionId = security.NewULID()
@@ -91,14 +93,14 @@ func (self *fileSystemTransaction) createSession(session *models.Session, option
 	}
 	record := fileSystemSessionRecord{
 		ID:            sessionId,
-		UserID:        *session.UserID,
+		UserID:        userId,
 		CreatedAt:     now,
 		ExpiresAt:     expiresAt,
 		UserAgent:     session.GetUserAgent(),
 		RemoteAddress: session.GetRemoteAddress(),
 		LastSeenAt:    now,
 	}
-	if writeError := self.writeSessionRecord(record); writeError != nil {
+	if writeError := self.writeSessionRecord(userId, record); writeError != nil {
 		return nil, writeError
 	}
 	result := sessionRecordToModel(record)
@@ -106,19 +108,23 @@ func (self *fileSystemTransaction) createSession(session *models.Session, option
 }
 
 func (self *fileSystemTransaction) getSession(sessionId string, options *store.Option) (*models.Session, error) {
-	record, readError := self.readSessionRecord(sessionId)
-	if readError != nil {
-		if os.IsNotExist(readError) {
+	userRecords, err := self.listUserRecords()
+	if err != nil {
+		return nil, err
+	}
+	for _, userRecord := range userRecords {
+		record, readError := self.readSessionRecord(userRecord.ID, sessionId)
+		if readError != nil {
+			continue
+		}
+		if time.Now().After(record.ExpiresAt) {
+			_ = self.moveSessionToTrash(userRecord.ID, sessionId)
 			return nil, store.ErrNotFound
 		}
-		return nil, readError
+		result := sessionRecordToModel(record)
+		return &result, nil
 	}
-	if time.Now().After(record.ExpiresAt) {
-		_ = self.moveSessionToTrash(sessionId)
-		return nil, store.ErrNotFound
-	}
-	result := sessionRecordToModel(record)
-	return &result, nil
+	return nil, store.ErrNotFound
 }
 
 func (self *fileSystemTransaction) modifySession(ctx context.Context, sessionId string, modifier func(*models.Session) error, options *store.Option) (*models.Session, error) {
@@ -135,7 +141,8 @@ func (self *fileSystemTransaction) modifySession(ctx context.Context, sessionId 
 		record.CreatedAt = *ptrto.TimeNowInLocal()
 	}
 	record.LastSeenAt = *ptrto.TimeNowInLocal()
-	if writeError := self.writeSessionRecord(record); writeError != nil {
+	userId := record.UserID
+	if writeError := self.writeSessionRecord(userId, record); writeError != nil {
 		return nil, writeError
 	}
 	result := sessionRecordToModel(record)
@@ -143,15 +150,21 @@ func (self *fileSystemTransaction) modifySession(ctx context.Context, sessionId 
 }
 
 func (self *fileSystemTransaction) deleteSession(sessionId string, options *store.Option) error {
-	sessionPath := filepath.Join(self.sessionsDirectory(), sessionId+".yaml")
-	if _, statError := os.Stat(sessionPath); os.IsNotExist(statError) {
-		return store.ErrNotFound
+	userRecords, err := self.listUserRecords()
+	if err != nil {
+		return err
 	}
-	return self.moveSessionToTrash(sessionId)
+	for _, userRecord := range userRecords {
+		sessionPath := self.userSessionFilename(userRecord.ID, sessionId)
+		if _, statError := os.Stat(sessionPath); statError == nil {
+			return self.moveSessionToTrash(userRecord.ID, sessionId)
+		}
+	}
+	return store.ErrNotFound
 }
 
-func (self *fileSystemTransaction) readSessionRecord(sessionId string) (fileSystemSessionRecord, error) {
-	data, readError := os.ReadFile(filepath.Join(self.sessionsDirectory(), sessionId+".yaml"))
+func (self *fileSystemTransaction) readSessionRecord(userId, sessionId string) (fileSystemSessionRecord, error) {
+	data, readError := os.ReadFile(self.userSessionFilename(userId, sessionId))
 	if readError != nil {
 		return fileSystemSessionRecord{}, readError
 	}
@@ -162,28 +175,26 @@ func (self *fileSystemTransaction) readSessionRecord(sessionId string) (fileSyst
 	return record, nil
 }
 
-func (self *fileSystemTransaction) writeSessionRecord(record fileSystemSessionRecord) error {
+func (self *fileSystemTransaction) writeSessionRecord(userId string, record fileSystemSessionRecord) error {
 	if record.ID == "" {
 		return fmt.Errorf("session ID is required")
 	}
-	if makeDirectoryError := os.MkdirAll(self.sessionsDirectory(), 0755); makeDirectoryError != nil {
+	directory := self.userSessionsDirectory(userId)
+	if makeDirectoryError := os.MkdirAll(directory, 0755); makeDirectoryError != nil {
 		return makeDirectoryError
 	}
-	encoded, marshalError := yaml.Marshal(record)
-	if marshalError != nil {
-		return marshalError
-	}
-	return atomicfile.WriteFile(filepath.Join(self.sessionsDirectory(), record.ID+".yaml"), encoded)
+	return writeYAMLFile(self.userSessionFilename(userId, record.ID), record)
 }
 
-func (self *fileSystemTransaction) moveSessionToTrash(sessionId string) error {
-	sessionPath := filepath.Join(self.sessionsDirectory(), sessionId+".yaml")
+func (self *fileSystemTransaction) moveSessionToTrash(userId, sessionId string) error {
+	sessionPath := self.userSessionFilename(userId, sessionId)
 	return trash.Move(sessionPath, self.trashDirectory())
 }
 
 func sessionRecordToModel(record fileSystemSessionRecord) models.Session {
 	createdAt := record.CreatedAt
 	expiresAt := record.ExpiresAt
+	lastSeenAt := record.LastSeenAt
 	modifiedAt := record.LastSeenAt
 	return models.Session{
 		ID:            record.ID,
@@ -192,6 +203,7 @@ func sessionRecordToModel(record fileSystemSessionRecord) models.Session {
 		RemoteAddress: ptrto.TrimmedString(record.RemoteAddress),
 		CreatedAt:     &createdAt,
 		ExpiresAt:     &expiresAt,
+		LastSeenAt:    &lastSeenAt,
 		ModifiedAt:    &modifiedAt,
 	}
 }
@@ -209,7 +221,9 @@ func modelToSessionRecord(session models.Session) fileSystemSessionRecord {
 	if session.ExpiresAt != nil {
 		record.ExpiresAt = *session.ExpiresAt
 	}
-	if session.ModifiedAt != nil {
+	if session.LastSeenAt != nil {
+		record.LastSeenAt = *session.LastSeenAt
+	} else if session.ModifiedAt != nil {
 		record.LastSeenAt = *session.ModifiedAt
 	}
 	return record

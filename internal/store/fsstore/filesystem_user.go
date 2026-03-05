@@ -2,11 +2,11 @@ package fsstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
@@ -47,62 +47,50 @@ func (self *fileSystemTransaction) ModifyUser(ctx context.Context, userId string
 func (self *fileSystemTransaction) DeleteUser(ctx context.Context, userId string, options *store.Option) error {
 	return self.deleteUser(userId, options)
 }
+
 func (self *fileSystemTransaction) listUsers(ctx context.Context, options *store.Option) ([]*models.User, error) {
-	securityConfiguration, err := self.loadSecurityRecord()
+	records, err := self.listUserRecords()
 	if err != nil {
 		return nil, err
 	}
-	userIds := make([]string, 0, len(securityConfiguration.Users))
-	for userId := range securityConfiguration.Users {
-		userIds = append(userIds, userId)
+	sort.Slice(records, func(left, right int) bool {
+		return records[left].ID < records[right].ID
+	})
+	users := make([]*models.User, 0, len(records))
+	for _, record := range records {
+		users = append(users, userRecordToModel(&record))
 	}
-	sort.Strings(userIds)
-	filteredUserIds := applyOffsetLimit(userIds, options)
-
-	users := make([]*models.User, 0, len(filteredUserIds))
-	for _, userId := range filteredUserIds {
-		user, err := self.GetUser(ctx, userId, options)
-		if err != nil {
-			continue
-		}
-		users = append(users, user)
-	}
-	return users, nil
+	return applyOffsetLimit(users, options), nil
 }
 
 func (self *fileSystemTransaction) createUser(ctx context.Context, user *models.User, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.User, error) {
 	if user == nil {
 		return nil, fmt.Errorf("user is required")
 	}
-	securityConfiguration, err := self.loadSecurityRecord()
-	if err != nil {
-		return nil, err
-	}
-	if securityConfiguration.Users == nil {
-		securityConfiguration.Users = map[string]storeSecurityUserRecord{}
-	}
 	userId := user.ID
 	if userId == "" {
 		userId = security.NewULID()
 	}
-	if _, exists := securityConfiguration.Users[userId]; exists {
+
+	// Check if user directory already exists.
+	if _, err := os.Stat(self.userConfigurationFilename(userId)); err == nil {
 		return nil, store.ErrAlreadyExists
 	}
+
+	// Check username uniqueness.
 	if user.GetUsername() != "" {
-		if _, _, found := securityConfiguration.FindUserByUsername(user.GetUsername()); found {
-			return nil, store.ErrAlreadyExists
+		records, err := self.listUserRecords()
+		if err != nil {
+			return nil, err
+		}
+		needle := strings.ToLower(user.GetUsername())
+		for _, existing := range records {
+			if strings.ToLower(existing.Username) == needle {
+				return nil, store.ErrAlreadyExists
+			}
 		}
 	}
-	securityUser := storeSecurityUserRecord{
-		Username:       user.GetUsername(),
-		PasswordHash:   user.GetPassword(),
-		Admin:          user.GetAdmin(),
-		DefaultAgentID: user.GetDefaultAgentID(),
-	}
-	securityConfiguration.Users[userId] = securityUser
-	if err := self.saveSecurityRecord(securityConfiguration); err != nil {
-		return nil, err
-	}
+
 	profileName := user.GetName()
 	if profileName == "" {
 		profileName = user.GetUsername()
@@ -110,36 +98,33 @@ func (self *fileSystemTransaction) createUser(ctx context.Context, user *models.
 	if profileName == "" {
 		profileName = processUsername()
 	}
-	profile := &storeUserRecord{
-		ID:            userId,
-		Name:          profileName,
-		Description:   user.GetDescription(),
-		AvatarMediaID: user.GetAvatarMediaID(),
+
+	record := &storeUserRecord{
+		ID:             userId,
+		Name:           profileName,
+		Username:       user.GetUsername(),
+		PasswordHash:   user.GetPassword(),
+		Admin:          user.GetAdmin(),
+		DefaultAgentID: user.GetDefaultAgentID(),
+		TelegramChatID: user.TelegramChatID,
+		DiscordUserID:  user.GetDiscordUserID(),
+		Description:    user.GetDescription(),
+		AvatarMediaID:  user.GetAvatarMediaID(),
 	}
-	if err := self.saveUserRecord(userId, profile); err != nil {
+
+	// Auto-assign username if empty.
+	if record.Username == "" {
+		allRecords, err := self.listUserRecords()
+		if err != nil {
+			return nil, err
+		}
+		normalizeUsername(allRecords, record)
+	}
+
+	if err := self.saveUserRecord(userId, record); err != nil {
 		return nil, err
 	}
-	if securityConfiguration.ChannelLinks.Telegram == nil {
-		securityConfiguration.ChannelLinks.Telegram = map[string]string{}
-	}
-	if securityConfiguration.ChannelLinks.Discord == nil {
-		securityConfiguration.ChannelLinks.Discord = map[string]string{}
-	}
-	if user.TelegramChatID != nil {
-		if securityConfiguration.ChannelLinks.Telegram == nil {
-			securityConfiguration.ChannelLinks.Telegram = map[string]string{}
-		}
-		securityConfiguration.ChannelLinks.Telegram[fmt.Sprintf("%d", *user.TelegramChatID)] = userId
-	}
-	if user.DiscordUserID != nil {
-		if securityConfiguration.ChannelLinks.Discord == nil {
-			securityConfiguration.ChannelLinks.Discord = map[string]string{}
-		}
-		securityConfiguration.ChannelLinks.Discord[*user.DiscordUserID] = userId
-	}
-	if err := self.saveSecurityRecord(securityConfiguration); err != nil {
-		return nil, err
-	}
+
 	for _, file := range seedWorkspaceFiles {
 		copyFile := file
 		scope := models.ScopeUser
@@ -149,199 +134,140 @@ func (self *fileSystemTransaction) createUser(ctx context.Context, user *models.
 			return nil, err
 		}
 	}
-	return self.GetUser(ctx, userId, options)
+
+	return self.getUser(userId, options)
 }
 
 func (self *fileSystemTransaction) getUser(userId string, options *store.Option) (*models.User, error) {
-	securityConfiguration, err := self.loadSecurityRecord()
-	if err != nil {
-		return nil, err
-	}
-	securityUser, ok := securityConfiguration.Users[userId]
-	if !ok {
+	filename := self.userConfigurationFilename(userId)
+	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
 		return nil, store.ErrNotFound
 	}
-	profile, err := self.loadUserRecord(userId)
+	record, err := self.loadUserRecord(userId)
 	if err != nil {
 		return nil, err
 	}
-	result := models.User{ID: userId}
-	result.Username = ptrto.TrimmedString(securityUser.Username)
-	result.Name = ptrto.TrimmedString(profile.Name)
-	result.Password = ptrto.TrimmedString(securityUser.PasswordHash)
-	result.Admin = ptrto.Value(securityUser.Admin)
-	result.DefaultAgentID = ptrto.TrimmedString(securityUser.DefaultAgentID)
-	result.AvatarMediaID = ptrto.TrimmedString(profile.AvatarMediaID)
-	result.Description = ptrto.TrimmedString(profile.Description)
-	if !profile.SummarizedAt.Time.IsZero() {
-		result.SummarizedAt = &profile.SummarizedAt.Time
-	}
-	result.TelegramChatID = findTelegramChatIdByUserId(securityConfiguration.ChannelLinks.Telegram, userId)
-	result.DiscordUserID = findDiscordUserIdByUserId(securityConfiguration.ChannelLinks.Discord, userId)
-	return &result, nil
+	return userRecordToModel(record), nil
 }
 
 func (self *fileSystemTransaction) getUserByUsername(ctx context.Context, username string, options *store.Option) (*models.User, error) {
-	securityConfiguration, err := self.loadSecurityRecord()
-	if err != nil {
-		return nil, err
-	}
-	userId, _, found := securityConfiguration.FindUserByUsername(username)
-	if !found {
+	needle := strings.ToLower(username)
+	if needle == "" {
 		return nil, store.ErrNotFound
 	}
-	user, err := self.GetUser(ctx, userId, options)
+	records, err := self.listUserRecords()
 	if err != nil {
 		return nil, err
 	}
-	return user, nil
+	for _, record := range records {
+		if strings.ToLower(record.Username) == needle {
+			return userRecordToModel(&record), nil
+		}
+	}
+	return nil, store.ErrNotFound
 }
 
 func (self *fileSystemTransaction) getUserByTelegramChatId(ctx context.Context, telegramChatId int64, options *store.Option) (*models.User, error) {
-	securityConfiguration, err := self.loadSecurityRecord()
+	records, err := self.listUserRecords()
 	if err != nil {
 		return nil, err
 	}
-	userId := securityConfiguration.ChannelLinks.Telegram[fmt.Sprintf("%d", telegramChatId)]
-	if userId == "" {
-		return nil, store.ErrNotFound
+	for _, record := range records {
+		if record.TelegramChatID != nil && *record.TelegramChatID == telegramChatId {
+			return userRecordToModel(&record), nil
+		}
 	}
-	return self.GetUser(ctx, userId, options)
+	return nil, store.ErrNotFound
 }
 
 func (self *fileSystemTransaction) getUserByDiscordUserId(ctx context.Context, discordUserId string, options *store.Option) (*models.User, error) {
-	securityConfiguration, err := self.loadSecurityRecord()
+	records, err := self.listUserRecords()
 	if err != nil {
 		return nil, err
 	}
-	userId := securityConfiguration.ChannelLinks.Discord[discordUserId]
-	if userId == "" {
-		return nil, store.ErrNotFound
+	for _, record := range records {
+		if record.DiscordUserID == discordUserId {
+			return userRecordToModel(&record), nil
+		}
 	}
-	return self.GetUser(ctx, userId, options)
+	return nil, store.ErrNotFound
 }
 
 func (self *fileSystemTransaction) modifyUser(ctx context.Context, userId string, modifier func(*models.User) error, options *store.Option) (*models.User, error) {
-	user, err := self.GetUser(ctx, userId, options)
+	user, err := self.getUser(userId, options)
 	if err != nil {
 		return nil, err
 	}
 	if err := modifier(user); err != nil {
 		return nil, err
 	}
-	securityConfiguration, err := self.loadSecurityRecord()
+
+	record, err := self.loadUserRecord(userId)
 	if err != nil {
 		return nil, err
 	}
-	securityUser, ok := securityConfiguration.Users[userId]
-	if !ok {
-		return nil, store.ErrNotFound
-	}
+
 	if user.Username != nil {
-		securityUser.Username = *user.Username
+		record.Username = *user.Username
 	}
 	if user.Password != nil {
-		securityUser.PasswordHash = *user.Password
+		record.PasswordHash = *user.Password
 	}
 	if user.Admin != nil {
-		securityUser.Admin = *user.Admin
+		record.Admin = *user.Admin
 	}
 	if user.DefaultAgentID != nil {
-		securityUser.DefaultAgentID = *user.DefaultAgentID
-	}
-	securityConfiguration.Users[userId] = securityUser
-
-	// refresh link maps for this user
-	for chatId, linkedUserId := range securityConfiguration.ChannelLinks.Telegram {
-		if linkedUserId == userId {
-			delete(securityConfiguration.ChannelLinks.Telegram, chatId)
-		}
-	}
-	for discordUserId, linkedUserId := range securityConfiguration.ChannelLinks.Discord {
-		if linkedUserId == userId {
-			delete(securityConfiguration.ChannelLinks.Discord, discordUserId)
-		}
-	}
-	if user.TelegramChatID != nil {
-		securityConfiguration.ChannelLinks.Telegram[fmt.Sprintf("%d", *user.TelegramChatID)] = userId
-	}
-	if user.DiscordUserID != nil {
-		securityConfiguration.ChannelLinks.Discord[*user.DiscordUserID] = userId
-	}
-	if err := self.saveSecurityRecord(securityConfiguration); err != nil {
-		return nil, err
-	}
-	profile, err := self.loadUserRecord(userId)
-	if err != nil {
-		profile = &storeUserRecord{ID: userId}
+		record.DefaultAgentID = *user.DefaultAgentID
 	}
 	if user.Name != nil {
-		profile.Name = *user.Name
+		record.Name = *user.Name
 	}
 	if user.Description != nil {
-		profile.Description = *user.Description
+		record.Description = *user.Description
 	}
 	if user.SummarizedAt != nil {
-		profile.SummarizedAt = timeutil.Timestamp{Time: *user.SummarizedAt}
+		record.SummarizedAt = timeutil.Timestamp{Time: *user.SummarizedAt}
 	}
 	if user.AvatarMediaID != nil {
-		profile.AvatarMediaID = *user.AvatarMediaID
+		record.AvatarMediaID = *user.AvatarMediaID
 	}
-	if err := self.saveUserRecord(userId, profile); err != nil {
+	if user.TelegramChatID != nil {
+		record.TelegramChatID = user.TelegramChatID
+	}
+	if user.DiscordUserID != nil {
+		record.DiscordUserID = *user.DiscordUserID
+	}
+
+	if err := self.saveUserRecord(userId, record); err != nil {
 		return nil, err
 	}
-	return self.GetUser(ctx, userId, options)
+	return self.getUser(userId, options)
 }
 
 func (self *fileSystemTransaction) deleteUser(userId string, options *store.Option) error {
-	securityConfiguration, err := self.loadSecurityRecord()
-	if err != nil {
-		return err
-	}
-	if _, exists := securityConfiguration.Users[userId]; !exists {
+	filename := self.userConfigurationFilename(userId)
+	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
 		return store.ErrNotFound
 	}
-	delete(securityConfiguration.Users, userId)
-	for chatId, linkedUserId := range securityConfiguration.ChannelLinks.Telegram {
-		if linkedUserId == userId {
-			delete(securityConfiguration.ChannelLinks.Telegram, chatId)
-		}
-	}
-	for discordUserId, linkedUserId := range securityConfiguration.ChannelLinks.Discord {
-		if linkedUserId == userId {
-			delete(securityConfiguration.ChannelLinks.Discord, discordUserId)
-		}
-	}
-	if err := self.saveSecurityRecord(securityConfiguration); err != nil {
-		return err
-	}
 	userDirectory := self.userDirectory(userId)
-	if _, err := os.Stat(userDirectory); errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
 	return trash.Move(userDirectory, self.trashDirectory())
 }
 
-func findTelegramChatIdByUserId(links map[string]string, userId string) *int64 {
-	for key, linkedUserId := range links {
-		if linkedUserId != userId {
-			continue
-		}
-		value, err := json.Number(key).Int64()
-		if err != nil {
-			continue
-		}
-		return &value
+func userRecordToModel(record *storeUserRecord) *models.User {
+	result := &models.User{
+		ID:             record.ID,
+		Username:       ptrto.TrimmedString(record.Username),
+		Name:           ptrto.TrimmedString(record.Name),
+		Password:       ptrto.TrimmedString(record.PasswordHash),
+		Admin:          ptrto.Value(record.Admin),
+		DefaultAgentID: ptrto.TrimmedString(record.DefaultAgentID),
+		AvatarMediaID:  ptrto.TrimmedString(record.AvatarMediaID),
+		Description:    ptrto.TrimmedString(record.Description),
+		TelegramChatID: record.TelegramChatID,
+		DiscordUserID:  ptrto.TrimmedString(record.DiscordUserID),
 	}
-	return nil
-}
-
-func findDiscordUserIdByUserId(links map[string]string, userId string) *string {
-	for discordUserId, linkedUserId := range links {
-		if linkedUserId == userId {
-			value := discordUserId
-			return &value
-		}
+	if !record.SummarizedAt.Time.IsZero() {
+		result.SummarizedAt = &record.SummarizedAt.Time
 	}
-	return nil
+	return result
 }

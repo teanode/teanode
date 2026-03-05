@@ -43,7 +43,7 @@ function SessionItem({
           <IconButton
             size="small"
             edge="end"
-            sx={{ opacity: 0.4 }}
+            color="error"
             onClick={onRevoke}
           >
             <DeleteOutlineIcon fontSize="small" />
@@ -59,7 +59,7 @@ function SessionItem({
         }
         secondary={
           <>
-            {session.remoteAddr}
+            {session.remoteAddress || "-"}
             {" · "}
             <Tooltip title={lastSeen.format("YYYY-MM-DD HH:mm:ss")} arrow>
               <span>{lastSeen.fromNow()}</span>

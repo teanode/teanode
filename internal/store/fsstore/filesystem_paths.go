@@ -14,14 +14,6 @@ func (self *fileSystemTransaction) configurationFilename() string {
 	return filepath.Join(self.dataDirectory(), "config.yaml")
 }
 
-func (self *fileSystemTransaction) securityFilename() string {
-	return filepath.Join(self.dataDirectory(), "security.yaml")
-}
-
-func (self *fileSystemTransaction) stateFilename() string {
-	return filepath.Join(self.dataDirectory(), "state.yaml")
-}
-
 func (self *fileSystemTransaction) usersDirectory() string {
 	return filepath.Join(self.dataDirectory(), "users")
 }
@@ -82,8 +74,20 @@ func (self *fileSystemTransaction) projectWorkspaceDirectory(projectId string) s
 	return filepath.Join(self.projectDirectory(projectId), "workspace")
 }
 
-func (self *fileSystemTransaction) sessionsDirectory() string {
-	return filepath.Join(self.dataDirectory(), "sessions")
+func (self *fileSystemTransaction) userSessionsDirectory(userId string) string {
+	return filepath.Join(self.userDirectory(userId), "sessions")
+}
+
+func (self *fileSystemTransaction) userSessionFilename(userId, sessionId string) string {
+	return filepath.Join(self.userSessionsDirectory(userId), sessionId+".yaml")
+}
+
+func (self *fileSystemTransaction) userTokensDirectory(userId string) string {
+	return filepath.Join(self.userDirectory(userId), "tokens")
+}
+
+func (self *fileSystemTransaction) userTokenFilename(userId, tokenId string) string {
+	return filepath.Join(self.userTokensDirectory(userId), tokenId+".yaml")
 }
 
 func (self *fileSystemTransaction) mediaDirectory() string {

@@ -12,12 +12,14 @@ import (
 )
 
 type databaseTokenRecord struct {
-	ID         string     `gorm:"column:id;type:varchar(32);primaryKey"`
-	UserID     *string    `gorm:"column:user_id;type:varchar(32)"`
-	Token      *string    `gorm:"column:token;type:varchar(128)"`
-	LastUsedAt *time.Time `gorm:"column:last_used_at"`
-	CreatedAt  time.Time  `gorm:"column:created_at;not null"`
-	ModifiedAt time.Time  `gorm:"column:modified_at;not null"`
+	ID            string     `gorm:"column:id;type:varchar(32);primaryKey"`
+	UserID        *string    `gorm:"column:user_id;type:varchar(32)"`
+	Token         *string    `gorm:"column:token;type:varchar(128)"`
+	LastUsedAt    *time.Time `gorm:"column:last_used_at"`
+	RemoteAddress *string    `gorm:"column:remote_address;type:varchar(128)"`
+	UserAgent     *string    `gorm:"column:user_agent;type:varchar(256)"`
+	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
+	ModifiedAt    time.Time  `gorm:"column:modified_at;not null"`
 }
 
 func (databaseTokenRecord) TableName() string {
@@ -91,10 +93,12 @@ func (self *databaseTransaction) ModifyToken(ctx context.Context, tokenId string
 	record.ID = tokenId
 	record.ModifiedAt = *ptrto.TimeNowInLocal()
 	updateError := self.database.Model(&databaseTokenRecord{}).Where("id = ?", record.ID).Updates(map[string]interface{}{
-		"user_id":      record.UserID,
-		"token":        record.Token,
-		"last_used_at": record.LastUsedAt,
-		"modified_at":  record.ModifiedAt,
+		"user_id":        record.UserID,
+		"token":          record.Token,
+		"last_used_at":   record.LastUsedAt,
+		"remote_address": record.RemoteAddress,
+		"user_agent":     record.UserAgent,
+		"modified_at":    record.ModifiedAt,
 	}).Error
 	if updateError != nil {
 		return nil, databaseError(updateError)
@@ -120,20 +124,24 @@ func modelToTokenRecord(token *models.Token) *databaseTokenRecord {
 		lastUsedAt = &lastUsedAtValue
 	}
 	return &databaseTokenRecord{
-		ID:         token.ID,
-		UserID:     ptrto.TrimmedString(token.GetUserID()),
-		Token:      ptrto.TrimmedString(token.GetToken()),
-		LastUsedAt: lastUsedAt,
+		ID:            token.ID,
+		UserID:        ptrto.TrimmedString(token.GetUserID()),
+		Token:         ptrto.TrimmedString(token.GetToken()),
+		LastUsedAt:    lastUsedAt,
+		RemoteAddress: ptrto.TrimmedString(token.GetRemoteAddress()),
+		UserAgent:     ptrto.TrimmedString(token.GetUserAgent()),
 	}
 }
 
 func tokenRecordToModel(record *databaseTokenRecord) *models.Token {
 	return &models.Token{
-		ID:         record.ID,
-		UserID:     ptrto.TrimmedString(valueor.Zero(record.UserID)),
-		Token:      ptrto.TrimmedString(valueor.Zero(record.Token)),
-		LastUsedAt: record.LastUsedAt,
-		CreatedAt:  &record.CreatedAt,
-		ModifiedAt: &record.ModifiedAt,
+		ID:            record.ID,
+		UserID:        ptrto.TrimmedString(valueor.Zero(record.UserID)),
+		Token:         ptrto.TrimmedString(valueor.Zero(record.Token)),
+		LastUsedAt:    record.LastUsedAt,
+		RemoteAddress: ptrto.TrimmedString(valueor.Zero(record.RemoteAddress)),
+		UserAgent:     ptrto.TrimmedString(valueor.Zero(record.UserAgent)),
+		CreatedAt:     &record.CreatedAt,
+		ModifiedAt:    &record.ModifiedAt,
 	}
 }

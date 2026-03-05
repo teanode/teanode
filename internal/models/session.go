@@ -8,6 +8,7 @@ type Session struct {
 	UserAgent     *string    `json:"userAgent,omitempty" yaml:"userAgent,omitempty"`
 	RemoteAddress *string    `json:"remoteAddress,omitempty" yaml:"remoteAddress,omitempty"`
 	ExpiresAt     *time.Time `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"`
+	LastSeenAt    *time.Time `json:"lastSeenAt,omitempty" yaml:"lastSeenAt,omitempty"`
 	CreatedAt     *time.Time `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
 	ModifiedAt    *time.Time `json:"modifiedAt,omitempty" yaml:"modifiedAt,omitempty"`
 }

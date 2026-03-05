@@ -15,6 +15,7 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/bufferpool"
+	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
 // Middleware wraps an http.Handler to add cross-cutting behaviour.
@@ -160,6 +161,15 @@ func MakeAuthenticationMiddleware() Middleware {
 			if err != nil {
 				return err
 			}
+			if existingToken.LastUsedAt == nil || time.Since(*existingToken.LastUsedAt) >= time.Hour {
+				_, _ = transaction.ModifyToken(ctx, existingToken.ID, func(token *models.Token) error {
+					now := time.Now()
+					token.LastUsedAt = &now
+					token.RemoteAddress = ptrto.Value(request.RemoteAddr)
+					token.UserAgent = ptrto.Value(request.UserAgent())
+					return nil
+				}, nil)
+			}
 			user = existingUser
 			token = existingToken
 			return nil
@@ -201,6 +211,10 @@ func MakeAuthenticationMiddleware() Middleware {
 				updatedSession, err := transaction.ModifySession(ctx, existingSession.ID, func(session *models.Session) error {
 					expiresAt := time.Now().Add(maxAge)
 					session.ExpiresAt = &expiresAt
+					now := time.Now()
+					session.LastSeenAt = &now
+					session.RemoteAddress = ptrto.Value(request.RemoteAddr)
+					session.UserAgent = ptrto.Value(request.UserAgent())
 					return nil
 				}, nil)
 				if err != nil {

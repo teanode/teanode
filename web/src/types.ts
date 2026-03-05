@@ -339,6 +339,8 @@ export interface AuthTokenInfo {
   token: string;
   createdAt?: string;
   lastUsedAt?: string;
+  remoteAddress?: string;
+  userAgent?: string;
 }
 
 export interface UserInfo {
@@ -356,7 +358,7 @@ export interface SessionInfo {
   createdAt: string;
   expiresAt: string;
   userAgent: string;
-  remoteAddr: string;
+  remoteAddress: string;
   lastSeenAt: string;
 }
 

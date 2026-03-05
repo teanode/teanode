@@ -31,41 +31,6 @@ func (self *fileSystemTransaction) saveConfigurationRecord(configurationRecord *
 	return writeYAMLFile(self.configurationFilename(), configurationRecord)
 }
 
-func (self *fileSystemTransaction) loadSecurityRecord() (*storeSecurityRecord, error) {
-	securityRecord := &storeSecurityRecord{}
-	if readError := readYAMLFileOrDefault(self.securityFilename(), securityRecord); readError != nil {
-		return nil, readError
-	}
-	if securityRecord.Users == nil {
-		securityRecord.Users = map[string]storeSecurityUserRecord{}
-	}
-	if securityRecord.ChannelLinks.Telegram == nil {
-		securityRecord.ChannelLinks.Telegram = map[string]string{}
-	}
-	if securityRecord.ChannelLinks.Discord == nil {
-		securityRecord.ChannelLinks.Discord = map[string]string{}
-	}
-	normalizeSecurityUsernames(securityRecord.Users)
-	return securityRecord, nil
-}
-
-func (self *fileSystemTransaction) saveSecurityRecord(securityRecord *storeSecurityRecord) error {
-	if securityRecord == nil {
-		securityRecord = &storeSecurityRecord{}
-	}
-	if securityRecord.Users == nil {
-		securityRecord.Users = map[string]storeSecurityUserRecord{}
-	}
-	if securityRecord.ChannelLinks.Telegram == nil {
-		securityRecord.ChannelLinks.Telegram = map[string]string{}
-	}
-	if securityRecord.ChannelLinks.Discord == nil {
-		securityRecord.ChannelLinks.Discord = map[string]string{}
-	}
-	normalizeSecurityUsernames(securityRecord.Users)
-	return writeYAMLFileMode(self.securityFilename(), securityRecord, 0600)
-}
-
 func (self *fileSystemTransaction) loadAgentRecord(agentId string) (*storeAgentRecord, error) {
 	agentRecord := &storeAgentRecord{ID: agentId}
 	filename := self.agentConfigurationFilename(agentId)
@@ -136,6 +101,32 @@ func (self *fileSystemTransaction) saveUserRecord(userId string, userRecord *sto
 	}
 	userRecord.Description = strings.TrimSpace(userRecord.Description)
 	return writeYAMLFileMode(self.userConfigurationFilename(userId), userRecord, 0600)
+}
+
+func (self *fileSystemTransaction) listUserRecords() ([]storeUserRecord, error) {
+	entries, readError := os.ReadDir(self.usersDirectory())
+	if readError != nil {
+		if os.IsNotExist(readError) {
+			return []storeUserRecord{}, nil
+		}
+		return nil, readError
+	}
+	records := make([]storeUserRecord, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		userId := entry.Name()
+		if userId == "" {
+			continue
+		}
+		record, loadError := self.loadUserRecord(userId)
+		if loadError != nil {
+			continue
+		}
+		records = append(records, *record)
+	}
+	return records, nil
 }
 
 func (self *fileSystemTransaction) loadProjectRecord(projectId string) (*storeProjectRecord, error) {

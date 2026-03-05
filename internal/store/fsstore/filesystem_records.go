@@ -3,10 +3,8 @@ package fsstore
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/timeutil"
@@ -148,11 +146,18 @@ type storeAgentRecord struct {
 }
 
 type storeUserRecord struct {
-	ID            string             `json:"id" yaml:"id"`
-	Name          string             `json:"name" yaml:"name"`
-	Description   string             `json:"description,omitempty" yaml:"description,omitempty"`
-	SummarizedAt  timeutil.Timestamp `json:"summarizedAt,omitempty" yaml:"summarizedAt,omitempty"`
-	AvatarMediaID string             `json:"avatarMediaId,omitempty" yaml:"avatarMediaId,omitempty"`
+	ID             string             `yaml:"id"`
+	Name           string             `yaml:"name"`
+	Username       string             `yaml:"username,omitempty"`
+	PasswordHash   string             `yaml:"passwordHash,omitempty"`
+	Admin          bool               `yaml:"admin,omitempty"`
+	DefaultAgentID string             `yaml:"defaultAgentId,omitempty"`
+	TelegramChatID *int64             `yaml:"telegramChatId,omitempty"`
+	DiscordUserID  string             `yaml:"discordUserId,omitempty"`
+	Description    string             `yaml:"description,omitempty"`
+	AvatarMediaID  string             `yaml:"avatarMediaId,omitempty"`
+	SummarizedAt           timeutil.Timestamp `yaml:"summarizedAt,omitempty"`
+	DefaultConversationIDs map[string]string  `yaml:"defaultConversationIds,omitempty"`
 }
 
 type storeProjectRecord struct {
@@ -163,30 +168,6 @@ type storeProjectRecord struct {
 	UpdatedAt    timeutil.Timestamp `json:"updatedAt" yaml:"updatedAt"`
 }
 
-type storeSecurityTokenRecord struct {
-	ID         string     `json:"id,omitempty" yaml:"id,omitempty"`
-	Token      string     `json:"token,omitempty" yaml:"token,omitempty"`
-	CreatedAt  time.Time  `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
-	LastUsedAt *time.Time `json:"lastUsedAt,omitempty" yaml:"lastUsedAt,omitempty"`
-}
-
-type storeSecurityUserRecord struct {
-	Username       string                     `json:"username,omitempty" yaml:"username,omitempty"`
-	Admin          bool                       `json:"admin,omitempty" yaml:"admin,omitempty"`
-	PasswordHash   string                     `json:"passwordHash,omitempty" yaml:"passwordHash,omitempty"`
-	DefaultAgentID string                     `json:"defaultAgentId,omitempty" yaml:"defaultAgentId,omitempty"`
-	Tokens         []storeSecurityTokenRecord `json:"tokens,omitempty" yaml:"tokens,omitempty"`
-}
-
-type storeChannelLinksRecord struct {
-	Telegram map[string]string `json:"telegram,omitempty" yaml:"telegram,omitempty"`
-	Discord  map[string]string `json:"discord,omitempty" yaml:"discord,omitempty"`
-}
-
-type storeSecurityRecord struct {
-	Users        map[string]storeSecurityUserRecord `json:"users,omitempty" yaml:"users,omitempty"`
-	ChannelLinks storeChannelLinksRecord            `json:"channelLinks,omitempty" yaml:"channelLinks,omitempty"`
-}
 
 func readYAMLFileOrDefault[T any](filename string, result *T) error {
 	fileContent, readError := os.ReadFile(filename)
@@ -223,77 +204,26 @@ func writeYAMLFileMode(filename string, value any, mode os.FileMode) error {
 	return atomicfile.WriteFileWithMode(filename, encoded, mode)
 }
 
-func normalizeSecurityUsernames(users map[string]storeSecurityUserRecord) {
-	if len(users) == 0 {
+func normalizeUsername(records []storeUserRecord, record *storeUserRecord) {
+	if record.Username != "" {
 		return
 	}
 	usedUsernames := map[string]struct{}{}
-	for _, user := range users {
-		username := strings.ToLower(user.Username)
-		if username != "" {
-			usedUsernames[username] = struct{}{}
+	for _, existing := range records {
+		if lowered := strings.ToLower(existing.Username); lowered != "" {
+			usedUsernames[lowered] = struct{}{}
 		}
 	}
-
-	userIds := make([]string, 0, len(users))
-	for userId := range users {
-		userIds = append(userIds, userId)
-	}
-	sort.Strings(userIds)
 	nextIndex := 1
-	for _, userId := range userIds {
-		user := users[userId]
-		if user.Username != "" {
-			continue
+	for {
+		candidate := "user"
+		if nextIndex > 1 {
+			candidate = "user-" + strconv.Itoa(nextIndex)
 		}
-		for {
-			candidateUsername := "user"
-			if nextIndex > 1 {
-				candidateUsername = "user-" + strconv.Itoa(nextIndex)
-			}
-			nextIndex++
-			candidateLower := strings.ToLower(candidateUsername)
-			if _, exists := usedUsernames[candidateLower]; exists {
-				continue
-			}
-			user.Username = candidateUsername
-			users[userId] = user
-			usedUsernames[candidateLower] = struct{}{}
-			break
+		nextIndex++
+		if _, exists := usedUsernames[strings.ToLower(candidate)]; !exists {
+			record.Username = candidate
+			return
 		}
 	}
-}
-
-func (self *storeSecurityRecord) FindUserByUsername(username string) (string, storeSecurityUserRecord, bool) {
-	if self == nil {
-		return "", storeSecurityUserRecord{}, false
-	}
-	needle := strings.ToLower(username)
-	if needle == "" {
-		return "", storeSecurityUserRecord{}, false
-	}
-	for userId, userRecord := range self.Users {
-		if strings.ToLower(userRecord.Username) == needle {
-			return userId, userRecord, true
-		}
-	}
-	return "", storeSecurityUserRecord{}, false
-}
-
-func (self *storeSecurityRecord) FindUserByToken(token string) (string, storeSecurityUserRecord, int, bool) {
-	if self == nil {
-		return "", storeSecurityUserRecord{}, -1, false
-	}
-	needle := token
-	if needle == "" {
-		return "", storeSecurityUserRecord{}, -1, false
-	}
-	for userId, userRecord := range self.Users {
-		for tokenIndex, tokenRecord := range userRecord.Tokens {
-			if tokenRecord.Token == needle {
-				return userId, userRecord, tokenIndex, true
-			}
-		}
-	}
-	return "", storeSecurityUserRecord{}, -1, false
 }

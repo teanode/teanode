@@ -11,11 +11,9 @@ import (
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
-	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/trash"
-	"gopkg.in/yaml.v3"
 )
 
 func (self *fileSystemTransaction) ListConversations(ctx context.Context, listOptions store.ConversationListOptions, options *store.Option) ([]*models.Conversation, error) {
@@ -181,22 +179,11 @@ func (self *fileSystemTransaction) getConversation(conversationId string, option
 }
 
 func (self *fileSystemTransaction) findDefaultConversation(ctx context.Context, userId string, agentId string, options *store.Option) (*models.Conversation, error) {
-	stateData, err := os.ReadFile(self.stateFilename())
+	userRecord, err := self.loadUserRecord(userId)
 	if err != nil {
 		return nil, store.ErrNotFound
 	}
-	var state struct {
-		Users map[string]struct {
-			DefaultConversationIDs map[string]string `yaml:"defaultConversationIds"`
-		} `yaml:"users"`
-	}
-	if unmarshalError := yaml.Unmarshal(stateData, &state); unmarshalError != nil {
-		return nil, unmarshalError
-	}
-	if state.Users[userId].DefaultConversationIDs == nil {
-		return nil, store.ErrNotFound
-	}
-	conversationId := state.Users[userId].DefaultConversationIDs[agentId]
+	conversationId := userRecord.DefaultConversationIDs[agentId]
 	if conversationId == "" {
 		return nil, store.ErrNotFound
 	}
@@ -214,44 +201,15 @@ func (self *fileSystemTransaction) setDefaultConversation(ctx context.Context, c
 		return store.ErrInvalidOptions
 	}
 
-	stateFilePath := self.stateFilename()
-	stateData, _ := os.ReadFile(stateFilePath)
-
-	var state map[string]interface{}
-	if len(stateData) > 0 {
-		if unmarshalError := yaml.Unmarshal(stateData, &state); unmarshalError != nil {
-			return unmarshalError
-		}
+	userRecord, err := self.loadUserRecord(userId)
+	if err != nil {
+		return err
 	}
-	if state == nil {
-		state = map[string]interface{}{}
+	if userRecord.DefaultConversationIDs == nil {
+		userRecord.DefaultConversationIDs = map[string]string{}
 	}
-
-	usersRaw, _ := state["users"].(map[string]interface{})
-	if usersRaw == nil {
-		usersRaw = map[string]interface{}{}
-		state["users"] = usersRaw
-	}
-
-	userRaw, _ := usersRaw[userId].(map[string]interface{})
-	if userRaw == nil {
-		userRaw = map[string]interface{}{}
-		usersRaw[userId] = userRaw
-	}
-
-	defaultConversationIds, _ := userRaw["defaultConversationIds"].(map[string]interface{})
-	if defaultConversationIds == nil {
-		defaultConversationIds = map[string]interface{}{}
-		userRaw["defaultConversationIds"] = defaultConversationIds
-	}
-
-	defaultConversationIds[agentId] = conversationId
-
-	outputData, marshalError := yaml.Marshal(state)
-	if marshalError != nil {
-		return marshalError
-	}
-	return atomicfile.WriteFile(stateFilePath, outputData)
+	userRecord.DefaultConversationIDs[agentId] = conversationId
+	return self.saveUserRecord(userId, userRecord)
 }
 
 func (self *fileSystemTransaction) modifyConversation(ctx context.Context, conversationId string, modifier func(*models.Conversation) error, options *store.Option) (*models.Conversation, error) {

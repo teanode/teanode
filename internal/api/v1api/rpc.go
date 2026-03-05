@@ -1007,19 +1007,7 @@ func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) {
 		self.sendError(frame.ID, 400, "job.id is required")
 		return
 	}
-	if parameters.Job.GetName() == "" {
-		self.sendError(frame.ID, 400, "job.name is required")
-		return
-	}
-	if parameters.Job.GetSchedule() == "" && parameters.Job.RunAt == nil {
-		self.sendError(frame.ID, 400, "job.schedule or job.runAt is required")
-		return
-	}
-	if parameters.Job.GetConversationID() == "" {
-		defaultConversationId := self.api.coordinator.EnsureDefaultConversation(self.userId(), parameters.Job.GetAgentID())
-		parameters.Job.ConversationID = ptrto.Value(defaultConversationId)
-	}
-	parameters.Job.UserID = ptrto.Value(self.userId())
+	var updatedJob *models.Job
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		existingJob, getError := transaction.GetJob(ctx, parameters.Job.ID, nil)
 		if getError != nil {
@@ -1028,8 +1016,9 @@ func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) {
 		if existingJob.GetUserID() != self.userId() {
 			return store.ErrNotFound
 		}
-		_, modifyError := transaction.ModifyJob(ctx, parameters.Job.ID, func(job *models.Job) error {
-			*job = parameters.Job
+		var modifyError error
+		updatedJob, modifyError = transaction.ModifyJob(ctx, parameters.Job.ID, func(job *models.Job) error {
+			mergeJobUpdate(job, &parameters.Job)
 			return nil
 		}, nil)
 		return modifyError
@@ -1039,8 +1028,39 @@ func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) {
 	}
 	self.api.pubsub.Broadcast(pubsub.EventTypeJobs, nil)
 	self.sendResponse(frame.ID, map[string]interface{}{
-		"job": parameters.Job,
+		"job": updatedJob,
 	})
+}
+
+// mergeJobUpdate applies non-nil fields from patch onto an existing job.
+func mergeJobUpdate(job *models.Job, patch *models.Job) {
+	if patch.Name != nil {
+		job.Name = patch.Name
+	}
+	if patch.Schedule != nil {
+		job.Schedule = patch.Schedule
+	}
+	if patch.RunAt != nil {
+		job.RunAt = patch.RunAt
+	}
+	if patch.Prompt != nil {
+		job.Prompt = patch.Prompt
+	}
+	if patch.ProviderModelName != nil {
+		job.ProviderModelName = patch.ProviderModelName
+	}
+	if patch.AgentID != nil {
+		job.AgentID = patch.AgentID
+	}
+	if patch.ConversationID != nil {
+		job.ConversationID = patch.ConversationID
+	}
+	if patch.Enabled != nil {
+		job.Enabled = patch.Enabled
+	}
+	if patch.OneShot != nil {
+		job.OneShot = patch.OneShot
+	}
 }
 
 // jobDeleteParameters are the parameters for job.delete.
@@ -1191,10 +1211,12 @@ func (self *webSocketConnection) handleSessionsRevoke(frame requestFrame) {
 // --- Auth RPC handlers ---
 
 type authTokenListItem struct {
-	ID         string     `json:"id"`
-	Token      string     `json:"token"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	ID            string     `json:"id"`
+	Token         string     `json:"token"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	LastUsedAt    *time.Time `json:"lastUsedAt,omitempty"`
+	RemoteAddress string     `json:"remoteAddress,omitempty"`
+	UserAgent     string     `json:"userAgent,omitempty"`
 }
 
 func toModelAuthTokenListItems(tokens []*models.Token) []authTokenListItem {
@@ -1206,8 +1228,10 @@ func toModelAuthTokenListItems(tokens []*models.Token) []authTokenListItem {
 			continue
 		}
 		item := authTokenListItem{
-			ID:    tokenId,
-			Token: tokenValue,
+			ID:            tokenId,
+			Token:         tokenValue,
+			RemoteAddress: token.GetRemoteAddress(),
+			UserAgent:     token.GetUserAgent(),
 		}
 		if token.CreatedAt != nil {
 			item.CreatedAt = *token.CreatedAt
