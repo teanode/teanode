@@ -144,11 +144,11 @@ func (self *Session) ttsSynthLoop() {
 	}
 }
 
-// synthesizeToChunks converts an AudioSynthesizer call into a channel of PCM chunks.
-// It tries StreamingAudioSynthesizer first, falling back to batch Synthesize.
-func synthesizeToChunks(ctx context.Context, synth providers.AudioSynthesizer, text, voice string, sampleRateHz int) (<-chan []byte, error) {
+// synthesizeToChunks converts a SynthesizeProvider call into a channel of PCM chunks.
+// It tries StreamingSynthesizeProvider first, falling back to batch Synthesize.
+func synthesizeToChunks(ctx context.Context, synth providers.SynthesizeProvider, text, voice string, sampleRateHz int) (<-chan []byte, error) {
 	// Try streaming synthesis first.
-	if streamer, ok := synth.(providers.StreamingAudioSynthesizer); ok {
+	if streamer, ok := synth.(providers.StreamingSynthesizeProvider); ok {
 		chunks, err := streamer.SynthesizeStream(ctx, providers.SynthesizeStreamRequest{
 			Text:         text,
 			Voice:        voice,

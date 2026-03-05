@@ -15,22 +15,9 @@ import (
 	"github.com/teanode/teanode/internal/runners"
 )
 
-// stubProvider satisfies the providers.Provider interface for test registration.
-type stubProvider struct{}
-
-func (stubProvider) ChatCompletion(context.Context, providers.ChatRequest) (*providers.ChatResponse, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-func (stubProvider) ChatCompletionStream(context.Context, providers.ChatRequest) (<-chan providers.StreamEvent, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-func (stubProvider) ListModels(context.Context) ([]providers.ModelInformation, error) {
-	return nil, nil
-}
-
-// pipelineMockTranscriberProvider implements Provider + AudioTranscriber.
+// pipelineMockTranscriberProvider implements Provider + TranscribeProvider.
 type pipelineMockTranscriberProvider struct {
-	stubProvider
+	providers.BaseProvider
 	mu    sync.Mutex
 	text  string
 	delay time.Duration
@@ -59,9 +46,9 @@ func (self *pipelineMockTranscriberProvider) callCount() int {
 	return self.calls
 }
 
-// pipelineMockStreamingTranscriberProvider implements Provider + StreamingTranscriber.
+// pipelineMockStreamingTranscriberProvider implements Provider + StreamingTranscribeProvider.
 type pipelineMockStreamingTranscriberProvider struct {
-	stubProvider
+	providers.BaseProvider
 	stream providers.TranscribeStream
 }
 
@@ -69,9 +56,9 @@ func (self *pipelineMockStreamingTranscriberProvider) OpenTranscribeStream(conte
 	return self.stream, nil
 }
 
-// pipelineMockSynthesizerProvider implements Provider + AudioSynthesizer + StreamingAudioSynthesizer.
+// pipelineMockSynthesizerProvider implements Provider + SynthesizeProvider + StreamingSynthesizeProvider.
 type pipelineMockSynthesizerProvider struct {
-	stubProvider
+	providers.BaseProvider
 	synthesizeFn       func(context.Context, providers.SynthesizeRequest) (*providers.SynthesizeResponse, error)
 	synthesizeStreamFn func(context.Context, providers.SynthesizeStreamRequest) (<-chan providers.SynthesizeChunk, error)
 }

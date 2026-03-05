@@ -11,7 +11,9 @@ import (
 	"github.com/teanode/teanode/internal/schemas"
 )
 
-type schemaMockProvider struct{}
+type schemaMockProvider struct {
+	providers.BaseProvider
+}
 
 func (self *schemaMockProvider) ChatCompletion(ctx context.Context, request providers.ChatRequest) (*providers.ChatResponse, error) {
 	return &providers.ChatResponse{}, nil

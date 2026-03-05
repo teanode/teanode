@@ -15,8 +15,9 @@ import (
 
 const defaultElevenLabsBaseURL = "https://api.elevenlabs.io"
 
-// ElevenLabsClient provides streaming TTS while satisfying the Provider interface.
+// ElevenLabsClient provides streaming TTS.
 type ElevenLabsClient struct {
+	BaseProvider
 	baseURL string
 	apiKey  string
 	dialer  *websocket.Dialer
@@ -29,21 +30,6 @@ func NewElevenLabsClient(baseURL, apiKey string) *ElevenLabsClient {
 		apiKey:  strings.TrimSpace(apiKey),
 		dialer:  websocket.DefaultDialer,
 	}
-}
-
-// ChatCompletion is unsupported for ElevenLabs.
-func (self *ElevenLabsClient) ChatCompletion(_ context.Context, _ ChatRequest) (*ChatResponse, error) {
-	return nil, fmt.Errorf("elevenlabs does not support chat completion")
-}
-
-// ChatCompletionStream is unsupported for ElevenLabs.
-func (self *ElevenLabsClient) ChatCompletionStream(_ context.Context, _ ChatRequest) (<-chan StreamEvent, error) {
-	return nil, fmt.Errorf("elevenlabs does not support chat completion stream")
-}
-
-// ListModels returns an empty list for ElevenLabs in this integration.
-func (self *ElevenLabsClient) ListModels(_ context.Context) ([]ModelInformation, error) {
-	return []ModelInformation{}, nil
 }
 
 // Synthesize is intentionally unsupported; voice path uses streaming synthesis.

@@ -15,8 +15,9 @@ import (
 
 const defaultDeepgramBaseURL = "https://api.deepgram.com"
 
-// DeepgramClient provides streaming STT while satisfying the Provider interface.
+// DeepgramClient provides streaming STT.
 type DeepgramClient struct {
+	BaseProvider
 	baseURL           string
 	apiKey            string
 	dialer            *websocket.Dialer
@@ -31,21 +32,6 @@ func NewDeepgramClient(baseURL, apiKey string) *DeepgramClient {
 		dialer:            websocket.DefaultDialer,
 		keepAliveInterval: 8 * time.Second,
 	}
-}
-
-// ChatCompletion is unsupported for Deepgram.
-func (self *DeepgramClient) ChatCompletion(_ context.Context, _ ChatRequest) (*ChatResponse, error) {
-	return nil, fmt.Errorf("deepgram does not support chat completion")
-}
-
-// ChatCompletionStream is unsupported for Deepgram.
-func (self *DeepgramClient) ChatCompletionStream(_ context.Context, _ ChatRequest) (<-chan StreamEvent, error) {
-	return nil, fmt.Errorf("deepgram does not support chat completion stream")
-}
-
-// ListModels returns an empty list for Deepgram in this integration.
-func (self *DeepgramClient) ListModels(_ context.Context) ([]ModelInformation, error) {
-	return []ModelInformation{}, nil
 }
 
 // OpenTranscribeStream creates a realtime transcription websocket session.

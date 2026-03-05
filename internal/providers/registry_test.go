@@ -13,8 +13,9 @@ import (
 	"github.com/teanode/teanode/internal/models"
 )
 
-// mockProvider implements Provider for testing the providerRegistry.
+// mockProvider implements ChatProvider for testing the providerRegistry.
 type mockProvider struct {
+	BaseProvider
 	name string
 }
 
@@ -180,7 +181,8 @@ func TestRegistryRegisterAndResolve(t *testing.T) {
 	if modelName != "claude-sonnet-4-20250514" {
 		t.Errorf("model = %q, want %q", modelName, "claude-sonnet-4-20250514")
 	}
-	response, _ := client.ChatCompletion(context.Background(), ChatRequest{})
+	chatClient := client.(ChatProvider)
+	response, _ := chatClient.ChatCompletion(context.Background(), ChatRequest{})
 	if response.ModelName != "anthropic" {
 		t.Errorf("resolved to wrong provider: %q", response.ModelName)
 	}
@@ -193,7 +195,8 @@ func TestRegistryRegisterAndResolve(t *testing.T) {
 	if modelName != "gpt-4o" {
 		t.Errorf("model = %q, want %q", modelName, "gpt-4o")
 	}
-	response, _ = client.ChatCompletion(context.Background(), ChatRequest{})
+	chatClient = client.(ChatProvider)
+	response, _ = chatClient.ChatCompletion(context.Background(), ChatRequest{})
 	if response.ModelName != "openai" {
 		t.Errorf("resolved to wrong provider: %q", response.ModelName)
 	}
@@ -471,7 +474,8 @@ func TestRegistryRegisterOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	response, _ := client.ChatCompletion(context.Background(), ChatRequest{})
+	chatClient := client.(ChatProvider)
+	response, _ := chatClient.ChatCompletion(context.Background(), ChatRequest{})
 	if response.ModelName != "second" {
 		t.Errorf("expected second provider after overwrite, got %q", response.ModelName)
 	}

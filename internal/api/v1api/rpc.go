@@ -599,11 +599,11 @@ func withVoiceProviderEnums(base json.RawMessage, providerRegistry *providers.Pr
 		return base
 	}
 	transcriberProviders := voiceProviderNamesByCapability(providerRegistry, func(client providers.Provider) bool {
-		_, ok := client.(providers.AudioTranscriber)
+		_, ok := client.(providers.TranscribeProvider)
 		return ok
 	})
 	synthesizerProviders := voiceProviderNamesByCapability(providerRegistry, func(client providers.Provider) bool {
-		_, ok := client.(providers.AudioSynthesizer)
+		_, ok := client.(providers.SynthesizeProvider)
 		return ok
 	})
 	setVoiceProviderFieldEnum(voiceProps, "transcriberProvider", transcriberProviders)

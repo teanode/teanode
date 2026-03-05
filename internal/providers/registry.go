@@ -244,8 +244,12 @@ func (self *ProviderRegistry) cachedModelsForProvider(ctx context.Context, provi
 	if !ok {
 		return nil
 	}
+	chatProvider, ok := client.(ChatProvider)
+	if !ok {
+		return nil
+	}
 
-	fetched, err := client.ListModels(ctx)
+	fetched, err := chatProvider.ListModels(ctx)
 	if err != nil {
 		log.Warningf("listing models for provider %q: %v", providerName, err)
 		// Return stale data if available.
@@ -265,30 +269,30 @@ func (self *ProviderRegistry) cachedModelsForProvider(ctx context.Context, provi
 	return fetched
 }
 
-// FindTranscriber returns the first registered provider that implements AudioTranscriber.
-func (self *ProviderRegistry) FindTranscriber() (AudioTranscriber, string, bool) {
+// FindTranscriber returns the first registered provider that implements TranscribeProvider.
+func (self *ProviderRegistry) FindTranscriber() (TranscribeProvider, string, bool) {
 	for _, name := range self.ProviderNames() {
-		if transcriber, ok := self.clients[name].(AudioTranscriber); ok {
+		if transcriber, ok := self.clients[name].(TranscribeProvider); ok {
 			return transcriber, name, true
 		}
 	}
 	return nil, "", false
 }
 
-// FindStreamingTranscriber returns the first registered provider that implements StreamingTranscriber.
-func (self *ProviderRegistry) FindStreamingTranscriber() (StreamingTranscriber, string, bool) {
+// FindStreamingTranscriber returns the first registered provider that implements StreamingTranscribeProvider.
+func (self *ProviderRegistry) FindStreamingTranscriber() (StreamingTranscribeProvider, string, bool) {
 	for _, name := range self.ProviderNames() {
-		if transcriber, ok := self.clients[name].(StreamingTranscriber); ok {
+		if transcriber, ok := self.clients[name].(StreamingTranscribeProvider); ok {
 			return transcriber, name, true
 		}
 	}
 	return nil, "", false
 }
 
-// FindSynthesizer returns the first registered provider that implements AudioSynthesizer.
-func (self *ProviderRegistry) FindSynthesizer() (AudioSynthesizer, string, bool) {
+// FindSynthesizer returns the first registered provider that implements SynthesizeProvider.
+func (self *ProviderRegistry) FindSynthesizer() (SynthesizeProvider, string, bool) {
 	for _, name := range self.ProviderNames() {
-		if synthesizer, ok := self.clients[name].(AudioSynthesizer); ok {
+		if synthesizer, ok := self.clients[name].(SynthesizeProvider); ok {
 			return synthesizer, name, true
 		}
 	}
@@ -296,13 +300,13 @@ func (self *ProviderRegistry) FindSynthesizer() (AudioSynthesizer, string, bool)
 }
 
 // FindTranscriberByName resolves a named provider and returns it only when the
-// provider supports AudioTranscriber.
-func (self *ProviderRegistry) FindTranscriberByName(name string) (AudioTranscriber, bool) {
+// provider supports TranscribeProvider.
+func (self *ProviderRegistry) FindTranscriberByName(name string) (TranscribeProvider, bool) {
 	client, ok := self.clients[name]
 	if !ok {
 		return nil, false
 	}
-	transcriber, ok := client.(AudioTranscriber)
+	transcriber, ok := client.(TranscribeProvider)
 	if !ok {
 		return nil, false
 	}
@@ -310,13 +314,13 @@ func (self *ProviderRegistry) FindTranscriberByName(name string) (AudioTranscrib
 }
 
 // FindStreamingTranscriberByName resolves a named provider and returns it only
-// when the provider supports StreamingTranscriber.
-func (self *ProviderRegistry) FindStreamingTranscriberByName(name string) (StreamingTranscriber, bool) {
+// when the provider supports StreamingTranscribeProvider.
+func (self *ProviderRegistry) FindStreamingTranscriberByName(name string) (StreamingTranscribeProvider, bool) {
 	client, ok := self.clients[name]
 	if !ok {
 		return nil, false
 	}
-	transcriber, ok := client.(StreamingTranscriber)
+	transcriber, ok := client.(StreamingTranscribeProvider)
 	if !ok {
 		return nil, false
 	}
@@ -324,13 +328,13 @@ func (self *ProviderRegistry) FindStreamingTranscriberByName(name string) (Strea
 }
 
 // FindSynthesizerByName resolves a named provider and returns it only when the
-// provider supports AudioSynthesizer.
-func (self *ProviderRegistry) FindSynthesizerByName(name string) (AudioSynthesizer, bool) {
+// provider supports SynthesizeProvider.
+func (self *ProviderRegistry) FindSynthesizerByName(name string) (SynthesizeProvider, bool) {
 	client, ok := self.clients[name]
 	if !ok {
 		return nil, false
 	}
-	synthesizer, ok := client.(AudioSynthesizer)
+	synthesizer, ok := client.(SynthesizeProvider)
 	if !ok {
 		return nil, false
 	}

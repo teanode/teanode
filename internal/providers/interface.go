@@ -5,30 +5,44 @@ import (
 	"io"
 )
 
-// Provider is the interface for LLM chat completion backends.
+// Provider is a marker interface satisfied by all provider backends.
+// Specific capabilities are expressed via optional interfaces such as
+// ChatProvider, TranscribeProvider, StreamingTranscribeProvider,
+// SynthesizeProvider, and StreamingSynthesizeProvider.  Embed BaseProvider to satisfy this.
 type Provider interface {
+	isProvider()
+}
+
+// BaseProvider is embedded by concrete providers to satisfy the Provider marker.
+type BaseProvider struct{}
+
+func (BaseProvider) isProvider() {}
+
+// ChatProvider is an optional capability interface for LLM chat completion.
+type ChatProvider interface {
+	Provider
 	ChatCompletion(ctx context.Context, request ChatRequest) (*ChatResponse, error)
 	ChatCompletionStream(ctx context.Context, request ChatRequest) (<-chan StreamEvent, error)
 	ListModels(ctx context.Context) ([]ModelInformation, error)
 }
 
-// AudioTranscriber is an optional capability interface for speech-to-text.
-type AudioTranscriber interface {
+// TranscribeProvider is an optional capability interface for speech-to-text.
+type TranscribeProvider interface {
 	Transcribe(ctx context.Context, request TranscribeRequest) (*TranscribeResponse, error)
 }
 
-// StreamingTranscriber is an optional capability interface for real-time STT.
-type StreamingTranscriber interface {
+// StreamingTranscribeProvider is an optional capability interface for real-time STT.
+type StreamingTranscribeProvider interface {
 	OpenTranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error)
 }
 
-// AudioSynthesizer is an optional capability interface for text-to-speech.
-type AudioSynthesizer interface {
+// SynthesizeProvider is an optional capability interface for text-to-speech.
+type SynthesizeProvider interface {
 	Synthesize(ctx context.Context, request SynthesizeRequest) (*SynthesizeResponse, error)
 }
 
-// StreamingAudioSynthesizer is an optional capability for chunked TTS.
-type StreamingAudioSynthesizer interface {
+// StreamingSynthesizeProvider is an optional capability for chunked TTS.
+type StreamingSynthesizeProvider interface {
 	SynthesizeStream(ctx context.Context, request SynthesizeStreamRequest) (<-chan SynthesizeChunk, error)
 }
 

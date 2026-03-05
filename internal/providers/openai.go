@@ -17,6 +17,7 @@ import (
 
 // Client talks to an OpenAI-compatible chat completions API.
 type Client struct {
+	BaseProvider
 	baseUrl    string
 	apiKey     string
 	httpClient *http.Client

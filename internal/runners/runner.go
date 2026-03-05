@@ -124,9 +124,13 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		}
 	}
 
-	provider, providerName, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
+	resolved, providerName, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
 	if err != nil {
 		return nil, fmt.Errorf("resolving model %q: %w", providerModelName, err)
+	}
+	provider, ok := resolved.(providers.ChatProvider)
+	if !ok {
+		return nil, fmt.Errorf("provider %q does not support chat", providerName)
 	}
 
 	// 2. Append user message to conversation (sets provider/model on new or backfills existing).
