@@ -312,4 +312,3 @@ func (self *webSocketConnection) verifyConversationAccess(conversationId string)
 	}
 	return nil
 }
-

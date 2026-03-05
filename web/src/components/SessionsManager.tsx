@@ -40,12 +40,7 @@ function SessionItem({
       disableGutters
       secondaryAction={
         onRevoke ? (
-          <IconButton
-            size="small"
-            edge="end"
-            color="error"
-            onClick={onRevoke}
-          >
+          <IconButton size="small" edge="end" color="error" onClick={onRevoke}>
             <DeleteOutlineIcon fontSize="small" />
           </IconButton>
         ) : undefined

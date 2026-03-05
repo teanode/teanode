@@ -146,16 +146,16 @@ type storeAgentRecord struct {
 }
 
 type storeUserRecord struct {
-	ID             string             `yaml:"id"`
-	Name           string             `yaml:"name"`
-	Username       string             `yaml:"username,omitempty"`
-	PasswordHash   string             `yaml:"passwordHash,omitempty"`
-	Admin          bool               `yaml:"admin,omitempty"`
-	DefaultAgentID string             `yaml:"defaultAgentId,omitempty"`
-	TelegramChatID *int64             `yaml:"telegramChatId,omitempty"`
-	DiscordUserID  string             `yaml:"discordUserId,omitempty"`
-	Description    string             `yaml:"description,omitempty"`
-	AvatarMediaID  string             `yaml:"avatarMediaId,omitempty"`
+	ID                     string             `yaml:"id"`
+	Name                   string             `yaml:"name"`
+	Username               string             `yaml:"username,omitempty"`
+	PasswordHash           string             `yaml:"passwordHash,omitempty"`
+	Admin                  bool               `yaml:"admin,omitempty"`
+	DefaultAgentID         string             `yaml:"defaultAgentId,omitempty"`
+	TelegramChatID         *int64             `yaml:"telegramChatId,omitempty"`
+	DiscordUserID          string             `yaml:"discordUserId,omitempty"`
+	Description            string             `yaml:"description,omitempty"`
+	AvatarMediaID          string             `yaml:"avatarMediaId,omitempty"`
 	SummarizedAt           timeutil.Timestamp `yaml:"summarizedAt,omitempty"`
 	DefaultConversationIDs map[string]string  `yaml:"defaultConversationIds,omitempty"`
 }
@@ -167,7 +167,6 @@ type storeProjectRecord struct {
 	SummarizedAt timeutil.Timestamp `json:"summarizedAt,omitempty" yaml:"summarizedAt,omitempty"`
 	UpdatedAt    timeutil.Timestamp `json:"updatedAt" yaml:"updatedAt"`
 }
-
 
 func readYAMLFileOrDefault[T any](filename string, result *T) error {
 	fileContent, readError := os.ReadFile(filename)

@@ -57,8 +57,7 @@ function TokenItem({
             <ContentCopyIcon
               fontSize="small"
               sx={{
-                color:
-                  copiedTokenId === token.id ? "primary.main" : undefined,
+                color: copiedTokenId === token.id ? "primary.main" : undefined,
               }}
             />
           </IconButton>
@@ -69,12 +68,7 @@ function TokenItem({
               <VisibilityIcon fontSize="small" />
             )}
           </IconButton>
-          <IconButton
-            size="small"
-            edge="end"
-            color="error"
-            onClick={onDelete}
-          >
+          <IconButton size="small" edge="end" color="error" onClick={onDelete}>
             <DeleteOutlineIcon fontSize="small" />
           </IconButton>
         </Box>
@@ -96,10 +90,7 @@ function TokenItem({
             {lastUsed ? (
               <>
                 {" · "}
-                <Tooltip
-                  title={lastUsed.format("YYYY-MM-DD HH:mm:ss")}
-                  arrow
-                >
+                <Tooltip title={lastUsed.format("YYYY-MM-DD HH:mm:ss")} arrow>
                   <span>{lastUsed.fromNow()}</span>
                 </Tooltip>
               </>
