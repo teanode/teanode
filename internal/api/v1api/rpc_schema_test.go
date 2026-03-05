@@ -80,7 +80,7 @@ func TestWithVoiceProviderEnums_AddsVoiceProviderEnums(t *testing.T) {
 		t.Fatalf("unmarshal schema: %v", err)
 	}
 
-	transcriberEnum := getSchemaStringList(t, parsed, "properties", "voice", "properties", "transcriber_provider", "enum")
+	transcriberEnum := getSchemaStringList(t, parsed, "properties", "voice", "properties", "transcriberProvider", "enum")
 	if len(transcriberEnum) < 3 {
 		t.Fatalf("unexpected transcriber enum values: %#v", transcriberEnum)
 	}
@@ -91,7 +91,7 @@ func TestWithVoiceProviderEnums_AddsVoiceProviderEnums(t *testing.T) {
 		t.Fatalf("expected openai to be first explicit transcriber provider, got %q", transcriberEnum[1])
 	}
 
-	synthEnum := getSchemaStringList(t, parsed, "properties", "voice", "properties", "synth_provider", "enum")
+	synthEnum := getSchemaStringList(t, parsed, "properties", "voice", "properties", "synthesizerProvider", "enum")
 	if len(synthEnum) < 3 {
 		t.Fatalf("unexpected synth enum values: %#v", synthEnum)
 	}

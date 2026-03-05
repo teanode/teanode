@@ -16,26 +16,26 @@ import (
 // AudioFormat defines negotiated audio transport settings.
 type AudioFormat struct {
 	Codec        string `json:"codec"`
-	SampleRateHz int    `json:"sample_rate_hz"`
+	SampleRateHz int    `json:"sampleRateHz"`
 	Channels     int    `json:"channels"`
-	FrameMS      int    `json:"frame_ms,omitempty"`
+	FrameMS      int    `json:"frameMs,omitempty"`
 }
 
 // Features defines enabled voice pipeline features.
 type Features struct {
-	ServerVAD    bool   `json:"server_vad"`
-	ServerTurn   bool   `json:"server_turn"`
-	BargeIn      bool   `json:"barge_in"`
-	TurnStrategy string `json:"turn_strategy,omitempty"`
+	ServerVAD    bool   `json:"serverVad"`
+	ServerTurn   bool   `json:"serverTurn"`
+	BargeIn      bool   `json:"bargeIn"`
+	TurnStrategy string `json:"turnStrategy,omitempty"`
 }
 
 type turnEventPayload struct {
-	TurnID      string  `json:"turn_id,omitempty"`
+	TurnID      string  `json:"turnId,omitempty"`
 	Event       string  `json:"event"`
 	Reason      string  `json:"reason,omitempty"`
-	QueueDepth  int     `json:"queue_depth,omitempty"`
-	VADScore    float64 `json:"vad_score,omitempty"`
-	AudioSeqRef uint64  `json:"audio_seq_ref,omitempty"`
+	QueueDepth  int     `json:"queueDepth,omitempty"`
+	VADScore    float64 `json:"vadScore,omitempty"`
+	AudioSeqRef uint64  `json:"audioSeqRef,omitempty"`
 }
 
 type PendingTurn struct {
@@ -233,7 +233,7 @@ func (self *Session) HandleInputBinaryFrame(raw []byte) error {
 
 // InputCommit allows push-to-talk sessions to flush buffered input turn.
 func (self *Session) InputCommit(reason string) {
-	turnId := self.GetCurrentTurnId()
+	turnId := self.GetCurrentTurnID()
 	if turnId == "" {
 		turnId = self.newTurnId()
 		self.startNewTurn(turnId)
@@ -242,7 +242,7 @@ func (self *Session) InputCommit(reason string) {
 	if len(audio) == 0 {
 		self.sendVoiceEvent("turn.event", turnEventPayload{
 			TurnID: turnId,
-			Event:  "turn_dropped",
+			Event:  "turnDropped",
 			Reason: "dropped_empty_audio",
 		})
 		self.notifyObservers(func(observer TurnObserver) {
@@ -253,18 +253,18 @@ func (self *Session) InputCommit(reason string) {
 	if len(audio) < minCommittedTurnBytes {
 		self.sendVoiceEvent("turn.event", turnEventPayload{
 			TurnID: turnId,
-			Event:  "turn_dropped",
-			Reason: "dropped_too_short_audio",
+			Event:  "turnDropped",
+			Reason: "droppedTooShortAudio",
 		})
 		self.notifyObservers(func(observer TurnObserver) {
-			observer.OnTurnDropped(turnId, "dropped_too_short_audio", time.Now().UnixMilli())
+			observer.OnTurnDropped(turnId, "droppedTooShortAudio", time.Now().UnixMilli())
 		})
 		return
 	}
 
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID: turnId,
-		Event:  "input_committed",
+		Event:  "inputCommitted",
 		Reason: reason,
 	})
 	self.setSpeechReady(false)
@@ -281,7 +281,7 @@ func (self *Session) InputCommit(reason string) {
 
 // CancelResponse aborts current response generation and playback.
 func (self *Session) CancelResponse() {
-	pipelineLog.Infof("voice cancel response: session=%s response=%s run=%s", self.ID, self.GetCurrentResponseId(), self.GetCurrentRunId())
+	pipelineLog.Infof("voice cancel response: session=%s response=%s run=%s", self.ID, self.GetCurrentResponseID(), self.GetCurrentRunID())
 	self.triggerBargeIn()
 }
 
@@ -290,41 +290,41 @@ func (self *Session) sendVoiceEvent(eventType string, payload interface{}) {
 		return
 	}
 	self.sendJsonFn(map[string]interface{}{
-		"v":          1,
-		"type":       eventType,
-		"session_id": self.ID,
-		"seq":        self.NextOutSeq(),
-		"ts_ms":      time.Now().UnixMilli(),
-		"payload":    payload,
+		"v":         1,
+		"type":      eventType,
+		"sessionId": self.ID,
+		"seq":       self.NextOutSeq(),
+		"tsMs":      time.Now().UnixMilli(),
+		"payload":   payload,
 	})
 }
 
-func (self *Session) GetCurrentTurnId() string {
+func (self *Session) GetCurrentTurnID() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.currentTurnId
 }
 
-func (self *Session) SetCurrentTurnId(id string) {
+func (self *Session) SetCurrentTurnID(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentTurnId = id
 }
 
-func (self *Session) GetCurrentRunId() string {
+func (self *Session) GetCurrentRunID() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.currentRunId
 }
 
-func (self *Session) SetCurrentRunId(id string) {
+func (self *Session) SetCurrentRunID(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentRunId = id
 }
 
 func (self *Session) ClearCurrentRun() {
-	self.SetCurrentRunId("")
+	self.SetCurrentRunID("")
 }
 
 func (self *Session) MapRunToTurn(runId, turnId string) {
@@ -354,13 +354,13 @@ func (self *Session) ClearRunTurn(runId string) {
 	self.stateMu.Unlock()
 }
 
-func (self *Session) GetCurrentResponseId() string {
+func (self *Session) GetCurrentResponseID() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.currentResponseId
 }
 
-func (self *Session) SetCurrentResponseId(id string) {
+func (self *Session) SetCurrentResponseID(id string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentResponseId = id
@@ -370,16 +370,16 @@ func (self *Session) SetCurrentResponseId(id string) {
 }
 
 func (self *Session) ClearCurrentResponse() {
-	self.SetCurrentResponseId("")
+	self.SetCurrentResponseID("")
 }
 
-func (self *Session) GetCurrentResponseTurnId() string {
+func (self *Session) GetCurrentResponseTurnID() string {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return self.currentResponseTurnId
 }
 
-func (self *Session) SetCurrentResponseTurnId(turnId string) {
+func (self *Session) SetCurrentResponseTurnID(turnId string) {
 	self.stateMu.Lock()
 	defer self.stateMu.Unlock()
 	self.currentResponseTurnId = turnId
@@ -725,15 +725,15 @@ func (self *Session) getUserSpeakingCh() chan struct{} {
 }
 
 // RunIsActive reports whether an LLM run is currently in progress.
-// Use this instead of comparing GetCurrentRunId() to "" directly.
+// Use this instead of comparing GetCurrentRunID() to "" directly.
 func (self *Session) RunIsActive() bool {
-	return self.GetCurrentRunId() != ""
+	return self.GetCurrentRunID() != ""
 }
 
 // ResponseIsActive reports whether a TTS response is currently being produced.
-// Use this instead of comparing GetCurrentResponseId() to "" directly.
+// Use this instead of comparing GetCurrentResponseID() to "" directly.
 func (self *Session) ResponseIsActive() bool {
-	return self.GetCurrentResponseId() != ""
+	return self.GetCurrentResponseID() != ""
 }
 
 // BargeInIsArmed reports whether a barge-in interruption should fire: either a

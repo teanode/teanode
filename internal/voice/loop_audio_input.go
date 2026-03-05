@@ -69,7 +69,7 @@ func (self *Session) audioInputLoop() {
 				pipelineLog.Infof("voice speech_started: session=%s turn=%s seq_ref=%d score=%.4f", self.ID, turnId, self.inSeq.Load(), score)
 				self.sendVoiceEvent("turn.event", turnEventPayload{
 					TurnID:      turnId,
-					Event:       "speech_started",
+					Event:       "speechStarted",
 					VADScore:    score,
 					AudioSeqRef: self.inSeq.Load(),
 				})
@@ -80,7 +80,7 @@ func (self *Session) audioInputLoop() {
 
 			if speaking {
 				// Snapshot per-frame state once to avoid repeated lock acquisitions.
-				currentTurnId := self.GetCurrentTurnId()
+				currentTurnId := self.GetCurrentTurnID()
 				runActive := self.RunIsActive()
 				responseActive := self.ResponseIsActive()
 
@@ -125,7 +125,7 @@ func (self *Session) audioInputLoop() {
 							candidateActive = true
 							self.sendVoiceEvent("turn.event", turnEventPayload{
 								TurnID:   currentTurnId,
-								Event:    "barge_in_candidate",
+								Event:    "bargeInCandidate",
 								VADScore: score,
 							})
 						}
@@ -134,7 +134,7 @@ func (self *Session) audioInputLoop() {
 							candidateActive = false
 							self.sendVoiceEvent("turn.event", turnEventPayload{
 								TurnID:   currentTurnId,
-								Event:    "barge_in_suppressed",
+								Event:    "bargeInSuppressed",
 								VADScore: score,
 							})
 						}
@@ -145,12 +145,12 @@ func (self *Session) audioInputLoop() {
 			if ended {
 				speaking = false
 				self.setUserSpeaking(false)
-				turnId := self.GetCurrentTurnId()
+				turnId := self.GetCurrentTurnID()
 				nowMs := time.Now().UnixMilli()
-				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnId(), len(speechBuf), self.inSeq.Load(), score)
+				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnID(), len(speechBuf), self.inSeq.Load(), score)
 				self.sendVoiceEvent("turn.event", turnEventPayload{
 					TurnID:      turnId,
-					Event:       "speech_ended",
+					Event:       "speechEnded",
 					VADScore:    score,
 					AudioSeqRef: self.inSeq.Load(),
 				})
@@ -168,11 +168,11 @@ func (self *Session) audioInputLoop() {
 					pipelineLog.Infof("voice turn ignored (too short): session=%s turn=%s bytes=%d", self.ID, turnId, len(captured))
 					self.sendVoiceEvent("turn.event", turnEventPayload{
 						TurnID: turnId,
-						Event:  "turn_dropped",
-						Reason: "dropped_too_short_audio",
+						Event:  "turnDropped",
+						Reason: "droppedTooShortAudio",
 					})
 					self.notifyObservers(func(observer TurnObserver) {
-						observer.OnTurnDropped(turnId, "dropped_too_short_audio", time.Now().UnixMilli())
+						observer.OnTurnDropped(turnId, "droppedTooShortAudio", time.Now().UnixMilli())
 					})
 					continue
 				}

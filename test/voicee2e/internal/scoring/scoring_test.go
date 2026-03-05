@@ -18,13 +18,13 @@ func TestCompute(t *testing.T) {
 		{At: now.Add(900 * time.Millisecond), Type: model.EventBargeInTriggered},
 	}
 	metrics := Compute(events)
-	if metrics["transcript_count"].(int64) != 1 {
-		t.Fatalf("unexpected transcript_count: %#v", metrics)
+	if metrics["transcriptCount"].(int64) != 1 {
+		t.Fatalf("unexpected transcriptCount: %#v", metrics)
 	}
-	if metrics["barge_in_count"].(int64) != 1 {
-		t.Fatalf("unexpected barge_in_count: %#v", metrics)
+	if metrics["bargeInCount"].(int64) != 1 {
+		t.Fatalf("unexpected bargeInCount: %#v", metrics)
 	}
-	if metrics["latency_speech_end_to_transcript_ms"].(int64) <= 0 {
+	if metrics["latencySpeechEndToTranscriptMs"].(int64) <= 0 {
 		t.Fatalf("expected positive latency metric: %#v", metrics)
 	}
 }

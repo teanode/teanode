@@ -24,7 +24,7 @@ func (self *Session) streamingTranscribeLoop() {
 			case "interim":
 				self.setInterimText(event.Text)
 			case "final":
-				turnId := self.GetCurrentTurnId()
+				turnId := self.GetCurrentTurnID()
 				if turnId == "" {
 					continue
 				}

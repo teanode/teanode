@@ -37,15 +37,15 @@ type pipelineMockTranscriberProvider struct {
 	calls int
 }
 
-func (self *pipelineMockTranscriberProvider) Transcribe(_ context.Context, req providers.TranscribeRequest) (*providers.TranscribeResponse, error) {
+func (self *pipelineMockTranscriberProvider) Transcribe(_ context.Context, request providers.TranscribeRequest) (*providers.TranscribeResponse, error) {
 	self.mu.Lock()
 	self.calls++
 	delay := self.delay
 	text := self.text
 	self.mu.Unlock()
 	// Drain audio reader to satisfy interface contract.
-	if req.Audio != nil {
-		_, _ = io.ReadAll(req.Audio)
+	if request.Audio != nil {
+		_, _ = io.ReadAll(request.Audio)
 	}
 	if delay > 0 {
 		time.Sleep(delay)
@@ -76,16 +76,16 @@ type pipelineMockSynthesizerProvider struct {
 	synthesizeStreamFn func(context.Context, providers.SynthesizeStreamRequest) (<-chan providers.SynthesizeChunk, error)
 }
 
-func (self *pipelineMockSynthesizerProvider) Synthesize(ctx context.Context, req providers.SynthesizeRequest) (*providers.SynthesizeResponse, error) {
+func (self *pipelineMockSynthesizerProvider) Synthesize(ctx context.Context, request providers.SynthesizeRequest) (*providers.SynthesizeResponse, error) {
 	if self.synthesizeFn != nil {
-		return self.synthesizeFn(ctx, req)
+		return self.synthesizeFn(ctx, request)
 	}
 	return nil, fmt.Errorf("synthesize not configured")
 }
 
-func (self *pipelineMockSynthesizerProvider) SynthesizeStream(ctx context.Context, req providers.SynthesizeStreamRequest) (<-chan providers.SynthesizeChunk, error) {
+func (self *pipelineMockSynthesizerProvider) SynthesizeStream(ctx context.Context, request providers.SynthesizeStreamRequest) (<-chan providers.SynthesizeChunk, error) {
 	if self.synthesizeStreamFn != nil {
-		return self.synthesizeStreamFn(ctx, req)
+		return self.synthesizeStreamFn(ctx, request)
 	}
 	return nil, fmt.Errorf("synthesize stream not configured")
 }
@@ -130,11 +130,11 @@ func (self *scriptedTurnStrategy) ShouldCommitTurn(TurnContext) bool {
 
 // pipelineMockDispatcher satisfies the Dispatcher interface for tests.
 type pipelineMockDispatcher struct {
-	mu         sync.Mutex
-	runCounter int
-	sendCalls  []coordinators.RunParameters
-	abortCalls []string
-	registry   *providers.ProviderRegistry
+	mu               sync.Mutex
+	runCounter       int
+	sendCalls        []coordinators.RunParameters
+	abortCalls       []string
+	providerRegistry *providers.ProviderRegistry
 }
 
 type eventRecorder struct {
@@ -194,7 +194,7 @@ func (self *pipelineMockDispatcher) AbortRun(runId string) bool {
 }
 
 func (self *pipelineMockDispatcher) ProviderRegistry() *providers.ProviderRegistry {
-	return self.registry
+	return self.providerRegistry
 }
 
 func (self *pipelineMockDispatcher) sendCount() int {
@@ -216,17 +216,17 @@ func (self *pipelineMockDispatcher) abortCount() int {
 }
 
 func newMockRegistry(transcriber *pipelineMockTranscriberProvider) *providers.ProviderRegistry {
-	registry := providers.NewEmptyProviderRegistry()
+	providerRegistry := providers.NewEmptyProviderRegistry()
 	if transcriber != nil {
-		registry.Register("mock-stt", transcriber)
+		providerRegistry.Register("mock-stt", transcriber)
 	}
-	return registry
+	return providerRegistry
 }
 
 func newPipelineSessionWithFeatures(text string, features Features) (*Session, *pipelineMockDispatcher) {
 	transcriber := &pipelineMockTranscriberProvider{text: text}
-	registry := newMockRegistry(transcriber)
-	dispatcher := &pipelineMockDispatcher{registry: registry}
+	providerRegistry := newMockRegistry(transcriber)
+	dispatcher := &pipelineMockDispatcher{providerRegistry: providerRegistry}
 	s := NewSession(
 		"sess",
 		"conv",
@@ -250,8 +250,8 @@ func newPipelineSession(text string) (*Session, *pipelineMockDispatcher) {
 func newPipelineSessionWithEventsAndFeatures(text string, features Features) (*Session, *pipelineMockDispatcher, *eventRecorder) {
 	rec := &eventRecorder{}
 	transcriber := &pipelineMockTranscriberProvider{text: text}
-	registry := newMockRegistry(transcriber)
-	dispatcher := &pipelineMockDispatcher{registry: registry}
+	providerRegistry := newMockRegistry(transcriber)
+	dispatcher := &pipelineMockDispatcher{providerRegistry: providerRegistry}
 	s := NewSession(
 		"sess",
 		"conv",
@@ -294,8 +294,8 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 
 func TestTranscribeQueuesWhenRunActive(t *testing.T) {
 	s, dispatcher := newPipelineSession("hello from queued turn")
-	s.SetCurrentRunId("run-active")
-	s.SetCurrentResponseId("response-active")
+	s.SetCurrentRunID("run-active")
+	s.SetCurrentResponseID("response-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
 	waitFor(t, 500*time.Millisecond, func() bool { return dispatcher.sendCount() == 1 })
@@ -310,8 +310,8 @@ func TestTranscribeQueuesWhenRunActive(t *testing.T) {
 
 func TestTranscribePreemptsQueuedTurnBeforeResponseStarts(t *testing.T) {
 	s, dispatcher := newPipelineSession("hello from queued turn")
-	s.SetCurrentRunId("run-active")
-	s.SetCurrentResponseId("response-active")
+	s.SetCurrentRunID("run-active")
+	s.SetCurrentResponseID("response-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
 	waitFor(t, 500*time.Millisecond, func() bool { return dispatcher.sendCount() == 1 })
@@ -330,8 +330,8 @@ func TestTranscribePreemptsQueuedTurnBeforeResponseStarts(t *testing.T) {
 
 func TestTranscribeDoesNotPreemptWhenResponseAlreadyStarted(t *testing.T) {
 	s, dispatcher := newPipelineSession("hello from queued turn")
-	s.SetCurrentRunId("run-active")
-	s.SetCurrentResponseId("response-active")
+	s.SetCurrentRunID("run-active")
+	s.SetCurrentResponseID("response-active")
 
 	s.transcribeAndSend("turn-1", makePCMFrame(12000, 320))
 
@@ -348,7 +348,7 @@ func TestTranscribeDoesNotPreemptWhenResponseAlreadyStarted(t *testing.T) {
 
 func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
 	s, dispatcher := newPipelineSession("hello from queued turn")
-	s.SetCurrentRunId("run-active")
+	s.SetCurrentRunID("run-active")
 	s.EnqueuePendingTurn("turn-1", "hello from queued turn")
 	if !s.HasPendingTurns() {
 		t.Fatal("expected queued turn before drain")
@@ -367,7 +367,7 @@ func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
 	if parameters.SystemPromptSuffix == "" {
 		t.Fatal("expected voice system prompt suffix on committed turn")
 	}
-	if s.GetCurrentRunId() == "" {
+	if s.GetCurrentRunID() == "" {
 		t.Fatal("expected run id set after committing drained turn")
 	}
 }
@@ -388,7 +388,7 @@ func TestCommitVoiceTurnIncludesPromptSuffix(t *testing.T) {
 
 func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 	s, dispatcher := newPipelineSession("unused")
-	s.SetCurrentRunId("run-active")
+	s.SetCurrentRunID("run-active")
 
 	finished := make(chan struct{})
 	go func() {
@@ -402,7 +402,7 @@ func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return dispatcher.abortCount() > 0 && s.GetCurrentRunId() == ""
+		return dispatcher.abortCount() > 0 && s.GetCurrentRunID() == ""
 	})
 
 	close(s.doneCh)
@@ -420,12 +420,12 @@ func TestTranscribeEmptyTextEmitsDroppedReason(t *testing.T) {
 	if dispatcher.sendCount() != 0 {
 		t.Fatalf("expected no send for empty transcript, got %d", dispatcher.sendCount())
 	}
-	ev := rec.findTurnEvent("turn_dropped")
+	ev := rec.findTurnEvent("turnDropped")
 	if ev == nil {
 		t.Fatal("expected turn_dropped event")
 	}
 	payload := ev["payload"].(turnEventPayload)
-	if payload.Reason != "dropped_empty_transcript" {
+	if payload.Reason != "droppedEmptyTranscript" {
 		t.Fatalf("expected dropped_empty_transcript reason, got %q", payload.Reason)
 	}
 }
@@ -433,8 +433,8 @@ func TestTranscribeEmptyTextEmitsDroppedReason(t *testing.T) {
 func TestQueueOverflowDropsOldestWithReason(t *testing.T) {
 	s, dispatcher, rec := newPipelineSessionWithEvents("queued transcript text")
 	s.maxPendingTurns = 1
-	s.SetCurrentRunId("run-active")
-	s.SetCurrentResponseId("response-active")
+	s.SetCurrentRunID("run-active")
+	s.SetCurrentResponseID("response-active")
 
 	s.enqueueTranscriptTurn("turn-1", "queued transcript text")
 	s.enqueueTranscriptTurn("turn-2", "queued transcript text")
@@ -442,19 +442,19 @@ func TestQueueOverflowDropsOldestWithReason(t *testing.T) {
 	if dispatcher.sendCount() != 0 {
 		t.Fatalf("expected no sends while run active, got %d", dispatcher.sendCount())
 	}
-	ev := rec.findTurnEvent("turn_dropped")
+	ev := rec.findTurnEvent("turnDropped")
 	if ev == nil {
 		t.Fatal("expected overflow turn_dropped event")
 	}
 	payload := ev["payload"].(turnEventPayload)
-	if payload.Reason != "dropped_queue_overflow" {
+	if payload.Reason != "droppedQueueOverflow" {
 		t.Fatalf("expected dropped_queue_overflow reason, got %q", payload.Reason)
 	}
 }
 
 func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 	s, dispatcher := newPipelineSession("unused")
-	s.SetCurrentResponseId("response-active")
+	s.SetCurrentResponseID("response-active")
 
 	finished := make(chan struct{})
 	go func() {
@@ -468,7 +468,7 @@ func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return dispatcher.abortCount() == 0 && s.GetCurrentResponseId() == ""
+		return dispatcher.abortCount() == 0 && s.GetCurrentResponseID() == ""
 	})
 
 	close(s.doneCh)
@@ -489,7 +489,7 @@ func TestBargeInCandidate_EventEmitted(t *testing.T) {
 		decisions:     []TurnDecision{TurnDecisionCandidate},
 		commitAllowed: true,
 	}
-	s.SetCurrentRunId("run-active")
+	s.SetCurrentRunID("run-active")
 
 	finished := make(chan struct{})
 	go func() {
@@ -503,12 +503,12 @@ func TestBargeInCandidate_EventEmitted(t *testing.T) {
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if rec.findTurnEvent("barge_in_candidate") != nil {
+		if rec.findTurnEvent("bargeInCandidate") != nil {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if rec.findTurnEvent("barge_in_candidate") == nil {
+	if rec.findTurnEvent("bargeInCandidate") == nil {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		t.Fatalf("expected barge_in_candidate event, got events: %#v", rec.events)
@@ -532,7 +532,7 @@ func TestBargeInSuppressed_EventEmitted(t *testing.T) {
 		decisions:     []TurnDecision{TurnDecisionCandidate, TurnDecisionIgnore},
 		commitAllowed: true,
 	}
-	s.SetCurrentRunId("run-active")
+	s.SetCurrentRunID("run-active")
 
 	finished := make(chan struct{})
 	go func() {
@@ -546,12 +546,12 @@ func TestBargeInSuppressed_EventEmitted(t *testing.T) {
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if rec.findTurnEvent("barge_in_suppressed") != nil {
+		if rec.findTurnEvent("bargeInSuppressed") != nil {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if rec.findTurnEvent("barge_in_suppressed") == nil {
+	if rec.findTurnEvent("bargeInSuppressed") == nil {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		t.Fatalf("expected barge_in_suppressed event, got events: %#v", rec.events)
@@ -584,10 +584,10 @@ func TestAudioInputLoop_ServerVADFalse(t *testing.T) {
 	}
 
 	time.Sleep(100 * time.Millisecond)
-	if event := rec.findTurnEvent("speech_started"); event != nil {
+	if event := rec.findTurnEvent("speechStarted"); event != nil {
 		t.Fatal("speech_started should not be emitted when ServerVAD=false")
 	}
-	if event := rec.findTurnEvent("speech_ended"); event != nil {
+	if event := rec.findTurnEvent("speechEnded"); event != nil {
 		t.Fatal("speech_ended should not be emitted when ServerVAD=false")
 	}
 	if s.ExplicitAudioLen() == 0 {
@@ -628,7 +628,7 @@ func TestAudioInputLoop_ServerTurnFalse(t *testing.T) {
 	if dispatcher.sendCount() != 0 {
 		t.Fatalf("expected no automatic SendMessage when ServerTurn=false, got %d", dispatcher.sendCount())
 	}
-	if event := rec.findTurnEvent("turn_committed"); event != nil {
+	if event := rec.findTurnEvent("turnCommitted"); event != nil {
 		t.Fatal("turn_committed should not be emitted when ServerTurn=false")
 	}
 
@@ -651,7 +651,7 @@ func TestInputCommit_FullPipeline(t *testing.T) {
 	s.InputCommit("push_to_talk")
 	waitFor(t, 500*time.Millisecond, func() bool { return dispatcher.sendCount() == 1 })
 
-	if rec.findTurnEvent("input_committed") == nil {
+	if rec.findTurnEvent("inputCommitted") == nil {
 		t.Fatal("expected input_committed event")
 	}
 	if dispatcher.sendCount() != 1 {
@@ -672,7 +672,7 @@ func TestInputCommit_EmptyBuffer(t *testing.T) {
 	if dispatcher.sendCount() != 0 {
 		t.Fatalf("expected no send for empty commit, got %d", dispatcher.sendCount())
 	}
-	ev := rec.findTurnEvent("turn_dropped")
+	ev := rec.findTurnEvent("turnDropped")
 	if ev == nil {
 		t.Fatal("expected turn_dropped event")
 	}
@@ -696,12 +696,12 @@ func TestInputCommit_TooShort(t *testing.T) {
 	if dispatcher.sendCount() != 0 {
 		t.Fatalf("expected no send for short commit, got %d", dispatcher.sendCount())
 	}
-	ev := rec.findTurnEvent("turn_dropped")
+	ev := rec.findTurnEvent("turnDropped")
 	if ev == nil {
 		t.Fatal("expected turn_dropped event")
 	}
 	payload := ev["payload"].(turnEventPayload)
-	if payload.Reason != "dropped_too_short_audio" {
+	if payload.Reason != "droppedTooShortAudio" {
 		t.Fatalf("expected dropped_too_short_audio reason, got %q", payload.Reason)
 	}
 }
@@ -971,7 +971,7 @@ func TestBargeIn_CancelsTTSStream(t *testing.T) {
 		close(loopDone)
 	}()
 
-	s.SetCurrentResponseId("resp-active")
+	s.SetCurrentResponseID("resp-active")
 	s.ttsInCh <- "streaming sentence"
 	select {
 	case <-started:
@@ -1162,7 +1162,7 @@ func TestStreamingTranscribeLoop_TracksSpeechFinalAndUtteranceEnd(t *testing.T) 
 		t.Fatal("expected streaming transcriber to start")
 	}
 	turnId := "turn-boundary"
-	session.SetCurrentTurnId(turnId)
+	session.SetCurrentTurnID(turnId)
 
 	done := make(chan struct{})
 	go func() {
@@ -1191,7 +1191,7 @@ func TestBalancedStrategy_TriggersBargeInOnSpeechStart(t *testing.T) {
 		BargeIn:      true,
 		TurnStrategy: "balanced",
 	})
-	s.SetCurrentRunId("run-active")
+	s.SetCurrentRunID("run-active")
 
 	finished := make(chan struct{})
 	go func() {
@@ -1203,7 +1203,7 @@ func TestBalancedStrategy_TriggersBargeInOnSpeechStart(t *testing.T) {
 		s.audioInCh <- makePCMFrame(12000, 320)
 	}
 	waitFor(t, 500*time.Millisecond, func() bool {
-		return dispatcher.abortCount() > 0 && s.GetCurrentRunId() == ""
+		return dispatcher.abortCount() > 0 && s.GetCurrentRunID() == ""
 	})
 
 	close(s.doneCh)
@@ -1226,7 +1226,7 @@ func TestStartNewTurn_ClearsInterimText(t *testing.T) {
 // Test helper: get the mock transcriber from the dispatcher's registry.
 func getMockTranscriber(t *testing.T, dispatcher *pipelineMockDispatcher) *pipelineMockTranscriberProvider {
 	t.Helper()
-	transcriber, _, ok := dispatcher.registry.FindTranscriber()
+	transcriber, _, ok := dispatcher.providerRegistry.FindTranscriber()
 	if !ok {
 		t.Fatal("expected transcriber in registry")
 	}
@@ -1240,12 +1240,12 @@ func getMockTranscriber(t *testing.T, dispatcher *pipelineMockDispatcher) *pipel
 // registerStreamingTranscriber adds a streaming transcriber to the dispatcher's registry.
 func registerStreamingTranscriber(t *testing.T, dispatcher *pipelineMockDispatcher, stream *pipelineMockTranscribeStream) {
 	t.Helper()
-	dispatcher.registry.Register("mock-streaming-stt", &pipelineMockStreamingTranscriberProvider{stream: stream})
+	dispatcher.providerRegistry.Register("mock-streaming-stt", &pipelineMockStreamingTranscriberProvider{stream: stream})
 }
 
 // registerSynthesizer adds a synthesizer to the dispatcher's registry.
 func registerSynthesizer(dispatcher *pipelineMockDispatcher, synth *pipelineMockSynthesizerProvider) {
-	dispatcher.registry.Register("mock-tts", synth)
+	dispatcher.providerRegistry.Register("mock-tts", synth)
 }
 
 // infiniteReader returns a reader that repeats the given bytes.

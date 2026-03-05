@@ -15,8 +15,8 @@ type BinarySender = (data: ArrayBuffer | Uint8Array) => void;
 type BinarySubscriber = (handler: (data: ArrayBuffer) => void) => () => void;
 
 interface VoiceStartResult {
-  session_id: string;
-  conversation_id?: string;
+  sessionId: string;
+  conversationId?: string;
 }
 
 export interface UseVoiceSessionOptions {
@@ -244,27 +244,27 @@ export function useVoiceSession(
         agentId,
       });
       const result = await sendRpc<VoiceStartResult>("voice.start", {
-        conversation_id: conversationId,
-        agent_id: agentId,
-        audio_in: {
+        conversationId: conversationId,
+        agentId: agentId,
+        audioIn: {
           codec: "pcm_s16le",
-          sample_rate_hz: 16000,
+          sampleRateHz: 16000,
           channels: 1,
-          frame_ms: 20,
+          frameMs: 20,
         },
-        audio_out: { codec: "pcm_s16le", sample_rate_hz: 24000, channels: 1 },
+        audioOut: { codec: "pcm_s16le", sampleRateHz: 24000, channels: 1 },
         features: {
-          server_vad: enableServerStt,
-          server_turn: enableServerStt,
-          server_denoise: enableServerStt,
-          barge_in: true,
+          serverVad: enableServerStt,
+          serverTurn: enableServerStt,
+          serverDenoise: enableServerStt,
+          bargeIn: true,
         },
-        client: { platform: "web", app_version: "1.0.0" },
+        client: { platform: "web", appVersion: "1.0.0" },
       });
-      sessionIdRef.current = result.session_id;
+      sessionIdRef.current = result.sessionId;
       console.debug("[voice][session] start ready", {
-        session_id: result.session_id,
-        conversation_id: result.conversation_id,
+        sessionId: result.sessionId,
+        conversationId: result.conversationId,
       });
 
       unsubscribeBinaryRef.current = onBinaryMessage(handleBinary);
@@ -353,12 +353,10 @@ export function useVoiceSession(
 
   const stop = useCallback(() => {
     console.debug("[voice][session] stop", {
-      session_id: sessionIdRef.current,
+      sessionId: sessionIdRef.current,
     });
     if (sessionIdRef.current) {
-      sendRpc("voice.end", { session_id: sessionIdRef.current }).catch(
-        () => {},
-      );
+      sendRpc("voice.end", { sessionId: sessionIdRef.current }).catch(() => {});
       sessionIdRef.current = null;
     }
     unsubscribeBinaryRef.current?.();
@@ -395,7 +393,7 @@ export function useVoiceSession(
         return;
       }
       await sendRpc("voice.response.cancel", {
-        response_id: "",
+        responseId: "",
         reason: reason || "client_interrupt",
       });
     },

@@ -17,15 +17,15 @@ func (self *Session) ttsSynthLoop() {
 		case sentence := <-self.ttsInCh:
 			if sentence == "" {
 				nowMs := time.Now().UnixMilli()
-				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseId())
-				if rid := self.GetCurrentResponseId(); rid != "" {
-					turnId := self.GetCurrentResponseTurnId()
+				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseID())
+				if rid := self.GetCurrentResponseID(); rid != "" {
+					turnId := self.GetCurrentResponseTurnID()
 					if turnId == "" {
-						turnId = self.GetCurrentTurnId()
+						turnId = self.GetCurrentTurnID()
 					}
 					self.sendVoiceEvent("response.completed", map[string]interface{}{
-						"response_id": rid,
-						"turn_id":     turnId,
+						"responseId": rid,
+						"turnId":     turnId,
 					})
 					self.notifyObservers(func(observer TurnObserver) {
 						observer.OnResponseCompleted(turnId, rid, nowMs)
@@ -54,7 +54,7 @@ func (self *Session) ttsSynthLoop() {
 					// channel closed by setUserSpeaking(false) - user stopped speaking
 				}
 			}
-			synth, synthProvider, ok := self.dispatcher.ProviderRegistry().FindSynthesizer()
+			synth, synthesizerProvider, ok := self.dispatcher.ProviderRegistry().FindSynthesizer()
 			if !ok || synth == nil {
 				pipelineLog.Warningf("voice synthesis skipped: no synthesizer configured")
 				continue
@@ -68,7 +68,7 @@ func (self *Session) ttsSynthLoop() {
 				prev()
 			}
 			voiceName := "alloy"
-			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s provider=%s model=%s voice=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseId(), self.GetCurrentTurnId(), synthProvider, voiceProviderModelHint("synthesizer", synthProvider), voiceName, len(sentence), sentence)
+			pipelineLog.Infof("voice tts input: session=%s response=%s turn=%s provider=%s model=%s voice=%s text_len=%d text=%q", self.ID, self.GetCurrentResponseID(), self.GetCurrentTurnID(), synthesizerProvider, voiceProviderModelHint("synthesizer", synthesizerProvider), voiceName, len(sentence), sentence)
 			chunks, err := synthesizeToChunks(ttsCtx, synth, sentence, voiceName, self.AudioOut.SampleRateHz)
 			if err != nil {
 				cancel()
@@ -80,9 +80,9 @@ func (self *Session) ttsSynthLoop() {
 				continue
 			}
 			if !responseStarted {
-				turnId := self.TurnIDForRun(self.GetCurrentRunId())
+				turnId := self.TurnIDForRun(self.GetCurrentRunID())
 				if turnId == "" {
-					turnId = self.GetCurrentTurnId()
+					turnId = self.GetCurrentTurnID()
 				}
 				nowMs := time.Now().UnixMilli()
 				self.notifyObservers(func(observer TurnObserver) {
@@ -107,28 +107,28 @@ func (self *Session) ttsSynthLoop() {
 							}
 						}
 					}
-					responseId := self.GetCurrentResponseId()
+					responseId := self.GetCurrentResponseID()
 					if responseId == "" {
 						responseId = self.newTurnId()
-						self.SetCurrentResponseId(responseId)
+						self.SetCurrentResponseID(responseId)
 					}
-					turnId := self.TurnIDForRun(self.GetCurrentRunId())
+					turnId := self.TurnIDForRun(self.GetCurrentRunID())
 					if turnId == "" {
-						turnId = self.GetCurrentTurnId()
+						turnId = self.GetCurrentTurnID()
 					}
-					self.SetCurrentResponseTurnId(turnId)
+					self.SetCurrentResponseTurnID(turnId)
 					nowMs := time.Now().UnixMilli()
 					pipelineLog.Infof("voice response started: session=%s response=%s turn=%s", self.ID, responseId, turnId)
 					self.sendVoiceEvent("response.started", map[string]interface{}{
-						"response_id": responseId,
-						"turn_id":     turnId,
+						"responseId": responseId,
+						"turnId":     turnId,
 					})
 					self.notifyObservers(func(observer TurnObserver) {
 						observer.OnResponseStarted(turnId, responseId, nowMs)
 					})
 					responseStarted = true
 				}
-				pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", self.ID, self.GetCurrentResponseId(), len(sentence), len(audio))
+				pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", self.ID, self.GetCurrentResponseID(), len(sentence), len(audio))
 				payload := EncodeBinaryAudioFrame(BinaryAudioFrame{
 					FrameType:   FrameTypeAudioOut,
 					Seq:         self.NextOutSeq(),
@@ -175,7 +175,7 @@ func synthesizeToChunks(ctx context.Context, synth providers.AudioSynthesizer, t
 		}
 	}
 	// Fall back to batch synthesis.
-	resp, err := synth.Synthesize(ctx, providers.SynthesizeRequest{
+	response, err := synth.Synthesize(ctx, providers.SynthesizeRequest{
 		Text:   text,
 		Voice:  voice,
 		Format: "wav",
@@ -184,8 +184,8 @@ func synthesizeToChunks(ctx context.Context, synth providers.AudioSynthesizer, t
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Audio.Close()
-	wavData, _ := io.ReadAll(resp.Audio)
+	defer response.Audio.Close()
+	wavData, _ := io.ReadAll(response.Audio)
 	pcm, err := wavToPCM16LE(wavData)
 	if err != nil {
 		return nil, fmt.Errorf("batch tts wav decode: %w", err)

@@ -26,43 +26,43 @@ type EnergyVAD struct {
 }
 
 // Reset clears all transient VAD counters.
-func (v *EnergyVAD) Reset() {
-	v.IsSpeaking = false
-	v.speechFrames = 0
-	v.redemptionCount = 0
+func (self *EnergyVAD) Reset() {
+	self.IsSpeaking = false
+	self.speechFrames = 0
+	self.redemptionCount = 0
 }
 
 // ProcessFrame processes one s16le frame and returns (started, ended, rms).
-func (v *EnergyVAD) ProcessFrame(pcm []byte) (bool, bool, float64) {
+func (self *EnergyVAD) ProcessFrame(pcm []byte) (bool, bool, float64) {
 	rms := rmsS16LE(pcm)
 
 	started := false
 	ended := false
-	if !v.IsSpeaking {
+	if !self.IsSpeaking {
 		if rms >= vadPositiveThreshold {
-			v.speechFrames++
-			if v.speechFrames >= vadMinSpeechFrames {
-				v.IsSpeaking = true
-				v.redemptionCount = 0
+			self.speechFrames++
+			if self.speechFrames >= vadMinSpeechFrames {
+				self.IsSpeaking = true
+				self.redemptionCount = 0
 				started = true
 			}
 		} else {
-			v.speechFrames = 0
+			self.speechFrames = 0
 		}
 		return started, ended, rms
 	}
-	v.speechFrames = 0
+	self.speechFrames = 0
 
 	if rms < vadNegativeThreshold {
-		v.redemptionCount++
-		if v.redemptionCount >= vadRedemptionFrames {
-			v.IsSpeaking = false
-			v.speechFrames = 0
-			v.redemptionCount = 0
+		self.redemptionCount++
+		if self.redemptionCount >= vadRedemptionFrames {
+			self.IsSpeaking = false
+			self.speechFrames = 0
+			self.redemptionCount = 0
 			ended = true
 		}
 	} else {
-		v.redemptionCount = 0
+		self.redemptionCount = 0
 	}
 
 	return started, ended, rms

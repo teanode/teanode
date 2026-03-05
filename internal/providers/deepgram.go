@@ -49,11 +49,11 @@ func (self *DeepgramClient) ListModels(_ context.Context) ([]ModelInformation, e
 }
 
 // OpenTranscribeStream creates a realtime transcription websocket session.
-func (self *DeepgramClient) OpenTranscribeStream(ctx context.Context, req StreamTranscribeRequest) (TranscribeStream, error) {
+func (self *DeepgramClient) OpenTranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error) {
 	if strings.TrimSpace(self.apiKey) == "" {
 		return nil, fmt.Errorf("deepgram api key is required")
 	}
-	listenURL, err := deepgramListenURL(self.baseURL, req)
+	listenURL, err := deepgramListenURL(self.baseURL, request)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (self *DeepgramClient) OpenTranscribeStream(ctx context.Context, req Stream
 	return stream, nil
 }
 
-func deepgramListenURL(baseURL string, req StreamTranscribeRequest) (string, error) {
+func deepgramListenURL(baseURL string, request StreamTranscribeRequest) (string, error) {
 	base := strings.TrimSpace(baseURL)
 	if base == "" {
 		base = defaultDeepgramBaseURL
@@ -96,11 +96,11 @@ func deepgramListenURL(baseURL string, req StreamTranscribeRequest) (string, err
 	query := parsed.Query()
 	query.Set("model", "nova-2")
 	query.Set("encoding", "linear16")
-	sampleRate := req.SampleRate
+	sampleRate := request.SampleRate
 	if sampleRate <= 0 {
 		sampleRate = 16000
 	}
-	channels := req.Channels
+	channels := request.Channels
 	if channels <= 0 {
 		channels = 1
 	}
@@ -110,10 +110,10 @@ func deepgramListenURL(baseURL string, req StreamTranscribeRequest) (string, err
 	query.Set("endpointing", "false")
 	query.Set("punctuate", "true")
 	query.Set("smart_format", "true")
-	if text := strings.TrimSpace(req.Language); text != "" {
+	if text := strings.TrimSpace(request.Language); text != "" {
 		query.Set("language", text)
 	}
-	if text := strings.TrimSpace(req.Prompt); text != "" {
+	if text := strings.TrimSpace(request.Prompt); text != "" {
 		query.Set("keywords", text)
 	}
 	parsed.RawQuery = query.Encode()

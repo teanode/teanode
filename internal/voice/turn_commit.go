@@ -99,11 +99,11 @@ func (self *Session) transcribeTextAndSend(turnId, rawText string) {
 		pipelineLog.Infof("voice transcript ignored (empty): session=%s turn=%s", self.ID, turnId)
 		self.sendVoiceEvent("turn.event", turnEventPayload{
 			TurnID: turnId,
-			Event:  "turn_dropped",
-			Reason: "dropped_empty_transcript",
+			Event:  "turnDropped",
+			Reason: "droppedEmptyTranscript",
 		})
 		self.notifyObservers(func(observer TurnObserver) {
-			observer.OnTurnDropped(turnId, "dropped_empty_transcript", time.Now().UnixMilli())
+			observer.OnTurnDropped(turnId, "droppedEmptyTranscript", time.Now().UnixMilli())
 		})
 		return
 	}
@@ -111,11 +111,11 @@ func (self *Session) transcribeTextAndSend(turnId, rawText string) {
 		pipelineLog.Infof("voice transcript ignored (too short): session=%s turn=%s text=%q", self.ID, turnId, text)
 		self.sendVoiceEvent("turn.event", turnEventPayload{
 			TurnID: turnId,
-			Event:  "turn_dropped",
-			Reason: "dropped_too_short_text",
+			Event:  "turnDropped",
+			Reason: "droppedTooShortText",
 		})
 		self.notifyObservers(func(observer TurnObserver) {
-			observer.OnTurnDropped(turnId, "dropped_too_short_text", time.Now().UnixMilli())
+			observer.OnTurnDropped(turnId, "droppedTooShortText", time.Now().UnixMilli())
 		})
 		return
 	}
@@ -139,8 +139,8 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 	pipelineLog.Infof("voice transcript.final: session=%s turn=%s text_len=%d text=%q", self.ID, turnId, len(text), text)
 	self.SetLastCommittedTranscript(text)
 	self.sendVoiceEvent("transcript.final", map[string]interface{}{
-		"turn_id": turnId,
-		"text":    text,
+		"turnId": turnId,
+		"text":   text,
 	})
 	self.notifyObservers(func(observer TurnObserver) {
 		observer.OnTranscriptFinal(turnId, nowMs)
@@ -157,12 +157,12 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 		return
 	}
 	self.MarkTurnCommitted(turnId)
-	self.SetCurrentRunId(handle.RunID)
+	self.SetCurrentRunID(handle.RunID)
 	self.MapRunToTurn(handle.RunID, turnId)
 	pipelineLog.Infof("voice turn committed: session=%s turn=%s run=%s", self.ID, turnId, handle.RunID)
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID: turnId,
-		Event:  "turn_committed",
+		Event:  "turnCommitted",
 	})
 	self.notifyObservers(func(observer TurnObserver) {
 		observer.OnTurnCommitted(turnId, time.Now().UnixMilli())
@@ -175,19 +175,19 @@ func (self *Session) enqueueTranscriptTurn(turnId, text string) {
 		pipelineLog.Infof("voice turn dropped (queue overflow): session=%s dropped_turn=%s", self.ID, dropped.TurnID)
 		self.sendVoiceEvent("turn.event", turnEventPayload{
 			TurnID:     dropped.TurnID,
-			Event:      "turn_dropped",
-			Reason:     "dropped_queue_overflow",
+			Event:      "turnDropped",
+			Reason:     "droppedQueueOverflow",
 			QueueDepth: depth,
 		})
 		self.notifyObservers(func(observer TurnObserver) {
-			observer.OnTurnDropped(dropped.TurnID, "dropped_queue_overflow", time.Now().UnixMilli())
+			observer.OnTurnDropped(dropped.TurnID, "droppedQueueOverflow", time.Now().UnixMilli())
 		})
 	}
-	pipelineLog.Infof("voice turn queued (run active): session=%s turn=%s run=%s depth=%d", self.ID, turnId, self.GetCurrentRunId(), depth)
+	pipelineLog.Infof("voice turn queued (run active): session=%s turn=%s run=%s depth=%d", self.ID, turnId, self.GetCurrentRunID(), depth)
 	self.sendVoiceEvent("turn.event", turnEventPayload{
 		TurnID:     turnId,
-		Event:      "turn_queued",
-		Reason:     "queued_run_active",
+		Event:      "turnQueued",
+		Reason:     "queuedRunActive",
 		QueueDepth: depth,
 	})
 }

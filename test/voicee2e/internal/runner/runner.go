@@ -115,18 +115,18 @@ func collectTurnMetrics(timeline []model.TimelineEvent) []model.TurnMetrics {
 		}
 		raw := event.Raw
 		metric := model.TurnMetrics{
-			TurnID:              toString(raw["turn_id"]),
-			ResponseID:          toString(raw["response_id"]),
-			SpeechStartedMS:     toInt64(raw["speech_started_ms"]),
-			SpeechEndedMS:       toInt64(raw["speech_ended_ms"]),
-			TranscriptFinalMS:   toInt64(raw["transcript_final_ms"]),
-			TurnCommittedMS:     toInt64(raw["turn_committed_ms"]),
-			ResponseStartedMS:   toInt64(raw["response_started_ms"]),
-			ResponseCompletedMS: toInt64(raw["response_completed_ms"]),
-			STTMS:               toInt64(raw["stt_ms"]),
-			LLMTTFBMS:           toInt64(raw["llm_ttfb_ms"]),
-			TTSMS:               toInt64(raw["tts_ms"]),
-			E2EMS:               toInt64(raw["e2e_ms"]),
+			TurnID:              toString(raw["turnId"]),
+			ResponseID:          toString(raw["responseId"]),
+			SpeechStartedMS:     toInt64(raw["speechStartedMs"]),
+			SpeechEndedMS:       toInt64(raw["speechEndedMs"]),
+			TranscriptFinalMS:   toInt64(raw["transcriptFinalMs"]),
+			TurnCommittedMS:     toInt64(raw["turnCommittedMs"]),
+			ResponseStartedMS:   toInt64(raw["responseStartedMs"]),
+			ResponseCompletedMS: toInt64(raw["responseCompletedMs"]),
+			STTMS:               toInt64(raw["sttMs"]),
+			LLMTTFBMS:           toInt64(raw["llmTtfbMs"]),
+			TTSMS:               toInt64(raw["ttsMs"]),
+			E2EMS:               toInt64(raw["e2eMs"]),
 		}
 		metrics = append(metrics, metric)
 	}

@@ -19,7 +19,7 @@ type AudioTranscriber interface {
 
 // StreamingTranscriber is an optional capability interface for real-time STT.
 type StreamingTranscriber interface {
-	OpenTranscribeStream(ctx context.Context, req StreamTranscribeRequest) (TranscribeStream, error)
+	OpenTranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error)
 }
 
 // AudioSynthesizer is an optional capability interface for text-to-speech.
@@ -29,7 +29,7 @@ type AudioSynthesizer interface {
 
 // StreamingAudioSynthesizer is an optional capability for chunked TTS.
 type StreamingAudioSynthesizer interface {
-	SynthesizeStream(ctx context.Context, req SynthesizeStreamRequest) (<-chan SynthesizeChunk, error)
+	SynthesizeStream(ctx context.Context, request SynthesizeStreamRequest) (<-chan SynthesizeChunk, error)
 }
 
 // TranscribeRequest is the input for speech-to-text.

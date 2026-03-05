@@ -29,34 +29,34 @@ func EnrichMetrics(scenario model.ScenarioSpecification, timeline []model.Timeli
 		}
 	}
 	score := similarity(strings.Join(expected, " "), strings.Join(actual, " "))
-	metrics["transcript_similarity"] = score
+	metrics["transcriptSimilarity"] = score
 }
 
 func Evaluate(scenario model.ScenarioSpecification, timeline []model.TimelineEvent, metrics map[string]any) (failures []string, warnings []string) {
-	transcriptCount, _ := metrics["transcript_count"].(int64)
+	transcriptCount, _ := metrics["transcriptCount"].(int64)
 	if transcriptCount == 0 {
 		failures = append(failures, "no transcript.final events")
 	}
 
-	responseCount, _ := metrics["response_count"].(int64)
+	responseCount, _ := metrics["responseCount"].(int64)
 	if responseCount == 0 {
 		failures = append(failures, "no response.started events")
 	}
 
 	if scenario.Expect.RequireBargeIn {
-		bargeCount, _ := metrics["barge_in_count"].(int64)
+		bargeCount, _ := metrics["bargeInCount"].(int64)
 		if bargeCount == 0 {
 			failures = append(failures, "expected barge-in event was not observed")
 		}
 	}
 
 	if scenario.Expect.MaxResponseLatencyMS > 0 {
-		if value, ok := metrics["latency_speech_end_to_transcript_ms"].(int64); ok && value > scenario.Expect.MaxResponseLatencyMS {
+		if value, ok := metrics["latencySpeechEndToTranscriptMs"].(int64); ok && value > scenario.Expect.MaxResponseLatencyMS {
 			failures = append(failures, fmt.Sprintf("speech_end->transcript latency too high: %dms > %dms", value, scenario.Expect.MaxResponseLatencyMS))
 		}
 	}
 	if scenario.Expect.MinTranscriptSimilarity > 0 {
-		if score, ok := metrics["transcript_similarity"].(float64); ok {
+		if score, ok := metrics["transcriptSimilarity"].(float64); ok {
 			if score < scenario.Expect.MinTranscriptSimilarity {
 				failures = append(failures, fmt.Sprintf("transcript similarity too low: %.2f < %.2f", score, scenario.Expect.MinTranscriptSimilarity))
 			}

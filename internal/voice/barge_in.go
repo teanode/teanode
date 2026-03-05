@@ -12,9 +12,9 @@ func (self *Session) triggerBargeIn() {
 	if !self.bargeInFired.CompareAndSwap(gen-1, gen) {
 		return // already fired for this generation
 	}
-	pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunId(), self.GetCurrentResponseId())
+	pipelineLog.Infof("voice barge_in triggered: session=%s run=%s response=%s", self.ID, self.GetCurrentRunID(), self.GetCurrentResponseID())
 	self.setLastBargeInAt(time.Now())
-	runId := self.GetCurrentRunId()
+	runId := self.GetCurrentRunID()
 	self.MarkRunCanceled(runId)
 	if prev := self.SwapTTSCancel(nil); prev != nil {
 		prev()
@@ -27,7 +27,7 @@ func (self *Session) triggerBargeIn() {
 	}
 	self.ClearCurrentRun()
 	self.ClearCurrentResponse()
-	self.sendVoiceEvent("turn.event", turnEventPayload{Event: "barge_in_triggered"})
+	self.sendVoiceEvent("turn.event", turnEventPayload{Event: "bargeInTriggered"})
 }
 
 func (self *Session) drainTTSQueue() {

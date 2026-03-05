@@ -432,14 +432,14 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       }
       if (type !== "turn.event" || !payload) return;
       const event = payload.event;
-      if (event === "turn_committed") {
+      if (event === "turnCommitted") {
         setIsAgentBusy(true);
         chimePlayer.play("inputCaptured");
         playWaitingChime();
-      } else if (event === "turn_queued") {
+      } else if (event === "turnQueued") {
         setIsAgentBusy(true);
         playWaitingChime();
-      } else if (event === "barge_in_triggered") {
+      } else if (event === "bargeInTriggered") {
         // Stop current playback immediately and ignore stale in-flight audio
         // until the next response starts.
         interruptPlayback();

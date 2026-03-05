@@ -36,10 +36,10 @@ func (self *Session) llmEventForwarder() {
 				continue
 			}
 			if runId != "" && (state == "queued" || state == "delta") {
-				self.SetCurrentRunId(runId)
+				self.SetCurrentRunID(runId)
 			}
 			if state == "queued" || state == "final" || state == "error" || state == "aborted" {
-				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", self.ID, self.GetCurrentTurnId(), state, len(text), self.GetCurrentRunId())
+				pipelineLog.Debugf("voice llm event: session=%s turn=%s state=%s text_len=%d run=%s", self.ID, self.GetCurrentTurnID(), state, len(text), self.GetCurrentRunID())
 			}
 			if state == "delta" {
 				if text != "" {

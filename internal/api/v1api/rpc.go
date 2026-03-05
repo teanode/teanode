@@ -570,16 +570,16 @@ func (self *webSocketConnection) handleConfigSchema(frame requestFrame) {
 		return
 	}
 	schema := schemas.ConfigSchema()
-	if registry := self.api.coordinator.ProviderRegistry(); registry != nil {
-		schema = withVoiceProviderEnums(schema, registry)
+	if providerRegistry := self.api.coordinator.ProviderRegistry(); providerRegistry != nil {
+		schema = withVoiceProviderEnums(schema, providerRegistry)
 	}
 	self.sendResponse(frame.ID, map[string]interface{}{
 		"schema": schema,
 	})
 }
 
-func withVoiceProviderEnums(base json.RawMessage, registry *providers.ProviderRegistry) json.RawMessage {
-	if registry == nil {
+func withVoiceProviderEnums(base json.RawMessage, providerRegistry *providers.ProviderRegistry) json.RawMessage {
+	if providerRegistry == nil {
 		return base
 	}
 	var schema map[string]interface{}
@@ -598,16 +598,16 @@ func withVoiceProviderEnums(base json.RawMessage, registry *providers.ProviderRe
 	if !ok {
 		return base
 	}
-	transcriberProviders := voiceProviderNamesByCapability(registry, func(client providers.Provider) bool {
+	transcriberProviders := voiceProviderNamesByCapability(providerRegistry, func(client providers.Provider) bool {
 		_, ok := client.(providers.AudioTranscriber)
 		return ok
 	})
-	synthProviders := voiceProviderNamesByCapability(registry, func(client providers.Provider) bool {
+	synthesizerProviders := voiceProviderNamesByCapability(providerRegistry, func(client providers.Provider) bool {
 		_, ok := client.(providers.AudioSynthesizer)
 		return ok
 	})
-	setVoiceProviderFieldEnum(voiceProps, "transcriber_provider", transcriberProviders)
-	setVoiceProviderFieldEnum(voiceProps, "synth_provider", synthProviders)
+	setVoiceProviderFieldEnum(voiceProps, "transcriberProvider", transcriberProviders)
+	setVoiceProviderFieldEnum(voiceProps, "synthesizerProvider", synthesizerProviders)
 
 	updated, err := json.Marshal(schema)
 	if err != nil {
@@ -616,13 +616,13 @@ func withVoiceProviderEnums(base json.RawMessage, registry *providers.ProviderRe
 	return json.RawMessage(updated)
 }
 
-func voiceProviderNamesByCapability(registry *providers.ProviderRegistry, supports func(providers.Provider) bool) []string {
-	if registry == nil {
+func voiceProviderNamesByCapability(providerRegistry *providers.ProviderRegistry, supports func(providers.Provider) bool) []string {
+	if providerRegistry == nil {
 		return nil
 	}
 	names := make([]string, 0)
-	for _, name := range registry.ProviderNames() {
-		client, ok := registry.ClientByName(name)
+	for _, name := range providerRegistry.ProviderNames() {
+		client, ok := providerRegistry.ClientByName(name)
 		if !ok {
 			continue
 		}

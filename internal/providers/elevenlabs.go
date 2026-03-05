@@ -52,11 +52,11 @@ func (self *ElevenLabsClient) Synthesize(_ context.Context, _ SynthesizeRequest)
 }
 
 // SynthesizeStream opens an ElevenLabs websocket stream and emits PCM chunks.
-func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, req SynthesizeStreamRequest) (<-chan SynthesizeChunk, error) {
+func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, request SynthesizeStreamRequest) (<-chan SynthesizeChunk, error) {
 	if strings.TrimSpace(self.apiKey) == "" {
 		return nil, fmt.Errorf("elevenlabs api key is required")
 	}
-	streamURL, err := elevenLabsStreamURL(self.baseURL, req.Voice, req.SampleRateHz)
+	streamURL, err := elevenLabsStreamURL(self.baseURL, request.Voice, request.SampleRateHz)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, req Synthesi
 			return
 		}
 		if err := conn.WriteJSON(map[string]any{
-			"text":                   req.Text,
+			"text":                   request.Text,
 			"try_trigger_generation": true,
 		}); err != nil {
 			out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs write text: %w", err)}

@@ -43,34 +43,34 @@ type eventFrame struct {
 }
 
 type voiceStartParams struct {
-	ConversationID string `json:"conversation_id"`
-	AgentID        string `json:"agent_id"`
-	PromptSuffix   string `json:"prompt_suffix,omitempty"`
+	ConversationID string `json:"conversationId"`
+	AgentID        string `json:"agentId"`
+	PromptSuffix   string `json:"promptSuffix,omitempty"`
 	AudioIn        struct {
 		Codec        string `json:"codec"`
-		SampleRateHz int    `json:"sample_rate_hz"`
+		SampleRateHz int    `json:"sampleRateHz"`
 		Channels     int    `json:"channels"`
-		FrameMS      int    `json:"frame_ms"`
-	} `json:"audio_in"`
+		FrameMS      int    `json:"frameMs"`
+	} `json:"audioIn"`
 	AudioOut struct {
 		Codec        string `json:"codec"`
-		SampleRateHz int    `json:"sample_rate_hz"`
+		SampleRateHz int    `json:"sampleRateHz"`
 		Channels     int    `json:"channels"`
-	} `json:"audio_out"`
+	} `json:"audioOut"`
 	Features struct {
-		ServerVAD    bool   `json:"server_vad"`
-		ServerTurn   bool   `json:"server_turn"`
-		BargeIn      bool   `json:"barge_in"`
-		TurnStrategy string `json:"turn_strategy,omitempty"`
+		ServerVAD    bool   `json:"serverVad"`
+		ServerTurn   bool   `json:"serverTurn"`
+		BargeIn      bool   `json:"bargeIn"`
+		TurnStrategy string `json:"turnStrategy,omitempty"`
 	} `json:"features"`
 }
 
 type voiceEnvelope struct {
 	V         int             `json:"v"`
 	Type      string          `json:"type"`
-	SessionID string          `json:"session_id"`
+	SessionID string          `json:"sessionId"`
 	Sequence  uint64          `json:"seq"`
-	TSMS      int64           `json:"ts_ms"`
+	TSMS      int64           `json:"tsMs"`
 	Payload   json.RawMessage `json:"payload"`
 }
 
@@ -355,12 +355,12 @@ func (self *Client) RunScenario(ctx context.Context, scenario model.ScenarioSpec
 func (self *Client) applyConfig(start *voiceStartParams) {
 	var cfg struct {
 		Features struct {
-			ServerVAD  *bool `json:"server_vad"`
-			ServerTurn *bool `json:"server_turn"`
-			BargeIn    *bool `json:"barge_in"`
+			ServerVAD  *bool `json:"serverVad"`
+			ServerTurn *bool `json:"serverTurn"`
+			BargeIn    *bool `json:"bargeIn"`
 		} `json:"features"`
 		Voice struct {
-			TurnStrategy string `json:"turn_strategy"`
+			TurnStrategy string `json:"turnStrategy"`
 		} `json:"voice"`
 	}
 	if err := json.Unmarshal([]byte(self.configJSON), &cfg); err != nil {
@@ -457,20 +457,20 @@ func convertVoiceEnvelope(record func(model.TimelineEvent), now time.Time, envel
 			record(model.TimelineEvent{At: now, Type: model.EventTurnQueued, SessionID: envelope.SessionID, Raw: payload})
 		case "turn_dropped":
 			record(model.TimelineEvent{At: now, Type: model.EventTurnDropped, SessionID: envelope.SessionID, Raw: payload})
-		case "barge_in_triggered":
+		case "bargeInTriggered":
 			record(model.TimelineEvent{At: now, Type: model.EventBargeInTriggered, SessionID: envelope.SessionID, Raw: payload})
 		}
 	case "transcript.final":
 		text, _ := payload["text"].(string)
-		turnId, _ := payload["turn_id"].(string)
+		turnId, _ := payload["turnId"].(string)
 		record(model.TimelineEvent{At: now, Type: model.EventTranscriptFinal, SessionID: envelope.SessionID, TurnID: turnId, Text: text, Raw: payload})
 	case "response.started":
-		responseId, _ := payload["response_id"].(string)
-		turnId, _ := payload["turn_id"].(string)
+		responseId, _ := payload["responseId"].(string)
+		turnId, _ := payload["turnId"].(string)
 		record(model.TimelineEvent{At: now, Type: model.EventResponseStarted, SessionID: envelope.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
 	case "response.completed":
-		responseId, _ := payload["response_id"].(string)
-		turnId, _ := payload["turn_id"].(string)
+		responseId, _ := payload["responseId"].(string)
+		turnId, _ := payload["turnId"].(string)
 		record(model.TimelineEvent{At: now, Type: model.EventResponseCompleted, SessionID: envelope.SessionID, TurnID: turnId, ResponseID: responseId, Raw: payload})
 	case "turn.metrics":
 		record(model.TimelineEvent{At: now, Type: model.EventTurnMetrics, SessionID: envelope.SessionID, Raw: payload})

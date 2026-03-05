@@ -54,7 +54,7 @@ const (
 	EventTurnCommitted     EventType = "turn_committed"
 	EventTurnQueued        EventType = "turn_queued"
 	EventTurnDropped       EventType = "turn_dropped"
-	EventBargeInTriggered  EventType = "barge_in_triggered"
+	EventBargeInTriggered  EventType = "bargeInTriggered"
 	EventResponseStarted   EventType = "response.started"
 	EventResponseCompleted EventType = "response.completed"
 	EventTTSInput          EventType = "tts.input"
@@ -62,27 +62,27 @@ const (
 )
 
 type TurnMetrics struct {
-	TurnID              string `json:"turn_id,omitempty"`
-	ResponseID          string `json:"response_id,omitempty"`
-	SpeechStartedMS     int64  `json:"speech_started_ms,omitempty"`
-	SpeechEndedMS       int64  `json:"speech_ended_ms,omitempty"`
-	TranscriptFinalMS   int64  `json:"transcript_final_ms,omitempty"`
-	TurnCommittedMS     int64  `json:"turn_committed_ms,omitempty"`
-	ResponseStartedMS   int64  `json:"response_started_ms,omitempty"`
-	ResponseCompletedMS int64  `json:"response_completed_ms,omitempty"`
-	STTMS               int64  `json:"stt_ms,omitempty"`
-	LLMTTFBMS           int64  `json:"llm_ttfb_ms,omitempty"`
-	TTSMS               int64  `json:"tts_ms,omitempty"`
-	E2EMS               int64  `json:"e2e_ms,omitempty"`
+	TurnID              string `json:"turnId,omitempty"`
+	ResponseID          string `json:"responseId,omitempty"`
+	SpeechStartedMS     int64  `json:"speechStartedMs,omitempty"`
+	SpeechEndedMS       int64  `json:"speechEndedMs,omitempty"`
+	TranscriptFinalMS   int64  `json:"transcriptFinalMs,omitempty"`
+	TurnCommittedMS     int64  `json:"turnCommittedMs,omitempty"`
+	ResponseStartedMS   int64  `json:"responseStartedMs,omitempty"`
+	ResponseCompletedMS int64  `json:"responseCompletedMs,omitempty"`
+	STTMS               int64  `json:"sttMs,omitempty"`
+	LLMTTFBMS           int64  `json:"llmTtfbMs,omitempty"`
+	TTSMS               int64  `json:"ttsMs,omitempty"`
+	E2EMS               int64  `json:"e2eMs,omitempty"`
 }
 
 type TimelineEvent struct {
 	At         time.Time      `json:"at"`
 	Type       EventType      `json:"type"`
-	SessionID  string         `json:"session_id,omitempty"`
-	TurnID     string         `json:"turn_id,omitempty"`
-	ResponseID string         `json:"response_id,omitempty"`
-	RunID      string         `json:"run_id,omitempty"`
+	SessionID  string         `json:"sessionId,omitempty"`
+	TurnID     string         `json:"turnId,omitempty"`
+	ResponseID string         `json:"responseId,omitempty"`
+	RunID      string         `json:"runId,omitempty"`
 	Text       string         `json:"text,omitempty"`
 	Value      int64          `json:"value,omitempty"`
 	Raw        map[string]any `json:"raw,omitempty"`

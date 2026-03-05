@@ -84,26 +84,26 @@
       "type": "object",
       "title": "Voice",
       "properties": {
-        "transcriber_provider": {
+        "transcriberProvider": {
           "type": "string",
           "title": "Transcriber Provider",
           "description": "Optional preferred provider name for speech-to-text. Falls back to first available transcriber when unset or invalid.",
           "x-placeholder": "openai"
         },
-        "synth_provider": {
+        "synthesizerProvider": {
           "type": "string",
           "title": "Synthesizer Provider",
           "description": "Optional preferred provider name for text-to-speech. Falls back to first available synthesizer when unset or invalid.",
           "x-placeholder": "openai"
         },
-        "turn_strategy": {
+        "turnStrategy": {
           "type": "string",
           "title": "Turn Strategy",
           "description": "Controls barge-in and turn commit policy for voice sessions.",
           "default": "legacy",
           "enum": ["legacy", "balanced"]
         },
-        "barge_in": {
+        "bargeIn": {
           "type": "boolean",
           "title": "Barge-In",
           "description": "Gateway-wide policy for barge-in interruption. When set, overrides the per-session client value. Unset means the client controls barge-in per session (default: true)."
