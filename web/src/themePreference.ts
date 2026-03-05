@@ -40,5 +40,5 @@ export function loadThemePreference(): ThemePreference {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
   if (stored === "light" || stored === "dark" || stored === "system")
     return stored;
-  return "dark";
+  return "system";
 }

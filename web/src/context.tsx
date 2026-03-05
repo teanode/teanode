@@ -83,8 +83,8 @@ export function AppProvider({
   });
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
     const stored = localStorage.getItem("teanode-theme-mode");
-    if (stored === "light" || stored === "system") return stored;
-    return "dark";
+    if (stored === "light" || stored === "dark") return stored;
+    return "system";
   });
   const [voiceAutoSend, setVoiceAutoSendState] = useState(() => {
     return localStorage.getItem("teanode-voice-auto-send") !== "false";
