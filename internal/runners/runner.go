@@ -346,10 +346,16 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 			assistantMessage.Usage = usageJson
 		}
 
+		assistantMessage.ID = security.NewULID()
 		if err := self.appendConversationMessage(ctx, assistantMessage); err != nil {
 			return nil, fmt.Errorf("saving assistant message: %w", err)
 		}
 		history = append(history, &assistantMessage)
+
+		// Record usage stats into all interval buckets.
+		if usage != nil {
+			self.recordModelUsage(ctx, userId, providerName, responseModelName, usage)
+		}
 
 		// If no tool calls, we're done.
 		if len(toolCalls) == 0 || self.toolRegistry == nil {
@@ -826,7 +832,9 @@ func (self *Runner) appendConversationMessage(ctx context.Context, message model
 				return createError
 			}
 		}
-		message.ID = security.NewULID()
+		if message.ID == "" {
+			message.ID = security.NewULID()
+		}
 		message.ConversationID = ptrto.Value(self.ConversationID)
 		_, err := transaction.CreateConversationMessage(ctx, &message, nil)
 		return err
@@ -920,5 +928,26 @@ func conversationMessageContentBlocks(message models.ConversationMessage) []map[
 			"type": "text",
 			"text": conversationMessageContentText(message),
 		},
+	}
+}
+
+// recordModelUsage accumulates usage into all interval buckets.
+// Errors are logged but not propagated to avoid failing a successful run.
+func (self *Runner) recordModelUsage(ctx context.Context, userId, providerName, modelName string, usage *providers.UsageInformation) {
+	err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		return transaction.AccumulateUsage(ctx, &models.Usage{
+			UserID:              ptrto.Value(userId),
+			ProviderName:        ptrto.Value(providerName),
+			ModelName:           ptrto.Value(modelName),
+			PromptTokens:        ptrto.Value(uint64(usage.PromptTokens)),
+			CompletionTokens:    ptrto.Value(uint64(usage.CompletionTokens)),
+			CacheCreationTokens: ptrto.Value(uint64(usage.CacheCreationInputTokens)),
+			CacheReadTokens:     ptrto.Value(uint64(usage.CacheReadInputTokens)),
+			TotalTokens:         ptrto.Value(uint64(usage.TotalTokens)),
+			RequestCount:        ptrto.Value(uint64(1)),
+		}, nil)
+	})
+	if err != nil {
+		log.Warningf("failed to record model usage: %v", err)
 	}
 }

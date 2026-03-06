@@ -27,6 +27,7 @@ type Transaction interface {
 	MediaOperation
 	SkillOperation
 	TodoOperation
+	UsageOperation
 }
 
 type ConfigurationOperation interface {
@@ -133,4 +134,9 @@ type SkillOperation interface {
 	GetSkill(ctx context.Context, skillId string, options *Option) (*models.Skill, error)
 	ModifySkill(ctx context.Context, skillId string, modifier func(*models.Skill) error, options *Option) (*models.Skill, error)
 	DeleteSkill(ctx context.Context, skillId string, options *Option) error
+}
+
+type UsageOperation interface {
+	AccumulateUsage(ctx context.Context, usage *models.Usage, options *Option) error
+	ListUsages(ctx context.Context, listOptions UsageListOptions, options *Option) ([]*models.Usage, error)
 }

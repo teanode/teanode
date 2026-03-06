@@ -1,6 +1,11 @@
 package store
 
-import "github.com/teanode/teanode/internal/models"
+import (
+	"time"
+
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/util/timeutil"
+)
 
 type Option struct {
 	Limit  *uint64
@@ -38,4 +43,13 @@ type MediaListOptions struct {
 	ConversationID *string
 	Source         *string
 	ToolName       *string
+}
+
+type UsageListOptions struct {
+	UserID       *string
+	IntervalType timeutil.IntervalType
+	StartedAt    time.Time
+	EndedAt      time.Time
+	ProviderName *string
+	ModelName    *string
 }

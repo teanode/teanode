@@ -42,6 +42,31 @@ export default function SettingsNav({
         <List disablePadding>
           <ListItemButton
             dense
+            onClick={() => onNavigate("/settings/usage")}
+            sx={{
+              borderRadius: 1,
+              mb: 0.25,
+              ...(activeSectionId === "usage"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
+                : {}),
+            }}
+          >
+            <ListItemText
+              primary={t("settings.usage")}
+              primaryTypographyProps={{
+                variant: "caption",
+                fontSize: "13px",
+                color: activeSectionId === "usage" ? "#fff" : "text.secondary",
+              }}
+            />
+          </ListItemButton>
+
+          <ListItemButton
+            dense
             onClick={() => onNavigate("/settings/profile")}
             sx={{
               borderRadius: 1,

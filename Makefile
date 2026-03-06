@@ -47,6 +47,7 @@ test: ## Run backend tests
 	$(GO) test ./...
 
 coverage: ## Run backend tests with coverage report
+	@$(GO) build -o "$$($(GO) env GOTOOLDIR)/covdata" cmd/covdata 2>/dev/null || true
 	$(GO) test -coverprofile=coverage.out ./...
 	$(GO) tool cover -func=coverage.out
 	@echo ""
