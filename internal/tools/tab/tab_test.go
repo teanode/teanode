@@ -518,7 +518,7 @@ func TestTabTool_SnapshotDom_HappyPath(t *testing.T) {
 
 	resolvePending(broker, tabs.ToolCallResult{Result: `{"html":"<html></html>","truncated":false}`})
 
-	result, err := tool.Execute(ctx, `{"action":"snapshotDom"}`)
+	result, err := tool.Execute(ctx, `{"action":"snapshot"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -537,7 +537,7 @@ func TestTabTool_SnapshotDom_Truncated(t *testing.T) {
 		Result: `{"html":"` + bigHTML + `","truncated":false}`,
 	})
 
-	result, err := tool.Execute(ctx, `{"action":"snapshotDom"}`)
+	result, err := tool.Execute(ctx, `{"action":"snapshot"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -566,7 +566,7 @@ func TestTabTool_SnapshotDom_NotTruncated(t *testing.T) {
 		Result: `{"html":"<html>small</html>","truncated":false}`,
 	})
 
-	result, err := tool.Execute(ctx, `{"action":"snapshotDom"}`)
+	result, err := tool.Execute(ctx, `{"action":"snapshot"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -583,6 +583,67 @@ func TestTabTool_SnapshotDom_NotTruncated(t *testing.T) {
 	}
 	if snap.HTML != "<html>small</html>" {
 		t.Errorf("unexpected html: %s", snap.HTML)
+	}
+}
+
+func TestTabTool_Snapshot_TextMode(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"text":"Hello world","truncated":false}`})
+
+	result, err := tool.Execute(ctx, `{"action":"snapshot","mode":"text"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "Hello world") {
+		t.Errorf("expected text content in result, got: %s", result)
+	}
+}
+
+func TestTabTool_Snapshot_TextModeTruncated(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	bigText := strings.Repeat("x", maxDomResultSize+100)
+	resolvePending(broker, tabs.ToolCallResult{
+		Result: `{"text":"` + bigText + `","truncated":false}`,
+	})
+
+	result, err := tool.Execute(ctx, `{"action":"snapshot","mode":"text"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var snap struct {
+		Text      string `json:"text"`
+		Truncated bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(result), &snap); err != nil {
+		t.Fatalf("failed to parse result JSON: %v", err)
+	}
+	if !snap.Truncated {
+		t.Error("expected truncated to be true")
+	}
+	if len(snap.Text) != maxDomResultSize {
+		t.Errorf("expected text length %d, got %d", maxDomResultSize, len(snap.Text))
+	}
+}
+
+func TestTabTool_Snapshot_InvalidMode(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"snapshot","mode":"xml"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "invalid mode") {
+		t.Errorf("expected 'invalid mode' error, got: %s", result)
 	}
 }
 
@@ -665,7 +726,7 @@ func TestTabTool_Definition_ContainsNewActions(t *testing.T) {
 	expected := map[string]bool{
 		"fetch": true, "listCookies": true, "getCookie": true, "setCookie": true, "deleteCookie": true,
 		"getLocalStorage": true, "setLocalStorage": true, "removeLocalStorage": true,
-		"snapshotDom": true, "querySelector": true, "eval": true,
+		"snapshot": true, "querySelector": true, "eval": true,
 	}
 
 	for _, a := range actions {

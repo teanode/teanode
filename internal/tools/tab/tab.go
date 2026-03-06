@@ -16,10 +16,11 @@ import (
 
 const (
 	maxRequestBodySize   = 1 << 20   // 1 MB
-	maxToolResultSize    = 768 << 10 // 768 KB
+	maxToolResultSize    = 256 << 10 // 256 KB general fallback
 	maxEvalCodeSize      = 64 << 10  // 64 KB
 	maxLocalStorageValue = 1 << 20   // 1 MB
-	maxDomResultSize     = 128 << 10 // 128 KB for snapshotDom / querySelector results
+	maxFetchResultSize   = 128 << 10 // 128 KB for fetch response body
+	maxDomResultSize     = 128 << 10 // 128 KB for snapshot / querySelector results
 )
 
 func init() {
@@ -39,7 +40,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 				"fetch (HTTP request with tab session), " +
 				"listCookies / getCookie / setCookie / deleteCookie (cookie access), " +
 				"getLocalStorage / setLocalStorage / removeLocalStorage (localStorage access), " +
-				"snapshotDom (lightweight DOM snapshot), " +
+				"snapshot (DOM snapshot; use mode param: 'html' for structure, 'text' for visible text, 'accessibility' for accessibility tree), " +
 				"querySelector (query DOM elements), " +
 				"eval (execute JavaScript in page context).",
 			Parameters: map[string]interface{}{
@@ -50,7 +51,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 						"enum": []string{
 							"fetch", "listCookies", "getCookie", "setCookie", "deleteCookie",
 							"getLocalStorage", "setLocalStorage", "removeLocalStorage",
-							"snapshotDom", "querySelector", "eval",
+							"snapshot", "querySelector", "eval",
 						},
 						"description": "The tab action to perform.",
 					},
@@ -125,9 +126,9 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					},
 					"mode": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"text", "html"},
+						"enum":        []string{"text", "html", "accessibility"},
 						"default":     "text",
-						"description": "Return mode for querySelector: 'text' returns textContent, 'html' returns outerHTML.",
+						"description": "For querySelector: 'text' returns textContent, 'html' returns outerHTML. For snapshot: 'html' (default) returns cleaned HTML, 'text' returns visible text only, 'accessibility' returns the accessibility tree.",
 					},
 					"all": map[string]interface{}{
 						"type":        "boolean",
@@ -148,7 +149,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					"fetch: {status, statusText, headers, body, url, truncated, durationMs}. " +
 					"listCookies: {cookies}. getCookie: {cookie}. setCookie: {cookie}. deleteCookie: {ok}. " +
 					"getLocalStorage: {entries} or {value}. setLocalStorage/removeLocalStorage: {ok}. " +
-					"snapshotDom: {html, truncated}. " +
+					"snapshot: {html, truncated} or {text, truncated} depending on mode. " +
 					"querySelector: {results}. " +
 					"eval: {value} or {error}. " +
 					"On error: {error}.",
@@ -203,7 +204,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					},
 					"html": map[string]interface{}{
 						"type":        "string",
-						"description": "DOM HTML snapshot (snapshotDom).",
+						"description": "DOM HTML snapshot (snapshot).",
 					},
 					"results": map[string]interface{}{
 						"type":        "array",
@@ -336,8 +337,13 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		}
 
 	// DOM actions
-	case "snapshotDom":
-		// No required fields.
+	case "snapshot":
+		if arguments.Mode == "" {
+			arguments.Mode = "html"
+		}
+		if arguments.Mode != "html" && arguments.Mode != "text" && arguments.Mode != "accessibility" {
+			return jsonError(fmt.Sprintf("invalid mode %q: must be 'html', 'text', or 'accessibility'", arguments.Mode)), nil
+		}
 	case "querySelector":
 		if arguments.Selector == "" {
 			return jsonError("selector is required for querySelector action"), nil
@@ -398,8 +404,10 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		}
 		out := result.Result
 		switch arguments.Action {
-		case "snapshotDom":
-			out = truncateSnapshotDom(out, maxDomResultSize)
+		case "fetch":
+			out = truncateFetchResult(out, maxFetchResultSize)
+		case "snapshot":
+			out = truncateSnapshot(out, maxDomResultSize)
 		case "querySelector":
 			out = truncateQuerySelector(out, maxDomResultSize)
 		}
@@ -413,19 +421,58 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 	}
 }
 
-// truncateSnapshotDom caps the html field to maxSize bytes, preserving valid JSON.
-func truncateSnapshotDom(raw string, maxSize int) string {
+// truncateFetchResult caps the body field to maxSize bytes, preserving valid JSON.
+func truncateFetchResult(raw string, maxSize int) string {
+	var resp struct {
+		Status     int               `json:"status"`
+		StatusText string            `json:"statusText,omitempty"`
+		Headers    map[string]string `json:"headers,omitempty"`
+		Body       string            `json:"body"`
+		URL        string            `json:"url,omitempty"`
+		Truncated  bool              `json:"truncated"`
+		DurationMs int               `json:"durationMs,omitempty"`
+	}
+	if json.Unmarshal([]byte(raw), &resp) != nil {
+		if len(raw) > maxSize {
+			return raw[:maxSize]
+		}
+		return raw
+	}
+	if len(resp.Body) <= maxSize {
+		return raw
+	}
+	resp.Body = resp.Body[:maxSize]
+	resp.Truncated = true
+	out, _ := json.Marshal(resp)
+	return string(out)
+}
+
+// truncateSnapshot caps the main content field (html or text) to maxSize bytes.
+func truncateSnapshot(raw string, maxSize int) string {
 	var snap struct {
-		HTML      string `json:"html"`
+		HTML      string `json:"html,omitempty"`
+		Text      string `json:"text,omitempty"`
 		Truncated bool   `json:"truncated"`
 	}
 	if json.Unmarshal([]byte(raw), &snap) != nil {
 		return raw
 	}
-	if len(snap.HTML) <= maxSize {
+	// Determine which field carries the content.
+	content := snap.HTML
+	isText := false
+	if content == "" {
+		content = snap.Text
+		isText = true
+	}
+	if len(content) <= maxSize {
 		return raw
 	}
-	snap.HTML = snap.HTML[:maxSize]
+	content = content[:maxSize]
+	if isText {
+		snap.Text = content
+	} else {
+		snap.HTML = content
+	}
 	snap.Truncated = true
 	out, _ := json.Marshal(snap)
 	return string(out)

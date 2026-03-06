@@ -53,7 +53,7 @@ export type PageActionType =
   | "getLocalStorage"
   | "setLocalStorage"
   | "removeLocalStorage"
-  | "snapshotDom"
+  | "snapshot"
   | "querySelector"
   | "eval";
 

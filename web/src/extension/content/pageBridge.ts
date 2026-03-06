@@ -10,12 +10,14 @@
  * Since we use webpack bundling, we pass the nonce via a global set before injection.
  */
 
-const MAX_BODY_SIZE = 512 * 1024; // 512 KB
+const MAX_BODY_SIZE = 128 * 1024; // 128 KB (matches server-side cap)
 const MAX_HEADERS_SIZE = 64 * 1024; // 64 KB
-const MAX_DOM_SIZE = 512 * 1024; // 512 KB
+const MAX_SNAPSHOT_SIZE = 128 * 1024; // 128 KB (matches server-side cap)
 const MAX_LOCALSTORAGE_TOTAL = 512 * 1024; // 512 KB
 const MAX_EVAL_RESULT_SIZE = 512 * 1024; // 512 KB
-const MAX_QUERY_RESULTS = 50;
+const MAX_QUERY_RESULTS = 25;
+const MAX_ELEMENT_CONTENT = 16 * 1024; // 16 KB per element in querySelector
+const MAX_ATTR_VALUE = 200; // truncate long attribute values
 
 // The nonce is set as a global by the background SW before injecting this script.
 const NONCE: string = (globalThis as any).__tn_nonce || "";
@@ -169,8 +171,8 @@ async function handleActionRequest(data: any): Promise<void> {
       case "removeLocalStorage":
         result = handleRemoveLocalStorage(params);
         break;
-      case "snapshotDom":
-        result = handleSnapshotDom();
+      case "snapshot":
+        result = handleSnapshot(params);
         break;
       case "querySelector":
         result = handleQuerySelector(params);
@@ -244,16 +246,257 @@ function handleRemoveLocalStorage(params: Record<string, unknown>): unknown {
 
 // ---- DOM handlers ----
 
-function handleSnapshotDom(): unknown {
-  let html = document.documentElement.outerHTML;
-  let truncated = false;
+function handleSnapshot(params: Record<string, unknown>): unknown {
+  const mode = (params.mode as string) || "html";
 
-  if (html.length > MAX_DOM_SIZE) {
-    html = html.slice(0, MAX_DOM_SIZE);
+  switch (mode) {
+    case "text":
+      return snapshotText();
+    case "accessibility":
+      return snapshotAccessibility();
+    default:
+      return snapshotHtml();
+  }
+}
+
+function snapshotHtml(): { html: string; truncated: boolean } {
+  const clone = document.documentElement.cloneNode(true) as HTMLElement;
+
+  // Strip elements that are noise for understanding page structure.
+  for (const tag of ["script", "style", "noscript", "link[rel=stylesheet]"]) {
+    clone.querySelectorAll(tag).forEach((el) => el.remove());
+  }
+
+  // Strip noisy attributes and truncate long values.
+  const walker = document.createTreeWalker(clone, NodeFilter.SHOW_ELEMENT);
+  let node: Element | null = walker.currentNode as Element;
+  while (node) {
+    const attrs = Array.from(node.attributes || []);
+    for (const attr of attrs) {
+      if (attr.name === "style") {
+        node.removeAttribute("style");
+        continue;
+      }
+      if (attr.name === "d" && node.tagName === "path") {
+        node.setAttribute("d", "[path]");
+        continue;
+      }
+      if (attr.value.length > MAX_ATTR_VALUE) {
+        node.setAttribute(attr.name, attr.value.slice(0, MAX_ATTR_VALUE) + "…");
+      }
+    }
+    node = walker.nextNode() as Element | null;
+  }
+
+  let html = clone.outerHTML;
+  html = html.replace(/\s{2,}/g, " ");
+
+  let truncated = false;
+  if (html.length > MAX_SNAPSHOT_SIZE) {
+    html = html.slice(0, MAX_SNAPSHOT_SIZE);
     truncated = true;
   }
 
   return { html, truncated };
+}
+
+function snapshotText(): { text: string; truncated: boolean } {
+  const lines: string[] = [];
+
+  // Page title
+  if (document.title) {
+    lines.push(`# ${document.title}`);
+    lines.push("");
+  }
+
+  // Walk visible text nodes, using semantic elements for structure hints.
+  const walker = document.createTreeWalker(
+    document.body || document.documentElement,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node: Node) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const el = node as HTMLElement;
+          const tag = el.tagName.toLowerCase();
+          // Skip invisible and non-content elements.
+          if (
+            tag === "script" ||
+            tag === "style" ||
+            tag === "noscript" ||
+            tag === "svg" ||
+            tag === "template"
+          )
+            return NodeFilter.FILTER_REJECT;
+          if (el.hidden || el.getAttribute("aria-hidden") === "true")
+            return NodeFilter.FILTER_REJECT;
+          const style = getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden")
+            return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    },
+  );
+
+  let current: Node | null = walker.currentNode;
+  while (current) {
+    if (current.nodeType === Node.ELEMENT_NODE) {
+      const el = current as HTMLElement;
+      const tag = el.tagName.toLowerCase();
+      // Add structural markers for headings and list items.
+      if (/^h[1-6]$/.test(tag)) {
+        const level = parseInt(tag[1]);
+        const text = (el.textContent || "").trim();
+        if (text) {
+          lines.push("");
+          lines.push(`${"#".repeat(level)} ${text}`);
+        }
+        // Skip children since we grabbed textContent.
+        let next: Node | null = walker.nextSibling();
+        while (!next) {
+          if (!walker.parentNode()) break;
+          next = walker.nextSibling();
+        }
+        current = next;
+        continue;
+      }
+    } else if (current.nodeType === Node.TEXT_NODE) {
+      const text = (current.textContent || "").trim();
+      if (text) {
+        lines.push(text);
+      }
+    }
+    current = walker.nextNode();
+  }
+
+  let text = lines.join("\n").replace(/\n{3,}/g, "\n\n");
+  let truncated = false;
+  if (text.length > MAX_SNAPSHOT_SIZE) {
+    text = text.slice(0, MAX_SNAPSHOT_SIZE);
+    truncated = true;
+  }
+
+  return { text, truncated };
+}
+
+/** ARIA role mapping for common HTML elements. */
+const IMPLICIT_ROLES: Record<string, string> = {
+  a: "link",
+  button: "button",
+  input: "textbox",
+  select: "combobox",
+  textarea: "textbox",
+  img: "img",
+  nav: "navigation",
+  main: "main",
+  header: "banner",
+  footer: "contentinfo",
+  aside: "complementary",
+  form: "form",
+  table: "table",
+  ul: "list",
+  ol: "list",
+  li: "listitem",
+  h1: "heading",
+  h2: "heading",
+  h3: "heading",
+  h4: "heading",
+  h5: "heading",
+  h6: "heading",
+};
+
+function snapshotAccessibility(): { text: string; truncated: boolean } {
+  const lines: string[] = [];
+  if (document.title) {
+    lines.push(`page: ${document.title}`);
+  }
+
+  function walk(el: Element, depth: number): void {
+    const tag = el.tagName.toLowerCase();
+
+    // Skip non-content elements.
+    if (
+      tag === "script" ||
+      tag === "style" ||
+      tag === "noscript" ||
+      tag === "template"
+    )
+      return;
+    if ((el as HTMLElement).hidden || el.getAttribute("aria-hidden") === "true")
+      return;
+
+    const role = el.getAttribute("role") || IMPLICIT_ROLES[tag] || "";
+    const label =
+      el.getAttribute("aria-label") ||
+      el.getAttribute("alt") ||
+      el.getAttribute("title") ||
+      el.getAttribute("placeholder") ||
+      "";
+
+    // Determine accessible name: label or direct text content (not children's).
+    let name = label;
+    if (!name) {
+      // Use direct text nodes only (not nested element text).
+      const directText = Array.from(el.childNodes)
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .map((n) => (n.textContent || "").trim())
+        .join(" ")
+        .trim();
+      if (directText) name = directText;
+    }
+
+    // Build the node representation.
+    const parts: string[] = [];
+    if (role) parts.push(role);
+    else if (tag !== "div" && tag !== "span") parts.push(tag);
+
+    // Add heading level.
+    if (/^h[1-6]$/.test(tag)) {
+      parts.push(`level=${tag[1]}`);
+    }
+
+    // Add relevant state attributes.
+    if (el.getAttribute("disabled") !== null) parts.push("disabled");
+    if (el.getAttribute("aria-expanded") !== null)
+      parts.push(`expanded=${el.getAttribute("aria-expanded")}`);
+    if (el.getAttribute("aria-checked") !== null)
+      parts.push(`checked=${el.getAttribute("aria-checked")}`);
+    if (el.getAttribute("aria-selected") !== null)
+      parts.push(`selected=${el.getAttribute("aria-selected")}`);
+    if ((el as HTMLInputElement).type && tag === "input")
+      parts.push(`type=${(el as HTMLInputElement).type}`);
+    if (
+      (el as HTMLInputElement).value &&
+      (tag === "input" || tag === "textarea")
+    )
+      parts.push(`value="${(el as HTMLInputElement).value.slice(0, 100)}"`);
+    if (el.getAttribute("href"))
+      parts.push(`href="${el.getAttribute("href")!.slice(0, 150)}"`);
+
+    if (name) parts.push(`"${name.slice(0, 200)}"`);
+
+    // Only emit nodes that have a role, label, or are interactive/semantic.
+    if (parts.length > 0 && (role || label || tag !== "div")) {
+      const indent = "  ".repeat(depth);
+      lines.push(`${indent}${parts.join(" ")}`);
+    }
+
+    // Recurse into children.
+    for (const child of el.children) {
+      walk(child, role || label ? depth + 1 : depth);
+    }
+  }
+
+  walk(document.body || document.documentElement, 0);
+
+  let text = lines.join("\n");
+  let truncated = false;
+  if (text.length > MAX_SNAPSHOT_SIZE) {
+    text = text.slice(0, MAX_SNAPSHOT_SIZE);
+    truncated = true;
+  }
+
+  return { text, truncated };
 }
 
 function handleQuerySelector(params: Record<string, unknown>): unknown {
@@ -300,19 +543,24 @@ function extractElement(
   const attributes: Record<string, string> = {};
   for (let i = 0; i < el.attributes.length; i++) {
     const attr = el.attributes[i];
-    attributes[attr.name] = attr.value;
+    if (attr.name === "style") continue; // skip inline styles
+    let value = attr.value;
+    if (value.length > MAX_ATTR_VALUE) {
+      value = value.slice(0, MAX_ATTR_VALUE) + "…";
+    }
+    attributes[attr.name] = value;
   }
 
   let content: string;
   if (mode === "html") {
     content = el.outerHTML;
-    if (content.length > MAX_BODY_SIZE) {
-      content = content.slice(0, MAX_BODY_SIZE);
+    if (content.length > MAX_ELEMENT_CONTENT) {
+      content = content.slice(0, MAX_ELEMENT_CONTENT);
     }
   } else {
     content = el.textContent || "";
-    if (content.length > MAX_BODY_SIZE) {
-      content = content.slice(0, MAX_BODY_SIZE);
+    if (content.length > MAX_ELEMENT_CONTENT) {
+      content = content.slice(0, MAX_ELEMENT_CONTENT);
     }
   }
 

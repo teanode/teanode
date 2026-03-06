@@ -24,7 +24,7 @@ const PAGE_ACTIONS: Set<string> = new Set([
   "getLocalStorage",
   "setLocalStorage",
   "removeLocalStorage",
-  "snapshotDom",
+  "snapshot",
   "querySelector",
   "eval",
 ]);
