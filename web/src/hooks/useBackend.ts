@@ -72,11 +72,17 @@ function getUsageNumbers(
   return { input, output, total };
 }
 
+function compactNumber(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 function formatUsageText(
   usageNumbers: { input: number; output: number; total: number },
   contextWindow?: number,
 ): string {
-  let text = `${usageNumbers.input} in / ${usageNumbers.output} out \u00b7 ${usageNumbers.total} tokens`;
+  let text = `${compactNumber(usageNumbers.input)} in / ${compactNumber(usageNumbers.output)} out \u00b7 ${compactNumber(usageNumbers.total)} tokens`;
   if (contextWindow && contextWindow > 0 && usageNumbers.input > 0) {
     const percentage = (usageNumbers.input / contextWindow) * 100;
     text += ` \u00b7 ${percentage < 1 ? "<1" : Math.round(percentage)}% context`;

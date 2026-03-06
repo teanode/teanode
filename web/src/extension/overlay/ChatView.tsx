@@ -55,12 +55,18 @@ async function uploadMedia(file: File): Promise<Attachment> {
   return response.json();
 }
 
+function compactNumber(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 function formatUsageText(usage: Record<string, unknown>): string {
   const input = (usage.input ?? usage.Input ?? 0) as number;
   const output = (usage.output ?? usage.Output ?? 0) as number;
   const total = (usage.total ?? usage.Total ?? input + output) as number;
   if (!total) return "";
-  return `${input} in / ${output} out \u00b7 ${total} tokens`;
+  return `${compactNumber(input)} in / ${compactNumber(output)} out \u00b7 ${compactNumber(total)} tokens`;
 }
 
 // --- DisplayMessage helpers (mirrors useBackend patterns) ---

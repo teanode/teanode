@@ -18,7 +18,7 @@ func TestFSStoreUpsertAndQueryUsage(t *testing.T) {
 	userId := "user-1"
 	now := time.Now()
 	hourStart := timeutil.TruncateToHour(now.In(time.Local))
-	bucketStart := time.Date(hourStart.Year(), hourStart.Month(), hourStart.Day(), hourStart.Hour(), 0, 0, 0, time.UTC)
+	bucketStart := time.Date(hourStart.Year(), hourStart.Month(), hourStart.Day(), hourStart.Hour(), 0, 0, 0, time.Local)
 
 	// Upsert first usage.
 	err := s.Transaction(context.Background(), func(ctx context.Context, tx store.Transaction) error {
@@ -84,7 +84,7 @@ func TestFSStoreQueryUsageFilters(t *testing.T) {
 	userId := "user-1"
 	now := time.Now()
 	dayStart := timeutil.TruncateToDay(now.In(time.Local))
-	bucketStart := time.Date(dayStart.Year(), dayStart.Month(), dayStart.Day(), 0, 0, 0, 0, time.UTC)
+	bucketStart := time.Date(dayStart.Year(), dayStart.Month(), dayStart.Day(), 0, 0, 0, 0, time.Local)
 
 	// Insert two different providers/models.
 	for _, entry := range []struct {
@@ -156,7 +156,7 @@ func TestFSStoreEviction(t *testing.T) {
 	userId := "user-1"
 	now := time.Now()
 	hourStart := timeutil.TruncateToHour(now.In(time.Local))
-	currentBucket := time.Date(hourStart.Year(), hourStart.Month(), hourStart.Day(), hourStart.Hour(), 0, 0, 0, time.UTC)
+	currentBucket := time.Date(hourStart.Year(), hourStart.Month(), hourStart.Day(), hourStart.Hour(), 0, 0, 0, time.Local)
 
 	// Each AccumulateUsage creates entries for all interval types using time.Now(),
 	// so all 200 calls accumulate into the same hour bucket.

@@ -30,6 +30,7 @@ import SettingsJobsPage from "./routes/settings/jobs";
 import SettingsProjectsPage from "./routes/settings/projects";
 import SettingsSkillsPage from "./routes/settings/skills";
 import SettingsSecretsPage from "./routes/settings/secrets";
+import SettingsUsagePage from "./routes/settings/usage";
 import LoginRoute from "./routes/login";
 import SetupRoute from "./routes/setup";
 
@@ -216,6 +217,13 @@ const settingsSecretsRoute = createRoute({
   component: SettingsSecretsPage,
 });
 
+// /settings/usage → usage statistics page
+const settingsUsageRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "usage",
+  component: SettingsUsagePage,
+});
+
 // /settings/agents/$agentId → individual agent editor
 const settingsAgentRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -265,6 +273,7 @@ const routeTree = rootRoute.addChildren([
     settingsProjectsRoute,
     settingsSkillsRoute,
     settingsSecretsRoute,
+    settingsUsageRoute,
     settingsAgentRoute,
     settingsSectionRoute,
   ]),

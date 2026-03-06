@@ -68,9 +68,7 @@ func (self *databaseTransaction) AccumulateUsage(ctx context.Context, usage *mod
 	now := time.Now()
 	local := now.In(time.Local)
 	for _, intervalType := range []timeutil.IntervalType{timeutil.IntervalTypeHour, timeutil.IntervalTypeDay, timeutil.IntervalTypeWeek, timeutil.IntervalTypeMonth, timeutil.IntervalTypeYear} {
-		truncated := timeutil.TruncateToInterval(local, intervalType)
-		startedAt := time.Date(truncated.Year(), truncated.Month(), truncated.Day(),
-			truncated.Hour(), truncated.Minute(), truncated.Second(), 0, time.UTC)
+		startedAt := timeutil.TruncateToInterval(local, intervalType)
 		inserted, err := self.accumulateUsageBucket(usage, intervalType, startedAt)
 		if err != nil {
 			return err

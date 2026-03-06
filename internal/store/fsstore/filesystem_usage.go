@@ -104,9 +104,7 @@ func (self *fileSystemTransaction) AccumulateUsage(ctx context.Context, usage *m
 	now := time.Now()
 	local := now.In(time.Local)
 	for _, intervalType := range []timeutil.IntervalType{timeutil.IntervalTypeHour, timeutil.IntervalTypeDay, timeutil.IntervalTypeWeek, timeutil.IntervalTypeMonth, timeutil.IntervalTypeYear} {
-		truncated := timeutil.TruncateToInterval(local, intervalType)
-		startedAt := time.Date(truncated.Year(), truncated.Month(), truncated.Day(),
-			truncated.Hour(), truncated.Minute(), truncated.Second(), 0, time.UTC)
+		startedAt := timeutil.TruncateToInterval(local, intervalType)
 		usages = accumulateUsageBucket(usages, usage, intervalType, startedAt)
 	}
 	usages = evictUsages(usages)

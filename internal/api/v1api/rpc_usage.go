@@ -33,12 +33,12 @@ func (self *webSocketConnection) handleListUsages(frame requestFrame) {
 		return
 	}
 
-	startedAt, err := time.Parse("2006-01-02T15:04:05", parameters.StartedAt)
+	startedAt, err := time.ParseInLocation("2006-01-02T15:04:05", parameters.StartedAt, time.Local)
 	if err != nil {
 		self.sendError(frame.ID, 400, "startedAt must be in format 2006-01-02T15:04:05")
 		return
 	}
-	endedAt, err := time.Parse("2006-01-02T15:04:05", parameters.EndedAt)
+	endedAt, err := time.ParseInLocation("2006-01-02T15:04:05", parameters.EndedAt, time.Local)
 	if err != nil {
 		self.sendError(frame.ID, 400, "endedAt must be in format 2006-01-02T15:04:05")
 		return

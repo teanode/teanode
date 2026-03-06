@@ -19,7 +19,7 @@ func TestAccumulateUsageAdditivity(t *testing.T) {
 	userId := security.NewULID()
 	now := time.Now()
 	hourStart := timeutil.TruncateToHour(now.In(time.Local))
-	bucketStart := time.Date(hourStart.Year(), hourStart.Month(), hourStart.Day(), hourStart.Hour(), 0, 0, 0, time.UTC)
+	bucketStart := time.Date(hourStart.Year(), hourStart.Month(), hourStart.Day(), hourStart.Hour(), 0, 0, 0, time.Local)
 
 	usage1 := &models.Usage{
 		UserID:           ptrto.Value(userId),
@@ -99,7 +99,7 @@ func TestListUsagesFilters(t *testing.T) {
 	userId := security.NewULID()
 	now := time.Now()
 	dayStart := timeutil.TruncateToDay(now.In(time.Local))
-	bucketStart := time.Date(dayStart.Year(), dayStart.Month(), dayStart.Day(), 0, 0, 0, 0, time.UTC)
+	bucketStart := time.Date(dayStart.Year(), dayStart.Month(), dayStart.Day(), 0, 0, 0, 0, time.Local)
 
 	// Insert two different models.
 	for _, modelName := range []string{"claude-sonnet-4-5-20250514", "gpt-4o"} {
