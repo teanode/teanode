@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS usages (
     user_id               VARCHAR(32) NOT NULL,
     provider_name         VARCHAR(128) NOT NULL,
     model_name            VARCHAR(128) NOT NULL,
-    interval_type         TEXT NOT NULL CHECK (interval_type IN ('hourly', 'daily')),
+    interval_type         TEXT NOT NULL CHECK (interval_type IN ('hour', 'day', 'week', 'month', 'year')),
     started_at            TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     prompt_tokens         BIGINT NOT NULL DEFAULT 0,
     completion_tokens     BIGINT NOT NULL DEFAULT 0,

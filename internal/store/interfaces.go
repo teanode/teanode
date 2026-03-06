@@ -137,6 +137,6 @@ type SkillOperation interface {
 }
 
 type UsageOperation interface {
-	UpsertUsage(ctx context.Context, usage *models.Usage, options *Option) error
-	QueryUsages(ctx context.Context, query UsageQuery, options *Option) ([]*models.Usage, error)
+	AccumulateUsage(ctx context.Context, usage *models.Usage, options *Option) error
+	ListUsages(ctx context.Context, listOptions UsageListOptions, options *Option) ([]*models.Usage, error)
 }

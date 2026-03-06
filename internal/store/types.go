@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 type Option struct {
@@ -44,9 +45,9 @@ type MediaListOptions struct {
 	ToolName       *string
 }
 
-type UsageQuery struct {
-	UserID       string
-	IntervalType models.IntervalType
+type UsageListOptions struct {
+	UserID       *string
+	IntervalType timeutil.IntervalType
 	StartedAt    time.Time
 	EndedAt      time.Time
 	ProviderName *string

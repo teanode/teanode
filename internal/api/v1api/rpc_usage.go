@@ -7,11 +7,12 @@ import (
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
-// --- usage.statEntries ---
+// --- usages.list ---
 
-func (self *webSocketConnection) handleUsageStatEntries(frame requestFrame) {
+func (self *webSocketConnection) handleListUsages(frame requestFrame) {
 	var parameters struct {
 		IntervalType string  `json:"intervalType"`
 		StartedAt    string  `json:"startedAt"`
@@ -24,9 +25,11 @@ func (self *webSocketConnection) handleUsageStatEntries(frame requestFrame) {
 		json.Unmarshal(frame.Params, &parameters)
 	}
 
-	intervalType := models.IntervalType(parameters.IntervalType)
-	if intervalType != models.IntervalHourly && intervalType != models.IntervalDaily {
-		self.sendError(frame.ID, 400, "intervalType must be 'hourly' or 'daily'")
+	intervalType := timeutil.IntervalType(parameters.IntervalType)
+	switch intervalType {
+	case timeutil.IntervalTypeHour, timeutil.IntervalTypeDay, timeutil.IntervalTypeWeek, timeutil.IntervalTypeMonth, timeutil.IntervalTypeYear:
+	default:
+		self.sendError(frame.ID, 400, "intervalType must be 'hour', 'day', 'week', 'month', or 'year'")
 		return
 	}
 
@@ -41,17 +44,22 @@ func (self *webSocketConnection) handleUsageStatEntries(frame requestFrame) {
 		return
 	}
 
-	queryUserID := self.userId()
-	if parameters.UserID != nil && *parameters.UserID != queryUserID {
-		if !self.isAdmin() {
+	// Non-admin users can only query their own usage.
+	// Admins can query a specific user (by passing userId) or all users (by omitting userId).
+	var filterUserId *string
+	if self.isAdmin() {
+		filterUserId = parameters.UserID
+	} else {
+		if parameters.UserID != nil && *parameters.UserID != self.userId() {
 			self.sendError(frame.ID, 403, "only admins can query other users' usage")
 			return
 		}
-		queryUserID = *parameters.UserID
+		currentUserId := self.userId()
+		filterUserId = &currentUserId
 	}
 
-	query := store.UsageQuery{
-		UserID:       queryUserID,
+	listOptions := store.UsageListOptions{
+		UserID:       filterUserId,
 		IntervalType: intervalType,
 		StartedAt:    startedAt,
 		EndedAt:      endedAt,
@@ -61,7 +69,7 @@ func (self *webSocketConnection) handleUsageStatEntries(frame requestFrame) {
 
 	var entries []*models.Usage
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.QueryUsages(ctx, query, nil)
+		result, err := tx.ListUsages(ctx, listOptions, nil)
 		if err != nil {
 			return err
 		}

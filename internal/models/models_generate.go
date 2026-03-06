@@ -21,6 +21,7 @@ func main() {
 	generator.GenerateUpdate(new(models.Skill))
 	generator.GenerateUpdate(new(models.Token))
 	generator.GenerateUpdate(new(models.Todo))
+	generator.GenerateUpdate(new(models.Usage))
 	generator.GenerateUpdate(new(models.User))
 	generator.GenerateUpdate(new(models.WorkspaceFile))
 
@@ -57,6 +58,7 @@ func main() {
 	generator.GenerateGetters(new(models.Skill))
 	generator.GenerateGetters(new(models.Todo))
 	generator.GenerateGetters(new(models.Token))
+	generator.GenerateGetters(new(models.Usage))
 	generator.GenerateGetters(new(models.User))
 	generator.GenerateGetters(new(models.WorkspaceFile))
 

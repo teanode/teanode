@@ -11,8 +11,6 @@ import (
 
 	"encoding/base64"
 
-	"time"
-
 	"github.com/kaptinlin/jsonrepair"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
@@ -354,7 +352,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		}
 		history = append(history, &assistantMessage)
 
-		// Record usage stats (hourly + daily).
+		// Record usage stats into all interval buckets.
 		if usage != nil {
 			self.recordModelUsage(ctx, userId, providerName, responseModelName, usage)
 		}
@@ -933,51 +931,21 @@ func conversationMessageContentBlocks(message models.ConversationMessage) []map[
 	}
 }
 
-// recordModelUsage upserts hourly+daily usage stat entries directly.
+// recordModelUsage accumulates usage into all interval buckets.
 // Errors are logged but not propagated to avoid failing a successful run.
 func (self *Runner) recordModelUsage(ctx context.Context, userId, providerName, modelName string, usage *providers.UsageInformation) {
-	now := time.Now()
-	loc := time.Local
-	promptTokens := uint64(usage.PromptTokens)
-	completionTokens := uint64(usage.CompletionTokens)
-	cacheCreationTokens := uint64(usage.CacheCreationInputTokens)
-	cacheReadTokens := uint64(usage.CacheReadInputTokens)
-	totalTokens := uint64(usage.TotalTokens)
-
 	err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		hourStart := models.BucketStartedAt(now, models.IntervalHourly, loc)
-		if err := transaction.UpsertUsage(ctx, &models.Usage{
-			UserID:              userId,
-			ProviderName:        providerName,
-			ModelName:           modelName,
-			IntervalType:        models.IntervalHourly,
-			StartedAt:           hourStart,
-			PromptTokens:        promptTokens,
-			CompletionTokens:    completionTokens,
-			CacheCreationTokens: cacheCreationTokens,
-			CacheReadTokens:     cacheReadTokens,
-			TotalTokens:         totalTokens,
-			RequestCount:        1,
-		}, nil); err != nil {
-			return err
-		}
-		dayStart := models.BucketStartedAt(now, models.IntervalDaily, loc)
-		if err := transaction.UpsertUsage(ctx, &models.Usage{
-			UserID:              userId,
-			ProviderName:        providerName,
-			ModelName:           modelName,
-			IntervalType:        models.IntervalDaily,
-			StartedAt:           dayStart,
-			PromptTokens:        promptTokens,
-			CompletionTokens:    completionTokens,
-			CacheCreationTokens: cacheCreationTokens,
-			CacheReadTokens:     cacheReadTokens,
-			TotalTokens:         totalTokens,
-			RequestCount:        1,
-		}, nil); err != nil {
-			return err
-		}
-		return nil
+		return transaction.AccumulateUsage(ctx, &models.Usage{
+			UserID:              ptrto.Value(userId),
+			ProviderName:        ptrto.Value(providerName),
+			ModelName:           ptrto.Value(modelName),
+			PromptTokens:        ptrto.Value(uint64(usage.PromptTokens)),
+			CompletionTokens:    ptrto.Value(uint64(usage.CompletionTokens)),
+			CacheCreationTokens: ptrto.Value(uint64(usage.CacheCreationInputTokens)),
+			CacheReadTokens:     ptrto.Value(uint64(usage.CacheReadInputTokens)),
+			TotalTokens:         ptrto.Value(uint64(usage.TotalTokens)),
+			RequestCount:        ptrto.Value(uint64(1)),
+		}, nil)
 	})
 	if err != nil {
 		log.Warningf("failed to record model usage: %v", err)
