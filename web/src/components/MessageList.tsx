@@ -72,11 +72,17 @@ function buildItems(
   let lastDateLabel = "";
 
   for (const message of messages) {
-    if (message.type === "tool-invoke" && !showToolCalls) continue;
+    if (
+      message.type === "tool-invoke" &&
+      !showToolCalls &&
+      message.toolName !== "ask_user_question"
+    )
+      continue;
     if (
       message.type === "tool-result" &&
       !showToolCalls &&
-      detectMedia(message.content) === null
+      detectMedia(message.content) === null &&
+      message.toolName !== "ask_user_question"
     )
       continue;
     if (message.type === "usage" && !showTokenUsage) continue;

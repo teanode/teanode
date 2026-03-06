@@ -15,8 +15,16 @@ import type {
   ToolCall,
   Message,
   Usage,
+  PendingQuestion,
+  PendingQuestionsListResult,
+  ConversationQuestionsEvent,
+  Todo,
+  ConversationTodosEvent,
+  ConversationTodosListResult,
 } from "../../types";
 import { normalizeContent } from "../../contentUtils";
+import QuestionPanel from "../../components/QuestionPanel";
+import TodoPanel from "../../components/TodoPanel";
 
 interface PendingFile {
   file: File;
@@ -222,6 +230,11 @@ export function ChatView({
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [pendingQuestions, setPendingQuestions] = useState<PendingQuestion[]>(
+    [],
+  );
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [todosPanelCollapsed, setTodosPanelCollapsed] = useState(false);
 
   // Keep refs for event handler closures.
   const streamingTextRef = useRef("");
@@ -284,6 +297,17 @@ export function ChatView({
     setIsRunning(false);
   }
 
+  const answerQuestion = useCallback(
+    async (
+      answers: { questionId: string; answer: string; other?: string }[],
+    ) => {
+      await sendRpc("questions.answer", { answers });
+      const answeredIds = new Set(answers.map((a) => a.questionId));
+      setPendingQuestions((prev) => prev.filter((q) => !answeredIds.has(q.id)));
+    },
+    [],
+  );
+
   // Load history on conversation change.
   useEffect(() => {
     if (!conversationId) {
@@ -292,6 +316,8 @@ export function ChatView({
       setToolActivity(null);
       setActiveRunId(null);
       activeRunIdRef.current = null;
+      setPendingQuestions([]);
+      setTodos([]);
       return;
     }
     if (skipNextHistoryLoadRef.current) {
@@ -344,6 +370,25 @@ export function ChatView({
             ];
           });
         }
+        // Load todos for this conversation.
+        sendRpc("conversations.todos.list", { conversationId })
+          .then((result) => {
+            const todosData = result as ConversationTodosListResult;
+            if (activeConvIdRef.current === conversationId) {
+              setTodos(todosData.todos || []);
+            }
+          })
+          .catch(() => {});
+
+        // Load pending questions for this conversation.
+        sendRpc("questions.list", { conversationId })
+          .then((result) => {
+            const qData = result as PendingQuestionsListResult;
+            if (activeConvIdRef.current === conversationId) {
+              setPendingQuestions(qData?.questions ?? []);
+            }
+          })
+          .catch(() => {});
       })
       .catch(() => {});
   }, [conversationId]);
@@ -673,6 +718,87 @@ export function ChatView({
     });
   }, []);
 
+  // Subscribe to question and todo events.
+  useEffect(() => {
+    return onEvent((frame: RpcEventFrame) => {
+      if (frame.event === "conversationQuestions") {
+        const payload = frame.payload as ConversationQuestionsEvent | undefined;
+        if (!payload) return;
+        if (
+          payload.action === "asked" &&
+          payload.conversationId === activeConvIdRef.current
+        ) {
+          setPendingQuestions((prev) => {
+            if (prev.some((q) => q.id === payload.questionId)) return prev;
+            const q: PendingQuestion = {
+              id: payload.questionId!,
+              conversationId: payload.conversationId!,
+              agentId: payload.agentId || "",
+              runId: payload.runId || "",
+              question: payload.question || "",
+              choices: payload.choices || [],
+            };
+            if (payload.allowOther) {
+              q.allowOther = true;
+              if (payload.otherLabel) q.otherLabel = payload.otherLabel;
+              if (payload.otherPlaceholder)
+                q.otherPlaceholder = payload.otherPlaceholder;
+            }
+            return [...prev, q];
+          });
+        } else if (payload.action === "answered") {
+          setPendingQuestions((prev) =>
+            prev.filter((q) => q.id !== payload.questionId),
+          );
+        }
+      }
+
+      if (frame.event === "conversationTodos") {
+        const payload = frame.payload as ConversationTodosEvent | undefined;
+        if (payload && payload.conversationId === activeConvIdRef.current) {
+          if (payload.action === "batch" && payload.results) {
+            setTodos((prev) => {
+              let updated = [...prev];
+              for (const result of payload.results!) {
+                if (!result.success) continue;
+                if (result.op === "add" && result.todo) {
+                  if (!updated.some((t) => t.id === result.todo!.id)) {
+                    updated = [result.todo!, ...updated];
+                  }
+                } else if (
+                  (result.op === "update" ||
+                    result.op === "complete" ||
+                    result.op === "reopen") &&
+                  result.todo
+                ) {
+                  updated = updated.map((t) =>
+                    t.id === result.todo!.id ? result.todo! : t,
+                  );
+                } else if (result.op === "delete" && result.todoId) {
+                  updated = updated.filter((t) => t.id !== result.todoId);
+                }
+              }
+              return updated;
+            });
+          } else if (payload.action === "prune") {
+            // Full reload on prune.
+            const convId = activeConvIdRef.current;
+            if (convId) {
+              sendRpc("conversations.todos.list", { conversationId: convId })
+                .then((result) => {
+                  const todosData = result as ConversationTodosListResult;
+                  if (activeConvIdRef.current === convId) {
+                    setTodos(todosData.todos || []);
+                  }
+                })
+                .catch(() => {});
+            }
+          }
+        }
+      }
+    });
+  }, []);
+
   // Clean up file preview URLs.
   useEffect(() => {
     return () => {
@@ -874,127 +1000,139 @@ export function ChatView({
         userAvatarSrc={resolveMediaUrl(userAvatarMediaId)}
         resolveMediaUrl={resolveMediaId}
       />
+      <TodoPanel
+        todos={todos}
+        collapsed={todosPanelCollapsed}
+        onToggleCollapsed={setTodosPanelCollapsed}
+      />
 
-      {/* Input area with file upload */}
-      <Box
-        sx={{ px: 1, py: 1, borderTop: 1, borderColor: "divider" }}
-        onDragOver={(event: React.DragEvent) => event.preventDefault()}
-        onDrop={handleDrop}
-      >
-        {/* Pending files chips */}
-        {pendingFiles.length > 0 && (
-          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.5 }}>
-            {pendingFiles.map((pendingFile, index) => (
-              <Chip
-                key={index}
-                label={pendingFile.file.name}
-                size="small"
-                onDelete={() => removeFile(index)}
-                avatar={
-                  pendingFile.previewUrl ? (
-                    <Box
-                      component="img"
-                      src={pendingFile.previewUrl}
-                      sx={{
-                        width: 20,
-                        height: 20,
-                        borderRadius: "50%",
-                        objectFit: "cover",
-                      }}
-                    />
-                  ) : undefined
-                }
-                sx={{ maxWidth: 180, fontSize: 11 }}
-              />
-            ))}
-          </Box>
-        )}
+      {/* Question panel or input area */}
+      {pendingQuestions.length > 0 ? (
+        <QuestionPanel
+          questions={pendingQuestions}
+          onSubmitAll={answerQuestion}
+        />
+      ) : (
         <Box
-          sx={{
-            display: "flex",
-            alignItems: "flex-end",
-            gap: 0.5,
-            bgcolor: "surface2",
-            borderRadius: 1.5,
-            border: 1,
-            borderColor: "divider",
-            px: 1,
-            py: 0.5,
-            "&:focus-within": { borderColor: "primary.main" },
-          }}
+          sx={{ px: 1, py: 1, borderTop: 1, borderColor: "divider" }}
+          onDragOver={(event: React.DragEvent) => event.preventDefault()}
+          onDrop={handleDrop}
         >
+          {/* Pending files chips */}
+          {pendingFiles.length > 0 && (
+            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.5 }}>
+              {pendingFiles.map((pendingFile, index) => (
+                <Chip
+                  key={index}
+                  label={pendingFile.file.name}
+                  size="small"
+                  onDelete={() => removeFile(index)}
+                  avatar={
+                    pendingFile.previewUrl ? (
+                      <Box
+                        component="img"
+                        src={pendingFile.previewUrl}
+                        sx={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: "50%",
+                          objectFit: "cover",
+                        }}
+                      />
+                    ) : undefined
+                  }
+                  sx={{ maxWidth: 180, fontSize: 11 }}
+                />
+              ))}
+            </Box>
+          )}
           <Box
-            component="textarea"
-            ref={textareaRef}
-            value={input}
-            onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
-              setInput(event.target.value)
-            }
-            onKeyDown={handleKeyDown}
-            onInput={handleInput}
-            onPaste={handlePaste}
-            placeholder={
-              conversationId
-                ? "Type a message..."
-                : "Start a new conversation..."
-            }
-            disabled={streaming}
-            rows={1}
             sx={{
-              flex: 1,
-              border: "none",
-              outline: "none",
-              bgcolor: "transparent",
-              color: "text.primary",
-              fontSize: "0.8125rem",
-              fontFamily: "inherit",
-              lineHeight: 1.5,
-              resize: "none",
-              overflow: "auto",
+              display: "flex",
+              alignItems: "flex-end",
+              gap: 0.5,
+              bgcolor: "surface2",
+              borderRadius: 1.5,
+              border: 1,
+              borderColor: "divider",
+              px: 1,
               py: 0.5,
-              "&::placeholder": { color: "text.secondary", opacity: 1 },
-            }}
-          />
-          <input
-            type="file"
-            ref={fileInputRef}
-            multiple
-            onChange={handleFileChange}
-            style={{ display: "none" }}
-          />
-          <IconButton
-            size="small"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={streaming}
-            sx={{
-              width: 28,
-              height: 28,
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
+              "&:focus-within": { borderColor: "primary.main" },
             }}
           >
-            <AttachFileRounded sx={{ fontSize: 16 }} />
-          </IconButton>
-          <IconButton
-            size="small"
-            color="primary"
-            onClick={handleSend}
-            disabled={uploading || streaming || !hasContent}
-            sx={{ width: 28, height: 28 }}
-          >
-            <SendRounded sx={{ fontSize: 16 }} />
-          </IconButton>
+            <Box
+              component="textarea"
+              ref={textareaRef}
+              value={input}
+              onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                setInput(event.target.value)
+              }
+              onKeyDown={handleKeyDown}
+              onInput={handleInput}
+              onPaste={handlePaste}
+              placeholder={
+                conversationId
+                  ? "Type a message..."
+                  : "Start a new conversation..."
+              }
+              disabled={streaming}
+              rows={1}
+              sx={{
+                flex: 1,
+                border: "none",
+                outline: "none",
+                bgcolor: "transparent",
+                color: "text.primary",
+                fontSize: "0.8125rem",
+                fontFamily: "inherit",
+                lineHeight: 1.5,
+                resize: "none",
+                overflow: "auto",
+                py: 0.5,
+                "&::placeholder": { color: "text.secondary", opacity: 1 },
+              }}
+            />
+            <input
+              type="file"
+              ref={fileInputRef}
+              multiple
+              onChange={handleFileChange}
+              style={{ display: "none" }}
+            />
+            <IconButton
+              size="small"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={streaming}
+              sx={{
+                width: 28,
+                height: 28,
+                color: "text.secondary",
+                "&:hover": { color: "primary.main" },
+              }}
+            >
+              <AttachFileRounded sx={{ fontSize: 16 }} />
+            </IconButton>
+            <IconButton
+              size="small"
+              color="primary"
+              onClick={handleSend}
+              disabled={uploading || streaming || !hasContent}
+              sx={{ width: 28, height: 28 }}
+            >
+              <SendRounded sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Box>
+          {uploading && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ mt: 0.5, display: "block" }}
+            >
+              Uploading...
+            </Typography>
+          )}
         </Box>
-        {uploading && (
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ mt: 0.5, display: "block" }}
-          >
-            Uploading...
-          </Typography>
-        )}
-      </Box>
+      )}
     </Box>
   );
 }
