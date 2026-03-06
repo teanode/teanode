@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
 import Collapse from "@mui/material/Collapse";
@@ -7,7 +13,6 @@ import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
-import CircularProgress from "@mui/material/CircularProgress";
 import FormControl from "@mui/material/FormControl";
 import InputLabel from "@mui/material/InputLabel";
 import InputAdornment from "@mui/material/InputAdornment";
@@ -199,24 +204,18 @@ function shiftRange(
   direction: -1 | 1,
 ): { start: dayjs.Dayjs; end: dayjs.Dayjs } {
   const unitMap: Record<IntervalType, dayjs.ManipulateType> = {
-    hour: "day",
-    day: "month",
-    week: "month",
-    month: "year",
+    hour: "hour",
+    day: "day",
+    week: "week",
+    month: "month",
     year: "year",
   };
-  const amountMap: Record<IntervalType, number> = {
-    hour: 1,
-    day: 1,
-    week: 3,
-    month: 1,
-    year: 5,
-  };
   const unit = unitMap[interval];
-  const amount = amountMap[interval] * direction;
+  const total = current.end.diff(current.start, unit);
+  const shift = Math.max(1, Math.round(total / 3)) * direction;
   return {
-    start: current.start.add(amount, unit),
-    end: current.end.add(amount, unit),
+    start: current.start.add(shift, unit),
+    end: current.end.add(shift, unit),
   };
 }
 
@@ -318,6 +317,34 @@ export default function SettingsUsagePage() {
   const [entries, setEntries] = useState<UsageEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const chartBoxRef = useRef<HTMLDivElement>(null);
+
+  const handleShift = useCallback(
+    (direction: -1 | 1) => {
+      const el = chartBoxRef.current;
+      setRange((r) => shiftRange(interval, r, direction));
+      if (el) {
+        const offset = direction === -1 ? 30 : -30;
+        el.style.transition = "transform 150ms ease-in, opacity 150ms ease-in";
+        el.style.transform = `translateX(${offset}%)`;
+        el.style.opacity = "0.1";
+        setTimeout(() => {
+          el.style.transition = "none";
+          el.style.transform = `translateX(${-offset}%)`;
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              el.style.transition =
+                "transform 200ms ease-out, opacity 200ms ease-out";
+              el.style.transform = "translateX(0)";
+              el.style.opacity = "1";
+            });
+          });
+        }, 150);
+      }
+    },
+    [interval],
+  );
 
   const [metric, setMetric] = useState<MetricType>("estimatedCost");
   const [pricing, setPricing] = useState<PricingConfig>(loadPricing);
@@ -788,52 +815,45 @@ export default function SettingsUsagePage() {
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, my: 4 }}>
             <IconButton
               size="small"
-              onClick={() => setRange((r) => shiftRange(interval, r, -1))}
+              onClick={() => handleShift(-1)}
               sx={{ flexShrink: 0 }}
             >
               <ChevronLeftIcon fontSize="small" />
             </IconButton>
             <Box
-              sx={{ flex: 1, minWidth: 0, height: 300, position: "relative" }}
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                height: 300,
+                overflow: "hidden",
+              }}
             >
-              {loading && (
-                <Box
-                  sx={{
-                    position: "absolute",
-                    inset: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    zIndex: 1,
-                  }}
-                >
-                  <CircularProgress size={24} />
-                </Box>
-              )}
-              {!loading && xLabels.length === 0 ? (
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                  }}
-                >
-                  <Typography variant="caption" color="text.secondary">
-                    {t("usage.noData")}
-                  </Typography>
-                </Box>
-              ) : (
-                <ReactECharts
-                  option={chartOption}
-                  style={{ height: 300, opacity: loading ? 0.3 : 1 }}
-                  notMerge
-                />
-              )}
+              <Box ref={chartBoxRef} sx={{ height: "100%" }}>
+                {xLabels.length === 0 && !loading ? (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      height: "100%",
+                    }}
+                  >
+                    <Typography variant="caption" color="text.secondary">
+                      {t("usage.noData")}
+                    </Typography>
+                  </Box>
+                ) : (
+                  <ReactECharts
+                    option={chartOption}
+                    style={{ height: 300 }}
+                    notMerge
+                  />
+                )}
+              </Box>
             </Box>
             <IconButton
               size="small"
-              onClick={() => setRange((r) => shiftRange(interval, r, 1))}
+              onClick={() => handleShift(1)}
               sx={{ flexShrink: 0 }}
               disabled={!range.end.isBefore(dayjs())}
             >
