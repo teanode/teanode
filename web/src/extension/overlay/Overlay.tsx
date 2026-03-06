@@ -83,9 +83,15 @@ export function Overlay() {
   });
 
   // --- Tab binding state ---
-  const [boundTab, setBoundTab] = useState<BoundTab | null>(null);
+  const [boundTab, setBoundTabState] = useState<BoundTab | null>(null);
   const boundTabRef = useRef<BoundTab | null>(null);
+  // Keep ref in sync with state for render, but also update ref eagerly
+  // in setBoundTab() so event handlers see the value immediately.
   boundTabRef.current = boundTab;
+  const setBoundTab = useCallback((tab: BoundTab | null) => {
+    boundTabRef.current = tab;
+    setBoundTabState(tab);
+  }, []);
 
   // --- CDP relay state ---
   const [cdpState, setCdpState] = useState<CdpState>("detached");
@@ -430,10 +436,10 @@ export function Overlay() {
       if (typeof p.tabId === "number" && tabId && p.tabId !== tabId) return;
 
       if (!tabId) {
-        await sendRpc("tab.commandResult", {
-          requestId: p.requestId,
-          error: "no tab bound",
-        }).catch(() => {});
+        // Don't respond with an error — another overlay instance on a
+        // different tab may hold the binding and will respond instead.
+        // If nobody responds, the server-side context timeout cancels
+        // the pending call.
         return;
       }
 
