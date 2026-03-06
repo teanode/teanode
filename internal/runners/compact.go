@@ -166,6 +166,29 @@ func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxCh
 	return result
 }
 
+// truncateAllToolResults truncates all tool results in the message list, including
+// recent ones. Used as a last resort when the context is still too large after
+// normal compression.
+func truncateAllToolResults(messages []providers.ChatMessage, maxChars int) []providers.ChatMessage {
+	result := make([]providers.ChatMessage, len(messages))
+	copy(result, messages)
+	hardLimitChars := maxChars * defaultHardClearToolMultiplier
+	for index := range result {
+		text, ok := result[index].Content.(string)
+		if !ok || result[index].Role != "tool" {
+			continue
+		}
+		if maxChars > 0 && len(text) > hardLimitChars {
+			result[index].Content = defaultHardClearedToolPlaceholder
+			continue
+		}
+		if maxChars > 0 && len(text) > maxChars {
+			result[index].Content = trimToolResultText(text, maxChars)
+		}
+	}
+	return result
+}
+
 // findKeepBoundary walks backward from the target split point to find an index
 // where we can safely split without breaking tool call/result pairs.
 func findKeepBoundary(messages []providers.ChatMessage, minKeep int) int {

@@ -24,6 +24,17 @@ import (
 	"github.com/teanode/teanode/internal/util/security"
 )
 
+const maxContextRetries = 2
+
+func isContextLengthError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "context_length_exceeded") ||
+		strings.Contains(msg, "maximum context length") ||
+		strings.Contains(msg, "tokens exceed") ||
+		strings.Contains(msg, "too many tokens") ||
+		strings.Contains(msg, "input too long")
+}
+
 // Runner orchestrates: load conversation -> build prompt -> call LLM -> save response.
 type Runner struct {
 	ID               string
@@ -159,6 +170,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 	var stopReason string
 	contextWindow := self.resolveContextWindow(ctx)
 
+	var contextRetries int
 	for round := 0; round < 250; round++ {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -205,8 +217,24 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		// Call LLM with streaming.
 		stream, err := provider.ChatCompletionStream(ctx, request)
 		if err != nil {
+			if isContextLengthError(err) && contextRetries < maxContextRetries {
+				contextRetries++
+				log.Debugf("context length exceeded, compacting and retrying (attempt %d)", contextRetries)
+				llmMessages, compactErr := self.compressContext(ctx, llmMessages, toolDefinitions, contextCompressionLimits{
+					CompressionThreshold: 0.0,
+					MinKeepMessages:      6,
+					MinKeepRecentTokens:  4000,
+				})
+				if compactErr != nil {
+					return nil, fmt.Errorf("calling LLM: %w (auto-compact also failed: %v)", err, compactErr)
+				}
+				llmMessages = truncateAllToolResults(llmMessages, 2000)
+				request.Messages = llmMessages
+				continue
+			}
 			return nil, fmt.Errorf("calling LLM: %w", err)
 		}
+		contextRetries = 0
 
 		// Collect response + tool call deltas.
 		var textBuilder strings.Builder
