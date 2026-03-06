@@ -11,6 +11,7 @@ import type {
 } from "../shared/types";
 
 type EventHandler = (event: RpcEventFrame) => void;
+type ConnectionStateHandler = (connected: boolean) => void;
 
 let ws: WebSocket | null = null;
 let connectPromise: Promise<void> | null = null;
@@ -19,8 +20,10 @@ const pending = new Map<
   { resolve: (r: RpcResponseFrame) => void; reject: (e: Error) => void }
 >();
 const eventHandlers = new Set<EventHandler>();
+const connectionStateHandlers = new Set<ConnectionStateHandler>();
 let idCounter = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let wasConnected = false;
 
 async function getConfig(): Promise<{ url: string; token: string }> {
   const stored = await chrome.storage.local.get(["relayUrl", "relayToken"]);
@@ -92,11 +95,30 @@ export async function ensureConnected(): Promise<void> {
       ws = null;
       for (const [, p] of pending) p.reject(new Error("WS disconnected"));
       pending.clear();
+      if (wasConnected) {
+        wasConnected = false;
+        for (const handler of connectionStateHandlers) {
+          try {
+            handler(false);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
       scheduleReconnect();
     };
     socket.onerror = () => {
       /* onclose will fire */
     };
+
+    wasConnected = true;
+    for (const handler of connectionStateHandlers) {
+      try {
+        handler(true);
+      } catch {
+        /* ignore */
+      }
+    }
   })();
 
   try {
@@ -155,6 +177,15 @@ export function onEvent(handler: EventHandler): () => void {
   eventHandlers.add(handler);
   return () => {
     eventHandlers.delete(handler);
+  };
+}
+
+export function onConnectionStateChange(
+  handler: ConnectionStateHandler,
+): () => void {
+  connectionStateHandlers.add(handler);
+  return () => {
+    connectionStateHandlers.delete(handler);
   };
 }
 

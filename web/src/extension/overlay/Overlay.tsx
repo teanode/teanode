@@ -18,7 +18,13 @@ import Tooltip from "@mui/material/Tooltip";
 import { keyframes } from "@mui/material/styles";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import { sendRpc, onEvent, ensureConnected, disconnect } from "./rpc";
+import {
+  sendRpc,
+  onEvent,
+  ensureConnected,
+  disconnect,
+  onConnectionStateChange,
+} from "./rpc";
 
 dayjs.extend(relativeTime);
 import { ChatView } from "./ChatView";
@@ -87,6 +93,9 @@ export function Overlay() {
   // --- Displacement warning ---
   const [displaced, setDisplaced] = useState(false);
 
+  // --- WS reconnection tracking ---
+  const [wsGeneration, setWsGeneration] = useState(0);
+
   // --- Display settings ---
   const [showToolCalls, setShowToolCalls] = useState(false);
   const [showTokenUsage, setShowTokenUsage] = useState(false);
@@ -151,6 +160,15 @@ export function Overlay() {
         setError(String(err));
       }
     })();
+  }, []);
+
+  // Track WS reconnections so auto-attach re-fires.
+  useEffect(() => {
+    return onConnectionStateChange((isConnected) => {
+      if (isConnected) {
+        setWsGeneration((g) => g + 1);
+      }
+    });
   }, []);
 
   // Load agents + apply defaults.
@@ -244,6 +262,8 @@ export function Overlay() {
   conversationIdRef.current = conversationId;
 
   // --- Auto-attach: bind the current tab when agent+conversation are ready ---
+  // wsGeneration is included so we re-attach after a WS reconnection
+  // (the server cleans up attachments when a connection drops).
   useEffect(() => {
     if (!connected || !agentId || !conversationId) return;
     if (typeof chrome === "undefined" || !chrome.tabs) return;
@@ -285,7 +305,8 @@ export function Overlay() {
       sendRpc("tab.detach", { agentId, conversationId }).catch(() => {});
       setBoundTab(null);
     };
-  }, [connected, agentId, conversationId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, agentId, conversationId, wsGeneration]);
 
   // --- Query CDP state when bound tab is known ---
   useEffect(() => {

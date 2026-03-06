@@ -92,15 +92,17 @@ func (self *TabBroker) Attach(attachment Attachment, connectionId string) *Attac
 }
 
 // Detach removes an attachment. Only the owning connection may detach.
-func (self *TabBroker) Detach(userId, agentId, conversationId, connectionId string) {
+// Returns true if the attachment was actually removed.
+func (self *TabBroker) Detach(userId, agentId, conversationId, connectionId string) bool {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	key := attachmentKey(userId, agentId, conversationId)
 	existing := self.attachments[key]
 	if existing == nil || existing.connectionId != connectionId {
-		return
+		return false
 	}
 	delete(self.attachments, key)
+	return true
 }
 
 // HasAttachment checks existence.

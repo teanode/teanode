@@ -122,13 +122,17 @@ func TestDetachOnlyOwner(t *testing.T) {
 	}, "conn1")
 
 	// Wrong connection can't detach.
-	broker.Detach("u1", "a1", "c1", "conn-other")
+	if broker.Detach("u1", "a1", "c1", "conn-other") {
+		t.Fatal("expected Detach to return false for wrong connection")
+	}
 	if !broker.HasAttachment("u1", "a1", "c1") {
 		t.Fatal("expected attachment to survive wrong-connection detach")
 	}
 
 	// Correct connection can detach.
-	broker.Detach("u1", "a1", "c1", "conn1")
+	if !broker.Detach("u1", "a1", "c1", "conn1") {
+		t.Fatal("expected Detach to return true for correct connection")
+	}
 	if broker.HasAttachment("u1", "a1", "c1") {
 		t.Fatal("expected attachment to be removed")
 	}

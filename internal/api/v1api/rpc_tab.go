@@ -92,15 +92,19 @@ func (self *webSocketConnection) handleTabDetach(frame requestFrame) {
 	broker := self.api.coordinator.TabBroker()
 	connectionId := self.connectionId()
 
-	broker.CancelPendingForAttachment(userId, params.AgentID, params.ConversationID)
-	broker.Detach(userId, params.AgentID, params.ConversationID, connectionId)
+	// Only cancel pending calls and broadcast if this connection actually
+	// owned the attachment. This prevents a stale connection's cleanup from
+	// disrupting a newer attachment owned by a different connection.
+	if broker.Detach(userId, params.AgentID, params.ConversationID, connectionId) {
+		broker.CancelPendingForAttachment(userId, params.AgentID, params.ConversationID)
 
-	self.api.pubsub.Broadcast(pubsub.EventTypeTabAttachment, map[string]interface{}{
-		"action":         "detached",
-		"userId":         userId,
-		"agentId":        params.AgentID,
-		"conversationId": params.ConversationID,
-	})
+		self.api.pubsub.Broadcast(pubsub.EventTypeTabAttachment, map[string]interface{}{
+			"action":         "detached",
+			"userId":         userId,
+			"agentId":        params.AgentID,
+			"conversationId": params.ConversationID,
+		})
+	}
 
 	self.sendResponse(frame.ID, nil)
 }
