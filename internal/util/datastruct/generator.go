@@ -6,6 +6,7 @@ import (
 	"go/format"
 	"os"
 	"reflect"
+	"sort"
 	"time"
 )
 
@@ -16,7 +17,7 @@ type Generator struct {
 	entries          []generatorEntry
 	getterEntries    []getterEntry
 	needsDatastruct  bool
-	needsTime        bool
+	externalImports  map[string]string // pkgPath -> package name
 }
 
 type generatorEntry struct {
@@ -136,9 +137,7 @@ func (self *Generator) GenerateGetters(value interface{}) {
 
 		elementType := field.Type.Elem()
 
-		if elementType == timeType {
-			self.needsTime = true
-		}
+		self.collectExternalImports(elementType, localPkgPath)
 
 		entry.fields = append(entry.fields, getterField{
 			name:       field.Name,
@@ -150,6 +149,24 @@ func (self *Generator) GenerateGetters(value interface{}) {
 	self.getterEntries = append(self.getterEntries, entry)
 }
 
+// collectExternalImports records the import path for any named type that lives
+// outside localPkgPath. It recurses into slice/map/pointer element types.
+func (self *Generator) collectExternalImports(target reflect.Type, localPkgPath string) {
+	if target.Name() != "" && target.PkgPath() != "" && target.PkgPath() != localPkgPath {
+		if self.externalImports == nil {
+			self.externalImports = map[string]string{}
+		}
+		self.externalImports[target.PkgPath()] = target.Name()
+	}
+	switch target.Kind() {
+	case reflect.Slice, reflect.Ptr:
+		self.collectExternalImports(target.Elem(), localPkgPath)
+	case reflect.Map:
+		self.collectExternalImports(target.Key(), localPkgPath)
+		self.collectExternalImports(target.Elem(), localPkgPath)
+	}
+}
+
 // MustWriteFile formats and writes the generated code to filename. It panics
 // on any error.
 func (self *Generator) MustWriteFile(filename string) {
@@ -159,12 +176,13 @@ func (self *Generator) MustWriteFile(filename string) {
 	buffer.WriteString(fmt.Sprintf("package %s\n\n", self.packageName))
 
 	var imports []string
-	if self.needsTime {
-		imports = append(imports, `"time"`)
+	for pkgPath := range self.externalImports {
+		imports = append(imports, fmt.Sprintf(`"%s"`, pkgPath))
 	}
 	if self.needsDatastruct {
 		imports = append(imports, fmt.Sprintf(`"%s"`, self.datastructImport))
 	}
+	sort.Strings(imports)
 	switch len(imports) {
 	case 1:
 		buffer.WriteString(fmt.Sprintf("import %s\n\n", imports[0]))
