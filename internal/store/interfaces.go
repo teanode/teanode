@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"io"
-	"time"
 
 	"github.com/teanode/teanode/internal/models"
 )
@@ -28,7 +27,7 @@ type Transaction interface {
 	MediaOperation
 	SkillOperation
 	TodoOperation
-	ModelUsageOperation
+	UsageOperation
 }
 
 type ConfigurationOperation interface {
@@ -137,8 +136,7 @@ type SkillOperation interface {
 	DeleteSkill(ctx context.Context, skillId string, options *Option) error
 }
 
-type ModelUsageOperation interface {
-	CreateModelUsageEvent(ctx context.Context, event *models.ModelUsageEvent, options *Option) error
-	UpsertModelUsageStatEntry(ctx context.Context, event *models.ModelUsageEvent, intervalType models.IntervalType, startedAt time.Time, options *Option) error
-	QueryModelUsageStatEntries(ctx context.Context, query ModelUsageStatQuery, options *Option) ([]*models.ModelUsageStatEntry, error)
+type UsageOperation interface {
+	UpsertUsage(ctx context.Context, usage *models.Usage, options *Option) error
+	QueryUsages(ctx context.Context, query UsageQuery, options *Option) ([]*models.Usage, error)
 }

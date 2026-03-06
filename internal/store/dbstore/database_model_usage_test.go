@@ -10,98 +10,56 @@ import (
 	"github.com/teanode/teanode/internal/util/security"
 )
 
-func TestCreateModelUsageEventDedup(t *testing.T) {
-	s := openDatabaseStore(t)
-
-	messageID := security.NewULID()
-	event := &models.ModelUsageEvent{
-		ID:               security.NewULID(),
-		UserID:           security.NewULID(),
-		ConversationID:   security.NewULID(),
-		MessageID:        messageID,
-		RunID:            security.NewULID(),
-		ProviderName:     "anthropic",
-		ModelName:        "claude-sonnet-4-5-20250514",
-		PromptTokens:     100,
-		CompletionTokens: 50,
-		TotalTokens:      150,
-		CreatedAt:        time.Now(),
-	}
-
-	// First insert should succeed.
-	err := s.Transaction(context.Background(), func(ctx context.Context, tx store.Transaction) error {
-		return tx.CreateModelUsageEvent(ctx, event, nil)
-	})
-	if err != nil {
-		t.Fatalf("first insert failed: %v", err)
-	}
-
-	// Duplicate insert (same message_id) should succeed (ON CONFLICT DO NOTHING).
-	dupEvent := *event
-	dupEvent.ID = security.NewULID()
-	dupEvent.PromptTokens = 999 // different values
-	err = s.Transaction(context.Background(), func(ctx context.Context, tx store.Transaction) error {
-		return tx.CreateModelUsageEvent(ctx, &dupEvent, nil)
-	})
-	if err != nil {
-		t.Fatalf("duplicate insert should not error: %v", err)
-	}
-}
-
-func TestUpsertModelUsageStatEntryAdditivity(t *testing.T) {
+func TestUpsertUsageAdditivity(t *testing.T) {
 	s := openDatabaseStore(t)
 
 	userID := security.NewULID()
 	startedAt := time.Date(2026, 3, 5, 14, 0, 0, 0, time.UTC)
 
-	event1 := &models.ModelUsageEvent{
-		ID:               security.NewULID(),
+	usage1 := &models.Usage{
 		UserID:           userID,
-		ConversationID:   security.NewULID(),
-		MessageID:        security.NewULID(),
-		RunID:            security.NewULID(),
 		ProviderName:     "anthropic",
 		ModelName:        "claude-sonnet-4-5-20250514",
+		IntervalType:     models.IntervalHourly,
+		StartedAt:        startedAt,
 		PromptTokens:     100,
 		CompletionTokens: 50,
 		TotalTokens:      150,
-		CreatedAt:        time.Now(),
+		RequestCount:     1,
 	}
 
-	event2 := &models.ModelUsageEvent{
-		ID:               security.NewULID(),
+	usage2 := &models.Usage{
 		UserID:           userID,
-		ConversationID:   security.NewULID(),
-		MessageID:        security.NewULID(),
-		RunID:            security.NewULID(),
 		ProviderName:     "anthropic",
 		ModelName:        "claude-sonnet-4-5-20250514",
+		IntervalType:     models.IntervalHourly,
+		StartedAt:        startedAt,
 		PromptTokens:     200,
 		CompletionTokens: 100,
 		TotalTokens:      300,
-		CreatedAt:        time.Now(),
+		RequestCount:     1,
 	}
 
-	// Upsert first event.
+	// Upsert first usage.
 	err := s.Transaction(context.Background(), func(ctx context.Context, tx store.Transaction) error {
-		return tx.UpsertModelUsageStatEntry(ctx, event1, models.IntervalHourly, startedAt, nil)
+		return tx.UpsertUsage(ctx, usage1, nil)
 	})
 	if err != nil {
 		t.Fatalf("first upsert failed: %v", err)
 	}
 
-	// Upsert second event (should add to existing).
+	// Upsert second usage (should add to existing).
 	err = s.Transaction(context.Background(), func(ctx context.Context, tx store.Transaction) error {
-		return tx.UpsertModelUsageStatEntry(ctx, event2, models.IntervalHourly, startedAt, nil)
+		return tx.UpsertUsage(ctx, usage2, nil)
 	})
 	if err != nil {
 		t.Fatalf("second upsert failed: %v", err)
 	}
 
 	// Query and verify additivity.
-	var entries []*models.ModelUsageStatEntry
+	var entries []*models.Usage
 	err = s.Transaction(context.Background(), func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.QueryModelUsageStatEntries(ctx, store.ModelUsageStatQuery{
+		result, err := tx.QueryUsages(ctx, store.UsageQuery{
 			UserID:       userID,
 			IntervalType: models.IntervalHourly,
 			StartedAt:    startedAt,
@@ -134,7 +92,7 @@ func TestUpsertModelUsageStatEntryAdditivity(t *testing.T) {
 	}
 }
 
-func TestQueryModelUsageStatEntriesFilters(t *testing.T) {
+func TestQueryUsagesFilters(t *testing.T) {
 	s := openDatabaseStore(t)
 
 	userID := security.NewULID()
@@ -146,16 +104,18 @@ func TestQueryModelUsageStatEntriesFilters(t *testing.T) {
 		if modelName == "gpt-4o" {
 			providerName = "openai"
 		}
-		event := &models.ModelUsageEvent{
-			ID:           security.NewULID(),
+		usage := &models.Usage{
 			UserID:       userID,
 			ProviderName: providerName,
 			ModelName:    modelName,
+			IntervalType: models.IntervalDaily,
+			StartedAt:    startedAt,
 			PromptTokens: 100,
 			TotalTokens:  100,
+			RequestCount: 1,
 		}
 		err := s.Transaction(context.Background(), func(ctx context.Context, tx store.Transaction) error {
-			return tx.UpsertModelUsageStatEntry(ctx, event, models.IntervalDaily, startedAt, nil)
+			return tx.UpsertUsage(ctx, usage, nil)
 		})
 		if err != nil {
 			t.Fatalf("upsert %s failed: %v", modelName, err)
@@ -163,9 +123,9 @@ func TestQueryModelUsageStatEntriesFilters(t *testing.T) {
 	}
 
 	// Query all.
-	var all []*models.ModelUsageStatEntry
+	var all []*models.Usage
 	err := s.Transaction(context.Background(), func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.QueryModelUsageStatEntries(ctx, store.ModelUsageStatQuery{
+		result, err := tx.QueryUsages(ctx, store.UsageQuery{
 			UserID:       userID,
 			IntervalType: models.IntervalDaily,
 			StartedAt:    startedAt,
@@ -186,9 +146,9 @@ func TestQueryModelUsageStatEntriesFilters(t *testing.T) {
 
 	// Query filtered by provider.
 	providerFilter := "anthropic"
-	var filtered []*models.ModelUsageStatEntry
+	var filtered []*models.Usage
 	err = s.Transaction(context.Background(), func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.QueryModelUsageStatEntries(ctx, store.ModelUsageStatQuery{
+		result, err := tx.QueryUsages(ctx, store.UsageQuery{
 			UserID:       userID,
 			IntervalType: models.IntervalDaily,
 			StartedAt:    startedAt,

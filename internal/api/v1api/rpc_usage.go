@@ -50,7 +50,7 @@ func (self *webSocketConnection) handleUsageStatEntries(frame requestFrame) {
 		queryUserID = *parameters.UserID
 	}
 
-	query := store.ModelUsageStatQuery{
+	query := store.UsageQuery{
 		UserID:       queryUserID,
 		IntervalType: intervalType,
 		StartedAt:    startedAt,
@@ -59,9 +59,9 @@ func (self *webSocketConnection) handleUsageStatEntries(frame requestFrame) {
 		ModelName:    parameters.ModelName,
 	}
 
-	var entries []*models.ModelUsageStatEntry
+	var entries []*models.Usage
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		result, err := tx.QueryModelUsageStatEntries(ctx, query, nil)
+		result, err := tx.QueryUsages(ctx, query, nil)
 		if err != nil {
 			return err
 		}

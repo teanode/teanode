@@ -10,38 +10,41 @@ const (
 	IntervalDaily  IntervalType = "daily"
 )
 
-// ModelUsageEvent represents a single LLM provider request captured at
-// the instrumentation point in runner.go.
-type ModelUsageEvent struct {
-	ID                  string    `json:"id"`
-	UserID              string    `json:"userId"`
-	ConversationID      string    `json:"conversationId"`
-	MessageID           string    `json:"messageId"`
-	RunID               string    `json:"runId"`
-	ProviderName        string    `json:"providerName"`
-	ModelName           string    `json:"modelName"`
-	PromptTokens        uint64    `json:"promptTokens"`
-	CompletionTokens    uint64    `json:"completionTokens"`
-	CacheCreationTokens uint64    `json:"cacheCreationTokens"`
-	CacheReadTokens     uint64    `json:"cacheReadTokens"`
-	TotalTokens         uint64    `json:"totalTokens"`
-	CreatedAt           time.Time `json:"createdAt"`
+// Usage represents a pre-aggregated usage bucket for a specific
+// provider/model combination at a given interval granularity.
+type Usage struct {
+	UserID              string       `json:"userId" msgpack:"userId"`
+	ProviderName        string       `json:"providerName" msgpack:"providerName"`
+	ModelName           string       `json:"modelName" msgpack:"modelName"`
+	IntervalType        IntervalType `json:"intervalType" msgpack:"intervalType"`
+	StartedAt           time.Time    `json:"startedAt" msgpack:"startedAt"`
+	PromptTokens        uint64       `json:"promptTokens" msgpack:"promptTokens"`
+	CompletionTokens    uint64       `json:"completionTokens" msgpack:"completionTokens"`
+	CacheCreationTokens uint64       `json:"cacheCreationTokens" msgpack:"cacheCreationTokens"`
+	CacheReadTokens     uint64       `json:"cacheReadTokens" msgpack:"cacheReadTokens"`
+	TotalTokens         uint64       `json:"totalTokens" msgpack:"totalTokens"`
+	RequestCount        uint64       `json:"requestCount" msgpack:"requestCount"`
 }
 
-// ModelUsageStatEntry represents a pre-aggregated usage bucket for a
-// specific provider/model combination at a given interval granularity.
-type ModelUsageStatEntry struct {
-	UserID              string       `json:"userId"`
-	ProviderName        string       `json:"providerName"`
-	ModelName           string       `json:"modelName"`
-	IntervalType        IntervalType `json:"intervalType"`
-	StartedAt           time.Time    `json:"startedAt"`
-	PromptTokens        uint64       `json:"promptTokens"`
-	CompletionTokens    uint64       `json:"completionTokens"`
-	CacheCreationTokens uint64       `json:"cacheCreationTokens"`
-	CacheReadTokens     uint64       `json:"cacheReadTokens"`
-	TotalTokens         uint64       `json:"totalTokens"`
-	RequestCount        uint64       `json:"requestCount"`
+// UsageKey uniquely identifies a usage bucket.
+// StartedAtUnix uses Unix seconds to ensure safe comparison after serialization.
+type UsageKey struct {
+	UserID        string
+	ProviderName  string
+	ModelName     string
+	IntervalType  IntervalType
+	StartedAtUnix int64
+}
+
+// Key returns the UsageKey for this Usage entry.
+func (u *Usage) Key() UsageKey {
+	return UsageKey{
+		UserID:        u.UserID,
+		ProviderName:  u.ProviderName,
+		ModelName:     u.ModelName,
+		IntervalType:  u.IntervalType,
+		StartedAtUnix: u.StartedAt.Unix(),
+	}
 }
 
 // BucketStartedAt truncates a time.Time to the given interval boundary

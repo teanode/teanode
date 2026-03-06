@@ -354,9 +354,9 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		}
 		history = append(history, &assistantMessage)
 
-		// Record usage event and upsert stat entries.
+		// Record usage stats (hourly + daily).
 		if usage != nil {
-			self.recordModelUsage(ctx, userId, assistantMessage.ID, providerName, responseModelName, usage)
+			self.recordModelUsage(ctx, userId, providerName, responseModelName, usage)
 		}
 
 		// If no tool calls, we're done.
@@ -933,36 +933,48 @@ func conversationMessageContentBlocks(message models.ConversationMessage) []map[
 	}
 }
 
-// recordModelUsage writes a ModelUsageEvent and upserts hourly+daily stat entries.
+// recordModelUsage upserts hourly+daily usage stat entries directly.
 // Errors are logged but not propagated to avoid failing a successful run.
-func (self *Runner) recordModelUsage(ctx context.Context, userId, messageID, providerName, modelName string, usage *providers.UsageInformation) {
+func (self *Runner) recordModelUsage(ctx context.Context, userId, providerName, modelName string, usage *providers.UsageInformation) {
 	now := time.Now()
-	event := &models.ModelUsageEvent{
-		ID:                  security.NewULID(),
-		UserID:              userId,
-		ConversationID:      self.ConversationID,
-		MessageID:           messageID,
-		RunID:               self.ID,
-		ProviderName:        providerName,
-		ModelName:           modelName,
-		PromptTokens:        uint64(usage.PromptTokens),
-		CompletionTokens:    uint64(usage.CompletionTokens),
-		CacheCreationTokens: uint64(usage.CacheCreationInputTokens),
-		CacheReadTokens:     uint64(usage.CacheReadInputTokens),
-		TotalTokens:         uint64(usage.TotalTokens),
-		CreatedAt:           now,
-	}
 	loc := time.Local
+	promptTokens := uint64(usage.PromptTokens)
+	completionTokens := uint64(usage.CompletionTokens)
+	cacheCreationTokens := uint64(usage.CacheCreationInputTokens)
+	cacheReadTokens := uint64(usage.CacheReadInputTokens)
+	totalTokens := uint64(usage.TotalTokens)
+
 	err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		if err := transaction.CreateModelUsageEvent(ctx, event, nil); err != nil {
-			return err
-		}
 		hourStart := models.BucketStartedAt(now, models.IntervalHourly, loc)
-		if err := transaction.UpsertModelUsageStatEntry(ctx, event, models.IntervalHourly, hourStart, nil); err != nil {
+		if err := transaction.UpsertUsage(ctx, &models.Usage{
+			UserID:              userId,
+			ProviderName:        providerName,
+			ModelName:           modelName,
+			IntervalType:        models.IntervalHourly,
+			StartedAt:           hourStart,
+			PromptTokens:        promptTokens,
+			CompletionTokens:    completionTokens,
+			CacheCreationTokens: cacheCreationTokens,
+			CacheReadTokens:     cacheReadTokens,
+			TotalTokens:         totalTokens,
+			RequestCount:        1,
+		}, nil); err != nil {
 			return err
 		}
 		dayStart := models.BucketStartedAt(now, models.IntervalDaily, loc)
-		if err := transaction.UpsertModelUsageStatEntry(ctx, event, models.IntervalDaily, dayStart, nil); err != nil {
+		if err := transaction.UpsertUsage(ctx, &models.Usage{
+			UserID:              userId,
+			ProviderName:        providerName,
+			ModelName:           modelName,
+			IntervalType:        models.IntervalDaily,
+			StartedAt:           dayStart,
+			PromptTokens:        promptTokens,
+			CompletionTokens:    completionTokens,
+			CacheCreationTokens: cacheCreationTokens,
+			CacheReadTokens:     cacheReadTokens,
+			TotalTokens:         totalTokens,
+			RequestCount:        1,
+		}, nil); err != nil {
 			return err
 		}
 		return nil

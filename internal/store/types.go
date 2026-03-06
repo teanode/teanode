@@ -44,7 +44,7 @@ type MediaListOptions struct {
 	ToolName       *string
 }
 
-type ModelUsageStatQuery struct {
+type UsageQuery struct {
 	UserID       string
 	IntervalType models.IntervalType
 	StartedAt    time.Time
