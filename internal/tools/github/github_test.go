@@ -476,6 +476,65 @@ func TestPullsTool_CreateMissingHead(testing *testing.T) {
 	}
 }
 
+func TestPullsTool_EditAction(testing *testing.T) {
+	runner, calls := mockRunner("Updated PR #42", nil)
+	tool := &pullsTool{binary: "gh", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "edit",
+		"number": 42,
+		"title":  "Updated Title",
+		"body":   "Updated body",
+		"base":   "develop",
+	})
+	result, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"status":"edited"`) {
+		testing.Errorf("expected edited status in result: %s", result)
+	}
+
+	commandArgs := (*calls)[0]
+	foundTitle := false
+	foundBody := false
+	foundBase := false
+	for index, argument := range commandArgs {
+		if argument == "--title" && index+1 < len(commandArgs) && commandArgs[index+1] == "Updated Title" {
+			foundTitle = true
+		}
+		if argument == "--body" && index+1 < len(commandArgs) && commandArgs[index+1] == "Updated body" {
+			foundBody = true
+		}
+		if argument == "--base" && index+1 < len(commandArgs) && commandArgs[index+1] == "develop" {
+			foundBase = true
+		}
+	}
+	if !foundTitle {
+		testing.Errorf("expected '--title Updated Title' in args: %v", commandArgs)
+	}
+	if !foundBody {
+		testing.Errorf("expected '--body Updated body' in args: %v", commandArgs)
+	}
+	if !foundBase {
+		testing.Errorf("expected '--base develop' in args: %v", commandArgs)
+	}
+}
+
+func TestPullsTool_EditMissingNumber(testing *testing.T) {
+	runner, _ := mockRunner("", nil)
+	tool := &pullsTool{binary: "gh", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "edit",
+		"title":  "New Title",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err == nil || !strings.Contains(err.Error(), "number is required") {
+		testing.Errorf("expected 'number is required' error, got: %v", err)
+	}
+}
+
 func TestPullsTool_MergeAction(testing *testing.T) {
 	runner, calls := mockRunner("Merged PR #10", nil)
 	tool := &pullsTool{binary: "gh", runner: runner}

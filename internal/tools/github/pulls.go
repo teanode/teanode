@@ -20,27 +20,27 @@ func (self *pullsTool) Definition() providers.ToolDefinition {
 		Function: providers.FunctionSpec{
 			Name: "github_pulls",
 			Description: "Interact with GitHub pull requests. Actions: list (list PRs), view (get PR details), " +
-				"create (open new PR), comment (add comment), merge (merge PR), diff (get PR diff), " +
-				"checks (view CI status).",
+				"create (open new PR), edit (update title/body/base), comment (add comment), merge (merge PR), " +
+				"diff (get PR diff), checks (view CI status).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"list", "view", "create", "comment", "merge", "diff", "checks"},
+						"enum":        []string{"list", "view", "create", "edit", "comment", "merge", "diff", "checks"},
 						"description": "The pull request action to perform.",
 					},
 					"number": map[string]interface{}{
 						"type":        "integer",
-						"description": "Pull request number (for view, comment, merge, diff, checks actions).",
+						"description": "Pull request number (for view, edit, comment, merge, diff, checks actions).",
 					},
 					"title": map[string]interface{}{
 						"type":        "string",
-						"description": "Pull request title (for create action).",
+						"description": "Pull request title (for create and edit actions).",
 					},
 					"body": map[string]interface{}{
 						"type":        "string",
-						"description": "Pull request body or comment text (for create and comment actions).",
+						"description": "Pull request body (for create and edit actions) or comment text (for comment action).",
 					},
 					"head": map[string]interface{}{
 						"type":        "string",
@@ -48,7 +48,7 @@ func (self *pullsTool) Definition() providers.ToolDefinition {
 					},
 					"base": map[string]interface{}{
 						"type":        "string",
-						"description": "Base branch name (for create action, defaults to repo default branch).",
+						"description": "Base branch name (for create and edit actions, defaults to repo default branch).",
 					},
 					"merge_method": map[string]interface{}{
 						"type":        "string",
@@ -156,6 +156,27 @@ func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string
 			return "", err
 		}
 		return wrapPlainOutput("created", output), nil
+
+	case "edit":
+		if args.Number == 0 {
+			return "", fmt.Errorf("number is required for edit action")
+		}
+		commandArgs := []string{"pr", "edit", strconv.Itoa(args.Number)}
+		if args.Title != "" {
+			commandArgs = append(commandArgs, "--title", args.Title)
+		}
+		if args.Body != "" {
+			commandArgs = append(commandArgs, "--body", args.Body)
+		}
+		if args.Base != "" {
+			commandArgs = append(commandArgs, "--base", args.Base)
+		}
+		appendRepository(&commandArgs, args.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		if err != nil {
+			return "", err
+		}
+		return wrapPlainOutput("edited", output), nil
 
 	case "comment":
 		if args.Number == 0 {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -13,8 +14,10 @@ import (
 	"time"
 
 	"github.com/urfave/cli/v3"
+	"golang.org/x/crypto/acme"
 
 	"github.com/teanode/teanode/internal/api/v1api"
+	"github.com/teanode/teanode/internal/autoacme"
 	"github.com/teanode/teanode/internal/channels/discord"
 	"github.com/teanode/teanode/internal/channels/telegram"
 	"github.com/teanode/teanode/internal/coordinators"
@@ -363,9 +366,26 @@ func NewGatewayCommand() *cli.Command {
 
 			// Create HTTP listener upfront so binding errors surface immediately.
 			address := listenAddress(configuration)
-			httpListener, err := net.Listen("tcp", address)
+			tcpListener, err := net.Listen("tcp", address)
 			if err != nil {
 				return err
+			}
+
+			// When TLS is enabled, wrap the listener with TLS and start AutoACME.
+			var acmeManager *autoacme.Manager
+			var httpListener net.Listener = tcpListener
+
+			tlsEnabled := configuration.Gateway.GetTLS()
+			if tlsEnabled {
+				acmeManager = autoacme.New(openedStore)
+				acmeManager.Start(ctx)
+				defer acmeManager.Close()
+
+				tlsConfiguration := &tls.Config{
+					GetCertificate: acmeManager.GetCertificate,
+					NextProtos:     []string{"h2", "http/1.1", acme.ALPNProto},
+				}
+				httpListener = tls.NewListener(tcpListener, tlsConfiguration)
 			}
 
 			httpServer := &http.Server{
@@ -400,7 +420,11 @@ func NewGatewayCommand() *cli.Command {
 				defer waitGroup.Done()
 				defer close(runningHttp)
 
-				log.Infof("TeaNode gateway listening on %s", address)
+				if tlsEnabled {
+					log.Infof("TeaNode gateway listening on %s (TLS)", address)
+				} else {
+					log.Infof("TeaNode gateway listening on %s", address)
+				}
 				if err := httpServer.Serve(httpListener); err != nil && err != http.ErrServerClosed {
 					log.Errorf("http server exited with error: %v", err)
 				}

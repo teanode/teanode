@@ -8,6 +8,7 @@ type Configuration struct {
 	ModifiedAt *time.Time `json:"modifiedAt,omitempty" yaml:"modifiedAt,omitempty"`
 
 	Gateway          *GatewayConfiguration          `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Certificate      *CertificateConfiguration      `json:"certificate,omitempty" yaml:"certificate,omitempty"`
 	Models           *ModelsConfiguration           `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools            *ToolsConfiguration            `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Integrations     *IntegrationsConfiguration     `json:"integrations,omitempty" yaml:"integrations,omitempty"`
@@ -27,6 +28,17 @@ type GatewayConfiguration struct {
 	Port      *int      `json:"port,omitempty" yaml:"port,omitempty"`
 	Bind      *BindMode `json:"bind,omitempty" yaml:"bind,omitempty"`
 	PublicURL *string   `json:"publicUrl,omitempty" yaml:"publicUrl,omitempty"`
+	TLS       *bool     `json:"tls,omitempty" yaml:"tls,omitempty"`
+}
+
+type CertificateConfiguration struct {
+	ACMEEmail      *string    `json:"acmeEmail,omitempty" yaml:"acmeEmail,omitempty"`
+	ACMEAccountKey *string    `json:"acmeAccountKey,omitempty" yaml:"acmeAccountKey,omitempty"`
+	Domain         *string    `json:"domain,omitempty" yaml:"domain,omitempty"`
+	Certificate    *string    `json:"certificate,omitempty" yaml:"certificate,omitempty"`
+	PrivateKey     *string    `json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
+	IssuedAt       *time.Time `json:"issuedAt,omitempty" yaml:"issuedAt,omitempty"`
+	ExpiresAt      *time.Time `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"`
 }
 
 type ModelsConfiguration struct {

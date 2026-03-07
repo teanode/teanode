@@ -57,7 +57,7 @@ coverage-html: coverage ## Generate HTML coverage report
 	$(GO) tool cover -html=coverage.out -o coverage.html
 
 format: ## Format Go code
-	gofmt -w .
+	find . -name '*.go' -not -path './vendor/*' | xargs gofmt -l -w
 
 lint: ## Run backend lint checks
 	$(GO) vet ./...

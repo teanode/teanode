@@ -2,6 +2,8 @@ package fsstore
 
 import (
 	"context"
+	"time"
+
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -46,7 +48,29 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 	gatewayConfiguration.Port = ptrto.Value(configuration.Gateway.Port)
 	gatewayConfiguration.Bind = ptrto.Trimmed[models.BindMode](configuration.Gateway.Bind)
 	gatewayConfiguration.PublicURL = ptrto.TrimmedString(configuration.Gateway.PublicURL)
+	gatewayConfiguration.TLS = ptrto.Value(configuration.Gateway.TLS)
 	result.Gateway = gatewayConfiguration
+
+	if configuration.Certificate != nil {
+		certificateConfiguration := &models.CertificateConfiguration{
+			ACMEEmail:      ptrto.TrimmedString(configuration.Certificate.ACMEEmail),
+			ACMEAccountKey: ptrto.TrimmedString(configuration.Certificate.ACMEAccountKey),
+			Domain:         ptrto.TrimmedString(configuration.Certificate.Domain),
+			Certificate:    ptrto.TrimmedString(configuration.Certificate.Certificate),
+			PrivateKey:     ptrto.TrimmedString(configuration.Certificate.PrivateKey),
+		}
+		if configuration.Certificate.IssuedAt != "" {
+			if parsedTime, err := time.Parse(time.RFC3339, configuration.Certificate.IssuedAt); err == nil {
+				certificateConfiguration.IssuedAt = &parsedTime
+			}
+		}
+		if configuration.Certificate.ExpiresAt != "" {
+			if parsedTime, err := time.Parse(time.RFC3339, configuration.Certificate.ExpiresAt); err == nil {
+				certificateConfiguration.ExpiresAt = &parsedTime
+			}
+		}
+		result.Certificate = certificateConfiguration
+	}
 
 	modelsConfiguration := &models.ModelsConfiguration{}
 	modelsConfiguration.Default = ptrto.TrimmedString(configuration.Models.Default)
@@ -167,6 +191,23 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 		result.Gateway.Port = configuration.Gateway.GetPort()
 		result.Gateway.Bind = string(configuration.Gateway.GetBind())
 		result.Gateway.PublicURL = configuration.Gateway.GetPublicURL()
+		result.Gateway.TLS = configuration.Gateway.GetTLS()
+	}
+	if configuration.Certificate != nil {
+		record := &storeCertificateRecord{
+			ACMEEmail:      configuration.Certificate.GetACMEEmail(),
+			ACMEAccountKey: configuration.Certificate.GetACMEAccountKey(),
+			Domain:         configuration.Certificate.GetDomain(),
+			Certificate:    configuration.Certificate.GetCertificate(),
+			PrivateKey:     configuration.Certificate.GetPrivateKey(),
+		}
+		if configuration.Certificate.IssuedAt != nil {
+			record.IssuedAt = configuration.Certificate.IssuedAt.Format(time.RFC3339)
+		}
+		if configuration.Certificate.ExpiresAt != nil {
+			record.ExpiresAt = configuration.Certificate.ExpiresAt.Format(time.RFC3339)
+		}
+		result.Certificate = record
 	}
 	if configuration.Models != nil {
 		result.Models.Default = configuration.Models.GetDefault()
