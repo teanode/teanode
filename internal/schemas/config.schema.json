@@ -77,6 +77,30 @@
           "title": "Public URL",
           "description": "External URL (e.g. https://myserver.com) for LLM providers to fetch media. Enables URL-based image references instead of base64.",
           "x-placeholder": "https://myserver.com"
+        },
+        "tls": {
+          "type": "boolean",
+          "title": "TLS",
+          "description": "Enable native HTTPS with automatic certificate provisioning via ACME TLS-ALPN-01 (Let's Encrypt). Requires port 443 reachable from the internet.",
+          "default": false
+        }
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "title": "Certificate",
+      "properties": {
+        "acmeEmail": {
+          "type": "string",
+          "title": "ACME Email",
+          "description": "Email address for ACME account registration and certificate expiry notifications. Required when TLS is enabled.",
+          "x-placeholder": "admin@example.com"
+        },
+        "domain": {
+          "type": "string",
+          "title": "Domain",
+          "description": "Domain name for the TLS certificate (e.g. teanode.example.com). Required when TLS is enabled.",
+          "x-placeholder": "teanode.example.com"
         }
       }
     },
@@ -505,6 +529,12 @@
       "description": "HTTP server and authentication settings.",
       "descriptionKey": "schema.config.sections.gateway.description",
       "path": "gateway"
+    },
+    {
+      "id": "certificate",
+      "title": "Certificate",
+      "description": "Automatic TLS certificate via ACME (Let's Encrypt).",
+      "path": "certificate"
     },
     {
       "id": "voice",
