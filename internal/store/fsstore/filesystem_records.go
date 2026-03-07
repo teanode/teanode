@@ -15,6 +15,17 @@ type storeGatewayRecord struct {
 	Port      int    `json:"port,omitempty" yaml:"port,omitempty"`
 	Bind      string `json:"bind,omitempty" yaml:"bind,omitempty"`
 	PublicURL string `json:"publicUrl,omitempty" yaml:"publicUrl,omitempty"`
+	TLS       bool   `json:"tls,omitempty" yaml:"tls,omitempty"`
+}
+
+type storeCertificateRecord struct {
+	ACMEEmail      string `json:"acmeEmail,omitempty" yaml:"acmeEmail,omitempty"`
+	ACMEAccountKey string `json:"acmeAccountKey,omitempty" yaml:"acmeAccountKey,omitempty"`
+	Domain         string `json:"domain,omitempty" yaml:"domain,omitempty"`
+	Certificate    string `json:"certificate,omitempty" yaml:"certificate,omitempty"`
+	PrivateKey     string `json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
+	IssuedAt       string `json:"issuedAt,omitempty" yaml:"issuedAt,omitempty"`
+	ExpiresAt      string `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"`
 }
 
 type storeProviderRecord struct {
@@ -126,6 +137,7 @@ type storeUniFiProtectRecord struct {
 
 type storeConfigurationRecord struct {
 	Gateway          storeGatewayRecord         `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Certificate      *storeCertificateRecord    `json:"certificate,omitempty" yaml:"certificate,omitempty"`
 	Models           storeModelsRecord          `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools            storeToolsRecord           `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Integrations     storeIntegrationsRecord    `json:"integrations,omitempty" yaml:"integrations,omitempty"`

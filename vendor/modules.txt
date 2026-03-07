@@ -74,6 +74,7 @@ github.com/vmihailenco/tagparser/v2/internal
 github.com/vmihailenco/tagparser/v2/internal/parser
 # golang.org/x/crypto v0.17.0
 ## explicit; go 1.18
+golang.org/x/crypto/acme
 golang.org/x/crypto/bcrypt
 golang.org/x/crypto/blowfish
 golang.org/x/crypto/internal/alias

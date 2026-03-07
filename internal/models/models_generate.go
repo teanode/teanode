@@ -28,6 +28,7 @@ func main() {
 	// Configuration types
 	generator.GenerateUpdate(new(models.Configuration))
 	generator.GenerateUpdate(new(models.GatewayConfiguration))
+	generator.GenerateUpdate(new(models.CertificateConfiguration))
 	generator.GenerateUpdate(new(models.ModelsConfiguration))
 	generator.GenerateUpdate(new(models.ProviderConfiguration))
 	generator.GenerateUpdate(new(models.ToolsConfiguration))
@@ -65,6 +66,7 @@ func main() {
 	// Getter methods for configuration types
 	generator.GenerateGetters(new(models.Configuration))
 	generator.GenerateGetters(new(models.GatewayConfiguration))
+	generator.GenerateGetters(new(models.CertificateConfiguration))
 	generator.GenerateGetters(new(models.ModelsConfiguration))
 	generator.GenerateGetters(new(models.ProviderConfiguration))
 	generator.GenerateGetters(new(models.ToolsConfiguration))
