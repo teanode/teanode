@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/acme"
 
 	"github.com/teanode/teanode/internal/api/v1api"
+	"github.com/teanode/teanode/internal/autoacme"
 	"github.com/teanode/teanode/internal/channels/discord"
 	"github.com/teanode/teanode/internal/channels/telegram"
 	"github.com/teanode/teanode/internal/coordinators"
@@ -34,7 +35,6 @@ import (
 	"github.com/teanode/teanode/internal/store/dbstore"
 	"github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/summarizers"
-	"github.com/teanode/teanode/internal/util/autoacme"
 	"github.com/teanode/teanode/internal/util/debugutil"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/ptrto"
