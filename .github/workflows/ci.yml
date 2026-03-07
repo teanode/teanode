@@ -24,7 +24,7 @@ jobs:
 
       - name: Verify formatting
         run: |
-          gofmt -w .
+          find . -name '*.go' -not -path './vendor/*' | xargs gofmt -l -w
           git diff --exit-code
 
   backend-lint:
