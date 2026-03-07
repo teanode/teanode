@@ -381,11 +381,11 @@ func NewGatewayCommand() *cli.Command {
 				acmeManager.Start(ctx)
 				defer acmeManager.Close()
 
-				tlsConfig := &tls.Config{
+				tlsConfiguration := &tls.Config{
 					GetCertificate: acmeManager.GetCertificate,
 					NextProtos:     []string{"h2", "http/1.1", acme.ALPNProto},
 				}
-				httpListener = tls.NewListener(tcpListener, tlsConfig)
+				httpListener = tls.NewListener(tcpListener, tlsConfiguration)
 			}
 
 			httpServer := &http.Server{

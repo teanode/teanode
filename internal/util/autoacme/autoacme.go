@@ -36,30 +36,30 @@ var (
 	ErrInvalidCertificate = errors.New("autoacme: invalid certificate")
 )
 
-// oidACMEIdentifier is the OID for the ACME identifier extension (1.3.6.1.5.5.7.1.31).
-var oidACMEIdentifier = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 31}
+// oidAcmeIdentifier is the OID for the ACME identifier extension (1.3.6.1.5.5.7.1.31).
+var oidAcmeIdentifier = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 31}
 
 // Manager handles automatic certificate management via ACME TLS-ALPN-01.
 type Manager struct {
 	store store.Store
 
-	certificateMu sync.Mutex
-	certificate   *tls.Certificate
+	certificateMutex sync.Mutex
+	certificate      *tls.Certificate
 
-	challengeMu   sync.Mutex
-	challengeCert *tls.Certificate
+	challengeMutex       sync.Mutex
+	challengeCertificate *tls.Certificate
 
-	acmeClientMu sync.Mutex
-	acmeClient   *acme.Client
+	acmeClientMutex sync.Mutex
+	acmeClient      *acme.Client
 
 	done      chan struct{}
 	waitGroup sync.WaitGroup
 }
 
 // New creates a new Manager. Call Start to begin the background renewal loop.
-func New(s store.Store) *Manager {
+func New(dataStore store.Store) *Manager {
 	return &Manager{
-		store: s,
+		store: dataStore,
 		done:  make(chan struct{}, 1),
 	}
 }
@@ -90,22 +90,22 @@ func (self *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificat
 	// Check for ACME TLS-ALPN-01 challenge.
 	for _, proto := range hello.SupportedProtos {
 		if proto == acme.ALPNProto {
-			self.challengeMu.Lock()
-			cert := self.challengeCert
-			self.challengeMu.Unlock()
-			if cert != nil {
-				return cert, nil
+			self.challengeMutex.Lock()
+			certificate := self.challengeCertificate
+			self.challengeMutex.Unlock()
+			if certificate != nil {
+				return certificate, nil
 			}
 			return nil, ErrNoCertificate
 		}
 	}
 
-	self.certificateMu.Lock()
-	cert := self.certificate
-	self.certificateMu.Unlock()
+	self.certificateMutex.Lock()
+	certificate := self.certificate
+	self.certificateMutex.Unlock()
 
-	if cert != nil {
-		return cert, nil
+	if certificate != nil {
+		return certificate, nil
 	}
 	return nil, ErrNoCertificate
 }
@@ -123,36 +123,36 @@ func (self *Manager) run(ctx context.Context) {
 }
 
 func (self *Manager) spin(ctx context.Context) {
-	cfg := self.getConfig(ctx)
-	if cfg == nil || cfg.Certificate == nil {
+	configuration := self.getConfiguration(ctx)
+	if configuration == nil || configuration.Certificate == nil {
 		return
 	}
-	certCfg := cfg.Certificate
-	if certCfg.GetDomain() == "" || certCfg.GetACMEEmail() == "" {
+	certificateConfiguration := configuration.Certificate
+	if certificateConfiguration.GetDomain() == "" || certificateConfiguration.GetACMEEmail() == "" {
 		return
 	}
-	if !self.shouldRenew(certCfg.GetDomain()) {
+	if !self.shouldRenew(certificateConfiguration.GetDomain()) {
 		return
 	}
 
-	reqCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	requestContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	if err := self.EnsureCertificate(reqCtx); err != nil {
+	if err := self.EnsureCertificate(requestContext); err != nil {
 		log.Errorf("failed to ensure certificate: %v", err)
 	}
 }
 
 func (self *Manager) shouldRenew(domain string) bool {
-	self.certificateMu.Lock()
-	cert := self.certificate
-	self.certificateMu.Unlock()
+	self.certificateMutex.Lock()
+	certificate := self.certificate
+	self.certificateMutex.Unlock()
 
-	if cert == nil {
+	if certificate == nil {
 		return true
 	}
 
-	leaf, err := leafCert(cert)
+	leaf, err := leafCertificate(certificate)
 	if err != nil {
 		return true
 	}
@@ -173,24 +173,24 @@ func (self *Manager) shouldRenew(domain string) bool {
 
 // EnsureCertificate obtains or renews a certificate via ACME TLS-ALPN-01.
 func (self *Manager) EnsureCertificate(ctx context.Context) error {
-	cfg := self.getConfig(ctx)
-	if cfg == nil || cfg.Certificate == nil {
+	configuration := self.getConfiguration(ctx)
+	if configuration == nil || configuration.Certificate == nil {
 		return errors.New("autoacme: no certificate configuration")
 	}
-	certCfg := cfg.Certificate
-	domain := certCfg.GetDomain()
-	email := certCfg.GetACMEEmail()
+	certificateConfiguration := configuration.Certificate
+	domain := certificateConfiguration.GetDomain()
+	email := certificateConfiguration.GetACMEEmail()
 	if domain == "" || email == "" {
 		return errors.New("autoacme: domain and acme email required")
 	}
 
-	client, err := self.ensureACMEClient(ctx, certCfg)
+	client, err := self.ensureACMEClient(ctx, certificateConfiguration)
 	if err != nil {
 		return err
 	}
 
 	// Generate certificate private key.
-	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return err
 	}
@@ -199,7 +199,7 @@ func (self *Manager) EnsureCertificate(ctx context.Context) error {
 	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
 		Subject:  pkix.Name{CommonName: domain},
 		DNSNames: []string{domain},
-	}, privKey)
+	}, privateKey)
 	if err != nil {
 		return err
 	}
@@ -211,20 +211,20 @@ func (self *Manager) EnsureCertificate(ctx context.Context) error {
 	}
 
 	// Process authorizations.
-	for _, authzURL := range order.AuthzURLs {
-		authz, err := client.GetAuthorization(ctx, authzURL)
+	for _, authorizationURL := range order.AuthzURLs {
+		authorization, err := client.GetAuthorization(ctx, authorizationURL)
 		if err != nil {
 			return err
 		}
-		if authz.Status != acme.StatusPending {
+		if authorization.Status != acme.StatusPending {
 			continue
 		}
 
 		// Find tls-alpn-01 challenge.
 		var challenge *acme.Challenge
-		for _, c := range authz.Challenges {
-			if c.Type == "tls-alpn-01" {
-				challenge = c
+		for _, candidate := range authorization.Challenges {
+			if candidate.Type == "tls-alpn-01" {
+				challenge = candidate
 				break
 			}
 		}
@@ -233,14 +233,14 @@ func (self *Manager) EnsureCertificate(ctx context.Context) error {
 		}
 
 		// Build and install ALPN challenge certificate.
-		challengeCert, err := self.buildALPNCert(domain, challenge.Token, client.Key)
+		challengeCertificate, err := self.buildAlpnCertificate(domain, challenge.Token, client.Key)
 		if err != nil {
 			return err
 		}
 
-		self.challengeMu.Lock()
-		self.challengeCert = challengeCert
-		self.challengeMu.Unlock()
+		self.challengeMutex.Lock()
+		self.challengeCertificate = challengeCertificate
+		self.challengeMutex.Unlock()
 
 		// Accept challenge.
 		if _, err := client.Accept(ctx, challenge); err != nil {
@@ -249,7 +249,7 @@ func (self *Manager) EnsureCertificate(ctx context.Context) error {
 		}
 
 		// Wait for authorization.
-		if _, err := client.WaitAuthorization(ctx, authzURL); err != nil {
+		if _, err := client.WaitAuthorization(ctx, authorizationURL); err != nil {
 			self.clearChallenge()
 			return err
 		}
@@ -270,40 +270,40 @@ func (self *Manager) EnsureCertificate(ctx context.Context) error {
 	}
 
 	// Build tls.Certificate.
-	tlsCert := &tls.Certificate{
-		PrivateKey:  privKey,
+	tlsCertificate := &tls.Certificate{
+		PrivateKey:  privateKey,
 		Certificate: derChain,
 	}
 
 	// Parse leaf for metadata.
-	leaf, err := leafCert(tlsCert)
+	leaf, err := leafCertificate(tlsCertificate)
 	if err != nil {
 		return err
 	}
 
 	// Persist to store.
-	if err := self.persistCertificate(ctx, tlsCert, privKey, leaf); err != nil {
+	if err := self.persistCertificate(ctx, tlsCertificate, privateKey, leaf); err != nil {
 		return err
 	}
 
 	// Update in-memory.
-	self.certificateMu.Lock()
-	self.certificate = tlsCert
-	self.certificateMu.Unlock()
+	self.certificateMutex.Lock()
+	self.certificate = tlsCertificate
+	self.certificateMutex.Unlock()
 
 	log.Infof("certificate obtained for %s, expires %s", domain, leaf.NotAfter)
 	return nil
 }
 
 func (self *Manager) clearChallenge() {
-	self.challengeMu.Lock()
-	self.challengeCert = nil
-	self.challengeMu.Unlock()
+	self.challengeMutex.Lock()
+	self.challengeCertificate = nil
+	self.challengeMutex.Unlock()
 }
 
-// buildALPNCert creates a self-signed certificate for the TLS-ALPN-01 challenge.
+// buildAlpnCertificate creates a self-signed certificate for the TLS-ALPN-01 challenge.
 // Per RFC 8737, it includes the acmeIdentifier extension with the SHA-256 of the key authorization.
-func (self *Manager) buildALPNCert(domain, token string, accountKey crypto.Signer) (*tls.Certificate, error) {
+func (self *Manager) buildAlpnCertificate(domain, token string, accountKey crypto.Signer) (*tls.Certificate, error) {
 	// Compute key authorization.
 	thumbprint, err := acme.JWKThumbprint(accountKey)
 	if err != nil {
@@ -313,13 +313,13 @@ func (self *Manager) buildALPNCert(domain, token string, accountKey crypto.Signe
 	keyAuthHash := sha256.Sum256([]byte(keyAuth))
 
 	// ASN.1 encode the hash as an OCTET STRING.
-	acmeExtValue, err := asn1.Marshal(keyAuthHash[:])
+	acmeExtensionValue, err := asn1.Marshal(keyAuthHash[:])
 	if err != nil {
 		return nil, err
 	}
 
 	// Generate a throwaway key for the challenge cert.
-	certKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	certificateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
 	}
@@ -333,26 +333,26 @@ func (self *Manager) buildALPNCert(domain, token string, accountKey crypto.Signe
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		DNSNames:     []string{domain},
 		ExtraExtensions: []pkix.Extension{{
-			Id:       oidACMEIdentifier,
+			Id:       oidAcmeIdentifier,
 			Critical: true,
-			Value:    acmeExtValue,
+			Value:    acmeExtensionValue,
 		}},
 	}
 
-	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &certKey.PublicKey, certKey)
+	certificateDer, err := x509.CreateCertificate(rand.Reader, template, template, &certificateKey.PublicKey, certificateKey)
 	if err != nil {
 		return nil, err
 	}
 
 	return &tls.Certificate{
-		Certificate: [][]byte{certDER},
-		PrivateKey:  certKey,
+		Certificate: [][]byte{certificateDer},
+		PrivateKey:  certificateKey,
 	}, nil
 }
 
-func (self *Manager) ensureACMEClient(ctx context.Context, certCfg *models.CertificateConfiguration) (*acme.Client, error) {
-	self.acmeClientMu.Lock()
-	defer self.acmeClientMu.Unlock()
+func (self *Manager) ensureACMEClient(ctx context.Context, certificateConfiguration *models.CertificateConfiguration) (*acme.Client, error) {
+	self.acmeClientMutex.Lock()
+	defer self.acmeClientMutex.Unlock()
 
 	if self.acmeClient != nil {
 		return self.acmeClient, nil
@@ -361,8 +361,8 @@ func (self *Manager) ensureACMEClient(ctx context.Context, certCfg *models.Certi
 	var key crypto.Signer
 
 	// Try to load existing account key from config.
-	if accountKeyPEM := certCfg.GetACMEAccountKey(); accountKeyPEM != "" {
-		block, _ := pem.Decode([]byte(accountKeyPEM))
+	if accountKeyPem := certificateConfiguration.GetACMEAccountKey(); accountKeyPem != "" {
+		block, _ := pem.Decode([]byte(accountKeyPem))
 		if block != nil && strings.Contains(block.Type, "PRIVATE") {
 			if parsed, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
 				key = parsed
@@ -383,18 +383,18 @@ func (self *Manager) ensureACMEClient(ctx context.Context, certCfg *models.Certi
 		if err != nil {
 			return nil, err
 		}
-		var buf bytes.Buffer
-		if err := pem.Encode(&buf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: encoded}); err != nil {
+		var buffer bytes.Buffer
+		if err := pem.Encode(&buffer, &pem.Block{Type: "EC PRIVATE KEY", Bytes: encoded}); err != nil {
 			return nil, err
 		}
-		accountKeyPEM := buf.String()
+		accountKeyPem := buffer.String()
 
 		if err := self.store.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-			_, err := tx.ModifyConfiguration(ctx, func(cfg *models.Configuration) error {
-				if cfg.Certificate == nil {
-					cfg.Certificate = &models.CertificateConfiguration{}
+			_, err := tx.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
+				if configuration.Certificate == nil {
+					configuration.Certificate = &models.CertificateConfiguration{}
 				}
-				cfg.Certificate.ACMEAccountKey = &accountKeyPEM
+				configuration.Certificate.ACMEAccountKey = &accountKeyPem
 				return nil
 			}, nil)
 			return err
@@ -410,13 +410,13 @@ func (self *Manager) ensureACMEClient(ctx context.Context, certCfg *models.Certi
 	}
 
 	account := &acme.Account{Contact: []string{
-		"mailto:" + certCfg.GetACMEEmail(),
+		"mailto:" + certificateConfiguration.GetACMEEmail(),
 	}}
 	if _, err := client.Register(ctx, account, func(string) bool {
 		return true
 	}); err != nil {
 		if err != acme.ErrAccountAlreadyExists {
-			if acmeErr, ok := err.(*acme.Error); ok && acmeErr.StatusCode == http.StatusConflict {
+			if acmeError, ok := err.(*acme.Error); ok && acmeError.StatusCode == http.StatusConflict {
 				// Already registered, that's fine.
 			} else {
 				return nil, err
@@ -428,38 +428,38 @@ func (self *Manager) ensureACMEClient(ctx context.Context, certCfg *models.Certi
 	return client, nil
 }
 
-func (self *Manager) persistCertificate(ctx context.Context, tlsCert *tls.Certificate, privKey *rsa.PrivateKey, leaf *x509.Certificate) error {
+func (self *Manager) persistCertificate(ctx context.Context, tlsCertificate *tls.Certificate, privateKey *rsa.PrivateKey, leaf *x509.Certificate) error {
 	// Encode cert chain as PEM.
-	var certBuf bytes.Buffer
-	for _, der := range tlsCert.Certificate {
-		if err := pem.Encode(&certBuf, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+	var certificateBuffer bytes.Buffer
+	for _, der := range tlsCertificate.Certificate {
+		if err := pem.Encode(&certificateBuffer, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
 			return err
 		}
 	}
 
 	// Encode private key as PEM.
-	var keyBuf bytes.Buffer
-	if err := pem.Encode(&keyBuf, &pem.Block{
+	var keyBuffer bytes.Buffer
+	if err := pem.Encode(&keyBuffer, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
 	}); err != nil {
 		return err
 	}
 
-	certPEM := certBuf.String()
-	keyPEM := keyBuf.String()
+	certificatePem := certificateBuffer.String()
+	keyPem := keyBuffer.String()
 	issuedAt := leaf.NotBefore
 	expiresAt := leaf.NotAfter
 
 	return self.store.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		_, err := tx.ModifyConfiguration(ctx, func(cfg *models.Configuration) error {
-			if cfg.Certificate == nil {
-				cfg.Certificate = &models.CertificateConfiguration{}
+		_, err := tx.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
+			if configuration.Certificate == nil {
+				configuration.Certificate = &models.CertificateConfiguration{}
 			}
-			cfg.Certificate.Certificate = &certPEM
-			cfg.Certificate.PrivateKey = &keyPEM
-			cfg.Certificate.IssuedAt = &issuedAt
-			cfg.Certificate.ExpiresAt = &expiresAt
+			configuration.Certificate.Certificate = &certificatePem
+			configuration.Certificate.PrivateKey = &keyPem
+			configuration.Certificate.IssuedAt = &issuedAt
+			configuration.Certificate.ExpiresAt = &expiresAt
 			return nil
 		}, nil)
 		return err
@@ -467,41 +467,41 @@ func (self *Manager) persistCertificate(ctx context.Context, tlsCert *tls.Certif
 }
 
 func (self *Manager) loadCertificateFromStore(ctx context.Context) {
-	cfg := self.getConfig(ctx)
-	if cfg == nil || cfg.Certificate == nil {
+	configuration := self.getConfiguration(ctx)
+	if configuration == nil || configuration.Certificate == nil {
 		return
 	}
-	certCfg := cfg.Certificate
-	certPEM := certCfg.GetCertificate()
-	keyPEM := certCfg.GetPrivateKey()
-	if certPEM == "" || keyPEM == "" {
+	certificateConfiguration := configuration.Certificate
+	certificatePem := certificateConfiguration.GetCertificate()
+	keyPem := certificateConfiguration.GetPrivateKey()
+	if certificatePem == "" || keyPem == "" {
 		return
 	}
 
-	tlsCert, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+	tlsCertificate, err := tls.X509KeyPair([]byte(certificatePem), []byte(keyPem))
 	if err != nil {
 		log.Warningf("failed to load stored certificate: %v", err)
 		return
 	}
 
-	self.certificateMu.Lock()
-	self.certificate = &tlsCert
-	self.certificateMu.Unlock()
+	self.certificateMutex.Lock()
+	self.certificate = &tlsCertificate
+	self.certificateMutex.Unlock()
 }
 
-func (self *Manager) getConfig(ctx context.Context) *models.Configuration {
-	var cfg *models.Configuration
+func (self *Manager) getConfiguration(ctx context.Context) *models.Configuration {
+	var configuration *models.Configuration
 	_ = self.store.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		var err error
-		cfg, err = tx.GetConfiguration(ctx, nil)
+		configuration, err = tx.GetConfiguration(ctx, nil)
 		return err
 	})
-	return cfg
+	return configuration
 }
 
-func leafCert(tlsCert *tls.Certificate) (*x509.Certificate, error) {
-	if len(tlsCert.Certificate) == 0 {
+func leafCertificate(tlsCertificate *tls.Certificate) (*x509.Certificate, error) {
+	if len(tlsCertificate.Certificate) == 0 {
 		return nil, ErrInvalidCertificate
 	}
-	return x509.ParseCertificate(tlsCert.Certificate[0])
+	return x509.ParseCertificate(tlsCertificate.Certificate[0])
 }

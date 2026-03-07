@@ -52,7 +52,7 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 	result.Gateway = gatewayConfiguration
 
 	if configuration.Certificate != nil {
-		certConfig := &models.CertificateConfiguration{
+		certificateConfiguration := &models.CertificateConfiguration{
 			ACMEEmail:      ptrto.TrimmedString(configuration.Certificate.ACMEEmail),
 			ACMEAccountKey: ptrto.TrimmedString(configuration.Certificate.ACMEAccountKey),
 			Domain:         ptrto.TrimmedString(configuration.Certificate.Domain),
@@ -60,16 +60,16 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 			PrivateKey:     ptrto.TrimmedString(configuration.Certificate.PrivateKey),
 		}
 		if configuration.Certificate.IssuedAt != "" {
-			if t, err := time.Parse(time.RFC3339, configuration.Certificate.IssuedAt); err == nil {
-				certConfig.IssuedAt = &t
+			if parsedTime, err := time.Parse(time.RFC3339, configuration.Certificate.IssuedAt); err == nil {
+				certificateConfiguration.IssuedAt = &parsedTime
 			}
 		}
 		if configuration.Certificate.ExpiresAt != "" {
-			if t, err := time.Parse(time.RFC3339, configuration.Certificate.ExpiresAt); err == nil {
-				certConfig.ExpiresAt = &t
+			if parsedTime, err := time.Parse(time.RFC3339, configuration.Certificate.ExpiresAt); err == nil {
+				certificateConfiguration.ExpiresAt = &parsedTime
 			}
 		}
-		result.Certificate = certConfig
+		result.Certificate = certificateConfiguration
 	}
 
 	modelsConfiguration := &models.ModelsConfiguration{}
@@ -194,7 +194,7 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 		result.Gateway.TLS = configuration.Gateway.GetTLS()
 	}
 	if configuration.Certificate != nil {
-		rec := &storeCertificateRecord{
+		record := &storeCertificateRecord{
 			ACMEEmail:      configuration.Certificate.GetACMEEmail(),
 			ACMEAccountKey: configuration.Certificate.GetACMEAccountKey(),
 			Domain:         configuration.Certificate.GetDomain(),
@@ -202,12 +202,12 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 			PrivateKey:     configuration.Certificate.GetPrivateKey(),
 		}
 		if configuration.Certificate.IssuedAt != nil {
-			rec.IssuedAt = configuration.Certificate.IssuedAt.Format(time.RFC3339)
+			record.IssuedAt = configuration.Certificate.IssuedAt.Format(time.RFC3339)
 		}
 		if configuration.Certificate.ExpiresAt != nil {
-			rec.ExpiresAt = configuration.Certificate.ExpiresAt.Format(time.RFC3339)
+			record.ExpiresAt = configuration.Certificate.ExpiresAt.Format(time.RFC3339)
 		}
-		result.Certificate = rec
+		result.Certificate = record
 	}
 	if configuration.Models != nil {
 		result.Models.Default = configuration.Models.GetDefault()
