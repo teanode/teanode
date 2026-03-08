@@ -191,7 +191,7 @@ type storeMemoryItemFrontmatter struct {
 	CreatedAt                  timeutil.Timestamp `yaml:"createdAt"`
 	ModifiedAt                 timeutil.Timestamp `yaml:"modifiedAt"`
 	EmbeddingProviderModelName string             `yaml:"embeddingProviderModelName,omitempty"`
-	Embedding                  []float32          `yaml:"embedding,omitempty"`
+	Embedding                  []float64          `yaml:"embedding,omitempty"`
 	EmbeddedAt                 timeutil.Timestamp `yaml:"embeddedAt,omitempty"`
 }
 

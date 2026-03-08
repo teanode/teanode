@@ -551,7 +551,7 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 	}
 
 	// Compute embedding if embedder is available.
-	var newEmbedding []float32
+	var newEmbedding []float64
 	var warning string
 	runner := runners.RunnerFromContext(ctx)
 	if runner != nil && runner.Embedder != nil {
@@ -589,7 +589,7 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 
 // checkDuplicates compares an embedding vector against existing memory items
 // and returns a warning string if any item exceeds the deduplication threshold.
-func checkDuplicates(newEmbedding []float32, existingItems []*models.MemoryItem) string {
+func checkDuplicates(newEmbedding []float64, existingItems []*models.MemoryItem) string {
 	var maxSimilarity float64
 	var mostSimilarID string
 	var mostSimilarTitle string

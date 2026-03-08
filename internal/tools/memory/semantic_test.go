@@ -27,9 +27,9 @@ func newStubEmbeddingsProvider(keywords ...string) *stubEmbeddingsProvider {
 	return &stubEmbeddingsProvider{keywords: keywords}
 }
 
-func (self *stubEmbeddingsProvider) Embed(_ context.Context, _ string, inputText string) ([]float32, error) {
+func (self *stubEmbeddingsProvider) Embed(_ context.Context, _ string, inputText string) ([]float64, error) {
 	self.calls++
-	vector := make([]float32, len(self.keywords))
+	vector := make([]float64, len(self.keywords))
 	for index, keyword := range self.keywords {
 		if containsWord(inputText, keyword) {
 			vector[index] = 1.0
@@ -72,7 +72,7 @@ type failingEmbeddingsProvider struct {
 	providers.BaseProvider
 }
 
-func (self *failingEmbeddingsProvider) Embed(_ context.Context, _ string, _ string) ([]float32, error) {
+func (self *failingEmbeddingsProvider) Embed(_ context.Context, _ string, _ string) ([]float64, error) {
 	return nil, fmt.Errorf("embedding service unavailable")
 }
 

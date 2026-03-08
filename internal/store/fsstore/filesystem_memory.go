@@ -393,7 +393,7 @@ func fsMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {
 		item.EmbeddingProviderModelName = &embeddingProviderModelName
 	}
 	if len(record.Embedding) > 0 {
-		embedding := make([]float32, len(record.Embedding))
+		embedding := make([]float64, len(record.Embedding))
 		copy(embedding, record.Embedding)
 		item.Embedding = &embedding
 	}

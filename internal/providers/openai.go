@@ -564,7 +564,7 @@ type embeddingRequest struct {
 // embeddingResponse is the response from the /embeddings API.
 type embeddingResponse struct {
 	Data []struct {
-		Embedding []float32 `json:"embedding"`
+		Embedding []float64 `json:"embedding"`
 	} `json:"data"`
 	Error *struct {
 		Message string `json:"message"`
@@ -572,7 +572,7 @@ type embeddingResponse struct {
 }
 
 // Embed calls the OpenAI-compatible /embeddings API and returns the resulting vector.
-func (self *Client) Embed(ctx context.Context, model string, inputText string) ([]float32, error) {
+func (self *Client) Embed(ctx context.Context, model string, inputText string) ([]float64, error) {
 	if self.apiKey == "" {
 		return nil, fmt.Errorf("embeddings: API key not configured")
 	}

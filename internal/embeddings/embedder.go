@@ -25,7 +25,7 @@ func NewEmbedder(providerRegistry *providers.ProviderRegistry) *Embedder {
 // Embed computes a vector embedding for the given input text. It resolves the
 // embedding provider and model from the provider registry's configuration.
 // Returns the embedding vector, the model name used, and any error.
-func (self *Embedder) Embed(ctx context.Context, inputText string) ([]float32, string, error) {
+func (self *Embedder) Embed(ctx context.Context, inputText string) ([]float64, string, error) {
 	provider, modelName, err := self.resolveEmbeddingProvider()
 	if err != nil {
 		return nil, "", err
