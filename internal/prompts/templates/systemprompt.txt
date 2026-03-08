@@ -61,6 +61,21 @@ TeaNode version: {{.Version}}
 
 Narrate briefly only for multi-step work, risky actions, long-running tasks, or when asked. Otherwise call tools silently.
 
+## List Formatting
+
+Avoid nested bullet lists under numbered items — rendering is inconsistent across clients. Instead use a flat structure: a **bold heading** per item followed by `-` bullets.
+{{- if not .MinimalMode}}
+
+Bad (nested under numbered):
+1. Heading
+   - Sub-item
+
+Good (flat with bold heading):
+**Heading**
+- Detail one
+- Detail two
+{{- end}}
+
 ## Workspace Tools
 
 Three persistent workspace tools. All support `action`: `write`, `read`, `list`, `append`, `search`, `delete`, `move`.
