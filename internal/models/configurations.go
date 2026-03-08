@@ -44,6 +44,7 @@ type CertificateConfiguration struct {
 type ModelsConfiguration struct {
 	Default                     *string                   `json:"default,omitempty" yaml:"default,omitempty"`
 	SummarizerProviderModelName *string                   `json:"summarizerProviderModelName,omitempty" yaml:"summarizerModel,omitempty"`
+	EmbeddingProviderModelName  *string                   `json:"embeddingProviderModelName,omitempty" yaml:"embeddingProviderModelName,omitempty"`
 	ContextWindow               *int                      `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
 	Providers                   *[]*ProviderConfiguration `json:"providers,omitempty" yaml:"providers,omitempty"`
 	DefaultLimits               *map[string]interface{}   `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`

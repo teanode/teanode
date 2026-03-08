@@ -46,6 +46,11 @@ type StreamingSynthesizeProvider interface {
 	SynthesizeStream(ctx context.Context, request SynthesizeStreamRequest) (<-chan SynthesizeChunk, error)
 }
 
+// EmbeddingProvider is an optional capability interface for computing vector embeddings.
+type EmbeddingProvider interface {
+	Embed(ctx context.Context, model string, inputText string) ([]float64, error)
+}
+
 // TranscribeRequest is the input for speech-to-text.
 type TranscribeRequest struct {
 	Audio    io.Reader

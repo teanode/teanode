@@ -33,6 +33,7 @@ func main() {
 	generator.GenerateUpdate(new(models.ModelsConfiguration))
 	generator.GenerateUpdate(new(models.ProviderConfiguration))
 	generator.GenerateUpdate(new(models.ToolsConfiguration))
+
 	generator.GenerateUpdate(new(models.GoogleConfiguration))
 	generator.GenerateUpdate(new(models.GitHubConfiguration))
 	generator.GenerateUpdate(new(models.GitLabConfiguration))
@@ -72,6 +73,7 @@ func main() {
 	generator.GenerateGetters(new(models.ModelsConfiguration))
 	generator.GenerateGetters(new(models.ProviderConfiguration))
 	generator.GenerateGetters(new(models.ToolsConfiguration))
+
 	generator.GenerateGetters(new(models.GoogleConfiguration))
 	generator.GenerateGetters(new(models.GitHubConfiguration))
 	generator.GenerateGetters(new(models.GitLabConfiguration))

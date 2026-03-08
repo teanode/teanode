@@ -1,6 +1,10 @@
 package fsstore
 
 import (
+	"encoding/base64"
+	"encoding/binary"
+	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +14,34 @@ import (
 	"github.com/teanode/teanode/internal/util/timeutil"
 	"gopkg.in/yaml.v3"
 )
+
+// encodeEmbeddingBase64 encodes a float64 slice as little-endian packed binary,
+// then base64 standard-encodes it.
+func encodeEmbeddingBase64(values []float64) string {
+	buf := make([]byte, len(values)*8)
+	for index, value := range values {
+		binary.LittleEndian.PutUint64(buf[index*8:], math.Float64bits(value))
+	}
+	return base64.StdEncoding.EncodeToString(buf)
+}
+
+// decodeEmbeddingBase64 decodes a base64-encoded, little-endian packed float64 slice.
+func decodeEmbeddingBase64(encoded string) ([]float64, error) {
+	raw, decodeError := base64.StdEncoding.DecodeString(encoded)
+	if decodeError != nil {
+		return nil, decodeError
+	}
+	if len(raw)%8 != 0 {
+		return nil, errInvalidEmbeddingLength
+	}
+	values := make([]float64, len(raw)/8)
+	for index := range values {
+		values[index] = math.Float64frombits(binary.LittleEndian.Uint64(raw[index*8:]))
+	}
+	return values, nil
+}
+
+var errInvalidEmbeddingLength = errors.New("embedding binary length is not a multiple of 8")
 
 type storeGatewayRecord struct {
 	Port      int    `json:"port,omitempty" yaml:"port,omitempty"`
@@ -37,6 +69,7 @@ type storeProviderRecord struct {
 type storeModelsRecord struct {
 	Default                     string                `json:"default,omitempty" yaml:"default,omitempty"`
 	SummarizerProviderModelName string                `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"`
+	EmbeddingProviderModelName  string                `json:"embeddingProviderModelName,omitempty" yaml:"embeddingProviderModelName,omitempty"`
 	ContextWindow               int                   `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
 	Providers                   []storeProviderRecord `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
@@ -181,14 +214,17 @@ type storeProjectRecord struct {
 }
 
 type storeMemoryItemFrontmatter struct {
-	ID         string             `yaml:"id"`
-	Scope      string             `yaml:"scope"`
-	ScopeID    string             `yaml:"scopeId"`
-	Title      string             `yaml:"title,omitempty"`
-	Tags       []string           `yaml:"tags,omitempty"`
-	ArchivedAt timeutil.Timestamp `yaml:"archivedAt,omitempty"`
-	CreatedAt  timeutil.Timestamp `yaml:"createdAt"`
-	ModifiedAt timeutil.Timestamp `yaml:"modifiedAt"`
+	ID                         string             `yaml:"id"`
+	Scope                      string             `yaml:"scope"`
+	ScopeID                    string             `yaml:"scopeId"`
+	Title                      string             `yaml:"title,omitempty"`
+	Tags                       []string           `yaml:"tags,omitempty"`
+	ArchivedAt                 timeutil.Timestamp `yaml:"archivedAt,omitempty"`
+	CreatedAt                  timeutil.Timestamp `yaml:"createdAt"`
+	ModifiedAt                 timeutil.Timestamp `yaml:"modifiedAt"`
+	EmbeddingProviderModelName string             `yaml:"embeddingProviderModelName,omitempty"`
+	Embedding                  string             `yaml:"embedding,omitempty"`
+	EmbeddedAt                 timeutil.Timestamp `yaml:"embeddedAt,omitempty"`
 }
 
 type storeMemoryItemRecord struct {

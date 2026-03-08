@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
@@ -433,4 +434,60 @@ func TestMemoryProjectScope(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+func TestMemoryEmbeddingRoundtrip(t *testing.T) {
+	s := setupMemoryTestStore(t)
+	ctx := context.Background()
+
+	var created *models.MemoryItem
+	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		content := "embedded item"
+		embedding := []float64{0.1, 0.2, 0.3, -0.5}
+		modelName := "openai:text-embedding-3-small"
+		now := time.Now()
+		item, err := tx.CreateMemoryItem(ctx, &models.MemoryItem{
+			Scope:                      ptrto.Value(models.ScopeAgent),
+			ScopeID:                    ptrto.Value("agent-embed-1"),
+			Content:                    &content,
+			EmbeddingProviderModelName: &modelName,
+			Embedding:                  &embedding,
+			EmbeddedAt:                 &now,
+		}, nil)
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		created = item
+		return nil
+	})
+
+	// Read back and verify embedding roundtrips.
+	var fetched *models.MemoryItem
+	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		item, err := tx.GetMemoryItem(ctx, created.ID, nil)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		fetched = item
+		return nil
+	})
+
+	if fetched.EmbeddingProviderModelName == nil || *fetched.EmbeddingProviderModelName != "openai:text-embedding-3-small" {
+		t.Errorf("embeddingProviderModelName = %v, want openai:text-embedding-3-small", fetched.EmbeddingProviderModelName)
+	}
+	if fetched.Embedding == nil {
+		t.Fatal("expected embedding to be persisted")
+	}
+	expected := []float64{0.1, 0.2, 0.3, -0.5}
+	if len(*fetched.Embedding) != len(expected) {
+		t.Fatalf("embedding length = %d, want %d", len(*fetched.Embedding), len(expected))
+	}
+	for index, value := range expected {
+		if (*fetched.Embedding)[index] != value {
+			t.Errorf("embedding[%d] = %f, want %f", index, (*fetched.Embedding)[index], value)
+		}
+	}
+	if fetched.EmbeddedAt == nil {
+		t.Error("expected embeddedAt to be set")
+	}
 }
