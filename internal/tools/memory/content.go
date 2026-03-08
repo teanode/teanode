@@ -20,18 +20,18 @@ func extractTextContent(raw json.RawMessage) string {
 	}
 
 	// Try plain string first.
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text
 	}
 
 	// Try array of content blocks.
 	var blocks []contentBlock
 	if err := json.Unmarshal(raw, &blocks); err == nil {
 		var parts []string
-		for _, b := range blocks {
-			if b.Type == "text" && b.Text != "" {
-				parts = append(parts, b.Text)
+		for _, block := range blocks {
+			if block.Type == "text" && block.Text != "" {
+				parts = append(parts, block.Text)
 			}
 		}
 		return strings.Join(parts, "\n")

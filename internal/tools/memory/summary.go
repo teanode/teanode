@@ -32,13 +32,13 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 	// Apply roles filter.
 	if len(args.Roles) > 0 {
 		roleSet := make(map[string]bool, len(args.Roles))
-		for _, r := range args.Roles {
-			roleSet[r] = true
+		for _, role := range args.Roles {
+			roleSet[role] = true
 		}
 		var filtered []*models.ConversationMessage
-		for _, m := range messages {
-			if roleSet[string(m.GetRole())] {
-				filtered = append(filtered, m)
+		for _, message := range messages {
+			if roleSet[string(message.GetRole())] {
+				filtered = append(filtered, message)
 			}
 		}
 		messages = filtered
@@ -56,8 +56,8 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 		"system":    0,
 		"tool":      0,
 	}
-	for _, m := range messages {
-		role := string(m.GetRole())
+	for _, message := range messages {
+		role := string(message.GetRole())
 		byRole[role]++
 	}
 
@@ -156,11 +156,11 @@ func buildTopicSegments(messages []*models.ConversationMessage) []topicSegment {
 		tokens map[string]int
 	}
 	var userMsgs []msgTokens
-	for i, m := range messages {
-		if m.GetRole() == models.RoleUser {
-			text := extractTextContent(m.Content)
-			toks := significantTokens(text)
-			userMsgs = append(userMsgs, msgTokens{index: i, tokens: toks})
+	for i, message := range messages {
+		if message.GetRole() == models.RoleUser {
+			text := extractTextContent(message.Content)
+			tokens := significantTokens(text)
+			userMsgs = append(userMsgs, msgTokens{index: i, tokens: tokens})
 		}
 	}
 
@@ -198,15 +198,15 @@ func buildTopicSegments(messages []*models.ConversationMessage) []topicSegment {
 		}
 		windowTokens := map[string]bool{}
 		for wi := windowStart; wi < ui; wi++ {
-			for tok := range userMsgs[wi].tokens {
-				windowTokens[tok] = true
+			for token := range userMsgs[wi].tokens {
+				windowTokens[token] = true
 			}
 		}
 
 		// Check overlap.
 		overlap := false
-		for tok := range cur.tokens {
-			if windowTokens[tok] {
+		for token := range cur.tokens {
+			if windowTokens[token] {
 				overlap = true
 				break
 			}
@@ -215,8 +215,8 @@ func buildTopicSegments(messages []*models.ConversationMessage) []topicSegment {
 		if overlap {
 			// Extend current segment.
 			seg.endMsgIdx = cur.index
-			for tok, cnt := range cur.tokens {
-				seg.tokenFreq[tok] += cnt
+			for token, count := range cur.tokens {
+				seg.tokenFreq[token] += count
 			}
 		} else {
 			// Start new segment.
@@ -263,21 +263,21 @@ func significantTokens(text string) map[string]int {
 func mostFrequentToken(freq map[string]int) string {
 	best := ""
 	bestCount := 0
-	for tok, cnt := range freq {
-		if cnt > bestCount || (cnt == bestCount && tok < best) {
-			best = tok
-			bestCount = cnt
+	for token, count := range freq {
+		if count > bestCount || (count == bestCount && token < best) {
+			best = token
+			bestCount = count
 		}
 	}
 	return best
 }
 
-func copyTokens(m map[string]int) map[string]int {
-	c := make(map[string]int, len(m))
-	for k, v := range m {
-		c[k] = v
+func copyTokens(source map[string]int) map[string]int {
+	result := make(map[string]int, len(source))
+	for token, count := range source {
+		result[token] = count
 	}
-	return c
+	return result
 }
 
 func extractKeyPoints(messages []*models.ConversationMessage) []string {

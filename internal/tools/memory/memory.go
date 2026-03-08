@@ -378,21 +378,21 @@ func (self *memoryTool) executeList(ctx context.Context, scope models.Scope, sco
 	}
 
 	outputItems := make([]map[string]interface{}, 0, len(items))
-	for _, mem := range items {
+	for _, item := range items {
 		entry := map[string]interface{}{
-			"id": mem.ID,
+			"id": item.ID,
 		}
-		if mem.Title != nil {
-			entry["title"] = *mem.Title
+		if item.Title != nil {
+			entry["title"] = *item.Title
 		}
-		if mem.Tags != nil {
-			entry["tags"] = *mem.Tags
+		if item.Tags != nil {
+			entry["tags"] = *item.Tags
 		}
-		if mem.CreatedAt != nil {
-			entry["createdAt"] = mem.CreatedAt.Format(time.RFC3339)
+		if item.CreatedAt != nil {
+			entry["createdAt"] = item.CreatedAt.Format(time.RFC3339)
 		}
-		if mem.ModifiedAt != nil {
-			entry["modifiedAt"] = mem.ModifiedAt.Format(time.RFC3339)
+		if item.ModifiedAt != nil {
+			entry["modifiedAt"] = item.ModifiedAt.Format(time.RFC3339)
 		}
 		outputItems = append(outputItems, entry)
 	}
@@ -561,15 +561,15 @@ func (self *memoryTool) batchUpdate(ctx context.Context, tx store.Transaction, i
 		return batchResult{Index: index, Op: "update", Success: false, Error: fmt.Sprintf("content exceeds maximum size of %d bytes", maxContentSize)}
 	}
 
-	updated, err := tx.ModifyMemoryItem(ctx, item.ID, func(mem *models.MemoryItem) error {
+	updated, err := tx.ModifyMemoryItem(ctx, item.ID, func(existing *models.MemoryItem) error {
 		if item.Title != "" {
-			mem.Title = &item.Title
+			existing.Title = &item.Title
 		}
 		if item.Content != "" {
-			mem.Content = &item.Content
+			existing.Content = &item.Content
 		}
 		if item.Tags != nil {
-			mem.Tags = &item.Tags
+			existing.Tags = &item.Tags
 		}
 		return nil
 	}, nil)
@@ -593,11 +593,11 @@ func (self *memoryTool) batchGet(ctx context.Context, tx store.Transaction, inde
 	if item.ID == "" {
 		return batchResult{Index: index, Op: "get", Success: false, Error: "id is required for get"}
 	}
-	mem, err := tx.GetMemoryItem(ctx, item.ID, nil)
+	memoryItem, err := tx.GetMemoryItem(ctx, item.ID, nil)
 	if err != nil {
 		return batchResult{Index: index, Op: "get", Success: false, Error: err.Error()}
 	}
-	return batchResult{Index: index, Op: "get", Success: true, Item: memoryItemToOutput(mem)}
+	return batchResult{Index: index, Op: "get", Success: true, Item: memoryItemToOutput(memoryItem)}
 }
 
 func (self *memoryTool) callAfterMutate(ctx context.Context, scopeId string) {

@@ -35,51 +35,51 @@ func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, s
 	// Roles filter.
 	roleSet := map[string]bool{}
 	if len(args.Roles) > 0 {
-		for _, r := range args.Roles {
-			roleSet[r] = true
+		for _, role := range args.Roles {
+			roleSet[role] = true
 		}
 	}
 
 	// Time filters.
 	var afterTime, beforeTime *time.Time
 	if args.After != "" {
-		t, err := time.Parse(time.RFC3339, args.After)
+		parsed, err := time.Parse(time.RFC3339, args.After)
 		if err != nil {
 			return "", fmt.Errorf("invalid 'after' time format: %w", err)
 		}
-		afterTime = &t
+		afterTime = &parsed
 	}
 	if args.Before != "" {
-		t, err := time.Parse(time.RFC3339, args.Before)
+		parsed, err := time.Parse(time.RFC3339, args.Before)
 		if err != nil {
 			return "", fmt.Errorf("invalid 'before' time format: %w", err)
 		}
-		beforeTime = &t
+		beforeTime = &parsed
 	}
 
 	keywordLower := strings.ToLower(args.Keyword)
 
-	for _, m := range messages {
+	for _, message := range messages {
 		// Role filter.
-		if len(roleSet) > 0 && !roleSet[string(m.GetRole())] {
+		if len(roleSet) > 0 && !roleSet[string(message.GetRole())] {
 			continue
 		}
 		// After filter.
-		if afterTime != nil && m.CreatedAt != nil && !m.CreatedAt.After(*afterTime) {
+		if afterTime != nil && message.CreatedAt != nil && !message.CreatedAt.After(*afterTime) {
 			continue
 		}
 		// Before filter.
-		if beforeTime != nil && m.CreatedAt != nil && !m.CreatedAt.Before(*beforeTime) {
+		if beforeTime != nil && message.CreatedAt != nil && !message.CreatedAt.Before(*beforeTime) {
 			continue
 		}
 		// Keyword filter.
 		if keywordLower != "" {
-			text := strings.ToLower(extractTextContent(m.Content))
+			text := strings.ToLower(extractTextContent(message.Content))
 			if !strings.Contains(text, keywordLower) {
 				continue
 			}
 		}
-		filtered = append(filtered, m)
+		filtered = append(filtered, message)
 	}
 
 	totalMatched := len(filtered)
@@ -101,14 +101,14 @@ func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, s
 		CreatedAt string `json:"createdAt,omitempty"`
 	}
 	outMessages := make([]outputMessage, len(filtered))
-	for i, m := range filtered {
+	for i, message := range filtered {
 		om := outputMessage{
-			ID:      m.ID,
-			Role:    string(m.GetRole()),
-			Content: extractTextContent(m.Content),
+			ID:      message.ID,
+			Role:    string(message.GetRole()),
+			Content: extractTextContent(message.Content),
 		}
-		if m.CreatedAt != nil {
-			om.CreatedAt = m.CreatedAt.Format(time.RFC3339)
+		if message.CreatedAt != nil {
+			om.CreatedAt = message.CreatedAt.Format(time.RFC3339)
 		}
 		outMessages[i] = om
 	}

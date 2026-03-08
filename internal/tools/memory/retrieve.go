@@ -100,28 +100,28 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 		// Score title as a virtual line.
 		if title != "" {
 			titleLower := strings.ToLower(title)
-			s := 0.0
-			for _, tok := range tokens {
-				if strings.Contains(titleLower, tok) {
-					s += baseScore * 2.0 // title 2x boost
+			titleScore := 0.0
+			for _, token := range tokens {
+				if strings.Contains(titleLower, token) {
+					titleScore += baseScore * 2.0 // title 2x boost
 				}
 			}
-			if s > 0 {
-				allScored = append(allScored, scoredLine{itemIdx: i, lineIdx: -1, score: s, fromTitle: true})
+			if titleScore > 0 {
+				allScored = append(allScored, scoredLine{itemIdx: i, lineIdx: -1, score: titleScore, fromTitle: true})
 			}
 		}
 
 		// Score content lines.
 		for li, line := range lines {
 			lineLower := strings.ToLower(line)
-			s := 0.0
-			for _, tok := range tokens {
-				if strings.Contains(lineLower, tok) {
-					s += baseScore
+			lineScore := 0.0
+			for _, token := range tokens {
+				if strings.Contains(lineLower, token) {
+					lineScore += baseScore
 				}
 			}
-			if s > 0 {
-				allScored = append(allScored, scoredLine{itemIdx: i, lineIdx: li, score: s})
+			if lineScore > 0 {
+				allScored = append(allScored, scoredLine{itemIdx: i, lineIdx: li, score: lineScore})
 			}
 		}
 	}
@@ -143,9 +143,9 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 			// Title match: include as a range covering line 0 with context.
 			start := 0
 			end := contextLines
-			m := metas[sl.itemIdx]
-			if end >= len(m.lines) {
-				end = len(m.lines) - 1
+			meta := metas[sl.itemIdx]
+			if end >= len(meta.lines) {
+				end = len(meta.lines) - 1
 			}
 			itemRanges[sl.itemIdx] = append(itemRanges[sl.itemIdx], lineRange{start: start, end: end, score: sl.score})
 		} else {
@@ -154,9 +154,9 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 				start = 0
 			}
 			end := sl.lineIdx + contextLines
-			m := metas[sl.itemIdx]
-			if end >= len(m.lines) {
-				end = len(m.lines) - 1
+			meta := metas[sl.itemIdx]
+			if end >= len(meta.lines) {
+				end = len(meta.lines) - 1
 			}
 			itemRanges[sl.itemIdx] = append(itemRanges[sl.itemIdx], lineRange{start: start, end: end, score: sl.score})
 		}
@@ -171,34 +171,34 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 		})
 		// Merge overlapping.
 		merged := []lineRange{ranges[0]}
-		for _, r := range ranges[1:] {
+		for _, rng := range ranges[1:] {
 			last := &merged[len(merged)-1]
-			if r.start <= last.end+1 {
-				if r.end > last.end {
-					last.end = r.end
+			if rng.start <= last.end+1 {
+				if rng.end > last.end {
+					last.end = rng.end
 				}
-				if r.score > last.score {
-					last.score = r.score
+				if rng.score > last.score {
+					last.score = rng.score
 				}
 			} else {
-				merged = append(merged, r)
+				merged = append(merged, rng)
 			}
 		}
-		m := metas[itemIdx]
+		meta := metas[itemIdx]
 		for _, mr := range merged {
 			end := mr.end
-			if end >= len(m.lines) {
-				end = len(m.lines) - 1
+			if end >= len(meta.lines) {
+				end = len(meta.lines) - 1
 			}
-			snippet := strings.Join(m.lines[mr.start:end+1], "\n")
+			snippet := strings.Join(meta.lines[mr.start:end+1], "\n")
 			snippets = append(snippets, scoredSnippet{
-				itemID: m.id,
-				title:  m.title,
-				tags:   m.tags,
+				itemID: meta.id,
+				title:  meta.title,
+				tags:   meta.tags,
 				start:  mr.start,
 				end:    end,
 				score:  mr.score,
-				lines:  m.lines[mr.start : end+1],
+				lines:  meta.lines[mr.start : end+1],
 			})
 			_ = snippet
 		}
@@ -223,13 +223,13 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 		Tags    []string `json:"tags,omitempty"`
 	}
 	outSnippets := make([]outputSnippet, len(snippets))
-	for i, s := range snippets {
+	for i, snippet := range snippets {
 		outSnippets[i] = outputSnippet{
-			ItemID:  s.itemID,
-			Title:   s.title,
-			Snippet: strings.Join(s.lines, "\n"),
-			Score:   s.score,
-			Tags:    s.tags,
+			ItemID:  snippet.itemID,
+			Title:   snippet.title,
+			Snippet: strings.Join(snippet.lines, "\n"),
+			Score:   snippet.score,
+			Tags:    snippet.tags,
 		}
 	}
 
@@ -244,9 +244,9 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 func tokeniseQuery(query string) []string {
 	words := strings.Fields(strings.ToLower(query))
 	var tokens []string
-	for _, w := range words {
-		if len(w) >= 3 {
-			tokens = append(tokens, w)
+	for _, word := range words {
+		if len(word) >= 3 {
+			tokens = append(tokens, word)
 		}
 	}
 	return tokens

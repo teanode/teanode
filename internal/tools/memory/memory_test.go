@@ -102,9 +102,9 @@ func TestMemoryToolDefinition(t *testing.T) {
 	if len(actionEnum) != len(expectedActions) {
 		t.Errorf("action enum = %v, want %v", actionEnum, expectedActions)
 	} else {
-		for i, a := range expectedActions {
-			if actionEnum[i] != a {
-				t.Errorf("action enum[%d] = %q, want %q", i, actionEnum[i], a)
+		for i, expected := range expectedActions {
+			if actionEnum[i] != expected {
+				t.Errorf("action enum[%d] = %q, want %q", i, actionEnum[i], expected)
 			}
 		}
 	}
@@ -124,9 +124,9 @@ func TestMemoryToolDefinition(t *testing.T) {
 	if len(opEnum) != len(expectedOps) {
 		t.Errorf("op enum = %v, want %v", opEnum, expectedOps)
 	} else {
-		for i, o := range expectedOps {
-			if opEnum[i] != o {
-				t.Errorf("op enum[%d] = %q, want %q", i, opEnum[i], o)
+		for i, expected := range expectedOps {
+			if opEnum[i] != expected {
+				t.Errorf("op enum[%d] = %q, want %q", i, opEnum[i], expected)
 			}
 		}
 	}
@@ -134,8 +134,8 @@ func TestMemoryToolDefinition(t *testing.T) {
 	// Verify required includes action.
 	required := params["required"].([]string)
 	hasAction := false
-	for _, r := range required {
-		if r == "action" {
+	for _, field := range required {
+		if field == "action" {
 			hasAction = true
 		}
 	}
@@ -148,8 +148,8 @@ func TestMemoryToolDefinition(t *testing.T) {
 	pParams := pDef.Function.Parameters.(map[string]interface{})
 	pRequired := pParams["required"].([]string)
 	found := false
-	for _, r := range pRequired {
-		if r == "projectId" {
+	for _, field := range pRequired {
+		if field == "projectId" {
 			found = true
 		}
 	}
@@ -660,15 +660,15 @@ func TestRetrieveTagFilter(t *testing.T) {
 		} `json:"snippets"`
 	}
 	json.Unmarshal([]byte(result), &resp)
-	for _, s := range resp.Snippets {
+	for _, snippet := range resp.Snippets {
 		found := false
-		for _, tag := range s.Tags {
+		for _, tag := range snippet.Tags {
 			if tag == "alpha" {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("snippet should have tag alpha, got %v", s.Tags)
+			t.Errorf("snippet should have tag alpha, got %v", snippet.Tags)
 		}
 	}
 }
@@ -867,9 +867,9 @@ func TestFilterByRole(t *testing.T) {
 	if resp.TotalMatched != 2 {
 		t.Errorf("totalMatched = %d, want 2", resp.TotalMatched)
 	}
-	for _, m := range resp.Messages {
-		if m.Role != "user" {
-			t.Errorf("expected role user, got %q", m.Role)
+	for _, message := range resp.Messages {
+		if message.Role != "user" {
+			t.Errorf("expected role user, got %q", message.Role)
 		}
 	}
 }
@@ -971,26 +971,26 @@ func TestFilterNoMatches(t *testing.T) {
 
 func TestExtractTextContent(t *testing.T) {
 	// Plain string.
-	s := extractTextContent(json.RawMessage(`"Hello world"`))
-	if s != "Hello world" {
-		t.Errorf("plain string: got %q, want %q", s, "Hello world")
+	text := extractTextContent(json.RawMessage(`"Hello world"`))
+	if text != "Hello world" {
+		t.Errorf("plain string: got %q, want %q", text, "Hello world")
 	}
 
 	// Array of content blocks.
 	blocks := `[{"type":"text","text":"Part one"},{"type":"image","url":"x.png"},{"type":"text","text":"Part two"}]`
-	s = extractTextContent(json.RawMessage(blocks))
-	if s != "Part one\nPart two" {
-		t.Errorf("content blocks: got %q, want %q", s, "Part one\nPart two")
+	text = extractTextContent(json.RawMessage(blocks))
+	if text != "Part one\nPart two" {
+		t.Errorf("content blocks: got %q, want %q", text, "Part one\nPart two")
 	}
 
 	// Empty / null.
-	s = extractTextContent(nil)
-	if s != "" {
-		t.Errorf("nil: got %q, want empty", s)
+	text = extractTextContent(nil)
+	if text != "" {
+		t.Errorf("nil: got %q, want empty", text)
 	}
-	s = extractTextContent(json.RawMessage("null"))
-	if s != "" {
-		t.Errorf("null: got %q, want empty", s)
+	text = extractTextContent(json.RawMessage("null"))
+	if text != "" {
+		t.Errorf("null: got %q, want empty", text)
 	}
 }
 
@@ -1004,9 +1004,9 @@ type testMessage struct {
 func createTestMessages(t *testing.T, ctx context.Context, conversationId string, msgs []testMessage) {
 	t.Helper()
 	err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		for _, m := range msgs {
-			role := models.Role(m.role)
-			contentJSON, _ := json.Marshal(m.content)
+		for _, message := range msgs {
+			role := models.Role(message.role)
+			contentJSON, _ := json.Marshal(message.content)
 			now := time.Now()
 			_, err := tx.CreateConversationMessage(ctx, &models.ConversationMessage{
 				ConversationID: &conversationId,

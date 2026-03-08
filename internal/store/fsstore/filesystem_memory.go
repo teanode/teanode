@@ -359,16 +359,16 @@ func fsMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {
 		item.Tags = &tags
 	}
 	if !record.CreatedAt.IsZero() {
-		t := record.CreatedAt.Time
-		item.CreatedAt = &t
+		createdAt := record.CreatedAt.Time
+		item.CreatedAt = &createdAt
 	}
 	if !record.ModifiedAt.IsZero() {
-		t := record.ModifiedAt.Time
-		item.ModifiedAt = &t
+		modifiedAt := record.ModifiedAt.Time
+		item.ModifiedAt = &modifiedAt
 	}
 	if !record.ArchivedAt.IsZero() {
-		t := record.ArchivedAt.Time
-		item.ArchivedAt = &t
+		archivedAt := record.ArchivedAt.Time
+		item.ArchivedAt = &archivedAt
 	}
 	return item
 }
