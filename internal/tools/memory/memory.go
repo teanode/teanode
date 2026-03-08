@@ -112,13 +112,11 @@ func newMemoryTool(configuration memoryToolConfiguration) *memoryTool {
 }
 
 type batchItem struct {
-	Op         string   `json:"op"`
-	ID         string   `json:"id"`
-	Title      string   `json:"title"`
-	Content    string   `json:"content"`
-	Tags       []string `json:"tags"`
-	Query      string   `json:"query"`
-	MaxResults int      `json:"maxResults"`
+	Op      string   `json:"op"`
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	Content string   `json:"content"`
+	Tags    []string `json:"tags"`
 }
 
 type batchResult struct {
@@ -138,25 +136,44 @@ type batchSummary struct {
 }
 
 func (self *memoryTool) Definition() providers.ToolDefinition {
-	ops := []string{"add", "update", "delete", "get", "list", "search"}
+	batchOps := []string{"add", "update", "delete", "get"}
 	properties := map[string]interface{}{
 		"action": map[string]interface{}{
 			"type":        "string",
-			"enum":        []string{"batch"},
-			"description": "The memory action to perform. Only 'batch' is supported.",
+			"enum":        []string{"get", "list", "search", "batch"},
+			"description": "The memory action to perform.",
 		},
+		// Single-action parameters.
+		"id": map[string]interface{}{
+			"type":        "string",
+			"description": "Memory item ID (required for get).",
+		},
+		"query": map[string]interface{}{
+			"type":        "string",
+			"description": "Search query string (required for search).",
+		},
+		"tags": map[string]interface{}{
+			"type":        "array",
+			"items":       map[string]interface{}{"type": "string"},
+			"description": "Tags filter (optional for list).",
+		},
+		"maxResults": map[string]interface{}{
+			"type":        "integer",
+			"description": "Maximum results to return, default 10 (list/search).",
+		},
+		// Batch parameters.
 		"items": map[string]interface{}{
 			"type":        "array",
 			"minItems":    1,
 			"maxItems":    maxBatchItems,
-			"description": "Array of operations to execute (1-50).",
+			"description": "Array of operations to execute (1-50, required for batch). Each item op must be add, update, delete, or get.",
 			"items": map[string]interface{}{
 				"type":     "object",
 				"required": []string{"op"},
 				"properties": map[string]interface{}{
 					"op": map[string]interface{}{
 						"type":        "string",
-						"enum":        ops,
+						"enum":        batchOps,
 						"description": "Operation type.",
 					},
 					"id": map[string]interface{}{
@@ -176,20 +193,12 @@ func (self *memoryTool) Definition() providers.ToolDefinition {
 						"items":       map[string]interface{}{"type": "string"},
 						"description": "Tags for organization and filtering.",
 					},
-					"query": map[string]interface{}{
-						"type":        "string",
-						"description": "Search query string (search op).",
-					},
-					"maxResults": map[string]interface{}{
-						"type":        "integer",
-						"description": "Maximum results to return, default 10 (list/search).",
-					},
 				},
 			},
 		},
 	}
 
-	required := []string{"action", "items"}
+	required := []string{"action"}
 
 	if self.configuration.scopeIDParameterName != "" {
 		properties[self.configuration.scopeIDParameterName] = map[string]interface{}{
@@ -199,7 +208,7 @@ func (self *memoryTool) Definition() providers.ToolDefinition {
 		required = append(required, self.configuration.scopeIDParameterName)
 	}
 
-	descriptionSuffix := " Batch-only: pass action 'batch' with an items array of operations (add, update, delete, get, list, search)."
+	descriptionSuffix := " Actions: get (by id), list (optional tags/maxResults), search (by query), batch (items array of add/update/delete/get ops)."
 
 	return providers.ToolDefinition{
 		Type: "function",
@@ -213,18 +222,24 @@ func (self *memoryTool) Definition() providers.ToolDefinition {
 			},
 			Returns: map[string]interface{}{
 				"type":        "object",
-				"description": "Batch result: {action, results: [{index, op, success, item?, items?, matches?, error?}], summary: {total, succeeded, failed}}.",
+				"description": "Single actions return {action, item/items/matches}. Batch returns {action, results:[...], summary:{total,succeeded,failed}}.",
 			},
 		},
 	}
 }
 
+type executeArguments struct {
+	Action     string      `json:"action"`
+	ID         string      `json:"id"`
+	Query      string      `json:"query"`
+	Tags       []string    `json:"tags"`
+	MaxResults int         `json:"maxResults"`
+	Items      []batchItem `json:"items"`
+	ScopeID    string      `json:"-"`
+}
+
 func (self *memoryTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var arguments struct {
-		Action  string      `json:"action"`
-		Items   []batchItem `json:"items"`
-		ScopeID string      `json:"-"`
-	}
+	var arguments executeArguments
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
@@ -246,11 +261,145 @@ func (self *memoryTool) Execute(ctx context.Context, rawArguments string) (strin
 		return "", scopeError
 	}
 
-	if arguments.Action != "batch" {
-		return "", fmt.Errorf("unknown action %q: only 'batch' is supported", arguments.Action)
+	switch arguments.Action {
+	case "get":
+		return self.executeGet(ctx, scope, scopeID, arguments)
+	case "list":
+		return self.executeList(ctx, scope, scopeID, arguments)
+	case "search":
+		return self.executeSearch(ctx, scope, scopeID, arguments)
+	case "batch":
+		return self.executeBatch(ctx, scope, scopeID, arguments.Items)
+	default:
+		return "", fmt.Errorf("unknown action %q: must be get, list, search, or batch", arguments.Action)
+	}
+}
+
+func (self *memoryTool) executeGet(ctx context.Context, scope models.Scope, scopeID string, args executeArguments) (string, error) {
+	if args.ID == "" {
+		return "", fmt.Errorf("id is required for get")
+	}
+	var item *models.MemoryItem
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		var err error
+		item, err = tx.GetMemoryItem(ctx, args.ID, nil)
+		return err
+	}); err != nil {
+		return "", err
+	}
+	output, _ := json.Marshal(map[string]interface{}{
+		"action": "get",
+		"item":   memoryItemToOutput(item),
+	})
+	return string(output), nil
+}
+
+func (self *memoryTool) executeList(ctx context.Context, scope models.Scope, scopeID string, args executeArguments) (string, error) {
+	maxResults := args.MaxResults
+	if maxResults <= 0 {
+		maxResults = 10
+	}
+	limit := uint64(maxResults)
+
+	listOptions := store.MemoryItemListOptions{
+		Limit: &limit,
+	}
+	if len(args.Tags) > 0 {
+		listOptions.Tags = &args.Tags
 	}
 
-	return self.executeBatch(ctx, scope, scopeID, arguments.Items)
+	var items []*models.MemoryItem
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		var err error
+		items, err = tx.ListMemoryItems(ctx, scope, scopeID, listOptions, nil)
+		return err
+	}); err != nil {
+		return "", err
+	}
+
+	outputItems := make([]map[string]interface{}, 0, len(items))
+	for _, mem := range items {
+		entry := map[string]interface{}{
+			"id": mem.ID,
+		}
+		if mem.Title != nil {
+			entry["title"] = *mem.Title
+		}
+		if mem.Tags != nil {
+			entry["tags"] = *mem.Tags
+		}
+		if mem.CreatedAt != nil {
+			entry["createdAt"] = mem.CreatedAt.Format(time.RFC3339)
+		}
+		if mem.ModifiedAt != nil {
+			entry["modifiedAt"] = mem.ModifiedAt.Format(time.RFC3339)
+		}
+		outputItems = append(outputItems, entry)
+	}
+	output, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+		"items":  outputItems,
+	})
+	return string(output), nil
+}
+
+func (self *memoryTool) executeSearch(ctx context.Context, scope models.Scope, scopeID string, args executeArguments) (string, error) {
+	if args.Query == "" {
+		return "", fmt.Errorf("query is required for search")
+	}
+	maxResults := args.MaxResults
+	if maxResults <= 0 {
+		maxResults = 10
+	}
+	limit := uint64(maxResults)
+	includeContent := true
+
+	type matchEntry struct {
+		ID      string   `json:"id"`
+		Title   string   `json:"title,omitempty"`
+		Snippet string   `json:"snippet,omitempty"`
+		Tags    []string `json:"tags,omitempty"`
+	}
+
+	var matches []matchEntry
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		results, err := tx.SearchMemoryItems(ctx, scope, scopeID, args.Query, store.MemoryItemSearchOptions{
+			Limit:          &limit,
+			IncludeContent: &includeContent,
+		}, nil)
+		if err != nil {
+			return err
+		}
+		matches = make([]matchEntry, 0, len(results))
+		for _, result := range results {
+			entry := matchEntry{}
+			if result.MemoryItemID != nil {
+				entry.ID = *result.MemoryItemID
+			}
+			if result.Title != nil {
+				entry.Title = *result.Title
+			}
+			if result.Tags != nil {
+				entry.Tags = *result.Tags
+			}
+			if result.MatchedLines != nil && len(*result.MatchedLines) > 0 {
+				entry.Snippet = strings.Join(*result.MatchedLines, "\n")
+			}
+			matches = append(matches, entry)
+			if len(matches) >= maxResults {
+				break
+			}
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+
+	output, _ := json.Marshal(map[string]interface{}{
+		"action":  "search",
+		"matches": matches,
+	})
+	return string(output), nil
 }
 
 func (self *memoryTool) executeBatch(ctx context.Context, scope models.Scope, scopeID string, items []batchItem) (string, error) {
@@ -310,10 +459,8 @@ func (self *memoryTool) executeBatchItem(ctx context.Context, tx store.Transacti
 		return self.batchDelete(ctx, tx, index, item)
 	case "get":
 		return self.batchGet(ctx, tx, index, item)
-	case "list":
-		return self.batchList(ctx, tx, scope, scopeID, index, item)
-	case "search":
-		return self.batchSearch(ctx, tx, scope, scopeID, index, item)
+	case "list", "search":
+		return batchResult{Index: index, Op: item.Op, Success: false, Error: fmt.Sprintf("op %q is not allowed in batch; use it as a top-level action instead", item.Op)}
 	default:
 		return batchResult{Index: index, Op: item.Op, Success: false, Error: fmt.Sprintf("unknown op: %s", item.Op)}
 	}
@@ -391,96 +538,6 @@ func (self *memoryTool) batchGet(ctx context.Context, tx store.Transaction, inde
 		return batchResult{Index: index, Op: "get", Success: false, Error: err.Error()}
 	}
 	return batchResult{Index: index, Op: "get", Success: true, Item: memoryItemToOutput(mem)}
-}
-
-func (self *memoryTool) batchList(ctx context.Context, tx store.Transaction, scope models.Scope, scopeID string, index int, item batchItem) batchResult {
-	maxResults := item.MaxResults
-	if maxResults <= 0 {
-		maxResults = 10
-	}
-	limit := uint64(maxResults)
-
-	listOptions := store.MemoryItemListOptions{
-		Limit: &limit,
-	}
-	if len(item.Tags) > 0 {
-		listOptions.Tags = &item.Tags
-	}
-
-	items, err := tx.ListMemoryItems(ctx, scope, scopeID, listOptions, nil)
-	if err != nil {
-		return batchResult{Index: index, Op: "list", Success: false, Error: err.Error()}
-	}
-
-	outputItems := make([]map[string]interface{}, 0, len(items))
-	for _, mem := range items {
-		entry := map[string]interface{}{
-			"id": mem.ID,
-		}
-		if mem.Title != nil {
-			entry["title"] = *mem.Title
-		}
-		if mem.Tags != nil {
-			entry["tags"] = *mem.Tags
-		}
-		if mem.CreatedAt != nil {
-			entry["createdAt"] = mem.CreatedAt.Format(time.RFC3339)
-		}
-		if mem.ModifiedAt != nil {
-			entry["modifiedAt"] = mem.ModifiedAt.Format(time.RFC3339)
-		}
-		outputItems = append(outputItems, entry)
-	}
-	return batchResult{Index: index, Op: "list", Success: true, Items: outputItems}
-}
-
-func (self *memoryTool) batchSearch(ctx context.Context, tx store.Transaction, scope models.Scope, scopeID string, index int, item batchItem) batchResult {
-	if item.Query == "" {
-		return batchResult{Index: index, Op: "search", Success: false, Error: "query is required for search"}
-	}
-	maxResults := item.MaxResults
-	if maxResults <= 0 {
-		maxResults = 10
-	}
-	limit := uint64(maxResults)
-	includeContent := true
-
-	type matchEntry struct {
-		ID      string   `json:"id"`
-		Title   string   `json:"title,omitempty"`
-		Snippet string   `json:"snippet,omitempty"`
-		Tags    []string `json:"tags,omitempty"`
-	}
-
-	results, err := tx.SearchMemoryItems(ctx, scope, scopeID, item.Query, store.MemoryItemSearchOptions{
-		Limit:          &limit,
-		IncludeContent: &includeContent,
-	}, nil)
-	if err != nil {
-		return batchResult{Index: index, Op: "search", Success: false, Error: err.Error()}
-	}
-
-	matches := []matchEntry{}
-	for _, result := range results {
-		entry := matchEntry{}
-		if result.MemoryItemID != nil {
-			entry.ID = *result.MemoryItemID
-		}
-		if result.Title != nil {
-			entry.Title = *result.Title
-		}
-		if result.Tags != nil {
-			entry.Tags = *result.Tags
-		}
-		if result.MatchedLines != nil && len(*result.MatchedLines) > 0 {
-			entry.Snippet = strings.Join(*result.MatchedLines, "\n")
-		}
-		matches = append(matches, entry)
-		if len(matches) >= maxResults {
-			break
-		}
-	}
-	return batchResult{Index: index, Op: "search", Success: true, Matches: matches}
 }
 
 func (self *memoryTool) callAfterMutate(ctx context.Context, scopeID string) {

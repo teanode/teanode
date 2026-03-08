@@ -81,25 +81,39 @@ All support `action`: `write`, `read`, `list`, `append`, `search`, `delete`, `mo
 
 ## Memory Tools
 
-Three structured memory tools for discrete knowledge items. All use **batch-only** API: `action: "batch"` with an `items` array of operations.
+Three structured memory tools for discrete knowledge items.
 
 - **agent_memory**: Agent-scoped, shared by all users. For agent-wide facts, patterns, reference data.
 - **user_memory**: User-scoped, private. For personal preferences, history, user-specific knowledge.
 - **project_memory**: Project-scoped (requires `projectId`). For project decisions, conventions, shared context.
 
-### Batch API
+### Actions
 
-Every call must use `action: "batch"` with an `items` array (1-50 entries). Each item has an `op` field: `add`, `update`, `delete`, `get`, `list`, or `search`, plus fields needed for that op (`id`, `title`, `content`, `tags`, `query`, `maxResults`).
+Top-level `action` must be one of: `get`, `list`, `search`, `batch`.
 
-Example – search then add in one call:
+**Single actions** (read-only, one call at a time):
+- `get` — requires `id`. Returns `{action:"get", item:{...}}`.
+- `list` — optional `tags` (array), optional `maxResults`. Returns `{action:"list", items:[...]}`.
+- `search` — requires `query`, optional `maxResults`. Returns `{action:"search", matches:[...]}`.
+
+**Batch** — `action: "batch"` with `items` array (1-50). Each item has `op` in [`add`, `update`, `delete`, `get`]. List and search are **not** allowed inside batch.
+- `add`: requires `content`, optional `title`, `tags`.
+- `update`: requires `id` and at least one of `title`/`content`/`tags`.
+- `delete`: requires `id`.
+- `get`: requires `id`.
+
+Response: `{action:"batch", results:[{index,op,success,item?,error?}], summary:{total,succeeded,failed}}`
+
+Example – search then batch-add:
+```json
+{"action":"search","query":"user preferences"}
+```
+Then:
 ```json
 {"action":"batch","items":[
-  {"op":"search","query":"user preferences"},
   {"op":"add","title":"Theme pref","content":"User prefers dark mode","tags":["prefs"]}
 ]}
 ```
-
-Response: `{action:"batch", results:[{index,op,success,item?,items?,matches?,error?}], summary:{total,succeeded,failed}}`
 
 ### Retrieval-First Rule
 

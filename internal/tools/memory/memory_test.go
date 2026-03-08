@@ -60,6 +60,13 @@ type memoryBatchResponse struct {
 	Summary batchSummary  `json:"summary"`
 }
 
+type memorySingleResponse struct {
+	Action  string                   `json:"action"`
+	Item    map[string]interface{}   `json:"item,omitempty"`
+	Items   []map[string]interface{} `json:"items,omitempty"`
+	Matches []interface{}            `json:"matches,omitempty"`
+}
+
 func TestMemoryToolRegistration(t *testing.T) {
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
@@ -85,13 +92,20 @@ func TestMemoryToolDefinition(t *testing.T) {
 		t.Errorf("name = %q, want agent_memory", def.Function.Name)
 	}
 
-	// Verify action enum is batch-only.
+	// Verify action enum includes get, list, search, batch.
 	params := def.Function.Parameters.(map[string]interface{})
 	props := params["properties"].(map[string]interface{})
 	actionProp := props["action"].(map[string]interface{})
 	actionEnum := actionProp["enum"].([]string)
-	if len(actionEnum) != 1 || actionEnum[0] != "batch" {
-		t.Errorf("action enum = %v, want [batch]", actionEnum)
+	expectedActions := []string{"get", "list", "search", "batch"}
+	if len(actionEnum) != len(expectedActions) {
+		t.Errorf("action enum = %v, want %v", actionEnum, expectedActions)
+	} else {
+		for i, a := range expectedActions {
+			if actionEnum[i] != a {
+				t.Errorf("action enum[%d] = %q, want %q", i, actionEnum[i], a)
+			}
+		}
 	}
 
 	// Verify items property exists.
@@ -99,19 +113,33 @@ func TestMemoryToolDefinition(t *testing.T) {
 		t.Error("items property should exist in definition")
 	}
 
-	// Verify required includes action and items.
+	// Verify batch items op enum is restricted to add/update/delete/get.
+	itemsProp := props["items"].(map[string]interface{})
+	itemSchema := itemsProp["items"].(map[string]interface{})
+	itemProps := itemSchema["properties"].(map[string]interface{})
+	opProp := itemProps["op"].(map[string]interface{})
+	opEnum := opProp["enum"].([]string)
+	expectedOps := []string{"add", "update", "delete", "get"}
+	if len(opEnum) != len(expectedOps) {
+		t.Errorf("op enum = %v, want %v", opEnum, expectedOps)
+	} else {
+		for i, o := range expectedOps {
+			if opEnum[i] != o {
+				t.Errorf("op enum[%d] = %q, want %q", i, opEnum[i], o)
+			}
+		}
+	}
+
+	// Verify required includes action.
 	required := params["required"].([]string)
-	hasAction, hasItems := false, false
+	hasAction := false
 	for _, r := range required {
 		if r == "action" {
 			hasAction = true
 		}
-		if r == "items" {
-			hasItems = true
-		}
 	}
-	if !hasAction || !hasItems {
-		t.Errorf("required = %v, want action and items", required)
+	if !hasAction {
+		t.Errorf("required = %v, want action", required)
 	}
 
 	projectTool := registry.Get("project_memory")
@@ -129,7 +157,7 @@ func TestMemoryToolDefinition(t *testing.T) {
 	}
 }
 
-func TestMemoryToolRejectsSingleActions(t *testing.T) {
+func TestMemoryToolRejectsUnknownAction(t *testing.T) {
 	ctx := setupMemoryStore(t)
 	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-reject", "", nil, models.Agent{}))
 	registry := tools.NewEmptyToolRegistry()
@@ -139,17 +167,182 @@ func TestMemoryToolRejectsSingleActions(t *testing.T) {
 
 	agentTool := registry.Get("agent_memory")
 
-	for _, action := range []string{"add", "update", "delete", "get", "list", "search"} {
+	for _, action := range []string{"add", "update", "delete", "foo"} {
 		_, err := agentTool.Execute(ctx, `{"action":"`+action+`"}`)
 		if err == nil {
-			t.Errorf("action %q should be rejected, only batch is allowed", action)
+			t.Errorf("action %q should be rejected", action)
 		}
+	}
+}
+
+func TestMemorySingleGet(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-single-get", "", nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	tool := registry.Get("agent_memory")
+
+	// Add via batch first.
+	result, err := tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Single get test","content":"hello world","tags":["test"]}]}`)
+	if err != nil {
+		t.Fatalf("batch add: %v", err)
+	}
+	var bResp memoryBatchResponse
+	json.Unmarshal([]byte(result), &bResp)
+	itemID := bResp.Results[0].Item["id"].(string)
+
+	// Single get.
+	result, err = tool.Execute(ctx, `{"action":"get","id":"`+itemID+`"}`)
+	if err != nil {
+		t.Fatalf("single get: %v", err)
+	}
+	var resp memorySingleResponse
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Action != "get" {
+		t.Errorf("action = %q, want get", resp.Action)
+	}
+	if resp.Item["title"] != "Single get test" {
+		t.Errorf("title = %v, want 'Single get test'", resp.Item["title"])
+	}
+	if resp.Item["content"] != "hello world" {
+		t.Errorf("content = %v, want 'hello world'", resp.Item["content"])
+	}
+
+	// Single get without id should error.
+	_, err = tool.Execute(ctx, `{"action":"get"}`)
+	if err == nil {
+		t.Error("get without id should error")
+	}
+}
+
+func TestMemorySingleList(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-single-list", "", nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	tool := registry.Get("agent_memory")
+
+	// List on empty scope.
+	result, err := tool.Execute(ctx, `{"action":"list"}`)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var resp memorySingleResponse
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Action != "list" {
+		t.Errorf("action = %q, want list", resp.Action)
+	}
+	if len(resp.Items) != 0 {
+		t.Errorf("items = %v, want empty", resp.Items)
+	}
+
+	// Add items via batch.
+	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"A","content":"aaa","tags":["x"]},{"op":"add","title":"B","content":"bbb","tags":["y"]}]}`)
+
+	// List all.
+	result, err = tool.Execute(ctx, `{"action":"list"}`)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Items) < 2 {
+		t.Errorf("expected at least 2 items, got %d", len(resp.Items))
+	}
+
+	// List with tags filter.
+	result, err = tool.Execute(ctx, `{"action":"list","tags":["x"]}`)
+	if err != nil {
+		t.Fatalf("list with tags: %v", err)
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Items) != 1 {
+		t.Errorf("expected 1 item with tag x, got %d", len(resp.Items))
+	}
+
+	// List with maxResults.
+	result, err = tool.Execute(ctx, `{"action":"list","maxResults":1}`)
+	if err != nil {
+		t.Fatalf("list with maxResults: %v", err)
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Items) > 1 {
+		t.Errorf("expected at most 1 item, got %d", len(resp.Items))
+	}
+}
+
+func TestMemorySingleSearch(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-single-search", "", nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	tool := registry.Get("agent_memory")
+
+	// Add items.
+	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Pet preferences","content":"The user likes cats and kittens","tags":["pets"]},{"op":"add","title":"Work notes","content":"User prefers dark mode in all editors","tags":["work"]}]}`)
+
+	// Search for "cats".
+	result, err := tool.Execute(ctx, `{"action":"search","query":"cats"}`)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	var resp memorySingleResponse
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Action != "search" {
+		t.Errorf("action = %q, want search", resp.Action)
+	}
+	if len(resp.Matches) == 0 {
+		t.Fatal("search for 'cats' should find at least 1 match")
+	}
+
+	// Case-insensitive search.
+	result, err = tool.Execute(ctx, `{"action":"search","query":"DARK MODE"}`)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Matches) == 0 {
+		t.Error("case-insensitive search for 'DARK MODE' should find a match")
+	}
+
+	// Max results.
+	result, err = tool.Execute(ctx, `{"action":"search","query":"user","maxResults":1}`)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Matches) > 1 {
+		t.Errorf("expected at most 1 result, got %d", len(resp.Matches))
+	}
+
+	// No match.
+	result, err = tool.Execute(ctx, `{"action":"search","query":"nonexistent_xyz"}`)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Matches) != 0 {
+		t.Errorf("expected no matches, got %d", len(resp.Matches))
+	}
+
+	// Search without query should error.
+	_, err = tool.Execute(ctx, `{"action":"search"}`)
+	if err == nil {
+		t.Error("search without query should error")
 	}
 }
 
 func TestMemoryBatchCRUD(t *testing.T) {
 	ctx := setupMemoryStore(t)
-	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent", "", nil, models.Agent{}))
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-batch-crud", "", nil, models.Agent{}))
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
 		registry.Register(tool)
@@ -160,35 +353,17 @@ func TestMemoryBatchCRUD(t *testing.T) {
 		t.Fatal("agent_memory not registered")
 	}
 
-	// Batch: list on empty scope.
-	result, err := tool.Execute(ctx, `{"action":"batch","items":[{"op":"list"}]}`)
-	if err != nil {
-		t.Fatalf("batch list: %v", err)
-	}
-	var resp memoryBatchResponse
-	if err := json.Unmarshal([]byte(result), &resp); err != nil {
-		t.Fatalf("parse batch list: %v", err)
-	}
-	if resp.Action != "batch" {
-		t.Errorf("action = %q, want batch", resp.Action)
-	}
-	if resp.Summary.Total != 1 || resp.Summary.Succeeded != 1 {
-		t.Errorf("summary = %+v, want total=1 succeeded=1", resp.Summary)
-	}
-	if !resp.Results[0].Success || resp.Results[0].Op != "list" {
-		t.Errorf("list result = %+v, want success", resp.Results[0])
-	}
-	if len(resp.Results[0].Items) != 0 {
-		t.Errorf("items = %v, want empty", resp.Results[0].Items)
-	}
-
 	// Batch: add an item.
-	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"User preferences","content":"The user likes cats","tags":["prefs","pets"]}]}`)
+	result, err := tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"User preferences","content":"The user likes cats","tags":["prefs","pets"]}]}`)
 	if err != nil {
 		t.Fatalf("batch add: %v", err)
 	}
+	var resp memoryBatchResponse
 	if err := json.Unmarshal([]byte(result), &resp); err != nil {
 		t.Fatalf("parse batch add: %v", err)
+	}
+	if resp.Action != "batch" {
+		t.Errorf("action = %q, want batch", resp.Action)
 	}
 	if resp.Summary.Succeeded != 1 {
 		t.Fatalf("add should succeed, summary = %+v", resp.Summary)
@@ -225,30 +400,6 @@ func TestMemoryBatchCRUD(t *testing.T) {
 		t.Errorf("content = %v, want 'The user likes dogs now'", resp.Results[0].Item["content"])
 	}
 
-	// Batch: get after update.
-	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"get","id":"`+itemID+`"}]}`)
-	if err != nil {
-		t.Fatalf("batch get after update: %v", err)
-	}
-	if err := json.Unmarshal([]byte(result), &resp); err != nil {
-		t.Fatalf("parse batch get: %v", err)
-	}
-	if resp.Results[0].Item["content"] != "The user likes dogs now" {
-		t.Errorf("content after update = %v, want 'The user likes dogs now'", resp.Results[0].Item["content"])
-	}
-
-	// Batch: list should have at least one item.
-	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"list"}]}`)
-	if err != nil {
-		t.Fatalf("batch list: %v", err)
-	}
-	if err := json.Unmarshal([]byte(result), &resp); err != nil {
-		t.Fatalf("parse batch list: %v", err)
-	}
-	if len(resp.Results[0].Items) < 1 {
-		t.Errorf("list should have at least 1 item, got %d", len(resp.Results[0].Items))
-	}
-
 	// Batch: delete the item.
 	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"delete","id":"`+itemID+`"}]}`)
 	if err != nil {
@@ -274,6 +425,41 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	}
 	if resp.Results[0].Error == "" {
 		t.Error("expected error message for get after delete")
+	}
+}
+
+func TestMemoryBatchRejectsListSearch(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-batch-reject", "", nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	tool := registry.Get("agent_memory")
+
+	// list in batch should fail per-item.
+	result, err := tool.Execute(ctx, `{"action":"batch","items":[{"op":"list"}]}`)
+	if err != nil {
+		t.Fatalf("batch: %v", err)
+	}
+	var resp memoryBatchResponse
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Results[0].Success {
+		t.Error("list op in batch should fail")
+	}
+	if resp.Results[0].Error == "" {
+		t.Error("list op in batch should have error message")
+	}
+
+	// search in batch should fail per-item.
+	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"search"}]}`)
+	if err != nil {
+		t.Fatalf("batch: %v", err)
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Results[0].Success {
+		t.Error("search op in batch should fail")
 	}
 }
 
@@ -350,68 +536,6 @@ func TestMemoryBatchPartialFailure(t *testing.T) {
 	}
 }
 
-func TestMemoryBatchSearch(t *testing.T) {
-	ctx := setupMemoryStore(t)
-	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-search", "", nil, models.Agent{}))
-	registry := tools.NewEmptyToolRegistry()
-	for _, tool := range createTools() {
-		registry.Register(tool)
-	}
-
-	tool := registry.Get("agent_memory")
-
-	// Add items.
-	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Pet preferences","content":"The user likes cats and kittens","tags":["pets"]},{"op":"add","title":"Work notes","content":"User prefers dark mode in all editors","tags":["work"]}]}`)
-
-	// Search for "cats".
-	result, err := tool.Execute(ctx, `{"action":"batch","items":[{"op":"search","query":"cats"}]}`)
-	if err != nil {
-		t.Fatalf("search: %v", err)
-	}
-	var resp memoryBatchResponse
-	json.Unmarshal([]byte(result), &resp)
-	if !resp.Results[0].Success {
-		t.Fatalf("search should succeed, error: %s", resp.Results[0].Error)
-	}
-	matches := resp.Results[0].Matches.([]interface{})
-	if len(matches) == 0 {
-		t.Fatal("search for 'cats' should find at least 1 match")
-	}
-
-	// Case-insensitive search.
-	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"search","query":"DARK MODE"}]}`)
-	if err != nil {
-		t.Fatalf("search: %v", err)
-	}
-	json.Unmarshal([]byte(result), &resp)
-	matches = resp.Results[0].Matches.([]interface{})
-	if len(matches) == 0 {
-		t.Error("case-insensitive search for 'DARK MODE' should find a match")
-	}
-
-	// Max results.
-	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"search","query":"user","maxResults":1}]}`)
-	if err != nil {
-		t.Fatalf("search: %v", err)
-	}
-	json.Unmarshal([]byte(result), &resp)
-	matches = resp.Results[0].Matches.([]interface{})
-	if len(matches) > 1 {
-		t.Errorf("expected at most 1 result, got %d", len(matches))
-	}
-
-	// No match.
-	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"search","query":"nonexistent_xyz"}]}`)
-	if err != nil {
-		t.Fatalf("search: %v", err)
-	}
-	json.Unmarshal([]byte(result), &resp)
-	matches = resp.Results[0].Matches.([]interface{})
-	if len(matches) != 0 {
-		t.Errorf("expected no matches, got %d", len(matches))
-	}
-}
-
 func TestUserMemoryBatch(t *testing.T) {
 	ctx := setupMemoryStore(t)
 	registry := tools.NewEmptyToolRegistry()
@@ -437,13 +561,15 @@ func TestUserMemoryBatch(t *testing.T) {
 	}
 	itemID := resp.Results[0].Item["id"].(string)
 
-	result, err = userTool.Execute(ctx, `{"action":"batch","items":[{"op":"get","id":"`+itemID+`"}]}`)
+	// Single get on user_memory.
+	result, err = userTool.Execute(ctx, `{"action":"get","id":"`+itemID+`"}`)
 	if err != nil {
-		t.Fatalf("user_memory batch get: %v", err)
+		t.Fatalf("user_memory get: %v", err)
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Results[0].Item["content"] != "remember this preference" {
-		t.Errorf("content = %v, want 'remember this preference'", resp.Results[0].Item["content"])
+	var sResp memorySingleResponse
+	json.Unmarshal([]byte(result), &sResp)
+	if sResp.Item["content"] != "remember this preference" {
+		t.Errorf("content = %v, want 'remember this preference'", sResp.Item["content"])
 	}
 }
 
@@ -459,7 +585,7 @@ func TestProjectMemoryToolRequiresProjectId(t *testing.T) {
 	}
 
 	// Execute without projectId should error.
-	_, err := projectTool.Execute(context.Background(), `{"action":"batch","items":[{"op":"list"}]}`)
+	_, err := projectTool.Execute(context.Background(), `{"action":"list"}`)
 	if err == nil {
 		t.Error("expected error when projectId is missing")
 	}
