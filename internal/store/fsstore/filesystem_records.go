@@ -180,16 +180,20 @@ type storeProjectRecord struct {
 	UpdatedAt    timeutil.Timestamp `json:"updatedAt" yaml:"updatedAt"`
 }
 
-type storeMemoryItemRecord struct {
+type storeMemoryItemFrontmatter struct {
 	ID         string             `yaml:"id"`
 	Scope      string             `yaml:"scope"`
 	ScopeID    string             `yaml:"scopeId"`
 	Title      string             `yaml:"title,omitempty"`
-	Content    string             `yaml:"content"`
 	Tags       []string           `yaml:"tags,omitempty"`
 	ArchivedAt timeutil.Timestamp `yaml:"archivedAt,omitempty"`
 	CreatedAt  timeutil.Timestamp `yaml:"createdAt"`
 	ModifiedAt timeutil.Timestamp `yaml:"modifiedAt"`
+}
+
+type storeMemoryItemRecord struct {
+	storeMemoryItemFrontmatter `yaml:",inline"`
+	Content                    string `yaml:"-"`
 }
 
 func readYAMLFileOrDefault[T any](filename string, result *T) error {

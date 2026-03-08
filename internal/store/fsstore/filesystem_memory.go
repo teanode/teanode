@@ -2,14 +2,18 @@ package fsstore
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/atomicfile"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/timeutil"
@@ -38,12 +42,14 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 	}
 
 	record := storeMemoryItemRecord{
-		ID:         itemID,
-		Scope:      string(scope),
-		ScopeID:    scopeID,
-		Content:    content,
-		CreatedAt:  timeutil.Timestamp{Time: now},
-		ModifiedAt: timeutil.Timestamp{Time: now},
+		storeMemoryItemFrontmatter: storeMemoryItemFrontmatter{
+			ID:         itemID,
+			Scope:      string(scope),
+			ScopeID:    scopeID,
+			CreatedAt:  timeutil.Timestamp{Time: now},
+			ModifiedAt: timeutil.Timestamp{Time: now},
+		},
+		Content: content,
 	}
 	if item.Title != nil {
 		record.Title = *item.Title
@@ -53,7 +59,7 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 	}
 
 	filePath := self.memoryItemFilePath(scope, scopeID, itemID)
-	if err := writeYAMLFile(filePath, &record); err != nil {
+	if err := writeMemoryItemFile(filePath, &record); err != nil {
 		return nil, err
 	}
 	return fsMemoryRecordToModel(&record), nil
@@ -85,11 +91,13 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 
 	now := time.Now()
 	record := storeMemoryItemRecord{
-		ID:         item.ID,
-		Scope:      string(*item.Scope),
-		ScopeID:    *item.ScopeID,
-		CreatedAt:  timeutil.Timestamp{Time: *item.CreatedAt},
-		ModifiedAt: timeutil.Timestamp{Time: now},
+		storeMemoryItemFrontmatter: storeMemoryItemFrontmatter{
+			ID:         item.ID,
+			Scope:      string(*item.Scope),
+			ScopeID:    *item.ScopeID,
+			CreatedAt:  timeutil.Timestamp{Time: *item.CreatedAt},
+			ModifiedAt: timeutil.Timestamp{Time: now},
+		},
 	}
 	if item.Title != nil {
 		record.Title = *item.Title
@@ -102,7 +110,7 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 	}
 
 	filePath := self.memoryItemFilePath(*item.Scope, *item.ScopeID, item.ID)
-	if err := writeYAMLFile(filePath, &record); err != nil {
+	if err := writeMemoryItemFile(filePath, &record); err != nil {
 		return nil, err
 	}
 	return fsMemoryRecordToModel(&record), nil
@@ -121,7 +129,7 @@ func (self *fileSystemTransaction) DeleteMemoryItem(ctx context.Context, memoryI
 		return store.ErrNotFound
 	}
 	record.ArchivedAt = timeutil.Timestamp{Time: time.Now()}
-	return writeYAMLFile(filePath, record)
+	return writeMemoryItemFile(filePath, record)
 }
 
 func (self *fileSystemTransaction) ListMemoryItems(ctx context.Context, scope models.Scope, scopeID string, listOptions store.MemoryItemListOptions, options *store.Option) ([]*models.MemoryItem, error) {
@@ -142,7 +150,7 @@ func (self *fileSystemTransaction) ListMemoryItems(ctx context.Context, scope mo
 
 	items := make([]*models.MemoryItem, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 			continue
 		}
 		filePath := directory + "/" + entry.Name()
@@ -244,7 +252,7 @@ func (self *fileSystemTransaction) SearchMemoryItems(ctx context.Context, scope 
 
 // findMemoryItemFilePath searches for a memory item file by ID across all scope directories.
 func (self *fileSystemTransaction) findMemoryItemFilePath(itemID string) (string, error) {
-	filename := itemID + ".yaml"
+	filename := itemID + ".md"
 
 	// Check agents.
 	agentPattern := self.agentsDirectory() + "/*/memory/" + filename
@@ -275,11 +283,59 @@ func readMemoryItemFile(filePath string) (*storeMemoryItemRecord, error) {
 		}
 		return nil, err
 	}
-	var record storeMemoryItemRecord
-	if err := yaml.Unmarshal(data, &record); err != nil {
-		return nil, err
+	return parseMemoryMarkdown(data)
+}
+
+func parseMemoryMarkdown(data []byte) (*storeMemoryItemRecord, error) {
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	if !strings.HasPrefix(content, "---\n") {
+		return nil, fmt.Errorf("missing frontmatter delimiter")
 	}
-	return &record, nil
+	rest := content[4:]
+	closingIndex := strings.Index(rest, "\n---\n")
+	if closingIndex < 0 {
+		if strings.HasSuffix(rest, "\n---") {
+			closingIndex = len(rest) - 4
+		} else {
+			return nil, fmt.Errorf("missing closing frontmatter delimiter")
+		}
+	}
+	frontmatterYAML := rest[:closingIndex]
+	var frontmatter storeMemoryItemFrontmatter
+	if unmarshalError := yaml.Unmarshal([]byte(frontmatterYAML), &frontmatter); unmarshalError != nil {
+		return nil, fmt.Errorf("parsing frontmatter: %w", unmarshalError)
+	}
+	body := ""
+	bodyStart := closingIndex + 5
+	if bodyStart <= len(rest) {
+		body = strings.TrimSpace(rest[bodyStart:])
+	}
+	return &storeMemoryItemRecord{
+		storeMemoryItemFrontmatter: frontmatter,
+		Content:                    body,
+	}, nil
+}
+
+func writeMemoryItemFile(filePath string, record *storeMemoryItemRecord) error {
+	directory := filepath.Dir(filePath)
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return err
+	}
+	yamlData, marshalError := yaml.Marshal(&record.storeMemoryItemFrontmatter)
+	if marshalError != nil {
+		return marshalError
+	}
+	var buf bytes.Buffer
+	buf.WriteString("---\n")
+	buf.Write(yamlData)
+	buf.WriteString("---\n")
+	if record.Content != "" {
+		buf.WriteString("\n")
+		buf.WriteString(record.Content)
+		buf.WriteString("\n")
+	}
+	return atomicfile.WriteFile(filePath, buf.Bytes())
 }
 
 func fsMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {

@@ -142,7 +142,7 @@ func (self *fileSystemTransaction) memoryItemDirectory(scope models.Scope, scope
 }
 
 func (self *fileSystemTransaction) memoryItemFilePath(scope models.Scope, scopeId, itemId string) string {
-	return filepath.Join(self.memoryItemDirectory(scope, scopeId), itemId+".yaml")
+	return filepath.Join(self.memoryItemDirectory(scope, scopeId), itemId+".md")
 }
 
 func (self *fileSystemTransaction) trashDirectory() string {
