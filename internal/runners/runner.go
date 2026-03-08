@@ -53,10 +53,7 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 	toolRegistry := tools.NewToolRegistry()
 	skillPrompts := skills.RegisterSkills(ctx, toolRegistry, agent.GetSkills())
 	toolRegistry.ApplyFilter(agent.GetTools())
-	var embedder *embeddings.Embedder
-	if providerRegistry != nil {
-		embedder = embeddings.NewEmbedder(providerRegistry)
-	}
+	embedder := embeddings.NewEmbedder(providerRegistry)
 	return &Runner{
 		ID:               security.NewULID(),
 		AgentID:          agentId,

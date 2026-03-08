@@ -164,8 +164,8 @@ func TestSemanticRetrieveOrdering(t *testing.T) {
 }
 
 func TestSemanticRetrieveFallbackWhenNoEmbeddings(t *testing.T) {
-	// No embedder (nil provider registry).
-	ctx := setupFSMemoryStore(t, nil)
+	// Empty provider registry (no embedding providers registered).
+	ctx := setupFSMemoryStore(t, providers.NewEmptyProviderRegistry())
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
@@ -350,8 +350,8 @@ func TestNoDedupeWarningForDifferentItems(t *testing.T) {
 }
 
 func TestAddWithoutEmbeddingsProvider(t *testing.T) {
-	// No embedder (nil provider registry).
-	ctx := setupFSMemoryStore(t, nil)
+	// Empty provider registry (no embedding providers registered).
+	ctx := setupFSMemoryStore(t, providers.NewEmptyProviderRegistry())
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {

@@ -1240,7 +1240,7 @@ type infiniteReaderType struct{ data []byte }
 
 func infiniteReader(data []byte) io.Reader { return &infiniteReaderType{data: data} }
 
-func (r *infiniteReaderType) Read(p []byte) (int, error) {
-	n := copy(p, r.data)
+func (self *infiniteReaderType) Read(p []byte) (int, error) {
+	n := copy(p, self.data)
 	return n, nil
 }

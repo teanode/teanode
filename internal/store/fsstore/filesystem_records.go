@@ -37,7 +37,7 @@ type storeProviderRecord struct {
 type storeModelsRecord struct {
 	Default                     string                `json:"default,omitempty" yaml:"default,omitempty"`
 	SummarizerProviderModelName string                `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"`
-	EmbeddingProviderModelName  string                `json:"embeddingModel,omitempty" yaml:"embeddingModel,omitempty"`
+	EmbeddingProviderModelName  string                `json:"embeddingProviderModelName,omitempty" yaml:"embeddingProviderModelName,omitempty"`
 	ContextWindow               int                   `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
 	Providers                   []storeProviderRecord `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
@@ -198,24 +198,6 @@ type storeMemoryItemFrontmatter struct {
 type storeMemoryItemRecord struct {
 	storeMemoryItemFrontmatter `yaml:",inline"`
 	Content                    string `yaml:"-"`
-}
-
-// UnmarshalYAML implements custom unmarshalling to accept both the old
-// "embeddingModel" and new "embeddingProviderModelName" YAML keys.
-func (f *storeMemoryItemFrontmatter) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	type plain storeMemoryItemFrontmatter
-	if err := unmarshal((*plain)(f)); err != nil {
-		return err
-	}
-	if f.EmbeddingProviderModelName == "" {
-		var legacy struct {
-			EmbeddingModel string `yaml:"embeddingModel"`
-		}
-		if err := unmarshal(&legacy); err == nil && legacy.EmbeddingModel != "" {
-			f.EmbeddingProviderModelName = legacy.EmbeddingModel
-		}
-	}
-	return nil
 }
 
 func readYAMLFileOrDefault[T any](filename string, result *T) error {
