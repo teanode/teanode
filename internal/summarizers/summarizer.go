@@ -710,3 +710,40 @@ func emptyFallback(value string) string {
 	}
 	return value
 }
+
+// --- Exported helpers for on-demand synthesis (used by memory tools) ---
+
+// RunSynthesis resolves the summarizer provider, sends a system+user prompt
+// pair, and returns the response text. Returns ("", false) on failure.
+func (self *Summarizer) RunSynthesis(ctx context.Context, systemPrompt string, userPrompt string) (string, bool) {
+	provider, modelName, ok := self.resolveSynthesisProvider()
+	if !ok {
+		return "", false
+	}
+	request := providers.ChatRequest{
+		ModelName: modelName,
+		Messages: []providers.ChatMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+	}
+	requestContext, cancel := context.WithTimeout(ctx, summarizerRequestTimeout)
+	defer cancel()
+	response, err := provider.ChatCompletion(requestContext, request)
+	if err != nil || len(response.Choices) == 0 {
+		log.Debugf("summarizer: on-demand synthesis failed: %v", err)
+		return "", false
+	}
+	content := response.Choices[0].Message.ContentText()
+	if content == "" {
+		return "", false
+	}
+	return content, true
+}
+
+// BuildMessagesText builds a truncated text representation of conversation
+// messages, collecting from the end to prioritize recent messages. Returns
+// chronologically ordered text.
+func BuildMessagesText(messages []*models.ConversationMessage, maxTotalChars int, maxMessageChars int) string {
+	return messagesText(messages, maxTotalChars, maxMessageChars)
+}

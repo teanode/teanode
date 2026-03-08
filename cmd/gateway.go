@@ -224,6 +224,7 @@ func NewGatewayCommand() *cli.Command {
 			sessions := sessiontracker.New()
 
 			summarizer := summarizers.New(ctx, providerRegistry)
+			ctx = summarizers.ContextWithSummarizer(ctx, summarizer)
 
 			// Set up job scheduler.
 			scheduler := jobs.NewScheduler(ctx)
