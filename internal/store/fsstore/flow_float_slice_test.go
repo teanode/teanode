@@ -1,89 +1,54 @@
 package fsstore
 
 import (
-	"strings"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
-func TestFlowFloatSliceMarshalYAML(t *testing.T) {
-	type wrapper struct {
-		Values flowFloatSlice `yaml:"values,omitempty"`
-	}
-	data := wrapper{Values: flowFloatSlice{0.1, 0.2, 0.3}}
-	encoded, err := yaml.Marshal(&data)
+func TestEncodeDecodeEmbeddingBase64Roundtrip(t *testing.T) {
+	original := []float64{1.5, -0.003, 42, 0, 0.1, 0.2, 0.3, -0.5}
+	encoded := encodeEmbeddingBase64(original)
+	decoded, err := decodeEmbeddingBase64(encoded)
 	if err != nil {
-		t.Fatalf("marshal: %v", err)
+		t.Fatalf("decode: %v", err)
 	}
-	output := string(encoded)
-	if !strings.Contains(output, "[0.1, 0.2, 0.3]") {
-		t.Errorf("expected flow-style [0.1, 0.2, 0.3], got:\n%s", output)
+	if len(decoded) != len(original) {
+		t.Fatalf("length mismatch: %d vs %d", len(decoded), len(original))
 	}
-}
-
-func TestFlowFloatSliceUnmarshalFlowStyle(t *testing.T) {
-	input := "values: [0.1, 0.2, 0.3]\n"
-	type wrapper struct {
-		Values flowFloatSlice `yaml:"values,omitempty"`
-	}
-	var result wrapper
-	if err := yaml.Unmarshal([]byte(input), &result); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(result.Values) != 3 || result.Values[0] != 0.1 || result.Values[1] != 0.2 || result.Values[2] != 0.3 {
-		t.Errorf("expected [0.1 0.2 0.3], got %v", result.Values)
-	}
-}
-
-func TestFlowFloatSliceUnmarshalBlockStyle(t *testing.T) {
-	input := "values:\n- 0.1\n- 0.2\n- 0.3\n"
-	type wrapper struct {
-		Values flowFloatSlice `yaml:"values,omitempty"`
-	}
-	var result wrapper
-	if err := yaml.Unmarshal([]byte(input), &result); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(result.Values) != 3 || result.Values[0] != 0.1 || result.Values[1] != 0.2 || result.Values[2] != 0.3 {
-		t.Errorf("expected [0.1 0.2 0.3], got %v", result.Values)
-	}
-}
-
-func TestFlowFloatSliceEmptyOmitted(t *testing.T) {
-	type wrapper struct {
-		Name   string         `yaml:"name"`
-		Values flowFloatSlice `yaml:"values,omitempty"`
-	}
-	data := wrapper{Name: "test"}
-	encoded, err := yaml.Marshal(&data)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if strings.Contains(string(encoded), "values") {
-		t.Errorf("expected empty flowFloatSlice to be omitted, got:\n%s", encoded)
-	}
-}
-
-func TestFlowFloatSliceRoundtrip(t *testing.T) {
-	type wrapper struct {
-		Values flowFloatSlice `yaml:"values,omitempty"`
-	}
-	original := wrapper{Values: flowFloatSlice{1.5, -0.003, 42, 0}}
-	encoded, err := yaml.Marshal(&original)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var decoded wrapper
-	if err := yaml.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(decoded.Values) != len(original.Values) {
-		t.Fatalf("length mismatch: %d vs %d", len(decoded.Values), len(original.Values))
-	}
-	for index, value := range original.Values {
-		if decoded.Values[index] != value {
-			t.Errorf("index %d: got %f, want %f", index, decoded.Values[index], value)
+	for index, value := range original {
+		if decoded[index] != value {
+			t.Errorf("index %d: got %f, want %f", index, decoded[index], value)
 		}
+	}
+}
+
+func TestEncodeEmbeddingBase64Empty(t *testing.T) {
+	encoded := encodeEmbeddingBase64(nil)
+	if encoded != "" {
+		t.Errorf("expected empty string for nil, got %q", encoded)
+	}
+}
+
+func TestDecodeEmbeddingBase64Empty(t *testing.T) {
+	decoded, err := decodeEmbeddingBase64("")
+	if err != nil {
+		t.Fatalf("decode empty: %v", err)
+	}
+	if len(decoded) != 0 {
+		t.Errorf("expected empty slice, got %v", decoded)
+	}
+}
+
+func TestDecodeEmbeddingBase64InvalidLength(t *testing.T) {
+	// Base64 of 5 bytes (not a multiple of 8).
+	_, err := decodeEmbeddingBase64("AQIDBAU=")
+	if err == nil {
+		t.Error("expected error for invalid length")
+	}
+}
+
+func TestDecodeEmbeddingBase64InvalidBase64(t *testing.T) {
+	_, err := decodeEmbeddingBase64("!!!not-base64!!!")
+	if err == nil {
+		t.Error("expected error for invalid base64")
 	}
 }

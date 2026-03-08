@@ -14,15 +14,18 @@ import (
 )
 
 type databaseMemoryItemRecord struct {
-	ID         string     `gorm:"column:id;type:varchar(32);primaryKey"`
-	Scope      string     `gorm:"column:scope;type:varchar(32);not null"`
-	ScopeID    string     `gorm:"column:scope_id;type:varchar(32);not null"`
-	Title      *string    `gorm:"column:title;type:text"`
-	Content    string     `gorm:"column:content;type:text;not null"`
-	Tags       *string    `gorm:"column:tags;type:jsonb"`
-	ArchivedAt *time.Time `gorm:"column:archived_at"`
-	CreatedAt  time.Time  `gorm:"column:created_at;not null"`
-	ModifiedAt time.Time  `gorm:"column:modified_at;not null"`
+	ID                         string     `gorm:"column:id;type:varchar(32);primaryKey"`
+	Scope                      string     `gorm:"column:scope;type:varchar(32);not null"`
+	ScopeID                    string     `gorm:"column:scope_id;type:varchar(32);not null"`
+	Title                      *string    `gorm:"column:title;type:text"`
+	Content                    string     `gorm:"column:content;type:text;not null"`
+	Tags                       *string    `gorm:"column:tags;type:jsonb"`
+	ArchivedAt                 *time.Time `gorm:"column:archived_at"`
+	CreatedAt                  time.Time  `gorm:"column:created_at;not null"`
+	ModifiedAt                 time.Time  `gorm:"column:modified_at;not null"`
+	EmbeddingProviderModelName *string    `gorm:"column:embedding_provider_model_name;type:text"`
+	Embedding                  *string    `gorm:"column:embedding;type:jsonb"`
+	EmbeddedAt                 *time.Time `gorm:"column:embedded_at"`
 }
 
 func (databaseMemoryItemRecord) TableName() string {
@@ -61,6 +64,20 @@ func (self *databaseTransaction) CreateMemoryItem(ctx context.Context, item *mod
 		}
 		tagsStr := string(tagsJSON)
 		record.Tags = &tagsStr
+	}
+	if item.EmbeddingProviderModelName != nil {
+		record.EmbeddingProviderModelName = item.EmbeddingProviderModelName
+	}
+	if item.Embedding != nil {
+		embeddingJSON, err := json.Marshal(*item.Embedding)
+		if err != nil {
+			return nil, err
+		}
+		embeddingStr := string(embeddingJSON)
+		record.Embedding = &embeddingStr
+	}
+	if item.EmbeddedAt != nil {
+		record.EmbeddedAt = item.EmbeddedAt
 	}
 
 	createError := self.database.Create(record).Error
@@ -107,6 +124,20 @@ func (self *databaseTransaction) ModifyMemoryItem(ctx context.Context, memoryIte
 		}
 		tagsStr := string(tagsJSON)
 		record.Tags = &tagsStr
+	}
+	if item.EmbeddingProviderModelName != nil {
+		record.EmbeddingProviderModelName = item.EmbeddingProviderModelName
+	}
+	if item.Embedding != nil {
+		embeddingJSON, err := json.Marshal(*item.Embedding)
+		if err != nil {
+			return nil, err
+		}
+		embeddingStr := string(embeddingJSON)
+		record.Embedding = &embeddingStr
+	}
+	if item.EmbeddedAt != nil {
+		record.EmbeddedAt = item.EmbeddedAt
 	}
 
 	saveError := self.database.Save(record).Error
@@ -255,6 +286,18 @@ func memoryRecordToModel(record *databaseMemoryItemRecord) *models.MemoryItem {
 		if err := json.Unmarshal([]byte(*record.Tags), &tags); err == nil {
 			item.Tags = &tags
 		}
+	}
+	if record.EmbeddingProviderModelName != nil {
+		item.EmbeddingProviderModelName = record.EmbeddingProviderModelName
+	}
+	if record.Embedding != nil {
+		var embedding []float64
+		if err := json.Unmarshal([]byte(*record.Embedding), &embedding); err == nil {
+			item.Embedding = &embedding
+		}
+	}
+	if record.EmbeddedAt != nil {
+		item.EmbeddedAt = record.EmbeddedAt
 	}
 
 	return item

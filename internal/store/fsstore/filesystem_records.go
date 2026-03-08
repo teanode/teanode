@@ -1,7 +1,10 @@
 package fsstore
 
 import (
-	"fmt"
+	"encoding/base64"
+	"encoding/binary"
+	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,41 +15,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// flowFloatSlice is a []float64 that marshals as a YAML flow-style sequence
-// (e.g. [0.1, 0.2, 0.3]) instead of a block-style list.
-type flowFloatSlice []float64
-
-func (self flowFloatSlice) MarshalYAML() (interface{}, error) {
-	node := &yaml.Node{
-		Kind:  yaml.SequenceNode,
-		Style: yaml.FlowStyle,
-		Tag:   "!!seq",
+// encodeEmbeddingBase64 encodes a float64 slice as little-endian packed binary,
+// then base64 standard-encodes it.
+func encodeEmbeddingBase64(values []float64) string {
+	buf := make([]byte, len(values)*8)
+	for index, value := range values {
+		binary.LittleEndian.PutUint64(buf[index*8:], math.Float64bits(value))
 	}
-	for _, value := range self {
-		node.Content = append(node.Content, &yaml.Node{
-			Kind:  yaml.ScalarNode,
-			Value: strconv.FormatFloat(value, 'f', -1, 64),
-			Tag:   "!!float",
-		})
-	}
-	return node, nil
+	return base64.StdEncoding.EncodeToString(buf)
 }
 
-func (self *flowFloatSlice) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.SequenceNode {
-		return fmt.Errorf("expected sequence, got %v", node.Kind)
+// decodeEmbeddingBase64 decodes a base64-encoded, little-endian packed float64 slice.
+func decodeEmbeddingBase64(encoded string) ([]float64, error) {
+	raw, decodeError := base64.StdEncoding.DecodeString(encoded)
+	if decodeError != nil {
+		return nil, decodeError
 	}
-	values := make(flowFloatSlice, 0, len(node.Content))
-	for _, child := range node.Content {
-		value, parseError := strconv.ParseFloat(child.Value, 64)
-		if parseError != nil {
-			return fmt.Errorf("parsing float: %w", parseError)
-		}
-		values = append(values, value)
+	if len(raw)%8 != 0 {
+		return nil, errInvalidEmbeddingLength
 	}
-	*self = values
-	return nil
+	values := make([]float64, len(raw)/8)
+	for index := range values {
+		values[index] = math.Float64frombits(binary.LittleEndian.Uint64(raw[index*8:]))
+	}
+	return values, nil
 }
+
+var errInvalidEmbeddingLength = errors.New("embedding binary length is not a multiple of 8")
 
 type storeGatewayRecord struct {
 	Port      int    `json:"port,omitempty" yaml:"port,omitempty"`
@@ -228,7 +223,7 @@ type storeMemoryItemFrontmatter struct {
 	CreatedAt                  timeutil.Timestamp `yaml:"createdAt"`
 	ModifiedAt                 timeutil.Timestamp `yaml:"modifiedAt"`
 	EmbeddingProviderModelName string             `yaml:"embeddingProviderModelName,omitempty"`
-	Embedding                  flowFloatSlice     `yaml:"embedding,omitempty"`
+	EmbeddingBase64            string             `yaml:"embeddingBase64,omitempty"`
 	EmbeddedAt                 timeutil.Timestamp `yaml:"embeddedAt,omitempty"`
 }
 

@@ -61,7 +61,7 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 		record.EmbeddingProviderModelName = *item.EmbeddingProviderModelName
 	}
 	if item.Embedding != nil {
-		record.Embedding = flowFloatSlice(*item.Embedding)
+		record.EmbeddingBase64 = encodeEmbeddingBase64(*item.Embedding)
 	}
 	if item.EmbeddedAt != nil {
 		record.EmbeddedAt = timeutil.Timestamp{Time: *item.EmbeddedAt}
@@ -121,7 +121,7 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 		record.EmbeddingProviderModelName = *item.EmbeddingProviderModelName
 	}
 	if item.Embedding != nil {
-		record.Embedding = flowFloatSlice(*item.Embedding)
+		record.EmbeddingBase64 = encodeEmbeddingBase64(*item.Embedding)
 	}
 	if item.EmbeddedAt != nil {
 		record.EmbeddedAt = timeutil.Timestamp{Time: *item.EmbeddedAt}
@@ -392,10 +392,10 @@ func fsMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {
 		embeddingProviderModelName := record.EmbeddingProviderModelName
 		item.EmbeddingProviderModelName = &embeddingProviderModelName
 	}
-	if len(record.Embedding) > 0 {
-		embedding := make([]float64, len(record.Embedding))
-		copy(embedding, record.Embedding)
-		item.Embedding = &embedding
+	if record.EmbeddingBase64 != "" {
+		if embedding, decodeError := decodeEmbeddingBase64(record.EmbeddingBase64); decodeError == nil {
+			item.Embedding = &embedding
+		}
 	}
 	if !record.EmbeddedAt.IsZero() {
 		embeddedAt := record.EmbeddedAt.Time

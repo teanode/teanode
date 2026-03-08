@@ -24,19 +24,19 @@ func NewEmbedder(providerRegistry *providers.ProviderRegistry) *Embedder {
 
 // Embed computes a vector embedding for the given input text. It resolves the
 // embedding provider and model from the provider registry's configuration.
-// Returns the embedding vector, the canonical provider model name
-// ("provider:model"), and any error.
+// Returns the embedding vector, the provider model name ("provider:model"),
+// and any error.
 func (self *Embedder) Embed(ctx context.Context, inputText string) ([]float64, string, error) {
 	provider, providerName, modelName, err := self.resolveEmbeddingProvider()
 	if err != nil {
 		return nil, "", err
 	}
-	canonicalName := providers.FormatProviderModelName(providerName, modelName)
+	providerModelName := providers.FormatProviderModelName(providerName, modelName)
 	vector, embedError := provider.Embed(ctx, modelName, inputText)
 	if embedError != nil {
-		return nil, canonicalName, embedError
+		return nil, providerModelName, embedError
 	}
-	return vector, canonicalName, nil
+	return vector, providerModelName, nil
 }
 
 // resolveEmbeddingProvider resolves the embedding provider, provider name, and
