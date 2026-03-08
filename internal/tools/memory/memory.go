@@ -566,7 +566,7 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 		} else {
 			newEmbedding = vector
 			now := time.Now()
-			newItem.EmbeddingModel = &embeddingModel
+			newItem.EmbeddingProviderModelName = &embeddingModel
 			newItem.Embedding = &vector
 			newItem.EmbeddedAt = &now
 		}

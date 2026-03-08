@@ -57,8 +57,8 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 	if item.Tags != nil {
 		record.Tags = *item.Tags
 	}
-	if item.EmbeddingModel != nil {
-		record.EmbeddingModel = *item.EmbeddingModel
+	if item.EmbeddingProviderModelName != nil {
+		record.EmbeddingProviderModelName = *item.EmbeddingProviderModelName
 	}
 	if item.Embedding != nil {
 		record.Embedding = *item.Embedding
@@ -117,8 +117,8 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 	if item.Tags != nil {
 		record.Tags = *item.Tags
 	}
-	if item.EmbeddingModel != nil {
-		record.EmbeddingModel = *item.EmbeddingModel
+	if item.EmbeddingProviderModelName != nil {
+		record.EmbeddingProviderModelName = *item.EmbeddingProviderModelName
 	}
 	if item.Embedding != nil {
 		record.Embedding = *item.Embedding
@@ -388,9 +388,9 @@ func fsMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {
 		archivedAt := record.ArchivedAt.Time
 		item.ArchivedAt = &archivedAt
 	}
-	if record.EmbeddingModel != "" {
-		embeddingModel := record.EmbeddingModel
-		item.EmbeddingModel = &embeddingModel
+	if record.EmbeddingProviderModelName != "" {
+		embeddingProviderModelName := record.EmbeddingProviderModelName
+		item.EmbeddingProviderModelName = &embeddingProviderModelName
 	}
 	if len(record.Embedding) > 0 {
 		embedding := make([]float32, len(record.Embedding))

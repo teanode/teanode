@@ -182,22 +182,40 @@ type storeProjectRecord struct {
 }
 
 type storeMemoryItemFrontmatter struct {
-	ID             string             `yaml:"id"`
-	Scope          string             `yaml:"scope"`
-	ScopeID        string             `yaml:"scopeId"`
-	Title          string             `yaml:"title,omitempty"`
-	Tags           []string           `yaml:"tags,omitempty"`
-	ArchivedAt     timeutil.Timestamp `yaml:"archivedAt,omitempty"`
-	CreatedAt      timeutil.Timestamp `yaml:"createdAt"`
-	ModifiedAt     timeutil.Timestamp `yaml:"modifiedAt"`
-	EmbeddingModel string             `yaml:"embeddingModel,omitempty"`
-	Embedding      []float32          `yaml:"embedding,omitempty"`
-	EmbeddedAt     timeutil.Timestamp `yaml:"embeddedAt,omitempty"`
+	ID                         string             `yaml:"id"`
+	Scope                      string             `yaml:"scope"`
+	ScopeID                    string             `yaml:"scopeId"`
+	Title                      string             `yaml:"title,omitempty"`
+	Tags                       []string           `yaml:"tags,omitempty"`
+	ArchivedAt                 timeutil.Timestamp `yaml:"archivedAt,omitempty"`
+	CreatedAt                  timeutil.Timestamp `yaml:"createdAt"`
+	ModifiedAt                 timeutil.Timestamp `yaml:"modifiedAt"`
+	EmbeddingProviderModelName string             `yaml:"embeddingProviderModelName,omitempty"`
+	Embedding                  []float32          `yaml:"embedding,omitempty"`
+	EmbeddedAt                 timeutil.Timestamp `yaml:"embeddedAt,omitempty"`
 }
 
 type storeMemoryItemRecord struct {
 	storeMemoryItemFrontmatter `yaml:",inline"`
 	Content                    string `yaml:"-"`
+}
+
+// UnmarshalYAML implements custom unmarshalling to accept both the old
+// "embeddingModel" and new "embeddingProviderModelName" YAML keys.
+func (f *storeMemoryItemFrontmatter) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type plain storeMemoryItemFrontmatter
+	if err := unmarshal((*plain)(f)); err != nil {
+		return err
+	}
+	if f.EmbeddingProviderModelName == "" {
+		var legacy struct {
+			EmbeddingModel string `yaml:"embeddingModel"`
+		}
+		if err := unmarshal(&legacy); err == nil && legacy.EmbeddingModel != "" {
+			f.EmbeddingProviderModelName = legacy.EmbeddingModel
+		}
+	}
+	return nil
 }
 
 func readYAMLFileOrDefault[T any](filename string, result *T) error {
