@@ -350,24 +350,24 @@ func (self *unifiProtectExecution) executeSetPrivacyMode(ctx context.Context, ca
 
 // resolveCamera finds a camera by ID or name from the bootstrap data and
 // enforces the camera allowlist.
-func (self *unifiProtectExecution) resolveCamera(ctx context.Context, cameraIDOrName string) (*Camera, error) {
+func (self *unifiProtectExecution) resolveCamera(ctx context.Context, cameraIdOrName string) (*Camera, error) {
 	cameras, err := self.client.GetCameras(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetching cameras: %w", err)
 	}
 
-	normalizedQuery := strings.ToLower(cameraIDOrName)
+	normalizedQuery := strings.ToLower(cameraIdOrName)
 
 	for _, camera := range cameras {
-		if camera.ID == cameraIDOrName || strings.ToLower(camera.Name) == normalizedQuery {
+		if camera.ID == cameraIdOrName || strings.ToLower(camera.Name) == normalizedQuery {
 			if !self.checker.IsCameraAllowed(camera.ID, camera.Name) {
-				return nil, fmt.Errorf("camera %q is not accessible (blocked by access rules)", cameraIDOrName)
+				return nil, fmt.Errorf("camera %q is not accessible (blocked by access rules)", cameraIdOrName)
 			}
 			return &camera, nil
 		}
 	}
 
-	return nil, fmt.Errorf("camera %q not found", cameraIDOrName)
+	return nil, fmt.Errorf("camera %q not found", cameraIdOrName)
 }
 
 // checkWriteAction verifies that write operations are allowed and the specific

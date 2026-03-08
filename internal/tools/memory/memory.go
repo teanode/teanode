@@ -37,9 +37,9 @@ func createTools() []tools.Tool {
 				}
 				return models.ScopeAgent, runner.AgentID, nil
 			},
-			afterMutate: func(ctx context.Context, scopeID string) error {
+			afterMutate: func(ctx context.Context, scopeId string) error {
 				return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-					_, modifyError := transaction.ModifyAgent(ctx, scopeID, func(agent *models.Agent) error {
+					_, modifyError := transaction.ModifyAgent(ctx, scopeId, func(agent *models.Agent) error {
 						now := time.Now()
 						agent.ModifiedAt = &now
 						return nil
@@ -58,9 +58,9 @@ func createTools() []tools.Tool {
 				}
 				return models.ScopeUser, user.ID, nil
 			},
-			afterMutate: func(ctx context.Context, scopeID string) error {
+			afterMutate: func(ctx context.Context, scopeId string) error {
 				return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-					_, modifyError := transaction.ModifyUser(ctx, scopeID, func(user *models.User) error {
+					_, modifyError := transaction.ModifyUser(ctx, scopeId, func(user *models.User) error {
 						now := time.Now()
 						user.ModifiedAt = &now
 						return nil
@@ -72,17 +72,17 @@ func createTools() []tools.Tool {
 		newMemoryTool(memoryToolConfiguration{
 			name:                        "project_memory",
 			description:                 "Persistent per-project memory for storing and retrieving shared project knowledge.",
-			scopeIDParameterName:        "projectId",
-			scopeIDParameterDescription: "Project ID for project memory operations.",
-			resolveScope: func(_ context.Context, scopeID string) (models.Scope, string, error) {
-				if scopeID == "" {
+			scopeIdParameterName:        "projectId",
+			scopeIdParameterDescription: "Project ID for project memory operations.",
+			resolveScope: func(_ context.Context, scopeId string) (models.Scope, string, error) {
+				if scopeId == "" {
 					return "", "", fmt.Errorf("projectId is required")
 				}
-				return models.ScopeProject, scopeID, nil
+				return models.ScopeProject, scopeId, nil
 			},
-			afterMutate: func(ctx context.Context, scopeID string) error {
+			afterMutate: func(ctx context.Context, scopeId string) error {
 				return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-					_, modifyError := transaction.ModifyProject(ctx, scopeID, func(project *models.Project) error {
+					_, modifyError := transaction.ModifyProject(ctx, scopeId, func(project *models.Project) error {
 						now := time.Now()
 						project.ModifiedAt = &now
 						return nil
@@ -97,10 +97,10 @@ func createTools() []tools.Tool {
 type memoryToolConfiguration struct {
 	name                        string
 	description                 string
-	scopeIDParameterName        string
-	scopeIDParameterDescription string
-	resolveScope                func(ctx context.Context, scopeID string) (models.Scope, string, error)
-	afterMutate                 func(ctx context.Context, scopeID string) error
+	scopeIdParameterName        string
+	scopeIdParameterDescription string
+	resolveScope                func(ctx context.Context, scopeId string) (models.Scope, string, error)
+	afterMutate                 func(ctx context.Context, scopeId string) error
 }
 
 type memoryTool struct {
@@ -200,12 +200,12 @@ func (self *memoryTool) Definition() providers.ToolDefinition {
 
 	required := []string{"action"}
 
-	if self.configuration.scopeIDParameterName != "" {
-		properties[self.configuration.scopeIDParameterName] = map[string]interface{}{
+	if self.configuration.scopeIdParameterName != "" {
+		properties[self.configuration.scopeIdParameterName] = map[string]interface{}{
 			"type":        "string",
-			"description": self.configuration.scopeIDParameterDescription,
+			"description": self.configuration.scopeIdParameterDescription,
 		}
-		required = append(required, self.configuration.scopeIDParameterName)
+		required = append(required, self.configuration.scopeIdParameterName)
 	}
 
 	descriptionSuffix := " Actions: get (by id), list (optional tags/maxResults), search (by query), batch (items array of add/update/delete/get ops)."
@@ -244,38 +244,38 @@ func (self *memoryTool) Execute(ctx context.Context, rawArguments string) (strin
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
 
-	if self.configuration.scopeIDParameterName != "" {
+	if self.configuration.scopeIdParameterName != "" {
 		var rawMap map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(rawArguments), &rawMap); err == nil {
-			if raw, ok := rawMap[self.configuration.scopeIDParameterName]; ok {
-				var scopeID string
-				if err := json.Unmarshal(raw, &scopeID); err == nil {
-					arguments.ScopeID = scopeID
+			if raw, ok := rawMap[self.configuration.scopeIdParameterName]; ok {
+				var scopeId string
+				if err := json.Unmarshal(raw, &scopeId); err == nil {
+					arguments.ScopeID = scopeId
 				}
 			}
 		}
 	}
 
-	scope, scopeID, scopeError := self.configuration.resolveScope(ctx, arguments.ScopeID)
+	scope, scopeId, scopeError := self.configuration.resolveScope(ctx, arguments.ScopeID)
 	if scopeError != nil {
 		return "", scopeError
 	}
 
 	switch arguments.Action {
 	case "get":
-		return self.executeGet(ctx, scope, scopeID, arguments)
+		return self.executeGet(ctx, scope, scopeId, arguments)
 	case "list":
-		return self.executeList(ctx, scope, scopeID, arguments)
+		return self.executeList(ctx, scope, scopeId, arguments)
 	case "search":
-		return self.executeSearch(ctx, scope, scopeID, arguments)
+		return self.executeSearch(ctx, scope, scopeId, arguments)
 	case "batch":
-		return self.executeBatch(ctx, scope, scopeID, arguments.Items)
+		return self.executeBatch(ctx, scope, scopeId, arguments.Items)
 	default:
 		return "", fmt.Errorf("unknown action %q: must be get, list, search, or batch", arguments.Action)
 	}
 }
 
-func (self *memoryTool) executeGet(ctx context.Context, scope models.Scope, scopeID string, args executeArguments) (string, error) {
+func (self *memoryTool) executeGet(ctx context.Context, scope models.Scope, scopeId string, args executeArguments) (string, error) {
 	if args.ID == "" {
 		return "", fmt.Errorf("id is required for get")
 	}
@@ -294,7 +294,7 @@ func (self *memoryTool) executeGet(ctx context.Context, scope models.Scope, scop
 	return string(output), nil
 }
 
-func (self *memoryTool) executeList(ctx context.Context, scope models.Scope, scopeID string, args executeArguments) (string, error) {
+func (self *memoryTool) executeList(ctx context.Context, scope models.Scope, scopeId string, args executeArguments) (string, error) {
 	maxResults := args.MaxResults
 	if maxResults <= 0 {
 		maxResults = 10
@@ -311,7 +311,7 @@ func (self *memoryTool) executeList(ctx context.Context, scope models.Scope, sco
 	var items []*models.MemoryItem
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		var err error
-		items, err = tx.ListMemoryItems(ctx, scope, scopeID, listOptions, nil)
+		items, err = tx.ListMemoryItems(ctx, scope, scopeId, listOptions, nil)
 		return err
 	}); err != nil {
 		return "", err
@@ -343,7 +343,7 @@ func (self *memoryTool) executeList(ctx context.Context, scope models.Scope, sco
 	return string(output), nil
 }
 
-func (self *memoryTool) executeSearch(ctx context.Context, scope models.Scope, scopeID string, args executeArguments) (string, error) {
+func (self *memoryTool) executeSearch(ctx context.Context, scope models.Scope, scopeId string, args executeArguments) (string, error) {
 	if args.Query == "" {
 		return "", fmt.Errorf("query is required for search")
 	}
@@ -363,7 +363,7 @@ func (self *memoryTool) executeSearch(ctx context.Context, scope models.Scope, s
 
 	var matches []matchEntry
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		results, err := tx.SearchMemoryItems(ctx, scope, scopeID, args.Query, store.MemoryItemSearchOptions{
+		results, err := tx.SearchMemoryItems(ctx, scope, scopeId, args.Query, store.MemoryItemSearchOptions{
 			Limit:          &limit,
 			IncludeContent: &includeContent,
 		}, nil)
@@ -402,7 +402,7 @@ func (self *memoryTool) executeSearch(ctx context.Context, scope models.Scope, s
 	return string(output), nil
 }
 
-func (self *memoryTool) executeBatch(ctx context.Context, scope models.Scope, scopeID string, items []batchItem) (string, error) {
+func (self *memoryTool) executeBatch(ctx context.Context, scope models.Scope, scopeId string, items []batchItem) (string, error) {
 	if len(items) == 0 {
 		return "", fmt.Errorf("items is required and must contain 1-%d entries", maxBatchItems)
 	}
@@ -416,7 +416,7 @@ func (self *memoryTool) executeBatch(ctx context.Context, scope models.Scope, sc
 
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		for i, item := range items {
-			results[i] = self.executeBatchItem(ctx, tx, scope, scopeID, i, item)
+			results[i] = self.executeBatchItem(ctx, tx, scope, scopeId, i, item)
 			if results[i].Success {
 				succeeded++
 			}
@@ -430,7 +430,7 @@ func (self *memoryTool) executeBatch(ctx context.Context, scope models.Scope, sc
 	}
 
 	if anyMutation {
-		self.callAfterMutate(ctx, scopeID)
+		self.callAfterMutate(ctx, scopeId)
 	}
 
 	output, _ := json.Marshal(map[string]interface{}{
@@ -449,10 +449,10 @@ func isMutatingOp(op string) bool {
 	return op == "add" || op == "update" || op == "delete"
 }
 
-func (self *memoryTool) executeBatchItem(ctx context.Context, tx store.Transaction, scope models.Scope, scopeID string, index int, item batchItem) batchResult {
+func (self *memoryTool) executeBatchItem(ctx context.Context, tx store.Transaction, scope models.Scope, scopeId string, index int, item batchItem) batchResult {
 	switch item.Op {
 	case "add":
-		return self.batchAdd(ctx, tx, scope, scopeID, index, item)
+		return self.batchAdd(ctx, tx, scope, scopeId, index, item)
 	case "update":
 		return self.batchUpdate(ctx, tx, index, item)
 	case "delete":
@@ -466,7 +466,7 @@ func (self *memoryTool) executeBatchItem(ctx context.Context, tx store.Transacti
 	}
 }
 
-func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scope models.Scope, scopeID string, index int, item batchItem) batchResult {
+func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scope models.Scope, scopeId string, index int, item batchItem) batchResult {
 	if item.Content == "" {
 		return batchResult{Index: index, Op: "add", Success: false, Error: "content is required for add"}
 	}
@@ -476,7 +476,7 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 
 	memItem := &models.MemoryItem{
 		Scope:   &scope,
-		ScopeID: &scopeID,
+		ScopeID: &scopeId,
 		Content: &item.Content,
 	}
 	if item.Title != "" {
@@ -540,9 +540,9 @@ func (self *memoryTool) batchGet(ctx context.Context, tx store.Transaction, inde
 	return batchResult{Index: index, Op: "get", Success: true, Item: memoryItemToOutput(mem)}
 }
 
-func (self *memoryTool) callAfterMutate(ctx context.Context, scopeID string) {
+func (self *memoryTool) callAfterMutate(ctx context.Context, scopeId string) {
 	if self.configuration.afterMutate != nil {
-		if err := self.configuration.afterMutate(ctx, scopeID); err != nil {
+		if err := self.configuration.afterMutate(ctx, scopeId); err != nil {
 			log.Warningf("failed to call after mutate: %v", err)
 		}
 	}

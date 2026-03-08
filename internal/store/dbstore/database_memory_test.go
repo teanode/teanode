@@ -54,7 +54,7 @@ func TestGetMemoryItem(t *testing.T) {
 	openedStore := openDatabaseStore(t)
 	ctx := context.Background()
 
-	var createdID string
+	var createdId string
 	_ = openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		content := "test content"
 		item, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
@@ -65,15 +65,15 @@ func TestGetMemoryItem(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create: %v", err)
 		}
-		createdID = item.ID
+		createdId = item.ID
 
 		// Get existing.
-		got, err := transaction.GetMemoryItem(ctx, createdID, nil)
+		got, err := transaction.GetMemoryItem(ctx, createdId, nil)
 		if err != nil {
 			t.Fatalf("get: %v", err)
 		}
-		if got.ID != createdID {
-			t.Errorf("id = %q, want %q", got.ID, createdID)
+		if got.ID != createdId {
+			t.Errorf("id = %q, want %q", got.ID, createdId)
 		}
 
 		// Get non-existent.
@@ -157,14 +157,14 @@ func TestListMemoryItems(t *testing.T) {
 
 	_ = openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		scope := models.ScopeAgent
-		scopeID := "agent-list-1"
+		scopeId := "agent-list-1"
 
 		// Create two items in same scope.
 		for _, c := range []string{"item one", "item two"} {
 			content := c
 			_, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 				Scope:   &scope,
-				ScopeID: &scopeID,
+				ScopeID: &scopeId,
 				Content: &content,
 			}, nil)
 			if err != nil {
@@ -184,7 +184,7 @@ func TestListMemoryItems(t *testing.T) {
 		}
 
 		// List should return only items in scope.
-		items, err := transaction.ListMemoryItems(ctx, scope, scopeID, store.MemoryItemListOptions{}, nil)
+		items, err := transaction.ListMemoryItems(ctx, scope, scopeId, store.MemoryItemListOptions{}, nil)
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
@@ -194,7 +194,7 @@ func TestListMemoryItems(t *testing.T) {
 
 		// Test limit.
 		limit := uint64(1)
-		items, err = transaction.ListMemoryItems(ctx, scope, scopeID, store.MemoryItemListOptions{Limit: &limit}, nil)
+		items, err = transaction.ListMemoryItems(ctx, scope, scopeId, store.MemoryItemListOptions{Limit: &limit}, nil)
 		if err != nil {
 			t.Fatalf("list with limit: %v", err)
 		}
@@ -212,13 +212,13 @@ func TestListMemoryItemsTagFilter(t *testing.T) {
 
 	_ = openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		scope := models.ScopeAgent
-		scopeID := "agent-tags-1"
+		scopeId := "agent-tags-1"
 
 		content1 := "tagged item"
 		tags1 := []string{"important", "work"}
 		_, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   &scope,
-			ScopeID: &scopeID,
+			ScopeID: &scopeId,
 			Content: &content1,
 			Tags:    &tags1,
 		}, nil)
@@ -229,7 +229,7 @@ func TestListMemoryItemsTagFilter(t *testing.T) {
 		content2 := "untagged item"
 		_, err = transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   &scope,
-			ScopeID: &scopeID,
+			ScopeID: &scopeId,
 			Content: &content2,
 		}, nil)
 		if err != nil {
@@ -238,7 +238,7 @@ func TestListMemoryItemsTagFilter(t *testing.T) {
 
 		// Filter by tag.
 		filterTags := []string{"important"}
-		items, err := transaction.ListMemoryItems(ctx, scope, scopeID, store.MemoryItemListOptions{Tags: &filterTags}, nil)
+		items, err := transaction.ListMemoryItems(ctx, scope, scopeId, store.MemoryItemListOptions{Tags: &filterTags}, nil)
 		if err != nil {
 			t.Fatalf("list with tag filter: %v", err)
 		}
@@ -256,13 +256,13 @@ func TestSearchMemoryItems(t *testing.T) {
 
 	_ = openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		scope := models.ScopeAgent
-		scopeID := "agent-search-1"
+		scopeId := "agent-search-1"
 
 		content1 := "The user likes cats and kittens"
 		title1 := "Pet preferences"
 		_, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   &scope,
-			ScopeID: &scopeID,
+			ScopeID: &scopeId,
 			Title:   &title1,
 			Content: &content1,
 		}, nil)
@@ -274,7 +274,7 @@ func TestSearchMemoryItems(t *testing.T) {
 		title2 := "Editor preferences"
 		_, err = transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   &scope,
-			ScopeID: &scopeID,
+			ScopeID: &scopeId,
 			Title:   &title2,
 			Content: &content2,
 		}, nil)
@@ -283,7 +283,7 @@ func TestSearchMemoryItems(t *testing.T) {
 		}
 
 		// Search content.
-		results, err := transaction.SearchMemoryItems(ctx, scope, scopeID, "cats", store.MemoryItemSearchOptions{}, nil)
+		results, err := transaction.SearchMemoryItems(ctx, scope, scopeId, "cats", store.MemoryItemSearchOptions{}, nil)
 		if err != nil {
 			t.Fatalf("search: %v", err)
 		}
@@ -292,7 +292,7 @@ func TestSearchMemoryItems(t *testing.T) {
 		}
 
 		// Case-insensitive.
-		results, err = transaction.SearchMemoryItems(ctx, scope, scopeID, "DARK MODE", store.MemoryItemSearchOptions{}, nil)
+		results, err = transaction.SearchMemoryItems(ctx, scope, scopeId, "DARK MODE", store.MemoryItemSearchOptions{}, nil)
 		if err != nil {
 			t.Fatalf("search: %v", err)
 		}
@@ -301,7 +301,7 @@ func TestSearchMemoryItems(t *testing.T) {
 		}
 
 		// Search title.
-		results, err = transaction.SearchMemoryItems(ctx, scope, scopeID, "Pet preferences", store.MemoryItemSearchOptions{}, nil)
+		results, err = transaction.SearchMemoryItems(ctx, scope, scopeId, "Pet preferences", store.MemoryItemSearchOptions{}, nil)
 		if err != nil {
 			t.Fatalf("search: %v", err)
 		}
@@ -311,7 +311,7 @@ func TestSearchMemoryItems(t *testing.T) {
 
 		// Limit.
 		limit := uint64(1)
-		results, err = transaction.SearchMemoryItems(ctx, scope, scopeID, "prefer", store.MemoryItemSearchOptions{Limit: &limit}, nil)
+		results, err = transaction.SearchMemoryItems(ctx, scope, scopeId, "prefer", store.MemoryItemSearchOptions{Limit: &limit}, nil)
 		if err != nil {
 			t.Fatalf("search: %v", err)
 		}

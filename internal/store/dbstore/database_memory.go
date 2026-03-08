@@ -34,8 +34,8 @@ func (self *databaseTransaction) CreateMemoryItem(ctx context.Context, item *mod
 		return nil, store.ErrInvalidOptions
 	}
 	scope := string(*item.Scope)
-	scopeID := *item.ScopeID
-	if scope == "" || scopeID == "" {
+	scopeId := *item.ScopeID
+	if scope == "" || scopeId == "" {
 		return nil, store.ErrInvalidOptions
 	}
 
@@ -43,7 +43,7 @@ func (self *databaseTransaction) CreateMemoryItem(ctx context.Context, item *mod
 	record := &databaseMemoryItemRecord{
 		ID:         item.ID,
 		Scope:      scope,
-		ScopeID:    scopeID,
+		ScopeID:    scopeId,
 		Title:      item.Title,
 		CreatedAt:  now,
 		ModifiedAt: now,
@@ -70,17 +70,17 @@ func (self *databaseTransaction) CreateMemoryItem(ctx context.Context, item *mod
 	return memoryRecordToModel(record), nil
 }
 
-func (self *databaseTransaction) GetMemoryItem(ctx context.Context, memoryItemID string, options *store.Option) (*models.MemoryItem, error) {
+func (self *databaseTransaction) GetMemoryItem(ctx context.Context, memoryItemId string, options *store.Option) (*models.MemoryItem, error) {
 	record := &databaseMemoryItemRecord{}
-	getError := self.database.Where("id = ? AND archived_at IS NULL", memoryItemID).Take(record).Error
+	getError := self.database.Where("id = ? AND archived_at IS NULL", memoryItemId).Take(record).Error
 	if getError != nil {
 		return nil, databaseError(getError)
 	}
 	return memoryRecordToModel(record), nil
 }
 
-func (self *databaseTransaction) ModifyMemoryItem(ctx context.Context, memoryItemID string, modifier func(*models.MemoryItem) error, options *store.Option) (*models.MemoryItem, error) {
-	item, getError := self.GetMemoryItem(ctx, memoryItemID, options)
+func (self *databaseTransaction) ModifyMemoryItem(ctx context.Context, memoryItemId string, modifier func(*models.MemoryItem) error, options *store.Option) (*models.MemoryItem, error) {
+	item, getError := self.GetMemoryItem(ctx, memoryItemId, options)
 	if getError != nil {
 		return nil, getError
 	}
@@ -116,9 +116,9 @@ func (self *databaseTransaction) ModifyMemoryItem(ctx context.Context, memoryIte
 	return memoryRecordToModel(record), nil
 }
 
-func (self *databaseTransaction) DeleteMemoryItem(ctx context.Context, memoryItemID string, options *store.Option) error {
+func (self *databaseTransaction) DeleteMemoryItem(ctx context.Context, memoryItemId string, options *store.Option) error {
 	now := *ptrto.TimeNowInLocal()
-	result := self.database.Model(&databaseMemoryItemRecord{}).Where("id = ? AND archived_at IS NULL", memoryItemID).Update("archived_at", now)
+	result := self.database.Model(&databaseMemoryItemRecord{}).Where("id = ? AND archived_at IS NULL", memoryItemId).Update("archived_at", now)
 	if result.Error != nil {
 		return databaseError(result.Error)
 	}
@@ -128,8 +128,8 @@ func (self *databaseTransaction) DeleteMemoryItem(ctx context.Context, memoryIte
 	return nil
 }
 
-func (self *databaseTransaction) ListMemoryItems(ctx context.Context, scope models.Scope, scopeID string, listOptions store.MemoryItemListOptions, options *store.Option) ([]*models.MemoryItem, error) {
-	query := self.database.Model(&databaseMemoryItemRecord{}).Where("scope = ? AND scope_id = ?", string(scope), scopeID)
+func (self *databaseTransaction) ListMemoryItems(ctx context.Context, scope models.Scope, scopeId string, listOptions store.MemoryItemListOptions, options *store.Option) ([]*models.MemoryItem, error) {
+	query := self.database.Model(&databaseMemoryItemRecord{}).Where("scope = ? AND scope_id = ?", string(scope), scopeId)
 
 	includeArchived := listOptions.IncludeArchived != nil && *listOptions.IncludeArchived
 	if !includeArchived {
@@ -165,8 +165,8 @@ func (self *databaseTransaction) ListMemoryItems(ctx context.Context, scope mode
 	return items, nil
 }
 
-func (self *databaseTransaction) SearchMemoryItems(ctx context.Context, scope models.Scope, scopeID string, query string, searchOptions store.MemoryItemSearchOptions, options *store.Option) ([]store.MemoryItemSearchResult, error) {
-	items, listError := self.ListMemoryItems(ctx, scope, scopeID, store.MemoryItemListOptions{
+func (self *databaseTransaction) SearchMemoryItems(ctx context.Context, scope models.Scope, scopeId string, query string, searchOptions store.MemoryItemSearchOptions, options *store.Option) ([]store.MemoryItemSearchResult, error) {
+	items, listError := self.ListMemoryItems(ctx, scope, scopeId, store.MemoryItemListOptions{
 		IncludeArchived: searchOptions.IncludeArchived,
 	}, options)
 	if listError != nil {
@@ -236,13 +236,13 @@ func (self *databaseTransaction) SearchMemoryItems(ctx context.Context, scope mo
 
 func memoryRecordToModel(record *databaseMemoryItemRecord) *models.MemoryItem {
 	scope := models.Scope(record.Scope)
-	scopeID := record.ScopeID
+	scopeId := record.ScopeID
 	content := record.Content
 
 	item := &models.MemoryItem{
 		ID:         record.ID,
 		Scope:      &scope,
-		ScopeID:    &scopeID,
+		ScopeID:    &scopeId,
 		Title:      record.Title,
 		Content:    &content,
 		CreatedAt:  &record.CreatedAt,

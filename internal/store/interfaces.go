@@ -144,9 +144,9 @@ type UsageOperation interface {
 
 type MemoryItemOperation interface {
 	CreateMemoryItem(ctx context.Context, item *models.MemoryItem, options *Option) (*models.MemoryItem, error)
-	GetMemoryItem(ctx context.Context, memoryItemID string, options *Option) (*models.MemoryItem, error)
-	ModifyMemoryItem(ctx context.Context, memoryItemID string, modifier func(*models.MemoryItem) error, options *Option) (*models.MemoryItem, error)
-	DeleteMemoryItem(ctx context.Context, memoryItemID string, options *Option) error
-	ListMemoryItems(ctx context.Context, scope models.Scope, scopeID string, listOptions MemoryItemListOptions, options *Option) ([]*models.MemoryItem, error)
-	SearchMemoryItems(ctx context.Context, scope models.Scope, scopeID string, query string, searchOptions MemoryItemSearchOptions, options *Option) ([]MemoryItemSearchResult, error)
+	GetMemoryItem(ctx context.Context, memoryItemId string, options *Option) (*models.MemoryItem, error)
+	ModifyMemoryItem(ctx context.Context, memoryItemId string, modifier func(*models.MemoryItem) error, options *Option) (*models.MemoryItem, error)
+	DeleteMemoryItem(ctx context.Context, memoryItemId string, options *Option) error
+	ListMemoryItems(ctx context.Context, scope models.Scope, scopeId string, listOptions MemoryItemListOptions, options *Option) ([]*models.MemoryItem, error)
+	SearchMemoryItems(ctx context.Context, scope models.Scope, scopeId string, query string, searchOptions MemoryItemSearchOptions, options *Option) ([]MemoryItemSearchResult, error)
 }

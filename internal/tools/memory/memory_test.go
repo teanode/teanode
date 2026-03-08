@@ -192,10 +192,10 @@ func TestMemorySingleGet(t *testing.T) {
 	}
 	var bResp memoryBatchResponse
 	json.Unmarshal([]byte(result), &bResp)
-	itemID := bResp.Results[0].Item["id"].(string)
+	itemId := bResp.Results[0].Item["id"].(string)
 
 	// Single get.
-	result, err = tool.Execute(ctx, `{"action":"get","id":"`+itemID+`"}`)
+	result, err = tool.Execute(ctx, `{"action":"get","id":"`+itemId+`"}`)
 	if err != nil {
 		t.Fatalf("single get: %v", err)
 	}
@@ -368,8 +368,8 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	if resp.Summary.Succeeded != 1 {
 		t.Fatalf("add should succeed, summary = %+v", resp.Summary)
 	}
-	itemID, ok := resp.Results[0].Item["id"].(string)
-	if !ok || itemID == "" {
+	itemId, ok := resp.Results[0].Item["id"].(string)
+	if !ok || itemId == "" {
 		t.Fatal("add should return item with id")
 	}
 	if resp.Results[0].Item["content"] != "The user likes cats" {
@@ -377,7 +377,7 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	}
 
 	// Batch: get the item.
-	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"get","id":"`+itemID+`"}]}`)
+	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"get","id":"`+itemId+`"}]}`)
 	if err != nil {
 		t.Fatalf("batch get: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	}
 
 	// Batch: update the item.
-	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"update","id":"`+itemID+`","content":"The user likes dogs now"}]}`)
+	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"update","id":"`+itemId+`","content":"The user likes dogs now"}]}`)
 	if err != nil {
 		t.Fatalf("batch update: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	}
 
 	// Batch: delete the item.
-	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"delete","id":"`+itemID+`"}]}`)
+	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"delete","id":"`+itemId+`"}]}`)
 	if err != nil {
 		t.Fatalf("batch delete: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	}
 
 	// Batch: get after delete should fail in result, not error.
-	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"get","id":"`+itemID+`"}]}`)
+	result, err = tool.Execute(ctx, `{"action":"batch","items":[{"op":"get","id":"`+itemId+`"}]}`)
 	if err != nil {
 		t.Fatalf("batch get after delete: %v", err)
 	}
@@ -559,10 +559,10 @@ func TestUserMemoryBatch(t *testing.T) {
 	if resp.Summary.Succeeded != 1 {
 		t.Fatalf("expected 1 success, got %+v", resp.Summary)
 	}
-	itemID := resp.Results[0].Item["id"].(string)
+	itemId := resp.Results[0].Item["id"].(string)
 
 	// Single get on user_memory.
-	result, err = userTool.Execute(ctx, `{"action":"get","id":"`+itemID+`"}`)
+	result, err = userTool.Execute(ctx, `{"action":"get","id":"`+itemId+`"}`)
 	if err != nil {
 		t.Fatalf("user_memory get: %v", err)
 	}

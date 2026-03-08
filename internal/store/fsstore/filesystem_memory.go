@@ -25,15 +25,15 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 		return nil, store.ErrInvalidOptions
 	}
 	scope := *item.Scope
-	scopeID := *item.ScopeID
-	if scope == "" || scopeID == "" {
+	scopeId := *item.ScopeID
+	if scope == "" || scopeId == "" {
 		return nil, store.ErrInvalidOptions
 	}
 
 	now := time.Now()
-	itemID := item.ID
-	if itemID == "" {
-		itemID = security.NewULID()
+	itemId := item.ID
+	if itemId == "" {
+		itemId = security.NewULID()
 	}
 
 	content := ""
@@ -43,9 +43,9 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 
 	record := storeMemoryItemRecord{
 		storeMemoryItemFrontmatter: storeMemoryItemFrontmatter{
-			ID:         itemID,
+			ID:         itemId,
 			Scope:      string(scope),
-			ScopeID:    scopeID,
+			ScopeID:    scopeId,
 			CreatedAt:  timeutil.Timestamp{Time: now},
 			ModifiedAt: timeutil.Timestamp{Time: now},
 		},
@@ -58,15 +58,15 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 		record.Tags = *item.Tags
 	}
 
-	filePath := self.memoryItemFilePath(scope, scopeID, itemID)
+	filePath := self.memoryItemFilePath(scope, scopeId, itemId)
 	if err := writeMemoryItemFile(filePath, &record); err != nil {
 		return nil, err
 	}
 	return fsMemoryRecordToModel(&record), nil
 }
 
-func (self *fileSystemTransaction) GetMemoryItem(ctx context.Context, memoryItemID string, options *store.Option) (*models.MemoryItem, error) {
-	filePath, err := self.findMemoryItemFilePath(memoryItemID)
+func (self *fileSystemTransaction) GetMemoryItem(ctx context.Context, memoryItemId string, options *store.Option) (*models.MemoryItem, error) {
+	filePath, err := self.findMemoryItemFilePath(memoryItemId)
 	if err != nil {
 		return nil, err
 	}
@@ -80,8 +80,8 @@ func (self *fileSystemTransaction) GetMemoryItem(ctx context.Context, memoryItem
 	return fsMemoryRecordToModel(record), nil
 }
 
-func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryItemID string, modifier func(*models.MemoryItem) error, options *store.Option) (*models.MemoryItem, error) {
-	item, getError := self.GetMemoryItem(ctx, memoryItemID, options)
+func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryItemId string, modifier func(*models.MemoryItem) error, options *store.Option) (*models.MemoryItem, error) {
+	item, getError := self.GetMemoryItem(ctx, memoryItemId, options)
 	if getError != nil {
 		return nil, getError
 	}
@@ -116,8 +116,8 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 	return fsMemoryRecordToModel(&record), nil
 }
 
-func (self *fileSystemTransaction) DeleteMemoryItem(ctx context.Context, memoryItemID string, options *store.Option) error {
-	filePath, err := self.findMemoryItemFilePath(memoryItemID)
+func (self *fileSystemTransaction) DeleteMemoryItem(ctx context.Context, memoryItemId string, options *store.Option) error {
+	filePath, err := self.findMemoryItemFilePath(memoryItemId)
 	if err != nil {
 		return err
 	}
@@ -132,8 +132,8 @@ func (self *fileSystemTransaction) DeleteMemoryItem(ctx context.Context, memoryI
 	return writeMemoryItemFile(filePath, record)
 }
 
-func (self *fileSystemTransaction) ListMemoryItems(ctx context.Context, scope models.Scope, scopeID string, listOptions store.MemoryItemListOptions, options *store.Option) ([]*models.MemoryItem, error) {
-	directory := self.memoryItemDirectory(scope, scopeID)
+func (self *fileSystemTransaction) ListMemoryItems(ctx context.Context, scope models.Scope, scopeId string, listOptions store.MemoryItemListOptions, options *store.Option) ([]*models.MemoryItem, error) {
+	directory := self.memoryItemDirectory(scope, scopeId)
 	entries, readError := os.ReadDir(directory)
 	if os.IsNotExist(readError) {
 		return []*models.MemoryItem{}, nil
@@ -181,8 +181,8 @@ func (self *fileSystemTransaction) ListMemoryItems(ctx context.Context, scope mo
 	return items, nil
 }
 
-func (self *fileSystemTransaction) SearchMemoryItems(ctx context.Context, scope models.Scope, scopeID string, query string, searchOptions store.MemoryItemSearchOptions, options *store.Option) ([]store.MemoryItemSearchResult, error) {
-	items, listError := self.ListMemoryItems(ctx, scope, scopeID, store.MemoryItemListOptions{
+func (self *fileSystemTransaction) SearchMemoryItems(ctx context.Context, scope models.Scope, scopeId string, query string, searchOptions store.MemoryItemSearchOptions, options *store.Option) ([]store.MemoryItemSearchResult, error) {
+	items, listError := self.ListMemoryItems(ctx, scope, scopeId, store.MemoryItemListOptions{
 		IncludeArchived: searchOptions.IncludeArchived,
 	}, options)
 	if listError != nil {
@@ -251,8 +251,8 @@ func (self *fileSystemTransaction) SearchMemoryItems(ctx context.Context, scope 
 }
 
 // findMemoryItemFilePath searches for a memory item file by ID across all scope directories.
-func (self *fileSystemTransaction) findMemoryItemFilePath(itemID string) (string, error) {
-	filename := itemID + ".md"
+func (self *fileSystemTransaction) findMemoryItemFilePath(itemId string) (string, error) {
+	filename := itemId + ".md"
 
 	// Check agents.
 	agentPattern := self.agentsDirectory() + "/*/memory/" + filename
@@ -340,13 +340,13 @@ func writeMemoryItemFile(filePath string, record *storeMemoryItemRecord) error {
 
 func fsMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {
 	scope := models.Scope(record.Scope)
-	scopeID := record.ScopeID
+	scopeId := record.ScopeID
 	content := record.Content
 
 	item := &models.MemoryItem{
 		ID:      record.ID,
 		Scope:   &scope,
-		ScopeID: &scopeID,
+		ScopeID: &scopeId,
 		Content: &content,
 	}
 	if record.Title != "" {
