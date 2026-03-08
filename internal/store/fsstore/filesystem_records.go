@@ -37,6 +37,7 @@ type storeProviderRecord struct {
 type storeModelsRecord struct {
 	Default                     string                `json:"default,omitempty" yaml:"default,omitempty"`
 	SummarizerProviderModelName string                `json:"summarizerModel,omitempty" yaml:"summarizerModel,omitempty"`
+	EmbeddingProviderModelName  string                `json:"embeddingModel,omitempty" yaml:"embeddingModel,omitempty"`
 	ContextWindow               int                   `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
 	Providers                   []storeProviderRecord `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
@@ -135,20 +136,11 @@ type storeUniFiProtectRecord struct {
 	TimeoutSeconds        int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
 }
 
-type storeEmbeddingsRecord struct {
-	Provider       string `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Model          string `json:"model,omitempty" yaml:"model,omitempty"`
-	BaseURL        string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
-	APIKey         string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
-	TimeoutSeconds int    `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
-}
-
 type storeConfigurationRecord struct {
 	Gateway          storeGatewayRecord         `json:"gateway,omitempty" yaml:"gateway,omitempty"`
 	Certificate      *storeCertificateRecord    `json:"certificate,omitempty" yaml:"certificate,omitempty"`
 	Models           storeModelsRecord          `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools            storeToolsRecord           `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Embeddings       *storeEmbeddingsRecord     `json:"embeddings,omitempty" yaml:"embeddings,omitempty"`
 	Integrations     storeIntegrationsRecord    `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Channels         storeChannelsRecord        `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Secrets          map[string]string          `json:"secrets,omitempty" yaml:"secrets,omitempty"`

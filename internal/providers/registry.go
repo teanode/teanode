@@ -30,11 +30,13 @@ type ProviderModelEntry struct {
 
 // ProviderRegistry holds named provider clients and resolves provider model names.
 type ProviderRegistry struct {
-	clients                  map[string]Provider
-	defaultProvider          string
-	defaultProviderModelName string
-	modelsCacheMutex         sync.Mutex
-	modelsCache              map[string]*cachedModelList
+	clients                     map[string]Provider
+	defaultProvider             string
+	defaultProviderModelName    string
+	embeddingProviderModelName  string
+	summarizerProviderModelName string
+	modelsCacheMutex            sync.Mutex
+	modelsCache                 map[string]*cachedModelList
 }
 
 // NewProviderRegistry creates a provider registry from the given models configuration.
@@ -97,10 +99,12 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 	defaultProviderName, _ := ParseProviderModelName(modelsConfiguration.GetDefault(), "openai")
 
 	providerRegistry := &ProviderRegistry{
-		clients:                  make(map[string]Provider),
-		defaultProvider:          defaultProviderName,
-		defaultProviderModelName: modelsConfiguration.GetDefault(),
-		modelsCache:              make(map[string]*cachedModelList),
+		clients:                     make(map[string]Provider),
+		defaultProvider:             defaultProviderName,
+		defaultProviderModelName:    modelsConfiguration.GetDefault(),
+		embeddingProviderModelName:  modelsConfiguration.GetEmbeddingProviderModelName(),
+		summarizerProviderModelName: modelsConfiguration.GetSummarizerProviderModelName(),
+		modelsCache:                 make(map[string]*cachedModelList),
 	}
 
 	for _, providerConfiguration := range *modelsConfiguration.Providers {
@@ -141,6 +145,18 @@ func NewEmptyProviderRegistry() *ProviderRegistry {
 // Register adds a named provider client.
 func (self *ProviderRegistry) Register(name string, client Provider) {
 	self.clients[name] = client
+}
+
+// GetEmbeddingProviderModelName returns the configured embedding provider model
+// name (e.g. "openai:text-embedding-3-small"), or "" if not configured.
+func (self *ProviderRegistry) GetEmbeddingProviderModelName() string {
+	return self.embeddingProviderModelName
+}
+
+// GetSummarizerProviderModelName returns the configured summarizer provider model
+// name, or "" if not configured.
+func (self *ProviderRegistry) GetSummarizerProviderModelName() string {
+	return self.summarizerProviderModelName
 }
 
 // ResolveProviderAndModel splits a provider model name ("provider:model") and returns the
@@ -377,25 +393,4 @@ func (self *ProviderRegistry) FindEmbedderByName(name string) (EmbeddingProvider
 		return nil, false
 	}
 	return embedder, true
-}
-
-type contextKeyEmbedding struct{}
-
-type embeddingContextValue struct {
-	provider EmbeddingProvider
-	model    string
-}
-
-// ContextWithEmbeddingProvider enriches a context with an embedding provider and model name.
-func ContextWithEmbeddingProvider(parent context.Context, provider EmbeddingProvider, model string) context.Context {
-	return context.WithValue(parent, contextKeyEmbedding{}, &embeddingContextValue{provider: provider, model: model})
-}
-
-// EmbeddingProviderFromContext returns the embedding provider and model from context, or nil/"" if absent.
-func EmbeddingProviderFromContext(ctx context.Context) (EmbeddingProvider, string) {
-	value, ok := ctx.Value(contextKeyEmbedding{}).(*embeddingContextValue)
-	if !ok || value == nil {
-		return nil, ""
-	}
-	return value.provider, value.model
 }

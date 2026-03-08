@@ -18,6 +18,7 @@ import (
 // Each keyword maps to a dimension in the vector; if the text contains the keyword,
 // that dimension is set to 1.0, producing predictable cosine similarity.
 type stubEmbeddingsProvider struct {
+	providers.BaseProvider
 	keywords []string
 	calls    int
 }
@@ -67,13 +68,23 @@ func splitWords(text string) []string {
 }
 
 // failingEmbeddingsProvider always returns an error.
-type failingEmbeddingsProvider struct{}
+type failingEmbeddingsProvider struct {
+	providers.BaseProvider
+}
 
 func (self *failingEmbeddingsProvider) Embed(_ context.Context, _ string, _ string) ([]float32, error) {
 	return nil, fmt.Errorf("embedding service unavailable")
 }
 
-func setupFSMemoryStore(t *testing.T) context.Context {
+// buildEmbeddingRegistry creates a provider registry with the given stub
+// registered as "openai".
+func buildEmbeddingRegistry(stub providers.Provider) *providers.ProviderRegistry {
+	registry := providers.NewEmptyProviderRegistry()
+	registry.Register("openai", stub)
+	return registry
+}
+
+func setupFSMemoryStore(t *testing.T, providerRegistry *providers.ProviderRegistry) context.Context {
 	t.Helper()
 	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
 	if openError != nil {
@@ -81,7 +92,7 @@ func setupFSMemoryStore(t *testing.T) context.Context {
 	}
 	t.Cleanup(func() { _ = openedStore.Close() })
 	ctx := store.ContextWithStore(context.Background(), openedStore)
-	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-semantic", "", nil, models.Agent{}))
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-semantic", "", providerRegistry, models.Agent{}))
 	return ctx
 }
 
@@ -106,10 +117,9 @@ func addMemoryItem(t *testing.T, ctx context.Context, tool tools.Tool, title, co
 }
 
 func TestSemanticRetrieveOrdering(t *testing.T) {
-	ctx := setupFSMemoryStore(t)
 	// Keyword space: cat, dog, fish, bird
 	stub := newStubEmbeddingsProvider("cat", "dog", "fish", "bird")
-	ctx = providers.ContextWithEmbeddingProvider(ctx, stub, "test-model")
+	ctx := setupFSMemoryStore(t, buildEmbeddingRegistry(stub))
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
@@ -154,8 +164,8 @@ func TestSemanticRetrieveOrdering(t *testing.T) {
 }
 
 func TestSemanticRetrieveFallbackWhenNoEmbeddings(t *testing.T) {
-	ctx := setupFSMemoryStore(t)
-	// No embeddings provider in context.
+	// No embedder (nil provider registry).
+	ctx := setupFSMemoryStore(t, nil)
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
@@ -189,8 +199,10 @@ func TestSemanticRetrieveFallbackWhenNoEmbeddings(t *testing.T) {
 }
 
 func TestSemanticRetrieveFallbackOnEmbeddingError(t *testing.T) {
-	ctx := setupFSMemoryStore(t)
-	// Start without provider to add items without embeddings.
+	// Use failing embedder. Items added with failing embedder will have no
+	// embeddings, so retrieve should fall back to keyword search.
+	ctx := setupFSMemoryStore(t, buildEmbeddingRegistry(&failingEmbeddingsProvider{}))
+
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
 		registry.Register(tool)
@@ -198,9 +210,6 @@ func TestSemanticRetrieveFallbackOnEmbeddingError(t *testing.T) {
 	tool := registry.Get("agent_memory")
 
 	addMemoryItem(t, ctx, tool, "Test item", "keyword searching works")
-
-	// Now add a failing embeddings provider for the retrieve call.
-	ctx = providers.ContextWithEmbeddingProvider(ctx, &failingEmbeddingsProvider{}, "fail-model")
 
 	result, err := tool.Execute(ctx, `{"action":"retrieve","query":"keyword searching"}`)
 	if err != nil {
@@ -225,9 +234,8 @@ func TestSemanticRetrieveFallbackOnEmbeddingError(t *testing.T) {
 }
 
 func TestEmbeddingPersistedOnAdd(t *testing.T) {
-	ctx := setupFSMemoryStore(t)
 	stub := newStubEmbeddingsProvider("hello", "world")
-	ctx = providers.ContextWithEmbeddingProvider(ctx, stub, "test-model")
+	ctx := setupFSMemoryStore(t, buildEmbeddingRegistry(stub))
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
@@ -254,8 +262,8 @@ func TestEmbeddingPersistedOnAdd(t *testing.T) {
 	if item.Embedding == nil || len(*item.Embedding) == 0 {
 		t.Fatal("expected embedding to be persisted on item")
 	}
-	if item.EmbeddingModel == nil || *item.EmbeddingModel != "test-model" {
-		t.Errorf("expected embeddingModel=test-model, got %v", item.EmbeddingModel)
+	if item.EmbeddingModel == nil || *item.EmbeddingModel != "text-embedding-3-small" {
+		t.Errorf("expected embeddingModel=text-embedding-3-small, got %v", item.EmbeddingModel)
 	}
 	if item.EmbeddedAt == nil {
 		t.Error("expected embeddedAt to be set")
@@ -274,10 +282,9 @@ func TestEmbeddingPersistedOnAdd(t *testing.T) {
 }
 
 func TestDedupeWarningOnSimilarAdd(t *testing.T) {
-	ctx := setupFSMemoryStore(t)
 	// Use keywords that will produce identical embeddings for near-duplicate content.
 	stub := newStubEmbeddingsProvider("cat", "dog", "preference")
-	ctx = providers.ContextWithEmbeddingProvider(ctx, stub, "test-model")
+	ctx := setupFSMemoryStore(t, buildEmbeddingRegistry(stub))
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
@@ -311,9 +318,8 @@ func TestDedupeWarningOnSimilarAdd(t *testing.T) {
 }
 
 func TestNoDedupeWarningForDifferentItems(t *testing.T) {
-	ctx := setupFSMemoryStore(t)
 	stub := newStubEmbeddingsProvider("cat", "dog", "fish")
-	ctx = providers.ContextWithEmbeddingProvider(ctx, stub, "test-model")
+	ctx := setupFSMemoryStore(t, buildEmbeddingRegistry(stub))
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
@@ -344,8 +350,8 @@ func TestNoDedupeWarningForDifferentItems(t *testing.T) {
 }
 
 func TestAddWithoutEmbeddingsProvider(t *testing.T) {
-	ctx := setupFSMemoryStore(t)
-	// No embeddings provider.
+	// No embedder (nil provider registry).
+	ctx := setupFSMemoryStore(t, nil)
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {

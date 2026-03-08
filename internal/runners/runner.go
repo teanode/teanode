@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 
 	"github.com/kaptinlin/jsonrepair"
+	"github.com/teanode/teanode/internal/embeddings"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
@@ -40,6 +41,7 @@ type Runner struct {
 	ID               string
 	AgentID          string
 	ConversationID   string
+	Embedder         *embeddings.Embedder
 	providerRegistry *providers.ProviderRegistry
 	toolRegistry     *tools.ToolRegistry
 	skillPrompts     string
@@ -51,10 +53,15 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 	toolRegistry := tools.NewToolRegistry()
 	skillPrompts := skills.RegisterSkills(ctx, toolRegistry, agent.GetSkills())
 	toolRegistry.ApplyFilter(agent.GetTools())
+	var embedder *embeddings.Embedder
+	if providerRegistry != nil {
+		embedder = embeddings.NewEmbedder(providerRegistry)
+	}
 	return &Runner{
 		ID:               security.NewULID(),
 		AgentID:          agentId,
 		ConversationID:   conversationId,
+		Embedder:         embedder,
 		providerRegistry: providerRegistry,
 		toolRegistry:     toolRegistry,
 		skillPrompts:     skillPrompts,

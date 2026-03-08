@@ -9,7 +9,7 @@ import (
 
 	"github.com/teanode/teanode/internal/embeddings"
 	"github.com/teanode/teanode/internal/models"
-	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 )
 
@@ -67,10 +67,11 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 // if embeddings are not configured, the query embedding fails, or too few items
 // have stored embeddings.
 func (self *memoryTool) trySemanticRetrieve(ctx context.Context, items []*models.MemoryItem, query string, maxResults int) (string, bool) {
-	provider, model := providers.EmbeddingProviderFromContext(ctx)
-	if provider == nil {
+	runner := runners.RunnerFromContext(ctx)
+	if runner == nil || runner.Embedder == nil {
 		return "", false
 	}
+	embedder := runner.Embedder
 
 	// Count items with embeddings.
 	embeddedCount := 0
@@ -84,7 +85,7 @@ func (self *memoryTool) trySemanticRetrieve(ctx context.Context, items []*models
 		return "", false
 	}
 
-	queryEmbedding, embedError := provider.Embed(ctx, model, query)
+	queryEmbedding, _, embedError := embedder.Embed(ctx, query)
 	if embedError != nil {
 		log.Warningf("semantic retrieve: embedding query failed, falling back to keyword: %v", embedError)
 		return "", false

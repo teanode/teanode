@@ -194,9 +194,6 @@ func NewGatewayCommand() *cli.Command {
 			// Build provider registry.
 			providerRegistry := providers.NewProviderRegistry(configuration.Models)
 
-			// Build optional embeddings provider from config (falls back to provider registry).
-			ctx = wireEmbeddingsProvider(ctx, configuration, providerRegistry)
-
 			// --- Shared resources ---
 
 			// Browser: always create relay for extension connections, optionally
@@ -508,33 +505,4 @@ func listenAddress(configuration *models.Configuration) string {
 		host = "0.0.0.0"
 	}
 	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
-}
-
-// wireEmbeddingsProvider resolves an embedding provider from the provider
-// registry (or embeddings configuration) and adds it to the context. Returns
-// the original context if no suitable provider can be resolved.
-func wireEmbeddingsProvider(ctx context.Context, configuration *models.Configuration, providerRegistry *providers.ProviderRegistry) context.Context {
-	providerName := "openai"
-	model := "text-embedding-3-small"
-
-	if configuration.Embeddings != nil {
-		if name := configuration.Embeddings.GetProvider(); name != "" {
-			providerName = name
-		}
-		if configModel := configuration.Embeddings.GetModel(); configModel != "" {
-			model = configModel
-		}
-	}
-
-	// Try to resolve the embedding provider from the registry.
-	embedder, ok := providerRegistry.FindEmbedderByName(providerName)
-	if !ok {
-		// Fall back to first registered provider with embedding support.
-		embedder, _, ok = providerRegistry.FindEmbedder()
-		if !ok {
-			return ctx
-		}
-	}
-
-	return providers.ContextWithEmbeddingProvider(ctx, embedder, model)
 }

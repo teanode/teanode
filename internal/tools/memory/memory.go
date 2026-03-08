@@ -550,16 +550,17 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 		newItem.Tags = &item.Tags
 	}
 
-	// Compute embedding if provider is available.
+	// Compute embedding if embedder is available.
 	var newEmbedding []float32
 	var warning string
-	embeddingProvider, embeddingModel := providers.EmbeddingProviderFromContext(ctx)
-	if embeddingProvider != nil {
+	runner := runners.RunnerFromContext(ctx)
+	if runner != nil && runner.Embedder != nil {
+		embedder := runner.Embedder
 		embeddingText := item.Content
 		if item.Title != "" {
 			embeddingText = item.Title + "\n" + item.Content
 		}
-		vector, embedError := embeddingProvider.Embed(ctx, embeddingModel, embeddingText)
+		vector, embeddingModel, embedError := embedder.Embed(ctx, embeddingText)
 		if embedError != nil {
 			log.Warningf("embedding for new memory item failed: %v", embedError)
 		} else {

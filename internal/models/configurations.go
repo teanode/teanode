@@ -11,7 +11,6 @@ type Configuration struct {
 	Certificate      *CertificateConfiguration      `json:"certificate,omitempty" yaml:"certificate,omitempty"`
 	Models           *ModelsConfiguration           `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools            *ToolsConfiguration            `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Embeddings       *EmbeddingsConfiguration       `json:"embeddings,omitempty" yaml:"embeddings,omitempty"`
 	Integrations     *IntegrationsConfiguration     `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Channels         *ChannelsConfiguration         `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Secrets          *[]*SecretConfiguration        `json:"secrets,omitempty" yaml:"secrets,omitempty"`
@@ -45,6 +44,7 @@ type CertificateConfiguration struct {
 type ModelsConfiguration struct {
 	Default                     *string                   `json:"default,omitempty" yaml:"default,omitempty"`
 	SummarizerProviderModelName *string                   `json:"summarizerProviderModelName,omitempty" yaml:"summarizerModel,omitempty"`
+	EmbeddingProviderModelName  *string                   `json:"embeddingProviderModelName,omitempty" yaml:"embeddingModel,omitempty"`
 	ContextWindow               *int                      `json:"contextWindow,omitempty" yaml:"contextWindow,omitempty"`
 	Providers                   *[]*ProviderConfiguration `json:"providers,omitempty" yaml:"providers,omitempty"`
 	DefaultLimits               *map[string]interface{}   `json:"defaultLimits,omitempty" yaml:"defaultLimits,omitempty"`
@@ -119,14 +119,6 @@ type UniFiProtectConfiguration struct {
 	AllowedCameras        *[]string `json:"allowedCameras,omitempty" yaml:"allowedCameras,omitempty"`
 	AllowDangerousActions *[]string `json:"allowDangerousActions,omitempty" yaml:"allowDangerousActions,omitempty"`
 	TimeoutSeconds        *int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
-}
-
-type EmbeddingsConfiguration struct {
-	Provider       *string `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Model          *string `json:"model,omitempty" yaml:"model,omitempty"`
-	BaseURL        *string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
-	APIKey         *string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
-	TimeoutSeconds *int    `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
 }
 
 type IntegrationsConfiguration struct {
