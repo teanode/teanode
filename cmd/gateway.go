@@ -21,6 +21,7 @@ import (
 	"github.com/teanode/teanode/internal/channels/discord"
 	"github.com/teanode/teanode/internal/channels/telegram"
 	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/embeddings"
 	"github.com/teanode/teanode/internal/frontend"
 	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/integrations/browsers/headlessbrowser"
@@ -193,6 +194,9 @@ func NewGatewayCommand() *cli.Command {
 
 			// Build provider registry.
 			providerRegistry := providers.NewProviderRegistry(configuration.Models)
+
+			// Build optional embeddings provider from config (falls back to OPENAI_API_KEY env).
+			ctx = wireEmbeddingsProvider(ctx, configuration)
 
 			// --- Shared resources ---
 
@@ -505,4 +509,51 @@ func listenAddress(configuration *models.Configuration) string {
 		host = "0.0.0.0"
 	}
 	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
+}
+
+// wireEmbeddingsProvider creates an embeddings provider from configuration and
+// adds it to the context. Returns the original context if embeddings cannot be
+// configured (no API key available).
+func wireEmbeddingsProvider(ctx context.Context, configuration *models.Configuration) context.Context {
+	providerName := "openai"
+	model := "text-embedding-3-small"
+	baseURL := ""
+	apiKey := ""
+	timeoutSeconds := 30
+
+	if configuration.Embeddings != nil {
+		if name := configuration.Embeddings.GetProvider(); name != "" {
+			providerName = name
+		}
+		if configModel := configuration.Embeddings.GetModel(); configModel != "" {
+			model = configModel
+		}
+		baseURL = configuration.Embeddings.GetBaseURL()
+		apiKey = configuration.Embeddings.GetAPIKey()
+		if seconds := configuration.Embeddings.GetTimeoutSeconds(); seconds > 0 {
+			timeoutSeconds = seconds
+		}
+	}
+
+	// Fall back to secrets, then environment variable.
+	if apiKey == "" && configuration.Secrets != nil {
+		for _, secret := range *configuration.Secrets {
+			if secret.GetKey() == "OPENAI_API_KEY" {
+				apiKey = secret.GetValue()
+				break
+			}
+		}
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+	}
+
+	if apiKey == "" {
+		return ctx
+	}
+
+	// Currently only the OpenAI-compatible provider is supported.
+	_ = providerName
+	provider := embeddings.NewOpenAIProvider(baseURL, apiKey, timeoutSeconds)
+	return embeddings.ContextWithProvider(ctx, provider, model)
 }

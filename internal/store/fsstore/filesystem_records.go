@@ -135,11 +135,20 @@ type storeUniFiProtectRecord struct {
 	TimeoutSeconds        int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
 }
 
+type storeEmbeddingsRecord struct {
+	Provider       string `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model          string `json:"model,omitempty" yaml:"model,omitempty"`
+	BaseURL        string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
+	APIKey         string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
+	TimeoutSeconds int    `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
+}
+
 type storeConfigurationRecord struct {
 	Gateway          storeGatewayRecord         `json:"gateway,omitempty" yaml:"gateway,omitempty"`
 	Certificate      *storeCertificateRecord    `json:"certificate,omitempty" yaml:"certificate,omitempty"`
 	Models           storeModelsRecord          `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools            storeToolsRecord           `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Embeddings       *storeEmbeddingsRecord     `json:"embeddings,omitempty" yaml:"embeddings,omitempty"`
 	Integrations     storeIntegrationsRecord    `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Channels         storeChannelsRecord        `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Secrets          map[string]string          `json:"secrets,omitempty" yaml:"secrets,omitempty"`
@@ -181,14 +190,17 @@ type storeProjectRecord struct {
 }
 
 type storeMemoryItemFrontmatter struct {
-	ID         string             `yaml:"id"`
-	Scope      string             `yaml:"scope"`
-	ScopeID    string             `yaml:"scopeId"`
-	Title      string             `yaml:"title,omitempty"`
-	Tags       []string           `yaml:"tags,omitempty"`
-	ArchivedAt timeutil.Timestamp `yaml:"archivedAt,omitempty"`
-	CreatedAt  timeutil.Timestamp `yaml:"createdAt"`
-	ModifiedAt timeutil.Timestamp `yaml:"modifiedAt"`
+	ID             string             `yaml:"id"`
+	Scope          string             `yaml:"scope"`
+	ScopeID        string             `yaml:"scopeId"`
+	Title          string             `yaml:"title,omitempty"`
+	Tags           []string           `yaml:"tags,omitempty"`
+	ArchivedAt     timeutil.Timestamp `yaml:"archivedAt,omitempty"`
+	CreatedAt      timeutil.Timestamp `yaml:"createdAt"`
+	ModifiedAt     timeutil.Timestamp `yaml:"modifiedAt"`
+	EmbeddingModel string             `yaml:"embeddingModel,omitempty"`
+	Embedding      []float32          `yaml:"embedding,omitempty"`
+	EmbeddedAt     timeutil.Timestamp `yaml:"embeddedAt,omitempty"`
 }
 
 type storeMemoryItemRecord struct {

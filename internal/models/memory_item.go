@@ -15,4 +15,8 @@ type MemoryItem struct {
 	Tags    *[]string `json:"tags,omitempty" yaml:"tags,omitempty"`
 
 	ArchivedAt *time.Time `json:"archivedAt,omitempty" yaml:"archivedAt,omitempty"`
+
+	EmbeddingModel *string    `json:"embeddingModel,omitempty" yaml:"embeddingModel,omitempty"`
+	Embedding      *[]float32 `json:"embedding,omitempty" yaml:"embedding,omitempty"`
+	EmbeddedAt     *time.Time `json:"embeddedAt,omitempty" yaml:"embeddedAt,omitempty"`
 }

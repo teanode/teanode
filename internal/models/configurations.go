@@ -11,6 +11,7 @@ type Configuration struct {
 	Certificate      *CertificateConfiguration      `json:"certificate,omitempty" yaml:"certificate,omitempty"`
 	Models           *ModelsConfiguration           `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools            *ToolsConfiguration            `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Embeddings       *EmbeddingsConfiguration       `json:"embeddings,omitempty" yaml:"embeddings,omitempty"`
 	Integrations     *IntegrationsConfiguration     `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Channels         *ChannelsConfiguration         `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Secrets          *[]*SecretConfiguration        `json:"secrets,omitempty" yaml:"secrets,omitempty"`
@@ -118,6 +119,14 @@ type UniFiProtectConfiguration struct {
 	AllowedCameras        *[]string `json:"allowedCameras,omitempty" yaml:"allowedCameras,omitempty"`
 	AllowDangerousActions *[]string `json:"allowDangerousActions,omitempty" yaml:"allowDangerousActions,omitempty"`
 	TimeoutSeconds        *int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
+}
+
+type EmbeddingsConfiguration struct {
+	Provider       *string `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model          *string `json:"model,omitempty" yaml:"model,omitempty"`
+	BaseURL        *string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
+	APIKey         *string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
+	TimeoutSeconds *int    `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
 }
 
 type IntegrationsConfiguration struct {

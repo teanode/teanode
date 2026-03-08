@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/teanode/teanode/internal/embeddings"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
 )
@@ -38,12 +39,6 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 		contextLines = 1
 	}
 
-	// Tokenise query: split on whitespace, lowercase, discard <3 chars.
-	tokens := tokeniseQuery(args.Query)
-	if len(tokens) == 0 {
-		return "", fmt.Errorf("query contains no significant tokens (words must be 3+ characters)")
-	}
-
 	// Fetch items.
 	var items []*models.MemoryItem
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
@@ -56,6 +51,124 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 		return err
 	}); err != nil {
 		return "", err
+	}
+
+	// Try semantic retrieval if embeddings are available.
+	if result, ok := self.trySemanticRetrieve(ctx, items, args.Query, maxResults); ok {
+		return result, nil
+	}
+
+	// Fall back to keyword retrieval.
+	return self.keywordRetrieve(items, args.Query, maxResults, contextLines)
+}
+
+// trySemanticRetrieve attempts to use embeddings for ranking. Returns ("", false)
+// if embeddings are not configured, the query embedding fails, or too few items
+// have stored embeddings.
+func (self *memoryTool) trySemanticRetrieve(ctx context.Context, items []*models.MemoryItem, query string, maxResults int) (string, bool) {
+	provider, model := embeddings.ProviderFromContext(ctx)
+	if provider == nil {
+		return "", false
+	}
+
+	// Count items with embeddings.
+	embeddedCount := 0
+	for _, item := range items {
+		if item.Embedding != nil && len(*item.Embedding) > 0 {
+			embeddedCount++
+		}
+	}
+	// Require at least half of items to have embeddings for semantic to be useful.
+	if len(items) > 0 && embeddedCount < (len(items)+1)/2 {
+		return "", false
+	}
+
+	queryEmbedding, embedError := provider.Embed(ctx, model, query)
+	if embedError != nil {
+		log.Warningf("semantic retrieve: embedding query failed, falling back to keyword: %v", embedError)
+		return "", false
+	}
+
+	type semanticResult struct {
+		itemID  string
+		title   string
+		tags    []string
+		content string
+		score   float64
+	}
+
+	var results []semanticResult
+	for _, item := range items {
+		if item.Embedding == nil || len(*item.Embedding) == 0 {
+			continue
+		}
+		similarity := embeddings.CosineSimilarity(queryEmbedding, *item.Embedding)
+		title := ""
+		if item.Title != nil {
+			title = *item.Title
+		}
+		content := ""
+		if item.Content != nil {
+			content = *item.Content
+		}
+		tags := []string{}
+		if item.Tags != nil {
+			tags = *item.Tags
+		}
+		results = append(results, semanticResult{
+			itemID:  item.ID,
+			title:   title,
+			tags:    tags,
+			content: content,
+			score:   similarity,
+		})
+	}
+
+	sort.Slice(results, func(indexA, indexB int) bool {
+		return results[indexA].score > results[indexB].score
+	})
+
+	totalMatches := len(results)
+	if len(results) > maxResults {
+		results = results[:maxResults]
+	}
+
+	type outputSnippet struct {
+		ItemID  string   `json:"itemId"`
+		Title   string   `json:"title,omitempty"`
+		Snippet string   `json:"snippet"`
+		Score   float64  `json:"score"`
+		Tags    []string `json:"tags,omitempty"`
+	}
+	outputSnippets := make([]outputSnippet, len(results))
+	for index, result := range results {
+		snippet := result.content
+		if len(snippet) > 1024 {
+			snippet = snippet[:1024] + "…"
+		}
+		outputSnippets[index] = outputSnippet{
+			ItemID:  result.itemID,
+			Title:   result.title,
+			Snippet: snippet,
+			Score:   result.score,
+			Tags:    result.tags,
+		}
+	}
+
+	output, _ := json.Marshal(map[string]interface{}{
+		"action":       "retrieve",
+		"method":       "semantic",
+		"snippets":     outputSnippets,
+		"totalMatches": totalMatches,
+	})
+	return string(output), true
+}
+
+func (self *memoryTool) keywordRetrieve(items []*models.MemoryItem, query string, maxResults int, contextLines int) (string, error) {
+	// Tokenise query: split on whitespace, lowercase, discard <3 chars.
+	tokens := tokeniseQuery(query)
+	if len(tokens) == 0 {
+		return "", fmt.Errorf("query contains no significant tokens (words must be 3+ characters)")
 	}
 
 	// Score every line in every item.
@@ -127,8 +240,8 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 	}
 
 	// Sort descending by score.
-	sort.Slice(allScored, func(a, b int) bool {
-		return allScored[a].score > allScored[b].score
+	sort.Slice(allScored, func(indexA, indexB int) bool {
+		return allScored[indexA].score > allScored[indexB].score
 	})
 
 	// Build snippets with context merging, grouped by item.
@@ -166,8 +279,8 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 	var snippets []scoredSnippet
 	for itemIndex, ranges := range itemRanges {
 		// Sort by start.
-		sort.Slice(ranges, func(a, b int) bool {
-			return ranges[a].start < ranges[b].start
+		sort.Slice(ranges, func(indexA, indexB int) bool {
+			return ranges[indexA].start < ranges[indexB].start
 		})
 		// Merge overlapping.
 		merged := []lineRange{ranges[0]}
@@ -205,8 +318,8 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 	}
 
 	// Sort descending by score.
-	sort.Slice(snippets, func(a, b int) bool {
-		return snippets[a].score > snippets[b].score
+	sort.Slice(snippets, func(indexA, indexB int) bool {
+		return snippets[indexA].score > snippets[indexB].score
 	})
 
 	totalMatches := len(snippets)

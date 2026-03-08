@@ -9,6 +9,7 @@ import (
 
 	"github.com/op/go-logging"
 
+	"github.com/teanode/teanode/internal/embeddings"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/runners"
@@ -127,7 +128,10 @@ type batchResult struct {
 	Items   []map[string]interface{} `json:"items,omitempty"`
 	Matches interface{}              `json:"matches,omitempty"`
 	Error   string                   `json:"error,omitempty"`
+	Warning string                   `json:"warning,omitempty"`
 }
+
+const dedupeThreshold = 0.90
 
 type batchSummary struct {
 	Total     int `json:"total"`
@@ -546,11 +550,69 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 		newItem.Tags = &item.Tags
 	}
 
+	// Compute embedding if provider is available.
+	var newEmbedding []float32
+	var warning string
+	embeddingProvider, embeddingModel := embeddings.ProviderFromContext(ctx)
+	if embeddingProvider != nil {
+		embeddingText := item.Content
+		if item.Title != "" {
+			embeddingText = item.Title + "\n" + item.Content
+		}
+		vector, embedError := embeddingProvider.Embed(ctx, embeddingModel, embeddingText)
+		if embedError != nil {
+			log.Warningf("embedding for new memory item failed: %v", embedError)
+		} else {
+			newEmbedding = vector
+			now := time.Now()
+			newItem.EmbeddingModel = &embeddingModel
+			newItem.Embedding = &vector
+			newItem.EmbeddedAt = &now
+		}
+	}
+
+	// Dedupe check: compare new embedding against existing items in same scope.
+	if newEmbedding != nil {
+		existingItems, listError := tx.ListMemoryItems(ctx, scope, scopeId, store.MemoryItemListOptions{}, nil)
+		if listError == nil {
+			warning = checkDuplicates(newEmbedding, existingItems)
+		}
+	}
+
 	created, err := tx.CreateMemoryItem(ctx, newItem, nil)
 	if err != nil {
 		return batchResult{Index: index, Op: "add", Success: false, Error: err.Error()}
 	}
-	return batchResult{Index: index, Op: "add", Success: true, Item: memoryItemToOutput(created)}
+	return batchResult{Index: index, Op: "add", Success: true, Item: memoryItemToOutput(created), Warning: warning}
+}
+
+// checkDuplicates compares an embedding vector against existing memory items
+// and returns a warning string if any item exceeds the deduplication threshold.
+func checkDuplicates(newEmbedding []float32, existingItems []*models.MemoryItem) string {
+	var maxSimilarity float64
+	var mostSimilarID string
+	var mostSimilarTitle string
+	for _, existing := range existingItems {
+		if existing.Embedding == nil || len(*existing.Embedding) == 0 {
+			continue
+		}
+		similarity := embeddings.CosineSimilarity(newEmbedding, *existing.Embedding)
+		if similarity > maxSimilarity {
+			maxSimilarity = similarity
+			mostSimilarID = existing.ID
+			if existing.Title != nil {
+				mostSimilarTitle = *existing.Title
+			}
+		}
+	}
+	if maxSimilarity >= dedupeThreshold {
+		titleHint := ""
+		if mostSimilarTitle != "" {
+			titleHint = fmt.Sprintf(" (%s)", mostSimilarTitle)
+		}
+		return fmt.Sprintf("possible duplicate: %.0f%% similar to item %s%s", maxSimilarity*100, mostSimilarID, titleHint)
+	}
+	return ""
 }
 
 func (self *memoryTool) batchUpdate(ctx context.Context, tx store.Transaction, index int, item batchItem) batchResult {

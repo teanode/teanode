@@ -149,6 +149,15 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 		}
 	}
 	result.Tools = toolsConfiguration
+	if configuration.Embeddings != nil {
+		result.Embeddings = &models.EmbeddingsConfiguration{
+			Provider:       ptrto.TrimmedString(configuration.Embeddings.Provider),
+			Model:          ptrto.TrimmedString(configuration.Embeddings.Model),
+			BaseURL:        ptrto.TrimmedString(configuration.Embeddings.BaseURL),
+			APIKey:         ptrto.TrimmedString(configuration.Embeddings.APIKey),
+			TimeoutSeconds: ptrto.Value(configuration.Embeddings.TimeoutSeconds),
+		}
+	}
 	result.Integrations = &models.IntegrationsConfiguration{}
 	if configuration.Integrations.Browser != nil {
 		result.Integrations.Browser = &models.BrowserConfiguration{CDPEndpoint: ptrto.TrimmedString(configuration.Integrations.Browser.CDPEndpoint)}
@@ -284,6 +293,15 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 				AllowDangerousActions: sliceValue(configuration.Tools.UniFiProtect.AllowDangerousActions),
 				TimeoutSeconds:        configuration.Tools.UniFiProtect.GetTimeoutSeconds(),
 			}
+		}
+	}
+	if configuration.Embeddings != nil {
+		result.Embeddings = &storeEmbeddingsRecord{
+			Provider:       configuration.Embeddings.GetProvider(),
+			Model:          configuration.Embeddings.GetModel(),
+			BaseURL:        configuration.Embeddings.GetBaseURL(),
+			APIKey:         configuration.Embeddings.GetAPIKey(),
+			TimeoutSeconds: configuration.Embeddings.GetTimeoutSeconds(),
 		}
 	}
 	if configuration.Integrations != nil && configuration.Integrations.Browser != nil {

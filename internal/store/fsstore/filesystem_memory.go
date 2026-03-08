@@ -57,6 +57,15 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 	if item.Tags != nil {
 		record.Tags = *item.Tags
 	}
+	if item.EmbeddingModel != nil {
+		record.EmbeddingModel = *item.EmbeddingModel
+	}
+	if item.Embedding != nil {
+		record.Embedding = *item.Embedding
+	}
+	if item.EmbeddedAt != nil {
+		record.EmbeddedAt = timeutil.Timestamp{Time: *item.EmbeddedAt}
+	}
 
 	filePath := self.memoryItemFilePath(scope, scopeId, itemId)
 	if err := writeMemoryItemFile(filePath, &record); err != nil {
@@ -107,6 +116,15 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 	}
 	if item.Tags != nil {
 		record.Tags = *item.Tags
+	}
+	if item.EmbeddingModel != nil {
+		record.EmbeddingModel = *item.EmbeddingModel
+	}
+	if item.Embedding != nil {
+		record.Embedding = *item.Embedding
+	}
+	if item.EmbeddedAt != nil {
+		record.EmbeddedAt = timeutil.Timestamp{Time: *item.EmbeddedAt}
 	}
 
 	filePath := self.memoryItemFilePath(*item.Scope, *item.ScopeID, item.ID)
@@ -369,6 +387,19 @@ func fsMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {
 	if !record.ArchivedAt.IsZero() {
 		archivedAt := record.ArchivedAt.Time
 		item.ArchivedAt = &archivedAt
+	}
+	if record.EmbeddingModel != "" {
+		embeddingModel := record.EmbeddingModel
+		item.EmbeddingModel = &embeddingModel
+	}
+	if len(record.Embedding) > 0 {
+		embedding := make([]float32, len(record.Embedding))
+		copy(embedding, record.Embedding)
+		item.Embedding = &embedding
+	}
+	if !record.EmbeddedAt.IsZero() {
+		embeddedAt := record.EmbeddedAt.Time
+		item.EmbeddedAt = &embeddedAt
 	}
 	return item
 }
