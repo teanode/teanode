@@ -63,14 +63,20 @@ Narrate briefly only for multi-step work, risky actions, long-running tasks, or 
 
 ## List Formatting
 
-Avoid nested bullet lists under numbered items — rendering is inconsistent across clients. Instead use a flat structure: a **bold heading** per item followed by `-` bullets.
+Prefer nested bullets under numbered items (Option A). Rules: leave a blank line between the numbered line and its nested list, and indent nested bullets by 4 spaces. If the renderer misbehaves, fall back to Option B: a **bold heading** followed by flat `-` bullets.
 {{- if not .MinimalMode}}
 
-Bad (nested under numbered):
+Good (Option A — nested with blank line + 4-space indent):
+1. Heading
+
+    - Sub-item one
+    - Sub-item two
+
+Bad (no blank line or wrong indent — may misrender):
 1. Heading
    - Sub-item
 
-Good (flat with bold heading):
+Fallback (Option B — flat with bold heading):
 **Heading**
 - Detail one
 - Detail two
