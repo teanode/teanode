@@ -4,6 +4,8 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+
+	"github.com/teanode/teanode/internal/models"
 )
 
 func (self *fileSystemTransaction) dataDirectory() string {
@@ -112,6 +114,35 @@ func (self *fileSystemTransaction) conversationTodosDirectory(userId, agentId, c
 
 func (self *fileSystemTransaction) conversationTodoFilePath(userId, agentId, conversationId, todoId string) string {
 	return filepath.Join(self.conversationTodosDirectory(userId, agentId, conversationId), todoId+".yaml")
+}
+
+func (self *fileSystemTransaction) agentMemoryDirectory(agentId string) string {
+	return filepath.Join(self.agentDirectory(agentId), "memory")
+}
+
+func (self *fileSystemTransaction) userMemoryDirectory(userId string) string {
+	return filepath.Join(self.userDirectory(userId), "memory")
+}
+
+func (self *fileSystemTransaction) projectMemoryDirectory(projectId string) string {
+	return filepath.Join(self.projectDirectory(projectId), "memory")
+}
+
+func (self *fileSystemTransaction) memoryItemDirectory(scope models.Scope, scopeId string) string {
+	switch scope {
+	case models.ScopeAgent:
+		return self.agentMemoryDirectory(scopeId)
+	case models.ScopeUser:
+		return self.userMemoryDirectory(scopeId)
+	case models.ScopeProject:
+		return self.projectMemoryDirectory(scopeId)
+	default:
+		return ""
+	}
+}
+
+func (self *fileSystemTransaction) memoryItemFilePath(scope models.Scope, scopeId, itemId string) string {
+	return filepath.Join(self.memoryItemDirectory(scope, scopeId), itemId+".md")
 }
 
 func (self *fileSystemTransaction) trashDirectory() string {

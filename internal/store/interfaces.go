@@ -20,6 +20,7 @@ type Transaction interface {
 	ProjectOperation
 	TokenOperation
 	WorkspaceFileOperation
+	MemoryItemOperation
 	ConversationOperation
 	ConversationMessageOperation
 	JobOperation
@@ -139,4 +140,13 @@ type SkillOperation interface {
 type UsageOperation interface {
 	AccumulateUsage(ctx context.Context, usage *models.Usage, options *Option) error
 	ListUsages(ctx context.Context, listOptions UsageListOptions, options *Option) ([]*models.Usage, error)
+}
+
+type MemoryItemOperation interface {
+	CreateMemoryItem(ctx context.Context, item *models.MemoryItem, options *Option) (*models.MemoryItem, error)
+	GetMemoryItem(ctx context.Context, memoryItemId string, options *Option) (*models.MemoryItem, error)
+	ModifyMemoryItem(ctx context.Context, memoryItemId string, modifier func(*models.MemoryItem) error, options *Option) (*models.MemoryItem, error)
+	DeleteMemoryItem(ctx context.Context, memoryItemId string, options *Option) error
+	ListMemoryItems(ctx context.Context, scope models.Scope, scopeId string, listOptions MemoryItemListOptions, options *Option) ([]*models.MemoryItem, error)
+	SearchMemoryItems(ctx context.Context, scope models.Scope, scopeId string, query string, searchOptions MemoryItemSearchOptions, options *Option) ([]MemoryItemSearchResult, error)
 }

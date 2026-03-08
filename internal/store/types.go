@@ -53,3 +53,26 @@ type UsageListOptions struct {
 	ProviderName *string
 	ModelName    *string
 }
+
+type MemoryItemListOptions struct {
+	Tags            *[]string
+	IncludeArchived *bool
+	Limit           *uint64
+}
+
+type MemoryItemSearchOptions struct {
+	Limit           *uint64
+	IncludeContent  *bool
+	CaseSensitive   *bool
+	IncludeArchived *bool
+}
+
+type MemoryItemSearchResult struct {
+	MemoryItemID *string
+	Scope        *models.Scope
+	ScopeID      *string
+	Title        *string
+	Tags         *[]string
+	MatchedLines *[]string
+	Score        *float64
+}
