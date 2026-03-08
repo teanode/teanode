@@ -107,7 +107,7 @@ Three structured memory tools for discrete knowledge items.
 
 ### Actions
 
-Top-level `action`: `get`, `list`, `search`, or `batch`.
+Top-level `action`: `get`, `list`, `search`, `batch`, `retrieve`, `summary`, or `filter`.
 
 **Single** (read-only): `get` (requires `id`), `list` (optional `tags`, `maxResults`), `search` (requires `query`, optional `maxResults`).
 
@@ -115,6 +115,11 @@ Top-level `action`: `get`, `list`, `search`, or `batch`.
 - `add`: requires `content`, optional `title`, `tags`.
 - `update`: requires `id` and at least one of `title`/`content`/`tags`.
 - `delete` / `get`: requires `id`.
+
+**Short-term memory (STM)** — actions that operate on the current conversation:
+- `retrieve`: keyword-ranked snippet search across memory items. Requires `query`, optional `tags`, `maxResults`, `contextLines`.
+- `summary`: conversation statistics with topic segmentation and key points. Optional `roles`, `maxMessages`, `persist`.
+- `filter`: filter conversation messages by `roles`, `keyword`, `after`/`before` (ISO8601), `maxResults`. Optional `persist`.
 
 ### Best Practices
 
