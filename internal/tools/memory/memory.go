@@ -140,7 +140,7 @@ func (self *memoryTool) Definition() providers.ToolDefinition {
 	properties := map[string]interface{}{
 		"action": map[string]interface{}{
 			"type":        "string",
-			"enum":        []string{"get", "list", "search", "batch"},
+			"enum":        []string{"get", "list", "search", "batch", "retrieve", "summary", "filter"},
 			"description": "The memory action to perform.",
 		},
 		// Single-action parameters.
@@ -160,6 +160,48 @@ func (self *memoryTool) Definition() providers.ToolDefinition {
 		"maxResults": map[string]interface{}{
 			"type":        "integer",
 			"description": "Maximum results to return, default 10 (list/search).",
+		},
+		// Retrieve parameters.
+		"contextLines": map[string]interface{}{
+			"type":        "integer",
+			"description": "Lines of surrounding context per snippet (retrieve, default 1).",
+		},
+		// Summary / filter parameters.
+		"roles": map[string]interface{}{
+			"type":        "array",
+			"items":       map[string]interface{}{"type": "string"},
+			"description": "Filter by message role (summary/filter).",
+		},
+		"keyword": map[string]interface{}{
+			"type":        "string",
+			"description": "Case-insensitive substring match on content (filter).",
+		},
+		"after": map[string]interface{}{
+			"type":        "string",
+			"description": "Include messages created after this ISO8601 time (filter).",
+		},
+		"before": map[string]interface{}{
+			"type":        "string",
+			"description": "Include messages created before this ISO8601 time (filter).",
+		},
+		"maxMessages": map[string]interface{}{
+			"type":        "integer",
+			"description": "Limit to last N messages (summary).",
+		},
+		"persist": map[string]interface{}{
+			"type":        "object",
+			"description": "If present, persist the result as a memory item (summary/filter).",
+			"properties": map[string]interface{}{
+				"title": map[string]interface{}{
+					"type":        "string",
+					"description": "Title for the persisted memory item.",
+				},
+				"tags": map[string]interface{}{
+					"type":        "array",
+					"items":       map[string]interface{}{"type": "string"},
+					"description": "Tags for the persisted memory item.",
+				},
+			},
 		},
 		// Batch parameters.
 		"items": map[string]interface{}{
@@ -208,7 +250,7 @@ func (self *memoryTool) Definition() providers.ToolDefinition {
 		required = append(required, self.configuration.scopeIdParameterName)
 	}
 
-	descriptionSuffix := " Actions: get (by id), list (optional tags/maxResults), search (by query), batch (items array of add/update/delete/get ops)."
+	descriptionSuffix := " Actions: get (by id), list (optional tags/maxResults), search (by query), batch (items array of add/update/delete/get ops), retrieve (keyword-ranked snippets), summary (conversation summary), filter (filter conversation messages)."
 
 	return providers.ToolDefinition{
 		Type: "function",
@@ -228,14 +270,26 @@ func (self *memoryTool) Definition() providers.ToolDefinition {
 	}
 }
 
+type persistOptions struct {
+	Title string   `json:"title"`
+	Tags  []string `json:"tags"`
+}
+
 type executeArguments struct {
-	Action     string      `json:"action"`
-	ID         string      `json:"id"`
-	Query      string      `json:"query"`
-	Tags       []string    `json:"tags"`
-	MaxResults int         `json:"maxResults"`
-	Items      []batchItem `json:"items"`
-	ScopeID    string      `json:"-"`
+	Action       string          `json:"action"`
+	ID           string          `json:"id"`
+	Query        string          `json:"query"`
+	Tags         []string        `json:"tags"`
+	MaxResults   int             `json:"maxResults"`
+	Items        []batchItem     `json:"items"`
+	ScopeID      string          `json:"-"`
+	ContextLines int             `json:"contextLines"`
+	Roles        []string        `json:"roles"`
+	Keyword      string          `json:"keyword"`
+	After        string          `json:"after"`
+	Before       string          `json:"before"`
+	MaxMessages  int             `json:"maxMessages"`
+	Persist      *persistOptions `json:"persist"`
 }
 
 func (self *memoryTool) Execute(ctx context.Context, rawArguments string) (string, error) {
@@ -270,8 +324,14 @@ func (self *memoryTool) Execute(ctx context.Context, rawArguments string) (strin
 		return self.executeSearch(ctx, scope, scopeId, arguments)
 	case "batch":
 		return self.executeBatch(ctx, scope, scopeId, arguments.Items)
+	case "retrieve":
+		return self.executeRetrieve(ctx, scope, scopeId, arguments)
+	case "summary":
+		return self.executeSummary(ctx, scope, scopeId, arguments)
+	case "filter":
+		return self.executeFilter(ctx, scope, scopeId, arguments)
 	default:
-		return "", fmt.Errorf("unknown action %q: must be get, list, search, or batch", arguments.Action)
+		return "", fmt.Errorf("unknown action %q: must be get, list, search, batch, retrieve, summary, or filter", arguments.Action)
 	}
 }
 

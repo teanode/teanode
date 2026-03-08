@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/runners"
@@ -97,7 +98,7 @@ func TestMemoryToolDefinition(t *testing.T) {
 	props := params["properties"].(map[string]interface{})
 	actionProp := props["action"].(map[string]interface{})
 	actionEnum := actionProp["enum"].([]string)
-	expectedActions := []string{"get", "list", "search", "batch"}
+	expectedActions := []string{"get", "list", "search", "batch", "retrieve", "summary", "filter"}
 	if len(actionEnum) != len(expectedActions) {
 		t.Errorf("action enum = %v, want %v", actionEnum, expectedActions)
 	} else {
@@ -588,6 +589,439 @@ func TestProjectMemoryToolRequiresProjectId(t *testing.T) {
 	_, err := projectTool.Execute(context.Background(), `{"action":"list"}`)
 	if err == nil {
 		t.Error("expected error when projectId is missing")
+	}
+}
+
+// --- Retrieve tests ---
+
+func TestRetrieveBasic(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-retrieve", "", nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+	tool := registry.Get("agent_memory")
+
+	// Add items.
+	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Golang notes","content":"Go is a statically typed language.\nIt has goroutines for concurrency.\nChannels are used for communication.","tags":["dev"]},{"op":"add","title":"Python notes","content":"Python is dynamically typed.\nIt has great libraries for data science.","tags":["dev"]}]}`)
+
+	// Retrieve "goroutines".
+	result, err := tool.Execute(ctx, `{"action":"retrieve","query":"goroutines"}`)
+	if err != nil {
+		t.Fatalf("retrieve: %v", err)
+	}
+	var resp struct {
+		Action       string `json:"action"`
+		TotalMatches int    `json:"totalMatches"`
+		Snippets     []struct {
+			ItemID  string   `json:"itemId"`
+			Title   string   `json:"title"`
+			Snippet string   `json:"snippet"`
+			Score   float64  `json:"score"`
+			Tags    []string `json:"tags"`
+		} `json:"snippets"`
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Action != "retrieve" {
+		t.Errorf("action = %q, want retrieve", resp.Action)
+	}
+	if len(resp.Snippets) == 0 {
+		t.Fatal("expected at least 1 snippet")
+	}
+	if resp.Snippets[0].Score <= 0 {
+		t.Errorf("expected positive score, got %f", resp.Snippets[0].Score)
+	}
+	if resp.TotalMatches < 1 {
+		t.Errorf("expected totalMatches >= 1, got %d", resp.TotalMatches)
+	}
+}
+
+func TestRetrieveTagFilter(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-retrieve-tag", "", nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+	tool := registry.Get("agent_memory")
+
+	// Add items with different tags.
+	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Tagged A","content":"keyword alpha beta gamma","tags":["alpha"]},{"op":"add","title":"Tagged B","content":"keyword alpha beta gamma","tags":["beta"]}]}`)
+
+	// Retrieve with tag filter should only get items with that tag.
+	result, err := tool.Execute(ctx, `{"action":"retrieve","query":"keyword alpha","tags":["alpha"]}`)
+	if err != nil {
+		t.Fatalf("retrieve with tags: %v", err)
+	}
+	var resp struct {
+		Snippets []struct {
+			Tags []string `json:"tags"`
+		} `json:"snippets"`
+	}
+	json.Unmarshal([]byte(result), &resp)
+	for _, s := range resp.Snippets {
+		found := false
+		for _, tag := range s.Tags {
+			if tag == "alpha" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("snippet should have tag alpha, got %v", s.Tags)
+		}
+	}
+}
+
+func TestRetrieveEmptyQuery(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-retrieve-empty", "", nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+	tool := registry.Get("agent_memory")
+
+	_, err := tool.Execute(ctx, `{"action":"retrieve","query":""}`)
+	if err == nil {
+		t.Error("retrieve with empty query should error")
+	}
+}
+
+func TestRetrieveMaxResults(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-retrieve-max", "", nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+	tool := registry.Get("agent_memory")
+
+	// Add item with many matching lines.
+	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Many lines","content":"match line one\nmatch line two\nmatch line three\nmatch line four\nmatch line five"}]}`)
+
+	result, err := tool.Execute(ctx, `{"action":"retrieve","query":"match line","maxResults":2,"contextLines":0}`)
+	if err != nil {
+		t.Fatalf("retrieve: %v", err)
+	}
+	var resp struct {
+		Snippets []struct{} `json:"snippets"`
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if len(resp.Snippets) > 2 {
+		t.Errorf("expected at most 2 snippets, got %d", len(resp.Snippets))
+	}
+}
+
+// --- Summary tests ---
+
+func TestSummaryNoConversation(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	// Runner with empty conversationId.
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-summary-noconv", "", nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+	tool := registry.Get("agent_memory")
+
+	_, err := tool.Execute(ctx, `{"action":"summary"}`)
+	if err == nil {
+		t.Error("summary without conversationId should error")
+	}
+}
+
+func TestSummaryBasic(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	conversationId := "conv-summary-basic-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-summary-basic", conversationId, nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	// Create conversation messages.
+	createTestMessages(t, ctx, conversationId, []testMessage{
+		{role: "user", content: "Hello there"},
+		{role: "assistant", content: "Hi! How can I help you today?"},
+		{role: "user", content: "Tell me about Go"},
+		{role: "assistant", content: "Go is a programming language. It was created at Google."},
+	})
+
+	tool := registry.Get("agent_memory")
+	result, err := tool.Execute(ctx, `{"action":"summary"}`)
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	var resp struct {
+		Action         string `json:"action"`
+		ConversationID string `json:"conversationId"`
+		MessageCount   int    `json:"messageCount"`
+		Summary        struct {
+			TotalMessages int            `json:"totalMessages"`
+			ByRole        map[string]int `json:"byRole"`
+			KeyPoints     []string       `json:"keyPoints"`
+		} `json:"summary"`
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Action != "summary" {
+		t.Errorf("action = %q, want summary", resp.Action)
+	}
+	if resp.ConversationID != conversationId {
+		t.Errorf("conversationId = %q, want %q", resp.ConversationID, conversationId)
+	}
+	if resp.MessageCount != 4 {
+		t.Errorf("messageCount = %d, want 4", resp.MessageCount)
+	}
+	if resp.Summary.ByRole["user"] != 2 {
+		t.Errorf("byRole[user] = %d, want 2", resp.Summary.ByRole["user"])
+	}
+	if resp.Summary.ByRole["assistant"] != 2 {
+		t.Errorf("byRole[assistant] = %d, want 2", resp.Summary.ByRole["assistant"])
+	}
+}
+
+func TestSummaryRoleFilter(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	conversationId := "conv-summary-roles-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-summary-roles", conversationId, nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	createTestMessages(t, ctx, conversationId, []testMessage{
+		{role: "user", content: "Hello"},
+		{role: "assistant", content: "Hi!"},
+		{role: "user", content: "Bye"},
+	})
+
+	tool := registry.Get("agent_memory")
+	result, err := tool.Execute(ctx, `{"action":"summary","roles":["user"]}`)
+	if err != nil {
+		t.Fatalf("summary with roles: %v", err)
+	}
+	var resp struct {
+		MessageCount int `json:"messageCount"`
+		Summary      struct {
+			TotalMessages int            `json:"totalMessages"`
+			ByRole        map[string]int `json:"byRole"`
+		} `json:"summary"`
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if resp.MessageCount != 2 {
+		t.Errorf("messageCount = %d, want 2 (user only)", resp.MessageCount)
+	}
+}
+
+// --- Filter tests ---
+
+func TestFilterNoConversation(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-filter-noconv", "", nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+	tool := registry.Get("agent_memory")
+
+	_, err := tool.Execute(ctx, `{"action":"filter"}`)
+	if err == nil {
+		t.Error("filter without conversationId should error")
+	}
+}
+
+func TestFilterByRole(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	conversationId := "conv-filter-role-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-filter-role", conversationId, nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	createTestMessages(t, ctx, conversationId, []testMessage{
+		{role: "user", content: "Hello"},
+		{role: "assistant", content: "Hi there!"},
+		{role: "user", content: "How are you?"},
+		{role: "assistant", content: "I'm doing well."},
+	})
+
+	tool := registry.Get("agent_memory")
+	result, err := tool.Execute(ctx, `{"action":"filter","roles":["user"]}`)
+	if err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	var resp struct {
+		Action       string `json:"action"`
+		TotalMatched int    `json:"totalMatched"`
+		Messages     []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if resp.Action != "filter" {
+		t.Errorf("action = %q, want filter", resp.Action)
+	}
+	if resp.TotalMatched != 2 {
+		t.Errorf("totalMatched = %d, want 2", resp.TotalMatched)
+	}
+	for _, m := range resp.Messages {
+		if m.Role != "user" {
+			t.Errorf("expected role user, got %q", m.Role)
+		}
+	}
+}
+
+func TestFilterByKeyword(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	conversationId := "conv-filter-kw-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-filter-kw", conversationId, nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	createTestMessages(t, ctx, conversationId, []testMessage{
+		{role: "user", content: "I love cats"},
+		{role: "assistant", content: "Cats are great pets!"},
+		{role: "user", content: "I also like dogs"},
+	})
+
+	tool := registry.Get("agent_memory")
+	result, err := tool.Execute(ctx, `{"action":"filter","keyword":"cats"}`)
+	if err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	var resp struct {
+		TotalMatched int `json:"totalMatched"`
+		Messages     []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if resp.TotalMatched != 2 {
+		t.Errorf("totalMatched = %d, want 2", resp.TotalMatched)
+	}
+}
+
+func TestFilterMaxResults(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	conversationId := "conv-filter-max-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-filter-max", conversationId, nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	createTestMessages(t, ctx, conversationId, []testMessage{
+		{role: "user", content: "msg one"},
+		{role: "user", content: "msg two"},
+		{role: "user", content: "msg three"},
+	})
+
+	tool := registry.Get("agent_memory")
+	result, err := tool.Execute(ctx, `{"action":"filter","maxResults":1}`)
+	if err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	var resp struct {
+		TotalMatched int        `json:"totalMatched"`
+		Messages     []struct{} `json:"messages"`
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if resp.TotalMatched != 3 {
+		t.Errorf("totalMatched = %d, want 3", resp.TotalMatched)
+	}
+	if len(resp.Messages) != 1 {
+		t.Errorf("messages = %d, want 1 (truncated)", len(resp.Messages))
+	}
+}
+
+func TestFilterNoMatches(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	conversationId := "conv-filter-none-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-filter-none", conversationId, nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	createTestMessages(t, ctx, conversationId, []testMessage{
+		{role: "user", content: "Hello"},
+	})
+
+	tool := registry.Get("agent_memory")
+	result, err := tool.Execute(ctx, `{"action":"filter","keyword":"nonexistent_xyz_999"}`)
+	if err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	var resp struct {
+		TotalMatched int        `json:"totalMatched"`
+		Messages     []struct{} `json:"messages"`
+	}
+	json.Unmarshal([]byte(result), &resp)
+	if resp.TotalMatched != 0 {
+		t.Errorf("totalMatched = %d, want 0", resp.TotalMatched)
+	}
+}
+
+// --- Content extraction tests ---
+
+func TestExtractTextContent(t *testing.T) {
+	// Plain string.
+	s := extractTextContent(json.RawMessage(`"Hello world"`))
+	if s != "Hello world" {
+		t.Errorf("plain string: got %q, want %q", s, "Hello world")
+	}
+
+	// Array of content blocks.
+	blocks := `[{"type":"text","text":"Part one"},{"type":"image","url":"x.png"},{"type":"text","text":"Part two"}]`
+	s = extractTextContent(json.RawMessage(blocks))
+	if s != "Part one\nPart two" {
+		t.Errorf("content blocks: got %q, want %q", s, "Part one\nPart two")
+	}
+
+	// Empty / null.
+	s = extractTextContent(nil)
+	if s != "" {
+		t.Errorf("nil: got %q, want empty", s)
+	}
+	s = extractTextContent(json.RawMessage("null"))
+	if s != "" {
+		t.Errorf("null: got %q, want empty", s)
+	}
+}
+
+// --- Test helpers ---
+
+type testMessage struct {
+	role    string
+	content string
+}
+
+func createTestMessages(t *testing.T, ctx context.Context, conversationId string, msgs []testMessage) {
+	t.Helper()
+	err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		for _, m := range msgs {
+			role := models.Role(m.role)
+			contentJSON, _ := json.Marshal(m.content)
+			now := time.Now()
+			_, err := tx.CreateConversationMessage(ctx, &models.ConversationMessage{
+				ConversationID: &conversationId,
+				Role:           &role,
+				Content:        json.RawMessage(contentJSON),
+				CreatedAt:      &now,
+			}, nil)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("create test messages: %v", err)
 	}
 }
 
