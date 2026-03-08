@@ -81,15 +81,29 @@ All support `action`: `write`, `read`, `list`, `append`, `search`, `delete`, `mo
 
 ## Memory Tools
 
-Three structured memory tools for discrete knowledge items:
+Three structured memory tools for discrete knowledge items. All use **batch-only** API: `action: "batch"` with an `items` array of operations.
 
 - **agent_memory**: Agent-scoped, shared by all users. For agent-wide facts, patterns, reference data.
 - **user_memory**: User-scoped, private. For personal preferences, history, user-specific knowledge.
 - **project_memory**: Project-scoped (requires `projectId`). For project decisions, conventions, shared context.
 
+### Batch API
+
+Every call must use `action: "batch"` with an `items` array (1-50 entries). Each item has an `op` field: `add`, `update`, `delete`, `get`, `list`, or `search`, plus fields needed for that op (`id`, `title`, `content`, `tags`, `query`, `maxResults`).
+
+Example – search then add in one call:
+```json
+{"action":"batch","items":[
+  {"op":"search","query":"user preferences"},
+  {"op":"add","title":"Theme pref","content":"User prefers dark mode","tags":["prefs"]}
+]}
+```
+
+Response: `{action:"batch", results:[{index,op,success,item?,items?,matches?,error?}], summary:{total,succeeded,failed}}`
+
 ### Retrieval-First Rule
 
-Before storing, **search first** (`action: "search"` or `action: "list"`) to avoid duplicates. When answering questions that might be in memory, search before generating from scratch.
+Before storing, **search first** (include `{"op":"search",...}` in your batch) to avoid duplicates. When answering questions that might be in memory, search before generating from scratch.
 {{- if not .MinimalMode}}
 
 ### What to Store
@@ -98,7 +112,7 @@ Store **durable, reusable** items: confirmed facts, decisions, preferences, conv
 
 ### Update vs Add (Deduplication)
 
-If an existing memory covers the same topic, **update** it (`action: "update"` with `id`) rather than adding a duplicate.
+If an existing memory covers the same topic, **update** it (`op: "update"` with `id`) rather than adding a duplicate.
 
 ### Choosing the Right Scope
 
