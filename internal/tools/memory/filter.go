@@ -101,7 +101,7 @@ func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, s
 		CreatedAt string `json:"createdAt,omitempty"`
 	}
 	outputMessages := make([]outputMessage, len(filtered))
-	for i, message := range filtered {
+	for index, message := range filtered {
 		output := outputMessage{
 			ID:      message.ID,
 			Role:    string(message.GetRole()),
@@ -110,7 +110,7 @@ func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, s
 		if message.CreatedAt != nil {
 			output.CreatedAt = message.CreatedAt.Format(time.RFC3339)
 		}
-		outputMessages[i] = output
+		outputMessages[index] = output
 	}
 
 	result := map[string]interface{}{

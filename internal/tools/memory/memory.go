@@ -475,12 +475,12 @@ func (self *memoryTool) executeBatch(ctx context.Context, scope models.Scope, sc
 	anyMutation := false
 
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		for i, item := range items {
-			results[i] = self.executeBatchItem(ctx, tx, scope, scopeId, i, item)
-			if results[i].Success {
+		for index, item := range items {
+			results[index] = self.executeBatchItem(ctx, tx, scope, scopeId, index, item)
+			if results[index].Success {
 				succeeded++
 			}
-			if results[i].Success && isMutatingOp(item.Op) {
+			if results[index].Success && isMutatingOp(item.Op) {
 				anyMutation = true
 			}
 		}

@@ -75,7 +75,7 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 	}
 	metas := make([]itemMeta, len(items))
 
-	for i, item := range items {
+	for index, item := range items {
 		content := ""
 		if item.Content != nil {
 			content = *item.Content
@@ -89,7 +89,7 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 		if item.Tags != nil {
 			tags = *item.Tags
 		}
-		metas[i] = itemMeta{id: item.ID, title: title, tags: tags, lines: lines}
+		metas[index] = itemMeta{id: item.ID, title: title, tags: tags, lines: lines}
 
 		totalLines := len(lines)
 		if totalLines == 0 {
@@ -107,7 +107,7 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 				}
 			}
 			if titleScore > 0 {
-				allScored = append(allScored, scoredLine{itemIndex: i, lineIndex: -1, score: titleScore, fromTitle: true})
+				allScored = append(allScored, scoredLine{itemIndex: index, lineIndex: -1, score: titleScore, fromTitle: true})
 			}
 		}
 
@@ -121,7 +121,7 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 				}
 			}
 			if lineScore > 0 {
-				allScored = append(allScored, scoredLine{itemIndex: i, lineIndex: lineNumber, score: lineScore})
+				allScored = append(allScored, scoredLine{itemIndex: index, lineIndex: lineNumber, score: lineScore})
 			}
 		}
 	}
@@ -223,8 +223,8 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 		Tags    []string `json:"tags,omitempty"`
 	}
 	outputSnippets := make([]outputSnippet, len(snippets))
-	for i, snippet := range snippets {
-		outputSnippets[i] = outputSnippet{
+	for index, snippet := range snippets {
+		outputSnippets[index] = outputSnippet{
 			ItemID:  snippet.itemID,
 			Title:   snippet.title,
 			Snippet: strings.Join(snippet.lines, "\n"),
