@@ -553,7 +553,7 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 	// Compute embedding if provider is available.
 	var newEmbedding []float32
 	var warning string
-	embeddingProvider, embeddingModel := embeddings.ProviderFromContext(ctx)
+	embeddingProvider, embeddingModel := providers.EmbeddingProviderFromContext(ctx)
 	if embeddingProvider != nil {
 		embeddingText := item.Content
 		if item.Title != "" {

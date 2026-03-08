@@ -1,15 +1,9 @@
-// Package embeddings provides an interface and implementations for text embedding providers.
+// Package embeddings provides utility functions for vector embeddings.
 package embeddings
 
 import (
-	"context"
 	"math"
 )
-
-// Provider computes vector embeddings for text input.
-type Provider interface {
-	Embed(ctx context.Context, model string, inputText string) ([]float32, error)
-}
 
 // CosineSimilarity computes the cosine similarity between two vectors.
 // Returns 0 if either vector is zero-length or they differ in length.

@@ -554,3 +554,73 @@ func (self *Client) Synthesize(ctx context.Context, request SynthesizeRequest) (
 		ContentType: contentType,
 	}, nil
 }
+
+// embeddingRequest is the request body for the /embeddings API.
+type embeddingRequest struct {
+	Input string `json:"input"`
+	Model string `json:"model"`
+}
+
+// embeddingResponse is the response from the /embeddings API.
+type embeddingResponse struct {
+	Data []struct {
+		Embedding []float32 `json:"embedding"`
+	} `json:"data"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+// Embed calls the OpenAI-compatible /embeddings API and returns the resulting vector.
+func (self *Client) Embed(ctx context.Context, model string, inputText string) ([]float32, error) {
+	if self.apiKey == "" {
+		return nil, fmt.Errorf("embeddings: API key not configured")
+	}
+
+	requestBody := embeddingRequest{
+		Input: inputText,
+		Model: model,
+	}
+	encoded, marshalError := json.Marshal(requestBody)
+	if marshalError != nil {
+		return nil, fmt.Errorf("embeddings: marshal request: %w", marshalError)
+	}
+
+	httpRequest, requestError := http.NewRequestWithContext(ctx, http.MethodPost, self.baseUrl+"/embeddings", bytes.NewReader(encoded))
+	if requestError != nil {
+		return nil, fmt.Errorf("embeddings: create request: %w", requestError)
+	}
+	if err := self.setHeaders(httpRequest); err != nil {
+		return nil, err
+	}
+
+	response, doError := self.httpClient.Do(httpRequest)
+	if doError != nil {
+		return nil, fmt.Errorf("embeddings: request failed: %w", doError)
+	}
+	defer response.Body.Close()
+
+	body, readError := io.ReadAll(response.Body)
+	if readError != nil {
+		return nil, fmt.Errorf("embeddings: read response: %w", readError)
+	}
+
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("embeddings: HTTP %d: %s", response.StatusCode, string(body))
+	}
+
+	var result embeddingResponse
+	if unmarshalError := json.Unmarshal(body, &result); unmarshalError != nil {
+		return nil, fmt.Errorf("embeddings: parse response: %w", unmarshalError)
+	}
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("embeddings: API error: %s", result.Error.Message)
+	}
+
+	if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
+		return nil, fmt.Errorf("embeddings: empty response")
+	}
+
+	return result.Data[0].Embedding, nil
+}

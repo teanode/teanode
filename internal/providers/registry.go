@@ -354,3 +354,48 @@ func (self *ProviderRegistry) FindSynthesizerByName(name string) (SynthesizeProv
 	}
 	return synthesizer, true
 }
+
+// FindEmbedder returns the first registered provider that implements EmbeddingProvider.
+func (self *ProviderRegistry) FindEmbedder() (EmbeddingProvider, string, bool) {
+	for _, name := range self.ProviderNames() {
+		if embedder, ok := self.clients[name].(EmbeddingProvider); ok {
+			return embedder, name, true
+		}
+	}
+	return nil, "", false
+}
+
+// FindEmbedderByName resolves a named provider and returns it only when the
+// provider supports EmbeddingProvider.
+func (self *ProviderRegistry) FindEmbedderByName(name string) (EmbeddingProvider, bool) {
+	client, ok := self.clients[name]
+	if !ok {
+		return nil, false
+	}
+	embedder, ok := client.(EmbeddingProvider)
+	if !ok {
+		return nil, false
+	}
+	return embedder, true
+}
+
+type contextKeyEmbedding struct{}
+
+type embeddingContextValue struct {
+	provider EmbeddingProvider
+	model    string
+}
+
+// ContextWithEmbeddingProvider enriches a context with an embedding provider and model name.
+func ContextWithEmbeddingProvider(parent context.Context, provider EmbeddingProvider, model string) context.Context {
+	return context.WithValue(parent, contextKeyEmbedding{}, &embeddingContextValue{provider: provider, model: model})
+}
+
+// EmbeddingProviderFromContext returns the embedding provider and model from context, or nil/"" if absent.
+func EmbeddingProviderFromContext(ctx context.Context) (EmbeddingProvider, string) {
+	value, ok := ctx.Value(contextKeyEmbedding{}).(*embeddingContextValue)
+	if !ok || value == nil {
+		return nil, ""
+	}
+	return value.provider, value.model
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/teanode/teanode/internal/embeddings"
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
 )
 
@@ -66,7 +67,7 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 // if embeddings are not configured, the query embedding fails, or too few items
 // have stored embeddings.
 func (self *memoryTool) trySemanticRetrieve(ctx context.Context, items []*models.MemoryItem, query string, maxResults int) (string, bool) {
-	provider, model := embeddings.ProviderFromContext(ctx)
+	provider, model := providers.EmbeddingProviderFromContext(ctx)
 	if provider == nil {
 		return "", false
 	}

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/teanode/teanode/internal/embeddings"
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/store/fsstore"
@@ -109,7 +109,7 @@ func TestSemanticRetrieveOrdering(t *testing.T) {
 	ctx := setupFSMemoryStore(t)
 	// Keyword space: cat, dog, fish, bird
 	stub := newStubEmbeddingsProvider("cat", "dog", "fish", "bird")
-	ctx = embeddings.ContextWithProvider(ctx, stub, "test-model")
+	ctx = providers.ContextWithEmbeddingProvider(ctx, stub, "test-model")
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
@@ -200,7 +200,7 @@ func TestSemanticRetrieveFallbackOnEmbeddingError(t *testing.T) {
 	addMemoryItem(t, ctx, tool, "Test item", "keyword searching works")
 
 	// Now add a failing embeddings provider for the retrieve call.
-	ctx = embeddings.ContextWithProvider(ctx, &failingEmbeddingsProvider{}, "fail-model")
+	ctx = providers.ContextWithEmbeddingProvider(ctx, &failingEmbeddingsProvider{}, "fail-model")
 
 	result, err := tool.Execute(ctx, `{"action":"retrieve","query":"keyword searching"}`)
 	if err != nil {
@@ -227,7 +227,7 @@ func TestSemanticRetrieveFallbackOnEmbeddingError(t *testing.T) {
 func TestEmbeddingPersistedOnAdd(t *testing.T) {
 	ctx := setupFSMemoryStore(t)
 	stub := newStubEmbeddingsProvider("hello", "world")
-	ctx = embeddings.ContextWithProvider(ctx, stub, "test-model")
+	ctx = providers.ContextWithEmbeddingProvider(ctx, stub, "test-model")
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
@@ -277,7 +277,7 @@ func TestDedupeWarningOnSimilarAdd(t *testing.T) {
 	ctx := setupFSMemoryStore(t)
 	// Use keywords that will produce identical embeddings for near-duplicate content.
 	stub := newStubEmbeddingsProvider("cat", "dog", "preference")
-	ctx = embeddings.ContextWithProvider(ctx, stub, "test-model")
+	ctx = providers.ContextWithEmbeddingProvider(ctx, stub, "test-model")
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
@@ -313,7 +313,7 @@ func TestDedupeWarningOnSimilarAdd(t *testing.T) {
 func TestNoDedupeWarningForDifferentItems(t *testing.T) {
 	ctx := setupFSMemoryStore(t)
 	stub := newStubEmbeddingsProvider("cat", "dog", "fish")
-	ctx = embeddings.ContextWithProvider(ctx, stub, "test-model")
+	ctx = providers.ContextWithEmbeddingProvider(ctx, stub, "test-model")
 
 	registry := tools.NewEmptyToolRegistry()
 	for _, tool := range createTools() {
