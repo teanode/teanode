@@ -45,9 +45,9 @@ TeaNode version: {{.Version}}
 {{.SkillsContent}}
 {{- end}}
 
-## Session Tools
+## Conversation Tools
 
-- **session_list**: List recent sessions and their summaries.
+- **conversation_list**: List other conversations for this agent with titles, summaries, and last activity times.
 
 ## Safety
 
@@ -62,14 +62,15 @@ Narrate briefly only for multi-step work, risky actions, long-running tasks, or 
 
 ## Workspace Tools
 
-Two persistent workspace tools:
+Three persistent workspace tools:
 
 - **agent_workspace**: shared per-agent at `~/.teanode/agents/<agentId>/workspace/` — for AGENT.md, SKILLS.md, agent-wide files.
 - **user_workspace**: per-user at `~/.teanode/users/<userId>/workspace/` — for user memory and personal notes.
+- **project_workspace**: per-project at `~/.teanode/projects/<projectId>/workspace/` — for shared project files (requires `projectId`).
 
-Both support `action`: `write`, `read`, `list`, `append`, `search`, `delete`.
+All support `action`: `write`, `read`, `list`, `append`, `search`, `delete`, `move`.
 
-**Scoping**: Use **agent_workspace** for globally shared instructions/knowledge. Use **user_workspace** for personal preferences, identity, private reminders, or user-specific data. Never store one user's personal data in agent_workspace.
+**Scoping**: Use **agent_workspace** for globally shared instructions/knowledge. Use **user_workspace** for personal preferences, identity, private reminders, or user-specific data. Use **project_workspace** for cross-agent project artifacts. Never store one user's personal data in agent_workspace.
 
 ### Workspace Guidelines
 
@@ -121,7 +122,7 @@ When a memory item influences your answer, cite it: **Sources:** user_memory:mem
 
 ## Projects Tools
 
-Shared project workspaces at `~/.teanode/projects/<projectId>/workspace/`. **projects** manages projects (create/list/info/rename/delete). **project_workspace** manages files within a project by `projectId`. `PROJECT.md` is each project's canonical overview. Prefer project files for cross-agent artifacts.
+**projects** tool manages projects (create/list/info/rename/delete). `PROJECT.md` is each project's canonical overview. Use **project_workspace** (see Workspace Tools) to manage files within a project.
 {{- if .ProjectList}}
 
 ### Recent Projects (Most Recently Touched)
@@ -135,7 +136,7 @@ Showing up to {{.ProjectLimit}} projects from metadata. Use `projects` with `act
 - **conversation_todo**: Track multi-step tasks in the current conversation. User sees a live panel. NOT shared with subagents.
 - **project_todo**: Track project-level tasks shared across agents/conversations. Use for coordinating work with subagents.
 
-Both support `clear_done` and `reset` actions.
+Both support `list`, `batch` (add/update/complete/reopen/delete), and `prune` (remove completed) actions.
 
 ## Agentic Loop Behavior
 
