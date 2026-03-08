@@ -2,7 +2,6 @@ package dbstore
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -19,7 +18,7 @@ type databaseMemoryItemRecord struct {
 	Scope      string     `gorm:"column:scope;type:varchar(32);not null"`
 	ScopeID    string     `gorm:"column:scope_id;type:varchar(32);not null"`
 	Title      *string    `gorm:"column:title;type:text"`
-	Content    []byte     `gorm:"column:content;type:bytea;not null"`
+	Content    string     `gorm:"column:content;type:text;not null"`
 	Tags       *string    `gorm:"column:tags;type:jsonb"`
 	ArchivedAt *time.Time `gorm:"column:archived_at"`
 	CreatedAt  time.Time  `gorm:"column:created_at;not null"`
@@ -46,7 +45,6 @@ func (self *databaseTransaction) CreateMemoryItem(ctx context.Context, item *mod
 		Scope:      scope,
 		ScopeID:    scopeID,
 		Title:      item.Title,
-		Content:    []byte{},
 		CreatedAt:  now,
 		ModifiedAt: now,
 	}
@@ -96,7 +94,6 @@ func (self *databaseTransaction) ModifyMemoryItem(ctx context.Context, memoryIte
 		Scope:      string(*item.Scope),
 		ScopeID:    *item.ScopeID,
 		Title:      item.Title,
-		Content:    []byte{},
 		CreatedAt:  *item.CreatedAt,
 		ModifiedAt: now,
 	}
@@ -200,7 +197,7 @@ func (self *databaseTransaction) SearchMemoryItems(ctx context.Context, scope mo
 
 		// Search content line by line.
 		if item.Content != nil {
-			scanner := bufio.NewScanner(bytes.NewReader(*item.Content))
+			scanner := bufio.NewScanner(strings.NewReader(*item.Content))
 			for scanner.Scan() {
 				line := scanner.Text()
 				lineForMatch := line
@@ -240,8 +237,7 @@ func (self *databaseTransaction) SearchMemoryItems(ctx context.Context, scope mo
 func memoryRecordToModel(record *databaseMemoryItemRecord) *models.MemoryItem {
 	scope := models.Scope(record.Scope)
 	scopeID := record.ScopeID
-	content := make([]byte, len(record.Content))
-	copy(content, record.Content)
+	content := record.Content
 
 	item := &models.MemoryItem{
 		ID:         record.ID,

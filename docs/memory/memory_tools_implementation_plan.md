@@ -100,7 +100,7 @@ type MemoryItem struct {
     ScopeID *string `json:"scopeId,omitempty" yaml:"scopeId,omitempty"`
 
     Title   *string   `json:"title,omitempty" yaml:"title,omitempty"`
-    Content *[]byte   `json:"content,omitempty" yaml:"content,omitempty"`
+    Content *string   `json:"content,omitempty" yaml:"content,omitempty"`
     Tags    *[]string `json:"tags,omitempty" yaml:"tags,omitempty"`
 
     ArchivedAt *time.Time `json:"archivedAt,omitempty" yaml:"archivedAt,omitempty"`
@@ -108,7 +108,7 @@ type MemoryItem struct {
 ```
 
 Design notes:
-- `Content` is `*[]byte` matching `WorkspaceFile.Content`.
+- `Content` is `*string` for text-based memory content, stored as TEXT in Postgres.
 - `Tags` stored as JSONB in Postgres.
 - `ArchivedAt` enables soft-delete.
 - Uses existing `models.Scope` constants.

@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS memory_items (
     scope       VARCHAR(32) NOT NULL,
     scope_id    VARCHAR(32) NOT NULL,
     title       TEXT NULL,
-    content     BYTEA NOT NULL DEFAULT ''::bytea,
+    content     TEXT NOT NULL DEFAULT '',
     tags        JSONB NULL,
     archived_at TIMESTAMP WITHOUT TIME ZONE NULL,
     created_at  TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),

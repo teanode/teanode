@@ -15,7 +15,7 @@ func TestCreateMemoryItem(t *testing.T) {
 	ctx := context.Background()
 
 	transactionError := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		content := []byte("hello world")
+		content := "hello world"
 		tags := []string{"test", "example"}
 		title := "Test Item"
 		item, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
@@ -37,7 +37,7 @@ func TestCreateMemoryItem(t *testing.T) {
 		if item.Title == nil || *item.Title != "Test Item" {
 			t.Errorf("title = %v, want 'Test Item'", item.Title)
 		}
-		if item.Content == nil || string(*item.Content) != "hello world" {
+		if item.Content == nil || *item.Content != "hello world" {
 			t.Error("content mismatch")
 		}
 		if item.Tags == nil || len(*item.Tags) != 2 {
@@ -56,7 +56,7 @@ func TestGetMemoryItem(t *testing.T) {
 
 	var createdID string
 	_ = openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		content := []byte("test content")
+		content := "test content"
 		item, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   ptrto.Value(models.ScopeAgent),
 			ScopeID: ptrto.Value("agent-get-1"),
@@ -90,7 +90,7 @@ func TestModifyMemoryItem(t *testing.T) {
 	ctx := context.Background()
 
 	_ = openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		content := []byte("original content")
+		content := "original content"
 		item, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   ptrto.Value(models.ScopeAgent),
 			ScopeID: ptrto.Value("agent-mod-1"),
@@ -101,7 +101,7 @@ func TestModifyMemoryItem(t *testing.T) {
 		}
 
 		modified, err := transaction.ModifyMemoryItem(ctx, item.ID, func(m *models.MemoryItem) error {
-			newContent := []byte("updated content")
+			newContent := "updated content"
 			m.Content = &newContent
 			newTags := []string{"updated"}
 			m.Tags = &newTags
@@ -110,8 +110,8 @@ func TestModifyMemoryItem(t *testing.T) {
 		if err != nil {
 			t.Fatalf("modify: %v", err)
 		}
-		if string(*modified.Content) != "updated content" {
-			t.Errorf("content = %q, want 'updated content'", string(*modified.Content))
+		if *modified.Content != "updated content" {
+			t.Errorf("content = %q, want 'updated content'", *modified.Content)
 		}
 		if modified.Tags == nil || len(*modified.Tags) != 1 || (*modified.Tags)[0] != "updated" {
 			t.Errorf("tags = %v, want [updated]", modified.Tags)
@@ -128,7 +128,7 @@ func TestDeleteMemoryItem(t *testing.T) {
 	ctx := context.Background()
 
 	_ = openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		content := []byte("to be deleted")
+		content := "to be deleted"
 		item, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   ptrto.Value(models.ScopeAgent),
 			ScopeID: ptrto.Value("agent-del-1"),
@@ -161,7 +161,7 @@ func TestListMemoryItems(t *testing.T) {
 
 		// Create two items in same scope.
 		for _, c := range []string{"item one", "item two"} {
-			content := []byte(c)
+			content := c
 			_, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 				Scope:   &scope,
 				ScopeID: &scopeID,
@@ -173,7 +173,7 @@ func TestListMemoryItems(t *testing.T) {
 		}
 
 		// Create item in different scope.
-		otherContent := []byte("other scope")
+		otherContent := "other scope"
 		_, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   ptrto.Value(models.ScopeUser),
 			ScopeID: ptrto.Value("user-list-1"),
@@ -214,7 +214,7 @@ func TestListMemoryItemsTagFilter(t *testing.T) {
 		scope := models.ScopeAgent
 		scopeID := "agent-tags-1"
 
-		content1 := []byte("tagged item")
+		content1 := "tagged item"
 		tags1 := []string{"important", "work"}
 		_, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   &scope,
@@ -226,7 +226,7 @@ func TestListMemoryItemsTagFilter(t *testing.T) {
 			t.Fatalf("create tagged: %v", err)
 		}
 
-		content2 := []byte("untagged item")
+		content2 := "untagged item"
 		_, err = transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   &scope,
 			ScopeID: &scopeID,
@@ -258,7 +258,7 @@ func TestSearchMemoryItems(t *testing.T) {
 		scope := models.ScopeAgent
 		scopeID := "agent-search-1"
 
-		content1 := []byte("The user likes cats and kittens")
+		content1 := "The user likes cats and kittens"
 		title1 := "Pet preferences"
 		_, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   &scope,
@@ -270,7 +270,7 @@ func TestSearchMemoryItems(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 
-		content2 := []byte("User prefers dark mode")
+		content2 := "User prefers dark mode"
 		title2 := "Editor preferences"
 		_, err = transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   &scope,
@@ -328,7 +328,7 @@ func TestCrossScopeIsolation(t *testing.T) {
 	ctx := context.Background()
 
 	_ = openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		content := []byte("agent-only data")
+		content := "agent-only data"
 		_, err := transaction.CreateMemoryItem(ctx, &models.MemoryItem{
 			Scope:   ptrto.Value(models.ScopeAgent),
 			ScopeID: ptrto.Value("agent-iso-1"),

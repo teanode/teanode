@@ -266,11 +266,10 @@ func (self *memoryTool) executeAdd(
 
 	var createdItem *models.MemoryItem
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		contentBytes := []byte(content)
 		item := &models.MemoryItem{
 			Scope:   &scope,
 			ScopeID: &scopeID,
-			Content: &contentBytes,
+			Content: &content,
 		}
 		if title != "" {
 			item.Title = &title
@@ -314,8 +313,7 @@ func (self *memoryTool) executeUpdate(
 				item.Title = &title
 			}
 			if content != "" {
-				contentBytes := []byte(content)
-				item.Content = &contentBytes
+				item.Content = &content
 			}
 			if tags != nil {
 				item.Tags = &tags
@@ -500,7 +498,7 @@ func memoryItemToOutput(item *models.MemoryItem) map[string]interface{} {
 		out["title"] = *item.Title
 	}
 	if item.Content != nil {
-		out["content"] = string(*item.Content)
+		out["content"] = *item.Content
 	}
 	if item.Tags != nil {
 		out["tags"] = *item.Tags
