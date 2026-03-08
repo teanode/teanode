@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS memory_items (
     scope_id VARCHAR(32) NOT NULL,
 
     title TEXT NULL,
-    content BYTEA NOT NULL DEFAULT ''::bytea,
+    content TEXT NOT NULL DEFAULT '',
 
     tags JSONB NULL,
     item_type VARCHAR(64) NULL,
@@ -161,7 +161,7 @@ CREATE INDEX IF NOT EXISTS memory_items_scope_scope_id_modified_at_index ON memo
 
 Alignment points with `workspace_files`:
 - same `(scope, scope_id)` columns + index
-- same `BYTEA content` + created/modified timestamps
+- same `TEXT content` + created/modified timestamps
 
 ## DB implementation: `internal/store/dbstore/database_memory.go`
 

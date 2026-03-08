@@ -179,7 +179,7 @@ CREATE TABLE IF NOT EXISTS memory_items (
     scope       VARCHAR(32) NOT NULL,
     scope_id    VARCHAR(32) NOT NULL,
     title       TEXT NULL,
-    content     BYTEA NOT NULL DEFAULT ''::bytea,
+    content     TEXT NOT NULL DEFAULT '',
     tags        JSONB NULL,
     archived_at TIMESTAMPTZ NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -200,7 +200,7 @@ DROP TABLE IF EXISTS memory_items;
 
 Alignment with `workspace_files` table:
 - Same `(scope, scope_id)` columns and composite index pattern.
-- Same `BYTEA content`, `TIMESTAMPTZ` timestamp columns.
+- Same `TEXT content`, `TIMESTAMPTZ` timestamp columns.
 - No unique constraint on `(scope, scope_id, title)` — memory items are ID-keyed, not path-keyed.
 - `tags JSONB` — add GIN index in a future migration if tag-filtered queries become slow.
 
