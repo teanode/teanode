@@ -262,8 +262,8 @@ func TestEmbeddingPersistedOnAdd(t *testing.T) {
 	if item.Embedding == nil || len(*item.Embedding) == 0 {
 		t.Fatal("expected embedding to be persisted on item")
 	}
-	if item.EmbeddingProviderModelName == nil || *item.EmbeddingProviderModelName != "text-embedding-3-small" {
-		t.Errorf("expected embeddingProviderModelName=text-embedding-3-small, got %v", item.EmbeddingProviderModelName)
+	if item.EmbeddingProviderModelName == nil || *item.EmbeddingProviderModelName != "openai:text-embedding-3-small" {
+		t.Errorf("expected embeddingProviderModelName=openai:text-embedding-3-small, got %v", item.EmbeddingProviderModelName)
 	}
 	if item.EmbeddedAt == nil {
 		t.Error("expected embeddedAt to be set")

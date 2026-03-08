@@ -1,6 +1,7 @@
 package fsstore
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +11,42 @@ import (
 	"github.com/teanode/teanode/internal/util/timeutil"
 	"gopkg.in/yaml.v3"
 )
+
+// flowFloatSlice is a []float64 that marshals as a YAML flow-style sequence
+// (e.g. [0.1, 0.2, 0.3]) instead of a block-style list.
+type flowFloatSlice []float64
+
+func (self flowFloatSlice) MarshalYAML() (interface{}, error) {
+	node := &yaml.Node{
+		Kind:  yaml.SequenceNode,
+		Style: yaml.FlowStyle,
+		Tag:   "!!seq",
+	}
+	for _, value := range self {
+		node.Content = append(node.Content, &yaml.Node{
+			Kind:  yaml.ScalarNode,
+			Value: strconv.FormatFloat(value, 'f', -1, 64),
+			Tag:   "!!float",
+		})
+	}
+	return node, nil
+}
+
+func (self *flowFloatSlice) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.SequenceNode {
+		return fmt.Errorf("expected sequence, got %v", node.Kind)
+	}
+	values := make(flowFloatSlice, 0, len(node.Content))
+	for _, child := range node.Content {
+		value, parseError := strconv.ParseFloat(child.Value, 64)
+		if parseError != nil {
+			return fmt.Errorf("parsing float: %w", parseError)
+		}
+		values = append(values, value)
+	}
+	*self = values
+	return nil
+}
 
 type storeGatewayRecord struct {
 	Port      int    `json:"port,omitempty" yaml:"port,omitempty"`
@@ -191,7 +228,7 @@ type storeMemoryItemFrontmatter struct {
 	CreatedAt                  timeutil.Timestamp `yaml:"createdAt"`
 	ModifiedAt                 timeutil.Timestamp `yaml:"modifiedAt"`
 	EmbeddingProviderModelName string             `yaml:"embeddingProviderModelName,omitempty"`
-	Embedding                  []float64          `yaml:"embedding,omitempty"`
+	Embedding                  flowFloatSlice     `yaml:"embedding,omitempty"`
 	EmbeddedAt                 timeutil.Timestamp `yaml:"embeddedAt,omitempty"`
 }
 

@@ -73,21 +73,22 @@ func (self *memoryTool) trySemanticRetrieve(ctx context.Context, items []*models
 	}
 	embedder := runner.Embedder
 
-	// Count items with embeddings.
-	embeddedCount := 0
-	for _, item := range items {
-		if item.Embedding != nil && len(*item.Embedding) > 0 {
-			embeddedCount++
-		}
-	}
-	// Require at least half of items to have embeddings for semantic to be useful.
-	if len(items) > 0 && embeddedCount < (len(items)+1)/2 {
+	queryEmbedding, queryProviderModelName, embedError := embedder.Embed(ctx, query)
+	if embedError != nil {
+		log.Warningf("semantic retrieve: embedding query failed, falling back to keyword: %v", embedError)
 		return "", false
 	}
 
-	queryEmbedding, _, embedError := embedder.Embed(ctx, query)
-	if embedError != nil {
-		log.Warningf("semantic retrieve: embedding query failed, falling back to keyword: %v", embedError)
+	// Count items with embeddings from the same provider model.
+	matchingCount := 0
+	for _, item := range items {
+		if item.Embedding != nil && len(*item.Embedding) > 0 &&
+			item.EmbeddingProviderModelName != nil && *item.EmbeddingProviderModelName == queryProviderModelName {
+			matchingCount++
+		}
+	}
+	// Require at least half of items to have matching embeddings for semantic to be useful.
+	if len(items) > 0 && matchingCount < (len(items)+1)/2 {
 		return "", false
 	}
 
@@ -102,6 +103,9 @@ func (self *memoryTool) trySemanticRetrieve(ctx context.Context, items []*models
 	var results []semanticResult
 	for _, item := range items {
 		if item.Embedding == nil || len(*item.Embedding) == 0 {
+			continue
+		}
+		if item.EmbeddingProviderModelName == nil || *item.EmbeddingProviderModelName != queryProviderModelName {
 			continue
 		}
 		similarity := embeddings.CosineSimilarity(queryEmbedding, *item.Embedding)

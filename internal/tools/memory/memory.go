@@ -576,7 +576,7 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 	if newEmbedding != nil {
 		existingItems, listError := tx.ListMemoryItems(ctx, scope, scopeId, store.MemoryItemListOptions{}, nil)
 		if listError == nil {
-			warning = checkDuplicates(newEmbedding, existingItems)
+			warning = checkDuplicates(newEmbedding, *newItem.EmbeddingProviderModelName, existingItems)
 		}
 	}
 
@@ -588,13 +588,17 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 }
 
 // checkDuplicates compares an embedding vector against existing memory items
-// and returns a warning string if any item exceeds the deduplication threshold.
-func checkDuplicates(newEmbedding []float64, existingItems []*models.MemoryItem) string {
+// with the same provider model name and returns a warning string if any item
+// exceeds the deduplication threshold.
+func checkDuplicates(newEmbedding []float64, providerModelName string, existingItems []*models.MemoryItem) string {
 	var maxSimilarity float64
 	var mostSimilarID string
 	var mostSimilarTitle string
 	for _, existing := range existingItems {
 		if existing.Embedding == nil || len(*existing.Embedding) == 0 {
+			continue
+		}
+		if existing.EmbeddingProviderModelName == nil || *existing.EmbeddingProviderModelName != providerModelName {
 			continue
 		}
 		similarity := embeddings.CosineSimilarity(newEmbedding, *existing.Embedding)

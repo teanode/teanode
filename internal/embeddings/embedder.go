@@ -24,22 +24,24 @@ func NewEmbedder(providerRegistry *providers.ProviderRegistry) *Embedder {
 
 // Embed computes a vector embedding for the given input text. It resolves the
 // embedding provider and model from the provider registry's configuration.
-// Returns the embedding vector, the model name used, and any error.
+// Returns the embedding vector, the canonical provider model name
+// ("provider:model"), and any error.
 func (self *Embedder) Embed(ctx context.Context, inputText string) ([]float64, string, error) {
-	provider, modelName, err := self.resolveEmbeddingProvider()
+	provider, providerName, modelName, err := self.resolveEmbeddingProvider()
 	if err != nil {
 		return nil, "", err
 	}
+	canonicalName := providers.FormatProviderModelName(providerName, modelName)
 	vector, embedError := provider.Embed(ctx, modelName, inputText)
 	if embedError != nil {
-		return nil, modelName, embedError
+		return nil, canonicalName, embedError
 	}
-	return vector, modelName, nil
+	return vector, canonicalName, nil
 }
 
-// resolveEmbeddingProvider resolves the embedding provider and model name from
-// the provider registry's configuration.
-func (self *Embedder) resolveEmbeddingProvider() (providers.EmbeddingProvider, string, error) {
+// resolveEmbeddingProvider resolves the embedding provider, provider name, and
+// model name from the provider registry's configuration.
+func (self *Embedder) resolveEmbeddingProvider() (providers.EmbeddingProvider, string, string, error) {
 	providerModelName := self.providerRegistry.GetEmbeddingProviderModelName()
 	if providerModelName == "" {
 		providerModelName = defaultEmbeddingProviderModelName
@@ -51,11 +53,13 @@ func (self *Embedder) resolveEmbeddingProvider() (providers.EmbeddingProvider, s
 	embedder, ok := self.providerRegistry.FindEmbedderByName(providerName)
 	if !ok {
 		// Fall back to first registered provider with embedding support.
-		embedder, _, ok = self.providerRegistry.FindEmbedder()
+		var fallbackName string
+		embedder, fallbackName, ok = self.providerRegistry.FindEmbedder()
 		if !ok {
-			return nil, "", fmt.Errorf("no embedding provider available")
+			return nil, "", "", fmt.Errorf("no embedding provider available")
 		}
+		providerName = fallbackName
 	}
 
-	return embedder, modelName, nil
+	return embedder, providerName, modelName, nil
 }

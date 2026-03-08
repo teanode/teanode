@@ -61,7 +61,7 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 		record.EmbeddingProviderModelName = *item.EmbeddingProviderModelName
 	}
 	if item.Embedding != nil {
-		record.Embedding = *item.Embedding
+		record.Embedding = flowFloatSlice(*item.Embedding)
 	}
 	if item.EmbeddedAt != nil {
 		record.EmbeddedAt = timeutil.Timestamp{Time: *item.EmbeddedAt}
@@ -121,7 +121,7 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 		record.EmbeddingProviderModelName = *item.EmbeddingProviderModelName
 	}
 	if item.Embedding != nil {
-		record.Embedding = *item.Embedding
+		record.Embedding = flowFloatSlice(*item.Embedding)
 	}
 	if item.EmbeddedAt != nil {
 		record.EmbeddedAt = timeutil.Timestamp{Time: *item.EmbeddedAt}
