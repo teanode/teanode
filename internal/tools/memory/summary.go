@@ -119,11 +119,11 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 		}
 		var itemId string
 		if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-			br := self.batchAdd(ctx, tx, scope, scopeId, 0, persistItem)
-			if !br.Success {
-				return fmt.Errorf("persist failed: %s", br.Error)
+			addResult := self.batchAdd(ctx, tx, scope, scopeId, 0, persistItem)
+			if !addResult.Success {
+				return fmt.Errorf("persist failed: %s", addResult.Error)
 			}
-			if id, ok := br.Item["id"].(string); ok {
+			if id, ok := addResult.Item["id"].(string); ok {
 				itemId = id
 			}
 			return nil
@@ -151,20 +151,20 @@ func buildTopicSegments(messages []*models.ConversationMessage) []topicSegment {
 	}
 
 	// Extract significant tokens (>4 chars) from user messages.
-	type msgTokens struct {
+	type messageTokens struct {
 		index  int
 		tokens map[string]int
 	}
-	var userMsgs []msgTokens
+	var userMessages []messageTokens
 	for i, message := range messages {
 		if message.GetRole() == models.RoleUser {
 			text := extractTextContent(message.Content)
 			tokens := significantTokens(text)
-			userMsgs = append(userMsgs, msgTokens{index: i, tokens: tokens})
+			userMessages = append(userMessages, messageTokens{index: i, tokens: tokens})
 		}
 	}
 
-	if len(userMsgs) == 0 {
+	if len(userMessages) == 0 {
 		return []topicSegment{{
 			StartIndex:   0,
 			EndIndex:     len(messages) - 1,
@@ -175,37 +175,37 @@ func buildTopicSegments(messages []*models.ConversationMessage) []topicSegment {
 
 	// Slide a window of 5 user messages. When a user message shares no
 	// significant tokens with the previous window, start a new segment.
-	type segRange struct {
-		startMsgIdx int
-		endMsgIdx   int
-		tokenFreq   map[string]int
+	type segmentRange struct {
+		startMessageIndex int
+		endMessageIndex   int
+		tokenFrequency    map[string]int
 	}
 	windowSize := 5
-	segments := []segRange{{
-		startMsgIdx: 0,
-		endMsgIdx:   userMsgs[0].index,
-		tokenFreq:   copyTokens(userMsgs[0].tokens),
+	segments := []segmentRange{{
+		startMessageIndex: 0,
+		endMessageIndex:   userMessages[0].index,
+		tokenFrequency:    copyTokens(userMessages[0].tokens),
 	}}
 
-	for ui := 1; ui < len(userMsgs); ui++ {
-		cur := userMsgs[ui]
-		seg := &segments[len(segments)-1]
+	for userIndex := 1; userIndex < len(userMessages); userIndex++ {
+		current := userMessages[userIndex]
+		segment := &segments[len(segments)-1]
 
 		// Build window tokens from last `windowSize` user messages in this segment.
-		windowStart := ui - windowSize
+		windowStart := userIndex - windowSize
 		if windowStart < 0 {
 			windowStart = 0
 		}
 		windowTokens := map[string]bool{}
-		for wi := windowStart; wi < ui; wi++ {
-			for token := range userMsgs[wi].tokens {
+		for windowIndex := windowStart; windowIndex < userIndex; windowIndex++ {
+			for token := range userMessages[windowIndex].tokens {
 				windowTokens[token] = true
 			}
 		}
 
 		// Check overlap.
 		overlap := false
-		for token := range cur.tokens {
+		for token := range current.tokens {
 			if windowTokens[token] {
 				overlap = true
 				break
@@ -214,56 +214,56 @@ func buildTopicSegments(messages []*models.ConversationMessage) []topicSegment {
 
 		if overlap {
 			// Extend current segment.
-			seg.endMsgIdx = cur.index
-			for token, count := range cur.tokens {
-				seg.tokenFreq[token] += count
+			segment.endMessageIndex = current.index
+			for token, count := range current.tokens {
+				segment.tokenFrequency[token] += count
 			}
 		} else {
 			// Start new segment.
-			segments = append(segments, segRange{
-				startMsgIdx: cur.index,
-				endMsgIdx:   cur.index,
-				tokenFreq:   copyTokens(cur.tokens),
+			segments = append(segments, segmentRange{
+				startMessageIndex: current.index,
+				endMessageIndex:   current.index,
+				tokenFrequency:    copyTokens(current.tokens),
 			})
 		}
 	}
 
 	// Extend last segment to cover remaining messages.
-	segments[len(segments)-1].endMsgIdx = len(messages) - 1
+	segments[len(segments)-1].endMessageIndex = len(messages) - 1
 
 	// Build output.
 	result := make([]topicSegment, len(segments))
-	for i, seg := range segments {
-		topic := mostFrequentToken(seg.tokenFreq)
+	for i, segment := range segments {
+		topic := mostFrequentToken(segment.tokenFrequency)
 		if topic == "" {
 			topic = "conversation"
 		}
 		result[i] = topicSegment{
-			StartIndex:   seg.startMsgIdx,
-			EndIndex:     seg.endMsgIdx,
+			StartIndex:   segment.startMessageIndex,
+			EndIndex:     segment.endMessageIndex,
 			Topic:        topic,
-			MessageCount: seg.endMsgIdx - seg.startMsgIdx + 1,
+			MessageCount: segment.endMessageIndex - segment.startMessageIndex + 1,
 		}
 	}
 	return result
 }
 
 func significantTokens(text string) map[string]int {
-	freq := map[string]int{}
+	frequency := map[string]int{}
 	for _, word := range strings.Fields(strings.ToLower(text)) {
 		// Strip common punctuation.
 		word = strings.Trim(word, ".,;:!?\"'()[]{}#*")
 		if len(word) > 4 {
-			freq[word]++
+			frequency[word]++
 		}
 	}
-	return freq
+	return frequency
 }
 
-func mostFrequentToken(freq map[string]int) string {
+func mostFrequentToken(frequency map[string]int) string {
 	best := ""
 	bestCount := 0
-	for token, count := range freq {
+	for token, count := range frequency {
 		if count > bestCount || (count == bestCount && token < best) {
 			best = token
 			bestCount = count
@@ -313,8 +313,8 @@ func firstSentence(text string) string {
 		return ""
 	}
 	// Find first sentence-ending punctuation.
-	for i, ch := range text {
-		if ch == '.' || ch == '!' || ch == '?' {
+	for i, character := range text {
+		if character == '.' || character == '!' || character == '?' {
 			return strings.TrimSpace(text[:i+1])
 		}
 		// Cap at 200 chars if no sentence-ending punctuation found.

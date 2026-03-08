@@ -100,23 +100,23 @@ func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, s
 		Content   string `json:"content"`
 		CreatedAt string `json:"createdAt,omitempty"`
 	}
-	outMessages := make([]outputMessage, len(filtered))
+	outputMessages := make([]outputMessage, len(filtered))
 	for i, message := range filtered {
-		om := outputMessage{
+		output := outputMessage{
 			ID:      message.ID,
 			Role:    string(message.GetRole()),
 			Content: extractTextContent(message.Content),
 		}
 		if message.CreatedAt != nil {
-			om.CreatedAt = message.CreatedAt.Format(time.RFC3339)
+			output.CreatedAt = message.CreatedAt.Format(time.RFC3339)
 		}
-		outMessages[i] = om
+		outputMessages[i] = output
 	}
 
 	result := map[string]interface{}{
 		"action":         "filter",
 		"conversationId": conversationId,
-		"messages":       outMessages,
+		"messages":       outputMessages,
 		"totalMatched":   totalMatched,
 	}
 
@@ -126,7 +126,7 @@ func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, s
 		if args.Persist.Title != "" {
 			title = args.Persist.Title
 		}
-		contentJSON, _ := json.MarshalIndent(outMessages, "", "  ")
+		contentJSON, _ := json.MarshalIndent(outputMessages, "", "  ")
 		content := string(contentJSON)
 		if len(content) > maxContentSize {
 			return "", fmt.Errorf("filtered content exceeds maximum size of %d bytes", maxContentSize)
@@ -140,11 +140,11 @@ func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, s
 		}
 		var itemId string
 		if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-			br := self.batchAdd(ctx, tx, scope, scopeId, 0, persistItem)
-			if !br.Success {
-				return fmt.Errorf("persist failed: %s", br.Error)
+			addResult := self.batchAdd(ctx, tx, scope, scopeId, 0, persistItem)
+			if !addResult.Success {
+				return fmt.Errorf("persist failed: %s", addResult.Error)
 			}
-			if id, ok := br.Item["id"].(string); ok {
+			if id, ok := addResult.Item["id"].(string); ok {
 				itemId = id
 			}
 			return nil

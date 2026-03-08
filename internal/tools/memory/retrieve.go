@@ -48,11 +48,11 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 	var items []*models.MemoryItem
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		var err error
-		listOpts := store.MemoryItemListOptions{}
+		listOptions := store.MemoryItemListOptions{}
 		if len(args.Tags) > 0 {
-			listOpts.Tags = &args.Tags
+			listOptions.Tags = &args.Tags
 		}
-		items, err = tx.ListMemoryItems(ctx, scope, scopeId, listOpts, nil)
+		items, err = tx.ListMemoryItems(ctx, scope, scopeId, listOptions, nil)
 		return err
 	}); err != nil {
 		return "", err
@@ -60,8 +60,8 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 
 	// Score every line in every item.
 	type scoredLine struct {
-		itemIdx   int
-		lineIdx   int
+		itemIndex int
+		lineIndex int
 		score     float64
 		fromTitle bool
 	}
@@ -107,12 +107,12 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 				}
 			}
 			if titleScore > 0 {
-				allScored = append(allScored, scoredLine{itemIdx: i, lineIdx: -1, score: titleScore, fromTitle: true})
+				allScored = append(allScored, scoredLine{itemIndex: i, lineIndex: -1, score: titleScore, fromTitle: true})
 			}
 		}
 
 		// Score content lines.
-		for li, line := range lines {
+		for lineNumber, line := range lines {
 			lineLower := strings.ToLower(line)
 			lineScore := 0.0
 			for _, token := range tokens {
@@ -121,7 +121,7 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 				}
 			}
 			if lineScore > 0 {
-				allScored = append(allScored, scoredLine{itemIdx: i, lineIdx: li, score: lineScore})
+				allScored = append(allScored, scoredLine{itemIndex: i, lineIndex: lineNumber, score: lineScore})
 			}
 		}
 	}
@@ -138,33 +138,33 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 		score float64
 	}
 	itemRanges := map[int][]lineRange{}
-	for _, sl := range allScored {
-		if sl.fromTitle {
+	for _, scored := range allScored {
+		if scored.fromTitle {
 			// Title match: include as a range covering line 0 with context.
 			start := 0
 			end := contextLines
-			meta := metas[sl.itemIdx]
+			meta := metas[scored.itemIndex]
 			if end >= len(meta.lines) {
 				end = len(meta.lines) - 1
 			}
-			itemRanges[sl.itemIdx] = append(itemRanges[sl.itemIdx], lineRange{start: start, end: end, score: sl.score})
+			itemRanges[scored.itemIndex] = append(itemRanges[scored.itemIndex], lineRange{start: start, end: end, score: scored.score})
 		} else {
-			start := sl.lineIdx - contextLines
+			start := scored.lineIndex - contextLines
 			if start < 0 {
 				start = 0
 			}
-			end := sl.lineIdx + contextLines
-			meta := metas[sl.itemIdx]
+			end := scored.lineIndex + contextLines
+			meta := metas[scored.itemIndex]
 			if end >= len(meta.lines) {
 				end = len(meta.lines) - 1
 			}
-			itemRanges[sl.itemIdx] = append(itemRanges[sl.itemIdx], lineRange{start: start, end: end, score: sl.score})
+			itemRanges[scored.itemIndex] = append(itemRanges[scored.itemIndex], lineRange{start: start, end: end, score: scored.score})
 		}
 	}
 
 	// Merge overlapping ranges and collect snippets.
 	var snippets []scoredSnippet
-	for itemIdx, ranges := range itemRanges {
+	for itemIndex, ranges := range itemRanges {
 		// Sort by start.
 		sort.Slice(ranges, func(a, b int) bool {
 			return ranges[a].start < ranges[b].start
@@ -184,21 +184,21 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 				merged = append(merged, rng)
 			}
 		}
-		meta := metas[itemIdx]
-		for _, mr := range merged {
-			end := mr.end
+		meta := metas[itemIndex]
+		for _, mergedRange := range merged {
+			end := mergedRange.end
 			if end >= len(meta.lines) {
 				end = len(meta.lines) - 1
 			}
-			snippet := strings.Join(meta.lines[mr.start:end+1], "\n")
+			snippet := strings.Join(meta.lines[mergedRange.start:end+1], "\n")
 			snippets = append(snippets, scoredSnippet{
 				itemID: meta.id,
 				title:  meta.title,
 				tags:   meta.tags,
-				start:  mr.start,
+				start:  mergedRange.start,
 				end:    end,
-				score:  mr.score,
-				lines:  meta.lines[mr.start : end+1],
+				score:  mergedRange.score,
+				lines:  meta.lines[mergedRange.start : end+1],
 			})
 			_ = snippet
 		}
@@ -222,9 +222,9 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 		Score   float64  `json:"score"`
 		Tags    []string `json:"tags,omitempty"`
 	}
-	outSnippets := make([]outputSnippet, len(snippets))
+	outputSnippets := make([]outputSnippet, len(snippets))
 	for i, snippet := range snippets {
-		outSnippets[i] = outputSnippet{
+		outputSnippets[i] = outputSnippet{
 			ItemID:  snippet.itemID,
 			Title:   snippet.title,
 			Snippet: strings.Join(snippet.lines, "\n"),
@@ -235,7 +235,7 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":       "retrieve",
-		"snippets":     outSnippets,
+		"snippets":     outputSnippets,
 		"totalMatches": totalMatches,
 	})
 	return string(output), nil

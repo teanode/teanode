@@ -144,17 +144,17 @@ func TestMemoryToolDefinition(t *testing.T) {
 	}
 
 	projectTool := registry.Get("project_memory")
-	pDef := projectTool.Definition()
-	pParams := pDef.Function.Parameters.(map[string]interface{})
-	pRequired := pParams["required"].([]string)
+	projectDefinition := projectTool.Definition()
+	projectParameters := projectDefinition.Function.Parameters.(map[string]interface{})
+	projectRequired := projectParameters["required"].([]string)
 	found := false
-	for _, field := range pRequired {
+	for _, field := range projectRequired {
 		if field == "projectId" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("project_memory should require projectId, required = %v", pRequired)
+		t.Errorf("project_memory should require projectId, required = %v", projectRequired)
 	}
 }
 
@@ -191,25 +191,25 @@ func TestMemorySingleGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch add: %v", err)
 	}
-	var bResp memoryBatchResponse
-	json.Unmarshal([]byte(result), &bResp)
-	itemId := bResp.Results[0].Item["id"].(string)
+	var batchResponse memoryBatchResponse
+	json.Unmarshal([]byte(result), &batchResponse)
+	itemId := batchResponse.Results[0].Item["id"].(string)
 
 	// Single get.
 	result, err = tool.Execute(ctx, `{"action":"get","id":"`+itemId+`"}`)
 	if err != nil {
 		t.Fatalf("single get: %v", err)
 	}
-	var resp memorySingleResponse
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Action != "get" {
-		t.Errorf("action = %q, want get", resp.Action)
+	var response memorySingleResponse
+	json.Unmarshal([]byte(result), &response)
+	if response.Action != "get" {
+		t.Errorf("action = %q, want get", response.Action)
 	}
-	if resp.Item["title"] != "Single get test" {
-		t.Errorf("title = %v, want 'Single get test'", resp.Item["title"])
+	if response.Item["title"] != "Single get test" {
+		t.Errorf("title = %v, want 'Single get test'", response.Item["title"])
 	}
-	if resp.Item["content"] != "hello world" {
-		t.Errorf("content = %v, want 'hello world'", resp.Item["content"])
+	if response.Item["content"] != "hello world" {
+		t.Errorf("content = %v, want 'hello world'", response.Item["content"])
 	}
 
 	// Single get without id should error.
@@ -234,13 +234,13 @@ func TestMemorySingleList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	var resp memorySingleResponse
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Action != "list" {
-		t.Errorf("action = %q, want list", resp.Action)
+	var response memorySingleResponse
+	json.Unmarshal([]byte(result), &response)
+	if response.Action != "list" {
+		t.Errorf("action = %q, want list", response.Action)
 	}
-	if len(resp.Items) != 0 {
-		t.Errorf("items = %v, want empty", resp.Items)
+	if len(response.Items) != 0 {
+		t.Errorf("items = %v, want empty", response.Items)
 	}
 
 	// Add items via batch.
@@ -251,9 +251,9 @@ func TestMemorySingleList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if len(resp.Items) < 2 {
-		t.Errorf("expected at least 2 items, got %d", len(resp.Items))
+	json.Unmarshal([]byte(result), &response)
+	if len(response.Items) < 2 {
+		t.Errorf("expected at least 2 items, got %d", len(response.Items))
 	}
 
 	// List with tags filter.
@@ -261,9 +261,9 @@ func TestMemorySingleList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list with tags: %v", err)
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if len(resp.Items) != 1 {
-		t.Errorf("expected 1 item with tag x, got %d", len(resp.Items))
+	json.Unmarshal([]byte(result), &response)
+	if len(response.Items) != 1 {
+		t.Errorf("expected 1 item with tag x, got %d", len(response.Items))
 	}
 
 	// List with maxResults.
@@ -271,9 +271,9 @@ func TestMemorySingleList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list with maxResults: %v", err)
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if len(resp.Items) > 1 {
-		t.Errorf("expected at most 1 item, got %d", len(resp.Items))
+	json.Unmarshal([]byte(result), &response)
+	if len(response.Items) > 1 {
+		t.Errorf("expected at most 1 item, got %d", len(response.Items))
 	}
 }
 
@@ -295,12 +295,12 @@ func TestMemorySingleSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	var resp memorySingleResponse
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Action != "search" {
-		t.Errorf("action = %q, want search", resp.Action)
+	var response memorySingleResponse
+	json.Unmarshal([]byte(result), &response)
+	if response.Action != "search" {
+		t.Errorf("action = %q, want search", response.Action)
 	}
-	if len(resp.Matches) == 0 {
+	if len(response.Matches) == 0 {
 		t.Fatal("search for 'cats' should find at least 1 match")
 	}
 
@@ -309,8 +309,8 @@ func TestMemorySingleSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if len(resp.Matches) == 0 {
+	json.Unmarshal([]byte(result), &response)
+	if len(response.Matches) == 0 {
 		t.Error("case-insensitive search for 'DARK MODE' should find a match")
 	}
 
@@ -319,9 +319,9 @@ func TestMemorySingleSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if len(resp.Matches) > 1 {
-		t.Errorf("expected at most 1 result, got %d", len(resp.Matches))
+	json.Unmarshal([]byte(result), &response)
+	if len(response.Matches) > 1 {
+		t.Errorf("expected at most 1 result, got %d", len(response.Matches))
 	}
 
 	// No match.
@@ -329,9 +329,9 @@ func TestMemorySingleSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if len(resp.Matches) != 0 {
-		t.Errorf("expected no matches, got %d", len(resp.Matches))
+	json.Unmarshal([]byte(result), &response)
+	if len(response.Matches) != 0 {
+		t.Errorf("expected no matches, got %d", len(response.Matches))
 	}
 
 	// Search without query should error.
@@ -359,22 +359,22 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch add: %v", err)
 	}
-	var resp memoryBatchResponse
-	if err := json.Unmarshal([]byte(result), &resp); err != nil {
+	var response memoryBatchResponse
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
 		t.Fatalf("parse batch add: %v", err)
 	}
-	if resp.Action != "batch" {
-		t.Errorf("action = %q, want batch", resp.Action)
+	if response.Action != "batch" {
+		t.Errorf("action = %q, want batch", response.Action)
 	}
-	if resp.Summary.Succeeded != 1 {
-		t.Fatalf("add should succeed, summary = %+v", resp.Summary)
+	if response.Summary.Succeeded != 1 {
+		t.Fatalf("add should succeed, summary = %+v", response.Summary)
 	}
-	itemId, ok := resp.Results[0].Item["id"].(string)
+	itemId, ok := response.Results[0].Item["id"].(string)
 	if !ok || itemId == "" {
 		t.Fatal("add should return item with id")
 	}
-	if resp.Results[0].Item["content"] != "The user likes cats" {
-		t.Errorf("content = %v, want 'The user likes cats'", resp.Results[0].Item["content"])
+	if response.Results[0].Item["content"] != "The user likes cats" {
+		t.Errorf("content = %v, want 'The user likes cats'", response.Results[0].Item["content"])
 	}
 
 	// Batch: get the item.
@@ -382,11 +382,11 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch get: %v", err)
 	}
-	if err := json.Unmarshal([]byte(result), &resp); err != nil {
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
 		t.Fatalf("parse batch get: %v", err)
 	}
-	if resp.Results[0].Item["title"] != "User preferences" {
-		t.Errorf("title = %v, want 'User preferences'", resp.Results[0].Item["title"])
+	if response.Results[0].Item["title"] != "User preferences" {
+		t.Errorf("title = %v, want 'User preferences'", response.Results[0].Item["title"])
 	}
 
 	// Batch: update the item.
@@ -394,11 +394,11 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch update: %v", err)
 	}
-	if err := json.Unmarshal([]byte(result), &resp); err != nil {
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
 		t.Fatalf("parse batch update: %v", err)
 	}
-	if resp.Results[0].Item["content"] != "The user likes dogs now" {
-		t.Errorf("content = %v, want 'The user likes dogs now'", resp.Results[0].Item["content"])
+	if response.Results[0].Item["content"] != "The user likes dogs now" {
+		t.Errorf("content = %v, want 'The user likes dogs now'", response.Results[0].Item["content"])
 	}
 
 	// Batch: delete the item.
@@ -406,11 +406,11 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch delete: %v", err)
 	}
-	if err := json.Unmarshal([]byte(result), &resp); err != nil {
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
 		t.Fatalf("parse batch delete: %v", err)
 	}
-	if !resp.Results[0].Success || resp.Results[0].Op != "delete" {
-		t.Errorf("delete result = %+v, want success", resp.Results[0])
+	if !response.Results[0].Success || response.Results[0].Op != "delete" {
+		t.Errorf("delete result = %+v, want success", response.Results[0])
 	}
 
 	// Batch: get after delete should fail in result, not error.
@@ -418,13 +418,13 @@ func TestMemoryBatchCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch get after delete: %v", err)
 	}
-	if err := json.Unmarshal([]byte(result), &resp); err != nil {
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
 		t.Fatalf("parse batch get after delete: %v", err)
 	}
-	if resp.Results[0].Success {
+	if response.Results[0].Success {
 		t.Error("expected get after delete to fail")
 	}
-	if resp.Results[0].Error == "" {
+	if response.Results[0].Error == "" {
 		t.Error("expected error message for get after delete")
 	}
 }
@@ -444,12 +444,12 @@ func TestMemoryBatchRejectsListSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch: %v", err)
 	}
-	var resp memoryBatchResponse
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Results[0].Success {
+	var response memoryBatchResponse
+	json.Unmarshal([]byte(result), &response)
+	if response.Results[0].Success {
 		t.Error("list op in batch should fail")
 	}
-	if resp.Results[0].Error == "" {
+	if response.Results[0].Error == "" {
 		t.Error("list op in batch should have error message")
 	}
 
@@ -458,8 +458,8 @@ func TestMemoryBatchRejectsListSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch: %v", err)
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Results[0].Success {
+	json.Unmarshal([]byte(result), &response)
+	if response.Results[0].Success {
 		t.Error("search op in batch should fail")
 	}
 }
@@ -479,13 +479,13 @@ func TestMemoryBatchMixedOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch add: %v", err)
 	}
-	var resp memoryBatchResponse
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Summary.Total != 2 || resp.Summary.Succeeded != 2 {
-		t.Fatalf("expected 2 successes, got %+v", resp.Summary)
+	var response memoryBatchResponse
+	json.Unmarshal([]byte(result), &response)
+	if response.Summary.Total != 2 || response.Summary.Succeeded != 2 {
+		t.Fatalf("expected 2 successes, got %+v", response.Summary)
 	}
-	idA := resp.Results[0].Item["id"].(string)
-	idB := resp.Results[1].Item["id"].(string)
+	idA := response.Results[0].Item["id"].(string)
+	idB := response.Results[1].Item["id"].(string)
 
 	// Mixed: get A, update B, add C in one batch.
 	mixedArgs, _ := json.Marshal(map[string]interface{}{
@@ -500,12 +500,12 @@ func TestMemoryBatchMixedOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mixed batch: %v", err)
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Summary.Total != 3 || resp.Summary.Succeeded != 3 {
-		t.Fatalf("expected 3 successes, got %+v", resp.Summary)
+	json.Unmarshal([]byte(result), &response)
+	if response.Summary.Total != 3 || response.Summary.Succeeded != 3 {
+		t.Fatalf("expected 3 successes, got %+v", response.Summary)
 	}
-	if resp.Results[0].Op != "get" || resp.Results[1].Op != "update" || resp.Results[2].Op != "add" {
-		t.Errorf("ops = %s/%s/%s, want get/update/add", resp.Results[0].Op, resp.Results[1].Op, resp.Results[2].Op)
+	if response.Results[0].Op != "get" || response.Results[1].Op != "update" || response.Results[2].Op != "add" {
+		t.Errorf("ops = %s/%s/%s, want get/update/add", response.Results[0].Op, response.Results[1].Op, response.Results[2].Op)
 	}
 }
 
@@ -524,15 +524,15 @@ func TestMemoryBatchPartialFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch: %v", err)
 	}
-	var resp memoryBatchResponse
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Summary.Succeeded != 1 || resp.Summary.Failed != 1 {
-		t.Errorf("expected 1 success 1 failure, got %+v", resp.Summary)
+	var response memoryBatchResponse
+	json.Unmarshal([]byte(result), &response)
+	if response.Summary.Succeeded != 1 || response.Summary.Failed != 1 {
+		t.Errorf("expected 1 success 1 failure, got %+v", response.Summary)
 	}
-	if resp.Results[0].Success != true {
+	if response.Results[0].Success != true {
 		t.Error("first item should succeed")
 	}
-	if resp.Results[1].Success != false || resp.Results[1].Error == "" {
+	if response.Results[1].Success != false || response.Results[1].Error == "" {
 		t.Error("second item should fail with error")
 	}
 }
@@ -555,22 +555,22 @@ func TestUserMemoryBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("user_memory batch add: %v", err)
 	}
-	var resp memoryBatchResponse
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Summary.Succeeded != 1 {
-		t.Fatalf("expected 1 success, got %+v", resp.Summary)
+	var response memoryBatchResponse
+	json.Unmarshal([]byte(result), &response)
+	if response.Summary.Succeeded != 1 {
+		t.Fatalf("expected 1 success, got %+v", response.Summary)
 	}
-	itemId := resp.Results[0].Item["id"].(string)
+	itemId := response.Results[0].Item["id"].(string)
 
 	// Single get on user_memory.
 	result, err = userTool.Execute(ctx, `{"action":"get","id":"`+itemId+`"}`)
 	if err != nil {
 		t.Fatalf("user_memory get: %v", err)
 	}
-	var sResp memorySingleResponse
-	json.Unmarshal([]byte(result), &sResp)
-	if sResp.Item["content"] != "remember this preference" {
-		t.Errorf("content = %v, want 'remember this preference'", sResp.Item["content"])
+	var singleResponse memorySingleResponse
+	json.Unmarshal([]byte(result), &singleResponse)
+	if singleResponse.Item["content"] != "remember this preference" {
+		t.Errorf("content = %v, want 'remember this preference'", singleResponse.Item["content"])
 	}
 }
 
@@ -611,7 +611,7 @@ func TestRetrieveBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retrieve: %v", err)
 	}
-	var resp struct {
+	var response struct {
 		Action       string `json:"action"`
 		TotalMatches int    `json:"totalMatches"`
 		Snippets     []struct {
@@ -622,18 +622,18 @@ func TestRetrieveBasic(t *testing.T) {
 			Tags    []string `json:"tags"`
 		} `json:"snippets"`
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Action != "retrieve" {
-		t.Errorf("action = %q, want retrieve", resp.Action)
+	json.Unmarshal([]byte(result), &response)
+	if response.Action != "retrieve" {
+		t.Errorf("action = %q, want retrieve", response.Action)
 	}
-	if len(resp.Snippets) == 0 {
+	if len(response.Snippets) == 0 {
 		t.Fatal("expected at least 1 snippet")
 	}
-	if resp.Snippets[0].Score <= 0 {
-		t.Errorf("expected positive score, got %f", resp.Snippets[0].Score)
+	if response.Snippets[0].Score <= 0 {
+		t.Errorf("expected positive score, got %f", response.Snippets[0].Score)
 	}
-	if resp.TotalMatches < 1 {
-		t.Errorf("expected totalMatches >= 1, got %d", resp.TotalMatches)
+	if response.TotalMatches < 1 {
+		t.Errorf("expected totalMatches >= 1, got %d", response.TotalMatches)
 	}
 }
 
@@ -654,13 +654,13 @@ func TestRetrieveTagFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retrieve with tags: %v", err)
 	}
-	var resp struct {
+	var response struct {
 		Snippets []struct {
 			Tags []string `json:"tags"`
 		} `json:"snippets"`
 	}
-	json.Unmarshal([]byte(result), &resp)
-	for _, snippet := range resp.Snippets {
+	json.Unmarshal([]byte(result), &response)
+	for _, snippet := range response.Snippets {
 		found := false
 		for _, tag := range snippet.Tags {
 			if tag == "alpha" {
@@ -704,12 +704,12 @@ func TestRetrieveMaxResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retrieve: %v", err)
 	}
-	var resp struct {
+	var response struct {
 		Snippets []struct{} `json:"snippets"`
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if len(resp.Snippets) > 2 {
-		t.Errorf("expected at most 2 snippets, got %d", len(resp.Snippets))
+	json.Unmarshal([]byte(result), &response)
+	if len(response.Snippets) > 2 {
+		t.Errorf("expected at most 2 snippets, got %d", len(response.Snippets))
 	}
 }
 
@@ -753,7 +753,7 @@ func TestSummaryBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("summary: %v", err)
 	}
-	var resp struct {
+	var response struct {
 		Action         string `json:"action"`
 		ConversationID string `json:"conversationId"`
 		MessageCount   int    `json:"messageCount"`
@@ -763,21 +763,21 @@ func TestSummaryBasic(t *testing.T) {
 			KeyPoints     []string       `json:"keyPoints"`
 		} `json:"summary"`
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Action != "summary" {
-		t.Errorf("action = %q, want summary", resp.Action)
+	json.Unmarshal([]byte(result), &response)
+	if response.Action != "summary" {
+		t.Errorf("action = %q, want summary", response.Action)
 	}
-	if resp.ConversationID != conversationId {
-		t.Errorf("conversationId = %q, want %q", resp.ConversationID, conversationId)
+	if response.ConversationID != conversationId {
+		t.Errorf("conversationId = %q, want %q", response.ConversationID, conversationId)
 	}
-	if resp.MessageCount != 4 {
-		t.Errorf("messageCount = %d, want 4", resp.MessageCount)
+	if response.MessageCount != 4 {
+		t.Errorf("messageCount = %d, want 4", response.MessageCount)
 	}
-	if resp.Summary.ByRole["user"] != 2 {
-		t.Errorf("byRole[user] = %d, want 2", resp.Summary.ByRole["user"])
+	if response.Summary.ByRole["user"] != 2 {
+		t.Errorf("byRole[user] = %d, want 2", response.Summary.ByRole["user"])
 	}
-	if resp.Summary.ByRole["assistant"] != 2 {
-		t.Errorf("byRole[assistant] = %d, want 2", resp.Summary.ByRole["assistant"])
+	if response.Summary.ByRole["assistant"] != 2 {
+		t.Errorf("byRole[assistant] = %d, want 2", response.Summary.ByRole["assistant"])
 	}
 }
 
@@ -801,16 +801,16 @@ func TestSummaryRoleFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("summary with roles: %v", err)
 	}
-	var resp struct {
+	var response struct {
 		MessageCount int `json:"messageCount"`
 		Summary      struct {
 			TotalMessages int            `json:"totalMessages"`
 			ByRole        map[string]int `json:"byRole"`
 		} `json:"summary"`
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if resp.MessageCount != 2 {
-		t.Errorf("messageCount = %d, want 2 (user only)", resp.MessageCount)
+	json.Unmarshal([]byte(result), &response)
+	if response.MessageCount != 2 {
+		t.Errorf("messageCount = %d, want 2 (user only)", response.MessageCount)
 	}
 }
 
@@ -852,7 +852,7 @@ func TestFilterByRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("filter: %v", err)
 	}
-	var resp struct {
+	var response struct {
 		Action       string `json:"action"`
 		TotalMatched int    `json:"totalMatched"`
 		Messages     []struct {
@@ -860,14 +860,14 @@ func TestFilterByRole(t *testing.T) {
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if resp.Action != "filter" {
-		t.Errorf("action = %q, want filter", resp.Action)
+	json.Unmarshal([]byte(result), &response)
+	if response.Action != "filter" {
+		t.Errorf("action = %q, want filter", response.Action)
 	}
-	if resp.TotalMatched != 2 {
-		t.Errorf("totalMatched = %d, want 2", resp.TotalMatched)
+	if response.TotalMatched != 2 {
+		t.Errorf("totalMatched = %d, want 2", response.TotalMatched)
 	}
-	for _, message := range resp.Messages {
+	for _, message := range response.Messages {
 		if message.Role != "user" {
 			t.Errorf("expected role user, got %q", message.Role)
 		}
@@ -894,15 +894,15 @@ func TestFilterByKeyword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("filter: %v", err)
 	}
-	var resp struct {
+	var response struct {
 		TotalMatched int `json:"totalMatched"`
 		Messages     []struct {
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if resp.TotalMatched != 2 {
-		t.Errorf("totalMatched = %d, want 2", resp.TotalMatched)
+	json.Unmarshal([]byte(result), &response)
+	if response.TotalMatched != 2 {
+		t.Errorf("totalMatched = %d, want 2", response.TotalMatched)
 	}
 }
 
@@ -926,16 +926,16 @@ func TestFilterMaxResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("filter: %v", err)
 	}
-	var resp struct {
+	var response struct {
 		TotalMatched int        `json:"totalMatched"`
 		Messages     []struct{} `json:"messages"`
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if resp.TotalMatched != 3 {
-		t.Errorf("totalMatched = %d, want 3", resp.TotalMatched)
+	json.Unmarshal([]byte(result), &response)
+	if response.TotalMatched != 3 {
+		t.Errorf("totalMatched = %d, want 3", response.TotalMatched)
 	}
-	if len(resp.Messages) != 1 {
-		t.Errorf("messages = %d, want 1 (truncated)", len(resp.Messages))
+	if len(response.Messages) != 1 {
+		t.Errorf("messages = %d, want 1 (truncated)", len(response.Messages))
 	}
 }
 
@@ -957,13 +957,13 @@ func TestFilterNoMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("filter: %v", err)
 	}
-	var resp struct {
+	var response struct {
 		TotalMatched int        `json:"totalMatched"`
 		Messages     []struct{} `json:"messages"`
 	}
-	json.Unmarshal([]byte(result), &resp)
-	if resp.TotalMatched != 0 {
-		t.Errorf("totalMatched = %d, want 0", resp.TotalMatched)
+	json.Unmarshal([]byte(result), &response)
+	if response.TotalMatched != 0 {
+		t.Errorf("totalMatched = %d, want 0", response.TotalMatched)
 	}
 }
 

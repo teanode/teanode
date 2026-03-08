@@ -534,19 +534,19 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 		return batchResult{Index: index, Op: "add", Success: false, Error: fmt.Sprintf("content exceeds maximum size of %d bytes", maxContentSize)}
 	}
 
-	memItem := &models.MemoryItem{
+	newItem := &models.MemoryItem{
 		Scope:   &scope,
 		ScopeID: &scopeId,
 		Content: &item.Content,
 	}
 	if item.Title != "" {
-		memItem.Title = &item.Title
+		newItem.Title = &item.Title
 	}
 	if len(item.Tags) > 0 {
-		memItem.Tags = &item.Tags
+		newItem.Tags = &item.Tags
 	}
 
-	created, err := tx.CreateMemoryItem(ctx, memItem, nil)
+	created, err := tx.CreateMemoryItem(ctx, newItem, nil)
 	if err != nil {
 		return batchResult{Index: index, Op: "add", Success: false, Error: err.Error()}
 	}
@@ -609,23 +609,23 @@ func (self *memoryTool) callAfterMutate(ctx context.Context, scopeId string) {
 }
 
 func memoryItemToOutput(item *models.MemoryItem) map[string]interface{} {
-	out := map[string]interface{}{
+	output := map[string]interface{}{
 		"id": item.ID,
 	}
 	if item.Title != nil {
-		out["title"] = *item.Title
+		output["title"] = *item.Title
 	}
 	if item.Content != nil {
-		out["content"] = *item.Content
+		output["content"] = *item.Content
 	}
 	if item.Tags != nil {
-		out["tags"] = *item.Tags
+		output["tags"] = *item.Tags
 	}
 	if item.CreatedAt != nil {
-		out["createdAt"] = item.CreatedAt.Format(time.RFC3339)
+		output["createdAt"] = item.CreatedAt.Format(time.RFC3339)
 	}
 	if item.ModifiedAt != nil {
-		out["modifiedAt"] = item.ModifiedAt.Format(time.RFC3339)
+		output["modifiedAt"] = item.ModifiedAt.Format(time.RFC3339)
 	}
-	return out
+	return output
 }
