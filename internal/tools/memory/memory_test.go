@@ -715,8 +715,31 @@ func TestRetrieveMaxResults(t *testing.T) {
 
 // --- Summary tests ---
 
+// stubSynthesizer returns a fixed JSON response for testing.
+type stubSynthesizer struct {
+	response string
+	err      error
+}
+
+func (self *stubSynthesizer) Synthesize(_ context.Context, _ string, _ string) (string, error) {
+	if self.err != nil {
+		return "", self.err
+	}
+	return self.response, nil
+}
+
+const stubSummaryJSON = `{"summary":"User asked about Go programming language.","criticalFacts":{"decisions":["Use Go for the project"],"todos":["Learn goroutines"],"constraints":["Must support Go 1.21+"],"userPreferences":["Prefers concise answers"],"openQuestions":["Which IDE to use?"]}}`
+
+func installStubSynthesizer(t *testing.T) {
+	t.Helper()
+	original := synthesizer
+	synthesizer = &stubSynthesizer{response: stubSummaryJSON}
+	t.Cleanup(func() { synthesizer = original })
+}
+
 func TestSummaryNoConversation(t *testing.T) {
 	ctx := setupMemoryStore(t)
+	installStubSynthesizer(t)
 	// Runner with empty conversationId.
 	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-summary-noconv", "", nil, models.Agent{}))
 	registry := tools.NewEmptyToolRegistry()
@@ -733,6 +756,7 @@ func TestSummaryNoConversation(t *testing.T) {
 
 func TestSummaryBasic(t *testing.T) {
 	ctx := setupMemoryStore(t)
+	installStubSynthesizer(t)
 	conversationId := "conv-summary-basic-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-summary-basic", conversationId, nil, models.Agent{}))
 	registry := tools.NewEmptyToolRegistry()
@@ -754,14 +778,11 @@ func TestSummaryBasic(t *testing.T) {
 		t.Fatalf("summary: %v", err)
 	}
 	var response struct {
-		Action         string `json:"action"`
-		ConversationID string `json:"conversationId"`
-		MessageCount   int    `json:"messageCount"`
-		Summary        struct {
-			TotalMessages int            `json:"totalMessages"`
-			ByRole        map[string]int `json:"byRole"`
-			KeyPoints     []string       `json:"keyPoints"`
-		} `json:"summary"`
+		Action         string        `json:"action"`
+		ConversationID string        `json:"conversationId"`
+		MessageCount   int           `json:"messageCount"`
+		Summary        string        `json:"summary"`
+		CriticalFacts  criticalFacts `json:"criticalFacts"`
 	}
 	json.Unmarshal([]byte(result), &response)
 	if response.Action != "summary" {
@@ -773,16 +794,20 @@ func TestSummaryBasic(t *testing.T) {
 	if response.MessageCount != 4 {
 		t.Errorf("messageCount = %d, want 4", response.MessageCount)
 	}
-	if response.Summary.ByRole["user"] != 2 {
-		t.Errorf("byRole[user] = %d, want 2", response.Summary.ByRole["user"])
+	if response.Summary == "" {
+		t.Error("summary should not be empty")
 	}
-	if response.Summary.ByRole["assistant"] != 2 {
-		t.Errorf("byRole[assistant] = %d, want 2", response.Summary.ByRole["assistant"])
+	if len(response.CriticalFacts.Decisions) == 0 {
+		t.Error("criticalFacts.decisions should not be empty")
+	}
+	if len(response.CriticalFacts.Todos) == 0 {
+		t.Error("criticalFacts.todos should not be empty")
 	}
 }
 
 func TestSummaryRoleFilter(t *testing.T) {
 	ctx := setupMemoryStore(t)
+	installStubSynthesizer(t)
 	conversationId := "conv-summary-roles-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-summary-roles", conversationId, nil, models.Agent{}))
 	registry := tools.NewEmptyToolRegistry()
@@ -803,14 +828,72 @@ func TestSummaryRoleFilter(t *testing.T) {
 	}
 	var response struct {
 		MessageCount int `json:"messageCount"`
-		Summary      struct {
-			TotalMessages int            `json:"totalMessages"`
-			ByRole        map[string]int `json:"byRole"`
-		} `json:"summary"`
 	}
 	json.Unmarshal([]byte(result), &response)
 	if response.MessageCount != 2 {
 		t.Errorf("messageCount = %d, want 2 (user only)", response.MessageCount)
+	}
+}
+
+func TestSummaryPersistCompact(t *testing.T) {
+	ctx := setupMemoryStore(t)
+	installStubSynthesizer(t)
+	conversationId := "conv-summary-persist-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	ctx = runners.ContextWithRunner(ctx, runners.NewRunner(ctx, "test-agent-summary-persist", conversationId, nil, models.Agent{}))
+	registry := tools.NewEmptyToolRegistry()
+	for _, tool := range createTools() {
+		registry.Register(tool)
+	}
+
+	createTestMessages(t, ctx, conversationId, []testMessage{
+		{role: "user", content: "Hello"},
+		{role: "assistant", content: "Hi there!"},
+	})
+
+	tool := registry.Get("agent_memory")
+	result, err := tool.Execute(ctx, `{"action":"summary","persist":{"title":"Test summary","tags":["summary"]}}`)
+	if err != nil {
+		t.Fatalf("summary with persist: %v", err)
+	}
+
+	var response struct {
+		Action    string `json:"action"`
+		Persisted struct {
+			ItemID string `json:"itemId"`
+		} `json:"persisted"`
+	}
+	json.Unmarshal([]byte(result), &response)
+	if response.Persisted.ItemID == "" {
+		t.Fatal("persisted.itemId should not be empty")
+	}
+
+	// Fetch the persisted item and verify it contains compact semantic summary.
+	getResult, err := tool.Execute(ctx, `{"action":"get","id":"`+response.Persisted.ItemID+`"}`)
+	if err != nil {
+		t.Fatalf("get persisted item: %v", err)
+	}
+	var getResponse struct {
+		Item map[string]interface{} `json:"item"`
+	}
+	json.Unmarshal([]byte(getResult), &getResponse)
+	content, ok := getResponse.Item["content"].(string)
+	if !ok || content == "" {
+		t.Fatal("persisted item content should not be empty")
+	}
+
+	// Verify the persisted content is valid JSON with summary + criticalFacts.
+	var persisted structuredSummaryResult
+	if err := json.Unmarshal([]byte(content), &persisted); err != nil {
+		t.Fatalf("persisted content should be valid structured summary JSON: %v", err)
+	}
+	if persisted.Summary == "" {
+		t.Error("persisted summary should not be empty")
+	}
+	if len(persisted.CriticalFacts.Decisions) == 0 {
+		t.Error("persisted criticalFacts.decisions should not be empty")
+	}
+	if len(persisted.CriticalFacts.UserPreferences) == 0 {
+		t.Error("persisted criticalFacts.userPreferences should not be empty")
 	}
 }
 

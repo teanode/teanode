@@ -710,3 +710,70 @@ func emptyFallback(value string) string {
 	}
 	return value
 }
+
+// --- Exported helpers for on-demand synthesis (used by memory tools) ---
+
+// ResolveSynthesisProvider resolves the summarizer chat provider and model name
+// from the store configuration and provider registry. Returns (provider, modelName, ok).
+func ResolveSynthesisProvider(ctx context.Context, providerRegistry *providers.ProviderRegistry) (providers.ChatProvider, string, bool) {
+	var configuration *models.Configuration
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		loadedConfiguration, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
+		}
+		configuration = loadedConfiguration
+		return nil
+	}); err != nil {
+		log.Debugf("summarizer: failed to load configuration from store: %v", err)
+		return nil, "", false
+	}
+	providerModelName := ""
+	if configuration != nil && configuration.Models != nil {
+		if summarizerProviderModelName := configuration.Models.GetSummarizerProviderModelName(); summarizerProviderModelName != "" {
+			providerModelName = summarizerProviderModelName
+		}
+	}
+	resolved, _, modelName, err := providerRegistry.ResolveProviderAndModel(providerModelName)
+	if err != nil {
+		log.Debugf("summarizer: failed to resolve synthesis model %q: %v", providerModelName, err)
+		return nil, "", false
+	}
+	provider, ok := resolved.(providers.ChatProvider)
+	if !ok {
+		log.Debugf("summarizer: provider does not support chat")
+		return nil, "", false
+	}
+	return provider, modelName, true
+}
+
+// RunSynthesis sends a system+user prompt pair to the given chat provider and
+// returns the response text. Returns ("", false) on failure.
+func RunSynthesis(ctx context.Context, provider providers.ChatProvider, modelName string, systemPrompt string, userPrompt string) (string, bool) {
+	request := providers.ChatRequest{
+		ModelName: modelName,
+		Messages: []providers.ChatMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+	}
+	requestContext, cancel := context.WithTimeout(ctx, summarizerRequestTimeout)
+	defer cancel()
+	response, err := provider.ChatCompletion(requestContext, request)
+	if err != nil || len(response.Choices) == 0 {
+		log.Debugf("summarizer: on-demand synthesis failed: %v", err)
+		return "", false
+	}
+	content := response.Choices[0].Message.ContentText()
+	if content == "" {
+		return "", false
+	}
+	return content, true
+}
+
+// BuildMessagesText builds a truncated text representation of conversation
+// messages, collecting from the end to prioritize recent messages. Returns
+// chronologically ordered text.
+func BuildMessagesText(messages []*models.ConversationMessage, maxTotalChars int, maxMessageChars int) string {
+	return messagesText(messages, maxTotalChars, maxMessageChars)
+}

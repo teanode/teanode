@@ -4,13 +4,60 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"time"
 
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/summarizers"
 )
+
+const summaryMaxConversationChars = 8000
+const summaryMaxMessageChars = 2000
+
+// Synthesizer abstracts the LLM call used by the summary action so that tests
+// can inject a deterministic stub.
+type Synthesizer interface {
+	Synthesize(ctx context.Context, systemPrompt string, userPrompt string) (string, error)
+}
+
+// defaultSynthesizer resolves the summarizer provider from the runner's
+// provider registry and delegates to summarizers.RunSynthesis.
+type defaultSynthesizer struct{}
+
+func (self *defaultSynthesizer) Synthesize(ctx context.Context, systemPrompt string, userPrompt string) (string, error) {
+	runner := runners.RunnerFromContext(ctx)
+	if runner == nil || runner.ProviderRegistry() == nil {
+		return "", fmt.Errorf("no provider registry available")
+	}
+	provider, modelName, ok := summarizers.ResolveSynthesisProvider(ctx, runner.ProviderRegistry())
+	if !ok {
+		return "", fmt.Errorf("failed to resolve synthesis provider")
+	}
+	result, ok := summarizers.RunSynthesis(ctx, provider, modelName, systemPrompt, userPrompt)
+	if !ok {
+		return "", fmt.Errorf("synthesis request failed")
+	}
+	return result, nil
+}
+
+// synthesizer is the package-level Synthesizer used by executeSummary. Tests
+// replace this with a stub before invoking the tool.
+var synthesizer Synthesizer = &defaultSynthesizer{}
+
+// structuredSummaryResult mirrors the JSON schema returned by the LLM.
+type structuredSummaryResult struct {
+	Summary       string        `json:"summary"`
+	CriticalFacts criticalFacts `json:"criticalFacts"`
+}
+
+type criticalFacts struct {
+	Decisions       []string `json:"decisions"`
+	Todos           []string `json:"todos"`
+	Constraints     []string `json:"constraints"`
+	UserPreferences []string `json:"userPreferences"`
+	OpenQuestions   []string `json:"openQuestions"`
+}
 
 func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, scopeId string, args executeArguments) (string, error) {
 	runner := runners.RunnerFromContext(ctx)
@@ -49,54 +96,30 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 		messages = messages[len(messages)-args.MaxMessages:]
 	}
 
-	// Count by role.
-	byRole := map[string]int{
-		"user":      0,
-		"assistant": 0,
-		"system":    0,
-		"tool":      0,
-	}
-	for _, message := range messages {
-		role := string(message.GetRole())
-		byRole[role]++
+	messageCount := len(messages)
+
+	// Build truncated transcript.
+	chunkText := summarizers.BuildMessagesText(messages, summaryMaxConversationChars, summaryMaxMessageChars)
+
+	// Call LLM to produce structured summary.
+	userPrompt := prompts.BuildStructuredSummaryUserPrompt("", "", chunkText)
+	responseText, err := synthesizer.Synthesize(ctx, prompts.StructuredSummarySystemPrompt, userPrompt)
+	if err != nil {
+		return "", fmt.Errorf("summary synthesis failed: %w", err)
 	}
 
-	// Time range.
-	var firstAt, lastAt *time.Time
-	if len(messages) > 0 {
-		firstAt = messages[0].CreatedAt
-		lastAt = messages[len(messages)-1].CreatedAt
-	}
-
-	// Topic segmentation.
-	topicSegments := buildTopicSegments(messages)
-
-	// Key points: first sentence of each assistant message that immediately follows a user message.
-	keyPoints := extractKeyPoints(messages)
-
-	// Build summary output.
-	summaryMap := map[string]interface{}{
-		"totalMessages": len(messages),
-		"byRole":        byRole,
-	}
-	if firstAt != nil {
-		summaryMap["firstMessageAt"] = firstAt.Format(time.RFC3339)
-	}
-	if lastAt != nil {
-		summaryMap["lastMessageAt"] = lastAt.Format(time.RFC3339)
-	}
-	if len(topicSegments) > 0 {
-		summaryMap["topicSegments"] = topicSegments
-	}
-	if len(keyPoints) > 0 {
-		summaryMap["keyPoints"] = keyPoints
+	// Parse the structured JSON response.
+	var structured structuredSummaryResult
+	if err := json.Unmarshal([]byte(responseText), &structured); err != nil {
+		return "", fmt.Errorf("failed to parse summary response: %w", err)
 	}
 
 	result := map[string]interface{}{
 		"action":         "summary",
 		"conversationId": conversationId,
-		"messageCount":   len(messages),
-		"summary":        summaryMap,
+		"messageCount":   messageCount,
+		"summary":        structured.Summary,
+		"criticalFacts":  structured.CriticalFacts,
 	}
 
 	// Persist if requested.
@@ -105,8 +128,8 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 		if args.Persist.Title != "" {
 			title = args.Persist.Title
 		}
-		summaryJSON, _ := json.MarshalIndent(summaryMap, "", "  ")
-		content := string(summaryJSON)
+
+		content := buildCompactSummaryContent(structured)
 		if len(content) > maxContentSize {
 			return "", fmt.Errorf("summary content exceeds maximum size of %d bytes", maxContentSize)
 		}
@@ -138,189 +161,9 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 	return string(output), nil
 }
 
-type topicSegment struct {
-	StartIndex   int    `json:"startIndex"`
-	EndIndex     int    `json:"endIndex"`
-	Topic        string `json:"topic"`
-	MessageCount int    `json:"messageCount"`
-}
-
-func buildTopicSegments(messages []*models.ConversationMessage) []topicSegment {
-	if len(messages) == 0 {
-		return nil
-	}
-
-	// Extract significant tokens (>4 chars) from user messages.
-	type messageTokens struct {
-		index  int
-		tokens map[string]int
-	}
-	var userMessages []messageTokens
-	for i, message := range messages {
-		if message.GetRole() == models.RoleUser {
-			text := extractTextContent(message.Content)
-			tokens := significantTokens(text)
-			userMessages = append(userMessages, messageTokens{index: i, tokens: tokens})
-		}
-	}
-
-	if len(userMessages) == 0 {
-		return []topicSegment{{
-			StartIndex:   0,
-			EndIndex:     len(messages) - 1,
-			Topic:        "conversation",
-			MessageCount: len(messages),
-		}}
-	}
-
-	// Slide a window of 5 user messages. When a user message shares no
-	// significant tokens with the previous window, start a new segment.
-	type segmentRange struct {
-		startMessageIndex int
-		endMessageIndex   int
-		tokenFrequency    map[string]int
-	}
-	windowSize := 5
-	segments := []segmentRange{{
-		startMessageIndex: 0,
-		endMessageIndex:   userMessages[0].index,
-		tokenFrequency:    copyTokens(userMessages[0].tokens),
-	}}
-
-	for userIndex := 1; userIndex < len(userMessages); userIndex++ {
-		current := userMessages[userIndex]
-		segment := &segments[len(segments)-1]
-
-		// Build window tokens from last `windowSize` user messages in this segment.
-		windowStart := userIndex - windowSize
-		if windowStart < 0 {
-			windowStart = 0
-		}
-		windowTokens := map[string]bool{}
-		for windowIndex := windowStart; windowIndex < userIndex; windowIndex++ {
-			for token := range userMessages[windowIndex].tokens {
-				windowTokens[token] = true
-			}
-		}
-
-		// Check overlap.
-		overlap := false
-		for token := range current.tokens {
-			if windowTokens[token] {
-				overlap = true
-				break
-			}
-		}
-
-		if overlap {
-			// Extend current segment.
-			segment.endMessageIndex = current.index
-			for token, count := range current.tokens {
-				segment.tokenFrequency[token] += count
-			}
-		} else {
-			// Start new segment.
-			segments = append(segments, segmentRange{
-				startMessageIndex: current.index,
-				endMessageIndex:   current.index,
-				tokenFrequency:    copyTokens(current.tokens),
-			})
-		}
-	}
-
-	// Extend last segment to cover remaining messages.
-	segments[len(segments)-1].endMessageIndex = len(messages) - 1
-
-	// Build output.
-	result := make([]topicSegment, len(segments))
-	for i, segment := range segments {
-		topic := mostFrequentToken(segment.tokenFrequency)
-		if topic == "" {
-			topic = "conversation"
-		}
-		result[i] = topicSegment{
-			StartIndex:   segment.startMessageIndex,
-			EndIndex:     segment.endMessageIndex,
-			Topic:        topic,
-			MessageCount: segment.endMessageIndex - segment.startMessageIndex + 1,
-		}
-	}
-	return result
-}
-
-func significantTokens(text string) map[string]int {
-	frequency := map[string]int{}
-	for _, word := range strings.Fields(strings.ToLower(text)) {
-		// Strip common punctuation.
-		word = strings.Trim(word, ".,;:!?\"'()[]{}#*")
-		if len(word) > 4 {
-			frequency[word]++
-		}
-	}
-	return frequency
-}
-
-func mostFrequentToken(frequency map[string]int) string {
-	best := ""
-	bestCount := 0
-	for token, count := range frequency {
-		if count > bestCount || (count == bestCount && token < best) {
-			best = token
-			bestCount = count
-		}
-	}
-	return best
-}
-
-func copyTokens(source map[string]int) map[string]int {
-	result := make(map[string]int, len(source))
-	for token, count := range source {
-		result[token] = count
-	}
-	return result
-}
-
-func extractKeyPoints(messages []*models.ConversationMessage) []string {
-	seen := map[string]bool{}
-	var points []string
-	for i := 1; i < len(messages); i++ {
-		if messages[i].GetRole() != models.RoleAssistant {
-			continue
-		}
-		if messages[i-1].GetRole() != models.RoleUser {
-			continue
-		}
-		text := extractTextContent(messages[i].Content)
-		sentence := firstSentence(text)
-		if sentence == "" {
-			continue
-		}
-		if seen[sentence] {
-			continue
-		}
-		seen[sentence] = true
-		points = append(points, sentence)
-		if len(points) >= 10 {
-			break
-		}
-	}
-	return points
-}
-
-func firstSentence(text string) string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return ""
-	}
-	// Find first sentence-ending punctuation.
-	for i, character := range text {
-		if character == '.' || character == '!' || character == '?' {
-			return strings.TrimSpace(text[:i+1])
-		}
-		// Cap at 200 chars if no sentence-ending punctuation found.
-		if i >= 200 {
-			return strings.TrimSpace(text[:i])
-		}
-	}
-	return text
+// buildCompactSummaryContent produces a compact JSON string containing the
+// short summary and critical facts lists for persistence.
+func buildCompactSummaryContent(structured structuredSummaryResult) string {
+	compact, _ := json.Marshal(structured)
+	return string(compact)
 }
