@@ -21,20 +21,16 @@ type Synthesizer interface {
 	Synthesize(ctx context.Context, systemPrompt string, userPrompt string) (string, error)
 }
 
-// defaultSynthesizer resolves the summarizer provider from the runner's
-// provider registry and delegates to summarizers.RunSynthesis.
+// defaultSynthesizer retrieves the Summarizer from the context and delegates
+// to its RunSynthesis method.
 type defaultSynthesizer struct{}
 
 func (self *defaultSynthesizer) Synthesize(ctx context.Context, systemPrompt string, userPrompt string) (string, error) {
-	runner := runners.RunnerFromContext(ctx)
-	if runner == nil || runner.ProviderRegistry() == nil {
-		return "", fmt.Errorf("no provider registry available")
+	summarizer := summarizers.SummarizerFromContext(ctx)
+	if summarizer == nil {
+		return "", fmt.Errorf("no summarizer available in context")
 	}
-	provider, modelName, ok := summarizers.ResolveSynthesisProvider(ctx, runner.ProviderRegistry())
-	if !ok {
-		return "", fmt.Errorf("failed to resolve synthesis provider")
-	}
-	result, ok := summarizers.RunSynthesis(ctx, provider, modelName, systemPrompt, userPrompt)
+	result, ok := summarizer.RunSynthesis(ctx, systemPrompt, userPrompt)
 	if !ok {
 		return "", fmt.Errorf("synthesis request failed")
 	}

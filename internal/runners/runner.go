@@ -61,11 +61,6 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 	}
 }
 
-// ProviderRegistry returns the provider registry associated with this runner.
-func (self *Runner) ProviderRegistry() *providers.ProviderRegistry {
-	return self.providerRegistry
-}
-
 // RunParameters holds the parameters for a single agent run.
 type RunParameters struct {
 	Message            string

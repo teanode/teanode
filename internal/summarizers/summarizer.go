@@ -713,43 +713,13 @@ func emptyFallback(value string) string {
 
 // --- Exported helpers for on-demand synthesis (used by memory tools) ---
 
-// ResolveSynthesisProvider resolves the summarizer chat provider and model name
-// from the store configuration and provider registry. Returns (provider, modelName, ok).
-func ResolveSynthesisProvider(ctx context.Context, providerRegistry *providers.ProviderRegistry) (providers.ChatProvider, string, bool) {
-	var configuration *models.Configuration
-	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		loadedConfiguration, err := transaction.GetConfiguration(ctx, nil)
-		if err != nil {
-			return err
-		}
-		configuration = loadedConfiguration
-		return nil
-	}); err != nil {
-		log.Debugf("summarizer: failed to load configuration from store: %v", err)
-		return nil, "", false
-	}
-	providerModelName := ""
-	if configuration != nil && configuration.Models != nil {
-		if summarizerProviderModelName := configuration.Models.GetSummarizerProviderModelName(); summarizerProviderModelName != "" {
-			providerModelName = summarizerProviderModelName
-		}
-	}
-	resolved, _, modelName, err := providerRegistry.ResolveProviderAndModel(providerModelName)
-	if err != nil {
-		log.Debugf("summarizer: failed to resolve synthesis model %q: %v", providerModelName, err)
-		return nil, "", false
-	}
-	provider, ok := resolved.(providers.ChatProvider)
+// RunSynthesis resolves the summarizer provider, sends a system+user prompt
+// pair, and returns the response text. Returns ("", false) on failure.
+func (self *Summarizer) RunSynthesis(ctx context.Context, systemPrompt string, userPrompt string) (string, bool) {
+	provider, modelName, ok := self.resolveSynthesisProvider()
 	if !ok {
-		log.Debugf("summarizer: provider does not support chat")
-		return nil, "", false
+		return "", false
 	}
-	return provider, modelName, true
-}
-
-// RunSynthesis sends a system+user prompt pair to the given chat provider and
-// returns the response text. Returns ("", false) on failure.
-func RunSynthesis(ctx context.Context, provider providers.ChatProvider, modelName string, systemPrompt string, userPrompt string) (string, bool) {
 	request := providers.ChatRequest{
 		ModelName: modelName,
 		Messages: []providers.ChatMessage{
