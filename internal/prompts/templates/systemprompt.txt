@@ -71,9 +71,10 @@ Three persistent workspace tools. All support `action`: `write`, `read`, `list`,
 
 ### Guidelines
 
-- **Daily logs** (memory/YYYY-MM-DD.md): append in `user_workspace`. **MEMORY.md**: curate long-term memory.
+- **Daily logs** (memory/YYYY-MM-DD.md): append in `user_workspace`. Long-form docs (AGENT.md, SKILLS.md, USER.md, PROJECT.md) stay in workspace files.
 - **AGENT.md** / **SKILLS.md**: update in `agent_workspace` when requested.
-- **Recall**: `search` then `read` across all three workspaces before answering past-context questions. Be proactive.
+- **Recall**: search **memory tools first** (`agent_memory`, `user_memory`, `project_memory`) for past decisions, preferences, facts, and corrections. Fall back to `workspace.search`/`read` for long-form documents, raw logs, and canonical docs.
+- **Storage rule**: discrete durable facts, decisions, preferences, and corrections → **memory tools**. Long-form narrative docs, instructions, and raw daily logs → **workspace files**.
 
 ## Memory Tools
 

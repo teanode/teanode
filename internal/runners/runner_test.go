@@ -533,7 +533,7 @@ func TestBuildSystemPromptIncludesUserWorkspaceFiles(t *testing.T) {
 	if !strings.Contains(prompt, "User Profile (USER.md)") || !strings.Contains(prompt, "Preferred name: Alex") {
 		t.Error("prompt should include USER.md section content")
 	}
-	if !strings.Contains(prompt, "Recall workflow") {
+	if !strings.Contains(prompt, "Recall") || !strings.Contains(prompt, "memory tools first") {
 		t.Error("prompt should include memory recall workflow guidance")
 	}
 	if strings.Contains(prompt, "User Long-term Memory (MEMORY.md)") {
