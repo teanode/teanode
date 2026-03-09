@@ -70,8 +70,8 @@ func formatTodoOverlay(todos []*models.Todo) string {
 			title := todo.GetTitle()
 			fmt.Fprintf(&builder, "%d. [%s] %s — %s\n", idx+1, priority, todo.ID, title)
 			if todo.Description != nil && *todo.Description != "" {
-				desc := truncateDescription(*todo.Description, 120)
-				fmt.Fprintf(&builder, "   %s\n", desc)
+				description := truncateDescription(*todo.Description, 120)
+				fmt.Fprintf(&builder, "   %s\n", description)
 			}
 		}
 	}
@@ -96,9 +96,9 @@ func priorityLabel(todo *models.Todo) string {
 	}
 }
 
-func truncateDescription(desc string, maxLen int) string {
-	if len(desc) <= maxLen {
-		return desc
+func truncateDescription(description string, maxLength int) string {
+	if len(description) <= maxLength {
+		return description
 	}
-	return desc[:maxLen] + "…"
+	return description[:maxLength] + "…"
 }

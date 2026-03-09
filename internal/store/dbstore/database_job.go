@@ -30,7 +30,7 @@ type databaseJobRecord struct {
 	ModifiedAt        time.Time  `gorm:"column:modified_at;not null"`
 }
 
-func (databaseJobRecord) TableName() string {
+func (self databaseJobRecord) TableName() string {
 	return "jobs"
 }
 

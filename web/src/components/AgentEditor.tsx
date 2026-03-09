@@ -15,7 +15,7 @@ import type {
   AgentConfig,
   ModelInfo,
   ConfigSchema,
-  JsonSchemaProperty,
+  JSONSchemaProperty,
   SchemaSection,
 } from "../types";
 import {
@@ -49,14 +49,14 @@ type SectionEntry =
   | {
       type: "field";
       key: string;
-      property: JsonSchemaProperty;
+      property: JSONSchemaProperty;
       dotPath: string;
     }
   | {
       type: "group";
       key: string;
-      property: JsonSchemaProperty;
-      fields: { key: string; property: JsonSchemaProperty; dotPath: string }[];
+      property: JSONSchemaProperty;
+      fields: { key: string; property: JSONSchemaProperty; dotPath: string }[];
     };
 
 function normalizeForDirtyCheck(
@@ -76,11 +76,11 @@ function resolveSectionEntries(
   const entries: SectionEntry[] = [];
   const rootProperties = schema.properties;
 
-  const collected: [string, JsonSchemaProperty, string][] = [];
+  const collected: [string, JSONSchemaProperty, string][] = [];
 
   if (section.path) {
     const parts = section.path.split(".");
-    let current: Record<string, JsonSchemaProperty> = rootProperties;
+    let current: Record<string, JSONSchemaProperty> = rootProperties;
     for (const part of parts) {
       current = current[part]?.properties ?? {};
     }

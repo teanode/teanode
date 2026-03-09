@@ -74,8 +74,8 @@ function saveGeometryImmediate(geo: OverlayGeometry): void {
 
 // ---- Clamp helpers ----
 
-function clamp(val: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, val));
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 function clampRect(

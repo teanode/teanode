@@ -14,7 +14,7 @@ import InputAdornment from "@mui/material/InputAdornment";
 import Autocomplete from "@mui/material/Autocomplete";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
-import type { JsonSchemaProperty } from "../types";
+import type { JSONSchemaProperty } from "../types";
 import {
   getEnumLabel,
   getPropertyDescription,
@@ -33,8 +33,8 @@ interface ModelRuntimeLimitEntry {
   maxToolRounds?: number;
   compressionThreshold?: number;
   minKeepMessages?: number;
-  maxToolResultChars?: number;
-  maxWorkspaceFileChars?: number;
+  maxToolResultCharacters?: number;
+  maxWorkspaceFileCharacters?: number;
 }
 
 interface SkillsRegistryEntry {
@@ -47,14 +47,14 @@ interface SkillsRegistryEntry {
 }
 
 interface SchemaFieldProps {
-  property: JsonSchemaProperty;
+  property: JSONSchemaProperty;
   propertyKey: string;
   value: unknown;
   onChange: (value: unknown) => void;
   suggestions?: string[];
 }
 
-function getWidgetType(property: JsonSchemaProperty): string {
+function getWidgetType(property: JSONSchemaProperty): string {
   if (property["x-widget"]) return property["x-widget"];
   if (property.format === "password") return "password";
   if (property.enum) return "select";
@@ -275,7 +275,7 @@ function StringArrayField({
   onChange,
   suggestions,
 }: {
-  property: JsonSchemaProperty;
+  property: JSONSchemaProperty;
   value: unknown;
   onChange: (value: unknown) => void;
   suggestions?: string[];
@@ -387,7 +387,7 @@ function ProvidersField({
   value,
   onChange,
 }: {
-  property: JsonSchemaProperty;
+  property: JSONSchemaProperty;
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
@@ -525,7 +525,7 @@ function ModelRuntimeLimitsField({
   onChange,
   suggestions,
 }: {
-  property: JsonSchemaProperty;
+  property: JSONSchemaProperty;
   value: unknown;
   onChange: (value: unknown) => void;
   suggestions?: string[];
@@ -682,7 +682,7 @@ function SkillsRegistriesField({
   value,
   onChange,
 }: {
-  property: JsonSchemaProperty;
+  property: JSONSchemaProperty;
   value: unknown;
   onChange: (value: unknown) => void;
 }) {

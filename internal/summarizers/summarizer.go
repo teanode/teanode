@@ -21,14 +21,14 @@ var log = logging.MustGetLogger("summarizer")
 
 const summarizerRequestTimeout = 25 * time.Second
 const summarizerDescriptionMaxTokens = 120
-const summarizerDescriptionMaxWorkspaceChars = 4000
+const summarizerDescriptionMaxWorkspaceCharacters = 4000
 
 const summarizerTickInterval = 1   // minutes
 const summarizerStartupDelay = 1   // minutes
 const summarizerInactivityTime = 3 // minutes
 const summarizerMinMessages = 1    // minimum messages to summarize
-const summarizerMaxConversationChars = 8000
-const summarizerMaxMessageChars = 2000
+const summarizerMaxConversationCharacters = 8000
+const summarizerMaxMessageCharacters = 2000
 
 type summarizerMode string
 
@@ -293,7 +293,7 @@ func (self *Summarizer) summarizeConversationTitleAndSummary(
 		messages = messages[index+1:]
 	}
 
-	conversationText := messagesText(messages, summarizerMaxConversationChars, summarizerMaxMessageChars)
+	conversationText := messagesText(messages, summarizerMaxConversationCharacters, summarizerMaxMessageCharacters)
 	if previousSummary != "" {
 		conversationText = "[Previous summary]: " + previousSummary + "\n" + conversationText
 	}
@@ -367,8 +367,8 @@ func (self *Summarizer) summarizeAgentDescriptionModel(ctx context.Context, agen
 	}
 
 	agentName := agent.GetName()
-	agentContent := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeAgent, agentId, "AGENT.md", summarizerDescriptionMaxWorkspaceChars))
-	agentMemory := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeAgent, agentId, "MEMORY.md", summarizerDescriptionMaxWorkspaceChars))
+	agentContent := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeAgent, agentId, "AGENT.md", summarizerDescriptionMaxWorkspaceCharacters))
+	agentMemory := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeAgent, agentId, "MEMORY.md", summarizerDescriptionMaxWorkspaceCharacters))
 	systemPrompt := resolveIdentityLine(agentId, agentName) +
 		"\n\nGenerate a concise self-description for inter-agent task routing.\nUse only plain text.\n\nAGENT.md:\n" +
 		agentContent + "\n\nMEMORY.md:\n" + agentMemory
@@ -417,8 +417,8 @@ func (self *Summarizer) summarizeUserDescriptionModel(ctx context.Context, userI
 		}
 	}
 
-	userContent := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeUser, userId, "USER.md", summarizerDescriptionMaxWorkspaceChars))
-	userMemory := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeUser, userId, "MEMORY.md", summarizerDescriptionMaxWorkspaceChars))
+	userContent := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeUser, userId, "USER.md", summarizerDescriptionMaxWorkspaceCharacters))
+	userMemory := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeUser, userId, "MEMORY.md", summarizerDescriptionMaxWorkspaceCharacters))
 	systemPrompt := "You generate concise user descriptions for personalization and routing. Use only plain text."
 	userPrompt := "Write a plain-text user description in 1-2 sentences. Include preferences, goals, and relevant constraints.\n\nUSER.md:\n" +
 		userContent + "\n\nMEMORY.md:\n" + userMemory
@@ -458,7 +458,7 @@ func (self *Summarizer) summarizeProjectDescriptionModel(ctx context.Context, pr
 		}
 	}
 
-	projectMarkdown := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeProject, projectId, "PROJECT.md", summarizerDescriptionMaxWorkspaceChars))
+	projectMarkdown := emptyFallback(self.loadWorkspaceFileFromStore(models.ScopeProject, projectId, "PROJECT.md", summarizerDescriptionMaxWorkspaceCharacters))
 	systemPrompt := "You generate concise project descriptions for routing and discovery. Use only plain text."
 	userPrompt := "Write a plain-text project description in 1-2 sentences. Include what work belongs in this project.\n\nPROJECT.md:\n" + projectMarkdown
 	provider, modelName, ok := self.resolveSynthesisProvider()
@@ -557,7 +557,7 @@ func (self *Summarizer) userDescriptionSourceUpdatedAt(userId string) time.Time 
 	return userUpdatedAt
 }
 
-func (self *Summarizer) loadWorkspaceFileFromStore(scope models.Scope, scopeId string, relativePath string, maxChars int) string {
+func (self *Summarizer) loadWorkspaceFileFromStore(scope models.Scope, scopeId string, relativePath string, maxCharacters int) string {
 	content := ""
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		file, err := transaction.GetWorkspaceFileByPath(ctx, scope, scopeId, relativePath, nil)
@@ -569,8 +569,8 @@ func (self *Summarizer) loadWorkspaceFileFromStore(scope models.Scope, scopeId s
 	}); err != nil {
 		return ""
 	}
-	if len(content) > maxChars {
-		content = content[:maxChars] + "\n... (truncated)"
+	if len(content) > maxCharacters {
+		content = content[:maxCharacters] + "\n... (truncated)"
 	}
 	return content
 }
@@ -657,10 +657,10 @@ func listConversationMessages(ctx context.Context, conversationId string) ([]*mo
 
 // messagesText builds a truncated text representation of conversation messages,
 // collecting from the end to prioritize recent messages. Returns chronologically
-// ordered text. Pass maxTotalChars <= 0 for no total limit.
-func messagesText(messages []*models.ConversationMessage, maxTotalChars int, maxMessageChars int) string {
+// ordered text. Pass maxTotalCharacters <= 0 for no total limit.
+func messagesText(messages []*models.ConversationMessage, maxTotalCharacters int, maxMessageCharacters int) string {
 	var lines []string
-	totalChars := 0
+	totalCharacters := 0
 
 	for index := len(messages) - 1; index >= 0; index-- {
 		role := string(messages[index].GetRole())
@@ -670,20 +670,20 @@ func messagesText(messages []*models.ConversationMessage, maxTotalChars int, max
 		}
 
 		content := conversationMessageContentText(*messages[index])
-		if maxMessageChars > 0 && len(content) > maxMessageChars {
-			content = content[:maxMessageChars] + "..."
+		if maxMessageCharacters > 0 && len(content) > maxMessageCharacters {
+			content = content[:maxMessageCharacters] + "..."
 		}
 
 		line := fmt.Sprintf("[%s]: %s\n", role, content)
-		if maxTotalChars > 0 && totalChars+len(line) > maxTotalChars {
-			remaining := maxTotalChars - totalChars
+		if maxTotalCharacters > 0 && totalCharacters+len(line) > maxTotalCharacters {
+			remaining := maxTotalCharacters - totalCharacters
 			if remaining > 0 {
 				lines = append(lines, line[:remaining])
 			}
 			break
 		}
 		lines = append(lines, line)
-		totalChars += len(line)
+		totalCharacters += len(line)
 	}
 
 	// Reverse to chronological order.
@@ -744,6 +744,6 @@ func (self *Summarizer) RunSynthesis(ctx context.Context, systemPrompt string, u
 // BuildMessagesText builds a truncated text representation of conversation
 // messages, collecting from the end to prioritize recent messages. Returns
 // chronologically ordered text.
-func BuildMessagesText(messages []*models.ConversationMessage, maxTotalChars int, maxMessageChars int) string {
-	return messagesText(messages, maxTotalChars, maxMessageChars)
+func BuildMessagesText(messages []*models.ConversationMessage, maxTotalCharacters int, maxMessageCharacters int) string {
+	return messagesText(messages, maxTotalCharacters, maxMessageCharacters)
 }

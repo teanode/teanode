@@ -25,7 +25,7 @@ type databaseAgentRecord struct {
 	ModifiedAt        time.Time  `gorm:"column:modified_at;not null"`
 }
 
-func (databaseAgentRecord) TableName() string {
+func (self databaseAgentRecord) TableName() string {
 	return "agents"
 }
 

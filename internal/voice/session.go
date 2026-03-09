@@ -566,7 +566,7 @@ func (self *Session) IsSpeechReady() bool {
 	return self.speechReady
 }
 
-func (self *Session) ExplicitAudioLen() int {
+func (self *Session) ExplicitAudioLength() int {
 	self.stateMu.RLock()
 	defer self.stateMu.RUnlock()
 	return len(self.explicitAudioBuf)

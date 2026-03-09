@@ -12,8 +12,8 @@ import (
 	"github.com/teanode/teanode/internal/summarizers"
 )
 
-const summaryMaxConversationChars = 8000
-const summaryMaxMessageChars = 2000
+const summaryMaxConversationCharacters = 8000
+const summaryMaxMessageCharacters = 2000
 
 // Synthesizer abstracts the LLM call used by the summary action so that tests
 // can inject a deterministic stub.
@@ -95,7 +95,7 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 	messageCount := len(messages)
 
 	// Build truncated transcript.
-	chunkText := summarizers.BuildMessagesText(messages, summaryMaxConversationChars, summaryMaxMessageChars)
+	chunkText := summarizers.BuildMessagesText(messages, summaryMaxConversationCharacters, summaryMaxMessageCharacters)
 
 	// Call LLM to produce structured summary.
 	userPrompt := prompts.BuildStructuredSummaryUserPrompt("", "", chunkText)

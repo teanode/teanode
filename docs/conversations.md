@@ -36,6 +36,7 @@ TeaNode ships with two backend implementations:
 - Conversations are stored as JSONL files under the data directory (by default `~/.teanode/users/<userId>/conversations/<agentId>/<conversationId>.jsonl`).
 - Each line is a single JSON object (message record).
 - This makes appends cheap and streaming-friendly, while keeping the format simple to inspect and debug.
+- Conversation-scoped TODOs are stored in a `<conversationId>.todos/` subdirectory.
 - Key files: `filesystem_conversation.go` (metadata), `filesystem_conversation_message.go` (message append/read), `filesystem_conversation_storage.go` (JSONL I/O).
 
 ### `dbstore` (database)
@@ -56,9 +57,13 @@ Conversation and message types live in `internal/models`:
 
 On top of the store layer, other packages implement higher-level behaviors:
 
-- `internal/runners` – context compaction and pruning of old messages while preserving summaries.
+- `internal/runners` – context compaction and pruning of old messages while preserving summaries; TODO overlay injection.
 - `internal/summarizers` – auto-generating conversation titles and descriptions.
 - `internal/coordinators` – orchestrating message send, active run tracking, and broadcasting events.
-- `internal/api/v1api` – exposing WebSocket RPC methods like `conversations.send`, `conversations.history`, and `conversations.list`.
+- `internal/api/v1api` – exposing WebSocket RPC methods like `conversations.send`, `conversations.history`, `conversations.list`, `conversations.todos.list`, and `conversations.todos.batch`.
+
+### TODOs
+
+Conversations can have associated TODO items (stored via `TodoOperation` in the store interface). The runner injects a summary of open TODOs into the conversation context via the TODO overlay (`todo_overlay.go`), giving the agent awareness of pending tasks.
 
 This document is intentionally high-level; refer to the Go source in `internal/store` and `internal/models` for exact field names and behaviors.

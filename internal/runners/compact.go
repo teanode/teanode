@@ -14,7 +14,7 @@ import (
 
 const defaultContextWindow = 128000
 const defaultSummaryChunkTokens = 12000
-const defaultSummaryMaxMessageChars = 2000
+const defaultSummaryMaxMessageCharacters = 2000
 const defaultSummaryOversizedMessageTokens = 8000
 const defaultHardClearToolMultiplier = 4
 const defaultHardClearedToolPlaceholder = "[Old tool result content cleared due to context limits]"
@@ -117,31 +117,31 @@ func estimateToolDefinitionsTokens(tools []providers.ToolDefinition) int {
 	return tokens
 }
 
-func trimToolResultText(text string, maxChars int) string {
-	if maxChars <= 0 || len(text) <= maxChars {
+func trimToolResultText(text string, maxCharacters int) string {
+	if maxCharacters <= 0 || len(text) <= maxCharacters {
 		return text
 	}
-	headChars := int(float64(maxChars) * 0.75)
-	if headChars <= 0 {
-		headChars = maxChars / 2
+	headCharacters := int(float64(maxCharacters) * 0.75)
+	if headCharacters <= 0 {
+		headCharacters = maxCharacters / 2
 	}
-	if headChars >= maxChars {
-		headChars = maxChars / 2
+	if headCharacters >= maxCharacters {
+		headCharacters = maxCharacters / 2
 	}
-	tailChars := maxChars - headChars
-	if tailChars < 0 {
-		tailChars = 0
+	tailCharacters := maxCharacters - headCharacters
+	if tailCharacters < 0 {
+		tailCharacters = 0
 	}
-	head := text[:headChars]
+	head := text[:headCharacters]
 	tail := ""
-	if tailChars > 0 {
-		tail = text[len(text)-tailChars:]
+	if tailCharacters > 0 {
+		tail = text[len(text)-tailCharacters:]
 	}
 	return fmt.Sprintf("%s\n...\n%s\n... (truncated)", head, tail)
 }
 
 // truncateOldToolResults applies a two-tier pruning strategy for old tool results.
-func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxChars int) []providers.ChatMessage {
+func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxCharacters int) []providers.ChatMessage {
 	if len(messages) <= minKeep {
 		return messages
 	}
@@ -149,18 +149,18 @@ func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxCh
 
 	result := make([]providers.ChatMessage, len(messages))
 	copy(result, messages)
-	hardLimitChars := maxChars * defaultHardClearToolMultiplier
+	hardLimitCharacters := maxCharacters * defaultHardClearToolMultiplier
 	for index := 0; index < boundary; index++ {
 		text, ok := result[index].Content.(string)
 		if !ok || result[index].Role != "tool" {
 			continue
 		}
-		if maxChars > 0 && len(text) > hardLimitChars {
+		if maxCharacters > 0 && len(text) > hardLimitCharacters {
 			result[index].Content = defaultHardClearedToolPlaceholder
 			continue
 		}
-		if maxChars > 0 && len(text) > maxChars {
-			result[index].Content = trimToolResultText(text, maxChars)
+		if maxCharacters > 0 && len(text) > maxCharacters {
+			result[index].Content = trimToolResultText(text, maxCharacters)
 		}
 	}
 	return result
@@ -169,21 +169,21 @@ func truncateOldToolResults(messages []providers.ChatMessage, minKeep int, maxCh
 // truncateAllToolResults truncates all tool results in the message list, including
 // recent ones. Used as a last resort when the context is still too large after
 // normal compression.
-func truncateAllToolResults(messages []providers.ChatMessage, maxChars int) []providers.ChatMessage {
+func truncateAllToolResults(messages []providers.ChatMessage, maxCharacters int) []providers.ChatMessage {
 	result := make([]providers.ChatMessage, len(messages))
 	copy(result, messages)
-	hardLimitChars := maxChars * defaultHardClearToolMultiplier
+	hardLimitCharacters := maxCharacters * defaultHardClearToolMultiplier
 	for index := range result {
 		text, ok := result[index].Content.(string)
 		if !ok || result[index].Role != "tool" {
 			continue
 		}
-		if maxChars > 0 && len(text) > hardLimitChars {
+		if maxCharacters > 0 && len(text) > hardLimitCharacters {
 			result[index].Content = defaultHardClearedToolPlaceholder
 			continue
 		}
-		if maxChars > 0 && len(text) > maxChars {
-			result[index].Content = trimToolResultText(text, maxChars)
+		if maxCharacters > 0 && len(text) > maxCharacters {
+			result[index].Content = trimToolResultText(text, maxCharacters)
 		}
 	}
 	return result
@@ -251,9 +251,9 @@ func findLastSummaryIndex(messages []*models.ConversationMessage) int {
 }
 
 // chatMessagesText builds a truncated text representation of provider chat messages.
-func chatMessagesText(messages []providers.ChatMessage, maxTotalChars int, maxMessageChars int) string {
+func chatMessagesText(messages []providers.ChatMessage, maxTotalCharacters int, maxMessageCharacters int) string {
 	var lines []string
-	totalChars := 0
+	totalCharacters := 0
 
 	for messageIndex := len(messages) - 1; messageIndex >= 0; messageIndex-- {
 		role := messages[messageIndex].Role
@@ -265,20 +265,20 @@ func chatMessagesText(messages []providers.ChatMessage, maxTotalChars int, maxMe
 		if messages[messageIndex].Role == "tool" {
 			content = sanitizeToolResultForCompaction(content)
 		}
-		if maxMessageChars > 0 && len(content) > maxMessageChars {
-			content = content[:maxMessageChars] + "..."
+		if maxMessageCharacters > 0 && len(content) > maxMessageCharacters {
+			content = content[:maxMessageCharacters] + "..."
 		}
 
 		line := fmt.Sprintf("[%s]: %s\n", role, content)
-		if maxTotalChars > 0 && totalChars+len(line) > maxTotalChars {
-			remaining := maxTotalChars - totalChars
+		if maxTotalCharacters > 0 && totalCharacters+len(line) > maxTotalCharacters {
+			remaining := maxTotalCharacters - totalCharacters
 			if remaining > 0 {
 				lines = append(lines, line[:remaining])
 			}
 			break
 		}
 		lines = append(lines, line)
-		totalChars += len(line)
+		totalCharacters += len(line)
 	}
 
 	// Reverse to chronological order.
@@ -499,7 +499,7 @@ func summarizeMessagesInStages(
 
 	mergedSummary := structuredSummary{}
 	for _, chunk := range chunks {
-		chunkText := chatMessagesText(chunk, 0, defaultSummaryMaxMessageChars)
+		chunkText := chatMessagesText(chunk, 0, defaultSummaryMaxMessageCharacters)
 		chunkSummary, err := summarizeChunk(ctx, provider, modelName, chunkText, formatStructuredSummary(mergedSummary), focus)
 		if err != nil {
 			return structuredSummary{}, err

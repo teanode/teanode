@@ -32,7 +32,7 @@ type databaseMediaRecord struct {
 	ModifiedAt     time.Time `gorm:"column:modified_at;not null"`
 }
 
-func (databaseMediaRecord) TableName() string {
+func (self databaseMediaRecord) TableName() string {
 	return "media"
 }
 

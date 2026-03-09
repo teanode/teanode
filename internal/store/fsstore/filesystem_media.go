@@ -297,12 +297,12 @@ func (self *fileSystemTransaction) scanMediaMetadata(filter func(storeMediaMetad
 		return nil, readError
 	}
 	mediaById := map[string]struct {
-		format string
-		dir    string
+		format    string
+		directory string
 	}{}
 	metadataEntries := make([]struct {
-		mediaId string
-		dir     string
+		mediaId   string
+		directory string
 	}, 0)
 
 	for _, entry := range entries {
@@ -321,11 +321,11 @@ func (self *fileSystemTransaction) scanMediaMetadata(filter func(storeMediaMetad
 			name := shardEntry.Name()
 			if strings.HasSuffix(name, mediaMetadataSuffix) {
 				metadataEntries = append(metadataEntries, struct {
-					mediaId string
-					dir     string
+					mediaId   string
+					directory string
 				}{
-					mediaId: strings.TrimSuffix(name, mediaMetadataSuffix),
-					dir:     shardDirectory,
+					mediaId:   strings.TrimSuffix(name, mediaMetadataSuffix),
+					directory: shardDirectory,
 				})
 				continue
 			}
@@ -336,19 +336,19 @@ func (self *fileSystemTransaction) scanMediaMetadata(filter func(storeMediaMetad
 				continue
 			}
 			mediaById[baseName] = struct {
-				format string
-				dir    string
-			}{format: format, dir: shardDirectory}
+				format    string
+				directory string
+			}{format: format, directory: shardDirectory}
 		}
 	}
 
 	results := make([]storeMediaMetadata, 0)
 	for _, metadataEntry := range metadataEntries {
 		if _, exists := mediaById[metadataEntry.mediaId]; !exists {
-			_ = trash.Move(filepath.Join(metadataEntry.dir, metadataEntry.mediaId+mediaMetadataSuffix), self.trashDirectory())
+			_ = trash.Move(filepath.Join(metadataEntry.directory, metadataEntry.mediaId+mediaMetadataSuffix), self.trashDirectory())
 			continue
 		}
-		metadataPath := filepath.Join(metadataEntry.dir, metadataEntry.mediaId+mediaMetadataSuffix)
+		metadataPath := filepath.Join(metadataEntry.directory, metadataEntry.mediaId+mediaMetadataSuffix)
 		data, metadataReadError := os.ReadFile(metadataPath)
 		if metadataReadError != nil {
 			continue

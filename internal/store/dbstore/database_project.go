@@ -20,7 +20,7 @@ type databaseProjectRecord struct {
 	ModifiedAt   time.Time  `gorm:"column:modified_at;not null"`
 }
 
-func (databaseProjectRecord) TableName() string {
+func (self databaseProjectRecord) TableName() string {
 	return "projects"
 }
 

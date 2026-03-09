@@ -4,13 +4,13 @@ package runners
 // constants used by truncateOldToolResults. This is a temporary stub until
 // the ModelRuntimeLimits type lands in models.
 type modelRuntimeLimitsStub struct {
-	MinKeepMessages    int
-	MaxToolResultChars int
+	MinKeepMessages         int
+	MaxToolResultCharacters int
 }
 
 func defaultModelRuntimeLimits() modelRuntimeLimitsStub {
 	return modelRuntimeLimitsStub{
-		MinKeepMessages:    10,
-		MaxToolResultChars: 8000,
+		MinKeepMessages:         10,
+		MaxToolResultCharacters: 8000,
 	}
 }

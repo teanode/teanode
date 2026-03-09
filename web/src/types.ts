@@ -245,7 +245,7 @@ export interface JobsListResult {
 
 // Config schema types (JSON Schema with x-sections extension)
 
-export interface JsonSchemaProperty {
+export interface JSONSchemaProperty {
   type?: string;
   title?: string;
   titleKey?: string;
@@ -254,9 +254,9 @@ export interface JsonSchemaProperty {
   default?: unknown;
   enum?: string[];
   format?: string;
-  items?: JsonSchemaProperty;
-  properties?: Record<string, JsonSchemaProperty>;
-  additionalProperties?: JsonSchemaProperty;
+  items?: JSONSchemaProperty;
+  properties?: Record<string, JSONSchemaProperty>;
+  additionalProperties?: JSONSchemaProperty;
   "x-placeholder"?: string;
   "x-placeholderKey"?: string;
   "x-widget"?: string;
@@ -280,7 +280,7 @@ export interface SchemaSection {
 }
 
 export interface ConfigSchema {
-  properties: Record<string, JsonSchemaProperty>;
+  properties: Record<string, JSONSchemaProperty>;
   "x-sections": SchemaSection[];
 }
 

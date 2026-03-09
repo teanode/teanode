@@ -34,8 +34,8 @@ func (self *PendingQuestion) AnswerChan() chan AnswerPayload {
 }
 
 // SetAnswerChan sets the answer channel.
-func (self *PendingQuestion) SetAnswerChan(ch chan AnswerPayload) {
-	self.answerChan = ch
+func (self *PendingQuestion) SetAnswerChan(channel chan AnswerPayload) {
+	self.answerChan = channel
 }
 
 // QuestionBroker is an in-memory registry that routes answers from the

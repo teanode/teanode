@@ -201,9 +201,9 @@ export function useVoiceSession(
     inputSeqRef.current += BigInt(1);
     const seq = inputSeqRef.current;
     const now = BigInt(Date.now());
-    const payloadLen = pcmData.length * 2;
-    const buf = new ArrayBuffer(FRAME_HEADER_BYTES + payloadLen);
-    const view = new DataView(buf);
+    const payloadLength = pcmData.length * 2;
+    const buffer = new ArrayBuffer(FRAME_HEADER_BYTES + payloadLength);
+    const view = new DataView(buffer);
     view.setUint8(0, FRAME_MAGIC);
     view.setUint8(1, FRAME_TYPE_AUDIO_IN);
 
@@ -223,7 +223,7 @@ export function useVoiceSession(
       view.setInt16(offset, pcmData[i], true);
       offset += 2;
     }
-    return new Uint8Array(buf);
+    return new Uint8Array(buffer);
   }, []);
 
   const start = useCallback(

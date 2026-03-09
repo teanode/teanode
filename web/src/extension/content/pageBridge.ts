@@ -31,20 +31,20 @@ function safeStringify(
 ): { json: string; truncated: boolean } {
   const seen = new WeakSet();
 
-  function replacer(_key: string, val: unknown): unknown {
-    if (val === undefined) return null;
-    if (typeof val === "function") return "[Function]";
-    if (typeof val === "symbol") return val.toString();
-    if (typeof val === "bigint") return val.toString();
-    if (val instanceof Error) {
-      return { message: val.message, name: val.name, stack: val.stack };
+  function replacer(_key: string, value: unknown): unknown {
+    if (value === undefined) return null;
+    if (typeof value === "function") return "[Function]";
+    if (typeof value === "symbol") return value.toString();
+    if (typeof value === "bigint") return value.toString();
+    if (value instanceof Error) {
+      return { message: value.message, name: value.name, stack: value.stack };
     }
-    if (val instanceof RegExp) return val.toString();
-    if (val !== null && typeof val === "object") {
-      if (seen.has(val)) return "[Circular]";
-      seen.add(val);
+    if (value instanceof RegExp) return value.toString();
+    if (value !== null && typeof value === "object") {
+      if (seen.has(value)) return "[Circular]";
+      seen.add(value);
     }
-    return val;
+    return value;
   }
 
   let json: string;
@@ -264,7 +264,7 @@ function snapshotHtml(): { html: string; truncated: boolean } {
 
   // Strip elements that are noise for understanding page structure.
   for (const tag of ["script", "style", "noscript", "link[rel=stylesheet]"]) {
-    clone.querySelectorAll(tag).forEach((el) => el.remove());
+    clone.querySelectorAll(tag).forEach((element) => element.remove());
   }
 
   // Strip noisy attributes and truncate long values.
@@ -316,8 +316,8 @@ function snapshotText(): { text: string; truncated: boolean } {
     {
       acceptNode(node: Node) {
         if (node.nodeType === Node.ELEMENT_NODE) {
-          const el = node as HTMLElement;
-          const tag = el.tagName.toLowerCase();
+          const element = node as HTMLElement;
+          const tag = element.tagName.toLowerCase();
           // Skip invisible and non-content elements.
           if (
             tag === "script" ||
@@ -327,9 +327,9 @@ function snapshotText(): { text: string; truncated: boolean } {
             tag === "template"
           )
             return NodeFilter.FILTER_REJECT;
-          if (el.hidden || el.getAttribute("aria-hidden") === "true")
+          if (element.hidden || element.getAttribute("aria-hidden") === "true")
             return NodeFilter.FILTER_REJECT;
-          const style = getComputedStyle(el);
+          const style = getComputedStyle(element);
           if (style.display === "none" || style.visibility === "hidden")
             return NodeFilter.FILTER_REJECT;
         }
@@ -341,12 +341,12 @@ function snapshotText(): { text: string; truncated: boolean } {
   let current: Node | null = walker.currentNode;
   while (current) {
     if (current.nodeType === Node.ELEMENT_NODE) {
-      const el = current as HTMLElement;
-      const tag = el.tagName.toLowerCase();
+      const element = current as HTMLElement;
+      const tag = element.tagName.toLowerCase();
       // Add structural markers for headings and list items.
       if (/^h[1-6]$/.test(tag)) {
         const level = parseInt(tag[1]);
-        const text = (el.textContent || "").trim();
+        const text = (element.textContent || "").trim();
         if (text) {
           lines.push("");
           lines.push(`${"#".repeat(level)} ${text}`);
@@ -411,8 +411,8 @@ function snapshotAccessibility(): { text: string; truncated: boolean } {
     lines.push(`page: ${document.title}`);
   }
 
-  function walk(el: Element, depth: number): void {
-    const tag = el.tagName.toLowerCase();
+  function walk(element: Element, depth: number): void {
+    const tag = element.tagName.toLowerCase();
 
     // Skip non-content elements.
     if (
@@ -422,22 +422,25 @@ function snapshotAccessibility(): { text: string; truncated: boolean } {
       tag === "template"
     )
       return;
-    if ((el as HTMLElement).hidden || el.getAttribute("aria-hidden") === "true")
+    if (
+      (element as HTMLElement).hidden ||
+      element.getAttribute("aria-hidden") === "true"
+    )
       return;
 
-    const role = el.getAttribute("role") || IMPLICIT_ROLES[tag] || "";
+    const role = element.getAttribute("role") || IMPLICIT_ROLES[tag] || "";
     const label =
-      el.getAttribute("aria-label") ||
-      el.getAttribute("alt") ||
-      el.getAttribute("title") ||
-      el.getAttribute("placeholder") ||
+      element.getAttribute("aria-label") ||
+      element.getAttribute("alt") ||
+      element.getAttribute("title") ||
+      element.getAttribute("placeholder") ||
       "";
 
     // Determine accessible name: label or direct text content (not children's).
     let name = label;
     if (!name) {
       // Use direct text nodes only (not nested element text).
-      const directText = Array.from(el.childNodes)
+      const directText = Array.from(element.childNodes)
         .filter((n) => n.nodeType === Node.TEXT_NODE)
         .map((n) => (n.textContent || "").trim())
         .join(" ")
@@ -456,22 +459,24 @@ function snapshotAccessibility(): { text: string; truncated: boolean } {
     }
 
     // Add relevant state attributes.
-    if (el.getAttribute("disabled") !== null) parts.push("disabled");
-    if (el.getAttribute("aria-expanded") !== null)
-      parts.push(`expanded=${el.getAttribute("aria-expanded")}`);
-    if (el.getAttribute("aria-checked") !== null)
-      parts.push(`checked=${el.getAttribute("aria-checked")}`);
-    if (el.getAttribute("aria-selected") !== null)
-      parts.push(`selected=${el.getAttribute("aria-selected")}`);
-    if ((el as HTMLInputElement).type && tag === "input")
-      parts.push(`type=${(el as HTMLInputElement).type}`);
+    if (element.getAttribute("disabled") !== null) parts.push("disabled");
+    if (element.getAttribute("aria-expanded") !== null)
+      parts.push(`expanded=${element.getAttribute("aria-expanded")}`);
+    if (element.getAttribute("aria-checked") !== null)
+      parts.push(`checked=${element.getAttribute("aria-checked")}`);
+    if (element.getAttribute("aria-selected") !== null)
+      parts.push(`selected=${element.getAttribute("aria-selected")}`);
+    if ((element as HTMLInputElement).type && tag === "input")
+      parts.push(`type=${(element as HTMLInputElement).type}`);
     if (
-      (el as HTMLInputElement).value &&
+      (element as HTMLInputElement).value &&
       (tag === "input" || tag === "textarea")
     )
-      parts.push(`value="${(el as HTMLInputElement).value.slice(0, 100)}"`);
-    if (el.getAttribute("href"))
-      parts.push(`href="${el.getAttribute("href")!.slice(0, 150)}"`);
+      parts.push(
+        `value="${(element as HTMLInputElement).value.slice(0, 100)}"`,
+      );
+    if (element.getAttribute("href"))
+      parts.push(`href="${element.getAttribute("href")!.slice(0, 150)}"`);
 
     if (name) parts.push(`"${name.slice(0, 200)}"`);
 
@@ -482,7 +487,7 @@ function snapshotAccessibility(): { text: string; truncated: boolean } {
     }
 
     // Recurse into children.
-    for (const child of el.children) {
+    for (const child of element.children) {
       walk(child, role || label ? depth + 1 : depth);
     }
   }
@@ -537,12 +542,12 @@ function handleQuerySelector(params: Record<string, unknown>): unknown {
 }
 
 function extractElement(
-  el: HTMLElement,
+  element: HTMLElement,
   mode: string,
 ): { tagName: string; content: string; attributes: Record<string, string> } {
   const attributes: Record<string, string> = {};
-  for (let i = 0; i < el.attributes.length; i++) {
-    const attr = el.attributes[i];
+  for (let i = 0; i < element.attributes.length; i++) {
+    const attr = element.attributes[i];
     if (attr.name === "style") continue; // skip inline styles
     let value = attr.value;
     if (value.length > MAX_ATTR_VALUE) {
@@ -553,18 +558,18 @@ function extractElement(
 
   let content: string;
   if (mode === "html") {
-    content = el.outerHTML;
+    content = element.outerHTML;
     if (content.length > MAX_ELEMENT_CONTENT) {
       content = content.slice(0, MAX_ELEMENT_CONTENT);
     }
   } else {
-    content = el.textContent || "";
+    content = element.textContent || "";
     if (content.length > MAX_ELEMENT_CONTENT) {
       content = content.slice(0, MAX_ELEMENT_CONTENT);
     }
   }
 
-  return { tagName: el.tagName.toLowerCase(), content, attributes };
+  return { tagName: element.tagName.toLowerCase(), content, attributes };
 }
 
 // ---- eval handler ----

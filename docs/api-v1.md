@@ -1,56 +1,210 @@
 # HTTP API v1 Overview
 
-TeaNode exposes an OpenAI-compatible HTTP API under `/api/v1`. This document gives a high-level overview of the current surface and how it maps onto TeaNode internals.
+TeaNode exposes an HTTP API under `/api/v1`. This document gives a high-level overview of the current surface and how it maps onto TeaNode internals.
 
-## Endpoints
+## HTTP Endpoints
 
-### `POST /api/v1/chat/completions`
+### Authentication (public, no auth required)
 
-- **Purpose:** OpenAI-compatible Chat Completions endpoint.
-- **Backed by:** `internal/api/v1api` handlers and the TeaNode coordinators/runners layer.
-- **Behavior:**
-  - Accepts a subset of the OpenAI Chat Completions schema (models, messages, tools, etc.).
-  - Routes the request to a configured TeaNode agent and provider.
-  - Streams or buffers responses depending on the `stream` flag.
-  - Supports tool calls via TeaNode's internal tools registry.
+- `GET/POST /api/v1/health` — Lightweight health/liveness check.
+- `GET/POST /api/v1/auth/status` — Current authentication status.
+- `POST /api/v1/auth/setup` — Initial setup (first-run password creation).
+- `POST /api/v1/auth/login` — User login (returns session cookie).
+- `POST /api/v1/auth/logout` — User logout.
 
-Notes:
+### WebSocket
 
-- Exact compatibility and any deviations from the OpenAI spec are tracked in `TODO.md` under **Documentation** ("Document OpenAI-compatible API surface and any deviations"). This file is a high-level pointer; consult the Go handlers in `internal/api/v1api` for precise behavior.
+- `GET /api/v1/websocket` — WebSocket upgrade endpoint for JSON-RPC over WS. Most application state flows through this channel (see WebSocket RPC Methods below).
 
-### `GET /api/v1/health`
+### Media
 
-- **Purpose:** Lightweight health check endpoint.
-- **Backed by:** `internal/api/v1api` health handler.
-- **Behavior (current / minimal):**
-  - Returns a simple JSON payload indicating that the gateway process is up.
-  - Intended primarily for liveness checks.
+- `POST /api/v1/media/upload` — Upload binary media (50 MB max).
+- `GET /api/v1/media/{id}` — Retrieve media by ID. Public (no auth) so LLM providers can fetch images.
 
-Planned enhancements (see `TODO.md` under **Features**):
+### Audio
 
-- Deepen `/health` to check:
-  - Workspace availability.
-  - Provider reachability.
-  - Potentially other core subsystems.
+- `POST /api/v1/audio/transcribe` — Transcribe audio to text (25 MB max). Requires a provider implementing `TranscribeProvider`.
+- `POST /api/v1/audio/synthesize` — Request a TTS token (single-use, valid 60s).
+- `GET /api/v1/audio/stream?token=...` — Stream synthesized audio using the token from `/synthesize`.
 
-### `GET /api/v1/profile` and `PUT /api/v1/profile`
+### OpenAI-Compatible
 
-- **Purpose:** Read and update user profile data used by the frontend and prompt personalization.
-- **Backed by:** `internal/api/v1api` handlers and the `internal/store` user operations.
-- **Behavior:**
-  - `GET` returns the current profile.
-  - `PUT` updates profile fields (`name`, `avatarMediaId`).
-  - `name` falls back to the OS username when missing/empty.
-  - Profile persistence is `~/.teanode/users/<userId>/user.yaml`.
-  - Profile bio is not persisted; long-form user memory belongs in `~/.teanode/users/<userId>/workspace/MEMORY.md`.
+- `POST /api/v1/chat/completions` — OpenAI-compatible Chat Completions endpoint. Accepts a subset of the OpenAI schema, routes to a configured TeaNode agent and provider, and supports streaming via the `stream` flag.
+
+### Integration Relays (conditional)
+
+- `GET /api/v1/browser` — Browser relay WebSocket (when browser integration is configured).
+- `GET /api/v1/terminal` — Terminal relay WebSocket (when terminal integration is configured).
+
+## WebSocket RPC Methods
+
+The WebSocket endpoint dispatches JSON-RPC calls. The current method set (69 methods):
+
+### Core
+
+| Method | Description |
+|--------|-------------|
+| `connect` | Handshake; returns capabilities (e.g. `"audio"` when voice providers are available) |
+| `health` | Health check |
+
+### Conversations
+
+| Method | Description |
+|--------|-------------|
+| `conversations.send` | Send a message |
+| `conversations.history` | Fetch message history |
+| `conversations.abort` | Cancel an in-progress run |
+| `conversations.list` | List conversations for an agent |
+| `conversations.delete` | Delete a conversation |
+| `conversations.setDefault` | Set default conversation |
+| `conversations.todos.list` | List TODOs in a conversation |
+| `conversations.todos.batch` | Batch update conversation TODOs |
+
+### Agents
+
+| Method | Description |
+|--------|-------------|
+| `agents.list` | List available agents |
+| `agents.setDefault` | Set default agent |
+| `agents.config.schema` | Get agent config JSON schema |
+| `agents.config.list` | List agent configs |
+| `agents.config.save` | Save agent config |
+| `agents.config.delete` | Delete agent config |
+| `agents.avatar.set` | Set agent avatar |
+| `agents.avatar.remove` | Remove agent avatar |
+
+### Models
+
+| Method | Description |
+|--------|-------------|
+| `models.list` | List available models |
+
+### Jobs
+
+| Method | Description |
+|--------|-------------|
+| `jobs.list` | List scheduled jobs |
+| `jobs.create` | Create a job |
+| `jobs.update` | Update a job |
+| `jobs.delete` | Delete a job |
+| `jobs.trigger` | Trigger immediate execution |
+
+### Configuration
+
+| Method | Description |
+|--------|-------------|
+| `config.schema` | Get global config JSON schema |
+| `config.get` | Get global config |
+| `config.update` | Update global config |
+
+### Sessions & Tokens
+
+| Method | Description |
+|--------|-------------|
+| `sessions.list` | List active sessions |
+| `sessions.revoke` | Revoke a session |
+| `auth.tokens.list` | List API tokens |
+| `auth.tokens.create` | Create an API token |
+| `auth.tokens.delete` | Delete an API token |
+| `auth.changePassword` | Change password |
+
+### Users (admin)
+
+| Method | Description |
+|--------|-------------|
+| `users.list` | List users |
+| `users.create` | Create a user |
+| `users.delete` | Delete a user |
+| `users.update` | Update a user |
+| `users.changePassword` | Change user password |
+| `users.setRole` | Set user role |
+
+### Profile
+
+| Method | Description |
+|--------|-------------|
+| `profile.get` | Get current user profile |
+| `profile.update` | Update profile (name, avatar) |
+| `profile.avatar.remove` | Remove profile avatar |
+
+### Skills
+
+| Method | Description |
+|--------|-------------|
+| `skills.local.list` | List local skills |
+| `skills.library.search` | Search skill library/registry |
+| `skills.install` | Install a skill |
+| `skills.installed.list` | List installed skills |
+| `skills.uninstall` | Uninstall a skill |
+| `skills.update` | Update a skill |
+| `skills.setEnabled` | Enable/disable a skill for an agent |
+
+### Secrets
+
+| Method | Description |
+|--------|-------------|
+| `secrets.list` | List secret names |
+| `secrets.set` | Set a secret value |
+
+### Voice
+
+| Method | Description |
+|--------|-------------|
+| `voice.providers` | List voice providers |
+| `voice.start` | Start a voice input session |
+| `voice.end` | End a voice input session |
+| `voice.input.commit` | Commit voice input buffer |
+| `voice.response.cancel` | Cancel voice response playback |
+
+Binary WebSocket frames are used for streaming audio input during voice sessions.
+
+### Projects
+
+| Method | Description |
+|--------|-------------|
+| `projects.list` | List projects |
+| `projects.create` | Create a project |
+| `projects.rename` | Rename a project |
+| `projects.delete` | Delete a project |
+
+### Questions
+
+| Method | Description |
+|--------|-------------|
+| `questions.list` | List open questions (from `ask_user_question` tool) |
+| `questions.answer` | Answer a pending question |
+
+### Tab
+
+| Method | Description |
+|--------|-------------|
+| `tab.attach` | Attach a browser tab for context injection |
+| `tab.detach` | Detach a browser tab |
+| `tab.commandResult` | Send command result from an attached tab |
+
+### Usage
+
+| Method | Description |
+|--------|-------------|
+| `usages.list` | List usage statistics |
+
+### Memory
+
+| Method | Description |
+|--------|-------------|
+| `memory.list` | List memory entries |
+| `memory.search` | Search memory (semantic when embeddings are enabled) |
+| `memory.delete` | Delete a memory entry |
 
 ## Relationship to Internals
 
-- The v1 API is a thin HTTP layer over:
+- The v1 API is a thin HTTP/WS layer over:
   - `internal/coordinators` for conversation orchestration and active run management.
   - `internal/runners` for LLM turn execution and tool calls.
   - `internal/providers` for model-specific HTTP calls.
-  - `internal/store` for persistent conversation and entity storage.
-- Authentication, logging, and error handling are also implemented in `internal/api/v1api` and related middleware (`internal/web`).
+  - `internal/store` for persistent conversation, entity, and memory storage.
+  - `internal/voice` for voice session management.
+  - `internal/integrations` for browser, terminal, tab, and question brokering.
+- Authentication middleware in `internal/web` handles session cookies, bearer tokens, and path-based public access rules.
 
 This document is intentionally high-level and meant as a starting point for navigating the v1 API implementation rather than a full reference.

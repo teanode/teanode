@@ -877,7 +877,7 @@ import type { Message } from "../types";
 
 describe("convertHistory tool ordering", () => {
   it("places tool-result after its matching tool-invoke by toolCallId", () => {
-    const msgs: Message[] = [
+    const messages: Message[] = [
       { role: "user", content: "do both" },
       {
         role: "assistant",
@@ -902,7 +902,7 @@ describe("convertHistory tool ordering", () => {
       { role: "assistant", content: "Done." },
     ];
 
-    const display = convertHistory(msgs, []);
+    const display = convertHistory(messages, []);
     const types = display.map((m) => m.type);
 
     // Expected: invoke-tc1, result-tc1, invoke-tc2, result-tc2, assistant
@@ -921,7 +921,7 @@ describe("convertHistory tool ordering", () => {
   });
 
   it("falls back to append when toolCallId is missing", () => {
-    const msgs: Message[] = [
+    const messages: Message[] = [
       { role: "user", content: "hi" },
       {
         role: "assistant",
@@ -931,13 +931,13 @@ describe("convertHistory tool ordering", () => {
       { role: "tool", content: "ok", toolName: "search" },
     ];
 
-    const display = convertHistory(msgs, []);
+    const display = convertHistory(messages, []);
     const types = display.map((m) => m.type);
     expect(types).toEqual(["user", "tool-invoke", "tool-result"]);
   });
 
   it("handles single tool call correctly", () => {
-    const msgs: Message[] = [
+    const messages: Message[] = [
       { role: "user", content: "search" },
       {
         role: "assistant",
@@ -953,7 +953,7 @@ describe("convertHistory tool ordering", () => {
       { role: "assistant", content: "Here it is." },
     ];
 
-    const display = convertHistory(msgs, []);
+    const display = convertHistory(messages, []);
     const types = display.map((m) => m.type);
     expect(types).toEqual([
       "user",
@@ -965,7 +965,7 @@ describe("convertHistory tool ordering", () => {
   });
 
   it("handles three parallel tool calls", () => {
-    const msgs: Message[] = [
+    const messages: Message[] = [
       { role: "user", content: "go" },
       {
         role: "assistant",
@@ -981,12 +981,12 @@ describe("convertHistory tool ordering", () => {
       { role: "tool", content: "r3", toolCallId: "c", toolName: "t3" },
     ];
 
-    const display = convertHistory(msgs, []);
-    const toolMsgs = display.filter(
+    const display = convertHistory(messages, []);
+    const toolMessages = display.filter(
       (m) => m.type === "tool-invoke" || m.type === "tool-result",
     );
     // Each invoke immediately followed by its result
-    expect(toolMsgs.map((m) => `${m.type}:${m.toolCallId}`)).toEqual([
+    expect(toolMessages.map((m) => `${m.type}:${m.toolCallId}`)).toEqual([
       "tool-invoke:a",
       "tool-result:a",
       "tool-invoke:b",

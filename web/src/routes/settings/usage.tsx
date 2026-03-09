@@ -322,22 +322,23 @@ export default function SettingsUsagePage() {
 
   const handleShift = useCallback(
     (direction: -1 | 1) => {
-      const el = chartBoxRef.current;
+      const element = chartBoxRef.current;
       setRange((r) => shiftRange(interval, r, direction));
-      if (el) {
+      if (element) {
         const offset = direction === -1 ? 30 : -30;
-        el.style.transition = "transform 150ms ease-in, opacity 150ms ease-in";
-        el.style.transform = `translateX(${offset}%)`;
-        el.style.opacity = "0.1";
+        element.style.transition =
+          "transform 150ms ease-in, opacity 150ms ease-in";
+        element.style.transform = `translateX(${offset}%)`;
+        element.style.opacity = "0.1";
         setTimeout(() => {
-          el.style.transition = "none";
-          el.style.transform = `translateX(${-offset}%)`;
+          element.style.transition = "none";
+          element.style.transform = `translateX(${-offset}%)`;
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-              el.style.transition =
+              element.style.transition =
                 "transform 200ms ease-out, opacity 200ms ease-out";
-              el.style.transform = "translateX(0)";
-              el.style.opacity = "1";
+              element.style.transform = "translateX(0)";
+              element.style.opacity = "1";
             });
           });
         }, 150);

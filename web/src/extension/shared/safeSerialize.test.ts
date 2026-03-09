@@ -58,9 +58,9 @@ describe("safeSerialize", () => {
   it("handles Error objects", () => {
     const err = new Error("test error");
     const result = safeSerialize(err);
-    const val = result.value as Record<string, unknown>;
-    expect(val.message).toBe("test error");
-    expect(val.name).toBe("Error");
+    const value = result.value as Record<string, unknown>;
+    expect(value.message).toBe("test error");
+    expect(value.name).toBe("Error");
   });
 
   it("handles RegExp", () => {
@@ -84,11 +84,11 @@ describe("safeSerialize", () => {
     const err = new TypeError("Cannot read property 'x'");
     const wrapper = { error: err, context: "eval" };
     const result = safeSerialize(wrapper);
-    const val = result.value as Record<string, unknown>;
-    const errorObj = val.error as Record<string, unknown>;
+    const value = result.value as Record<string, unknown>;
+    const errorObj = value.error as Record<string, unknown>;
     expect(errorObj.message).toBe("Cannot read property 'x'");
     expect(errorObj.name).toBe("TypeError");
-    expect(val.context).toBe("eval");
+    expect(value.context).toBe("eval");
   });
 
   it("handles deeply nested objects within size cap", () => {
@@ -115,17 +115,17 @@ describe("safeSerialize", () => {
     };
     const result = safeSerialize(domLike);
     expect(result.truncated).toBe(false);
-    const val = result.value as Record<string, unknown>;
-    expect((val.results as unknown[]).length).toBe(2);
+    const value = result.value as Record<string, unknown>;
+    expect((value.results as unknown[]).length).toBe(2);
   });
 
   it("handles null and empty string values (localStorage)", () => {
     const entries = { key1: "", key2: null, key3: "value" };
     const result = safeSerialize(entries);
-    const val = result.value as Record<string, unknown>;
-    expect(val.key1).toBe("");
-    expect(val.key2).toBe(null);
-    expect(val.key3).toBe("value");
+    const value = result.value as Record<string, unknown>;
+    expect(value.key1).toBe("");
+    expect(value.key2).toBe(null);
+    expect(value.key3).toBe("value");
   });
 
   it("returns unserializable marker for objects that throw on stringify", () => {

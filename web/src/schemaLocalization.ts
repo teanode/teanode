@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { JsonSchemaProperty, SchemaSection } from "./types";
+import type { JSONSchemaProperty, SchemaSection } from "./types";
 
 function localizeText(
   t: TFunction,
@@ -13,7 +13,7 @@ function localizeText(
 
 export function getPropertyTitle(
   t: TFunction,
-  property: JsonSchemaProperty,
+  property: JSONSchemaProperty,
   propertyKey: string,
 ): string {
   return (
@@ -27,7 +27,7 @@ export function getPropertyTitle(
 
 export function getPropertyDescription(
   t: TFunction,
-  property: JsonSchemaProperty,
+  property: JSONSchemaProperty,
 ): string | undefined {
   return localizeText(
     t,
@@ -38,7 +38,7 @@ export function getPropertyDescription(
 
 export function getPropertyPlaceholder(
   t: TFunction,
-  property: JsonSchemaProperty,
+  property: JSONSchemaProperty,
 ): string | undefined {
   return localizeText(
     t,
@@ -49,7 +49,7 @@ export function getPropertyPlaceholder(
 
 export function getEnumLabel(
   t: TFunction,
-  property: JsonSchemaProperty,
+  property: JSONSchemaProperty,
   value: string,
 ): string {
   const fallback = property["x-enumLabels"]?.[value] ?? value;

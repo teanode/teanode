@@ -16,7 +16,7 @@ type databaseMigrationRecord struct {
 	ReverseSQL string    `gorm:"column:reverse_sql;type:text"`
 }
 
-func (databaseMigrationRecord) TableName() string {
+func (self databaseMigrationRecord) TableName() string {
 	return "migrations"
 }
 

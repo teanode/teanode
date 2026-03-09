@@ -258,11 +258,11 @@ func newPipelineSessionWithEvents(text string) (*Session, *pipelineMockDispatche
 }
 
 func makePCMFrame(sample int16, samples int) []byte {
-	buf := make([]byte, samples*2)
+	buffer := make([]byte, samples*2)
 	for i := 0; i < samples; i++ {
-		binary.LittleEndian.PutUint16(buf[i*2:i*2+2], uint16(sample))
+		binary.LittleEndian.PutUint16(buffer[i*2:i*2+2], uint16(sample))
 	}
-	return buf
+	return buffer
 }
 
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
@@ -575,7 +575,7 @@ func TestAudioInputLoop_ServerVADFalse(t *testing.T) {
 	if event := rec.findTurnEvent("speechEnded"); event != nil {
 		t.Fatal("speech_ended should not be emitted when ServerVAD=false")
 	}
-	if s.ExplicitAudioLen() == 0 {
+	if s.ExplicitAudioLength() == 0 {
 		t.Fatal("expected explicit audio buffer to accumulate when ServerVAD=false")
 	}
 

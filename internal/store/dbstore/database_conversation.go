@@ -23,7 +23,7 @@ type databaseConversationRecord struct {
 	ModifiedAt   time.Time  `gorm:"column:modified_at;not null"`
 }
 
-func (databaseConversationRecord) TableName() string {
+func (self databaseConversationRecord) TableName() string {
 	return "conversations"
 }
 

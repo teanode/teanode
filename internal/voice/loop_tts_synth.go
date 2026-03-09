@@ -46,11 +46,11 @@ func (self *Session) ttsSynthLoop() {
 			// getUserSpeakingCh returns an open channel while speaking and nil
 			// when silent; select on a nil channel blocks forever, so we only
 			// enter the select when there is actually something to wait on.
-			if ch := self.getUserSpeakingCh(); ch != nil {
+			if speakingChannel := self.getUserSpeakingCh(); speakingChannel != nil {
 				select {
 				case <-self.doneCh:
 					return
-				case <-ch:
+				case <-speakingChannel:
 					// channel closed by setUserSpeaking(false) - user stopped speaking
 				}
 			}

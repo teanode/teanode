@@ -35,8 +35,8 @@ func (self *PendingToolCall) ResultChan() chan ToolCallResult {
 }
 
 // SetResultChan sets the result channel.
-func (self *PendingToolCall) SetResultChan(ch chan ToolCallResult) {
-	self.resultChan = ch
+func (self *PendingToolCall) SetResultChan(channel chan ToolCallResult) {
+	self.resultChan = channel
 }
 
 // Attachment records a browser tab attached to a conversation.

@@ -15,20 +15,20 @@ export function safeSerialize(
 ): { value: unknown; truncated: boolean } {
   const seen = new WeakSet();
 
-  function replacer(_key: string, val: unknown): unknown {
-    if (val === undefined) return null;
-    if (typeof val === "function") return "[Function]";
-    if (typeof val === "symbol") return val.toString();
-    if (typeof val === "bigint") return val.toString();
-    if (val instanceof Error) {
-      return { message: val.message, name: val.name, stack: val.stack };
+  function replacer(_key: string, value: unknown): unknown {
+    if (value === undefined) return null;
+    if (typeof value === "function") return "[Function]";
+    if (typeof value === "symbol") return value.toString();
+    if (typeof value === "bigint") return value.toString();
+    if (value instanceof Error) {
+      return { message: value.message, name: value.name, stack: value.stack };
     }
-    if (val instanceof RegExp) return val.toString();
-    if (val !== null && typeof val === "object") {
-      if (seen.has(val)) return "[Circular]";
-      seen.add(val);
+    if (value instanceof RegExp) return value.toString();
+    if (value !== null && typeof value === "object") {
+      if (seen.has(value)) return "[Circular]";
+      seen.add(value);
     }
-    return val;
+    return value;
   }
 
   let json: string;

@@ -23,10 +23,17 @@ Important files in `internal/runners`:
   - Detect and execute tool calls.
   - Append final assistant messages to the conversation.
 - `systemprompt.go` – compose the system prompt from:
-  - Core TeaNode instructions.
-  - Workspace configuration (AGENT.md, MEMORY.md, SKILLS.md).
-  - Runtime metadata (date/time, etc.).
+  - Identity line (agent ID and name), version info.
+  - Current user ID, role, and profile (name, description).
+  - Workspace files: AGENT.md, USER.md, ONBOARDING.md, SKILLS.md.
+  - Skill prompts from enabled skills.
+  - Project list (up to 8 projects).
+  - Other users list.
 - `compact.go` – context compaction and pruning logic for long conversations.
+- `memory_short_term_overlay.go` – injects recent short-term memory items into the conversation context.
+- `todo_overlay.go` – injects top open TODO items and counts into the conversation context.
+- `tab_overlay.go` – injects attached browser tab content as context.
+- `voice_overlay.go` – adjusts prompting for voice interaction mode.
 
 Important files in `internal/summarizers`:
 
@@ -56,6 +63,7 @@ High-level flow:
 Important files:
 
 - `skills.go` – convenience helpers for working with registered skills and skill loading.
+- `library.go` – skill library/registry search and install operations.
 - `register.go` – registers loaded skills and their tools in the global tool registry.
 - `tool.go` – runtime execution for skill tools.
 
@@ -218,7 +226,17 @@ You have tools for inspecting and modifying a local Git repository.
 Prefer these tools over running arbitrary shell commands.
 ```
 
+### Memory tools
+
+In addition to skills, agents have access to built-in memory tools (`internal/tools/memory`) for persistent knowledge management:
+
+- `agent_memory` – agent-scoped persistent memory (shared across all conversations with that agent).
+- `user_memory` – user-scoped persistent memory (personal to the user across all agents).
+- `project_memory` – project-scoped persistent memory (shared across all agents and users in a project).
+
+Each memory tool supports actions: `get`, `list`, `search`, `batch` (add/update/delete up to 50 items), `retrieve`, `summary`, and `filter`. Memory items have titles, content (up to 64 KB), and tags. When embedding providers are configured, `search` supports semantic similarity matching.
+
 This keeps responsibilities clean:
 
-- `internal/tools` implements low-level primitives (shell, HTTP, filesystem, etc.).
+- `internal/tools` implements low-level primitives (shell, HTTP, filesystem, memory, etc.).
 - `internal/skills` composes those primitives into higher-level, reusable skills that can be shared across agents and workspaces.

@@ -10,13 +10,13 @@ import (
 // prepends it to PATH so exec.LookPath finds it. Returns a cleanup function.
 func makeFakeBinary(t *testing.T, name string) func() {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, name)
+	directory := t.TempDir()
+	path := filepath.Join(directory, name)
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("creating fake binary: %v", err)
 	}
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", dir+string(os.PathListSeparator)+origPath)
+	os.Setenv("PATH", directory+string(os.PathListSeparator)+origPath)
 	return func() { os.Setenv("PATH", origPath) }
 }
 

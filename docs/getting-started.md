@@ -99,11 +99,10 @@ On first run, TeaNode creates its data directory under `~/.teanode/`. Workspace 
 - `agents/<agentId>/workspace/AGENT.md` – agent operating instructions.
 - `agents/<agentId>/workspace/MEMORY.md` – long-term, curated memory used by the agent.
 - `agents/<agentId>/workspace/SKILLS.md` – human-readable summary of skills/workflows.
-- `agents/<agentId>/workspace/memory/YYYY-MM-DD.md` – daily log files (one per day).
 - `users/<userId>/workspace/USER.md` – user-specific instructions.
 - `users/<userId>/workspace/MEMORY.md` – user-specific memory.
 
-The agent reads these files into its system prompt and can update them using built-in memory tools. Editing `AGENT.md` and `MEMORY.md` is the simplest way to customize behavior without touching Go code.
+The agent reads workspace files into its system prompt and can update them using built-in workspace tools. In addition, structured memory items (agent-scoped, user-scoped, or project-scoped) are stored as msgpack and support semantic search when an embedding provider is configured. Editing `AGENT.md` is the simplest way to customize behavior without touching Go code.
 
 ---
 
@@ -139,8 +138,9 @@ If you want to modify or extend TeaNode itself, useful docs are:
 
 - `docs/architecture.md` – top-level layout and request flow.
 - `docs/agents-and-skills.md` – how agents run and how markdown frontmatter-defined skills work.
-- `docs/conversations.md` – how conversations are stored (JSONL-based store).
+- `docs/conversations.md` – how conversations are stored.
 - `docs/jobs.md` – background jobs and reminders.
+- `docs/autoacme-alpn.md` – automatic TLS certificate management (design doc).
 
 Typical developer workflow:
 

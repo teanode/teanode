@@ -27,7 +27,7 @@ type databaseUsageRecord struct {
 	RequestCount        int64     `gorm:"column:request_count;not null;default:0"`
 }
 
-func (databaseUsageRecord) TableName() string {
+func (self databaseUsageRecord) TableName() string {
 	return "usages"
 }
 

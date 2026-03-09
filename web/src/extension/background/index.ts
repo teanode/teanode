@@ -67,13 +67,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     }
 
     // Notify overlay about URL change.
-    const msg: TabUrlChanged = {
+    const message: TabUrlChanged = {
       type: "tab_url_changed",
       tabId,
       url: tab.url || "",
       title: tab.title || "",
     };
-    chrome.runtime.sendMessage(msg).catch(() => {});
+    chrome.runtime.sendMessage(message).catch(() => {});
   }
 });
 
@@ -82,11 +82,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   overlayInjectedTabs.delete(tabId);
 
   // Notify overlay about tab close.
-  const msg: TabClosed = {
+  const message: TabClosed = {
     type: "tab_closed",
     tabId,
   };
-  chrome.runtime.sendMessage(msg).catch(() => {});
+  chrome.runtime.sendMessage(message).catch(() => {});
 });
 
 // ---- Handle messages from overlay / content scripts ----
@@ -113,8 +113,8 @@ chrome.runtime.onMessage.addListener(
     if (message.type === MSG.CDP_STATE_QUERY) {
       const tabId = message.tabId as number;
       const state = getCdpStateForTab(tabId);
-      const resp: CdpStateChanged = { type: MSG.CDP_STATE, tabId, state };
-      sendResponse(resp as unknown as ToolExecuteResponse);
+      const response: CdpStateChanged = { type: MSG.CDP_STATE, tabId, state };
+      sendResponse(response as unknown as ToolExecuteResponse);
       return true;
     }
 

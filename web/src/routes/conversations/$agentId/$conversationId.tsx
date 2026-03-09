@@ -102,17 +102,17 @@ export default function ConversationsConversationPage() {
     if (voiceCall.isCallActive) return;
     if (!backend.lastSentViaMicRef.current) return;
     if (backend.isRunning) return;
-    const msgs = backend.messages;
-    if (msgs.length <= prevMessagesLenRef.current) {
-      prevMessagesLenRef.current = msgs.length;
+    const recentMessages = backend.messages;
+    if (recentMessages.length <= prevMessagesLenRef.current) {
+      prevMessagesLenRef.current = recentMessages.length;
       return;
     }
-    prevMessagesLenRef.current = msgs.length;
+    prevMessagesLenRef.current = recentMessages.length;
     // Find the last assistant message.
-    for (let index = msgs.length - 1; index >= 0; index--) {
-      if (msgs[index].type === "assistant" && msgs[index].content) {
-        tts.speak(msgs[index].content);
-        setSpeakingMessageId(msgs[index].id);
+    for (let index = recentMessages.length - 1; index >= 0; index--) {
+      if (recentMessages[index].type === "assistant" && recentMessages[index].content) {
+        tts.speak(recentMessages[index].content);
+        setSpeakingMessageId(recentMessages[index].id);
         backend.lastSentViaMicRef.current = false;
         break;
       }

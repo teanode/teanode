@@ -19,10 +19,10 @@ import type {
 let currentNonce = "";
 
 // Pending fetch requests: requestId → resolve callback
-const pendingFetches = new Map<string, (resp: BridgeResponse) => void>();
+const pendingFetches = new Map<string, (response: BridgeResponse) => void>();
 
 // Pending action requests: requestId → resolve callback
-const pendingActions = new Map<string, (resp: BridgeActionResponse) => void>();
+const pendingActions = new Map<string, (response: BridgeActionResponse) => void>();
 
 // Listen for messages from the background SW.
 chrome.runtime.onMessage.addListener(

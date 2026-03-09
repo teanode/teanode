@@ -38,8 +38,8 @@ const childSessionToTab = new Map<string, number>();
 const pending = new Map<number, PendingRequest>();
 
 function broadcastCdpState(tabId: number, state: CdpState): void {
-  const msg: CdpStateChanged = { type: MSG.CDP_STATE, tabId, state };
-  chrome.runtime.sendMessage(msg).catch(() => {});
+  const message: CdpStateChanged = { type: MSG.CDP_STATE, tabId, state };
+  chrome.runtime.sendMessage(message).catch(() => {});
 }
 
 /** Return the current CDP state for a given tab. */
@@ -82,9 +82,9 @@ function httpToWs(url: string): string {
 }
 
 function setBadge(tabId: number, kind: keyof typeof BADGE): void {
-  const cfg = BADGE[kind];
-  void chrome.action.setBadgeText({ tabId, text: cfg.text });
-  void chrome.action.setBadgeBackgroundColor({ tabId, color: cfg.color });
+  const config = BADGE[kind];
+  void chrome.action.setBadgeText({ tabId, text: config.text });
+  void chrome.action.setBadgeBackgroundColor({ tabId, color: config.color });
   void chrome.action
     .setBadgeTextColor({ tabId, color: "#FFFFFF" })
     .catch(() => {});
@@ -199,14 +199,14 @@ async function maybeOpenHelpOnce(): Promise<void> {
 }
 
 async function onRelayMessage(text: string): Promise<void> {
-  let msg: any;
+  let parsed: any;
   try {
-    msg = JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch {
     return;
   }
 
-  if (msg && msg.method === "ping") {
+  if (parsed && parsed.method === "ping") {
     try {
       sendToRelay({ method: "pong" });
     } catch {
@@ -216,24 +216,24 @@ async function onRelayMessage(text: string): Promise<void> {
   }
 
   if (
-    msg &&
-    typeof msg.id === "number" &&
-    (msg.result !== undefined || msg.error !== undefined)
+    parsed &&
+    typeof parsed.id === "number" &&
+    (parsed.result !== undefined || parsed.error !== undefined)
   ) {
-    const p = pending.get(msg.id);
+    const p = pending.get(parsed.id);
     if (!p) return;
-    pending.delete(msg.id);
-    if (msg.error) p.reject(new Error(String(msg.error)));
-    else p.resolve(msg.result);
+    pending.delete(parsed.id);
+    if (parsed.error) p.reject(new Error(String(parsed.error)));
+    else p.resolve(parsed.result);
     return;
   }
 
-  if (msg && typeof msg.id === "number" && msg.method === "forwardCDPCommand") {
+  if (parsed && typeof parsed.id === "number" && parsed.method === "forwardCDPCommand") {
     try {
-      const result = await handleForwardCdpCommand(msg);
-      sendToRelay({ id: msg.id, result });
+      const result = await handleForwardCdpCommand(parsed);
+      sendToRelay({ id: parsed.id, result });
     } catch (err: any) {
-      sendToRelay({ id: msg.id, error: err?.message ?? String(err) });
+      sendToRelay({ id: parsed.id, error: err?.message ?? String(err) });
     }
   }
 }
@@ -337,12 +337,12 @@ async function detachTab(tabId: number, reason: string): Promise<void> {
   broadcastCdpState(tabId, "detached");
 }
 
-async function handleForwardCdpCommand(msg: any): Promise<unknown> {
-  const method = String(msg?.params?.method || "").trim();
-  const params = msg?.params?.params || undefined;
+async function handleForwardCdpCommand(command: any): Promise<unknown> {
+  const method = String(command?.params?.method || "").trim();
+  const params = command?.params?.params || undefined;
   const sessionId: string | undefined =
-    typeof msg?.params?.sessionId === "string"
-      ? msg.params.sessionId
+    typeof command?.params?.sessionId === "string"
+      ? command.params.sessionId
       : undefined;
 
   const bySession = sessionId ? getTabBySessionId(sessionId) : null;

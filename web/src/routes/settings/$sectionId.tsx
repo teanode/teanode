@@ -11,7 +11,7 @@ import { useSettingsContext } from "../../hooks/useSettingsContext";
 import SchemaField from "../../components/SchemaField";
 import type {
   ConfigSchema,
-  JsonSchemaProperty,
+  JSONSchemaProperty,
   SchemaSection,
 } from "../../types";
 import {
@@ -26,14 +26,14 @@ type SectionEntry =
   | {
       type: "field";
       key: string;
-      property: JsonSchemaProperty;
+      property: JSONSchemaProperty;
       dotPath: string;
     }
   | {
       type: "group";
       key: string;
-      property: JsonSchemaProperty;
-      fields: { key: string; property: JsonSchemaProperty; dotPath: string }[];
+      property: JSONSchemaProperty;
+      fields: { key: string; property: JSONSchemaProperty; dotPath: string }[];
     };
 
 /** Resolve the fields for a section from the JSON Schema properties tree. */
@@ -45,12 +45,12 @@ function resolveSectionEntries(
   const rootProperties = schema.properties;
 
   // Collect the (key, property, dotPathPrefix) tuples for this section.
-  const collected: [string, JsonSchemaProperty, string][] = [];
+  const collected: [string, JSONSchemaProperty, string][] = [];
 
   if (section.path) {
     // Navigate to the nested object at `path`.
     const parts = section.path.split(".");
-    let current: Record<string, JsonSchemaProperty> = rootProperties;
+    let current: Record<string, JSONSchemaProperty> = rootProperties;
     for (const part of parts) {
       current = current[part]?.properties ?? {};
     }

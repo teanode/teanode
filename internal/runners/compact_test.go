@@ -124,7 +124,7 @@ func TestTruncateOldToolResults(t *testing.T) {
 		messages = append(messages, providers.ChatMessage{Role: "user", Content: "recent message"})
 	}
 
-	result := truncateOldToolResults(messages, defaultModelRuntimeLimits().MinKeepMessages, defaultModelRuntimeLimits().MaxToolResultChars)
+	result := truncateOldToolResults(messages, defaultModelRuntimeLimits().MinKeepMessages, defaultModelRuntimeLimits().MaxToolResultCharacters)
 
 	// The old tool result (index 3) should be truncated
 	if len(result[3].ContentText()) >= 20000 {
@@ -133,7 +133,7 @@ func TestTruncateOldToolResults(t *testing.T) {
 	if !strings.HasSuffix(result[3].ContentText(), "... (truncated)") {
 		t.Error("truncated content should end with '... (truncated)'")
 	}
-	if len(result[3].ContentText()) > defaultModelRuntimeLimits().MaxToolResultChars+40 {
+	if len(result[3].ContentText()) > defaultModelRuntimeLimits().MaxToolResultCharacters+40 {
 		t.Errorf("truncated content too long: %d", len(result[3].ContentText()))
 	}
 
@@ -151,7 +151,7 @@ func TestTruncateOldToolResultsShortHistory(t *testing.T) {
 		{Role: "tool", Content: strings.Repeat("x", 20000), ToolCallID: "c1", Name: "test"},
 	}
 
-	result := truncateOldToolResults(messages, defaultModelRuntimeLimits().MinKeepMessages, defaultModelRuntimeLimits().MaxToolResultChars)
+	result := truncateOldToolResults(messages, defaultModelRuntimeLimits().MinKeepMessages, defaultModelRuntimeLimits().MaxToolResultCharacters)
 
 	// With fewer than minKeepMessages, nothing should be truncated
 	if result[2].ContentText() != messages[2].ContentText() {
@@ -160,7 +160,7 @@ func TestTruncateOldToolResultsShortHistory(t *testing.T) {
 }
 
 func TestTruncateOldToolResultsHardClear(t *testing.T) {
-	maxChars := defaultModelRuntimeLimits().MaxToolResultChars
+	maxChars := defaultModelRuntimeLimits().MaxToolResultCharacters
 	messages := []providers.ChatMessage{
 		{Role: "system", Content: "prompt"},
 		{Role: "tool", Content: strings.Repeat("x", maxChars*5), ToolCallID: "c1", Name: "test"},

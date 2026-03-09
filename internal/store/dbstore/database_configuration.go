@@ -20,7 +20,7 @@ type databaseConfigurationRecord struct {
 	ModifiedAt time.Time `gorm:"column:modified_at;not null"`
 }
 
-func (databaseConfigurationRecord) TableName() string {
+func (self databaseConfigurationRecord) TableName() string {
 	return "configurations"
 }
 

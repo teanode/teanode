@@ -23,7 +23,7 @@ type databaseSkillRecord struct {
 	ModifiedAt time.Time `gorm:"column:modified_at;not null"`
 }
 
-func (databaseSkillRecord) TableName() string {
+func (self databaseSkillRecord) TableName() string {
 	return "skills"
 }
 

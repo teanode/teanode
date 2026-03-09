@@ -28,7 +28,7 @@ type databaseMemoryItemRecord struct {
 	EmbeddedAt                 *time.Time `gorm:"column:embedded_at"`
 }
 
-func (databaseMemoryItemRecord) TableName() string {
+func (self databaseMemoryItemRecord) TableName() string {
 	return "memory_items"
 }
 

@@ -67,13 +67,13 @@ func createTodo(t *testing.T, ctx context.Context, dataStore store.Store, convID
 	}
 }
 
-func createTodoWithDescription(t *testing.T, ctx context.Context, dataStore store.Store, convID string, title string, desc string, status models.TodoStatus, priority models.TodoPriority) {
+func createTodoWithDescription(t *testing.T, ctx context.Context, dataStore store.Store, convID string, title string, description string, status models.TodoStatus, priority models.TodoPriority) {
 	t.Helper()
 	err := dataStore.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		_, createErr := tx.CreateTodo(ctx, &models.Todo{
 			ConversationID: &convID,
 			Title:          &title,
-			Description:    &desc,
+			Description:    &description,
 			Status:         &status,
 			Priority:       &priority,
 		}, nil)

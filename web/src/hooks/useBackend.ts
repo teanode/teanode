@@ -160,11 +160,11 @@ export function reconcileRunStateFromHistory(
 }
 
 export function convertHistory(
-  msgs: Message[],
+  messages: Message[],
   models: ModelInfo[],
 ): DisplayMessage[] {
   const displayMessages: DisplayMessage[] = [];
-  for (const message of msgs) {
+  for (const message of messages) {
     const extracted = extractContentWithAttachments(message);
     const content = extracted.text;
     const timestamp = message.timestamp;

@@ -22,7 +22,7 @@ type databaseTokenRecord struct {
 	ModifiedAt    time.Time  `gorm:"column:modified_at;not null"`
 }
 
-func (databaseTokenRecord) TableName() string {
+func (self databaseTokenRecord) TableName() string {
 	return "tokens"
 }
 

@@ -43,12 +43,12 @@ func (self *DeepgramClient) TranscribeStream(ctx context.Context, request Stream
 	}
 	headers := http.Header{}
 	headers.Set("Authorization", "Token "+self.apiKey)
-	conn, _, err := self.dialer.DialContext(ctx, listenURL, headers)
+	connection, _, err := self.dialer.DialContext(ctx, listenURL, headers)
 	if err != nil {
 		return nil, fmt.Errorf("open deepgram stream: %w", err)
 	}
 	stream := &deepgramStream{
-		conn:              conn,
+		connection:        connection,
 		events:            make(chan TranscribeStreamEvent, 32),
 		done:              make(chan struct{}),
 		keepAliveInterval: self.keepAliveInterval,
@@ -105,7 +105,7 @@ func deepgramListenURL(baseURL string, request StreamTranscribeRequest) (string,
 }
 
 type deepgramStream struct {
-	conn              *websocket.Conn
+	connection        *websocket.Conn
 	writeMu           sync.Mutex
 	events            chan TranscribeStreamEvent
 	done              chan struct{}
@@ -119,7 +119,7 @@ func (self *deepgramStream) SendAudio(pcm []byte) error {
 	}
 	self.writeMu.Lock()
 	defer self.writeMu.Unlock()
-	return self.conn.WriteMessage(websocket.BinaryMessage, pcm)
+	return self.connection.WriteMessage(websocket.BinaryMessage, pcm)
 }
 
 func (self *deepgramStream) Events() <-chan TranscribeStreamEvent {
@@ -131,9 +131,9 @@ func (self *deepgramStream) Close() error {
 	self.closeOnce.Do(func() {
 		close(self.done)
 		self.writeMu.Lock()
-		_ = self.conn.WriteJSON(map[string]string{"type": "CloseStream"})
+		_ = self.connection.WriteJSON(map[string]string{"type": "CloseStream"})
 		self.writeMu.Unlock()
-		closeErr = self.conn.Close()
+		closeErr = self.connection.Close()
 	})
 	return closeErr
 }
@@ -141,7 +141,7 @@ func (self *deepgramStream) Close() error {
 func (self *deepgramStream) readLoop() {
 	defer close(self.events)
 	for {
-		_, payload, err := self.conn.ReadMessage()
+		_, payload, err := self.connection.ReadMessage()
 		if err != nil {
 			select {
 			case self.events <- TranscribeStreamEvent{Err: fmt.Errorf("deepgram read: %w", err)}:
@@ -202,7 +202,7 @@ func (self *deepgramStream) keepAliveLoop() {
 			return
 		case <-ticker.C:
 			self.writeMu.Lock()
-			err := self.conn.WriteJSON(map[string]string{"type": "KeepAlive"})
+			err := self.connection.WriteJSON(map[string]string{"type": "KeepAlive"})
 			self.writeMu.Unlock()
 			if err != nil {
 				return

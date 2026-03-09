@@ -323,9 +323,9 @@ export function Overlay() {
     if (typeof chrome === "undefined" || !chrome.runtime) return;
     chrome.runtime
       .sendMessage({ type: MSG.CDP_STATE_QUERY, tabId: boundTab.tabId })
-      .then((resp: unknown) => {
-        const msg = resp as CdpStateChanged | undefined;
-        if (msg?.state) setCdpState(msg.state);
+      .then((response: unknown) => {
+        const message = response as CdpStateChanged | undefined;
+        if (message?.state) setCdpState(message.state);
       })
       .catch(() => {});
   }, [boundTab?.tabId]);
@@ -354,10 +354,10 @@ export function Overlay() {
     const onMessage = (message: any): undefined => {
       // CDP state broadcasts (not filtered by boundTab — may arrive before binding).
       if (message.type === MSG.CDP_STATE) {
-        const msg = message as CdpStateChanged;
+        const cdpMessage = message as CdpStateChanged;
         const bt = boundTabRef.current;
-        if (bt && msg.tabId === bt.tabId) {
-          setCdpState(msg.state);
+        if (bt && cdpMessage.tabId === bt.tabId) {
+          setCdpState(cdpMessage.state);
         }
         return undefined;
       }

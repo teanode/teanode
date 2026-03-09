@@ -25,7 +25,7 @@ type databaseTodoRecord struct {
 	ModifiedAt     time.Time  `gorm:"column:modified_at;not null"`
 }
 
-func (databaseTodoRecord) TableName() string {
+func (self databaseTodoRecord) TableName() string {
 	return "todos"
 }
 

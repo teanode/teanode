@@ -22,7 +22,7 @@ type databaseSessionRecord struct {
 	ModifiedAt    time.Time  `gorm:"column:modified_at;not null"`
 }
 
-func (databaseSessionRecord) TableName() string {
+func (self databaseSessionRecord) TableName() string {
 	return "sessions"
 }
 

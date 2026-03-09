@@ -27,7 +27,7 @@ type databaseUserRecord struct {
 	ModifiedAt     time.Time  `gorm:"column:modified_at;not null"`
 }
 
-func (databaseUserRecord) TableName() string {
+func (self databaseUserRecord) TableName() string {
 	return "users"
 }
 

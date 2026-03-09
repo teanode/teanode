@@ -146,9 +146,9 @@ export async function sendRpc(
 
   return new Promise((resolve, reject) => {
     pending.set(id, {
-      resolve: (resp: RpcResponseFrame) => {
-        if (resp.ok) resolve(resp.payload);
-        else reject(new Error(resp.error?.message || "RPC error"));
+      resolve: (response: RpcResponseFrame) => {
+        if (response.ok) resolve(response.payload);
+        else reject(new Error(response.error?.message || "RPC error"));
       },
       reject,
     });
@@ -159,10 +159,10 @@ export async function sendRpc(
       }
     }, 60000);
     pending.set(id, {
-      resolve: (resp: RpcResponseFrame) => {
+      resolve: (response: RpcResponseFrame) => {
         clearTimeout(timeout);
-        if (resp.ok) resolve(resp.payload);
-        else reject(new Error(resp.error?.message || "RPC error"));
+        if (response.ok) resolve(response.payload);
+        else reject(new Error(response.error?.message || "RPC error"));
       },
       reject: (err: Error) => {
         clearTimeout(timeout);
