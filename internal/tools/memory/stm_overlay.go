@@ -1,11 +1,13 @@
-package runners
+package memory
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/runners"
 )
 
 var memoryToolNames = map[string]bool{
@@ -35,6 +37,20 @@ type shortTermMemorySnippet struct {
 	Title   string
 	Snippet string
 	Tags    []string
+}
+
+// BuildOverlay implements tools.OverlayBuilder for the user_memory tool only.
+// It scans conversation history for recent memory retrieve results and returns
+// a formatted overlay string.
+func (self *memoryTool) BuildOverlay(ctx context.Context) (string, error) {
+	if self.configuration.name != "user_memory" {
+		return "", nil
+	}
+	history := runners.ConversationHistoryFromContext(ctx)
+	if len(history) == 0 {
+		return "", nil
+	}
+	return buildShortTermMemoryOverlay(history, defaultShortTermMemoryOverlayOptions), nil
 }
 
 // buildShortTermMemoryOverlay scans conversation history for recent memory
@@ -222,4 +238,24 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "…"
+}
+
+// conversationMessageRole extracts the role string from a conversation message.
+func conversationMessageRole(message models.ConversationMessage) string {
+	if message.Role == nil {
+		return ""
+	}
+	return string(*message.Role)
+}
+
+// conversationMessageContentText extracts the text content from a conversation message.
+func conversationMessageContentText(message models.ConversationMessage) string {
+	if len(message.Content) == 0 {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(message.Content, &text); err == nil {
+		return text
+	}
+	return string(message.Content)
 }

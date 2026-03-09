@@ -1,6 +1,10 @@
 package runners
 
-import "context"
+import (
+	"context"
+
+	"github.com/teanode/teanode/internal/models"
+)
 
 type contextKey int
 
@@ -9,6 +13,7 @@ const (
 	contextKeyRunner
 	contextKeyOrigin
 	contextKeyVoiceMode
+	contextKeyConversationHistory
 )
 
 // Origin represents the channel through which a message was sent.
@@ -74,5 +79,16 @@ func ContextWithVoiceMode(ctx context.Context, mode VoiceMode) context.Context {
 // VoiceModeFromContext returns the voice mode from the context, or VoiceModeNone.
 func VoiceModeFromContext(ctx context.Context) VoiceMode {
 	value, _ := ctx.Value(contextKeyVoiceMode).(VoiceMode)
+	return value
+}
+
+// ContextWithConversationHistory returns a context with the conversation history attached.
+func ContextWithConversationHistory(ctx context.Context, history []*models.ConversationMessage) context.Context {
+	return context.WithValue(ctx, contextKeyConversationHistory, history)
+}
+
+// ConversationHistoryFromContext returns the conversation history from the context, or nil.
+func ConversationHistoryFromContext(ctx context.Context) []*models.ConversationMessage {
+	value, _ := ctx.Value(contextKeyConversationHistory).([]*models.ConversationMessage)
 	return value
 }

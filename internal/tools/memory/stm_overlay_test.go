@@ -1,4 +1,4 @@
-package runners
+package memory
 
 import (
 	"encoding/json"

@@ -1,4 +1,4 @@
-package runners
+package tab
 
 import (
 	"context"
@@ -7,7 +7,18 @@ import (
 
 	"github.com/teanode/teanode/internal/integrations/tabs"
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/runners"
 )
+
+// BuildOverlay implements tools.OverlayBuilder. It returns a formatted reminder
+// when a browser tab is attached to the current conversation.
+func (self *tabTool) BuildOverlay(ctx context.Context) (string, error) {
+	runner := runners.RunnerFromContext(ctx)
+	if runner == nil {
+		return "", nil
+	}
+	return buildTabOverlay(ctx, runner.AgentID, runner.ConversationID), nil
+}
 
 // buildTabOverlay returns a formatted reminder when a browser tab is attached
 // to the current conversation. Best-effort: returns "" if no tab is attached.

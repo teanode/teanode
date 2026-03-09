@@ -14,6 +14,14 @@ type Tool interface {
 	Execute(ctx context.Context, arguments string) (string, error)
 }
 
+// OverlayBuilder is an optional interface that tools can implement to
+// inject late system messages into the LLM prompt. The runner calls
+// BuildOverlay after constructing the conversation history. Return "" to
+// contribute nothing.
+type OverlayBuilder interface {
+	BuildOverlay(ctx context.Context) (string, error)
+}
+
 // builtinRegistry holds factory functions registered by tool packages via init().
 var builtinRegistry []func() []Tool
 
@@ -84,6 +92,28 @@ func (self *ToolRegistry) ApplyFilter(allowed []string) {
 			delete(self.tools, name)
 		}
 	}
+}
+
+// BuildOverlays calls BuildOverlay on every registered tool that implements
+// OverlayBuilder, returning results in stable tool-name-sorted order.
+// Errors are silently skipped (best-effort).
+func (self *ToolRegistry) BuildOverlays(ctx context.Context) []string {
+	if self == nil {
+		return nil
+	}
+	var overlays []string
+	for _, name := range self.Names() {
+		builder, ok := self.tools[name].(OverlayBuilder)
+		if !ok {
+			continue
+		}
+		overlay, err := builder.BuildOverlay(ctx)
+		if err != nil || overlay == "" {
+			continue
+		}
+		overlays = append(overlays, overlay)
+	}
+	return overlays
 }
 
 // Definitions returns all tool definitions for the chat request in stable

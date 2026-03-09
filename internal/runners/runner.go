@@ -712,31 +712,16 @@ func (self *Runner) buildMessages(
 	// Fix interrupted tool calls.
 	messages = fixInterruptedToolCalls(messages)
 
-	// Append short-term memory overlay as a late system message (best-effort).
-	if stmOverlay := buildShortTermMemoryOverlay(history, defaultShortTermMemoryOverlayOptions); stmOverlay != "" {
+	// Append tool-contributed overlays (best-effort, stable order).
+	ctx = ContextWithConversationHistory(ctx, history)
+	for _, overlay := range self.toolRegistry.BuildOverlays(ctx) {
 		messages = append(messages, providers.ChatMessage{
 			Role:    "system",
-			Content: stmOverlay,
+			Content: overlay,
 		})
 	}
 
-	// Append TODO overlay as a late system message (best-effort).
-	if todoOverlay, err := buildTodoOverlay(ctx, self.ConversationID); err == nil && todoOverlay != "" {
-		messages = append(messages, providers.ChatMessage{
-			Role:    "system",
-			Content: todoOverlay,
-		})
-	}
-
-	// Append tab overlay as a late system message (best-effort).
-	if tabOverlay := buildTabOverlay(ctx, self.AgentID, self.ConversationID); tabOverlay != "" {
-		messages = append(messages, providers.ChatMessage{
-			Role:    "system",
-			Content: tabOverlay,
-		})
-	}
-
-	// Append voice overlay as a late system message (best-effort).
+	// Append voice overlay as a late system message (non-tool, context-driven).
 	if voiceOverlay := buildVoiceOverlay(ctx); voiceOverlay != "" {
 		messages = append(messages, providers.ChatMessage{
 			Role:    "system",

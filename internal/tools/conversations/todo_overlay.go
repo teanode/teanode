@@ -1,4 +1,4 @@
-package runners
+package conversations
 
 import (
 	"context"
@@ -6,8 +6,19 @@ import (
 	"strings"
 
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 )
+
+// BuildOverlay implements tools.OverlayBuilder. It returns a formatted TODO
+// summary for the current conversation.
+func (self *conversationTodoTool) BuildOverlay(ctx context.Context) (string, error) {
+	runner := runners.RunnerFromContext(ctx)
+	if runner == nil || runner.ConversationID == "" {
+		return "", nil
+	}
+	return buildTodoOverlay(ctx, runner.ConversationID)
+}
 
 // buildTodoOverlay returns a formatted TODO summary for the given conversation.
 // It is best-effort: errors return ("", err) and the caller should silently skip.
