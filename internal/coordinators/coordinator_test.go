@@ -227,7 +227,7 @@ func TestDeferredLifecycleFiresAfterRunDone(t *testing.T) {
 		AgentID:        agentId,
 		ConversationID: "",
 		Message:        "restart after response",
-		Origin:         runners.OriginTelegram,
+		Origin:         runners.OriginChannel,
 	}, nil)
 	if sendError != nil {
 		t.Fatalf("send error: %v", sendError)

@@ -34,7 +34,7 @@ func stubContext(origin runners.Origin) (context.Context, *questions.QuestionBro
 
 func TestChannelGateTelegram(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx := runners.ContextWithOrigin(context.Background(), runners.OriginTelegram)
+	ctx := runners.ContextWithOrigin(context.Background(), runners.OriginChannel)
 
 	result, err := tool.Execute(ctx, `{"question":"Pick","choices":["A","B"]}`)
 	if err != nil {
@@ -52,7 +52,7 @@ func TestChannelGateTelegram(t *testing.T) {
 
 func TestChannelGateDiscord(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx := runners.ContextWithOrigin(context.Background(), runners.OriginDiscord)
+	ctx := runners.ContextWithOrigin(context.Background(), runners.OriginChannel)
 
 	result, err := tool.Execute(ctx, `{"question":"Pick","choices":["A","B"]}`)
 	if err != nil {

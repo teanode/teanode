@@ -583,7 +583,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
-		Origin:         runners.OriginDiscord,
+		Origin:         runners.OriginChannel,
 		Attachments:    attachments,
 	}, callerCallbacks)
 	if sendError != nil {

@@ -722,7 +722,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
-		Origin:         runners.OriginTelegram,
+		Origin:         runners.OriginChannel,
 		Attachments:    attachments,
 	}, callerCallbacks)
 

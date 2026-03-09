@@ -15,10 +15,9 @@ const (
 type Origin string
 
 const (
-	OriginNone     Origin = ""         // automated or unspecified
-	OriginWeb      Origin = "web"      // web interface
-	OriginTelegram Origin = "telegram" // Telegram bot
-	OriginDiscord  Origin = "discord"  // Discord bot
+	OriginNone    Origin = ""        // automated or unspecified
+	OriginWeb     Origin = "web"     // web interface
+	OriginChannel Origin = "channel" // external channel (Telegram, Discord, etc.)
 )
 
 // VoiceMode represents the type of voice interaction.
