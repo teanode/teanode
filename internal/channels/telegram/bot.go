@@ -405,7 +405,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			return
 		}
 
-		if origin != "webui" {
+		if origin != "web" {
 			return
 		}
 
@@ -510,7 +510,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 		}
 
 		// Session fallback: only notify when the originating web session is disconnected.
-		if subscribedRun.origin == "webui" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
+		if subscribedRun.origin == "web" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
 			self.sendChunked(subscribedRun.chatId, 0, finalText)
 		}
 
@@ -534,7 +534,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			}
 			messageRequest := tgbotapi.NewMessage(subscribedRun.chatId, "Sorry, an error occurred: "+errorText)
 			self.api.Send(messageRequest)
-		} else if state == "error" && subscribedRun.origin == "webui" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
+		} else if state == "error" && subscribedRun.origin == "web" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
 			errorText, _ := payloadMap["error"].(string)
 			if errorText == "" {
 				errorText = "An error occurred while processing the request."
