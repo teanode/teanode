@@ -199,7 +199,16 @@
     "voiceChimesDescription": "Play short audio cues when speech is captured, while the agent is busy, and when speaking is complete",
     "voiceChimesVolume": "Chime volume",
     "voiceCallSttMode": "Client-side speech recognition",
-    "voiceCallSttModeDescription": "Run in-call speech-to-text in your browser instead of on the server. Call TTS remains server-side."
+    "voiceCallSttModeDescription": "Run in-call speech-to-text in your browser instead of on the server. Call TTS remains server-side.",
+    "memory": "Memory",
+    "memoryDescription": "Browse and manage memory items across scopes.",
+    "memorySearch": "Search",
+    "memoryNoItems": "No memory items found.",
+    "memoryDeleteConfirm": "Delete this memory item permanently?",
+    "memoryDeleted": "Memory item deleted",
+    "memoryDeleteFailed": "Failed to delete memory item",
+    "memorySearchPlaceholder": "Search memory items...",
+    "memoryDeleteTitle": "Delete Memory Item"
   },
   "usage": {
     "hour": "Hour",

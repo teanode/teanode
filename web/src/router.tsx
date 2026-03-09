@@ -31,6 +31,7 @@ import SettingsProjectsPage from "./routes/settings/projects";
 import SettingsSkillsPage from "./routes/settings/skills";
 import SettingsSecretsPage from "./routes/settings/secrets";
 import SettingsUsagePage from "./routes/settings/usage";
+import SettingsMemoryPage from "./routes/settings/memory";
 import LoginRoute from "./routes/login";
 import SetupRoute from "./routes/setup";
 
@@ -224,6 +225,13 @@ const settingsUsageRoute = createRoute({
   component: SettingsUsagePage,
 });
 
+// /settings/memory — memory management page
+const settingsMemoryRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "memory",
+  component: SettingsMemoryPage,
+});
+
 // /settings/agents/$agentId → individual agent editor
 const settingsAgentRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -275,6 +283,7 @@ const routeTree = rootRoute.addChildren([
     settingsSecretsRoute,
     settingsUsageRoute,
     settingsAgentRoute,
+    settingsMemoryRoute,
     settingsSectionRoute,
   ]),
 ]);

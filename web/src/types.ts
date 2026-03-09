@@ -476,3 +476,17 @@ export interface DisplayMessage {
   runId?: string; // associates message with a runner for queuing
   attachments?: Attachment[];
 }
+
+// Memory types
+
+export interface MemoryItem {
+  id: string;
+  title?: string;
+  content?: string;
+  tags?: string[];
+  scope?: string;
+  scopeId?: string;
+  createdAt?: string;
+  modifiedAt?: string;
+  archivedAt?: string;
+}

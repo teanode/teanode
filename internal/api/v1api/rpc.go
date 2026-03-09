@@ -9,7 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"fmt"
+
 	"github.com/teanode/teanode/internal/coordinators"
+	"github.com/teanode/teanode/internal/embeddings"
 	"github.com/teanode/teanode/internal/jobs"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/onboarding"
@@ -2156,4 +2159,237 @@ func valueOrTimeUnixMillis(value *time.Time) int64 {
 		return 0
 	}
 	return value.UnixMilli()
+}
+
+// Memory RPC handlers.
+
+type memoryListParameters struct {
+	Scope   string `json:"scope"`
+	ScopeID string `json:"scopeId"`
+	Offset  int    `json:"offset"`
+	Limit   int    `json:"limit"`
+}
+
+func (self *webSocketConnection) handleMemoryList(frame requestFrame) {
+	var parameters memoryListParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.Scope == "" {
+		self.sendError(frame.ID, 400, "scope is required")
+		return
+	}
+	if parameters.ScopeID == "" {
+		self.sendError(frame.ID, 400, "scopeId is required")
+		return
+	}
+	scope := models.Scope(parameters.Scope)
+
+	// Access control: non-admin can only access user scope with own userId.
+	if !self.isAdmin() && scope == models.ScopeUser && parameters.ScopeID != self.userId() {
+		self.sendError(frame.ID, 403, "access denied")
+		return
+	}
+
+	limit := parameters.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+
+	var items []*models.MemoryItem
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		var err error
+		items, err = transaction.ListMemoryItems(ctx, scope, parameters.ScopeID, store.MemoryItemListOptions{}, nil)
+		return err
+	}); err != nil {
+		self.sendError(frame.ID, 500, "listing memory items: "+err.Error())
+		return
+	}
+
+	total := len(items)
+
+	// Apply offset.
+	if parameters.Offset > 0 && parameters.Offset < len(items) {
+		items = items[parameters.Offset:]
+	} else if parameters.Offset >= len(items) {
+		items = nil
+	}
+
+	// Apply limit.
+	if len(items) > limit {
+		items = items[:limit]
+	}
+
+	itemList := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		entry := map[string]interface{}{
+			"id": item.ID,
+		}
+		if item.Title != nil {
+			entry["title"] = *item.Title
+		}
+		if item.Content != nil {
+			entry["content"] = *item.Content
+		}
+		if item.Tags != nil {
+			entry["tags"] = *item.Tags
+		}
+		if item.Scope != nil {
+			entry["scope"] = string(*item.Scope)
+		}
+		if item.ScopeID != nil {
+			entry["scopeId"] = *item.ScopeID
+		}
+		if item.CreatedAt != nil {
+			entry["createdAt"] = item.CreatedAt.Format(time.RFC3339)
+		}
+		if item.ModifiedAt != nil {
+			entry["modifiedAt"] = item.ModifiedAt.Format(time.RFC3339)
+		}
+		if item.ArchivedAt != nil {
+			entry["archivedAt"] = item.ArchivedAt.Format(time.RFC3339)
+		}
+		itemList = append(itemList, entry)
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"items": itemList,
+		"total": total,
+	})
+}
+
+type memorySearchParameters struct {
+	Scope      string `json:"scope"`
+	ScopeID    string `json:"scopeId"`
+	Query      string `json:"query"`
+	MaxResults int    `json:"maxResults"`
+}
+
+func (self *webSocketConnection) handleMemorySearch(frame requestFrame) {
+	var parameters memorySearchParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.Scope == "" || parameters.ScopeID == "" || parameters.Query == "" {
+		self.sendError(frame.ID, 400, "scope, scopeId, and query are required")
+		return
+	}
+	scope := models.Scope(parameters.Scope)
+
+	// Access control: non-admin can only access user scope with own userId.
+	if !self.isAdmin() && scope == models.ScopeUser && parameters.ScopeID != self.userId() {
+		self.sendError(frame.ID, 403, "access denied")
+		return
+	}
+
+	maxResults := parameters.MaxResults
+	if maxResults <= 0 {
+		maxResults = 20
+	}
+
+	var items []*models.MemoryItem
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		var err error
+		items, err = transaction.ListMemoryItems(ctx, scope, parameters.ScopeID, store.MemoryItemListOptions{}, nil)
+		return err
+	}); err != nil {
+		self.sendError(frame.ID, 500, "listing memory items: "+err.Error())
+		return
+	}
+
+	// Create embedder from provider registry.
+	var embedder *embeddings.Embedder
+	if providerRegistry := self.api.coordinator.ProviderRegistry(); providerRegistry != nil {
+		embedder = embeddings.NewEmbedder(providerRegistry)
+	}
+
+	results, totalMatches, method, err := embeddings.SearchMemory(self.ctx, embedder, items, parameters.Query, maxResults)
+	if err != nil {
+		self.sendError(frame.ID, 500, "searching memory: "+err.Error())
+		return
+	}
+
+	snippets := make([]map[string]interface{}, 0, len(results))
+	for _, result := range results {
+		item := result.Item
+		title := ""
+		if item.Title != nil {
+			title = *item.Title
+		}
+		tags := []string{}
+		if item.Tags != nil {
+			tags = *item.Tags
+		}
+		content := ""
+		if item.Content != nil {
+			content = *item.Content
+		}
+		entry := map[string]interface{}{
+			"itemId":  item.ID,
+			"title":   title,
+			"snippet": result.Snippet,
+			"content": content,
+			"score":   result.Score,
+			"tags":    tags,
+		}
+		if item.ModifiedAt != nil {
+			entry["modifiedAt"] = item.ModifiedAt.Format(time.RFC3339)
+		}
+		snippets = append(snippets, entry)
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"snippets":     snippets,
+		"totalMatches": totalMatches,
+		"method":       string(method),
+	})
+}
+
+type memoryDeleteParameters struct {
+	MemoryItemID string `json:"memoryItemId"`
+}
+
+func (self *webSocketConnection) handleMemoryDelete(frame requestFrame) {
+	var parameters memoryDeleteParameters
+	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
+		return
+	}
+	if parameters.MemoryItemID == "" {
+		self.sendError(frame.ID, 400, "memoryItemId is required")
+		return
+	}
+
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		// Fetch item to check ownership.
+		item, err := transaction.GetMemoryItem(ctx, parameters.MemoryItemID, nil)
+		if err != nil {
+			return err
+		}
+
+		// Access control: non-admin can only delete user scope with own userId.
+		if !self.isAdmin() {
+			if item.Scope == nil || *item.Scope != models.ScopeUser {
+				return fmt.Errorf("access denied: can only delete user-scope items")
+			}
+			if item.ScopeID == nil || *item.ScopeID != self.userId() {
+				return fmt.Errorf("access denied: item belongs to another user")
+			}
+		}
+
+		return transaction.DeleteMemoryItem(ctx, parameters.MemoryItemID, nil)
+	}); err != nil {
+		if strings.Contains(err.Error(), "access denied") {
+			self.sendError(frame.ID, 403, err.Error())
+			return
+		}
+		self.sendError(frame.ID, 500, "deleting memory item: "+err.Error())
+		return
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"deleted": true,
+	})
 }

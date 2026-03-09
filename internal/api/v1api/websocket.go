@@ -380,6 +380,12 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleTabCommandResult(frame)
 	case "usages.list":
 		self.handleListUsages(frame)
+	case "memory.list":
+		self.handleMemoryList(frame)
+	case "memory.search":
+		self.handleMemorySearch(frame)
+	case "memory.delete":
+		self.handleMemoryDelete(frame)
 	default:
 		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
 	}
