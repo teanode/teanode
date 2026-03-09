@@ -19,8 +19,6 @@ const (
 	voiceMaxContextTokens = 16000
 )
 
-const voiceCallPromptSuffix = "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists."
-
 func voiceProviderModelHint(kind, provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "openai":
@@ -35,13 +33,6 @@ func voiceProviderModelHint(kind, provider string) string {
 	default:
 		return "unknown"
 	}
-}
-
-func (self *Session) effectivePromptSuffix() string {
-	if strings.TrimSpace(self.PromptSuffix) != "" {
-		return self.PromptSuffix
-	}
-	return voiceCallPromptSuffix
 }
 
 func (self *Session) transcriptionPrompt() string {

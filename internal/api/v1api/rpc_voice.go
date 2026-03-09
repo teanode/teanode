@@ -81,7 +81,6 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 		sessionId,
 		conversationId,
 		agentId,
-		parameters.PromptSuffix,
 		audioIn,
 		audioOut,
 		features,

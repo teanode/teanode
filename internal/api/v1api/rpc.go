@@ -18,6 +18,7 @@ import (
 	"github.com/teanode/teanode/internal/onboarding"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/pubsub"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/schemas"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -230,13 +231,13 @@ func (self *webSocketConnection) handleConversationsSetDefault(frame requestFram
 
 // conversationSendParameters are the parameters for conversations.send.
 type conversationSendParameters struct {
-	ConversationID     string              `json:"conversationId"`
-	Message            string              `json:"message"`
-	ProviderModelName  string              `json:"providerModelName,omitempty"`
-	AgentID            string              `json:"agentId,omitempty"`
-	OriginID           string              `json:"originId,omitempty"`
-	Attachments        []map[string]string `json:"attachments,omitempty"`
-	SystemPromptSuffix string              `json:"systemPromptSuffix,omitempty"`
+	ConversationID    string              `json:"conversationId"`
+	Message           string              `json:"message"`
+	ProviderModelName string              `json:"providerModelName,omitempty"`
+	AgentID           string              `json:"agentId,omitempty"`
+	OriginID          string              `json:"originId,omitempty"`
+	Attachments       []map[string]string `json:"attachments,omitempty"`
+	VoiceMode         string              `json:"voiceMode,omitempty"`
 }
 
 // handleConversationsSend: send user message, trigger agent run via gateway.
@@ -257,15 +258,15 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 	}
 
 	handle, sendError := self.api.coordinator.Run(self.ctx, coordinators.RunParameters{
-		AgentID:            parameters.AgentID,
-		ConversationID:     parameters.ConversationID,
-		Message:            parameters.Message,
-		ProviderModelName:  parameters.ProviderModelName,
-		OriginID:           parameters.OriginID,
-		Origin:             "webui",
-		OriginSessionID:    self.sessionId(),
-		Attachments:        parameters.Attachments,
-		SystemPromptSuffix: parameters.SystemPromptSuffix,
+		AgentID:           parameters.AgentID,
+		ConversationID:    parameters.ConversationID,
+		Message:           parameters.Message,
+		ProviderModelName: parameters.ProviderModelName,
+		OriginID:          parameters.OriginID,
+		Origin:            "webui",
+		OriginSessionID:   self.sessionId(),
+		Attachments:       parameters.Attachments,
+		VoiceMode:         runners.VoiceMode(parameters.VoiceMode),
 	}, nil)
 	if sendError != nil {
 		self.sendError(frame.ID, 500, sendError.Error())

@@ -33,8 +33,6 @@ import type {
 import { useWebSocket } from "./useWebSocket";
 import { normalizeContent, type ExtractedContent } from "../contentUtils";
 
-const VOICE_INPUT_PROMPT =
-  "The user dictated this message using voice input and the response may be read aloud. Keep the response concise and avoid heavy markdown formatting.";
 
 let messageIdCounter = 0;
 function nextMessageId(): string {
@@ -1364,7 +1362,7 @@ export function useBackend() {
       text: string,
       model?: string,
       attachments?: Attachment[],
-      systemPromptSuffix?: string,
+      voiceMode?: "call" | "input",
     ) => {
       if (!text.trim() && (!attachments || attachments.length === 0)) return;
       // Allow sending while running — backend queues per-conversation
@@ -1414,7 +1412,7 @@ export function useBackend() {
         rpcParams.agentId = currentAgentIdRef.current;
       if (attachments && attachments.length > 0)
         rpcParams.attachments = attachments;
-      if (systemPromptSuffix) rpcParams.systemPromptSuffix = systemPromptSuffix;
+      if (voiceMode) rpcParams.voiceMode = voiceMode;
 
       sendRpc<ConversationSendResult>("conversations.send", rpcParams)
         .then((res) => {
@@ -1642,14 +1640,9 @@ export function useBackend() {
   );
 
   const sendVoiceMessage = useCallback(
-    (text: string, model?: string, systemPromptSuffix?: string) => {
+    (text: string, model?: string, voiceMode?: "call" | "input") => {
       lastSentViaMicRef.current = true;
-      sendMessage(
-        text,
-        model,
-        undefined,
-        systemPromptSuffix ?? VOICE_INPUT_PROMPT,
-      );
+      sendMessage(text, model, undefined, voiceMode ?? "input");
     },
     [sendMessage],
   );

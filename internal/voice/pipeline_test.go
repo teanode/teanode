@@ -218,7 +218,6 @@ func newPipelineSessionWithFeatures(text string, features Features) (*Session, *
 		"sess",
 		"conv",
 		"agent",
-		"",
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 16000, Channels: 1},
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 24000, Channels: 1},
 		features,
@@ -243,7 +242,6 @@ func newPipelineSessionWithEventsAndFeatures(text string, features Features) (*S
 		"sess",
 		"conv",
 		"agent",
-		"",
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 16000, Channels: 1},
 		AudioFormat{Codec: "pcm_s16le", SampleRateHz: 24000, Channels: 1},
 		features,
@@ -351,15 +349,15 @@ func TestCommitNextPendingTurnAfterTerminal(t *testing.T) {
 	if parameters.Message != "hello from queued turn" {
 		t.Fatalf("unexpected drained message %q", parameters.Message)
 	}
-	if parameters.SystemPromptSuffix == "" {
-		t.Fatal("expected voice system prompt suffix on committed turn")
+	if parameters.VoiceMode != runners.VoiceModeCall {
+		t.Fatalf("expected VoiceMode %q, got %q", runners.VoiceModeCall, parameters.VoiceMode)
 	}
 	if s.GetCurrentRunID() == "" {
 		t.Fatal("expected run id set after committing drained turn")
 	}
 }
 
-func TestCommitVoiceTurnIncludesPromptSuffix(t *testing.T) {
+func TestCommitVoiceTurnIncludesVoiceMode(t *testing.T) {
 	s, dispatcher := newPipelineSession("this should commit now")
 
 	s.transcribeAndSend("turn-commit", makePCMFrame(12000, 320))
@@ -368,8 +366,8 @@ func TestCommitVoiceTurnIncludesPromptSuffix(t *testing.T) {
 		t.Fatalf("expected one send call, got %d", dispatcher.sendCount())
 	}
 	parameters := dispatcher.lastSend()
-	if parameters.SystemPromptSuffix == "" {
-		t.Fatal("expected non-empty voice prompt suffix")
+	if parameters.VoiceMode != runners.VoiceModeCall {
+		t.Fatalf("expected VoiceMode %q, got %q", runners.VoiceModeCall, parameters.VoiceMode)
 	}
 }
 

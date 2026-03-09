@@ -8,6 +8,16 @@ const (
 	contextKeySpawnDepth contextKey = iota
 	contextKeyRunner
 	contextKeyOrigin
+	contextKeyVoiceMode
+)
+
+// VoiceMode represents the type of voice interaction.
+type VoiceMode string
+
+const (
+	VoiceModeNone  VoiceMode = ""      // normal text interaction
+	VoiceModeCall  VoiceMode = "call"  // live voice call (server or client STT)
+	VoiceModeInput VoiceMode = "input" // one-off voice-dictated message
 )
 
 // DefaultMaxSpawnDepth is the maximum recursion depth for subagent spawning.
@@ -43,5 +53,16 @@ func ContextWithOrigin(ctx context.Context, origin string) context.Context {
 // OriginFromContext returns the channel origin from the context, or "".
 func OriginFromContext(ctx context.Context) string {
 	value, _ := ctx.Value(contextKeyOrigin).(string)
+	return value
+}
+
+// ContextWithVoiceMode returns a context annotated with a voice mode.
+func ContextWithVoiceMode(ctx context.Context, mode VoiceMode) context.Context {
+	return context.WithValue(ctx, contextKeyVoiceMode, mode)
+}
+
+// VoiceModeFromContext returns the voice mode from the context, or VoiceModeNone.
+func VoiceModeFromContext(ctx context.Context) VoiceMode {
+	value, _ := ctx.Value(contextKeyVoiceMode).(VoiceMode)
 	return value
 }
