@@ -21,7 +21,10 @@ type fileSystemStore struct {
 }
 
 type fileSystemTransaction struct {
-	store *fileSystemStore
+	store        *fileSystemStore
+	memoryCache  map[string][]*storeMemoryItemRecord
+	usagesCache  []*models.Usage
+	usagesLoaded bool
 }
 
 func Open(options Options) (store.Store, error) {

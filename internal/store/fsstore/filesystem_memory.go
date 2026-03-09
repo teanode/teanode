@@ -2,9 +2,7 @@ package fsstore
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,8 +15,62 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
 	"github.com/teanode/teanode/internal/util/timeutil"
-	"gopkg.in/yaml.v3"
+	"github.com/vmihailenco/msgpack/v5"
 )
+
+func (self *fileSystemTransaction) memoryCacheKey(scope models.Scope, scopeId string) string {
+	return string(scope) + "\x00" + scopeId
+}
+
+func (self *fileSystemTransaction) readMemoryItems(scope models.Scope, scopeId string) ([]*storeMemoryItemRecord, error) {
+	key := self.memoryCacheKey(scope, scopeId)
+	if self.memoryCache != nil {
+		if cached, ok := self.memoryCache[key]; ok {
+			return cached, nil
+		}
+	}
+
+	filePath := self.memoryFilePath(scope, scopeId)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var records []*storeMemoryItemRecord
+	if err := msgpack.Unmarshal(data, &records); err != nil {
+		return nil, err
+	}
+
+	if self.memoryCache == nil {
+		self.memoryCache = make(map[string][]*storeMemoryItemRecord)
+	}
+	self.memoryCache[key] = records
+	return records, nil
+}
+
+func (self *fileSystemTransaction) writeMemoryItems(scope models.Scope, scopeId string, records []*storeMemoryItemRecord) error {
+	filePath := self.memoryFilePath(scope, scopeId)
+	directory := filepath.Dir(filePath)
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return err
+	}
+	data, err := msgpack.Marshal(records)
+	if err != nil {
+		return err
+	}
+	if writeErr := atomicfile.WriteFile(filePath, data); writeErr != nil {
+		return writeErr
+	}
+
+	key := self.memoryCacheKey(scope, scopeId)
+	if self.memoryCache == nil {
+		self.memoryCache = make(map[string][]*storeMemoryItemRecord)
+	}
+	self.memoryCache[key] = records
+	return nil
+}
 
 func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *models.MemoryItem, options *store.Option) (*models.MemoryItem, error) {
 	if item == nil || item.Scope == nil || item.ScopeID == nil {
@@ -36,77 +88,12 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 		itemId = security.NewULID()
 	}
 
-	content := ""
-	if item.Content != nil {
-		content = *item.Content
-	}
-
-	record := storeMemoryItemRecord{
-		storeMemoryItemFrontmatter: storeMemoryItemFrontmatter{
-			ID:         itemId,
-			Scope:      string(scope),
-			ScopeID:    scopeId,
-			CreatedAt:  timeutil.Timestamp{Time: now},
-			ModifiedAt: timeutil.Timestamp{Time: now},
-		},
-		Content: content,
-	}
-	if item.Title != nil {
-		record.Title = *item.Title
-	}
-	if item.Tags != nil {
-		record.Tags = *item.Tags
-	}
-	if item.EmbeddingProviderModelName != nil {
-		record.EmbeddingProviderModelName = *item.EmbeddingProviderModelName
-	}
-	if item.Embedding != nil {
-		record.Embedding = encodeEmbeddingBase64(*item.Embedding)
-	}
-	if item.EmbeddedAt != nil {
-		record.EmbeddedAt = timeutil.Timestamp{Time: *item.EmbeddedAt}
-	}
-
-	filePath := self.memoryItemFilePath(scope, scopeId, itemId)
-	if err := writeMemoryItemFile(filePath, &record); err != nil {
-		return nil, err
-	}
-	return fsMemoryRecordToModel(&record), nil
-}
-
-func (self *fileSystemTransaction) GetMemoryItem(ctx context.Context, memoryItemId string, options *store.Option) (*models.MemoryItem, error) {
-	filePath, err := self.findMemoryItemFilePath(memoryItemId)
-	if err != nil {
-		return nil, err
-	}
-	record, err := readMemoryItemFile(filePath)
-	if err != nil {
-		return nil, err
-	}
-	if !record.ArchivedAt.IsZero() {
-		return nil, store.ErrNotFound
-	}
-	return fsMemoryRecordToModel(record), nil
-}
-
-func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryItemId string, modifier func(*models.MemoryItem) error, options *store.Option) (*models.MemoryItem, error) {
-	item, getError := self.GetMemoryItem(ctx, memoryItemId, options)
-	if getError != nil {
-		return nil, getError
-	}
-	if modifierError := modifier(item); modifierError != nil {
-		return nil, modifierError
-	}
-
-	now := time.Now()
-	record := storeMemoryItemRecord{
-		storeMemoryItemFrontmatter: storeMemoryItemFrontmatter{
-			ID:         item.ID,
-			Scope:      string(*item.Scope),
-			ScopeID:    *item.ScopeID,
-			CreatedAt:  timeutil.Timestamp{Time: *item.CreatedAt},
-			ModifiedAt: timeutil.Timestamp{Time: now},
-		},
+	record := &storeMemoryItemRecord{
+		ID:         itemId,
+		Scope:      string(scope),
+		ScopeID:    scopeId,
+		CreatedAt:  timeutil.Timestamp{Time: now},
+		ModifiedAt: timeutil.Timestamp{Time: now},
 	}
 	if item.Title != nil {
 		record.Title = *item.Title
@@ -121,25 +108,88 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 		record.EmbeddingProviderModelName = *item.EmbeddingProviderModelName
 	}
 	if item.Embedding != nil {
-		record.Embedding = encodeEmbeddingBase64(*item.Embedding)
+		record.Embedding = *item.Embedding
 	}
 	if item.EmbeddedAt != nil {
 		record.EmbeddedAt = timeutil.Timestamp{Time: *item.EmbeddedAt}
 	}
 
-	filePath := self.memoryItemFilePath(*item.Scope, *item.ScopeID, item.ID)
-	if err := writeMemoryItemFile(filePath, &record); err != nil {
+	records, err := self.readMemoryItems(scope, scopeId)
+	if err != nil {
 		return nil, err
 	}
-	return fsMemoryRecordToModel(&record), nil
+	records = append(records, record)
+	if err := self.writeMemoryItems(scope, scopeId, records); err != nil {
+		return nil, err
+	}
+	return fsMemoryRecordToModel(record), nil
+}
+
+func (self *fileSystemTransaction) GetMemoryItem(ctx context.Context, memoryItemId string, options *store.Option) (*models.MemoryItem, error) {
+	scope, scopeId, record, err := self.findMemoryItemRecord(memoryItemId)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = scope, scopeId
+	if !record.ArchivedAt.IsZero() {
+		return nil, store.ErrNotFound
+	}
+	return fsMemoryRecordToModel(record), nil
+}
+
+func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryItemId string, modifier func(*models.MemoryItem) error, options *store.Option) (*models.MemoryItem, error) {
+	scope, scopeId, record, err := self.findMemoryItemRecord(memoryItemId)
+	if err != nil {
+		return nil, err
+	}
+	if !record.ArchivedAt.IsZero() {
+		return nil, store.ErrNotFound
+	}
+
+	item := fsMemoryRecordToModel(record)
+	if modifierError := modifier(item); modifierError != nil {
+		return nil, modifierError
+	}
+
+	now := time.Now()
+	record.ModifiedAt = timeutil.Timestamp{Time: now}
+	if item.Title != nil {
+		record.Title = *item.Title
+	}
+	if item.Content != nil {
+		record.Content = *item.Content
+	}
+	if item.Tags != nil {
+		record.Tags = *item.Tags
+	}
+	if item.EmbeddingProviderModelName != nil {
+		record.EmbeddingProviderModelName = *item.EmbeddingProviderModelName
+	}
+	if item.Embedding != nil {
+		record.Embedding = *item.Embedding
+	}
+	if item.EmbeddedAt != nil {
+		record.EmbeddedAt = timeutil.Timestamp{Time: *item.EmbeddedAt}
+	}
+
+	records, readErr := self.readMemoryItems(scope, scopeId)
+	if readErr != nil {
+		return nil, readErr
+	}
+	for i, r := range records {
+		if r.ID == memoryItemId {
+			records[i] = record
+			break
+		}
+	}
+	if err := self.writeMemoryItems(scope, scopeId, records); err != nil {
+		return nil, err
+	}
+	return fsMemoryRecordToModel(record), nil
 }
 
 func (self *fileSystemTransaction) DeleteMemoryItem(ctx context.Context, memoryItemId string, options *store.Option) error {
-	filePath, err := self.findMemoryItemFilePath(memoryItemId)
-	if err != nil {
-		return err
-	}
-	record, err := readMemoryItemFile(filePath)
+	scope, scopeId, record, err := self.findMemoryItemRecord(memoryItemId)
 	if err != nil {
 		return err
 	}
@@ -147,17 +197,24 @@ func (self *fileSystemTransaction) DeleteMemoryItem(ctx context.Context, memoryI
 		return store.ErrNotFound
 	}
 	record.ArchivedAt = timeutil.Timestamp{Time: time.Now()}
-	return writeMemoryItemFile(filePath, record)
+
+	records, readErr := self.readMemoryItems(scope, scopeId)
+	if readErr != nil {
+		return readErr
+	}
+	for i, r := range records {
+		if r.ID == memoryItemId {
+			records[i] = record
+			break
+		}
+	}
+	return self.writeMemoryItems(scope, scopeId, records)
 }
 
 func (self *fileSystemTransaction) ListMemoryItems(ctx context.Context, scope models.Scope, scopeId string, listOptions store.MemoryItemListOptions, options *store.Option) ([]*models.MemoryItem, error) {
-	directory := self.memoryItemDirectory(scope, scopeId)
-	entries, readError := os.ReadDir(directory)
-	if os.IsNotExist(readError) {
-		return []*models.MemoryItem{}, nil
-	}
-	if readError != nil {
-		return nil, readError
+	records, err := self.readMemoryItems(scope, scopeId)
+	if err != nil {
+		return nil, err
 	}
 
 	includeArchived := listOptions.IncludeArchived != nil && *listOptions.IncludeArchived
@@ -166,16 +223,8 @@ func (self *fileSystemTransaction) ListMemoryItems(ctx context.Context, scope mo
 		filterTags = *listOptions.Tags
 	}
 
-	items := make([]*models.MemoryItem, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-		filePath := directory + "/" + entry.Name()
-		record, err := readMemoryItemFile(filePath)
-		if err != nil {
-			continue
-		}
+	items := make([]*models.MemoryItem, 0, len(records))
+	for _, record := range records {
 		if !includeArchived && !record.ArchivedAt.IsZero() {
 			continue
 		}
@@ -268,92 +317,39 @@ func (self *fileSystemTransaction) SearchMemoryItems(ctx context.Context, scope 
 	return results, nil
 }
 
-// findMemoryItemFilePath searches for a memory item file by ID across all scope directories.
-func (self *fileSystemTransaction) findMemoryItemFilePath(itemId string) (string, error) {
-	filename := itemId + ".md"
-
-	// Check agents.
-	agentPattern := self.agentsDirectory() + "/*/memory/" + filename
-	if matches, _ := doubleStarGlob(agentPattern); len(matches) > 0 {
-		return matches[0], nil
-	}
-
-	// Check users.
-	userPattern := self.usersDirectory() + "/*/memory/" + filename
-	if matches, _ := doubleStarGlob(userPattern); len(matches) > 0 {
-		return matches[0], nil
-	}
-
-	// Check projects.
-	projectPattern := self.projectsDirectory() + "/*/memory/" + filename
-	if matches, _ := doubleStarGlob(projectPattern); len(matches) > 0 {
-		return matches[0], nil
-	}
-
-	return "", store.ErrNotFound
-}
-
-func readMemoryItemFile(filePath string) (*storeMemoryItemRecord, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, store.ErrNotFound
+// findMemoryItemRecord searches for a memory item by ID across all scope directories.
+func (self *fileSystemTransaction) findMemoryItemRecord(itemId string) (models.Scope, string, *storeMemoryItemRecord, error) {
+	for _, scope := range []models.Scope{models.ScopeAgent, models.ScopeUser, models.ScopeProject} {
+		var scopeDir string
+		switch scope {
+		case models.ScopeAgent:
+			scopeDir = self.agentsDirectory()
+		case models.ScopeUser:
+			scopeDir = self.usersDirectory()
+		case models.ScopeProject:
+			scopeDir = self.projectsDirectory()
 		}
-		return nil, err
-	}
-	return parseMemoryMarkdown(data)
-}
-
-func parseMemoryMarkdown(data []byte) (*storeMemoryItemRecord, error) {
-	content := strings.ReplaceAll(string(data), "\r\n", "\n")
-	content = strings.ReplaceAll(content, "\r", "\n")
-	if !strings.HasPrefix(content, "---\n") {
-		return nil, fmt.Errorf("missing frontmatter delimiter")
-	}
-	rest := content[4:]
-	closingIndex := strings.Index(rest, "\n---\n")
-	if closingIndex < 0 {
-		if strings.HasSuffix(rest, "\n---") {
-			closingIndex = len(rest) - 4
-		} else {
-			return nil, fmt.Errorf("missing closing frontmatter delimiter")
+		entries, err := os.ReadDir(scopeDir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			scopeId := entry.Name()
+			records, readErr := self.readMemoryItems(scope, scopeId)
+			if readErr != nil {
+				continue
+			}
+			for _, record := range records {
+				if record.ID == itemId {
+					return scope, scopeId, record, nil
+				}
+			}
 		}
 	}
-	frontmatterYAML := rest[:closingIndex]
-	var frontmatter storeMemoryItemFrontmatter
-	if unmarshalError := yaml.Unmarshal([]byte(frontmatterYAML), &frontmatter); unmarshalError != nil {
-		return nil, fmt.Errorf("parsing frontmatter: %w", unmarshalError)
-	}
-	body := ""
-	bodyStart := closingIndex + 5
-	if bodyStart <= len(rest) {
-		body = strings.TrimSpace(rest[bodyStart:])
-	}
-	return &storeMemoryItemRecord{
-		storeMemoryItemFrontmatter: frontmatter,
-		Content:                    body,
-	}, nil
-}
-
-func writeMemoryItemFile(filePath string, record *storeMemoryItemRecord) error {
-	directory := filepath.Dir(filePath)
-	if err := os.MkdirAll(directory, 0755); err != nil {
-		return err
-	}
-	yamlData, marshalError := yaml.Marshal(&record.storeMemoryItemFrontmatter)
-	if marshalError != nil {
-		return marshalError
-	}
-	var buf bytes.Buffer
-	buf.WriteString("---\n")
-	buf.Write(yamlData)
-	buf.WriteString("---\n")
-	if record.Content != "" {
-		buf.WriteString("\n")
-		buf.WriteString(record.Content)
-		buf.WriteString("\n")
-	}
-	return atomicfile.WriteFile(filePath, buf.Bytes())
+	return "", "", nil, store.ErrNotFound
 }
 
 func fsMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {
@@ -392,10 +388,10 @@ func fsMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {
 		embeddingProviderModelName := record.EmbeddingProviderModelName
 		item.EmbeddingProviderModelName = &embeddingProviderModelName
 	}
-	if record.Embedding != "" {
-		if embedding, decodeError := decodeEmbeddingBase64(record.Embedding); decodeError == nil {
-			item.Embedding = &embedding
-		}
+	if len(record.Embedding) > 0 {
+		embedding := make([]float64, len(record.Embedding))
+		copy(embedding, record.Embedding)
+		item.Embedding = &embedding
 	}
 	if !record.EmbeddedAt.IsZero() {
 		embeddedAt := record.EmbeddedAt.Time

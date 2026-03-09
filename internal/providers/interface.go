@@ -49,6 +49,7 @@ type StreamingSynthesizeProvider interface {
 // EmbeddingProvider is an optional capability interface for computing vector embeddings.
 type EmbeddingProvider interface {
 	Embed(ctx context.Context, model string, inputText string) ([]float64, error)
+	EmbedMany(ctx context.Context, model string, inputTexts []string) ([][]float64, error)
 }
 
 // TranscribeRequest is the input for speech-to-text.

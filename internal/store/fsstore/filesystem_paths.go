@@ -116,33 +116,17 @@ func (self *fileSystemTransaction) conversationTodoFilePath(userId, agentId, con
 	return filepath.Join(self.conversationTodosDirectory(userId, agentId, conversationId), todoId+".yaml")
 }
 
-func (self *fileSystemTransaction) agentMemoryDirectory(agentId string) string {
-	return filepath.Join(self.agentDirectory(agentId), "memory")
-}
-
-func (self *fileSystemTransaction) userMemoryDirectory(userId string) string {
-	return filepath.Join(self.userDirectory(userId), "memory")
-}
-
-func (self *fileSystemTransaction) projectMemoryDirectory(projectId string) string {
-	return filepath.Join(self.projectDirectory(projectId), "memory")
-}
-
-func (self *fileSystemTransaction) memoryItemDirectory(scope models.Scope, scopeId string) string {
+func (self *fileSystemTransaction) memoryFilePath(scope models.Scope, scopeId string) string {
 	switch scope {
 	case models.ScopeAgent:
-		return self.agentMemoryDirectory(scopeId)
+		return filepath.Join(self.agentDirectory(scopeId), "memory.msgpack")
 	case models.ScopeUser:
-		return self.userMemoryDirectory(scopeId)
+		return filepath.Join(self.userDirectory(scopeId), "memory.msgpack")
 	case models.ScopeProject:
-		return self.projectMemoryDirectory(scopeId)
+		return filepath.Join(self.projectDirectory(scopeId), "memory.msgpack")
 	default:
 		return ""
 	}
-}
-
-func (self *fileSystemTransaction) memoryItemFilePath(scope models.Scope, scopeId, itemId string) string {
-	return filepath.Join(self.memoryItemDirectory(scope, scopeId), itemId+".md")
 }
 
 func (self *fileSystemTransaction) trashDirectory() string {

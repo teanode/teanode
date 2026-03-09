@@ -556,14 +556,17 @@ func (self *Client) Synthesize(ctx context.Context, request SynthesizeRequest) (
 }
 
 // embeddingRequest is the request body for the /embeddings API.
+// Input is any because the OpenAI API accepts both a single string and an
+// array of strings.
 type embeddingRequest struct {
-	Input string `json:"input"`
+	Input any    `json:"input"`
 	Model string `json:"model"`
 }
 
 // embeddingResponse is the response from the /embeddings API.
 type embeddingResponse struct {
 	Data []struct {
+		Index     int       `json:"index"`
 		Embedding []float64 `json:"embedding"`
 	} `json:"data"`
 	Error *struct {
@@ -623,4 +626,68 @@ func (self *Client) Embed(ctx context.Context, model string, inputText string) (
 	}
 
 	return result.Data[0].Embedding, nil
+}
+
+// EmbedMany calls the OpenAI-compatible /embeddings API with multiple inputs
+// and returns the resulting vectors in the same order as the inputs.
+func (self *Client) EmbedMany(ctx context.Context, model string, inputTexts []string) ([][]float64, error) {
+	if self.apiKey == "" {
+		return nil, fmt.Errorf("embeddings: API key not configured")
+	}
+	if len(inputTexts) == 0 {
+		return nil, nil
+	}
+
+	requestBody := embeddingRequest{
+		Input: inputTexts,
+		Model: model,
+	}
+	encoded, marshalError := json.Marshal(requestBody)
+	if marshalError != nil {
+		return nil, fmt.Errorf("embeddings: marshal request: %w", marshalError)
+	}
+
+	httpRequest, requestError := http.NewRequestWithContext(ctx, http.MethodPost, self.baseUrl+"/embeddings", bytes.NewReader(encoded))
+	if requestError != nil {
+		return nil, fmt.Errorf("embeddings: create request: %w", requestError)
+	}
+	if err := self.setHeaders(httpRequest); err != nil {
+		return nil, err
+	}
+
+	response, doError := self.httpClient.Do(httpRequest)
+	if doError != nil {
+		return nil, fmt.Errorf("embeddings: request failed: %w", doError)
+	}
+	defer response.Body.Close()
+
+	body, readError := io.ReadAll(response.Body)
+	if readError != nil {
+		return nil, fmt.Errorf("embeddings: read response: %w", readError)
+	}
+
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("embeddings: HTTP %d: %s", response.StatusCode, string(body))
+	}
+
+	var result embeddingResponse
+	if unmarshalError := json.Unmarshal(body, &result); unmarshalError != nil {
+		return nil, fmt.Errorf("embeddings: parse response: %w", unmarshalError)
+	}
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("embeddings: API error: %s", result.Error.Message)
+	}
+
+	if len(result.Data) != len(inputTexts) {
+		return nil, fmt.Errorf("embeddings: expected %d results, got %d", len(inputTexts), len(result.Data))
+	}
+
+	// The API may return data entries in arbitrary order via the index field;
+	// re-order to match input order.
+	vectors := make([][]float64, len(inputTexts))
+	for _, entry := range result.Data {
+		vectors[entry.Index] = entry.Embedding
+	}
+	return vectors, nil
 }

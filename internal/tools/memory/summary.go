@@ -138,7 +138,7 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 		}
 		var itemId string
 		if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-			addResult := self.batchAdd(ctx, tx, scope, scopeId, 0, persistItem)
+			addResult := self.batchAdd(ctx, tx, scope, scopeId, 0, persistItem, precomputedEmbedding{})
 			if !addResult.Success {
 				return fmt.Errorf("persist failed: %s", addResult.Error)
 			}

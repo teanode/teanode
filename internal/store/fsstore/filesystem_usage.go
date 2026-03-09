@@ -29,9 +29,15 @@ func (self *fileSystemTransaction) usagesFilename() string {
 }
 
 func (self *fileSystemTransaction) readUsages() ([]*models.Usage, error) {
+	if self.usagesLoaded {
+		return self.usagesCache, nil
+	}
+
 	data, err := os.ReadFile(self.usagesFilename())
 	if err != nil {
 		if os.IsNotExist(err) {
+			self.usagesLoaded = true
+			self.usagesCache = nil
 			return nil, nil
 		}
 		return nil, err
@@ -40,6 +46,8 @@ func (self *fileSystemTransaction) readUsages() ([]*models.Usage, error) {
 	if err := msgpack.Unmarshal(data, &usages); err != nil {
 		return nil, err
 	}
+	self.usagesLoaded = true
+	self.usagesCache = usages
 	return usages, nil
 }
 
@@ -48,7 +56,12 @@ func (self *fileSystemTransaction) writeUsages(usages []*models.Usage) error {
 	if err != nil {
 		return err
 	}
-	return atomicfile.WriteFile(self.usagesFilename(), data)
+	if writeErr := atomicfile.WriteFile(self.usagesFilename(), data); writeErr != nil {
+		return writeErr
+	}
+	self.usagesLoaded = true
+	self.usagesCache = usages
+	return nil
 }
 
 // evictUsages trims entries per (userId, providerName, modelName, intervalType)

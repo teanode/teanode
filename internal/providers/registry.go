@@ -119,6 +119,14 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 		))
 	}
 
+	// Default embedding model to openai:text-embedding-3-small when no
+	// explicit embedding model is configured and the openai provider exists.
+	if providerRegistry.embeddingProviderModelName == "" {
+		if _, ok := providerRegistry.clients["openai"]; ok {
+			providerRegistry.embeddingProviderModelName = "openai:text-embedding-3-small"
+		}
+	}
+
 	hasKey := false
 	for _, providerConfiguration := range *modelsConfiguration.Providers {
 		if providerConfiguration.GetAPIKey() != "" {
@@ -151,6 +159,11 @@ func (self *ProviderRegistry) Register(name string, client Provider) {
 // name (e.g. "openai:text-embedding-3-small"), or "" if not configured.
 func (self *ProviderRegistry) GetEmbeddingProviderModelName() string {
 	return self.embeddingProviderModelName
+}
+
+// SetEmbeddingProviderModelName sets the embedding provider model name.
+func (self *ProviderRegistry) SetEmbeddingProviderModelName(name string) {
+	self.embeddingProviderModelName = name
 }
 
 // GetSummarizerProviderModelName returns the configured summarizer provider model

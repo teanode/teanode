@@ -38,6 +38,21 @@ func (self *stubEmbeddingsProvider) Embed(_ context.Context, _ string, inputText
 	return vector, nil
 }
 
+func (self *stubEmbeddingsProvider) EmbedMany(_ context.Context, _ string, inputTexts []string) ([][]float64, error) {
+	vectors := make([][]float64, len(inputTexts))
+	for index, text := range inputTexts {
+		self.calls++
+		vector := make([]float64, len(self.keywords))
+		for keywordIndex, keyword := range self.keywords {
+			if containsWord(text, keyword) {
+				vector[keywordIndex] = 1.0
+			}
+		}
+		vectors[index] = vector
+	}
+	return vectors, nil
+}
+
 func containsWord(text, word string) bool {
 	// Simple substring check for test purposes.
 	for _, field := range splitWords(text) {
@@ -76,11 +91,16 @@ func (self *failingEmbeddingsProvider) Embed(_ context.Context, _ string, _ stri
 	return nil, fmt.Errorf("embedding service unavailable")
 }
 
+func (self *failingEmbeddingsProvider) EmbedMany(_ context.Context, _ string, _ []string) ([][]float64, error) {
+	return nil, fmt.Errorf("embedding service unavailable")
+}
+
 // buildEmbeddingRegistry creates a provider registry with the given stub
-// registered as "openai".
+// registered as "openai" and embedding enabled.
 func buildEmbeddingRegistry(stub providers.Provider) *providers.ProviderRegistry {
 	registry := providers.NewEmptyProviderRegistry()
 	registry.Register("openai", stub)
+	registry.SetEmbeddingProviderModelName("openai:text-embedding-3-small")
 	return registry
 }
 

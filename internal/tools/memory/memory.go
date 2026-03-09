@@ -474,13 +474,16 @@ func (self *memoryTool) executeBatch(ctx context.Context, scope models.Scope, sc
 		return "", fmt.Errorf("items must contain at most %d entries, got %d", maxBatchItems, len(items))
 	}
 
+	// Pre-compute embeddings in batch for add/update items.
+	batchEmbeddings := self.batchEmbed(ctx, items)
+
 	results := make([]batchResult, len(items))
 	succeeded := 0
 	anyMutation := false
 
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		for index, item := range items {
-			results[index] = self.executeBatchItem(ctx, tx, scope, scopeId, index, item)
+			results[index] = self.executeBatchItem(ctx, tx, scope, scopeId, index, item, batchEmbeddings[index])
 			if results[index].Success {
 				succeeded++
 			}
@@ -509,16 +512,79 @@ func (self *memoryTool) executeBatch(ctx context.Context, scope models.Scope, sc
 	return string(output), nil
 }
 
+// precomputedEmbedding holds a batch-computed embedding result for a single item.
+type precomputedEmbedding struct {
+	vector            []float64
+	providerModelName string
+}
+
+// batchEmbed computes embeddings for all add/update items in a single batch API
+// call. Returns a slice parallel to items; entries for non-embeddable items
+// (e.g. get/delete) or failed embeddings are zero-valued.
+func (self *memoryTool) batchEmbed(ctx context.Context, items []batchItem) []precomputedEmbedding {
+	result := make([]precomputedEmbedding, len(items))
+
+	runner := runners.RunnerFromContext(ctx)
+	if runner == nil || runner.Embedder == nil {
+		return result
+	}
+
+	// Collect texts to embed and map back to item indices.
+	type embedEntry struct {
+		itemIndex int
+		text      string
+	}
+	var entries []embedEntry
+	for index, item := range items {
+		if item.Op != "add" && item.Op != "update" {
+			continue
+		}
+		if item.Content == "" || len(item.Content) > maxContentSize {
+			continue
+		}
+		text := item.Content
+		if item.Title != "" {
+			text = item.Title + "\n" + item.Content
+		}
+		entries = append(entries, embedEntry{itemIndex: index, text: text})
+	}
+	if len(entries) == 0 {
+		return result
+	}
+
+	texts := make([]string, len(entries))
+	for index, entry := range entries {
+		texts[index] = entry.text
+	}
+
+	vectors, providerModelName, embedError := runner.Embedder.EmbedMany(ctx, texts)
+	if embedError != nil {
+		log.Warningf("batch embedding failed: %v", embedError)
+	}
+	if vectors != nil {
+		for index, entry := range entries {
+			if vectors[index] != nil {
+				result[entry.itemIndex] = precomputedEmbedding{
+					vector:            vectors[index],
+					providerModelName: providerModelName,
+				}
+			}
+		}
+	}
+
+	return result
+}
+
 func isMutatingOp(op string) bool {
 	return op == "add" || op == "update" || op == "delete"
 }
 
-func (self *memoryTool) executeBatchItem(ctx context.Context, tx store.Transaction, scope models.Scope, scopeId string, index int, item batchItem) batchResult {
+func (self *memoryTool) executeBatchItem(ctx context.Context, tx store.Transaction, scope models.Scope, scopeId string, index int, item batchItem, embedding precomputedEmbedding) batchResult {
 	switch item.Op {
 	case "add":
-		return self.batchAdd(ctx, tx, scope, scopeId, index, item)
+		return self.batchAdd(ctx, tx, scope, scopeId, index, item, embedding)
 	case "update":
-		return self.batchUpdate(ctx, tx, index, item)
+		return self.batchUpdate(ctx, tx, index, item, embedding)
 	case "delete":
 		return self.batchDelete(ctx, tx, index, item)
 	case "get":
@@ -530,7 +596,7 @@ func (self *memoryTool) executeBatchItem(ctx context.Context, tx store.Transacti
 	}
 }
 
-func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scope models.Scope, scopeId string, index int, item batchItem) batchResult {
+func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scope models.Scope, scopeId string, index int, item batchItem, embedding precomputedEmbedding) batchResult {
 	if item.Content == "" {
 		return batchResult{Index: index, Op: "add", Success: false, Error: "content is required for add"}
 	}
@@ -550,33 +616,18 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 		newItem.Tags = &item.Tags
 	}
 
-	// Compute embedding if embedder is available.
-	var newEmbedding []float64
+	// Apply precomputed embedding.
 	var warning string
-	runner := runners.RunnerFromContext(ctx)
-	if runner != nil && runner.Embedder != nil {
-		embedder := runner.Embedder
-		embeddingText := item.Content
-		if item.Title != "" {
-			embeddingText = item.Title + "\n" + item.Content
-		}
-		vector, embeddingModel, embedError := embedder.Embed(ctx, embeddingText)
-		if embedError != nil {
-			log.Warningf("embedding for new memory item failed: %v", embedError)
-		} else {
-			newEmbedding = vector
-			now := time.Now()
-			newItem.EmbeddingProviderModelName = &embeddingModel
-			newItem.Embedding = &vector
-			newItem.EmbeddedAt = &now
-		}
-	}
+	if embedding.vector != nil {
+		now := time.Now()
+		newItem.EmbeddingProviderModelName = &embedding.providerModelName
+		newItem.Embedding = &embedding.vector
+		newItem.EmbeddedAt = &now
 
-	// Dedupe check: compare new embedding against existing items in same scope.
-	if newEmbedding != nil {
+		// Dedupe check: compare new embedding against existing items in same scope.
 		existingItems, listError := tx.ListMemoryItems(ctx, scope, scopeId, store.MemoryItemListOptions{}, nil)
 		if listError == nil {
-			warning = checkDuplicates(newEmbedding, *newItem.EmbeddingProviderModelName, existingItems)
+			warning = checkDuplicates(embedding.vector, embedding.providerModelName, existingItems)
 		}
 	}
 
@@ -620,7 +671,7 @@ func checkDuplicates(newEmbedding []float64, providerModelName string, existingI
 	return ""
 }
 
-func (self *memoryTool) batchUpdate(ctx context.Context, tx store.Transaction, index int, item batchItem) batchResult {
+func (self *memoryTool) batchUpdate(ctx context.Context, tx store.Transaction, index int, item batchItem, embedding precomputedEmbedding) batchResult {
 	if item.ID == "" {
 		return batchResult{Index: index, Op: "update", Success: false, Error: "id is required for update"}
 	}
@@ -637,6 +688,12 @@ func (self *memoryTool) batchUpdate(ctx context.Context, tx store.Transaction, i
 		}
 		if item.Tags != nil {
 			existing.Tags = &item.Tags
+		}
+		if embedding.vector != nil {
+			now := time.Now()
+			existing.EmbeddingProviderModelName = &embedding.providerModelName
+			existing.Embedding = &embedding.vector
+			existing.EmbeddedAt = &now
 		}
 		return nil
 	}, nil)
