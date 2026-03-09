@@ -85,8 +85,11 @@ func createTools() []tools.Tool {
 	}
 	log.Infof("Codex tools enabled (binary: %s)", resolvedPath)
 
+	// Store the unresolved name so exec.LookPath is called at execution time.
+	// This avoids "no such file or directory" errors when the binary auto-updates
+	// and the resolved path changes while the process is running.
 	return []tools.Tool{&codexTool{
-		binaryPath: resolvedPath,
+		binaryPath: binaryPath,
 		runner:     defaultCommandRunner,
 	}}
 }

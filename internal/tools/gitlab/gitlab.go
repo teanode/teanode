@@ -33,15 +33,15 @@ func createTools() []tools.Tool {
 	for _, service := range defaultServices {
 		switch service {
 		case "issues":
-			result = append(result, &issuesTool{binary: resolvedPath, runner: runner})
+			result = append(result, &issuesTool{binary: binary, runner: runner})
 		case "merge_requests":
-			result = append(result, &mergeRequestsTool{binary: resolvedPath, runner: runner})
+			result = append(result, &mergeRequestsTool{binary: binary, runner: runner})
 		case "projects":
-			result = append(result, &projectsTool{binary: resolvedPath, runner: runner})
+			result = append(result, &projectsTool{binary: binary, runner: runner})
 		case "pipelines":
-			result = append(result, &pipelinesTool{binary: resolvedPath, runner: runner})
+			result = append(result, &pipelinesTool{binary: binary, runner: runner})
 		case "releases":
-			result = append(result, &releasesTool{binary: resolvedPath, runner: runner})
+			result = append(result, &releasesTool{binary: binary, runner: runner})
 		}
 	}
 	return result

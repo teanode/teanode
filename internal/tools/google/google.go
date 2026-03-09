@@ -64,15 +64,15 @@ func createTools() []tools.Tool {
 	for _, service := range defaultServices {
 		switch service {
 		case "gmail":
-			result = append(result, &gmailTool{binary: resolvedPath, runner: runner})
+			result = append(result, &gmailTool{binary: binary, runner: runner})
 		case "calendar":
-			result = append(result, &calendarTool{binary: resolvedPath, runner: runner})
+			result = append(result, &calendarTool{binary: binary, runner: runner})
 		case "tasks":
-			result = append(result, &tasksTool{binary: resolvedPath, runner: runner})
+			result = append(result, &tasksTool{binary: binary, runner: runner})
 		case "drive":
-			result = append(result, &driveTool{binary: resolvedPath, runner: runner})
+			result = append(result, &driveTool{binary: binary, runner: runner})
 		case "contacts":
-			result = append(result, &contactsTool{binary: resolvedPath, runner: runner})
+			result = append(result, &contactsTool{binary: binary, runner: runner})
 		}
 	}
 	return result

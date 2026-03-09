@@ -6,6 +6,7 @@ package cmdexec
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -43,8 +44,16 @@ type Result struct {
 // context cancellation. Non-zero exit codes are returned via Result (err is
 // nil); only failures to start the process are returned as errors.
 func Run(ctx context.Context, name string, arguments []string, options Options) (*Result, error) {
+	// Expand ~ prefix since Go does not perform shell-style tilde expansion.
+	directory := options.Directory
+	if strings.HasPrefix(directory, "~/") || directory == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			directory = home + directory[1:]
+		}
+	}
+
 	command := exec.CommandContext(ctx, name, arguments...)
-	command.Dir = options.Directory
+	command.Dir = directory
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	// Kill the entire process group on context cancellation so child

@@ -27,23 +27,25 @@ func createTools() []tools.Tool {
 	}
 	log.Infof("GitHub tools enabled (binary: %s)", resolvedPath)
 
+	// Store the unresolved name so the binary is resolved at execution time,
+	// avoiding stale paths if the binary is updated while the process runs.
 	runner := defaultRunner
 	var result []tools.Tool
 
 	for _, service := range defaultServices {
 		switch service {
 		case "issues":
-			result = append(result, &issuesTool{binary: resolvedPath, runner: runner})
+			result = append(result, &issuesTool{binary: binary, runner: runner})
 		case "pulls":
-			result = append(result, &pullsTool{binary: resolvedPath, runner: runner})
+			result = append(result, &pullsTool{binary: binary, runner: runner})
 		case "repos":
-			result = append(result, &reposTool{binary: resolvedPath, runner: runner})
+			result = append(result, &reposTool{binary: binary, runner: runner})
 		case "search":
-			result = append(result, &searchTool{binary: resolvedPath, runner: runner})
+			result = append(result, &searchTool{binary: binary, runner: runner})
 		case "actions":
-			result = append(result, &actionsTool{binary: resolvedPath, runner: runner})
+			result = append(result, &actionsTool{binary: binary, runner: runner})
 		case "releases":
-			result = append(result, &releasesTool{binary: resolvedPath, runner: runner})
+			result = append(result, &releasesTool{binary: binary, runner: runner})
 		}
 	}
 	return result

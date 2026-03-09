@@ -93,8 +93,11 @@ func createTools() []tools.Tool {
 	}
 	log.Infof("Claude Code tools enabled (binary: %s)", resolvedPath)
 
+	// Store the unresolved name so exec.LookPath is called at execution time.
+	// This avoids "no such file or directory" errors when Claude Code auto-updates
+	// and the resolved binary path changes while the process is running.
 	return []tools.Tool{&claudeCodeTool{
-		binaryPath: resolvedPath,
+		binaryPath: binaryPath,
 		runner:     defaultCommandRunner,
 	}}
 }
