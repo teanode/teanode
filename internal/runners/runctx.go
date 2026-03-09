@@ -17,6 +17,7 @@ type Origin string
 const (
 	OriginNone    Origin = ""        // automated or unspecified
 	OriginWeb     Origin = "web"     // web interface
+	OriginAPI     Origin = "api"     // REST API (OpenAI-compatible endpoint)
 	OriginChannel Origin = "channel" // external channel (Telegram, Discord, etc.)
 )
 

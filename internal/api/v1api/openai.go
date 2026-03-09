@@ -113,6 +113,7 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 		ConversationID:    conversationId,
 		Message:           lastMessage.Content,
 		ProviderModelName: request.ProviderModelName,
+		Origin:            runners.OriginAPI,
 	}, nil) // no callbacks for sync mode
 	if sendError != nil {
 		return web.Error(500, sendError.Error())
@@ -176,6 +177,7 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 		ConversationID:    conversationId,
 		Message:           lastMessage.Content,
 		ProviderModelName: request.ProviderModelName,
+		Origin:            runners.OriginAPI,
 	}, &runners.RunCallbacks{
 		OnTextDelta: func(text string) {
 			chunk := openaiResponse{
