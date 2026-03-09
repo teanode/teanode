@@ -724,6 +724,14 @@ func (self *Runner) buildMessages(
 		})
 	}
 
+	// Append tab overlay as a late system message (best-effort).
+	if tabOverlay := buildTabOverlay(ctx, self.AgentID, self.ConversationID); tabOverlay != "" {
+		messages = append(messages, providers.ChatMessage{
+			Role:    "system",
+			Content: tabOverlay,
+		})
+	}
+
 	return messages
 }
 
