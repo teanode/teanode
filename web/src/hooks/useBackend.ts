@@ -33,7 +33,6 @@ import type {
 import { useWebSocket } from "./useWebSocket";
 import { normalizeContent, type ExtractedContent } from "../contentUtils";
 
-
 let messageIdCounter = 0;
 function nextMessageId(): string {
   return `msg-${++messageIdCounter}`;

@@ -33,7 +33,6 @@ const VAD_PARAMS_DURING_TTS = {
   redemptionFrames: 6,
 };
 
-
 function pcmToWav(samples: Float32Array, sampleRate: number): Blob {
   const numChannels = 1;
   const bitsPerSample = 16;
