@@ -716,6 +716,14 @@ func (self *Runner) buildMessages(
 	// Fix interrupted tool calls.
 	messages = fixInterruptedToolCalls(messages)
 
+	// Append TODO overlay as a late system message (best-effort).
+	if todoOverlay, err := buildTodoOverlay(ctx, self.ConversationID); err == nil && todoOverlay != "" {
+		messages = append(messages, providers.ChatMessage{
+			Role:    "system",
+			Content: todoOverlay,
+		})
+	}
+
 	return messages
 }
 
