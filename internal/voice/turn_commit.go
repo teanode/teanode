@@ -8,6 +8,7 @@ import (
 
 	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/runners"
 )
 
 func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
@@ -146,11 +147,11 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 		observer.OnTranscriptFinal(turnId, nowMs)
 	})
 	handle, err := self.dispatcher.Run(context.Background(), coordinators.RunParameters{
-		AgentID:            self.AgentID,
-		ConversationID:     self.ConversationID,
-		Message:            text,
-		SystemPromptSuffix: self.effectivePromptSuffix(),
-		Origin:             "voice",
+		AgentID:        self.AgentID,
+		ConversationID: self.ConversationID,
+		Message:        text,
+		VoiceMode:      runners.VoiceModeCall,
+		Origin:         runners.OriginWeb,
 	}, nil)
 	if err != nil {
 		pipelineLog.Warningf("voice commitVoiceTurn Run error: %v", err)

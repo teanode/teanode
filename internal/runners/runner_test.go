@@ -580,7 +580,6 @@ func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
 	messages := runner.buildMessages(
 		ctx,
 		history,
-		"",
 		SystemPromptModeFull,
 		"",
 	)

@@ -165,7 +165,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 		userMessagePayload["originId"] = parameters.OriginID
 	}
 	if parameters.Origin != "" {
-		userMessagePayload["origin"] = parameters.Origin
+		userMessagePayload["origin"] = string(parameters.Origin)
 	}
 	if parameters.OriginSessionID != "" {
 		userMessagePayload["originSessionId"] = parameters.OriginSessionID
@@ -212,12 +212,12 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 		}()
 
 		dispatch := self.dispatchMessage(runContext, resolvedAgentId, conversationId, runners.RunParameters{
-			Message:            parameters.Message,
-			ProviderModelName:  parameters.ProviderModelName,
-			Attachments:        parameters.Attachments,
-			SystemPromptSuffix: parameters.SystemPromptSuffix,
-			SystemPromptMode:   parameters.SystemPromptMode,
-			Origin:             parameters.Origin,
+			Message:           parameters.Message,
+			ProviderModelName: parameters.ProviderModelName,
+			Attachments:       parameters.Attachments,
+			VoiceMode:         parameters.VoiceMode,
+			SystemPromptMode:  parameters.SystemPromptMode,
+			Origin:            parameters.Origin,
 		}, mergedCallbacks)
 
 		if dispatch.aborted {
@@ -515,20 +515,23 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 			// Carry over the authenticated user from the caller's context.
 			// Ensure coordinator is on the context.
 			ctx, cancel = context.WithCancel(
-				tabs.ContextWithTabBroker(
-					questions.ContextWithQuestionBroker(
-						runners.ContextWithOrigin(
-							ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
-								self.ctx,
-								models.UserFromContext(message.ctx),
-								models.SessionFromContext(message.ctx),
-								models.TokenFromContext(message.ctx),
-							), self.pubsub), self),
-							message.parameters.Origin,
+				runners.ContextWithVoiceMode(
+					tabs.ContextWithTabBroker(
+						questions.ContextWithQuestionBroker(
+							runners.ContextWithOrigin(
+								ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
+									self.ctx,
+									models.UserFromContext(message.ctx),
+									models.SessionFromContext(message.ctx),
+									models.TokenFromContext(message.ctx),
+								), self.pubsub), self),
+								message.parameters.Origin,
+							),
+							self.questionBroker,
 						),
-						self.questionBroker,
+						self.tabBroker,
 					),
-					self.tabBroker,
+					message.parameters.VoiceMode,
 				))
 			conversationRunnerInstance.cancel = cancel
 		}

@@ -306,7 +306,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			return
 		}
 
-		if origin != "webui" {
+		if origin != "web" {
 			return
 		}
 
@@ -406,7 +406,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 		}
 
 		// Session fallback: only notify when the originating web session is disconnected.
-		if subscribedRun.origin == "webui" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
+		if subscribedRun.origin == "web" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
 			self.sendChunked(subscribedRun.channelId, finalText)
 		}
 
@@ -429,7 +429,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 				errorText = "An error occurred while processing the request."
 			}
 			self.discord.ChannelMessageSend(subscribedRun.channelId, "Sorry, an error occurred: "+errorText)
-		} else if state == "error" && subscribedRun.origin == "webui" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
+		} else if state == "error" && subscribedRun.origin == "web" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
 			errorText, _ := payloadMap["error"].(string)
 			if errorText == "" {
 				errorText = "An error occurred while processing the request."
@@ -583,7 +583,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 		AgentID:        agentId,
 		ConversationID: conversationId,
 		Message:        message,
-		Origin:         "discord",
+		Origin:         runners.OriginChannel,
 		Attachments:    attachments,
 	}, callerCallbacks)
 	if sendError != nil {

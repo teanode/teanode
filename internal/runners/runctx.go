@@ -8,6 +8,26 @@ const (
 	contextKeySpawnDepth contextKey = iota
 	contextKeyRunner
 	contextKeyOrigin
+	contextKeyVoiceMode
+)
+
+// Origin represents the channel through which a message was sent.
+type Origin string
+
+const (
+	OriginNone    Origin = ""        // automated or unspecified
+	OriginWeb     Origin = "web"     // web interface
+	OriginAPI     Origin = "api"     // REST API (OpenAI-compatible endpoint)
+	OriginChannel Origin = "channel" // external channel (Telegram, Discord, etc.)
+)
+
+// VoiceMode represents the type of voice interaction.
+type VoiceMode string
+
+const (
+	VoiceModeNone  VoiceMode = ""      // normal text interaction
+	VoiceModeCall  VoiceMode = "call"  // live voice call (server or client STT)
+	VoiceModeInput VoiceMode = "input" // one-off voice-dictated message
 )
 
 // DefaultMaxSpawnDepth is the maximum recursion depth for subagent spawning.
@@ -35,13 +55,24 @@ func RunnerFromContext(ctx context.Context) *Runner {
 	return value
 }
 
-// ContextWithOrigin returns a context annotated with the channel origin (e.g. "webui", "telegram").
-func ContextWithOrigin(ctx context.Context, origin string) context.Context {
+// ContextWithOrigin returns a context annotated with the channel origin.
+func ContextWithOrigin(ctx context.Context, origin Origin) context.Context {
 	return context.WithValue(ctx, contextKeyOrigin, origin)
 }
 
-// OriginFromContext returns the channel origin from the context, or "".
-func OriginFromContext(ctx context.Context) string {
-	value, _ := ctx.Value(contextKeyOrigin).(string)
+// OriginFromContext returns the channel origin from the context, or OriginNone.
+func OriginFromContext(ctx context.Context) Origin {
+	value, _ := ctx.Value(contextKeyOrigin).(Origin)
+	return value
+}
+
+// ContextWithVoiceMode returns a context annotated with a voice mode.
+func ContextWithVoiceMode(ctx context.Context, mode VoiceMode) context.Context {
+	return context.WithValue(ctx, contextKeyVoiceMode, mode)
+}
+
+// VoiceModeFromContext returns the voice mode from the context, or VoiceModeNone.
+func VoiceModeFromContext(ctx context.Context) VoiceMode {
+	value, _ := ctx.Value(contextKeyVoiceMode).(VoiceMode)
 	return value
 }

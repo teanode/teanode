@@ -8,16 +8,16 @@ import (
 
 // RunParameters are the parameters for sending a message through the coordinator.
 type RunParameters struct {
-	AgentID            string
-	ConversationID     string // empty = auto-create
-	Message            string
-	ProviderModelName  string
-	OriginID           string              // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
-	Origin             string              // source of the message (e.g. "webui", "discord", "telegram"); empty for automated sources like the scheduler
-	OriginSessionID    string              // source session identifier (used for disconnect-aware notifications)
-	Attachments        []map[string]string // file attachments
-	SystemPromptSuffix string              // optional; appended to system prompt for this run only
-	SystemPromptMode   runners.SystemPromptMode
+	AgentID           string
+	ConversationID    string // empty = auto-create
+	Message           string
+	ProviderModelName string
+	OriginID          string              // opaque client-generated ID echoed in broadcasts so the sender can filter its own messages
+	Origin            runners.Origin      // source of the message; empty for automated sources like the scheduler
+	OriginSessionID   string              // source session identifier (used for disconnect-aware notifications)
+	Attachments       []map[string]string // file attachments
+	VoiceMode         runners.VoiceMode   // voice interaction type; empty = normal text
+	SystemPromptMode  runners.SystemPromptMode
 }
 
 // RunHandle is returned by Run and allows the caller to wait for completion.

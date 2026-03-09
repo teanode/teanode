@@ -67,12 +67,12 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 
 // RunParameters holds the parameters for a single agent run.
 type RunParameters struct {
-	Message            string
-	ProviderModelName  string // override config default
-	Attachments        []map[string]string
-	SystemPromptSuffix string // optional; appended to system prompt for this run only
-	SystemPromptMode   SystemPromptMode
-	Origin             string // channel origin (e.g. "webui", "telegram"); propagated to context for tool gating
+	Message           string
+	ProviderModelName string // override config default
+	Attachments       []map[string]string
+	VoiceMode         VoiceMode // voice interaction type; empty = normal text
+	SystemPromptMode  SystemPromptMode
+	Origin            Origin // channel origin; propagated to context for tool gating
 }
 
 // RunResult holds the result of a completed agent run.
@@ -183,7 +183,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		log.Debugf("run id %q round %d history %d", self.ID, round, len(history))
 
 		// Build messages for the LLM.
-		llmMessages := self.buildMessages(ctx, history, params.SystemPromptSuffix, params.SystemPromptMode, self.skillPrompts)
+		llmMessages := self.buildMessages(ctx, history, params.SystemPromptMode, self.skillPrompts)
 
 		// Tier 1: truncate old tool results.
 		llmMessages = truncateOldToolResults(llmMessages, 10, 8000)
@@ -633,7 +633,6 @@ func (self *Runner) resolveAgentProviderModelAndName(ctx context.Context) (strin
 func (self *Runner) buildMessages(
 	ctx context.Context,
 	history []*models.ConversationMessage,
-	systemPromptSuffix string,
 	systemPromptMode SystemPromptMode,
 	skillPrompts string,
 ) []providers.ChatMessage {
@@ -644,9 +643,6 @@ func (self *Runner) buildMessages(
 		SkillPrompts: skillPrompts,
 		Mode:         systemPromptMode,
 	})
-	if systemPromptSuffix != "" {
-		systemPrompt += "\n\n" + systemPromptSuffix
-	}
 	messages := make([]providers.ChatMessage, 0, len(history)+1)
 	messages = append(messages, providers.ChatMessage{
 		Role:    "system",
@@ -715,6 +711,30 @@ func (self *Runner) buildMessages(
 
 	// Fix interrupted tool calls.
 	messages = fixInterruptedToolCalls(messages)
+
+	// Append TODO overlay as a late system message (best-effort).
+	if todoOverlay, err := buildTodoOverlay(ctx, self.ConversationID); err == nil && todoOverlay != "" {
+		messages = append(messages, providers.ChatMessage{
+			Role:    "system",
+			Content: todoOverlay,
+		})
+	}
+
+	// Append tab overlay as a late system message (best-effort).
+	if tabOverlay := buildTabOverlay(ctx, self.AgentID, self.ConversationID); tabOverlay != "" {
+		messages = append(messages, providers.ChatMessage{
+			Role:    "system",
+			Content: tabOverlay,
+		})
+	}
+
+	// Append voice overlay as a late system message (best-effort).
+	if voiceOverlay := buildVoiceOverlay(ctx); voiceOverlay != "" {
+		messages = append(messages, providers.ChatMessage{
+			Role:    "system",
+			Content: voiceOverlay,
+		})
+	}
 
 	return messages
 }

@@ -33,9 +33,6 @@ const VAD_PARAMS_DURING_TTS = {
   redemptionFrames: 6,
 };
 
-const VOICE_CALL_PROMPT =
-  "The user is in a live voice call with you. Their messages are transcribed speech and your responses will be spoken aloud in real time. Keep responses brief and conversational - 1-3 sentences unless the user asks for more detail. Avoid markdown formatting, code blocks, and bullet lists.";
-
 function pcmToWav(samples: Float32Array, sampleRate: number): Blob {
   const numChannels = 1;
   const bitsPerSample = 16;
@@ -84,7 +81,7 @@ export interface UseVoiceCallOptions {
   sendVoiceMessage: (
     text: string,
     model?: string,
-    systemPromptSuffix?: string,
+    voiceMode?: "call" | "input",
   ) => void;
   abortRun: () => void;
   isRunning: boolean;
@@ -351,7 +348,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
               const result = await response.json();
               const text = result.text?.trim();
               if (!text) return;
-              sendVoiceMessage(text, undefined, VOICE_CALL_PROMPT);
+              sendVoiceMessage(text, undefined, "call");
             } catch {
               // ignore transcription failures
             }

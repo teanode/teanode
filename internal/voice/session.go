@@ -49,7 +49,6 @@ type Session struct {
 	ID             string
 	ConversationID string
 	AgentID        string
-	PromptSuffix   string
 	AudioIn        AudioFormat
 	AudioOut       AudioFormat
 	Features       Features
@@ -130,12 +129,11 @@ const (
 )
 
 // NewSession creates a session with default channel capacities.
-func NewSession(id, conversationId, agentId, promptSuffix string, in, out AudioFormat, features Features, dispatcher Dispatcher, events *pubsub.PubSub, sendJson func(any), sendBinary func([]byte)) *Session {
+func NewSession(id, conversationId, agentId string, in, out AudioFormat, features Features, dispatcher Dispatcher, events *pubsub.PubSub, sendJson func(any), sendBinary func([]byte)) *Session {
 	session := &Session{
 		ID:                 id,
 		ConversationID:     conversationId,
 		AgentID:            agentId,
-		PromptSuffix:       promptSuffix,
 		AudioIn:            in,
 		AudioOut:           out,
 		Features:           features,

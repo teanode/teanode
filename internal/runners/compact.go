@@ -642,7 +642,7 @@ func (self *Runner) CompactConversation(ctx context.Context) (*CompactResult, er
 	}
 
 	// Build messages via the same pipeline used for normal runs.
-	llmMessages := self.buildMessages(ctx, history, "", SystemPromptModeFull, self.skillPrompts)
+	llmMessages := self.buildMessages(ctx, history, SystemPromptModeFull, self.skillPrompts)
 
 	summaryText, err := self.summarizeAndPersist(ctx, llmMessages, self.resolveContextWindow(ctx))
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/pubsub"
+	"github.com/teanode/teanode/internal/runners"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -163,7 +164,7 @@ func TestRunAutoCreateDoesNotOverwriteExistingDefaultConversation(t *testing.T) 
 		AgentID:        agentId,
 		ConversationID: "",
 		Message:        "hello",
-		Origin:         "webui",
+		Origin:         runners.OriginWeb,
 	}, nil)
 	if sendError != nil {
 		t.Fatalf("send error: %v", sendError)
@@ -187,7 +188,7 @@ func TestRunAutoCreateSetsDefaultWhenUnset(t *testing.T) {
 		AgentID:        agentId,
 		ConversationID: "",
 		Message:        "hello",
-		Origin:         "webui",
+		Origin:         runners.OriginWeb,
 	}, nil)
 	if sendError != nil {
 		t.Fatalf("send error: %v", sendError)
@@ -226,7 +227,7 @@ func TestDeferredLifecycleFiresAfterRunDone(t *testing.T) {
 		AgentID:        agentId,
 		ConversationID: "",
 		Message:        "restart after response",
-		Origin:         "telegram",
+		Origin:         runners.OriginChannel,
 	}, nil)
 	if sendError != nil {
 		t.Fatalf("send error: %v", sendError)
@@ -283,7 +284,7 @@ func TestActiveRunIdPersistsDuringExecution(t *testing.T) {
 	handle, sendError := coordinator.Run(callerCtx, RunParameters{
 		AgentID: agentId,
 		Message: "hello",
-		Origin:  "webui",
+		Origin:  runners.OriginWeb,
 	}, nil)
 	if sendError != nil {
 		t.Fatalf("send error: %v", sendError)
