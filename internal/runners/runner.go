@@ -72,7 +72,7 @@ type RunParameters struct {
 	Attachments       []map[string]string
 	VoiceMode         VoiceMode // voice interaction type; empty = normal text
 	SystemPromptMode  SystemPromptMode
-	Origin            string // channel origin (e.g. "webui", "telegram"); propagated to context for tool gating
+	Origin            Origin // channel origin; propagated to context for tool gating
 }
 
 // RunResult holds the result of a completed agent run.

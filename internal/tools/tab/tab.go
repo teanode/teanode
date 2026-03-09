@@ -244,8 +244,8 @@ type tabArguments struct {
 
 func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	origin := runners.OriginFromContext(ctx)
-	if origin != "webui" {
-		channel := origin
+	if origin != runners.OriginWeb {
+		channel := string(origin)
 		if channel == "" {
 			channel = "automated"
 		}

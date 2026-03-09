@@ -18,7 +18,7 @@ func testContext(broker *tabs.TabBroker) context.Context {
 	ctx := context.Background()
 	user := &models.User{ID: "u1"}
 	ctx = models.ContextWithUserSessionToken(ctx, user, nil, nil)
-	ctx = runners.ContextWithOrigin(ctx, "webui")
+	ctx = runners.ContextWithOrigin(ctx, runners.OriginWeb)
 	ctx = pubsub.ContextWithPubSub(ctx, pubsub.New())
 	ctx = tabs.ContextWithTabBroker(ctx, broker)
 
@@ -129,7 +129,7 @@ func TestTabTool_NonWebuiOrigin(t *testing.T) {
 	ctx := context.Background()
 	user := &models.User{ID: "u1"}
 	ctx = models.ContextWithUserSessionToken(ctx, user, nil, nil)
-	ctx = runners.ContextWithOrigin(ctx, "telegram")
+	ctx = runners.ContextWithOrigin(ctx, runners.OriginTelegram)
 	broker := tabs.NewTabBroker()
 	ctx = tabs.ContextWithTabBroker(ctx, broker)
 

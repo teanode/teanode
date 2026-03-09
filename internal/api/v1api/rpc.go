@@ -263,7 +263,7 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) {
 		Message:           parameters.Message,
 		ProviderModelName: parameters.ProviderModelName,
 		OriginID:          parameters.OriginID,
-		Origin:            "webui",
+		Origin:            runners.OriginWeb,
 		OriginSessionID:   self.sessionId(),
 		Attachments:       parameters.Attachments,
 		VoiceMode:         runners.VoiceMode(parameters.VoiceMode),

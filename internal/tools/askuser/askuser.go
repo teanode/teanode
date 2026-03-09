@@ -63,8 +63,8 @@ func (self *askUserQuestionTool) Definition() providers.ToolDefinition {
 func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	// Channel gate: only supported on webui.
 	origin := runners.OriginFromContext(ctx)
-	if origin != "webui" {
-		channel := origin
+	if origin != runners.OriginWeb {
+		channel := string(origin)
 		if channel == "" {
 			channel = "automated"
 		}

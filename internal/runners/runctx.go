@@ -11,6 +11,16 @@ const (
 	contextKeyVoiceMode
 )
 
+// Origin represents the channel through which a message was sent.
+type Origin string
+
+const (
+	OriginNone     Origin = ""         // automated or unspecified
+	OriginWeb      Origin = "webui"    // web interface
+	OriginTelegram Origin = "telegram" // Telegram bot
+	OriginDiscord  Origin = "discord"  // Discord bot
+)
+
 // VoiceMode represents the type of voice interaction.
 type VoiceMode string
 
@@ -45,14 +55,14 @@ func RunnerFromContext(ctx context.Context) *Runner {
 	return value
 }
 
-// ContextWithOrigin returns a context annotated with the channel origin (e.g. "webui", "telegram").
-func ContextWithOrigin(ctx context.Context, origin string) context.Context {
+// ContextWithOrigin returns a context annotated with the channel origin.
+func ContextWithOrigin(ctx context.Context, origin Origin) context.Context {
 	return context.WithValue(ctx, contextKeyOrigin, origin)
 }
 
-// OriginFromContext returns the channel origin from the context, or "".
-func OriginFromContext(ctx context.Context) string {
-	value, _ := ctx.Value(contextKeyOrigin).(string)
+// OriginFromContext returns the channel origin from the context, or OriginNone.
+func OriginFromContext(ctx context.Context) Origin {
+	value, _ := ctx.Value(contextKeyOrigin).(Origin)
 	return value
 }
 

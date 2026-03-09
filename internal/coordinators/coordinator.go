@@ -165,7 +165,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 		userMessagePayload["originId"] = parameters.OriginID
 	}
 	if parameters.Origin != "" {
-		userMessagePayload["origin"] = parameters.Origin
+		userMessagePayload["origin"] = string(parameters.Origin)
 	}
 	if parameters.OriginSessionID != "" {
 		userMessagePayload["originSessionId"] = parameters.OriginSessionID

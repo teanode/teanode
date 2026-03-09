@@ -13,7 +13,7 @@ import (
 )
 
 // stubRunner creates a minimal context with runner, user, broker, origin, and pubsub.
-func stubContext(origin string) (context.Context, *questions.QuestionBroker) {
+func stubContext(origin runners.Origin) (context.Context, *questions.QuestionBroker) {
 	ctx := context.Background()
 	broker := questions.NewQuestionBroker()
 	ps := pubsub.New()
@@ -34,7 +34,7 @@ func stubContext(origin string) (context.Context, *questions.QuestionBroker) {
 
 func TestChannelGateTelegram(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx := runners.ContextWithOrigin(context.Background(), "telegram")
+	ctx := runners.ContextWithOrigin(context.Background(), runners.OriginTelegram)
 
 	result, err := tool.Execute(ctx, `{"question":"Pick","choices":["A","B"]}`)
 	if err != nil {
@@ -52,7 +52,7 @@ func TestChannelGateTelegram(t *testing.T) {
 
 func TestChannelGateDiscord(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx := runners.ContextWithOrigin(context.Background(), "discord")
+	ctx := runners.ContextWithOrigin(context.Background(), runners.OriginDiscord)
 
 	result, err := tool.Execute(ctx, `{"question":"Pick","choices":["A","B"]}`)
 	if err != nil {
@@ -68,7 +68,7 @@ func TestChannelGateDiscord(t *testing.T) {
 
 func TestChannelGateAutomated(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx := runners.ContextWithOrigin(context.Background(), "")
+	ctx := runners.ContextWithOrigin(context.Background(), runners.OriginNone)
 
 	result, err := tool.Execute(ctx, `{"question":"Pick","choices":["A","B"]}`)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestChannelGateAutomated(t *testing.T) {
 
 func TestHappyPath(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx, broker := stubContext("webui")
+	ctx, broker := stubContext(runners.OriginWeb)
 
 	done := make(chan string, 1)
 	go func() {
@@ -127,7 +127,7 @@ func TestHappyPath(t *testing.T) {
 
 func TestContextCancellation(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx, _ := stubContext("webui")
+	ctx, _ := stubContext(runners.OriginWeb)
 	ctx, cancel := context.WithCancel(ctx)
 
 	done := make(chan error, 1)
@@ -151,7 +151,7 @@ func TestContextCancellation(t *testing.T) {
 
 func TestInvalidArguments(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx, _ := stubContext("webui")
+	ctx, _ := stubContext(runners.OriginWeb)
 
 	// Missing question.
 	_, err := tool.Execute(ctx, `{"choices":["A","B"]}`)
@@ -175,7 +175,7 @@ func TestInvalidArguments(t *testing.T) {
 func TestNoBroker(t *testing.T) {
 	tool := &askUserQuestionTool{}
 	ctx := context.Background()
-	ctx = runners.ContextWithOrigin(ctx, "webui")
+	ctx = runners.ContextWithOrigin(ctx, runners.OriginWeb)
 	// No broker set.
 
 	_, err := tool.Execute(ctx, `{"question":"Pick","choices":["A","B"]}`)
@@ -186,7 +186,7 @@ func TestNoBroker(t *testing.T) {
 
 func TestHappyPathWithOther(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx, broker := stubContext("webui")
+	ctx, broker := stubContext(runners.OriginWeb)
 
 	done := make(chan string, 1)
 	go func() {
@@ -234,7 +234,7 @@ func TestHappyPathWithOther(t *testing.T) {
 
 func TestAllowOtherDefaultValues(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx, broker := stubContext("webui")
+	ctx, broker := stubContext(runners.OriginWeb)
 
 	done := make(chan string, 1)
 	go func() {
@@ -266,7 +266,7 @@ func TestAllowOtherDefaultValues(t *testing.T) {
 
 func TestBackwardCompatibleNoAllowOther(t *testing.T) {
 	tool := &askUserQuestionTool{}
-	ctx, broker := stubContext("webui")
+	ctx, broker := stubContext(runners.OriginWeb)
 
 	done := make(chan string, 1)
 	go func() {

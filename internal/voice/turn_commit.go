@@ -151,7 +151,7 @@ func (self *Session) commitVoiceTurn(turnId, text string) {
 		ConversationID: self.ConversationID,
 		Message:        text,
 		VoiceMode:      runners.VoiceModeCall,
-		Origin:         "webui",
+		Origin:         runners.OriginWeb,
 	}, nil)
 	if err != nil {
 		pipelineLog.Warningf("voice commitVoiceTurn Run error: %v", err)
