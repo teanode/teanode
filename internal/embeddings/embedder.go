@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
 // ErrEmbeddingDisabled is returned when no embedding provider model is
@@ -31,7 +34,10 @@ func (self *Embedder) Embed(ctx context.Context, inputText string) ([]float64, s
 		return nil, "", err
 	}
 	providerModelName := providers.FormatProviderModelName(providerName, modelName)
-	vector, embedError := provider.Embed(ctx, modelName, inputText)
+	vector, usage, embedError := provider.Embed(ctx, modelName, inputText)
+	if usage != nil {
+		self.recordUsage(ctx, providerName, modelName, usage)
+	}
 	if embedError != nil {
 		return nil, providerModelName, embedError
 	}
@@ -54,8 +60,11 @@ func (self *Embedder) EmbedMany(ctx context.Context, inputTexts []string) ([][]f
 	providerModelName := providers.FormatProviderModelName(providerName, modelName)
 
 	// Try batch request.
-	vectors, batchError := provider.EmbedMany(ctx, modelName, inputTexts)
+	vectors, usage, batchError := provider.EmbedMany(ctx, modelName, inputTexts)
 	if batchError == nil {
+		if usage != nil {
+			self.recordUsage(ctx, providerName, modelName, usage)
+		}
 		return vectors, providerModelName, nil
 	}
 
@@ -63,7 +72,10 @@ func (self *Embedder) EmbedMany(ctx context.Context, inputTexts []string) ([][]f
 	vectors = make([][]float64, len(inputTexts))
 	var lastError error
 	for index, text := range inputTexts {
-		vector, embedError := provider.Embed(ctx, modelName, text)
+		vector, singleUsage, embedError := provider.Embed(ctx, modelName, text)
+		if singleUsage != nil {
+			self.recordUsage(ctx, providerName, modelName, singleUsage)
+		}
 		if embedError != nil {
 			lastError = embedError
 			continue
@@ -74,6 +86,32 @@ func (self *Embedder) EmbedMany(ctx context.Context, inputTexts []string) ([][]f
 		return vectors, providerModelName, lastError
 	}
 	return vectors, providerModelName, nil
+}
+
+// recordUsage accumulates embedding usage into the store.
+func (self *Embedder) recordUsage(ctx context.Context, providerName, modelName string, usage *providers.UsageInformation) {
+	s := store.StoreFromContextSafe(ctx)
+	if s == nil {
+		return
+	}
+	user := models.UserFromContext(ctx)
+	var userId string
+	if user != nil {
+		userId = user.ID
+	}
+	err := s.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		return transaction.AccumulateUsage(ctx, &models.Usage{
+			UserID:       ptrto.Value(userId),
+			ProviderName: ptrto.Value(providerName),
+			ModelName:    ptrto.Value(modelName),
+			PromptTokens: ptrto.Value(uint64(usage.PromptTokens)),
+			TotalTokens:  ptrto.Value(uint64(usage.TotalTokens)),
+			RequestCount: ptrto.Value(uint64(1)),
+		}, nil)
+	})
+	if err != nil {
+		log.Warningf("failed to record embedding usage: %v", err)
+	}
 }
 
 // resolveEmbeddingProvider resolves the embedding provider, provider name, and

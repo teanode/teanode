@@ -569,15 +569,16 @@ type embeddingResponse struct {
 		Index     int       `json:"index"`
 		Embedding []float64 `json:"embedding"`
 	} `json:"data"`
+	Usage *UsageInformation `json:"usage,omitempty"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 }
 
 // Embed calls the OpenAI-compatible /embeddings API and returns the resulting vector.
-func (self *Client) Embed(ctx context.Context, model string, inputText string) ([]float64, error) {
+func (self *Client) Embed(ctx context.Context, model string, inputText string) ([]float64, *UsageInformation, error) {
 	if self.apiKey == "" {
-		return nil, fmt.Errorf("embeddings: API key not configured")
+		return nil, nil, fmt.Errorf("embeddings: API key not configured")
 	}
 
 	requestBody := embeddingRequest{
@@ -586,56 +587,56 @@ func (self *Client) Embed(ctx context.Context, model string, inputText string) (
 	}
 	encoded, marshalError := json.Marshal(requestBody)
 	if marshalError != nil {
-		return nil, fmt.Errorf("embeddings: marshal request: %w", marshalError)
+		return nil, nil, fmt.Errorf("embeddings: marshal request: %w", marshalError)
 	}
 
 	httpRequest, requestError := http.NewRequestWithContext(ctx, http.MethodPost, self.baseUrl+"/embeddings", bytes.NewReader(encoded))
 	if requestError != nil {
-		return nil, fmt.Errorf("embeddings: create request: %w", requestError)
+		return nil, nil, fmt.Errorf("embeddings: create request: %w", requestError)
 	}
 	if err := self.setHeaders(httpRequest); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	response, doError := self.httpClient.Do(httpRequest)
 	if doError != nil {
-		return nil, fmt.Errorf("embeddings: request failed: %w", doError)
+		return nil, nil, fmt.Errorf("embeddings: request failed: %w", doError)
 	}
 	defer response.Body.Close()
 
 	body, readError := io.ReadAll(response.Body)
 	if readError != nil {
-		return nil, fmt.Errorf("embeddings: read response: %w", readError)
+		return nil, nil, fmt.Errorf("embeddings: read response: %w", readError)
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("embeddings: HTTP %d: %s", response.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("embeddings: HTTP %d: %s", response.StatusCode, string(body))
 	}
 
 	var result embeddingResponse
 	if unmarshalError := json.Unmarshal(body, &result); unmarshalError != nil {
-		return nil, fmt.Errorf("embeddings: parse response: %w", unmarshalError)
+		return nil, nil, fmt.Errorf("embeddings: parse response: %w", unmarshalError)
 	}
 
 	if result.Error != nil {
-		return nil, fmt.Errorf("embeddings: API error: %s", result.Error.Message)
+		return nil, nil, fmt.Errorf("embeddings: API error: %s", result.Error.Message)
 	}
 
 	if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
-		return nil, fmt.Errorf("embeddings: empty response")
+		return nil, nil, fmt.Errorf("embeddings: empty response")
 	}
 
-	return result.Data[0].Embedding, nil
+	return result.Data[0].Embedding, result.Usage, nil
 }
 
 // EmbedMany calls the OpenAI-compatible /embeddings API with multiple inputs
 // and returns the resulting vectors in the same order as the inputs.
-func (self *Client) EmbedMany(ctx context.Context, model string, inputTexts []string) ([][]float64, error) {
+func (self *Client) EmbedMany(ctx context.Context, model string, inputTexts []string) ([][]float64, *UsageInformation, error) {
 	if self.apiKey == "" {
-		return nil, fmt.Errorf("embeddings: API key not configured")
+		return nil, nil, fmt.Errorf("embeddings: API key not configured")
 	}
 	if len(inputTexts) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	requestBody := embeddingRequest{
@@ -644,43 +645,43 @@ func (self *Client) EmbedMany(ctx context.Context, model string, inputTexts []st
 	}
 	encoded, marshalError := json.Marshal(requestBody)
 	if marshalError != nil {
-		return nil, fmt.Errorf("embeddings: marshal request: %w", marshalError)
+		return nil, nil, fmt.Errorf("embeddings: marshal request: %w", marshalError)
 	}
 
 	httpRequest, requestError := http.NewRequestWithContext(ctx, http.MethodPost, self.baseUrl+"/embeddings", bytes.NewReader(encoded))
 	if requestError != nil {
-		return nil, fmt.Errorf("embeddings: create request: %w", requestError)
+		return nil, nil, fmt.Errorf("embeddings: create request: %w", requestError)
 	}
 	if err := self.setHeaders(httpRequest); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	response, doError := self.httpClient.Do(httpRequest)
 	if doError != nil {
-		return nil, fmt.Errorf("embeddings: request failed: %w", doError)
+		return nil, nil, fmt.Errorf("embeddings: request failed: %w", doError)
 	}
 	defer response.Body.Close()
 
 	body, readError := io.ReadAll(response.Body)
 	if readError != nil {
-		return nil, fmt.Errorf("embeddings: read response: %w", readError)
+		return nil, nil, fmt.Errorf("embeddings: read response: %w", readError)
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("embeddings: HTTP %d: %s", response.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("embeddings: HTTP %d: %s", response.StatusCode, string(body))
 	}
 
 	var result embeddingResponse
 	if unmarshalError := json.Unmarshal(body, &result); unmarshalError != nil {
-		return nil, fmt.Errorf("embeddings: parse response: %w", unmarshalError)
+		return nil, nil, fmt.Errorf("embeddings: parse response: %w", unmarshalError)
 	}
 
 	if result.Error != nil {
-		return nil, fmt.Errorf("embeddings: API error: %s", result.Error.Message)
+		return nil, nil, fmt.Errorf("embeddings: API error: %s", result.Error.Message)
 	}
 
 	if len(result.Data) != len(inputTexts) {
-		return nil, fmt.Errorf("embeddings: expected %d results, got %d", len(inputTexts), len(result.Data))
+		return nil, nil, fmt.Errorf("embeddings: expected %d results, got %d", len(inputTexts), len(result.Data))
 	}
 
 	// The API may return data entries in arbitrary order via the index field;
@@ -689,5 +690,5 @@ func (self *Client) EmbedMany(ctx context.Context, model string, inputTexts []st
 	for _, entry := range result.Data {
 		vectors[entry.Index] = entry.Embedding
 	}
-	return vectors, nil
+	return vectors, result.Usage, nil
 }
