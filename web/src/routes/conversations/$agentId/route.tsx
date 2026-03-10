@@ -30,6 +30,7 @@ export default function ConversationsAgentLayout() {
     voiceChimesEnabled,
     voiceChimesVolume,
     voiceCallSttMode,
+    voicePipeline,
   } = useAppContext();
 
   useEffect(() => {
@@ -59,6 +60,7 @@ export default function ConversationsAgentLayout() {
     connected: backend.connected,
     ttsVoice,
     voiceCallSttMode,
+    voicePipeline,
     conversationId: backend.conversationId,
     agentId,
     audioCapability: backend.audioCapability,

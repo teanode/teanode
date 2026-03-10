@@ -584,6 +584,29 @@ func (self *Coordinator) createRunner(ctx context.Context, agentId, conversation
 	return runners.NewRunner(ctx, agentId, conversationId, self.providerRegistry, *agent)
 }
 
+// CreateRealtimeRunner creates a RealtimeRunner for the given agent and conversation.
+// The conn must already be dialed. The runner takes ownership of the connection.
+func (self *Coordinator) CreateRealtimeRunner(
+	userId string,
+	agentId string,
+	conversationId string,
+	conn providers.RealtimeConn,
+	callbacks *runners.RealtimeCallbacks,
+) (*runners.RealtimeRunner, error) {
+	var agent *models.Agent
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		var err error
+		agent, err = transaction.GetAgent(ctx, agentId, nil)
+		return err
+	}); err != nil {
+		return nil, fmt.Errorf("loading agent %s: %w", agentId, err)
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("agent %s not found", agentId)
+	}
+	return runners.NewRealtimeRunner(self.ctx, agentId, conversationId, userId, conn, *agent, self.pubsub, callbacks), nil
+}
+
 // lifecycle returns the lifecycle manager from the coordinator context.
 func (self *Coordinator) lifecycle() lifecycle.Lifecycle {
 	return lifecycle.LifecycleFromContext(self.ctx)

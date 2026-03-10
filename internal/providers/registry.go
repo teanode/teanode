@@ -384,6 +384,30 @@ func (self *ProviderRegistry) FindSynthesizerByName(name string) (SynthesizeProv
 	return synthesizer, true
 }
 
+// FindRealtimeProvider returns the first registered provider that implements RealtimeProvider.
+func (self *ProviderRegistry) FindRealtimeProvider() (RealtimeProvider, string, bool) {
+	for _, name := range self.ProviderNames() {
+		if realtime, ok := self.clients[name].(RealtimeProvider); ok {
+			return realtime, name, true
+		}
+	}
+	return nil, "", false
+}
+
+// FindRealtimeProviderByName resolves a named provider and returns it only when
+// the provider supports RealtimeProvider.
+func (self *ProviderRegistry) FindRealtimeProviderByName(name string) (RealtimeProvider, bool) {
+	client, ok := self.clients[name]
+	if !ok {
+		return nil, false
+	}
+	realtime, ok := client.(RealtimeProvider)
+	if !ok {
+		return nil, false
+	}
+	return realtime, true
+}
+
 // FindEmbedder returns the first registered provider that implements EmbeddingProvider.
 func (self *ProviderRegistry) FindEmbedder() (EmbeddingProvider, string, bool) {
 	for _, name := range self.ProviderNames() {

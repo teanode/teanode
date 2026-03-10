@@ -108,7 +108,7 @@ type webSocketConnection struct {
 	deduplication sync.Map // map[string]time.Time
 
 	activeVoiceMutex   sync.RWMutex
-	activeVoiceSession *voice.Session
+	activeVoiceSession voice.VoiceSession
 }
 
 func newWebSocketConnection(connection *websocket.Conn, api *v1Api, ctx context.Context) *webSocketConnection {
@@ -301,13 +301,13 @@ func (self *webSocketConnection) writeBinary(data []byte) {
 	}
 }
 
-func (self *webSocketConnection) getActiveVoiceSession() *voice.Session {
+func (self *webSocketConnection) getActiveVoiceSession() voice.VoiceSession {
 	self.activeVoiceMutex.RLock()
 	defer self.activeVoiceMutex.RUnlock()
 	return self.activeVoiceSession
 }
 
-func (self *webSocketConnection) setActiveVoiceSession(session *voice.Session) bool {
+func (self *webSocketConnection) setActiveVoiceSession(session voice.VoiceSession) bool {
 	self.activeVoiceMutex.Lock()
 	defer self.activeVoiceMutex.Unlock()
 	if self.activeVoiceSession != nil {
@@ -317,7 +317,7 @@ func (self *webSocketConnection) setActiveVoiceSession(session *voice.Session) b
 	return true
 }
 
-func (self *webSocketConnection) clearActiveVoiceSession(session *voice.Session) {
+func (self *webSocketConnection) clearActiveVoiceSession(session voice.VoiceSession) {
 	self.activeVoiceMutex.Lock()
 	defer self.activeVoiceMutex.Unlock()
 	if self.activeVoiceSession == session {

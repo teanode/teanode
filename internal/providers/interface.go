@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 )
 
@@ -44,6 +45,73 @@ type SynthesizeProvider interface {
 // StreamingSynthesizeProvider is an optional capability for chunked TTS.
 type StreamingSynthesizeProvider interface {
 	SynthesizeStream(ctx context.Context, request SynthesizeStreamRequest) (<-chan SynthesizeChunk, error)
+}
+
+// RealtimeProvider is an optional capability interface for OpenAI Realtime API connections.
+// Providers that implement this can open a bidirectional WebSocket for audio-in/audio-out
+// conversations with built-in VAD, STT, and TTS.
+type RealtimeProvider interface {
+	DialRealtime(ctx context.Context, config RealtimeSessionConfig) (RealtimeConn, error)
+}
+
+// RealtimeSessionConfig configures an OpenAI Realtime API session.
+type RealtimeSessionConfig struct {
+	Model             string                 `json:"model"`
+	Voice             string                 `json:"voice"`
+	Instructions      string                 `json:"instructions"`
+	Tools             []ToolDefinition       `json:"tools,omitempty"`
+	Modalities        []string               `json:"modalities"`
+	InputAudioFormat  string                 `json:"input_audio_format"`
+	OutputAudioFormat string                 `json:"output_audio_format"`
+	TurnDetection     *RealtimeTurnDetection `json:"turn_detection,omitempty"`
+}
+
+// RealtimeTurnDetection configures server-side VAD for the Realtime API.
+type RealtimeTurnDetection struct {
+	Type              string  `json:"type"` // "server_vad" or "semantic_vad"
+	Threshold         float64 `json:"threshold,omitempty"`
+	PrefixPaddingMs   int     `json:"prefix_padding_ms,omitempty"`
+	SilenceDurationMs int     `json:"silence_duration_ms,omitempty"`
+	CreateResponse    bool    `json:"create_response"`
+}
+
+// RealtimeConn is a bidirectional connection to the OpenAI Realtime API.
+type RealtimeConn interface {
+	// SendJSON sends a JSON event to the Realtime API.
+	SendJSON(event map[string]any) error
+	// ReadJSON reads the next JSON event from the Realtime API.
+	ReadJSON(v any) error
+	// Close closes the connection.
+	Close() error
+}
+
+// RealtimeEvent is a generic event envelope from the Realtime API.
+type RealtimeEvent struct {
+	Type         string          `json:"type"`
+	EventID      string          `json:"event_id,omitempty"`
+	SessionID    string          `json:"session_id,omitempty"`
+	Session      json.RawMessage `json:"session,omitempty"`
+	Response     json.RawMessage `json:"response,omitempty"`
+	Item         json.RawMessage `json:"item,omitempty"`
+	Delta        string          `json:"delta,omitempty"`
+	Audio        string          `json:"audio,omitempty"`
+	Transcript   string          `json:"transcript,omitempty"`
+	ContentIndex int             `json:"content_index,omitempty"`
+	OutputIndex  int             `json:"output_index,omitempty"`
+	ItemID       string          `json:"item_id,omitempty"`
+	ResponseID   string          `json:"response_id,omitempty"`
+	CallID       string          `json:"call_id,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Arguments    string          `json:"arguments,omitempty"`
+	Error        *RealtimeError  `json:"error,omitempty"`
+}
+
+// RealtimeError describes an error from the Realtime API.
+type RealtimeError struct {
+	Type    string `json:"type"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Param   string `json:"param,omitempty"`
 }
 
 // EmbeddingProvider is an optional capability interface for computing vector embeddings.

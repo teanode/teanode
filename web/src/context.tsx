@@ -14,6 +14,7 @@ import {
 
 export type ThemeMode = "dark" | "light" | "system";
 export type VoiceCallSTTMode = "server" | "client";
+export type VoicePipelineMode = "classic" | "realtime";
 
 export interface AppContextValue {
   backend: ReturnType<typeof useBackend>;
@@ -35,6 +36,8 @@ export interface AppContextValue {
   setVoiceChimesVolume: (value: number) => void;
   voiceCallSttMode: VoiceCallSTTMode;
   setVoiceCallSttMode: (value: VoiceCallSTTMode) => void;
+  voicePipeline: VoicePipelineMode;
+  setVoicePipeline: (value: VoicePipelineMode) => void;
   languagePreference: LanguagePreference;
   setLanguagePreference: (value: LanguagePreference) => void;
   todosPanelCollapsed: boolean;
@@ -104,6 +107,11 @@ export function AppProvider({
       const stored = localStorage.getItem("teanode-voice-call-stt-mode");
       return stored === "client" ? "client" : "server";
     });
+  const [voicePipeline, setVoicePipelineState] =
+    useState<VoicePipelineMode>(() => {
+      const stored = localStorage.getItem("teanode-voice-pipeline");
+      return stored === "realtime" ? "realtime" : "classic";
+    });
   const [languagePreference, setLanguagePreferenceState] =
     useState<LanguagePreference>(() => {
       const stored = localStorage.getItem(LANGUAGE_PREFERENCE_STORAGE_KEY);
@@ -154,6 +162,11 @@ export function AppProvider({
   const setVoiceCallSttMode = useCallback((value: VoiceCallSTTMode) => {
     setVoiceCallSttModeState(value);
     localStorage.setItem("teanode-voice-call-stt-mode", value);
+  }, []);
+
+  const setVoicePipeline = useCallback((value: VoicePipelineMode) => {
+    setVoicePipelineState(value);
+    localStorage.setItem("teanode-voice-pipeline", value);
   }, []);
 
   const setLanguagePreference = useCallback((value: LanguagePreference) => {
@@ -207,6 +220,8 @@ export function AppProvider({
       setVoiceChimesVolume,
       voiceCallSttMode,
       setVoiceCallSttMode,
+      voicePipeline,
+      setVoicePipeline,
       languagePreference,
       setLanguagePreference,
       todosPanelCollapsed,
@@ -252,6 +267,8 @@ export function AppProvider({
       setVoiceChimesVolume,
       voiceCallSttMode,
       setVoiceCallSttMode,
+      voicePipeline,
+      setVoicePipeline,
       languagePreference,
       setLanguagePreference,
       todosPanelCollapsed,

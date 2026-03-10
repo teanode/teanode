@@ -36,6 +36,8 @@ export default function PreferencesArea() {
     setVoiceChimesVolume,
     voiceCallSttMode,
     setVoiceCallSttMode,
+    voicePipeline,
+    setVoicePipeline,
     languagePreference,
     setLanguagePreference,
     backend,
@@ -215,6 +217,30 @@ export default function PreferencesArea() {
               <FormControlLabel
                 control={
                   <Switch
+                    checked={voicePipeline === "realtime"}
+                    onChange={(event) =>
+                      setVoicePipeline(
+                        event.target.checked ? "realtime" : "classic",
+                      )
+                    }
+                    color="primary"
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {t("settings.voicePipeline")}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {t("settings.voicePipelineDescription")}
+                    </Typography>
+                  </Box>
+                }
+                sx={{ alignItems: "flex-start", ml: 0, mt: 1 }}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
                     checked={voiceCallSttMode === "client"}
                     onChange={(event) =>
                       setVoiceCallSttMode(
@@ -222,6 +248,7 @@ export default function PreferencesArea() {
                       )
                     }
                     color="primary"
+                    disabled={voicePipeline === "realtime"}
                   />
                 }
                 label={

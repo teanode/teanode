@@ -864,7 +864,8 @@ func (self *Runner) appendConversationMessage(ctx context.Context, message model
 	if user == nil || user.ID == "" {
 		return fmt.Errorf("userId is required")
 	}
-	return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+	// Ensure the conversation exists before writing a message.
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		if _, err := transaction.GetConversation(ctx, self.ConversationID, nil); err != nil {
 			if err != store.ErrNotFound {
 				return err
@@ -877,13 +878,11 @@ func (self *Runner) appendConversationMessage(ctx context.Context, message model
 				return createError
 			}
 		}
-		if message.ID == "" {
-			message.ID = security.NewULID()
-		}
-		message.ConversationID = ptrto.Value(self.ConversationID)
-		_, err := transaction.CreateConversationMessage(ctx, &message, nil)
+		return nil
+	}); err != nil {
 		return err
-	})
+	}
+	return saveConversationMessage(ctx, self.ConversationID, message)
 }
 
 func newTextMessage(role, text string) models.ConversationMessage {
@@ -922,6 +921,41 @@ func newToolMessage(toolCallId, toolName, content string) models.ConversationMes
 	message.ToolCallID = ptrto.Value(toolCallId)
 	message.ToolName = ptrto.Value(toolName)
 	return message
+}
+
+func newToolCallMessage(callId, name, arguments string) models.ConversationMessage {
+	roleValue := models.RoleAssistant
+	toolCalls := []providers.ToolCall{{
+		ID:   callId,
+		Type: "function",
+		Function: providers.FunctionCall{
+			Name:      name,
+			Arguments: arguments,
+		},
+	}}
+	toolCallsJson, _ := json.Marshal(toolCalls)
+	content, _ := json.Marshal("")
+	return models.ConversationMessage{
+		Role:       &roleValue,
+		Content:    content,
+		ToolCalls:  toolCallsJson,
+		StopReason: ptrto.Value(models.StopReasonToolUse),
+	}
+}
+
+// saveConversationMessage persists a message to the store. It assigns an ID and
+// conversationId if not already set.
+func saveConversationMessage(ctx context.Context, conversationId string, message models.ConversationMessage) error {
+	if message.ID == "" {
+		message.ID = security.NewULID()
+	}
+	if message.ConversationID == nil {
+		message.ConversationID = ptrto.Value(conversationId)
+	}
+	return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.CreateConversationMessage(ctx, &message, nil)
+		return err
+	})
 }
 
 func conversationMessageRole(message models.ConversationMessage) string {

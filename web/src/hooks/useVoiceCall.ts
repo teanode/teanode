@@ -71,6 +71,8 @@ function writeString(view: DataView, offset: number, value: string): void {
   }
 }
 
+export type VoicePipeline = "classic" | "realtime";
+
 export interface UseVoiceCallOptions {
   sendRpc: <T = unknown>(method: string, params: unknown) => Promise<T>;
   sendBinary: (data: ArrayBuffer | Uint8Array) => void;
@@ -90,6 +92,8 @@ export interface UseVoiceCallOptions {
   connected: boolean;
   ttsVoice: string;
   voiceCallSttMode: VoiceCallSTTMode;
+  /** Voice pipeline preference: "classic" (default) or "realtime" (OpenAI Realtime API). */
+  voicePipeline?: VoicePipeline;
   conversationId: string | null;
   agentId: string;
   audioCapability: boolean;
@@ -105,6 +109,7 @@ export interface UseVoiceCallReturn {
   isPlaying: boolean;
   isSynthesizing: boolean;
   callError: string | null;
+  activePipeline: "classic" | "realtime" | null;
   interruptAgent: () => void;
   startCall: () => Promise<void>;
   endCall: () => void;
@@ -122,6 +127,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     isRunning,
     connected,
     voiceCallSttMode,
+    voicePipeline = "classic",
     conversationId,
     agentId,
     chimeConfig,
@@ -183,6 +189,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     isUserSpeaking,
     isPlaying,
     isSynthesizing,
+    activePipeline,
   } = useVoiceSession({
     sendRpc,
     sendBinary,
@@ -233,12 +240,15 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
       });
       streamRef.current = mediaStream;
 
+      const isRealtime = voicePipeline === "realtime";
       await startVoiceSession(audioContext, mediaStream, {
-        enableServerStt: voiceCallSttMode === "server",
+        enableServerStt: isRealtime || voiceCallSttMode === "server",
+        pipeline: isRealtime ? "realtime" : "classic",
       });
       isCallActiveRef.current = true;
 
-      if (voiceCallSttMode === "client") {
+      // In realtime mode, VAD is handled server-side — skip client VAD entirely.
+      if (!isRealtime && voiceCallSttMode === "client") {
         const sourceNode = new MediaStreamAudioSourceNode(audioContext, {
           mediaStream,
         });
@@ -408,6 +418,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     sendVoiceMessage,
     startVoiceSession,
     voiceCallSttMode,
+    voicePipeline,
   ]);
 
   useEffect(() => {
@@ -604,6 +615,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
     isPlaying,
     isSynthesizing,
     callError,
+    activePipeline,
     interruptAgent,
     startCall,
     endCall,

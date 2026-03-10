@@ -198,6 +198,8 @@
     "voiceChimes": "Indicator chimes",
     "voiceChimesDescription": "Play short audio cues when speech is captured, while the agent is busy, and when speaking is complete",
     "voiceChimesVolume": "Chime volume",
+    "voicePipeline": "Realtime voice pipeline",
+    "voicePipelineDescription": "Use the OpenAI Realtime API for single-hop audio-in/audio-out with built-in STT, LLM, and TTS. When off, the classic pipeline (separate STT, LLM, TTS) is used.",
     "voiceCallSttMode": "Client-side speech recognition",
     "voiceCallSttModeDescription": "Run in-call speech-to-text in your browser instead of on the server. Call TTS remains server-side.",
     "memory": "Memory",

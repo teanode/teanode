@@ -17,6 +17,7 @@ type BinarySubscriber = (handler: (data: ArrayBuffer) => void) => () => void;
 interface VoiceStartResult {
   sessionId: string;
   conversationId?: string;
+  pipeline?: "classic" | "realtime";
 }
 
 export interface UseVoiceSessionOptions {
@@ -40,10 +41,14 @@ export interface VoiceSessionRuntime {
   isUserSpeaking: boolean;
   isPlaying: boolean;
   isSynthesizing: boolean;
+  /** The active pipeline mode, set after start() completes. */
+  activePipeline: "classic" | "realtime" | null;
 }
 
 export interface VoiceSessionStartOptions {
   enableServerStt?: boolean;
+  /** Voice pipeline mode: "classic" (STT→LLM→TTS) or "realtime" (OpenAI Realtime API). */
+  pipeline?: "classic" | "realtime";
 }
 
 export function useVoiceSession(
@@ -55,6 +60,9 @@ export function useVoiceSession(
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSynthesizing, setIsSynthesizing] = useState(false);
+  const [activePipeline, setActivePipeline] = useState<
+    "classic" | "realtime" | null
+  >(null);
 
   const sessionIdRef = useRef<string | null>(null);
   const mediaSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -233,19 +241,23 @@ export function useVoiceSession(
       options?: VoiceSessionStartOptions,
     ) => {
       const enableServerStt = options?.enableServerStt !== false;
+      const pipeline = options?.pipeline ?? "classic";
       audioContextRef.current = audioContext;
       dropIncomingAudioRef.current = false;
       inputFramesSentRef.current = 0;
       outputFramesRecvRef.current = 0;
       setIsUserSpeaking(false);
+      setActivePipeline(null);
 
       console.debug("[voice][session] start request", {
         conversationId,
         agentId,
+        pipeline,
       });
       const result = await sendRpc<VoiceStartResult>("voice.start", {
         conversationId: conversationId,
         agentId: agentId,
+        pipeline,
         audioIn: {
           codec: "pcm_s16le",
           sampleRateHz: 16000,
@@ -254,17 +266,19 @@ export function useVoiceSession(
         },
         audioOut: { codec: "pcm_s16le", sampleRateHz: 24000, channels: 1 },
         features: {
-          serverVad: enableServerStt,
-          serverTurn: enableServerStt,
+          serverVad: pipeline === "realtime" || enableServerStt,
+          serverTurn: pipeline === "realtime" || enableServerStt,
           serverDenoise: enableServerStt,
           bargeIn: true,
         },
         client: { platform: "web", appVersion: "1.0.0" },
       });
       sessionIdRef.current = result.sessionId;
+      setActivePipeline(result.pipeline ?? "classic");
       console.debug("[voice][session] start ready", {
         sessionId: result.sessionId,
         conversationId: result.conversationId,
+        pipeline: result.pipeline,
       });
 
       unsubscribeBinaryRef.current = onBinaryMessage(handleBinary);
@@ -376,6 +390,7 @@ export function useVoiceSession(
     dropIncomingAudioRef.current = false;
     pendingInputSamplesRef.current = new Float32Array(0);
     setIsUserSpeaking(false);
+    setActivePipeline(null);
   }, [handleFlush, sendRpc]);
 
   const interruptPlayback = useCallback(() => {
@@ -413,5 +428,6 @@ export function useVoiceSession(
     isUserSpeaking,
     isPlaying,
     isSynthesizing,
+    activePipeline,
   };
 }

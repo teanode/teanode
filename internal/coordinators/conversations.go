@@ -112,6 +112,17 @@ func (self *Coordinator) NewDefaultConversation(userId, agentId string) string {
 	return conversationId
 }
 
+// NewConversation creates a new conversation without changing the default.
+func (self *Coordinator) NewConversation(userId, agentId string) string {
+	if userId == "" {
+		log.Warningf("new conversation requires non-empty userId")
+		return ""
+	}
+	conversationId := security.NewULID()
+	self.createConversation(userId, agentId, conversationId)
+	return conversationId
+}
+
 // createConversation creates a conversation in the store with the resolved model.
 func (self *Coordinator) createConversation(userId, agentId, conversationId string) {
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {

@@ -72,6 +72,7 @@ type voiceStartParameters struct {
 	AudioOut       voiceAudioFormat       `json:"audioOut"`
 	Features       voiceFeatures          `json:"features"`
 	Client         voiceClientInformation `json:"client,omitempty"`
+	Pipeline       string                 `json:"pipeline,omitempty"` // "classic" (default) or "realtime"
 }
 
 type voiceSessionReadyPayload struct {
@@ -79,6 +80,7 @@ type voiceSessionReadyPayload struct {
 	ConversationID string           `json:"conversationId"`
 	AudioOut       voiceAudioFormat `json:"audioOut"`
 	Features       voiceFeatures    `json:"features"`
+	Pipeline       string           `json:"pipeline"` // "classic" or "realtime"
 }
 
 type voiceEndParameters struct {

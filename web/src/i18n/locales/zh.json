@@ -199,6 +199,8 @@
     "voiceChimes": "提示音",
     "voiceChimesDescription": "在捕获语音、agent 忙碌和发言完成时播放提示音",
     "voiceChimesVolume": "提示音音量",
+    "voicePipeline": "实时语音管线",
+    "voicePipelineDescription": "使用 OpenAI Realtime API 实现单跳音频输入/输出，内置 STT、LLM 和 TTS。关闭时使用经典管线（分离的 STT、LLM、TTS）。",
     "voiceCallSttMode": "浏览器端语音识别",
     "voiceCallSttModeDescription": "在浏览器端执行通话内语音转写，而非服务端。通话 TTS 仍保持服务端。"
   },

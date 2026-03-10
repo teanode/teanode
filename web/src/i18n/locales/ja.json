@@ -199,6 +199,8 @@
     "voiceChimes": "通知チャイム",
     "voiceChimesDescription": "音声の取得時、agent の処理中、発話完了時に短い通知音を再生します",
     "voiceChimesVolume": "チャイム音量",
+    "voicePipeline": "リアルタイム音声パイプライン",
+    "voicePipelineDescription": "OpenAI Realtime API を使用して、STT・LLM・TTS を統合したシングルホップの音声入出力を実現します。オフの場合は従来のパイプライン（個別の STT、LLM、TTS）を使用します。",
     "voiceCallSttMode": "ブラウザ側音声認識",
     "voiceCallSttModeDescription": "通話中の音声認識をサーバー側ではなくブラウザ側で実行します。通話中の TTS はサーバー側のままです。"
   },
