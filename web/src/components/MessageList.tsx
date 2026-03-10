@@ -133,7 +133,14 @@ export default function MessageList({
 }: MessageListProps) {
   const { t } = useTranslation();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
   const atBottomRef = useRef(true);
+  const anchoredRef = useRef(false);
+  // How far (px) we're allowed to scroll before anchoring. Measured as the
+  // distance from the last user message to the top of the scroll container
+  // when streaming begins.
+  const anchorBudgetRef = useRef<number | null>(null);
+  const streamStartScrollTopRef = useRef<number | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const normalizedUserFallback = (userName || "You").trim() || "You";
@@ -189,18 +196,70 @@ export default function MessageList({
     wasEmptyRef.current = items.length === 0;
   }, [items.length]);
 
-  // Scroll to bottom when streaming text or interim transcript updates and user
-  // hasn't scrolled up. Virtuoso's followOutput handles new items, but content
-  // updates don't add new items.
+  // Auto-scroll to bottom on stream updates and new items, but stop once the
+  // user's message has scrolled to the top of the viewport (one viewport height
+  // of scroll from where streaming began).
   useEffect(() => {
-    if (atBottomRef.current && virtuosoRef.current && items.length > 0) {
-      virtuosoRef.current.scrollToIndex({
-        index: items.length - 1,
-        align: "end",
-        behavior: "auto",
-      });
+    if (!atBottomRef.current || !virtuosoRef.current || items.length === 0)
+      return;
+    if (anchoredRef.current) return;
+
+    const scrollEl = scrollContainerRef.current;
+    if (
+      scrollEl &&
+      streamStartScrollTopRef.current !== null &&
+      anchorBudgetRef.current !== null
+    ) {
+      const maxScrollTop =
+        streamStartScrollTopRef.current + anchorBudgetRef.current;
+      if (scrollEl.scrollTop >= maxScrollTop) {
+        // Already at or past the limit — anchor and don't scroll further.
+        anchoredRef.current = true;
+        return;
+      }
+      // Scroll to bottom, but clamp so we never exceed the budget.
+      const endScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
+      if (endScrollTop > maxScrollTop) {
+        scrollEl.scrollTop = maxScrollTop;
+        anchoredRef.current = true;
+        return;
+      }
     }
-  }, [streamText]);
+
+    virtuosoRef.current.scrollToIndex({
+      index: items.length - 1,
+      align: "end",
+      behavior: "auto",
+    });
+  }, [streamText, items.length]);
+
+  // Capture the scroll position and the distance from the last user message
+  // to the container top when streaming begins; reset when it ends.
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (isStreaming && !wasStreamingRef.current) {
+      const scrollEl = scrollContainerRef.current;
+      streamStartScrollTopRef.current = scrollEl ? scrollEl.scrollTop : null;
+      // Find the last user message element in the DOM and measure its offset.
+      if (scrollEl) {
+        const userEls = scrollEl.querySelectorAll("[data-user-message]");
+        const lastUserEl = userEls[userEls.length - 1] as HTMLElement | null;
+        if (lastUserEl) {
+          const containerRect = scrollEl.getBoundingClientRect();
+          const userRect = lastUserEl.getBoundingClientRect();
+          anchorBudgetRef.current = userRect.top - containerRect.top;
+        } else {
+          anchorBudgetRef.current = scrollEl.clientHeight;
+        }
+      }
+    }
+    if (!isStreaming) {
+      anchoredRef.current = false;
+      streamStartScrollTopRef.current = null;
+      anchorBudgetRef.current = null;
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming]);
 
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
     atBottomRef.current = atBottom;
@@ -259,8 +318,14 @@ export default function MessageList({
       if (message.type === "user") {
         return (
           <Container
+            data-user-message
             maxWidth="md"
-            sx={{ py: 0.5, display: "flex", flexDirection: "column" }}
+            sx={{
+              pt: "100px",
+              pb: 0.5,
+              display: "flex",
+              flexDirection: "column",
+            }}
           >
             <MessageBubble
               role="user"
@@ -572,13 +637,16 @@ export default function MessageList({
     >
       <Virtuoso
         ref={virtuosoRef}
+        scrollerRef={(ref) => {
+          scrollContainerRef.current = ref as HTMLElement;
+        }}
         style={{ height: "100%" }}
         data={items}
         computeItemKey={computeItemKey}
         firstItemIndex={firstItemIndex}
         initialTopMostItemIndex={items.length > 0 ? items.length - 1 : 0}
         defaultItemHeight={56}
-        followOutput="auto"
+        followOutput={false}
         atBottomThreshold={80}
         atBottomStateChange={handleAtBottomStateChange}
         startReached={handleStartReached}

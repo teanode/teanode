@@ -9,6 +9,7 @@ module.exports = (env, argv) => {
   // ---- Config 1: Existing web app (unchanged) ----
   const webAppConfig = {
     name: "webapp",
+    ignoreWarnings: [{ module: /onnxruntime-web/ }],
     entry: "./src/index.tsx",
     output: {
       path: path.resolve(__dirname, "../internal/frontend/static"),

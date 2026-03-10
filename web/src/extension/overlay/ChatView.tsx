@@ -6,6 +6,7 @@ import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import AttachFileRounded from "@mui/icons-material/AttachFileRounded";
 import SendRounded from "@mui/icons-material/SendRounded";
+import StopRounded from "@mui/icons-material/StopRounded";
 import MessageList from "../../components/MessageList";
 import { sendRpc, onEvent, getBaseUrl } from "./rpc";
 import type { RpcEventFrame } from "../shared/types";
@@ -296,6 +297,20 @@ export function ChatView({
     activeRunIdRef.current = null;
     setIsRunning(false);
   }
+
+  const abortRun = useCallback(async () => {
+    const runId = activeRunIdRef.current;
+    const convId = activeConvIdRef.current;
+    if (!runId || !convId) return;
+    try {
+      await sendRpc("conversations.abort", {
+        runId,
+        conversationId: convId,
+      });
+    } catch {
+      // Ignore – run may have already finished.
+    }
+  }, []);
 
   const answerQuestion = useCallback(
     async (
@@ -826,7 +841,7 @@ export function ChatView({
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if ((!text && pendingFiles.length === 0) || streaming) return;
+    if (!text && pendingFiles.length === 0) return;
 
     setInput("");
     if (textareaRef.current) {
@@ -910,7 +925,6 @@ export function ChatView({
     input,
     conversationId,
     agentId,
-    streaming,
     pendingFiles,
     onConversationCreated,
   ]);
@@ -971,6 +985,7 @@ export function ChatView({
 
   const { t } = useTranslation();
   const hasContent = !!input.trim() || pendingFiles.length > 0;
+  const showStop = isRunning && !hasContent;
 
   return (
     <Box
@@ -1075,7 +1090,6 @@ export function ChatView({
                   ? "Type a message..."
                   : "Start a new conversation..."
               }
-              disabled={streaming}
               rows={1}
               sx={{
                 flex: 1,
@@ -1102,7 +1116,6 @@ export function ChatView({
             <IconButton
               size="small"
               onClick={() => fileInputRef.current?.click()}
-              disabled={streaming}
               sx={{
                 width: 28,
                 height: 28,
@@ -1114,12 +1127,16 @@ export function ChatView({
             </IconButton>
             <IconButton
               size="small"
-              color="primary"
-              onClick={handleSend}
-              disabled={uploading || streaming || !hasContent}
+              color={showStop ? "error" : "primary"}
+              onClick={showStop ? abortRun : handleSend}
+              disabled={!showStop && (uploading || !hasContent)}
               sx={{ width: 28, height: 28 }}
             >
-              <SendRounded sx={{ fontSize: 16 }} />
+              {showStop ? (
+                <StopRounded sx={{ fontSize: 16 }} />
+              ) : (
+                <SendRounded sx={{ fontSize: 16 }} />
+              )}
             </IconButton>
           </Box>
           {uploading && (
