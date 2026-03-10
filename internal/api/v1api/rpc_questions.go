@@ -10,7 +10,7 @@ import (
 
 // --- questions.list ---
 
-func (self *webSocketConnection) handleQuestionsList(frame requestFrame) {
+func (self *webSocketConnection) handleQuestionsList(frame requestFrame) (interface{}, error) {
 	var parameters struct {
 		ConversationID string `json:"conversationId"`
 	}
@@ -18,13 +18,11 @@ func (self *webSocketConnection) handleQuestionsList(frame requestFrame) {
 		json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.ConversationID == "" {
-		self.sendError(frame.ID, 400, "conversationId is required")
-		return
+		return nil, rpcError(400, "conversationId is required")
 	}
 
 	if err := self.verifyConversationAccess(parameters.ConversationID); err != nil {
-		self.sendError(frame.ID, 403, err.Error())
-		return
+		return nil, rpcError(403, err.Error())
 	}
 
 	broker := self.api.coordinator.QuestionBroker()
@@ -41,7 +39,7 @@ func (self *webSocketConnection) handleQuestionsList(frame requestFrame) {
 		result = make([]*questions.PendingQuestion, 0)
 	}
 
-	self.sendResponse(frame.ID, map[string]interface{}{"questions": result})
+	return map[string]interface{}{"questions": result}, nil
 }
 
 // --- questions.answer ---
@@ -54,7 +52,7 @@ type answerEntry struct {
 	Other      string `json:"other,omitempty"`
 }
 
-func (self *webSocketConnection) handleQuestionsAnswer(frame requestFrame) {
+func (self *webSocketConnection) handleQuestionsAnswer(frame requestFrame) (interface{}, error) {
 	var parameters struct {
 		Answers []answerEntry `json:"answers"`
 	}
@@ -64,24 +62,20 @@ func (self *webSocketConnection) handleQuestionsAnswer(frame requestFrame) {
 
 	answers := parameters.Answers
 	if len(answers) == 0 {
-		self.sendError(frame.ID, 400, "answers array is required and must not be empty")
-		return
+		return nil, rpcError(400, "answers array is required and must not be empty")
 	}
 
 	// Validate each entry before touching the broker.
 	payloads := make(map[string]questions.AnswerPayload, len(answers))
 	for _, entry := range answers {
 		if entry.QuestionID == "" || entry.Answer == "" {
-			self.sendError(frame.ID, 400, "each answer must have questionId and answer")
-			return
+			return nil, rpcError(400, "each answer must have questionId and answer")
 		}
 		if entry.Other != "" && strings.TrimSpace(entry.Other) == "" {
-			self.sendError(frame.ID, 400, "other text must not be blank for question "+entry.QuestionID)
-			return
+			return nil, rpcError(400, "other text must not be blank for question "+entry.QuestionID)
 		}
 		if _, dup := payloads[entry.QuestionID]; dup {
-			self.sendError(frame.ID, 400, "duplicate questionId: "+entry.QuestionID)
-			return
+			return nil, rpcError(400, "duplicate questionId: "+entry.QuestionID)
 		}
 		payloads[entry.QuestionID] = questions.AnswerPayload{
 			Answer: entry.Answer,
@@ -93,8 +87,7 @@ func (self *webSocketConnection) handleQuestionsAnswer(frame requestFrame) {
 
 	// Atomic batch: validates all, then delivers all — no partial state.
 	if err := broker.AnswerBatch(payloads, self.userId()); err != nil {
-		self.sendError(frame.ID, 400, err.Error())
-		return
+		return nil, rpcError(400, err.Error())
 	}
 
 	// Broadcast "answered" events for each question so other tabs dismiss them.
@@ -111,5 +104,5 @@ func (self *webSocketConnection) handleQuestionsAnswer(frame requestFrame) {
 		self.api.pubsub.Broadcast(pubsub.EventTypeConversationQuestions, event)
 	}
 
-	self.sendResponse(frame.ID, map[string]interface{}{"ok": true})
+	return map[string]interface{}{"ok": true}, nil
 }

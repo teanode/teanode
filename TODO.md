@@ -10,11 +10,8 @@ These are the highest-impact items to tackle next, roughly in order.
 
 ### 2. Robustness & Reliability
 - [ ] Add context timeouts to non-shell tool execution (shell tool already has timeouts)
-- [ ] Add timeout for sync LLM calls (currently no explicit timeout)
 
 ### 3. Security Hardening
-- [ ] Restrict CORS origin (`CheckOrigin` currently allows all in v1api, terminals, browser relay)
-- [ ] Avoid passing auth token in WebSocket query params (log leakage risk; cookie auth exists but query param fallback remains)
 - [ ] Add rate limiting to general API endpoints (auth endpoints already have per-IP rate limiting)
 
 ### 4. Test Coverage Expansion
@@ -62,6 +59,7 @@ Core infrastructure packages have high test coverage:
 
 ### Robustness
 - [x] Interrupted tool-call recovery (synthetic tool results for unanswered calls in `runner.go`)
+- [x] Sync LLM call timeouts (90s non-streaming, 20s model list in `providers/timeouts.go`)
 - [x] Mic button visible during agent run (voice input while running, queued like typed messages)
 
 ### Error Handling
@@ -76,6 +74,8 @@ Core infrastructure packages have high test coverage:
 ### Security
 - [x] Forwarder key middleware for secure reverse proxy deployments (X-Forwarded-For trust)
 - [x] Per-IP rate limiting on auth endpoints (token bucket in `auth.go`)
+- [x] CORS origin restriction (origin validation via `isWebSocketOriginAllowed()` in `websocket.go`)
+- [x] Cookie-based WebSocket auth (HttpOnly session cookies, no query param token)
 - [x] Tool policies (allowlist/denylist per agent or group)
 
 ### Features
@@ -162,6 +162,7 @@ Core infrastructure packages have high test coverage:
 - [x] Agent editor
 - [x] Settings and preferences
 - [x] Voice input and TTS playback
+- [x] Mobile-responsive layout (breakpoints, edge swipe sidebar, responsive drawer)
 
 ### Plugin / Extension System
 - [x] Skills system (JSON-defined tools with shell and HTTP execution)
@@ -194,7 +195,6 @@ Lower priority or longer-term items.
 - [ ] Health check / diagnostics command (`teanode doctor`)
 
 ### Frontend
-- [ ] Mobile-responsive layout
 - [ ] Keyboard shortcuts
 
 ### Plugin / Extension System

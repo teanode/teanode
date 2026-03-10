@@ -10,19 +10,17 @@ import (
 	"github.com/teanode/teanode/internal/voice"
 )
 
-func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
+func (self *webSocketConnection) handleVoiceStart(frame requestFrame) (interface{}, error) {
 	var parameters voiceStartParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		log.Warningf("voice.start invalid parameters: %v", err)
-		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
-		return
+		return nil, rpcError(400, "invalid parameters: "+err.Error())
 	}
 
 	applyVoiceDefaults(&parameters)
 	if err := validateVoiceAudioFormats(parameters.AudioIn, parameters.AudioOut); err != nil {
 		log.Warningf("voice.start format validation failed: %v", err)
-		self.sendError(frame.ID, 400, err.Error())
-		return
+		return nil, rpcError(400, err.Error())
 	}
 	log.Infof("voice.start requested: agent=%s conv=%s in=%s/%dHz/%dch out=%s/%dHz/%dch features[vad=%v turn=%v barge=%v strategy=%s]",
 		parameters.AgentID, parameters.ConversationID,
@@ -33,20 +31,17 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 
 	if self.getActiveVoiceSession() != nil {
 		log.Warningf("voice.start conflict: active session already exists")
-		self.sendError(frame.ID, 409, "voice session already active")
-		return
+		return nil, rpcError(409, "voice session already active")
 	}
 
 	// Resolve user and agent.
 	user := models.UserFromContext(self.ctx)
 	if user == nil || user.ID == "" {
-		self.sendError(frame.ID, 401, "userId is required")
-		return
+		return nil, rpcError(401, "userId is required")
 	}
 	agentId := user.GetDefaultAgentID()
 	if agentId == "" {
-		self.sendError(frame.ID, 500, "no default agent configured")
-		return
+		return nil, rpcError(500, "no default agent configured")
 	}
 
 	// Resolve or create conversation.
@@ -91,13 +86,12 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 	)
 	if !self.setActiveVoiceSession(session) {
 		log.Warningf("voice.start race conflict while setting active session")
-		self.sendError(frame.ID, 409, "voice session already active")
-		return
+		return nil, rpcError(409, "voice session already active")
 	}
 
 	session.Start()
 	log.Infof("voice.start session ready: session=%s conv=%s", session.ID, session.ConversationID)
-	self.sendResponse(frame.ID, voiceSessionReadyPayload{
+	return voiceSessionReadyPayload{
 		SessionID:      session.ID,
 		ConversationID: session.ConversationID,
 		AudioOut:       parameters.AudioOut,
@@ -107,74 +101,67 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) {
 			BargeIn:      features.BargeIn,
 			TurnStrategy: features.TurnStrategy,
 		},
-	})
+	}, nil
 }
 
-func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) {
+func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) (interface{}, error) {
 	var parameters voiceEndParameters
 	if len(frame.Params) > 0 {
 		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 			log.Warningf("voice.end invalid parameters: %v", err)
-			self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
-			return
+			return nil, rpcError(400, "invalid parameters: "+err.Error())
 		}
 	}
 	session := self.getActiveVoiceSession()
 	if session == nil {
 		log.Warningf("voice.end without active session")
-		self.sendError(frame.ID, 404, "no active voice session")
-		return
+		return nil, rpcError(404, "no active voice session")
 	}
 	if parameters.SessionID != "" && parameters.SessionID != session.ID {
 		log.Warningf("voice.end session mismatch: requested=%s active=%s", parameters.SessionID, session.ID)
-		self.sendError(frame.ID, 404, "voice session not found")
-		return
+		return nil, rpcError(404, "voice session not found")
 	}
 	log.Infof("voice.end closing session=%s", session.ID)
 	session.Close()
 	self.clearActiveVoiceSession(session)
-	self.sendResponse(frame.ID, map[string]any{"ended": true})
+	return map[string]any{"ended": true}, nil
 }
 
-func (self *webSocketConnection) handleVoiceResponseCancel(frame requestFrame) {
+func (self *webSocketConnection) handleVoiceResponseCancel(frame requestFrame) (interface{}, error) {
 	var parameters voiceResponseCancelParameters
 	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 		log.Warningf("voice.response.cancel invalid parameters: %v", err)
-		self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
-		return
+		return nil, rpcError(400, "invalid parameters: "+err.Error())
 	}
 	session := self.getActiveVoiceSession()
 	if session == nil {
 		log.Warningf("voice.response.cancel without active session")
-		self.sendError(frame.ID, 404, "no active voice session")
-		return
+		return nil, rpcError(404, "no active voice session")
 	}
 	log.Infof("voice.response.cancel session=%s response=%s reason=%s", session.ID, parameters.ResponseID, parameters.Reason)
 	session.CancelResponse()
-	self.sendResponse(frame.ID, map[string]any{"cancelled": true})
+	return map[string]any{"cancelled": true}, nil
 }
 
-func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) {
+func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) (interface{}, error) {
 	var parameters voiceInputCommitParameters
 	if len(frame.Params) > 0 {
 		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
 			log.Warningf("voice.input.commit invalid parameters: %v", err)
-			self.sendError(frame.ID, 400, "invalid parameters: "+err.Error())
-			return
+			return nil, rpcError(400, "invalid parameters: "+err.Error())
 		}
 	}
 	session := self.getActiveVoiceSession()
 	if session == nil {
 		log.Warningf("voice.input.commit without active session")
-		self.sendError(frame.ID, 404, "no active voice session")
-		return
+		return nil, rpcError(404, "no active voice session")
 	}
 	log.Infof("voice.input.commit session=%s reason=%s", session.ID, parameters.Reason)
 	session.InputCommit(parameters.Reason)
-	self.sendResponse(frame.ID, map[string]any{"committed": true})
+	return map[string]any{"committed": true}, nil
 }
 
-func (self *webSocketConnection) handleVoiceProviders(frame requestFrame) {
+func (self *webSocketConnection) handleVoiceProviders(frame requestFrame) (interface{}, error) {
 	providerRegistry := self.api.coordinator.ProviderRegistry()
 	var transcribers, streamingTranscribers, synthesizers, streamingSynthesizers []string
 	if providerRegistry != nil {
@@ -201,12 +188,12 @@ func (self *webSocketConnection) handleVoiceProviders(frame requestFrame) {
 		sort.Strings(synthesizers)
 		sort.Strings(streamingSynthesizers)
 	}
-	self.sendResponse(frame.ID, map[string]any{
+	return map[string]any{
 		"transcribers":          orEmptySlice(transcribers),
 		"streamingTranscribers": orEmptySlice(streamingTranscribers),
 		"synthesizers":          orEmptySlice(synthesizers),
 		"streamingSynthesizers": orEmptySlice(streamingSynthesizers),
-	})
+	}, nil
 }
 
 func orEmptySlice(slice []string) []string {

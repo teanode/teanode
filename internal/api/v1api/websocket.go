@@ -247,152 +247,16 @@ func (self *webSocketConnection) isAdmin() bool {
 }
 
 func (self *webSocketConnection) dispatch(frame requestFrame) {
-	switch frame.Method {
-	case "connect":
-		self.handleConnect(frame)
-	case "health":
-		self.handleHealth(frame)
-	case "agents.list":
-		self.handleAgentsList(frame)
-	case "conversations.send":
-		self.handleConversationsSend(frame)
-	case "conversations.history":
-		self.handleConversationsHistory(frame)
-	case "conversations.abort":
-		self.handleConversationsAbort(frame)
-	case "conversations.list":
-		self.handleConversationsList(frame)
-	case "conversations.delete":
-		self.handleConversationsDelete(frame)
-	case "models.list":
-		self.handleModelsList(frame)
-	case "jobs.list":
-		self.handleJobsList(frame)
-	case "jobs.create":
-		self.handleJobsCreate(frame)
-	case "jobs.update":
-		self.handleJobsUpdate(frame)
-	case "jobs.delete":
-		self.handleJobsDelete(frame)
-	case "jobs.trigger":
-		self.handleJobsTrigger(frame)
-	case "config.schema":
-		self.handleConfigSchema(frame)
-	case "config.get":
-		self.handleConfigGet(frame)
-	case "config.update":
-		self.handleConfigUpdate(frame)
-	case "agents.config.schema":
-		self.handleAgentsConfigSchema(frame)
-	case "agents.config.list":
-		self.handleAgentsConfigList(frame)
-	case "agents.config.save":
-		self.handleAgentsConfigSave(frame)
-	case "agents.config.delete":
-		self.handleAgentsConfigDelete(frame)
-	case "agents.avatar.set":
-		self.handleAgentsAvatarSet(frame)
-	case "agents.avatar.remove":
-		self.handleAgentsAvatarRemove(frame)
-	case "agents.setDefault":
-		self.handleAgentsSetDefault(frame)
-	case "conversations.setDefault":
-		self.handleConversationsSetDefault(frame)
-	case "sessions.list":
-		self.handleSessionsList(frame)
-	case "sessions.revoke":
-		self.handleSessionsRevoke(frame)
-	case "auth.tokens.list":
-		self.handleAuthTokensList(frame)
-	case "auth.tokens.create":
-		self.handleAuthTokensCreate(frame)
-	case "auth.tokens.delete":
-		self.handleAuthTokensDelete(frame)
-	case "auth.changePassword":
-		self.handleAuthChangePassword(frame)
-	case "users.list":
-		self.handleUsersList(frame)
-	case "users.create":
-		self.handleUsersCreate(frame)
-	case "users.delete":
-		self.handleUsersDelete(frame)
-	case "users.changePassword":
-		self.handleUsersChangePassword(frame)
-	case "users.update":
-		self.handleUsersUpdate(frame)
-	case "users.setRole":
-		self.handleUsersSetRole(frame)
-	case "profile.get":
-		self.handleProfileGet(frame)
-	case "profile.update":
-		self.handleProfileUpdate(frame)
-	case "profile.avatar.remove":
-		self.handleProfileAvatarRemove(frame)
-	case "skills.local.list":
-		self.handleSkillsLocalList(frame)
-	case "skills.library.search":
-		self.handleSkillsLibrarySearch(frame)
-	case "skills.install":
-		self.handleSkillsInstall(frame)
-	case "skills.installed.list":
-		self.handleSkillsInstalledList(frame)
-	case "skills.uninstall":
-		self.handleSkillsUninstall(frame)
-	case "skills.update":
-		self.handleSkillsUpdate(frame)
-	case "skills.setEnabled":
-		self.handleSkillsSetEnabled(frame)
-	case "secrets.list":
-		self.handleSecretsList(frame)
-	case "secrets.set":
-		self.handleSecretsSet(frame)
-	case "voice.providers":
-		self.handleVoiceProviders(frame)
-	case "voice.start":
-		self.handleVoiceStart(frame)
-	case "voice.end":
-		self.handleVoiceEnd(frame)
-	case "voice.response.cancel":
-		self.handleVoiceResponseCancel(frame)
-	case "voice.input.commit":
-		self.handleVoiceInputCommit(frame)
-	case "projects.list":
-		self.handleProjectsList(frame)
-	case "projects.create":
-		self.handleProjectsCreate(frame)
-	case "projects.rename":
-		self.handleProjectsRename(frame)
-	case "projects.delete":
-		self.handleProjectsDelete(frame)
-	case "conversations.todos.list":
-		self.handleConversationsTodosList(frame)
-	case "conversations.todos.batch":
-		self.handleConversationsTodosBatch(frame)
-	case "projects.todos.summary":
-		self.handleProjectsTodosSummary(frame)
-	case "projects.todos.list":
-		self.handleProjectsTodosList(frame)
-	case "questions.list":
-		self.handleQuestionsList(frame)
-	case "questions.answer":
-		self.handleQuestionsAnswer(frame)
-	case "tab.attach":
-		self.handleTabAttach(frame)
-	case "tab.detach":
-		self.handleTabDetach(frame)
-	case "tab.commandResult":
-		self.handleTabCommandResult(frame)
-	case "usages.list":
-		self.handleListUsages(frame)
-	case "memory.list":
-		self.handleMemoryList(frame)
-	case "memory.search":
-		self.handleMemorySearch(frame)
-	case "memory.delete":
-		self.handleMemoryDelete(frame)
-	default:
-		self.sendError(frame.ID, 404, "unknown method: "+frame.Method)
+	result, err := self.handleRpc(frame)
+	if err != nil {
+		if handlerErr, ok := err.(*rpcHandlerError); ok {
+			self.sendError(frame.ID, handlerErr.code, handlerErr.message)
+		} else {
+			self.sendError(frame.ID, 500, err.Error())
+		}
+		return
 	}
+	self.sendResponse(frame.ID, result)
 }
 
 func (self *webSocketConnection) sendResponse(id string, payload interface{}) {

@@ -15,7 +15,7 @@ import (
 
 // --- conversations.todos.list ---
 
-func (self *webSocketConnection) handleConversationsTodosList(frame requestFrame) {
+func (self *webSocketConnection) handleConversationsTodosList(frame requestFrame) (interface{}, error) {
 	var parameters struct {
 		ConversationID string `json:"conversationId"`
 	}
@@ -23,13 +23,11 @@ func (self *webSocketConnection) handleConversationsTodosList(frame requestFrame
 		json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.ConversationID == "" {
-		self.sendError(frame.ID, 400, "conversationId is required")
-		return
+		return nil, rpcError(400, "conversationId is required")
 	}
 
 	if err := self.verifyConversationAccess(parameters.ConversationID); err != nil {
-		self.sendError(frame.ID, 403, err.Error())
-		return
+		return nil, rpcError(403, err.Error())
 	}
 
 	var todos []*models.Todo
@@ -41,8 +39,7 @@ func (self *webSocketConnection) handleConversationsTodosList(frame requestFrame
 		todos = listed
 		return nil
 	}); err != nil {
-		self.sendError(frame.ID, 500, "listing todos: "+err.Error())
-		return
+		return nil, rpcError(500, "listing todos: "+err.Error())
 	}
 
 	openCount, doneCount := 0, 0
@@ -55,11 +52,11 @@ func (self *webSocketConnection) handleConversationsTodosList(frame requestFrame
 		}
 	}
 
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"todos":     todos,
 		"openCount": openCount,
 		"doneCount": doneCount,
-	})
+	}, nil
 }
 
 // --- conversations.todos.batch ---
@@ -82,7 +79,7 @@ type rpcBatchResult struct {
 	TodoID  string       `json:"todoId,omitempty"`
 }
 
-func (self *webSocketConnection) handleConversationsTodosBatch(frame requestFrame) {
+func (self *webSocketConnection) handleConversationsTodosBatch(frame requestFrame) (interface{}, error) {
 	var parameters struct {
 		ConversationID string         `json:"conversationId"`
 		Items          []rpcBatchItem `json:"items"`
@@ -91,21 +88,17 @@ func (self *webSocketConnection) handleConversationsTodosBatch(frame requestFram
 		json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.ConversationID == "" {
-		self.sendError(frame.ID, 400, "conversationId is required")
-		return
+		return nil, rpcError(400, "conversationId is required")
 	}
 	if len(parameters.Items) == 0 {
-		self.sendError(frame.ID, 400, "items is required and must contain 1-50 entries")
-		return
+		return nil, rpcError(400, "items is required and must contain 1-50 entries")
 	}
 	if len(parameters.Items) > 50 {
-		self.sendError(frame.ID, 400, fmt.Sprintf("items must contain at most 50 entries, got %d", len(parameters.Items)))
-		return
+		return nil, rpcError(400, fmt.Sprintf("items must contain at most 50 entries, got %d", len(parameters.Items)))
 	}
 
 	if err := self.verifyConversationAccess(parameters.ConversationID); err != nil {
-		self.sendError(frame.ID, 403, err.Error())
-		return
+		return nil, rpcError(403, err.Error())
 	}
 
 	results := make([]rpcBatchResult, len(parameters.Items))
@@ -122,8 +115,7 @@ func (self *webSocketConnection) handleConversationsTodosBatch(frame requestFram
 		}
 		return nil
 	}); err != nil {
-		self.sendError(frame.ID, 500, "batch operation failed: "+err.Error())
-		return
+		return nil, rpcError(500, "batch operation failed: "+err.Error())
 	}
 
 	if anySuccess {
@@ -166,7 +158,7 @@ func (self *webSocketConnection) handleConversationsTodosBatch(frame requestFram
 		"results":        results,
 	})
 
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"results": results,
 		"summary": map[string]interface{}{
 			"total":     len(parameters.Items),
@@ -176,7 +168,7 @@ func (self *webSocketConnection) handleConversationsTodosBatch(frame requestFram
 		"totalCount": len(todos),
 		"openCount":  openCount,
 		"doneCount":  doneCount,
-	})
+	}, nil
 }
 
 func (self *webSocketConnection) executeRpcBatchItem(ctx context.Context, tx store.Transaction, conversationId string, index int, item rpcBatchItem) rpcBatchResult {
@@ -294,9 +286,9 @@ func (self *webSocketConnection) rpcBatchDelete(ctx context.Context, tx store.Tr
 
 // --- projects.todos.summary ---
 
-func (self *webSocketConnection) handleProjectsTodosSummary(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleProjectsTodosSummary(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
 
 	type projectTodoSummary struct {
@@ -314,8 +306,7 @@ func (self *webSocketConnection) handleProjectsTodosSummary(frame requestFrame) 
 		projects = listed
 		return nil
 	}); err != nil {
-		self.sendError(frame.ID, 500, "listing projects: "+err.Error())
-		return
+		return nil, rpcError(500, "listing projects: "+err.Error())
 	}
 
 	summaries := make([]projectTodoSummary, 0, len(projects))
@@ -342,20 +333,19 @@ func (self *webSocketConnection) handleProjectsTodosSummary(frame requestFrame) 
 		}
 		return nil
 	}); err != nil {
-		self.sendError(frame.ID, 500, "counting todos: "+err.Error())
-		return
+		return nil, rpcError(500, "counting todos: "+err.Error())
 	}
 
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"summaries": summaries,
-	})
+	}, nil
 }
 
 // --- projects.todos.list ---
 
-func (self *webSocketConnection) handleProjectsTodosList(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleProjectsTodosList(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
 
 	var parameters struct {
@@ -365,8 +355,7 @@ func (self *webSocketConnection) handleProjectsTodosList(frame requestFrame) {
 		json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.ProjectID == "" {
-		self.sendError(frame.ID, 400, "projectId is required")
-		return
+		return nil, rpcError(400, "projectId is required")
 	}
 
 	var todos []*models.Todo
@@ -382,8 +371,7 @@ func (self *webSocketConnection) handleProjectsTodosList(frame requestFrame) {
 		todos = listed
 		return nil
 	}); err != nil {
-		self.sendError(frame.ID, 500, "listing project todos: "+err.Error())
-		return
+		return nil, rpcError(500, "listing project todos: "+err.Error())
 	}
 
 	openCount, doneCount := 0, 0
@@ -396,30 +384,9 @@ func (self *webSocketConnection) handleProjectsTodosList(frame requestFrame) {
 		}
 	}
 
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"todos":     todos,
 		"openCount": openCount,
 		"doneCount": doneCount,
-	})
-}
-
-// --- helpers ---
-
-func (self *webSocketConnection) verifyConversationAccess(conversationId string) error {
-	var conversation *models.Conversation
-	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		conv, err := tx.GetConversation(ctx, conversationId, nil)
-		if err != nil {
-			return err
-		}
-		conversation = conv
-		return nil
-	}); err != nil {
-		return err
-	}
-	userId := self.userId()
-	if conversation.GetUserID() != userId && !self.isAdmin() {
-		return store.ErrNotFound
-	}
-	return nil
+	}, nil
 }

@@ -12,7 +12,7 @@ import (
 
 // --- usages.list ---
 
-func (self *webSocketConnection) handleListUsages(frame requestFrame) {
+func (self *webSocketConnection) handleListUsages(frame requestFrame) (interface{}, error) {
 	var parameters struct {
 		IntervalType string  `json:"intervalType"`
 		StartedAt    string  `json:"startedAt"`
@@ -29,19 +29,16 @@ func (self *webSocketConnection) handleListUsages(frame requestFrame) {
 	switch intervalType {
 	case timeutil.IntervalTypeHour, timeutil.IntervalTypeDay, timeutil.IntervalTypeWeek, timeutil.IntervalTypeMonth, timeutil.IntervalTypeYear:
 	default:
-		self.sendError(frame.ID, 400, "intervalType must be 'hour', 'day', 'week', 'month', or 'year'")
-		return
+		return nil, rpcError(400, "intervalType must be 'hour', 'day', 'week', 'month', or 'year'")
 	}
 
 	startedAt, err := time.ParseInLocation("2006-01-02T15:04:05", parameters.StartedAt, time.Local)
 	if err != nil {
-		self.sendError(frame.ID, 400, "startedAt must be in format 2006-01-02T15:04:05")
-		return
+		return nil, rpcError(400, "startedAt must be in format 2006-01-02T15:04:05")
 	}
 	endedAt, err := time.ParseInLocation("2006-01-02T15:04:05", parameters.EndedAt, time.Local)
 	if err != nil {
-		self.sendError(frame.ID, 400, "endedAt must be in format 2006-01-02T15:04:05")
-		return
+		return nil, rpcError(400, "endedAt must be in format 2006-01-02T15:04:05")
 	}
 
 	// Non-admin users can only query their own usage.
@@ -51,8 +48,7 @@ func (self *webSocketConnection) handleListUsages(frame requestFrame) {
 		filterUserId = parameters.UserID
 	} else {
 		if parameters.UserID != nil && *parameters.UserID != self.userId() {
-			self.sendError(frame.ID, 403, "only admins can query other users' usage")
-			return
+			return nil, rpcError(403, "only admins can query other users' usage")
 		}
 		currentUserId := self.userId()
 		filterUserId = &currentUserId
@@ -76,11 +72,10 @@ func (self *webSocketConnection) handleListUsages(frame requestFrame) {
 		entries = result
 		return nil
 	}); err != nil {
-		self.sendError(frame.ID, 500, "querying usage: "+err.Error())
-		return
+		return nil, rpcError(500, "querying usage: "+err.Error())
 	}
 
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"entries": entries,
-	})
+	}, nil
 }

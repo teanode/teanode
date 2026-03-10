@@ -9,7 +9,7 @@ import (
 
 // --- tab.attach ---
 
-func (self *webSocketConnection) handleTabAttach(frame requestFrame) {
+func (self *webSocketConnection) handleTabAttach(frame requestFrame) (interface{}, error) {
 	var params struct {
 		AgentID        string `json:"agentId"`
 		ConversationID string `json:"conversationId"`
@@ -21,18 +21,15 @@ func (self *webSocketConnection) handleTabAttach(frame requestFrame) {
 		json.Unmarshal(frame.Params, &params)
 	}
 	if params.AgentID == "" || params.ConversationID == "" {
-		self.sendError(frame.ID, 400, "agentId and conversationId are required")
-		return
+		return nil, rpcError(400, "agentId and conversationId are required")
 	}
 	if params.TabURL == "" {
-		self.sendError(frame.ID, 400, "tabUrl is required")
-		return
+		return nil, rpcError(400, "tabUrl is required")
 	}
 
 	userId := self.userId()
 	if userId == "" {
-		self.sendError(frame.ID, 401, "authentication required")
-		return
+		return nil, rpcError(401, "authentication required")
 	}
 
 	broker := self.api.coordinator.TabBroker()
@@ -70,12 +67,12 @@ func (self *webSocketConnection) handleTabAttach(frame requestFrame) {
 		"tabId":          params.TabID,
 	})
 
-	self.sendResponse(frame.ID, nil)
+	return nil, nil
 }
 
 // --- tab.detach ---
 
-func (self *webSocketConnection) handleTabDetach(frame requestFrame) {
+func (self *webSocketConnection) handleTabDetach(frame requestFrame) (interface{}, error) {
 	var params struct {
 		AgentID        string `json:"agentId"`
 		ConversationID string `json:"conversationId"`
@@ -84,8 +81,7 @@ func (self *webSocketConnection) handleTabDetach(frame requestFrame) {
 		json.Unmarshal(frame.Params, &params)
 	}
 	if params.AgentID == "" || params.ConversationID == "" {
-		self.sendError(frame.ID, 400, "agentId and conversationId are required")
-		return
+		return nil, rpcError(400, "agentId and conversationId are required")
 	}
 
 	userId := self.userId()
@@ -106,12 +102,12 @@ func (self *webSocketConnection) handleTabDetach(frame requestFrame) {
 		})
 	}
 
-	self.sendResponse(frame.ID, nil)
+	return nil, nil
 }
 
-// --- tab.tool_result ---
+// --- tab.commandResult ---
 
-func (self *webSocketConnection) handleTabCommandResult(frame requestFrame) {
+func (self *webSocketConnection) handleTabCommandResult(frame requestFrame) (interface{}, error) {
 	var params struct {
 		RequestID string `json:"requestId"`
 		Result    string `json:"result"`
@@ -121,8 +117,7 @@ func (self *webSocketConnection) handleTabCommandResult(frame requestFrame) {
 		json.Unmarshal(frame.Params, &params)
 	}
 	if params.RequestID == "" {
-		self.sendError(frame.ID, 400, "requestId is required")
-		return
+		return nil, rpcError(400, "requestId is required")
 	}
 
 	broker := self.api.coordinator.TabBroker()
@@ -130,9 +125,8 @@ func (self *webSocketConnection) handleTabCommandResult(frame requestFrame) {
 		Result: params.Result,
 		Error:  params.Error,
 	}); err != nil {
-		self.sendError(frame.ID, 404, err.Error())
-		return
+		return nil, rpcError(404, err.Error())
 	}
 
-	self.sendResponse(frame.ID, nil)
+	return nil, nil
 }

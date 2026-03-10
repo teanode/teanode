@@ -11,19 +11,19 @@ import (
 )
 
 // handleSkillsLocalList returns an empty list (no local skills with hardcoded library).
-func (self *webSocketConnection) handleSkillsLocalList(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleSkillsLocalList(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"skills": []interface{}{},
-	})
+	}, nil
 }
 
 // handleSkillsLibrarySearch searches the official skill library.
-func (self *webSocketConnection) handleSkillsLibrarySearch(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleSkillsLibrarySearch(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
 	var parameters struct {
 		Query string `json:"query"`
@@ -33,18 +33,17 @@ func (self *webSocketConnection) handleSkillsLibrarySearch(frame requestFrame) {
 	}
 	results, err := skills.Search(self.ctx, parameters.Query)
 	if err != nil {
-		self.sendError(frame.ID, 500, "searching skills: "+err.Error())
-		return
+		return nil, rpcError(500, "searching skills: "+err.Error())
 	}
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"results": results,
-	})
+	}, nil
 }
 
 // handleSkillsInstall installs a skill from the official library.
-func (self *webSocketConnection) handleSkillsInstall(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleSkillsInstall(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
 	var parameters struct {
 		Name    string `json:"name"`
@@ -54,23 +53,21 @@ func (self *webSocketConnection) handleSkillsInstall(frame requestFrame) {
 		json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.Name == "" {
-		self.sendError(frame.ID, 400, "name is required")
-		return
+		return nil, rpcError(400, "name is required")
 	}
 	info, err := skills.Install(self.ctx, parameters.Name, parameters.Version)
 	if err != nil {
-		self.sendError(frame.ID, 500, "installing skill: "+err.Error())
-		return
+		return nil, rpcError(500, "installing skill: "+err.Error())
 	}
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"skill": info,
-	})
+	}, nil
 }
 
 // handleSkillsInstalledList returns all installed skills.
-func (self *webSocketConnection) handleSkillsInstalledList(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleSkillsInstalledList(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
 	var installed []*models.Skill
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
@@ -78,8 +75,7 @@ func (self *webSocketConnection) handleSkillsInstalledList(frame requestFrame) {
 		installed, err = tx.ListSkills(ctx, nil)
 		return err
 	}); err != nil {
-		self.sendError(frame.ID, 500, "listing skills: "+err.Error())
-		return
+		return nil, rpcError(500, "listing skills: "+err.Error())
 	}
 	type secretDeclarationResponse struct {
 		Key         string `json:"key"`
@@ -112,15 +108,15 @@ func (self *webSocketConnection) handleSkillsInstalledList(frame requestFrame) {
 		}
 		result = append(result, response)
 	}
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"skills": result,
-	})
+	}, nil
 }
 
 // handleSkillsUninstall removes an installed skill.
-func (self *webSocketConnection) handleSkillsUninstall(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleSkillsUninstall(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
 	var parameters struct {
 		Name string `json:"name"`
@@ -129,24 +125,22 @@ func (self *webSocketConnection) handleSkillsUninstall(frame requestFrame) {
 		json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.Name == "" {
-		self.sendError(frame.ID, 400, "name is required")
-		return
+		return nil, rpcError(400, "name is required")
 	}
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
 		return tx.DeleteSkill(ctx, parameters.Name, nil)
 	}); err != nil {
-		self.sendError(frame.ID, 500, "uninstalling skill: "+err.Error())
-		return
+		return nil, rpcError(500, "uninstalling skill: "+err.Error())
 	}
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"ok": true,
-	})
+	}, nil
 }
 
 // handleSkillsUpdate checks for and applies updates to installed skills.
-func (self *webSocketConnection) handleSkillsUpdate(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleSkillsUpdate(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
 	var parameters struct {
 		Name string `json:"name"`
@@ -156,18 +150,17 @@ func (self *webSocketConnection) handleSkillsUpdate(frame requestFrame) {
 	}
 	updated, err := skills.Update(self.ctx, parameters.Name)
 	if err != nil {
-		self.sendError(frame.ID, 500, "updating skills: "+err.Error())
-		return
+		return nil, rpcError(500, "updating skills: "+err.Error())
 	}
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"updated": updated,
-	})
+	}, nil
 }
 
 // handleSkillsSetEnabled toggles a skill's enabled state.
-func (self *webSocketConnection) handleSkillsSetEnabled(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleSkillsSetEnabled(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
 	var parameters struct {
 		Name    string `json:"name"`
@@ -177,12 +170,10 @@ func (self *webSocketConnection) handleSkillsSetEnabled(frame requestFrame) {
 		json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.Name == "" {
-		self.sendError(frame.ID, 400, "name is required")
-		return
+		return nil, rpcError(400, "name is required")
 	}
 	if parameters.Enabled == nil {
-		self.sendError(frame.ID, 400, "enabled is required")
-		return
+		return nil, rpcError(400, "enabled is required")
 	}
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
 		_, err := tx.ModifySkill(ctx, parameters.Name, func(skill *models.Skill) error {
@@ -191,19 +182,18 @@ func (self *webSocketConnection) handleSkillsSetEnabled(frame requestFrame) {
 		}, nil)
 		return err
 	}); err != nil {
-		self.sendError(frame.ID, 500, "setting skill enabled: "+err.Error())
-		return
+		return nil, rpcError(500, "setting skill enabled: "+err.Error())
 	}
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"ok": true,
-	})
+	}, nil
 }
 
 // handleSecretsList returns all secret declarations from installed skills,
 // with a boolean indicating whether each secret has a value configured.
-func (self *webSocketConnection) handleSecretsList(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleSecretsList(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
 
 	// Load installed skills.
@@ -218,8 +208,7 @@ func (self *webSocketConnection) handleSecretsList(frame requestFrame) {
 		configuration, err = tx.GetConfiguration(ctx, nil)
 		return err
 	}); err != nil {
-		self.sendError(frame.ID, 500, "listing secrets: "+err.Error())
-		return
+		return nil, rpcError(500, "listing secrets: "+err.Error())
 	}
 
 	// Build set of configured secret keys.
@@ -265,15 +254,15 @@ func (self *webSocketConnection) handleSecretsList(frame requestFrame) {
 		secrets = append(secrets, *secretMap[key])
 	}
 
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"secrets": secrets,
-	})
+	}, nil
 }
 
 // handleSecretsSet sets or clears a secret value in the configuration.
-func (self *webSocketConnection) handleSecretsSet(frame requestFrame) {
-	if !self.requireAdmin(frame) {
-		return
+func (self *webSocketConnection) handleSecretsSet(frame requestFrame) (interface{}, error) {
+	if err := self.requireAdmin(); err != nil {
+		return nil, err
 	}
 	var parameters struct {
 		Key   string `json:"key"`
@@ -283,8 +272,7 @@ func (self *webSocketConnection) handleSecretsSet(frame requestFrame) {
 		json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.Key == "" {
-		self.sendError(frame.ID, 400, "key is required")
-		return
+		return nil, rpcError(400, "key is required")
 	}
 
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
@@ -316,10 +304,9 @@ func (self *webSocketConnection) handleSecretsSet(frame requestFrame) {
 		}, nil)
 		return err
 	}); err != nil {
-		self.sendError(frame.ID, 500, "setting secret: "+err.Error())
-		return
+		return nil, rpcError(500, "setting secret: "+err.Error())
 	}
-	self.sendResponse(frame.ID, map[string]interface{}{
+	return map[string]interface{}{
 		"ok": true,
-	})
+	}, nil
 }
