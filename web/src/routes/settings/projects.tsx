@@ -1,6 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import Collapse from "@mui/material/Collapse";
 import Container from "@mui/material/Container";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
@@ -10,8 +18,13 @@ import Tooltip from "@mui/material/Tooltip";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { useAppContext } from "../../context";
+import type { Todo } from "../../types";
 
 interface ProjectEntry {
   id: string;
@@ -20,12 +33,24 @@ interface ProjectEntry {
   updatedAt?: string;
 }
 
+interface TodoSummary {
+  projectId: string;
+  openCount: number;
+  doneCount: number;
+}
+
 function formatUpdated(updatedAt?: string): string {
   if (!updatedAt) return "";
   const timestamp = Date.parse(updatedAt);
   if (Number.isNaN(timestamp)) return updatedAt;
   return new Date(timestamp).toLocaleString();
 }
+
+const priorityColor: Record<string, "error" | "warning" | "default"> = {
+  high: "error",
+  medium: "warning",
+  low: "default",
+};
 
 export default function SettingsProjectsPage() {
   const { t } = useTranslation();
@@ -40,6 +65,18 @@ export default function SettingsProjectsPage() {
   const [statusText, setStatusText] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
 
+  // Todo summary and expanded todo state.
+  const [summaryByProjectId, setSummaryByProjectId] = useState<
+    Record<string, { openCount: number; doneCount: number }>
+  >({});
+  const [expandedProjectId, setExpandedProjectId] = useState<string | null>(
+    null,
+  );
+  const [todosByProjectId, setTodosByProjectId] = useState<
+    Record<string, Todo[]>
+  >({});
+  const todoCacheRef = useRef<Set<string>>(new Set());
+
   const loadProjects = useCallback(async () => {
     if (!connected) return;
     try {
@@ -53,9 +90,60 @@ export default function SettingsProjectsPage() {
     }
   }, [connected, sendRpc]);
 
+  const loadTodoSummaries = useCallback(async () => {
+    if (!connected) return;
+    try {
+      const result = await sendRpc<{ summaries: TodoSummary[] }>(
+        "projects.todos.summary",
+        {},
+      );
+      const next: Record<string, { openCount: number; doneCount: number }> = {};
+      for (const summary of result.summaries || []) {
+        next[summary.projectId] = {
+          openCount: summary.openCount,
+          doneCount: summary.doneCount,
+        };
+      }
+      setSummaryByProjectId(next);
+    } catch (error) {
+      console.error("projects.todos.summary:", error);
+    }
+  }, [connected, sendRpc]);
+
   useEffect(() => {
     void loadProjects();
-  }, [loadProjects]);
+    void loadTodoSummaries();
+  }, [loadProjects, loadTodoSummaries]);
+
+  const loadTodosForProject = useCallback(
+    async (projectId: string) => {
+      if (todoCacheRef.current.has(projectId)) return;
+      try {
+        const result = await sendRpc<{ todos: Todo[] }>("projects.todos.list", {
+          projectId,
+        });
+        setTodosByProjectId((previous) => ({
+          ...previous,
+          [projectId]: result.todos || [],
+        }));
+        todoCacheRef.current.add(projectId);
+      } catch (error) {
+        console.error("projects.todos.list:", error);
+      }
+    },
+    [sendRpc],
+  );
+
+  const toggleExpanded = useCallback(
+    (projectId: string) => {
+      setExpandedProjectId((previous) => {
+        if (previous === projectId) return null;
+        void loadTodosForProject(projectId);
+        return projectId;
+      });
+    },
+    [loadTodosForProject],
+  );
 
   const sortedProjects = useMemo(() => {
     const updatedAtMs = (value?: string) => {
@@ -123,13 +211,14 @@ export default function SettingsProjectsPage() {
       setStatusText(t("settings.projectCreated", { name }));
       setNewProjectName("");
       await loadProjects();
+      void loadTodoSummaries();
     } catch (error) {
       console.error("projects.create:", error);
       setStatusText(t("settings.projectCreateFailed", { name }));
     } finally {
       setBusyProjectId(null);
     }
-  }, [loadProjects, newProjectName, sendRpc, t]);
+  }, [loadProjects, loadTodoSummaries, newProjectName, sendRpc, t]);
 
   return (
     <Box sx={{ flex: 1, overflowY: "auto" }}>
@@ -162,6 +251,12 @@ export default function SettingsProjectsPage() {
             const currentName = nameByProjectId[project.id] ?? project.name;
             const dirty = currentName.trim() !== project.name;
             const disabled = busyProjectId !== null;
+            const summary = summaryByProjectId[project.id];
+            const totalTodos = summary
+              ? summary.openCount + summary.doneCount
+              : 0;
+            const isExpanded = expandedProjectId === project.id;
+            const todos = todosByProjectId[project.id];
 
             return (
               <Paper key={project.id} variant="outlined" sx={{ p: 2 }}>
@@ -194,15 +289,47 @@ export default function SettingsProjectsPage() {
                         },
                       }}
                     />
-                    {project.description && (
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ display: "block", mt: 0.25 }}
-                      >
-                        {project.description}
-                      </Typography>
-                    )}
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        mt: 0.25,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      {project.description && (
+                        <Typography variant="caption" color="text.secondary">
+                          {project.description}
+                        </Typography>
+                      )}
+                      {summary && totalTodos > 0 && (
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 0.5,
+                          }}
+                        >
+                          <Chip
+                            label={t("todos.openCount", {
+                              count: summary.openCount,
+                            })}
+                            size="small"
+                            variant="outlined"
+                            sx={{ height: 20, fontSize: "0.7rem" }}
+                          />
+                          <Chip
+                            label={t("todos.doneCount", {
+                              count: summary.doneCount,
+                            })}
+                            size="small"
+                            variant="outlined"
+                            sx={{ height: 20, fontSize: "0.7rem" }}
+                          />
+                        </Box>
+                      )}
+                    </Box>
                     {project.updatedAt && (
                       <Typography
                         variant="caption"
@@ -216,7 +343,25 @@ export default function SettingsProjectsPage() {
                     )}
                   </Box>
 
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Box
+                    sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}
+                  >
+                    {totalTodos > 0 && (
+                      <Tooltip title={t("todos.title")}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={() => toggleExpanded(project.id)}
+                          >
+                            {isExpanded ? (
+                              <ExpandLessIcon fontSize="small" />
+                            ) : (
+                              <ExpandMoreIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
                     <Tooltip title={t("common.save")}>
                       <span>
                         <IconButton
@@ -243,6 +388,24 @@ export default function SettingsProjectsPage() {
                     </Tooltip>
                   </Box>
                 </Box>
+
+                <Collapse in={isExpanded}>
+                  <Box sx={{ mt: 1, pl: 0.5 }}>
+                    {todos && todos.length > 0 ? (
+                      todos.map((todo) => (
+                        <ProjectTodoItem key={todo.id} todo={todo} />
+                      ))
+                    ) : (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ pl: 0.5 }}
+                      >
+                        {t("todos.noProjectTodos")}
+                      </Typography>
+                    )}
+                  </Box>
+                </Collapse>
               </Paper>
             );
           })}
@@ -314,6 +477,53 @@ export default function SettingsProjectsPage() {
         onConfirm={() => void confirmDeleteProject()}
         onClose={() => setPendingDelete(null)}
       />
+    </Box>
+  );
+}
+
+function ProjectTodoItem({ todo }: { todo: Todo }) {
+  const isDone = todo.status === "done";
+  const priority = todo.priority || "medium";
+
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        py: 0.25,
+      }}
+    >
+      <Box sx={{ p: 0.5, display: "flex", alignItems: "center" }}>
+        {isDone ? (
+          <CheckCircleOutlineIcon
+            sx={{ fontSize: 18, color: "success.main", opacity: 0.6 }}
+          />
+        ) : (
+          <RadioButtonUncheckedIcon
+            sx={{ fontSize: 18, color: "text.secondary" }}
+          />
+        )}
+      </Box>
+      <Typography
+        variant="body2"
+        sx={{
+          flex: 1,
+          textDecoration: isDone ? "line-through" : "none",
+          opacity: isDone ? 0.6 : 1,
+          ml: 0.5,
+        }}
+      >
+        {todo.title}
+      </Typography>
+      {priority !== "medium" && (
+        <Chip
+          label={priority}
+          size="small"
+          color={priorityColor[priority] || "default"}
+          variant="outlined"
+          sx={{ height: 18, fontSize: "0.65rem", mr: 0.5 }}
+        />
+      )}
     </Box>
   );
 }

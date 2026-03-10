@@ -292,6 +292,117 @@ func (self *webSocketConnection) rpcBatchDelete(ctx context.Context, tx store.Tr
 	return rpcBatchResult{Index: index, Op: "delete", Success: true, TodoID: item.TodoID}
 }
 
+// --- projects.todos.summary ---
+
+func (self *webSocketConnection) handleProjectsTodosSummary(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
+
+	type projectTodoSummary struct {
+		ProjectID string `json:"projectId"`
+		OpenCount int    `json:"openCount"`
+		DoneCount int    `json:"doneCount"`
+	}
+
+	var projects []*models.Project
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
+		listed, err := tx.ListProjects(ctx, nil)
+		if err != nil {
+			return err
+		}
+		projects = listed
+		return nil
+	}); err != nil {
+		self.sendError(frame.ID, 500, "listing projects: "+err.Error())
+		return
+	}
+
+	summaries := make([]projectTodoSummary, 0, len(projects))
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
+		for _, project := range projects {
+			todos, err := tx.ListTodos(ctx, store.TodoListOptions{ProjectID: &project.ID}, nil)
+			if err != nil {
+				return err
+			}
+			openCount, doneCount := 0, 0
+			for _, todo := range todos {
+				switch todo.GetStatus() {
+				case models.TodoStatusOpen:
+					openCount++
+				case models.TodoStatusDone:
+					doneCount++
+				}
+			}
+			summaries = append(summaries, projectTodoSummary{
+				ProjectID: project.ID,
+				OpenCount: openCount,
+				DoneCount: doneCount,
+			})
+		}
+		return nil
+	}); err != nil {
+		self.sendError(frame.ID, 500, "counting todos: "+err.Error())
+		return
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"summaries": summaries,
+	})
+}
+
+// --- projects.todos.list ---
+
+func (self *webSocketConnection) handleProjectsTodosList(frame requestFrame) {
+	if !self.requireAdmin(frame) {
+		return
+	}
+
+	var parameters struct {
+		ProjectID string `json:"projectId"`
+	}
+	if frame.Params != nil {
+		json.Unmarshal(frame.Params, &parameters)
+	}
+	if parameters.ProjectID == "" {
+		self.sendError(frame.ID, 400, "projectId is required")
+		return
+	}
+
+	var todos []*models.Todo
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
+		// Verify project exists.
+		if _, err := tx.GetProject(ctx, parameters.ProjectID, nil); err != nil {
+			return err
+		}
+		listed, err := tx.ListTodos(ctx, store.TodoListOptions{ProjectID: &parameters.ProjectID}, nil)
+		if err != nil {
+			return err
+		}
+		todos = listed
+		return nil
+	}); err != nil {
+		self.sendError(frame.ID, 500, "listing project todos: "+err.Error())
+		return
+	}
+
+	openCount, doneCount := 0, 0
+	for _, todo := range todos {
+		switch todo.GetStatus() {
+		case models.TodoStatusOpen:
+			openCount++
+		case models.TodoStatusDone:
+			doneCount++
+		}
+	}
+
+	self.sendResponse(frame.ID, map[string]interface{}{
+		"todos":     todos,
+		"openCount": openCount,
+		"doneCount": doneCount,
+	})
+}
+
 // --- helpers ---
 
 func (self *webSocketConnection) verifyConversationAccess(conversationId string) error {

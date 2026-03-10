@@ -228,7 +228,11 @@ async function onRelayMessage(text: string): Promise<void> {
     return;
   }
 
-  if (parsed && typeof parsed.id === "number" && parsed.method === "forwardCDPCommand") {
+  if (
+    parsed &&
+    typeof parsed.id === "number" &&
+    parsed.method === "forwardCDPCommand"
+  ) {
     try {
       const result = await handleForwardCdpCommand(parsed);
       sendToRelay({ id: parsed.id, result });

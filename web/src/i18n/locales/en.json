@@ -321,7 +321,10 @@
     "done": "Done",
     "high": "High",
     "medium": "Medium",
-    "low": "Low"
+    "low": "Low",
+    "openCount": "{{count}} open",
+    "doneCount": "{{count}} done",
+    "noProjectTodos": "No todos in this project"
   },
   "schema": {
     "addItemPlaceholder": "Add item...",

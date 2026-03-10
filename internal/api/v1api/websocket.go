@@ -368,6 +368,10 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 		self.handleConversationsTodosList(frame)
 	case "conversations.todos.batch":
 		self.handleConversationsTodosBatch(frame)
+	case "projects.todos.summary":
+		self.handleProjectsTodosSummary(frame)
+	case "projects.todos.list":
+		self.handleProjectsTodosList(frame)
 	case "questions.list":
 		self.handleQuestionsList(frame)
 	case "questions.answer":
