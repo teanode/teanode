@@ -69,6 +69,13 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 				APIKey:  ptrto.Value(apiKey),
 			})
 		}
+		if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
+			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
+				Name:    ptrto.Value("gemini"),
+				BaseURL: ptrto.Value("https://generativelanguage.googleapis.com"),
+				APIKey:  ptrto.Value(apiKey),
+			})
+		}
 		if apiKey := os.Getenv("DEEPGRAM_API_KEY"); apiKey != "" {
 			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
 				Name:    ptrto.Value("deepgram"),
@@ -135,7 +142,7 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 		}
 	}
 	if !hasKey {
-		log.Warning("no API key configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, or models.apiKey in config)")
+		log.Warning("no API key configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, or models.apiKey in config)")
 	}
 
 	return providerRegistry
@@ -244,6 +251,9 @@ func defaultProviderModelName(configuration *models.ModelsConfiguration) string 
 	}
 	if providerNames["anthropic"] {
 		return "anthropic:claude-sonnet-4-20250514"
+	}
+	if providerNames["gemini"] {
+		return "gemini:gemini-2.5-flash"
 	}
 	if providerNames["openrouter"] {
 		return "openrouter:anthropic/claude-sonnet-4-20250514"

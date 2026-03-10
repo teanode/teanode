@@ -131,6 +131,8 @@ func NewProvider(providerType, baseUrl, apiKey string) Provider {
 	switch providerType {
 	case "anthropic":
 		return NewAnthropicClient(baseUrl, apiKey)
+	case "gemini":
+		return NewGeminiClient(baseUrl, apiKey)
 	case "deepgram":
 		return NewDeepgramClient(baseUrl, apiKey)
 	case "elevenlabs":
