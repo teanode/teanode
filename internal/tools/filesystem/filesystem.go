@@ -1,3 +1,4 @@
+// Package filesystem exposes tools for filesystem operations.
 package filesystem
 
 import (
@@ -164,7 +165,7 @@ func executeRead(path string, offset, limit int64) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("opening file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	fileInformation, err := file.Stat()
 	if err != nil {

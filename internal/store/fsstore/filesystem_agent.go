@@ -119,7 +119,7 @@ func agentConfigurationToModel(configuration storeAgentRecord) models.Agent {
 		Description:       ptrto.TrimmedString(configuration.Description),
 		AvatarMediaID:     ptrto.TrimmedString(configuration.AvatarMediaID),
 	}
-	if !configuration.SummarizedAt.Time.IsZero() {
+	if !configuration.SummarizedAt.IsZero() {
 		agent.SummarizedAt = &configuration.SummarizedAt.Time
 	}
 	return agent

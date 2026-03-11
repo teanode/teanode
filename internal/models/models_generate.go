@@ -89,6 +89,4 @@ func main() {
 	generator.GenerateGetters(new(models.TelegramConfiguration))
 	generator.GenerateGetters(new(models.SecretConfiguration))
 	generator.GenerateGetters(new(models.SkillRegistryConfiguration))
-
-	generator.MustWriteFile("models_gen.go")
 }

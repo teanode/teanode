@@ -68,7 +68,7 @@ func FetchIndex(ctx context.Context) (*Index, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetching index: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("index returned status %d", response.StatusCode)
 	}
@@ -314,7 +314,7 @@ func downloadSkill(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("downloading skill: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned status %d", response.StatusCode)
 	}

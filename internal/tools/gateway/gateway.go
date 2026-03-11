@@ -1,3 +1,4 @@
+// Package gateway exposes tools for interacting with the gateway runtime.
 package gateway
 
 import (

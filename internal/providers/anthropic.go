@@ -159,7 +159,7 @@ func (self *AnthropicClient) ChatCompletion(ctx context.Context, request ChatReq
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	log.Debugf("POST %s/messages status=%d", self.baseUrl, response.StatusCode)
 
@@ -203,7 +203,7 @@ func (self *AnthropicClient) ChatCompletionStream(ctx context.Context, request C
 	log.Debugf("POST %s/messages status=%d (stream opened)", self.baseUrl, response.StatusCode)
 
 	if response.StatusCode != http.StatusOK {
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		responseBody, _ := io.ReadAll(response.Body)
 		return nil, fmt.Errorf("API error %d: %s", response.StatusCode, string(responseBody))
 	}
@@ -212,7 +212,7 @@ func (self *AnthropicClient) ChatCompletionStream(ctx context.Context, request C
 	go func() {
 		defer deferutil.Recover()
 		defer close(events)
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		self.readSse(ctx, response.Body, events)
 	}()
 
@@ -235,7 +235,7 @@ func (self *AnthropicClient) ListModels(ctx context.Context) ([]ModelInformation
 	if err != nil {
 		return self.fallbackModels(), nil
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
 		return self.fallbackModels(), nil

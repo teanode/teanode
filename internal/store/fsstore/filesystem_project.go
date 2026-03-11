@@ -117,7 +117,7 @@ func projectConfigurationToModel(configuration storeProjectRecord) models.Projec
 		Name:        ptrto.TrimmedString(configuration.Name),
 		Description: ptrto.TrimmedString(configuration.Description),
 	}
-	if !configuration.SummarizedAt.Time.IsZero() {
+	if !configuration.SummarizedAt.IsZero() {
 		project.SummarizedAt = &configuration.SummarizedAt.Time
 	}
 	return project

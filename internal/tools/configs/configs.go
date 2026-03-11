@@ -1,3 +1,4 @@
+// Package configs exposes tools for reading and updating configuration.
 package configs
 
 import (

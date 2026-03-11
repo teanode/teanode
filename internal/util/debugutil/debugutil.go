@@ -1,3 +1,4 @@
+// Package debugutil provides helpers for debug-only HTTP endpoints.
 package debugutil
 
 import (

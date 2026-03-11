@@ -42,14 +42,6 @@ func (self *mergeRequestsTool) Definition() providers.ToolDefinition {
 						"type":        "string",
 						"description": "Merge request description or comment text (for create and comment actions).",
 					},
-					"source_branch": map[string]interface{}{
-						"type":        "string",
-						"description": "Source branch name (for create action).",
-					},
-					"target_branch": map[string]interface{}{
-						"type":        "string",
-						"description": "Target branch name (for create action, defaults to repo default branch).",
-					},
 					"squash": map[string]interface{}{
 						"type":        "boolean",
 						"description": "Squash commits when merging (for merge action).",
@@ -70,14 +62,83 @@ func (self *mergeRequestsTool) Definition() providers.ToolDefinition {
 						"type":        "string",
 						"description": "Filter by author username, use \"@me\" to refer to current user (for list action).",
 					},
+					"group": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter merge requests within a GitLab group or subgroup (for list action). Ignored when repository is set.",
+					},
 					"state": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"opened", "closed", "merged", "all"},
 						"description": "Filter by state (for list action, default opened).",
 					},
+					"page": map[string]interface{}{
+						"type":        "integer",
+						"description": "Page number to fetch for list action. Defaults to 1.",
+					},
 					"per_page": map[string]interface{}{
 						"type":        "integer",
 						"description": "Maximum number of results per page (for list action, default 30).",
+					},
+					"search": map[string]interface{}{
+						"type":        "string",
+						"description": "Search merge requests by title and description (for list action).",
+					},
+					"order": map[string]interface{}{
+						"type":        "string",
+						"description": "Order merge requests by a supported field such as created_at, updated_at, merged_at, title, priority, label_priority, milestone_due, or popularity (for list action).",
+					},
+					"sort": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"asc", "desc"},
+						"description": "Sort direction for the selected order field (for list action).",
+					},
+					"source_branch": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by source branch name (for list action and create action).",
+					},
+					"target_branch": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by target branch name (for list action and create action, defaults to repo default branch when creating).",
+					},
+					"label": map[string]interface{}{
+						"oneOf": []map[string]interface{}{
+							{"type": "string"},
+							{
+								"type":  "array",
+								"items": map[string]interface{}{"type": "string"},
+							},
+						},
+						"description": "Filter by one or more labels for list action.",
+					},
+					"not_label": map[string]interface{}{
+						"oneOf": []map[string]interface{}{
+							{"type": "string"},
+							{
+								"type":  "array",
+								"items": map[string]interface{}{"type": "string"},
+							},
+						},
+						"description": "Exclude one or more labels for list action.",
+					},
+					"milestone": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by milestone identifier for list action.",
+					},
+					"draft": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Filter draft merge requests for list action.",
+					},
+					"not_draft": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Filter non-draft merge requests for list action.",
+					},
+					"created_after": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter merge requests created after an ISO 8601 timestamp for list action.",
+					},
+					"created_before": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter merge requests created before an ISO 8601 timestamp for list action.",
 					},
 					"repository": map[string]interface{}{
 						"type":        "string",
@@ -96,20 +157,32 @@ func (self *mergeRequestsTool) Definition() providers.ToolDefinition {
 
 func (self *mergeRequestsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var args struct {
-		Action       string `json:"action"`
-		Number       int    `json:"number"`
-		Title        string `json:"title"`
-		Description  string `json:"description"`
-		SourceBranch string `json:"source_branch"`
-		TargetBranch string `json:"target_branch"`
-		Squash       bool   `json:"squash"`
-		Rebase       bool   `json:"rebase"`
-		Assignee     string `json:"assignee"`
-		Reviewer     string `json:"reviewer"`
-		Author       string `json:"author"`
-		State        string `json:"state"`
-		PerPage      int    `json:"per_page"`
-		Repository   string `json:"repository"`
+		Action        string `json:"action"`
+		Number        int    `json:"number"`
+		Title         string `json:"title"`
+		Description   string `json:"description"`
+		SourceBranch  string `json:"source_branch"`
+		TargetBranch  string `json:"target_branch"`
+		Squash        bool   `json:"squash"`
+		Rebase        bool   `json:"rebase"`
+		Assignee      string `json:"assignee"`
+		Reviewer      string `json:"reviewer"`
+		Author        string `json:"author"`
+		Group         string `json:"group"`
+		State         string `json:"state"`
+		Page          int    `json:"page"`
+		PerPage       int    `json:"per_page"`
+		Search        string `json:"search"`
+		Order         string `json:"order"`
+		Sort          string `json:"sort"`
+		Label         any    `json:"label"`
+		NotLabel      any    `json:"not_label"`
+		Milestone     string `json:"milestone"`
+		Draft         bool   `json:"draft"`
+		NotDraft      bool   `json:"not_draft"`
+		CreatedAfter  string `json:"created_after"`
+		CreatedBefore string `json:"created_before"`
+		Repository    string `json:"repository"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -121,8 +194,13 @@ func (self *mergeRequestsTool) Execute(ctx context.Context, rawArguments string)
 		if perPage <= 0 {
 			perPage = 30
 		}
+		page := args.Page
+		if page <= 0 {
+			page = 1
+		}
 		commandArgs := []string{"mr", "list",
 			"--output", "json",
+			"--page", strconv.Itoa(page),
 			"--per-page", strconv.Itoa(perPage)}
 		switch args.State {
 		case "closed":
@@ -142,6 +220,53 @@ func (self *mergeRequestsTool) Execute(ctx context.Context, rawArguments string)
 		}
 		if args.Author != "" {
 			commandArgs = append(commandArgs, "--author", args.Author)
+		}
+		if args.Group != "" && args.Repository == "" {
+			commandArgs = append(commandArgs, "--group", args.Group)
+		}
+		if args.Search != "" {
+			commandArgs = append(commandArgs, "--search", args.Search)
+		}
+		order := args.Order
+		sort := args.Sort
+		if order == "" {
+			if args.State == "merged" {
+				order = "merged_at"
+			} else {
+				order = "updated_at"
+			}
+		}
+		if sort == "" {
+			sort = "desc"
+		}
+		if order != "" {
+			commandArgs = append(commandArgs, "--order", order)
+		}
+		if sort != "" {
+			commandArgs = append(commandArgs, "--sort", sort)
+		}
+		if args.SourceBranch != "" {
+			commandArgs = append(commandArgs, "--source-branch", args.SourceBranch)
+		}
+		if args.TargetBranch != "" {
+			commandArgs = append(commandArgs, "--target-branch", args.TargetBranch)
+		}
+		commandArgs = appendStringFlags(commandArgs, "--label", args.Label)
+		commandArgs = appendStringFlags(commandArgs, "--not-label", args.NotLabel)
+		if args.Milestone != "" {
+			commandArgs = append(commandArgs, "--milestone", args.Milestone)
+		}
+		if args.Draft {
+			commandArgs = append(commandArgs, "--draft")
+		}
+		if args.NotDraft {
+			commandArgs = append(commandArgs, "--not-draft")
+		}
+		if args.CreatedAfter != "" {
+			commandArgs = append(commandArgs, "--created-after", args.CreatedAfter)
+		}
+		if args.CreatedBefore != "" {
+			commandArgs = append(commandArgs, "--created-before", args.CreatedBefore)
 		}
 		appendRepository(&commandArgs, args.Repository)
 		return execGitLab(ctx, self.runner, self.binary, commandArgs...)

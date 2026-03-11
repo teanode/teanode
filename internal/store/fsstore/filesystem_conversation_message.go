@@ -77,7 +77,7 @@ func (self *fileSystemTransaction) createConversationMessage(ctx context.Context
 	if openError != nil {
 		return nil, openError
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if _, writeError := file.Write(append(encodedMessage, '\n')); writeError != nil {
 		return nil, writeError
 	}

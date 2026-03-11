@@ -28,11 +28,17 @@ func setupOverlayStore(t *testing.T) (context.Context, store.Store) {
 // createTestConversation creates a user, agent, and conversation, returning the conversation ID.
 func createTestConversation(t *testing.T, ctx context.Context, dataStore store.Store, userID, agentID string) string {
 	t.Helper()
-	_ = dataStore.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		tx.CreateUser(ctx, &models.User{ID: userID, Username: ptrto.Value(userID), Admin: ptrto.Value(true)}, nil, nil)
-		tx.CreateAgent(ctx, &models.Agent{ID: agentID, Name: ptrto.Value("Agent")}, nil, nil)
+	if err := dataStore.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		if _, err := tx.CreateUser(ctx, &models.User{ID: userID, Username: ptrto.Value(userID), Admin: ptrto.Value(true)}, nil, nil); err != nil {
+			return err
+		}
+		if _, err := tx.CreateAgent(ctx, &models.Agent{ID: agentID, Name: ptrto.Value("Agent")}, nil, nil); err != nil {
+			return err
+		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating overlay dependencies: %v", err)
+	}
 	var convID string
 	err := dataStore.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		conv, createErr := tx.CreateConversation(ctx, &models.Conversation{
@@ -247,7 +253,7 @@ func TestBuildTodoOverlay_NilDescription(t *testing.T) {
 				trimmed := strings.TrimSpace(nextLine)
 				// Only fail if it looks like a description line
 				if trimmed != "" && !strings.HasPrefix(trimmed, "Reminder") && !strings.HasPrefix(trimmed, "#") {
-					if !(len(trimmed) > 0 && trimmed[0] >= '0' && trimmed[0] <= '9') {
+					if len(trimmed) == 0 || trimmed[0] < '0' || trimmed[0] > '9' {
 						t.Errorf("no description line expected, but found: %q", nextLine)
 					}
 				}

@@ -184,7 +184,7 @@ func synthesizeToChunks(ctx context.Context, synth providers.SynthesizeProvider,
 	if err != nil {
 		return nil, err
 	}
-	defer response.Audio.Close()
+	defer func() { _ = response.Audio.Close() }()
 	wavData, _ := io.ReadAll(response.Audio)
 	pcm, err := wavToPCM16LE(wavData)
 	if err != nil {

@@ -135,7 +135,7 @@ func MakeForwarderMiddleware(forwarderKey string) Middleware {
 	}
 }
 
-// AuthenticationMiddleware returns a middleware that enforces token/session auth
+// MakeAuthenticationMiddleware returns a middleware that enforces token/session auth
 // on API endpoints. It reads the store from the request context.
 func MakeAuthenticationMiddleware() Middleware {
 	// checkToken validates bearer auth (header or query param) and injects user context when valid.

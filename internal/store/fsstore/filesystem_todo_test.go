@@ -45,11 +45,17 @@ func createTestProject(t *testing.T, ctx context.Context, s store.Store) *models
 func createTestConversation(t *testing.T, ctx context.Context, s store.Store, userId, agentId string) *models.Conversation {
 	t.Helper()
 	// Ensure user and agent exist.
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		tx.CreateUser(ctx, &models.User{ID: userId, Username: ptrto.Value(userId), Admin: ptrto.Value(true)}, nil, nil)
-		tx.CreateAgent(ctx, &models.Agent{ID: agentId, Name: ptrto.Value("Test Agent")}, nil, nil)
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		if _, err := tx.CreateUser(ctx, &models.User{ID: userId, Username: ptrto.Value(userId), Admin: ptrto.Value(true)}, nil, nil); err != nil {
+			return err
+		}
+		if _, err := tx.CreateAgent(ctx, &models.Agent{ID: agentId, Name: ptrto.Value("Test Agent")}, nil, nil); err != nil {
+			return err
+		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating test conversation dependencies: %v", err)
+	}
 
 	var conversation *models.Conversation
 	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
@@ -135,12 +141,20 @@ func TestTodoListByProjectId(t *testing.T) {
 	project2 := createTestProject(t, ctx, s)
 
 	// Create todos in both projects.
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		tx.CreateTodo(ctx, &models.Todo{ProjectID: ptrto.Value(project1.ID), Title: ptrto.Value("P1 Todo 1")}, nil)
-		tx.CreateTodo(ctx, &models.Todo{ProjectID: ptrto.Value(project1.ID), Title: ptrto.Value("P1 Todo 2")}, nil)
-		tx.CreateTodo(ctx, &models.Todo{ProjectID: ptrto.Value(project2.ID), Title: ptrto.Value("P2 Todo 1")}, nil)
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		if _, err := tx.CreateTodo(ctx, &models.Todo{ProjectID: ptrto.Value(project1.ID), Title: ptrto.Value("P1 Todo 1")}, nil); err != nil {
+			return err
+		}
+		if _, err := tx.CreateTodo(ctx, &models.Todo{ProjectID: ptrto.Value(project1.ID), Title: ptrto.Value("P1 Todo 2")}, nil); err != nil {
+			return err
+		}
+		if _, err := tx.CreateTodo(ctx, &models.Todo{ProjectID: ptrto.Value(project2.ID), Title: ptrto.Value("P2 Todo 1")}, nil); err != nil {
+			return err
+		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating project todos: %v", err)
+	}
 
 	// List project 1 todos.
 	var todos []*models.Todo
@@ -182,12 +196,20 @@ func TestTodoListByConversationId(t *testing.T) {
 	conv1 := createTestConversation(t, ctx, s, "user1", "agent1")
 	conv2 := createTestConversation(t, ctx, s, "user1", "agent1")
 
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		tx.CreateTodo(ctx, &models.Todo{ConversationID: ptrto.Value(conv1.ID), Title: ptrto.Value("C1 Todo")}, nil)
-		tx.CreateTodo(ctx, &models.Todo{ConversationID: ptrto.Value(conv2.ID), Title: ptrto.Value("C2 Todo 1")}, nil)
-		tx.CreateTodo(ctx, &models.Todo{ConversationID: ptrto.Value(conv2.ID), Title: ptrto.Value("C2 Todo 2")}, nil)
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		if _, err := tx.CreateTodo(ctx, &models.Todo{ConversationID: ptrto.Value(conv1.ID), Title: ptrto.Value("C1 Todo")}, nil); err != nil {
+			return err
+		}
+		if _, err := tx.CreateTodo(ctx, &models.Todo{ConversationID: ptrto.Value(conv2.ID), Title: ptrto.Value("C2 Todo 1")}, nil); err != nil {
+			return err
+		}
+		if _, err := tx.CreateTodo(ctx, &models.Todo{ConversationID: ptrto.Value(conv2.ID), Title: ptrto.Value("C2 Todo 2")}, nil); err != nil {
+			return err
+		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating conversation todos: %v", err)
+	}
 
 	var todos []*models.Todo
 	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
@@ -212,15 +234,20 @@ func TestTodoModify(t *testing.T) {
 	project := createTestProject(t, ctx, s)
 
 	var created *models.Todo
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		todo, _ := tx.CreateTodo(ctx, &models.Todo{
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		todo, err := tx.CreateTodo(ctx, &models.Todo{
 			ProjectID: ptrto.Value(project.ID),
 			Title:     ptrto.Value("Original Title"),
 			Priority:  ptrto.Value(models.TodoPriorityLow),
 		}, nil)
+		if err != nil {
+			return err
+		}
 		created = todo
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating todo: %v", err)
+	}
 
 	var modified *models.Todo
 	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
@@ -256,14 +283,19 @@ func TestTodoDelete(t *testing.T) {
 	project := createTestProject(t, ctx, s)
 
 	var created *models.Todo
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		todo, _ := tx.CreateTodo(ctx, &models.Todo{
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		todo, err := tx.CreateTodo(ctx, &models.Todo{
 			ProjectID: ptrto.Value(project.ID),
 			Title:     ptrto.Value("To Delete"),
 		}, nil)
+		if err != nil {
+			return err
+		}
 		created = todo
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating todo: %v", err)
+	}
 
 	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		return tx.DeleteTodo(ctx, created.ID, nil)
@@ -323,14 +355,19 @@ func TestTodoDefaultValues(t *testing.T) {
 	project := createTestProject(t, ctx, s)
 
 	var created *models.Todo
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		todo, _ := tx.CreateTodo(ctx, &models.Todo{
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		todo, err := tx.CreateTodo(ctx, &models.Todo{
 			ProjectID: ptrto.Value(project.ID),
 			Title:     ptrto.Value("Minimal Todo"),
 		}, nil)
+		if err != nil {
+			return err
+		}
 		created = todo
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating todo: %v", err)
+	}
 
 	if created.GetStatus() != models.TodoStatusOpen {
 		t.Fatalf("default status = %q, want %q", created.GetStatus(), models.TodoStatusOpen)
@@ -351,19 +388,26 @@ func TestTodoCascadeOnProjectDelete(t *testing.T) {
 
 	// Create a todo.
 	var created *models.Todo
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		todo, _ := tx.CreateTodo(ctx, &models.Todo{
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		todo, err := tx.CreateTodo(ctx, &models.Todo{
 			ProjectID: ptrto.Value(project.ID),
 			Title:     ptrto.Value("Cascade Test"),
 		}, nil)
+		if err != nil {
+			return err
+		}
 		created = todo
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating todo: %v", err)
+	}
 
 	// Delete the project.
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		return tx.DeleteProject(ctx, project.ID, nil)
-	})
+	}); err != nil {
+		t.Fatalf("deleting project: %v", err)
+	}
 
 	// The todo should be gone (directory moved to trash).
 	err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {

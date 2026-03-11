@@ -156,7 +156,7 @@ func TestWorkspaceAppendTool(t *testing.T) {
 		t.Fatal("read content is empty")
 	}
 	content := readResult.Content
-	if !(strings.Contains(content, "learned something") && strings.Contains(content, "learned more")) {
+	if !strings.Contains(content, "learned something") || !strings.Contains(content, "learned more") {
 		t.Errorf("appended content = %q, want both entries", content)
 	}
 
@@ -181,8 +181,12 @@ func TestWorkspaceSearchTool(t *testing.T) {
 	}
 
 	// Write some files.
-	tool.Execute(ctx, `{"action":"write","path":"notes.md","content":"The user likes cats\nThe user hates spam"}`)
-	tool.Execute(ctx, `{"action":"write","path":"memory/2025-01-01.md","content":"Discussed project alpha\nUser prefers dark mode"}`)
+	if _, err := tool.Execute(ctx, `{"action":"write","path":"notes.md","content":"The user likes cats\nThe user hates spam"}`); err != nil {
+		t.Fatalf("write notes: %v", err)
+	}
+	if _, err := tool.Execute(ctx, `{"action":"write","path":"memory/2025-01-01.md","content":"Discussed project alpha\nUser prefers dark mode"}`); err != nil {
+		t.Fatalf("write memory: %v", err)
+	}
 
 	// Search for "cats".
 	result, err := tool.Execute(ctx, `{"action":"search","query":"cats"}`)

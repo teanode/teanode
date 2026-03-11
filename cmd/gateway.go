@@ -374,7 +374,7 @@ func NewGatewayCommand() *cli.Command {
 
 			// When TLS is enabled, wrap the listener with TLS and start AutoACME.
 			var acmeManager *autoacme.Manager
-			var httpListener net.Listener = tcpListener
+			httpListener := net.Listener(tcpListener)
 
 			tlsEnabled := configuration.Gateway.GetTLS()
 			if tlsEnabled {

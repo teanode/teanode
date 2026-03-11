@@ -1,3 +1,4 @@
+// Package mimetypes provides MIME type helpers for media payloads.
 package mimetypes
 
 import (

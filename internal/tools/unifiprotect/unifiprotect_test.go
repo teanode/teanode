@@ -274,7 +274,9 @@ func TestListCameras_FilterDoorbell(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	cameras := response["cameras"].([]interface{})
 	if len(cameras) != 1 {
@@ -298,7 +300,9 @@ func TestListCameras_FilterNonDoorbell(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	cameras := response["cameras"].([]interface{})
 	if len(cameras) != 2 {
@@ -320,7 +324,9 @@ func TestListCameras_AllowlistFilter(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	cameras := response["cameras"].([]interface{})
 	if len(cameras) != 1 {
@@ -356,7 +362,9 @@ func TestGetCamera_ByID(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	if response["action"] != "get_camera" {
 		testing.Errorf("expected action 'get_camera', got %v", response["action"])
@@ -381,7 +389,9 @@ func TestGetCamera_ByName(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	camera := response["camera"].(map[string]interface{})
 	if camera["id"] != "cam002" {
@@ -438,7 +448,9 @@ func TestGetSnapshot_Basic(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	if response["format"] != "jpeg" {
 		testing.Errorf("expected format 'jpeg', got %v", response["format"])
@@ -460,7 +472,9 @@ func TestGetSnapshot_ByName(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	if response["format"] != "jpeg" {
 		testing.Errorf("expected format 'jpeg', got %v", response["format"])
@@ -511,7 +525,9 @@ func TestSetStatusLight_Allowed(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	if response["action"] != "set_status_light" {
 		testing.Errorf("expected action 'set_status_light', got %v", response["action"])
@@ -599,7 +615,9 @@ func TestSetRecordingMode_Allowed(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	if response["action"] != "set_recording_mode" {
 		testing.Errorf("expected action 'set_recording_mode', got %v", response["action"])
@@ -684,7 +702,9 @@ func TestSetPrivacyMode_Enable(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	if response["action"] != "set_privacy_mode" {
 		testing.Errorf("expected action 'set_privacy_mode', got %v", response["action"])
@@ -722,7 +742,9 @@ func TestSetPrivacyMode_Disable(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		testing.Fatalf("unmarshal response: %v", err)
+	}
 
 	if response["enabled"] != false {
 		testing.Errorf("expected enabled false, got %v", response["enabled"])

@@ -1,3 +1,4 @@
+// Package autoacme manages automatic ACME certificate provisioning.
 package autoacme
 
 import (

@@ -1,3 +1,4 @@
+// Package google exposes provider tools backed by Google Workspace services.
 package google
 
 import (
@@ -5,28 +6,27 @@ import (
 	"os/exec"
 
 	"github.com/op/go-logging"
+
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
 )
 
 var log = logging.MustGetLogger("google")
 
-// defaultServices are registered when no explicit service list is configured (Tier 1).
+// defaultServices are registered when no explicit service list is configured.
 var defaultServices = []string{"gmail", "calendar", "drive"}
 
-// resolvedConfiguration holds the resolved Google tool configuration.
 type resolvedConfiguration struct {
 	binaryPath string
 	account    string
 	services   []string
 }
 
-// configurationFromContext reads the Google tool configuration from the store.
 func configurationFromContext(ctx context.Context) *resolvedConfiguration {
-	var configuration resolvedConfiguration
+	configuration := &resolvedConfiguration{}
 	dataStore := store.StoreFromContextSafe(ctx)
 	if dataStore == nil {
-		return &configuration
+		return configuration
 	}
 	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		storedConfiguration, err := transaction.GetConfiguration(ctx, nil)
@@ -34,13 +34,14 @@ func configurationFromContext(ctx context.Context) *resolvedConfiguration {
 			return err
 		}
 		if storedConfiguration.Tools != nil && storedConfiguration.Tools.Google != nil {
-			configuration.binaryPath = storedConfiguration.Tools.Google.GetBinaryPath()
-			configuration.account = storedConfiguration.Tools.Google.GetAccount()
-			configuration.services = storedConfiguration.Tools.Google.GetServices()
+			googleConfiguration := storedConfiguration.Tools.Google
+			configuration.binaryPath = googleConfiguration.GetBinaryPath()
+			configuration.account = googleConfiguration.GetAccount()
+			configuration.services = googleConfiguration.GetServices()
 		}
 		return nil
 	})
-	return &configuration
+	return configuration
 }
 
 func init() {
@@ -50,7 +51,6 @@ func init() {
 func createTools() []tools.Tool {
 	binary := "gog"
 
-	// Check that the binary exists on PATH.
 	resolvedPath, err := exec.LookPath(binary)
 	if err != nil {
 		log.Infof("Google tools skipped: %s binary not found", binary)
@@ -67,12 +67,12 @@ func createTools() []tools.Tool {
 			result = append(result, &gmailTool{binary: binary, runner: runner})
 		case "calendar":
 			result = append(result, &calendarTool{binary: binary, runner: runner})
-		case "tasks":
-			result = append(result, &tasksTool{binary: binary, runner: runner})
 		case "drive":
 			result = append(result, &driveTool{binary: binary, runner: runner})
 		case "contacts":
 			result = append(result, &contactsTool{binary: binary, runner: runner})
+		case "tasks":
+			result = append(result, &tasksTool{binary: binary, runner: runner})
 		}
 	}
 	return result

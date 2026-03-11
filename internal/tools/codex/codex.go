@@ -1,3 +1,4 @@
+// Package codex exposes a tool integration for Codex.
 package codex
 
 import (

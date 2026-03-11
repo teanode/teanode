@@ -1,3 +1,4 @@
+// Package web provides the HTTP server, routing, and middleware layer.
 package web
 
 import (

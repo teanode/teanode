@@ -1,3 +1,4 @@
+// Package projects exposes tools for working with projects.
 package projects
 
 import (

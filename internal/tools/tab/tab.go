@@ -1,3 +1,4 @@
+// Package tab exposes tools for interacting with browser tabs.
 package tab
 
 import (

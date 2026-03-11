@@ -184,10 +184,10 @@ func (self *fileSystemTransaction) listProjectRecords() ([]storeProjectRecord, e
 	sort.Slice(projectRecords, func(leftIndex, rightIndex int) bool {
 		leftRecord := projectRecords[leftIndex]
 		rightRecord := projectRecords[rightIndex]
-		if leftRecord.UpdatedAt.Time.Equal(rightRecord.UpdatedAt.Time) {
+		if leftRecord.UpdatedAt.Equal(rightRecord.UpdatedAt.Time) {
 			return leftRecord.Name < rightRecord.Name
 		}
-		return leftRecord.UpdatedAt.Time.After(rightRecord.UpdatedAt.Time)
+		return leftRecord.UpdatedAt.After(rightRecord.UpdatedAt.Time)
 	})
 	return projectRecords, nil
 }

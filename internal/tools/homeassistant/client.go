@@ -79,7 +79,7 @@ func (self *httpClient) doRequest(ctx context.Context, method string, path strin
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	if err != nil {
@@ -88,7 +88,7 @@ func (self *httpClient) doRequest(ctx context.Context, method string, path strin
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		// Do not leak raw HA error bodies — extract a safe message.
-		return nil, fmt.Errorf("Home Assistant returned HTTP %d for %s %s", response.StatusCode, method, path)
+		return nil, fmt.Errorf("home assistant returned HTTP %d for %s %s", response.StatusCode, method, path)
 	}
 
 	return responseBody, nil

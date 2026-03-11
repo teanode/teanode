@@ -1102,7 +1102,7 @@ func (self *Bot) downloadTelegramFile(fileId string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("downloading file: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned status %d", response.StatusCode)
 	}

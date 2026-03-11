@@ -10,6 +10,27 @@ import (
 	"testing"
 )
 
+func mustWriteString(t testing.TB, writer io.Writer, value string) {
+	t.Helper()
+	if _, err := io.WriteString(writer, value); err != nil {
+		t.Fatalf("write response: %v", err)
+	}
+}
+
+func mustEncodeOpenAIJSON(t testing.TB, writer io.Writer, value any) {
+	t.Helper()
+	if err := json.NewEncoder(writer).Encode(value); err != nil {
+		t.Fatalf("encode JSON response: %v", err)
+	}
+}
+
+func mustUnmarshalOpenAIJSON(t testing.TB, data []byte, target any) {
+	t.Helper()
+	if err := json.Unmarshal(data, target); err != nil {
+		t.Fatalf("unmarshal JSON: %v", err)
+	}
+}
+
 func TestOpenAINonStreamingChatCompletion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// Verify method and path.
@@ -42,7 +63,7 @@ func TestOpenAINonStreamingChatCompletion(t *testing.T) {
 		}
 
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(ChatResponse{
+		mustEncodeOpenAIJSON(t, writer, ChatResponse{
 			ID:        "chatcmpl-123",
 			ModelName: "gpt-4o",
 			Choices: []Choice{{
@@ -98,7 +119,7 @@ func TestOpenAINonStreamingChatCompletion(t *testing.T) {
 func TestOpenAINonStreamingAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusTooManyRequests)
-		writer.Write([]byte(`{"error":{"message":"rate limit exceeded"}}`))
+		mustWriteString(t, writer, `{"error":{"message":"rate limit exceeded"}}`)
 	}))
 	defer server.Close()
 
@@ -119,7 +140,7 @@ func TestOpenAINonStreamingAPIError(t *testing.T) {
 func TestOpenAINonStreamingInvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
-		writer.Write([]byte(`not valid json`))
+		mustWriteString(t, writer, `not valid json`)
 	}))
 	defer server.Close()
 
@@ -139,7 +160,7 @@ func TestOpenAIStreamingChatCompletion(t *testing.T) {
 		// Verify request body has stream=true.
 		body, _ := io.ReadAll(request.Body)
 		var chatRequest ChatRequest
-		json.Unmarshal(body, &chatRequest)
+		mustUnmarshalOpenAIJSON(t, body, &chatRequest)
 		if !chatRequest.Stream {
 			t.Error("expected stream=true")
 		}
@@ -186,11 +207,11 @@ func TestOpenAIStreamingChatCompletion(t *testing.T) {
 
 		for _, chunk := range chunks {
 			data, _ := json.Marshal(chunk)
-			fmt.Fprintf(writer, "data: %s\n\n", data)
+			mustWriteString(t, writer, fmt.Sprintf("data: %s\n\n", data))
 			flusher.Flush()
 		}
 
-		fmt.Fprintf(writer, "data: [DONE]\n\n")
+		mustWriteString(t, writer, "data: [DONE]\n\n")
 		flusher.Flush()
 	}))
 	defer server.Close()
@@ -307,11 +328,11 @@ func TestOpenAIStreamingWithToolCalls(t *testing.T) {
 
 		for _, chunk := range chunks {
 			data, _ := json.Marshal(chunk)
-			fmt.Fprintf(writer, "data: %s\n\n", data)
+			mustWriteString(t, writer, fmt.Sprintf("data: %s\n\n", data))
 			flusher.Flush()
 		}
 
-		fmt.Fprintf(writer, "data: [DONE]\n\n")
+		mustWriteString(t, writer, "data: [DONE]\n\n")
 		flusher.Flush()
 	}))
 	defer server.Close()
@@ -370,7 +391,7 @@ func TestOpenAIStreamingWithToolCalls(t *testing.T) {
 func TestOpenAIStreamingAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusInternalServerError)
-		writer.Write([]byte(`{"error":{"message":"server error"}}`))
+		mustWriteString(t, writer, `{"error":{"message":"server error"}}`)
 	}))
 	defer server.Close()
 
@@ -400,7 +421,7 @@ func TestOpenAIStreamingContextCancellation(t *testing.T) {
 			}},
 		}
 		data, _ := json.Marshal(chunk)
-		fmt.Fprintf(writer, "data: %s\n\n", data)
+		mustWriteString(t, writer, fmt.Sprintf("data: %s\n\n", data))
 		flusher.Flush()
 
 		// Block until the request context is done (client cancelled).
@@ -445,7 +466,7 @@ func TestOpenAIListModels(t *testing.T) {
 		}
 
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(map[string]interface{}{
+		mustEncodeOpenAIJSON(t, writer, map[string]interface{}{
 			"data": []map[string]interface{}{
 				{"id": "gpt-4o", "owned_by": "openai"},
 				{"id": "gpt-3.5-turbo", "owned_by": "openai"},
@@ -481,7 +502,7 @@ func TestOpenAIListModels(t *testing.T) {
 func TestOpenAIListModelsAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusUnauthorized)
-		writer.Write([]byte(`{"error":{"message":"invalid api key"}}`))
+		mustWriteString(t, writer, `{"error":{"message":"invalid api key"}}`)
 	}))
 	defer server.Close()
 
@@ -499,7 +520,7 @@ func TestOpenAINoAuthHeader(t *testing.T) {
 			t.Error("expected no Authorization header when apiKey is empty")
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(ChatResponse{
+		mustEncodeOpenAIJSON(t, writer, ChatResponse{
 			ID:        "chatcmpl-noauth",
 			ModelName: "local-model",
 			Choices: []Choice{{
@@ -531,7 +552,7 @@ func TestOpenAIBaseURLTrailingSlash(t *testing.T) {
 			t.Errorf("path = %q, want /chat/completions", request.URL.Path)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(ChatResponse{
+		mustEncodeOpenAIJSON(t, writer, ChatResponse{
 			ID:        "chatcmpl-trim",
 			ModelName: "gpt-4o",
 			Choices:   []Choice{{Message: ChatMessage{Content: "ok"}, FinishReason: "stop"}},
@@ -559,7 +580,7 @@ func TestOpenAIStreamingInvalidChunkJSON(t *testing.T) {
 		writer.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := writer.(http.Flusher)
 
-		fmt.Fprintf(writer, "data: {invalid json}\n\n")
+		mustWriteString(t, writer, "data: {invalid json}\n\n")
 		flusher.Flush()
 	}))
 	defer server.Close()
@@ -591,7 +612,7 @@ func TestOpenAINonStreamingWithTools(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		body, _ := io.ReadAll(request.Body)
 		var chatRequest ChatRequest
-		json.Unmarshal(body, &chatRequest)
+		mustUnmarshalOpenAIJSON(t, body, &chatRequest)
 
 		if len(chatRequest.Tools) != 1 {
 			t.Errorf("expected 1 tool, got %d", len(chatRequest.Tools))
@@ -601,7 +622,7 @@ func TestOpenAINonStreamingWithTools(t *testing.T) {
 		}
 
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(ChatResponse{
+		mustEncodeOpenAIJSON(t, writer, ChatResponse{
 			ID:        "chatcmpl-tool",
 			ModelName: "gpt-4o",
 			Choices: []Choice{{
@@ -673,7 +694,7 @@ func TestOpenAIMaxTokensUsesMaxCompletionTokensForGpt5(t *testing.T) {
 		}
 
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(ChatResponse{
+		mustEncodeOpenAIJSON(t, writer, ChatResponse{
 			ID:        "chatcmpl-gpt5",
 			ModelName: "gpt-5",
 			Choices:   []Choice{{Message: ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
@@ -708,7 +729,7 @@ func TestOpenAIMaxTokensStaysLegacyForNonGpt5(t *testing.T) {
 		}
 
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(ChatResponse{
+		mustEncodeOpenAIJSON(t, writer, ChatResponse{
 			ID:        "chatcmpl-gpt4o",
 			ModelName: "gpt-4o",
 			Choices:   []Choice{{Message: ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},

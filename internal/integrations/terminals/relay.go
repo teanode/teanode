@@ -80,7 +80,7 @@ func (self *Relay) HandleWebSocket(writer http.ResponseWriter, request *http.Req
 	self.mutex.Lock()
 	// If a connection with this user+id already exists, replace it.
 	if existing, ok := self.connections[connectionKey]; ok {
-		existing.connection.Close()
+		_ = existing.connection.Close()
 		existing.pending.RejectAll("connection replaced")
 	}
 	terminal := &terminalConnection{

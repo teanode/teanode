@@ -266,7 +266,7 @@ func userRecordToModel(record *storeUserRecord) *models.User {
 		TelegramChatID: record.TelegramChatID,
 		DiscordUserID:  ptrto.TrimmedString(record.DiscordUserID),
 	}
-	if !record.SummarizedAt.Time.IsZero() {
+	if !record.SummarizedAt.IsZero() {
 		result.SummarizedAt = &record.SummarizedAt.Time
 	}
 	return result

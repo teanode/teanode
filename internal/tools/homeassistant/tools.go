@@ -98,10 +98,10 @@ func (self *homeAssistantTool) Definition() providers.ToolDefinition {
 func (self *homeAssistantTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	configuration := configurationFromContext(ctx)
 	if configuration.baseUrl == "" {
-		return "", fmt.Errorf("Home Assistant tool is not configured: baseUrl is missing")
+		return "", fmt.Errorf("home assistant tool is not configured: baseUrl is missing")
 	}
 	if configuration.token == "" {
-		return "", fmt.Errorf("Home Assistant tool is not configured: token is missing")
+		return "", fmt.Errorf("home assistant tool is not configured: token is missing")
 	}
 
 	execution := &homeAssistantExecution{

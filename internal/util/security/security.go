@@ -1,3 +1,4 @@
+// Package security provides shared security and credential helpers.
 package security
 
 import (

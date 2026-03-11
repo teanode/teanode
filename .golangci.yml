@@ -1,15 +1,38 @@
+version: "2"
+
 run:
   timeout: 5m
 
 issues:
-  exclude-dirs:
-    - vendor
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
+  exclusions:
+    paths:
+      - vendor
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+
+linters:
+  settings:
+    revive:
+      rules:
+        - name: receiver-naming
+          disabled: true
+    staticcheck:
+      checks:
+        - all
+        # Identifier initialism casing is intentionally left as-is in existing APIs.
+        - -ST1003
+        # Receiver names must use `self` by project convention.
+        - -ST1006
+    stylecheck:
+      checks:
+        - all
+        # Receiver names must use `self` by project convention.
+        - -ST1006
 
 output:
   formats:
-    - format: colored-line-number
-  sort-results: true
+    text:
+      path: stdout
+      colors: true

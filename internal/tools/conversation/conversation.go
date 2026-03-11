@@ -1,3 +1,4 @@
+// Package conversation exposes tools for interacting with the active conversation.
 package conversation
 
 import (

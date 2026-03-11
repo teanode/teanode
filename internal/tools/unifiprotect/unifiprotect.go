@@ -1,3 +1,4 @@
+// Package unifiprotect exposes provider tools backed by UniFi Protect.
 package unifiprotect
 
 import (

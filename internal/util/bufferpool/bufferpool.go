@@ -1,3 +1,4 @@
+// Package bufferpool provides pooled byte buffers for transient allocations.
 package bufferpool
 
 import (

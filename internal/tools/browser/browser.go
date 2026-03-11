@@ -1,3 +1,4 @@
+// Package browser exposes tools for browser-driven interactions.
 package browser
 
 import (

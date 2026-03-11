@@ -491,7 +491,7 @@ func executeHttpAction(ctx context.Context, action models.SkillAction, arguments
 	if err != nil {
 		return "", fmt.Errorf("executing request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	limit := int64(maxResultBytes)
 	if action.MaxBytes != nil && *action.MaxBytes > 0 {

@@ -1,3 +1,4 @@
+// Package datetime exposes tools for date and time lookups.
 package datetime
 
 import (

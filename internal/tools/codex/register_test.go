@@ -14,8 +14,8 @@ func makeFakeBinary(t *testing.T, name string) func() {
 		t.Fatalf("creating fake binary: %v", err)
 	}
 	originalPath := os.Getenv("PATH")
-	os.Setenv("PATH", directory+string(os.PathListSeparator)+originalPath)
-	return func() { os.Setenv("PATH", originalPath) }
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+originalPath)
+	return func() {}
 }
 
 func TestCreateTools_BinaryPresent(t *testing.T) {
@@ -35,9 +35,7 @@ func TestCreateTools_BinaryPresent(t *testing.T) {
 }
 
 func TestCreateTools_BinaryMissing(t *testing.T) {
-	originalPath := os.Getenv("PATH")
-	os.Setenv("PATH", t.TempDir())
-	defer os.Setenv("PATH", originalPath)
+	t.Setenv("PATH", t.TempDir())
 
 	tools := createTools()
 	if len(tools) != 0 {

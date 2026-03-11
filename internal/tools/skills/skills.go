@@ -1,3 +1,4 @@
+// Package skills exposes a built-in tool for discovering and managing skills.
 package skills
 
 import (

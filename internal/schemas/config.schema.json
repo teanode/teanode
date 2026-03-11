@@ -208,10 +208,10 @@
             "services": {
               "type": "array",
               "title": "Services",
-              "description": "GitLab services to enable. Default: issues, merge_requests, projects.",
+              "description": "GitLab services to enable. Default: issues, merge_requests, projects, todos.",
               "items": {
                 "type": "string",
-                "enum": ["issues", "merge_requests", "projects", "pipelines", "releases"]
+                "enum": ["issues", "merge_requests", "projects", "todos", "pipelines", "releases"]
               }
             }
           }

@@ -1,3 +1,4 @@
+// Package workspace exposes tools for inspecting and updating workspaces.
 package workspace
 
 import (

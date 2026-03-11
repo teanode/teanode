@@ -3,12 +3,25 @@ package providers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+func mustWriteAnthropic(t testing.TB, writer io.Writer, value string) {
+	t.Helper()
+	if _, err := io.WriteString(writer, value); err != nil {
+		t.Fatalf("write response: %v", err)
+	}
+}
+
+func mustEncodeAnthropicJSON(t testing.TB, writer io.Writer, value any) {
+	t.Helper()
+	if err := json.NewEncoder(writer).Encode(value); err != nil {
+		t.Fatalf("encode JSON response: %v", err)
+	}
+}
 
 func TestTranslateRequest_SystemExtraction(t *testing.T) {
 	client := NewAnthropicClient("https://api.anthropic.com/v1", "test-key")
@@ -338,37 +351,37 @@ func TestAnthropicSSEStreaming(t *testing.T) {
 		flusher, _ := writer.(http.Flusher)
 
 		// message_start
-		fmt.Fprintf(writer, "event: message_start\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}`)
+		mustWriteAnthropic(t, writer, "event: message_start\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}`+"\n\n")
 		flusher.Flush()
 
 		// content_block_start (text)
-		fmt.Fprintf(writer, "event: content_block_start\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
+		mustWriteAnthropic(t, writer, "event: content_block_start\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`+"\n\n")
 		flusher.Flush()
 
 		// content_block_delta (text)
-		fmt.Fprintf(writer, "event: content_block_delta\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}`)
+		mustWriteAnthropic(t, writer, "event: content_block_delta\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}`+"\n\n")
 		flusher.Flush()
 
-		fmt.Fprintf(writer, "event: content_block_delta\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world!"}}`)
+		mustWriteAnthropic(t, writer, "event: content_block_delta\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world!"}}`+"\n\n")
 		flusher.Flush()
 
 		// content_block_stop
-		fmt.Fprintf(writer, "event: content_block_stop\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_stop","index":0}`)
+		mustWriteAnthropic(t, writer, "event: content_block_stop\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_stop","index":0}`+"\n\n")
 		flusher.Flush()
 
 		// message_delta
-		fmt.Fprintf(writer, "event: message_delta\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`)
+		mustWriteAnthropic(t, writer, "event: message_delta\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`+"\n\n")
 		flusher.Flush()
 
 		// message_stop
-		fmt.Fprintf(writer, "event: message_stop\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_stop"}`)
+		mustWriteAnthropic(t, writer, "event: message_stop\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"message_stop"}`+"\n\n")
 		flusher.Flush()
 	}))
 	defer server.Close()
@@ -430,37 +443,37 @@ func TestAnthropicSSEToolUseStreaming(t *testing.T) {
 		flusher, _ := writer.(http.Flusher)
 
 		// message_start
-		fmt.Fprintf(writer, "event: message_start\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_start","message":{"id":"msg_tool","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}`)
+		mustWriteAnthropic(t, writer, "event: message_start\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"message_start","message":{"id":"msg_tool","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}`+"\n\n")
 		flusher.Flush()
 
 		// content_block_start (tool_use)
-		fmt.Fprintf(writer, "event: content_block_start\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_123","name":"get_weather"}}`)
+		mustWriteAnthropic(t, writer, "event: content_block_start\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_123","name":"get_weather"}}`+"\n\n")
 		flusher.Flush()
 
 		// content_block_delta (tool input JSON)
-		fmt.Fprintf(writer, "event: content_block_delta\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"location\":"}}`)
+		mustWriteAnthropic(t, writer, "event: content_block_delta\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"location\":"}}`+"\n\n")
 		flusher.Flush()
 
-		fmt.Fprintf(writer, "event: content_block_delta\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"NYC\"}"}}`)
+		mustWriteAnthropic(t, writer, "event: content_block_delta\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"NYC\"}"}}`+"\n\n")
 		flusher.Flush()
 
 		// content_block_stop
-		fmt.Fprintf(writer, "event: content_block_stop\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_stop","index":0}`)
+		mustWriteAnthropic(t, writer, "event: content_block_stop\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_stop","index":0}`+"\n\n")
 		flusher.Flush()
 
 		// message_delta
-		fmt.Fprintf(writer, "event: message_delta\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":15}}`)
+		mustWriteAnthropic(t, writer, "event: message_delta\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":15}}`+"\n\n")
 		flusher.Flush()
 
 		// message_stop
-		fmt.Fprintf(writer, "event: message_stop\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_stop"}`)
+		mustWriteAnthropic(t, writer, "event: message_stop\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"message_stop"}`+"\n\n")
 		flusher.Flush()
 	}))
 	defer server.Close()
@@ -514,7 +527,7 @@ func TestAnthropicSSEToolUseStreaming(t *testing.T) {
 func TestAnthropicNonStreamingChatCompletion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(anthropicResponse{
+		mustEncodeAnthropicJSON(t, writer, anthropicResponse{
 			ID:        "msg_non_stream",
 			ModelName: "claude-sonnet-4-20250514",
 			Content: []anthropicContentBlock{
@@ -589,7 +602,7 @@ func TestAnthropicListModels_Success(t *testing.T) {
 			t.Errorf("path = %q, want /models", request.URL.Path)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(map[string]interface{}{
+		mustEncodeAnthropicJSON(t, writer, map[string]interface{}{
 			"data": []map[string]interface{}{
 				{"id": "claude-sonnet-4-20250514", "created_at": "2025-05-14"},
 				{"id": "claude-opus-4-20250514", "created_at": "2025-05-14"},
@@ -620,7 +633,7 @@ func TestAnthropicListModels_Success(t *testing.T) {
 func TestAnthropicListModels_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
-		writer.Write([]byte(`not valid json`))
+		mustWriteAnthropic(t, writer, `not valid json`)
 	}))
 	defer server.Close()
 
@@ -639,7 +652,7 @@ func TestAnthropicListModels_InvalidJSON(t *testing.T) {
 func TestAnthropicNonStreamingAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusBadRequest)
-		writer.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`))
+		mustWriteAnthropic(t, writer, `{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`)
 	}))
 	defer server.Close()
 
@@ -657,7 +670,7 @@ func TestAnthropicNonStreamingAPIError(t *testing.T) {
 func TestAnthropicStreamingAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusTooManyRequests)
-		writer.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`))
+		mustWriteAnthropic(t, writer, `{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`)
 	}))
 	defer server.Close()
 
@@ -687,7 +700,7 @@ func TestAnthropicHeaders(t *testing.T) {
 			t.Errorf("anthropic-beta = %q, want prompt-caching-2024-07-31", request.Header.Get("anthropic-beta"))
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(anthropicResponse{
+		mustEncodeAnthropicJSON(t, writer, anthropicResponse{
 			ID:         "msg_hdr",
 			ModelName:  "claude-sonnet-4-20250514",
 			Content:    []anthropicContentBlock{{Type: "text", Text: "ok"}},
@@ -960,17 +973,17 @@ func TestAnthropicSSEStreamingContextCancellation(t *testing.T) {
 		flusher, _ := writer.(http.Flusher)
 
 		// message_start
-		fmt.Fprintf(writer, "event: message_start\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_start","message":{"id":"msg_cancel","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":5,"output_tokens":0}}}`)
+		mustWriteAnthropic(t, writer, "event: message_start\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"message_start","message":{"id":"msg_cancel","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":5,"output_tokens":0}}}`+"\n\n")
 		flusher.Flush()
 
 		// Send one text delta then hang.
-		fmt.Fprintf(writer, "event: content_block_start\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
+		mustWriteAnthropic(t, writer, "event: content_block_start\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`+"\n\n")
 		flusher.Flush()
 
-		fmt.Fprintf(writer, "event: content_block_delta\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`)
+		mustWriteAnthropic(t, writer, "event: content_block_delta\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`+"\n\n")
 		flusher.Flush()
 
 		// Block until cancelled.
@@ -1128,28 +1141,28 @@ func TestAnthropicSSECacheUsage(t *testing.T) {
 		flusher, _ := writer.(http.Flusher)
 
 		// message_start with cache usage.
-		fmt.Fprintf(writer, "event: message_start\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_start","message":{"id":"msg_cache","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":100,"output_tokens":0,"cache_creation_input_tokens":80,"cache_read_input_tokens":20}}}`)
+		mustWriteAnthropic(t, writer, "event: message_start\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"message_start","message":{"id":"msg_cache","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":100,"output_tokens":0,"cache_creation_input_tokens":80,"cache_read_input_tokens":20}}}`+"\n\n")
 		flusher.Flush()
 
 		// content_block_start
-		fmt.Fprintf(writer, "event: content_block_start\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
+		mustWriteAnthropic(t, writer, "event: content_block_start\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`+"\n\n")
 		flusher.Flush()
 
 		// content_block_delta
-		fmt.Fprintf(writer, "event: content_block_delta\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}`)
+		mustWriteAnthropic(t, writer, "event: content_block_delta\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}`+"\n\n")
 		flusher.Flush()
 
 		// message_delta
-		fmt.Fprintf(writer, "event: message_delta\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`)
+		mustWriteAnthropic(t, writer, "event: message_delta\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`+"\n\n")
 		flusher.Flush()
 
 		// message_stop
-		fmt.Fprintf(writer, "event: message_stop\n")
-		fmt.Fprintf(writer, "data: %s\n\n", `{"type":"message_stop"}`)
+		mustWriteAnthropic(t, writer, "event: message_stop\n")
+		mustWriteAnthropic(t, writer, "data: "+`{"type":"message_stop"}`+"\n\n")
 		flusher.Flush()
 	}))
 	defer server.Close()
@@ -1196,7 +1209,7 @@ func TestAnthropicBaseURLTrailingSlash(t *testing.T) {
 			t.Errorf("path = %q, want /messages", request.URL.Path)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(writer).Encode(anthropicResponse{
+		mustEncodeAnthropicJSON(t, writer, anthropicResponse{
 			ID:         "msg_trim",
 			ModelName:  "claude-sonnet-4-20250514",
 			Content:    []anthropicContentBlock{{Type: "text", Text: "ok"}},

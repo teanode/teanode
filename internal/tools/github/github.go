@@ -1,3 +1,4 @@
+// Package github exposes provider tools backed by the GitHub CLI.
 package github
 
 import (

@@ -17,7 +17,11 @@ func TestSummarizerSummarizeAllIteratesAllUsersAndAgents(t *testing.T) {
 	if openError != nil {
 		t.Fatalf("open store: %v", openError)
 	}
-	defer openedStore.Close()
+	defer func() {
+		if err := openedStore.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	}()
 	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
 		t.Fatalf("migrate store: %v", migrateError)
 	}
@@ -59,7 +63,11 @@ func TestSummarizerSummarizeAllWithEmptyConversationStore(t *testing.T) {
 	if openError != nil {
 		t.Fatalf("open store: %v", openError)
 	}
-	defer openedStore.Close()
+	defer func() {
+		if err := openedStore.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	}()
 	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
 		t.Fatalf("migrate store: %v", migrateError)
 	}

@@ -13,9 +13,8 @@ func makeFakeBinary(t *testing.T, name string) func() {
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("creating fake binary: %v", err)
 	}
-	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", directory+string(os.PathListSeparator)+origPath)
-	return func() { os.Setenv("PATH", origPath) }
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return func() {}
 }
 
 func TestCreateTools_BinaryPresent(t *testing.T) {
@@ -28,7 +27,7 @@ func TestCreateTools_BinaryPresent(t *testing.T) {
 		names[tool.Definition().Function.Name] = true
 	}
 
-	// Default services: issues, merge_requests, projects → 3 tools.
+	// Default services: issues, merge_requests, projects, todos → 4 tools.
 	if !names["gitlab_issues"] {
 		t.Error("expected gitlab_issues to be created")
 	}
@@ -38,12 +37,13 @@ func TestCreateTools_BinaryPresent(t *testing.T) {
 	if !names["gitlab_projects"] {
 		t.Error("expected gitlab_projects to be created")
 	}
+	if !names["gitlab_todos"] {
+		t.Error("expected gitlab_todos to be created")
+	}
 }
 
 func TestCreateTools_BinaryMissing(t *testing.T) {
-	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", t.TempDir())
-	defer os.Setenv("PATH", origPath)
+	t.Setenv("PATH", t.TempDir())
 
 	tools := createTools()
 	if len(tools) != 0 {

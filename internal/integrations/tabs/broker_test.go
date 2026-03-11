@@ -174,7 +174,9 @@ func TestPendingResolve(t *testing.T) {
 
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		broker.Resolve("req1", ToolCallResult{Result: `{"ok":true}`})
+		if err := broker.Resolve("req1", ToolCallResult{Result: `{"ok":true}`}); err != nil {
+			t.Errorf("resolve pending request: %v", err)
+		}
 	}()
 
 	result := <-pending.resultChan
@@ -316,7 +318,9 @@ func TestConcurrentAccess(t *testing.T) {
 				resultChan: MakeResultChan(),
 			}
 			broker.RegisterPending(pending)
-			broker.Resolve(id, ToolCallResult{Result: "ok"})
+			if err := broker.Resolve(id, ToolCallResult{Result: "ok"}); err != nil {
+				t.Errorf("resolve %s: %v", id, err)
+			}
 		}(index)
 	}
 

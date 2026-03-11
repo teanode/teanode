@@ -1,3 +1,4 @@
+// Package gitlab exposes provider tools backed by the GitLab CLI.
 package gitlab
 
 import (
@@ -10,7 +11,7 @@ import (
 var log = logging.MustGetLogger("gitlab")
 
 // defaultServices are registered when no explicit service list is configured (Tier 1).
-var defaultServices = []string{"issues", "merge_requests", "projects"}
+var defaultServices = []string{"issues", "merge_requests", "projects", "todos"}
 
 func init() {
 	tools.RegisterBuiltinTool(createTools)
@@ -38,6 +39,8 @@ func createTools() []tools.Tool {
 			result = append(result, &mergeRequestsTool{binary: binary, runner: runner})
 		case "projects":
 			result = append(result, &projectsTool{binary: binary, runner: runner})
+		case "todos":
+			result = append(result, &todosTool{binary: binary, runner: runner})
 		case "pipelines":
 			result = append(result, &pipelinesTool{binary: binary, runner: runner})
 		case "releases":

@@ -1,3 +1,5 @@
+// Package headlessbrowser implements a browser integration that talks directly
+// to a Chrome DevTools Protocol endpoint.
 package headlessbrowser
 
 import (
@@ -69,7 +71,7 @@ func (self *Headless) Connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("headlessbrowser: fetching %s: %w", versionUrl, err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -106,7 +108,7 @@ func (self *Headless) Connect(ctx context.Context) error {
 	// event handlers and the manual attach loop below.
 	targetResult, err := self.sendBrowserCommand(ctx, "Target.getTargets", nil)
 	if err != nil {
-		connection.Close()
+		_ = connection.Close()
 		return fmt.Errorf("headlessbrowser: getTargets: %w", err)
 	}
 
@@ -156,7 +158,7 @@ func (self *Headless) Connect(ctx context.Context) error {
 		"discover": true,
 	})
 	if err != nil {
-		connection.Close()
+		_ = connection.Close()
 		return fmt.Errorf("headlessbrowser: setDiscoverTargets: %w", err)
 	}
 
@@ -179,7 +181,7 @@ func (self *Headless) Close() {
 	}
 
 	if self.connection != nil {
-		self.connection.Close()
+		_ = self.connection.Close()
 		self.connection = nil
 	}
 	self.targets = make(map[string]*browsers.ConnectedTarget)

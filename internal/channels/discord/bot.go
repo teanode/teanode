@@ -205,7 +205,7 @@ func (self *Bot) Start() error {
 func (self *Bot) Stop() {
 	self.pubsub.Unsubscribe(self)
 	if self.discord != nil {
-		self.discord.Close()
+		_ = self.discord.Close()
 	}
 }
 
@@ -896,7 +896,7 @@ func downloadUrl(targetUrl string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("downloading: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned status %d", response.StatusCode)
 	}

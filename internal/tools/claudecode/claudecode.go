@@ -1,3 +1,4 @@
+// Package claudecode exposes a tool integration for Claude Code.
 package claudecode
 
 import (

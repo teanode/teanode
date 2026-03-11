@@ -10,6 +10,13 @@ import (
 	"github.com/teanode/teanode/internal/tools"
 )
 
+func mustUnmarshalHomeAssistantJSON(t testing.TB, result string, target any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(result), target); err != nil {
+		t.Fatalf("unmarshal JSON: %v", err)
+	}
+}
+
 // --- mock client ---
 
 type mockClient struct {
@@ -341,7 +348,7 @@ func TestListEntities_FilterByDomain(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	mustUnmarshalHomeAssistantJSON(testing, result, &response)
 
 	entities := response["entities"].([]interface{})
 	if len(entities) != 2 {
@@ -382,7 +389,7 @@ func TestGetState_Basic(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	mustUnmarshalHomeAssistantJSON(testing, result, &response)
 
 	if response["action"] != "get_state" {
 		testing.Errorf("expected action 'get_state', got %v", response["action"])
@@ -433,7 +440,7 @@ func TestControl_TurnOn(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	mustUnmarshalHomeAssistantJSON(testing, result, &response)
 
 	if response["action"] != "control" {
 		testing.Errorf("expected action 'control', got %v", response["action"])
@@ -586,7 +593,7 @@ func TestTriggerScene_Basic(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	mustUnmarshalHomeAssistantJSON(testing, result, &response)
 
 	if response["action"] != "trigger_scene" {
 		testing.Errorf("expected action 'trigger_scene', got %v", response["action"])
@@ -649,7 +656,7 @@ func TestListAreas_ReturnsEmpty(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	mustUnmarshalHomeAssistantJSON(testing, result, &response)
 
 	if response["action"] != "list_areas" {
 		testing.Errorf("expected action 'list_areas', got %v", response["action"])
@@ -678,7 +685,7 @@ func TestGetHistory_Basic(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	mustUnmarshalHomeAssistantJSON(testing, result, &response)
 
 	if response["action"] != "get_history" {
 		testing.Errorf("expected action 'get_history', got %v", response["action"])
@@ -716,7 +723,7 @@ func TestGetHistory_Truncation(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	mustUnmarshalHomeAssistantJSON(testing, result, &response)
 
 	count := int(response["count"].(float64))
 	if count != maxHistoryEntries {
@@ -765,7 +772,7 @@ func TestGetHistory_EmptyResult(testing *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.Unmarshal([]byte(result), &response)
+	mustUnmarshalHomeAssistantJSON(testing, result, &response)
 
 	history := response["history"].([]interface{})
 	if len(history) != 0 {

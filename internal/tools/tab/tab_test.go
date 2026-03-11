@@ -47,14 +47,18 @@ func resolvePending(broker *tabs.TabBroker, result tabs.ToolCallResult) {
 		time.Sleep(50 * time.Millisecond)
 		pendingId := broker.FirstPendingID()
 		if pendingId != "" {
-			broker.Resolve(pendingId, result)
+			if err := broker.Resolve(pendingId, result); err != nil {
+				panic(err)
+			}
 		}
 	}()
 }
 
 func parseError(result string) string {
 	var parsed map[string]string
-	json.Unmarshal([]byte(result), &parsed)
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		panic(err)
+	}
 	return parsed["error"]
 }
 

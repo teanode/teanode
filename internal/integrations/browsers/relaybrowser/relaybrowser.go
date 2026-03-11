@@ -1,3 +1,5 @@
+// Package relaybrowser implements a browser integration that relays Chrome
+// extension connections over WebSockets.
 package relaybrowser
 
 import (

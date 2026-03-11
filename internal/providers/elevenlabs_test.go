@@ -22,7 +22,7 @@ func TestElevenLabsClient_StreamSynthesize(t *testing.T) {
 			t.Errorf("upgrade: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		for i := 0; i < 3; i++ {
 			_, payload, err := conn.ReadMessage()
@@ -87,7 +87,7 @@ func TestElevenLabsClient_ContextCancel(t *testing.T) {
 			return
 		}
 		defer close(serverExited)
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
 				return

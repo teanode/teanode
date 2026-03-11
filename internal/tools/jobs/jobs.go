@@ -1,3 +1,4 @@
+// Package jobs exposes tools for inspecting and managing scheduled jobs.
 package jobs
 
 import (

@@ -216,31 +216,31 @@ func (self *Generator) MustWriteFile(filename string) {
 }
 
 func (self *Generator) writeUpdateMethod(buffer *bytes.Buffer, entry generatorEntry) {
-	buffer.WriteString(fmt.Sprintf("func (self *%s) Update(data *%s) {\n", entry.typeName, entry.typeName))
+	fmt.Fprintf(buffer, "func (self *%s) Update(data *%s) {\n", entry.typeName, entry.typeName)
 	buffer.WriteString("\tif data == nil {\n\t\treturn\n\t}\n")
 
 	for _, field := range entry.fields {
 		switch field.kind {
 		case generatorFieldKindSimplePointer:
-			buffer.WriteString(fmt.Sprintf("\tif data.%s != nil {\n", field.name))
-			buffer.WriteString(fmt.Sprintf("\t\tself.%s = data.%s\n", field.name, field.name))
+			fmt.Fprintf(buffer, "\tif data.%s != nil {\n", field.name)
+			fmt.Fprintf(buffer, "\t\tself.%s = data.%s\n", field.name, field.name)
 			buffer.WriteString("\t}\n")
 
 		case generatorFieldKindStructPointer:
-			buffer.WriteString(fmt.Sprintf("\tif data.%s != nil {\n", field.name))
-			buffer.WriteString(fmt.Sprintf("\t\tif self.%s == nil {\n", field.name))
-			buffer.WriteString(fmt.Sprintf("\t\t\tself.%s = new(%s)\n", field.name, field.typeName))
+			fmt.Fprintf(buffer, "\tif data.%s != nil {\n", field.name)
+			fmt.Fprintf(buffer, "\t\tif self.%s == nil {\n", field.name)
+			fmt.Fprintf(buffer, "\t\t\tself.%s = new(%s)\n", field.name, field.typeName)
 			buffer.WriteString("\t\t}\n")
-			buffer.WriteString(fmt.Sprintf("\t\tself.%s.Update(data.%s)\n", field.name, field.name))
+			fmt.Fprintf(buffer, "\t\tself.%s.Update(data.%s)\n", field.name, field.name)
 			buffer.WriteString("\t}\n")
 
 		case generatorFieldKindMapPointer:
-			buffer.WriteString(fmt.Sprintf("\tif data.%s != nil {\n", field.name))
-			buffer.WriteString(fmt.Sprintf("\t\tif self.%s == nil {\n", field.name))
-			buffer.WriteString(fmt.Sprintf("\t\t\tself.%s = data.%s\n", field.name, field.name))
+			fmt.Fprintf(buffer, "\tif data.%s != nil {\n", field.name)
+			fmt.Fprintf(buffer, "\t\tif self.%s == nil {\n", field.name)
+			fmt.Fprintf(buffer, "\t\tself.%s = data.%s\n", field.name, field.name)
 			buffer.WriteString("\t\t} else {\n")
-			buffer.WriteString(fmt.Sprintf("\t\t\tmerged := datastruct.UpdateMap(*self.%s, *data.%s)\n", field.name, field.name))
-			buffer.WriteString(fmt.Sprintf("\t\t\tself.%s = &merged\n", field.name))
+			fmt.Fprintf(buffer, "\t\t\tmerged := datastruct.UpdateMap(*self.%s, *data.%s)\n", field.name, field.name)
+			fmt.Fprintf(buffer, "\t\t\tself.%s = &merged\n", field.name)
 			buffer.WriteString("\t\t}\n")
 			buffer.WriteString("\t}\n")
 		}
@@ -251,11 +251,11 @@ func (self *Generator) writeUpdateMethod(buffer *bytes.Buffer, entry generatorEn
 
 func (self *Generator) writeGetterMethods(buffer *bytes.Buffer, entry getterEntry) {
 	for _, field := range entry.fields {
-		buffer.WriteString(fmt.Sprintf("func (self *%s) Get%s() %s {\n", entry.typeName, field.name, field.returnType))
-		buffer.WriteString(fmt.Sprintf("\tif self.%s != nil {\n", field.name))
-		buffer.WriteString(fmt.Sprintf("\t\treturn *self.%s\n", field.name))
+		fmt.Fprintf(buffer, "func (self *%s) Get%s() %s {\n", entry.typeName, field.name, field.returnType)
+		fmt.Fprintf(buffer, "\tif self.%s != nil {\n", field.name)
+		fmt.Fprintf(buffer, "\t\treturn *self.%s\n", field.name)
 		buffer.WriteString("\t}\n")
-		buffer.WriteString(fmt.Sprintf("\treturn %s\n", field.zeroValue))
+		fmt.Fprintf(buffer, "\treturn %s\n", field.zeroValue)
 		buffer.WriteString("}\n\n")
 	}
 }

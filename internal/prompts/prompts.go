@@ -1,3 +1,4 @@
+// Package prompts contains prompt templates used across the application.
 package prompts
 
 import (

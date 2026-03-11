@@ -54,6 +54,32 @@ func (self *issuesTool) Definition() providers.ToolDefinition {
 						"type":        "string",
 						"description": "Filter by author username, use \"@me\" to refer to current user (for list action).",
 					},
+					"label": map[string]interface{}{
+						"oneOf": []map[string]interface{}{
+							{"type": "string"},
+							{
+								"type":  "array",
+								"items": map[string]interface{}{"type": "string"},
+							},
+						},
+						"description": "Filter by one or more labels for list action.",
+					},
+					"search": map[string]interface{}{
+						"type":        "string",
+						"description": "Search issues using GitHub issue search syntax (for list action).",
+					},
+					"mention": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by mentioned username (for list action).",
+					},
+					"milestone": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by milestone number or title (for list action).",
+					},
+					"app": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by GitHub App author (for list action).",
+					},
 					"assignees": map[string]interface{}{
 						"type":        "string",
 						"description": "Comma-separated assignee usernames (for create action).",
@@ -91,6 +117,11 @@ func (self *issuesTool) Execute(ctx context.Context, rawArguments string) (strin
 		Labels     string `json:"labels"`
 		Assignee   string `json:"assignee"`
 		Author     string `json:"author"`
+		Label      any    `json:"label"`
+		Search     string `json:"search"`
+		Mention    string `json:"mention"`
+		Milestone  string `json:"milestone"`
+		App        string `json:"app"`
 		Assignees  string `json:"assignees"`
 		State      string `json:"state"`
 		Limit      int    `json:"limit"`
@@ -117,6 +148,23 @@ func (self *issuesTool) Execute(ctx context.Context, rawArguments string) (strin
 		}
 		if args.Author != "" {
 			commandArgs = append(commandArgs, "--author", args.Author)
+		}
+		commandArgs = appendStringFlags(commandArgs, "--label", args.Label)
+		search := args.Search
+		if search == "" {
+			search = "sort:updated-desc"
+		}
+		if search != "" {
+			commandArgs = append(commandArgs, "--search", search)
+		}
+		if args.Mention != "" {
+			commandArgs = append(commandArgs, "--mention", args.Mention)
+		}
+		if args.Milestone != "" {
+			commandArgs = append(commandArgs, "--milestone", args.Milestone)
+		}
+		if args.App != "" {
+			commandArgs = append(commandArgs, "--app", args.App)
 		}
 		appendRepository(&commandArgs, args.Repository)
 		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
@@ -221,6 +269,30 @@ func appendRepository(commandArgs *[]string, repository string) {
 	if repository != "" {
 		*commandArgs = append(*commandArgs, "-R", repository)
 	}
+}
+
+// appendStringFlags appends repeated string flags from either a string or []string input.
+func appendStringFlags(commandArgs []string, flag string, value any) []string {
+	switch typed := value.(type) {
+	case string:
+		if typed != "" {
+			commandArgs = append(commandArgs, flag, typed)
+		}
+	case []any:
+		for _, raw := range typed {
+			text, ok := raw.(string)
+			if ok && text != "" {
+				commandArgs = append(commandArgs, flag, text)
+			}
+		}
+	case []string:
+		for _, text := range typed {
+			if text != "" {
+				commandArgs = append(commandArgs, flag, text)
+			}
+		}
+	}
+	return commandArgs
 }
 
 // wrapPlainOutput wraps non-JSON command output in a JSON envelope.

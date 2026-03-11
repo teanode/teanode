@@ -53,7 +53,7 @@ func (self *fileSystemTransaction) loadConversationHeaderByPath(conversationPath
 	if openError != nil {
 		return nil, openError
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -76,7 +76,7 @@ func (self *fileSystemTransaction) loadConversationData(userId string, agentId s
 	if openError != nil {
 		return nil, nil, openError
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)

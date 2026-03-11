@@ -48,13 +48,13 @@ func mockOpenAIServer(responseText string) *httptest.Server {
 				word = " " + word
 			}
 			chunk := fmt.Sprintf(`{"id":"chatcmpl-test","model":"mock-model","choices":[{"index":0,"delta":{"content":%q},"finish_reason":null}]}`, word)
-			fmt.Fprintf(writer, "data: %s\n\n", chunk)
+			_, _ = fmt.Fprintf(writer, "data: %s\n\n", chunk)
 			flusher.Flush()
 		}
 
 		// Final chunk with finish_reason.
-		fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-test","model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
-		fmt.Fprintf(writer, "data: [DONE]\n\n")
+		_, _ = fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-test","model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+		_, _ = fmt.Fprintf(writer, "data: [DONE]\n\n")
 		flusher.Flush()
 	}))
 }
@@ -276,7 +276,7 @@ func TestRunnerRunAbort(t *testing.T) {
 		writer.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := writer.(http.Flusher)
 
-		fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-test","model":"mock","choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":null}]}`)
+		_, _ = fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-test","model":"mock","choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":null}]}`)
 		flusher.Flush()
 
 		// Block until request context is done (simulating a long response).
@@ -300,13 +300,15 @@ func TestRunnerRunAbort(t *testing.T) {
 	var closeChunk sync.Once
 	go func() {
 		defer close(done)
-		runner.Run(ctx, RunParameters{
+		if _, err := runner.Run(ctx, RunParameters{
 			Message: "abort me",
 		}, &RunCallbacks{
 			OnTextDelta: func(text string) {
 				closeChunk.Do(func() { close(gotChunk) })
 			},
-		})
+		}); err != nil && ctx.Err() == nil {
+			t.Errorf("runner.Run: %v", err)
+		}
 	}()
 
 	// Wait for first chunk, then cancel.
@@ -322,7 +324,9 @@ func mockToolCallServer(toolCallId, toolName, toolArguments, finalText string) *
 		// Read the request to check if it contains tool results.
 		body, _ := io.ReadAll(request.Body)
 		var chatRequest providers.ChatRequest
-		json.Unmarshal(body, &chatRequest)
+		if err := json.Unmarshal(body, &chatRequest); err != nil {
+			panic(err)
+		}
 
 		writer.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := writer.(http.Flusher)
@@ -332,16 +336,16 @@ func mockToolCallServer(toolCallId, toolName, toolArguments, finalText string) *
 			// First call: return a tool call
 			chunk := fmt.Sprintf(`{"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":%q,"type":"function","function":{"name":%q,"arguments":%q}}]},"finish_reason":null}]}`,
 				toolCallId, toolName, toolArguments)
-			fmt.Fprintf(writer, "data: %s\n\n", chunk)
-			fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
-			fmt.Fprintf(writer, "data: [DONE]\n\n")
+			_, _ = fmt.Fprintf(writer, "data: %s\n\n", chunk)
+			_, _ = fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+			_, _ = fmt.Fprintf(writer, "data: [DONE]\n\n")
 			flusher.Flush()
 		} else {
 			// Second call: return text response after tool results
 			chunk := fmt.Sprintf(`{"id":"chatcmpl-2","model":"mock-model","choices":[{"index":0,"delta":{"content":%q},"finish_reason":null}]}`, finalText)
-			fmt.Fprintf(writer, "data: %s\n\n", chunk)
-			fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-2","model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}`)
-			fmt.Fprintf(writer, "data: [DONE]\n\n")
+			_, _ = fmt.Fprintf(writer, "data: %s\n\n", chunk)
+			_, _ = fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-2","model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}`)
+			_, _ = fmt.Fprintf(writer, "data: [DONE]\n\n")
 			flusher.Flush()
 		}
 	}))

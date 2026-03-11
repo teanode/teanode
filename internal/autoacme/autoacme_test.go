@@ -25,7 +25,11 @@ func setupTestStore(t *testing.T) store.Store {
 	if err := testStore.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { testStore.Close() })
+	t.Cleanup(func() {
+		if err := testStore.Close(); err != nil {
+			t.Errorf("closing test store: %v", err)
+		}
+	})
 	return testStore
 }
 

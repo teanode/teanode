@@ -1,3 +1,4 @@
+// Package fetch exposes a tool for fetching remote content.
 package fetch
 
 import (
@@ -104,7 +105,7 @@ func (self *fetchTool) Execute(ctx context.Context, rawArguments string) (string
 	if err != nil {
 		return "", fmt.Errorf("fetching url: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	log.Debugf("GET %s status=%d", arguments.URL, response.StatusCode)
 

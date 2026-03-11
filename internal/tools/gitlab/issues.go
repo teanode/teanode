@@ -133,6 +133,8 @@ func (self *issuesTool) Execute(ctx context.Context, rawArguments string) (strin
 		}
 		commandArgs := []string{"issue", "list",
 			"--output", "json",
+			"--order", "updated_at",
+			"--sort", "desc",
 			"--per-page", strconv.Itoa(perPage)}
 		switch args.State {
 		case "closed":
@@ -281,6 +283,30 @@ func appendRepository(commandArgs *[]string, repository string) {
 	if repository != "" {
 		*commandArgs = append(*commandArgs, "-R", repository)
 	}
+}
+
+// appendStringFlags appends repeated string flags from either a string or []string input.
+func appendStringFlags(commandArgs []string, flag string, value any) []string {
+	switch typed := value.(type) {
+	case string:
+		if typed != "" {
+			commandArgs = append(commandArgs, flag, typed)
+		}
+	case []any:
+		for _, raw := range typed {
+			text, ok := raw.(string)
+			if ok && text != "" {
+				commandArgs = append(commandArgs, flag, text)
+			}
+		}
+	case []string:
+		for _, text := range typed {
+			if text != "" {
+				commandArgs = append(commandArgs, flag, text)
+			}
+		}
+	}
+	return commandArgs
 }
 
 // wrapPlainOutput wraps non-JSON command output in a JSON envelope.

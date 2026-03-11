@@ -1,3 +1,4 @@
+// Package askuser exposes a tool for requesting user clarification.
 package askuser
 
 import (

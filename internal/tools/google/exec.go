@@ -52,7 +52,7 @@ func execGog(ctx context.Context, runner commandRunner, binary string, account s
 		errorMessage := err.Error()
 		// Detect auth errors and return a clear message for the LLM.
 		if isAuthError(errorMessage) {
-			return "", fmt.Errorf("Google authentication required. Please run 'gog auth login' to authenticate")
+			return "", fmt.Errorf("google authentication required; run 'gog auth login' to authenticate")
 		}
 		return "", fmt.Errorf("gog command failed: %s", errorMessage)
 	}

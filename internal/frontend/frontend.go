@@ -44,7 +44,7 @@ func frontendHandler(fileSystem http.FileSystem) http.Handler {
 				request.URL.Path = "/"
 				servingIndex = true
 			} else {
-				file.Close()
+				_ = file.Close()
 			}
 		}
 

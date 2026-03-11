@@ -1,3 +1,4 @@
+// Package schemas exposes shared JSON schema definitions.
 package schemas
 
 import (

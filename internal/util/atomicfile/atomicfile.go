@@ -67,7 +67,9 @@ func CommitWithMode(file *os.File, mode os.FileMode) error {
 }
 
 func Discard(file *os.File) error {
-	file.Close()
+	if err := file.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+		return err
+	}
 	tempFilename := file.Name()
 	parts := strings.Split(filepath.Base(tempFilename), ".")
 	if len(parts) < 3 || parts[0] != "" || !strings.HasSuffix(parts[len(parts)-1], "~") {

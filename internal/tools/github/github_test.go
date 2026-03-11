@@ -142,6 +142,7 @@ func TestIssuesTool_ListAction(testing *testing.T) {
 	foundIssueList := false
 	foundJSON := false
 	foundState := false
+	foundSearch := false
 	for index, argument := range commandArgs {
 		if argument == "issue" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
 			foundIssueList = true
@@ -152,6 +153,9 @@ func TestIssuesTool_ListAction(testing *testing.T) {
 		if argument == "--state" && index+1 < len(commandArgs) && commandArgs[index+1] == "open" {
 			foundState = true
 		}
+		if argument == "--search" && index+1 < len(commandArgs) && commandArgs[index+1] == "sort:updated-desc" {
+			foundSearch = true
+		}
 	}
 	if !foundIssueList {
 		testing.Errorf("expected 'issue list' in args: %v", commandArgs)
@@ -161,6 +165,9 @@ func TestIssuesTool_ListAction(testing *testing.T) {
 	}
 	if !foundState {
 		testing.Errorf("expected '--state open' in args: %v", commandArgs)
+	}
+	if !foundSearch {
+		testing.Errorf("expected default '--search sort:updated-desc' in args: %v", commandArgs)
 	}
 }
 
@@ -321,6 +328,39 @@ func TestIssuesTool_ListAuthor(testing *testing.T) {
 	}
 }
 
+func TestIssuesTool_ListAdditionalFilters(testing *testing.T) {
+	runner, calls := mockRunner(`[{"number":6}]`, nil)
+	tool := &issuesTool{binary: "gh", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action":    "list",
+		"label":     []string{"bug", "help wanted"},
+		"search":    "sort:created-desc no:assignee",
+		"mention":   "@me",
+		"milestone": "v1.0",
+		"app":       "renovate",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := strings.Join((*calls)[0], " ")
+	expectedSnippets := []string{
+		"--label bug",
+		"--label help wanted",
+		"--search sort:created-desc no:assignee",
+		"--mention @me",
+		"--milestone v1.0",
+		"--app renovate",
+	}
+	for _, snippet := range expectedSnippets {
+		if !strings.Contains(commandArgs, snippet) {
+			testing.Errorf("expected %q in args: %v", snippet, (*calls)[0])
+		}
+	}
+}
+
 func TestIssuesTool_RepositoryOverride(testing *testing.T) {
 	runner, calls := mockRunner(`[{"number":1}]`, nil)
 	tool := &issuesTool{binary: "gh", runner: runner}
@@ -438,6 +478,93 @@ func TestPullsTool_ListAuthor(testing *testing.T) {
 	}
 	if !foundAuthor {
 		testing.Errorf("expected '--author @me' in args: %v", commandArgs)
+	}
+}
+
+func TestPullsTool_ListAdditionalFilters(testing *testing.T) {
+	runner, calls := mockRunner(`[{"number":12}]`, nil)
+	tool := &pullsTool{binary: "gh", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+		"base":   "main",
+		"head":   "feature-x",
+		"app":    "renovate",
+		"label":  []string{"dependencies", "automerge"},
+		"search": "review:required",
+		"draft":  true,
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := strings.Join((*calls)[0], " ")
+	expectedSnippets := []string{
+		"--base main",
+		"--head feature-x",
+		"--app renovate",
+		"--label dependencies",
+		"--label automerge",
+		"--search review:required",
+		"--draft",
+	}
+	for _, snippet := range expectedSnippets {
+		if !strings.Contains(commandArgs, snippet) {
+			testing.Errorf("expected %q in args: %v", snippet, (*calls)[0])
+		}
+	}
+}
+
+func TestPullsTool_ListDefaultsToRecentSearch(testing *testing.T) {
+	runner, calls := mockRunner(`[{"number":12}]`, nil)
+	tool := &pullsTool{binary: "gh", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := (*calls)[0]
+	foundSearch := false
+	for index, argument := range commandArgs {
+		if argument == "--search" && index+1 < len(commandArgs) && commandArgs[index+1] == "sort:updated-desc" {
+			foundSearch = true
+		}
+	}
+	if !foundSearch {
+		testing.Errorf("expected PR queries to default to '--search sort:updated-desc': %v", commandArgs)
+	}
+}
+
+func TestPullsTool_CreateDraft(testing *testing.T) {
+	runner, calls := mockRunner("https://github.com/owner/repo/pull/1", nil)
+	tool := &pullsTool{binary: "gh", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "create",
+		"title":  "New Feature",
+		"body":   "Description",
+		"head":   "feature-branch",
+		"draft":  true,
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		testing.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := (*calls)[0]
+	foundDraft := false
+	for _, argument := range commandArgs {
+		if argument == "--draft" {
+			foundDraft = true
+		}
+	}
+	if !foundDraft {
+		testing.Errorf("expected '--draft' in args: %v", commandArgs)
 	}
 }
 

@@ -1,3 +1,4 @@
+// Package trash provides helpers for moving files into a trash directory.
 package trash
 
 import (
@@ -165,13 +166,13 @@ func copyPath(source string, destination string, info os.FileInfo) error {
 	if err != nil {
 		return err
 	}
-	defer sourceFile.Close()
+	defer func() { _ = sourceFile.Close() }()
 
 	destinationFile, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
 	if err != nil {
 		return err
 	}
-	defer destinationFile.Close()
+	defer func() { _ = destinationFile.Close() }()
 
 	if _, err := io.Copy(destinationFile, sourceFile); err != nil {
 		return err

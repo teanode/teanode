@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,13 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
 )
+
+func mustWriteSkillResponse(t testing.TB, writer io.Writer, value string) {
+	t.Helper()
+	if _, err := io.WriteString(writer, value); err != nil {
+		t.Fatalf("write response: %v", err)
+	}
+}
 
 func TestParseArguments(t *testing.T) {
 	t.Run("valid JSON", func(t *testing.T) {
@@ -422,7 +430,7 @@ func TestHTTPToolExecute(t *testing.T) {
 			if request.Method != "GET" {
 				t.Errorf("method = %q, want GET", request.Method)
 			}
-			writer.Write([]byte(`{"status":"ok"}`))
+			mustWriteSkillResponse(t, writer, `{"status":"ok"}`)
 		}))
 		defer server.Close()
 
@@ -447,7 +455,7 @@ func TestHTTPToolExecute(t *testing.T) {
 			if request.Method != "GET" {
 				t.Errorf("method = %q, want GET", request.Method)
 			}
-			writer.Write([]byte("ok"))
+			mustWriteSkillResponse(t, writer, "ok")
 		}))
 		defer server.Close()
 
@@ -474,7 +482,7 @@ func TestHTTPToolExecute(t *testing.T) {
 			if bodyString != `{"query":"test search"}` {
 				t.Errorf("body = %q", bodyString)
 			}
-			writer.Write([]byte("received"))
+			mustWriteSkillResponse(t, writer, "received")
 		}))
 		defer server.Close()
 
@@ -499,7 +507,7 @@ func TestHTTPToolExecute(t *testing.T) {
 		var receivedPath string
 		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			receivedPath = request.URL.Path
-			writer.Write([]byte("ok"))
+			mustWriteSkillResponse(t, writer, "ok")
 		}))
 		defer server.Close()
 
@@ -526,7 +534,7 @@ func TestHTTPToolExecute(t *testing.T) {
 			if request.Header.Get("Content-Type") != "application/json" {
 				t.Errorf("Content-Type = %q, want %q", request.Header.Get("Content-Type"), "application/json")
 			}
-			writer.Write([]byte("ok"))
+			mustWriteSkillResponse(t, writer, "ok")
 		}))
 		defer server.Close()
 
@@ -549,7 +557,7 @@ func TestHTTPToolExecute(t *testing.T) {
 	t.Run("non-2xx status returns error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			writer.WriteHeader(http.StatusNotFound)
-			writer.Write([]byte("not found"))
+			mustWriteSkillResponse(t, writer, "not found")
 		}))
 		defer server.Close()
 
@@ -571,7 +579,7 @@ func TestHTTPToolExecute(t *testing.T) {
 	t.Run("500 status returns error with body snippet", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			writer.WriteHeader(http.StatusInternalServerError)
-			writer.Write([]byte("internal server error"))
+			mustWriteSkillResponse(t, writer, "internal server error")
 		}))
 		defer server.Close()
 
@@ -593,7 +601,7 @@ func TestHTTPToolExecute(t *testing.T) {
 	t.Run("response truncation", func(t *testing.T) {
 		bigBody := strings.Repeat("x", maxResultBytes+1000)
 		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			writer.Write([]byte(bigBody))
+			mustWriteSkillResponse(t, writer, bigBody)
 		}))
 		defer server.Close()
 
@@ -620,7 +628,7 @@ func TestHTTPToolExecute(t *testing.T) {
 			if request.Header.Get("Authorization") != "Bearer top-secret" {
 				t.Fatalf("unexpected Authorization header: %q", request.Header.Get("Authorization"))
 			}
-			writer.Write([]byte("ok"))
+			mustWriteSkillResponse(t, writer, "ok")
 		}))
 		defer server.Close()
 
@@ -673,7 +681,7 @@ func contextWithSecrets(t *testing.T, secrets map[string]string) context.Context
 
 func TestWorkflowToolExecute(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Write([]byte("world"))
+		mustWriteSkillResponse(t, writer, "world")
 	}))
 	defer server.Close()
 
@@ -712,7 +720,7 @@ func TestWorkflowToolExecute(t *testing.T) {
 func TestWorkflowToolConditionAndContinueOnError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusInternalServerError)
-		writer.Write([]byte("nope"))
+		mustWriteSkillResponse(t, writer, "nope")
 	}))
 	defer server.Close()
 
@@ -826,7 +834,7 @@ func TestWorkflowToolConditionComparison(t *testing.T) {
 
 func TestWorkflowToolJSONResultReuse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Write([]byte(`{"id":"abc-123"}`))
+		mustWriteSkillResponse(t, writer, `{"id":"abc-123"}`)
 	}))
 	defer server.Close()
 
@@ -859,7 +867,7 @@ func TestWorkflowToolJSONResultReuse(t *testing.T) {
 
 func TestWorkflowToolJSONSelectAndExtract(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Write([]byte(`{"data":{"id":"x1","status":"ok"}}`))
+		mustWriteSkillResponse(t, writer, `{"data":{"id":"x1","status":"ok"}}`)
 	}))
 	defer server.Close()
 
@@ -1024,7 +1032,7 @@ func TestWorkflowActionRouting(t *testing.T) {
 
 func TestToolOutputSchemaValidation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Write([]byte(`{"name":"alice"}`))
+		mustWriteSkillResponse(t, writer, `{"name":"alice"}`)
 	}))
 	defer server.Close()
 
@@ -1148,12 +1156,12 @@ func TestResolvePathBracketNotation(t *testing.T) {
 func TestWorkflowHTTPSelectWithBracketPaths(t *testing.T) {
 	// Simulates the weather skill pattern: geocode → points → forecast
 	geocodeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`[{"lat":"33.07","lon":"-84.29","display_name":"Alpharetta, GA"}]`))
+		mustWriteSkillResponse(t, w, `[{"lat":"33.07","lon":"-84.29","display_name":"Alpharetta, GA"}]`)
 	}))
 	defer geocodeServer.Close()
 
 	forecastServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"properties":{"periods":[{"temperature":72,"windSpeed":"5 mph","relativeHumidity":{"value":60}},{"temperature":58}]}}`))
+		mustWriteSkillResponse(t, w, `{"properties":{"periods":[{"temperature":72,"windSpeed":"5 mph","relativeHumidity":{"value":60}},{"temperature":58}]}}`)
 	}))
 	defer forecastServer.Close()
 
@@ -1220,7 +1228,7 @@ func TestWorkflowHTTPMaxBytesOverride(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(largeJSON))
+		mustWriteSkillResponse(t, w, largeJSON)
 	}))
 	defer server.Close()
 

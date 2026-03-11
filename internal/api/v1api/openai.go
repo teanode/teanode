@@ -195,13 +195,13 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 				},
 			}
 			data, _ := json.Marshal(chunk)
-			fmt.Fprintf(writer, "data: %s\n\n", data)
+			_, _ = fmt.Fprintf(writer, "data: %s\n\n", data)
 			flusher.Flush()
 		},
 	})
 	if sendError != nil {
 		errorData, _ := json.Marshal(map[string]string{"error": sendError.Error()})
-		fmt.Fprintf(writer, "data: %s\n\n", errorData)
+		_, _ = fmt.Fprintf(writer, "data: %s\n\n", errorData)
 		flusher.Flush()
 		return nil
 	}
@@ -209,7 +209,7 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 	result, err := handle.Wait()
 	if err != nil {
 		errorData, _ := json.Marshal(map[string]string{"error": err.Error()})
-		fmt.Fprintf(writer, "data: %s\n\n", errorData)
+		_, _ = fmt.Fprintf(writer, "data: %s\n\n", errorData)
 		flusher.Flush()
 		return nil
 	}
@@ -233,8 +233,8 @@ func (self *v1Api) handleChatCompletionsStream(writer http.ResponseWriter, httpR
 		},
 	}
 	data, _ := json.Marshal(finalChunk)
-	fmt.Fprintf(writer, "data: %s\n\n", data)
-	fmt.Fprintf(writer, "data: [DONE]\n\n")
+	_, _ = fmt.Fprintf(writer, "data: %s\n\n", data)
+	_, _ = fmt.Fprintf(writer, "data: [DONE]\n\n")
 	flusher.Flush()
 	return nil
 }

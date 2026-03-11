@@ -141,7 +141,7 @@ func (self *GeminiClient) ChatCompletion(ctx context.Context, request ChatReques
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	log.Debugf("POST %s/v1beta/models/%s:generateContent status=%d", self.baseUrl, request.ModelName, response.StatusCode)
 
@@ -186,7 +186,7 @@ func (self *GeminiClient) ChatCompletionStream(ctx context.Context, request Chat
 	log.Debugf("POST %s/v1beta/models/%s:streamGenerateContent status=%d (stream opened)", self.baseUrl, request.ModelName, response.StatusCode)
 
 	if response.StatusCode != http.StatusOK {
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		responseBody, _ := io.ReadAll(response.Body)
 		return nil, fmt.Errorf("API error %d: %s", response.StatusCode, string(responseBody))
 	}
@@ -195,7 +195,7 @@ func (self *GeminiClient) ChatCompletionStream(ctx context.Context, request Chat
 	go func() {
 		defer deferutil.Recover()
 		defer close(events)
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		self.readSse(ctx, request.ModelName, response.Body, events)
 	}()
 
@@ -218,7 +218,7 @@ func (self *GeminiClient) ListModels(ctx context.Context) ([]ModelInformation, e
 	if err != nil {
 		return self.fallbackModels(), nil
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
 		return self.fallbackModels(), nil

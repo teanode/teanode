@@ -1,3 +1,4 @@
+// Package ratelimit implements a token bucket rate limiter.
 package ratelimit
 
 import (
@@ -89,7 +90,7 @@ func (self *Bucket) ResetRate(rate float64, capacity int64) {
 	self.ResetQuantumAndInterval(quantum, interval, capacity)
 }
 
-// Get capacity of the bucket.
+// Capacity returns the capacity of the bucket.
 func (self *Bucket) Capacity() int64 {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()

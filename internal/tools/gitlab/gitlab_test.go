@@ -141,12 +141,20 @@ func TestIssuesTool_ListAction(t *testing.T) {
 	commandArgs := (*calls)[0]
 	foundIssueList := false
 	foundOutputJSON := false
+	foundOrder := false
+	foundSort := false
 	for index, argument := range commandArgs {
 		if argument == "issue" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
 			foundIssueList = true
 		}
 		if argument == "--output" && index+1 < len(commandArgs) && commandArgs[index+1] == "json" {
 			foundOutputJSON = true
+		}
+		if argument == "--order" && index+1 < len(commandArgs) && commandArgs[index+1] == "updated_at" {
+			foundOrder = true
+		}
+		if argument == "--sort" && index+1 < len(commandArgs) && commandArgs[index+1] == "desc" {
+			foundSort = true
 		}
 		if argument == "--state" {
 			t.Errorf("unexpected --state flag in args (glab uses boolean flags): %v", commandArgs)
@@ -157,6 +165,12 @@ func TestIssuesTool_ListAction(t *testing.T) {
 	}
 	if !foundOutputJSON {
 		t.Errorf("expected '--output json' in args: %v", commandArgs)
+	}
+	if !foundOrder {
+		t.Errorf("expected default '--order updated_at' in args: %v", commandArgs)
+	}
+	if !foundSort {
+		t.Errorf("expected default '--sort desc' in args: %v", commandArgs)
 	}
 }
 
@@ -749,6 +763,76 @@ func TestMergeRequestsTool_ListMergedState(t *testing.T) {
 	}
 }
 
+func TestMergeRequestsTool_ListMergedDefaultsToRecentOrdering(t *testing.T) {
+	runner, calls := mockRunner(`[{"iid":12}]`, nil)
+	tool := &mergeRequestsTool{binary: "glab", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+		"state":  "merged",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := (*calls)[0]
+	foundPage := false
+	foundOrder := false
+	foundSort := false
+	for index, argument := range commandArgs {
+		if argument == "--page" && index+1 < len(commandArgs) && commandArgs[index+1] == "1" {
+			foundPage = true
+		}
+		if argument == "--order" && index+1 < len(commandArgs) && commandArgs[index+1] == "merged_at" {
+			foundOrder = true
+		}
+		if argument == "--sort" && index+1 < len(commandArgs) && commandArgs[index+1] == "desc" {
+			foundSort = true
+		}
+	}
+	if !foundPage {
+		t.Errorf("expected default '--page 1' in args: %v", commandArgs)
+	}
+	if !foundOrder {
+		t.Errorf("expected default '--order merged_at' in args: %v", commandArgs)
+	}
+	if !foundSort {
+		t.Errorf("expected default '--sort desc' in args: %v", commandArgs)
+	}
+}
+
+func TestMergeRequestsTool_ListDefaultsToRecentOrdering(t *testing.T) {
+	runner, calls := mockRunner(`[{"iid":12}]`, nil)
+	tool := &mergeRequestsTool{binary: "glab", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "list",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := (*calls)[0]
+	foundOrder := false
+	foundSort := false
+	for index, argument := range commandArgs {
+		if argument == "--order" && index+1 < len(commandArgs) && commandArgs[index+1] == "updated_at" {
+			foundOrder = true
+		}
+		if argument == "--sort" && index+1 < len(commandArgs) && commandArgs[index+1] == "desc" {
+			foundSort = true
+		}
+	}
+	if !foundOrder {
+		t.Errorf("expected default '--order updated_at' in args: %v", commandArgs)
+	}
+	if !foundSort {
+		t.Errorf("expected default '--sort desc' in args: %v", commandArgs)
+	}
+}
+
 func TestMergeRequestsTool_ListAllState(t *testing.T) {
 	runner, calls := mockRunner(`[{"iid":13}]`, nil)
 	tool := &mergeRequestsTool{binary: "glab", runner: runner}
@@ -846,6 +930,80 @@ func TestMergeRequestsTool_ListAuthor(t *testing.T) {
 	}
 	if !foundAuthor {
 		t.Errorf("expected '--author @me' in args: %v", commandArgs)
+	}
+}
+
+func TestMergeRequestsTool_ListAdditionalFilters(t *testing.T) {
+	runner, calls := mockRunner(`[{"iid":16}]`, nil)
+	tool := &mergeRequestsTool{binary: "glab", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action":         "list",
+		"group":          "my-group/platform",
+		"page":           2,
+		"per_page":       100,
+		"search":         "recent merge",
+		"order":          "updated_at",
+		"sort":           "asc",
+		"source_branch":  "feature-x",
+		"target_branch":  "main",
+		"label":          []string{"backend", "release"},
+		"not_label":      []string{"wip"},
+		"milestone":      "42",
+		"draft":          true,
+		"created_after":  "2026-01-01T00:00:00Z",
+		"created_before": "2026-02-01T00:00:00Z",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := strings.Join((*calls)[0], " ")
+	expectedSnippets := []string{
+		"--group my-group/platform",
+		"--page 2",
+		"--per-page 100",
+		"--search recent merge",
+		"--order updated_at",
+		"--sort asc",
+		"--source-branch feature-x",
+		"--target-branch main",
+		"--label backend",
+		"--label release",
+		"--not-label wip",
+		"--milestone 42",
+		"--draft",
+		"--created-after 2026-01-01T00:00:00Z",
+		"--created-before 2026-02-01T00:00:00Z",
+	}
+	for _, snippet := range expectedSnippets {
+		if !strings.Contains(commandArgs, snippet) {
+			t.Errorf("expected %q in args: %v", snippet, (*calls)[0])
+		}
+	}
+}
+
+func TestMergeRequestsTool_ListRepositoryOverridesGroup(t *testing.T) {
+	runner, calls := mockRunner(`[{"iid":16}]`, nil)
+	tool := &mergeRequestsTool{binary: "glab", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action":     "list",
+		"group":      "my-group/platform",
+		"repository": "my-group/platform/repo",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	commandArgs := strings.Join((*calls)[0], " ")
+	if strings.Contains(commandArgs, "--group my-group/platform") {
+		t.Errorf("expected repository to suppress --group: %v", (*calls)[0])
+	}
+	if !strings.Contains(commandArgs, "-R my-group/platform/repo") {
+		t.Errorf("expected repository flag in args: %v", (*calls)[0])
 	}
 }
 
@@ -1045,6 +1203,115 @@ func TestMergeRequestsTool_UnknownAction(t *testing.T) {
 	})
 	_, err := tool.Execute(context.Background(), string(arguments))
 	if err == nil || !strings.Contains(err.Error(), "unknown merge_requests action") {
+		t.Errorf("expected unknown action error, got: %v", err)
+	}
+}
+
+// --- todos tool tests ---
+
+func TestTodosTool_ListAction(t *testing.T) {
+	runner, calls := mockRunner(`[{"id":1,"action_name":"assigned"}]`, nil)
+	tool := &todosTool{binary: "glab", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action":      "list",
+		"state":       "pending",
+		"action_type": "approval_required",
+		"author_id":   7,
+		"group_id":    9,
+		"target_type": "MergeRequest",
+	})
+	result, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == "" {
+		t.Error("expected non-empty result")
+	}
+
+	commandArgs := strings.Join((*calls)[0], " ")
+	expectedSnippets := []string{
+		"api todos",
+		"--method GET",
+		"--paginate",
+		"-F state=pending",
+		"-F action=approval_required",
+		"-F author_id=7",
+		"-F group_id=9",
+		"-F type=MergeRequest",
+	}
+	for _, snippet := range expectedSnippets {
+		if !strings.Contains(commandArgs, snippet) {
+			t.Errorf("expected %q in args: %v", snippet, (*calls)[0])
+		}
+	}
+}
+
+func TestTodosTool_MarkDoneAction(t *testing.T) {
+	runner, calls := mockRunner(`{"id":1,"state":"done"}`, nil)
+	tool := &todosTool{binary: "glab", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "mark_done",
+		"id":     1,
+	})
+	result, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"status":"marked_done"`) {
+		t.Errorf("expected marked_done status in result: %s", result)
+	}
+
+	commandArgs := strings.Join((*calls)[0], " ")
+	if !strings.Contains(commandArgs, "api todos/1/mark_as_done --method POST") {
+		t.Errorf("expected mark_as_done POST call in args: %v", (*calls)[0])
+	}
+}
+
+func TestTodosTool_MarkAllDoneAction(t *testing.T) {
+	runner, calls := mockRunner("", nil)
+	tool := &todosTool{binary: "glab", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "mark_all_done",
+	})
+	result, err := tool.Execute(context.Background(), string(arguments))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"status":"marked_all_done"`) {
+		t.Errorf("expected marked_all_done status in result: %s", result)
+	}
+
+	commandArgs := strings.Join((*calls)[0], " ")
+	if !strings.Contains(commandArgs, "api todos/mark_as_done --method POST") {
+		t.Errorf("expected bulk mark_as_done POST call in args: %v", (*calls)[0])
+	}
+}
+
+func TestTodosTool_MarkDoneMissingID(t *testing.T) {
+	runner, _ := mockRunner("", nil)
+	tool := &todosTool{binary: "glab", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "mark_done",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err == nil || !strings.Contains(err.Error(), "id is required") {
+		t.Errorf("expected 'id is required' error, got: %v", err)
+	}
+}
+
+func TestTodosTool_UnknownAction(t *testing.T) {
+	runner, _ := mockRunner("", nil)
+	tool := &todosTool{binary: "glab", runner: runner}
+
+	arguments, _ := json.Marshal(map[string]interface{}{
+		"action": "unknown",
+	})
+	_, err := tool.Execute(context.Background(), string(arguments))
+	if err == nil || !strings.Contains(err.Error(), "unknown todos action") {
 		t.Errorf("expected unknown action error, got: %v", err)
 	}
 }

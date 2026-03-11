@@ -1,3 +1,4 @@
+// Package shell exposes a tool for running shell commands.
 package shell
 
 import (

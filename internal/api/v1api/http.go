@@ -42,7 +42,7 @@ func (self *v1Api) handleMedia(writer http.ResponseWriter, request *http.Request
 	if transactionError != nil {
 		return web.ErrNotFound
 	}
-	defer mediaReader.Close()
+	defer func() { _ = mediaReader.Close() }()
 	contentType := metadata.GetContentType()
 	if contentType == "" {
 		contentType = mimetypes.MIMETypeFromFormat(metadata.GetFormat())
@@ -72,7 +72,7 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 	if err != nil {
 		return web.Error(400, "missing file field")
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Determine format from file extension, falling back to Content-Type.
 	filename := header.Filename
@@ -145,7 +145,7 @@ func (self *v1Api) handleAudioTranscribe(writer http.ResponseWriter, request *ht
 	if err != nil {
 		return web.Error(400, "missing file field")
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	extension := strings.TrimPrefix(filepath.Ext(header.Filename), ".")
 	format := strings.ToLower(extension)
@@ -271,7 +271,7 @@ func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.R
 	if err != nil {
 		return web.Error(500, "synthesis failed: "+err.Error())
 	}
-	defer result.Audio.Close()
+	defer func() { _ = result.Audio.Close() }()
 
 	writer.Header().Set("Content-Type", result.ContentType)
 	if flusher, ok := writer.(http.Flusher); ok {

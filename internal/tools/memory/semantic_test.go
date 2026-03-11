@@ -129,7 +129,9 @@ func addMemoryItem(t *testing.T, ctx context.Context, tool tools.Tool, title, co
 		t.Fatalf("batch add: %v", err)
 	}
 	var response memoryBatchResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
 	if response.Summary.Succeeded != 1 {
 		t.Fatalf("expected 1 success, got %+v, error: %s", response.Summary, response.Results[0].Error)
 	}
@@ -167,7 +169,9 @@ func TestSemanticRetrieveOrdering(t *testing.T) {
 			Score  float64 `json:"score"`
 		} `json:"snippets"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
 
 	if response.Method != "semantic" {
 		t.Errorf("expected method=semantic, got %q", response.Method)
@@ -207,7 +211,9 @@ func TestSemanticRetrieveFallbackWhenNoEmbeddings(t *testing.T) {
 			Title string `json:"title"`
 		} `json:"snippets"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
 
 	// No method field means keyword fallback.
 	if response.Method == "semantic" {
@@ -242,7 +248,9 @@ func TestSemanticRetrieveFallbackOnEmbeddingError(t *testing.T) {
 			Title string `json:"title"`
 		} `json:"snippets"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
 
 	// Should have fallen back to keyword.
 	if response.Method == "semantic" {
@@ -273,11 +281,13 @@ func TestEmbeddingPersistedOnAdd(t *testing.T) {
 
 	// The output doesn't expose embedding directly, so verify via store.
 	var item *models.MemoryItem
-	store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		var getError error
 		item, getError = tx.GetMemoryItem(ctx, itemId, nil)
 		return getError
-	})
+	}); err != nil {
+		t.Fatalf("load memory item: %v", err)
+	}
 
 	if item.Embedding == nil || len(*item.Embedding) == 0 {
 		t.Fatal("expected embedding to be persisted on item")
@@ -328,7 +338,9 @@ func TestDedupeWarningOnSimilarAdd(t *testing.T) {
 	}
 
 	var response memoryBatchResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
 	if response.Summary.Succeeded != 1 {
 		t.Fatalf("add should still succeed, got %+v", response.Summary)
 	}
@@ -363,7 +375,9 @@ func TestNoDedupeWarningForDifferentItems(t *testing.T) {
 	}
 
 	var response memoryBatchResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
 	if response.Results[0].Warning != "" {
 		t.Errorf("expected no dedupe warning for different items, got %q", response.Results[0].Warning)
 	}
@@ -392,7 +406,9 @@ func TestAddWithoutEmbeddingsProvider(t *testing.T) {
 	}
 
 	var response memoryBatchResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
 	if response.Summary.Succeeded != 1 {
 		t.Fatalf("expected success, got %+v", response.Summary)
 	}

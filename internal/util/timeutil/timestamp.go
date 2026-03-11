@@ -20,14 +20,14 @@ func Now() Timestamp {
 }
 
 func (self Timestamp) String() string {
-	if self.Time.IsZero() {
+	if self.IsZero() {
 		return ""
 	}
 	return self.Time.In(time.Local).Format(localTimestampLayout)
 }
 
 func (self Timestamp) MarshalJSON() ([]byte, error) {
-	if self.Time.IsZero() {
+	if self.IsZero() {
 		return []byte("null"), nil
 	}
 	return json.Marshal(self.String())
@@ -55,7 +55,7 @@ func (self *Timestamp) UnmarshalJSON(data []byte) error {
 }
 
 func (self Timestamp) MarshalYAML() (interface{}, error) {
-	if self.Time.IsZero() {
+	if self.IsZero() {
 		return nil, nil
 	}
 	return self.String(), nil

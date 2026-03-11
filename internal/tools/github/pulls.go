@@ -44,11 +44,11 @@ func (self *pullsTool) Definition() providers.ToolDefinition {
 					},
 					"head": map[string]interface{}{
 						"type":        "string",
-						"description": "Head branch name (for create action).",
+						"description": "Head branch name (for create action and list action filtering).",
 					},
 					"base": map[string]interface{}{
 						"type":        "string",
-						"description": "Base branch name (for create and edit actions, defaults to repo default branch).",
+						"description": "Base branch name (for create, edit, and list actions, defaults to repo default branch when creating).",
 					},
 					"merge_method": map[string]interface{}{
 						"type":        "string",
@@ -62,6 +62,28 @@ func (self *pullsTool) Definition() providers.ToolDefinition {
 					"author": map[string]interface{}{
 						"type":        "string",
 						"description": "Filter by author username, use \"@me\" to refer to current user (for list action).",
+					},
+					"app": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by GitHub App author (for list action).",
+					},
+					"label": map[string]interface{}{
+						"oneOf": []map[string]interface{}{
+							{"type": "string"},
+							{
+								"type":  "array",
+								"items": map[string]interface{}{"type": "string"},
+							},
+						},
+						"description": "Filter by one or more labels for list action.",
+					},
+					"search": map[string]interface{}{
+						"type":        "string",
+						"description": "Search pull requests using GitHub issue search syntax (for list action).",
+					},
+					"draft": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Filter draft pull requests for list action, or create a draft pull request.",
 					},
 					"state": map[string]interface{}{
 						"type":        "string",
@@ -98,6 +120,10 @@ func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string
 		MergeMethod string `json:"merge_method"`
 		Assignee    string `json:"assignee"`
 		Author      string `json:"author"`
+		App         string `json:"app"`
+		Label       any    `json:"label"`
+		Search      string `json:"search"`
+		Draft       bool   `json:"draft"`
 		State       string `json:"state"`
 		Limit       int    `json:"limit"`
 		Repository  string `json:"repository"`
@@ -124,6 +150,26 @@ func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Author != "" {
 			commandArgs = append(commandArgs, "--author", args.Author)
 		}
+		if args.Base != "" {
+			commandArgs = append(commandArgs, "--base", args.Base)
+		}
+		if args.Head != "" {
+			commandArgs = append(commandArgs, "--head", args.Head)
+		}
+		if args.App != "" {
+			commandArgs = append(commandArgs, "--app", args.App)
+		}
+		commandArgs = appendStringFlags(commandArgs, "--label", args.Label)
+		search := args.Search
+		if search == "" {
+			search = "sort:updated-desc"
+		}
+		if search != "" {
+			commandArgs = append(commandArgs, "--search", search)
+		}
+		if args.Draft {
+			commandArgs = append(commandArgs, "--draft")
+		}
 		appendRepository(&commandArgs, args.Repository)
 		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
 
@@ -149,6 +195,9 @@ func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string
 		commandArgs := []string{"pr", "create", "--title", args.Title, "--body", args.Body, "--head", args.Head}
 		if args.Base != "" {
 			commandArgs = append(commandArgs, "--base", args.Base)
+		}
+		if args.Draft {
+			commandArgs = append(commandArgs, "--draft")
 		}
 		appendRepository(&commandArgs, args.Repository)
 		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)

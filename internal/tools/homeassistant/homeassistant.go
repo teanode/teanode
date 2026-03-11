@@ -1,3 +1,4 @@
+// Package homeassistant exposes provider tools backed by Home Assistant.
 package homeassistant
 
 import (

@@ -60,7 +60,9 @@ func TestChannelGateDiscord(t *testing.T) {
 	}
 
 	var parsed map[string]string
-	json.Unmarshal([]byte(result), &parsed)
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
 	if parsed["error"] == "" {
 		t.Fatal("expected error in result for discord channel")
 	}
@@ -76,7 +78,9 @@ func TestChannelGateAutomated(t *testing.T) {
 	}
 
 	var parsed map[string]string
-	json.Unmarshal([]byte(result), &parsed)
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
 	if parsed["error"] == "" {
 		t.Fatal("expected error in result for automated channel")
 	}
@@ -260,7 +264,9 @@ func TestAllowOtherDefaultValues(t *testing.T) {
 		t.Errorf("expected empty OtherLabel (uses frontend default), got %s", pending[0].OtherLabel)
 	}
 
-	broker.Answer(pending[0].ID, questions.AnswerPayload{Answer: "A"})
+	if err := broker.Answer(pending[0].ID, questions.AnswerPayload{Answer: "A"}); err != nil {
+		t.Fatalf("answer question: %v", err)
+	}
 	<-done
 }
 
@@ -289,12 +295,16 @@ func TestBackwardCompatibleNoAllowOther(t *testing.T) {
 		t.Error("expected AllowOther to be false by default")
 	}
 
-	broker.Answer(pending[0].ID, questions.AnswerPayload{Answer: "X"})
+	if err := broker.Answer(pending[0].ID, questions.AnswerPayload{Answer: "X"}); err != nil {
+		t.Fatalf("answer question: %v", err)
+	}
 
 	select {
 	case result := <-done:
 		var parsed map[string]string
-		json.Unmarshal([]byte(result), &parsed)
+		if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
 		if parsed["answer"] != "X" {
 			t.Errorf("expected X, got %s", parsed["answer"])
 		}

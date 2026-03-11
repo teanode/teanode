@@ -260,7 +260,7 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	log.Debugf("POST %s/chat/completions status=%d", self.baseUrl, response.StatusCode)
 
@@ -308,7 +308,7 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 	log.Debugf("POST %s/chat/completions status=%d (stream opened)", self.baseUrl, response.StatusCode)
 
 	if response.StatusCode != http.StatusOK {
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		responseBody, _ := io.ReadAll(response.Body)
 		return nil, fmt.Errorf("API error %d: %s", response.StatusCode, string(responseBody))
 	}
@@ -317,7 +317,7 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 	go func() {
 		defer deferutil.Recover()
 		defer close(events)
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		self.readSse(ctx, response.Body, events)
 	}()
 
@@ -396,7 +396,7 @@ func (self *Client) ListModels(ctx context.Context) ([]ModelInformation, error) 
 	if err != nil {
 		return nil, fmt.Errorf("fetching models: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(response.Body)
@@ -460,7 +460,9 @@ func (self *Client) Transcribe(ctx context.Context, request TranscribeRequest) (
 	if request.Prompt != "" {
 		_ = writer.WriteField("prompt", request.Prompt)
 	}
-	writer.Close()
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("closing multipart writer: %w", err)
+	}
 
 	log.Debugf("POST %s/audio/transcriptions format=%s", self.baseUrl, extension)
 
@@ -477,7 +479,7 @@ func (self *Client) Transcribe(ctx context.Context, request TranscribeRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(response.Body)
@@ -534,17 +536,18 @@ func (self *Client) Synthesize(ctx context.Context, request SynthesizeRequest) (
 	}
 
 	if response.StatusCode != http.StatusOK {
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		responseBody, _ := io.ReadAll(response.Body)
 		return nil, fmt.Errorf("TTS API error %d: %s", response.StatusCode, string(responseBody))
 	}
 
 	contentType := "audio/mpeg"
-	if format == "opus" {
+	switch format {
+	case "opus":
 		contentType = "audio/ogg"
-	} else if format == "aac" {
+	case "aac":
 		contentType = "audio/aac"
-	} else if format == "flac" {
+	case "flac":
 		contentType = "audio/flac"
 	}
 
@@ -602,7 +605,7 @@ func (self *Client) Embed(ctx context.Context, model string, inputText string) (
 	if doError != nil {
 		return nil, nil, fmt.Errorf("embeddings: request failed: %w", doError)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	body, readError := io.ReadAll(response.Body)
 	if readError != nil {
@@ -660,7 +663,7 @@ func (self *Client) EmbedMany(ctx context.Context, model string, inputTexts []st
 	if doError != nil {
 		return nil, nil, fmt.Errorf("embeddings: request failed: %w", doError)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	body, readError := io.ReadAll(response.Body)
 	if readError != nil {

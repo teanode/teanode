@@ -1,3 +1,4 @@
+// Package terminal exposes tools for terminal session interactions.
 package terminal
 
 import (

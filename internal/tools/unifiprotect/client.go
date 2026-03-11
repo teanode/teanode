@@ -199,7 +199,7 @@ func (self *httpClient) login(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("login request failed: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	// Drain the response body.
 	_, _ = io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
@@ -280,7 +280,7 @@ func (self *httpClient) doRequest(ctx context.Context, method string, path strin
 	if err != nil {
 		return nil, 0, fmt.Errorf("request failed: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxBytes))
 	if err != nil {
@@ -385,7 +385,7 @@ func (self *httpClient) getSnapshotIntegrationAPI(ctx context.Context, cameraId 
 	if err != nil {
 		return nil, fmt.Errorf("snapshot request failed: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("UniFi Protect returned HTTP %d for snapshot request", response.StatusCode)
@@ -430,7 +430,7 @@ func (self *httpClient) getSnapshotPrivateAPI(ctx context.Context, cameraId stri
 	if err != nil {
 		return nil, fmt.Errorf("snapshot request failed: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("UniFi Protect returned HTTP %d for snapshot request", response.StatusCode)

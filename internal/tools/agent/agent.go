@@ -1,4 +1,5 @@
-package toolagent
+// Package agent exposes tools for inspecting and updating agent state.
+package agent
 
 import (
 	"context"

@@ -1,3 +1,4 @@
+// Package allowlist provides helpers for allowlist-based filtering.
 package allowlist
 
 // IsAllowed checks whether a name is present in an allow list.

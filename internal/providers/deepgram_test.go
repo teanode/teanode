@@ -19,7 +19,7 @@ func TestDeepgramClient_StreamTranscribe(t *testing.T) {
 			t.Errorf("upgrade: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		if _, audio, err := conn.ReadMessage(); err != nil || len(audio) == 0 {
 			t.Errorf("read audio: %v", err)
 			return
@@ -45,7 +45,7 @@ func TestDeepgramClient_StreamTranscribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TranscribeStream: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if err := stream.SendAudio([]byte{1, 2, 3, 4}); err != nil {
 		t.Fatalf("SendAudio: %v", err)
@@ -73,7 +73,7 @@ func TestDeepgramClient_KeepAlive(t *testing.T) {
 			t.Errorf("upgrade: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		for {
 			_, payload, err := conn.ReadMessage()
 			if err != nil {
@@ -103,7 +103,7 @@ func TestDeepgramClient_KeepAlive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TranscribeStream: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	select {
 	case <-keepAliveSeen:
@@ -132,7 +132,7 @@ func TestDeepgramClient_ErrorMidStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TranscribeStream: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	select {
 	case event, ok := <-stream.Events():

@@ -1,3 +1,4 @@
+// Package tools defines the builtin tool registry and shared tool interfaces.
 package tools
 
 import (

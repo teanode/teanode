@@ -1,3 +1,4 @@
+// Package valueor provides helpers for dereferencing optional values.
 package valueor
 
 func Zero[Type any](value *Type) Type {

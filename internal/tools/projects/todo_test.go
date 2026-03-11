@@ -13,6 +13,13 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
+func mustUnmarshalProjectJSON(t testing.TB, data string, target any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(data), target); err != nil {
+		t.Fatalf("unmarshal JSON: %v", err)
+	}
+}
+
 func setupTodoToolStore(t *testing.T) store.Store {
 	t.Helper()
 	s, err := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
@@ -40,7 +47,7 @@ func createProject(t *testing.T, ctx context.Context, s store.Store) string {
 			ID string `json:"id"`
 		} `json:"project"`
 	}
-	json.Unmarshal([]byte(result), &created)
+	mustUnmarshalProjectJSON(t, result, &created)
 	return created.Project.ID
 }
 
@@ -84,7 +91,7 @@ func TestProjectTodoBatchAdd(t *testing.T) {
 	}
 
 	var resp projectBatchResponse
-	json.Unmarshal([]byte(result), &resp)
+	mustUnmarshalProjectJSON(t, result, &resp)
 	if resp.Action != "batch" {
 		t.Fatalf("action = %q, want batch", resp.Action)
 	}
@@ -123,7 +130,7 @@ func TestProjectTodoBatchMixedOps(t *testing.T) {
 	// Setup: add 3 items.
 	setupResult, _ := todoTool.Execute(ctx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"add","title":"To Complete"},{"op":"add","title":"To Delete"},{"op":"add","title":"To Update"}]}`)
 	var setup projectBatchResponse
-	json.Unmarshal([]byte(setupResult), &setup)
+	mustUnmarshalProjectJSON(t, setupResult, &setup)
 
 	completeId := setup.Results[0].Todo.ID
 	deleteId := setup.Results[1].Todo.ID
@@ -147,7 +154,7 @@ func TestProjectTodoBatchMixedOps(t *testing.T) {
 	}
 
 	var resp projectBatchResponse
-	json.Unmarshal([]byte(result), &resp)
+	mustUnmarshalProjectJSON(t, result, &resp)
 	if len(resp.Results) != 4 {
 		t.Fatalf("results count = %d, want 4", len(resp.Results))
 	}
@@ -180,7 +187,7 @@ func TestProjectTodoBatchPartialFailure(t *testing.T) {
 	}
 
 	var resp projectBatchResponse
-	json.Unmarshal([]byte(result), &resp)
+	mustUnmarshalProjectJSON(t, result, &resp)
 	if !resp.Results[0].Success {
 		t.Fatal("result[0] should succeed")
 	}
@@ -202,9 +209,11 @@ func TestProjectTodoPrune(t *testing.T) {
 	// Add 2, complete 1.
 	setupResult, _ := todoTool.Execute(ctx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"add","title":"Open Item"},{"op":"add","title":"Done Item"}]}`)
 	var setup projectBatchResponse
-	json.Unmarshal([]byte(setupResult), &setup)
+	mustUnmarshalProjectJSON(t, setupResult, &setup)
 	doneId := setup.Results[1].Todo.ID
-	todoTool.Execute(ctx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"complete","todoId":"`+doneId+`"}]}`)
+	if _, err := todoTool.Execute(ctx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"complete","todoId":"`+doneId+`"}]}`); err != nil {
+		t.Fatalf("completing todo: %v", err)
+	}
 
 	// Prune.
 	pruneResult, err := todoTool.Execute(ctx, `{"action":"prune","projectId":"`+projectId+`"}`)
@@ -216,7 +225,7 @@ func TestProjectTodoPrune(t *testing.T) {
 		Success   bool   `json:"success"`
 		DoneCount int    `json:"doneCount"`
 	}
-	json.Unmarshal([]byte(pruneResult), &pruneResp)
+	mustUnmarshalProjectJSON(t, pruneResult, &pruneResp)
 	if !pruneResp.Success {
 		t.Fatal("expected success=true")
 	}
@@ -225,12 +234,15 @@ func TestProjectTodoPrune(t *testing.T) {
 	}
 
 	// Verify only open item remains.
-	listResult, _ := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`"}`)
+	listResult, err := todoTool.Execute(ctx, `{"action":"list","projectId":"`+projectId+`"}`)
+	if err != nil {
+		t.Fatalf("list after prune failed: %v", err)
+	}
 	var listed struct {
 		Todos      []interface{} `json:"todos"`
 		TotalCount int           `json:"totalCount"`
 	}
-	json.Unmarshal([]byte(listResult), &listed)
+	mustUnmarshalProjectJSON(t, listResult, &listed)
 	if len(listed.Todos) != 1 {
 		t.Fatalf("expected 1 todo after prune, got %d", len(listed.Todos))
 	}
@@ -244,7 +256,9 @@ func TestProjectTodoNonAdminReadOnly(t *testing.T) {
 	todoTool := newProjectTodoTool(t)
 
 	// Add a todo as admin.
-	todoTool.Execute(adminCtx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"add","title":"Admin Todo"}]}`)
+	if _, err := todoTool.Execute(adminCtx, `{"action":"batch","projectId":"`+projectId+`","items":[{"op":"add","title":"Admin Todo"}]}`); err != nil {
+		t.Fatalf("admin batch add failed: %v", err)
+	}
 
 	// Non-admin should be able to list.
 	userCtx := store.ContextWithStore(context.Background(), s)
@@ -257,7 +271,7 @@ func TestProjectTodoNonAdminReadOnly(t *testing.T) {
 	var listed struct {
 		Todos []interface{} `json:"todos"`
 	}
-	json.Unmarshal([]byte(listResult), &listed)
+	mustUnmarshalProjectJSON(t, listResult, &listed)
 	if len(listed.Todos) != 1 {
 		t.Fatalf("non-admin should see 1 todo, got %d", len(listed.Todos))
 	}
@@ -288,7 +302,7 @@ func TestProjectTodoProjectNameLookup(t *testing.T) {
 		t.Fatalf("batch by projectName failed: %v", err)
 	}
 	var resp projectBatchResponse
-	json.Unmarshal([]byte(result), &resp)
+	mustUnmarshalProjectJSON(t, result, &resp)
 	if !resp.Results[0].Success || resp.Results[0].Todo.GetTitle() != "By Name" {
 		t.Fatalf("unexpected result: %+v", resp.Results[0])
 	}

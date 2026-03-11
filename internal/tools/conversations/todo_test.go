@@ -14,6 +14,13 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
+func mustUnmarshalConversationJSON(t testing.TB, result string, target any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(result), target); err != nil {
+		t.Fatalf("unmarshal JSON: %v", err)
+	}
+}
+
 func setupConvTodoStore(t *testing.T) store.Store {
 	t.Helper()
 	s, err := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
@@ -29,11 +36,17 @@ func setupConvTodoStore(t *testing.T) store.Store {
 
 func createConv(t *testing.T, ctx context.Context, s store.Store, userId, agentId string) string {
 	t.Helper()
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		tx.CreateUser(ctx, &models.User{ID: userId, Username: ptrto.Value(userId), Admin: ptrto.Value(true)}, nil, nil)
-		tx.CreateAgent(ctx, &models.Agent{ID: agentId, Name: ptrto.Value("Agent")}, nil, nil)
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		if _, err := tx.CreateUser(ctx, &models.User{ID: userId, Username: ptrto.Value(userId), Admin: ptrto.Value(true)}, nil, nil); err != nil {
+			return err
+		}
+		if _, err := tx.CreateAgent(ctx, &models.Agent{ID: agentId, Name: ptrto.Value("Agent")}, nil, nil); err != nil {
+			return err
+		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating conversation dependencies: %v", err)
+	}
 	var convId string
 	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		conv, err := tx.CreateConversation(ctx, &models.Conversation{
@@ -99,7 +112,7 @@ func TestConvTodoBatchAdd(t *testing.T) {
 	}
 
 	var resp batchResponse
-	json.Unmarshal([]byte(result), &resp)
+	mustUnmarshalConversationJSON(t, result, &resp)
 	if resp.Action != "batch" {
 		t.Fatalf("action = %q, want batch", resp.Action)
 	}
@@ -144,7 +157,7 @@ func TestConvTodoBatchMixedOps(t *testing.T) {
 		t.Fatalf("setup batch failed: %v", err)
 	}
 	var setup batchResponse
-	json.Unmarshal([]byte(addResult), &setup)
+	mustUnmarshalConversationJSON(t, addResult, &setup)
 
 	completeId := setup.Results[0].Todo.ID
 	deleteId := setup.Results[1].Todo.ID
@@ -167,7 +180,7 @@ func TestConvTodoBatchMixedOps(t *testing.T) {
 	}
 
 	var resp batchResponse
-	json.Unmarshal([]byte(result), &resp)
+	mustUnmarshalConversationJSON(t, result, &resp)
 	if len(resp.Results) != 4 {
 		t.Fatalf("results count = %d, want 4", len(resp.Results))
 	}
@@ -208,7 +221,7 @@ func TestConvTodoBatchPartialFailure(t *testing.T) {
 	}
 
 	var resp batchResponse
-	json.Unmarshal([]byte(result), &resp)
+	mustUnmarshalConversationJSON(t, result, &resp)
 	if len(resp.Results) != 2 {
 		t.Fatalf("results count = %d, want 2", len(resp.Results))
 	}
@@ -245,7 +258,7 @@ func TestConvTodoBatchValidation(t *testing.T) {
 		t.Fatalf("batch failed: %v", err)
 	}
 	var resp batchResponse
-	json.Unmarshal([]byte(result), &resp)
+	mustUnmarshalConversationJSON(t, result, &resp)
 	if resp.Results[0].Success {
 		t.Fatal("add without title should fail")
 	}
@@ -256,7 +269,7 @@ func TestConvTodoBatchValidation(t *testing.T) {
 		t.Fatalf("batch failed: %v", err)
 	}
 	var resp2 batchResponse
-	json.Unmarshal([]byte(result2), &resp2)
+	mustUnmarshalConversationJSON(t, result2, &resp2)
 	if resp2.Results[0].Success {
 		t.Fatal("update without todoId should fail")
 	}
@@ -275,7 +288,7 @@ func TestConvTodoBatchSingleItem(t *testing.T) {
 	}
 
 	var resp batchResponse
-	json.Unmarshal([]byte(result), &resp)
+	mustUnmarshalConversationJSON(t, result, &resp)
 	if len(resp.Results) != 1 {
 		t.Fatalf("results count = %d, want 1", len(resp.Results))
 	}
@@ -292,11 +305,16 @@ func TestConvTodoPrune(t *testing.T) {
 	todoTool := newConvTodoTool(t)
 
 	// Add 2, complete 1.
-	addResult, _ := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add","title":"Open Item"},{"op":"add","title":"Done Item"}]}`)
+	addResult, err := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add","title":"Open Item"},{"op":"add","title":"Done Item"}]}`)
+	if err != nil {
+		t.Fatalf("setup batch failed: %v", err)
+	}
 	var setup batchResponse
-	json.Unmarshal([]byte(addResult), &setup)
+	mustUnmarshalConversationJSON(t, addResult, &setup)
 	doneId := setup.Results[1].Todo.ID
-	todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"complete","todoId":"`+doneId+`"}]}`)
+	if _, err := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"complete","todoId":"`+doneId+`"}]}`); err != nil {
+		t.Fatalf("complete todo: %v", err)
+	}
 
 	// Prune.
 	pruneResult, err := todoTool.Execute(todoCtx, `{"action":"prune"}`)
@@ -308,7 +326,7 @@ func TestConvTodoPrune(t *testing.T) {
 		Success   bool   `json:"success"`
 		DoneCount int    `json:"doneCount"`
 	}
-	json.Unmarshal([]byte(pruneResult), &pruneResp)
+	mustUnmarshalConversationJSON(t, pruneResult, &pruneResp)
 	if !pruneResp.Success {
 		t.Fatal("expected success=true")
 	}
@@ -317,13 +335,16 @@ func TestConvTodoPrune(t *testing.T) {
 	}
 
 	// Verify only the open item remains.
-	listResult, _ := todoTool.Execute(todoCtx, `{"action":"list"}`)
+	listResult, err := todoTool.Execute(todoCtx, `{"action":"list"}`)
+	if err != nil {
+		t.Fatalf("list after prune failed: %v", err)
+	}
 	var listed struct {
 		Todos      []interface{} `json:"todos"`
 		TotalCount int           `json:"totalCount"`
 		OpenCount  int           `json:"openCount"`
 	}
-	json.Unmarshal([]byte(listResult), &listed)
+	mustUnmarshalConversationJSON(t, listResult, &listed)
 	if len(listed.Todos) != 1 {
 		t.Fatalf("expected 1 todo after prune, got %d", len(listed.Todos))
 	}
@@ -340,7 +361,9 @@ func TestConvTodoList(t *testing.T) {
 	todoTool := newConvTodoTool(t)
 
 	// Add.
-	todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add","title":"Conv Todo","priority":"high"}]}`)
+	if _, err := todoTool.Execute(todoCtx, `{"action":"batch","items":[{"op":"add","title":"Conv Todo","priority":"high"}]}`); err != nil {
+		t.Fatalf("seed batch failed: %v", err)
+	}
 
 	// List.
 	listResult, err := todoTool.Execute(todoCtx, `{"action":"list"}`)
@@ -352,7 +375,7 @@ func TestConvTodoList(t *testing.T) {
 		TotalCount int           `json:"totalCount"`
 		OpenCount  int           `json:"openCount"`
 	}
-	json.Unmarshal([]byte(listResult), &listed)
+	mustUnmarshalConversationJSON(t, listResult, &listed)
 	if len(listed.Todos) != 1 {
 		t.Fatalf("expected 1 todo, got %d", len(listed.Todos))
 	}
@@ -365,10 +388,14 @@ func TestConvTodoOwnershipDenied(t *testing.T) {
 	s := setupConvTodoStore(t)
 	ctx := store.ContextWithStore(context.Background(), s)
 	convId := createConv(t, ctx, s, "user1", "agent1")
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		tx.CreateUser(ctx, &models.User{ID: "user2", Username: ptrto.Value("user2"), Admin: ptrto.Value(false)}, nil, nil)
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		if _, err := tx.CreateUser(ctx, &models.User{ID: "user2", Username: ptrto.Value("user2"), Admin: ptrto.Value(false)}, nil, nil); err != nil {
+			return err
+		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating user2: %v", err)
+	}
 
 	user2Ctx := buildConvTodoCtx(s, "user2", false, convId, "agent1")
 	todoTool := newConvTodoTool(t)
@@ -384,10 +411,14 @@ func TestConvTodoAdminCrossAccess(t *testing.T) {
 	s := setupConvTodoStore(t)
 	ctx := store.ContextWithStore(context.Background(), s)
 	convId := createConv(t, ctx, s, "user1", "agent1")
-	_ = s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		tx.CreateUser(ctx, &models.User{ID: "admin2", Username: ptrto.Value("admin2"), Admin: ptrto.Value(true)}, nil, nil)
+	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
+		if _, err := tx.CreateUser(ctx, &models.User{ID: "admin2", Username: ptrto.Value("admin2"), Admin: ptrto.Value(true)}, nil, nil); err != nil {
+			return err
+		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("creating admin2: %v", err)
+	}
 
 	adminCtx := buildConvTodoCtx(s, "admin2", true, convId, "agent1")
 	todoTool := newConvTodoTool(t)

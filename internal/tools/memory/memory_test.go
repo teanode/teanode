@@ -192,7 +192,9 @@ func TestMemorySingleGet(t *testing.T) {
 		t.Fatalf("batch add: %v", err)
 	}
 	var batchResponse memoryBatchResponse
-	json.Unmarshal([]byte(result), &batchResponse)
+	if err := json.Unmarshal([]byte(result), &batchResponse); err != nil {
+		t.Fatalf("unmarshal batch response: %v", err)
+	}
 	itemId := batchResponse.Results[0].Item["id"].(string)
 
 	// Single get.
@@ -201,7 +203,9 @@ func TestMemorySingleGet(t *testing.T) {
 		t.Fatalf("single get: %v", err)
 	}
 	var response memorySingleResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal list response: %v", err)
+	}
 	if response.Action != "get" {
 		t.Errorf("action = %q, want get", response.Action)
 	}
@@ -235,7 +239,9 @@ func TestMemorySingleList(t *testing.T) {
 		t.Fatalf("list: %v", err)
 	}
 	var response memorySingleResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal list response: %v", err)
+	}
 	if response.Action != "list" {
 		t.Errorf("action = %q, want list", response.Action)
 	}
@@ -244,14 +250,18 @@ func TestMemorySingleList(t *testing.T) {
 	}
 
 	// Add items via batch.
-	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"A","content":"aaa","tags":["x"]},{"op":"add","title":"B","content":"bbb","tags":["y"]}]}`)
+	if _, err := tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"A","content":"aaa","tags":["x"]},{"op":"add","title":"B","content":"bbb","tags":["y"]}]}`); err != nil {
+		t.Fatalf("batch add: %v", err)
+	}
 
 	// List all.
 	result, err = tool.Execute(ctx, `{"action":"list"}`)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal list response: %v", err)
+	}
 	if len(response.Items) < 2 {
 		t.Errorf("expected at least 2 items, got %d", len(response.Items))
 	}
@@ -261,7 +271,9 @@ func TestMemorySingleList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list with tags: %v", err)
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal filtered list response: %v", err)
+	}
 	if len(response.Items) != 1 {
 		t.Errorf("expected 1 item with tag x, got %d", len(response.Items))
 	}
@@ -271,7 +283,9 @@ func TestMemorySingleList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list with maxResults: %v", err)
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal limited list response: %v", err)
+	}
 	if len(response.Items) > 1 {
 		t.Errorf("expected at most 1 item, got %d", len(response.Items))
 	}
@@ -288,7 +302,9 @@ func TestMemorySingleSearch(t *testing.T) {
 	tool := registry.Get("agent_memory")
 
 	// Add items.
-	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Pet preferences","content":"The user likes cats and kittens","tags":["pets"]},{"op":"add","title":"Work notes","content":"User prefers dark mode in all editors","tags":["work"]}]}`)
+	if _, err := tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Pet preferences","content":"The user likes cats and kittens","tags":["pets"]},{"op":"add","title":"Work notes","content":"User prefers dark mode in all editors","tags":["work"]}]}`); err != nil {
+		t.Fatalf("batch add: %v", err)
+	}
 
 	// Search for "cats".
 	result, err := tool.Execute(ctx, `{"action":"search","query":"cats"}`)
@@ -296,7 +312,9 @@ func TestMemorySingleSearch(t *testing.T) {
 		t.Fatalf("search: %v", err)
 	}
 	var response memorySingleResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal search response: %v", err)
+	}
 	if response.Action != "search" {
 		t.Errorf("action = %q, want search", response.Action)
 	}
@@ -309,7 +327,9 @@ func TestMemorySingleSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal search response: %v", err)
+	}
 	if len(response.Matches) == 0 {
 		t.Error("case-insensitive search for 'DARK MODE' should find a match")
 	}
@@ -319,7 +339,9 @@ func TestMemorySingleSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal search response: %v", err)
+	}
 	if len(response.Matches) > 1 {
 		t.Errorf("expected at most 1 result, got %d", len(response.Matches))
 	}
@@ -329,7 +351,9 @@ func TestMemorySingleSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal search response: %v", err)
+	}
 	if len(response.Matches) != 0 {
 		t.Errorf("expected no matches, got %d", len(response.Matches))
 	}
@@ -445,7 +469,9 @@ func TestMemoryBatchRejectsListSearch(t *testing.T) {
 		t.Fatalf("batch: %v", err)
 	}
 	var response memoryBatchResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal batch response: %v", err)
+	}
 	if response.Results[0].Success {
 		t.Error("list op in batch should fail")
 	}
@@ -458,7 +484,9 @@ func TestMemoryBatchRejectsListSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch: %v", err)
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal batch response: %v", err)
+	}
 	if response.Results[0].Success {
 		t.Error("search op in batch should fail")
 	}
@@ -480,7 +508,9 @@ func TestMemoryBatchMixedOperations(t *testing.T) {
 		t.Fatalf("batch add: %v", err)
 	}
 	var response memoryBatchResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal batch response: %v", err)
+	}
 	if response.Summary.Total != 2 || response.Summary.Succeeded != 2 {
 		t.Fatalf("expected 2 successes, got %+v", response.Summary)
 	}
@@ -500,7 +530,9 @@ func TestMemoryBatchMixedOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mixed batch: %v", err)
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal batch response: %v", err)
+	}
 	if response.Summary.Total != 3 || response.Summary.Succeeded != 3 {
 		t.Fatalf("expected 3 successes, got %+v", response.Summary)
 	}
@@ -525,7 +557,9 @@ func TestMemoryBatchPartialFailure(t *testing.T) {
 		t.Fatalf("batch: %v", err)
 	}
 	var response memoryBatchResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal batch response: %v", err)
+	}
 	if response.Summary.Succeeded != 1 || response.Summary.Failed != 1 {
 		t.Errorf("expected 1 success 1 failure, got %+v", response.Summary)
 	}
@@ -556,7 +590,9 @@ func TestUserMemoryBatch(t *testing.T) {
 		t.Fatalf("user_memory batch add: %v", err)
 	}
 	var response memoryBatchResponse
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal user batch response: %v", err)
+	}
 	if response.Summary.Succeeded != 1 {
 		t.Fatalf("expected 1 success, got %+v", response.Summary)
 	}
@@ -568,7 +604,9 @@ func TestUserMemoryBatch(t *testing.T) {
 		t.Fatalf("user_memory get: %v", err)
 	}
 	var singleResponse memorySingleResponse
-	json.Unmarshal([]byte(result), &singleResponse)
+	if err := json.Unmarshal([]byte(result), &singleResponse); err != nil {
+		t.Fatalf("unmarshal user single response: %v", err)
+	}
 	if singleResponse.Item["content"] != "remember this preference" {
 		t.Errorf("content = %v, want 'remember this preference'", singleResponse.Item["content"])
 	}
@@ -604,7 +642,9 @@ func TestRetrieveBasic(t *testing.T) {
 	tool := registry.Get("agent_memory")
 
 	// Add items.
-	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Golang notes","content":"Go is a statically typed language.\nIt has goroutines for concurrency.\nChannels are used for communication.","tags":["dev"]},{"op":"add","title":"Python notes","content":"Python is dynamically typed.\nIt has great libraries for data science.","tags":["dev"]}]}`)
+	if _, err := tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Golang notes","content":"Go is a statically typed language.\nIt has goroutines for concurrency.\nChannels are used for communication.","tags":["dev"]},{"op":"add","title":"Python notes","content":"Python is dynamically typed.\nIt has great libraries for data science.","tags":["dev"]}]}`); err != nil {
+		t.Fatalf("batch add: %v", err)
+	}
 
 	// Retrieve "goroutines".
 	result, err := tool.Execute(ctx, `{"action":"retrieve","query":"goroutines"}`)
@@ -622,7 +662,9 @@ func TestRetrieveBasic(t *testing.T) {
 			Tags    []string `json:"tags"`
 		} `json:"snippets"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
 	if response.Action != "retrieve" {
 		t.Errorf("action = %q, want retrieve", response.Action)
 	}
@@ -647,7 +689,9 @@ func TestRetrieveTagFilter(t *testing.T) {
 	tool := registry.Get("agent_memory")
 
 	// Add items with different tags.
-	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Tagged A","content":"keyword alpha beta gamma","tags":["alpha"]},{"op":"add","title":"Tagged B","content":"keyword alpha beta gamma","tags":["beta"]}]}`)
+	if _, err := tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Tagged A","content":"keyword alpha beta gamma","tags":["alpha"]},{"op":"add","title":"Tagged B","content":"keyword alpha beta gamma","tags":["beta"]}]}`); err != nil {
+		t.Fatalf("batch add: %v", err)
+	}
 
 	// Retrieve with tag filter should only get items with that tag.
 	result, err := tool.Execute(ctx, `{"action":"retrieve","query":"keyword alpha","tags":["alpha"]}`)
@@ -659,7 +703,9 @@ func TestRetrieveTagFilter(t *testing.T) {
 			Tags []string `json:"tags"`
 		} `json:"snippets"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
 	for _, snippet := range response.Snippets {
 		found := false
 		for _, tag := range snippet.Tags {
@@ -698,7 +744,9 @@ func TestRetrieveMaxResults(t *testing.T) {
 	tool := registry.Get("agent_memory")
 
 	// Add item with many matching lines.
-	tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Many lines","content":"match line one\nmatch line two\nmatch line three\nmatch line four\nmatch line five"}]}`)
+	if _, err := tool.Execute(ctx, `{"action":"batch","items":[{"op":"add","title":"Many lines","content":"match line one\nmatch line two\nmatch line three\nmatch line four\nmatch line five"}]}`); err != nil {
+		t.Fatalf("batch add: %v", err)
+	}
 
 	result, err := tool.Execute(ctx, `{"action":"retrieve","query":"match line","maxResults":2,"contextLines":0}`)
 	if err != nil {
@@ -707,7 +755,9 @@ func TestRetrieveMaxResults(t *testing.T) {
 	var response struct {
 		Snippets []struct{} `json:"snippets"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal retrieve response: %v", err)
+	}
 	if len(response.Snippets) > 2 {
 		t.Errorf("expected at most 2 snippets, got %d", len(response.Snippets))
 	}
@@ -784,7 +834,9 @@ func TestSummaryBasic(t *testing.T) {
 		Summary        string        `json:"summary"`
 		CriticalFacts  criticalFacts `json:"criticalFacts"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal summary response: %v", err)
+	}
 	if response.Action != "summary" {
 		t.Errorf("action = %q, want summary", response.Action)
 	}
@@ -829,7 +881,9 @@ func TestSummaryRoleFilter(t *testing.T) {
 	var response struct {
 		MessageCount int `json:"messageCount"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal summary response: %v", err)
+	}
 	if response.MessageCount != 2 {
 		t.Errorf("messageCount = %d, want 2 (user only)", response.MessageCount)
 	}
@@ -862,7 +916,9 @@ func TestSummaryPersistCompact(t *testing.T) {
 			ItemID string `json:"itemId"`
 		} `json:"persisted"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal summary persist response: %v", err)
+	}
 	if response.Persisted.ItemID == "" {
 		t.Fatal("persisted.itemId should not be empty")
 	}
@@ -875,7 +931,9 @@ func TestSummaryPersistCompact(t *testing.T) {
 	var getResponse struct {
 		Item map[string]interface{} `json:"item"`
 	}
-	json.Unmarshal([]byte(getResult), &getResponse)
+	if err := json.Unmarshal([]byte(getResult), &getResponse); err != nil {
+		t.Fatalf("unmarshal persisted item response: %v", err)
+	}
 	content, ok := getResponse.Item["content"].(string)
 	if !ok || content == "" {
 		t.Fatal("persisted item content should not be empty")
@@ -943,7 +1001,9 @@ func TestFilterByRole(t *testing.T) {
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal filter response: %v", err)
+	}
 	if response.Action != "filter" {
 		t.Errorf("action = %q, want filter", response.Action)
 	}
@@ -983,7 +1043,9 @@ func TestFilterByKeyword(t *testing.T) {
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal filter response: %v", err)
+	}
 	if response.TotalMatched != 2 {
 		t.Errorf("totalMatched = %d, want 2", response.TotalMatched)
 	}
@@ -1013,7 +1075,9 @@ func TestFilterMaxResults(t *testing.T) {
 		TotalMatched int        `json:"totalMatched"`
 		Messages     []struct{} `json:"messages"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal filter response: %v", err)
+	}
 	if response.TotalMatched != 3 {
 		t.Errorf("totalMatched = %d, want 3", response.TotalMatched)
 	}
@@ -1044,7 +1108,9 @@ func TestFilterNoMatches(t *testing.T) {
 		TotalMatched int        `json:"totalMatched"`
 		Messages     []struct{} `json:"messages"`
 	}
-	json.Unmarshal([]byte(result), &response)
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("unmarshal filter response: %v", err)
+	}
 	if response.TotalMatched != 0 {
 		t.Errorf("totalMatched = %d, want 0", response.TotalMatched)
 	}

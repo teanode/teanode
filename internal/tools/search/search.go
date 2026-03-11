@@ -1,3 +1,4 @@
+// Package search exposes tools for indexed search across stored content.
 package search
 
 import (
@@ -92,7 +93,7 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 		apiKey = os.Getenv("BRAVE_API_KEY")
 	}
 	if apiKey == "" {
-		return "", fmt.Errorf("Brave Search API key not configured")
+		return "", fmt.Errorf("brave search API key not configured")
 	}
 
 	var arguments struct {
@@ -128,7 +129,7 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 	if err != nil {
 		return "", fmt.Errorf("executing search: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	log.Debugf("GET brave search status=%d", response.StatusCode)
 

@@ -16,7 +16,3 @@
 # Chrome extension build artifacts
 /assets/chrome-extension/dist/
 
-# Voice e2e generated reports
-/test/voicee2e/reports/*.json
-/test/voicee2e/reports/*.md
-!/test/voicee2e/reports/baseline-sample.json

@@ -150,7 +150,7 @@ func (self *webSocketConnection) shouldDeliverEvent(payload interface{}) bool {
 }
 
 func (self *webSocketConnection) serve() {
-	defer self.connection.Close()
+	defer func() { _ = self.connection.Close() }()
 	sessionId := self.sessionId()
 
 	self.api.sessionTracker.MarkConnected(sessionId)

@@ -1,3 +1,4 @@
+// Package memory exposes tools for managing persisted memory items.
 package memory
 
 import (

@@ -1,3 +1,4 @@
+// Package onboarding contains first-run setup and onboarding workflows.
 package onboarding
 
 import (

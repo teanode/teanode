@@ -1,3 +1,4 @@
+// Package dbmigrations embeds database migration assets and helpers.
 package dbmigrations
 
 import (

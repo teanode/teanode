@@ -78,7 +78,7 @@ func NewTerminalCommand() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("open pty: %w", err)
 			}
-			defer master.Close()
+			defer func() { _ = master.Close() }()
 
 			// Set PTY window size from the local terminal. Try stdout/stderr first
 			// because stdin may be piped in some invocations.
@@ -96,10 +96,10 @@ func NewTerminalCommand() *cli.Command {
 				Ctty:    0,
 			}
 			if err := child.Start(); err != nil {
-				slave.Close()
+				_ = slave.Close()
 				return fmt.Errorf("start command: %w", err)
 			}
-			slave.Close()
+			_ = slave.Close()
 
 			// Put user terminal in raw mode.
 			originalTermios, err := terminals.MakeRaw(int(os.Stdin.Fd()))
@@ -124,7 +124,7 @@ func NewTerminalCommand() *cli.Command {
 				for {
 					bytesRead, err := master.Read(chunk)
 					if bytesRead > 0 {
-						os.Stdout.Write(chunk[:bytesRead])
+						_, _ = os.Stdout.Write(chunk[:bytesRead])
 						buffer.Write(chunk[:bytesRead])
 					}
 					if err != nil {
@@ -222,7 +222,7 @@ func serveGatewayConnection(ctx context.Context, url string, shellCommand string
 		log.Errorf("terminal: gateway connect failed: %v", err)
 		return
 	}
-	defer connection.Close()
+	defer func() { _ = connection.Close() }()
 
 	log.Debug("terminal: connected to gateway")
 
