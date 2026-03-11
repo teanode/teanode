@@ -86,10 +86,11 @@ type SkillTool struct {
 	WorkingDirectory string   `json:"workingDirectory,omitempty" yaml:"workingDirectory,omitempty"` // working directory
 
 	// HTTP fields
-	Method  string            `json:"method,omitempty" yaml:"method,omitempty"` // GET, POST, etc.
-	URL     string            `json:"url,omitempty" yaml:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
-	Body    string            `json:"body,omitempty" yaml:"body,omitempty"` // template for request body
+	Method   string            `json:"method,omitempty" yaml:"method,omitempty"` // GET, POST, etc.
+	URL      string            `json:"url,omitempty" yaml:"url,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Body     string            `json:"body,omitempty" yaml:"body,omitempty"`         // template for request body
+	MaxBytes *int              `json:"maxBytes,omitempty" yaml:"maxBytes,omitempty"` // response size limit (bytes)
 
 	// Common
 	Timeout      int                    `json:"timeout,omitempty" yaml:"timeout,omitempty"` // seconds, default 30
@@ -117,10 +118,11 @@ type SkillAction struct {
 	WorkingDirectory string   `json:"workingDirectory,omitempty" yaml:"workingDirectory,omitempty"`
 
 	// HTTP fields
-	Method  string            `json:"method,omitempty" yaml:"method,omitempty"`
-	URL     string            `json:"url,omitempty" yaml:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
-	Body    string            `json:"body,omitempty" yaml:"body,omitempty"`
+	Method   string            `json:"method,omitempty" yaml:"method,omitempty"`
+	URL      string            `json:"url,omitempty" yaml:"url,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Body     string            `json:"body,omitempty" yaml:"body,omitempty"`
+	MaxBytes *int              `json:"maxBytes,omitempty" yaml:"maxBytes,omitempty"` // per-step response size limit (bytes)
 
 	// Common
 	Timeout      int                    `json:"timeout,omitempty" yaml:"timeout,omitempty"`
