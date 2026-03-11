@@ -50,6 +50,7 @@ interface UserProfile {
 
 interface Conversation {
   id: string;
+  title?: string;
   summary?: string;
   agentId?: string;
   lastActive?: number;
@@ -533,6 +534,7 @@ export function Overlay() {
   );
   const currentAgent = agents.find((a) => a.id === agentId);
   const headerLabel =
+    currentConversation?.title ||
     currentConversation?.summary ||
     (conversationId ? conversationId.slice(0, 12) : "New conversation");
 
@@ -756,14 +758,14 @@ export function Overlay() {
                 sx={{ borderRadius: 1, py: 0.5 }}
               >
                 <ListItemText
-                  primary={c.summary || c.id.slice(0, 16)}
+                  primary={c.title || c.summary || c.id.slice(0, 16)}
                   secondary={
                     c.lastActive ? dayjs(c.lastActive).fromNow() : undefined
                   }
                   primaryTypographyProps={{
                     variant: "body2",
                     noWrap: true,
-                    title: c.summary || c.id,
+                    title: c.title || c.summary || c.id,
                   }}
                   secondaryTypographyProps={{
                     variant: "caption",
