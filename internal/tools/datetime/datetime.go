@@ -2,11 +2,15 @@ package datetime
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 )
+
+// clock returns the current time. Overridden in tests for determinism.
+var clock = time.Now
 
 func init() {
 	tools.RegisterBuiltinTool(func() []tools.Tool {
@@ -21,7 +25,7 @@ func (self *datetimeTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name:        "datetime",
-			Description: "Returns the current local date and time.",
+			Description: "Returns the current local date and time. Note: the current datetime is already provided automatically in the conversation context, so calling this tool is rarely necessary.",
 			Parameters: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
@@ -34,6 +38,18 @@ func (self *datetimeTool) Definition() providers.ToolDefinition {
 	}
 }
 
+// formatNow returns the current datetime as a formatted string.
+// Both Execute and BuildOverlay share this code path to avoid drift.
+func formatNow() string {
+	return clock().Format("2006-01-02 15:04:05 MST")
+}
+
 func (self *datetimeTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	return time.Now().Format("2006-01-02 15:04:05 MST"), nil
+	return formatNow(), nil
+}
+
+// BuildOverlay implements tools.OverlayBuilder. It injects the current datetime
+// and timezone into the prompt context on every turn.
+func (self *datetimeTool) BuildOverlay(ctx context.Context) (string, error) {
+	return fmt.Sprintf("<current_datetime>\n%s\n</current_datetime>", formatNow()), nil
 }
