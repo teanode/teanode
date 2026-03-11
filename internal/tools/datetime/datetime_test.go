@@ -58,7 +58,7 @@ func TestBuildOverlayFormat(t *testing.T) {
 		t.Fatalf("BuildOverlay: %v", err)
 	}
 
-	want := "<current_datetime>\n2026-03-11 14:32:07 PDT (UTC-07:00)\n</current_datetime>"
+	want := "<current_datetime>\n2026-03-11 14:32:07 PDT\n</current_datetime>"
 	if overlay != want {
 		t.Errorf("overlay mismatch\n got: %q\nwant: %q", overlay, want)
 	}
@@ -77,7 +77,7 @@ func TestBuildOverlayPositiveOffset(t *testing.T) {
 		t.Fatalf("BuildOverlay: %v", err)
 	}
 
-	want := "<current_datetime>\n2026-06-15 09:00:00 IST (UTC+05:30)\n</current_datetime>"
+	want := "<current_datetime>\n2026-06-15 09:00:00 IST\n</current_datetime>"
 	if overlay != want {
 		t.Errorf("overlay mismatch\n got: %q\nwant: %q", overlay, want)
 	}
@@ -95,7 +95,7 @@ func TestBuildOverlayUTC(t *testing.T) {
 		t.Fatalf("BuildOverlay: %v", err)
 	}
 
-	want := "<current_datetime>\n2026-01-01 00:00:00 UTC (UTC+00:00)\n</current_datetime>"
+	want := "<current_datetime>\n2026-01-01 00:00:00 UTC\n</current_datetime>"
 	if overlay != want {
 		t.Errorf("overlay mismatch\n got: %q\nwant: %q", overlay, want)
 	}

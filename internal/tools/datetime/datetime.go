@@ -38,25 +38,18 @@ func (self *datetimeTool) Definition() providers.ToolDefinition {
 	}
 }
 
+// formatNow returns the current datetime as a formatted string.
+// Both Execute and BuildOverlay share this code path to avoid drift.
+func formatNow() string {
+	return clock().Format("2006-01-02 15:04:05 MST")
+}
+
 func (self *datetimeTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	return clock().Format("2006-01-02 15:04:05 MST"), nil
+	return formatNow(), nil
 }
 
 // BuildOverlay implements tools.OverlayBuilder. It injects the current datetime
 // and timezone into the prompt context on every turn.
 func (self *datetimeTool) BuildOverlay(ctx context.Context) (string, error) {
-	now := clock()
-	_, offset := now.Zone()
-	sign := "+"
-	if offset < 0 {
-		sign = "-"
-		offset = -offset
-	}
-	hours := offset / 3600
-	minutes := (offset % 3600) / 60
-
-	return fmt.Sprintf("<current_datetime>\n%s (UTC%s%02d:%02d)\n</current_datetime>",
-		now.Format("2006-01-02 15:04:05 MST"),
-		sign, hours, minutes,
-	), nil
+	return fmt.Sprintf("<current_datetime>\n%s\n</current_datetime>", formatNow()), nil
 }
