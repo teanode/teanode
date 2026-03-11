@@ -27,7 +27,7 @@ func newStubEmbeddingsProvider(keywords ...string) *stubEmbeddingsProvider {
 	return &stubEmbeddingsProvider{keywords: keywords}
 }
 
-func (self *stubEmbeddingsProvider) Embed(_ context.Context, _ string, inputText string) ([]float64, error) {
+func (self *stubEmbeddingsProvider) Embed(_ context.Context, _ string, inputText string) ([]float64, *providers.UsageInformation, error) {
 	self.calls++
 	vector := make([]float64, len(self.keywords))
 	for index, keyword := range self.keywords {
@@ -35,10 +35,10 @@ func (self *stubEmbeddingsProvider) Embed(_ context.Context, _ string, inputText
 			vector[index] = 1.0
 		}
 	}
-	return vector, nil
+	return vector, nil, nil
 }
 
-func (self *stubEmbeddingsProvider) EmbedMany(_ context.Context, _ string, inputTexts []string) ([][]float64, error) {
+func (self *stubEmbeddingsProvider) EmbedMany(_ context.Context, _ string, inputTexts []string) ([][]float64, *providers.UsageInformation, error) {
 	vectors := make([][]float64, len(inputTexts))
 	for index, text := range inputTexts {
 		self.calls++
@@ -50,7 +50,7 @@ func (self *stubEmbeddingsProvider) EmbedMany(_ context.Context, _ string, input
 		}
 		vectors[index] = vector
 	}
-	return vectors, nil
+	return vectors, nil, nil
 }
 
 func containsWord(text, word string) bool {
@@ -87,12 +87,12 @@ type failingEmbeddingsProvider struct {
 	providers.BaseProvider
 }
 
-func (self *failingEmbeddingsProvider) Embed(_ context.Context, _ string, _ string) ([]float64, error) {
-	return nil, fmt.Errorf("embedding service unavailable")
+func (self *failingEmbeddingsProvider) Embed(_ context.Context, _ string, _ string) ([]float64, *providers.UsageInformation, error) {
+	return nil, nil, fmt.Errorf("embedding service unavailable")
 }
 
-func (self *failingEmbeddingsProvider) EmbedMany(_ context.Context, _ string, _ []string) ([][]float64, error) {
-	return nil, fmt.Errorf("embedding service unavailable")
+func (self *failingEmbeddingsProvider) EmbedMany(_ context.Context, _ string, _ []string) ([][]float64, *providers.UsageInformation, error) {
+	return nil, nil, fmt.Errorf("embedding service unavailable")
 }
 
 // buildEmbeddingRegistry creates a provider registry with the given stub

@@ -47,10 +47,14 @@ func createTestConversation(t *testing.T, ctx context.Context, s store.Store, us
 	// Ensure user and agent exist.
 	if err := s.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		if _, err := tx.CreateUser(ctx, &models.User{ID: userId, Username: ptrto.Value(userId), Admin: ptrto.Value(true)}, nil, nil); err != nil {
-			return err
+			if err != store.ErrAlreadyExists {
+				return err
+			}
 		}
 		if _, err := tx.CreateAgent(ctx, &models.Agent{ID: agentId, Name: ptrto.Value("Test Agent")}, nil, nil); err != nil {
-			return err
+			if err != store.ErrAlreadyExists {
+				return err
+			}
 		}
 		return nil
 	}); err != nil {
