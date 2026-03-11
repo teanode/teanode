@@ -20,7 +20,7 @@ func (self *webSocketConnection) handleConversationsTodosList(frame requestFrame
 		ConversationID string `json:"conversationId"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.ConversationID == "" {
 		return nil, rpcError(400, "conversationId is required")
@@ -85,7 +85,7 @@ func (self *webSocketConnection) handleConversationsTodosBatch(frame requestFram
 		Items          []rpcBatchItem `json:"items"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.ConversationID == "" {
 		return nil, rpcError(400, "conversationId is required")
@@ -352,7 +352,7 @@ func (self *webSocketConnection) handleProjectsTodosList(frame requestFrame) (in
 		ProjectID string `json:"projectId"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.ProjectID == "" {
 		return nil, rpcError(400, "projectId is required")

@@ -3,12 +3,9 @@ package unifiprotect
 import (
 	"context"
 
-	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
 )
-
-var log = logging.MustGetLogger("unifiprotect")
 
 // resolvedConfiguration holds the resolved UniFi Protect configuration
 // read from the store at execution time.

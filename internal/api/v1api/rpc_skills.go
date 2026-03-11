@@ -29,7 +29,7 @@ func (self *webSocketConnection) handleSkillsLibrarySearch(frame requestFrame) (
 		Query string `json:"query"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 	results, err := skills.Search(self.ctx, parameters.Query)
 	if err != nil {
@@ -50,7 +50,7 @@ func (self *webSocketConnection) handleSkillsInstall(frame requestFrame) (interf
 		Version string `json:"version"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.Name == "" {
 		return nil, rpcError(400, "name is required")
@@ -122,7 +122,7 @@ func (self *webSocketConnection) handleSkillsUninstall(frame requestFrame) (inte
 		Name string `json:"name"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.Name == "" {
 		return nil, rpcError(400, "name is required")
@@ -146,7 +146,7 @@ func (self *webSocketConnection) handleSkillsUpdate(frame requestFrame) (interfa
 		Name string `json:"name"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 	updated, err := skills.Update(self.ctx, parameters.Name)
 	if err != nil {
@@ -167,7 +167,7 @@ func (self *webSocketConnection) handleSkillsSetEnabled(frame requestFrame) (int
 		Enabled *bool  `json:"enabled"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.Name == "" {
 		return nil, rpcError(400, "name is required")
@@ -269,7 +269,7 @@ func (self *webSocketConnection) handleSecretsSet(frame requestFrame) (interface
 		Value string `json:"value"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.Key == "" {
 		return nil, rpcError(400, "key is required")

@@ -9,13 +9,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )
-
-var log = logging.MustGetLogger("filesystem")
 
 const (
 	maxReadBytes        = 512 * 1024 // 512 KB

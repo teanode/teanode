@@ -202,7 +202,7 @@ func (self *httpClient) login(ctx context.Context) error {
 	defer response.Body.Close()
 
 	// Drain the response body.
-	io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
+	_, _ = io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("login failed with HTTP %d (check username/password)", response.StatusCode)

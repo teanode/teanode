@@ -6,11 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/op/go-logging"
 )
-
-var log = logging.MustGetLogger("browsers")
 
 type browserContextKey struct{}
 

@@ -38,7 +38,7 @@ func (self *v1Api) handleAuthStatus(writer http.ResponseWriter, request *http.Re
 	}
 
 	writer.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(writer).Encode(map[string]interface{}{
+	_ = json.NewEncoder(writer).Encode(map[string]interface{}{
 		"passwordSet":   passwordSet,
 		"authenticated": user != nil,
 		"isAdmin":       user != nil && user.GetAdmin(),
@@ -136,7 +136,7 @@ func (self *v1Api) handleAuthSetup(writer http.ResponseWriter, request *http.Req
 
 	setSessionCookie(writer, session.ID, maxAge)
 	writer.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(writer).Encode(map[string]interface{}{
+	_ = json.NewEncoder(writer).Encode(map[string]interface{}{
 		"ok": true,
 	})
 	return nil
@@ -201,7 +201,7 @@ func (self *v1Api) handleAuthLogin(writer http.ResponseWriter, request *http.Req
 
 	setSessionCookie(writer, session.ID, maxAge)
 	writer.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(writer).Encode(map[string]interface{}{
+	_ = json.NewEncoder(writer).Encode(map[string]interface{}{
 		"ok": true,
 	})
 	return nil
@@ -231,7 +231,7 @@ func (self *v1Api) handleAuthLogout(writer http.ResponseWriter, request *http.Re
 	})
 
 	writer.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(writer).Encode(map[string]interface{}{
+	_ = json.NewEncoder(writer).Encode(map[string]interface{}{
 		"ok": true,
 	})
 	return nil
@@ -246,25 +246,6 @@ func setSessionCookie(writer http.ResponseWriter, sessionId string, maxAge time.
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(maxAge.Seconds()),
 	})
-}
-
-func (self *v1Api) getSessionById(ctx context.Context, sessionId string) (*models.Session, bool) {
-	var session *models.Session
-	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		existingSession, getError := transaction.GetSession(ctx, sessionId, nil)
-		if getError != nil {
-			return nil
-		}
-		if existingSession.ExpiresAt != nil && time.Now().After(*existingSession.ExpiresAt) {
-			_ = transaction.DeleteSession(ctx, sessionId, nil)
-			return nil
-		}
-		session = existingSession
-		return nil
-	}); err != nil || session == nil {
-		return nil, false
-	}
-	return session, true
 }
 
 func rateLimitBucketKeyForRemoteAddress(remoteAddress string) string {

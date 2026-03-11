@@ -15,7 +15,7 @@ func (self *webSocketConnection) handleQuestionsList(frame requestFrame) (interf
 		ConversationID string `json:"conversationId"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 	if parameters.ConversationID == "" {
 		return nil, rpcError(400, "conversationId is required")
@@ -57,7 +57,7 @@ func (self *webSocketConnection) handleQuestionsAnswer(frame requestFrame) (inte
 		Answers []answerEntry `json:"answers"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 
 	answers := parameters.Answers

@@ -55,7 +55,7 @@ func WriteError(writer http.ResponseWriter, err error) {
 
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(statusCode)
-	json.NewEncoder(writer).Encode(errorResponse{
+	_ = json.NewEncoder(writer).Encode(errorResponse{
 		Error: errorBody{
 			Message: err.Error(),
 			Code:    statusCode,

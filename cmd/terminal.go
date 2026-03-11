@@ -114,7 +114,7 @@ func NewTerminalCommand() *cli.Command {
 			// Goroutine: stdin -> PTY master.
 			go func() {
 				defer deferutil.Recover()
-				io.Copy(master, os.Stdin)
+				_, _ = io.Copy(master, os.Stdin)
 			}()
 
 			// Goroutine: PTY master -> stdout + screen buffer.
@@ -157,7 +157,7 @@ func NewTerminalCommand() *cli.Command {
 			go connectGateway(ctx, gatewayUrl, token, name, shellCommand, master, buffer)
 
 			// Wait for child to exit.
-			child.Wait()
+			_ = child.Wait()
 			return nil
 		},
 	}
@@ -249,7 +249,7 @@ func serveGatewayConnection(ctx context.Context, url string, shellCommand string
 		switch message.Method {
 		case "ping":
 			response, _ := json.Marshal(map[string]string{"method": "pong"})
-			connection.WriteMessage(websocket.TextMessage, response)
+			_ = connection.WriteMessage(websocket.TextMessage, response)
 
 		case "screenshot":
 			text := buffer.Screenshot(100)
@@ -258,14 +258,14 @@ func serveGatewayConnection(ctx context.Context, url string, shellCommand string
 				"id":     message.ID,
 				"result": json.RawMessage(result),
 			})
-			connection.WriteMessage(websocket.TextMessage, response)
+			_ = connection.WriteMessage(websocket.TextMessage, response)
 
 		case "write":
 			var parameters struct {
 				Data string `json:"data"`
 			}
 			if message.Params != nil {
-				json.Unmarshal(message.Params, &parameters)
+				_ = json.Unmarshal(message.Params, &parameters)
 			}
 			_, writeErr := master.Write([]byte(parameters.Data))
 			if writeErr != nil {
@@ -274,13 +274,13 @@ func serveGatewayConnection(ctx context.Context, url string, shellCommand string
 					"id":    message.ID,
 					"error": errorString,
 				})
-				connection.WriteMessage(websocket.TextMessage, response)
+				_ = connection.WriteMessage(websocket.TextMessage, response)
 			} else {
 				response, _ := json.Marshal(map[string]interface{}{
 					"id":     message.ID,
 					"result": json.RawMessage("{}"),
 				})
-				connection.WriteMessage(websocket.TextMessage, response)
+				_ = connection.WriteMessage(websocket.TextMessage, response)
 			}
 
 		case "resize":
@@ -289,16 +289,16 @@ func serveGatewayConnection(ctx context.Context, url string, shellCommand string
 				Rows uint16 `json:"rows"`
 			}
 			if message.Params != nil {
-				json.Unmarshal(message.Params, &parameters)
+				_ = json.Unmarshal(message.Params, &parameters)
 			}
 			if parameters.Rows > 0 && parameters.Cols > 0 {
-				terminals.SetWinSize(int(master.Fd()), parameters.Rows, parameters.Cols)
+				_ = terminals.SetWinSize(int(master.Fd()), parameters.Rows, parameters.Cols)
 			}
 			response, _ := json.Marshal(map[string]interface{}{
 				"id":     message.ID,
 				"result": json.RawMessage("{}"),
 			})
-			connection.WriteMessage(websocket.TextMessage, response)
+			_ = connection.WriteMessage(websocket.TextMessage, response)
 		}
 	}
 }
@@ -325,5 +325,5 @@ func sendMachineInfo(connection *websocket.Conn, shellCommand string) {
 		},
 	}
 	data, _ := json.Marshal(message)
-	connection.WriteMessage(websocket.TextMessage, data)
+	_ = connection.WriteMessage(websocket.TextMessage, data)
 }

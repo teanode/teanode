@@ -3,9 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
-	"io"
 	"sort"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,17 +45,6 @@ func (self *mockStreamingTranscriberProvider) TranscribeStream(ctx context.Conte
 	return nil, nil
 }
 
-type mockSynthProvider struct {
-	mockProvider
-}
-
-func (self *mockSynthProvider) Synthesize(ctx context.Context, request SynthesizeRequest) (*SynthesizeResponse, error) {
-	return &SynthesizeResponse{
-		Audio:       io.NopCloser(strings.NewReader("audio")),
-		Format:      "wav",
-		ContentType: "audio/wav",
-	}, nil
-}
 
 func TestNewRegistryNilConfig(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-openai-key")

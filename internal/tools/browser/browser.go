@@ -453,7 +453,9 @@ func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string) 
 	var response struct {
 		TargetID string `json:"targetId"`
 	}
-	json.Unmarshal(result, &response)
+	if err := json.Unmarshal(result, &response); err != nil {
+		return "", fmt.Errorf("unmarshal createTarget response: %w", err)
+	}
 	user := models.UserFromContext(ctx)
 	if assigner, ok := browser.(browsers.TargetOwnerAssigner); ok && user != nil && user.ID != "" && response.TargetID != "" {
 		assigner.AssignTargetToUser(user.ID, response.TargetID)

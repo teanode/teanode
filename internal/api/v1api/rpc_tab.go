@@ -18,7 +18,7 @@ func (self *webSocketConnection) handleTabAttach(frame requestFrame) (interface{
 		TabID          int    `json:"tabId"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &params)
+		_ = json.Unmarshal(frame.Params, &params)
 	}
 	if params.AgentID == "" || params.ConversationID == "" {
 		return nil, rpcError(400, "agentId and conversationId are required")
@@ -78,7 +78,7 @@ func (self *webSocketConnection) handleTabDetach(frame requestFrame) (interface{
 		ConversationID string `json:"conversationId"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &params)
+		_ = json.Unmarshal(frame.Params, &params)
 	}
 	if params.AgentID == "" || params.ConversationID == "" {
 		return nil, rpcError(400, "agentId and conversationId are required")
@@ -114,7 +114,7 @@ func (self *webSocketConnection) handleTabCommandResult(frame requestFrame) (int
 		Error     string `json:"error"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &params)
+		_ = json.Unmarshal(frame.Params, &params)
 	}
 	if params.RequestID == "" {
 		return nil, rpcError(400, "requestId is required")

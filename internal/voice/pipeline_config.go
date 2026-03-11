@@ -13,10 +13,6 @@ const (
 	vadPreRollFrames          = 8 // keep ~160ms leading context so first words aren't clipped
 	streamingFinalGracePeriod = 75 * time.Millisecond
 	minStreamingFinalRunes    = 5 // streaming finals shorter than this fall back to batch
-	// voiceMaxContextTokens is the estimated-token budget for voice LLM requests.
-	// Uses len(text)/4 approximation. Keeps recent turns within a 16k window so
-	// long sessions do not balloon the prompt beyond model context limits.
-	voiceMaxContextTokens = 16000
 )
 
 func voiceProviderModelHint(kind, provider string) string {

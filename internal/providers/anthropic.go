@@ -457,10 +457,14 @@ func (self *AnthropicClient) translateToolResultMessage(message ChatMessage) ant
 // mergeMessages combines two same-role messages by concatenating their content block arrays.
 func (self *AnthropicClient) mergeMessages(existing, incoming anthropicMessage) anthropicMessage {
 	var existingBlocks []json.RawMessage
-	json.Unmarshal(existing.Content, &existingBlocks)
+	if err := json.Unmarshal(existing.Content, &existingBlocks); err != nil {
+		return existing
+	}
 
 	var incomingBlocks []json.RawMessage
-	json.Unmarshal(incoming.Content, &incomingBlocks)
+	if err := json.Unmarshal(incoming.Content, &incomingBlocks); err != nil {
+		return existing
+	}
 
 	merged := append(existingBlocks, incomingBlocks...)
 	content, _ := json.Marshal(merged)

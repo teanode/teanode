@@ -22,7 +22,7 @@ func (self *webSocketConnection) handleListUsages(frame requestFrame) (interface
 		UserID       *string `json:"userId"`
 	}
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 
 	intervalType := timeutil.IntervalType(parameters.IntervalType)

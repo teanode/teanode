@@ -69,7 +69,9 @@ func (self *listConversationsTool) Execute(ctx context.Context, rawArguments str
 		Limit int `json:"limit"`
 	}
 	if rawArguments != "" {
-		json.Unmarshal([]byte(rawArguments), &arguments)
+		if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+			return "", fmt.Errorf("invalid arguments: %w", err)
+		}
 	}
 	if arguments.Limit <= 0 {
 		arguments.Limit = 10

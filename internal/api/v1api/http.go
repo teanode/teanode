@@ -23,7 +23,7 @@ import (
 
 func (self *v1Api) handleHealth(writer http.ResponseWriter, request *http.Request) error {
 	writer.Header().Set("Content-Type", "application/json")
-	writer.Write([]byte(`{"status":"ok"}`))
+	_, _ = writer.Write([]byte(`{"status":"ok"}`))
 	return nil
 }
 
@@ -111,7 +111,7 @@ func (self *v1Api) handleMediaUpload(writer http.ResponseWriter, request *http.R
 	}
 
 	writer.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(writer).Encode(map[string]interface{}{
+	_ = json.NewEncoder(writer).Encode(map[string]interface{}{
 		"mediaId":  saved.ID,
 		"format":   format,
 		"filename": filename,
@@ -165,7 +165,7 @@ func (self *v1Api) handleAudioTranscribe(writer http.ResponseWriter, request *ht
 	}
 
 	writer.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(writer).Encode(map[string]interface{}{
+	_ = json.NewEncoder(writer).Encode(map[string]interface{}{
 		"text": result.Text,
 	})
 	return nil
@@ -216,7 +216,7 @@ func (self *v1Api) handleAudioSynthesize(writer http.ResponseWriter, request *ht
 	self.synthesisTokensMutex.Unlock()
 
 	writer.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(writer).Encode(map[string]string{"token": token})
+	_ = json.NewEncoder(writer).Encode(map[string]string{"token": token})
 	return nil
 }
 
@@ -279,7 +279,7 @@ func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.R
 		for {
 			bytesRead, readError := result.Audio.Read(buffer)
 			if bytesRead > 0 {
-				writer.Write(buffer[:bytesRead])
+				_, _ = writer.Write(buffer[:bytesRead])
 				flusher.Flush()
 			}
 			if readError != nil {
@@ -287,7 +287,7 @@ func (self *v1Api) handleAudioStream(writer http.ResponseWriter, request *http.R
 			}
 		}
 	} else {
-		io.Copy(writer, result.Audio)
+		_, _ = io.Copy(writer, result.Audio)
 	}
 	return nil
 }

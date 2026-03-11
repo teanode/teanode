@@ -634,15 +634,6 @@ func (self *Session) getInterimText() string {
 	return self.interimText
 }
 
-func (self *Session) getBestInterimText() string {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
-	if strings.TrimSpace(self.interimBestText) != "" {
-		return self.interimBestText
-	}
-	return self.interimText
-}
-
 func (self *Session) setStreamingFinalText(turnId, text string) {
 	self.stateMu.Lock()
 	self.streamingFinalTurnID = turnId
@@ -672,16 +663,6 @@ func (self *Session) setLastBargeInAt(ts time.Time) {
 	self.stateMu.Lock()
 	self.lastBargeInAt = ts
 	self.stateMu.Unlock()
-}
-
-func (self *Session) recentBargeInWithin(window time.Duration) bool {
-	self.stateMu.RLock()
-	last := self.lastBargeInAt
-	self.stateMu.RUnlock()
-	if last.IsZero() {
-		return false
-	}
-	return time.Since(last) < window
 }
 
 func (self *Session) speechDurationMs(now time.Time) int {

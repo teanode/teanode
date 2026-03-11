@@ -145,7 +145,7 @@ func (self *telegramStreamPreview) recoverMessage() {
 	// Delete the stale message.
 	if self.messageId != 0 {
 		deleteMessage := tgbotapi.NewDeleteMessage(self.chatId, self.messageId)
-		self.api.Request(deleteMessage)
+		_, _ = self.api.Request(deleteMessage)
 		self.messageId = 0
 	}
 
@@ -206,7 +206,7 @@ func (self *telegramStreamPreview) Delete() {
 	self.mutex.Unlock()
 	if messageId != 0 {
 		deleteMessage := tgbotapi.NewDeleteMessage(self.chatId, messageId)
-		self.api.Request(deleteMessage)
+		_, _ = self.api.Request(deleteMessage)
 	}
 }
 
@@ -389,7 +389,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			// Scheduled/automated runs: stream live into Telegram.
 			if triggerText != "" {
 				contextMessage := tgbotapi.NewMessage(chatId, "> "+strings.ReplaceAll(triggerText, "\n", "\n> "))
-				self.api.Send(contextMessage)
+				_, _ = self.api.Send(contextMessage)
 			}
 			preview := newTelegramStreamPreview(self.api, chatId, 0)
 			self.subscribedRunsMutex.Lock()
@@ -401,7 +401,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			}
 			self.subscribedRunsMutex.Unlock()
 			action := tgbotapi.NewChatAction(chatId, tgbotapi.ChatTyping)
-			self.api.Send(action)
+			_, _ = self.api.Send(action)
 			return
 		}
 
@@ -440,7 +440,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 		if subscribedRun != nil && subscribedRun.preview != nil {
 			subscribedRun.preview.Reset()
 			action := tgbotapi.NewChatAction(subscribedRun.chatId, tgbotapi.ChatTyping)
-			self.api.Send(action)
+			_, _ = self.api.Send(action)
 		}
 
 	case "tool_result":
@@ -498,7 +498,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 				edit.ParseMode = "Markdown"
 				if _, editError := self.api.Send(edit); editError != nil {
 					edit.ParseMode = ""
-					self.api.Send(edit)
+					_, _ = self.api.Send(edit)
 				}
 				if remaining != "" {
 					self.sendChunked(subscribedRun.chatId, 0, remaining)
@@ -533,14 +533,14 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 				errorText = "An error occurred while processing the request."
 			}
 			messageRequest := tgbotapi.NewMessage(subscribedRun.chatId, "Sorry, an error occurred: "+errorText)
-			self.api.Send(messageRequest)
+			_, _ = self.api.Send(messageRequest)
 		} else if state == "error" && subscribedRun.origin == "web" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
 			errorText, _ := payloadMap["error"].(string)
 			if errorText == "" {
 				errorText = "An error occurred while processing the request."
 			}
 			messageRequest := tgbotapi.NewMessage(subscribedRun.chatId, "Session run failed: "+errorText)
-			self.api.Send(messageRequest)
+			_, _ = self.api.Send(messageRequest)
 		}
 	}
 }
@@ -586,7 +586,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 	if user == nil {
 		messageRequest := tgbotapi.NewMessage(message.Chat.ID, unlinkedTelegramMessage(chatIdString))
 		messageRequest.ReplyToMessageID = message.MessageID
-		self.api.Send(messageRequest)
+		_, _ = self.api.Send(messageRequest)
 		return
 	}
 	userId := user.ID
@@ -594,7 +594,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 	// Handle /start specially — always respond with greeting.
 	if text == "/start" || strings.HasPrefix(text, "/start@") {
 		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "Hello! Send me a message and I'll respond using AI.\n\n"+slashcommands.HelpText())
-		self.api.Send(messageRequest)
+		_, _ = self.api.Send(messageRequest)
 		return
 	}
 
@@ -609,7 +609,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 		if text == "" && !hasAttachments {
 			messageRequest := tgbotapi.NewMessage(message.Chat.ID, "Usage: /ask <message>")
 			messageRequest.ReplyToMessageID = message.MessageID
-			self.api.Send(messageRequest)
+			_, _ = self.api.Send(messageRequest)
 			return
 		}
 		// Fall through to agent handling below.
@@ -630,7 +630,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 	if defaultAgentId == "" {
 		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "No default agent available.")
 		messageRequest.ReplyToMessageID = message.MessageID
-		self.api.Send(messageRequest)
+		_, _ = self.api.Send(messageRequest)
 		return
 	}
 	conversationId := self.coordinator.EnsureDefaultConversation(userId, defaultAgentId)
@@ -639,7 +639,7 @@ func (self *Bot) onMessage(message *tgbotapi.Message) {
 	if self.coordinator.GetActiveConversationRunner(conversationId) != nil {
 		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "I'm still working on a previous request. Please wait.")
 		messageRequest.ReplyToMessageID = message.MessageID
-		self.api.Send(messageRequest)
+		_, _ = self.api.Send(messageRequest)
 		return
 	}
 
@@ -689,7 +689,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 
 	// Send typing action.
 	action := tgbotapi.NewChatAction(chatId, tgbotapi.ChatTyping)
-	self.api.Send(action)
+	_, _ = self.api.Send(action)
 
 	var pendingMedia []*mimetypes.MediaContent
 	var pendingMediaMutex sync.Mutex
@@ -705,7 +705,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 			preview.Reset()
 			// Re-send typing action after tool calls.
 			action := tgbotapi.NewChatAction(chatId, tgbotapi.ChatTyping)
-			self.api.Send(action)
+			_, _ = self.api.Send(action)
 		},
 		OnToolResult: func(toolName string, result string) {
 			// Collect media for sending as photos.
@@ -732,7 +732,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 		preview.Delete()
 		messageRequest := tgbotapi.NewMessage(chatId, "Sorry, an error occurred while processing your request.")
 		messageRequest.ReplyToMessageID = replyTo
-		self.api.Send(messageRequest)
+		_, _ = self.api.Send(messageRequest)
 		return
 	}
 
@@ -747,7 +747,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 		preview.Delete()
 		messageRequest := tgbotapi.NewMessage(chatId, "Sorry, an error occurred while processing your request.")
 		messageRequest.ReplyToMessageID = replyTo
-		self.api.Send(messageRequest)
+		_, _ = self.api.Send(messageRequest)
 		return
 	}
 
@@ -782,7 +782,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 		edit.ParseMode = "Markdown"
 		if _, editError := self.api.Send(edit); editError != nil {
 			edit.ParseMode = ""
-			self.api.Send(edit)
+			_, _ = self.api.Send(edit)
 		}
 		if remaining != "" {
 			self.sendChunked(chatId, 0, remaining)
@@ -801,7 +801,7 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 	if defaultAgentId == "" {
 		replyMessage := tgbotapi.NewMessage(message.Chat.ID, "No default agent available.")
 		replyMessage.ReplyToMessageID = message.MessageID
-		self.api.Send(replyMessage)
+		_, _ = self.api.Send(replyMessage)
 		return
 	}
 	switch name {
@@ -883,14 +883,14 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 	case "restart":
 		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "Restarting gateway...")
 		messageRequest.ReplyToMessageID = message.MessageID
-		self.api.Send(messageRequest)
+		_, _ = self.api.Send(messageRequest)
 		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Restart)
 		return
 
 	case "terminate":
 		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "Shutting down gateway...")
 		messageRequest.ReplyToMessageID = message.MessageID
-		self.api.Send(messageRequest)
+		_, _ = self.api.Send(messageRequest)
 		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Shutdown)
 		return
 
@@ -901,7 +901,7 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 	if reply != "" {
 		messageRequest := tgbotapi.NewMessage(message.Chat.ID, reply)
 		messageRequest.ReplyToMessageID = message.MessageID
-		self.api.Send(messageRequest)
+		_, _ = self.api.Send(messageRequest)
 	}
 }
 
@@ -1025,7 +1025,7 @@ func (self *Bot) extractAttachments(message *tgbotapi.Message) []map[string]stri
 	var files []telegramFile
 
 	// Photos: pick the largest size.
-	if message.Photo != nil && len(message.Photo) > 0 {
+	if len(message.Photo) > 0 {
 		best := message.Photo[len(message.Photo)-1]
 		files = append(files, telegramFile{fileId: best.FileID, filename: "photo.jpg", mimeType: "image/jpeg"})
 	}

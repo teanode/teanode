@@ -83,6 +83,6 @@ func MakeRaw(fileDescriptor int) (*TermState, error) {
 // RestoreTermios restores the terminal to its original mode.
 func RestoreTermios(fileDescriptor int, state *TermState) {
 	if state != nil && state.termios != nil {
-		unix.IoctlSetTermios(fileDescriptor, unix.TCSETS, state.termios)
+		_ = unix.IoctlSetTermios(fileDescriptor, unix.TCSETS, state.termios)
 	}
 }

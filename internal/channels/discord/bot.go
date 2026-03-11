@@ -88,7 +88,7 @@ func (self *discordStreamPreview) flush() {
 		}
 		self.messageId = sent.ID
 	} else {
-		self.session.ChannelMessageEdit(self.channelId, self.messageId, text)
+		_, _ = self.session.ChannelMessageEdit(self.channelId, self.messageId, text)
 	}
 }
 
@@ -130,7 +130,7 @@ func (self *discordStreamPreview) Delete() {
 	self.messageId = ""
 	self.mutex.Unlock()
 	if messageId != "" {
-		self.session.ChannelMessageDelete(self.channelId, messageId)
+		_ = self.session.ChannelMessageDelete(self.channelId, messageId)
 	}
 }
 
@@ -291,7 +291,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 		if origin == "" {
 			// Scheduled/automated runs: stream live into Discord.
 			if triggerText != "" {
-				self.discord.ChannelMessageSend(channelId, "> "+strings.ReplaceAll(triggerText, "\n", "\n> "))
+				_, _ = self.discord.ChannelMessageSend(channelId, "> "+strings.ReplaceAll(triggerText, "\n", "\n> "))
 			}
 			preview := newDiscordStreamPreview(self.discord, channelId)
 			self.subscribedRunsMutex.Lock()
@@ -302,7 +302,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 				triggerText: triggerText,
 			}
 			self.subscribedRunsMutex.Unlock()
-			self.discord.ChannelTyping(channelId)
+			_ = self.discord.ChannelTyping(channelId)
 			return
 		}
 
@@ -340,7 +340,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 		self.subscribedRunsMutex.Unlock()
 		if subscribedRun != nil && subscribedRun.preview != nil {
 			subscribedRun.preview.Reset()
-			self.discord.ChannelTyping(subscribedRun.channelId)
+			_ = self.discord.ChannelTyping(subscribedRun.channelId)
 		}
 
 	case "tool_result":
@@ -374,7 +374,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 				continue
 			}
 			filename := fmt.Sprintf("image_%d.%s", index+1, mediaContent.Format)
-			self.discord.ChannelMessageSendComplex(subscribedRun.channelId, &discordgo.MessageSend{
+			_, _ = self.discord.ChannelMessageSendComplex(subscribedRun.channelId, &discordgo.MessageSend{
 				Files: []*discordgo.File{
 					{Name: filename, Reader: bytes.NewReader(rawData)},
 				},
@@ -395,7 +395,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 					firstChunk = finalText[:cut]
 					remaining = finalText[cut:]
 				}
-				self.discord.ChannelMessageEdit(subscribedRun.channelId, previewMessageId, firstChunk)
+				_, _ = self.discord.ChannelMessageEdit(subscribedRun.channelId, previewMessageId, firstChunk)
 				if remaining != "" {
 					self.sendChunked(subscribedRun.channelId, remaining)
 				}
@@ -428,13 +428,13 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			if errorText == "" {
 				errorText = "An error occurred while processing the request."
 			}
-			self.discord.ChannelMessageSend(subscribedRun.channelId, "Sorry, an error occurred: "+errorText)
+			_, _ = self.discord.ChannelMessageSend(subscribedRun.channelId, "Sorry, an error occurred: "+errorText)
 		} else if state == "error" && subscribedRun.origin == "web" && !self.sessionTracker.IsConnected(subscribedRun.originSessionId) {
 			errorText, _ := payloadMap["error"].(string)
 			if errorText == "" {
 				errorText = "An error occurred while processing the request."
 			}
-			self.discord.ChannelMessageSend(subscribedRun.channelId, "Session run failed: "+errorText)
+			_, _ = self.discord.ChannelMessageSend(subscribedRun.channelId, "Session run failed: "+errorText)
 		}
 	}
 }
@@ -482,7 +482,7 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 	// Check for slash commands.
 	user := self.linkedUserForDiscordUser(event.Author.ID)
 	if user == nil {
-		discordSession.ChannelMessageSend(event.ChannelID, unlinkedDiscordMessage(event.Author.ID))
+		_, _ = discordSession.ChannelMessageSend(event.ChannelID, unlinkedDiscordMessage(event.Author.ID))
 		return
 	}
 	userId := user.ID
@@ -495,14 +495,14 @@ func (self *Bot) onMessageCreate(discordSession *discordgo.Session, event *disco
 
 	defaultAgentId := user.GetDefaultAgentID()
 	if defaultAgentId == "" {
-		discordSession.ChannelMessageSend(event.ChannelID, "No default agent available.")
+		_, _ = discordSession.ChannelMessageSend(event.ChannelID, "No default agent available.")
 		return
 	}
 	conversationId := self.coordinator.EnsureDefaultConversation(userId, defaultAgentId)
 
 	// Check if there's already an active run for this conversation.
 	if self.coordinator.GetActiveConversationRunner(conversationId) != nil {
-		discordSession.ChannelMessageSend(event.ChannelID, "I'm still working on a previous request. Please wait.")
+		_, _ = discordSession.ChannelMessageSend(event.ChannelID, "I'm still working on a previous request. Please wait.")
 		return
 	}
 
@@ -551,7 +551,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 	}()
 
 	// Send typing indicator.
-	self.discord.ChannelTyping(channelId)
+	_ = self.discord.ChannelTyping(channelId)
 
 	var pendingMedia []*mimetypes.MediaContent
 	var pendingMediaMutex sync.Mutex
@@ -566,7 +566,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 		OnToolCall: func(toolName string, arguments string) {
 			preview.Reset()
 			// Re-send typing indicator after tool calls.
-			self.discord.ChannelTyping(channelId)
+			_ = self.discord.ChannelTyping(channelId)
 		},
 		OnToolResult: func(toolName string, result string) {
 			// Collect media for sending as attachments.
@@ -590,7 +590,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 		log.Errorf("discord send message error (conversation %s): %v", conversationId, sendError)
 		preview.Stop()
 		preview.Delete()
-		self.discord.ChannelMessageSend(channelId, "Sorry, an error occurred while processing your request.")
+		_, _ = self.discord.ChannelMessageSend(channelId, "Sorry, an error occurred while processing your request.")
 		return
 	}
 
@@ -603,7 +603,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 	if runError != nil {
 		log.Errorf("discord agent run error (conversation %s): %v", handle.ConversationID, runError)
 		preview.Delete()
-		self.discord.ChannelMessageSend(channelId, "Sorry, an error occurred while processing your request.")
+		_, _ = self.discord.ChannelMessageSend(channelId, "Sorry, an error occurred while processing your request.")
 		return
 	}
 
@@ -614,7 +614,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 			continue
 		}
 		filename := fmt.Sprintf("image_%d.%s", index+1, mediaContent.Format)
-		self.discord.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
+		_, _ = self.discord.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
 			Files: []*discordgo.File{
 				{Name: filename, Reader: bytes.NewReader(rawData)},
 			},
@@ -634,7 +634,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 			firstChunk = finalText[:cut]
 			remaining = finalText[cut:]
 		}
-		self.discord.ChannelMessageEdit(channelId, previewMessageId, firstChunk)
+		_, _ = self.discord.ChannelMessageEdit(channelId, previewMessageId, firstChunk)
 		if remaining != "" {
 			self.sendChunked(channelId, remaining)
 		}
@@ -651,7 +651,7 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 
 	defaultAgentId := user.GetDefaultAgentID()
 	if defaultAgentId == "" {
-		discordSession.ChannelMessageSend(channelId, "No default agent available.")
+		_, _ = discordSession.ChannelMessageSend(channelId, "No default agent available.")
 		return
 	}
 	switch name {
@@ -731,12 +731,12 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 		}
 
 	case "restart":
-		discordSession.ChannelMessageSend(channelId, "Restarting gateway...")
+		_, _ = discordSession.ChannelMessageSend(channelId, "Restarting gateway...")
 		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Restart)
 		return
 
 	case "terminate":
-		discordSession.ChannelMessageSend(channelId, "Shutting down gateway...")
+		_, _ = discordSession.ChannelMessageSend(channelId, "Shutting down gateway...")
 		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Shutdown)
 		return
 
@@ -745,7 +745,7 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 	}
 
 	if reply != "" {
-		discordSession.ChannelMessageSend(channelId, reply)
+		_, _ = discordSession.ChannelMessageSend(channelId, reply)
 	}
 }
 

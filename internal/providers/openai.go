@@ -452,13 +452,13 @@ func (self *Client) Transcribe(ctx context.Context, request TranscribeRequest) (
 		return nil, fmt.Errorf("copying audio data: %w", err)
 	}
 
-	writer.WriteField("model", "whisper-1")
-	writer.WriteField("response_format", "json")
+	_ = writer.WriteField("model", "whisper-1")
+	_ = writer.WriteField("response_format", "json")
 	if request.Language != "" {
-		writer.WriteField("language", request.Language)
+		_ = writer.WriteField("language", request.Language)
 	}
 	if request.Prompt != "" {
-		writer.WriteField("prompt", request.Prompt)
+		_ = writer.WriteField("prompt", request.Prompt)
 	}
 	writer.Close()
 

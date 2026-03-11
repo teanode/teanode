@@ -244,7 +244,7 @@ type conversationsListParameters struct {
 func (self *webSocketConnection) handleConversationsList(frame requestFrame) (interface{}, error) {
 	var parameters conversationsListParameters
 	if frame.Params != nil {
-		json.Unmarshal(frame.Params, &parameters)
+		_ = json.Unmarshal(frame.Params, &parameters)
 	}
 
 	if parameters.AgentID != "" {

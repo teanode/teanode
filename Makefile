@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := all
 
-.PHONY: all help generate teanode web web-deps test coverage coverage-html format lint clean \
+.PHONY: all help generate teanode web web-deps test coverage-html format lint clean \
 	test-voice-e2e test-voice-e2e-smoke test-voice-e2e-compare test-voice-e2e-scenario
 
 GO ?= go
@@ -43,30 +43,25 @@ $(WEB_DIR)/node_modules: $(WEB_DIR)/package.json $(WEB_DIR)/package-lock.json
 teanode: generate ## Build teanode binary
 	CGO_ENABLED=0 $(GO) build -ldflags '$(LDFLAGS)' -o $(BINARY) .
 
-test: ## Run backend tests
-	$(GO) test ./...
-
-coverage: ## Run backend tests with coverage report
-	@$(GO) build -o "$$($(GO) env GOTOOLDIR)/covdata" cmd/covdata 2>/dev/null || true
-	$(GO) test -coverprofile=coverage.out ./...
-	$(GO) tool cover -func=coverage.out
+test: ## Run backend tests with coverage
+	gotestsum --format pkgname -- -coverprofile=coverage.out ./...
 	@echo ""
 	@$(GO) tool cover -func=coverage.out | tail -1
 
-coverage-html: coverage ## Generate HTML coverage report
+coverage-html: test ## Generate HTML coverage report
 	$(GO) tool cover -html=coverage.out -o coverage.html
 
 format: ## Format Go code
 	find . -name '*.go' -not -path './vendor/*' | xargs gofmt -l -w
 
 lint: ## Run backend lint checks
-	$(GO) vet ./...
+	golangci-lint run ./...
 
 clean: ## Remove build and coverage artifacts
 	rm -f $(BINARY)
 	rm -rf $(WEB_DIR)/node_modules $(WEB_DIR)/dist
 	rm -f internal/gateway/static/bundle.* internal/gateway/static/index.html
-	rm -f coverage.out coverage.html
+	rm -f coverage.out coverage.html junit.xml
 
 test-voice-e2e: ## Run full voice e2e suite
 	$(GO) run $(VOICE_E2E_CMD) --suite $(VOICE_E2E_SUITE) --out $(VOICE_E2E_REPORT_DIR)/full.json

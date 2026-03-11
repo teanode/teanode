@@ -153,7 +153,7 @@ func (self *v1Api) handleChatCompletionsSync(writer http.ResponseWriter, httpReq
 	}
 
 	writer.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(writer).Encode(response)
+	_ = json.NewEncoder(writer).Encode(response)
 	return nil
 }
 

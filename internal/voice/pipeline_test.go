@@ -1233,12 +1233,3 @@ func registerSynthesizer(dispatcher *pipelineMockDispatcher, synth *pipelineMock
 	dispatcher.providerRegistry.Register("mock-tts", synth)
 }
 
-// infiniteReader returns a reader that repeats the given bytes.
-type infiniteReaderType struct{ data []byte }
-
-func infiniteReader(data []byte) io.Reader { return &infiniteReaderType{data: data} }
-
-func (self *infiniteReaderType) Read(p []byte) (int, error) {
-	n := copy(p, self.data)
-	return n, nil
-}

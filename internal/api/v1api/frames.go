@@ -36,16 +36,6 @@ type apiError struct {
 	Message string `json:"message"`
 }
 
-// voiceEnvelope is the canonical wrapper for server/client voice JSON control messages.
-type voiceEnvelope struct {
-	Version               int         `json:"v"`
-	Type                  string      `json:"type"`
-	SessionID             string      `json:"sessionId"`
-	Sequence              uint64      `json:"seq"`
-	TimestampMilliseconds int64       `json:"tsMs"`
-	Payload               interface{} `json:"payload,omitempty"`
-}
-
 type voiceAudioFormat struct {
 	Codec             string `json:"codec"`
 	SampleRateHz      int    `json:"sampleRateHz"`
@@ -92,40 +82,6 @@ type voiceResponseCancelParameters struct {
 
 type voiceInputCommitParameters struct {
 	Reason string `json:"reason,omitempty"`
-}
-
-type turnEventPayload struct {
-	TurnID                 string  `json:"turnId,omitempty"`
-	Event                  string  `json:"event"`
-	VADScore               float64 `json:"vadScore,omitempty"`
-	AudioSequenceReference uint64  `json:"audioSeqRef,omitempty"`
-}
-
-type transcriptFinalPayload struct {
-	TurnID string `json:"turnId,omitempty"`
-	Text   string `json:"text"`
-}
-
-type responseStartedPayload struct {
-	ResponseID string `json:"responseId"`
-	TurnID     string `json:"turnId,omitempty"`
-}
-
-type responseCompletedPayload struct {
-	ResponseID string `json:"responseId"`
-	TurnID     string `json:"turnId,omitempty"`
-}
-
-type voiceErrorPayload struct {
-	Code                   string `json:"code"`
-	Message                string `json:"message"`
-	Recoverable            bool   `json:"recoverable"`
-	RetryAfterMilliseconds int    `json:"retryAfterMs,omitempty"`
-}
-
-type sessionEndedPayload struct {
-	Reason         string `json:"reason,omitempty"`
-	ConversationID string `json:"conversationId,omitempty"`
 }
 
 func validateVoiceAudioFormats(audioIn, audioOut voiceAudioFormat) error {

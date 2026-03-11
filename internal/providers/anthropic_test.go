@@ -486,9 +486,7 @@ func TestAnthropicSSEToolUseStreaming(t *testing.T) {
 			continue
 		}
 		for _, choice := range event.Chunk.Choices {
-			for _, delta := range choice.Delta.ToolCalls {
-				toolCallDeltas = append(toolCallDeltas, delta)
-			}
+			toolCallDeltas = append(toolCallDeltas, choice.Delta.ToolCalls...)
 			if choice.FinishReason != "" {
 				finishReason = choice.FinishReason
 			}

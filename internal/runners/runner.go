@@ -536,7 +536,7 @@ func repairToolArguments(input string) string {
 	if json.Valid([]byte(input)) {
 		return input
 	}
-	fixed, err := jsonrepair.JSONRepair(input)
+	fixed, err := jsonrepair.Repair(input)
 	if err != nil {
 		return input
 	}
