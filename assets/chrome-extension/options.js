@@ -80,21 +80,14 @@ async function load() {
 }
 
 async function save() {
-  const input = document.getElementById('url')
-  const url = normalizeUrl(input.value)
-  await chrome.storage.local.set({ relayUrl: url })
-  input.value = url
+  const urlInput = document.getElementById('url')
+  const tokenInput = document.getElementById('token')
+  const url = normalizeUrl(urlInput.value)
+  const token = (tokenInput.value || '').trim()
+  await chrome.storage.local.set({ relayUrl: url, relayToken: token })
+  urlInput.value = url
   await checkAll(url)
 }
 
-async function saveToken() {
-  const input = document.getElementById('token')
-  const token = (input.value || '').trim()
-  await chrome.storage.local.set({ relayToken: token })
-  const url = normalizeUrl(document.getElementById('url').value)
-  await checkTokenValidity(url)
-}
-
 document.getElementById('save').addEventListener('click', () => void save())
-document.getElementById('save-token').addEventListener('click', () => void saveToken())
 void load()
