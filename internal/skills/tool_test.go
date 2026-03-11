@@ -1097,3 +1097,196 @@ func TestWorkflowShellStepsDeniedForNonAdmin(t *testing.T) {
 		t.Fatalf("expected admin access required error, got: %v", err)
 	}
 }
+
+func TestResolvePathBracketNotation(t *testing.T) {
+	data := map[string]interface{}{
+		"properties": map[string]interface{}{
+			"periods": []interface{}{
+				map[string]interface{}{
+					"temperature":      float64(72),
+					"windSpeed":        "5 mph",
+					"relativeHumidity": map[string]interface{}{"value": float64(60)},
+				},
+				map[string]interface{}{
+					"temperature": float64(58),
+				},
+			},
+		},
+		"items": []interface{}{
+			map[string]interface{}{"lat": "33.0", "lon": "-84.0"},
+		},
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want interface{}
+		ok   bool
+	}{
+		{"bracket on map key", "properties.periods[0].temperature", float64(72), true},
+		{"bracket second index", "properties.periods[1].temperature", float64(58), true},
+		{"bracket nested", "properties.periods[0].relativeHumidity.value", float64(60), true},
+		{"bracket on root-level key", "items[0].lat", "33.0", true},
+		{"dot notation still works", "properties.periods.0.temperature", float64(72), true},
+		{"bracket out of range", "properties.periods[5].temperature", nil, false},
+		{"bracket on non-array", "properties.periods[0].windSpeed[0]", nil, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := resolvePath(data, tc.path)
+			if ok != tc.ok {
+				t.Fatalf("resolvePath(%q) ok = %v, want %v", tc.path, ok, tc.ok)
+			}
+			if ok && got != tc.want {
+				t.Errorf("resolvePath(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWorkflowHTTPSelectWithBracketPaths(t *testing.T) {
+	// Simulates the weather skill pattern: geocode → points → forecast
+	geocodeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{"lat":"33.07","lon":"-84.29","display_name":"Alpharetta, GA"}]`))
+	}))
+	defer geocodeServer.Close()
+
+	forecastServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"properties":{"periods":[{"temperature":72,"windSpeed":"5 mph","relativeHumidity":{"value":60}},{"temperature":58}]}}`))
+	}))
+	defer forecastServer.Close()
+
+	tool := &WorkflowTool{definition: models.SkillTool{
+		Name: "weather_like",
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
+			{
+				Name:   "geocode",
+				Type:   models.SkillActionTypeHTTP,
+				URL:    geocodeServer.URL,
+				Result: models.SkillResultFormatJSON,
+				Select: map[string]string{
+					"lat":          "0.lat",
+					"lon":          "0.lon",
+					"display_name": "0.display_name",
+				},
+			},
+			{
+				Name:   "forecast",
+				Type:   models.SkillActionTypeHTTP,
+				URL:    forecastServer.URL,
+				Result: models.SkillResultFormatJSON,
+				Select: map[string]string{
+					"temperature": "properties.periods[0].temperature",
+					"windSpeed":   "properties.periods[0].windSpeed",
+					"humidity":    "properties.periods[0].relativeHumidity.value",
+					"lowTemp":     "properties.periods[1].temperature",
+				},
+			},
+		},
+	}}
+
+	result, err := tool.Execute(context.Background(), `{"location":"Alpharetta, GA"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Verify geocode select worked and is referenceable.
+	if !strings.Contains(result, `"lat":"33.07"`) {
+		t.Fatalf("geocode select lat not found: %s", result)
+	}
+	// Verify bracket notation select on forecast worked.
+	if !strings.Contains(result, `"temperature":72`) {
+		t.Fatalf("forecast bracket select temperature not found: %s", result)
+	}
+	if !strings.Contains(result, `"humidity":60`) {
+		t.Fatalf("forecast bracket select humidity not found: %s", result)
+	}
+	if !strings.Contains(result, `"lowTemp":58`) {
+		t.Fatalf("forecast bracket select lowTemp not found: %s", result)
+	}
+}
+
+func TestWorkflowHTTPMaxBytesOverride(t *testing.T) {
+	// Build a valid JSON body larger than 50 KB but smaller than 1 MB.
+	items := make([]string, 0, 600)
+	for i := range 600 {
+		items = append(items, fmt.Sprintf(`{"id":%d,"value":"padding-data-%0100d"}`, i, i))
+	}
+	largeJSON := `{"items":[` + strings.Join(items, ",") + `]}`
+	if len(largeJSON) <= maxResultBytes {
+		t.Fatalf("test body must exceed maxResultBytes (%d), got %d", maxResultBytes, len(largeJSON))
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(largeJSON))
+	}))
+	defer server.Close()
+
+	t.Run("truncated without MaxBytes override", func(t *testing.T) {
+		tool := &WorkflowTool{definition: models.SkillTool{
+			Name: "large_json_default",
+			Type: models.SkillToolTypeWorkflow,
+			Steps: []*models.SkillAction{
+				{
+					Name:   "fetch",
+					Type:   models.SkillActionTypeHTTP,
+					URL:    server.URL,
+					Result: models.SkillResultFormatJSON,
+				},
+			},
+		}}
+
+		_, err := tool.Execute(adminContext(), "{}")
+		if err == nil {
+			t.Fatal("expected JSON parse error due to truncation, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid json") {
+			t.Fatalf("expected invalid json error, got: %v", err)
+		}
+	})
+
+	t.Run("succeeds with MaxBytes override", func(t *testing.T) {
+		maxBytes := 512 * 1024 // 512 KB
+		tool := &WorkflowTool{definition: models.SkillTool{
+			Name: "large_json_override",
+			Type: models.SkillToolTypeWorkflow,
+			Steps: []*models.SkillAction{
+				{
+					Name:     "fetch",
+					Type:     models.SkillActionTypeHTTP,
+					URL:      server.URL,
+					MaxBytes: &maxBytes,
+					Result:   models.SkillResultFormatJSON,
+				},
+			},
+		}}
+
+		result, err := tool.Execute(adminContext(), "{}")
+		if err != nil {
+			t.Fatalf("unexpected error with MaxBytes override: %v", err)
+		}
+		if !strings.Contains(result, `"id":599`) {
+			t.Fatalf("expected last item in response, got: %.200s...", result)
+		}
+	})
+
+	t.Run("capped at hard max", func(t *testing.T) {
+		// Request 2 MB, should be capped to 1 MB.
+		maxBytes := 2 * 1024 * 1024
+		action := models.SkillAction{
+			Type:     models.SkillActionTypeHTTP,
+			URL:      server.URL,
+			MaxBytes: &maxBytes,
+		}
+		result, err := executeHttpAction(context.Background(), action, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Body is ~80KB, well within 1MB hard cap — should not be truncated.
+		if strings.Contains(result, "truncated") {
+			t.Fatalf("response should not be truncated within hard cap")
+		}
+	})
+}

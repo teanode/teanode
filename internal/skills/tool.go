@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	defaultTimeout = 30 // seconds
-	maxResultBytes = 50 * 1024
+	defaultTimeout     = 30          // seconds
+	maxResultBytes     = 50 * 1024   // 50 KB default
+	hardMaxResultBytes = 1024 * 1024 // 1 MB hard cap for MaxBytes override
 )
 
 var placeholderPattern = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*\}\}`)
@@ -73,7 +74,7 @@ func (self *HTTPTool) Execute(ctx context.Context, rawArguments string) (string,
 		return "", err
 	}
 	action := actionFromTool(self.definition)
-	output, err := executeHTTPAction(ctx, action, arguments, self.authenticationProfiles)
+	output, err := executeHttpAction(ctx, action, arguments, self.authenticationProfiles)
 	if err != nil {
 		return "", err
 	}
@@ -228,7 +229,7 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 			workflowInput, _ := json.Marshal(contextData)
 			rawOutput, err = executeShellAction(ctx, *step, contextData, string(workflowInput))
 		case models.SkillActionTypeHTTP:
-			rawOutput, err = executeHTTPAction(ctx, *step, contextData, authenticationProfiles)
+			rawOutput, err = executeHttpAction(ctx, *step, contextData, authenticationProfiles)
 		}
 		if err == nil {
 			break
@@ -406,6 +407,7 @@ func actionFromTool(definition models.SkillTool) models.SkillAction {
 		URL:              definition.URL,
 		Headers:          definition.Headers,
 		Body:             definition.Body,
+		MaxBytes:         definition.MaxBytes,
 		Timeout:          definition.Timeout,
 		Result:           definition.Result,
 		Extract:          definition.Extract,
@@ -452,7 +454,7 @@ func executeShellAction(ctx context.Context, action models.SkillAction, argument
 	return truncate(strings.TrimRight(string(result.Stdout), "\n"), maxResultBytes), nil
 }
 
-func executeHTTPAction(ctx context.Context, action models.SkillAction, arguments map[string]interface{}, authenticationProfiles map[string]models.SkillAuthenticationProfiles) (string, error) {
+func executeHttpAction(ctx context.Context, action models.SkillAction, arguments map[string]interface{}, authenticationProfiles map[string]models.SkillAuthenticationProfiles) (string, error) {
 	targetUrl := applyUrlTemplate(ctx, action.URL, arguments)
 	body := applyTemplate(ctx, action.Body, arguments)
 	method := action.Method
@@ -491,12 +493,20 @@ func executeHTTPAction(ctx context.Context, action models.SkillAction, arguments
 	}
 	defer response.Body.Close()
 
-	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxResultBytes+1))
+	limit := int64(maxResultBytes)
+	if action.MaxBytes != nil && *action.MaxBytes > 0 {
+		limit = int64(*action.MaxBytes)
+		if limit > hardMaxResultBytes {
+			limit = hardMaxResultBytes
+		}
+	}
+
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		return "", fmt.Errorf("reading response: %w", err)
 	}
 
-	result := truncate(string(responseBody), maxResultBytes)
+	result := truncate(string(responseBody), int(limit))
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		snippet := result
@@ -762,16 +772,23 @@ func resolveTemplateValue(values map[string]interface{}, path string) (interface
 
 func resolvePath(root interface{}, path string) (interface{}, bool) {
 	current := root
-	for _, part := range strings.Split(path, ".") {
+	for _, segment := range splitPathSegments(path) {
 		switch typed := current.(type) {
 		case map[string]interface{}:
-			next, exists := typed[part]
+			next, exists := typed[segment.key]
 			if !exists {
 				return nil, false
 			}
 			current = next
+			if segment.index >= 0 {
+				arr, ok := current.([]interface{})
+				if !ok || segment.index >= len(arr) {
+					return nil, false
+				}
+				current = arr[segment.index]
+			}
 		case []interface{}:
-			index, err := strconv.Atoi(part)
+			index, err := strconv.Atoi(segment.key)
 			if err != nil || index < 0 || index >= len(typed) {
 				return nil, false
 			}
@@ -781,6 +798,35 @@ func resolvePath(root interface{}, path string) (interface{}, bool) {
 		}
 	}
 	return current, true
+}
+
+// pathSegment represents one segment of a dotted path, optionally with a
+// bracket index (e.g. "periods[0]" → key="periods", index=0).
+type pathSegment struct {
+	key   string
+	index int // -1 means no bracket index
+}
+
+// splitPathSegments splits a dotted path into segments, handling bracket
+// notation for array indices (e.g. "properties.periods[0].temperature").
+func splitPathSegments(path string) []pathSegment {
+	parts := strings.Split(path, ".")
+	segments := make([]pathSegment, 0, len(parts))
+	for _, part := range parts {
+		if bracketStart := strings.IndexByte(part, '['); bracketStart >= 0 {
+			if bracketEnd := strings.IndexByte(part[bracketStart:], ']'); bracketEnd >= 0 {
+				key := part[:bracketStart]
+				indexStr := part[bracketStart+1 : bracketStart+bracketEnd]
+				index, err := strconv.Atoi(indexStr)
+				if err == nil && index >= 0 {
+					segments = append(segments, pathSegment{key: key, index: index})
+					continue
+				}
+			}
+		}
+		segments = append(segments, pathSegment{key: part, index: -1})
+	}
+	return segments
 }
 
 func toInterfaceSlice(value interface{}) ([]interface{}, bool) {
