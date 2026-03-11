@@ -1232,4 +1232,3 @@ func registerStreamingTranscriber(t *testing.T, dispatcher *pipelineMockDispatch
 func registerSynthesizer(dispatcher *pipelineMockDispatcher, synth *pipelineMockSynthesizerProvider) {
 	dispatcher.providerRegistry.Register("mock-tts", synth)
 }
-

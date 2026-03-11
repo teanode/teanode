@@ -45,7 +45,6 @@ func (self *mockStreamingTranscriberProvider) TranscribeStream(ctx context.Conte
 	return nil, nil
 }
 
-
 func TestNewRegistryNilConfig(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-openai-key")
 	t.Setenv("ANTHROPIC_API_KEY", "")
