@@ -61,10 +61,10 @@ func (self *gatewayTool) Definition() providers.ToolDefinition {
 }
 
 func (self *gatewayTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	if tools.IsAdmin(ctx) {
-		return tools.AllowPolicy()
+	if !tools.IsAdmin(ctx) {
+		return tools.DenyPolicy("admin access required for gateway tool")
 	}
-	return tools.DenyPolicy("admin access required for gateway tool")
+	return tools.ApprovalPolicy("gateway lifecycle action requires approval", "high")
 }
 
 func (self *gatewayTool) Execute(ctx context.Context, rawArguments string) (string, error) {
