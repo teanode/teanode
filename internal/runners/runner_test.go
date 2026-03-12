@@ -866,8 +866,10 @@ func TestRunnerToolDenyPolicy(t *testing.T) {
 		t.Errorf("expected denial message, got: %s", toolResults[0])
 	}
 
-	// After denial, the loop should end (no more tool calls).
-	_ = result
+	// After denial, the LLM should still produce a final response.
+	if result.Response != "Done." {
+		t.Errorf("response = %q, want %q (LLM should continue after denial)", result.Response, "Done.")
+	}
 }
 
 func TestRunnerApprovalNonWebOriginDenied(t *testing.T) {
@@ -891,7 +893,7 @@ func TestRunnerApprovalNonWebOriginDenied(t *testing.T) {
 	ctx = ContextWithOrigin(ctx, OriginAPI)
 
 	var toolResults []string
-	_, err := runner.Run(ctx, RunParameters{
+	result, err := runner.Run(ctx, RunParameters{
 		Message: "do something",
 	}, &RunCallbacks{
 		OnToolResult: func(name string, res string) {
@@ -907,6 +909,65 @@ func TestRunnerApprovalNonWebOriginDenied(t *testing.T) {
 	}
 	if !strings.Contains(toolResults[0], "web interface") {
 		t.Errorf("expected web interface nudge, got: %s", toolResults[0])
+	}
+
+	// After non-web denial, the LLM should still produce a final response.
+	if result.Response != "Done." {
+		t.Errorf("response = %q, want %q (LLM should continue after non-web denial)", result.Response, "Done.")
+	}
+}
+
+func TestRunnerApprovalNonWebOriginDeniedPersistsMessages(t *testing.T) {
+	server := mockToolCallServer("call-1", "guarded", `{}`, "I cannot perform that action from here.")
+	defer server.Close()
+
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
+
+	toolRegistry := toolregistry.NewEmptyToolRegistry()
+	toolRegistry.Register(&approvalTool{name: "guarded"})
+
+	runner := &Runner{
+		AgentID:          "main",
+		ConversationID:   "approval-nonweb-persist-test",
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolRegistry,
+	}
+
+	ctx := contextWithUserAndStore("user-1", testStore.persistenceStore)
+	ctx = ContextWithOrigin(ctx, OriginChannel)
+
+	result, err := runner.Run(ctx, RunParameters{
+		Message: "restart the gateway",
+	}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// The LLM must receive the denial tool result and produce a final response.
+	if result.Response != "I cannot perform that action from here." {
+		t.Errorf("response = %q, want final LLM response after denial", result.Response)
+	}
+
+	// Verify persisted messages: user + assistant(tool_call) + tool(denial) + assistant(final).
+	messages := loadTestConversationMessages(t, testStore.persistenceStore, "approval-nonweb-persist-test")
+	if len(messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(messages))
+	}
+	if conversationMessageRole(*messages[0]) != "user" {
+		t.Errorf("msg[0].role = %q, want user", conversationMessageRole(*messages[0]))
+	}
+	if conversationMessageRole(*messages[1]) != "assistant" {
+		t.Errorf("msg[1].role = %q, want assistant", conversationMessageRole(*messages[1]))
+	}
+	if conversationMessageRole(*messages[2]) != "tool" {
+		t.Errorf("msg[2].role = %q, want tool", conversationMessageRole(*messages[2]))
+	}
+	toolContent := conversationMessageContentText(*messages[2])
+	if !strings.Contains(toolContent, "requires approval via the web interface") {
+		t.Errorf("msg[2].content = %q, want approval denial error", toolContent)
+	}
+	if conversationMessageRole(*messages[3]) != "assistant" {
+		t.Errorf("msg[3].role = %q, want assistant", conversationMessageRole(*messages[3]))
 	}
 }
 
@@ -997,7 +1058,7 @@ func TestRunnerApprovalWebOriginRejected(t *testing.T) {
 	}()
 
 	var toolResults []string
-	_, err := runner.Run(ctx, RunParameters{
+	result, err := runner.Run(ctx, RunParameters{
 		Message: "do something",
 	}, &RunCallbacks{
 		OnToolResult: func(name string, res string) {
@@ -1013,6 +1074,11 @@ func TestRunnerApprovalWebOriginRejected(t *testing.T) {
 	}
 	if !strings.Contains(toolResults[0], "approval denied") {
 		t.Errorf("expected approval denied message, got: %s", toolResults[0])
+	}
+
+	// After rejection, the LLM should still produce a final response.
+	if result.Response != "Done." {
+		t.Errorf("response = %q, want %q (LLM should continue after rejection)", result.Response, "Done.")
 	}
 }
 

@@ -403,6 +403,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		}
 
 		var workItems []toolWorkItem
+		var deniedCount int
 		for _, toolCall := range toolCalls {
 			tool := self.toolRegistry.Get(toolCall.Function.Name)
 			if tool == nil {
@@ -428,6 +429,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 					return nil, fmt.Errorf("saving tool denial: %w", err)
 				}
 				history = append(history, &toolMessage)
+				deniedCount++
 				continue
 
 			case tools.PolicyRequireApproval:
@@ -443,6 +445,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 						return nil, fmt.Errorf("saving tool approval denial: %w", err)
 					}
 					history = append(history, &toolMessage)
+					deniedCount++
 					continue
 				}
 
@@ -466,6 +469,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 						return nil, fmt.Errorf("saving approval rejection: %w", err)
 					}
 					history = append(history, &toolMessage)
+					deniedCount++
 					continue
 				}
 				log.Debugf("tool approval approved id=%s name=%s", toolCall.ID, toolCall.Function.Name)
@@ -479,6 +483,11 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		}
 
 		if len(workItems) == 0 {
+			// If tool calls were denied/rejected, the LLM needs to see
+			// those error results and produce a final response.
+			if deniedCount > 0 {
+				continue
+			}
 			break
 		}
 
