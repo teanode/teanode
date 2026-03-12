@@ -1,4 +1,4 @@
-package github
+package gitea
 
 import (
 	"context"
@@ -33,11 +33,10 @@ func defaultRunner(ctx context.Context, name string, args ...string) ([]byte, er
 	return result.Stdout, nil
 }
 
-// execGitHub runs a gh subcommand with the given arguments.
-// Unlike execGog, there are no global prefix flags — each tool builds its own
-// complete args including --json <fields>.
+// execGitea runs a tea subcommand with the given arguments.
+// Each tool builds its own complete args including --output json.
 // It enforces a timeout and truncates output exceeding maxOutputBytes.
-func execGitHub(ctx context.Context, runner commandRunner, binary string, args ...string) (string, error) {
+func execGitea(ctx context.Context, runner commandRunner, binary string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 
@@ -48,9 +47,9 @@ func execGitHub(ctx context.Context, runner commandRunner, binary string, args .
 		errorMessage := err.Error()
 		// Detect auth errors and return a clear message for the LLM.
 		if isAuthError(errorMessage) {
-			return "", fmt.Errorf("GitHub authentication required. Please run 'gh auth login' to authenticate")
+			return "", fmt.Errorf("gitea authentication required: please run 'tea login add' to authenticate")
 		}
-		return "", fmt.Errorf("gh command failed: %s", errorMessage)
+		return "", fmt.Errorf("tea command failed: %s", errorMessage)
 	}
 
 	result := string(output)
@@ -61,15 +60,14 @@ func execGitHub(ctx context.Context, runner commandRunner, binary string, args .
 	return result, nil
 }
 
-// isAuthError checks if an error message indicates a GitHub authentication problem.
+// isAuthError checks if an error message indicates a Gitea authentication problem.
 func isAuthError(message string) bool {
 	authPhrases := []string{
-		"not logged into",
-		"authentication required",
-		"auth login",
-		"try authenticating",
-		"token expired",
-		"invalid token",
+		"No login configured",
+		"tea login add",
+		"401 Unauthorized",
+		"token is required",
+		"unauthorized",
 	}
 	for _, phrase := range authPhrases {
 		if strings.Contains(message, phrase) {

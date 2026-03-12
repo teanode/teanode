@@ -1,11 +1,12 @@
 package google
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
+	"strings"
 	"time"
+
+	"github.com/teanode/teanode/internal/util/cmdexec"
 )
 
 const (
@@ -16,21 +17,20 @@ const (
 // commandRunner abstracts command execution for testing.
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
-// defaultRunner executes commands via os/exec.
+// defaultRunner executes commands via cmdexec.Run with process-group isolation.
 func defaultRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	command := exec.CommandContext(ctx, name, args...)
-	var stdout, stderr bytes.Buffer
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-
-	if err := command.Run(); err != nil {
-		// Return stderr content as the error message for better diagnostics.
-		if stderr.Len() > 0 {
-			return nil, fmt.Errorf("%s", stderr.String())
-		}
+	result, err := cmdexec.Run(ctx, name, args, cmdexec.Options{})
+	if err != nil {
 		return nil, err
 	}
-	return stdout.Bytes(), nil
+	if result.ExitCode != 0 {
+		stderr := strings.TrimSpace(string(result.Stderr))
+		if stderr != "" {
+			return nil, fmt.Errorf("%s", stderr)
+		}
+		return nil, fmt.Errorf("exit code %d", result.ExitCode)
+	}
+	return result.Stdout, nil
 }
 
 // execGog runs a gog subcommand with --json --no-input --results-only flags.
@@ -78,7 +78,7 @@ func isAuthError(message string) bool {
 		"unauthenticated",
 	}
 	for _, phrase := range authPhrases {
-		if bytes.Contains([]byte(message), []byte(phrase)) {
+		if strings.Contains(message, phrase) {
 			return true
 		}
 	}

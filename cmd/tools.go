@@ -14,6 +14,7 @@ import (
 	_ "github.com/teanode/teanode/internal/tools/fetch"
 	_ "github.com/teanode/teanode/internal/tools/filesystem"
 	_ "github.com/teanode/teanode/internal/tools/gateway"
+	_ "github.com/teanode/teanode/internal/tools/gitea"
 	_ "github.com/teanode/teanode/internal/tools/github"
 	_ "github.com/teanode/teanode/internal/tools/gitlab"
 	_ "github.com/teanode/teanode/internal/tools/google"
