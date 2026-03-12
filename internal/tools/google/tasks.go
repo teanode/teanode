@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type tasksTool struct {
@@ -54,6 +55,10 @@ func (self *tasksTool) Definition() providers.ToolDefinition {
 			},
 		},
 	}
+}
+
+func (self *tasksTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *tasksTool) Execute(ctx context.Context, rawArguments string) (string, error) {

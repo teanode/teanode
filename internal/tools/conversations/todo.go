@@ -62,6 +62,10 @@ type conversationTodoResponse struct {
 	Success    bool           `json:"success,omitempty"`
 }
 
+func (self *conversationTodoTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
+}
+
 func (self *conversationTodoTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",

@@ -17,6 +17,7 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/cmdexec"
 )
 
@@ -31,6 +32,10 @@ var placeholderPattern = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*\}\}`)
 // ShellTool implements agent.Tool for shell-type skill tools.
 type ShellTool struct {
 	definition models.SkillTool
+}
+
+func (self *ShellTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *ShellTool) Definition() providers.ToolDefinition {
@@ -64,6 +69,10 @@ type HTTPTool struct {
 	authenticationProfiles map[string]models.SkillAuthenticationProfiles
 }
 
+func (self *HTTPTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
+}
+
 func (self *HTTPTool) Definition() providers.ToolDefinition {
 	return toolDefinition(self.definition)
 }
@@ -89,6 +98,10 @@ func (self *HTTPTool) Execute(ctx context.Context, rawArguments string) (string,
 type WorkflowTool struct {
 	definition             models.SkillTool
 	authenticationProfiles map[string]models.SkillAuthenticationProfiles
+}
+
+func (self *WorkflowTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *WorkflowTool) Definition() providers.ToolDefinition {

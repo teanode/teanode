@@ -95,6 +95,10 @@ func createTools() []tools.Tool {
 	}}
 }
 
+func (self *codexTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
+}
+
 func (self *codexTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",

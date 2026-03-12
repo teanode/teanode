@@ -39,6 +39,10 @@ func (self *datetimeTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *datetimeTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
+}
+
 // formatNow returns the current datetime as a formatted string.
 // Both Execute and BuildOverlay share this code path to avoid drift.
 func formatNow() string {

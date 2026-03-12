@@ -140,6 +140,10 @@ type batchSummary struct {
 	Failed    int `json:"failed"`
 }
 
+func (self *memoryTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
+}
+
 func (self *memoryTool) Definition() providers.ToolDefinition {
 	batchOps := []string{"add", "update", "delete", "get"}
 	properties := map[string]interface{}{

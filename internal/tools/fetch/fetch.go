@@ -72,6 +72,10 @@ func (self *fetchTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *fetchTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
+}
+
 func (self *fetchTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		URL     string            `json:"url"`

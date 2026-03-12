@@ -65,6 +65,17 @@ func (self *configurationTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *configurationTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	if tools.IsAdmin(ctx) {
+		return tools.AllowPolicy()
+	}
+	action := tools.ParseAction(arguments)
+	if action == "set" {
+		return tools.DenyPolicy("admin access required for config.set")
+	}
+	return tools.AllowPolicy()
+}
+
 func (self *configurationTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || !user.GetAdmin() {

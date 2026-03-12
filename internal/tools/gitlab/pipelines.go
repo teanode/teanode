@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type pipelinesTool struct {
@@ -54,6 +55,10 @@ func (self *pipelinesTool) Definition() providers.ToolDefinition {
 			},
 		},
 	}
+}
+
+func (self *pipelinesTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *pipelinesTool) Execute(ctx context.Context, rawArguments string) (string, error) {

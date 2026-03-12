@@ -74,6 +74,20 @@ func (self *projectsTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *projectsTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	if tools.IsAdmin(ctx) {
+		return tools.AllowPolicy()
+	}
+	action := tools.ParseAction(arguments)
+	if action == "list" || action == "info" {
+		return tools.AllowPolicy()
+	}
+	if action == "" {
+		return tools.DenyPolicy("admin access required for projects management actions")
+	}
+	return tools.DenyPolicy("admin access required for projects." + action)
+}
+
 func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action      string `json:"action"`

@@ -13,9 +13,11 @@ import (
 
 	"github.com/kaptinlin/jsonrepair"
 	"github.com/teanode/teanode/internal/embeddings"
+	"github.com/teanode/teanode/internal/integrations/approvals"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/pubsub"
 	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
@@ -106,7 +108,6 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		return nil, fmt.Errorf("userId is required")
 	}
 	userId := user.ID
-	isAdmin := user.GetAdmin()
 
 	log.Debugf("run %q start agent %q conversation %q model %q", self.ID, self.AgentID, self.ConversationID, params.ProviderModelName)
 
@@ -394,7 +395,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 			break
 		}
 
-		// Phase 1 — Filter & notify: resolve tools, fire OnToolCall callbacks in order.
+		// Phase 1 — Filter, apply policy, notify: resolve tools and fire callbacks.
 		type toolWorkItem struct {
 			toolCall  providers.ToolCall
 			tool      tools.Tool
@@ -413,9 +414,12 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 			}
 
 			arguments := repairToolArguments(toolCall.Function.Arguments)
-			if authorizationErr := validateToolAuthorization(toolCall.Function.Name, arguments, isAdmin); authorizationErr != nil {
-				result := "error: " + authorizationErr.Error()
-				log.Debugf("tool denied id=%s name=%s err=%v", toolCall.ID, toolCall.Function.Name, authorizationErr)
+			decision := tool.Policy(ctx, arguments)
+
+			switch decision.Action {
+			case tools.PolicyDeny:
+				result := "error: " + decision.Reason
+				log.Debugf("tool denied id=%s name=%s reason=%s", toolCall.ID, toolCall.Function.Name, decision.Reason)
 				if callbacks != nil && callbacks.OnToolResult != nil {
 					callbacks.OnToolResult(toolCall.Function.Name, result)
 				}
@@ -425,7 +429,48 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 				}
 				history = append(history, &toolMessage)
 				continue
+
+			case tools.PolicyRequireApproval:
+				origin := OriginFromContext(ctx)
+				if origin != OriginWeb {
+					result := "error: this action requires approval via the web interface"
+					log.Debugf("tool approval non-web id=%s name=%s origin=%s", toolCall.ID, toolCall.Function.Name, origin)
+					if callbacks != nil && callbacks.OnToolResult != nil {
+						callbacks.OnToolResult(toolCall.Function.Name, result)
+					}
+					toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result)
+					if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
+						return nil, fmt.Errorf("saving tool approval denial: %w", err)
+					}
+					history = append(history, &toolMessage)
+					continue
+				}
+
+				// Register pending approval and block until resolved.
+				approvalResult, approvalErr := self.waitForApproval(ctx, toolCall, arguments, decision)
+				if approvalErr != nil || approvalResult.Verdict != approvals.ApprovalVerdictApproved {
+					reason := decision.Reason
+					if approvalResult.Reason != "" {
+						reason = approvalResult.Reason
+					}
+					if approvalErr != nil {
+						reason = approvalErr.Error()
+					}
+					result := "error: approval denied — " + reason
+					log.Debugf("tool approval rejected id=%s name=%s", toolCall.ID, toolCall.Function.Name)
+					if callbacks != nil && callbacks.OnToolResult != nil {
+						callbacks.OnToolResult(toolCall.Function.Name, result)
+					}
+					toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result)
+					if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
+						return nil, fmt.Errorf("saving approval rejection: %w", err)
+					}
+					history = append(history, &toolMessage)
+					continue
+				}
+				log.Debugf("tool approval approved id=%s name=%s", toolCall.ID, toolCall.Function.Name)
 			}
+
 			workItems = append(workItems, toolWorkItem{
 				toolCall:  toolCall,
 				tool:      tool,
@@ -543,74 +588,61 @@ func repairToolArguments(input string) string {
 	return fixed
 }
 
-func validateToolAuthorization(toolName, arguments string, isAdmin bool) error {
-	if isAdmin {
-		return nil
+// waitForApproval registers a PendingApproval, broadcasts a "requested" event,
+// and blocks until the user resolves or the context is cancelled.
+func (self *Runner) waitForApproval(ctx context.Context, toolCall providers.ToolCall, arguments string, decision tools.PolicyDecision) (approvals.ApprovalPayload, error) {
+	broker := approvals.ApprovalBrokerFromContext(ctx)
+	if broker == nil {
+		return approvals.ApprovalPayload{}, fmt.Errorf("approval broker not available")
 	}
-	switch toolName {
-	case "shell":
-		return fmt.Errorf("admin access required for shell tool")
-	case "gateway":
-		return fmt.Errorf("admin access required for gateway tool")
-	case "agent_create":
-		return fmt.Errorf("admin access required for agent_create")
-	case "config":
-		action := parseToolAction(arguments)
-		if action == "set" {
-			return fmt.Errorf("admin access required for config.set")
-		}
-	case "projects":
-		action := parseToolAction(arguments)
-		if action != "list" && action != "info" {
-			if action == "" {
-				return fmt.Errorf("admin access required for projects management actions")
-			}
-			return fmt.Errorf("admin access required for projects.%s", action)
-		}
-	case "project_workspace":
-		action := parseToolAction(arguments)
-		if action != "list" && action != "read" && action != "search" {
-			if action == "" {
-				return fmt.Errorf("admin access required for project_workspace management actions")
-			}
-			return fmt.Errorf("admin access required for project_workspace.%s", action)
-		}
-	case "skills":
-		action := parseToolAction(arguments)
-		if action != "list_registry" && action != "search" && action != "list_installed" {
-			if action == "" {
-				return fmt.Errorf("admin access required for skills management actions")
-			}
-			return fmt.Errorf("admin access required for skills.%s", action)
-		}
-	case "filesystem":
-		action := parseToolAction(arguments)
-		if action != "read" && action != "list" && action != "info" {
-			if action == "" {
-				return fmt.Errorf("admin access required for filesystem write actions")
-			}
-			return fmt.Errorf("admin access required for filesystem.%s", action)
-		}
-	case "project_todo":
-		action := parseToolAction(arguments)
-		if action != "list" {
-			if action == "" {
-				return fmt.Errorf("admin access required for project_todo management actions")
-			}
-			return fmt.Errorf("admin access required for project_todo.%s", action)
-		}
-		// conversation_todo: all actions allowed at runner level — ownership checked in tool.
+	user := models.UserFromContext(ctx)
+	if user == nil {
+		return approvals.ApprovalPayload{}, fmt.Errorf("authentication required")
 	}
-	return nil
-}
 
-func parseToolAction(arguments string) string {
-	var payload map[string]interface{}
-	if err := json.Unmarshal([]byte(arguments), &payload); err != nil {
-		return ""
+	pending := &approvals.PendingApproval{
+		ID:             security.NewULID(),
+		ConversationID: self.ConversationID,
+		AgentID:        self.AgentID,
+		UserID:         user.ID,
+		RunID:          self.ID,
+		ToolCallID:     toolCall.ID,
+		ToolName:       toolCall.Function.Name,
+		Arguments:      arguments,
+		PolicyReason:   decision.Reason,
+		Risk:           decision.Risk,
 	}
-	action, _ := payload["action"].(string)
-	return strings.ToLower(action)
+	pending.SetApprovalChan(approvals.MakeApprovalChan())
+	broker.Register(pending)
+
+	// Broadcast "requested" event via pubsub.
+	if ps := pubsub.PubSubFromContext(ctx); ps != nil {
+		ps.Broadcast(pubsub.EventTypeConversationApprovals, map[string]interface{}{
+			"action":         "requested",
+			"approvalId":     pending.ID,
+			"conversationId": pending.ConversationID,
+			"agentId":        pending.AgentID,
+			"userId":         pending.UserID,
+			"runId":          pending.RunID,
+			"toolCallId":     pending.ToolCallID,
+			"toolName":       pending.ToolName,
+			"arguments":      pending.Arguments,
+			"policyReason":   pending.PolicyReason,
+			"risk":           pending.Risk,
+		})
+	}
+
+	// Block until resolved or cancelled.
+	select {
+	case payload, ok := <-pending.ApprovalChan():
+		if !ok {
+			return approvals.ApprovalPayload{}, fmt.Errorf("approval cancelled")
+		}
+		return payload, nil
+	case <-ctx.Done():
+		broker.Cancel(pending.ID)
+		return approvals.ApprovalPayload{}, ctx.Err()
+	}
 }
 
 func (self *Runner) resolveAgentProviderModelAndName(ctx context.Context) (string, string) {

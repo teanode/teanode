@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type releasesTool struct {
@@ -66,6 +67,10 @@ func (self *releasesTool) Definition() providers.ToolDefinition {
 			},
 		},
 	}
+}
+
+func (self *releasesTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *releasesTool) Execute(ctx context.Context, rawArguments string) (string, error) {

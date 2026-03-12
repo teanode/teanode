@@ -60,6 +60,13 @@ func (self *gatewayTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *gatewayTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	if tools.IsAdmin(ctx) {
+		return tools.AllowPolicy()
+	}
+	return tools.DenyPolicy("admin access required for gateway tool")
+}
+
 func (self *gatewayTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || !user.GetAdmin() {

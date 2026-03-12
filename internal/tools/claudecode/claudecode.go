@@ -103,6 +103,10 @@ func createTools() []tools.Tool {
 	}}
 }
 
+func (self *claudeCodeTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
+}
+
 func (self *claudeCodeTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",

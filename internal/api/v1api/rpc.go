@@ -183,6 +183,12 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 	case "questions.answer":
 		return self.handleQuestionsAnswer(frame)
 
+	// Approvals.
+	case "approvals.list":
+		return self.handleApprovalsList(frame)
+	case "approvals.resolve":
+		return self.handleApprovalsResolve(frame)
+
 	// Tab integration.
 	case "tab.attach":
 		return self.handleTabAttach(frame)

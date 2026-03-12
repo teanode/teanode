@@ -132,6 +132,20 @@ func (self *projectTodoTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *projectTodoTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	if tools.IsAdmin(ctx) {
+		return tools.AllowPolicy()
+	}
+	action := tools.ParseAction(arguments)
+	if action == "list" {
+		return tools.AllowPolicy()
+	}
+	if action == "" {
+		return tools.DenyPolicy("admin access required for project_todo management actions")
+	}
+	return tools.DenyPolicy("admin access required for project_todo." + action)
+}
+
 func (self *projectTodoTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action      string             `json:"action"`

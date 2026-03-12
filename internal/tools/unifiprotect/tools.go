@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 // unifiProtectTool implements the consolidated unifi_protect tool.
@@ -18,6 +19,10 @@ type unifiProtectTool struct{}
 type unifiProtectExecution struct {
 	client  Client
 	checker *AccessChecker
+}
+
+func (self *unifiProtectTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *unifiProtectTool) Definition() providers.ToolDefinition {

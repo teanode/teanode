@@ -5,6 +5,7 @@ import MessageList from "../../../components/MessageList";
 import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
 import QuestionPanel from "../../../components/QuestionPanel";
+import ApprovalPanel from "../../../components/ApprovalPanel";
 import VoiceCallBar from "../../../components/VoiceCallBar";
 import DebugReadout, {
   useDebugEnabled,
@@ -110,7 +111,10 @@ export default function ConversationsConversationPage() {
     prevMessagesLenRef.current = recentMessages.length;
     // Find the last assistant message.
     for (let index = recentMessages.length - 1; index >= 0; index--) {
-      if (recentMessages[index].type === "assistant" && recentMessages[index].content) {
+      if (
+        recentMessages[index].type === "assistant" &&
+        recentMessages[index].content
+      ) {
         tts.speak(recentMessages[index].content);
         setSpeakingMessageId(recentMessages[index].id);
         backend.lastSentViaMicRef.current = false;
@@ -193,6 +197,11 @@ export default function ConversationsConversationPage() {
         <QuestionPanel
           questions={backend.pendingQuestions}
           onSubmitAll={backend.answerQuestion}
+        />
+      ) : backend.pendingApprovals.length > 0 ? (
+        <ApprovalPanel
+          approvals={backend.pendingApprovals}
+          onResolve={backend.resolveApproval}
         />
       ) : (
         <InputArea

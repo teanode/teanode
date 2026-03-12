@@ -268,7 +268,12 @@
     "questionPrev": "Previous question",
     "questionNext": "Next question",
     "askUserSubmit": "Submit answer",
-    "askUserBack": "Back"
+    "askUserBack": "Back",
+    "approvalRequired": "Approval required",
+    "approvalsPending": "pending",
+    "approve": "Approve",
+    "reject": "Reject",
+    "approveAll": "Approve all"
   },
   "auth": {
     "loginTitle": "Welcome back",

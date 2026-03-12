@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type calendarTool struct {
@@ -67,6 +68,10 @@ func (self *calendarTool) Definition() providers.ToolDefinition {
 			},
 		},
 	}
+}
+
+func (self *calendarTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *calendarTool) Execute(ctx context.Context, rawArguments string) (string, error) {

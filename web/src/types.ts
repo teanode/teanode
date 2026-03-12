@@ -456,6 +456,41 @@ export interface ConversationQuestionsEvent {
   other?: string;
 }
 
+// Pending approval types (tool approval system)
+
+export interface PendingApproval {
+  id: string;
+  conversationId: string;
+  agentId: string;
+  userId: string;
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  arguments: string;
+  policyReason: string;
+  risk?: string;
+}
+
+export interface PendingApprovalsListResult {
+  approvals: PendingApproval[];
+}
+
+export interface ConversationApprovalsEvent {
+  action: string; // "requested" | "resolved"
+  approvalId: string;
+  conversationId?: string;
+  agentId?: string;
+  userId?: string;
+  runId?: string;
+  toolCallId?: string;
+  toolName?: string;
+  arguments?: string;
+  policyReason?: string;
+  risk?: string;
+  verdict?: string;
+  reason?: string;
+}
+
 // Display message types for the UI
 
 export type DisplayMessageType =

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 const maxHistoryEntries = 50
@@ -18,6 +19,10 @@ type homeAssistantTool struct{}
 type homeAssistantExecution struct {
 	client  Client
 	checker *AccessChecker
+}
+
+func (self *homeAssistantTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *homeAssistantTool) Definition() providers.ToolDefinition {

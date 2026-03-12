@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type searchTool struct {
@@ -46,6 +47,10 @@ func (self *searchTool) Definition() providers.ToolDefinition {
 			},
 		},
 	}
+}
+
+func (self *searchTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *searchTool) Execute(ctx context.Context, rawArguments string) (string, error) {

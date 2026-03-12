@@ -116,6 +116,20 @@ func (self *filesystemTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *filesystemTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	if tools.IsAdmin(ctx) {
+		return tools.AllowPolicy()
+	}
+	action := tools.ParseAction(arguments)
+	if action == "read" || action == "list" || action == "info" {
+		return tools.AllowPolicy()
+	}
+	if action == "" {
+		return tools.DenyPolicy("admin access required for filesystem write actions")
+	}
+	return tools.ApprovalPolicy("filesystem."+action+" requires approval", "medium")
+}
+
 func (self *filesystemTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action      string `json:"action"`

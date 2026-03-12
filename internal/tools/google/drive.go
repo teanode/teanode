@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type driveTool struct {
@@ -47,6 +48,10 @@ func (self *driveTool) Definition() providers.ToolDefinition {
 			},
 		},
 	}
+}
+
+func (self *driveTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string, error) {

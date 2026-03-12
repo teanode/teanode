@@ -69,6 +69,10 @@ func (self *terminalTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *terminalTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
+}
+
 func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	relay := terminals.TerminalFromContext(ctx)
 	if relay == nil {

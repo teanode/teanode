@@ -3,16 +3,56 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
+	"strings"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/util/allowlist"
 )
+
+// PolicyAction describes what the runner should do with a tool call.
+type PolicyAction string
+
+const (
+	// PolicyAllow lets the tool execute immediately.
+	PolicyAllow PolicyAction = "allow"
+	// PolicyDeny blocks execution and returns the reason as the tool result.
+	PolicyDeny PolicyAction = "deny"
+	// PolicyRequireApproval pauses execution until a user approves or rejects.
+	PolicyRequireApproval PolicyAction = "require_approval"
+)
+
+// PolicyDecision is the outcome of a tool's Policy check.
+type PolicyDecision struct {
+	Action PolicyAction
+	Reason string // human-readable explanation shown to the user / LLM
+	Risk   string // optional risk label (e.g. "high", "medium")
+}
+
+// AllowPolicy returns a PolicyDecision that allows execution unconditionally.
+func AllowPolicy() PolicyDecision {
+	return PolicyDecision{Action: PolicyAllow}
+}
+
+// DenyPolicy returns a PolicyDecision that blocks execution with a reason.
+func DenyPolicy(reason string) PolicyDecision {
+	return PolicyDecision{Action: PolicyDeny, Reason: reason}
+}
+
+// ApprovalPolicy returns a PolicyDecision that requires user approval.
+func ApprovalPolicy(reason, risk string) PolicyDecision {
+	return PolicyDecision{Action: PolicyRequireApproval, Reason: reason, Risk: risk}
+}
 
 // Tool is something the LLM can invoke during a conversation.
 type Tool interface {
 	Definition() providers.ToolDefinition
 	Execute(ctx context.Context, arguments string) (string, error)
+	// Policy decides whether a tool call should be allowed, denied, or require
+	// approval. The runner calls Policy before Execute.
+	Policy(ctx context.Context, arguments string) PolicyDecision
 }
 
 // OverlayBuilder is an optional interface that tools can implement to
@@ -21,6 +61,23 @@ type Tool interface {
 // contribute nothing.
 type OverlayBuilder interface {
 	BuildOverlay(ctx context.Context) (string, error)
+}
+
+// ParseAction extracts the "action" field from JSON tool arguments.
+// Returns the lowercased action string, or "" if parsing fails.
+func ParseAction(arguments string) string {
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(arguments), &payload); err != nil {
+		return ""
+	}
+	action, _ := payload["action"].(string)
+	return strings.ToLower(action)
+}
+
+// IsAdmin returns true if the context user has admin privileges.
+func IsAdmin(ctx context.Context) bool {
+	user := models.UserFromContext(ctx)
+	return user != nil && user.GetAdmin()
 }
 
 // builtinRegistry holds factory functions registered by tool packages via init().

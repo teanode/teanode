@@ -17,6 +17,10 @@ func (self *stubTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *stubTool) Policy(ctx context.Context, arguments string) PolicyDecision {
+	return AllowPolicy()
+}
+
 func (self *stubTool) Execute(_ context.Context, _ string) (string, error) {
 	return "ok", nil
 }

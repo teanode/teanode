@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type mergeRequestsTool struct {
@@ -153,6 +154,10 @@ func (self *mergeRequestsTool) Definition() providers.ToolDefinition {
 			},
 		},
 	}
+}
+
+func (self *mergeRequestsTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
 }
 
 func (self *mergeRequestsTool) Execute(ctx context.Context, rawArguments string) (string, error) {

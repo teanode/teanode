@@ -202,6 +202,10 @@ func (self *workspaceTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *workspaceTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
+}
+
 func (self *workspaceTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action     string `json:"action"`

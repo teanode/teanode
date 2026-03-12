@@ -55,6 +55,20 @@ func (self *skillsTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *skillsTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	if tools.IsAdmin(ctx) {
+		return tools.AllowPolicy()
+	}
+	action := tools.ParseAction(arguments)
+	if action == "list_registry" || action == "search" || action == "list_installed" {
+		return tools.AllowPolicy()
+	}
+	if action == "" {
+		return tools.DenyPolicy("admin access required for skills management actions")
+	}
+	return tools.DenyPolicy("admin access required for skills." + action)
+}
+
 func (self *skillsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action  string `json:"action"`

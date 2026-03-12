@@ -33,6 +33,9 @@ const (
 	// EventTypeConversationQuestions signals that a question has been asked or answered.
 	EventTypeConversationQuestions EventType = "conversationQuestions"
 
+	// EventTypeConversationApprovals signals that a tool approval has been requested or resolved.
+	EventTypeConversationApprovals EventType = "conversationApprovals"
+
 	// EventTypeTabCommand signals a pending tab command for the extension to execute.
 	EventTypeTabCommand EventType = "tabCommand"
 

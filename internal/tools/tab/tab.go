@@ -221,6 +221,10 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *tabTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
+	return tools.AllowPolicy()
+}
+
 type tabArguments struct {
 	Action              string            `json:"action"`
 	Method              string            `json:"method,omitempty"`
