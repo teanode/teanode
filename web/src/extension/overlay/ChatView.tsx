@@ -921,13 +921,7 @@ export function ChatView({
     } catch {
       // Error will come via event.
     }
-  }, [
-    input,
-    conversationId,
-    agentId,
-    pendingFiles,
-    onConversationCreated,
-  ]);
+  }, [input, conversationId, agentId, pendingFiles, onConversationCreated]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
