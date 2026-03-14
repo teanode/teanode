@@ -65,6 +65,13 @@ func (self *configurationTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *configurationTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"get", "schema"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAdminOnly},
+	}
+}
+
 func (self *configurationTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || !user.GetAdmin() {

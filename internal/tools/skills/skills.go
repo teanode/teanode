@@ -55,6 +55,13 @@ func (self *skillsTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *skillsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list_registry", "search", "list_installed"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAdminOnly},
+	}
+}
+
 func (self *skillsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action  string `json:"action"`

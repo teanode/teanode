@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type gmailTool struct {
@@ -58,6 +60,13 @@ func (self *gmailTool) Definition() providers.ToolDefinition {
 				"required": []string{"action"},
 			},
 		},
+	}
+}
+
+func (self *gmailTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"search", "read"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
 

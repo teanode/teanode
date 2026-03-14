@@ -11,7 +11,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	approvalsIntegration "github.com/teanode/teanode/internal/integrations/approvals"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
@@ -66,6 +68,12 @@ func (self *stubTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type:     "function",
 		Function: providers.FunctionSpec{Name: self.name},
+	}
+}
+
+func (self *stubTool) PolicyGroups() []toolregistry.PolicyGroup {
+	return []toolregistry.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 
@@ -786,34 +794,378 @@ func TestRunnerRunRequiresUserID(t *testing.T) {
 	}
 }
 
-func TestValidateToolAuthorizationNonAdminShellDenied(t *testing.T) {
-	err := validateToolAuthorization("shell", `{"command":"ls -la"}`, false)
-	if err == nil || !strings.Contains(err.Error(), "admin access required") {
-		t.Fatalf("expected admin access required error, got: %v", err)
+// ── Policy-based tool tests ────────────────────────────────────────────
+
+// denyTool uses ToolPolicyDisabled so ResolveToolPolicy always denies.
+type denyTool struct{ name string }
+
+func (self *denyTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
+		Type:     "function",
+		Function: providers.FunctionSpec{Name: self.name},
 	}
 }
 
-func TestValidateToolAuthorizationNonAdminGatewayDenied(t *testing.T) {
-	err := validateToolAuthorization("gateway", `{"action":"restart"}`, false)
-	if err == nil || !strings.Contains(err.Error(), "admin access required") {
-		t.Fatalf("expected admin access required error, got: %v", err)
+func (self *denyTool) PolicyGroups() []toolregistry.PolicyGroup {
+	return []toolregistry.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyDisabled},
 	}
 }
 
-func TestValidateToolAuthorizationNonAdminFilesystemReadOnly(t *testing.T) {
-	allowedActions := []string{"read", "list", "info"}
-	for _, action := range allowedActions {
-		err := validateToolAuthorization("filesystem", `{"action":"`+action+`","path":"/tmp/x"}`, false)
-		if err != nil {
-			t.Fatalf("expected filesystem.%s allowed for non-admin, got: %v", action, err)
-		}
+func (self *denyTool) Execute(_ context.Context, _ string) (string, error) {
+	return "ok", nil
+}
+
+// approvalTool uses ToolPolicyAnyoneApproval so ResolveToolPolicy always requires approval.
+type approvalTool struct{ name string }
+
+func (self *approvalTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
+		Type:     "function",
+		Function: providers.FunctionSpec{Name: self.name},
+	}
+}
+
+func (self *approvalTool) PolicyGroups() []toolregistry.PolicyGroup {
+	return []toolregistry.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyoneApproval},
+	}
+}
+
+func (self *approvalTool) Execute(_ context.Context, _ string) (string, error) {
+	return "executed", nil
+}
+
+func TestRunnerToolDenyPolicy(t *testing.T) {
+	server := mockToolCallServer("call-1", "restricted", `{}`, "Done.")
+	defer server.Close()
+
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
+
+	toolRegistry := toolregistry.NewEmptyToolRegistry()
+	toolRegistry.Register(&denyTool{name: "restricted"})
+
+	runner := &Runner{
+		AgentID:          "main",
+		ConversationID:   "deny-test",
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolRegistry,
 	}
 
-	deniedActions := []string{"write", "mkdir", "delete", "move"}
-	for _, action := range deniedActions {
-		err := validateToolAuthorization("filesystem", `{"action":"`+action+`","path":"/tmp/x"}`, false)
-		if err == nil {
-			t.Fatalf("expected filesystem.%s denied for non-admin", action)
+	var toolResults []string
+	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParameters{
+		Message: "do something",
+	}, &RunCallbacks{
+		OnToolResult: func(name string, res string) {
+			toolResults = append(toolResults, res)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// The denied tool should produce an error result, not execute.
+	if len(toolResults) != 1 {
+		t.Fatalf("expected 1 tool result, got %d", len(toolResults))
+	}
+	if !strings.Contains(toolResults[0], "is disabled by policy") {
+		t.Errorf("expected denial message, got: %s", toolResults[0])
+	}
+
+	// After denial, the LLM should still produce a final response.
+	if result.Response != "Done." {
+		t.Errorf("response = %q, want %q (LLM should continue after denial)", result.Response, "Done.")
+	}
+}
+
+func TestRunnerApprovalNonWebOriginDenied(t *testing.T) {
+	server := mockToolCallServer("call-1", "guarded", `{}`, "Done.")
+	defer server.Close()
+
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
+
+	toolRegistry := toolregistry.NewEmptyToolRegistry()
+	toolRegistry.Register(&approvalTool{name: "guarded"})
+
+	runner := &Runner{
+		AgentID:          "main",
+		ConversationID:   "approval-nonweb-test",
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolRegistry,
+	}
+
+	// Use API origin (non-web) — should be denied with nudge.
+	ctx := contextWithUserAndStore("user-1", testStore.persistenceStore)
+	ctx = ContextWithOrigin(ctx, OriginAPI)
+
+	var toolResults []string
+	result, err := runner.Run(ctx, RunParameters{
+		Message: "do something",
+	}, &RunCallbacks{
+		OnToolResult: func(name string, res string) {
+			toolResults = append(toolResults, res)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(toolResults) != 1 {
+		t.Fatalf("expected 1 tool result, got %d", len(toolResults))
+	}
+	if !strings.Contains(toolResults[0], "web interface") {
+		t.Errorf("expected web interface nudge, got: %s", toolResults[0])
+	}
+
+	// After non-web denial, the LLM should still produce a final response.
+	if result.Response != "Done." {
+		t.Errorf("response = %q, want %q (LLM should continue after non-web denial)", result.Response, "Done.")
+	}
+}
+
+func TestRunnerApprovalNonWebOriginDeniedPersistsMessages(t *testing.T) {
+	server := mockToolCallServer("call-1", "guarded", `{}`, "I cannot perform that action from here.")
+	defer server.Close()
+
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
+
+	toolRegistry := toolregistry.NewEmptyToolRegistry()
+	toolRegistry.Register(&approvalTool{name: "guarded"})
+
+	runner := &Runner{
+		AgentID:          "main",
+		ConversationID:   "approval-nonweb-persist-test",
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolRegistry,
+	}
+
+	ctx := contextWithUserAndStore("user-1", testStore.persistenceStore)
+	ctx = ContextWithOrigin(ctx, OriginChannel)
+
+	result, err := runner.Run(ctx, RunParameters{
+		Message: "restart the gateway",
+	}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// The LLM must receive the denial tool result and produce a final response.
+	if result.Response != "I cannot perform that action from here." {
+		t.Errorf("response = %q, want final LLM response after denial", result.Response)
+	}
+
+	// Verify persisted messages: user + assistant(tool_call) + tool(denial) + assistant(final).
+	messages := loadTestConversationMessages(t, testStore.persistenceStore, "approval-nonweb-persist-test")
+	if len(messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(messages))
+	}
+	if conversationMessageRole(*messages[0]) != "user" {
+		t.Errorf("msg[0].role = %q, want user", conversationMessageRole(*messages[0]))
+	}
+	if conversationMessageRole(*messages[1]) != "assistant" {
+		t.Errorf("msg[1].role = %q, want assistant", conversationMessageRole(*messages[1]))
+	}
+	if conversationMessageRole(*messages[2]) != "tool" {
+		t.Errorf("msg[2].role = %q, want tool", conversationMessageRole(*messages[2]))
+	}
+	toolContent := conversationMessageContentText(*messages[2])
+	if !strings.Contains(toolContent, "requires approval via the web interface") {
+		t.Errorf("msg[2].content = %q, want approval denial error", toolContent)
+	}
+	if conversationMessageRole(*messages[3]) != "assistant" {
+		t.Errorf("msg[3].role = %q, want assistant", conversationMessageRole(*messages[3]))
+	}
+}
+
+func TestRunnerApprovalWebOriginApproved(t *testing.T) {
+	server := mockToolCallServer("call-1", "guarded", `{}`, "Done after approval.")
+	defer server.Close()
+
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
+
+	toolRegistry := toolregistry.NewEmptyToolRegistry()
+	toolRegistry.Register(&approvalTool{name: "guarded"})
+
+	broker := approvalsIntegration.NewApprovalBroker()
+
+	runner := &Runner{
+		AgentID:          "main",
+		ConversationID:   "approval-web-test",
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolRegistry,
+	}
+
+	ctx := contextWithUserAndStore("user-1", testStore.persistenceStore)
+	ctx = ContextWithOrigin(ctx, OriginWeb)
+	ctx = approvalsIntegration.ContextWithApprovalBroker(ctx, broker)
+
+	// Approve in background once a pending approval appears.
+	go func() {
+		for {
+			pending := broker.PendingForConversation("approval-web-test")
+			if len(pending) > 0 {
+				payloads := map[string]approvalsIntegration.ApprovalPayload{
+					pending[0].ID: {Verdict: approvalsIntegration.ApprovalVerdictApproved},
+				}
+				_ = broker.ResolveBatch(payloads, "user-1")
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
+	}()
+
+	result, err := runner.Run(ctx, RunParameters{
+		Message: "do something",
+	}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result.Response != "Done after approval." {
+		t.Errorf("response = %q, want %q", result.Response, "Done after approval.")
+	}
+}
+
+func TestRunnerApprovalWebOriginRejected(t *testing.T) {
+	server := mockToolCallServer("call-1", "guarded", `{}`, "Done.")
+	defer server.Close()
+
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
+
+	toolRegistry := toolregistry.NewEmptyToolRegistry()
+	toolRegistry.Register(&approvalTool{name: "guarded"})
+
+	broker := approvalsIntegration.NewApprovalBroker()
+
+	runner := &Runner{
+		AgentID:          "main",
+		ConversationID:   "approval-rejected-test",
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolRegistry,
+	}
+
+	ctx := contextWithUserAndStore("user-1", testStore.persistenceStore)
+	ctx = ContextWithOrigin(ctx, OriginWeb)
+	ctx = approvalsIntegration.ContextWithApprovalBroker(ctx, broker)
+
+	// Reject in background once a pending approval appears.
+	go func() {
+		for {
+			pending := broker.PendingForConversation("approval-rejected-test")
+			if len(pending) > 0 {
+				payloads := map[string]approvalsIntegration.ApprovalPayload{
+					pending[0].ID: {Verdict: approvalsIntegration.ApprovalVerdictRejected, Reason: "not allowed"},
+				}
+				_ = broker.ResolveBatch(payloads, "user-1")
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+
+	var toolResults []string
+	result, err := runner.Run(ctx, RunParameters{
+		Message: "do something",
+	}, &RunCallbacks{
+		OnToolResult: func(name string, res string) {
+			toolResults = append(toolResults, res)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(toolResults) != 1 {
+		t.Fatalf("expected 1 tool result, got %d", len(toolResults))
+	}
+	if !strings.Contains(toolResults[0], "approval denied") {
+		t.Errorf("expected approval denied message, got: %s", toolResults[0])
+	}
+
+	// After rejection, the LLM should still produce a final response.
+	if result.Response != "Done." {
+		t.Errorf("response = %q, want %q (LLM should continue after rejection)", result.Response, "Done.")
+	}
+}
+
+func TestRunnerMultipleToolCallsMixedPolicy(t *testing.T) {
+	// Server returns two tool calls in one round: one allowed, one denied.
+	var callCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := writer.(http.Flusher)
+
+		currentCall := callCount.Add(1)
+		if currentCall == 1 {
+			// Return two tool calls.
+			chunk := `{"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[` +
+				`{"index":0,"id":"call-allow","type":"function","function":{"name":"allowed","arguments":"{}"}},` +
+				`{"index":1,"id":"call-deny","type":"function","function":{"name":"denied","arguments":"{}"}}` +
+				`]},"finish_reason":null}]}`
+			_, _ = fmt.Fprintf(writer, "data: %s\n\n", chunk)
+			_, _ = fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+			_, _ = fmt.Fprintf(writer, "data: [DONE]\n\n")
+		} else {
+			chunk := `{"id":"chatcmpl-2","model":"mock-model","choices":[{"index":0,"delta":{"content":"Final response."},"finish_reason":null}]}`
+			_, _ = fmt.Fprintf(writer, "data: %s\n\n", chunk)
+			_, _ = fmt.Fprintf(writer, "data: %s\n\n", `{"id":"chatcmpl-2","model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}`)
+			_, _ = fmt.Fprintf(writer, "data: [DONE]\n\n")
+		}
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
+
+	toolRegistry := toolregistry.NewEmptyToolRegistry()
+	toolRegistry.Register(&stubTool{name: "allowed"})
+	toolRegistry.Register(&denyTool{name: "denied"})
+
+	runner := &Runner{
+		AgentID:          "main",
+		ConversationID:   "mixed-policy-test",
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     toolRegistry,
+	}
+
+	var toolCalls []string
+	var toolResults []string
+	result, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParameters{
+		Message: "do both",
+	}, &RunCallbacks{
+		OnToolCall: func(name string, _ string) {
+			toolCalls = append(toolCalls, name)
+		},
+		OnToolResult: func(name string, res string) {
+			toolResults = append(toolResults, name+":"+res)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result.Response != "Final response." {
+		t.Errorf("response = %q, want %q", result.Response, "Final response.")
+	}
+	if len(toolCalls) != 2 {
+		t.Fatalf("expected 2 tool calls, got %d", len(toolCalls))
+	}
+
+	// Verify we got both a denial and an execution result.
+	foundDenial := false
+	foundExecution := false
+	for _, r := range toolResults {
+		if strings.Contains(r, "denied:error:") {
+			foundDenial = true
+		}
+		if strings.Contains(r, "allowed:ok") {
+			foundExecution = true
+		}
+	}
+	if !foundDenial {
+		t.Error("expected a denial result for 'denied' tool")
+	}
+	if !foundExecution {
+		t.Error("expected an execution result for 'allowed' tool")
 	}
 }

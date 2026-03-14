@@ -29,6 +29,9 @@ import type {
   PendingQuestion,
   PendingQuestionsListResult,
   ConversationQuestionsEvent,
+  PendingApproval,
+  PendingApprovalsListResult,
+  ConversationApprovalsEvent,
 } from "../types";
 import { useWebSocket } from "./useWebSocket";
 import { normalizeContent, type ExtractedContent } from "../contentUtils";
@@ -461,6 +464,39 @@ export function useBackend() {
         } else if (payload.action === "answered") {
           setPendingQuestions((prev) =>
             prev.filter((q) => q.id !== payload.questionId),
+          );
+        }
+      }
+      return;
+    }
+
+    if (frame.event === "conversationApprovals") {
+      const payload = frame.payload as ConversationApprovalsEvent | undefined;
+      if (payload) {
+        if (
+          payload.action === "requested" &&
+          payload.conversationId === conversationIdRef.current
+        ) {
+          setPendingApprovals((prev) => {
+            if (prev.some((a) => a.id === payload.approvalId)) return prev;
+            const a: PendingApproval = {
+              id: payload.approvalId,
+              conversationId: payload.conversationId!,
+              agentId: payload.agentId || "",
+              userId: payload.userId || "",
+              runId: payload.runId || "",
+              toolCallId: payload.toolCallId || "",
+              toolName: payload.toolName || "",
+              arguments: payload.arguments || "",
+              policyReason: payload.policyReason || "",
+            };
+            if (payload.risk) a.risk = payload.risk;
+            return [...prev, a];
+          });
+          setStatus("waiting for approval...");
+        } else if (payload.action === "resolved") {
+          setPendingApprovals((prev) =>
+            prev.filter((a) => a.id !== payload.approvalId),
           );
         }
       }
@@ -1722,6 +1758,48 @@ export function useBackend() {
     }
   }, [connected, conversationId, loadPendingQuestions]);
 
+  // ── Pending Approvals (tool approval system) ──────────────────────
+
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>(
+    [],
+  );
+
+  const resolveApproval = useCallback(
+    async (
+      verdicts: { approvalId: string; verdict: string; reason?: string }[],
+    ) => {
+      await sendRpc("approvals.resolve", { verdicts });
+      const resolvedIds = new Set(verdicts.map((v) => v.approvalId));
+      setPendingApprovals((prev) => prev.filter((a) => !resolvedIds.has(a.id)));
+    },
+    [sendRpc],
+  );
+
+  const loadPendingApprovals = useCallback(
+    (targetConversationId?: string) => {
+      const convId = targetConversationId || conversationIdRef.current;
+      if (!convId) {
+        setPendingApprovals([]);
+        return;
+      }
+      sendRpc<PendingApprovalsListResult>("approvals.list", {
+        conversationId: convId,
+      })
+        .then((result) => {
+          if (conversationIdRef.current !== convId) return;
+          setPendingApprovals(result?.approvals ?? []);
+        })
+        .catch((error) => console.error("approvals.list:", error));
+    },
+    [sendRpc],
+  );
+
+  useEffect(() => {
+    if (connected && conversationId) {
+      loadPendingApprovals(conversationId);
+    }
+  }, [connected, conversationId, loadPendingApprovals]);
+
   return {
     conversations,
     conversationId,
@@ -1776,6 +1854,9 @@ export function useBackend() {
     pendingQuestions,
     answerQuestion,
     loadPendingQuestions,
+    pendingApprovals,
+    resolveApproval,
+    loadPendingApprovals,
     lastActiveRunState,
   };
 }

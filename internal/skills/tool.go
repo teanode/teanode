@@ -17,6 +17,7 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/cmdexec"
 )
 
@@ -35,6 +36,12 @@ type ShellTool struct {
 
 func (self *ShellTool) Definition() providers.ToolDefinition {
 	return toolDefinition(self.definition)
+}
+
+func (self *ShellTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string, error) {
@@ -68,6 +75,12 @@ func (self *HTTPTool) Definition() providers.ToolDefinition {
 	return toolDefinition(self.definition)
 }
 
+func (self *HTTPTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
+}
+
 func (self *HTTPTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	arguments := parseArguments(rawArguments)
 	if err := validateRequiredArguments(self.definition.Parameters, arguments); err != nil {
@@ -93,6 +106,12 @@ type WorkflowTool struct {
 
 func (self *WorkflowTool) Definition() providers.ToolDefinition {
 	return toolDefinition(self.definition)
+}
+
+func (self *WorkflowTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *WorkflowTool) Execute(ctx context.Context, rawArguments string) (string, error) {

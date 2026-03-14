@@ -202,6 +202,13 @@ func (self *workspaceTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *workspaceTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"read", "list", "search"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
+}
+
 func (self *workspaceTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action     string `json:"action"`

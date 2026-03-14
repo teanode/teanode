@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/atomicfile"
@@ -113,6 +114,13 @@ func (self *filesystemTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *filesystemTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"read", "list", "info"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyoneApproval},
 	}
 }
 

@@ -71,6 +71,12 @@ func (self *agentCreateTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *agentCreateTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAdminOnly},
+	}
+}
+
 func (self *agentCreateTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		AgentID string `json:"agentId"`
@@ -150,6 +156,12 @@ func (self *agentListTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *agentListTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 
@@ -237,6 +249,12 @@ func (self *agentMessageTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *agentMessageTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 
@@ -347,6 +365,12 @@ func (self *subagentSpawnTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *subagentSpawnTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 

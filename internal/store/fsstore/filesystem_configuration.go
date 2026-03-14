@@ -168,18 +168,6 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 		secretConfigurations = append(secretConfigurations, &models.SecretConfiguration{Key: &keyCopy, Value: &valueCopy})
 	}
 	result.Secrets = &secretConfigurations
-	skillRegistries := make([]*models.SkillRegistryConfiguration, 0, len(configuration.SkillsRegistries))
-	for _, registry := range configuration.SkillsRegistries {
-		skillRegistries = append(skillRegistries, &models.SkillRegistryConfiguration{
-			ID:               ptrto.TrimmedString(registry.ID),
-			Publisher:        ptrto.TrimmedString(registry.Publisher),
-			IndexURL:         ptrto.TrimmedString(registry.IndexURL),
-			PublicKeys:       ptrto.TrimmedStrings(registry.PublicKeys),
-			IgnoreSignatures: ptrto.Value(registry.IgnoreSignatures),
-			IgnoreUpdates:    ptrto.Value(registry.IgnoreUpdates),
-		})
-	}
-	result.SkillsRegistries = &skillRegistries
 	return result
 }
 
@@ -303,18 +291,6 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 		result.Secrets = map[string]string{}
 		for _, secret := range *configuration.Secrets {
 			result.Secrets[secret.GetKey()] = secret.GetValue()
-		}
-	}
-	if configuration.SkillsRegistries != nil {
-		for _, registry := range *configuration.SkillsRegistries {
-			result.SkillsRegistries = append(result.SkillsRegistries, storeSkillRegistryRecord{
-				ID:               registry.GetID(),
-				Publisher:        registry.GetPublisher(),
-				IndexURL:         registry.GetIndexURL(),
-				PublicKeys:       sliceValue(registry.PublicKeys),
-				IgnoreSignatures: registry.GetIgnoreSignatures(),
-				IgnoreUpdates:    registry.GetIgnoreUpdates(),
-			})
 		}
 	}
 	return result

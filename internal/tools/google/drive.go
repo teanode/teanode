@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type driveTool struct {
@@ -46,6 +48,12 @@ func (self *driveTool) Definition() providers.ToolDefinition {
 				"required": []string{"action"},
 			},
 		},
+	}
+}
+
+func (self *driveTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 

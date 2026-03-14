@@ -107,6 +107,13 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *browserTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"screenshot", "snapshot"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
+}
+
 func (self *browserTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	browser := browsers.BrowserFromContext(ctx)
 	if browser == nil {
@@ -373,6 +380,13 @@ func (self *browserTabsTool) Definition() providers.ToolDefinition {
 				"description": "Action-dependent result. list: {tabs: [{targetId, title, url, connectionId, source}]}. open: {targetId, url}. close: {targetId}. activate: {targetId}.",
 			},
 		},
+	}
+}
+
+func (self *browserTabsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
 

@@ -65,6 +65,12 @@ func (self *listConversationsTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *listConversationsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
+}
+
 func (self *listConversationsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Limit int `json:"limit"`
@@ -171,6 +177,12 @@ func (self *compactConversationTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *compactConversationTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 

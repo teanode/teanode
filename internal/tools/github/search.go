@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type searchTool struct {
@@ -45,6 +47,12 @@ func (self *searchTool) Definition() providers.ToolDefinition {
 				"description": "JSON array of search results from GitHub.",
 			},
 		},
+	}
+}
+
+func (self *searchTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 

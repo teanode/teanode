@@ -270,6 +270,68 @@ func TestAllowOtherDefaultValues(t *testing.T) {
 	<-done
 }
 
+func TestAllowOtherDedupChoices(t *testing.T) {
+	tool := &askUserQuestionTool{}
+	ctx, broker := stubContext(runners.OriginWeb)
+
+	done := make(chan string, 1)
+	go func() {
+		// LLM includes "Other" in choices AND sets allowOther — should dedup.
+		result, err := tool.Execute(ctx, `{"question":"Pick","choices":["A","B","Other"],"allowOther":true}`)
+		if err != nil {
+			done <- "error:" + err.Error()
+			return
+		}
+		done <- result
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	pending := broker.PendingForConversation("conv1")
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending question, got %d", len(pending))
+	}
+	if len(pending[0].Choices) != 2 {
+		t.Errorf("expected 2 choices after dedup, got %d: %v", len(pending[0].Choices), pending[0].Choices)
+	}
+
+	if err := broker.Answer(pending[0].ID, questions.AnswerPayload{Answer: "A"}); err != nil {
+		t.Fatalf("answer question: %v", err)
+	}
+	<-done
+}
+
+func TestAllowOtherDedupCustomLabel(t *testing.T) {
+	tool := &askUserQuestionTool{}
+	ctx, broker := stubContext(runners.OriginWeb)
+
+	done := make(chan string, 1)
+	go func() {
+		// Custom otherLabel that also appears in choices.
+		result, err := tool.Execute(ctx, `{"question":"Pick","choices":["A","B","Custom"],"allowOther":true,"otherLabel":"Custom"}`)
+		if err != nil {
+			done <- "error:" + err.Error()
+			return
+		}
+		done <- result
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	pending := broker.PendingForConversation("conv1")
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending question, got %d", len(pending))
+	}
+	if len(pending[0].Choices) != 2 {
+		t.Errorf("expected 2 choices after dedup, got %d: %v", len(pending[0].Choices), pending[0].Choices)
+	}
+
+	if err := broker.Answer(pending[0].ID, questions.AnswerPayload{Answer: "B"}); err != nil {
+		t.Fatalf("answer question: %v", err)
+	}
+	<-done
+}
+
 func TestBackwardCompatibleNoAllowOther(t *testing.T) {
 	tool := &askUserQuestionTool{}
 	ctx, broker := stubContext(runners.OriginWeb)

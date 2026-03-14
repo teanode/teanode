@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/integrations/approvals"
 	"github.com/teanode/teanode/internal/integrations/questions"
 	"github.com/teanode/teanode/internal/integrations/tabs"
 	"github.com/teanode/teanode/internal/lifecycle"
@@ -32,6 +33,7 @@ type Coordinator struct {
 	summarizer                 *summarizers.Summarizer
 	pubsub                     *pubsub.PubSub
 	questionBroker             *questions.QuestionBroker
+	approvalBroker             *approvals.ApprovalBroker
 	tabBroker                  *tabs.TabBroker
 	activeRunners              sync.Map // conversationId -> *conversationRunner
 	activeRunIdConversationIds sync.Map // runId -> conversationId
@@ -78,6 +80,7 @@ func New(
 		summarizer:       summarizerInstance,
 		pubsub:           events,
 		questionBroker:   questions.NewQuestionBroker(),
+		approvalBroker:   approvals.NewApprovalBroker(),
 		tabBroker:        tabs.NewTabBroker(),
 	}
 }
@@ -90,6 +93,11 @@ func (self *Coordinator) ProviderRegistry() *providers.ProviderRegistry {
 // QuestionBroker returns the in-memory question broker.
 func (self *Coordinator) QuestionBroker() *questions.QuestionBroker {
 	return self.questionBroker
+}
+
+// ApprovalBroker returns the in-memory approval broker.
+func (self *Coordinator) ApprovalBroker() *approvals.ApprovalBroker {
+	return self.approvalBroker
 }
 
 // TabBroker returns the in-memory tab tool broker.
@@ -517,17 +525,20 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 			ctx, cancel = context.WithCancel(
 				runners.ContextWithVoiceMode(
 					tabs.ContextWithTabBroker(
-						questions.ContextWithQuestionBroker(
-							runners.ContextWithOrigin(
-								ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
-									self.ctx,
-									models.UserFromContext(message.ctx),
-									models.SessionFromContext(message.ctx),
-									models.TokenFromContext(message.ctx),
-								), self.pubsub), self),
-								message.parameters.Origin,
+						approvals.ContextWithApprovalBroker(
+							questions.ContextWithQuestionBroker(
+								runners.ContextWithOrigin(
+									ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
+										self.ctx,
+										models.UserFromContext(message.ctx),
+										models.SessionFromContext(message.ctx),
+										models.TokenFromContext(message.ctx),
+									), self.pubsub), self),
+									message.parameters.Origin,
+								),
+								self.questionBroker,
 							),
-							self.questionBroker,
+							self.approvalBroker,
 						),
 						self.tabBroker,
 					),

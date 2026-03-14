@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type projectsTool struct {
@@ -49,6 +51,12 @@ func (self *projectsTool) Definition() providers.ToolDefinition {
 				"description": "JSON object with project data from GitLab.",
 			},
 		},
+	}
+}
+
+func (self *projectsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 

@@ -32,6 +32,7 @@ import SettingsSkillsPage from "./routes/settings/skills";
 import SettingsSecretsPage from "./routes/settings/secrets";
 import SettingsUsagePage from "./routes/settings/usage";
 import SettingsMemoryPage from "./routes/settings/memory";
+import SettingsToolPoliciesPage from "./routes/settings/policies";
 import LoginRoute from "./routes/login";
 import SetupRoute from "./routes/setup";
 
@@ -232,6 +233,13 @@ const settingsMemoryRoute = createRoute({
   component: SettingsMemoryPage,
 });
 
+// /settings/policies — tool approval policy management
+const settingsToolPoliciesRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "policies",
+  component: SettingsToolPoliciesPage,
+});
+
 // /settings/agents/$agentId → individual agent editor
 const settingsAgentRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -284,6 +292,7 @@ const routeTree = rootRoute.addChildren([
     settingsUsageRoute,
     settingsAgentRoute,
     settingsMemoryRoute,
+    settingsToolPoliciesRoute,
     settingsSectionRoute,
   ]),
 ]);

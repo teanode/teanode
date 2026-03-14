@@ -132,6 +132,13 @@ func (self *projectTodoTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *projectTodoTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAdminOnly},
+	}
+}
+
 func (self *projectTodoTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action      string             `json:"action"`

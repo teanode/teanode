@@ -183,6 +183,12 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 	case "questions.answer":
 		return self.handleQuestionsAnswer(frame)
 
+	// Approvals.
+	case "approvals.list":
+		return self.handleApprovalsList(frame)
+	case "approvals.resolve":
+		return self.handleApprovalsResolve(frame)
+
 	// Tab integration.
 	case "tab.attach":
 		return self.handleTabAttach(frame)
@@ -202,6 +208,12 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 		return self.handleMemorySearch(frame)
 	case "memory.delete":
 		return self.handleMemoryDelete(frame)
+
+	// Tool policies.
+	case "toolPolicies.list":
+		return self.handleToolPoliciesList(frame)
+	case "toolPolicies.update":
+		return self.handleToolPoliciesUpdate(frame)
 
 	default:
 		return nil, rpcError(404, "unknown method: "+frame.Method)

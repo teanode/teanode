@@ -60,6 +60,12 @@ func (self *gatewayTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *gatewayTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAdminApproval},
+	}
+}
+
 func (self *gatewayTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || !user.GetAdmin() {

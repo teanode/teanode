@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type mergeRequestsTool struct {
@@ -152,6 +154,13 @@ func (self *mergeRequestsTool) Definition() providers.ToolDefinition {
 				"description": "JSON object with merge request data from GitLab.",
 			},
 		},
+	}
+}
+
+func (self *mergeRequestsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list", "view", "diff"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
 

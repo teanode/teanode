@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 type actionsTool struct {
@@ -49,6 +51,13 @@ func (self *actionsTool) Definition() providers.ToolDefinition {
 				"description": "JSON object with GitHub Actions data.",
 			},
 		},
+	}
+}
+
+func (self *actionsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list_workflows", "list_runs", "view_run"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
 

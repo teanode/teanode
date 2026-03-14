@@ -456,6 +456,41 @@ export interface ConversationQuestionsEvent {
   other?: string;
 }
 
+// Pending approval types (tool approval system)
+
+export interface PendingApproval {
+  id: string;
+  conversationId: string;
+  agentId: string;
+  userId: string;
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  arguments: string;
+  policyReason: string;
+  risk?: string;
+}
+
+export interface PendingApprovalsListResult {
+  approvals: PendingApproval[];
+}
+
+export interface ConversationApprovalsEvent {
+  action: string; // "requested" | "resolved"
+  approvalId: string;
+  conversationId?: string;
+  agentId?: string;
+  userId?: string;
+  runId?: string;
+  toolCallId?: string;
+  toolName?: string;
+  arguments?: string;
+  policyReason?: string;
+  risk?: string;
+  verdict?: string;
+  reason?: string;
+}
+
 // Display message types for the UI
 
 export type DisplayMessageType =
@@ -475,6 +510,40 @@ export interface DisplayMessage {
   timestamp?: number; // ms since epoch
   runId?: string; // associates message with a runner for queuing
   attachments?: Attachment[];
+}
+
+// Tool policy types
+
+export type ToolPolicyLevel =
+  | "disabled"
+  | "admin_approval"
+  | "admin_only"
+  | "anyone_approval"
+  | "anyone";
+
+export type ToolPolicyGroup = "*" | "read" | "write";
+
+export interface ToolPolicyConfiguration {
+  tool: string;
+  group: ToolPolicyGroup;
+  level: ToolPolicyLevel;
+}
+
+export interface ToolActionGroupEntry {
+  group: ToolPolicyGroup;
+  defaultPolicy: ToolPolicyLevel;
+}
+
+export interface ToolActionEntry {
+  name: string;
+  groups: ToolActionGroupEntry[];
+  source: "builtin" | "skill";
+  skill?: string;
+}
+
+export interface ToolPoliciesListResult {
+  tools: ToolActionEntry[];
+  policies: ToolPolicyConfiguration[];
 }
 
 // Memory types

@@ -74,6 +74,13 @@ func (self *projectsTool) Definition() providers.ToolDefinition {
 	}
 }
 
+func (self *projectsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list", "info"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAdminOnly},
+	}
+}
+
 func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Action      string `json:"action"`

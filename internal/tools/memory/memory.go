@@ -297,6 +297,13 @@ type executeArguments struct {
 	Persist      *persistOptions `json:"persist"`
 }
 
+func (self *memoryTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"get", "list", "search", "retrieve", "summary", "filter"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
+}
+
 func (self *memoryTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments executeArguments
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {

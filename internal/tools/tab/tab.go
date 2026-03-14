@@ -243,6 +243,13 @@ type tabArguments struct {
 	Code                string            `json:"code,omitempty"`
 }
 
+func (self *tabTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"fetch", "listCookies", "getCookie", "getLocalStorage", "snapshot", "querySelector"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
+}
+
 func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	origin := runners.OriginFromContext(ctx)
 	if origin != runners.OriginWeb {

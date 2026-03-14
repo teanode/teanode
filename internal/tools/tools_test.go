@@ -5,6 +5,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 )
 
@@ -14,6 +15,12 @@ func (self *stubTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type:     "function",
 		Function: providers.FunctionSpec{Name: self.name},
+	}
+}
+
+func (self *stubTool) PolicyGroups() []PolicyGroup {
+	return []PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 
