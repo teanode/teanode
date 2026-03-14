@@ -95,8 +95,11 @@ func (self *jobsTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *jobsTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
+func (self *jobsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string, error) {

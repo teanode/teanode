@@ -62,10 +62,6 @@ type conversationTodoResponse struct {
 	Success    bool           `json:"success,omitempty"`
 }
 
-func (self *conversationTodoTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 func (self *conversationTodoTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
@@ -131,6 +127,13 @@ func (self *conversationTodoTool) Definition() providers.ToolDefinition {
 				"required": []string{"action"},
 			},
 		},
+	}
+}
+
+func (self *conversationTodoTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
 

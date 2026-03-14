@@ -65,15 +65,11 @@ func (self *configurationTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *configurationTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	if tools.IsAdmin(ctx) {
-		return tools.AllowPolicy()
+func (self *configurationTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"get", "schema"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAdminOnly},
 	}
-	action := tools.ParseAction(arguments)
-	if action == "set" {
-		return tools.DenyPolicy("admin access required for config.set")
-	}
-	return tools.AllowPolicy()
 }
 
 func (self *configurationTool) Execute(ctx context.Context, rawArguments string) (string, error) {

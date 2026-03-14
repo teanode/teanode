@@ -221,10 +221,6 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *tabTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 type tabArguments struct {
 	Action              string            `json:"action"`
 	Method              string            `json:"method,omitempty"`
@@ -245,6 +241,13 @@ type tabArguments struct {
 	Mode                string            `json:"mode,omitempty"`
 	All                 bool              `json:"all,omitempty"`
 	Code                string            `json:"code,omitempty"`
+}
+
+func (self *tabTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"fetch", "listCookies", "getCookie", "getLocalStorage", "snapshot", "querySelector"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, error) {

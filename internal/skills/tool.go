@@ -34,12 +34,14 @@ type ShellTool struct {
 	definition models.SkillTool
 }
 
-func (self *ShellTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 func (self *ShellTool) Definition() providers.ToolDefinition {
 	return toolDefinition(self.definition)
+}
+
+func (self *ShellTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string, error) {
@@ -69,12 +71,14 @@ type HTTPTool struct {
 	authenticationProfiles map[string]models.SkillAuthenticationProfiles
 }
 
-func (self *HTTPTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 func (self *HTTPTool) Definition() providers.ToolDefinition {
 	return toolDefinition(self.definition)
+}
+
+func (self *HTTPTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *HTTPTool) Execute(ctx context.Context, rawArguments string) (string, error) {
@@ -100,12 +104,14 @@ type WorkflowTool struct {
 	authenticationProfiles map[string]models.SkillAuthenticationProfiles
 }
 
-func (self *WorkflowTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 func (self *WorkflowTool) Definition() providers.ToolDefinition {
 	return toolDefinition(self.definition)
+}
+
+func (self *WorkflowTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *WorkflowTool) Execute(ctx context.Context, rawArguments string) (string, error) {

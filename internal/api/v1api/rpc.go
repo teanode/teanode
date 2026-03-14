@@ -209,6 +209,12 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 	case "memory.delete":
 		return self.handleMemoryDelete(frame)
 
+	// Tool policies.
+	case "toolPolicies.list":
+		return self.handleToolPoliciesList(frame)
+	case "toolPolicies.update":
+		return self.handleToolPoliciesUpdate(frame)
+
 	default:
 		return nil, rpcError(404, "unknown method: "+frame.Method)
 	}

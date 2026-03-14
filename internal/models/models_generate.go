@@ -48,7 +48,7 @@ func main() {
 	generator.GenerateUpdate(new(models.DiscordConfiguration))
 	generator.GenerateUpdate(new(models.TelegramConfiguration))
 	generator.GenerateUpdate(new(models.SecretConfiguration))
-	generator.GenerateUpdate(new(models.SkillRegistryConfiguration))
+	generator.GenerateUpdate(new(models.ToolPolicyConfiguration))
 
 	// Getter methods for entity types
 	generator.GenerateGetters(new(models.Agent))
@@ -88,5 +88,7 @@ func main() {
 	generator.GenerateGetters(new(models.DiscordConfiguration))
 	generator.GenerateGetters(new(models.TelegramConfiguration))
 	generator.GenerateGetters(new(models.SecretConfiguration))
-	generator.GenerateGetters(new(models.SkillRegistryConfiguration))
+	generator.GenerateGetters(new(models.ToolPolicyConfiguration))
+
+	generator.MustWriteFile("models_gen.go")
 }

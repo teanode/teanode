@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
@@ -103,10 +104,6 @@ func createTools() []tools.Tool {
 	}}
 }
 
-func (self *claudeCodeTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 func (self *claudeCodeTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
@@ -181,6 +178,12 @@ func (self *claudeCodeTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *claudeCodeTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 

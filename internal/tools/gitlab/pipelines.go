@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 )
@@ -57,8 +58,11 @@ func (self *pipelinesTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *pipelinesTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
+func (self *pipelinesTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list", "view"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *pipelinesTool) Execute(ctx context.Context, rawArguments string) (string, error) {

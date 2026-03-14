@@ -74,18 +74,11 @@ func (self *projectsTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *projectsTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	if tools.IsAdmin(ctx) {
-		return tools.AllowPolicy()
+func (self *projectsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list", "info"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAdminOnly},
 	}
-	action := tools.ParseAction(arguments)
-	if action == "list" || action == "info" {
-		return tools.AllowPolicy()
-	}
-	if action == "" {
-		return tools.DenyPolicy("admin access required for projects management actions")
-	}
-	return tools.DenyPolicy("admin access required for projects." + action)
 }
 
 func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (string, error) {

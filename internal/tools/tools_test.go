@@ -5,6 +5,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 )
 
@@ -17,8 +18,10 @@ func (self *stubTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *stubTool) Policy(ctx context.Context, arguments string) PolicyDecision {
-	return AllowPolicy()
+func (self *stubTool) PolicyGroups() []PolicyGroup {
+	return []PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *stubTool) Execute(_ context.Context, _ string) (string, error) {

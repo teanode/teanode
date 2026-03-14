@@ -140,10 +140,6 @@ type batchSummary struct {
 	Failed    int `json:"failed"`
 }
 
-func (self *memoryTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 func (self *memoryTool) Definition() providers.ToolDefinition {
 	batchOps := []string{"add", "update", "delete", "get"}
 	properties := map[string]interface{}{
@@ -299,6 +295,13 @@ type executeArguments struct {
 	Before       string          `json:"before"`
 	MaxMessages  int             `json:"maxMessages"`
 	Persist      *persistOptions `json:"persist"`
+}
+
+func (self *memoryTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"get", "list", "search", "retrieve", "summary", "filter"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *memoryTool) Execute(ctx context.Context, rawArguments string) (string, error) {

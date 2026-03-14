@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 )
@@ -49,8 +50,10 @@ func (self *searchTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *searchTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
+func (self *searchTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *searchTool) Execute(ctx context.Context, rawArguments string) (string, error) {

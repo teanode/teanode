@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 )
@@ -39,14 +40,16 @@ func (self *datetimeTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *datetimeTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 // formatNow returns the current datetime as a formatted string.
 // Both Execute and BuildOverlay share this code path to avoid drift.
 func formatNow() string {
 	return clock().Format("2006-01-02 15:04:05 MST")
+}
+
+func (self *datetimeTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *datetimeTool) Execute(ctx context.Context, rawArguments string) (string, error) {

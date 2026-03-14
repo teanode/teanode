@@ -225,6 +225,34 @@ export default function SettingsNav({
             </ListItemButton>
           )}
 
+          {backend.isAdmin && (
+            <ListItemButton
+              dense
+              onClick={() => onNavigate("/settings/policies")}
+              sx={{
+                borderRadius: 1,
+                mb: 0.25,
+                ...(activeSectionId === "policies"
+                  ? {
+                      bgcolor: "accentDim",
+                      color: "#fff",
+                      "&:hover": { bgcolor: "accentDim" },
+                    }
+                  : {}),
+              }}
+            >
+              <ListItemText
+                primary={t("settings.toolPolicies")}
+                primaryTypographyProps={{
+                  variant: "caption",
+                  fontSize: "13px",
+                  color:
+                    activeSectionId === "policies" ? "#fff" : "text.secondary",
+                }}
+              />
+            </ListItemButton>
+          )}
+
           <SidebarSectionTitle>Security</SidebarSectionTitle>
           <ListItemButton
             dense

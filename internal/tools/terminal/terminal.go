@@ -69,8 +69,11 @@ func (self *terminalTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *terminalTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
+func (self *terminalTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list", "screenshot"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (string, error) {

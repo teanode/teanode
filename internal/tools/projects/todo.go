@@ -132,18 +132,11 @@ func (self *projectTodoTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *projectTodoTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	if tools.IsAdmin(ctx) {
-		return tools.AllowPolicy()
+func (self *projectTodoTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAdminOnly},
 	}
-	action := tools.ParseAction(arguments)
-	if action == "list" {
-		return tools.AllowPolicy()
-	}
-	if action == "" {
-		return tools.DenyPolicy("admin access required for project_todo management actions")
-	}
-	return tools.DenyPolicy("admin access required for project_todo." + action)
 }
 
 func (self *projectTodoTool) Execute(ctx context.Context, rawArguments string) (string, error) {

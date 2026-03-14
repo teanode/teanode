@@ -63,15 +63,6 @@ type storeChannelsRecord struct {
 	Telegram *storeTelegramRecord `json:"telegram,omitempty" yaml:"telegram,omitempty"`
 }
 
-type storeSkillRegistryRecord struct {
-	ID               string   `json:"id,omitempty" yaml:"id,omitempty"`
-	Publisher        string   `json:"publisher,omitempty" yaml:"publisher,omitempty"`
-	IndexURL         string   `json:"indexUrl,omitempty" yaml:"indexUrl,omitempty"`
-	PublicKeys       []string `json:"publicKeys,omitempty" yaml:"publicKeys,omitempty"`
-	IgnoreSignatures bool     `json:"ignoreSignatures,omitempty" yaml:"ignoreSignatures,omitempty"`
-	IgnoreUpdates    bool     `json:"ignoreUpdates,omitempty" yaml:"ignoreUpdates,omitempty"`
-}
-
 type storeToolsRecord struct {
 	BraveAPIKey   string                     `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
 	Google        *storeGoogleToolRecord     `json:"google,omitempty" yaml:"google,omitempty"`
@@ -137,14 +128,13 @@ type storeUniFiProtectRecord struct {
 }
 
 type storeConfigurationRecord struct {
-	Gateway          storeGatewayRecord         `json:"gateway,omitempty" yaml:"gateway,omitempty"`
-	Certificate      *storeCertificateRecord    `json:"certificate,omitempty" yaml:"certificate,omitempty"`
-	Models           storeModelsRecord          `json:"models,omitempty" yaml:"models,omitempty"`
-	Tools            storeToolsRecord           `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Integrations     storeIntegrationsRecord    `json:"integrations,omitempty" yaml:"integrations,omitempty"`
-	Channels         storeChannelsRecord        `json:"channels,omitempty" yaml:"channels,omitempty"`
-	Secrets          map[string]string          `json:"secrets,omitempty" yaml:"secrets,omitempty"`
-	SkillsRegistries []storeSkillRegistryRecord `json:"skillsRegistries,omitempty" yaml:"skillsRegistries,omitempty"`
+	Gateway      storeGatewayRecord      `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Certificate  *storeCertificateRecord `json:"certificate,omitempty" yaml:"certificate,omitempty"`
+	Models       storeModelsRecord       `json:"models,omitempty" yaml:"models,omitempty"`
+	Tools        storeToolsRecord        `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Integrations storeIntegrationsRecord `json:"integrations,omitempty" yaml:"integrations,omitempty"`
+	Channels     storeChannelsRecord     `json:"channels,omitempty" yaml:"channels,omitempty"`
+	Secrets      map[string]string       `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 }
 
 type storeAgentRecord struct {

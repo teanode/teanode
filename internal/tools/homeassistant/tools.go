@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 )
@@ -19,10 +20,6 @@ type homeAssistantTool struct{}
 type homeAssistantExecution struct {
 	client  Client
 	checker *AccessChecker
-}
-
-func (self *homeAssistantTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
 }
 
 func (self *homeAssistantTool) Definition() providers.ToolDefinition {
@@ -97,6 +94,13 @@ func (self *homeAssistantTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *homeAssistantTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list_entities", "get_state", "list_areas", "get_history"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/cmdexec"
@@ -95,11 +96,10 @@ func (self *shellTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *shellTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	if tools.IsAdmin(ctx) {
-		return tools.AllowPolicy()
+func (self *shellTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAdminOnly},
 	}
-	return tools.DenyPolicy("admin access required for shell tool")
 }
 
 func (self *shellTool) Execute(ctx context.Context, rawArguments string) (string, error) {

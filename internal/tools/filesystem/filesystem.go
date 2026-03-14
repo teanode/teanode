@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/atomicfile"
@@ -116,18 +117,11 @@ func (self *filesystemTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *filesystemTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	if tools.IsAdmin(ctx) {
-		return tools.AllowPolicy()
+func (self *filesystemTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"read", "list", "info"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyoneApproval},
 	}
-	action := tools.ParseAction(arguments)
-	if action == "read" || action == "list" || action == "info" {
-		return tools.AllowPolicy()
-	}
-	if action == "" {
-		return tools.DenyPolicy("admin access required for filesystem write actions")
-	}
-	return tools.ApprovalPolicy("filesystem."+action+" requires approval", "medium")
 }
 
 func (self *filesystemTool) Execute(ctx context.Context, rawArguments string) (string, error) {

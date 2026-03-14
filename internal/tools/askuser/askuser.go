@@ -61,8 +61,10 @@ func (self *askUserQuestionTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *askUserQuestionTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
+func (self *askUserQuestionTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments string) (string, error) {

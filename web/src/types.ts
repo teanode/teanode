@@ -512,6 +512,40 @@ export interface DisplayMessage {
   attachments?: Attachment[];
 }
 
+// Tool policy types
+
+export type ToolPolicyLevel =
+  | "disabled"
+  | "admin_approval"
+  | "admin_only"
+  | "anyone_approval"
+  | "anyone";
+
+export type ToolPolicyGroup = "*" | "read" | "write";
+
+export interface ToolPolicyConfiguration {
+  tool: string;
+  group: ToolPolicyGroup;
+  level: ToolPolicyLevel;
+}
+
+export interface ToolActionGroupEntry {
+  group: ToolPolicyGroup;
+  defaultPolicy: ToolPolicyLevel;
+}
+
+export interface ToolActionEntry {
+  name: string;
+  groups: ToolActionGroupEntry[];
+  source: "builtin" | "skill";
+  skill?: string;
+}
+
+export interface ToolPoliciesListResult {
+  tools: ToolActionEntry[];
+  policies: ToolPolicyConfiguration[];
+}
+
 // Memory types
 
 export interface MemoryItem {

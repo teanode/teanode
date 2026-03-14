@@ -65,8 +65,10 @@ func (self *listConversationsTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *listConversationsTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
+func (self *listConversationsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *listConversationsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
@@ -178,8 +180,10 @@ func (self *compactConversationTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *compactConversationTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
+func (self *compactConversationTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *compactConversationTool) Execute(ctx context.Context, rawArguments string) (string, error) {

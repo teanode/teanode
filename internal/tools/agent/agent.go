@@ -39,13 +39,6 @@ func selfAgentId(ctx context.Context) string {
 
 type agentCreateTool struct{}
 
-func (self *agentCreateTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	if tools.IsAdmin(ctx) {
-		return tools.AllowPolicy()
-	}
-	return tools.DenyPolicy("admin access required for agent_create")
-}
-
 func (self *agentCreateTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
@@ -75,6 +68,12 @@ func (self *agentCreateTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *agentCreateTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAdminOnly},
 	}
 }
 
@@ -128,10 +127,6 @@ func (self *agentCreateTool) Execute(ctx context.Context, rawArguments string) (
 
 type agentListTool struct{}
 
-func (self *agentListTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 func (self *agentListTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
@@ -161,6 +156,12 @@ func (self *agentListTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *agentListTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 
@@ -215,10 +216,6 @@ func (self *agentListTool) Execute(ctx context.Context, _ string) (string, error
 
 type agentMessageTool struct{}
 
-func (self *agentMessageTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 func (self *agentMessageTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
@@ -252,6 +249,12 @@ func (self *agentMessageTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *agentMessageTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 
@@ -328,10 +331,6 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 
 type subagentSpawnTool struct{}
 
-func (self *subagentSpawnTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
-}
-
 func (self *subagentSpawnTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
@@ -366,6 +365,12 @@ func (self *subagentSpawnTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *subagentSpawnTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
 	}
 }
 

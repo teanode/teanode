@@ -71,8 +71,10 @@ func (self *stubTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *stubTool) Policy(ctx context.Context, arguments string) toolregistry.PolicyDecision {
-	return toolregistry.AllowPolicy()
+func (self *stubTool) PolicyGroups() []toolregistry.PolicyGroup {
+	return []toolregistry.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *stubTool) Execute(_ context.Context, _ string) (string, error) {
@@ -794,7 +796,7 @@ func TestRunnerRunRequiresUserID(t *testing.T) {
 
 // ── Policy-based tool tests ────────────────────────────────────────────
 
-// denyTool always returns PolicyDeny.
+// denyTool uses ToolPolicyDisabled so ResolveToolPolicy always denies.
 type denyTool struct{ name string }
 
 func (self *denyTool) Definition() providers.ToolDefinition {
@@ -804,15 +806,17 @@ func (self *denyTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *denyTool) Policy(_ context.Context, _ string) toolregistry.PolicyDecision {
-	return toolregistry.DenyPolicy("admin access required")
+func (self *denyTool) PolicyGroups() []toolregistry.PolicyGroup {
+	return []toolregistry.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyDisabled},
+	}
 }
 
 func (self *denyTool) Execute(_ context.Context, _ string) (string, error) {
 	return "ok", nil
 }
 
-// approvalTool always returns PolicyRequireApproval.
+// approvalTool uses ToolPolicyAnyoneApproval so ResolveToolPolicy always requires approval.
 type approvalTool struct{ name string }
 
 func (self *approvalTool) Definition() providers.ToolDefinition {
@@ -822,8 +826,10 @@ func (self *approvalTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *approvalTool) Policy(_ context.Context, _ string) toolregistry.PolicyDecision {
-	return toolregistry.ApprovalPolicy("requires approval", "high")
+func (self *approvalTool) PolicyGroups() []toolregistry.PolicyGroup {
+	return []toolregistry.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyoneApproval},
+	}
 }
 
 func (self *approvalTool) Execute(_ context.Context, _ string) (string, error) {
@@ -862,7 +868,7 @@ func TestRunnerToolDenyPolicy(t *testing.T) {
 	if len(toolResults) != 1 {
 		t.Fatalf("expected 1 tool result, got %d", len(toolResults))
 	}
-	if !strings.Contains(toolResults[0], "admin access required") {
+	if !strings.Contains(toolResults[0], "is disabled by policy") {
 		t.Errorf("expected denial message, got: %s", toolResults[0])
 	}
 

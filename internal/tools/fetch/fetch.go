@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/version"
@@ -72,8 +73,10 @@ func (self *fetchTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *fetchTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
+func (self *fetchTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *fetchTool) Execute(ctx context.Context, rawArguments string) (string, error) {

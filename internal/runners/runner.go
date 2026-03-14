@@ -415,7 +415,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 			}
 
 			arguments := repairToolArguments(toolCall.Function.Arguments)
-			decision := tool.Policy(ctx, arguments)
+			decision := tools.ResolveToolPolicy(ctx, tool, toolCall.Function.Name, arguments)
 
 			switch decision.Action {
 			case tools.PolicyDeny:

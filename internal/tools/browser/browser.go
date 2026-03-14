@@ -107,8 +107,11 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *browserTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
+func (self *browserTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"screenshot", "snapshot"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *browserTool) Execute(ctx context.Context, rawArguments string) (string, error) {
@@ -380,8 +383,11 @@ func (self *browserTabsTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *browserTabsTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
+func (self *browserTabsTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
+	}
 }
 
 func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (string, error) {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 )
@@ -19,10 +20,6 @@ type unifiProtectTool struct{}
 type unifiProtectExecution struct {
 	client  Client
 	checker *AccessChecker
-}
-
-func (self *unifiProtectTool) Policy(ctx context.Context, arguments string) tools.PolicyDecision {
-	return tools.AllowPolicy()
 }
 
 func (self *unifiProtectTool) Definition() providers.ToolDefinition {
@@ -96,6 +93,13 @@ func (self *unifiProtectTool) Definition() providers.ToolDefinition {
 				},
 			},
 		},
+	}
+}
+
+func (self *unifiProtectTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list_cameras", "get_camera", "get_snapshot"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
 

@@ -2,19 +2,46 @@ package models
 
 import "time"
 
+// ToolPolicyLevel controls access and approval requirements for a tool action group.
+type ToolPolicyLevel string
+
+const (
+	ToolPolicyDisabled       ToolPolicyLevel = "disabled"
+	ToolPolicyAdminApproval  ToolPolicyLevel = "admin_approval"
+	ToolPolicyAdminOnly      ToolPolicyLevel = "admin_only"
+	ToolPolicyAnyoneApproval ToolPolicyLevel = "anyone_approval"
+	ToolPolicyAnyone         ToolPolicyLevel = "anyone"
+)
+
+// ToolPolicyGroup classifies tool actions for policy resolution.
+type ToolPolicyGroup string
+
+const (
+	ToolPolicyGroupAll   ToolPolicyGroup = "*"
+	ToolPolicyGroupRead  ToolPolicyGroup = "read"
+	ToolPolicyGroupWrite ToolPolicyGroup = "write"
+)
+
+// ToolPolicyConfiguration maps a tool + action group to a policy level.
+type ToolPolicyConfiguration struct {
+	Tool  *string          `json:"tool,omitempty" yaml:"tool,omitempty"`
+	Group *ToolPolicyGroup `json:"group,omitempty" yaml:"group,omitempty"`
+	Level *ToolPolicyLevel `json:"level,omitempty" yaml:"level,omitempty"`
+}
+
 type Configuration struct {
 	ID         string     `json:"id,omitempty" yaml:"id,omitempty"`
 	CreatedAt  *time.Time `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
 	ModifiedAt *time.Time `json:"modifiedAt,omitempty" yaml:"modifiedAt,omitempty"`
 
-	Gateway          *GatewayConfiguration          `json:"gateway,omitempty" yaml:"gateway,omitempty"`
-	Certificate      *CertificateConfiguration      `json:"certificate,omitempty" yaml:"certificate,omitempty"`
-	Models           *ModelsConfiguration           `json:"models,omitempty" yaml:"models,omitempty"`
-	Tools            *ToolsConfiguration            `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Integrations     *IntegrationsConfiguration     `json:"integrations,omitempty" yaml:"integrations,omitempty"`
-	Channels         *ChannelsConfiguration         `json:"channels,omitempty" yaml:"channels,omitempty"`
-	Secrets          *[]*SecretConfiguration        `json:"secrets,omitempty" yaml:"secrets,omitempty"`
-	SkillsRegistries *[]*SkillRegistryConfiguration `json:"skillsRegistries,omitempty" yaml:"skillsRegistries,omitempty"`
+	Gateway      *GatewayConfiguration       `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Certificate  *CertificateConfiguration   `json:"certificate,omitempty" yaml:"certificate,omitempty"`
+	Models       *ModelsConfiguration        `json:"models,omitempty" yaml:"models,omitempty"`
+	Tools        *ToolsConfiguration         `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Integrations *IntegrationsConfiguration  `json:"integrations,omitempty" yaml:"integrations,omitempty"`
+	Channels     *ChannelsConfiguration      `json:"channels,omitempty" yaml:"channels,omitempty"`
+	Secrets      *[]*SecretConfiguration     `json:"secrets,omitempty" yaml:"secrets,omitempty"`
+	ToolPolicies *[]*ToolPolicyConfiguration `json:"toolPolicies,omitempty" yaml:"toolPolicies,omitempty"`
 }
 
 type BindMode string
@@ -148,13 +175,4 @@ type TelegramConfiguration struct {
 type SecretConfiguration struct {
 	Key   *string `json:"key,omitempty" yaml:"key,omitempty"`
 	Value *string `json:"value,omitempty" yaml:"value,omitempty"`
-}
-
-type SkillRegistryConfiguration struct {
-	ID               *string   `json:"id,omitempty" yaml:"id,omitempty"`
-	Publisher        *string   `json:"publisher,omitempty" yaml:"publisher,omitempty"`
-	IndexURL         *string   `json:"indexUrl,omitempty" yaml:"indexUrl,omitempty"`
-	PublicKeys       *[]string `json:"publicKeys,omitempty" yaml:"publicKeys,omitempty"`
-	IgnoreSignatures *bool     `json:"ignoreSignatures,omitempty" yaml:"ignoreSignatures,omitempty"`
-	IgnoreUpdates    *bool     `json:"ignoreUpdates,omitempty" yaml:"ignoreUpdates,omitempty"`
 }
