@@ -32,8 +32,14 @@ export default function TodoPanel({
 }: TodoPanelProps) {
   const { t } = useTranslation();
 
-  const openTodos = todos.filter((todo) => todo.status === "open");
-  const doneTodos = todos.filter((todo) => todo.status === "done");
+  const byCreatedAt = (a: Todo, b: Todo) =>
+    (a.createdAt || "").localeCompare(b.createdAt || "");
+  const openTodos = todos
+    .filter((todo) => todo.status === "open")
+    .sort(byCreatedAt);
+  const doneTodos = todos
+    .filter((todo) => todo.status === "done")
+    .sort(byCreatedAt);
   const openCount = openTodos.length;
 
   if (todos.length === 0) return null;

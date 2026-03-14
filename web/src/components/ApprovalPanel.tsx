@@ -32,6 +32,11 @@ export default function ApprovalPanel({
   const { t } = useTranslation();
   const [submitted, setSubmitted] = useState(false);
 
+  // Reset submitted state when the approvals list changes.
+  React.useEffect(() => {
+    setSubmitted(false);
+  }, [approvals.length]);
+
   if (approvals.length === 0) return null;
 
   function handleApprove(approval: PendingApproval) {
@@ -53,11 +58,6 @@ export default function ApprovalPanel({
       approvals.map((a) => ({ approvalId: a.id, verdict: "approved" })),
     );
   }
-
-  // Reset submitted state when the approvals list changes.
-  React.useEffect(() => {
-    setSubmitted(false);
-  }, [approvals.length]);
 
   return (
     <Container maxWidth="md" sx={{ py: 1.5 }}>

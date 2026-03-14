@@ -175,11 +175,11 @@ func TestBuildTodoOverlay_MoreThan10Open(t *testing.T) {
 	}
 }
 
-func TestBuildTodoOverlay_PriorityOrdering(t *testing.T) {
+func TestBuildTodoOverlay_OldestFirstOrdering(t *testing.T) {
 	ctx, dataStore := setupOverlayStore(t)
 	convID := createTestConversation(t, ctx, dataStore, "user4", "agent4")
 
-	// Create in reverse priority order to test sorting
+	// Create in reverse priority order; overlay should show oldest-first regardless of priority
 	for idx := 0; idx < 3; idx++ {
 		createTodo(t, ctx, dataStore, convID, "Low task", models.TodoStatusOpen, models.TodoPriorityLow)
 	}
@@ -195,18 +195,19 @@ func TestBuildTodoOverlay_PriorityOrdering(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// Low tasks were created first, so they should appear before High tasks
+	lowIdx := strings.Index(result, "[LOW]")
 	highIdx := strings.Index(result, "[HIGH]")
 	medIdx := strings.Index(result, "[MEDIUM]")
-	lowIdx := strings.Index(result, "[LOW]")
 
-	if highIdx < 0 || medIdx < 0 || lowIdx < 0 {
+	if lowIdx < 0 || highIdx < 0 || medIdx < 0 {
 		t.Fatalf("missing priority labels in overlay: %s", result)
 	}
-	if highIdx >= medIdx {
-		t.Errorf("HIGH should appear before MEDIUM: high=%d medium=%d", highIdx, medIdx)
+	if lowIdx >= highIdx {
+		t.Errorf("LOW (created first) should appear before HIGH (created later): low=%d high=%d", lowIdx, highIdx)
 	}
-	if medIdx >= lowIdx {
-		t.Errorf("MEDIUM should appear before LOW: medium=%d low=%d", medIdx, lowIdx)
+	if highIdx >= medIdx {
+		t.Errorf("HIGH (created second) should appear before MEDIUM (created last): high=%d medium=%d", highIdx, medIdx)
 	}
 }
 

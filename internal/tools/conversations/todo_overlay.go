@@ -3,6 +3,7 @@ package conversations
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/teanode/teanode/internal/models"
@@ -43,9 +44,8 @@ func buildTodoOverlay(ctx context.Context, conversationID string) (string, error
 	return overlay, err
 }
 
-// formatTodoOverlay builds the overlay string from a pre-sorted list of todos.
-// The DB returns todos sorted: open first, then by priority (high>medium>low),
-// then by created_at DESC.
+// formatTodoOverlay builds the overlay string from a list of todos.
+// Open items are displayed oldest-first (ascending creation time), capped at 10.
 func formatTodoOverlay(todos []*models.Todo) string {
 	var openCount, doneCount int
 	var openTodos []*models.Todo
@@ -60,10 +60,20 @@ func formatTodoOverlay(todos []*models.Todo) string {
 			doneCount++
 		default:
 			openCount++
-			if len(openTodos) < 10 {
-				openTodos = append(openTodos, todo)
-			}
+			openTodos = append(openTodos, todo)
 		}
+	}
+
+	// Sort open items oldest-first (ascending creation time).
+	sort.Slice(openTodos, func(i, j int) bool {
+		a, b := openTodos[i], openTodos[j]
+		if a.CreatedAt != nil && b.CreatedAt != nil {
+			return a.CreatedAt.Before(*b.CreatedAt)
+		}
+		return a.ID < b.ID
+	})
+	if len(openTodos) > 10 {
+		openTodos = openTodos[:10]
 	}
 
 	if openCount+doneCount == 0 {

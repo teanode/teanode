@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/teanode/teanode/internal/integrations/questions"
 	"github.com/teanode/teanode/internal/models"
@@ -92,6 +93,22 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
+	// When allowOther is enabled, strip any choice that duplicates the Other
+	// button label so the UI doesn't show "Other" twice.
+	if args.AllowOther {
+		label := args.OtherLabel
+		if label == "" {
+			label = "Other"
+		}
+		filtered := args.Choices[:0]
+		for _, c := range args.Choices {
+			if !strings.EqualFold(c, label) {
+				filtered = append(filtered, c)
+			}
+		}
+		args.Choices = filtered
+	}
+
 	if args.Question == "" || len(args.Choices) < 2 {
 		return "", fmt.Errorf("question and at least 2 choices are required")
 	}
