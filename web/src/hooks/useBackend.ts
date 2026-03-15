@@ -1131,6 +1131,33 @@ export function useBackend() {
               setPendingQuestions(qResult?.questions ?? []);
             })
             .catch((error: unknown) => console.error("questions.list:", error));
+
+          // Recover todos – not covered by a useEffect, so must be
+          // loaded explicitly on every (re)connect.
+          sendRpcRef
+            .current<ConversationTodosListResult>("conversations.todos.list", {
+              conversationId: key,
+            })
+            .then((tResult) => {
+              if (conversationIdRef.current !== key) return;
+              setTodos(tResult.todos || []);
+            })
+            .catch((error: unknown) =>
+              console.error("conversations.todos.list:", error),
+            );
+
+          // Recover pending approvals – the standalone useEffect may
+          // not fire when the disconnect grace-period prevents the
+          // `connected` flag from toggling.
+          sendRpcRef
+            .current<PendingApprovalsListResult>("approvals.list", {
+              conversationId: key,
+            })
+            .then((aResult) => {
+              if (conversationIdRef.current !== key) return;
+              setPendingApprovals(aResult?.approvals ?? []);
+            })
+            .catch((error: unknown) => console.error("approvals.list:", error));
         })
         .catch((error: unknown) =>
           console.error("conversations.history reconnect:", error),
@@ -1546,22 +1573,22 @@ export function useBackend() {
   const setDefaultAgent = useCallback(
     (agentId: string) => {
       setServerDefaultAgentId(agentId);
-      sendRpc<AgentsSetDefaultResult>("agents.setDefault", { agentId })
-        .then((result) => {
-          setServerDefaultAgentId(result.defaultAgentId);
-          // Update the agent's defaultConversationId in the agents list.
-          setAgents((previous) =>
-            previous.map((agent) =>
-              agent.id === result.defaultAgentId
-                ? {
-                    ...agent,
-                    defaultConversationId: result.defaultConversationId,
-                  }
-                : agent,
-            ),
-          );
-        })
-        .catch((error: unknown) => console.error("agents.setDefault:", error));
+      return sendRpc<AgentsSetDefaultResult>("agents.setDefault", {
+        agentId,
+      }).then((result) => {
+        setServerDefaultAgentId(result.defaultAgentId);
+        // Update the agent's defaultConversationId in the agents list.
+        setAgents((previous) =>
+          previous.map((agent) =>
+            agent.id === result.defaultAgentId
+              ? {
+                  ...agent,
+                  defaultConversationId: result.defaultConversationId,
+                }
+              : agent,
+          ),
+        );
+      });
     },
     [sendRpc],
   );

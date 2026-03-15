@@ -13,6 +13,7 @@ import CheckIcon from "@mui/icons-material/Check";
 import SaveIcon from "@mui/icons-material/Save";
 import ClearIcon from "@mui/icons-material/Clear";
 import Chip from "@mui/material/Chip";
+import { useAlert } from "../../components/AlertProvider";
 import { useAppContext } from "../../context";
 
 interface SecretEntry {
@@ -25,6 +26,7 @@ interface SecretEntry {
 export default function SettingsSecretsPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
+  const { showAlert } = useAlert();
   const [secrets, setSecrets] = useState<SecretEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -55,6 +57,7 @@ export default function SettingsSecretsPage() {
       const value = values[key] ?? "";
       try {
         await backend.sendRpc("secrets.set", { key, value });
+        showAlert(t("settings.secretSaved"));
         setSavedKeys((prev) => new Set(prev).add(key));
         setTimeout(() => {
           setSavedKeys((prev) => {
@@ -69,28 +72,35 @@ export default function SettingsSecretsPage() {
           return next;
         });
         await loadSecrets();
-      } catch (error) {
-        console.error("secrets.set:", error);
+      } catch (err) {
+        showAlert(
+          err instanceof Error ? err.message : t("settings.secretSaveFailed"),
+          "error",
+        );
       }
     },
-    [backend, values, loadSecrets],
+    [backend, values, loadSecrets, showAlert, t],
   );
 
   const clearSecret = useCallback(
     async (key: string) => {
       try {
         await backend.sendRpc("secrets.set", { key, value: "" });
+        showAlert(t("settings.secretCleared"));
         setValues((prev) => {
           const next = { ...prev };
           delete next[key];
           return next;
         });
         await loadSecrets();
-      } catch (error) {
-        console.error("secrets.set clear:", error);
+      } catch (err) {
+        showAlert(
+          err instanceof Error ? err.message : t("settings.secretClearFailed"),
+          "error",
+        );
       }
     },
-    [backend, loadSecrets],
+    [backend, loadSecrets, showAlert, t],
   );
 
   return (

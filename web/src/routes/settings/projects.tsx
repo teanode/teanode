@@ -23,6 +23,7 @@ import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import { useAlert } from "../../components/AlertProvider";
 import { useAppContext } from "../../context";
 import type { Todo } from "../../types";
 
@@ -55,6 +56,7 @@ const priorityColor: Record<string, "error" | "warning" | "default"> = {
 export default function SettingsProjectsPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
+  const { showAlert } = useAlert();
   const { sendRpc, connected } = backend;
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
   const [nameByProjectId, setNameByProjectId] = useState<
@@ -62,7 +64,6 @@ export default function SettingsProjectsPage() {
   >({});
   const [busyProjectId, setBusyProjectId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProjectEntry | null>(null);
-  const [statusText, setStatusText] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
 
   // Todo summary and expanded todo state.
@@ -162,63 +163,62 @@ export default function SettingsProjectsPage() {
       const nextName = (nameByProjectId[project.id] ?? project.name).trim();
       if (!nextName || nextName === project.name) return;
       setBusyProjectId(project.id);
-      setStatusText("");
       try {
         await sendRpc("projects.rename", {
           projectId: project.id,
           name: nextName,
         });
-        setStatusText(t("settings.projectRenamed", { name: nextName }));
+        showAlert(t("settings.projectRenamed", { name: nextName }));
         await loadProjects();
       } catch (error) {
         console.error("projects.rename:", error);
-        setStatusText(
+        showAlert(
           t("settings.projectRenameFailed", { name: project.name }),
+          "error",
         );
       } finally {
         setBusyProjectId(null);
       }
     },
-    [loadProjects, nameByProjectId, sendRpc, t],
+    [loadProjects, nameByProjectId, sendRpc, showAlert, t],
   );
 
   const confirmDeleteProject = useCallback(async () => {
     if (!pendingDelete) return;
     setBusyProjectId(pendingDelete.id);
-    setStatusText("");
     try {
       await sendRpc("projects.delete", { projectId: pendingDelete.id });
-      setStatusText(t("settings.projectDeleted", { name: pendingDelete.name }));
+      showAlert(t("settings.projectDeleted", { name: pendingDelete.name }));
       setPendingDelete(null);
       await loadProjects();
     } catch (error) {
       console.error("projects.delete:", error);
-      setStatusText(
+      showAlert(
         t("settings.projectDeleteFailed", { name: pendingDelete.name }),
+        "error",
       );
     } finally {
       setBusyProjectId(null);
     }
-  }, [loadProjects, pendingDelete, sendRpc, t]);
+  }, [loadProjects, pendingDelete, sendRpc, showAlert, t]);
 
   const createProject = useCallback(async () => {
     const name = newProjectName.trim();
     if (!name) return;
     setBusyProjectId("__create__");
-    setStatusText("");
     try {
       await sendRpc("projects.create", { name });
-      setStatusText(t("settings.projectCreated", { name }));
+      showAlert(t("settings.projectCreated", { name }));
       setNewProjectName("");
       await loadProjects();
       void loadTodoSummaries();
     } catch (error) {
       console.error("projects.create:", error);
-      setStatusText(t("settings.projectCreateFailed", { name }));
+      showAlert(t("settings.projectCreateFailed", { name }), "error");
     } finally {
       setBusyProjectId(null);
     }
-  }, [loadProjects, loadTodoSummaries, newProjectName, sendRpc, t]);
+  }, [loadProjects, loadTodoSummaries, newProjectName, sendRpc, showAlert, t]);
 
   return (
     <Box sx={{ flex: 1, overflowY: "auto" }}>
@@ -232,12 +232,6 @@ export default function SettingsProjectsPage() {
               {t("settings.projectsDescription")}
             </Typography>
           </Box>
-
-          {!!statusText && (
-            <Typography variant="caption" color="text.secondary">
-              {statusText}
-            </Typography>
-          )}
 
           {sortedProjects.length === 0 && (
             <Paper variant="outlined" sx={{ p: 2 }}>

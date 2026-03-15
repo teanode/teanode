@@ -17,6 +17,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import { useAlert } from "../../components/AlertProvider";
 import JobForm, { type JobFormHandle } from "../../components/JobForm";
 import { useAppContext } from "../../context";
 import type { Job, JobCreateParams, JobUpdateParams } from "../../types";
@@ -47,6 +48,7 @@ export default function SettingsJobsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { backend } = useAppContext();
+  const { showAlert } = useAlert();
   const [pendingDelete, setPendingDelete] = useState<Job | null>(null);
   const [createFormKey, setCreateFormKey] = useState(0);
   const [oneShotMessageByJob, setOneShotMessageByJob] = useState<
@@ -112,9 +114,17 @@ export default function SettingsJobsPage() {
       if (data.model !== (job.providerModelName || ""))
         params.providerModelName = data.model;
       if (data.agentId !== (job.agentId || "")) params.agentId = data.agentId;
-      backend.updateJob(params).catch(() => {});
+      backend
+        .updateJob(params)
+        .then(() => showAlert(t("jobs.jobSaved")))
+        .catch((err: unknown) =>
+          showAlert(
+            err instanceof Error ? err.message : t("jobs.jobSaveFailed"),
+            "error",
+          ),
+        );
     },
-    [backend.updateJob],
+    [backend.updateJob, showAlert, t],
   );
 
   const createJobFromForm = useCallback(
@@ -135,12 +145,18 @@ export default function SettingsJobsPage() {
       backend
         .createJob(params)
         .then(() => {
+          showAlert(t("jobs.jobCreated"));
           setCreateFormKey((previous) => previous + 1);
           setCreateCanSave(false);
         })
-        .catch(() => {});
+        .catch((err: unknown) =>
+          showAlert(
+            err instanceof Error ? err.message : t("jobs.jobCreateFailed"),
+            "error",
+          ),
+        );
     },
-    [backend.createJob],
+    [backend.createJob, showAlert, t],
   );
 
   const saveOneShotJob = useCallback(
@@ -160,13 +176,23 @@ export default function SettingsJobsPage() {
       if (agentId !== (job.agentId || "")) params.agentId = agentId;
       if (Object.keys(params).length === 1) return;
 
-      backend.updateJob(params).catch(() => {});
+      backend
+        .updateJob(params)
+        .then(() => showAlert(t("jobs.jobSaved")))
+        .catch((err: unknown) =>
+          showAlert(
+            err instanceof Error ? err.message : t("jobs.jobSaveFailed"),
+            "error",
+          ),
+        );
     },
     [
       backend.updateJob,
       oneShotMessageByJob,
       oneShotModelByJob,
       oneShotAgentByJob,
+      showAlert,
+      t,
     ],
   );
 
@@ -243,8 +269,18 @@ export default function SettingsJobsPage() {
                         onClick={() =>
                           backend
                             .triggerJob(job.id)
-                            .then(() => viewConversation(job))
-                            .catch(() => {})
+                            .then(() => {
+                              showAlert(t("jobs.jobTriggered"));
+                              viewConversation(job);
+                            })
+                            .catch((err: unknown) =>
+                              showAlert(
+                                err instanceof Error
+                                  ? err.message
+                                  : t("jobs.jobTriggerFailed"),
+                                "error",
+                              ),
+                            )
                         }
                       >
                         <PlayArrowIcon fontSize="small" />
@@ -268,7 +304,23 @@ export default function SettingsJobsPage() {
                         onClick={() =>
                           backend
                             .updateJob({ id: job.id, enabled: !job.enabled })
-                            .catch(() => {})
+                            .then(() =>
+                              showAlert(
+                                t(
+                                  job.enabled
+                                    ? "jobs.jobDisabled"
+                                    : "jobs.jobEnabled",
+                                ),
+                              ),
+                            )
+                            .catch((err: unknown) =>
+                              showAlert(
+                                err instanceof Error
+                                  ? err.message
+                                  : t("jobs.jobToggleFailed"),
+                                "error",
+                              ),
+                            )
                         }
                       >
                         {job.enabled ? (
@@ -469,8 +521,16 @@ export default function SettingsJobsPage() {
           if (!pendingDelete) return;
           backend
             .deleteJob(pendingDelete.id)
-            .then(() => setPendingDelete(null))
-            .catch(() => {});
+            .then(() => {
+              showAlert(t("jobs.jobDeleted"));
+              setPendingDelete(null);
+            })
+            .catch((err: unknown) =>
+              showAlert(
+                err instanceof Error ? err.message : t("jobs.jobDeleteFailed"),
+                "error",
+              ),
+            );
         }}
         onClose={() => setPendingDelete(null)}
       />

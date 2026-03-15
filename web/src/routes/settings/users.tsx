@@ -19,6 +19,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import { useAppContext } from "../../context";
+import { useAlert } from "../../components/AlertProvider";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { withToken } from "../../rpc";
 import type { UserInfo } from "../../types";
@@ -26,8 +27,8 @@ import type { UserInfo } from "../../types";
 export default function SettingsUsersPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
+  const { showAlert } = useAlert();
   const [users, setUsers] = useState<UserInfo[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [createUsername, setCreateUsername] = useState("");
   const [createName, setCreateName] = useState("");
   const [createdCredentials, setCreatedCredentials] = useState<{
@@ -46,9 +47,12 @@ export default function SettingsUsersPage() {
       .sendRpc<{ users: UserInfo[] }>("users.list", {})
       .then((result) => setUsers(result.users || []))
       .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load users"),
+        showAlert(
+          err instanceof Error ? err.message : "Failed to load users",
+          "error",
+        ),
       );
-  }, [backend]);
+  }, [backend, showAlert]);
 
   useEffect(() => {
     if (backend.connected && backend.isAdmin) {
@@ -74,9 +78,8 @@ export default function SettingsUsersPage() {
   }, []);
 
   const createUser = useCallback(async () => {
-    setError(null);
     if (!createUsername.trim()) {
-      setError(t("auth.usernameRequired"));
+      showAlert(t("auth.usernameRequired"), "error");
       return;
     }
     const generatedPassword = generatePassword();
@@ -94,20 +97,35 @@ export default function SettingsUsersPage() {
       setCreateName("");
       loadUsers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create user");
+      showAlert(
+        err instanceof Error ? err.message : "Failed to create user",
+        "error",
+      );
     }
-  }, [backend, createName, createUsername, generatePassword, loadUsers, t]);
+  }, [
+    backend,
+    createName,
+    createUsername,
+    generatePassword,
+    loadUsers,
+    showAlert,
+    t,
+  ]);
 
   const deleteUser = useCallback(async () => {
     if (!pendingDelete) return;
     try {
       await backend.sendRpc("users.delete", { userId: pendingDelete.id });
+      showAlert(t("settings.userDeleted"));
       setPendingDelete(null);
       loadUsers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete user");
+      showAlert(
+        err instanceof Error ? err.message : t("settings.userDeleteFailed"),
+        "error",
+      );
     }
-  }, [backend, loadUsers, pendingDelete]);
+  }, [backend, loadUsers, pendingDelete, showAlert, t]);
 
   const openEditModal = useCallback((user: UserInfo) => {
     setEditingUser(user);
@@ -124,17 +142,16 @@ export default function SettingsUsersPage() {
 
   const saveUserEdits = useCallback(async () => {
     if (!editingUser) return;
-    setError(null);
     if (editingUser.id === backend.currentUserId) {
-      setError(t("settings.cannotDeleteCurrentUser"));
+      showAlert(t("settings.cannotDeleteCurrentUser"), "error");
       return;
     }
     if (!editUsername.trim()) {
-      setError(t("auth.usernameRequired"));
+      showAlert(t("auth.usernameRequired"), "error");
       return;
     }
     if (editPassword.trim() && editPassword.length < 8) {
-      setError(t("auth.passwordMinLength"));
+      showAlert(t("auth.passwordMinLength"), "error");
       return;
     }
     try {
@@ -145,10 +162,14 @@ export default function SettingsUsersPage() {
         description: editDescription.trim(),
         ...(editPassword.trim() ? { newPassword: editPassword } : {}),
       });
+      showAlert(t("settings.userUpdated"));
       closeEditModal();
       loadUsers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update user");
+      showAlert(
+        err instanceof Error ? err.message : t("settings.userUpdateFailed"),
+        "error",
+      );
     }
   }, [
     backend,
@@ -159,13 +180,14 @@ export default function SettingsUsersPage() {
     editPassword,
     editUsername,
     loadUsers,
+    showAlert,
     t,
   ]);
 
   const toggleUserRole = useCallback(
     async (user: UserInfo) => {
       if (user.id === backend.currentUserId) {
-        setError(t("settings.cannotDeleteCurrentUser"));
+        showAlert(t("settings.cannotDeleteCurrentUser"), "error");
         return;
       }
       try {
@@ -173,12 +195,22 @@ export default function SettingsUsersPage() {
           userId: user.id,
           admin: !user.admin,
         });
+        showAlert(
+          t(
+            user.admin
+              ? "settings.userRoleDemoted"
+              : "settings.userRolePromoted",
+          ),
+        );
         loadUsers();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to change role");
+        showAlert(
+          err instanceof Error ? err.message : t("settings.userRoleFailed"),
+          "error",
+        );
       }
     },
-    [backend, loadUsers, t],
+    [backend, loadUsers, showAlert, t],
   );
 
   if (!backend.isAdmin) {
@@ -400,12 +432,6 @@ export default function SettingsUsersPage() {
               </Tooltip>
             </Box>
           </Paper>
-
-          {error && (
-            <Typography variant="caption" color="error">
-              {error}
-            </Typography>
-          )}
         </Box>
       </Container>
 

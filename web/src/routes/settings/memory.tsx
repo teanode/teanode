@@ -26,6 +26,7 @@ import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import SearchIcon from "@mui/icons-material/Search";
 import { renderMarkdown } from "../../markdown";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import { useAlert } from "../../components/AlertProvider";
 import { useAppContext } from "../../context";
 import type { MemoryItem } from "../../types";
 
@@ -76,6 +77,7 @@ function decodeValue(value: string): { scope: ScopeType; id: string } {
 export default function SettingsMemoryPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
+  const { showAlert } = useAlert();
   const { sendRpc, connected, isAdmin, currentUserId: userId } = backend;
 
   const [allEntities, setAllEntities] = useState<ScopedEntity[]>([]);
@@ -84,7 +86,6 @@ export default function SettingsMemoryPage() {
   );
   const [items, setItems] = useState<MemoryItem[]>([]);
   const [query, setQuery] = useState("");
-  const [statusText, setStatusText] = useState("");
   const [pendingDelete, setPendingDelete] = useState<MemoryItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchScores, setSearchScores] = useState<Record<string, number>>({});
@@ -254,14 +255,14 @@ export default function SettingsMemoryPage() {
     if (!pendingDelete) return;
     try {
       await sendRpc("memory.delete", { memoryItemId: pendingDelete.id });
-      setStatusText(t("settings.memoryDeleted"));
+      showAlert(t("settings.memoryDeleted"));
       setPendingDelete(null);
       await fetchItems(query);
     } catch (error) {
       console.error("memory.delete:", error);
-      setStatusText(t("settings.memoryDeleteFailed"));
+      showAlert(t("settings.memoryDeleteFailed"), "error");
     }
-  }, [fetchItems, pendingDelete, query, sendRpc, t]);
+  }, [fetchItems, pendingDelete, query, sendRpc, showAlert, t]);
 
   const canDelete = useCallback(
     (_item: MemoryItem): boolean => {
@@ -299,7 +300,6 @@ export default function SettingsMemoryPage() {
                 setQuery("");
                 setFilterTag(null);
                 setItems([]);
-                setStatusText("");
               }}
             >
               {userEntities.length > 0 && <ListSubheader>Users</ListSubheader>}
@@ -372,12 +372,6 @@ export default function SettingsMemoryPage() {
             }}
           />
         </Box>
-
-        {!!statusText && (
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
-            {statusText}
-          </Typography>
-        )}
 
         {filterTag && (
           <Box sx={{ mb: 1 }}>

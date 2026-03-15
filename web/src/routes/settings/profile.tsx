@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -9,6 +8,7 @@ import Paper from "@mui/material/Paper";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import AvatarUploadButton from "../../components/AvatarUploadButton";
+import { useAlert } from "../../components/AlertProvider";
 import {
   profileGetRpc,
   profileUpdateRpc,
@@ -19,6 +19,7 @@ import type { Profile } from "../../types";
 
 export default function SettingsProfilePage() {
   const { t } = useTranslation();
+  const { showAlert } = useAlert();
   const [profile, setProfile] = useState<Profile>({
     name: "",
     description: "",
@@ -29,8 +30,6 @@ export default function SettingsProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -41,10 +40,13 @@ export default function SettingsProfilePage() {
         setDescription(loaded.description || "");
       })
       .catch((err) =>
-        setError(err instanceof Error ? err.message : "Failed to load profile"),
+        showAlert(
+          err instanceof Error ? err.message : "Failed to load profile",
+          "error",
+        ),
       )
       .finally(() => setLoading(false));
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const normalizedName = name.trim();
   const dirty = useMemo(
@@ -55,10 +57,8 @@ export default function SettingsProfilePage() {
   );
 
   async function handleSave() {
-    setError("");
-    setSuccess("");
     if (!normalizedName) {
-      setError(t("settings.profileNameRequired"));
+      showAlert(t("settings.profileNameRequired"), "error");
       return;
     }
     setSaving(true);
@@ -70,10 +70,11 @@ export default function SettingsProfilePage() {
       setProfile(saved);
       setName(saved.name || "");
       setDescription(saved.description || "");
-      setSuccess(t("settings.profileSaved"));
+      showAlert(t("settings.profileSaved"));
     } catch (err) {
-      setError(
+      showAlert(
         err instanceof Error ? err.message : t("settings.profileSaveFailed"),
+        "error",
       );
     } finally {
       setSaving(false);
@@ -81,15 +82,14 @@ export default function SettingsProfilePage() {
   }
 
   async function handleAvatarUpload(file: File) {
-    setError("");
-    setSuccess("");
     setAvatarBusy(true);
     try {
       const saved = await uploadProfileAvatar(file);
       setProfile(saved);
     } catch (err) {
-      setError(
+      showAlert(
         err instanceof Error ? err.message : t("settings.profileSaveFailed"),
+        "error",
       );
     } finally {
       setAvatarBusy(false);
@@ -97,15 +97,14 @@ export default function SettingsProfilePage() {
   }
 
   async function handleAvatarRemove() {
-    setError("");
-    setSuccess("");
     setAvatarBusy(true);
     try {
       const saved = await removeProfileAvatarRpc();
       setProfile(saved);
     } catch (err) {
-      setError(
+      showAlert(
         err instanceof Error ? err.message : t("settings.profileSaveFailed"),
+        "error",
       );
     } finally {
       setAvatarBusy(false);
@@ -140,17 +139,6 @@ export default function SettingsProfilePage() {
         </Box>
 
         <Paper variant="outlined" sx={{ p: 2 }}>
-          {error && (
-            <Alert severity="error" sx={{ mb: 1.5, fontSize: "0.8rem" }}>
-              {error}
-            </Alert>
-          )}
-          {success && (
-            <Alert severity="success" sx={{ mb: 1.5, fontSize: "0.8rem" }}>
-              {success}
-            </Alert>
-          )}
-
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
               <AvatarUploadButton

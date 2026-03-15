@@ -16,6 +16,7 @@ import { router } from "./router";
 import { getTheme } from "./theme";
 import { useResolvedTheme } from "./themePreference";
 import { useAppContext, AppProvider } from "./context";
+import { AlertProvider } from "./components/AlertProvider";
 import { useBackend } from "./hooks/useBackend";
 import { authStatus } from "./rpc";
 import "./i18n/config";
@@ -187,7 +188,7 @@ function ThemedApp({ children }: { children: React.ReactNode }) {
       <GlobalStyles
         styles={(currentTheme: Theme) => markdownStyles(currentTheme)}
       />
-      {children}
+      <AlertProvider>{children}</AlertProvider>
     </ThemeProvider>
   );
 }

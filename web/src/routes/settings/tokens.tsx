@@ -16,6 +16,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import { useAlert } from "../../components/AlertProvider";
 import { useAppContext } from "../../context";
 import type { AuthTokenInfo } from "../../types";
 
@@ -105,8 +106,8 @@ function TokenItem({
 export default function SettingsTokensPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
+  const { showAlert } = useAlert();
   const [tokens, setTokens] = useState<AuthTokenInfo[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
   const [visibleByTokenId, setVisibleByTokenId] = useState<
     Record<string, boolean>
@@ -120,9 +121,12 @@ export default function SettingsTokensPage() {
       .sendRpc<{ tokens: AuthTokenInfo[] }>("auth.tokens.list", {})
       .then((result) => setTokens(result.tokens || []))
       .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load tokens"),
+        showAlert(
+          err instanceof Error ? err.message : "Failed to load tokens",
+          "error",
+        ),
       );
-  }, [backend]);
+  }, [backend, showAlert]);
 
   useEffect(() => {
     if (backend.connected) {
@@ -143,28 +147,34 @@ export default function SettingsTokensPage() {
   }, [tokens]);
 
   const createToken = useCallback(async () => {
-    setError(null);
     try {
       await backend.sendRpc("auth.tokens.create", {});
+      showAlert(t("auth.tokenCreated"));
       loadTokens();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create token");
+      showAlert(
+        err instanceof Error ? err.message : t("auth.tokenCreateFailed"),
+        "error",
+      );
     }
-  }, [backend, loadTokens]);
+  }, [backend, loadTokens, showAlert, t]);
 
   const deleteToken = useCallback(async () => {
     if (!pendingDelete) return;
-    setError(null);
     try {
       await backend.sendRpc("auth.tokens.delete", {
         tokenId: pendingDelete.id,
       });
+      showAlert(t("auth.tokenDeleted"));
       setPendingDelete(null);
       loadTokens();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete token");
+      showAlert(
+        err instanceof Error ? err.message : t("auth.tokenDeleteFailed"),
+        "error",
+      );
     }
-  }, [backend, loadTokens, pendingDelete]);
+  }, [backend, loadTokens, pendingDelete, showAlert, t]);
 
   const copyToken = useCallback((token: AuthTokenInfo) => {
     navigator.clipboard.writeText(token.token).then(() => {
@@ -225,12 +235,6 @@ export default function SettingsTokensPage() {
                 />
               ))}
             </List>
-          )}
-
-          {error && (
-            <Typography variant="caption" color="error" sx={{ mt: 1 }}>
-              {error}
-            </Typography>
           )}
         </Box>
       </Container>

@@ -22,6 +22,7 @@ import StarOutlineIcon from "@mui/icons-material/StarOutline";
 import StarIcon from "@mui/icons-material/Star";
 import IconButton from "@mui/material/IconButton";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import { useAlert } from "../../components/AlertProvider";
 import AvatarUploadButton from "../../components/AvatarUploadButton";
 import AgentEditor, {
   type AgentEditorHandle,
@@ -35,6 +36,7 @@ export default function SettingsAgentsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { backend } = useAppContext();
+  const { showAlert } = useAlert();
   const agentsHook = useAgents(backend.sendRpc);
   const [newAgentName, setNewAgentName] = useState("");
   const [avatarBusyAgentId, setAvatarBusyAgentId] = useState<string | null>(
@@ -57,8 +59,19 @@ export default function SettingsAgentsPage() {
 
   const saveAgent = useCallback(
     (agent: AgentConfig) =>
-      agentsHook.saveAgent(agent).then(() => backend.refreshAgents()),
-    [agentsHook.saveAgent, backend.refreshAgents],
+      agentsHook
+        .saveAgent(agent)
+        .then(() => {
+          backend.refreshAgents();
+          showAlert(t("settings.agentSaved"));
+        })
+        .catch((err: unknown) => {
+          showAlert(
+            err instanceof Error ? err.message : t("settings.agentSaveFailed"),
+            "error",
+          );
+        }),
+    [agentsHook.saveAgent, backend.refreshAgents, showAlert, t],
   );
 
   const sortedAgents = useMemo(() => {
@@ -89,17 +102,33 @@ export default function SettingsAgentsPage() {
       id = `${stem}-${suffix}`;
       suffix += 1;
     }
-    await agentsHook.saveAgent({ id, name: name || undefined });
-    backend.refreshAgents();
-    setNewAgentName("");
-  }, [newAgentName, agentsHook, backend]);
+    try {
+      await agentsHook.saveAgent({ id, name: name || undefined });
+      backend.refreshAgents();
+      showAlert(t("settings.agentCreated"));
+      setNewAgentName("");
+    } catch (err) {
+      showAlert(
+        err instanceof Error ? err.message : t("settings.agentCreateFailed"),
+        "error",
+      );
+    }
+  }, [newAgentName, agentsHook, backend, showAlert, t]);
 
   const confirmDeleteAgent = useCallback(async () => {
     if (!pendingDelete) return;
-    await agentsHook.deleteAgent(pendingDelete.id);
-    backend.refreshAgents();
-    setPendingDelete(null);
-  }, [pendingDelete, agentsHook, backend]);
+    try {
+      await agentsHook.deleteAgent(pendingDelete.id);
+      backend.refreshAgents();
+      showAlert(t("settings.agentDeleted"));
+      setPendingDelete(null);
+    } catch (err) {
+      showAlert(
+        err instanceof Error ? err.message : t("settings.agentDeleteFailed"),
+        "error",
+      );
+    }
+  }, [pendingDelete, agentsHook, backend, showAlert, t]);
 
   const handleAvatarUpload = useCallback(
     async (agentId: string, file: File) => {
@@ -108,13 +137,16 @@ export default function SettingsAgentsPage() {
         await uploadAgentAvatar(agentId, file);
         agentsHook.loadAgents();
         backend.refreshAgents();
-      } catch (error) {
-        console.error("avatar upload failed:", error);
+      } catch (err) {
+        showAlert(
+          err instanceof Error ? err.message : t("settings.agentAvatarFailed"),
+          "error",
+        );
       } finally {
         setAvatarBusyAgentId(null);
       }
     },
-    [agentsHook, backend],
+    [agentsHook, backend, showAlert, t],
   );
 
   const handleAvatarDelete = useCallback(
@@ -124,13 +156,16 @@ export default function SettingsAgentsPage() {
         await removeAgentAvatar(agentId);
         agentsHook.loadAgents();
         backend.refreshAgents();
-      } catch (error) {
-        console.error("avatar delete failed:", error);
+      } catch (err) {
+        showAlert(
+          err instanceof Error ? err.message : t("settings.agentAvatarFailed"),
+          "error",
+        );
       } finally {
         setAvatarBusyAgentId(null);
       }
     },
-    [agentsHook, backend],
+    [agentsHook, backend, showAlert, t],
   );
 
   const handleAgentDirtyChange = useCallback(
@@ -242,7 +277,21 @@ export default function SettingsAgentsPage() {
                       <Tooltip title={t("agent.makeDefault")}>
                         <IconButton
                           size="small"
-                          onClick={() => backend.setDefaultAgent(agent.id)}
+                          onClick={() =>
+                            backend
+                              .setDefaultAgent(agent.id)
+                              .then(() =>
+                                showAlert(t("settings.agentDefaultSet")),
+                              )
+                              .catch((err: unknown) =>
+                                showAlert(
+                                  err instanceof Error
+                                    ? err.message
+                                    : t("settings.agentDefaultFailed"),
+                                  "error",
+                                ),
+                              )
+                          }
                         >
                           <StarOutlineIcon fontSize="small" />
                         </IconButton>

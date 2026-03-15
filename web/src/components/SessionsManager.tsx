@@ -12,6 +12,7 @@ import ListItemText from "@mui/material/ListItemText";
 import ListSubheader from "@mui/material/ListSubheader";
 import Tooltip from "@mui/material/Tooltip";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import { useAlert } from "./AlertProvider";
 import type { SessionInfo, SessionsListResult } from "../types";
 import type { useBackend } from "../hooks/useBackend";
 
@@ -68,6 +69,7 @@ function SessionItem({
 
 export default function SessionsManager({ backend }: SessionsManagerProps) {
   const { t } = useTranslation();
+  const { showAlert } = useAlert();
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -80,13 +82,18 @@ export default function SessionsManager({ backend }: SessionsManagerProps) {
         setSessions(result.sessions || []);
         setCurrentSessionId(result.currentSessionId || "");
       })
-      .catch((error) => console.error("sessions.list:", error))
+      .catch((err) =>
+        showAlert(
+          err instanceof Error ? err.message : "Failed to load sessions",
+          "error",
+        ),
+      )
       .finally(() => setLoading(false));
   }
 
   useEffect(() => {
     if (backend.connected) loadSessions();
-  }, [backend.connected]);
+  }, [backend.connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleRevoke(sessionId: string) {
     backend
@@ -95,8 +102,14 @@ export default function SessionsManager({ backend }: SessionsManagerProps) {
         setSessions((previous) =>
           previous.filter((session) => session.id !== sessionId),
         );
+        showAlert(t("auth.sessionRevoked"));
       })
-      .catch((error) => console.error("sessions.revoke:", error));
+      .catch((err) =>
+        showAlert(
+          err instanceof Error ? err.message : t("auth.sessionRevokeFailed"),
+          "error",
+        ),
+      );
   }
 
   if (loading) {

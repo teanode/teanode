@@ -15,6 +15,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import UpdateIcon from "@mui/icons-material/Update";
 import CheckIcon from "@mui/icons-material/Check";
 import { useAppContext } from "../../context";
+import { useAlert } from "../../components/AlertProvider";
 import { setInstalledSkillEnabled } from "./skills.helpers";
 
 interface InstalledSkill {
@@ -29,10 +30,10 @@ type UpdateIndicatorState = "idle" | "loading" | "success";
 export default function SettingsSkillsPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
+  const { showAlert } = useAlert();
   const [installedSkills, setInstalledSkills] = useState<InstalledSkill[]>([]);
   const [loading, setLoading] = useState(false);
   const [busySkillName, setBusySkillName] = useState<string | null>(null);
-  const [statusText, setStatusText] = useState("");
   const [updateStates, setUpdateStates] = useState<
     Record<string, UpdateIndicatorState>
   >({});
@@ -78,25 +79,24 @@ export default function SettingsSkillsPage() {
       setBusySkillName(name);
       try {
         await backend.sendRpc("skills.uninstall", { name });
-        setStatusText(t("settings.skillUninstalled", { name }));
+        showAlert(t("settings.skillUninstalled", { name }));
         await loadSkills();
       } catch (error) {
         console.error("skills.uninstall:", error);
-        setStatusText(t("settings.skillUninstallFailed", { name }));
+        showAlert(t("settings.skillUninstallFailed", { name }), "error");
       } finally {
         setBusySkillName(null);
       }
     },
-    [backend, loadSkills, t],
+    [backend, loadSkills, showAlert, t],
   );
 
   const toggleSkillEnabled = useCallback(
     async (name: string, enabled: boolean) => {
       setBusySkillName(name);
-      setStatusText("");
       try {
         await setInstalledSkillEnabled(backend, name, enabled);
-        setStatusText(
+        showAlert(
           t(enabled ? "settings.skillEnabled" : "settings.skillDisabled", {
             name,
           }),
@@ -104,19 +104,20 @@ export default function SettingsSkillsPage() {
         await loadSkills();
       } catch (error) {
         console.error("skills.setEnabled:", error);
-        setStatusText(
+        showAlert(
           t(
             enabled
               ? "settings.skillEnableFailed"
               : "settings.skillDisableFailed",
             { name },
           ),
+          "error",
         );
       } finally {
         setBusySkillName(null);
       }
     },
-    [backend, loadSkills, t],
+    [backend, loadSkills, showAlert, t],
   );
 
   const checkUpdate = useCallback(
@@ -124,22 +125,50 @@ export default function SettingsSkillsPage() {
       const key = name || "__all__";
       setBusySkillName(key);
       setUpdateState(key, "loading");
-      setStatusText("");
       try {
-        await backend.sendRpc<{ updated: InstalledSkill[] }>(
+        const result = await backend.sendRpc<{ updated: InstalledSkill[] }>(
           "skills.update",
           name ? { name } : {},
         );
         await loadSkills();
         completeUpdateState(key);
+        const updated = result.updated || [];
+        if (name) {
+          showAlert(
+            t(
+              updated.length > 0
+                ? "settings.skillUpdated"
+                : "settings.skillNoUpdate",
+              { name },
+            ),
+          );
+        } else {
+          showAlert(
+            t(
+              updated.length > 0
+                ? "settings.skillsUpdatedCount"
+                : "settings.skillsNoUpdates",
+              { count: updated.length },
+            ),
+          );
+        }
       } catch (error) {
         console.error("skills.update:", error);
         setUpdateState(key, "idle");
+        showAlert(
+          t(
+            name ? "settings.skillUpdateFailed" : "settings.skillsUpdateFailed",
+            {
+              name,
+            },
+          ),
+          "error",
+        );
       } finally {
         setBusySkillName(null);
       }
     },
-    [backend, completeUpdateState, loadSkills, setUpdateState],
+    [backend, completeUpdateState, loadSkills, setUpdateState, showAlert, t],
   );
 
   const renderUpdateIcon = useCallback(
@@ -189,16 +218,6 @@ export default function SettingsSkillsPage() {
               </Tooltip>
             </Box>
           </Box>
-
-          {!!statusText && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: "block", mt: 1 }}
-            >
-              {statusText}
-            </Typography>
-          )}
 
           <Box sx={{ mt: 3 }}>
             <List

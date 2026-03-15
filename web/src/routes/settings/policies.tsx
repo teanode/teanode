@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
@@ -12,7 +12,6 @@ import TableRow from "@mui/material/TableRow";
 import Paper from "@mui/material/Paper";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import ToggleButton from "@mui/material/ToggleButton";
-import Alert from "@mui/material/Alert";
 import Chip from "@mui/material/Chip";
 import Tooltip from "@mui/material/Tooltip";
 import BlockRounded from "@mui/icons-material/BlockRounded";
@@ -21,6 +20,7 @@ import GppMaybeRounded from "@mui/icons-material/GppMaybeRounded";
 import VerifiedUserRounded from "@mui/icons-material/VerifiedUserRounded";
 import LockOpenRounded from "@mui/icons-material/LockOpenRounded";
 import { useAppContext } from "../../context";
+import { useAlert } from "../../components/AlertProvider";
 import type {
   ToolPolicyLevel,
   ToolPolicyGroup,
@@ -97,14 +97,10 @@ function mapToPolicies(policyMap: PolicyMap): ToolPolicyConfiguration[] {
 export default function SettingsToolPoliciesPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
+  const { showAlert } = useAlert();
   const [tools, setTools] = useState<ToolActionEntry[]>([]);
   const [policies, setPolicies] = useState<PolicyMap>({});
   const [loading, setLoading] = useState(true);
-  const [feedback, setFeedback] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
-  const feedbackTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const loadData = useCallback(async () => {
     if (!backend.connected) return;
@@ -137,15 +133,6 @@ export default function SettingsToolPoliciesPage() {
       );
     }
   }
-
-  const showFeedback = (type: "success" | "error", message: string) => {
-    clearTimeout(feedbackTimer.current);
-    setFeedback({ type, message });
-    feedbackTimer.current = setTimeout(
-      () => setFeedback(null),
-      type === "success" ? 2000 : 5000,
-    );
-  };
 
   const handleChange = async (
     tool: string,
@@ -180,12 +167,12 @@ export default function SettingsToolPoliciesPage() {
       await backend.sendRpc("toolPolicies.update", {
         policies: mapToPolicies(nextPolicies),
       });
-      showFeedback("success", t("settings.toolPolicySaved"));
+      showAlert(t("settings.toolPolicySaved"));
     } catch (error) {
       console.error("toolPolicies.update:", error);
       // Revert optimistic update on failure.
       setPolicies(previous);
-      showFeedback("error", t("settings.toolPolicySaveFailed"));
+      showAlert(t("settings.toolPolicySaveFailed"), "error");
     }
   };
 
@@ -224,16 +211,6 @@ export default function SettingsToolPoliciesPage() {
             {t("settings.toolPoliciesDescription")}
           </Typography>
         </Box>
-
-        {feedback && (
-          <Alert
-            severity={feedback.type}
-            sx={{ mb: 2 }}
-            onClose={() => setFeedback(null)}
-          >
-            {feedback.message}
-          </Alert>
-        )}
 
         {loading ? (
           <Typography variant="body2" color="text.secondary">

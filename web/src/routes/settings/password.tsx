@@ -6,30 +6,26 @@ import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import Paper from "@mui/material/Paper";
-import Alert from "@mui/material/Alert";
 import { useAppContext } from "../../context";
+import { useAlert } from "../../components/AlertProvider";
 
 /** /settings/password — standalone password management page. */
 export default function SettingsPasswordPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
+  const { showAlert } = useAlert();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
 
   function handleSubmit() {
-    setError("");
-    setSuccess("");
-
     if (newPassword.length < 8) {
-      setError(t("auth.passwordMinLength"));
+      showAlert(t("auth.passwordMinLength"), "error");
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError(t("auth.passwordsDoNotMatch"));
+      showAlert(t("auth.passwordsDoNotMatch"), "error");
       return;
     }
 
@@ -37,14 +33,14 @@ export default function SettingsPasswordPage() {
     backend
       .sendRpc("auth.changePassword", { currentPassword, newPassword })
       .then(() => {
-        setSuccess(t("auth.passwordChanged"));
+        showAlert(t("auth.passwordChanged"));
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
       })
       .catch((err) => {
         const message = (err as { message?: string })?.message || "Failed";
-        setError(message);
+        showAlert(message, "error");
       })
       .finally(() => setLoading(false));
   }
@@ -62,16 +58,6 @@ export default function SettingsPasswordPage() {
         </Box>
 
         <Paper variant="outlined" sx={{ p: 2 }}>
-          {error && (
-            <Alert severity="error" sx={{ mb: 1.5, fontSize: "0.8rem" }}>
-              {error}
-            </Alert>
-          )}
-          {success && (
-            <Alert severity="success" sx={{ mb: 1.5, fontSize: "0.8rem" }}>
-              {success}
-            </Alert>
-          )}
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
             <TextField
               label={t("auth.currentPassword")}
