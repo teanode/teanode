@@ -60,7 +60,7 @@ Key differences from the Wei implementation:
 
 ### 2.1 Config Schema
 
-AutoACME is activated when `Configuration.Gateway.TLS` is set to `true`. No
+AutoACME is activated when `Configuration.Node.TLS` is set to `true`. No
 port 443 check is enforced — the operator is responsible for ensuring the
 ACME server can reach port 443 (e.g., via port mapping, `setcap`, or a TCP
 passthrough proxy).
@@ -69,7 +69,7 @@ A single domain is supported. Certificate and ACME account data are persisted
 as fields on `models.Configuration.Certificate`.
 
 ```yaml
-gateway:
+node:
   port: 443          # recommended for ALPN challenge, but not enforced
   bind: lan          # typically lan for public-facing TLS
   tls: true          # master switch — enables AutoACME
@@ -106,10 +106,10 @@ certificate material.
 
 | Field              | Type         | Required | Default       | Notes                                                    |
 |--------------------|--------------|----------|---------------|----------------------------------------------------------|
-| `Gateway.TLS`      | `*bool`      | no       | `false`       | Master enable switch for TLS + AutoACME                  |
-| `Certificate.ACMEEmail` | `*string` | yes*   | —             | *Required when `Gateway.TLS=true`                        |
+| `Node.TLS`      | `*bool`      | no       | `false`       | Master enable switch for TLS + AutoACME                  |
+| `Certificate.ACMEEmail` | `*string` | yes*   | —             | *Required when `Node.TLS=true`                        |
 | `Certificate.ACMEAccountKey` | `*string` | no | auto-generated | EC P-256 private key, PEM-encoded                    |
-| `Certificate.Domain` | `*string`  | yes*     | —             | *Required when `Gateway.TLS=true`; single domain         |
+| `Certificate.Domain` | `*string`  | yes*     | —             | *Required when `Node.TLS=true`; single domain         |
 | `Certificate.Certificate` | `*string` | no   | auto-managed  | Leaf + chain PEM; populated by AutoACME                  |
 | `Certificate.PrivateKey` | `*string` | no    | auto-managed  | Certificate private key PEM; populated by AutoACME       |
 | `Certificate.IssuedAt` | `*time.Time` | no   | auto-managed  | Set on successful issuance                               |
@@ -144,7 +144,7 @@ the updated domain.
 
 ### 3.1 Current Listener Model
 
-Today, `cmd/gateway.go` creates a plain TCP listener:
+Today, `cmd/node.go` creates a plain TCP listener:
 
 ```go
 httpListener, err := net.Listen("tcp", address)  // line 366
@@ -155,7 +155,7 @@ There is no `tls.Config`, no certificate loading, no TLS at all.
 
 ### 3.2 Proposed Listener Model
 
-When `Gateway.TLS=true`, the gateway replaces the plain listener with a
+When `Node.TLS=true`, the node replaces the plain listener with a
 **TLS listener** that uses a dynamic `tls.Config` with `GetCertificate`:
 
 ```
@@ -269,7 +269,7 @@ HTTPS traffic via the callback mechanism.
 ### 3.5 Sequence Diagram — Certificate Renewal
 
 ```
-  Background routine (started from gateway.go)
+  Background routine (started from node.go)
           │
           ▼
   Ticker fires (every 12 hours):
@@ -469,7 +469,7 @@ type CertificateConfiguration struct {
     ExpiresAt      *time.Time `json:"expiresAt,omitempty"      yaml:"expiresAt,omitempty"`
 }
 
-// Add to GatewayConfiguration:
+// Add to NodeConfiguration:
 //   TLS *bool `json:"tls,omitempty" yaml:"tls,omitempty"`
 
 // Add to Configuration:
@@ -528,7 +528,7 @@ func (m *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 }
 
 // Run starts the background renewal loop.
-// Called from gateway.go as: go certManager.Run(ctx)
+// Called from node.go as: go certManager.Run(ctx)
 func (m *Manager) Run(ctx context.Context) {
     // Ticker: check every 12 hours
     // If cert expires within 30 days, trigger ObtainCert
@@ -551,14 +551,14 @@ func (m *Manager) ObtainCert(ctx context.Context) error {
 }
 ```
 
-### 6.3 Integration with `cmd/gateway.go`
+### 6.3 Integration with `cmd/node.go`
 
-The background routine is **started from `gateway.go`**:
+The background routine is **started from `node.go`**:
 
 ```go
-// In the gateway command action, after building the handler:
+// In the node command action, after building the handler:
 
-if configuration.Gateway != nil && configuration.Gateway.GetTLS() {
+if configuration.Node != nil && configuration.Node.GetTLS() {
     // Validate: domain set, email set.
     certCfg := configuration.Certificate
     if certCfg == nil || certCfg.GetDomain() == "" || certCfg.GetACMEEmail() == "" {
@@ -599,7 +599,7 @@ if configuration.Gateway != nil && configuration.Gateway.GetTLS() {
     go certManager.Run(ctx)
 
     // Serve HTTPS.
-    log.Infof("TeaNode gateway listening on %s (TLS)", address)
+    log.Infof("TeaNode node listening on %s (TLS)", address)
     httpServer := &http.Server{Handler: handler, TLSConfig: goTLSConfig}
     if err := httpServer.Serve(tlsListener); err != nil && err != http.ErrServerClosed {
         log.Errorf("https server exited with error: %v", err)
@@ -744,14 +744,14 @@ purpose-built test ACME server.
 
 6. **Startup with existing cert:**
    - Pre-populate `Certificate.*` fields in config store.
-   - Start gateway, verify cert loaded from config (no ACME call).
+   - Start node, verify cert loaded from config (no ACME call).
 
 ### 7.3 Manual / Staging Tests
 
 Before production rollout, test against **Let's Encrypt Staging**:
 
 ```yaml
-gateway:
+node:
   port: 443
   bind: lan
   tls: true
@@ -779,7 +779,7 @@ certificates (e.g., for internal CAs or purchased certs).
 ```
 1. Manual cert (if Certificate.Certificate and Certificate.PrivateKey are
    set but ACMEEmail is not) → Use those directly; skip ACME entirely.
-2. AutoACME (Gateway.TLS=true, ACMEEmail + Domain set)
+2. AutoACME (Node.TLS=true, ACMEEmail + Domain set)
    → Manage certs automatically.
 3. Neither → plain HTTP (current behavior).
 ```
@@ -790,16 +790,16 @@ This ensures manual certs always take priority, providing an escape hatch.
 
 **Phase 1 — Foundation (this PR):**
 - Add `CertificateConfiguration` struct and config validation.
-- Add `Gateway.TLS` field.
+- Add `Node.TLS` field.
 - Implement `CertManager` with `GetCertificate`.
 - Config store persistence for cert/key/metadata.
-- Wire TLS listener into `cmd/gateway.go`.
+- Wire TLS listener into `cmd/node.go`.
 - Unit tests for all components.
 
 **Phase 2 — ACME integration:**
 - Implement `ObtainCert` with `x/crypto/acme` (adapted from Wei `autoacme`).
 - TLS-ALPN-01 challenge cert builder (replacing Wei's DNS-01/Route 53 flow).
-- Background renewal loop with state machine, started from `gateway.go`.
+- Background renewal loop with state machine, started from `node.go`.
 - Domain change detection and forced re-issue.
 - Integration tests with Pebble.
 
@@ -819,7 +819,7 @@ This ensures manual certs always take priority, providing an escape hatch.
 Add to `internal/schemas/config.schema.json`:
 
 ```json
-"gateway": {
+"node": {
   "properties": {
     "tls": { "type": "boolean", "default": false }
   }
@@ -847,16 +847,16 @@ Add to `internal/schemas/config.schema.json`:
 AutoACME adds native TLS to TeaNode with zero-configuration certificate
 management. By using TLS-ALPN-01, we avoid the complexity of port-80 listeners
 or DNS provider integrations. The design integrates cleanly with the existing
-gateway architecture: a single TLS listener with a `GetCertificate` callback
+node architecture: a single TLS listener with a `GetCertificate` callback
 handles both ACME validation and production traffic.
 
 Key design decisions:
-- **Activation:** `Gateway.TLS = true` enables TLS; no port 443 enforcement.
+- **Activation:** `Node.TLS = true` enables TLS; no port 443 enforcement.
 - **Single domain:** `Certificate.Domain` (`*string`), not a list.
 - **Persistence:** All cert/key/metadata stored in `models.Configuration.Certificate`
   via the config store interface — no separate filesystem paths.
 - **No at-rest encryption:** Keys stored as plaintext PEM in config store.
-- **Background routine:** Started from `gateway.go` via `go certManager.Run(ctx)`.
+- **Background routine:** Started from `node.go` via `go certManager.Run(ctx)`.
 - **Adapted from Wei:** Core ACME flow reused from
   `/home/ziyan/projects/ziyan/wei/backend/util/autoacme`, with DNS-01 replaced
   by TLS-ALPN-01 and filesystem replaced by config store persistence.

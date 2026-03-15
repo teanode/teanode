@@ -18,7 +18,7 @@ These are the highest-impact items to tackle next, roughly in order.
 - [ ] `internal/api/v1api` handler tests (HTTP handlers, SSE streaming, auth middleware, media endpoints)
 - [ ] WebSocket RPC handler tests (`conversations.send`, `conversations.history`, etc.)
 - [ ] `internal/web` tests (embedded SPA serving, static assets)
-- [ ] CLI command tests in `cmd/` (gateway, terminal flag parsing and wiring)
+- [ ] CLI command tests in `cmd/` (node, terminal flag parsing and wiring)
 - [ ] Audio transcription/synthesis tests (OpenAI Transcribe, Synthesize methods, REST endpoints)
 - [ ] Frontend component and route tests (`useBackend.test.ts` exists; no component/integration tests yet)
 - [ ] Concurrent access / stress tests for parallel requests
@@ -151,7 +151,7 @@ Core infrastructure packages have high test coverage:
 - [x] Schema-driven config defaults (single source of truth in JSON schemas)
 
 ### CLI
-- [x] Gateway command (`teanode gateway` with port flag)
+- [x] Node command (`teanode node` with port flag)
 - [x] Terminal command (`teanode terminal` with PTY relay and machine info)
 - [x] Global flags (`--dir`, `--log-level` with env var support)
 

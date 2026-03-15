@@ -1,4 +1,4 @@
-// Package lifecycle provides gateway lifecycle control via context propagation.
+// Package lifecycle provides node lifecycle control via context propagation.
 package lifecycle
 
 import (
@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-// Action identifies a gateway lifecycle request.
+// Action identifies a node lifecycle request.
 type Action int
 
 const (
@@ -14,7 +14,7 @@ const (
 	Restart
 )
 
-// Lifecycle manages gateway lifecycle transitions (restart, shutdown).
+// Lifecycle manages node lifecycle transitions (restart, shutdown).
 type Lifecycle interface {
 	// RequestLifecycle sends a lifecycle action immediately (non-blocking).
 	RequestLifecycle(action Action)

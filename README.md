@@ -1,6 +1,6 @@
 # TeaNode
 
-Personal AI assistant gateway. Exposes an OpenAI-compatible API that proxies to configurable LLM providers, with persistent memory and a self-improving agent workspace.
+Personal AI assistant node. Exposes an OpenAI-compatible API that proxies to configurable LLM providers, with persistent memory and a self-improving agent workspace.
 
 ## Prerequisites
 
@@ -11,10 +11,10 @@ Personal AI assistant gateway. Exposes an OpenAI-compatible API that proxies to 
 
 ```sh
 export OPENAI_API_KEY=sk-...
-go run . gateway
+go run . node
 ```
 
-The gateway listens on `http://localhost:8833` by default.
+The node listens on `http://localhost:8833` by default.
 
 ## Development
 
@@ -66,8 +66,8 @@ go build -o teanode .
 ### Run
 
 ```sh
-./teanode gateway
-./teanode gateway --port 8080
+./teanode node
+./teanode node --port 8080
 ```
 
 ### Test

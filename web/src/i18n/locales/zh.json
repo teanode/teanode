@@ -258,8 +258,8 @@
           "title": "模型",
           "description": "配置 LLM 提供商、默认模型和模型级运行时限制。"
         },
-        "gateway": {
-          "title": "网关",
+        "node": {
+          "title": "节点",
           "description": "HTTP 服务和认证设置。"
         },
         "tools": {
@@ -280,7 +280,7 @@
         }
       },
       "fields": {
-        "gateway": {
+        "node": {
           "bind": {
             "options": {
               "loopback": "回环（localhost）",

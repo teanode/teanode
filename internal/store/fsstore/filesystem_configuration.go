@@ -44,12 +44,12 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 		return &models.Configuration{}
 	}
 	result := &models.Configuration{}
-	gatewayConfiguration := &models.GatewayConfiguration{}
-	gatewayConfiguration.Port = ptrto.Value(configuration.Gateway.Port)
-	gatewayConfiguration.Bind = ptrto.Trimmed[models.BindMode](configuration.Gateway.Bind)
-	gatewayConfiguration.PublicURL = ptrto.TrimmedString(configuration.Gateway.PublicURL)
-	gatewayConfiguration.TLS = ptrto.Value(configuration.Gateway.TLS)
-	result.Gateway = gatewayConfiguration
+	nodeConfiguration := &models.NodeConfiguration{}
+	nodeConfiguration.Port = ptrto.Value(configuration.Node.Port)
+	nodeConfiguration.Bind = ptrto.Trimmed[models.BindMode](configuration.Node.Bind)
+	nodeConfiguration.PublicURL = ptrto.TrimmedString(configuration.Node.PublicURL)
+	nodeConfiguration.TLS = ptrto.Value(configuration.Node.TLS)
+	result.Node = nodeConfiguration
 
 	if configuration.Certificate != nil {
 		certificateConfiguration := &models.CertificateConfiguration{
@@ -190,11 +190,11 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 	if configuration == nil {
 		return result
 	}
-	if configuration.Gateway != nil {
-		result.Gateway.Port = configuration.Gateway.GetPort()
-		result.Gateway.Bind = string(configuration.Gateway.GetBind())
-		result.Gateway.PublicURL = configuration.Gateway.GetPublicURL()
-		result.Gateway.TLS = configuration.Gateway.GetTLS()
+	if configuration.Node != nil {
+		result.Node.Port = configuration.Node.GetPort()
+		result.Node.Bind = string(configuration.Node.GetBind())
+		result.Node.PublicURL = configuration.Node.GetPublicURL()
+		result.Node.TLS = configuration.Node.GetTLS()
 	}
 	if configuration.Certificate != nil {
 		record := &storeCertificateRecord{

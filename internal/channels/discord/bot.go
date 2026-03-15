@@ -731,12 +731,12 @@ func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Sess
 		}
 
 	case "restart":
-		_, _ = discordSession.ChannelMessageSend(channelId, "Restarting gateway...")
+		_, _ = discordSession.ChannelMessageSend(channelId, "Restarting node...")
 		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Restart)
 		return
 
 	case "terminate":
-		_, _ = discordSession.ChannelMessageSend(channelId, "Shutting down gateway...")
+		_, _ = discordSession.ChannelMessageSend(channelId, "Shutting down node...")
 		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Shutdown)
 		return
 

@@ -22,10 +22,10 @@ func loadPublicUrlFromStore(ctx context.Context) string {
 	publicUrl := ""
 	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		configuration, getError := transaction.GetConfiguration(ctx, nil)
-		if getError != nil || configuration == nil || configuration.Gateway == nil || configuration.Gateway.PublicURL == nil {
+		if getError != nil || configuration == nil || configuration.Node == nil || configuration.Node.PublicURL == nil {
 			return nil
 		}
-		publicUrl = *configuration.Gateway.PublicURL
+		publicUrl = *configuration.Node.PublicURL
 		return nil
 	})
 	return publicUrl

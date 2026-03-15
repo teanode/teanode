@@ -11,7 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type storeGatewayRecord struct {
+type storeNodeRecord struct {
 	Port      int    `json:"port,omitempty" yaml:"port,omitempty"`
 	Bind      string `json:"bind,omitempty" yaml:"bind,omitempty"`
 	PublicURL string `json:"publicUrl,omitempty" yaml:"publicUrl,omitempty"`
@@ -134,7 +134,7 @@ type storeToolPolicyRecord struct {
 }
 
 type storeConfigurationRecord struct {
-	Gateway      storeGatewayRecord      `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Node         storeNodeRecord         `json:"node,omitempty" yaml:"node,omitempty"`
 	Certificate  *storeCertificateRecord `json:"certificate,omitempty" yaml:"certificate,omitempty"`
 	Models       storeModelsRecord       `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools        storeToolsRecord        `json:"tools,omitempty" yaml:"tools,omitempty"`

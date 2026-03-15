@@ -32,14 +32,13 @@ const (
 func NewTerminalCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "terminal",
-		Usage:     "Launch a PTY-backed terminal and relay it to the gateway",
+		Usage:     "Launch a PTY-backed terminal and relay it to the node",
 		ArgsUsage: "[-- command [arguments...]]",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:    "gateway",
-				Aliases: []string{"g"},
-				Usage:   "gateway WebSocket URL (e.g. ws://127.0.0.1:8833)",
-				Value:   "ws://127.0.0.1:8833",
+				Name:  "node",
+				Usage: "node WebSocket URL (e.g. ws://127.0.0.1:8833)",
+				Value: "ws://127.0.0.1:8833",
 			},
 			&cli.StringFlag{
 				Name:    "token",
@@ -146,15 +145,15 @@ func NewTerminalCommand() *cli.Command {
 				}
 			}()
 
-			// Connect to gateway WebSocket.
-			gatewayUrl := command.String("gateway")
+			// Connect to node WebSocket.
+			nodeUrl := command.String("node")
 			token := command.String("token")
 			name := command.String("name")
 			if name == "" {
 				name = defaultTerminalConnectionId()
 			}
 			shellCommand := strings.Join(shellArguments, " ")
-			go connectGateway(ctx, gatewayUrl, token, name, shellCommand, master, buffer)
+			go connectNode(ctx, nodeUrl, token, name, shellCommand, master, buffer)
 
 			// Wait for child to exit.
 			_ = child.Wait()
@@ -188,11 +187,11 @@ func currentTerminalSize() (rows, cols uint16) {
 	return defaultTerminalRows, defaultTerminalCols
 }
 
-func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand string, master *os.File, buffer *screenbuffer.Buffer) {
+func connectNode(ctx context.Context, nodeUrl, token, name, shellCommand string, master *os.File, buffer *screenbuffer.Buffer) {
 	defer deferutil.Recover()
-	parsedUrl, err := url.Parse(gatewayUrl)
+	parsedUrl, err := url.Parse(nodeUrl)
 	if err != nil {
-		log.Errorf("terminal: invalid gateway URL: %v", err)
+		log.Errorf("terminal: invalid node URL: %v", err)
 		return
 	}
 	parsedUrl.Path = "/api/v1/terminal"
@@ -204,36 +203,36 @@ func connectGateway(ctx context.Context, gatewayUrl, token, name, shellCommand s
 	parsedUrl.RawQuery = query.Encode()
 
 	for {
-		serveGatewayConnection(ctx, parsedUrl.String(), shellCommand, master, buffer)
+		serveNodeConnection(ctx, parsedUrl.String(), shellCommand, master, buffer)
 
 		// Wait before reconnecting, or exit if context is cancelled.
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(2 * time.Second):
-			log.Debug("terminal: reconnecting to gateway ...")
+			log.Debug("terminal: reconnecting to node ...")
 		}
 	}
 }
 
-func serveGatewayConnection(ctx context.Context, url string, shellCommand string, master *os.File, buffer *screenbuffer.Buffer) {
+func serveNodeConnection(ctx context.Context, url string, shellCommand string, master *os.File, buffer *screenbuffer.Buffer) {
 	connection, _, err := websocket.DefaultDialer.DialContext(ctx, url, nil)
 	if err != nil {
-		log.Errorf("terminal: gateway connect failed: %v", err)
+		log.Errorf("terminal: node connect failed: %v", err)
 		return
 	}
 	defer func() { _ = connection.Close() }()
 
-	log.Debug("terminal: connected to gateway")
+	log.Debug("terminal: connected to node")
 
 	// Send machine info so the relay can distinguish this terminal.
 	sendMachineInfo(connection, shellCommand)
 
-	// Read commands from gateway.
+	// Read commands from node.
 	for {
 		_, data, err := connection.ReadMessage()
 		if err != nil {
-			log.Warningf("terminal: gateway connection lost: %v", err)
+			log.Warningf("terminal: node connection lost: %v", err)
 			return
 		}
 

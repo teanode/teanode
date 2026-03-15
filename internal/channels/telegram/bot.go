@@ -283,8 +283,8 @@ func (self *Bot) Start() error {
 		tgbotapi.BotCommand{Command: "agent", Description: "Show or switch the default agent"},
 		tgbotapi.BotCommand{Command: "status", Description: "Show bot status"},
 		tgbotapi.BotCommand{Command: "compact", Description: "Compact current conversation history"},
-		tgbotapi.BotCommand{Command: "restart", Description: "Restart the gateway"},
-		tgbotapi.BotCommand{Command: "terminate", Description: "Shut down the gateway"},
+		tgbotapi.BotCommand{Command: "restart", Description: "Restart the node"},
+		tgbotapi.BotCommand{Command: "terminate", Description: "Shut down the node"},
 		tgbotapi.BotCommand{Command: "help", Description: "Show available commands"},
 		tgbotapi.BotCommand{Command: "ask", Description: "Ask the AI (required in groups)"},
 	)
@@ -881,14 +881,14 @@ func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, cha
 		}
 
 	case "restart":
-		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "Restarting gateway...")
+		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "Restarting node...")
 		messageRequest.ReplyToMessageID = message.MessageID
 		_, _ = self.api.Send(messageRequest)
 		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Restart)
 		return
 
 	case "terminate":
-		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "Shutting down gateway...")
+		messageRequest := tgbotapi.NewMessage(message.Chat.ID, "Shutting down node...")
 		messageRequest.ReplyToMessageID = message.MessageID
 		_, _ = self.api.Send(messageRequest)
 		lifecycle.LifecycleFromContext(self.ctx).RequestLifecycle(lifecycle.Shutdown)

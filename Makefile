@@ -49,6 +49,6 @@ lint: ## Run backend lint checks
 clean: ## Remove build and coverage artifacts
 	rm -f $(BINARY)
 	rm -rf $(WEB_DIR)/node_modules $(WEB_DIR)/dist
-	rm -f internal/gateway/static/bundle.* internal/gateway/static/index.html
+	rm -f internal/frontend/static/bundle.* internal/frontend/static/index.html
 	rm -f coverage.out coverage.html junit.xml
 

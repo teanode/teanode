@@ -43,14 +43,18 @@ import (
 	"github.com/teanode/teanode/internal/web"
 )
 
-// ErrRestart is returned from the gateway command when a restart was requested.
+// ErrRestart is returned from the node command when a restart was requested.
 var ErrRestart = errors.New("restart requested")
 
-func NewGatewayCommand() *cli.Command {
+func NewNodeCommand() *cli.Command {
 	return &cli.Command{
-		Name:  "gateway",
-		Usage: "Start the TeaNode gateway server",
+		Name:  "node",
+		Usage: "Start the TeaNode node server",
 		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "log-file",
+				Usage: "redirect stdout and stderr to this log file",
+			},
 			&cli.IntFlag{
 				Name:    "port",
 				Aliases: []string{"p"},
@@ -105,6 +109,26 @@ func NewGatewayCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
+			// When --log-file is set (background mode), open/append the log
+			// file and redirect stdout and stderr to it.
+			logFilePath := command.String("log-file")
+			if logFilePath != "" {
+				logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+				if err != nil {
+					return fmt.Errorf("open log file: %w", err)
+				}
+				fd := int(logFile.Fd())
+				if err := syscall.Dup2(fd, int(os.Stdout.Fd())); err != nil {
+					_ = logFile.Close()
+					return fmt.Errorf("redirect stdout to log file: %w", err)
+				}
+				if err := syscall.Dup2(fd, int(os.Stderr.Fd())); err != nil {
+					_ = logFile.Close()
+					return fmt.Errorf("redirect stderr to log file: %w", err)
+				}
+				_ = logFile.Close()
+			}
+
 			// --- Optional debug/pprof server ---
 			if debugEndpoint := command.String("debug-endpoint"); debugEndpoint != "" {
 				shutdownDebugServer, err := debugutil.RunDebugServer(ctx, debugEndpoint)
@@ -120,9 +144,16 @@ func NewGatewayCommand() *cli.Command {
 			}
 			defer func() {
 				if err := pidGuard.Release(); err != nil {
-					log.Errorf("failed to release gateway pid file: %v", err)
+					log.Errorf("failed to release node pid file: %v", err)
 				}
 			}()
+
+			// Start background log rotation based on file size.
+			if logFilePath != "" {
+				startLogRotation(ctx, logFilePath)
+			}
+
+			log.Noticef("starting %s", version.ServerName())
 
 			storeBackend := store.BackendType(command.String("store"))
 			var postgresSettings *dbstore.Settings
@@ -174,21 +205,21 @@ func NewGatewayCommand() *cli.Command {
 			}); transactionError != nil {
 				return transactionError
 			}
-			if configuration.Gateway == nil {
-				configuration.Gateway = &models.GatewayConfiguration{}
+			if configuration.Node == nil {
+				configuration.Node = &models.NodeConfiguration{}
 			}
 			if configuration.Channels == nil {
 				configuration.Channels = &models.ChannelsConfiguration{}
 			}
-			if configuration.Gateway.Port == nil {
-				configuration.Gateway.Port = ptrto.Value(8833)
+			if configuration.Node.Port == nil {
+				configuration.Node.Port = ptrto.Value(8833)
 			}
-			if configuration.Gateway.Bind == nil {
-				configuration.Gateway.Bind = ptrto.Value(models.BindModeLoopback)
+			if configuration.Node.Bind == nil {
+				configuration.Node.Bind = ptrto.Value(models.BindModeLoopback)
 			}
 			// CLI flag overrides config.
 			if command.IsSet("port") {
-				configuration.Gateway.Port = ptrto.Value(int(command.Int("port")))
+				configuration.Node.Port = ptrto.Value(int(command.Int("port")))
 			}
 
 			// Build provider registry.
@@ -376,7 +407,7 @@ func NewGatewayCommand() *cli.Command {
 			var acmeManager *autoacme.Manager
 			httpListener := net.Listener(tcpListener)
 
-			tlsEnabled := configuration.Gateway.GetTLS()
+			tlsEnabled := configuration.Node.GetTLS()
 			if tlsEnabled {
 				acmeManager = autoacme.New(openedStore)
 				acmeManager.Start(ctx)
@@ -422,9 +453,9 @@ func NewGatewayCommand() *cli.Command {
 				defer close(runningHttp)
 
 				if tlsEnabled {
-					log.Infof("TeaNode gateway listening on %s (TLS)", address)
+					log.Infof("TeaNode node listening on %s (TLS)", address)
 				} else {
-					log.Infof("TeaNode gateway listening on %s", address)
+					log.Infof("TeaNode node listening on %s", address)
 				}
 				if err := httpServer.Serve(httpListener); err != nil && err != http.ErrServerClosed {
 					log.Errorf("http server exited with error: %v", err)
@@ -461,7 +492,7 @@ func NewGatewayCommand() *cli.Command {
 			})
 
 			// Graceful shutdown.
-			log.Info("shutting down")
+			log.Noticef("stopping %s", version.ServerName())
 
 			if summarizer != nil {
 				summarizer.Stop()
@@ -490,15 +521,15 @@ func NewGatewayCommand() *cli.Command {
 	}
 }
 
-// listenAddress returns the host:port string derived from the gateway configuration.
+// listenAddress returns the host:port string derived from the node configuration.
 func listenAddress(configuration *models.Configuration) string {
 	host := "127.0.0.1"
 	var bind models.BindMode
 	port := 8833
-	if configuration != nil && configuration.Gateway != nil {
-		bind = configuration.Gateway.GetBind()
-		if configuration.Gateway.GetPort() > 0 {
-			port = configuration.Gateway.GetPort()
+	if configuration != nil && configuration.Node != nil {
+		bind = configuration.Node.GetBind()
+		if configuration.Node.GetPort() > 0 {
+			port = configuration.Node.GetPort()
 		}
 	}
 	if bind == models.BindModeLAN {

@@ -12,7 +12,7 @@ This document describes the current Go backend architecture in this repository (
                                                 |
                                                 v
                                      +---------------------+
-                                     | cmd/gateway command |
+                                     |  cmd/node command   |
                                      +---------------------+
                                                 |
                                                 v
@@ -77,9 +77,9 @@ This document describes the current Go backend architecture in this repository (
 
 - `main.go`
 - Initializes CLI and global logging.
-- Registers commands: `gateway`, `restart`, `terminal`, `tools`.
+- Registers commands: `node`, `restart`, `terminal`, `tools`.
 
-- `cmd/gateway.go`
+- `cmd/node.go`
 - Bootstraps the full backend runtime.
 - Opens store, loads configuration, builds provider/tool registries, creates coordinator and API components.
 - Starts HTTP(S) server with optional TLS/AutoACME and graceful shutdown loop.
@@ -148,7 +148,7 @@ This document describes the current Go backend architecture in this repository (
 ## Startup Flow (Current)
 
 ```text
-CLI "teanode gateway"
+CLI "teanode node"
   -> acquire PID lock
   -> open store (filesystem or postgres) + run migrations
   -> load configuration from store
@@ -187,7 +187,7 @@ HTTP/WS/Bot request
 ```text
 ~/.teanode/
   config.yaml                           (global configuration, managed by store)
-  gateway.pid                           (while gateway is running)
+  node.pid                           (while node is running)
   users/
     <userId>/
       user.yaml
