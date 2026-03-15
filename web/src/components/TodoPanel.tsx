@@ -81,7 +81,7 @@ export default function TodoPanel({
         </Box>
 
         <Collapse in={!collapsed}>
-          <Box sx={{ px: 2, pb: 1 }}>
+          <Box sx={{ px: 2, pb: 1, maxHeight: 240, overflowY: "auto" }}>
             {/* Open todos */}
             {openTodos.map((todo) => (
               <TodoItem key={todo.id} todo={todo} />
