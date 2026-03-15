@@ -354,7 +354,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 
 		// Save assistant message.
 		assistantMessage := newTextMessage("assistant", responseText)
-		assistantMessage.ProviderModelName = ptrto.Value(providers.FormatProviderModelName(providerName, responseModelName))
+		assistantMessage.ProviderModelName = ptrto.Value(providers.FormatProviderModelName(providerName, modelName))
 		assistantMessage.ProviderName = ptrto.Value(providerName)
 		if stopReason != "" {
 			stopReasonValue := models.StopReason(stopReason)
