@@ -13,7 +13,7 @@ import (
 func NewTerminalCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "terminal",
-		Usage: "Launch a PTY-backed terminal and relay it to the gateway (Linux/macOS only)",
+		Usage: "Launch a PTY-backed terminal and relay it to the node (Linux/macOS only)",
 		Action: func(ctx context.Context, command *cli.Command) error {
 			return fmt.Errorf("terminal command is only supported on Linux and macOS")
 		},

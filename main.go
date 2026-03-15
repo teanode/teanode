@@ -17,7 +17,7 @@ import (
 func main() {
 	app := &cli.Command{
 		Name:  "teanode",
-		Usage: "TeaNode — personal AI assistant gateway",
+		Usage: "TeaNode — personal AI assistant node",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "dir",
@@ -58,7 +58,10 @@ func main() {
 			return ctx, nil
 		},
 		Commands: []*cli.Command{
-			cmd.NewGatewayCommand(),
+			cmd.NewNodeCommand(),
+			cmd.NewStartCommand(),
+			cmd.NewStopCommand(),
+			cmd.NewStatusCommand(),
 			cmd.NewRestartCommand(),
 			cmd.NewTerminalCommand(),
 		},

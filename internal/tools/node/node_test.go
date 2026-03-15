@@ -1,4 +1,4 @@
-package gateway
+package node
 
 import (
 	"context"
@@ -24,9 +24,9 @@ func anonymousCtx() context.Context {
 	return context.Background()
 }
 
-func TestGatewayPolicy_AdminRequiresApproval(t *testing.T) {
-	tool := &gatewayTool{}
-	decision := tools.ResolveToolPolicy(adminCtx(), tool, "gateway", `{"action":"restart"}`)
+func TestNodePolicy_AdminRequiresApproval(t *testing.T) {
+	tool := &nodeTool{}
+	decision := tools.ResolveToolPolicy(adminCtx(), tool, "node", `{"action":"restart"}`)
 	if decision.Action != tools.PolicyRequireApproval {
 		t.Errorf("expected PolicyRequireApproval for admin, got %q", decision.Action)
 	}
@@ -35,17 +35,17 @@ func TestGatewayPolicy_AdminRequiresApproval(t *testing.T) {
 	}
 }
 
-func TestGatewayPolicy_NonAdminDenied(t *testing.T) {
-	tool := &gatewayTool{}
-	decision := tools.ResolveToolPolicy(nonAdminCtx(), tool, "gateway", `{"action":"restart"}`)
+func TestNodePolicy_NonAdminDenied(t *testing.T) {
+	tool := &nodeTool{}
+	decision := tools.ResolveToolPolicy(nonAdminCtx(), tool, "node", `{"action":"restart"}`)
 	if decision.Action != tools.PolicyDeny {
 		t.Errorf("expected PolicyDeny for non-admin, got %q", decision.Action)
 	}
 }
 
-func TestGatewayPolicy_AnonymousDenied(t *testing.T) {
-	tool := &gatewayTool{}
-	decision := tools.ResolveToolPolicy(anonymousCtx(), tool, "gateway", `{"action":"terminate"}`)
+func TestNodePolicy_AnonymousDenied(t *testing.T) {
+	tool := &nodeTool{}
+	decision := tools.ResolveToolPolicy(anonymousCtx(), tool, "node", `{"action":"terminate"}`)
 	if decision.Action != tools.PolicyDeny {
 		t.Errorf("expected PolicyDeny for anonymous, got %q", decision.Action)
 	}

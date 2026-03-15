@@ -32,7 +32,7 @@ async function checkRelayReachable(baseUrl) {
     setStatus(
       'relay-status',
       'error',
-      `Relay not reachable at ${baseUrl}. Make sure the TeaNode gateway is running at that address.`,
+      `Relay not reachable at ${baseUrl}. Make sure the TeaNode node is running at that address.`,
     )
   } finally {
     clearTimeout(timeout)

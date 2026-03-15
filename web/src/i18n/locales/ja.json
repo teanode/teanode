@@ -258,8 +258,8 @@
           "title": "モデル",
           "description": "LLM プロバイダー、デフォルトモデル、モデル別ランタイム制限を設定します。"
         },
-        "gateway": {
-          "title": "ゲートウェイ",
+        "node": {
+          "title": "ノード",
           "description": "HTTP サーバーと認証の設定。"
         },
         "tools": {
@@ -280,7 +280,7 @@
         }
       },
       "fields": {
-        "gateway": {
+        "node": {
           "bind": {
             "options": {
               "loopback": "ループバック（localhost）",

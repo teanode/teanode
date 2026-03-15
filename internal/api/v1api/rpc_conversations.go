@@ -51,7 +51,7 @@ type conversationSendParameters struct {
 	VoiceMode         string              `json:"voiceMode,omitempty"`
 }
 
-// handleConversationsSend: send user message, trigger agent run via gateway.
+// handleConversationsSend: send user message, trigger agent run via node.
 func (self *webSocketConnection) handleConversationsSend(frame requestFrame) (interface{}, error) {
 	parameters, err := unmarshalParams[conversationSendParameters](frame)
 	if err != nil {

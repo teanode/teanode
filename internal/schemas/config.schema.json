@@ -46,14 +46,14 @@
         }
       }
     },
-    "gateway": {
+    "node": {
       "type": "object",
-      "title": "Gateway",
+      "title": "Node",
       "properties": {
         "port": {
           "type": "number",
           "title": "Port",
-          "description": "Port the gateway listens on.",
+          "description": "Port the node listens on.",
           "x-placeholder": "8833",
           "default": 8833
         },
@@ -68,8 +68,8 @@
             "lan": "LAN (all interfaces)"
           },
           "x-enumLabelKeys": {
-            "loopback": "schema.config.fields.gateway.bind.options.loopback",
-            "lan": "schema.config.fields.gateway.bind.options.lan"
+            "loopback": "schema.config.fields.node.bind.options.loopback",
+            "lan": "schema.config.fields.node.bind.options.lan"
           }
         },
         "publicUrl": {
@@ -130,7 +130,7 @@
         "bargeIn": {
           "type": "boolean",
           "title": "Barge-In",
-          "description": "Gateway-wide policy for barge-in interruption. When set, overrides the per-session client value. Unset means the client controls barge-in per session (default: true)."
+          "description": "Node-wide policy for barge-in interruption. When set, overrides the per-session client value. Unset means the client controls barge-in per session (default: true)."
         }
       }
     },
@@ -523,12 +523,12 @@
       "path": "models"
     },
     {
-      "id": "gateway",
-      "title": "Gateway",
-      "titleKey": "schema.config.sections.gateway.title",
+      "id": "node",
+      "title": "Node",
+      "titleKey": "schema.config.sections.node.title",
       "description": "HTTP server and authentication settings.",
-      "descriptionKey": "schema.config.sections.gateway.description",
-      "path": "gateway"
+      "descriptionKey": "schema.config.sections.node.description",
+      "path": "node"
     },
     {
       "id": "certificate",

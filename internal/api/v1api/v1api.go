@@ -1,4 +1,4 @@
-// Package v1api implements the versioned REST + WebSocket API for the gw.
+// Package v1api implements the versioned REST + WebSocket API for the node.
 package v1api
 
 import (

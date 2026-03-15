@@ -118,11 +118,11 @@ func TestConfigPatchOnlyTouchesCertificateFields(t *testing.T) {
 	testStore := setupTestStore(t)
 	ctx := context.Background()
 
-	// Set up initial configuration with gateway and tools.
+	// Set up initial configuration with node and tools.
 	if err := testStore.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		_, err := tx.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
 			port := 9999
-			configuration.Gateway = &models.GatewayConfiguration{Port: &port}
+			configuration.Node = &models.NodeConfiguration{Port: &port}
 			braveKey := "test-brave-key"
 			configuration.Tools = &models.ToolsConfiguration{BraveAPIKey: &braveKey}
 			return nil
@@ -149,7 +149,7 @@ func TestConfigPatchOnlyTouchesCertificateFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify gateway and tools are untouched.
+	// Verify node and tools are untouched.
 	var configuration *models.Configuration
 	if err := testStore.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		var err error
@@ -159,8 +159,8 @@ func TestConfigPatchOnlyTouchesCertificateFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if configuration.Gateway == nil || configuration.Gateway.GetPort() != 9999 {
-		t.Fatalf("gateway port was overwritten: got %v", configuration.Gateway)
+	if configuration.Node == nil || configuration.Node.GetPort() != 9999 {
+		t.Fatalf("node port was overwritten: got %v", configuration.Node)
 	}
 	if configuration.Tools == nil || configuration.Tools.GetBraveAPIKey() != "test-brave-key" {
 		t.Fatalf("tools configuration was overwritten: got %v", configuration.Tools)

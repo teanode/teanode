@@ -34,7 +34,7 @@ type Configuration struct {
 	CreatedAt  *time.Time `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
 	ModifiedAt *time.Time `json:"modifiedAt,omitempty" yaml:"modifiedAt,omitempty"`
 
-	Gateway      *GatewayConfiguration       `json:"gateway,omitempty" yaml:"gateway,omitempty"`
+	Node         *NodeConfiguration          `json:"node,omitempty" yaml:"node,omitempty"`
 	Certificate  *CertificateConfiguration   `json:"certificate,omitempty" yaml:"certificate,omitempty"`
 	Models       *ModelsConfiguration        `json:"models,omitempty" yaml:"models,omitempty"`
 	Tools        *ToolsConfiguration         `json:"tools,omitempty" yaml:"tools,omitempty"`
@@ -51,7 +51,7 @@ const (
 	BindModeLAN      BindMode = "lan"
 )
 
-type GatewayConfiguration struct {
+type NodeConfiguration struct {
 	Port      *int      `json:"port,omitempty" yaml:"port,omitempty"`
 	Bind      *BindMode `json:"bind,omitempty" yaml:"bind,omitempty"`
 	PublicURL *string   `json:"publicUrl,omitempty" yaml:"publicUrl,omitempty"`

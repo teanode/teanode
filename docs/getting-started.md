@@ -18,7 +18,7 @@ Optional but useful:
 
 ---
 
-## 2. Build and run the gateway
+## 2. Build and run the node
 
 From the repo root:
 
@@ -26,7 +26,7 @@ From the repo root:
 
 ```sh
 export OPENAI_API_KEY=sk-...
-go run . gateway
+go run . node
 ```
 
 ### Build a binary
@@ -38,9 +38,9 @@ go build -o teanode .
 Then run:
 
 ```sh
-./teanode gateway
+./teanode node
 # or specify a port
-./teanode gateway --port 8080
+./teanode node --port 8080
 ```
 
 By default TeaNode listens on:
@@ -66,13 +66,13 @@ Common env vars:
 | Variable | Description |
 | --- | --- |
 | `OPENAI_API_KEY` | API key for the LLM provider |
-| `TEANODE_GATEWAY_PORT` | Gateway listen port |
-| `TEANODE_GATEWAY_TOKEN` | Bearer token for authentication |
+| `TEANODE_NODE_PORT` | Node listen port |
+| `TEANODE_NODE_TOKEN` | Bearer token for authentication |
 
 Example `~/.teanode/config.yaml`:
 
 ```yaml
-gateway:
+node:
   port: 8833
   bind: loopback
 models:
@@ -86,7 +86,7 @@ On startup, TeaNode also loads:
 - Security settings (`security.yaml`)
 - Model/provider definitions (`models.yaml`)
 - Skills directory configuration
-- Channel/gateway settings
+- Channel/node settings
 
 These are documented at a high level in `docs/architecture.md`.
 
@@ -117,7 +117,7 @@ See `docs/api-v1.md` for details, but a minimal `curl` example looks like:
 
 ```sh
 curl -X POST \
-  -H "Authorization: Bearer $TEANODE_GATEWAY_TOKEN" \
+  -H "Authorization: Bearer $TEANODE_NODE_TOKEN" \
   -H "Content-Type: application/json" \
   http://localhost:8833/api/v1/chat/completions \
   -d '{
@@ -189,7 +189,7 @@ See `docs/agents-and-skills.md` for the schema and lifecycle.
 
 ## 8. Next steps
 
-- Read `docs/architecture.md` to get a mental model of how the gateway, agents, tools, and jobs fit together.
+- Read `docs/architecture.md` to get a mental model of how the node, agents, tools, and jobs fit together.
 - Skim `docs/agents-and-skills.md` before adding new skills or tools.
 - Use `TODO.md` as a roadmap for unimplemented features and testing gaps.
 

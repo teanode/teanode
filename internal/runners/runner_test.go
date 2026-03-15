@@ -943,7 +943,7 @@ func TestRunnerApprovalNonWebOriginDeniedPersistsMessages(t *testing.T) {
 	ctx = ContextWithOrigin(ctx, OriginChannel)
 
 	result, err := runner.Run(ctx, RunParameters{
-		Message: "restart the gateway",
+		Message: "restart the node",
 	}, nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)

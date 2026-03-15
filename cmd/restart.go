@@ -10,7 +10,7 @@ import (
 func NewRestartCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "restart",
-		Usage: "Restart a running TeaNode gateway process",
+		Usage: "Restart a running TeaNode node process",
 		Action: func(ctx context.Context, command *cli.Command) error {
 			if err := restartProcess(ctx); err != nil {
 				return err

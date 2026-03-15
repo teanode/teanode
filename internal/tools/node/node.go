@@ -1,5 +1,5 @@
-// Package gateway exposes tools for interacting with the gateway runtime.
-package gateway
+// Package node exposes tools for interacting with the node runtime.
+package node
 
 import (
 	"context"
@@ -14,20 +14,20 @@ import (
 
 func init() {
 	tools.RegisterBuiltinTool(func() []tools.Tool {
-		return []tools.Tool{&gatewayTool{}}
+		return []tools.Tool{&nodeTool{}}
 	})
 }
 
-// --- gateway (multi-action) ---
+// --- node (multi-action) ---
 
-type gatewayTool struct{}
+type nodeTool struct{}
 
-func (self *gatewayTool) Definition() providers.ToolDefinition {
+func (self *nodeTool) Definition() providers.ToolDefinition {
 	return providers.ToolDefinition{
 		Type: "function",
 		Function: providers.FunctionSpec{
-			Name:        "gateway",
-			Description: "Manage the gateway process lifecycle. Actions: restart (graceful restart with same configuration), terminate (shut down the gateway).",
+			Name:        "node",
+			Description: "Manage the node process lifecycle. Actions: restart (graceful restart with same configuration), terminate (shut down the node).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -60,16 +60,16 @@ func (self *gatewayTool) Definition() providers.ToolDefinition {
 	}
 }
 
-func (self *gatewayTool) PolicyGroups() []tools.PolicyGroup {
+func (self *nodeTool) PolicyGroups() []tools.PolicyGroup {
 	return []tools.PolicyGroup{
 		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAdminApproval},
 	}
 }
 
-func (self *gatewayTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+func (self *nodeTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || !user.GetAdmin() {
-		return "", fmt.Errorf("admin access required to manage the gateway")
+		return "", fmt.Errorf("admin access required to manage the node")
 	}
 
 	var arguments struct {
@@ -95,7 +95,7 @@ func (self *gatewayTool) Execute(ctx context.Context, rawArguments string) (stri
 		action = lifecycle.Shutdown
 		status = "scheduled_shutdown"
 	default:
-		return "", fmt.Errorf("unknown gateway action: %s", arguments.Action)
+		return "", fmt.Errorf("unknown node action: %s", arguments.Action)
 	}
 
 	lifecycleManager.ScheduleLifecycle(action)
@@ -103,7 +103,7 @@ func (self *gatewayTool) Execute(ctx context.Context, rawArguments string) (stri
 	result, _ := json.Marshal(map[string]interface{}{
 		"action":  arguments.Action,
 		"status":  status,
-		"message": "The gateway will " + arguments.Action + " after you finish your response. The full conversation history is preserved across restarts — you will have complete context when the conversation resumes.",
+		"message": "The node will " + arguments.Action + " after you finish your response. The full conversation history is preserved across restarts — you will have complete context when the conversation resumes.",
 	})
 	return string(result), nil
 }
