@@ -10,7 +10,7 @@ import (
 
 func (self *webSocketConnection) profileToRpcPayload(profile *models.User) map[string]interface{} {
 	payload := map[string]interface{}{
-		"name": profile.GetUsername(),
+		"name": profile.GetName(),
 	}
 	if description := profile.GetDescription(); description != "" {
 		payload["description"] = description
