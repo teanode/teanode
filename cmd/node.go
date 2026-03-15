@@ -51,6 +51,10 @@ func NewNodeCommand() *cli.Command {
 		Name:  "node",
 		Usage: "Start the TeaNode node server",
 		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "log-file",
+				Usage: "redirect stdout and stderr to this log file",
+			},
 			&cli.IntFlag{
 				Name:    "port",
 				Aliases: []string{"p"},
@@ -105,6 +109,26 @@ func NewNodeCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
+			// When --log-file is set (background mode), open/append the log
+			// file and redirect stdout and stderr to it.
+			logFilePath := command.String("log-file")
+			if logFilePath != "" {
+				logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+				if err != nil {
+					return fmt.Errorf("open log file: %w", err)
+				}
+				fd := int(logFile.Fd())
+				if err := syscall.Dup2(fd, int(os.Stdout.Fd())); err != nil {
+					_ = logFile.Close()
+					return fmt.Errorf("redirect stdout to log file: %w", err)
+				}
+				if err := syscall.Dup2(fd, int(os.Stderr.Fd())); err != nil {
+					_ = logFile.Close()
+					return fmt.Errorf("redirect stderr to log file: %w", err)
+				}
+				_ = logFile.Close()
+			}
+
 			// --- Optional debug/pprof server ---
 			if debugEndpoint := command.String("debug-endpoint"); debugEndpoint != "" {
 				shutdownDebugServer, err := debugutil.RunDebugServer(ctx, debugEndpoint)
@@ -123,6 +147,13 @@ func NewNodeCommand() *cli.Command {
 					log.Errorf("failed to release node pid file: %v", err)
 				}
 			}()
+
+			// Start background log rotation based on file size.
+			if logFilePath != "" {
+				startLogRotation(ctx, logFilePath)
+			}
+
+			log.Noticef("starting %s", version.ServerName())
 
 			storeBackend := store.BackendType(command.String("store"))
 			var postgresSettings *dbstore.Settings
@@ -461,7 +492,7 @@ func NewNodeCommand() *cli.Command {
 			})
 
 			// Graceful shutdown.
-			log.Info("shutting down")
+			log.Noticef("stopping %s", version.ServerName())
 
 			if summarizer != nil {
 				summarizer.Stop()
