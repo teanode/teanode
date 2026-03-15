@@ -168,6 +168,20 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 		secretConfigurations = append(secretConfigurations, &models.SecretConfiguration{Key: &keyCopy, Value: &valueCopy})
 	}
 	result.Secrets = &secretConfigurations
+	if len(configuration.ToolPolicies) > 0 {
+		toolPolicies := make([]*models.ToolPolicyConfiguration, 0, len(configuration.ToolPolicies))
+		for _, tp := range configuration.ToolPolicies {
+			tool := tp.Tool
+			group := models.ToolPolicyGroup(tp.Group)
+			level := models.ToolPolicyLevel(tp.Level)
+			toolPolicies = append(toolPolicies, &models.ToolPolicyConfiguration{
+				Tool:  &tool,
+				Group: &group,
+				Level: &level,
+			})
+		}
+		result.ToolPolicies = &toolPolicies
+	}
 	return result
 }
 
@@ -291,6 +305,25 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 		result.Secrets = map[string]string{}
 		for _, secret := range *configuration.Secrets {
 			result.Secrets[secret.GetKey()] = secret.GetValue()
+		}
+	}
+	if configuration.ToolPolicies != nil {
+		for _, tp := range *configuration.ToolPolicies {
+			var tool, group, level string
+			if tp.Tool != nil {
+				tool = *tp.Tool
+			}
+			if tp.Group != nil {
+				group = string(*tp.Group)
+			}
+			if tp.Level != nil {
+				level = string(*tp.Level)
+			}
+			result.ToolPolicies = append(result.ToolPolicies, storeToolPolicyRecord{
+				Tool:  tool,
+				Group: group,
+				Level: level,
+			})
 		}
 	}
 	return result

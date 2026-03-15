@@ -127,6 +127,12 @@ type storeUniFiProtectRecord struct {
 	TimeoutSeconds        int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
 }
 
+type storeToolPolicyRecord struct {
+	Tool  string `json:"tool,omitempty" yaml:"tool,omitempty"`
+	Group string `json:"group,omitempty" yaml:"group,omitempty"`
+	Level string `json:"level,omitempty" yaml:"level,omitempty"`
+}
+
 type storeConfigurationRecord struct {
 	Gateway      storeGatewayRecord      `json:"gateway,omitempty" yaml:"gateway,omitempty"`
 	Certificate  *storeCertificateRecord `json:"certificate,omitempty" yaml:"certificate,omitempty"`
@@ -135,6 +141,7 @@ type storeConfigurationRecord struct {
 	Integrations storeIntegrationsRecord `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Channels     storeChannelsRecord     `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Secrets      map[string]string       `json:"secrets,omitempty" yaml:"secrets,omitempty"`
+	ToolPolicies []storeToolPolicyRecord `json:"toolPolicies,omitempty" yaml:"toolPolicies,omitempty"`
 }
 
 type storeAgentRecord struct {
