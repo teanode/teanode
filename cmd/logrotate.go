@@ -2,13 +2,19 @@ package cmd
 
 import (
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"syscall"
+	"time"
 )
 
 const maxRotatedLogs = 5
+
+// maxLogFileSize is the size threshold (50 MB) at which the log file is rotated.
+const maxLogFileSize = 50 * 1024 * 1024
 
 // rotateLogFile rotates the log file at the given path.
 // The rotation scheme is: node.log -> node.log.1 -> node.log.2.gz -> node.log.3.gz -> ...
@@ -45,6 +51,42 @@ func rotateLogFile(logPath string) error {
 	}
 
 	return nil
+}
+
+// startLogRotation runs a background goroutine that periodically checks the log
+// file size and rotates it when it exceeds maxLogFileSize. After rotation, it
+// reopens the log file and redirects stdout and stderr to the new file.
+func startLogRotation(ctx context.Context, logPath string) {
+	ticker := time.NewTicker(1 * time.Minute)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				info, err := os.Stat(logPath)
+				if err != nil || info.Size() < maxLogFileSize {
+					continue
+				}
+				if err := rotateLogFile(logPath); err != nil {
+					log.Errorf("log rotation failed: %v", err)
+					continue
+				}
+				// Reopen the log file and redirect stdout/stderr to it.
+				file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+				if err != nil {
+					log.Errorf("reopen log file after rotation: %v", err)
+					continue
+				}
+				fd := int(file.Fd())
+				_ = syscall.Dup2(fd, int(os.Stdout.Fd()))
+				_ = syscall.Dup2(fd, int(os.Stderr.Fd()))
+				_ = file.Close()
+				log.Infof("log rotated: %s", logPath)
+			}
+		}
+	}()
 }
 
 // compressFile gzip-compresses src into dst.
