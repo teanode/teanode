@@ -10,7 +10,9 @@
     "saving": "Saving...",
     "unsavedChanges": "Unsaved changes",
     "default": "Default",
-    "remove": "Remove"
+    "remove": "Remove",
+    "connectionLost": "Connection lost. Reconnecting...",
+    "connectionRestored": "Connection restored."
   },
   "sidebar": {
     "openSidebar": "Open sidebar",

@@ -63,13 +63,13 @@ function parseToolCalls(raw: ToolCall[] | string | undefined): ToolCall[] {
 
 function getUsageNumbers(
   usage: Usage | undefined,
-): { input: number; output: number; total: number } | null {
+): { input: number; output: number; total: number; lastInput?: number } | null {
   if (!usage) return null;
   const input = usage.input ?? usage.Input ?? 0;
   const output = usage.output ?? usage.Output ?? 0;
   const total = usage.total ?? usage.Total ?? input + output;
   if (!total) return null;
-  return { input, output, total };
+  return { input, output, total, lastInput: usage.lastInput };
 }
 
 function compactNumber(n: number): string {
@@ -79,13 +79,24 @@ function compactNumber(n: number): string {
 }
 
 function formatUsageText(
-  usageNumbers: { input: number; output: number; total: number },
+  usageNumbers: {
+    input: number;
+    output: number;
+    total: number;
+    lastInput?: number;
+  },
   contextWindow?: number,
 ): string {
   let text = `${compactNumber(usageNumbers.input)} in / ${compactNumber(usageNumbers.output)} out \u00b7 ${compactNumber(usageNumbers.total)} tokens`;
-  if (contextWindow && contextWindow > 0 && usageNumbers.input > 0) {
-    const percentage = (usageNumbers.input / contextWindow) * 100;
-    text += ` \u00b7 ${percentage < 1 ? "<1" : Math.round(percentage)}% context`;
+  if (contextWindow && contextWindow > 0) {
+    // Use the last round's input tokens for the percentage so it reflects
+    // actual context-window fill rather than the accumulated sum across
+    // multiple tool-call rounds (which can exceed 100%).
+    const contextInput = usageNumbers.lastInput ?? usageNumbers.input;
+    if (contextInput > 0) {
+      const percentage = (contextInput / contextWindow) * 100;
+      text += ` \u00b7 ${percentage < 1 ? "<1" : Math.round(percentage)}% context`;
+    }
   }
   return text;
 }
@@ -93,11 +104,20 @@ function formatUsageText(
 /** Look up context_length for a model from the models list. */
 function findContextWindow(
   models: ModelInfo[],
-  model?: string,
+  providerModelName?: string,
 ): number | undefined {
-  if (!model || !models.length) return undefined;
-  // Try exact match on id first.
-  const match = models.find((modelInfo) => modelInfo.id === model);
+  if (!providerModelName || !models.length) return undefined;
+  // providerModelName may be "provider:model" while ModelInfo.id is just the
+  // model name.  Try exact match first, then strip the provider prefix.
+  const match =
+    models.find((m) => m.id === providerModelName) ||
+    models.find((m) => {
+      const colonIndex = providerModelName.indexOf(":");
+      if (colonIndex < 0) return false;
+      const modelPart = providerModelName.slice(colonIndex + 1);
+      const providerPart = providerModelName.slice(0, colonIndex);
+      return m.id === modelPart && m.providerName === providerPart;
+    });
   return match?.context_length;
 }
 
@@ -212,10 +232,9 @@ export function convertHistory(
         });
         const usageNumbers = getUsageNumbers(message.usage);
         if (usageNumbers) {
-          const contextWindow = findContextWindow(
-            models,
-            message.providerModelName,
-          );
+          const contextWindow =
+            message.usage?.contextWindow ||
+            findContextWindow(models, message.providerModelName);
           displayMessages.push({
             id: nextMessageId(),
             type: "usage",
@@ -1040,11 +1059,15 @@ export function useBackend() {
       setConversationId(hydrationDefaultConversationId!);
       conversationIdRef.current = hydrationDefaultConversationId!;
     }
-    // Fetch available models
-    sendRpcRef
+    // Fetch available models first so that convertHistory can resolve
+    // context windows for usage-percentage display.
+    const modelsPromise = sendRpcRef
       .current<ModelsListResult>("models.list", {})
       .then((res) => {
-        if (res.models) setModels(res.models);
+        if (res.models) {
+          setModels(res.models);
+          modelsRef.current = res.models;
+        }
       })
       .catch((error: unknown) => console.error("models.list:", error));
 
@@ -1064,6 +1087,9 @@ export function useBackend() {
     if (key) {
       historyLoadedRef.current = false;
       pendingEventsRef.current = [];
+      // Wait for models to load before converting history so that
+      // findContextWindow can resolve context_length for % display.
+      modelsPromise.then(() =>
       sendRpcRef
         .current<ConversationHistoryResult>("conversations.history", {
           conversationId: key,
@@ -1161,7 +1187,8 @@ export function useBackend() {
         })
         .catch((error: unknown) =>
           console.error("conversations.history reconnect:", error),
-        );
+        ),
+      );
     }
   }, []);
 

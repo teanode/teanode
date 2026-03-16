@@ -343,6 +343,11 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 			totalUsage["totalTokens"] += usage.TotalTokens
 			totalUsage["cacheCreated"] += usage.CacheCreationInputTokens
 			totalUsage["cacheRead"] += usage.CacheReadInputTokens
+			// Track the current round's input tokens so the frontend can
+			// compute an accurate context-window usage percentage.
+			// The accumulated "input" can exceed the context window when
+			// multiple tool-call rounds each send the full conversation.
+			totalUsage["lastInput"] = usage.PromptTokens
 		}
 
 		responseText = textBuilder.String()
@@ -363,11 +368,13 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		usageMap := map[string]int(nil)
 		if usage != nil {
 			usageMap = map[string]int{
-				"input":        usage.PromptTokens,
-				"output":       usage.CompletionTokens,
-				"totalTokens":  usage.TotalTokens,
-				"cacheCreated": usage.CacheCreationInputTokens,
-				"cacheRead":    usage.CacheReadInputTokens,
+				"input":         usage.PromptTokens,
+				"output":        usage.CompletionTokens,
+				"totalTokens":   usage.TotalTokens,
+				"cacheCreated":  usage.CacheCreationInputTokens,
+				"cacheRead":     usage.CacheReadInputTokens,
+				"lastInput":     usage.PromptTokens,
+				"contextWindow": contextWindow,
 			}
 		}
 		if len(toolCalls) > 0 {

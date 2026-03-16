@@ -134,6 +134,8 @@ export interface Usage {
   Output?: number;
   total?: number;
   Total?: number;
+  lastInput?: number;
+  contextWindow?: number;
 }
 
 export interface ToolCall {

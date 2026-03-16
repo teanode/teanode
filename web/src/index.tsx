@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 import { ThemeProvider } from "@mui/material/styles";
@@ -16,7 +16,7 @@ import { router } from "./router";
 import { getTheme } from "./theme";
 import { useResolvedTheme } from "./themePreference";
 import { useAppContext, AppProvider } from "./context";
-import { AlertProvider } from "./components/AlertProvider";
+import { AlertProvider, useAlert } from "./components/AlertProvider";
 import { useBackend } from "./hooks/useBackend";
 import { authStatus } from "./rpc";
 import "./i18n/config";
@@ -193,6 +193,27 @@ function ThemedApp({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ConnectionAlerts() {
+  const { backend } = useAppContext();
+  const { showAlert } = useAlert();
+  const { t } = useTranslation();
+  const wasDisconnectedRef = useRef(false);
+
+  useEffect(() => {
+    if (!backend.hasConnectedOnce) return;
+
+    if (!backend.connected) {
+      wasDisconnectedRef.current = true;
+      showAlert(t("common.connectionLost"), "warning");
+    } else if (wasDisconnectedRef.current) {
+      wasDisconnectedRef.current = false;
+      showAlert(t("common.connectionRestored"), "success");
+    }
+  }, [backend.connected, backend.hasConnectedOnce, showAlert, t]);
+
+  return null;
+}
+
 function Root() {
   const [ready, setReady] = useState(false);
   const backend = useBackend();
@@ -248,6 +269,7 @@ function Root() {
     return (
       <AppProvider backend={backend}>
         <ThemedApp>
+          <ConnectionAlerts />
           <Box
             sx={{
               display: "flex",
@@ -266,6 +288,7 @@ function Root() {
   return (
     <AppProvider backend={backend}>
       <ThemedApp>
+        <ConnectionAlerts />
         <RouterProvider router={router} />
       </ThemedApp>
     </AppProvider>
