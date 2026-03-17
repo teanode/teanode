@@ -19,6 +19,7 @@ import (
 	_ "github.com/teanode/teanode/internal/tools/google"
 	_ "github.com/teanode/teanode/internal/tools/homeassistant"
 	_ "github.com/teanode/teanode/internal/tools/jobs"
+	_ "github.com/teanode/teanode/internal/tools/mattermost"
 	_ "github.com/teanode/teanode/internal/tools/memory"
 	_ "github.com/teanode/teanode/internal/tools/node"
 	_ "github.com/teanode/teanode/internal/tools/projects"

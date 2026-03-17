@@ -108,6 +108,12 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 			Services:   ptrto.TrimmedStrings(configuration.Tools.GitLab.Services),
 		}
 	}
+	if configuration.Tools.Mattermost != nil {
+		toolsConfiguration.Mattermost = &models.MattermostConfiguration{
+			BinaryPath: ptrto.TrimmedString(configuration.Tools.Mattermost.BinaryPath),
+			Services:   ptrto.TrimmedStrings(configuration.Tools.Mattermost.Services),
+		}
+	}
 	if configuration.Tools.ClaudeCode != nil {
 		toolsConfiguration.ClaudeCode = &models.ClaudeCodeConfiguration{
 			BinaryPath:            ptrto.TrimmedString(configuration.Tools.ClaudeCode.BinaryPath),
@@ -246,6 +252,12 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 			result.Tools.GitLab = &storeGitLabToolRecord{
 				BinaryPath: configuration.Tools.GitLab.GetBinaryPath(),
 				Services:   sliceValue(configuration.Tools.GitLab.Services),
+			}
+		}
+		if configuration.Tools.Mattermost != nil {
+			result.Tools.Mattermost = &storeMattermostToolRecord{
+				BinaryPath: configuration.Tools.Mattermost.GetBinaryPath(),
+				Services:   sliceValue(configuration.Tools.Mattermost.Services),
 			}
 		}
 		if configuration.Tools.ClaudeCode != nil {

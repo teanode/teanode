@@ -89,6 +89,7 @@ type ToolsConfiguration struct {
 	Google        *GoogleConfiguration        `json:"google,omitempty" yaml:"google,omitempty"`
 	GitHub        *GitHubConfiguration        `json:"gitHub,omitempty" yaml:"gitHub,omitempty"`
 	GitLab        *GitLabConfiguration        `json:"gitLab,omitempty" yaml:"gitLab,omitempty"`
+	Mattermost    *MattermostConfiguration    `json:"mattermost,omitempty" yaml:"mattermost,omitempty"`
 	ClaudeCode    *ClaudeCodeConfiguration    `json:"claudeCode,omitempty" yaml:"claudeCode,omitempty"`
 	Codex         *CodexConfiguration         `json:"codex,omitempty" yaml:"codex,omitempty"`
 	HomeAssistant *HomeAssistantConfiguration `json:"homeAssistant,omitempty" yaml:"homeAssistant,omitempty"`
@@ -107,6 +108,11 @@ type GitHubConfiguration struct {
 }
 
 type GitLabConfiguration struct {
+	BinaryPath *string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`
+	Services   *[]string `json:"services,omitempty" yaml:"services,omitempty"`
+}
+
+type MattermostConfiguration struct {
 	BinaryPath *string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`
 	Services   *[]string `json:"services,omitempty" yaml:"services,omitempty"`
 }

@@ -68,6 +68,7 @@ type storeToolsRecord struct {
 	Google        *storeGoogleToolRecord     `json:"google,omitempty" yaml:"google,omitempty"`
 	GitHub        *storeGitHubToolRecord     `json:"gitHub,omitempty" yaml:"gitHub,omitempty"`
 	GitLab        *storeGitLabToolRecord     `json:"gitLab,omitempty" yaml:"gitLab,omitempty"`
+	Mattermost    *storeMattermostToolRecord `json:"mattermost,omitempty" yaml:"mattermost,omitempty"`
 	ClaudeCode    *storeClaudeCodeToolRecord `json:"claudeCode,omitempty" yaml:"claudeCode,omitempty"`
 	Codex         *storeCodexToolRecord      `json:"codex,omitempty" yaml:"codex,omitempty"`
 	HomeAssistant *storeHomeAssistantRecord  `json:"homeAssistant,omitempty" yaml:"homeAssistant,omitempty"`
@@ -86,6 +87,11 @@ type storeGitHubToolRecord struct {
 }
 
 type storeGitLabToolRecord struct {
+	BinaryPath string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`
+	Services   []string `json:"services,omitempty" yaml:"services,omitempty"`
+}
+
+type storeMattermostToolRecord struct {
 	BinaryPath string   `json:"binaryPath,omitempty" yaml:"binaryPath,omitempty"`
 	Services   []string `json:"services,omitempty" yaml:"services,omitempty"`
 }
