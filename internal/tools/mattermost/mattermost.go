@@ -2,12 +2,10 @@
 package mattermost
 
 import (
-	"context"
 	"os/exec"
 
 	"github.com/op/go-logging"
 
-	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
 )
 
@@ -15,32 +13,6 @@ var log = logging.MustGetLogger("mattermost")
 
 // defaultServices are registered when no explicit service list is configured.
 var defaultServices = []string{"channels", "posts", "users"}
-
-type resolvedConfiguration struct {
-	binaryPath string
-	services   []string
-}
-
-func configurationFromContext(ctx context.Context) *resolvedConfiguration {
-	configuration := &resolvedConfiguration{}
-	dataStore := store.StoreFromContextSafe(ctx)
-	if dataStore == nil {
-		return configuration
-	}
-	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		storedConfiguration, err := transaction.GetConfiguration(ctx, nil)
-		if err != nil {
-			return err
-		}
-		if storedConfiguration.Tools != nil && storedConfiguration.Tools.Mattermost != nil {
-			mattermostConfiguration := storedConfiguration.Tools.Mattermost
-			configuration.binaryPath = mattermostConfiguration.GetBinaryPath()
-			configuration.services = mattermostConfiguration.GetServices()
-		}
-		return nil
-	})
-	return configuration
-}
 
 func init() {
 	tools.RegisterBuiltinTool(createTools)

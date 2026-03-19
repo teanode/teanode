@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
@@ -22,27 +23,28 @@ func (self *postsTool) Definition() providers.ToolDefinition {
 			Name: "mattermost_posts",
 			Description: "Interact with Mattermost posts/messages. Actions: create (post a message), " +
 				"reply (reply in a thread), edit (edit a post), delete (delete a post), " +
-				"thread (view a thread), search (search for posts), " +
-				"react (add reaction), dm (send direct message).",
+				"thread (view a thread), search (search for posts), pinned (list pinned posts), " +
+				"react/unreact (manage reactions), dm (send direct message), dm_read (read DM history), " +
+				"dm_list (list DM conversations), dm_group (send a group DM).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"create", "reply", "edit", "delete", "thread", "search", "react", "dm"},
+						"enum":        []string{"create", "reply", "edit", "delete", "thread", "search", "pinned", "react", "unreact", "dm", "dm_read", "dm_list", "dm_group"},
 						"description": "The post action to perform.",
 					},
 					"channel": map[string]interface{}{
 						"type":        "string",
-						"description": "Channel name or ID (for 'create' action).",
+						"description": "Channel name or ID (for 'create' and 'pinned' actions).",
 					},
 					"message": map[string]interface{}{
 						"type":        "string",
-						"description": "Message text (for 'create', 'reply', 'edit', 'dm' actions).",
+						"description": "Message text (for 'create', 'reply', 'edit', 'dm', 'dm_group' actions).",
 					},
 					"post_id": map[string]interface{}{
 						"type":        "string",
-						"description": "Post ID (for 'reply', 'edit', 'delete', 'thread', 'react' actions).",
+						"description": "Post ID (for 'reply', 'edit', 'delete', 'thread', 'react', 'unreact' actions).",
 					},
 					"query": map[string]interface{}{
 						"type":        "string",
@@ -54,7 +56,20 @@ func (self *postsTool) Definition() providers.ToolDefinition {
 					},
 					"username": map[string]interface{}{
 						"type":        "string",
-						"description": "Username to send direct message to (for 'dm' action).",
+						"description": "Username to send or read a direct message with (for 'dm' and 'dm_read' actions).",
+					},
+					"usernames": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Usernames for a group DM (for 'dm_group' action).",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of results to return (for 'dm_read' action, default 20).",
+					},
+					"or_search": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Use OR instead of AND between search terms (for 'search' action).",
 					},
 				},
 				"required": []string{"action"},
@@ -65,20 +80,23 @@ func (self *postsTool) Definition() providers.ToolDefinition {
 
 func (self *postsTool) PolicyGroups() []tools.PolicyGroup {
 	return []tools.PolicyGroup{
-		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"thread", "search"}},
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"thread", "search", "pinned", "dm_read", "dm_list"}},
 		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
 
 func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var args struct {
-		Action   string `json:"action"`
-		Channel  string `json:"channel"`
-		Message  string `json:"message"`
-		PostID   string `json:"post_id"`
-		Query    string `json:"query"`
-		Emoji    string `json:"emoji"`
-		Username string `json:"username"`
+		Action    string   `json:"action"`
+		Channel   string   `json:"channel"`
+		Message   string   `json:"message"`
+		PostID    string   `json:"post_id"`
+		Query     string   `json:"query"`
+		Emoji     string   `json:"emoji"`
+		Username  string   `json:"username"`
+		Usernames []string `json:"usernames"`
+		Limit     int      `json:"limit"`
+		ORSearch  bool     `json:"or_search"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -132,7 +150,16 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Query == "" {
 			return "", fmt.Errorf("query is required for search action")
 		}
+		if args.ORSearch {
+			return execMattermost(ctx, self.runner, self.binary, "post", "search", args.Query, "--or")
+		}
 		return execMattermost(ctx, self.runner, self.binary, "post", "search", args.Query)
+
+	case "pinned":
+		if args.Channel == "" {
+			return "", fmt.Errorf("channel is required for pinned action")
+		}
+		return execMattermost(ctx, self.runner, self.binary, "post", "pinned", args.Channel)
 
 	case "react":
 		if args.PostID == "" {
@@ -147,6 +174,19 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		}
 		return wrapPlainOutput("reacted", output), nil
 
+	case "unreact":
+		if args.PostID == "" {
+			return "", fmt.Errorf("post_id is required for unreact action")
+		}
+		if args.Emoji == "" {
+			return "", fmt.Errorf("emoji is required for unreact action")
+		}
+		output, err := execMattermost(ctx, self.runner, self.binary, "post", "unreact", args.PostID, args.Emoji)
+		if err != nil {
+			return "", err
+		}
+		return wrapPlainOutput("unreacted", output), nil
+
 	case "dm":
 		if args.Username == "" {
 			return "", fmt.Errorf("username is required for dm action")
@@ -155,6 +195,28 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 			return "", fmt.Errorf("message is required for dm action")
 		}
 		return execMattermost(ctx, self.runner, self.binary, "dm", "send", args.Username, args.Message)
+
+	case "dm_read":
+		if args.Username == "" {
+			return "", fmt.Errorf("username is required for dm_read action")
+		}
+		limit := args.Limit
+		if limit <= 0 {
+			limit = 20
+		}
+		return execMattermost(ctx, self.runner, self.binary, "dm", "read", args.Username, "-n", fmt.Sprintf("%d", limit))
+
+	case "dm_list":
+		return execMattermost(ctx, self.runner, self.binary, "dm", "list")
+
+	case "dm_group":
+		if len(args.Usernames) == 0 {
+			return "", fmt.Errorf("usernames is required for dm_group action")
+		}
+		if args.Message == "" {
+			return "", fmt.Errorf("message is required for dm_group action")
+		}
+		return execMattermost(ctx, self.runner, self.binary, "dm", "group", strings.Join(args.Usernames, ","), args.Message)
 
 	default:
 		return "", fmt.Errorf("unknown posts action: %s", args.Action)

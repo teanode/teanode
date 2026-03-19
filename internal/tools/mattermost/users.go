@@ -22,13 +22,13 @@ func (self *usersTool) Definition() providers.ToolDefinition {
 			Name: "mattermost_users",
 			Description: "Interact with Mattermost users. Actions: me (show your profile), " +
 				"info (show user profile), status (get or set your status), " +
-				"search (search for users), list (list team members).",
+				"search (search for users), list (list team members), autocomplete.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"me", "info", "status", "search", "list"},
+						"enum":        []string{"me", "info", "status", "search", "list", "autocomplete"},
 						"description": "The user action to perform.",
 					},
 					"username": map[string]interface{}{
@@ -37,7 +37,7 @@ func (self *usersTool) Definition() providers.ToolDefinition {
 					},
 					"query": map[string]interface{}{
 						"type":        "string",
-						"description": "Search query (for 'search' action).",
+						"description": "Search query or prefix (for 'search' and 'autocomplete' actions).",
 					},
 					"status_value": map[string]interface{}{
 						"type":        "string",
@@ -65,7 +65,7 @@ func (self *usersTool) Definition() providers.ToolDefinition {
 
 func (self *usersTool) PolicyGroups() []tools.PolicyGroup {
 	return []tools.PolicyGroup{
-		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"me", "info", "search", "list"}},
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"me", "info", "search", "list", "autocomplete"}},
 		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
@@ -95,17 +95,17 @@ func (self *usersTool) Execute(ctx context.Context, rawArguments string) (string
 		return execMattermost(ctx, self.runner, self.binary, "user", "info", args.Username)
 
 	case "status":
+		commandArgs := []string{"user", "status"}
 		if args.StatusValue != "" {
-			commandArgs := []string{"user", "status", args.StatusValue}
-			if args.StatusMessage != "" {
-				commandArgs = append(commandArgs, "--message", args.StatusMessage)
-			}
-			if args.StatusEmoji != "" {
-				commandArgs = append(commandArgs, "--emoji", args.StatusEmoji)
-			}
-			return execMattermost(ctx, self.runner, self.binary, commandArgs...)
+			commandArgs = append(commandArgs, args.StatusValue)
 		}
-		return execMattermost(ctx, self.runner, self.binary, "user", "status")
+		if args.StatusMessage != "" {
+			commandArgs = append(commandArgs, "--message", args.StatusMessage)
+		}
+		if args.StatusEmoji != "" {
+			commandArgs = append(commandArgs, "--emoji", args.StatusEmoji)
+		}
+		return execMattermost(ctx, self.runner, self.binary, commandArgs...)
 
 	case "search":
 		if args.Query == "" {
@@ -120,6 +120,12 @@ func (self *usersTool) Execute(ctx context.Context, rawArguments string) (string
 		}
 		return execMattermost(ctx, self.runner, self.binary, "user", "list",
 			"-n", fmt.Sprintf("%d", limit))
+
+	case "autocomplete":
+		if args.Query == "" {
+			return "", fmt.Errorf("query is required for autocomplete action")
+		}
+		return execMattermost(ctx, self.runner, self.binary, "user", "autocomplete", args.Query)
 
 	default:
 		return "", fmt.Errorf("unknown users action: %s", args.Action)

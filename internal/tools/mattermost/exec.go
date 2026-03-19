@@ -48,7 +48,7 @@ func execMattermost(ctx context.Context, runner commandRunner, binary string, ar
 	if err != nil {
 		errorMessage := err.Error()
 		if isAuthError(errorMessage) {
-			return "", fmt.Errorf("Mattermost authentication required. Please run 'mm auth login' to authenticate")
+			return "", fmt.Errorf("mattermost authentication required. please run 'mm auth login' to authenticate")
 		}
 		return "", fmt.Errorf("mm command failed: %s", errorMessage)
 	}
