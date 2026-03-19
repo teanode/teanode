@@ -51,8 +51,19 @@ go build -o teanode .
 ### Run
 
 ```sh
-./teanode node
-./teanode node --port 8080
+./teanode node                  # run in foreground
+./teanode node --port 8080      # custom port
+./teanode start                 # run in background (daemonize)
+./teanode stop                  # stop the background process
+./teanode restart               # restart the background process
+./teanode status                # check if the node is running
+```
+
+Global flags:
+
+```sh
+./teanode --dir /path/to/data node    # custom data directory (default: ~/.teanode)
+./teanode --log-level DEBUG node      # set log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 ```
 
 ### Docker

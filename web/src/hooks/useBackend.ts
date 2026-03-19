@@ -1090,104 +1090,111 @@ export function useBackend() {
       // Wait for models to load before converting history so that
       // findContextWindow can resolve context_length for % display.
       modelsPromise.then(() =>
-      sendRpcRef
-        .current<ConversationHistoryResult>("conversations.history", {
-          conversationId: key,
-          agentId: hydrationAgentId || undefined,
-          limit: 50,
-        })
-        .then((res) => {
-          if (conversationIdRef.current !== key) return;
-          const displayMessages = convertHistory(
-            res.messages || [],
-            modelsRef.current,
-          );
-
-          // Store pagination metadata
-          oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
-          setHasMoreHistory(res.hasMore ?? false);
-
-          setConversationModel(res.providerModelName || null);
-          setLastActiveRunState(res.activeRunState || null);
-
-          const reconciledRunState = reconcileRunStateFromHistory(
-            activeRunsRef.current,
-            key,
-            res.activeRunId,
-          );
-          currentRunIdRef.current = reconciledRunState.currentRunId;
-          runQueueRef.current = reconciledRunState.runQueue;
-          setIsRunning(reconciledRunState.isRunning);
-          if (reconciledRunState.isRunning) {
-            setStatus("thinking...");
-            displayMessages.push({
-              id: nextMessageId(),
-              type: "assistant",
-              content: "",
-              runId: res.activeRunId,
-            });
-          } else {
-            streamTextRef.current = "";
-            afterToolCallsRef.current = false;
-            setStreamText("");
-            setIsStreaming(false);
-            setToolActivity(null);
-            setStatus("connected");
-          }
-          setMessages(displayMessages);
-          historyLoadedRef.current = true;
-          // Replay buffered events (only if run is still active — otherwise history is complete)
-          if (
-            reconciledRunState.isRunning &&
-            pendingEventsRef.current.length > 0
-          ) {
-            for (const event of pendingEventsRef.current) {
-              handleEvent(event);
-            }
-          }
-          pendingEventsRef.current = [];
-
-          // Recover pending questions from the in-memory broker.
-          sendRpcRef
-            .current<PendingQuestionsListResult>("questions.list", {
-              conversationId: key,
-            })
-            .then((qResult) => {
-              if (conversationIdRef.current !== key) return;
-              setPendingQuestions(qResult?.questions ?? []);
-            })
-            .catch((error: unknown) => console.error("questions.list:", error));
-
-          // Recover todos – not covered by a useEffect, so must be
-          // loaded explicitly on every (re)connect.
-          sendRpcRef
-            .current<ConversationTodosListResult>("conversations.todos.list", {
-              conversationId: key,
-            })
-            .then((tResult) => {
-              if (conversationIdRef.current !== key) return;
-              setTodos(tResult.todos || []);
-            })
-            .catch((error: unknown) =>
-              console.error("conversations.todos.list:", error),
+        sendRpcRef
+          .current<ConversationHistoryResult>("conversations.history", {
+            conversationId: key,
+            agentId: hydrationAgentId || undefined,
+            limit: 50,
+          })
+          .then((res) => {
+            if (conversationIdRef.current !== key) return;
+            const displayMessages = convertHistory(
+              res.messages || [],
+              modelsRef.current,
             );
 
-          // Recover pending approvals – the standalone useEffect may
-          // not fire when the disconnect grace-period prevents the
-          // `connected` flag from toggling.
-          sendRpcRef
-            .current<PendingApprovalsListResult>("approvals.list", {
-              conversationId: key,
-            })
-            .then((aResult) => {
-              if (conversationIdRef.current !== key) return;
-              setPendingApprovals(aResult?.approvals ?? []);
-            })
-            .catch((error: unknown) => console.error("approvals.list:", error));
-        })
-        .catch((error: unknown) =>
-          console.error("conversations.history reconnect:", error),
-        ),
+            // Store pagination metadata
+            oldestLoadedIndexRef.current = res.oldestLoadedIndex ?? 0;
+            setHasMoreHistory(res.hasMore ?? false);
+
+            setConversationModel(res.providerModelName || null);
+            setLastActiveRunState(res.activeRunState || null);
+
+            const reconciledRunState = reconcileRunStateFromHistory(
+              activeRunsRef.current,
+              key,
+              res.activeRunId,
+            );
+            currentRunIdRef.current = reconciledRunState.currentRunId;
+            runQueueRef.current = reconciledRunState.runQueue;
+            setIsRunning(reconciledRunState.isRunning);
+            if (reconciledRunState.isRunning) {
+              setStatus("thinking...");
+              displayMessages.push({
+                id: nextMessageId(),
+                type: "assistant",
+                content: "",
+                runId: res.activeRunId,
+              });
+            } else {
+              streamTextRef.current = "";
+              afterToolCallsRef.current = false;
+              setStreamText("");
+              setIsStreaming(false);
+              setToolActivity(null);
+              setStatus("connected");
+            }
+            setMessages(displayMessages);
+            historyLoadedRef.current = true;
+            // Replay buffered events (only if run is still active — otherwise history is complete)
+            if (
+              reconciledRunState.isRunning &&
+              pendingEventsRef.current.length > 0
+            ) {
+              for (const event of pendingEventsRef.current) {
+                handleEvent(event);
+              }
+            }
+            pendingEventsRef.current = [];
+
+            // Recover pending questions from the in-memory broker.
+            sendRpcRef
+              .current<PendingQuestionsListResult>("questions.list", {
+                conversationId: key,
+              })
+              .then((qResult) => {
+                if (conversationIdRef.current !== key) return;
+                setPendingQuestions(qResult?.questions ?? []);
+              })
+              .catch((error: unknown) =>
+                console.error("questions.list:", error),
+              );
+
+            // Recover todos – not covered by a useEffect, so must be
+            // loaded explicitly on every (re)connect.
+            sendRpcRef
+              .current<ConversationTodosListResult>(
+                "conversations.todos.list",
+                {
+                  conversationId: key,
+                },
+              )
+              .then((tResult) => {
+                if (conversationIdRef.current !== key) return;
+                setTodos(tResult.todos || []);
+              })
+              .catch((error: unknown) =>
+                console.error("conversations.todos.list:", error),
+              );
+
+            // Recover pending approvals – the standalone useEffect may
+            // not fire when the disconnect grace-period prevents the
+            // `connected` flag from toggling.
+            sendRpcRef
+              .current<PendingApprovalsListResult>("approvals.list", {
+                conversationId: key,
+              })
+              .then((aResult) => {
+                if (conversationIdRef.current !== key) return;
+                setPendingApprovals(aResult?.approvals ?? []);
+              })
+              .catch((error: unknown) =>
+                console.error("approvals.list:", error),
+              );
+          })
+          .catch((error: unknown) =>
+            console.error("conversations.history reconnect:", error),
+          ),
       );
     }
   }, []);
