@@ -20,20 +20,22 @@ func (self *channelsTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name: "mattermost_channels",
-			Description: "Interact with Mattermost channels. Actions: list (list channels, optionally including unjoined), " +
+			Description: "Interact with Mattermost channels. Actions: list (list channels), " +
 				"info (get channel details), members (list channel members), unread (list channels with unread messages), " +
-				"messages (read recent messages in a channel), unread_messages (read unread messages in a channel).",
+				"messages (read recent messages), unread_messages (read unread messages), " +
+				"join (join a channel), leave (leave a channel), create (create a channel), " +
+				"archive (archive a channel), mark_read (mark a channel as read).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"list", "info", "members", "unread", "messages", "unread_messages"},
+						"enum":        []string{"list", "info", "members", "unread", "messages", "unread_messages", "join", "leave", "create", "archive", "mark_read"},
 						"description": "The channel action to perform.",
 					},
 					"channel": map[string]interface{}{
 						"type":        "string",
-						"description": "Channel name or ID (for 'info', 'members', 'messages', 'unread_messages' actions).",
+						"description": "Channel name or ID (required for most actions except 'list' and 'unread').",
 					},
 					"limit": map[string]interface{}{
 						"type":        "integer",
@@ -42,6 +44,18 @@ func (self *channelsTool) Definition() providers.ToolDefinition {
 					"include_all": map[string]interface{}{
 						"type":        "boolean",
 						"description": "Include channels you have not joined yet (for 'list' action).",
+					},
+					"private": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Create as private channel (for 'create' action).",
+					},
+					"display_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Display name for the channel (for 'create' action, defaults to channel name).",
+					},
+					"mentions_only": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Only show channels with mentions (for 'unread' action).",
 					},
 				},
 				"required": []string{"action"},
@@ -52,16 +66,20 @@ func (self *channelsTool) Definition() providers.ToolDefinition {
 
 func (self *channelsTool) PolicyGroups() []tools.PolicyGroup {
 	return []tools.PolicyGroup{
-		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone},
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"list", "info", "members", "unread", "messages", "unread_messages"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
 
 func (self *channelsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var args struct {
-		Action     string `json:"action"`
-		Channel    string `json:"channel"`
-		Limit      int    `json:"limit"`
-		IncludeAll bool   `json:"include_all"`
+		Action       string `json:"action"`
+		Channel      string `json:"channel"`
+		Limit        int    `json:"limit"`
+		IncludeAll   bool   `json:"include_all"`
+		Private      bool   `json:"private"`
+		DisplayName  string `json:"display_name"`
+		MentionsOnly bool   `json:"mentions_only"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -87,6 +105,9 @@ func (self *channelsTool) Execute(ctx context.Context, rawArguments string) (str
 		return execMattermost(ctx, self.runner, self.binary, "channel", "members", args.Channel)
 
 	case "unread":
+		if args.MentionsOnly {
+			return execMattermost(ctx, self.runner, self.binary, "channel", "unread", "--mentions")
+		}
 		return execMattermost(ctx, self.runner, self.binary, "channel", "unread")
 
 	case "messages":
@@ -105,6 +126,59 @@ func (self *channelsTool) Execute(ctx context.Context, rawArguments string) (str
 			return "", fmt.Errorf("channel is required for unread_messages action")
 		}
 		return execMattermost(ctx, self.runner, self.binary, "post", "unread", args.Channel)
+
+	case "join":
+		if args.Channel == "" {
+			return "", fmt.Errorf("channel is required for join action")
+		}
+		output, err := execMattermost(ctx, self.runner, self.binary, "channel", "join", args.Channel)
+		if err != nil {
+			return "", err
+		}
+		return wrapPlainOutput("joined", output), nil
+
+	case "leave":
+		if args.Channel == "" {
+			return "", fmt.Errorf("channel is required for leave action")
+		}
+		output, err := execMattermost(ctx, self.runner, self.binary, "channel", "leave", args.Channel)
+		if err != nil {
+			return "", err
+		}
+		return wrapPlainOutput("left", output), nil
+
+	case "create":
+		if args.Channel == "" {
+			return "", fmt.Errorf("channel is required for create action")
+		}
+		commandArgs := []string{"channel", "create", args.Channel}
+		if args.DisplayName != "" {
+			commandArgs = append(commandArgs, "--display-name", args.DisplayName)
+		}
+		if args.Private {
+			commandArgs = append(commandArgs, "--private")
+		}
+		return execMattermost(ctx, self.runner, self.binary, commandArgs...)
+
+	case "archive":
+		if args.Channel == "" {
+			return "", fmt.Errorf("channel is required for archive action")
+		}
+		output, err := execMattermost(ctx, self.runner, self.binary, "channel", "archive", args.Channel)
+		if err != nil {
+			return "", err
+		}
+		return wrapPlainOutput("archived", output), nil
+
+	case "mark_read":
+		if args.Channel == "" {
+			return "", fmt.Errorf("channel is required for mark_read action")
+		}
+		output, err := execMattermost(ctx, self.runner, self.binary, "channel", "read", args.Channel)
+		if err != nil {
+			return "", err
+		}
+		return wrapPlainOutput("marked_read", output), nil
 
 	default:
 		return "", fmt.Errorf("unknown channels action: %s", args.Action)

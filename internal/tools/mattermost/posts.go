@@ -24,14 +24,16 @@ func (self *postsTool) Definition() providers.ToolDefinition {
 			Description: "Interact with Mattermost posts/messages. Actions: create (post a message), " +
 				"reply (reply in a thread), edit (edit a post), delete (delete a post), " +
 				"thread (view a thread), search (search for posts), pinned (list pinned posts), " +
-				"react/unreact (manage reactions), dm (send direct message), dm_read (read DM history), " +
+				"pin/unpin (pin or unpin a post), react/unreact (manage reactions), " +
+				"history (show edit history), saved_list/saved_add/saved_remove (manage saved posts), " +
+				"dm (send direct message), dm_read (read DM history), " +
 				"dm_list (list DM conversations), dm_group (send a group DM).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"create", "reply", "edit", "delete", "thread", "search", "pinned", "react", "unreact", "dm", "dm_read", "dm_list", "dm_group"},
+						"enum":        []string{"create", "reply", "edit", "delete", "thread", "search", "pinned", "pin", "unpin", "react", "unreact", "history", "saved_list", "saved_add", "saved_remove", "dm", "dm_read", "dm_list", "dm_group"},
 						"description": "The post action to perform.",
 					},
 					"channel": map[string]interface{}{
@@ -80,7 +82,7 @@ func (self *postsTool) Definition() providers.ToolDefinition {
 
 func (self *postsTool) PolicyGroups() []tools.PolicyGroup {
 	return []tools.PolicyGroup{
-		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"thread", "search", "pinned", "dm_read", "dm_list"}},
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"thread", "search", "pinned", "history", "saved_list", "dm_read", "dm_list"}},
 		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
@@ -186,6 +188,62 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 			return "", err
 		}
 		return wrapPlainOutput("unreacted", output), nil
+
+	case "pin":
+		if args.PostID == "" {
+			return "", fmt.Errorf("post_id is required for pin action")
+		}
+		output, err := execMattermost(ctx, self.runner, self.binary, "post", "pin", args.PostID)
+		if err != nil {
+			return "", err
+		}
+		return wrapPlainOutput("pinned", output), nil
+
+	case "unpin":
+		if args.PostID == "" {
+			return "", fmt.Errorf("post_id is required for unpin action")
+		}
+		output, err := execMattermost(ctx, self.runner, self.binary, "post", "unpin", args.PostID)
+		if err != nil {
+			return "", err
+		}
+		return wrapPlainOutput("unpinned", output), nil
+
+	case "history":
+		if args.PostID == "" {
+			return "", fmt.Errorf("post_id is required for history action")
+		}
+		return execMattermost(ctx, self.runner, self.binary, "post", "history", args.PostID)
+
+	case "saved_list":
+		commandArgs := []string{"saved", "list"}
+		if args.Channel != "" {
+			commandArgs = append(commandArgs, "--channel", args.Channel)
+		}
+		if args.Limit > 0 {
+			commandArgs = append(commandArgs, "-n", fmt.Sprintf("%d", args.Limit))
+		}
+		return execMattermost(ctx, self.runner, self.binary, commandArgs...)
+
+	case "saved_add":
+		if args.PostID == "" {
+			return "", fmt.Errorf("post_id is required for saved_add action")
+		}
+		output, err := execMattermost(ctx, self.runner, self.binary, "saved", "add", args.PostID)
+		if err != nil {
+			return "", err
+		}
+		return wrapPlainOutput("saved", output), nil
+
+	case "saved_remove":
+		if args.PostID == "" {
+			return "", fmt.Errorf("post_id is required for saved_remove action")
+		}
+		output, err := execMattermost(ctx, self.runner, self.binary, "saved", "remove", args.PostID)
+		if err != nil {
+			return "", err
+		}
+		return wrapPlainOutput("unsaved", output), nil
 
 	case "dm":
 		if args.Username == "" {

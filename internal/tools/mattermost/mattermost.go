@@ -12,7 +12,7 @@ import (
 var log = logging.MustGetLogger("mattermost")
 
 // defaultServices are registered when no explicit service list is configured.
-var defaultServices = []string{"channels", "posts", "users"}
+var defaultServices = []string{"channels", "posts", "users", "threads", "teams"}
 
 func init() {
 	tools.RegisterBuiltinTool(createTools)
@@ -39,6 +39,10 @@ func createTools() []tools.Tool {
 			result = append(result, &postsTool{binary: binary, runner: runner})
 		case "users":
 			result = append(result, &usersTool{binary: binary, runner: runner})
+		case "threads":
+			result = append(result, &threadsTool{binary: binary, runner: runner})
+		case "teams":
+			result = append(result, &teamsTool{binary: binary, runner: runner})
 		}
 	}
 	return result
