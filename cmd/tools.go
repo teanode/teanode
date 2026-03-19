@@ -8,6 +8,7 @@ import (
 	_ "github.com/teanode/teanode/internal/tools/claudecode"
 	_ "github.com/teanode/teanode/internal/tools/codex"
 	_ "github.com/teanode/teanode/internal/tools/configs"
+	_ "github.com/teanode/teanode/internal/tools/confluence"
 	_ "github.com/teanode/teanode/internal/tools/conversation"
 	_ "github.com/teanode/teanode/internal/tools/conversations"
 	_ "github.com/teanode/teanode/internal/tools/datetime"
