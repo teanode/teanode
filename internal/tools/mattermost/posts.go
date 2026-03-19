@@ -73,6 +73,10 @@ func (self *postsTool) Definition() providers.ToolDefinition {
 						"type":        "boolean",
 						"description": "Use OR instead of AND between search terms (for 'search' action).",
 					},
+					"team": map[string]interface{}{
+						"type":        "string",
+						"description": "Team name to operate on. If omitted, uses the active team.",
+					},
 				},
 				"required": []string{"action"},
 			},
@@ -99,9 +103,14 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		Usernames []string `json:"usernames"`
 		Limit     int      `json:"limit"`
 		ORSearch  bool     `json:"or_search"`
+		Team      string   `json:"team"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
+	}
+
+	exec := func(args2 ...string) (string, error) {
+		return execMattermostWithTeam(ctx, self.runner, self.binary, args.Team, args2...)
 	}
 
 	switch args.Action {
@@ -112,7 +121,7 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Message == "" {
 			return "", fmt.Errorf("message is required for create action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "post", "create", args.Channel, args.Message)
+		return exec("post", "create", args.Channel, args.Message)
 
 	case "reply":
 		if args.PostID == "" {
@@ -121,7 +130,7 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Message == "" {
 			return "", fmt.Errorf("message is required for reply action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "post", "reply", args.PostID, args.Message)
+		return exec("post", "reply", args.PostID, args.Message)
 
 	case "edit":
 		if args.PostID == "" {
@@ -130,13 +139,13 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Message == "" {
 			return "", fmt.Errorf("message is required for edit action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "post", "edit", args.PostID, args.Message)
+		return exec("post", "edit", args.PostID, args.Message)
 
 	case "delete":
 		if args.PostID == "" {
 			return "", fmt.Errorf("post_id is required for delete action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "post", "delete", args.PostID)
+		output, err := exec("post", "delete", args.PostID)
 		if err != nil {
 			return "", err
 		}
@@ -146,22 +155,22 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.PostID == "" {
 			return "", fmt.Errorf("post_id is required for thread action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "post", "thread", args.PostID)
+		return exec("post", "thread", args.PostID)
 
 	case "search":
 		if args.Query == "" {
 			return "", fmt.Errorf("query is required for search action")
 		}
 		if args.ORSearch {
-			return execMattermost(ctx, self.runner, self.binary, "post", "search", args.Query, "--or")
+			return exec("post", "search", args.Query, "--or")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "post", "search", args.Query)
+		return exec("post", "search", args.Query)
 
 	case "pinned":
 		if args.Channel == "" {
 			return "", fmt.Errorf("channel is required for pinned action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "post", "pinned", args.Channel)
+		return exec("post", "pinned", args.Channel)
 
 	case "react":
 		if args.PostID == "" {
@@ -170,7 +179,7 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Emoji == "" {
 			return "", fmt.Errorf("emoji is required for react action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "post", "react", args.PostID, args.Emoji)
+		output, err := exec("post", "react", args.PostID, args.Emoji)
 		if err != nil {
 			return "", err
 		}
@@ -183,7 +192,7 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Emoji == "" {
 			return "", fmt.Errorf("emoji is required for unreact action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "post", "unreact", args.PostID, args.Emoji)
+		output, err := exec("post", "unreact", args.PostID, args.Emoji)
 		if err != nil {
 			return "", err
 		}
@@ -193,7 +202,7 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.PostID == "" {
 			return "", fmt.Errorf("post_id is required for pin action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "post", "pin", args.PostID)
+		output, err := exec("post", "pin", args.PostID)
 		if err != nil {
 			return "", err
 		}
@@ -203,7 +212,7 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.PostID == "" {
 			return "", fmt.Errorf("post_id is required for unpin action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "post", "unpin", args.PostID)
+		output, err := exec("post", "unpin", args.PostID)
 		if err != nil {
 			return "", err
 		}
@@ -213,7 +222,7 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.PostID == "" {
 			return "", fmt.Errorf("post_id is required for history action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "post", "history", args.PostID)
+		return exec("post", "history", args.PostID)
 
 	case "saved_list":
 		commandArgs := []string{"saved", "list"}
@@ -223,13 +232,13 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Limit > 0 {
 			commandArgs = append(commandArgs, "-n", fmt.Sprintf("%d", args.Limit))
 		}
-		return execMattermost(ctx, self.runner, self.binary, commandArgs...)
+		return exec(commandArgs...)
 
 	case "saved_add":
 		if args.PostID == "" {
 			return "", fmt.Errorf("post_id is required for saved_add action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "saved", "add", args.PostID)
+		output, err := exec("saved", "add", args.PostID)
 		if err != nil {
 			return "", err
 		}
@@ -239,7 +248,7 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.PostID == "" {
 			return "", fmt.Errorf("post_id is required for saved_remove action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "saved", "remove", args.PostID)
+		output, err := exec("saved", "remove", args.PostID)
 		if err != nil {
 			return "", err
 		}
@@ -252,7 +261,7 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Message == "" {
 			return "", fmt.Errorf("message is required for dm action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "dm", "send", args.Username, args.Message)
+		return exec("dm", "send", args.Username, args.Message)
 
 	case "dm_read":
 		if args.Username == "" {
@@ -262,10 +271,10 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if limit <= 0 {
 			limit = 20
 		}
-		return execMattermost(ctx, self.runner, self.binary, "dm", "read", args.Username, "-n", fmt.Sprintf("%d", limit))
+		return exec("dm", "read", args.Username, "-n", fmt.Sprintf("%d", limit))
 
 	case "dm_list":
-		return execMattermost(ctx, self.runner, self.binary, "dm", "list")
+		return exec("dm", "list")
 
 	case "dm_group":
 		if len(args.Usernames) == 0 {
@@ -274,7 +283,7 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		if args.Message == "" {
 			return "", fmt.Errorf("message is required for dm_group action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "dm", "group", strings.Join(args.Usernames, ","), args.Message)
+		return exec("dm", "group", strings.Join(args.Usernames, ","), args.Message)
 
 	default:
 		return "", fmt.Errorf("unknown posts action: %s", args.Action)

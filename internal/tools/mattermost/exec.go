@@ -33,6 +33,36 @@ func defaultRunner(ctx context.Context, name string, args ...string) ([]byte, er
 	return result.Stdout, nil
 }
 
+// execMattermostWithTeam runs an mm subcommand with --json and optional -T team flags.
+func execMattermostWithTeam(ctx context.Context, runner commandRunner, binary string, team string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, execTimeout)
+	defer cancel()
+
+	fullArgs := []string{"--json"}
+	if team != "" {
+		fullArgs = append(fullArgs, "-T", team)
+	}
+	fullArgs = append(fullArgs, args...)
+
+	log.Debugf("exec: %s %v", binary, fullArgs)
+
+	output, err := runner(ctx, binary, fullArgs...)
+	if err != nil {
+		errorMessage := err.Error()
+		if isAuthError(errorMessage) {
+			return "", fmt.Errorf("mattermost authentication required. please run 'mm auth login' to authenticate")
+		}
+		return "", fmt.Errorf("mm command failed: %s", errorMessage)
+	}
+
+	result := string(output)
+	if len(result) > maxOutputBytes {
+		result = result[:maxOutputBytes] + "\n... (output truncated)"
+	}
+
+	return result, nil
+}
+
 // execMattermost runs an mm subcommand with --json flag.
 // It enforces a timeout and truncates output exceeding maxOutputBytes.
 func execMattermost(ctx context.Context, runner commandRunner, binary string, args ...string) (string, error) {

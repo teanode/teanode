@@ -57,6 +57,10 @@ func (self *channelsTool) Definition() providers.ToolDefinition {
 						"type":        "boolean",
 						"description": "Only show channels with mentions (for 'unread' action).",
 					},
+					"team": map[string]interface{}{
+						"type":        "string",
+						"description": "Team name to operate on. If omitted, uses the active team.",
+					},
 				},
 				"required": []string{"action"},
 			},
@@ -80,35 +84,40 @@ func (self *channelsTool) Execute(ctx context.Context, rawArguments string) (str
 		Private      bool   `json:"private"`
 		DisplayName  string `json:"display_name"`
 		MentionsOnly bool   `json:"mentions_only"`
+		Team         string `json:"team"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
 
+	exec := func(args2 ...string) (string, error) {
+		return execMattermostWithTeam(ctx, self.runner, self.binary, args.Team, args2...)
+	}
+
 	switch args.Action {
 	case "list":
 		if args.IncludeAll {
-			return execMattermost(ctx, self.runner, self.binary, "channel", "list", "--all")
+			return exec("channel", "list", "--all")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "channel", "list")
+		return exec("channel", "list")
 
 	case "info":
 		if args.Channel == "" {
 			return "", fmt.Errorf("channel is required for info action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "channel", "info", args.Channel)
+		return exec("channel", "info", args.Channel)
 
 	case "members":
 		if args.Channel == "" {
 			return "", fmt.Errorf("channel is required for members action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "channel", "members", args.Channel)
+		return exec("channel", "members", args.Channel)
 
 	case "unread":
 		if args.MentionsOnly {
-			return execMattermost(ctx, self.runner, self.binary, "channel", "unread", "--mentions")
+			return exec("channel", "unread", "--mentions")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "channel", "unread")
+		return exec("channel", "unread")
 
 	case "messages":
 		if args.Channel == "" {
@@ -118,20 +127,19 @@ func (self *channelsTool) Execute(ctx context.Context, rawArguments string) (str
 		if limit <= 0 {
 			limit = 20
 		}
-		return execMattermost(ctx, self.runner, self.binary, "post", "list", args.Channel,
-			"-n", fmt.Sprintf("%d", limit))
+		return exec("post", "list", args.Channel, "-n", fmt.Sprintf("%d", limit))
 
 	case "unread_messages":
 		if args.Channel == "" {
 			return "", fmt.Errorf("channel is required for unread_messages action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "post", "unread", args.Channel)
+		return exec("post", "unread", args.Channel)
 
 	case "join":
 		if args.Channel == "" {
 			return "", fmt.Errorf("channel is required for join action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "channel", "join", args.Channel)
+		output, err := exec("channel", "join", args.Channel)
 		if err != nil {
 			return "", err
 		}
@@ -141,7 +149,7 @@ func (self *channelsTool) Execute(ctx context.Context, rawArguments string) (str
 		if args.Channel == "" {
 			return "", fmt.Errorf("channel is required for leave action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "channel", "leave", args.Channel)
+		output, err := exec("channel", "leave", args.Channel)
 		if err != nil {
 			return "", err
 		}
@@ -158,13 +166,13 @@ func (self *channelsTool) Execute(ctx context.Context, rawArguments string) (str
 		if args.Private {
 			commandArgs = append(commandArgs, "--private")
 		}
-		return execMattermost(ctx, self.runner, self.binary, commandArgs...)
+		return exec(commandArgs...)
 
 	case "archive":
 		if args.Channel == "" {
 			return "", fmt.Errorf("channel is required for archive action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "channel", "archive", args.Channel)
+		output, err := exec("channel", "archive", args.Channel)
 		if err != nil {
 			return "", err
 		}
@@ -174,7 +182,7 @@ func (self *channelsTool) Execute(ctx context.Context, rawArguments string) (str
 		if args.Channel == "" {
 			return "", fmt.Errorf("channel is required for mark_read action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "channel", "read", args.Channel)
+		output, err := exec("channel", "read", args.Channel)
 		if err != nil {
 			return "", err
 		}

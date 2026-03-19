@@ -44,6 +44,10 @@ func (self *threadsTool) Definition() providers.ToolDefinition {
 						"type":        "integer",
 						"description": "Maximum number of threads to return (for 'list' action, default 20).",
 					},
+					"team": map[string]interface{}{
+						"type":        "string",
+						"description": "Team name to operate on. If omitted, uses the active team.",
+					},
 				},
 				"required": []string{"action"},
 			},
@@ -64,9 +68,14 @@ func (self *threadsTool) Execute(ctx context.Context, rawArguments string) (stri
 		ThreadID   string `json:"thread_id"`
 		UnreadOnly bool   `json:"unread_only"`
 		Limit      int    `json:"limit"`
+		Team       string `json:"team"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
+	}
+
+	exec := func(args2 ...string) (string, error) {
+		return execMattermostWithTeam(ctx, self.runner, self.binary, args.Team, args2...)
 	}
 
 	switch args.Action {
@@ -79,19 +88,19 @@ func (self *threadsTool) Execute(ctx context.Context, rawArguments string) (stri
 		if limit > 0 {
 			commandArgs = append(commandArgs, "-n", fmt.Sprintf("%d", limit))
 		}
-		return execMattermost(ctx, self.runner, self.binary, commandArgs...)
+		return exec(commandArgs...)
 
 	case "view":
 		if args.ThreadID == "" {
 			return "", fmt.Errorf("thread_id is required for view action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "thread", "view", args.ThreadID)
+		return exec("thread", "view", args.ThreadID)
 
 	case "follow":
 		if args.ThreadID == "" {
 			return "", fmt.Errorf("thread_id is required for follow action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "thread", "follow", args.ThreadID)
+		output, err := exec("thread", "follow", args.ThreadID)
 		if err != nil {
 			return "", err
 		}
@@ -101,7 +110,7 @@ func (self *threadsTool) Execute(ctx context.Context, rawArguments string) (stri
 		if args.ThreadID == "" {
 			return "", fmt.Errorf("thread_id is required for unfollow action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "thread", "unfollow", args.ThreadID)
+		output, err := exec("thread", "unfollow", args.ThreadID)
 		if err != nil {
 			return "", err
 		}
@@ -111,7 +120,7 @@ func (self *threadsTool) Execute(ctx context.Context, rawArguments string) (stri
 		if args.ThreadID == "" {
 			return "", fmt.Errorf("thread_id is required for mark_read action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "thread", "read", args.ThreadID)
+		output, err := exec("thread", "read", args.ThreadID)
 		if err != nil {
 			return "", err
 		}
@@ -121,14 +130,14 @@ func (self *threadsTool) Execute(ctx context.Context, rawArguments string) (stri
 		if args.ThreadID == "" {
 			return "", fmt.Errorf("thread_id is required for mark_unread action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "thread", "unread", args.ThreadID)
+		output, err := exec("thread", "unread", args.ThreadID)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("marked_unread", output), nil
 
 	case "read_all":
-		output, err := execMattermost(ctx, self.runner, self.binary, "thread", "read-all")
+		output, err := exec("thread", "read-all")
 		if err != nil {
 			return "", err
 		}
