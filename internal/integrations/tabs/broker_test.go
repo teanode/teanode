@@ -1,6 +1,7 @@
 package tabs
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -311,7 +312,7 @@ func TestConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			id := "pending-" + string(rune('A'+index%26))
+			id := fmt.Sprintf("pending-%d", index)
 			pending := &PendingToolCall{
 				ID:         id,
 				UserID:     "u1",
