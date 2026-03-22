@@ -109,7 +109,39 @@ jobs:
             echo "asset=${fileBasename}.tar.gz" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ steps.package.outputs.asset }}
+
+  checksums:
+    name: Publish checksums
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        id: checksums
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          checksumFile="teanode_${VERSION}_SHA256SUMS"
+          (
+            cd release-artifacts
+            sha256sum * > "../${checksumFile}"
+          )
+          echo "checksumFile=${checksumFile}" >> "$GITHUB_OUTPUT"
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.package.outputs.asset }}
+          files: |
+            release-artifacts/*
+            ${{ steps.checksums.outputs.checksumFile }}
