@@ -144,9 +144,43 @@ jobs:
           )
           echo "checksumFile=${checksumFile}" >> "$GITHUB_OUTPUT"
 
+      - name: Generate release notes from changelog
+        id: releaseNotes
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          if [ ! -f CHANGELOG.md ]; then
+            echo "bodyFile=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          python3 - <<'PY'
+from pathlib import Path
+import os
+import re
+
+version = os.environ["VERSION"]
+changelog = Path("CHANGELOG.md").read_text()
+pattern = re.compile(r"^## \[" + re.escape(version) + r"\].*$", re.MULTILINE)
+match = pattern.search(changelog)
+if not match:
+    Path("release-notes.md").write_text(f"Release {version}\n")
+else:
+    start = match.start()
+    next_match = re.search(r"^## ", changelog[match.end():], re.MULTILINE)
+    end = match.end() + next_match.start() if next_match else len(changelog)
+    body = changelog[start:end].strip() + "\n"
+    Path("release-notes.md").write_text(body)
+PY
+
+          echo "bodyFile=release-notes.md" >> "$GITHUB_OUTPUT"
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             release-artifacts/*
             ${{ steps.checksums.outputs.checksumFile }}
+          body_path: ${{ steps.releaseNotes.outputs.bodyFile }}
