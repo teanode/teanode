@@ -51,7 +51,7 @@ function AttachmentDisplay({
 }) {
   const mediaUrl = resolveMediaUrl
     ? resolveMediaUrl(attachment.mediaId)
-    : `/api/v1/media/${attachment.mediaId}`;
+    : `/api/media/${attachment.mediaId}`;
   if (isImageFormat(attachment.format)) {
     return (
       <Box

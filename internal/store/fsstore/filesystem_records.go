@@ -133,6 +133,13 @@ type storeUniFiProtectRecord struct {
 	TimeoutSeconds        int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
 }
 
+type storeCloudRecord struct {
+	URL        string `json:"url,omitempty" yaml:"url,omitempty"`
+	NodeID     string `json:"nodeId,omitempty" yaml:"nodeId,omitempty"`
+	NodeSecret string `json:"nodeSecret,omitempty" yaml:"nodeSecret,omitempty"`
+	UserID     string `json:"userId,omitempty" yaml:"userId,omitempty"`
+}
+
 type storeToolPolicyRecord struct {
 	Tool  string `json:"tool,omitempty" yaml:"tool,omitempty"`
 	Group string `json:"group,omitempty" yaml:"group,omitempty"`
@@ -146,6 +153,7 @@ type storeConfigurationRecord struct {
 	Tools        storeToolsRecord        `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Integrations storeIntegrationsRecord `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Channels     storeChannelsRecord     `json:"channels,omitempty" yaml:"channels,omitempty"`
+	Cloud        *storeCloudRecord       `json:"cloud,omitempty" yaml:"cloud,omitempty"`
 	Secrets      map[string]string       `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	ToolPolicies []storeToolPolicyRecord `json:"toolPolicies,omitempty" yaml:"toolPolicies,omitempty"`
 }

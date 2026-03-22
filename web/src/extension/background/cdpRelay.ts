@@ -1,6 +1,6 @@
 /**
  * CDP (Chrome DevTools Protocol) relay — ported from background.js to TypeScript.
- * Connects to TeaNode's /api/v1/browser WebSocket and relays CDP commands/events
+ * Connects to TeaNode's /api/browser WebSocket and relays CDP commands/events
  * between Chrome tabs and the backend.
  *
  * Behavior is unchanged from the original plain-JS implementation.
@@ -97,13 +97,13 @@ async function ensureRelayConnection(): Promise<void> {
   relayConnectPromise = (async () => {
     const baseUrl = (await getRelayUrl()).replace(/\/+$/, "");
     const token = await getRelayToken();
-    let wsUrl = httpToWs(baseUrl) + "/api/v1/browser";
+    let wsUrl = httpToWs(baseUrl) + "/api/browser";
     if (token) wsUrl += `?token=${encodeURIComponent(token)}`;
 
     try {
       const headers: Record<string, string> = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
-      await fetch(`${baseUrl}/api/v1/health`, {
+      await fetch(`${baseUrl}/api/health`, {
         method: "HEAD",
         signal: AbortSignal.timeout(2000),
         headers,

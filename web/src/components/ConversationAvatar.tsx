@@ -24,7 +24,7 @@ export default function ConversationAvatar({
   const resolvedSrc = srcProp
     ? srcProp
     : avatarMediaId
-      ? withToken(`/api/v1/media/${avatarMediaId}`)
+      ? withToken(`/api/media/${avatarMediaId}`)
       : undefined;
   return (
     <Avatar

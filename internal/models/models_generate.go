@@ -48,6 +48,7 @@ func main() {
 	generator.GenerateUpdate(new(models.ChannelsConfiguration))
 	generator.GenerateUpdate(new(models.DiscordConfiguration))
 	generator.GenerateUpdate(new(models.TelegramConfiguration))
+	generator.GenerateUpdate(new(models.CloudConfiguration))
 	generator.GenerateUpdate(new(models.SecretConfiguration))
 	generator.GenerateUpdate(new(models.ToolPolicyConfiguration))
 
@@ -89,6 +90,7 @@ func main() {
 	generator.GenerateGetters(new(models.ChannelsConfiguration))
 	generator.GenerateGetters(new(models.DiscordConfiguration))
 	generator.GenerateGetters(new(models.TelegramConfiguration))
+	generator.GenerateGetters(new(models.CloudConfiguration))
 	generator.GenerateGetters(new(models.SecretConfiguration))
 	generator.GenerateGetters(new(models.ToolPolicyConfiguration))
 

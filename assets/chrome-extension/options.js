@@ -25,7 +25,7 @@ async function checkRelayReachable(baseUrl) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 2000)
   try {
-    const response = await fetch(`${baseUrl}/api/v1/health`, { method: 'HEAD', signal: controller.signal, headers })
+    const response = await fetch(`${baseUrl}/api/health`, { method: 'HEAD', signal: controller.signal, headers })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     setStatus('relay-status', 'ok', `Relay reachable at ${baseUrl}`)
   } catch {
@@ -48,7 +48,7 @@ async function checkTokenValidity(baseUrl) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 2000)
   try {
-    const response = await fetch(`${baseUrl}/api/v1/auth/status`, {
+    const response = await fetch(`${baseUrl}/api/auth/status`, {
       signal: controller.signal,
       headers: { Authorization: `Bearer ${token}` },
     })

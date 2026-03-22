@@ -1,6 +1,6 @@
 /**
  * Minimal WebSocket RPC client for the extension side panel.
- * Connects to TeaNode's /api/v1/websocket with the stored token.
+ * Connects to TeaNode's /api/websocket with the stored token.
  */
 
 import type {
@@ -46,7 +46,7 @@ export async function ensureConnected(): Promise<void> {
   connectPromise = (async () => {
     const { url, token } = await getConfig();
     const baseUrl = url.replace(/\/+$/, "");
-    let wsUrl = httpToWs(baseUrl) + "/api/v1/websocket";
+    let wsUrl = httpToWs(baseUrl) + "/api/websocket";
     if (token) wsUrl += `?token=${encodeURIComponent(token)}`;
 
     const socket = new WebSocket(wsUrl);

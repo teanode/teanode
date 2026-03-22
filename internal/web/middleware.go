@@ -254,19 +254,19 @@ func MakeAuthenticationMiddleware() Middleware {
 			}
 
 			// 2. Health endpoint: always allow.
-			if path == "/api/v1/health" {
+			if path == "/api/health" {
 				next.ServeHTTP(writer, request)
 				return
 			}
 
 			// 3. Auth endpoints: always allow.
-			if strings.HasPrefix(path, "/api/v1/auth/") {
+			if strings.HasPrefix(path, "/api/auth/") {
 				next.ServeHTTP(writer, request)
 				return
 			}
 
 			// 4. Media GET endpoints: always allow (LLM providers fetch images).
-			if strings.HasPrefix(path, "/api/v1/media/") && request.Method == "GET" {
+			if strings.HasPrefix(path, "/api/media/") && request.Method == "GET" {
 				next.ServeHTTP(writer, request)
 				return
 			}

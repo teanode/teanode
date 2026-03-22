@@ -137,7 +137,7 @@ export default function ToolResult({
       ? `data:image/${mediaInfo.format};base64,${mediaInfo.base64}`
       : resolveMediaUrl && mediaInfo.mediaId
         ? resolveMediaUrl(mediaInfo.mediaId)
-        : `/api/v1/media/${mediaInfo.mediaId}`;
+        : `/api/media/${mediaInfo.mediaId}`;
 
     return (
       <Box

@@ -81,7 +81,7 @@ module.exports = (env, argv) => {
       historyApiFallback: true,
       proxy: [
         {
-          context: ["/api/v1/websocket"],
+          context: ["/api/websocket"],
           target: "ws://127.0.0.1:8833",
           ws: true,
         },

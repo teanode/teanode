@@ -119,7 +119,7 @@ When the first alphabetical character is not capitalized, capitalize only the fi
 ```
 cmd/                    CLI commands (node, start, stop, status, terminal, tools)
 internal/
-  api/v1api/            HTTP/WebSocket API and OpenAI-compatible endpoint
+  api/                  HTTP/WebSocket API and OpenAI-compatible endpoint
   providers/            LLM provider abstraction (OpenAI, Anthropic, Gemini, etc.)
   runners/              Conversation execution engine
   tools/                Built-in tools (30+ categories)

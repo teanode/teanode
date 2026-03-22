@@ -23,7 +23,7 @@ interface PendingFile {
 async function uploadMedia(file: File): Promise<Attachment> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch("/api/v1/media/upload", {
+  const response = await fetch("/api/media/upload", {
     method: "POST",
     body: formData,
   });
@@ -114,7 +114,7 @@ export default function InputArea({
       try {
         const formData = new FormData();
         formData.append("file", blob, `audio.${format}`);
-        const response = await fetch("/api/v1/audio/transcribe", {
+        const response = await fetch("/api/audio/transcribe", {
           method: "POST",
           body: formData,
         });

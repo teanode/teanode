@@ -55,7 +55,7 @@ async function uploadMedia(file: File): Promise<Attachment> {
   formData.append("file", file);
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  const response = await fetch(`${base}/api/v1/media/upload`, {
+  const response = await fetch(`${base}/api/media/upload`, {
     method: "POST",
     body: formData,
     headers,
@@ -266,7 +266,7 @@ export function ChatView({
 
   function resolveMediaId(mediaId: string): string {
     const base = (baseInfo?.url || "").replace(/\/+$/, "");
-    let url = `${base}/api/v1/media/${mediaId}`;
+    let url = `${base}/api/media/${mediaId}`;
     if (baseInfo?.token) url += `?token=${encodeURIComponent(baseInfo.token)}`;
     return url;
   }

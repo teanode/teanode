@@ -41,7 +41,7 @@ export function useTts(voice: string): UseTTSReturn {
 
       try {
         // Step 1: Get a streaming token.
-        const response = await fetch("/api/v1/audio/synthesize", {
+        const response = await fetch("/api/audio/synthesize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text, voice: voiceRef.current }),
@@ -53,7 +53,7 @@ export function useTts(voice: string): UseTTSReturn {
 
         // Step 2: Point audio element at the streaming endpoint.
         const audio = getAudioElement();
-        audio.src = `/api/v1/audio/stream?token=${token}`;
+        audio.src = `/api/audio/stream?token=${token}`;
 
         audio.oncanplay = () => {
           setIsLoading(false);

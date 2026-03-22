@@ -127,7 +127,7 @@ export function useStreamingTts(
       abortControllersRef.current.push(controller);
 
       try {
-        const synthesizeResponse = await fetch("/api/v1/audio/synthesize", {
+        const synthesizeResponse = await fetch("/api/audio/synthesize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: item.text, voice: voiceRef.current }),
@@ -140,12 +140,9 @@ export function useStreamingTts(
         const { token } = await synthesizeResponse.json();
 
         // Download and decode audio into an AudioBuffer for instant playback.
-        const audioResponse = await fetch(
-          `/api/v1/audio/stream?token=${token}`,
-          {
-            signal: controller.signal,
-          },
-        );
+        const audioResponse = await fetch(`/api/audio/stream?token=${token}`, {
+          signal: controller.signal,
+        });
         if (!audioResponse.ok)
           throw new Error(`TTS stream failed: ${audioResponse.status}`);
         const arrayBuffer = await audioResponse.arrayBuffer();

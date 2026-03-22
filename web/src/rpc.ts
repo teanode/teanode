@@ -127,7 +127,7 @@ function openSocket(): void {
   setStatus("connecting...");
 
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  let url = `${proto}//${window.location.host}/api/v1/websocket`;
+  let url = `${proto}//${window.location.host}/api/websocket`;
   const token = getToken();
   if (token) url += `?token=${encodeURIComponent(token)}`;
 
@@ -282,7 +282,7 @@ export function onVoiceMessage(handler: VoiceMessageHandler): () => void {
 // --- REST auth helpers (work before WebSocket is established) ---
 
 export async function authStatus(): Promise<AuthStatusResult> {
-  const response = await apiFetch("/api/v1/auth/status");
+  const response = await apiFetch("/api/auth/status");
   if (!response.ok) throw new Error(`auth/status: ${response.status}`);
   return response.json();
 }
@@ -291,7 +291,7 @@ export async function authLogin(
   username: string,
   password: string,
 ): Promise<void> {
-  const response = await apiFetch("/api/v1/auth/login", {
+  const response = await apiFetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
@@ -309,7 +309,7 @@ export async function authSetup(
   password: string,
   name?: string,
 ): Promise<void> {
-  const response = await apiFetch("/api/v1/auth/setup", {
+  const response = await apiFetch("/api/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password, name }),
@@ -323,7 +323,7 @@ export async function authSetup(
 }
 
 export async function authLogout(): Promise<void> {
-  await apiFetch("/api/v1/auth/logout", { method: "POST" });
+  await apiFetch("/api/auth/logout", { method: "POST" });
 }
 
 interface RpcProfile {
@@ -366,7 +366,7 @@ export async function uploadAgentAvatar(
 ): Promise<void> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await apiFetch("/api/v1/media/upload", {
+  const response = await apiFetch("/api/media/upload", {
     method: "POST",
     body: formData,
   });
@@ -388,7 +388,7 @@ export async function removeAgentAvatar(agentId: string): Promise<void> {
 export async function uploadProfileAvatar(file: File): Promise<Profile> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await apiFetch("/api/v1/media/upload", {
+  const response = await apiFetch("/api/media/upload", {
     method: "POST",
     body: formData,
   });
