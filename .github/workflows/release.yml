@@ -154,31 +154,35 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           VERSION="${VERSION#v}"
+          bodyFile="release-notes.md"
+
           if [ ! -f CHANGELOG.md ]; then
-            echo "bodyFile=" >> "$GITHUB_OUTPUT"
+            printf 'Release %s\n' "$VERSION" > "$bodyFile"
+            echo "bodyFile=$bodyFile" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          python3 - <<'PY'
-from pathlib import Path
-import os
-import re
+          sectionStart="## [$VERSION]"
+          awk -v sectionStart="$sectionStart" '
+            BEGIN {
+              found = 0
+            }
+            index($0, sectionStart) == 1 {
+              found = 1
+            }
+            found {
+              if ($0 ~ /^## / && index($0, sectionStart) != 1) {
+                exit
+              }
+              print
+            }
+          ' CHANGELOG.md > "$bodyFile"
 
-version = os.environ["VERSION"]
-changelog = Path("CHANGELOG.md").read_text()
-pattern = re.compile(r"^## \[" + re.escape(version) + r"\].*$", re.MULTILINE)
-match = pattern.search(changelog)
-if not match:
-    Path("release-notes.md").write_text(f"Release {version}\n")
-else:
-    start = match.start()
-    next_match = re.search(r"^## ", changelog[match.end():], re.MULTILINE)
-    end = match.end() + next_match.start() if next_match else len(changelog)
-    body = changelog[start:end].strip() + "\n"
-    Path("release-notes.md").write_text(body)
-PY
+          if [ ! -s "$bodyFile" ]; then
+            printf 'Release %s\n' "$VERSION" > "$bodyFile"
+          fi
 
-          echo "bodyFile=release-notes.md" >> "$GITHUB_OUTPUT"
+          echo "bodyFile=$bodyFile" >> "$GITHUB_OUTPUT"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
