@@ -91,6 +91,9 @@ jobs:
           mkdir -p package
 
           cp README.md package/
+          if [ -f CHANGELOG.md ]; then
+            cp CHANGELOG.md package/
+          fi
           if [ -f LICENSE ]; then
             cp LICENSE package/
           fi
