@@ -36,13 +36,14 @@ func (self *filesystemTool) Definition() providers.ToolDefinition {
 			Name: "filesystem",
 			Description: "Interact with the local filesystem. Actions: read (read file contents), write (write file contents), " +
 				"list (list directory entries), info (get file/directory metadata), mkdir (create directory), " +
-				"delete (delete file or directory), move (move/rename file or directory).",
+				"delete (delete file or directory), move (move/rename file or directory), " +
+				"search (find files by glob pattern).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"read", "write", "list", "info", "mkdir", "delete", "move"},
+						"enum":        []string{"read", "write", "list", "info", "mkdir", "delete", "move", "search"},
 						"description": "The filesystem action to perform.",
 					},
 					"path": map[string]interface{}{
@@ -56,6 +57,10 @@ func (self *filesystemTool) Definition() providers.ToolDefinition {
 					"destination": map[string]interface{}{
 						"type":        "string",
 						"description": "Destination path (for move action).",
+					},
+					"pattern": map[string]interface{}{
+						"type":        "string",
+						"description": "Glob pattern to match file names (for search action).",
 					},
 					"offset": map[string]interface{}{
 						"type":        "integer",
@@ -119,8 +124,8 @@ func (self *filesystemTool) Definition() providers.ToolDefinition {
 
 func (self *filesystemTool) PolicyGroups() []tools.PolicyGroup {
 	return []tools.PolicyGroup{
-		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"read", "list", "info"}},
-		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyoneApproval},
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAdminOnly, Actions: []string{"read", "list", "info", "search"}},
+		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAdminApproval},
 	}
 }
 
@@ -130,6 +135,7 @@ func (self *filesystemTool) Execute(ctx context.Context, rawArguments string) (s
 		Path        string `json:"path"`
 		Content     string `json:"content"`
 		Destination string `json:"destination"`
+		Pattern     string `json:"pattern"`
 		Offset      int64  `json:"offset"`
 		Limit       int64  `json:"limit"`
 		Recursive   bool   `json:"recursive"`
@@ -156,6 +162,8 @@ func (self *filesystemTool) Execute(ctx context.Context, rawArguments string) (s
 		return self.executeDelete(arguments.Path, arguments.Recursive)
 	case "move":
 		return executeMove(arguments.Path, arguments.Destination)
+	case "search":
+		return executeSearch(arguments.Path, arguments.Pattern)
 	default:
 		return "", fmt.Errorf("unknown filesystem action: %s", arguments.Action)
 	}
@@ -351,6 +359,44 @@ func (self *filesystemTool) executeDelete(path string, recursive bool) (string, 
 	result, err := json.Marshal(map[string]interface{}{
 		"action":  "delete",
 		"success": true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshaling result: %w", err)
+	}
+	return string(result), nil
+}
+
+func executeSearch(root, pattern string) (string, error) {
+	if pattern == "" {
+		return "", fmt.Errorf("pattern is required for search action")
+	}
+
+	var matches []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // skip inaccessible paths
+		}
+		matched, matchErr := filepath.Match(pattern, info.Name())
+		if matchErr != nil {
+			return fmt.Errorf("invalid pattern: %w", matchErr)
+		}
+		if matched {
+			matches = append(matches, path)
+			if len(matches) >= maxDirectoryEntries {
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("searching: %w", err)
+	}
+
+	truncated := len(matches) >= maxDirectoryEntries
+	result, err := json.Marshal(map[string]interface{}{
+		"action":    "search",
+		"matches":   matches,
+		"truncated": truncated,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshaling result: %w", err)
