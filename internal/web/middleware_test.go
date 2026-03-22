@@ -65,14 +65,14 @@ func runThroughAuthMiddlewareWithNext(persistenceStore store.Store, request *htt
 func TestAuthMiddleware_WebSocketAllowsBearerToken(t *testing.T) {
 	persistenceStore := testStoreWithBearer(t, "token123")
 
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/websocket", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/websocket", nil)
 	request.Header.Set("Authorization", "Bearer token123")
 	response := runThroughAuthMiddleware(persistenceStore, request)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("websocket status = %d, want %d", response.Code, http.StatusNoContent)
 	}
 
-	request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket?token=token123", nil)
+	request = httptest.NewRequest(http.MethodGet, "/api/websocket?token=token123", nil)
 	response = runThroughAuthMiddleware(persistenceStore, request)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("websocket query-token status = %d, want %d", response.Code, http.StatusNoContent)
@@ -81,7 +81,7 @@ func TestAuthMiddleware_WebSocketAllowsBearerToken(t *testing.T) {
 
 func TestAuthMiddleware_WebSocketRequiresAuth(t *testing.T) {
 	persistenceStore := testStoreWithBearer(t, "token123")
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/websocket", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/websocket", nil)
 	response := runThroughAuthMiddleware(persistenceStore, request)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
@@ -91,7 +91,7 @@ func TestAuthMiddleware_WebSocketRequiresAuth(t *testing.T) {
 func TestAuthMiddleware_WebSocketBearerSetsUserContext(t *testing.T) {
 	persistenceStore := testStoreWithBearer(t, "token123")
 
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/websocket", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/websocket", nil)
 	request.Header.Set("Authorization", "Bearer token123")
 
 	next := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -149,7 +149,7 @@ func TestAuthMiddleware_WebSocketSessionSetsUserContext(t *testing.T) {
 		t.Fatalf("creating session: %v", err)
 	}
 
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/websocket", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/websocket", nil)
 	request.AddCookie(&http.Cookie{Name: "session", Value: sessionId})
 
 	next := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

@@ -40,6 +40,7 @@ type Configuration struct {
 	Tools        *ToolsConfiguration         `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Integrations *IntegrationsConfiguration  `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Channels     *ChannelsConfiguration      `json:"channels,omitempty" yaml:"channels,omitempty"`
+	Cloud        *CloudConfiguration         `json:"cloud,omitempty" yaml:"cloud,omitempty"`
 	Secrets      *[]*SecretConfiguration     `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	ToolPolicies *[]*ToolPolicyConfiguration `json:"toolPolicies,omitempty" yaml:"toolPolicies,omitempty"`
 }
@@ -181,4 +182,11 @@ type TelegramConfiguration struct {
 type SecretConfiguration struct {
 	Key   *string `json:"key,omitempty" yaml:"key,omitempty"`
 	Value *string `json:"value,omitempty" yaml:"value,omitempty"`
+}
+
+type CloudConfiguration struct {
+	URL        *string `json:"url,omitempty" yaml:"url,omitempty"`
+	NodeID     *string `json:"nodeId,omitempty" yaml:"nodeId,omitempty"`
+	NodeSecret *string `json:"nodeSecret,omitempty" yaml:"nodeSecret,omitempty"`
+	UserID     *string `json:"userId,omitempty" yaml:"userId,omitempty"`
 }

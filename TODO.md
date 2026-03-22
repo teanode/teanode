@@ -15,7 +15,7 @@ These are the highest-impact items to tackle next, roughly in order.
 - [ ] Add rate limiting to general API endpoints (auth endpoints already have per-IP rate limiting)
 
 ### 4. Test Coverage Expansion
-- [ ] `internal/api/v1api` handler tests (HTTP handlers, SSE streaming, auth middleware, media endpoints)
+- [ ] `internal/api` handler tests (HTTP handlers, SSE streaming, auth middleware, media endpoints)
 - [ ] WebSocket RPC handler tests (`conversations.send`, `conversations.history`, etc.)
 - [ ] `internal/web` tests (embedded SPA serving, static assets)
 - [ ] CLI command tests in `cmd/` (node, terminal flag parsing and wiring)
@@ -83,7 +83,7 @@ Core infrastructure packages have high test coverage:
 - [x] Implement graceful shutdown (signal.NotifyContext with SIGTERM)
 - [x] Add configuration hot-reload without restart (file watcher on config, agents, skills, crons)
 - [x] Model list caching with 24-hour TTL and disk persistence (auto-invalidated on config reload)
-- [x] Media store for image storage and serving (base64 extraction from tool results, `/api/v1/media`)
+- [x] Media store for image storage and serving (base64 extraction from tool results, `/api/media`)
 - [x] Version info injection via ldflags (Server header, build metadata)
 - [x] Multimodal / vision support (image attachments in messages, provider content parts, media upload endpoint)
 
@@ -91,7 +91,7 @@ Core infrastructure packages have high test coverage:
 - [x] Provider capability interfaces (`AudioTranscriber`, `AudioSynthesizer` in `providers/interface.go`)
 - [x] OpenAI implementation (Whisper STT, TTS-1 synthesis in `openai.go`)
 - [x] Registry capability lookup (`FindTranscriber`, `FindSynthesizer`)
-- [x] REST endpoints (`POST /api/v1/audio/transcribe`, `POST /api/v1/audio/synthesize`)
+- [x] REST endpoints (`POST /api/audio/transcribe`, `POST /api/audio/synthesize`)
 - [x] Capability gating (`audio` in connect response capabilities array)
 - [x] Frontend recording hook (`useAudioRecorder.ts` — MediaRecorder, iOS mp4 fallback)
 - [x] Frontend TTS hook (`useTTS.ts` — reused HTMLAudioElement for iOS Safari)

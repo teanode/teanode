@@ -60,7 +60,7 @@ On top of the store layer, other packages implement higher-level behaviors:
 - `internal/runners` – context compaction and pruning of old messages while preserving summaries; TODO overlay injection.
 - `internal/summarizers` – auto-generating conversation titles and descriptions.
 - `internal/coordinators` – orchestrating message send, active run tracking, and broadcasting events.
-- `internal/api/v1api` – exposing WebSocket RPC methods like `conversations.send`, `conversations.history`, `conversations.list`, `conversations.todos.list`, and `conversations.todos.batch`.
+- `internal/api` – exposing WebSocket RPC methods like `conversations.send`, `conversations.history`, `conversations.list`, `conversations.todos.list`, and `conversations.todos.batch`.
 
 ### TODOs
 

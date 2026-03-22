@@ -5,7 +5,7 @@ Personal AI assistant node. Exposes an OpenAI-compatible API that proxies to con
 ## Features
 
 - **Multi-provider LLM support** — OpenAI, Anthropic, Google Gemini, OpenRouter, with per-model routing
-- **OpenAI-compatible API** — drop-in `/api/v1/chat/completions` endpoint
+- **OpenAI-compatible API** — drop-in `/api/chat/completions` endpoint
 - **Embedded web UI** — React SPA with streaming conversations, voice input, and job management
 - **Agent workspace** — editable markdown files (`AGENT.md`, `MEMORY.md`) shape agent behavior without code changes
 - **30+ built-in tools** — shell, filesystem, browser automation, GitHub, GitLab, Google services, Home Assistant, and more
@@ -123,16 +123,16 @@ Editing `AGENT.md` is the simplest way to customize agent behavior without touch
 
 TeaNode exposes:
 
-- **OpenAI-compatible HTTP API** at `/api/v1/chat/completions`
+- **OpenAI-compatible HTTP API** at `/api/chat/completions`
 - **WebSocket RPC** for real-time communication (conversations, agents, jobs, config, skills, memory)
 - **REST endpoints** for media, audio transcription/synthesis, and health checks
-- **Health check** at `/api/v1/health`
+- **Health check** at `/api/health`
 
 ```sh
 curl -X POST \
   -H "Authorization: Bearer $TEANODE_NODE_TOKEN" \
   -H "Content-Type: application/json" \
-  http://localhost:8833/api/v1/chat/completions \
+  http://localhost:8833/api/chat/completions \
   -d '{
     "model": "gpt-5.1",
     "messages": [
@@ -141,7 +141,7 @@ curl -X POST \
   }'
 ```
 
-See `docs/api-v1.md` for the full API reference.
+See `docs/api.md` for the full API reference.
 
 ## Skills
 
@@ -161,7 +161,7 @@ Detailed documentation is in the `docs/` directory:
 - [Getting Started](docs/getting-started.md) — installation, build, first run, configuration
 - [Architecture](docs/architecture.md) — runtime topology, package structure, startup flow
 - [Agents and Skills](docs/agents-and-skills.md) — agent runtime, skills framework, system prompt composition
-- [API Reference](docs/api-v1.md) — HTTP endpoints and WebSocket RPC methods
+- [API Reference](docs/api.md) — HTTP endpoints and WebSocket RPC methods
 - [Conversations](docs/conversations.md) — conversation storage and message persistence
 - [Jobs](docs/jobs.md) — cron scheduler and background automations
 - [Auto ACME](docs/autoacme-alpn.md) — automatic TLS certificate management

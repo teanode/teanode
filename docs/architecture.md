@@ -23,8 +23,8 @@ This document describes the current Go backend architecture in this repository (
                                |                                      |
                                v                                      v
                     +-----------------------+               +-----------------------+
-                    | internal/api/v1api    |               | internal/frontend     |
-                    | /api/v1/* (HTTP + WS) |               | Embedded SPA static   |
+                    | internal/api    |               | internal/frontend     |
+                    | /api/* (HTTP + WS) |               | Embedded SPA static   |
                     +-----------+-----------+               +-----------------------+
                                 |
                                 v
@@ -88,10 +88,10 @@ This document describes the current Go backend architecture in this repository (
 - Central domain orchestrator used by API, bots, and voice sessions.
 - Owns active run tracking, broadcasts, lifecycle actions, defaults (agent/conversation), model cache.
 
-- `internal/api/v1api`
-- Versioned API mounted at `/api/v1`.
+- `internal/api`
+- Versioned API mounted at `/api`.
 - HTTP routes (health, auth, media, audio, OpenAI-compatible `/chat/completions`).
-- WebSocket RPC endpoint (`/api/v1/websocket`) for conversations, jobs, config, skills, users, voice, projects, memory, todos, usage, questions, tabs.
+- WebSocket RPC endpoint (`/api/websocket`) for conversations, jobs, config, skills, users, voice, projects, memory, todos, usage, questions, tabs.
 
 - `internal/runners`
 - `Runner` handles a full LLM turn, including streaming, tool loops, and conversation persistence.

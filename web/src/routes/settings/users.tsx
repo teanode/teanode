@@ -262,7 +262,7 @@ export default function SettingsUsersPage() {
                     <Avatar
                       src={
                         user.avatarMediaId
-                          ? withToken(`/api/v1/media/${user.avatarMediaId}`)
+                          ? withToken(`/api/media/${user.avatarMediaId}`)
                           : undefined
                       }
                       sx={{ width: 40, height: 40 }}

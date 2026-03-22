@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -16,10 +17,11 @@ import (
 	"github.com/urfave/cli/v3"
 	"golang.org/x/crypto/acme"
 
-	"github.com/teanode/teanode/internal/api/v1api"
+	"github.com/teanode/teanode/internal/api"
 	"github.com/teanode/teanode/internal/autoacme"
 	"github.com/teanode/teanode/internal/channels/discord"
 	"github.com/teanode/teanode/internal/channels/telegram"
+	"github.com/teanode/teanode/internal/cloud"
 	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/frontend"
 	"github.com/teanode/teanode/internal/integrations/browsers"
@@ -242,7 +244,7 @@ func NewNodeCommand() *cli.Command {
 			headlessBrowser.StartReconnectLoop(ctx)
 			defer headlessBrowser.Close()
 
-			log.Info("browser: relay accepting extension connections on /api/v1/browser")
+			log.Info("browser: relay accepting extension connections on /api/browser")
 			browser := browsers.NewCompositeBrowser(browserRelay, headlessBrowser)
 			ctx = browsers.ContextWithBrowser(ctx, browser)
 
@@ -290,7 +292,7 @@ func NewNodeCommand() *cli.Command {
 			coordinator := coordinators.New(ctx, configuration, providerRegistry, summarizer, events)
 			ctx = coordinators.ContextWithCoordinator(ctx, coordinator)
 
-			api := v1api.New(coordinator, events, sessions, browserRelay, terminalRelay)
+			apiComponent := api.New(coordinator, events, sessions, browserRelay, terminalRelay)
 			frontendComponent := frontend.New()
 
 			// Wire summarizer to coordinator.
@@ -382,7 +384,7 @@ func NewNodeCommand() *cli.Command {
 
 			// --- Create web server with components ---
 
-			webServer, err := web.NewServer(&web.Settings{}, api, frontendComponent)
+			webServer, err := web.NewServer(&web.Settings{}, apiComponent, frontendComponent)
 			if err != nil {
 				return err
 			}
@@ -395,6 +397,49 @@ func NewNodeCommand() *cli.Command {
 				web.LoggingMiddleware,
 				web.MakeForwarderMiddleware(""),
 			)
+
+			// Cloud proxy handler: same middleware stack but without auth, since
+			// auth is handled by the cloud proxy and user context is injected.
+			cloudProxyHandler := web.ApplyMiddlewares(webServer,
+				web.CompressionMiddleware,
+				web.MakeServerNameMiddleware(version.ServerName()),
+				web.LoggingMiddleware,
+			)
+
+			// --- Cloud connection ---
+
+			if configuration.Cloud != nil && configuration.Cloud.GetURL() != "" {
+				cloudUserId := configuration.Cloud.GetUserID()
+				cloudClient := cloud.New(configuration.Cloud, func(metadata *cloud.StreamMetadata, stream io.ReadWriteCloser) {
+					defer func() { _ = stream.Close() }()
+
+					// Look up the configured user to impersonate for cloud proxy sessions.
+					var proxyUser *models.User
+					_ = openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+						user, err := transaction.GetUser(ctx, cloudUserId, nil)
+						if err != nil {
+							return err
+						}
+						proxyUser = user
+						return nil
+					})
+					if proxyUser == nil {
+						log.Warningf("cloud proxy: user %q not found, rejecting stream", cloudUserId)
+						return
+					}
+
+					// Route based on the stream metadata path.
+					// Use cloudProxyHandler with compression but without auth/logging/forwarder
+					// middleware, since auth is already handled by the cloud proxy.
+					streamCtx := models.ContextWithUserSessionToken(ctx, proxyUser, nil, nil)
+					cloud.HandleProxyStream(streamCtx, metadata, stream, cloudProxyHandler, func() {
+						transport := cloud.NewStreamTransport(stream)
+						apiComponent.HandleStreamConnection(streamCtx, transport)
+					})
+				})
+				cloudClient.Start(ctx)
+				defer func() { _ = cloudClient.Close() }()
+			}
 
 			// Create HTTP listener upfront so binding errors surface immediately.
 			address := listenAddress(configuration)

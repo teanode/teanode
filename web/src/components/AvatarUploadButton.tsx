@@ -55,7 +55,7 @@ export default function AvatarUploadButton({
           <Avatar
             src={
               avatarMediaId
-                ? withToken(`/api/v1/media/${avatarMediaId}`)
+                ? withToken(`/api/media/${avatarMediaId}`)
                 : undefined
             }
             sx={{ width: size, height: size }}

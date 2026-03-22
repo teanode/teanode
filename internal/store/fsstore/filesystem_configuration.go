@@ -167,6 +167,14 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 	if configuration.Channels.Telegram != nil {
 		result.Channels.Telegram = &models.TelegramConfiguration{Token: ptrto.TrimmedString(configuration.Channels.Telegram.Token)}
 	}
+	if configuration.Cloud != nil {
+		result.Cloud = &models.CloudConfiguration{
+			URL:        ptrto.TrimmedString(configuration.Cloud.URL),
+			NodeID:     ptrto.TrimmedString(configuration.Cloud.NodeID),
+			NodeSecret: ptrto.TrimmedString(configuration.Cloud.NodeSecret),
+			UserID:     ptrto.TrimmedString(configuration.Cloud.UserID),
+		}
+	}
 	secretConfigurations := make([]*models.SecretConfiguration, 0, len(configuration.Secrets))
 	for key, value := range configuration.Secrets {
 		keyCopy := key
@@ -311,6 +319,14 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 		}
 		if configuration.Channels.Telegram != nil {
 			result.Channels.Telegram = &storeTelegramRecord{Token: configuration.Channels.Telegram.GetToken()}
+		}
+	}
+	if configuration.Cloud != nil {
+		result.Cloud = &storeCloudRecord{
+			URL:        configuration.Cloud.GetURL(),
+			NodeID:     configuration.Cloud.GetNodeID(),
+			NodeSecret: configuration.Cloud.GetNodeSecret(),
+			UserID:     configuration.Cloud.GetUserID(),
 		}
 	}
 	if configuration.Secrets != nil {

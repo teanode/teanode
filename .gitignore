@@ -2,6 +2,7 @@
 /data
 /coverage.out
 /coverage.html
+/build
 
 # Generated code
 *_gen.go

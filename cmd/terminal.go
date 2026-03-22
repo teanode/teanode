@@ -194,7 +194,7 @@ func connectNode(ctx context.Context, nodeUrl, token, name, shellCommand string,
 		log.Errorf("terminal: invalid node URL: %v", err)
 		return
 	}
-	parsedUrl.Path = "/api/v1/terminal"
+	parsedUrl.Path = "/api/terminal"
 	query := parsedUrl.Query()
 	if token != "" {
 		query.Set("token", token)

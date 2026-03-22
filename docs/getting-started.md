@@ -110,16 +110,16 @@ The agent reads workspace files into its system prompt and can update them using
 
 TeaNode exposes:
 
-- An **OpenAI-compatible HTTP API** at `/api/v1/chat/completions`.
-- A simple **health check** at `/api/v1/health`.
+- An **OpenAI-compatible HTTP API** at `/api/chat/completions`.
+- A simple **health check** at `/api/health`.
 
-See `docs/api-v1.md` for details, but a minimal `curl` example looks like:
+See `docs/api.md` for details, but a minimal `curl` example looks like:
 
 ```sh
 curl -X POST \
   -H "Authorization: Bearer $TEANODE_NODE_TOKEN" \
   -H "Content-Type: application/json" \
-  http://localhost:8833/api/v1/chat/completions \
+  http://localhost:8833/api/chat/completions \
   -d '{
     "model": "gpt-5.1",
     "messages": [

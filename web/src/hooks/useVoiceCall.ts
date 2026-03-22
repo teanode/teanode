@@ -340,7 +340,7 @@ export function useVoiceCall(options: UseVoiceCallOptions): UseVoiceCallReturn {
             formData.append("file", wavBlob, "audio.wav");
 
             try {
-              const response = await fetch("/api/v1/audio/transcribe", {
+              const response = await fetch("/api/audio/transcribe", {
                 method: "POST",
                 body: formData,
               });
