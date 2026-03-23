@@ -1,3 +1,5 @@
+//go:build !windows
+
 package cmd
 
 import (
@@ -7,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"syscall"
 	"time"
 )
 
@@ -80,8 +81,8 @@ func startLogRotation(ctx context.Context, logPath string) {
 					continue
 				}
 				fd := int(file.Fd())
-				_ = syscall.Dup2(fd, int(os.Stdout.Fd()))
-				_ = syscall.Dup2(fd, int(os.Stderr.Fd()))
+				_ = dup2(fd, int(os.Stdout.Fd()))
+				_ = dup2(fd, int(os.Stderr.Fd()))
 				_ = file.Close()
 				log.Infof("log rotated: %s", logPath)
 			}

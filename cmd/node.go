@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/urfave/cli/v3"
@@ -120,11 +119,11 @@ func NewNodeCommand() *cli.Command {
 					return fmt.Errorf("open log file: %w", err)
 				}
 				fd := int(logFile.Fd())
-				if err := syscall.Dup2(fd, int(os.Stdout.Fd())); err != nil {
+				if err := dup2(fd, int(os.Stdout.Fd())); err != nil {
 					_ = logFile.Close()
 					return fmt.Errorf("redirect stdout to log file: %w", err)
 				}
-				if err := syscall.Dup2(fd, int(os.Stderr.Fd())); err != nil {
+				if err := dup2(fd, int(os.Stderr.Fd())); err != nil {
 					_ = logFile.Close()
 					return fmt.Errorf("redirect stderr to log file: %w", err)
 				}
@@ -509,16 +508,16 @@ func NewNodeCommand() *cli.Command {
 
 			// Wait for exit signal or server failure.
 			signaling := make(chan os.Signal, 4)
-			signal.Notify(signaling, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+			signal.Notify(signaling, nodeSignals...)
 
 			for !quit {
 				select {
 				case signal := <-signaling:
 					log.Warningf("received signal %v", signal)
-					if signal == syscall.SIGQUIT {
+					if isStackDumpSignal(signal) {
 						log.Warningf("dumping all goroutine stacks:\n%s", debugutil.GetAllStacks())
 					}
-					if signal == syscall.SIGHUP {
+					if isRestartSignal(signal) {
 						restart = true
 					}
 					quit = true

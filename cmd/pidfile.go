@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )
@@ -97,25 +96,6 @@ func findNodeProcess(ctx context.Context) (int, error) {
 	return pid, nil
 }
 
-func restartProcess(ctx context.Context) error {
-	pid, err := findNodeProcess(ctx)
-	if err != nil {
-		return err
-	}
-
-	if err := syscall.Kill(pid, syscall.SIGHUP); err != nil {
-		if errors.Is(err, syscall.ESRCH) {
-			pidFilename := filepath.Join(DataDirectoryFromContext(ctx), "node.pid")
-			if removeErr := os.Remove(pidFilename); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-				log.Warningf("failed to remove stale node pid file %s: %v", pidFilename, removeErr)
-			}
-		}
-		return fmt.Errorf("failed to signal node process %d: %w", pid, err)
-	}
-
-	return nil
-}
-
 func readPidFile(path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -127,12 +107,4 @@ func readPidFile(path string) (int, error) {
 		return 0, fmt.Errorf("%w: %q", errInvalidPidFile, value)
 	}
 	return pid, nil
-}
-
-func processExists(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
 }
