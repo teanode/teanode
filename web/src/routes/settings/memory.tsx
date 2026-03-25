@@ -496,6 +496,7 @@ export default function SettingsMemoryPage() {
                           {displayContent && (
                             <Box
                               component="span"
+                              className="markdown-content"
                               sx={{
                                 display: "block",
                                 wordBreak: "break-word",
