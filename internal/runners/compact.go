@@ -612,7 +612,7 @@ func (self *Runner) summarizeAndPersist(
 		),
 	)
 
-	summaryMessage := newTextMessage("system", summaryText)
+	summaryMessage := NewTextMessage("system", summaryText)
 	stopReason := models.StopReason("context_summary")
 	summaryMessage.StopReason = &stopReason
 	if appendError := self.appendConversationMessage(ctx, summaryMessage); appendError != nil {

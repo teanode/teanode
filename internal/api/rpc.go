@@ -62,6 +62,8 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 		return self.handleConversationsDelete(frame)
 	case "conversations.setDefault":
 		return self.handleConversationsSetDefault(frame)
+	case "conversations.state":
+		return self.handleConversationsState(frame)
 
 	// Models.
 	case "models.list":

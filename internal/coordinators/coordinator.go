@@ -63,6 +63,7 @@ type messageResult struct {
 	compactResult *runners.CompactResult
 	err           error
 	aborted       bool
+	injected      bool // true when a mid-run message was folded into an active run
 }
 
 // New creates a Coordinator.
@@ -153,9 +154,10 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 	runId := security.NewULID()
 	runContext, cancel := context.WithCancel(ctx)
 
-	// Track runner in index.
+	// Track runner in index. Save previous conversationId→runId mapping
+	// so it can be restored if this message is injected mid-run.
 	self.activeRunIdConversationIds.Store(runId, conversationId)
-	self.activeConversationIdRunIds.Store(conversationId, runId)
+	previousRunId, _ := self.activeConversationIdRunIds.Swap(conversationId, runId)
 
 	// Create handle.
 	handle := NewRunHandle(runId, conversationId)
@@ -200,12 +202,19 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 			// when the handle was already resolved normally.
 			handle.Resolve(nil, fmt.Errorf("run terminated unexpectedly"))
 		}()
+		var dispatched dispatchResult
 		defer func() {
 			// Clean up runner index.
 			self.activeRunIdConversationIds.Delete(runId)
-			// Only remove conversation→run mapping if it still points to this run,
-			// to avoid clobbering a newer run's entry.
-			self.activeConversationIdRunIds.CompareAndDelete(conversationId, runId)
+			if dispatched.injected && previousRunId != nil {
+				// Injected message: restore the previous run's mapping
+				// so the original run remains visible.
+				self.activeConversationIdRunIds.CompareAndSwap(conversationId, runId, previousRunId)
+			} else {
+				// Only remove conversation→run mapping if it still points to this run,
+				// to avoid clobbering a newer run's entry.
+				self.activeConversationIdRunIds.CompareAndDelete(conversationId, runId)
+			}
 			cancel()
 
 			// Notify summarizer.
@@ -219,7 +228,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 			}
 		}()
 
-		dispatch := self.dispatchMessage(runContext, resolvedAgentId, conversationId, runners.RunParameters{
+		dispatched = self.dispatchMessage(runContext, resolvedAgentId, conversationId, runners.RunParameters{
 			Message:           parameters.Message,
 			ProviderModelName: parameters.ProviderModelName,
 			Attachments:       parameters.Attachments,
@@ -228,8 +237,21 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 			Origin:            parameters.Origin,
 		}, mergedCallbacks)
 
-		if dispatch.aborted {
-			log.Warningf("run aborted run %q conversation %q err=%v", runId, conversationId, dispatch.err)
+		if dispatched.injected {
+			// Message was folded into an active run — no dedicated response.
+			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
+				"state":          "injected",
+				"runId":          runId,
+				"conversationId": conversationId,
+				"agentId":        resolvedAgentId,
+				"userId":         userId,
+			})
+			handle.Resolve(nil, nil)
+			return
+		}
+
+		if dispatched.aborted {
+			log.Warningf("run aborted run %q conversation %q err=%v", runId, conversationId, dispatched.err)
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "aborted",
 				"runId":          runId,
@@ -237,25 +259,25 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 				"agentId":        resolvedAgentId,
 				"userId":         userId,
 			})
-			handle.Resolve(nil, dispatch.err)
+			handle.Resolve(nil, dispatched.err)
 			return
 		}
 
-		if dispatch.err != nil {
-			log.Errorf("run error run %q conversation %q: %v", runId, conversationId, dispatch.err)
+		if dispatched.err != nil {
+			log.Errorf("run error run %q conversation %q: %v", runId, conversationId, dispatched.err)
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "error",
 				"runId":          runId,
 				"conversationId": conversationId,
 				"agentId":        resolvedAgentId,
 				"userId":         userId,
-				"error":          dispatch.err.Error(),
+				"error":          dispatched.err.Error(),
 			})
-			handle.Resolve(nil, dispatch.err)
+			handle.Resolve(nil, dispatched.err)
 			return
 		}
 
-		result := dispatch.runResult
+		result := dispatched.runResult
 		payload := map[string]interface{}{
 			"state":             "final",
 			"runId":             runId,
@@ -432,11 +454,30 @@ func (self *Coordinator) GetActiveConversationRunID(conversationId string) strin
 	return value.(string)
 }
 
+// ConversationState describes the live execution state of a conversation.
+type ConversationState struct {
+	ActiveRunID     string
+	PendingMessages []*runners.MidRunMessage
+}
+
+// GetConversationState returns the active run ID and any pending mid-run
+// messages for a conversation. Used to restore UI state on reconnect.
+func (self *Coordinator) GetConversationState(conversationId string) ConversationState {
+	state := ConversationState{
+		ActiveRunID: self.GetActiveConversationRunID(conversationId),
+	}
+	if runner := self.GetActiveConversationRunner(conversationId); runner != nil {
+		state.PendingMessages = runner.PendingMidRunMessages()
+	}
+	return state
+}
+
 // dispatchResult holds the outcome of a dispatched message.
 type dispatchResult struct {
 	runResult *runners.RunResult
 	err       error
 	aborted   bool
+	injected  bool // true when the message was injected mid-run
 }
 
 // dispatchMessage routes a message to the per-conversation queue, blocking until processed.
@@ -458,7 +499,7 @@ func (self *Coordinator) dispatchMessage(ctx context.Context, agentId, conversat
 	// ctx.Done(), because premature return would trigger cleanup of the
 	// activeRunId tracking while the tool is still executing.
 	result := <-resultChan
-	return dispatchResult{runResult: result.runResult, err: result.err, aborted: result.aborted}
+	return dispatchResult{runResult: result.runResult, err: result.err, aborted: result.aborted, injected: result.injected}
 }
 
 func (self *Coordinator) enqueueMessage(agentId, conversationId string, message *queuedMessage) {
@@ -470,6 +511,21 @@ func (self *Coordinator) enqueueMessage(agentId, conversationId string, message 
 	if conversationRunnerInstance.aborted {
 		conversationRunnerInstance.mutex.Unlock()
 		message.resultChan <- messageResult{err: context.Canceled}
+		return
+	}
+
+	// If a runner is already processing and this is a normal (non-compact)
+	// message, inject it mid-run: pass the message to the runner so it
+	// can persist it at the correct position between rounds.
+	if conversationRunnerInstance.processing && conversationRunnerInstance.runner != nil && !message.compact {
+		runner := conversationRunnerInstance.runner
+		conversationRunnerInstance.mutex.Unlock()
+
+		runner.SignalMidRunMessage(&runners.MidRunMessage{
+			Message:     message.parameters.Message,
+			Attachments: message.parameters.Attachments,
+		})
+		message.resultChan <- messageResult{injected: true}
 		return
 	}
 
@@ -575,6 +631,32 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 		conversationRunnerInstance.mutex.Unlock()
 
 		message.resultChan <- result
+
+		// Safety net: the runner drains mid-run messages before exiting,
+		// but if any slipped through (e.g. arrived after last drain),
+		// re-queue them as normal messages.
+		if runner != nil {
+			if spilledMessages := runner.DrainMidRunMessages(); len(spilledMessages) > 0 {
+				log.Warningf("conversation %q: re-queuing %d unconsumed mid-run messages", conversationId, len(spilledMessages))
+				conversationRunnerInstance.mutex.Lock()
+				for _, midRunMessage := range spilledMessages {
+					conversationRunnerInstance.queue = append(conversationRunnerInstance.queue, &queuedMessage{
+						ctx:     message.ctx,
+						agentId: message.agentId,
+						parameters: runners.RunParameters{
+							Message:          midRunMessage.Message,
+							Attachments:      midRunMessage.Attachments,
+							VoiceMode:        message.parameters.VoiceMode,
+							SystemPromptMode: message.parameters.SystemPromptMode,
+							Origin:           message.parameters.Origin,
+						},
+						callbacks:  message.callbacks,
+						resultChan: make(chan messageResult, 1),
+					})
+				}
+				conversationRunnerInstance.mutex.Unlock()
+			}
+		}
 	}
 }
 

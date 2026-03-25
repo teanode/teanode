@@ -547,7 +547,8 @@ export function useBackend() {
     if (
       conversationEvent.state === "final" ||
       conversationEvent.state === "error" ||
-      conversationEvent.state === "aborted"
+      conversationEvent.state === "aborted" ||
+      conversationEvent.state === "injected"
     ) {
       if (
         conversationEvent.conversationId &&
@@ -569,6 +570,12 @@ export function useBackend() {
 
     // Handle queued events early — no UI update needed, placeholder is already visible
     if (conversationEvent.state === "queued") {
+      return;
+    }
+
+    // Handle injected events — message was folded into an active run.
+    // No UI action needed; the active run will incorporate the message.
+    if (conversationEvent.state === "injected") {
       return;
     }
 
@@ -1120,6 +1127,19 @@ export function useBackend() {
             setIsRunning(reconciledRunState.isRunning);
             if (reconciledRunState.isRunning) {
               setStatus("thinking...");
+
+              // Show pending mid-run messages that haven't been persisted yet
+              if (res.pendingMessages) {
+                for (const pending of res.pendingMessages) {
+                  displayMessages.push({
+                    id: nextMessageId(),
+                    type: "user",
+                    content: pending.message,
+                    attachments: pending.attachments,
+                  });
+                }
+              }
+
               displayMessages.push({
                 id: nextMessageId(),
                 type: "assistant",
@@ -1335,6 +1355,19 @@ export function useBackend() {
             runQueueRef.current = [res.activeRunId];
             setIsRunning(true);
             setStatus("thinking...");
+
+            // Show pending mid-run messages that haven't been persisted yet
+            if (res.pendingMessages) {
+              for (const pending of res.pendingMessages) {
+                displayMessages.push({
+                  id: nextMessageId(),
+                  type: "user",
+                  content: pending.message,
+                  attachments: pending.attachments,
+                });
+              }
+            }
+
             displayMessages.push({
               id: nextMessageId(),
               type: "assistant",
@@ -1461,26 +1494,49 @@ export function useBackend() {
       voiceMode?: "call" | "input",
     ) => {
       if (!text.trim() && (!attachments || attachments.length === 0)) return;
-      // Allow sending while running — backend queues per-conversation
+      // Allow sending while running — backend injects mid-run
 
       const now = Date.now();
-      const assistantMessageId = nextMessageId();
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: nextMessageId(),
-          type: "user",
-          content: text,
-          timestamp: now,
-          attachments,
-        },
-        {
-          id: assistantMessageId,
-          type: "assistant",
-          content: "",
-          timestamp: now,
-        },
-      ]);
+      const isMidRun = isRunning;
+      const assistantMessageId = isMidRun ? null : nextMessageId();
+      if (isMidRun) {
+        // Mid-run: insert user message right before the active run's
+        // streaming assistant placeholder so the LLM's response (which
+        // streams into that placeholder) appears after the user message.
+        setMessages((prev) => {
+          const updated = [...prev];
+          const tailIndex = findRunAssistantIndex(
+            updated,
+            currentRunIdRef.current,
+          );
+          const insertAt = tailIndex >= 0 ? tailIndex : updated.length;
+          updated.splice(insertAt, 0, {
+            id: nextMessageId(),
+            type: "user",
+            content: text,
+            timestamp: now,
+            attachments,
+          });
+          return updated;
+        });
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: nextMessageId(),
+            type: "user",
+            content: text,
+            timestamp: now,
+            attachments,
+          },
+          {
+            id: assistantMessageId!,
+            type: "assistant",
+            content: "",
+            timestamp: now,
+          },
+        ]);
+      }
 
       // Generate an origin ID so we can recognize our own broadcast echo.
       const originId = crypto.randomUUID();
@@ -1512,6 +1568,12 @@ export function useBackend() {
 
       sendRpc<ConversationSendResult>("conversations.send", rpcParams)
         .then((res) => {
+          if (isMidRun) {
+            // Mid-run injection: no placeholder to tag, no run queue entry.
+            // The active run will incorporate this message.
+            touchConversation(res.conversationId);
+            return;
+          }
           // Tag assistant placeholder with runId
           setMessages((prev) =>
             prev.map((message) =>
@@ -1555,23 +1617,25 @@ export function useBackend() {
         })
         .catch((error) => {
           selfOriginIdsRef.current.delete(originId);
-          // Remove both user message and empty assistant placeholder
+          // Remove optimistically added messages on error
           setMessages((prev) => {
             const updated = [...prev];
-            // Remove empty assistant placeholder
-            if (
-              updated.length > 0 &&
-              updated[updated.length - 1].type === "assistant" &&
-              updated[updated.length - 1].id === assistantMessageId
-            ) {
-              updated.pop();
-              // Also remove the user message we just added
+            if (!isMidRun) {
+              // Remove empty assistant placeholder
               if (
                 updated.length > 0 &&
-                updated[updated.length - 1].type === "user"
+                updated[updated.length - 1].type === "assistant" &&
+                updated[updated.length - 1].id === assistantMessageId
               ) {
                 updated.pop();
               }
+            }
+            // Remove the user message we just added
+            if (
+              updated.length > 0 &&
+              updated[updated.length - 1].type === "user"
+            ) {
+              updated.pop();
             }
             return updated;
           });
