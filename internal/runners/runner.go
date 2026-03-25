@@ -104,7 +104,6 @@ type RunResult struct {
 
 // RunCallbacks receives events during an agent run.
 type RunCallbacks struct {
-	OnQueued     func() // called when the run must wait for the semaphore
 	OnTextDelta  func(text string)
 	OnTextDone   func(text string) // fired when text streaming ends and tool calls follow
 	OnToolCall   func(toolName string, arguments string)

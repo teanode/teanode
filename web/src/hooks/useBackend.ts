@@ -568,11 +568,6 @@ export function useBackend() {
       return;
     }
 
-    // Handle queued events early — no UI update needed, placeholder is already visible
-    if (conversationEvent.state === "queued") {
-      return;
-    }
-
     // Handle injected events — message was folded into an active run.
     // No UI action needed; the active run will incorporate the message.
     if (conversationEvent.state === "injected") {

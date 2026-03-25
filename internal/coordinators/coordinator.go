@@ -306,18 +306,6 @@ func (self *Coordinator) buildMergedCallbacks(runId, conversationId, agentId, us
 	var notifyOnce sync.Once
 
 	return &runners.RunCallbacks{
-		OnQueued: func() {
-			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
-				"state":          "queued",
-				"runId":          runId,
-				"conversationId": conversationId,
-				"agentId":        agentId,
-				"userId":         userId,
-			})
-			if callerCallbacks != nil && callerCallbacks.OnQueued != nil {
-				callerCallbacks.OnQueued()
-			}
-		},
 		OnTextDelta: func(text string) {
 			self.pubsub.Broadcast(pubsub.EventTypeConversation, map[string]interface{}{
 				"state":          "delta",
@@ -542,10 +530,6 @@ func (self *Coordinator) enqueueMessage(agentId, conversationId string, message 
 		conversationRunnerInstance.mutex.Unlock()
 		go self.processQueue(conversationId, conversationRunnerInstance)
 	} else {
-		// Notify caller that the run is queued.
-		if message.callbacks != nil && message.callbacks.OnQueued != nil {
-			message.callbacks.OnQueued()
-		}
 		conversationRunnerInstance.mutex.Unlock()
 	}
 }
