@@ -353,37 +353,50 @@ export function ChatView({
           messages?: Message[];
           activeRunId?: string;
           activeRunState?: { phase: string; toolName?: string };
+          pendingMessages?: { message: string; attachments?: Attachment[] }[];
         };
         if (data.messages) {
-          setMessages(convertHistory(data.messages));
-        }
-        // Restore busy state from server if a run is active.
-        if (data.activeRunId) {
-          setIsRunning(true);
-          setActiveRunId(data.activeRunId);
-          activeRunIdRef.current = data.activeRunId;
-          if (data.activeRunState?.phase === "tool") {
-            setToolActivity(data.activeRunState.toolName || null);
-          }
-          // Add an empty assistant placeholder for the active run so
-          // MessageList shows the thinking spinner.
-          setMessages((prev) => {
-            const alreadyHasPlaceholder = prev.some(
+          const displayMessages = convertHistory(data.messages);
+
+          // Restore busy state from server if a run is active.
+          if (data.activeRunId) {
+            setIsRunning(true);
+            setActiveRunId(data.activeRunId);
+            activeRunIdRef.current = data.activeRunId;
+            if (data.activeRunState?.phase === "tool") {
+              setToolActivity(data.activeRunState.toolName || null);
+            }
+
+            // Show pending mid-run messages not yet persisted by the runner.
+            if (data.pendingMessages) {
+              for (const pending of data.pendingMessages) {
+                displayMessages.push({
+                  id: nextMessageId(),
+                  type: "user",
+                  content: pending.message,
+                  attachments: pending.attachments,
+                });
+              }
+            }
+
+            // Add an empty assistant placeholder for the active run so
+            // MessageList shows the thinking spinner.
+            const alreadyHasPlaceholder = displayMessages.some(
               (message) =>
                 message.type === "assistant" &&
                 message.runId === data.activeRunId,
             );
-            if (alreadyHasPlaceholder) return prev;
-            return [
-              ...prev,
-              {
+            if (!alreadyHasPlaceholder) {
+              displayMessages.push({
                 id: nextMessageId(),
                 type: "assistant",
                 content: "",
                 runId: data.activeRunId,
-              },
-            ];
-          });
+              });
+            }
+          }
+
+          setMessages(displayMessages);
         }
         // Load todos for this conversation.
         sendRpc("conversations.todos.list", { conversationId })
@@ -422,13 +435,8 @@ export function ChatView({
       const eventRunId = (payload.runId as string) || null;
 
       switch (payload.state) {
-        case "queued":
-          setIsRunning(true);
-          setToolActivity(null);
-          if (eventRunId) {
-            setActiveRunId(eventRunId);
-            activeRunIdRef.current = eventRunId;
-          }
+        case "injected":
+          // Mid-run message folded into active run — no UI action needed.
           break;
 
         case "delta": {
@@ -867,27 +875,48 @@ export function ChatView({
       setUploading(false);
     }
 
+    const isMidRun = isRunning;
     const userMessageId = nextMessageId();
-    const assistantPlaceholderId = nextMessageId();
+    const assistantPlaceholderId = isMidRun ? null : nextMessageId();
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: userMessageId,
-        type: "user",
-        content: text,
-        attachments,
-        timestamp: Date.now(),
-      },
-      {
-        id: assistantPlaceholderId,
-        type: "assistant",
-        content: "",
-        // runId will be set when we get the queued/delta event
-      },
-    ]);
-    setIsRunning(true);
-    setToolActivity(null);
+    if (isMidRun) {
+      // Mid-run: insert user message before the streaming assistant tail
+      // so the LLM's response appears after it.
+      setMessages((prev) => {
+        const updated = [...prev];
+        const tailIndex = findRunAssistantIndex(
+          updated,
+          activeRunIdRef.current,
+        );
+        const insertAt = tailIndex >= 0 ? tailIndex : updated.length;
+        updated.splice(insertAt, 0, {
+          id: userMessageId,
+          type: "user",
+          content: text,
+          attachments,
+          timestamp: Date.now(),
+        });
+        return updated;
+      });
+    } else {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: userMessageId,
+          type: "user",
+          content: text,
+          attachments,
+          timestamp: Date.now(),
+        },
+        {
+          id: assistantPlaceholderId!,
+          type: "assistant",
+          content: "",
+        },
+      ]);
+      setIsRunning(true);
+      setToolActivity(null);
+    }
 
     try {
       const result = (await sendRpc("conversations.send", {
@@ -898,18 +927,22 @@ export function ChatView({
         origin: "webui",
       })) as { conversationId?: string; runId?: string } | undefined;
 
-      // Tag the assistant placeholder with the runId from the response.
-      if (result?.runId) {
-        const runId = result.runId;
-        setActiveRunId(runId);
-        activeRunIdRef.current = runId;
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === assistantPlaceholderId
-              ? { ...message, runId }
-              : message,
-          ),
-        );
+      if (isMidRun) {
+        // Mid-run injection — no placeholder to tag, no run tracking changes.
+      } else {
+        // Tag the assistant placeholder with the runId from the response.
+        if (result?.runId) {
+          const runId = result.runId;
+          setActiveRunId(runId);
+          activeRunIdRef.current = runId;
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === assistantPlaceholderId
+                ? { ...message, runId }
+                : message,
+            ),
+          );
+        }
       }
 
       // When sending without a conversationId, the server creates a new one.
@@ -921,7 +954,7 @@ export function ChatView({
     } catch {
       // Error will come via event.
     }
-  }, [input, conversationId, agentId, pendingFiles, onConversationCreated]);
+  }, [input, conversationId, agentId, pendingFiles, onConversationCreated, isRunning]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
