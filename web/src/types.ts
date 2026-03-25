@@ -169,7 +169,6 @@ export interface Message {
 
 export type ConversationEventState =
   | "user_message"
-  | "queued"
   | "delta"
   | "text_done"
   | "tool_call"
