@@ -47,6 +47,20 @@ type Runner struct {
 	providerRegistry *providers.ProviderRegistry
 	toolRegistry     *tools.ToolRegistry
 	skillPrompts     string
+
+	// Mid-run message support: allows user messages to be injected while
+	// the runner is executing. The coordinator appends messages; the runner
+	// drains and persists them at the correct point between rounds.
+	midRunMessages []*MidRunMessage   // pending injected messages
+	midRunNotify   chan struct{}      // signaled when messages are appended
+	midRunCancel   context.CancelFunc // cancels the current blocking phase
+	midRunMutex    sync.Mutex         // protects midRunMessages, midRunCancel
+}
+
+// MidRunMessage carries a user message injected while the runner is executing.
+type MidRunMessage struct {
+	Message     string
+	Attachments []map[string]string
 }
 
 // NewRunner creates a new Runner. It builds the tool registry from the agent's
@@ -64,6 +78,7 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 		providerRegistry: providerRegistry,
 		toolRegistry:     toolRegistry,
 		skillPrompts:     skillPrompts,
+		midRunNotify:     make(chan struct{}, 1),
 	}
 }
 
@@ -75,6 +90,7 @@ type RunParameters struct {
 	VoiceMode         VoiceMode // voice interaction type; empty = normal text
 	SystemPromptMode  SystemPromptMode
 	Origin            Origin // channel origin; propagated to context for tool gating
+	Continuation      bool   // if true, skip user message append (already persisted externally)
 }
 
 // RunResult holds the result of a completed agent run.
@@ -88,7 +104,6 @@ type RunResult struct {
 
 // RunCallbacks receives events during an agent run.
 type RunCallbacks struct {
-	OnQueued     func() // called when the run must wait for the semaphore
 	OnTextDelta  func(text string)
 	OnTextDone   func(text string) // fired when text streaming ends and tool calls follow
 	OnToolCall   func(toolName string, arguments string)
@@ -98,6 +113,60 @@ type RunCallbacks struct {
 // Run directly executes a run for this runner's conversation.
 func (self *Runner) Run(ctx context.Context, params RunParameters, callbacks *RunCallbacks) (*RunResult, error) {
 	return self.executeRun(ctx, params, callbacks)
+}
+
+// SignalMidRunMessage appends a user message for injection between rounds.
+// If the runner is currently blocked on an approval or question wait, that
+// wait is cancelled so the messages can be processed sooner.
+func (self *Runner) SignalMidRunMessage(message *MidRunMessage) {
+	self.midRunMutex.Lock()
+	self.midRunMessages = append(self.midRunMessages, message)
+	cancel := self.midRunCancel
+	self.midRunMutex.Unlock()
+
+	// Wake the runner's loop (non-blocking, one signal is enough).
+	select {
+	case self.midRunNotify <- struct{}{}:
+	default:
+	}
+
+	// Cancel any in-progress blocking phase (approval/question wait).
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// DrainMidRunMessages returns and clears all pending mid-run messages.
+func (self *Runner) DrainMidRunMessages() []*MidRunMessage {
+	self.midRunMutex.Lock()
+	messages := self.midRunMessages
+	self.midRunMessages = nil
+	self.midRunMutex.Unlock()
+
+	// Drain the notification channel so it doesn't re-trigger.
+	select {
+	case <-self.midRunNotify:
+	default:
+	}
+
+	return messages
+}
+
+// HasPendingMidRun returns true if there are unconsumed mid-run messages.
+func (self *Runner) HasPendingMidRun() bool {
+	self.midRunMutex.Lock()
+	defer self.midRunMutex.Unlock()
+	return len(self.midRunMessages) > 0
+}
+
+// PendingMidRunMessages returns a copy of all pending mid-run messages
+// without draining them. Used to expose pending state on reconnect.
+func (self *Runner) PendingMidRunMessages() []*MidRunMessage {
+	self.midRunMutex.Lock()
+	defer self.midRunMutex.Unlock()
+	result := make([]*MidRunMessage, len(self.midRunMessages))
+	copy(result, self.midRunMessages)
+	return result
 }
 
 // executeRun performs the actual chat turn: appends the user message, calls the LLM
@@ -150,16 +219,19 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 	}
 
 	// 2. Append user message to conversation (sets provider/model on new or backfills existing).
-	var userMessage models.ConversationMessage
-	if len(params.Attachments) > 0 {
-		userMessage = newMessageWithAttachments("user", params.Message, params.Attachments)
-	} else {
-		userMessage = newTextMessage("user", params.Message)
-	}
-	userMessage.ProviderName = ptrto.Value(providerName)
-	userMessage.ProviderModelName = ptrto.Value(providers.FormatProviderModelName(providerName, modelName))
-	if err := self.appendConversationMessage(ctx, userMessage); err != nil {
-		return nil, fmt.Errorf("saving user message: %w", err)
+	// In continuation mode the user message was already persisted externally.
+	if !params.Continuation {
+		var userMessage models.ConversationMessage
+		if len(params.Attachments) > 0 {
+			userMessage = NewMessageWithAttachments("user", params.Message, params.Attachments)
+		} else {
+			userMessage = NewTextMessage("user", params.Message)
+		}
+		userMessage.ProviderName = ptrto.Value(providerName)
+		userMessage.ProviderModelName = ptrto.Value(providers.FormatProviderModelName(providerName, modelName))
+		if err := self.appendConversationMessage(ctx, userMessage); err != nil {
+			return nil, fmt.Errorf("saving user message: %w", err)
+		}
 	}
 
 	// 3. Load full conversation history.
@@ -179,6 +251,22 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 	for round := 0; round < 250; round++ {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+
+		// Check for mid-run user messages injected by the coordinator.
+		// Persist them here (after tool results) so they appear in the
+		// correct position in conversation history.
+		for _, midRunMessage := range self.DrainMidRunMessages() {
+			var userMessage models.ConversationMessage
+			if len(midRunMessage.Attachments) > 0 {
+				userMessage = NewMessageWithAttachments("user", midRunMessage.Message, midRunMessage.Attachments)
+			} else {
+				userMessage = NewTextMessage("user", midRunMessage.Message)
+			}
+			if err := self.appendConversationMessage(ctx, userMessage); err != nil {
+				return nil, fmt.Errorf("saving mid-run user message: %w", err)
+			}
+			history = append(history, &userMessage)
 		}
 
 		log.Debugf("run id %q round %d history %d", self.ID, round, len(history))
@@ -358,7 +446,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		}
 
 		// Save assistant message.
-		assistantMessage := newTextMessage("assistant", responseText)
+		assistantMessage := NewTextMessage("assistant", responseText)
 		assistantMessage.ProviderModelName = ptrto.Value(providers.FormatProviderModelName(providerName, modelName))
 		assistantMessage.ProviderName = ptrto.Value(providerName)
 		if stopReason != "" {
@@ -397,10 +485,34 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 			self.recordModelUsage(ctx, userId, providerName, responseModelName, usage)
 		}
 
-		// If no tool calls, we're done.
+		// If no tool calls, check for pending mid-run messages before exiting.
+		// If any exist, persist them and continue the loop so the LLM sees them.
 		if len(toolCalls) == 0 || self.toolRegistry == nil {
-			break
+			pendingMidRunMessages := self.DrainMidRunMessages()
+			if len(pendingMidRunMessages) == 0 {
+				break
+			}
+			for _, midRunMessage := range pendingMidRunMessages {
+				var userMessage models.ConversationMessage
+				if len(midRunMessage.Attachments) > 0 {
+					userMessage = NewMessageWithAttachments("user", midRunMessage.Message, midRunMessage.Attachments)
+				} else {
+					userMessage = NewTextMessage("user", midRunMessage.Message)
+				}
+				if err := self.appendConversationMessage(ctx, userMessage); err != nil {
+					return nil, fmt.Errorf("saving mid-run user message: %w", err)
+				}
+				history = append(history, &userMessage)
+			}
+			continue
 		}
+
+		// Create a round-scoped context that can be cancelled by a mid-run
+		// user message, allowing approval/question waits to abort promptly.
+		roundCtx, roundCancel := context.WithCancel(ctx)
+		self.midRunMutex.Lock()
+		self.midRunCancel = roundCancel
+		self.midRunMutex.Unlock()
 
 		// Phase 1 — Filter, apply policy, notify: resolve tools and fire callbacks.
 		type toolWorkItem struct {
@@ -411,6 +523,8 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 
 		var workItems []toolWorkItem
 		var deniedCount int
+		var midRunInterrupted bool
+	toolCallLoop:
 		for _, toolCall := range toolCalls {
 			tool := self.toolRegistry.Get(toolCall.Function.Name)
 			if tool == nil {
@@ -457,7 +571,15 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 				}
 
 				// Register pending approval and block until resolved.
-				approvalResult, approvalErr := self.waitForApproval(ctx, toolCall, arguments, decision)
+				approvalResult, approvalErr := self.waitForApproval(roundCtx, toolCall, arguments, decision)
+				// If the round context was cancelled by a mid-run message
+				// (but the parent context is still alive), abort this round
+				// so the runner can reload history with the new message.
+				if approvalErr != nil && roundCtx.Err() != nil && ctx.Err() == nil {
+					log.Debugf("approval wait interrupted by mid-run message id=%s name=%s", toolCall.ID, toolCall.Function.Name)
+					midRunInterrupted = true
+					break toolCallLoop
+				}
 				if approvalErr != nil || approvalResult.Verdict != approvals.ApprovalVerdictApproved {
 					reason := decision.Reason
 					if approvalResult.Reason != "" {
@@ -489,12 +611,29 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 			})
 		}
 
+		// cleanupRound cancels the round context and clears the mid-run cancel reference.
+		cleanupRound := func() {
+			self.midRunMutex.Lock()
+			self.midRunCancel = nil
+			self.midRunMutex.Unlock()
+			roundCancel()
+		}
+
+		// If the round was interrupted by a mid-run message during approval,
+		// clean up and loop back so the runner reloads history.
+		if midRunInterrupted {
+			cleanupRound()
+			continue
+		}
+
 		if len(workItems) == 0 {
 			// If tool calls were denied/rejected, the LLM needs to see
 			// those error results and produce a final response.
 			if deniedCount > 0 {
+				cleanupRound()
 				continue
 			}
+			cleanupRound()
 			break
 		}
 
@@ -518,6 +657,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 			}(position, item)
 		}
 		waitGroup.Wait()
+		cleanupRound()
 
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -934,7 +1074,8 @@ func (self *Runner) appendConversationMessage(ctx context.Context, message model
 	})
 }
 
-func newTextMessage(role, text string) models.ConversationMessage {
+// NewTextMessage creates a ConversationMessage with a plain text content payload.
+func NewTextMessage(role, text string) models.ConversationMessage {
 	roleValue := models.Role(role)
 	content, _ := json.Marshal(text)
 	return models.ConversationMessage{
@@ -943,7 +1084,8 @@ func newTextMessage(role, text string) models.ConversationMessage {
 	}
 }
 
-func newMessageWithAttachments(role, text string, attachments []map[string]string) models.ConversationMessage {
+// NewMessageWithAttachments creates a ConversationMessage with text and attachment blocks.
+func NewMessageWithAttachments(role, text string, attachments []map[string]string) models.ConversationMessage {
 	blocks := make([]map[string]string, 0, len(attachments)+1)
 	blocks = append(blocks, map[string]string{
 		"type": "text",
@@ -966,7 +1108,7 @@ func newMessageWithAttachments(role, text string, attachments []map[string]strin
 }
 
 func newToolMessage(toolCallId, toolName, content string) models.ConversationMessage {
-	message := newTextMessage("tool", content)
+	message := NewTextMessage("tool", content)
 	message.ToolCallID = ptrto.Value(toolCallId)
 	message.ToolName = ptrto.Value(toolName)
 	return message

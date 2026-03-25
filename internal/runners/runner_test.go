@@ -584,8 +584,8 @@ func TestBuildMessagesIncludesSeededAssistantOnboardingAndPrompt(t *testing.T) {
 	seedWorkspaceFile(t, openedStore, models.ScopeUser, "user-1", "ONBOARDING.md", onboardingInstructions)
 
 	history := []*models.ConversationMessage{
-		ptrConversationMessage(newTextMessage("assistant", "Welcome! To get started, tell me your preferred name and timezone.")),
-		ptrConversationMessage(newTextMessage("user", "I'm Alex, PST timezone.")),
+		ptrConversationMessage(NewTextMessage("assistant", "Welcome! To get started, tell me your preferred name and timezone.")),
+		ptrConversationMessage(NewTextMessage("user", "I'm Alex, PST timezone.")),
 	}
 
 	runner := &Runner{AgentID: "default"}

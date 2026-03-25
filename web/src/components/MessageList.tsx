@@ -13,7 +13,6 @@ import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
-import HourglassEmptyRounded from "@mui/icons-material/HourglassEmptyRounded";
 import KeyboardArrowDownRounded from "@mui/icons-material/KeyboardArrowDownRounded";
 import StopRounded from "@mui/icons-material/StopRounded";
 import type { DisplayMessage } from "../types";
@@ -404,41 +403,6 @@ export default function MessageList({
                     <StopRounded sx={{ fontSize: 16 }} />
                   </IconButton>
                 )}
-              </Box>
-            </Container>
-          );
-        }
-
-        // Queued run — show queued indicator
-        if (!isActiveRun && !message.content && message.runId) {
-          return (
-            <Container
-              maxWidth="md"
-              sx={{ py: 0.5, display: "flex", flexDirection: "column" }}
-            >
-              <Box
-                sx={{
-                  alignSelf: "flex-start",
-                  px: 0.25,
-                  py: 0.5,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0.75,
-                }}
-              >
-                <ConversationAvatar
-                  avatarMediaId={agentAvatarMediaId}
-                  src={agentAvatarSrc}
-                  fallback={normalizedAgentFallback}
-                />
-                <HourglassEmptyRounded sx={{ fontSize: 12 }} color="disabled" />
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ fontStyle: "italic" }}
-                >
-                  {t("conversations.queued")}
-                </Typography>
               </Box>
             </Container>
           );

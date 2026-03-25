@@ -87,6 +87,40 @@ func (self *webSocketConnection) handleConversationsSend(frame requestFrame) (in
 	}, nil
 }
 
+// conversationStateParameters are the parameters for conversations.state.
+type conversationStateParameters struct {
+	ConversationID string `json:"conversationId"`
+}
+
+// handleConversationsState: return live execution state for a conversation.
+func (self *webSocketConnection) handleConversationsState(frame requestFrame) (interface{}, error) {
+	parameters, err := unmarshalParams[conversationStateParameters](frame)
+	if err != nil {
+		return nil, err
+	}
+	if parameters.ConversationID == "" {
+		return nil, rpcError(400, "conversationId is required")
+	}
+
+	state := self.api.coordinator.GetConversationState(parameters.ConversationID)
+
+	var pendingMessages []map[string]interface{}
+	for _, message := range state.PendingMessages {
+		entry := map[string]interface{}{
+			"message": message.Message,
+		}
+		if len(message.Attachments) > 0 {
+			entry["attachments"] = message.Attachments
+		}
+		pendingMessages = append(pendingMessages, entry)
+	}
+
+	return map[string]interface{}{
+		"activeRunId":     state.ActiveRunID,
+		"pendingMessages": pendingMessages,
+	}, nil
+}
+
 // conversationHistoryParameters are the parameters for conversations.history.
 type conversationHistoryParameters struct {
 	ConversationID string `json:"conversationId"`
@@ -134,9 +168,21 @@ func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) 
 		"oldestLoadedIndex": oldestLoadedIndex,
 		"hasMore":           hasMore,
 	}
-	if self.api.coordinator.GetActiveConversationRunner(parameters.ConversationID) != nil {
-		if activeRunId := self.api.coordinator.GetActiveConversationRunID(parameters.ConversationID); activeRunId != "" {
-			response["activeRunId"] = activeRunId
+	conversationState := self.api.coordinator.GetConversationState(parameters.ConversationID)
+	if conversationState.ActiveRunID != "" {
+		response["activeRunId"] = conversationState.ActiveRunID
+		if len(conversationState.PendingMessages) > 0 {
+			var pending []map[string]interface{}
+			for _, message := range conversationState.PendingMessages {
+				entry := map[string]interface{}{
+					"message": message.Message,
+				}
+				if len(message.Attachments) > 0 {
+					entry["attachments"] = message.Attachments
+				}
+				pending = append(pending, entry)
+			}
+			response["pendingMessages"] = pending
 		}
 	}
 	if providerName != "" {

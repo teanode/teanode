@@ -89,11 +89,17 @@ export interface ActiveRunState {
   toolName?: string;
 }
 
+export interface PendingMidRunMessage {
+  message: string;
+  attachments?: Attachment[];
+}
+
 export interface ConversationHistoryResult {
   conversationId: string;
   messages: Message[];
   activeRunId?: string;
   activeRunState?: ActiveRunState;
+  pendingMessages?: PendingMidRunMessage[];
   hasMore?: boolean;
   totalCount?: number;
   oldestLoadedIndex?: number;
@@ -163,7 +169,6 @@ export interface Message {
 
 export type ConversationEventState =
   | "user_message"
-  | "queued"
   | "delta"
   | "text_done"
   | "tool_call"
@@ -171,7 +176,8 @@ export type ConversationEventState =
   | "title"
   | "final"
   | "error"
-  | "aborted";
+  | "aborted"
+  | "injected";
 
 export interface ConversationEvent {
   state: ConversationEventState;
