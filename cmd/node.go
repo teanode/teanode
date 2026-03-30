@@ -290,22 +290,7 @@ func NewNodeCommand() *cli.Command {
 			ctx = lifecycle.ContextWithLifecycle(ctx, lifecycleManager)
 
 			// --- Self-updater ---
-			updatePolicy := updater.PolicyNotify
-			updateCheckInterval := updater.DefaultCheckInterval
-			if configuration.AutoUpdate != nil {
-				if policy := configuration.AutoUpdate.GetPolicy(); policy != "" {
-					configuredPolicy := updater.Policy(policy)
-					if updater.IsValidPolicy(configuredPolicy) {
-						updatePolicy = configuredPolicy
-					} else {
-						log.Warningf("updater: ignoring invalid autoUpdate.policy value %q", policy)
-					}
-				}
-				if hours := configuration.AutoUpdate.GetCheckIntervalHours(); hours > 0 {
-					updateCheckInterval = time.Duration(hours) * time.Hour
-				}
-			}
-			updateManager := updater.New(updatePolicy, updateCheckInterval)
+			updateManager := updater.New()
 			ctx = updater.ContextWithUpdater(ctx, updateManager)
 
 			coordinator := coordinators.New(ctx, configuration, providerRegistry, summarizer, events)

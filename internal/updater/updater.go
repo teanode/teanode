@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/lifecycle"
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/version"
 )
 
@@ -27,6 +29,10 @@ const (
 
 // DefaultCheckInterval is the default interval between periodic update checks.
 const DefaultCheckInterval = 6 * time.Hour
+
+// configRefreshInterval bounds how long runtime config changes take to be
+// observed by the background updater loop.
+const configRefreshInterval = time.Minute
 
 // Status represents the current state of the updater.
 type Status struct {
@@ -49,32 +55,24 @@ type Status struct {
 }
 
 // Updater manages periodic update checking and staged update application.
+// It reads the current configuration from the store on each check cycle,
+// so runtime config changes take effect without a restart.
 type Updater struct {
-	policy        Policy
-	checkInterval time.Duration
-
 	mutex       sync.RWMutex
 	status      Status
 	stopChannel chan struct{}
 	isContainer bool
 }
 
-// New creates a new Updater with the given policy and check interval.
-// If checkInterval is zero, DefaultCheckInterval is used.
-func New(policy Policy, checkInterval time.Duration) *Updater {
-	if checkInterval <= 0 {
-		checkInterval = DefaultCheckInterval
-	}
-	policy = NormalizePolicy(policy)
-
+// New creates a new Updater. Configuration (policy, interval) is read from the
+// store on each check cycle, so no policy or interval arguments are needed.
+func New() *Updater {
 	isContainer := IsContainerEnvironment()
 	return &Updater{
-		policy:        policy,
-		checkInterval: checkInterval,
 		status: Status{
 			CurrentVersion: version.Version(),
 			IsContainer:    isContainer,
-			Policy:         policy,
+			Policy:         PolicyNotify, // default until first config read
 		},
 		stopChannel: make(chan struct{}),
 		isContainer: isContainer,
@@ -82,26 +80,15 @@ func New(policy Policy, checkInterval time.Duration) *Updater {
 }
 
 // Start begins periodic update checking in the background.
-// Does nothing if the policy is disabled or running in a container.
+// The updater reads config from the store on each cycle to pick up runtime changes.
 func (self *Updater) Start(ctx context.Context) {
-	if self.policy == PolicyDisabled {
-		log.Info("updater: disabled by policy")
-		return
-	}
-	if runtime.GOOS == "windows" && self.policy == PolicyAuto {
-		log.Warning("updater: auto-apply is not supported on Windows; falling back to notify-only checks")
-		self.policy = PolicyNotify
-		self.mutex.Lock()
-		self.status.Policy = self.policy
-		self.mutex.Unlock()
-	}
 	if self.isContainer {
-		log.Info("updater: container environment detected, disabling auto-update")
+		log.Info("updater: container environment detected, disabling self-update")
 		return
 	}
 
 	go self.run(ctx)
-	log.Infof("updater: started (policy=%s, interval=%s)", self.policy, self.checkInterval)
+	log.Info("updater: started background manager")
 }
 
 // Stop halts the periodic checker.
@@ -122,6 +109,7 @@ func (self *Updater) Status() Status {
 
 // Check performs an immediate update check and returns the status.
 func (self *Updater) Check(ctx context.Context) Status {
+	self.applyRuntimeConfig(ctx)
 	self.check(ctx)
 	return self.Status()
 }
@@ -179,7 +167,80 @@ func (self *Updater) Apply(ctx context.Context) error {
 	return nil
 }
 
-// run is the periodic check loop.
+// readConfig reads the current update configuration from the store.
+// Returns the resolved policy and check interval. Falls back to safe defaults
+// if the store is unavailable or the config section is absent.
+func (self *Updater) readConfig(ctx context.Context) (Policy, time.Duration) {
+	policy := PolicyNotify
+	checkInterval := DefaultCheckInterval
+
+	dataStore := store.StoreFromContextSafe(ctx)
+	if dataStore == nil {
+		return policy, checkInterval
+	}
+
+	var configuration *models.Configuration
+	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		loaded, err := transaction.GetConfiguration(ctx, nil)
+		if err != nil {
+			return err
+		}
+		configuration = loaded
+		return nil
+	})
+
+	if configuration == nil || configuration.Updating == nil {
+		return policy, checkInterval
+	}
+
+	updateConfig := configuration.Updating
+	if configuredPolicy := updateConfig.GetPolicy(); configuredPolicy != "" {
+		candidate := Policy(configuredPolicy)
+		if IsValidPolicy(candidate) {
+			policy = candidate
+		}
+	}
+	if hours := updateConfig.GetCheckIntervalHours(); hours > 0 {
+		checkInterval = time.Duration(hours) * time.Hour
+	}
+
+	return policy, checkInterval
+}
+
+// applyRuntimeConfig refreshes the updater status from the current config and
+// returns the effective policy plus the configured interval.
+func (self *Updater) applyRuntimeConfig(ctx context.Context) (Policy, time.Duration) {
+	policy, checkInterval := self.readConfig(ctx)
+	self.mutex.RLock()
+	previousPolicy := self.status.Policy
+	self.mutex.RUnlock()
+	if runtime.GOOS == "windows" && policy == PolicyAuto {
+		if previousPolicy != PolicyNotify {
+			log.Warning("updater: auto-apply is not supported on Windows; falling back to notify-only")
+		}
+		policy = PolicyNotify
+	}
+
+	self.mutex.Lock()
+	self.status.Policy = policy
+	self.mutex.Unlock()
+
+	return policy, checkInterval
+}
+
+func (self *Updater) shouldCheck(checkInterval time.Duration) bool {
+	self.mutex.RLock()
+	lastChecked := self.status.LastChecked
+	self.mutex.RUnlock()
+
+	if lastChecked == nil {
+		return true
+	}
+	return time.Since(*lastChecked) >= checkInterval
+}
+
+// run is the periodic check loop. On each cycle it reads the current config
+// from the store, so policy and interval changes take effect at runtime.
 func (self *Updater) run(ctx context.Context) {
 	// Initial check shortly after startup.
 	initialDelay := 30 * time.Second
@@ -191,10 +252,38 @@ func (self *Updater) run(ctx context.Context) {
 		return
 	}
 
+	self.runCycle(ctx)
+
+	ticker := time.NewTicker(configRefreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			self.runCycle(ctx)
+		case <-self.stopChannel:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// runCycle performs a single check-and-maybe-apply cycle, reading fresh config.
+func (self *Updater) runCycle(ctx context.Context) {
+	policy, checkInterval := self.applyRuntimeConfig(ctx)
+
+	if policy == PolicyDisabled {
+		return
+	}
+
+	if !self.shouldCheck(checkInterval) {
+		return
+	}
+
 	self.check(ctx)
 
-	// If auto-apply and update available, apply it.
-	if self.policy == PolicyAuto {
+	if policy == PolicyAuto {
 		self.mutex.RLock()
 		available := self.status.Available
 		self.mutex.RUnlock()
@@ -202,30 +291,6 @@ func (self *Updater) run(ctx context.Context) {
 			if err := self.Apply(ctx); err != nil {
 				log.Errorf("updater: auto-apply failed: %v", err)
 			}
-		}
-	}
-
-	ticker := time.NewTicker(self.checkInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			self.check(ctx)
-			if self.policy == PolicyAuto {
-				self.mutex.RLock()
-				available := self.status.Available
-				self.mutex.RUnlock()
-				if available != nil {
-					if err := self.Apply(ctx); err != nil {
-						log.Errorf("updater: auto-apply failed: %v", err)
-					}
-				}
-			}
-		case <-self.stopChannel:
-			return
-		case <-ctx.Done():
-			return
 		}
 	}
 }

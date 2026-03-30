@@ -33,6 +33,7 @@ import SettingsSecretsPage from "./routes/settings/secrets";
 import SettingsUsagePage from "./routes/settings/usage";
 import SettingsMemoryPage from "./routes/settings/memory";
 import SettingsToolPoliciesPage from "./routes/settings/policies";
+import SettingsUpdatesPage from "./routes/settings/updates";
 import LoginRoute from "./routes/login";
 import SetupRoute from "./routes/setup";
 
@@ -240,6 +241,13 @@ const settingsToolPoliciesRoute = createRoute({
   component: SettingsToolPoliciesPage,
 });
 
+// /settings/updates — auto-update management (admin only)
+const settingsUpdatesRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "updates",
+  component: SettingsUpdatesPage,
+});
+
 // /settings/agents/$agentId → individual agent editor
 const settingsAgentRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -293,6 +301,7 @@ const routeTree = rootRoute.addChildren([
     settingsAgentRoute,
     settingsMemoryRoute,
     settingsToolPoliciesRoute,
+    settingsUpdatesRoute,
     settingsSectionRoute,
   ]),
 ]);

@@ -11,8 +11,9 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 - Self-update system: check, download, verify (SHA256), and apply updates from GitHub Releases.
 - CLI `teanode update` command with `check` and `apply` subcommands.
 - WebSocket RPC endpoints: `update.status`, `update.check`, `update.apply` (admin-only).
-- Periodic background update checking with configurable interval (default: 6 hours).
-- Config section `autoUpdate` with `policy` (disabled/notify/auto, default: notify) and `checkIntervalHours`.
+- Periodic background update checking with configurable interval (default: 30 minutes).
+- Config section `update` (renamed from `autoUpdate`) with `policy` (disabled/notify/auto, default: notify) and `checkIntervalHours`.
+- Updater reads config from the store on each cycle, so runtime policy changes take effect without a restart.
 - Update availability surfaced in `connect` handshake response for admin users.
 - Container environment detection to disable self-update in Docker/Kubernetes/LXC.
 - Platform-specific binary replacement: atomic rename on Unix, rename+copy on Windows.

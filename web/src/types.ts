@@ -52,6 +52,42 @@ export interface ConnectResult {
   defaultConversationId?: string;
   isAdmin?: boolean;
   userId?: string;
+  updateAvailable?: { version: string };
+}
+
+// Update types
+
+export interface UpdateReleaseInfo {
+  tag_name: string;
+  name: string;
+  body: string;
+  published_at: string;
+  html_url: string;
+}
+
+export interface UpdateStatus {
+  available?: UpdateReleaseInfo;
+  currentVersion: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  lastChecked?: string;
+  error?: string;
+  isContainer: boolean;
+  policy: "disabled" | "notify" | "auto";
+}
+
+export interface UpdateStatusResult {
+  enabled: boolean;
+  status?: UpdateStatus;
+}
+
+export interface UpdateCheckResult {
+  status: UpdateStatus;
+}
+
+export interface UpdateApplyResult {
+  ok: boolean;
+  message: string;
 }
 
 export interface AgentsSetDefaultResult {

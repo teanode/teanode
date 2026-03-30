@@ -41,7 +41,7 @@ type Configuration struct {
 	Integrations *IntegrationsConfiguration  `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Channels     *ChannelsConfiguration      `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Cloud        *CloudConfiguration         `json:"cloud,omitempty" yaml:"cloud,omitempty"`
-	AutoUpdate   *UpdateConfiguration        `json:"autoUpdate,omitempty" yaml:"autoUpdate,omitempty"`
+	Updating     *UpdateConfiguration        `json:"update,omitempty" yaml:"update,omitempty"`
 	Secrets      *[]*SecretConfiguration     `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	ToolPolicies *[]*ToolPolicyConfiguration `json:"toolPolicies,omitempty" yaml:"toolPolicies,omitempty"`
 }

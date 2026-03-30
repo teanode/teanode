@@ -387,6 +387,45 @@ export default function SettingsNav({
             </ListItemButton>
           )}
 
+          {backend.isAdmin && (
+            <ListItemButton
+              dense
+              onClick={() => onNavigate("/settings/updates")}
+              sx={{
+                borderRadius: 1,
+                mb: 0.25,
+                ...(activeSectionId === "updates"
+                  ? {
+                      bgcolor: "accentDim",
+                      color: "#fff",
+                      "&:hover": { bgcolor: "accentDim" },
+                    }
+                  : {}),
+              }}
+            >
+              <ListItemText
+                primary={t("updates.title")}
+                primaryTypographyProps={{
+                  variant: "caption",
+                  fontSize: "13px",
+                  color:
+                    activeSectionId === "updates" ? "#fff" : "text.secondary",
+                }}
+              />
+              {backend.updateAvailable && (
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    bgcolor: "warning.main",
+                    flexShrink: 0,
+                  }}
+                />
+              )}
+            </ListItemButton>
+          )}
+
           <SidebarSectionTitle>Settings</SidebarSectionTitle>
           <ListItemButton
             dense

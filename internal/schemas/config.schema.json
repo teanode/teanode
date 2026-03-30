@@ -504,9 +504,9 @@
         }
       }
     },
-    "autoUpdate": {
+    "update": {
       "type": "object",
-      "title": "Auto-Update",
+      "title": "Update",
       "properties": {
         "policy": {
           "type": "string",
@@ -592,10 +592,10 @@
       "path": "channels"
     },
     {
-      "id": "autoUpdate",
-      "title": "Auto-Update",
+      "id": "update",
+      "title": "Update",
       "description": "Self-update policy and schedule.",
-      "path": "autoUpdate"
+      "path": "update"
     }
   ]
 }

@@ -32,6 +32,7 @@ import type {
   PendingApproval,
   PendingApprovalsListResult,
   ConversationApprovalsEvent,
+  UpdateStatusResult,
 } from "../types";
 import { useWebSocket } from "./useWebSocket";
 import { normalizeContent, type ExtractedContent } from "../contentUtils";
@@ -295,6 +296,9 @@ export function useBackend() {
   const [hasConnectedOnce, setHasConnectedOnce] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
+  const [updateAvailable, setUpdateAvailable] = useState<
+    { version: string } | undefined
+  >(undefined);
   const [conversationModel, setConversationModel] = useState<string | null>(
     null,
   );
@@ -1022,6 +1026,7 @@ export function useBackend() {
     setIsAdmin(!!result.isAdmin);
     setCurrentUserId(result.userId || "");
     setAudioCapability(result.capabilities?.includes("audio") ?? false);
+    setUpdateAvailable(result.updateAvailable);
     if (result.defaultProviderModelName) {
       setDefaultProviderModelName(result.defaultProviderModelName);
     }
@@ -1914,6 +1919,25 @@ export function useBackend() {
     [sendRpc],
   );
 
+  const refreshUpdateStatus = useCallback(async () => {
+    if (!connected || !isAdmin) {
+      setUpdateAvailable(undefined);
+      return;
+    }
+    try {
+      const result = await sendRpc<UpdateStatusResult>("update.status", {});
+      if (!result.enabled || !result.status?.updateAvailable) {
+        setUpdateAvailable(undefined);
+        return;
+      }
+      const version =
+        result.status.latestVersion || result.status.available?.tag_name;
+      setUpdateAvailable(version ? { version } : undefined);
+    } catch (error) {
+      console.error("update.status:", error);
+    }
+  }, [connected, isAdmin, sendRpc]);
+
   useEffect(() => {
     if (connected && conversationId) {
       loadPendingApprovals(conversationId);
@@ -1942,6 +1966,7 @@ export function useBackend() {
     conversationModel,
     serverDefaultAgentId,
     audioCapability,
+    updateAvailable,
     lastSentViaMicRef,
     setCurrentAgentId,
     setDefaultAgent,
@@ -1955,6 +1980,7 @@ export function useBackend() {
     deleteConversation,
     loadConversations,
     refreshAgents,
+    refreshUpdateStatus,
     sendRpc,
     sendBinary,
     onBinaryMessage,
