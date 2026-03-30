@@ -42,18 +42,19 @@ func Apply(stagedPath string) error {
 		return fmt.Errorf("staged binary too small (%d bytes), refusing to apply", stagedInfo.Size())
 	}
 
-	// Safety: verify the current executable is writable.
-	if err := checkWritable(currentPath); err != nil {
-		return fmt.Errorf("current executable not writable: %w", err)
+	// Safety: verify we can rename files in the executable's directory.
+	if err := checkDirectoryWritable(filepath.Dir(currentPath)); err != nil {
+		return fmt.Errorf("executable directory not writable: %w", err)
 	}
 
 	return platformApply(currentPath, stagedPath)
 }
 
-// checkWritable verifies that we can write to the file's directory (needed for
-// rename operations) and that the file itself is writable.
-func checkWritable(path string) error {
-	directory := filepath.Dir(path)
+// checkDirectoryWritable verifies that we can create and rename files in the
+// given directory, which is the only filesystem operation the rename-based
+// apply strategy requires. We must not open the running executable for writing
+// because Linux returns ETXTBSY for executables that are in use.
+func checkDirectoryWritable(directory string) error {
 	info, err := os.Stat(directory)
 	if err != nil {
 		return err
@@ -62,17 +63,15 @@ func checkWritable(path string) error {
 		return fmt.Errorf("%s is not a directory", directory)
 	}
 
-	// On Windows, file permission bits are not reliable; we try to open for writing.
-	if runtime.GOOS == "windows" {
-		return nil // Windows apply path handles this differently.
-	}
-
-	// On Unix, check that we can write to the file.
-	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	// Create and immediately remove a temporary file to verify write access.
+	tempFile, err := os.CreateTemp(directory, ".teanode-update-check-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot write to directory %s: %w", directory, err)
 	}
-	return file.Close()
+	tempPath := tempFile.Name()
+	tempFile.Close()
+	os.Remove(tempPath)
+	return nil
 }
 
 // IsContainerEnvironment returns true if we appear to be running inside a

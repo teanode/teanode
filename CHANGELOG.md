@@ -6,6 +6,12 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-03-30
+
+### Fixed
+
+- Fixed Linux self-update apply preflight checks to validate directory writability instead of opening the running executable for writing, avoiding `text file busy` failures during rename-based updates.
+
 ## [0.1.5] - 2026-03-30
 
 ### Added
