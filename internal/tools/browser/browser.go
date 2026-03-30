@@ -17,6 +17,16 @@ func init() {
 	tools.RegisterBuiltinTool(func() []tools.Tool {
 		return []tools.Tool{&browserTool{}, &browserTabsTool{}}
 	})
+	browsers.RegisterSessionLifecycleHandlers(browsers.SessionLifecycleHandlers{
+		SessionClosed: func(sessionId string) {
+			globalInstanceStore.removeByConnectionId(sessionId)
+			globalRefStore.clear(sessionId)
+			globalInterceptStore.clear(sessionId)
+		},
+		SessionNavigated: func(sessionId string, _ string, _ string) {
+			globalRefStore.clear(sessionId)
+		},
+	})
 }
 
 // resolveSessionId returns the sessionId for the given user and connectionId,
@@ -42,6 +52,15 @@ func resolveSessionId(ctx context.Context, browser browsers.Browser, connectionI
 		return "", err
 	}
 	return target.SessionID, nil
+}
+
+func activeConnectionsForUser(scopedBrowser browsers.UserScopedBrowser, userId string) ([]browsers.ConnectedTarget, map[string]struct{}) {
+	targets := scopedBrowser.TargetsForUser(userId)
+	activeConnectionIds := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		activeConnectionIds[target.SessionID] = struct{}{}
+	}
+	return targets, activeConnectionIds
 }
 
 // --- browser (page interaction) ---
@@ -153,7 +172,7 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 				"type": "object",
 				"description": "Action-dependent result. snapshot: {tree, refCount, pageUrl, title} with [ref=N] markers. " +
 					"click_ref/type_ref/hover_ref: {ref, role, name, ...}. wait: {mode, elapsed}. " +
-					"execute_script: {stepsExecuted, totalSteps, results}. intercept_*: {requests, count}.",
+					"execute_script: {stepsExecuted, completedSteps, totalSteps, results}. intercept_*: {requests, count}.",
 			},
 		},
 	}
@@ -256,6 +275,7 @@ func executeNavigate(ctx context.Context, browser browsers.Browser, connectionId
 	if err != nil {
 		return "", err
 	}
+	globalRefStore.clear(sessionId)
 	output, _ := json.Marshal(map[string]string{"url": url})
 	return string(output), nil
 }
@@ -510,7 +530,7 @@ func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (
 	case "name":
 		return executeTabsName(ctx, arguments.Name, arguments.ConnectionID)
 	case "resolve":
-		return executeTabsResolve(ctx, arguments.Name)
+		return executeTabsResolve(ctx, browser, arguments.Name)
 	default:
 		return "", fmt.Errorf("unknown browser_tabs action: %s", arguments.Action)
 	}
@@ -521,7 +541,8 @@ func executeTabsList(browser browsers.Browser, userId string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("browser backend does not support user scoping")
 	}
-	targets := scopedBrowser.TargetsForUser(userId)
+	targets, activeConnectionIds := activeConnectionsForUser(scopedBrowser, userId)
+	globalInstanceStore.pruneForUser(userId, activeConnectionIds)
 	namedInstances := globalInstanceStore.listForUser(userId)
 
 	// Build a reverse map: connectionId → name.
@@ -582,21 +603,27 @@ func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string, 
 	// The backend registers the new target asynchronously (via the
 	// Target.targetCreated → attachTarget event flow). Poll briefly so
 	// we can return a usable connectionId and bind the optional name.
+	// We poll all targets (not just user-scoped) because the ownership
+	// assignment above may race with the async attach; we re-assign
+	// ownership after finding the target to close that race.
 	connectionId := ""
 	if user != nil && user.ID != "" {
-		if scopedBrowser, ok := browser.(browsers.UserScopedBrowser); ok {
-			for attempt := 0; attempt < 10; attempt++ {
-				for _, target := range scopedBrowser.TargetsForUser(user.ID) {
-					if target.TargetID == response.TargetID {
-						connectionId = target.SessionID
-						break
-					}
-				}
-				if connectionId != "" {
+		for attempt := 0; attempt < 10; attempt++ {
+			for _, target := range browser.Targets() {
+				if target.TargetID == response.TargetID {
+					connectionId = target.SessionID
 					break
 				}
-				time.Sleep(50 * time.Millisecond)
 			}
+			if connectionId != "" {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		// Re-assign ownership now that the target is registered in the
+		// backend's target map, ensuring sessionOwners is set correctly.
+		if assigner, ok := browser.(browsers.TargetOwnerAssigner); ok && connectionId != "" {
+			assigner.AssignTargetToUser(user.ID, response.TargetID)
 		}
 	}
 	if name != "" && connectionId != "" && user != nil {
@@ -610,7 +637,7 @@ func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string, 
 	if connectionId != "" {
 		outputMap["connectionId"] = connectionId
 	}
-	if name != "" {
+	if name != "" && connectionId != "" {
 		outputMap["name"] = name
 	}
 	output, _ := json.Marshal(outputMap)
@@ -628,6 +655,18 @@ func executeTabsName(ctx context.Context, name string, connectionId string) (str
 	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
+	browser := browsers.BrowserFromContext(ctx)
+	if browser == nil {
+		return "", fmt.Errorf("no browser available")
+	}
+	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
+	if !ok {
+		return "", fmt.Errorf("browser backend does not support user scoping")
+	}
+	if _, err := scopedBrowser.TargetByConnectionIDForUser(user.ID, connectionId); err != nil {
+		globalInstanceStore.removeByConnectionId(connectionId)
+		return "", fmt.Errorf("connectionId %q not found", connectionId)
+	}
 	globalInstanceStore.assign(user.ID, name, connectionId)
 	output, _ := json.Marshal(map[string]string{
 		"name":         name,
@@ -636,7 +675,7 @@ func executeTabsName(ctx context.Context, name string, connectionId string) (str
 	return string(output), nil
 }
 
-func executeTabsResolve(ctx context.Context, name string) (string, error) {
+func executeTabsResolve(ctx context.Context, browser browsers.Browser, name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("name is required for resolve action")
 	}
@@ -644,6 +683,12 @@ func executeTabsResolve(ctx context.Context, name string) (string, error) {
 	if user == nil || user.ID == "" {
 		return "", fmt.Errorf("missing user context")
 	}
+	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
+	if !ok {
+		return "", fmt.Errorf("browser backend does not support user scoping")
+	}
+	_, activeConnectionIds := activeConnectionsForUser(scopedBrowser, user.ID)
+	globalInstanceStore.pruneForUser(user.ID, activeConnectionIds)
 	connectionId, err := globalInstanceStore.resolve(user.ID, name)
 	if err != nil {
 		return "", err
@@ -672,9 +717,11 @@ func executeTabsClose(ctx context.Context, browser browsers.Browser, targetId st
 		targetId = target.TargetID
 	}
 	allowed := false
+	targetSessionId := ""
 	for _, target := range scopedBrowser.TargetsForUser(user.ID) {
 		if target.TargetID == targetId {
 			allowed = true
+			targetSessionId = target.SessionID
 			break
 		}
 	}
@@ -692,6 +739,11 @@ func executeTabsClose(ctx context.Context, browser browsers.Browser, targetId st
 	_, err = browser.SendCDPCommand(ctx, "Target.closeTarget", parameters, sessionId)
 	if err != nil {
 		return "", err
+	}
+	if targetSessionId != "" {
+		globalInstanceStore.removeByConnectionId(targetSessionId)
+		globalRefStore.clear(targetSessionId)
+		globalInterceptStore.clear(targetSessionId)
 	}
 	output, _ := json.Marshal(map[string]string{"targetId": targetId})
 	return string(output), nil

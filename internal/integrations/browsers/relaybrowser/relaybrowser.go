@@ -321,6 +321,7 @@ func (self *Relay) handleCDPEvent(connectionId string, raw json.RawMessage) {
 				delete(relayConnection.targets, payload.SessionID)
 			}
 			self.mutex.Unlock()
+			browsers.NotifySessionClosed(payload.SessionID)
 			log.Infof("target detached session=%s", payload.SessionID)
 		}
 
@@ -333,10 +334,14 @@ func (self *Relay) handleCDPEvent(connectionId string, raw json.RawMessage) {
 			} `json:"targetInfo"`
 		}
 		if json.Unmarshal(event.Params, &payload) == nil {
+			sessionId := ""
+			shouldNotifyNavigation := false
 			self.mutex.Lock()
 			if relayConnection, ok := self.connections[connectionId]; ok {
-				for _, target := range relayConnection.targets {
+				for currentSessionId, target := range relayConnection.targets {
 					if target.TargetID == payload.TargetInfo.TargetID {
+						shouldNotifyNavigation = target.URL != "" && target.URL != payload.TargetInfo.URL
+						sessionId = currentSessionId
 						target.URL = payload.TargetInfo.URL
 						target.Title = payload.TargetInfo.Title
 						break
@@ -344,6 +349,9 @@ func (self *Relay) handleCDPEvent(connectionId string, raw json.RawMessage) {
 				}
 			}
 			self.mutex.Unlock()
+			if shouldNotifyNavigation && sessionId != "" {
+				browsers.NotifySessionNavigated(sessionId, payload.TargetInfo.TargetID, payload.TargetInfo.URL)
+			}
 		}
 	}
 }
@@ -368,15 +376,23 @@ func (self *Relay) pingLoop(connectionId string, connection *websocket.Conn, don
 
 func (self *Relay) onDisconnect(connectionId string, connection *websocket.Conn) {
 	self.mutex.Lock()
-	defer self.mutex.Unlock()
-
 	relayConnection, ok := self.connections[connectionId]
 	if !ok || relayConnection.connection != connection {
+		self.mutex.Unlock()
 		return
 	}
 
+	sessionIds := make([]string, 0, len(relayConnection.targets))
+	for sessionId := range relayConnection.targets {
+		sessionIds = append(sessionIds, sessionId)
+	}
 	relayConnection.pending.RejectAll("extension disconnected")
 	delete(self.connections, connectionId)
+	self.mutex.Unlock()
+
+	for _, sessionId := range sessionIds {
+		browsers.NotifySessionClosed(sessionId)
+	}
 
 	log.Infof("extension disconnected id=%s", connectionId)
 }

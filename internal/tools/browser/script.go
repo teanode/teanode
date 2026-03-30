@@ -68,8 +68,15 @@ func executeScript(ctx context.Context, browser browsers.Browser, connectionId s
 
 	output, _ := json.Marshal(map[string]interface{}{
 		"stepsExecuted": len(results),
-		"totalSteps":    len(steps),
-		"results":       results,
+		"completedSteps": func() int {
+			completedSteps := len(results)
+			if len(results) > 0 && results[len(results)-1].Error != "" {
+				completedSteps--
+			}
+			return completedSteps
+		}(),
+		"totalSteps": len(steps),
+		"results":    results,
 	})
 	return string(output), nil
 }

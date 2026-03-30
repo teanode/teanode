@@ -43,6 +43,22 @@ func (self *instanceStore) resolve(userId string, name string) (string, error) {
 	return connectionId, nil
 }
 
+// removeByConnectionId deletes any named instance that points at connectionId.
+func (self *instanceStore) removeByConnectionId(connectionId string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	for userId, userNames := range self.names {
+		for name, currentConnectionId := range userNames {
+			if currentConnectionId == connectionId {
+				delete(userNames, name)
+			}
+		}
+		if len(userNames) == 0 {
+			delete(self.names, userId)
+		}
+	}
+}
+
 // remove deletes a named instance mapping.
 func (self *instanceStore) remove(userId string, name string) {
 	self.mutex.Lock()
@@ -61,4 +77,23 @@ func (self *instanceStore) listForUser(userId string) map[string]string {
 		result[name] = connectionId
 	}
 	return result
+}
+
+// pruneForUser removes named instances that do not map to an active connection.
+func (self *instanceStore) pruneForUser(userId string, activeConnectionIds map[string]struct{}) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+
+	userNames := self.names[userId]
+	if userNames == nil {
+		return
+	}
+	for name, connectionId := range userNames {
+		if _, ok := activeConnectionIds[connectionId]; !ok {
+			delete(userNames, name)
+		}
+	}
+	if len(userNames) == 0 {
+		delete(self.names, userId)
+	}
 }

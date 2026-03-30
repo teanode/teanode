@@ -30,6 +30,7 @@ func resolveRefToObjectID(ctx context.Context, browser browsers.Browser, session
 		return "", fmt.Errorf("parsing ref %d resolution: %w", ref, err)
 	}
 	if response.Result.ObjectID == "" || response.Result.Type == "undefined" {
+		globalRefStore.clear(sessionId)
 		return "", fmt.Errorf("ref %d could not be resolved — the page may have navigated since the last snapshot", ref)
 	}
 	return response.Result.ObjectID, nil

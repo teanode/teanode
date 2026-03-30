@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 )
 
 type browserContextKey struct{}
@@ -51,6 +52,51 @@ type UserScopedBrowser interface {
 // TargetOwnerAssigner can label newly-created targets as belonging to a user.
 type TargetOwnerAssigner interface {
 	AssignTargetToUser(userId, targetId string)
+}
+
+// SessionLifecycleHandlers allows consumers to clean up state when a browser
+// session navigates or disappears.
+type SessionLifecycleHandlers struct {
+	SessionClosed    func(sessionId string)
+	SessionNavigated func(sessionId string, targetId string, url string)
+}
+
+var sessionLifecycle struct {
+	handlers []SessionLifecycleHandlers
+	mutex    sync.Mutex
+}
+
+// RegisterSessionLifecycleHandlers adds a lifecycle observer for browser sessions.
+func RegisterSessionLifecycleHandlers(handlers SessionLifecycleHandlers) {
+	sessionLifecycle.mutex.Lock()
+	defer sessionLifecycle.mutex.Unlock()
+	sessionLifecycle.handlers = append(sessionLifecycle.handlers, handlers)
+}
+
+// NotifySessionClosed broadcasts that a browser session is no longer valid.
+func NotifySessionClosed(sessionId string) {
+	sessionLifecycle.mutex.Lock()
+	handlers := append([]SessionLifecycleHandlers(nil), sessionLifecycle.handlers...)
+	sessionLifecycle.mutex.Unlock()
+
+	for _, handler := range handlers {
+		if handler.SessionClosed != nil {
+			handler.SessionClosed(sessionId)
+		}
+	}
+}
+
+// NotifySessionNavigated broadcasts that a browser session changed pages.
+func NotifySessionNavigated(sessionId string, targetId string, url string) {
+	sessionLifecycle.mutex.Lock()
+	handlers := append([]SessionLifecycleHandlers(nil), sessionLifecycle.handlers...)
+	sessionLifecycle.mutex.Unlock()
+
+	for _, handler := range handlers {
+		if handler.SessionNavigated != nil {
+			handler.SessionNavigated(sessionId, targetId, url)
+		}
+	}
 }
 
 // CompositeBrowser merges multiple Browser backends (e.g. headless + relay)
@@ -150,4 +196,14 @@ func (self *CompositeBrowser) TargetByConnectionIDForUser(userId, connectionId s
 		}
 	}
 	return nil, fmt.Errorf("browser connection %q not found", connectionId)
+}
+
+func (self *CompositeBrowser) AssignTargetToUser(userId, targetId string) {
+	for _, backend := range self.backends {
+		assigner, ok := backend.(TargetOwnerAssigner)
+		if !ok {
+			continue
+		}
+		assigner.AssignTargetToUser(userId, targetId)
+	}
 }

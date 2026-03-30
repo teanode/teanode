@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -394,7 +395,16 @@ func (self *Headless) defaultTargetForUserByTargetId(userId, targetId string) (*
 }
 
 // SendCDPCommand sends a CDP command to a specific target session.
+// Target domain commands (Target.*) are browser-level in CDP and are
+// sent without a sessionId; all other commands are scoped to the session.
 func (self *Headless) SendCDPCommand(ctx context.Context, method string, parameters interface{}, sessionId string) (json.RawMessage, error) {
+	// The Target domain is browser-level in CDP. Sending these commands
+	// with a sessionId can cause them to be silently dropped or misrouted
+	// in flatten mode.
+	if strings.HasPrefix(method, "Target.") {
+		return self.sendBrowserCommand(ctx, method, parameters)
+	}
+
 	self.mutex.Lock()
 	if self.connection == nil {
 		self.mutex.Unlock()
@@ -614,6 +624,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 			delete(self.sessionOwners, payload.SessionID)
 			delete(self.targets, payload.SessionID)
 			self.mutex.Unlock()
+			browsers.NotifySessionClosed(payload.SessionID)
 			log.Infof("target detached session=%s", payload.SessionID)
 		}
 
@@ -626,15 +637,22 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 			} `json:"targetInfo"`
 		}
 		if json.Unmarshal(params, &payload) == nil {
+			sessionId := ""
+			shouldNotifyNavigation := false
 			self.mutex.Lock()
-			for _, target := range self.targets {
+			for currentSessionId, target := range self.targets {
 				if target.TargetID == payload.TargetInfo.TargetID {
+					shouldNotifyNavigation = target.URL != "" && target.URL != payload.TargetInfo.URL
+					sessionId = currentSessionId
 					target.URL = payload.TargetInfo.URL
 					target.Title = payload.TargetInfo.Title
 					break
 				}
 			}
 			self.mutex.Unlock()
+			if shouldNotifyNavigation && sessionId != "" {
+				browsers.NotifySessionNavigated(sessionId, payload.TargetInfo.TargetID, payload.TargetInfo.URL)
+			}
 		}
 
 	case "Target.targetCreated":
@@ -663,16 +681,24 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 
 func (self *Headless) onDisconnect(connection *websocket.Conn) {
 	self.mutex.Lock()
-	defer self.mutex.Unlock()
-
 	if self.connection != connection {
+		self.mutex.Unlock()
 		return
 	}
 	self.connection = nil
+	sessionIds := make([]string, 0, len(self.targets))
+	for sessionId := range self.targets {
+		sessionIds = append(sessionIds, sessionId)
+	}
 	self.targets = make(map[string]*browsers.ConnectedTarget)
 	self.sessionOwners = make(map[string]string)
 	self.targetOwners = make(map[string]string)
 	self.pending.RejectAll("headless connection lost")
+	self.mutex.Unlock()
+
+	for _, sessionId := range sessionIds {
+		browsers.NotifySessionClosed(sessionId)
+	}
 
 	log.Info("disconnected")
 }

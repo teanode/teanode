@@ -278,6 +278,29 @@ func TestInstanceStore(t *testing.T) {
 	}
 }
 
+func TestInstanceStoreRemoveByConnectionId(t *testing.T) {
+	store := &instanceStore{names: make(map[string]map[string]string)}
+	store.assign("user-1", "dashboard", "conn-1")
+	store.assign("user-1", "settings", "conn-2")
+	store.assign("user-2", "other", "conn-1")
+
+	store.removeByConnectionId("conn-1")
+
+	if _, err := store.resolve("user-1", "dashboard"); err == nil {
+		t.Error("expected dashboard to be removed")
+	}
+	if _, err := store.resolve("user-2", "other"); err == nil {
+		t.Error("expected other to be removed")
+	}
+	connectionId, err := store.resolve("user-1", "settings")
+	if err != nil {
+		t.Fatalf("expected settings to remain: %v", err)
+	}
+	if connectionId != "conn-2" {
+		t.Errorf("expected conn-2, got %q", connectionId)
+	}
+}
+
 func TestInteractiveRoles(t *testing.T) {
 	interactive := []string{"button", "link", "textbox", "checkbox", "radio", "combobox", "slider", "tab", "menuitem"}
 	for _, role := range interactive {
@@ -542,6 +565,69 @@ func TestBrowserTabsList(t *testing.T) {
 	}
 }
 
+func TestBrowserTabsListPrunesStaleNames(t *testing.T) {
+	mock := newMockBrowser()
+	ctx := contextWithUserAndBrowser(mock)
+
+	globalInstanceStore.assign("user-1", "stale-tab", "session-missing")
+	defer globalInstanceStore.remove("user-1", "stale-tab")
+
+	tool := &browserTabsTool{}
+	result, err := tool.Execute(ctx, `{"action":"list"}`)
+	if err != nil {
+		t.Fatalf("list error: %v", err)
+	}
+
+	var listResult struct {
+		Tabs []struct {
+			Name string `json:"name"`
+		} `json:"tabs"`
+	}
+	if err := json.Unmarshal([]byte(result), &listResult); err != nil {
+		t.Fatalf("unmarshal list result: %v", err)
+	}
+	if len(listResult.Tabs) != 1 {
+		t.Fatalf("expected 1 tab, got %d", len(listResult.Tabs))
+	}
+	if listResult.Tabs[0].Name != "" {
+		t.Errorf("expected stale name to be pruned, got %q", listResult.Tabs[0].Name)
+	}
+	if _, err := globalInstanceStore.resolve("user-1", "stale-tab"); err == nil {
+		t.Error("expected stale name mapping to be removed")
+	}
+}
+
+func TestBrowserTabsResolvePrunesStaleNames(t *testing.T) {
+	mock := newMockBrowser()
+	ctx := contextWithUserAndBrowser(mock)
+
+	globalInstanceStore.assign("user-1", "stale-tab", "session-missing")
+	defer globalInstanceStore.remove("user-1", "stale-tab")
+
+	tool := &browserTabsTool{}
+	_, err := tool.Execute(ctx, `{"action":"resolve","name":"stale-tab"}`)
+	if err == nil {
+		t.Fatal("expected resolve to fail for stale name")
+	}
+	if _, err := globalInstanceStore.resolve("user-1", "stale-tab"); err == nil {
+		t.Error("expected stale name mapping to be removed after resolve")
+	}
+}
+
+func TestBrowserTabsNameRejectsMissingConnectionId(t *testing.T) {
+	mock := newMockBrowser()
+	ctx := contextWithUserAndBrowser(mock)
+	tool := &browserTabsTool{}
+
+	_, err := tool.Execute(ctx, `{"action":"name","name":"dashboard","connectionId":"session-missing"}`)
+	if err == nil {
+		t.Fatal("expected missing connectionId to be rejected")
+	}
+	if _, err := globalInstanceStore.resolve("user-1", "dashboard"); err == nil {
+		t.Error("expected missing connectionId not to be stored")
+	}
+}
+
 func TestExecuteScriptEmptySteps(t *testing.T) {
 	mock := newMockBrowser()
 	ctx := contextWithUserAndBrowser(mock)
@@ -764,6 +850,10 @@ func TestResolveRefToObjectID(t *testing.T) {
 
 func TestResolveRefToObjectIDUndefined(t *testing.T) {
 	mock := newMockBrowser()
+	globalRefStore.store("session-1", map[int]refEntry{
+		99: {Role: "button", Name: "Missing"},
+	})
+	defer globalRefStore.clear("session-1")
 
 	// Response when the ref doesn't exist (page navigated, etc).
 	undefinedResponse := map[string]interface{}{
@@ -778,6 +868,9 @@ func TestResolveRefToObjectIDUndefined(t *testing.T) {
 	_, err := resolveRefToObjectID(ctx, mock, "session-1", 99)
 	if err == nil {
 		t.Error("expected error when ref resolves to undefined")
+	}
+	if _, err := globalRefStore.lookup("session-1", 99); err == nil {
+		t.Error("expected stale session refs to be cleared")
 	}
 }
 
@@ -847,6 +940,28 @@ func TestCompositeBrowserAssignTargetToUser(t *testing.T) {
 	assigner.AssignTargetToUser("user-1", "target-1")
 	if mock.targetOwners["target-1"] != "user-1" {
 		t.Error("expected target owner to be set on backend")
+	}
+}
+
+func TestSessionLifecycleCleanup(t *testing.T) {
+	globalInstanceStore.assign("user-1", "dashboard", "session-1")
+	globalRefStore.store("session-1", map[int]refEntry{
+		1: {Role: "button", Name: "Submit"},
+	})
+	defer globalInstanceStore.remove("user-1", "dashboard")
+	defer globalRefStore.clear("session-1")
+
+	browsers.NotifySessionNavigated("session-1", "target-1", "https://example.com/next")
+	if _, err := globalRefStore.lookup("session-1", 1); err == nil {
+		t.Fatal("expected navigation to clear refs")
+	}
+	if _, err := globalInstanceStore.resolve("user-1", "dashboard"); err != nil {
+		t.Fatalf("expected navigation to preserve tab names: %v", err)
+	}
+
+	browsers.NotifySessionClosed("session-1")
+	if _, err := globalInstanceStore.resolve("user-1", "dashboard"); err == nil {
+		t.Error("expected session close to remove named tab")
 	}
 }
 
