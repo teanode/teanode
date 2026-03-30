@@ -4,6 +4,20 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [Unreleased]
+
+### Added
+
+- Self-update system: check, download, verify (SHA256), and apply updates from GitHub Releases.
+- CLI `teanode update` command with `check` and `apply` subcommands.
+- WebSocket RPC endpoints: `update.status`, `update.check`, `update.apply` (admin-only).
+- Periodic background update checking with configurable interval (default: 6 hours).
+- Config section `autoUpdate` with `policy` (disabled/notify/auto, default: notify) and `checkIntervalHours`.
+- Update availability surfaced in `connect` handshake response for admin users.
+- Container environment detection to disable self-update in Docker/Kubernetes/LXC.
+- Platform-specific binary replacement: atomic rename on Unix, rename+copy on Windows.
+- Backup of current binary before apply with automatic restore on failure.
+
 ## [0.1.4] - 2026-03-30
 
 ### Added

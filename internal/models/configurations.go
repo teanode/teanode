@@ -41,6 +41,7 @@ type Configuration struct {
 	Integrations *IntegrationsConfiguration  `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Channels     *ChannelsConfiguration      `json:"channels,omitempty" yaml:"channels,omitempty"`
 	Cloud        *CloudConfiguration         `json:"cloud,omitempty" yaml:"cloud,omitempty"`
+	AutoUpdate   *UpdateConfiguration        `json:"autoUpdate,omitempty" yaml:"autoUpdate,omitempty"`
 	Secrets      *[]*SecretConfiguration     `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	ToolPolicies *[]*ToolPolicyConfiguration `json:"toolPolicies,omitempty" yaml:"toolPolicies,omitempty"`
 }
@@ -189,4 +190,18 @@ type CloudConfiguration struct {
 	NodeID     *string `json:"nodeId,omitempty" yaml:"nodeId,omitempty"`
 	NodeSecret *string `json:"nodeSecret,omitempty" yaml:"nodeSecret,omitempty"`
 	UserID     *string `json:"userId,omitempty" yaml:"userId,omitempty"`
+}
+
+// UpdatePolicy controls the self-update behavior.
+type UpdatePolicy string
+
+const (
+	UpdatePolicyDisabled UpdatePolicy = "disabled"
+	UpdatePolicyNotify   UpdatePolicy = "notify"
+	UpdatePolicyAuto     UpdatePolicy = "auto"
+)
+
+type UpdateConfiguration struct {
+	Policy             *UpdatePolicy `json:"policy,omitempty" yaml:"policy,omitempty"`
+	CheckIntervalHours *int          `json:"checkIntervalHours,omitempty" yaml:"checkIntervalHours,omitempty"`
 }

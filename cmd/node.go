@@ -36,6 +36,7 @@ import (
 	"github.com/teanode/teanode/internal/store/dbstore"
 	"github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/summarizers"
+	"github.com/teanode/teanode/internal/updater"
 	"github.com/teanode/teanode/internal/util/debugutil"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -288,6 +289,25 @@ func NewNodeCommand() *cli.Command {
 			lifecycleManager := lifecycle.New()
 			ctx = lifecycle.ContextWithLifecycle(ctx, lifecycleManager)
 
+			// --- Self-updater ---
+			updatePolicy := updater.PolicyNotify
+			updateCheckInterval := updater.DefaultCheckInterval
+			if configuration.AutoUpdate != nil {
+				if policy := configuration.AutoUpdate.GetPolicy(); policy != "" {
+					configuredPolicy := updater.Policy(policy)
+					if updater.IsValidPolicy(configuredPolicy) {
+						updatePolicy = configuredPolicy
+					} else {
+						log.Warningf("updater: ignoring invalid autoUpdate.policy value %q", policy)
+					}
+				}
+				if hours := configuration.AutoUpdate.GetCheckIntervalHours(); hours > 0 {
+					updateCheckInterval = time.Duration(hours) * time.Hour
+				}
+			}
+			updateManager := updater.New(updatePolicy, updateCheckInterval)
+			ctx = updater.ContextWithUpdater(ctx, updateManager)
+
 			coordinator := coordinators.New(ctx, configuration, providerRegistry, summarizer, events)
 			ctx = coordinators.ContextWithCoordinator(ctx, coordinator)
 
@@ -473,7 +493,7 @@ func NewNodeCommand() *cli.Command {
 				},
 			}
 
-			// Start scheduler and summarizer.
+			// Start scheduler, summarizer, and updater.
 			if scheduler != nil {
 				if err := scheduler.Start(); err != nil {
 					return err
@@ -482,6 +502,8 @@ func NewNodeCommand() *cli.Command {
 			if summarizer != nil {
 				summarizer.Start()
 			}
+			updateManager.Start(ctx)
+			defer updateManager.Stop()
 			// --- Run ---
 
 			var quit bool
