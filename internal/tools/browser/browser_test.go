@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/models"
@@ -17,6 +18,8 @@ type mockBrowser struct {
 	targets       []browsers.ConnectedTarget
 	commands      []mockCommand
 	responses     map[string]json.RawMessage
+	responseQueue map[string][]json.RawMessage
+	commandHook   func(method string, parameters interface{}, sessionId string) (json.RawMessage, bool)
 	mutex         sync.Mutex
 	targetOwners  map[string]string
 	sessionOwners map[string]string
@@ -40,6 +43,7 @@ func newMockBrowser() *mockBrowser {
 			},
 		},
 		responses:     make(map[string]json.RawMessage),
+		responseQueue: make(map[string][]json.RawMessage),
 		targetOwners:  map[string]string{"target-1": "user-1"},
 		sessionOwners: map[string]string{"session-1": "user-1"},
 	}
@@ -68,7 +72,19 @@ func (self *mockBrowser) TargetByConnectionID(connectionId string) (*browsers.Co
 func (self *mockBrowser) SendCDPCommand(_ context.Context, method string, parameters interface{}, sessionId string) (json.RawMessage, error) {
 	self.mutex.Lock()
 	self.commands = append(self.commands, mockCommand{Method: method, SessionID: sessionId, Parameters: parameters})
+	commandHook := self.commandHook
+	if len(self.responseQueue[method]) > 0 {
+		response := self.responseQueue[method][0]
+		self.responseQueue[method] = self.responseQueue[method][1:]
+		self.mutex.Unlock()
+		return response, nil
+	}
 	self.mutex.Unlock()
+	if commandHook != nil {
+		if response, ok := commandHook(method, parameters, sessionId); ok {
+			return response, nil
+		}
+	}
 	if response, ok := self.responses[method]; ok {
 		return response, nil
 	}
@@ -962,6 +978,149 @@ func TestSessionLifecycleCleanup(t *testing.T) {
 	browsers.NotifySessionClosed("session-1")
 	if _, err := globalInstanceStore.resolve("user-1", "dashboard"); err == nil {
 		t.Error("expected session close to remove named tab")
+	}
+}
+
+func TestWaitForNavigationRequiresObservedChange(t *testing.T) {
+	mock := newMockBrowser()
+	defer globalNavigationStore.clear("session-1")
+	mock.commandHook = func(method string, _ interface{}, _ string) (json.RawMessage, bool) {
+		if method != "Runtime.evaluate" {
+			return nil, false
+		}
+		response, _ := json.Marshal(map[string]interface{}{
+			"result": map[string]interface{}{
+				"value": map[string]interface{}{
+					"url":             "https://example.com",
+					"readyState":      "complete",
+					"timeOrigin":      1000,
+					"navigationCount": 1,
+				},
+			},
+		})
+		return response, true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	_, err := waitForNavigation(ctx, mock, "session-1")
+	if err == nil {
+		t.Fatal("expected navigation wait to time out without an observed change")
+	}
+	if !containsString(err.Error(), "timed out") {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+}
+
+func TestWaitForNavigationResolvesAfterNavigationSignal(t *testing.T) {
+	mock := newMockBrowser()
+	defer globalNavigationStore.clear("session-1")
+	state := struct {
+		sync.Mutex
+		url        string
+		readyState string
+		timeOrigin float64
+		count      int
+	}{
+		url:        "https://example.com",
+		readyState: "complete",
+		timeOrigin: 1000,
+		count:      1,
+	}
+	mock.commandHook = func(method string, _ interface{}, _ string) (json.RawMessage, bool) {
+		if method != "Runtime.evaluate" {
+			return nil, false
+		}
+		state.Lock()
+		defer state.Unlock()
+		response, _ := json.Marshal(map[string]interface{}{
+			"result": map[string]interface{}{
+				"value": map[string]interface{}{
+					"url":             state.url,
+					"readyState":      state.readyState,
+					"timeOrigin":      state.timeOrigin,
+					"navigationCount": state.count,
+				},
+			},
+		})
+		return response, true
+	}
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		state.Lock()
+		state.url = "https://example.com/next"
+		state.readyState = "complete"
+		state.timeOrigin = 2000
+		state.count = 2
+		state.Unlock()
+		browsers.NotifySessionNavigated("session-1", "target-1", "https://example.com/next")
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	result, err := waitForNavigation(ctx, mock, "session-1")
+	if err != nil {
+		t.Fatalf("expected navigation wait to succeed, got %v", err)
+	}
+	if !containsString(result, `"navigationDetected":true`) {
+		t.Fatalf("expected navigationDetected result, got %s", result)
+	}
+	if !containsString(result, `"url":"https://example.com/next"`) {
+		t.Fatalf("expected updated URL in result, got %s", result)
+	}
+}
+
+func TestGetInterceptedIsNonDestructive(t *testing.T) {
+	mock := newMockBrowser()
+	captures := []map[string]interface{}{
+		{"url": "https://example.com/a", "method": "fetch"},
+		{"url": "https://example.com/b", "method": "xmlhttprequest"},
+	}
+	mock.commandHook = func(method string, parameters interface{}, _ string) (json.RawMessage, bool) {
+		if method != "Runtime.evaluate" {
+			return nil, false
+		}
+		parameterMap, ok := parameters.(map[string]interface{})
+		if !ok {
+			return nil, false
+		}
+		expression, _ := parameterMap["expression"].(string)
+		if !containsString(expression, "window.__teanodeNetCaptures") {
+			return nil, false
+		}
+
+		payload, _ := json.Marshal(captures)
+		response, _ := json.Marshal(map[string]interface{}{
+			"result": map[string]interface{}{
+				"value": string(payload),
+			},
+		})
+
+		if containsString(expression, "window.__teanodeNetCaptures = []") {
+			captures = nil
+		}
+		return response, true
+	}
+
+	ctx := contextWithUserAndBrowser(mock)
+
+	peekResult, err := executeGetIntercepted(ctx, mock, "")
+	if err != nil {
+		t.Fatalf("get_intercepted error: %v", err)
+	}
+	if !containsString(peekResult, `"count":2`) {
+		t.Fatalf("expected get_intercepted to return both captures, got %s", peekResult)
+	}
+
+	stopResult, err := executeInterceptStop(ctx, mock, "")
+	if err != nil {
+		t.Fatalf("intercept_stop error: %v", err)
+	}
+	if !containsString(stopResult, `"count":2`) {
+		t.Fatalf("expected intercept_stop to still return both captures, got %s", stopResult)
 	}
 }
 

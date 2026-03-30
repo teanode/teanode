@@ -22,9 +22,11 @@ func init() {
 			globalInstanceStore.removeByConnectionId(sessionId)
 			globalRefStore.clear(sessionId)
 			globalInterceptStore.clear(sessionId)
+			globalNavigationStore.clear(sessionId)
 		},
-		SessionNavigated: func(sessionId string, _ string, _ string) {
+		SessionNavigated: func(sessionId string, _ string, url string) {
 			globalRefStore.clear(sessionId)
+			globalNavigationStore.markNavigated(sessionId, url)
 		},
 	})
 }
@@ -80,8 +82,8 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 				"press_key (press keyboard key), evaluate (run JavaScript), " +
 				"wait (wait for condition: selector, navigation, network_idle, timeout), " +
 				"execute_script (run multiple browser actions in sequence), " +
-				"intercept_start (start capturing network requests), intercept_stop (stop and return captured requests), " +
-				"get_intercepted (return captured requests without stopping).",
+				"intercept_start (start capturing network requests), intercept_stop (stop and return and clear captured requests), " +
+				"get_intercepted (return captured requests without clearing them).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -140,7 +142,7 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 					"waitMode": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"selector", "navigation", "network_idle", "timeout"},
-						"description": "What to wait for (for wait action). 'selector' waits for a CSS selector, 'navigation' for page load, 'network_idle' for no pending requests, 'timeout' for a fixed duration.",
+						"description": "What to wait for (for wait action). 'selector' waits for a CSS selector, 'navigation' waits for a new navigation/URL change or an in-flight navigation to complete, 'network_idle' waits for tracked page fetch/XMLHttpRequest activity to stay idle for 500ms, 'timeout' waits for a fixed duration.",
 					},
 					"timeoutMs": map[string]interface{}{
 						"type":        "integer",
@@ -172,7 +174,7 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 				"type": "object",
 				"description": "Action-dependent result. snapshot: {tree, refCount, pageUrl, title} with [ref=N] markers. " +
 					"click_ref/type_ref/hover_ref: {ref, role, name, ...}. wait: {mode, elapsed}. " +
-					"execute_script: {stepsExecuted, completedSteps, totalSteps, results}. intercept_*: {requests, count}.",
+					"execute_script: {stepsExecuted, completedSteps, totalSteps, results}. intercept_stop: {status, requests, count}. get_intercepted: {requests, count}.",
 			},
 		},
 	}

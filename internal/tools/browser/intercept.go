@@ -102,7 +102,8 @@ func executeInterceptStart(ctx context.Context, browser browsers.Browser, connec
 	return string(output), nil
 }
 
-// executeInterceptStop disables network interception and returns all captured requests.
+// executeInterceptStop disables network interception and destructively returns
+// all captured requests accumulated so far.
 func executeInterceptStop(ctx context.Context, browser browsers.Browser, connectionId string) (string, error) {
 	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
@@ -110,7 +111,7 @@ func executeInterceptStop(ctx context.Context, browser browsers.Browser, connect
 	}
 
 	// Harvest captured entries from the injected observer.
-	entries, err := harvestInterceptedEntries(ctx, browser, sessionId)
+	entries, err := harvestInterceptedEntries(ctx, browser, sessionId, true)
 	if err != nil {
 		return "", err
 	}
@@ -141,14 +142,14 @@ func executeInterceptStop(ctx context.Context, browser browsers.Browser, connect
 }
 
 // executeGetIntercepted returns currently captured network requests without
-// stopping the interception.
+// clearing them or stopping the interception.
 func executeGetIntercepted(ctx context.Context, browser browsers.Browser, connectionId string) (string, error) {
 	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
 		return "", err
 	}
 
-	entries, err := harvestInterceptedEntries(ctx, browser, sessionId)
+	entries, err := harvestInterceptedEntries(ctx, browser, sessionId, false)
 	if err != nil {
 		return "", err
 	}
@@ -162,13 +163,18 @@ func executeGetIntercepted(ctx context.Context, browser browsers.Browser, connec
 
 // harvestInterceptedEntries retrieves captured entries from the page's
 // injected PerformanceObserver.
-func harvestInterceptedEntries(ctx context.Context, browser browsers.Browser, sessionId string) ([]interceptedRequest, error) {
+func harvestInterceptedEntries(ctx context.Context, browser browsers.Browser, sessionId string, clear bool) ([]interceptedRequest, error) {
+	resetExpression := ""
+	if clear {
+		resetExpression = "window.__teanodeNetCaptures = [];"
+	}
+
 	result, err := browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
-		"expression": `(() => {
+		"expression": fmt.Sprintf(`(() => {
 			const captures = window.__teanodeNetCaptures || [];
-			window.__teanodeNetCaptures = [];
+			%s
 			return JSON.stringify(captures);
-		})()`,
+		})()`, resetExpression),
 		"returnByValue": true,
 	}, sessionId)
 	if err != nil {

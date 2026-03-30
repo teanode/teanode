@@ -980,6 +980,32 @@ function handleSelectOption(params: Record<string, unknown>): unknown {
 
 const WAIT_POLL_INTERVAL = 200; // ms
 const WAIT_DEFAULT_TIMEOUT = 30000; // ms
+const NETWORK_IDLE_THRESHOLD_MS = 500;
+
+type NavigationTracker = {
+  sequence: number;
+  lastChangeAt: number;
+};
+
+type NavigationWaitState = {
+  sequence: number;
+  url: string;
+  readyState: DocumentReadyState;
+};
+
+type NetworkIdleTracker = {
+  activeRequests: number;
+  lastActivityAt: number;
+  idleThresholdMs: number;
+};
+
+type NetworkIdleWaitState = {
+  activeRequests: number;
+  lastActivityAt: number;
+  currentTime: number;
+  readyState: DocumentReadyState;
+  idleThresholdMs: number;
+};
 
 async function handleWait(params: Record<string, unknown>): Promise<unknown> {
   const mode = params.waitMode as string;
@@ -1038,13 +1064,25 @@ function waitForSelector(
 
 function waitForNavigation(timeoutMs: number): Promise<unknown> {
   const startTime = performance.now();
+  const initialState = readNavigationWaitState();
+  let sawNavigation = initialState.readyState !== "complete";
 
   return new Promise((resolve, reject) => {
     function poll(): void {
-      if (document.readyState === "complete") {
+      const currentState = readNavigationWaitState();
+      if (!sawNavigation) {
+        sawNavigation =
+          currentState.sequence !== initialState.sequence ||
+          currentState.url !== initialState.url ||
+          currentState.readyState !== initialState.readyState;
+      }
+
+      if (sawNavigation && currentState.readyState === "complete") {
         resolve({
           mode: "navigation",
-          readyState: "complete",
+          readyState: currentState.readyState,
+          url: currentState.url,
+          navigationDetected: true,
           elapsed: Math.round(performance.now() - startTime),
         });
         return;
@@ -1061,21 +1099,24 @@ function waitForNavigation(timeoutMs: number): Promise<unknown> {
 
 function waitForNetworkIdle(timeoutMs: number): Promise<unknown> {
   const startTime = performance.now();
-  const idleThreshold = 500; // ms with no new resources
-  let lastCount = performance.getEntriesByType("resource").length;
-  let lastChangeTime = performance.now();
+  ensureNetworkIdleTracker();
 
   return new Promise((resolve, reject) => {
     function poll(): void {
-      const currentCount = performance.getEntriesByType("resource").length;
-      if (currentCount !== lastCount) {
-        lastCount = currentCount;
-        lastChangeTime = performance.now();
-      }
-      if (performance.now() - lastChangeTime >= idleThreshold) {
+      const state = readNetworkIdleWaitState();
+      const idleForMs = state.currentTime - state.lastActivityAt;
+
+      if (
+        state.activeRequests === 0 &&
+        idleForMs >= state.idleThresholdMs
+      ) {
         resolve({
           mode: "network_idle",
-          resourceCount: currentCount,
+          activeRequests: state.activeRequests,
+          idleForMs: Math.round(idleForMs),
+          idleThresholdMs: state.idleThresholdMs,
+          tracker: "fetch_xhr",
+          readyState: state.readyState,
           elapsed: Math.round(performance.now() - startTime),
         });
         return;
@@ -1088,6 +1129,149 @@ function waitForNetworkIdle(timeoutMs: number): Promise<unknown> {
     }
     poll();
   });
+}
+
+function readNavigationWaitState(): NavigationWaitState {
+  const tracker = ensureNavigationTracker();
+  return {
+    sequence: tracker.sequence,
+    url: location.href,
+    readyState: document.readyState,
+  };
+}
+
+function ensureNavigationTracker(): NavigationTracker {
+  const trackerKey = "__teanodeNavigationWaitTracker";
+  const trackerWindow = window as Window & {
+    [trackerKey]?: NavigationTracker;
+    __teanodeNavigationHistoryWrapped?: boolean;
+  };
+  if (trackerWindow[trackerKey]) {
+    return trackerWindow[trackerKey]!;
+  }
+
+  const tracker: NavigationTracker = {
+    sequence: 0,
+    lastChangeAt: performance.now(),
+  };
+  const markNavigation = (): void => {
+    tracker.sequence += 1;
+    tracker.lastChangeAt = performance.now();
+  };
+
+  if (!trackerWindow.__teanodeNavigationHistoryWrapped) {
+    const originalPushState = history.pushState.bind(history);
+    const originalReplaceState = history.replaceState.bind(history);
+    history.pushState = (...args) => {
+      const result = originalPushState(...args);
+      markNavigation();
+      return result;
+    };
+    history.replaceState = (...args) => {
+      const result = originalReplaceState(...args);
+      markNavigation();
+      return result;
+    };
+    trackerWindow.__teanodeNavigationHistoryWrapped = true;
+  }
+
+  window.addEventListener("popstate", markNavigation);
+  window.addEventListener("hashchange", markNavigation);
+  window.addEventListener("beforeunload", markNavigation);
+  window.addEventListener("pageshow", markNavigation);
+  window.addEventListener("load", markNavigation);
+
+  trackerWindow[trackerKey] = tracker;
+  return tracker;
+}
+
+function ensureNetworkIdleTracker(): NetworkIdleTracker {
+  const trackerKey = "__teanodeNetworkIdleTracker";
+  const trackerWindow = window as Window & {
+    [trackerKey]?: NetworkIdleTracker;
+    __teanodeNetworkIdleFetchWrapped?: boolean;
+  };
+  if (trackerWindow[trackerKey]) {
+    return trackerWindow[trackerKey]!;
+  }
+
+  const tracker: NetworkIdleTracker = {
+    activeRequests: 0,
+    lastActivityAt: performance.now(),
+    idleThresholdMs: NETWORK_IDLE_THRESHOLD_MS,
+  };
+  const markActivity = (): void => {
+    tracker.lastActivityAt = performance.now();
+  };
+  const beginRequest = (): void => {
+    tracker.activeRequests += 1;
+    markActivity();
+  };
+  const endRequest = (): void => {
+    tracker.activeRequests = Math.max(0, tracker.activeRequests - 1);
+    markActivity();
+  };
+
+  if (typeof window.fetch === "function" && !trackerWindow.__teanodeNetworkIdleFetchWrapped) {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (...args) => {
+      beginRequest();
+      return originalFetch(...args).finally(() => {
+        endRequest();
+      });
+    };
+    trackerWindow.__teanodeNetworkIdleFetchWrapped = true;
+  }
+
+  const xhrPrototype = window.XMLHttpRequest?.prototype as
+    | (XMLHttpRequest["prototype"] & {
+        __teanodeNetworkIdleWrapped?: boolean;
+      })
+    | undefined;
+  if (xhrPrototype && !xhrPrototype.__teanodeNetworkIdleWrapped) {
+    const originalOpen = xhrPrototype.open;
+    const originalSend = xhrPrototype.send;
+    xhrPrototype.open = function (...args) {
+      (this as XMLHttpRequest & { __teanodeNetworkIdleTracked?: boolean }).__teanodeNetworkIdleTracked =
+        false;
+      return originalOpen.apply(this, args);
+    };
+    xhrPrototype.send = function (...args) {
+      const request = this as XMLHttpRequest & {
+        __teanodeNetworkIdleTracked?: boolean;
+      };
+      if (!request.__teanodeNetworkIdleTracked) {
+        request.__teanodeNetworkIdleTracked = true;
+        beginRequest();
+        request.addEventListener(
+          "loadend",
+          () => {
+            if (request.__teanodeNetworkIdleTracked) {
+              request.__teanodeNetworkIdleTracked = false;
+              endRequest();
+            }
+          },
+          { once: true },
+        );
+      }
+      return originalSend.apply(this, args);
+    };
+    xhrPrototype.__teanodeNetworkIdleWrapped = true;
+  }
+
+  trackerWindow[trackerKey] = tracker;
+  return tracker;
+}
+
+function readNetworkIdleWaitState(): NetworkIdleWaitState {
+  const tracker = ensureNetworkIdleTracker();
+  return {
+    activeRequests: tracker.activeRequests,
+    lastActivityAt: tracker.lastActivityAt,
+    currentTime: performance.now(),
+    readyState: document.readyState,
+    idleThresholdMs: tracker.idleThresholdMs,
+  };
 }
 
 function waitForTimeout(timeoutMs: number): Promise<unknown> {

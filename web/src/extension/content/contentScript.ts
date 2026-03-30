@@ -17,21 +17,25 @@ import type {
   BridgeStepsResponse,
 } from "../shared/types";
 
-// Nonce is set by the background SW when injecting. It is stored per-tab
-// in the background and passed to us via chrome.tabs.sendMessage.
-let currentNonce = "";
+type PendingBridgeRequest<T> = {
+  nonce: string;
+  resolve: (response: T) => void;
+};
 
 // Pending fetch requests: requestId → resolve callback
-const pendingFetches = new Map<string, (response: BridgeResponse) => void>();
+const pendingFetches = new Map<string, PendingBridgeRequest<BridgeResponse>>();
 
 // Pending action requests: requestId → resolve callback
 const pendingActions = new Map<
   string,
-  (response: BridgeActionResponse) => void
+  PendingBridgeRequest<BridgeActionResponse>
 >();
 
 // Pending steps requests: requestId → resolve callback
-const pendingSteps = new Map<string, (response: BridgeStepsResponse) => void>();
+const pendingSteps = new Map<
+  string,
+  PendingBridgeRequest<BridgeStepsResponse>
+>();
 
 // Listen for messages from the background SW.
 chrome.runtime.onMessage.addListener(
@@ -74,12 +78,12 @@ function handleFetchRequest(
   message: PageFetchRequest,
   sendResponse: (response: PageFetchResponse) => void,
 ): void {
-  currentNonce = message.nonce;
+  const nonce = message.nonce;
   const requestId = message.requestId;
 
   // Set up a one-time listener for the page bridge response.
   const promise = new Promise<BridgeResponse>((resolve) => {
-    pendingFetches.set(requestId, resolve);
+    pendingFetches.set(requestId, { nonce, resolve });
 
     // Timeout: if the page bridge doesn't respond, reject.
     setTimeout(
@@ -87,7 +91,7 @@ function handleFetchRequest(
         if (pendingFetches.has(requestId)) {
           pendingFetches.delete(requestId);
           resolve({
-            __tn: currentNonce,
+            __tn: nonce,
             type: "res",
             id: requestId,
             error: "page bridge timeout",
@@ -101,7 +105,7 @@ function handleFetchRequest(
   // Forward to page bridge via postMessage.
   window.postMessage(
     {
-      __tn: currentNonce,
+      __tn: nonce,
       type: "req",
       id: requestId,
       payload: {
@@ -131,7 +135,7 @@ function handleActionRequest(
   message: PageActionRequest,
   sendResponse: (response: PageActionResponse) => void,
 ): void {
-  currentNonce = message.nonce;
+  const nonce = message.nonce;
   const requestId = message.requestId;
 
   // Use a longer timeout for wait actions (they can block up to 30s+ themselves).
@@ -141,13 +145,13 @@ function handleActionRequest(
       : 35000;
 
   const promise = new Promise<BridgeActionResponse>((resolve) => {
-    pendingActions.set(requestId, resolve);
+    pendingActions.set(requestId, { nonce, resolve });
 
     setTimeout(() => {
       if (pendingActions.has(requestId)) {
         pendingActions.delete(requestId);
         resolve({
-          __tn: currentNonce,
+          __tn: nonce,
           type: "action_res",
           id: requestId,
           error: "page bridge timeout",
@@ -159,7 +163,7 @@ function handleActionRequest(
   // Forward to page bridge via postMessage.
   window.postMessage(
     {
-      __tn: currentNonce,
+      __tn: nonce,
       type: "action_req",
       id: requestId,
       action: message.action,
@@ -186,11 +190,11 @@ function handleStepsRequest(
   message: PageStepsRequest,
   sendResponse: (response: PageStepsResponse) => void,
 ): void {
-  currentNonce = message.nonce;
+  const nonce = message.nonce;
   const requestId = message.requestId;
 
   const promise = new Promise<BridgeStepsResponse>((resolve) => {
-    pendingSteps.set(requestId, resolve);
+    pendingSteps.set(requestId, { nonce, resolve });
 
     // Timeout: steps can take a while (up to 2 minutes by default).
     setTimeout(
@@ -198,7 +202,7 @@ function handleStepsRequest(
         if (pendingSteps.has(requestId)) {
           pendingSteps.delete(requestId);
           resolve({
-            __tn: currentNonce,
+            __tn: nonce,
             type: "steps_res",
             id: requestId,
             error: "page bridge timeout",
@@ -212,7 +216,7 @@ function handleStepsRequest(
   // Forward to page bridge via postMessage.
   window.postMessage(
     {
-      __tn: currentNonce,
+      __tn: nonce,
       type: "steps_req",
       id: requestId,
       steps: message.steps,
@@ -238,31 +242,33 @@ function handleStepsRequest(
 window.addEventListener("message", (event: MessageEvent) => {
   if (event.source !== window) return;
   const data = event.data;
-  if (!data || data.__tn !== currentNonce) return;
+  if (!data || typeof data.id !== "string" || typeof data.__tn !== "string") {
+    return;
+  }
 
   if (data.type === "res") {
     const requestId = data.id as string;
-    const resolver = pendingFetches.get(requestId);
-    if (!resolver) return;
+    const pending = pendingFetches.get(requestId);
+    if (!pending || pending.nonce !== data.__tn) return;
     pendingFetches.delete(requestId);
-    resolver(data as BridgeResponse);
+    pending.resolve(data as BridgeResponse);
     return;
   }
 
   if (data.type === "action_res") {
     const requestId = data.id as string;
-    const resolver = pendingActions.get(requestId);
-    if (!resolver) return;
+    const pending = pendingActions.get(requestId);
+    if (!pending || pending.nonce !== data.__tn) return;
     pendingActions.delete(requestId);
-    resolver(data as BridgeActionResponse);
+    pending.resolve(data as BridgeActionResponse);
     return;
   }
 
   if (data.type === "steps_res") {
     const requestId = data.id as string;
-    const resolver = pendingSteps.get(requestId);
-    if (!resolver) return;
+    const pending = pendingSteps.get(requestId);
+    if (!pending || pending.nonce !== data.__tn) return;
     pendingSteps.delete(requestId);
-    resolver(data as BridgeStepsResponse);
+    pending.resolve(data as BridgeStepsResponse);
   }
 });

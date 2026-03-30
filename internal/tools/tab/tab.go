@@ -174,7 +174,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					"waitMode": map[string]interface{}{
 						"type":        "string",
 						"enum":        []string{"selector", "navigation", "network_idle", "timeout"},
-						"description": "Wait condition type (for wait action). 'selector' waits for a CSS selector to match, 'navigation' waits for page load, 'network_idle' waits for network quiescence, 'timeout' waits for a fixed duration.",
+						"description": "Wait condition type (for wait action). 'selector' waits for a CSS selector to match, 'navigation' waits for a new navigation/URL change or an in-flight navigation to complete, 'network_idle' waits for tracked page fetch/XMLHttpRequest activity to stay idle for 500ms, 'timeout' waits for a fixed duration.",
 					},
 					// executeSteps params
 					"steps": map[string]interface{}{
