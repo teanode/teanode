@@ -23,8 +23,9 @@ type mockBrowser struct {
 }
 
 type mockCommand struct {
-	Method    string
-	SessionID string
+	Method     string
+	SessionID  string
+	Parameters interface{}
 }
 
 func newMockBrowser() *mockBrowser {
@@ -64,9 +65,9 @@ func (self *mockBrowser) TargetByConnectionID(connectionId string) (*browsers.Co
 	return nil, fmt.Errorf("not found")
 }
 
-func (self *mockBrowser) SendCDPCommand(_ context.Context, method string, _ interface{}, sessionId string) (json.RawMessage, error) {
+func (self *mockBrowser) SendCDPCommand(_ context.Context, method string, parameters interface{}, sessionId string) (json.RawMessage, error) {
 	self.mutex.Lock()
-	self.commands = append(self.commands, mockCommand{Method: method, SessionID: sessionId})
+	self.commands = append(self.commands, mockCommand{Method: method, SessionID: sessionId, Parameters: parameters})
 	self.mutex.Unlock()
 	if response, ok := self.responses[method]; ok {
 		return response, nil
@@ -492,6 +493,9 @@ func TestBrowserTabsNameAndResolve(t *testing.T) {
 	if err == nil {
 		t.Error("expected error resolving unknown name")
 	}
+
+	// Cleanup so subsequent tests aren't polluted.
+	globalInstanceStore.remove("user-1", "dashboard")
 }
 
 func TestBrowserTabsList(t *testing.T) {
@@ -556,6 +560,233 @@ func TestBrowserTabsNameMissing(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when name is missing for resolve")
 	}
+}
+
+func TestSnapshotCommandSequence(t *testing.T) {
+	// Verify that DOM.getDocument is called between DOM.enable and
+	// Accessibility.getFullAXTree — without it, Chrome returns only
+	// the root web area because the DOM tree hasn't been computed.
+	mock := newMockBrowser()
+	axTree := map[string]interface{}{
+		"nodes": []map[string]interface{}{
+			{"nodeId": "root", "role": map[string]interface{}{"value": "RootWebArea"}, "name": map[string]interface{}{"value": ""}, "childIds": []string{}},
+		},
+	}
+	data, _ := json.Marshal(axTree)
+	mock.responses["Accessibility.getFullAXTree"] = data
+
+	metadataValue, _ := json.Marshal(`{"url":"about:blank","title":""}`)
+	evalData, _ := json.Marshal(map[string]interface{}{
+		"result": map[string]interface{}{"value": json.RawMessage(metadataValue)},
+	})
+	mock.responses["Runtime.evaluate"] = evalData
+
+	ctx := contextWithUserAndBrowser(mock)
+	tool := &browserTool{}
+	_, err := tool.Execute(ctx, `{"action":"snapshot"}`)
+	if err != nil {
+		t.Fatalf("snapshot error: %v", err)
+	}
+
+	// Check command sequence: DOM.enable, DOM.getDocument, Accessibility.enable, Accessibility.getFullAXTree.
+	mock.mutex.Lock()
+	commands := make([]string, len(mock.commands))
+	for index, command := range mock.commands {
+		commands[index] = command.Method
+	}
+	mock.mutex.Unlock()
+
+	expected := []string{"DOM.enable", "DOM.getDocument", "Accessibility.enable", "Accessibility.getFullAXTree"}
+	foundIndex := 0
+	for _, command := range commands {
+		if foundIndex < len(expected) && command == expected[foundIndex] {
+			foundIndex++
+		}
+	}
+	if foundIndex != len(expected) {
+		t.Errorf("expected command sequence %v in order, got commands: %v", expected, commands)
+	}
+}
+
+func TestSnapshotPassesFullDepth(t *testing.T) {
+	// Verify that both DOM.getDocument and Accessibility.getFullAXTree are
+	// called with depth=-1. Without this, Chrome returns a shallow tree
+	// (often only RootWebArea) because the default depth is limited.
+	mock := newMockBrowser()
+	axTree := map[string]interface{}{
+		"nodes": []map[string]interface{}{
+			{"nodeId": "root", "role": map[string]interface{}{"value": "RootWebArea"}, "name": map[string]interface{}{"value": ""}, "childIds": []string{"btn"}},
+			{"nodeId": "btn", "parentId": "root", "role": map[string]interface{}{"value": "button"}, "name": map[string]interface{}{"value": "OK"}, "backendDOMNodeId": 5},
+		},
+	}
+	data, _ := json.Marshal(axTree)
+	mock.responses["Accessibility.getFullAXTree"] = data
+
+	metadataValue, _ := json.Marshal(`{"url":"about:blank","title":""}`)
+	evalData, _ := json.Marshal(map[string]interface{}{
+		"result": map[string]interface{}{"value": json.RawMessage(metadataValue)},
+	})
+	mock.responses["Runtime.evaluate"] = evalData
+
+	ctx := contextWithUserAndBrowser(mock)
+	tool := &browserTool{}
+	_, err := tool.Execute(ctx, `{"action":"snapshot"}`)
+	if err != nil {
+		t.Fatalf("snapshot error: %v", err)
+	}
+
+	mock.mutex.Lock()
+	allCommands := make([]mockCommand, len(mock.commands))
+	copy(allCommands, mock.commands)
+	mock.mutex.Unlock()
+
+	// Helper to extract the depth parameter from a command's parameters.
+	extractDepth := func(parameters interface{}) (int, bool) {
+		params, ok := parameters.(map[string]interface{})
+		if !ok {
+			return 0, false
+		}
+		depth, ok := params["depth"]
+		if !ok {
+			return 0, false
+		}
+		switch value := depth.(type) {
+		case int:
+			return value, true
+		case float64:
+			return int(value), true
+		}
+		return 0, false
+	}
+
+	for _, command := range allCommands {
+		switch command.Method {
+		case "DOM.getDocument":
+			depth, ok := extractDepth(command.Parameters)
+			if !ok || depth != -1 {
+				t.Errorf("DOM.getDocument should be called with depth=-1, got params: %v", command.Parameters)
+			}
+		case "Accessibility.getFullAXTree":
+			depth, ok := extractDepth(command.Parameters)
+			if !ok || depth != -1 {
+				t.Errorf("Accessibility.getFullAXTree should be called with depth=-1, got params: %v", command.Parameters)
+			}
+		}
+	}
+}
+
+func TestTabsOpenAssignsOwnershipAndName(t *testing.T) {
+	// Simulate the race condition: target is visible in Targets() but
+	// not yet in TargetsForUser() because session ownership hasn't been
+	// set. The fix polls Targets() and re-assigns ownership afterward.
+	mock := &mockBrowserDelayedOwnership{
+		mockBrowser:       *newMockBrowser(),
+		createdTargetID:   "target-new",
+		createdSessionID:  "session-new",
+		ownershipAssigned: false,
+	}
+
+	// Set up Target.createTarget response.
+	createResponse, _ := json.Marshal(map[string]string{"targetId": "target-new"})
+	mock.responses["Target.createTarget"] = createResponse
+
+	ctx := contextWithUserAndBrowser(mock)
+	tool := &browserTabsTool{}
+	result, err := tool.Execute(ctx, `{"action":"open","url":"https://test.com","name":"test-tab"}`)
+	if err != nil {
+		t.Fatalf("open error: %v", err)
+	}
+
+	var openResult map[string]string
+	if err := json.Unmarshal([]byte(result), &openResult); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if openResult["connectionId"] != "session-new" {
+		t.Errorf("expected connectionId 'session-new', got %q", openResult["connectionId"])
+	}
+	if openResult["name"] != "test-tab" {
+		t.Errorf("expected name 'test-tab', got %q", openResult["name"])
+	}
+
+	// Verify the name was stored and is resolvable.
+	connectionId, err := globalInstanceStore.resolve("user-1", "test-tab")
+	if err != nil {
+		t.Fatalf("resolve error: %v", err)
+	}
+	if connectionId != "session-new" {
+		t.Errorf("expected resolved connectionId 'session-new', got %q", connectionId)
+	}
+
+	// Verify ownership was assigned.
+	if !mock.ownershipAssigned {
+		t.Error("expected AssignTargetToUser to be called")
+	}
+
+	// Cleanup.
+	globalInstanceStore.remove("user-1", "test-tab")
+}
+
+func TestCompositeBrowserAssignTargetToUser(t *testing.T) {
+	mock := newMockBrowser()
+	composite := browsers.NewCompositeBrowser(mock)
+
+	// Verify CompositeBrowser implements TargetOwnerAssigner.
+	assigner, ok := interface{}(composite).(browsers.TargetOwnerAssigner)
+	if !ok {
+		t.Fatal("CompositeBrowser should implement TargetOwnerAssigner")
+	}
+
+	// Assign a new target and verify the backend received it.
+	assigner.AssignTargetToUser("user-1", "target-1")
+	if mock.targetOwners["target-1"] != "user-1" {
+		t.Error("expected target owner to be set on backend")
+	}
+}
+
+// mockBrowserDelayedOwnership simulates the race where a newly created
+// target is visible in Targets() but not yet in TargetsForUser() because
+// session ownership hasn't been set by the async attach flow.
+type mockBrowserDelayedOwnership struct {
+	mockBrowser
+	createdTargetID   string
+	createdSessionID  string
+	ownershipAssigned bool
+}
+
+func (self *mockBrowserDelayedOwnership) Targets() []browsers.ConnectedTarget {
+	// Always include the new target in the global list.
+	targets := self.mockBrowser.Targets()
+	for _, target := range targets {
+		if target.TargetID == self.createdTargetID {
+			return targets
+		}
+	}
+	return append(targets, browsers.ConnectedTarget{
+		SessionID: self.createdSessionID,
+		TargetID:  self.createdTargetID,
+		URL:       "https://test.com",
+		Source:    "headless",
+	})
+}
+
+func (self *mockBrowserDelayedOwnership) TargetsForUser(userId string) []browsers.ConnectedTarget {
+	// Only return user targets after ownership is assigned (simulates the race).
+	if !self.ownershipAssigned {
+		return self.mockBrowser.TargetsForUser(userId)
+	}
+	targets := self.mockBrowser.TargetsForUser(userId)
+	return append(targets, browsers.ConnectedTarget{
+		SessionID: self.createdSessionID,
+		TargetID:  self.createdTargetID,
+		URL:       "https://test.com",
+		Source:    "headless",
+	})
+}
+
+func (self *mockBrowserDelayedOwnership) AssignTargetToUser(userId, targetId string) {
+	self.ownershipAssigned = true
+	self.mockBrowser.AssignTargetToUser(userId, targetId)
 }
 
 // --- Helpers ---

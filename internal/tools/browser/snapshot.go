@@ -59,11 +59,27 @@ func executeEnhancedSnapshot(ctx context.Context, browser browsers.Browser, conn
 	if _, err := browser.SendCDPCommand(ctx, "DOM.enable", nil, sessionId); err != nil {
 		return "", fmt.Errorf("enabling DOM domain: %w", err)
 	}
+	// Force Chrome to compute the full DOM tree by requesting the document
+	// root with depth=-1. DOM.enable starts event monitoring but does not
+	// build the tree; without this call getFullAXTree returns only
+	// RootWebArea. The depth=-1 parameter is critical: the default depth
+	// only materializes a few levels, which means deeper DOM nodes lack a
+	// backendDOMNodeId in the accessibility tree.
+	if _, err := browser.SendCDPCommand(ctx, "DOM.getDocument", map[string]interface{}{
+		"depth": -1,
+	}, sessionId); err != nil {
+		return "", fmt.Errorf("getting DOM document: %w", err)
+	}
 	if _, err := browser.SendCDPCommand(ctx, "Accessibility.enable", nil, sessionId); err != nil {
 		return "", fmt.Errorf("enabling Accessibility domain: %w", err)
 	}
 
-	result, err := browser.SendCDPCommand(ctx, "Accessibility.getFullAXTree", nil, sessionId)
+	// depth=-1 retrieves the complete accessibility tree. Without this
+	// parameter Chrome defaults to a shallow depth (typically 2 levels)
+	// which often returns only the RootWebArea node.
+	result, err := browser.SendCDPCommand(ctx, "Accessibility.getFullAXTree", map[string]interface{}{
+		"depth": -1,
+	}, sessionId)
 	if err != nil {
 		return "", err
 	}
