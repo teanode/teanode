@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/models"
@@ -54,14 +53,28 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 		Function: providers.FunctionSpec{
 			Name: "browser",
 			Description: "Interact with the browser page. Actions: navigate (go to URL), screenshot (capture page image), " +
-				"snapshot (get accessibility tree), click (click element), type (type text), press_key (press keyboard key), " +
-				"evaluate (run JavaScript).",
+				"snapshot (get accessibility tree with stable [ref=N] markers on interactive elements), " +
+				"click (click by selector or coordinates), click_ref (click element by snapshot ref), " +
+				"type (type text into focused/selected element), type_ref (type into element by ref), " +
+				"hover_ref (hover over element by ref), select_option (select dropdown option by ref), " +
+				"press_key (press keyboard key), evaluate (run JavaScript), " +
+				"wait (wait for condition: selector, navigation, network_idle, timeout), " +
+				"execute_script (run multiple browser actions in sequence), " +
+				"intercept_start (start capturing network requests), intercept_stop (stop and return captured requests), " +
+				"get_intercepted (return captured requests without stopping).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
-						"type":        "string",
-						"enum":        []string{"navigate", "screenshot", "snapshot", "click", "type", "press_key", "evaluate"},
+						"type": "string",
+						"enum": []string{
+							"navigate", "screenshot", "snapshot",
+							"click", "click_ref", "type", "type_ref",
+							"hover_ref", "select_option",
+							"press_key", "evaluate",
+							"wait", "execute_script",
+							"intercept_start", "intercept_stop", "get_intercepted",
+						},
 						"description": "The browser action to perform.",
 					},
 					"connectionId": map[string]interface{}{
@@ -71,6 +84,10 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 					"url": map[string]interface{}{
 						"type":        "string",
 						"description": "The URL to navigate to (for navigate action).",
+					},
+					"ref": map[string]interface{}{
+						"type":        "integer",
+						"description": "Element ref number from the last snapshot (for click_ref, type_ref, hover_ref, select_option).",
 					},
 					"x": map[string]interface{}{
 						"type":        "number",
@@ -82,11 +99,15 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 					},
 					"selector": map[string]interface{}{
 						"type":        "string",
-						"description": "CSS selector of the element (for click, type actions).",
+						"description": "CSS selector of the element (for click, type, wait actions).",
 					},
 					"text": map[string]interface{}{
 						"type":        "string",
-						"description": "The text to type (for type action).",
+						"description": "The text to type (for type, type_ref actions).",
+					},
+					"clearFirst": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Clear the input field before typing (for type_ref). Defaults to false.",
 					},
 					"key": map[string]interface{}{
 						"type":        "string",
@@ -96,12 +117,42 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 						"type":        "string",
 						"description": "JavaScript expression to evaluate (for evaluate action).",
 					},
+					"waitMode": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"selector", "navigation", "network_idle", "timeout"},
+						"description": "What to wait for (for wait action). 'selector' waits for a CSS selector, 'navigation' for page load, 'network_idle' for no pending requests, 'timeout' for a fixed duration.",
+					},
+					"timeoutMs": map[string]interface{}{
+						"type":        "integer",
+						"description": "Timeout in milliseconds (for wait action). Default 30000.",
+					},
+					"steps": map[string]interface{}{
+						"type":        "array",
+						"description": "Array of action steps to execute in sequence (for execute_script). Each step is an object with the same fields as a regular browser action (action, ref, selector, text, etc.). Max 50 steps.",
+						"items": map[string]interface{}{
+							"type": "object",
+						},
+					},
+					"optionValue": map[string]interface{}{
+						"type":        "string",
+						"description": "Value of the option to select (for select_option action).",
+					},
+					"optionIndex": map[string]interface{}{
+						"type":        "integer",
+						"description": "Zero-based index of the option to select (for select_option action).",
+					},
+					"urlPattern": map[string]interface{}{
+						"type":        "string",
+						"description": "Regex pattern to filter captured URLs (for intercept_start). Empty captures all requests.",
+					},
 				},
 				"required": []string{"action"},
 			},
 			Returns: map[string]interface{}{
-				"type":        "object",
-				"description": "Action-dependent result. navigate: {url}. screenshot: {base64, format}. snapshot: {tree}. click: {selector} or {x, y}. type: {text}. press_key: {key}. evaluate: {type, value}.",
+				"type": "object",
+				"description": "Action-dependent result. snapshot: {tree, refCount, pageUrl, title} with [ref=N] markers. " +
+					"click_ref/type_ref/hover_ref: {ref, role, name, ...}. wait: {mode, elapsed}. " +
+					"execute_script: {stepsExecuted, totalSteps, results}. intercept_*: {requests, count}.",
 			},
 		},
 	}
@@ -109,7 +160,7 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 
 func (self *browserTool) PolicyGroups() []tools.PolicyGroup {
 	return []tools.PolicyGroup{
-		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"screenshot", "snapshot"}},
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"screenshot", "snapshot", "get_intercepted"}},
 		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
@@ -121,15 +172,23 @@ func (self *browserTool) Execute(ctx context.Context, rawArguments string) (stri
 	}
 
 	var arguments struct {
-		Action       string   `json:"action"`
-		ConnectionID string   `json:"connectionId"`
-		URL          string   `json:"url"`
-		X            *float64 `json:"x"`
-		Y            *float64 `json:"y"`
-		Selector     string   `json:"selector"`
-		Text         string   `json:"text"`
-		Key          string   `json:"key"`
-		Expression   string   `json:"expression"`
+		Action       string       `json:"action"`
+		ConnectionID string       `json:"connectionId"`
+		URL          string       `json:"url"`
+		Ref          *int         `json:"ref"`
+		X            *float64     `json:"x"`
+		Y            *float64     `json:"y"`
+		Selector     string       `json:"selector"`
+		Text         string       `json:"text"`
+		ClearFirst   bool         `json:"clearFirst"`
+		Key          string       `json:"key"`
+		Expression   string       `json:"expression"`
+		WaitMode     string       `json:"waitMode"`
+		TimeoutMs    *int         `json:"timeoutMs"`
+		Steps        []scriptStep `json:"steps"`
+		OptionValue  string       `json:"optionValue"`
+		OptionIndex  *int         `json:"optionIndex"`
+		URLPattern   string       `json:"urlPattern"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -141,15 +200,45 @@ func (self *browserTool) Execute(ctx context.Context, rawArguments string) (stri
 	case "screenshot":
 		return executeScreenshot(ctx, browser, arguments.ConnectionID)
 	case "snapshot":
-		return executeSnapshot(ctx, browser, arguments.ConnectionID)
+		return executeEnhancedSnapshot(ctx, browser, arguments.ConnectionID)
 	case "click":
 		return executeClick(ctx, browser, arguments.ConnectionID, arguments.X, arguments.Y, arguments.Selector)
+	case "click_ref":
+		if arguments.Ref == nil {
+			return "", fmt.Errorf("ref is required for click_ref action")
+		}
+		return executeClickRef(ctx, browser, arguments.ConnectionID, *arguments.Ref)
 	case "type":
 		return executeType(ctx, browser, arguments.ConnectionID, arguments.Text, arguments.Selector)
+	case "type_ref":
+		if arguments.Ref == nil {
+			return "", fmt.Errorf("ref is required for type_ref action")
+		}
+		return executeTypeRef(ctx, browser, arguments.ConnectionID, *arguments.Ref, arguments.Text, arguments.ClearFirst)
+	case "hover_ref":
+		if arguments.Ref == nil {
+			return "", fmt.Errorf("ref is required for hover_ref action")
+		}
+		return executeHoverRef(ctx, browser, arguments.ConnectionID, *arguments.Ref)
+	case "select_option":
+		if arguments.Ref == nil {
+			return "", fmt.Errorf("ref is required for select_option action")
+		}
+		return executeSelectOption(ctx, browser, arguments.ConnectionID, *arguments.Ref, arguments.OptionValue, arguments.OptionIndex)
 	case "press_key":
 		return executePressKey(ctx, browser, arguments.ConnectionID, arguments.Key)
 	case "evaluate":
 		return executeEvaluate(ctx, browser, arguments.ConnectionID, arguments.Expression)
+	case "wait":
+		return executeWait(ctx, browser, arguments.ConnectionID, arguments.WaitMode, arguments.Selector, arguments.TimeoutMs)
+	case "execute_script":
+		return executeScript(ctx, browser, arguments.ConnectionID, arguments.Steps)
+	case "intercept_start":
+		return executeInterceptStart(ctx, browser, arguments.ConnectionID, arguments.URLPattern)
+	case "intercept_stop":
+		return executeInterceptStop(ctx, browser, arguments.ConnectionID)
+	case "get_intercepted":
+		return executeGetIntercepted(ctx, browser, arguments.ConnectionID)
 	default:
 		return "", fmt.Errorf("unknown browser action: %s", arguments.Action)
 	}
@@ -194,24 +283,9 @@ func executeScreenshot(ctx context.Context, browser browsers.Browser, connection
 	return string(output), nil
 }
 
-func executeSnapshot(ctx context.Context, browser browsers.Browser, connectionId string) (string, error) {
-	sessionId, err := resolveSessionId(ctx, browser, connectionId)
-	if err != nil {
-		return "", err
-	}
-	result, err := browser.SendCDPCommand(ctx, "Accessibility.getFullAXTree", nil, sessionId)
-	if err != nil {
-		return "", err
-	}
-	var response struct {
-		Nodes []accessibilityNode `json:"nodes"`
-	}
-	if err := json.Unmarshal(result, &response); err != nil {
-		return "", fmt.Errorf("parsing accessibility tree: %w", err)
-	}
-	output, _ := json.Marshal(map[string]string{"tree": buildAXTree(response.Nodes)})
-	return string(output), nil
-}
+// executeSnapshot is the legacy snapshot handler (kept for reference).
+// The main "snapshot" action now routes to executeEnhancedSnapshot in
+// snapshot.go which adds [ref=N] markers to interactive elements.
 
 func executeClick(ctx context.Context, browser browsers.Browser, connectionId string, x *float64, y *float64, selector string) (string, error) {
 	sessionId, err := resolveSessionId(ctx, browser, connectionId)
@@ -354,14 +428,15 @@ func (self *browserTabsTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name: "browser_tabs",
-			Description: "Manage browser tabs. Actions: list (list all tabs), open (open new tab), " +
-				"close (close a tab), activate (bring tab to foreground).",
+			Description: "Manage browser tabs and named instances. Actions: list (list all tabs with names), " +
+				"open (open new tab, optionally with a name), close (close a tab), activate (bring tab to foreground), " +
+				"name (assign a name to an existing tab for easy reference), resolve (get connectionId by name).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"list", "open", "close", "activate"},
+						"enum":        []string{"list", "open", "close", "activate", "name", "resolve"},
 						"description": "The tab management action to perform.",
 					},
 					"targetId": map[string]interface{}{
@@ -372,12 +447,23 @@ func (self *browserTabsTool) Definition() providers.ToolDefinition {
 						"type":        "string",
 						"description": "URL to open in the new tab, defaults to about:blank (for open action).",
 					},
+					"name": map[string]interface{}{
+						"type": "string",
+						"description": "Human-readable name for the browser instance (for open, name, resolve actions). " +
+							"Use meaningful names like 'login-page' or 'dashboard' so you can reference tabs by name later.",
+					},
+					"connectionId": map[string]interface{}{
+						"type":        "string",
+						"description": "Connection ID of the tab to name (for name action).",
+					},
 				},
 				"required": []string{"action"},
 			},
 			Returns: map[string]interface{}{
-				"type":        "object",
-				"description": "Action-dependent result. list: {tabs: [{targetId, title, url, connectionId, source}]}. open: {targetId, url}. close: {targetId}. activate: {targetId}.",
+				"type": "object",
+				"description": "Action-dependent result. list: {tabs: [{targetId, title, url, connectionId, source, name}]}. " +
+					"open: {targetId, url, connectionId, name}. close: {targetId}. activate: {targetId}. " +
+					"name: {name, connectionId}. resolve: {name, connectionId}.",
 			},
 		},
 	}
@@ -397,9 +483,11 @@ func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (
 	}
 
 	var arguments struct {
-		Action   string `json:"action"`
-		TargetID string `json:"targetId"`
-		URL      string `json:"url"`
+		Action       string `json:"action"`
+		TargetID     string `json:"targetId"`
+		URL          string `json:"url"`
+		Name         string `json:"name"`
+		ConnectionID string `json:"connectionId"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
@@ -413,11 +501,15 @@ func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (
 		}
 		return executeTabsList(browser, user.ID)
 	case "open":
-		return executeTabsOpen(ctx, browser, arguments.URL)
+		return executeTabsOpen(ctx, browser, arguments.URL, arguments.Name)
 	case "close":
 		return executeTabsClose(ctx, browser, arguments.TargetID)
 	case "activate":
 		return executeTabsActivate(ctx, browser, arguments.TargetID)
+	case "name":
+		return executeTabsName(ctx, arguments.Name, arguments.ConnectionID)
+	case "resolve":
+		return executeTabsResolve(ctx, arguments.Name)
 	default:
 		return "", fmt.Errorf("unknown browser_tabs action: %s", arguments.Action)
 	}
@@ -429,12 +521,21 @@ func executeTabsList(browser browsers.Browser, userId string) (string, error) {
 		return "", fmt.Errorf("browser backend does not support user scoping")
 	}
 	targets := scopedBrowser.TargetsForUser(userId)
+	namedInstances := globalInstanceStore.listForUser(userId)
+
+	// Build a reverse map: connectionId → name.
+	connectionIdToName := make(map[string]string)
+	for name, connectionId := range namedInstances {
+		connectionIdToName[connectionId] = name
+	}
+
 	type entry struct {
 		TargetID     string `json:"targetId"`
 		Title        string `json:"title"`
 		URL          string `json:"url"`
 		ConnectionID string `json:"connectionId"`
 		Source       string `json:"source"`
+		Name         string `json:"name,omitempty"`
 	}
 	entries := make([]entry, len(targets))
 	for index, target := range targets {
@@ -444,13 +545,14 @@ func executeTabsList(browser browsers.Browser, userId string) (string, error) {
 			URL:          target.URL,
 			ConnectionID: target.SessionID,
 			Source:       target.Source,
+			Name:         connectionIdToName[target.SessionID],
 		}
 	}
 	output, _ := json.Marshal(map[string]interface{}{"tabs": entries})
 	return string(output), nil
 }
 
-func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string) (string, error) {
+func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string, name string) (string, error) {
 	if url == "" {
 		url = "about:blank"
 	}
@@ -475,9 +577,72 @@ func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string) 
 	if assigner, ok := browser.(browsers.TargetOwnerAssigner); ok && user != nil && user.ID != "" && response.TargetID != "" {
 		assigner.AssignTargetToUser(user.ID, response.TargetID)
 	}
-	output, _ := json.Marshal(map[string]string{
+
+	// If a name was provided, assign it to the new tab's connection.
+	// We need to find the connectionId for this targetId.
+	connectionId := ""
+	if user != nil && user.ID != "" {
+		if scopedBrowser, ok := browser.(browsers.UserScopedBrowser); ok {
+			for _, target := range scopedBrowser.TargetsForUser(user.ID) {
+				if target.TargetID == response.TargetID {
+					connectionId = target.SessionID
+					break
+				}
+			}
+		}
+	}
+	if name != "" && connectionId != "" && user != nil {
+		globalInstanceStore.assign(user.ID, name, connectionId)
+	}
+
+	outputMap := map[string]string{
 		"targetId": response.TargetID,
 		"url":      url,
+	}
+	if connectionId != "" {
+		outputMap["connectionId"] = connectionId
+	}
+	if name != "" {
+		outputMap["name"] = name
+	}
+	output, _ := json.Marshal(outputMap)
+	return string(output), nil
+}
+
+func executeTabsName(ctx context.Context, name string, connectionId string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("name is required for name action")
+	}
+	if connectionId == "" {
+		return "", fmt.Errorf("connectionId is required for name action")
+	}
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
+		return "", fmt.Errorf("missing user context")
+	}
+	globalInstanceStore.assign(user.ID, name, connectionId)
+	output, _ := json.Marshal(map[string]string{
+		"name":         name,
+		"connectionId": connectionId,
+	})
+	return string(output), nil
+}
+
+func executeTabsResolve(ctx context.Context, name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("name is required for resolve action")
+	}
+	user := models.UserFromContext(ctx)
+	if user == nil || user.ID == "" {
+		return "", fmt.Errorf("missing user context")
+	}
+	connectionId, err := globalInstanceStore.resolve(user.ID, name)
+	if err != nil {
+		return "", err
+	}
+	output, _ := json.Marshal(map[string]string{
+		"name":         name,
+		"connectionId": connectionId,
 	})
 	return string(output), nil
 }
@@ -561,93 +726,12 @@ func executeTabsActivate(ctx context.Context, browser browsers.Browser, targetId
 	return string(output), nil
 }
 
-// --- Accessibility tree types and helpers ---
-
-type accessibilityNode struct {
-	NodeID     string                  `json:"nodeId"`
-	ParentID   string                  `json:"parentId"`
-	Role       accessibilityValue      `json:"role"`
-	Name       accessibilityValue      `json:"name"`
-	Value      *accessibilityValue     `json:"value"`
-	Properties []accessibilityProperty `json:"properties"`
-	ChildIDs   []string                `json:"childIds"`
-	Ignored    bool                    `json:"ignored"`
-}
-
-type accessibilityValue struct {
-	Type  string      `json:"type"`
-	Value interface{} `json:"value"`
-}
-
-type accessibilityProperty struct {
-	Name  string             `json:"name"`
-	Value accessibilityValue `json:"value"`
-}
-
-func buildAXTree(nodes []accessibilityNode) string {
-	if len(nodes) == 0 {
-		return "(empty accessibility tree)"
-	}
-
-	nodesById := make(map[string]*accessibilityNode, len(nodes))
-	for index := range nodes {
-		nodesById[nodes[index].NodeID] = &nodes[index]
-	}
-
-	var builder strings.Builder
-	var walk func(id string, depth int)
-	walk = func(id string, depth int) {
-		node, ok := nodesById[id]
-		if !ok || node.Ignored {
-			return
-		}
-
-		role := fmt.Sprintf("%v", node.Role.Value)
-		name := fmt.Sprintf("%v", node.Name.Value)
-
-		// Skip generic/none roles without meaningful names.
-		if (role == "none" || role == "generic" || role == "") && name == "" {
-			for _, childId := range node.ChildIDs {
-				walk(childId, depth)
-			}
-			return
-		}
-
-		indent := strings.Repeat("  ", depth)
-		line := indent + role
-		if name != "" {
-			line += fmt.Sprintf(" %q", name)
-		}
-
-		// Add notable properties.
-		for _, property := range node.Properties {
-			switch property.Name {
-			case "level":
-				line += fmt.Sprintf(" (level %v)", property.Value.Value)
-			case "checked":
-				line += fmt.Sprintf(" checked=%v", property.Value.Value)
-			case "disabled":
-				if property.Value.Value == true {
-					line += " disabled"
-				}
-			}
-		}
-		if node.Value != nil && node.Value.Value != nil {
-			line += fmt.Sprintf(" value=%q", fmt.Sprintf("%v", node.Value.Value))
-		}
-
-		builder.WriteString(line)
-		builder.WriteByte('\n')
-
-		for _, childId := range node.ChildIDs {
-			walk(childId, depth+1)
-		}
-	}
-
-	// Start from the root (first node).
-	walk(nodes[0].NodeID, 0)
-	return strings.TrimRight(builder.String(), "\n")
-}
+// --- Accessibility tree types ---
+//
+// The shared types (accessibilityValue, accessibilityProperty) and the
+// ref-enhanced tree builder live in snapshot.go. The old non-ref
+// accessibilityNode type was replaced by accessibilityNodeExt which adds
+// backendDOMNodeId for ref-based interactions.
 
 // --- Key mapping helpers ---
 
