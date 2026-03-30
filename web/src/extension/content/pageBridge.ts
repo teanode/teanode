@@ -987,6 +987,11 @@ type NavigationTracker = {
   lastChangeAt: number;
 };
 
+type NavigationTrackerWindow = Window & {
+  __teanodeNavigationWaitTracker?: NavigationTracker;
+  __teanodeNavigationHistoryWrapped?: boolean;
+};
+
 type NavigationWaitState = {
   sequence: number;
   url: string;
@@ -997,6 +1002,19 @@ type NetworkIdleTracker = {
   activeRequests: number;
   lastActivityAt: number;
   idleThresholdMs: number;
+};
+
+type NetworkIdleTrackerWindow = Window & {
+  __teanodeNetworkIdleTracker?: NetworkIdleTracker;
+  __teanodeNetworkIdleFetchWrapped?: boolean;
+};
+
+type TrackedXMLHttpRequest = XMLHttpRequest & {
+  __teanodeNetworkIdleTracked?: boolean;
+};
+
+type NetworkIdleXMLHttpRequestPrototype = XMLHttpRequest & {
+  __teanodeNetworkIdleWrapped?: boolean;
 };
 
 type NetworkIdleWaitState = {
@@ -1141,13 +1159,9 @@ function readNavigationWaitState(): NavigationWaitState {
 }
 
 function ensureNavigationTracker(): NavigationTracker {
-  const trackerKey = "__teanodeNavigationWaitTracker";
-  const trackerWindow = window as Window & {
-    [trackerKey]?: NavigationTracker;
-    __teanodeNavigationHistoryWrapped?: boolean;
-  };
-  if (trackerWindow[trackerKey]) {
-    return trackerWindow[trackerKey]!;
+  const trackerWindow = window as NavigationTrackerWindow;
+  if (trackerWindow.__teanodeNavigationWaitTracker) {
+    return trackerWindow.__teanodeNavigationWaitTracker;
   }
 
   const tracker: NavigationTracker = {
@@ -1181,18 +1195,14 @@ function ensureNavigationTracker(): NavigationTracker {
   window.addEventListener("pageshow", markNavigation);
   window.addEventListener("load", markNavigation);
 
-  trackerWindow[trackerKey] = tracker;
+  trackerWindow.__teanodeNavigationWaitTracker = tracker;
   return tracker;
 }
 
 function ensureNetworkIdleTracker(): NetworkIdleTracker {
-  const trackerKey = "__teanodeNetworkIdleTracker";
-  const trackerWindow = window as Window & {
-    [trackerKey]?: NetworkIdleTracker;
-    __teanodeNetworkIdleFetchWrapped?: boolean;
-  };
-  if (trackerWindow[trackerKey]) {
-    return trackerWindow[trackerKey]!;
+  const trackerWindow = window as NetworkIdleTrackerWindow;
+  if (trackerWindow.__teanodeNetworkIdleTracker) {
+    return trackerWindow.__teanodeNetworkIdleTracker;
   }
 
   const tracker: NetworkIdleTracker = {
@@ -1212,7 +1222,10 @@ function ensureNetworkIdleTracker(): NetworkIdleTracker {
     markActivity();
   };
 
-  if (typeof window.fetch === "function" && !trackerWindow.__teanodeNetworkIdleFetchWrapped) {
+  if (
+    typeof window.fetch === "function" &&
+    !trackerWindow.__teanodeNetworkIdleFetchWrapped
+  ) {
     const originalFetch = window.fetch.bind(window);
     window.fetch = (...args) => {
       beginRequest();
@@ -1224,22 +1237,17 @@ function ensureNetworkIdleTracker(): NetworkIdleTracker {
   }
 
   const xhrPrototype = window.XMLHttpRequest?.prototype as
-    | (XMLHttpRequest["prototype"] & {
-        __teanodeNetworkIdleWrapped?: boolean;
-      })
+    | NetworkIdleXMLHttpRequestPrototype
     | undefined;
   if (xhrPrototype && !xhrPrototype.__teanodeNetworkIdleWrapped) {
     const originalOpen = xhrPrototype.open;
     const originalSend = xhrPrototype.send;
     xhrPrototype.open = function (...args) {
-      (this as XMLHttpRequest & { __teanodeNetworkIdleTracked?: boolean }).__teanodeNetworkIdleTracked =
-        false;
+      (this as TrackedXMLHttpRequest).__teanodeNetworkIdleTracked = false;
       return originalOpen.apply(this, args);
     };
     xhrPrototype.send = function (...args) {
-      const request = this as XMLHttpRequest & {
-        __teanodeNetworkIdleTracked?: boolean;
-      };
+      const request = this as TrackedXMLHttpRequest;
       if (!request.__teanodeNetworkIdleTracked) {
         request.__teanodeNetworkIdleTracked = true;
         beginRequest();
@@ -1259,7 +1267,7 @@ function ensureNetworkIdleTracker(): NetworkIdleTracker {
     xhrPrototype.__teanodeNetworkIdleWrapped = true;
   }
 
-  trackerWindow[trackerKey] = tracker;
+  trackerWindow.__teanodeNetworkIdleTracker = tracker;
   return tracker;
 }
 
