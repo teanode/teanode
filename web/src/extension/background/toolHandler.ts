@@ -11,6 +11,8 @@ import type {
   PageActionRequest,
   PageActionResponse,
   PageActionType,
+  PageStepsRequest,
+  PageStepsResponse,
 } from "../shared/types";
 import {
   listCookies,
@@ -27,6 +29,11 @@ const PAGE_ACTIONS: Set<string> = new Set([
   "snapshot",
   "querySelector",
   "eval",
+  "clickRef",
+  "typeRef",
+  "hoverRef",
+  "selectOption",
+  "wait",
 ]);
 
 // Tracks injected tabs: tabId → nonce
@@ -107,6 +114,8 @@ export async function handleToolExecute(
         return await executeSetCookie(requestId, args);
       case "deleteCookie":
         return await executeDeleteCookie(requestId, args);
+      case "executeSteps":
+        return await executeSteps(requestId, tabId, args);
       default:
         if (PAGE_ACTIONS.has(action)) {
           return await executePageAction(
@@ -304,6 +313,44 @@ async function executePageAction(
     tabId,
     actionRequest,
   )) as PageActionResponse;
+
+  if (response.error) {
+    return { type: "tool_execute_response", requestId, error: response.error };
+  }
+
+  return {
+    type: "tool_execute_response",
+    requestId,
+    result: response.result,
+  };
+}
+
+/**
+ * Execute a multi-step script in the page bridge. All steps run sequentially
+ * in the same page context, keeping refs valid across steps and avoiding
+ * per-step round-trips through the broker.
+ */
+async function executeSteps(
+  requestId: string,
+  tabId: number,
+  args: Record<string, unknown>,
+): Promise<ToolExecuteResponse> {
+  const nonce = await ensureInjected(tabId);
+  const steps = args.steps as Array<Record<string, unknown>>;
+  const timeoutMs = (args.timeoutMs as number) || 120000;
+
+  const stepsRequest: PageStepsRequest = {
+    type: "page_steps_request",
+    requestId,
+    nonce,
+    steps,
+    timeoutMs,
+  };
+
+  const response = (await chrome.tabs.sendMessage(
+    tabId,
+    stepsRequest,
+  )) as PageStepsResponse;
 
   if (response.error) {
     return { type: "tool_execute_response", requestId, error: response.error };

@@ -22,6 +22,7 @@ const (
 	maxLocalStorageValue = 1 << 20   // 1 MB
 	maxFetchResultSize   = 128 << 10 // 128 KB for fetch response body
 	maxDomResultSize     = 128 << 10 // 128 KB for snapshot / querySelector results
+	maxSteps             = 50        // max steps in executeSteps
 )
 
 func init() {
@@ -41,9 +42,13 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 				"fetch (HTTP request with tab session), " +
 				"listCookies / getCookie / setCookie / deleteCookie (cookie access), " +
 				"getLocalStorage / setLocalStorage / removeLocalStorage (localStorage access), " +
-				"snapshot (DOM snapshot; use mode param: 'html' for structure, 'text' for visible text, 'accessibility' for accessibility tree), " +
+				"snapshot (DOM snapshot; modes: 'html', 'text', 'accessibility', 'interactive' — " +
+				"'interactive' returns an AI-friendly accessibility tree with [ref=N] markers on interactive elements for use with ref-based actions), " +
 				"querySelector (query DOM elements), " +
-				"eval (execute JavaScript in page context).",
+				"eval (execute JavaScript in page context), " +
+				"clickRef / typeRef / hoverRef / selectOption (interact with elements by ref from an interactive snapshot), " +
+				"wait (wait for a page condition: selector, navigation, network_idle, or timeout), " +
+				"executeSteps (run multiple tab actions atomically in sequence, keeping refs valid across steps).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -53,6 +58,8 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 							"fetch", "listCookies", "getCookie", "setCookie", "deleteCookie",
 							"getLocalStorage", "setLocalStorage", "removeLocalStorage",
 							"snapshot", "querySelector", "eval",
+							"clickRef", "typeRef", "hoverRef", "selectOption",
+							"wait", "executeSteps",
 						},
 						"description": "The tab action to perform.",
 					},
@@ -79,7 +86,7 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					"timeoutMs": map[string]interface{}{
 						"type":        "integer",
 						"default":     30000,
-						"description": "Request timeout in milliseconds (for fetch action).",
+						"description": "Timeout in milliseconds. For fetch: request timeout (default 30000). For wait: condition timeout (default 30000). For executeSteps: total timeout (default 120000).",
 					},
 					// cookie params
 					"domain": map[string]interface{}{
@@ -123,13 +130,13 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					// DOM params
 					"selector": map[string]interface{}{
 						"type":        "string",
-						"description": "CSS selector (required for querySelector).",
+						"description": "CSS selector (required for querySelector; used by wait mode 'selector').",
 					},
 					"mode": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"text", "html", "accessibility"},
+						"enum":        []string{"text", "html", "accessibility", "interactive"},
 						"default":     "text",
-						"description": "For querySelector: 'text' returns textContent, 'html' returns outerHTML. For snapshot: 'html' (default) returns cleaned HTML, 'text' returns visible text only, 'accessibility' returns the accessibility tree.",
+						"description": "For querySelector: 'text' returns textContent, 'html' returns outerHTML. For snapshot: 'html' (default) returns cleaned HTML, 'text' returns visible text only, 'accessibility' returns the accessibility tree, 'interactive' returns an AI-friendly tree with [ref=N] markers on interactive elements.",
 					},
 					"all": map[string]interface{}{
 						"type":        "boolean",
@@ -141,6 +148,49 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 						"type":        "string",
 						"description": "JavaScript code to execute in the page context (for eval action). Must evaluate to a JSON-serializable value.",
 					},
+					// ref-based action params
+					"ref": map[string]interface{}{
+						"type":        "integer",
+						"description": "Element ref number from an interactive snapshot (required for clickRef, typeRef, hoverRef, selectOption).",
+					},
+					"text": map[string]interface{}{
+						"type":        "string",
+						"description": "Text to type into the element (required for typeRef).",
+					},
+					"clearFirst": map[string]interface{}{
+						"type":        "boolean",
+						"default":     false,
+						"description": "If true, clear the input field before typing (for typeRef).",
+					},
+					"optionValue": map[string]interface{}{
+						"type":        "string",
+						"description": "Value attribute of the option to select (for selectOption; provide optionValue or optionIndex).",
+					},
+					"optionIndex": map[string]interface{}{
+						"type":        "integer",
+						"description": "Zero-based index of the option to select (for selectOption; provide optionValue or optionIndex).",
+					},
+					// wait params
+					"waitMode": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"selector", "navigation", "network_idle", "timeout"},
+						"description": "Wait condition type (for wait action). 'selector' waits for a CSS selector to match, 'navigation' waits for page load, 'network_idle' waits for network quiescence, 'timeout' waits for a fixed duration.",
+					},
+					// executeSteps params
+					"steps": map[string]interface{}{
+						"type":        "array",
+						"description": "Array of step objects for executeSteps. Each step has an 'action' field plus action-specific fields. Steps execute sequentially; execution stops on first error. Max 50 steps. Supports: snapshot, querySelector, eval, clickRef, typeRef, hoverRef, selectOption, wait, getLocalStorage, setLocalStorage, removeLocalStorage.",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"action": map[string]interface{}{
+									"type":        "string",
+									"description": "The action for this step.",
+								},
+							},
+							"required": []string{"action"},
+						},
+					},
 				},
 				"required": []string{"action"},
 			},
@@ -150,9 +200,14 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 					"fetch: {status, statusText, headers, body, url, truncated, durationMs}. " +
 					"listCookies: {cookies}. getCookie: {cookie}. setCookie: {cookie}. deleteCookie: {ok}. " +
 					"getLocalStorage: {entries} or {value}. setLocalStorage/removeLocalStorage: {ok}. " +
-					"snapshot: {html, truncated} or {text, truncated} depending on mode. " +
+					"snapshot (html/text/accessibility): {html|text, truncated}. " +
+					"snapshot (interactive): {tree, refCount, pageUrl, title, truncated}. " +
 					"querySelector: {results}. " +
 					"eval: {value} or {error}. " +
+					"clickRef: {ref, role, name, clicked}. typeRef: {ref, role, text, clearFirst}. " +
+					"hoverRef: {ref, role, name, x, y}. selectOption: {ref, selectedValue, selectedIndex, selectedText}. " +
+					"wait: {mode, elapsed, ...mode-specific fields}. " +
+					"executeSteps: {stepsExecuted, totalSteps, results: [{step, action, result?, error?}]}. " +
 					"On error: {error}.",
 				"properties": map[string]interface{}{
 					"status": map[string]interface{}{
@@ -207,9 +262,17 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 						"type":        "string",
 						"description": "DOM HTML snapshot (snapshot).",
 					},
+					"tree": map[string]interface{}{
+						"type":        "string",
+						"description": "Interactive accessibility tree with [ref=N] markers (snapshot mode interactive).",
+					},
+					"refCount": map[string]interface{}{
+						"type":        "integer",
+						"description": "Number of interactive element refs assigned (snapshot mode interactive).",
+					},
 					"results": map[string]interface{}{
 						"type":        "array",
-						"description": "Matched elements (querySelector).",
+						"description": "Matched elements (querySelector) or step results (executeSteps).",
 					},
 					"error": map[string]interface{}{
 						"type":        "string",
@@ -222,30 +285,37 @@ func (self *tabTool) Definition() providers.ToolDefinition {
 }
 
 type tabArguments struct {
-	Action              string            `json:"action"`
-	Method              string            `json:"method,omitempty"`
-	URL                 string            `json:"url,omitempty"`
-	Headers             map[string]string `json:"headers,omitempty"`
-	Body                string            `json:"body,omitempty"`
-	TimeoutMilliseconds int               `json:"timeoutMs,omitempty"`
-	Domain              string            `json:"domain,omitempty"`
-	Name                string            `json:"name,omitempty"`
-	Path                string            `json:"path,omitempty"`
-	Secure              *bool             `json:"secure,omitempty"`
-	HttpOnly            *bool             `json:"httpOnly,omitempty"`
-	SameSite            string            `json:"sameSite,omitempty"`
-	ExpirationDate      float64           `json:"expirationDate,omitempty"`
-	Key                 string            `json:"key,omitempty"`
-	Value               string            `json:"value,omitempty"`
-	Selector            string            `json:"selector,omitempty"`
-	Mode                string            `json:"mode,omitempty"`
-	All                 bool              `json:"all,omitempty"`
-	Code                string            `json:"code,omitempty"`
+	Action              string                   `json:"action"`
+	Method              string                   `json:"method,omitempty"`
+	URL                 string                   `json:"url,omitempty"`
+	Headers             map[string]string        `json:"headers,omitempty"`
+	Body                string                   `json:"body,omitempty"`
+	TimeoutMilliseconds int                      `json:"timeoutMs,omitempty"`
+	Domain              string                   `json:"domain,omitempty"`
+	Name                string                   `json:"name,omitempty"`
+	Path                string                   `json:"path,omitempty"`
+	Secure              *bool                    `json:"secure,omitempty"`
+	HttpOnly            *bool                    `json:"httpOnly,omitempty"`
+	SameSite            string                   `json:"sameSite,omitempty"`
+	ExpirationDate      float64                  `json:"expirationDate,omitempty"`
+	Key                 string                   `json:"key,omitempty"`
+	Value               string                   `json:"value,omitempty"`
+	Selector            string                   `json:"selector,omitempty"`
+	Mode                string                   `json:"mode,omitempty"`
+	All                 bool                     `json:"all,omitempty"`
+	Code                string                   `json:"code,omitempty"`
+	Ref                 *int                     `json:"ref,omitempty"`
+	Text                string                   `json:"text,omitempty"`
+	ClearFirst          bool                     `json:"clearFirst,omitempty"`
+	OptionValue         string                   `json:"optionValue,omitempty"`
+	OptionIndex         *int                     `json:"optionIndex,omitempty"`
+	WaitMode            string                   `json:"waitMode,omitempty"`
+	Steps               []map[string]interface{} `json:"steps,omitempty"`
 }
 
 func (self *tabTool) PolicyGroups() []tools.PolicyGroup {
 	return []tools.PolicyGroup{
-		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"fetch", "listCookies", "getCookie", "getLocalStorage", "snapshot", "querySelector"}},
+		{Group: models.ToolPolicyGroupRead, Default: models.ToolPolicyAnyone, Actions: []string{"fetch", "listCookies", "getCookie", "getLocalStorage", "snapshot", "querySelector", "wait"}},
 		{Group: models.ToolPolicyGroupWrite, Default: models.ToolPolicyAnyone},
 	}
 }
@@ -349,8 +419,8 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		if arguments.Mode == "" {
 			arguments.Mode = "html"
 		}
-		if arguments.Mode != "html" && arguments.Mode != "text" && arguments.Mode != "accessibility" {
-			return jsonError(fmt.Sprintf("invalid mode %q: must be 'html', 'text', or 'accessibility'", arguments.Mode)), nil
+		if arguments.Mode != "html" && arguments.Mode != "text" && arguments.Mode != "accessibility" && arguments.Mode != "interactive" {
+			return jsonError(fmt.Sprintf("invalid mode %q: must be 'html', 'text', 'accessibility', or 'interactive'", arguments.Mode)), nil
 		}
 	case "querySelector":
 		if arguments.Selector == "" {
@@ -370,6 +440,60 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		}
 		if len(arguments.Code) > maxEvalCodeSize {
 			return jsonError(fmt.Sprintf("code too large (%d bytes, max %d)", len(arguments.Code), maxEvalCodeSize)), nil
+		}
+
+	// ref-based actions
+	case "clickRef":
+		if arguments.Ref == nil {
+			return jsonError("ref is required for clickRef action"), nil
+		}
+	case "typeRef":
+		if arguments.Ref == nil {
+			return jsonError("ref is required for typeRef action"), nil
+		}
+		if arguments.Text == "" {
+			return jsonError("text is required for typeRef action"), nil
+		}
+	case "hoverRef":
+		if arguments.Ref == nil {
+			return jsonError("ref is required for hoverRef action"), nil
+		}
+	case "selectOption":
+		if arguments.Ref == nil {
+			return jsonError("ref is required for selectOption action"), nil
+		}
+		if arguments.OptionValue == "" && arguments.OptionIndex == nil {
+			return jsonError("either optionValue or optionIndex is required for selectOption action"), nil
+		}
+
+	// wait action
+	case "wait":
+		if arguments.WaitMode == "" {
+			return jsonError("waitMode is required for wait action"), nil
+		}
+		switch arguments.WaitMode {
+		case "selector":
+			if arguments.Selector == "" {
+				return jsonError("selector is required for wait mode 'selector'"), nil
+			}
+		case "navigation", "network_idle", "timeout":
+		default:
+			return jsonError(fmt.Sprintf("invalid waitMode %q: must be 'selector', 'navigation', 'network_idle', or 'timeout'", arguments.WaitMode)), nil
+		}
+		if arguments.TimeoutMilliseconds <= 0 {
+			arguments.TimeoutMilliseconds = 30000
+		}
+
+	// multi-step execution
+	case "executeSteps":
+		if len(arguments.Steps) == 0 {
+			return jsonError("steps is required and must not be empty for executeSteps action"), nil
+		}
+		if len(arguments.Steps) > maxSteps {
+			return jsonError(fmt.Sprintf("too many steps (%d, max %d)", len(arguments.Steps), maxSteps)), nil
+		}
+		if arguments.TimeoutMilliseconds <= 0 {
+			arguments.TimeoutMilliseconds = 120000
 		}
 
 	default:
@@ -415,7 +539,11 @@ func (self *tabTool) Execute(ctx context.Context, rawArguments string) (string, 
 		case "fetch":
 			out = truncateFetchResult(out, maxFetchResultSize)
 		case "snapshot":
-			out = truncateSnapshot(out, maxDomResultSize)
+			if arguments.Mode == "interactive" {
+				out = truncateInteractiveSnapshot(out, maxDomResultSize)
+			} else {
+				out = truncateSnapshot(out, maxDomResultSize)
+			}
 		case "querySelector":
 			out = truncateQuerySelector(out, maxDomResultSize)
 		}
@@ -509,6 +637,27 @@ func truncateQuerySelector(raw string, maxSize int) string {
 		qs.Results = qs.Results[:len(qs.Results)-1]
 	}
 	out, _ := json.Marshal(qs)
+	return string(out)
+}
+
+// truncateInteractiveSnapshot caps the tree field to maxSize bytes.
+func truncateInteractiveSnapshot(raw string, maxSize int) string {
+	var snap struct {
+		Tree      string `json:"tree"`
+		RefCount  int    `json:"refCount"`
+		PageURL   string `json:"pageUrl,omitempty"`
+		Title     string `json:"title,omitempty"`
+		Truncated bool   `json:"truncated"`
+	}
+	if json.Unmarshal([]byte(raw), &snap) != nil {
+		return raw
+	}
+	if len(snap.Tree) <= maxSize {
+		return raw
+	}
+	snap.Tree = snap.Tree[:maxSize]
+	snap.Truncated = true
+	out, _ := json.Marshal(snap)
 	return string(out)
 }
 

@@ -10,8 +10,11 @@ import type {
   PageFetchResponse,
   PageActionRequest,
   PageActionResponse,
+  PageStepsRequest,
+  PageStepsResponse,
   BridgeResponse,
   BridgeActionResponse,
+  BridgeStepsResponse,
 } from "../shared/types";
 
 // Nonce is set by the background SW when injecting. It is stored per-tab
@@ -27,20 +30,39 @@ const pendingActions = new Map<
   (response: BridgeActionResponse) => void
 >();
 
+// Pending steps requests: requestId → resolve callback
+const pendingSteps = new Map<string, (response: BridgeStepsResponse) => void>();
+
 // Listen for messages from the background SW.
 chrome.runtime.onMessage.addListener(
   (
-    message: PageFetchRequest | PageActionRequest,
+    message: PageFetchRequest | PageActionRequest | PageStepsRequest,
     _sender: chrome.runtime.MessageSender,
-    sendResponse: (response: PageFetchResponse | PageActionResponse) => void,
+    sendResponse: (
+      response: PageFetchResponse | PageActionResponse | PageStepsResponse,
+    ) => void,
   ) => {
     if (message.type === "page_fetch_request") {
-      handleFetchRequest(message as PageFetchRequest, sendResponse);
+      handleFetchRequest(
+        message as PageFetchRequest,
+        sendResponse as (response: PageFetchResponse) => void,
+      );
       return true; // Keep the message channel open for async response.
     }
 
     if (message.type === "page_action_request") {
-      handleActionRequest(message as PageActionRequest, sendResponse);
+      handleActionRequest(
+        message as PageActionRequest,
+        sendResponse as (response: PageActionResponse) => void,
+      );
+      return true;
+    }
+
+    if (message.type === "page_steps_request") {
+      handleStepsRequest(
+        message as PageStepsRequest,
+        sendResponse as (response: PageStepsResponse) => void,
+      );
       return true;
     }
 
@@ -112,10 +134,15 @@ function handleActionRequest(
   currentNonce = message.nonce;
   const requestId = message.requestId;
 
+  // Use a longer timeout for wait actions (they can block up to 30s+ themselves).
+  const actionTimeoutMs =
+    message.action === "wait"
+      ? ((message.params.timeoutMs as number) || 30000) + 10000
+      : 35000;
+
   const promise = new Promise<BridgeActionResponse>((resolve) => {
     pendingActions.set(requestId, resolve);
 
-    // 30 second timeout for page actions.
     setTimeout(() => {
       if (pendingActions.has(requestId)) {
         pendingActions.delete(requestId);
@@ -126,7 +153,7 @@ function handleActionRequest(
           error: "page bridge timeout",
         });
       }
-    }, 35000);
+    }, actionTimeoutMs);
   });
 
   // Forward to page bridge via postMessage.
@@ -144,6 +171,58 @@ function handleActionRequest(
   promise.then((bridgeResp) => {
     const response: PageActionResponse = {
       type: "page_action_response",
+      requestId,
+      result:
+        bridgeResp.result != null
+          ? JSON.stringify(bridgeResp.result)
+          : undefined,
+      error: bridgeResp.error,
+    };
+    sendResponse(response);
+  });
+}
+
+function handleStepsRequest(
+  message: PageStepsRequest,
+  sendResponse: (response: PageStepsResponse) => void,
+): void {
+  currentNonce = message.nonce;
+  const requestId = message.requestId;
+
+  const promise = new Promise<BridgeStepsResponse>((resolve) => {
+    pendingSteps.set(requestId, resolve);
+
+    // Timeout: steps can take a while (up to 2 minutes by default).
+    setTimeout(
+      () => {
+        if (pendingSteps.has(requestId)) {
+          pendingSteps.delete(requestId);
+          resolve({
+            __tn: currentNonce,
+            type: "steps_res",
+            id: requestId,
+            error: "page bridge timeout",
+          });
+        }
+      },
+      (message.timeoutMs || 120000) + 10000,
+    );
+  });
+
+  // Forward to page bridge via postMessage.
+  window.postMessage(
+    {
+      __tn: currentNonce,
+      type: "steps_req",
+      id: requestId,
+      steps: message.steps,
+    },
+    "*",
+  );
+
+  promise.then((bridgeResp) => {
+    const response: PageStepsResponse = {
+      type: "page_steps_response",
       requestId,
       result:
         bridgeResp.result != null
@@ -176,5 +255,14 @@ window.addEventListener("message", (event: MessageEvent) => {
     if (!resolver) return;
     pendingActions.delete(requestId);
     resolver(data as BridgeActionResponse);
+    return;
+  }
+
+  if (data.type === "steps_res") {
+    const requestId = data.id as string;
+    const resolver = pendingSteps.get(requestId);
+    if (!resolver) return;
+    pendingSteps.delete(requestId);
+    resolver(data as BridgeStepsResponse);
   }
 });

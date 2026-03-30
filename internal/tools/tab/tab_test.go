@@ -716,9 +716,321 @@ func TestTabTool_Eval_ErrorResult(t *testing.T) {
 	}
 }
 
+// ---- ref-based action tests ----
+
+func TestTabTool_ClickRef_RefRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"clickRef"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "ref is required") {
+		t.Errorf("expected 'ref is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_ClickRef_HappyPath(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"ref":1,"role":"button","name":"Submit","clicked":true}`})
+
+	result, err := tool.Execute(ctx, `{"action":"clickRef","ref":1}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"clicked":true`) {
+		t.Errorf("expected clicked:true in result, got: %s", result)
+	}
+}
+
+func TestTabTool_TypeRef_RefRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"typeRef","text":"hello"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "ref is required") {
+		t.Errorf("expected 'ref is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_TypeRef_TextRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"typeRef","ref":1}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "text is required") {
+		t.Errorf("expected 'text is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_TypeRef_HappyPath(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"ref":2,"role":"textbox","text":"hello","clearFirst":false}`})
+
+	result, err := tool.Execute(ctx, `{"action":"typeRef","ref":2,"text":"hello"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"text":"hello"`) {
+		t.Errorf("expected text in result, got: %s", result)
+	}
+}
+
+func TestTabTool_HoverRef_RefRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"hoverRef"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "ref is required") {
+		t.Errorf("expected 'ref is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_SelectOption_RefRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"selectOption","optionValue":"foo"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "ref is required") {
+		t.Errorf("expected 'ref is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_SelectOption_OptionRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"selectOption","ref":1}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "either optionValue or optionIndex") {
+		t.Errorf("expected option required error, got: %s", result)
+	}
+}
+
+func TestTabTool_SelectOption_HappyPath(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"ref":3,"selectedValue":"bar","selectedIndex":1,"selectedText":"Bar"}`})
+
+	result, err := tool.Execute(ctx, `{"action":"selectOption","ref":3,"optionValue":"bar"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"selectedValue":"bar"`) {
+		t.Errorf("expected selectedValue in result, got: %s", result)
+	}
+}
+
+// ---- wait action tests ----
+
+func TestTabTool_Wait_ModeRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"wait"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "waitMode is required") {
+		t.Errorf("expected 'waitMode is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_Wait_InvalidMode(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"wait","waitMode":"magic"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "invalid waitMode") {
+		t.Errorf("expected 'invalid waitMode' error, got: %s", result)
+	}
+}
+
+func TestTabTool_Wait_SelectorRequiresSelector(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"wait","waitMode":"selector"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "selector is required") {
+		t.Errorf("expected 'selector is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_Wait_NavigationHappyPath(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"mode":"navigation","readyState":"complete","elapsed":150}`})
+
+	result, err := tool.Execute(ctx, `{"action":"wait","waitMode":"navigation"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"mode":"navigation"`) {
+		t.Errorf("expected mode:navigation in result, got: %s", result)
+	}
+}
+
+// ---- executeSteps action tests ----
+
+func TestTabTool_ExecuteSteps_StepsRequired(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	result, err := tool.Execute(ctx, `{"action":"executeSteps"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "steps is required") {
+		t.Errorf("expected 'steps is required' error, got: %s", result)
+	}
+}
+
+func TestTabTool_ExecuteSteps_TooManySteps(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+
+	tool := &tabTool{}
+	// Build 51 steps.
+	var steps []string
+	for i := 0; i <= maxSteps; i++ {
+		steps = append(steps, `{"action":"snapshot"}`)
+	}
+	result, err := tool.Execute(ctx, `{"action":"executeSteps","steps":[`+strings.Join(steps, ",")+`]}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(parseError(result), "too many steps") {
+		t.Errorf("expected 'too many steps' error, got: %s", result)
+	}
+}
+
+func TestTabTool_ExecuteSteps_HappyPath(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	resolvePending(broker, tabs.ToolCallResult{
+		Result: `{"stepsExecuted":2,"totalSteps":2,"results":[{"step":1,"action":"snapshot"},{"step":2,"action":"clickRef"}]}`,
+	})
+
+	result, err := tool.Execute(ctx, `{"action":"executeSteps","steps":[{"action":"snapshot","mode":"interactive"},{"action":"clickRef","ref":1}]}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"stepsExecuted":2`) {
+		t.Errorf("expected stepsExecuted:2 in result, got: %s", result)
+	}
+}
+
+// ---- interactive snapshot tests ----
+
+func TestTabTool_Snapshot_InteractiveMode(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	resolvePending(broker, tabs.ToolCallResult{
+		Result: `{"tree":"page: Test\n  [ref=1] button \"Click\"","refCount":1,"pageUrl":"https://example.com","title":"Test","truncated":false}`,
+	})
+
+	result, err := tool.Execute(ctx, `{"action":"snapshot","mode":"interactive"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "ref=1") {
+		t.Errorf("expected ref marker in result, got: %s", result)
+	}
+	if !strings.Contains(result, `"refCount":1`) {
+		t.Errorf("expected refCount in result, got: %s", result)
+	}
+}
+
+func TestTabTool_Snapshot_InteractiveTruncated(t *testing.T) {
+	broker := attachedBroker()
+	ctx := testContext(broker)
+	tool := &tabTool{}
+
+	bigTree := strings.Repeat("x", maxDomResultSize+100)
+	resolvePending(broker, tabs.ToolCallResult{
+		Result: `{"tree":"` + bigTree + `","refCount":5,"pageUrl":"https://example.com","title":"Test","truncated":false}`,
+	})
+
+	result, err := tool.Execute(ctx, `{"action":"snapshot","mode":"interactive"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var snap struct {
+		Tree      string `json:"tree"`
+		RefCount  int    `json:"refCount"`
+		Truncated bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(result), &snap); err != nil {
+		t.Fatalf("failed to parse result JSON: %v", err)
+	}
+	if !snap.Truncated {
+		t.Error("expected truncated to be true")
+	}
+	if len(snap.Tree) != maxDomResultSize {
+		t.Errorf("expected tree length %d, got %d", maxDomResultSize, len(snap.Tree))
+	}
+}
+
 // ---- tool definition test ----
 
-func TestTabTool_Definition_ContainsNewActions(t *testing.T) {
+func TestTabTool_Definition_ContainsAllActions(t *testing.T) {
 	tool := &tabTool{}
 	def := tool.Definition()
 
@@ -731,6 +1043,8 @@ func TestTabTool_Definition_ContainsNewActions(t *testing.T) {
 		"fetch": true, "listCookies": true, "getCookie": true, "setCookie": true, "deleteCookie": true,
 		"getLocalStorage": true, "setLocalStorage": true, "removeLocalStorage": true,
 		"snapshot": true, "querySelector": true, "eval": true,
+		"clickRef": true, "typeRef": true, "hoverRef": true, "selectOption": true,
+		"wait": true, "executeSteps": true,
 	}
 
 	for _, a := range actions {
@@ -745,7 +1059,12 @@ func TestTabTool_Definition_ContainsNewActions(t *testing.T) {
 	}
 
 	// Verify new parameters exist.
-	for _, param := range []string{"key", "value", "selector", "mode", "all", "code", "path", "secure", "httpOnly", "sameSite", "expirationDate"} {
+	for _, param := range []string{
+		"key", "value", "selector", "mode", "all", "code",
+		"path", "secure", "httpOnly", "sameSite", "expirationDate",
+		"ref", "text", "clearFirst", "optionValue", "optionIndex",
+		"waitMode", "steps",
+	} {
 		if _, ok := props[param]; !ok {
 			t.Errorf("missing parameter in definition: %s", param)
 		}

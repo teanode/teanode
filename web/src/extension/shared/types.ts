@@ -55,7 +55,12 @@ export type PageActionType =
   | "removeLocalStorage"
   | "snapshot"
   | "querySelector"
-  | "eval";
+  | "eval"
+  | "clickRef"
+  | "typeRef"
+  | "hoverRef"
+  | "selectOption"
+  | "wait";
 
 /** Content script → Background SW: page action response */
 export interface PageActionResponse {
@@ -128,6 +133,40 @@ export interface BridgeActionResponse {
   type: "action_res";
   id: string;
   result?: unknown;
+  error?: string;
+}
+
+/** Multi-step execution request (content script → page bridge) */
+export interface BridgeStepsRequest {
+  __tn: string; // nonce
+  type: "steps_req";
+  id: string;
+  steps: Array<Record<string, unknown>>;
+}
+
+/** Multi-step execution response (page bridge → content script) */
+export interface BridgeStepsResponse {
+  __tn: string; // nonce
+  type: "steps_res";
+  id: string;
+  result?: unknown;
+  error?: string;
+}
+
+/** Background SW → Content script: multi-step execution request */
+export interface PageStepsRequest {
+  type: "page_steps_request";
+  requestId: string;
+  nonce: string;
+  steps: Array<Record<string, unknown>>;
+  timeoutMs: number;
+}
+
+/** Content script → Background SW: multi-step execution response */
+export interface PageStepsResponse {
+  type: "page_steps_response";
+  requestId: string;
+  result?: string; // JSON-serialized result
   error?: string;
 }
 
