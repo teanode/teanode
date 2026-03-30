@@ -58,31 +58,7 @@ func executeInterceptStart(ctx context.Context, browser browsers.Browser, connec
 	}
 
 	// Inject a PerformanceObserver to track resource loads with a URL filter.
-	script := fmt.Sprintf(`(() => {
-		if (window.__teanodeNetIntercept) {
-			window.__teanodeNetIntercept.disconnect();
-		}
-		window.__teanodeNetCaptures = [];
-		const pattern = %q;
-		const regex = pattern ? new RegExp(pattern) : null;
-		window.__teanodeNetIntercept = new PerformanceObserver((list) => {
-			for (const entry of list.getEntries()) {
-				if (entry.entryType === 'resource') {
-					if (!regex || regex.test(entry.name)) {
-						window.__teanodeNetCaptures.push({
-							url: entry.name,
-							method: entry.initiatorType,
-							duration: Math.round(entry.duration),
-							transferSize: entry.transferSize || 0,
-							status: entry.responseStatus || 0,
-						});
-					}
-				}
-			}
-		});
-		window.__teanodeNetIntercept.observe({type: 'resource', buffered: false});
-		return true;
-	})()`, urlPattern)
+	script := fmt.Sprintf(interceptStartScriptFormat, fmt.Sprintf("%q", urlPattern))
 
 	_, err = browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
 		"expression":    script,
@@ -118,15 +94,7 @@ func executeInterceptStop(ctx context.Context, browser browsers.Browser, connect
 
 	// Clean up the observer.
 	_, _ = browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
-		"expression": `(() => {
-			if (window.__teanodeNetIntercept) {
-				window.__teanodeNetIntercept.disconnect();
-				delete window.__teanodeNetIntercept;
-			}
-			const captures = window.__teanodeNetCaptures || [];
-			delete window.__teanodeNetCaptures;
-			return captures.length;
-		})()`,
+		"expression":    interceptStopScript,
 		"returnByValue": true,
 	}, sessionId)
 

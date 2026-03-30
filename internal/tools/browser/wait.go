@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/teanode/teanode/internal/integrations/browsers"
@@ -185,18 +184,8 @@ func waitForNetworkIdle(ctx context.Context, browser browsers.Browser, sessionId
 }
 
 func readNavigationWaitState(ctx context.Context, browser browsers.Browser, sessionId string) (*navigationWaitState, error) {
-	expression := `(() => {
-		const navigationEntries = performance.getEntriesByType('navigation');
-		return {
-			url: location.href,
-			readyState: document.readyState,
-			timeOrigin: performance.timeOrigin || 0,
-			navigationCount: navigationEntries.length,
-		};
-	})()`
-
 	result, err := browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
-		"expression":    expression,
+		"expression":    navigationWaitStateScript,
 		"returnByValue": true,
 	}, sessionId)
 	if err != nil {
@@ -216,7 +205,7 @@ func readNavigationWaitState(ctx context.Context, browser browsers.Browser, sess
 
 func ensureNetworkIdleTracker(ctx context.Context, browser browsers.Browser, sessionId string) (*networkIdleState, error) {
 	result, err := browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
-		"expression":    buildNetworkIdleTrackerExpression(),
+		"expression":    networkIdleTrackerScript,
 		"returnByValue": true,
 	}, sessionId)
 	if err != nil {
@@ -235,65 +224,6 @@ func ensureNetworkIdleTracker(ctx context.Context, browser browsers.Browser, ses
 		response.Result.Value.IdleThresholdMs = 500
 	}
 	return &response.Result.Value, nil
-}
-
-func buildNetworkIdleTrackerExpression() string {
-	lines := []string{
-		"(() => {",
-		"  const trackerKey = '__teanodeNetworkIdleTracker';",
-		"  const now = () => performance.now();",
-		"  if (!window[trackerKey]) {",
-		"    const tracker = { activeRequests: 0, lastActivityAt: now(), idleThresholdMs: 500 };",
-		"    const markActivity = () => { tracker.lastActivityAt = now(); };",
-		"    const beginRequest = () => { tracker.activeRequests += 1; markActivity(); };",
-		"    const endRequest = () => { tracker.activeRequests = Math.max(0, tracker.activeRequests - 1); markActivity(); };",
-		"",
-		"    const originalFetch = window.fetch?.bind(window);",
-		"    if (originalFetch && !window.__teanodeNetworkIdleFetchWrapped) {",
-		"      window.fetch = (...args) => {",
-		"        beginRequest();",
-		"        return originalFetch(...args).finally(() => endRequest());",
-		"      };",
-		"      window.__teanodeNetworkIdleFetchWrapped = true;",
-		"    }",
-		"",
-		"    const xhrPrototype = window.XMLHttpRequest?.prototype;",
-		"    if (xhrPrototype && !xhrPrototype.__teanodeNetworkIdleWrapped) {",
-		"      const originalOpen = xhrPrototype.open;",
-		"      const originalSend = xhrPrototype.send;",
-		"      xhrPrototype.open = function (...args) {",
-		"        this.__teanodeNetworkIdleTracked = false;",
-		"        return originalOpen.apply(this, args);",
-		"      };",
-		"      xhrPrototype.send = function (...args) {",
-		"        if (!this.__teanodeNetworkIdleTracked) {",
-		"          this.__teanodeNetworkIdleTracked = true;",
-		"          beginRequest();",
-		"          this.addEventListener('loadend', () => {",
-		"            if (this.__teanodeNetworkIdleTracked) {",
-		"              this.__teanodeNetworkIdleTracked = false;",
-		"              endRequest();",
-		"            }",
-		"          }, { once: true });",
-		"        }",
-		"        return originalSend.apply(this, args);",
-		"      };",
-		"      xhrPrototype.__teanodeNetworkIdleWrapped = true;",
-		"    }",
-		"",
-		"    window[trackerKey] = tracker;",
-		"  }",
-		"",
-		"  return {",
-		"    activeRequests: window[trackerKey].activeRequests || 0,",
-		"    lastActivityAt: window[trackerKey].lastActivityAt || now(),",
-		"    currentTime: now(),",
-		"    readyState: document.readyState,",
-		"    idleThresholdMs: window[trackerKey].idleThresholdMs || 500,",
-		"  };",
-		"})()",
-	}
-	return strings.Join(lines, "\n")
 }
 
 func waitForTimeout(ctx context.Context, duration time.Duration) (string, error) {
