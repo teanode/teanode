@@ -6,6 +6,8 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-03-30
+
 ### Added
 
 - Self-update system: check, download, verify (SHA256), and apply updates from GitHub Releases.
@@ -18,6 +20,17 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 - Container environment detection to disable self-update in Docker/Kubernetes/LXC.
 - Platform-specific binary replacement: atomic rename on Unix, rename+copy on Windows.
 - Backup of current binary before apply with automatic restore on failure.
+- Settings > Updates admin page for checking status and applying updates from the web UI.
+- `node` tool update controls for checking cached/fresh update status and applying updates when available.
+
+### Changed
+
+- Unified the `node` tool update flow under `action: "update"` with `forceCheck` and `applyIfAvailable` arguments.
+- Update settings page now shows when the local build is ahead of the latest tagged release.
+
+### Fixed
+
+- Fixed the Settings update page showing "The updater is not enabled on this instance." after a browser refresh before backend connection state was ready.
 
 ## [0.1.4] - 2026-03-30
 
