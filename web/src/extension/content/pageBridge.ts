@@ -1240,11 +1240,31 @@ function ensureNetworkIdleTracker(): NetworkIdleTracker {
     | NetworkIdleXMLHttpRequestPrototype
     | undefined;
   if (xhrPrototype && !xhrPrototype.__teanodeNetworkIdleWrapped) {
-    const originalOpen = xhrPrototype.open;
+    const originalOpen = xhrPrototype.open as {
+      (this: XMLHttpRequest, method: string, url: string | URL): void;
+      (
+        this: XMLHttpRequest,
+        method: string,
+        url: string | URL,
+        async: boolean,
+        username?: string | null,
+        password?: string | null,
+      ): void;
+    };
     const originalSend = xhrPrototype.send;
-    xhrPrototype.open = function (...args) {
+    xhrPrototype.open = function (
+      this: XMLHttpRequest,
+      method: string,
+      url: string | URL,
+      async?: boolean,
+      username?: string | null,
+      password?: string | null,
+    ) {
       (this as TrackedXMLHttpRequest).__teanodeNetworkIdleTracked = false;
-      return originalOpen.apply(this, args);
+      if (async === undefined) {
+        return originalOpen.call(this, method, url, true);
+      }
+      return originalOpen.call(this, method, url, async, username, password);
     };
     xhrPrototype.send = function (...args) {
       const request = this as TrackedXMLHttpRequest;
