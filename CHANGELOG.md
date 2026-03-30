@@ -4,6 +4,32 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.1.4] - 2026-03-30
+
+### Added
+
+- AI-friendly interactive browser snapshots with stable `[ref=N]` markers for the headless `browser` tool.
+- Ref-based browser actions: `click_ref`, `type_ref`, `hover_ref`, and `select_option`.
+- Browser wait modes for `selector`, `navigation`, `network_idle`, and `timeout`.
+- Multi-step browser execution via `browser.execute_script`.
+- Named browser tab/instance support in `browser_tabs` with `name` and `resolve`.
+- Lightweight browser-side network capture via `intercept_start`, `get_intercepted`, and `intercept_stop`.
+- AI-friendly interactive snapshot/ref support for the attached-tab `tab` tool, including `clickRef`, `typeRef`, `hoverRef`, `selectOption`, `wait`, and `executeSteps`.
+- Embedded browser page scripts loaded from standalone JS files via Go `embed` for snapshot, wait, idle-tracking, and interception helpers.
+
+### Changed
+
+- Replaced the browser snapshot pipeline's unreliable accessibility-tree dependency with a DOM-driven interactive snapshot/ref model.
+- Hardened browser ref lifecycle cleanup, tab naming state, navigation wait semantics, and network-idle tracking behavior.
+- Made `get_intercepted` non-destructive while keeping `intercept_stop` as the destructive drain-and-stop path.
+- Improved Chrome extension request correlation so overlapping requests are tracked safely.
+- Cleaned up browser tooling internals by extracting larger page-side JavaScript snippets out of Go source into embedded JS assets.
+
+### Fixed
+
+- Fixed headless browser interactive snapshots returning only `RootWebArea` with no actionable refs in some environments.
+- Fixed extension/frontend build and format issues around the page bridge XHR/network-idle tracking changes.
+
 ## [0.1.3] - 2026-03-22
 
 ### Added
