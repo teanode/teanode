@@ -1124,10 +1124,7 @@ function waitForNetworkIdle(timeoutMs: number): Promise<unknown> {
       const state = readNetworkIdleWaitState();
       const idleForMs = state.currentTime - state.lastActivityAt;
 
-      if (
-        state.activeRequests === 0 &&
-        idleForMs >= state.idleThresholdMs
-      ) {
+      if (state.activeRequests === 0 && idleForMs >= state.idleThresholdMs) {
         resolve({
           mode: "network_idle",
           activeRequests: state.activeRequests,
