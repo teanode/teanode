@@ -113,7 +113,7 @@ func (self *Headless) Connect(ctx context.Context) error {
 	}
 
 	var targetList struct {
-		TargetInformations []targetInformation `json:"targetInformations"`
+		TargetInformations []targetInformation `json:"targetInfos"`
 	}
 	if err := json.Unmarshal(targetResult, &targetList); err == nil {
 		log.Infof("discovered %d targets", len(targetList.TargetInformations))
@@ -583,7 +583,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 				Type     string `json:"type"`
 				URL      string `json:"url"`
 				Title    string `json:"title"`
-			} `json:"targetInformation"`
+			} `json:"targetInfo"`
 		}
 		if json.Unmarshal(params, &payload) == nil && payload.SessionID != "" {
 			self.mutex.Lock()
@@ -617,13 +617,13 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 			log.Infof("target detached session=%s", payload.SessionID)
 		}
 
-	case "Target.targetInformationChanged":
+	case "Target.targetInfoChanged":
 		var payload struct {
 			TargetInfo struct {
 				TargetID string `json:"targetId"`
 				URL      string `json:"url"`
 				Title    string `json:"title"`
-			} `json:"targetInformation"`
+			} `json:"targetInfo"`
 		}
 		if json.Unmarshal(params, &payload) == nil {
 			self.mutex.Lock()
@@ -640,7 +640,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 	case "Target.targetCreated":
 		// Auto-attach to new page targets created after Connect().
 		var payload struct {
-			TargetInfo targetInformation `json:"targetInformation"`
+			TargetInfo targetInformation `json:"targetInfo"`
 		}
 		if json.Unmarshal(params, &payload) == nil && payload.TargetInfo.Type == "page" {
 			// Check if we already have this target.

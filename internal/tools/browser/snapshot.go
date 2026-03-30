@@ -53,6 +53,16 @@ func executeEnhancedSnapshot(ctx context.Context, browser browsers.Browser, conn
 		return "", err
 	}
 
+	// Enable the DOM and Accessibility domains so Chrome populates the full
+	// accessibility tree (including backendDOMNodeId on each node). Without
+	// these, getFullAXTree returns only the root web area.
+	if _, err := browser.SendCDPCommand(ctx, "DOM.enable", nil, sessionId); err != nil {
+		return "", fmt.Errorf("enabling DOM domain: %w", err)
+	}
+	if _, err := browser.SendCDPCommand(ctx, "Accessibility.enable", nil, sessionId); err != nil {
+		return "", fmt.Errorf("enabling Accessibility domain: %w", err)
+	}
+
 	result, err := browser.SendCDPCommand(ctx, "Accessibility.getFullAXTree", nil, sessionId)
 	if err != nil {
 		return "", err

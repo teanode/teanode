@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/teanode/teanode/internal/integrations/browsers"
 	"github.com/teanode/teanode/internal/models"
@@ -578,16 +579,23 @@ func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string, 
 		assigner.AssignTargetToUser(user.ID, response.TargetID)
 	}
 
-	// If a name was provided, assign it to the new tab's connection.
-	// We need to find the connectionId for this targetId.
+	// The backend registers the new target asynchronously (via the
+	// Target.targetCreated → attachTarget event flow). Poll briefly so
+	// we can return a usable connectionId and bind the optional name.
 	connectionId := ""
 	if user != nil && user.ID != "" {
 		if scopedBrowser, ok := browser.(browsers.UserScopedBrowser); ok {
-			for _, target := range scopedBrowser.TargetsForUser(user.ID) {
-				if target.TargetID == response.TargetID {
-					connectionId = target.SessionID
+			for attempt := 0; attempt < 10; attempt++ {
+				for _, target := range scopedBrowser.TargetsForUser(user.ID) {
+					if target.TargetID == response.TargetID {
+						connectionId = target.SessionID
+						break
+					}
+				}
+				if connectionId != "" {
 					break
 				}
+				time.Sleep(50 * time.Millisecond)
 			}
 		}
 	}
