@@ -504,6 +504,31 @@
         }
       }
     },
+    "update": {
+      "type": "object",
+      "title": "Update",
+      "properties": {
+        "policy": {
+          "type": "string",
+          "title": "Update Policy",
+          "description": "Controls self-update behavior: notify (check and report), auto (check, download, and apply), or disabled.",
+          "default": "notify",
+          "enum": ["disabled", "notify", "auto"],
+          "x-enumLabels": {
+            "disabled": "Disabled",
+            "notify": "Notify only",
+            "auto": "Auto-apply"
+          }
+        },
+        "checkIntervalHours": {
+          "type": "integer",
+          "title": "Check Interval (hours)",
+          "description": "Hours between automatic update checks.",
+          "default": 6,
+          "minimum": 1
+        }
+      }
+    },
     "secrets": {
       "type": "object",
       "title": "Secrets",
@@ -565,6 +590,12 @@
       "description": "Chat bot integrations.",
       "descriptionKey": "schema.config.sections.channels.description",
       "path": "channels"
+    },
+    {
+      "id": "update",
+      "title": "Update",
+      "description": "Self-update policy and schedule.",
+      "path": "update"
     }
   ]
 }

@@ -217,6 +217,14 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 	case "toolPolicies.update":
 		return self.handleToolPoliciesUpdate(frame)
 
+	// Update.
+	case "update.status":
+		return self.handleUpdateStatus(frame)
+	case "update.check":
+		return self.handleUpdateCheck(frame)
+	case "update.apply":
+		return self.handleUpdateApply(frame)
+
 	default:
 		return nil, rpcError(404, "unknown method: "+frame.Method)
 	}

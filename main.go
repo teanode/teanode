@@ -64,6 +64,7 @@ func main() {
 			cmd.NewStatusCommand(),
 			cmd.NewRestartCommand(),
 			cmd.NewTerminalCommand(),
+			cmd.NewUpdateCommand(),
 		},
 	}
 

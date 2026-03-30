@@ -229,6 +229,7 @@ export function AppProvider({
       backend.defaultProviderModelName,
       backend.conversationModel,
       backend.audioCapability,
+      backend.updateAvailable,
       backend.jobs,
       backend.jobsLoading,
       backend.hasMoreHistory,

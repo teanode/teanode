@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/teanode/teanode/internal/updater"
 	"github.com/teanode/teanode/internal/version"
 )
 
@@ -40,7 +41,7 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) (interface{},
 		}
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"version":                  version.Version(),
 		"capabilities":             capabilities,
 		"defaultProviderModelName": defaultProviderModelName,
@@ -49,7 +50,21 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) (interface{},
 		"defaultConversationId":    self.api.coordinator.EnsureDefaultConversation(self.userId(), defaultAgentId),
 		"isAdmin":                  self.isAdmin(),
 		"userId":                   self.userId(),
-	}, nil
+	}
+
+	// Include update status if available and user is admin.
+	if self.isAdmin() {
+		if updateManager := updater.UpdaterFromContext(self.ctx); updateManager != nil {
+			status := updateManager.Status()
+			if status.UpdateAvailable {
+				result["updateAvailable"] = map[string]interface{}{
+					"version": status.LatestVersion,
+				}
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // handleHealth: health check.
