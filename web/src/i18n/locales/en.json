@@ -390,6 +390,7 @@
     "lastChecked": "Last checked",
     "never": "Never",
     "upToDate": "Up to date",
+    "aheadOfRelease": "Ahead of release",
     "updateAvailable": "Update available",
     "updateAvailableVersion": "Version {{version}} is available",
     "checking": "Checking for updates...",

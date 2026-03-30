@@ -67,7 +67,7 @@ export default function SettingsUpdatesPage() {
 
   useEffect(() => {
     void loadStatus();
-  }, [loadStatus]);
+  }, [loadStatus, backend.connected, backend.isAdmin]);
 
   const handleCheck = useCallback(async () => {
     setChecking(true);
@@ -201,6 +201,13 @@ export default function SettingsUpdatesPage() {
                   <Chip
                     label={t("updates.updateAvailable")}
                     color="warning"
+                    size="small"
+                    sx={{ height: 20, fontSize: "0.7rem" }}
+                  />
+                ) : status?.aheadOfRelease ? (
+                  <Chip
+                    label={t("updates.aheadOfRelease")}
+                    color="info"
                     size="small"
                     sx={{ height: 20, fontSize: "0.7rem" }}
                   />

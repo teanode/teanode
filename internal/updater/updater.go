@@ -44,6 +44,9 @@ type Status struct {
 	LatestVersion string `json:"latestVersion,omitempty"`
 	// UpdateAvailable is true when LatestVersion > CurrentVersion.
 	UpdateAvailable bool `json:"updateAvailable"`
+	// AheadOfRelease is true when the local build has commits beyond the
+	// latest release tag (e.g. a git-describe version like v0.1.4-2-g2191b71).
+	AheadOfRelease bool `json:"aheadOfRelease"`
 	// LastChecked is the time of the most recent check.
 	LastChecked *time.Time `json:"lastChecked,omitempty"`
 	// Error is the last error message, if any.
@@ -336,6 +339,7 @@ func (self *Updater) check(ctx context.Context) {
 	}
 
 	self.status.UpdateAvailable = newer
+	self.status.AheadOfRelease = IsAheadOfRelease(release.Version(), version.Version())
 	if newer {
 		self.status.Available = release
 		log.Infof("updater: update available: %s → %s", version.Version(), release.Version())

@@ -70,6 +70,7 @@ export interface UpdateStatus {
   currentVersion: string;
   latestVersion?: string;
   updateAvailable: boolean;
+  aheadOfRelease: boolean;
   lastChecked?: string;
   error?: string;
   isContainer: boolean;
