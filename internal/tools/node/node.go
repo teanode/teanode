@@ -28,14 +28,22 @@ func (self *nodeTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name:        "node",
-			Description: "Manage the node process. Actions: restart (graceful restart with same configuration), terminate (shut down the node), check_update (check for available updates), apply_update (download and apply an available update, then restart).",
+			Description: "Manage the node process. Actions: restart (graceful restart with same configuration), terminate (shut down the node), update (check for and optionally apply available updates).",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"restart", "terminate", "check_update", "apply_update"},
+						"enum":        []string{"restart", "terminate", "update"},
 						"description": "The action to perform.",
+					},
+					"forceCheck": map[string]interface{}{
+						"type":        "boolean",
+						"description": "When action is \"update\": if true, always perform a fresh remote check; if false or omitted, use cached check results when available.",
+					},
+					"applyIfAvailable": map[string]interface{}{
+						"type":        "boolean",
+						"description": "When action is \"update\": if true, download and apply the update when one is available, then restart; returns a no_update status if the node is already up to date.",
 					},
 				},
 				"required": []string{"action"},
@@ -45,7 +53,7 @@ func (self *nodeTool) Definition() providers.ToolDefinition {
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"description": "The lifecycle action that was scheduled.",
+						"description": "The action that was performed.",
 					},
 					"status": map[string]interface{}{
 						"type":        "string",
@@ -74,17 +82,17 @@ func (self *nodeTool) Execute(ctx context.Context, rawArguments string) (string,
 	}
 
 	var arguments struct {
-		Action string `json:"action"`
+		Action           string `json:"action"`
+		ForceCheck       bool   `json:"forceCheck"`
+		ApplyIfAvailable bool   `json:"applyIfAvailable"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
 		return "", fmt.Errorf("parsing arguments: %w", err)
 	}
 
 	switch arguments.Action {
-	case "check_update":
-		return self.executeCheckUpdate(ctx)
-	case "apply_update":
-		return self.executeApplyUpdate(ctx)
+	case "update":
+		return self.executeUpdate(ctx, arguments.ForceCheck, arguments.ApplyIfAvailable)
 	default:
 		return self.executeLifecycle(ctx, arguments.Action)
 	}
@@ -120,16 +128,57 @@ func (self *nodeTool) executeLifecycle(ctx context.Context, actionName string) (
 	return string(result), nil
 }
 
-func (self *nodeTool) executeCheckUpdate(ctx context.Context) (string, error) {
+func (self *nodeTool) executeUpdate(ctx context.Context, forceCheck bool, applyIfAvailable bool) (string, error) {
 	updateManager := updater.UpdaterFromContext(ctx)
 	if updateManager == nil {
 		return "", fmt.Errorf("updater is not available")
 	}
 
-	status := updateManager.Check(ctx)
+	// Resolve update status: force a fresh remote check, use cache, or
+	// fall back to a remote check when no cached result exists.
+	var status updater.Status
+	if forceCheck {
+		status = updateManager.Check(ctx)
+	} else {
+		status = updateManager.Status()
+		if status.LastChecked == nil {
+			status = updateManager.Check(ctx)
+		}
+	}
 
+	// Apply the update if requested.
+	if applyIfAvailable {
+		if !status.UpdateAvailable {
+			result, _ := json.Marshal(map[string]interface{}{
+				"action":          "update",
+				"status":          "no_update",
+				"currentVersion":  status.CurrentVersion,
+				"updateAvailable": false,
+				"message":         "No update available to apply.",
+			})
+			return string(result), nil
+		}
+
+		if err := updateManager.Apply(ctx); err != nil {
+			result, _ := json.Marshal(map[string]interface{}{
+				"action":  "update",
+				"status":  "error",
+				"message": err.Error(),
+			})
+			return string(result), nil
+		}
+
+		result, _ := json.Marshal(map[string]interface{}{
+			"action":  "update",
+			"status":  "applied",
+			"message": "Update applied successfully. The node will restart momentarily. The full conversation history is preserved — you will have complete context when the conversation resumes.",
+		})
+		return string(result), nil
+	}
+
+	// Check-only: return structured status.
 	response := map[string]interface{}{
-		"action":          "check_update",
+		"action":          "update",
 		"currentVersion":  status.CurrentVersion,
 		"updateAvailable": status.UpdateAvailable,
 		"policy":          string(status.Policy),
@@ -148,28 +197,5 @@ func (self *nodeTool) executeCheckUpdate(ctx context.Context) (string, error) {
 	}
 
 	result, _ := json.Marshal(response)
-	return string(result), nil
-}
-
-func (self *nodeTool) executeApplyUpdate(ctx context.Context) (string, error) {
-	updateManager := updater.UpdaterFromContext(ctx)
-	if updateManager == nil {
-		return "", fmt.Errorf("updater is not available")
-	}
-
-	if err := updateManager.Apply(ctx); err != nil {
-		result, _ := json.Marshal(map[string]interface{}{
-			"action":  "apply_update",
-			"status":  "error",
-			"message": err.Error(),
-		})
-		return string(result), nil
-	}
-
-	result, _ := json.Marshal(map[string]interface{}{
-		"action":  "apply_update",
-		"status":  "applied",
-		"message": "Update applied successfully. The node will restart momentarily. The full conversation history is preserved — you will have complete context when the conversation resumes.",
-	})
 	return string(result), nil
 }
