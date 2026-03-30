@@ -377,21 +377,23 @@ func TestBrowserTabsToolDefinition(t *testing.T) {
 
 func TestBrowserToolExecuteSnapshot(t *testing.T) {
 	mock := newMockBrowser()
-	// Set up the Accessibility.getFullAXTree response.
-	axTree := map[string]interface{}{
-		"nodes": []map[string]interface{}{
-			{"nodeId": "root", "role": map[string]interface{}{"value": "WebArea"}, "name": map[string]interface{}{"value": "Test"}, "childIds": []string{"btn"}},
-			{"nodeId": "btn", "parentId": "root", "role": map[string]interface{}{"value": "button"}, "name": map[string]interface{}{"value": "Click Me"}, "backendDOMNodeId": 42},
-		},
-	}
-	data, _ := json.Marshal(axTree)
-	mock.responses["Accessibility.getFullAXTree"] = data
 
-	// Set up Runtime.evaluate for page metadata.
-	metadataValue, _ := json.Marshal(`{"url":"https://example.com","title":"Test Page"}`)
+	// Set up the Runtime.evaluate response for the DOM snapshot script.
+	// The DOM walker returns an object with tree, refCount, refs, pageUrl, title.
+	snapshotValue := map[string]interface{}{
+		"tree":     "RootWebArea \"Test Page\"\n  [ref=1] button \"Click Me\"\n  [ref=2] textbox \"Email\" value=\"\"",
+		"refCount": 2,
+		"refs": []map[string]interface{}{
+			{"role": "button", "name": "Click Me"},
+			{"role": "textbox", "name": "Email"},
+		},
+		"pageUrl": "https://example.com",
+		"title":   "Test Page",
+	}
 	evalResponse := map[string]interface{}{
 		"result": map[string]interface{}{
-			"value": json.RawMessage(metadataValue),
+			"type":  "object",
+			"value": snapshotValue,
 		},
 	}
 	evalData, _ := json.Marshal(evalResponse)
@@ -409,11 +411,20 @@ func TestBrowserToolExecuteSnapshot(t *testing.T) {
 		t.Fatalf("unmarshal snapshot: %v", err)
 	}
 
-	if snapshot.RefCount != 1 {
-		t.Errorf("expected 1 ref, got %d", snapshot.RefCount)
+	if snapshot.RefCount != 2 {
+		t.Errorf("expected 2 refs, got %d", snapshot.RefCount)
 	}
 	if !containsString(snapshot.Tree, "[ref=1] button") {
 		t.Errorf("tree should contain ref marker for button, got:\n%s", snapshot.Tree)
+	}
+	if !containsString(snapshot.Tree, "[ref=2] textbox") {
+		t.Errorf("tree should contain ref marker for textbox, got:\n%s", snapshot.Tree)
+	}
+	if snapshot.PageURL != "https://example.com" {
+		t.Errorf("expected pageUrl 'https://example.com', got %q", snapshot.PageURL)
+	}
+	if snapshot.Title != "Test Page" {
+		t.Errorf("expected title 'Test Page', got %q", snapshot.Title)
 	}
 }
 
@@ -562,23 +573,24 @@ func TestBrowserTabsNameMissing(t *testing.T) {
 	}
 }
 
-func TestSnapshotCommandSequence(t *testing.T) {
-	// Verify that DOM.getDocument is called between DOM.enable and
-	// Accessibility.getFullAXTree — without it, Chrome returns only
-	// the root web area because the DOM tree hasn't been computed.
+func TestDOMSnapshotUsesRuntimeEvaluate(t *testing.T) {
+	// Verify that the DOM snapshot sends Runtime.evaluate (not AX domain commands).
 	mock := newMockBrowser()
-	axTree := map[string]interface{}{
-		"nodes": []map[string]interface{}{
-			{"nodeId": "root", "role": map[string]interface{}{"value": "RootWebArea"}, "name": map[string]interface{}{"value": ""}, "childIds": []string{}},
+
+	snapshotValue := map[string]interface{}{
+		"tree":     "RootWebArea \"\"",
+		"refCount": 0,
+		"refs":     []map[string]interface{}{},
+		"pageUrl":  "about:blank",
+		"title":    "",
+	}
+	evalResponse := map[string]interface{}{
+		"result": map[string]interface{}{
+			"type":  "object",
+			"value": snapshotValue,
 		},
 	}
-	data, _ := json.Marshal(axTree)
-	mock.responses["Accessibility.getFullAXTree"] = data
-
-	metadataValue, _ := json.Marshal(`{"url":"about:blank","title":""}`)
-	evalData, _ := json.Marshal(map[string]interface{}{
-		"result": map[string]interface{}{"value": json.RawMessage(metadataValue)},
-	})
+	evalData, _ := json.Marshal(evalResponse)
 	mock.responses["Runtime.evaluate"] = evalData
 
 	ctx := contextWithUserAndBrowser(mock)
@@ -588,7 +600,6 @@ func TestSnapshotCommandSequence(t *testing.T) {
 		t.Fatalf("snapshot error: %v", err)
 	}
 
-	// Check command sequence: DOM.enable, DOM.getDocument, Accessibility.enable, Accessibility.getFullAXTree.
 	mock.mutex.Lock()
 	commands := make([]string, len(mock.commands))
 	for index, command := range mock.commands {
@@ -596,36 +607,48 @@ func TestSnapshotCommandSequence(t *testing.T) {
 	}
 	mock.mutex.Unlock()
 
-	expected := []string{"DOM.enable", "DOM.getDocument", "Accessibility.enable", "Accessibility.getFullAXTree"}
-	foundIndex := 0
+	// Should use Runtime.evaluate, NOT Accessibility.getFullAXTree.
+	foundRuntimeEvaluate := false
 	for _, command := range commands {
-		if foundIndex < len(expected) && command == expected[foundIndex] {
-			foundIndex++
+		if command == "Runtime.evaluate" {
+			foundRuntimeEvaluate = true
+		}
+		if command == "Accessibility.getFullAXTree" {
+			t.Error("DOM snapshot should NOT call Accessibility.getFullAXTree")
+		}
+		if command == "DOM.enable" {
+			t.Error("DOM snapshot should NOT call DOM.enable")
+		}
+		if command == "Accessibility.enable" {
+			t.Error("DOM snapshot should NOT call Accessibility.enable")
 		}
 	}
-	if foundIndex != len(expected) {
-		t.Errorf("expected command sequence %v in order, got commands: %v", expected, commands)
+	if !foundRuntimeEvaluate {
+		t.Error("DOM snapshot should call Runtime.evaluate")
 	}
 }
 
-func TestSnapshotPassesFullDepth(t *testing.T) {
-	// Verify that both DOM.getDocument and Accessibility.getFullAXTree are
-	// called with depth=-1. Without this, Chrome returns a shallow tree
-	// (often only RootWebArea) because the default depth is limited.
+func TestDOMSnapshotRefStorePopulation(t *testing.T) {
+	// Verify that the DOM snapshot populates globalRefStore with metadata.
 	mock := newMockBrowser()
-	axTree := map[string]interface{}{
-		"nodes": []map[string]interface{}{
-			{"nodeId": "root", "role": map[string]interface{}{"value": "RootWebArea"}, "name": map[string]interface{}{"value": ""}, "childIds": []string{"btn"}},
-			{"nodeId": "btn", "parentId": "root", "role": map[string]interface{}{"value": "button"}, "name": map[string]interface{}{"value": "OK"}, "backendDOMNodeId": 5},
+
+	snapshotValue := map[string]interface{}{
+		"tree":     "RootWebArea \"Test\"\n  [ref=1] button \"Submit\"\n  [ref=2] textbox \"Name\" value=\"\"",
+		"refCount": 2,
+		"refs": []map[string]interface{}{
+			{"role": "button", "name": "Submit"},
+			{"role": "textbox", "name": "Name"},
+		},
+		"pageUrl": "https://example.com",
+		"title":   "Test",
+	}
+	evalResponse := map[string]interface{}{
+		"result": map[string]interface{}{
+			"type":  "object",
+			"value": snapshotValue,
 		},
 	}
-	data, _ := json.Marshal(axTree)
-	mock.responses["Accessibility.getFullAXTree"] = data
-
-	metadataValue, _ := json.Marshal(`{"url":"about:blank","title":""}`)
-	evalData, _ := json.Marshal(map[string]interface{}{
-		"result": map[string]interface{}{"value": json.RawMessage(metadataValue)},
-	})
+	evalData, _ := json.Marshal(evalResponse)
 	mock.responses["Runtime.evaluate"] = evalData
 
 	ctx := contextWithUserAndBrowser(mock)
@@ -635,43 +658,126 @@ func TestSnapshotPassesFullDepth(t *testing.T) {
 		t.Fatalf("snapshot error: %v", err)
 	}
 
-	mock.mutex.Lock()
-	allCommands := make([]mockCommand, len(mock.commands))
-	copy(allCommands, mock.commands)
-	mock.mutex.Unlock()
-
-	// Helper to extract the depth parameter from a command's parameters.
-	extractDepth := func(parameters interface{}) (int, bool) {
-		params, ok := parameters.(map[string]interface{})
-		if !ok {
-			return 0, false
-		}
-		depth, ok := params["depth"]
-		if !ok {
-			return 0, false
-		}
-		switch value := depth.(type) {
-		case int:
-			return value, true
-		case float64:
-			return int(value), true
-		}
-		return 0, false
+	// Verify ref store was populated.
+	entry1, err := globalRefStore.lookup("session-1", 1)
+	if err != nil {
+		t.Fatalf("ref 1 not in store: %v", err)
+	}
+	if entry1.Role != "button" || entry1.Name != "Submit" {
+		t.Errorf("ref 1: expected button/Submit, got %s/%s", entry1.Role, entry1.Name)
 	}
 
-	for _, command := range allCommands {
-		switch command.Method {
-		case "DOM.getDocument":
-			depth, ok := extractDepth(command.Parameters)
-			if !ok || depth != -1 {
-				t.Errorf("DOM.getDocument should be called with depth=-1, got params: %v", command.Parameters)
-			}
-		case "Accessibility.getFullAXTree":
-			depth, ok := extractDepth(command.Parameters)
-			if !ok || depth != -1 {
-				t.Errorf("Accessibility.getFullAXTree should be called with depth=-1, got params: %v", command.Parameters)
-			}
-		}
+	entry2, err := globalRefStore.lookup("session-1", 2)
+	if err != nil {
+		t.Fatalf("ref 2 not in store: %v", err)
+	}
+	if entry2.Role != "textbox" || entry2.Name != "Name" {
+		t.Errorf("ref 2: expected textbox/Name, got %s/%s", entry2.Role, entry2.Name)
+	}
+
+	// Ref 3 should not exist.
+	_, err = globalRefStore.lookup("session-1", 3)
+	if err == nil {
+		t.Error("ref 3 should not exist")
+	}
+
+	// Cleanup.
+	globalRefStore.clear("session-1")
+}
+
+func TestDOMSnapshotWithSelectOptions(t *testing.T) {
+	// Verify that select options get their own refs.
+	mock := newMockBrowser()
+
+	snapshotValue := map[string]interface{}{
+		"tree":     "RootWebArea \"Test\"\n  [ref=1] combobox \"Color\"\n    [ref=2] option \"Red\" selected\n    [ref=3] option \"Blue\"",
+		"refCount": 3,
+		"refs": []map[string]interface{}{
+			{"role": "combobox", "name": "Color"},
+			{"role": "option", "name": "Red"},
+			{"role": "option", "name": "Blue"},
+		},
+		"pageUrl": "https://example.com",
+		"title":   "Test",
+	}
+	evalResponse := map[string]interface{}{
+		"result": map[string]interface{}{
+			"type":  "object",
+			"value": snapshotValue,
+		},
+	}
+	evalData, _ := json.Marshal(evalResponse)
+	mock.responses["Runtime.evaluate"] = evalData
+
+	ctx := contextWithUserAndBrowser(mock)
+	tool := &browserTool{}
+	result, err := tool.Execute(ctx, `{"action":"snapshot"}`)
+	if err != nil {
+		t.Fatalf("snapshot error: %v", err)
+	}
+
+	var snapshot snapshotResult
+	if err := json.Unmarshal([]byte(result), &snapshot); err != nil {
+		t.Fatalf("unmarshal snapshot: %v", err)
+	}
+
+	if snapshot.RefCount != 3 {
+		t.Errorf("expected 3 refs (combobox + 2 options), got %d", snapshot.RefCount)
+	}
+	if !containsString(snapshot.Tree, "[ref=1] combobox") {
+		t.Error("tree should contain combobox ref")
+	}
+	if !containsString(snapshot.Tree, "[ref=2] option") {
+		t.Error("tree should contain first option ref")
+	}
+	if !containsString(snapshot.Tree, "[ref=3] option") {
+		t.Error("tree should contain second option ref")
+	}
+
+	// Cleanup.
+	globalRefStore.clear("session-1")
+}
+
+func TestResolveRefToObjectID(t *testing.T) {
+	mock := newMockBrowser()
+
+	// Set up a successful resolution response (element found).
+	resolveResponse := map[string]interface{}{
+		"result": map[string]interface{}{
+			"type":     "object",
+			"subtype":  "node",
+			"objectId": "node-obj-42",
+		},
+	}
+	resolveData, _ := json.Marshal(resolveResponse)
+	mock.responses["Runtime.evaluate"] = resolveData
+
+	ctx := contextWithUserAndBrowser(mock)
+	objectID, err := resolveRefToObjectID(ctx, mock, "session-1", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if objectID != "node-obj-42" {
+		t.Errorf("expected objectId 'node-obj-42', got %q", objectID)
+	}
+}
+
+func TestResolveRefToObjectIDUndefined(t *testing.T) {
+	mock := newMockBrowser()
+
+	// Response when the ref doesn't exist (page navigated, etc).
+	undefinedResponse := map[string]interface{}{
+		"result": map[string]interface{}{
+			"type": "undefined",
+		},
+	}
+	undefinedData, _ := json.Marshal(undefinedResponse)
+	mock.responses["Runtime.evaluate"] = undefinedData
+
+	ctx := contextWithUserAndBrowser(mock)
+	_, err := resolveRefToObjectID(ctx, mock, "session-1", 99)
+	if err == nil {
+		t.Error("expected error when ref resolves to undefined")
 	}
 }
 

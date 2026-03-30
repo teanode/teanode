@@ -8,9 +8,36 @@ import (
 	"github.com/teanode/teanode/internal/integrations/browsers"
 )
 
+// resolveRefToObjectID resolves a snapshot ref to a CDP remote object ID by
+// accessing the DOM element stored in window.__teanodeRefs during the last
+// snapshot. Returns the objectId for use with Runtime.callFunctionOn,
+// DOM.getContentQuads, etc.
+func resolveRefToObjectID(ctx context.Context, browser browsers.Browser, sessionId string, ref int) (string, error) {
+	result, err := browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
+		"expression": fmt.Sprintf("window.__teanodeRefs && window.__teanodeRefs[%d]", ref),
+	}, sessionId)
+	if err != nil {
+		return "", fmt.Errorf("resolving ref %d: %w", ref, err)
+	}
+
+	var response struct {
+		Result struct {
+			Type     string `json:"type"`
+			ObjectID string `json:"objectId"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result, &response); err != nil {
+		return "", fmt.Errorf("parsing ref %d resolution: %w", ref, err)
+	}
+	if response.Result.ObjectID == "" || response.Result.Type == "undefined" {
+		return "", fmt.Errorf("ref %d could not be resolved — the page may have navigated since the last snapshot", ref)
+	}
+	return response.Result.ObjectID, nil
+}
+
 // executeClickRef clicks an element identified by its snapshot ref number.
-// It resolves the ref to a DOM node, scrolls it into view, computes its
-// center coordinates, and dispatches a click.
+// It resolves the ref to a DOM node via window.__teanodeRefs, scrolls it into
+// view, computes its center coordinates, and dispatches a click.
 func executeClickRef(ctx context.Context, browser browsers.Browser, connectionId string, ref int) (string, error) {
 	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
@@ -22,29 +49,17 @@ func executeClickRef(ctx context.Context, browser browsers.Browser, connectionId
 		return "", err
 	}
 
-	// Resolve the backend DOM node to a RemoteObject.
-	resolveResult, err := browser.SendCDPCommand(ctx, "DOM.resolveNode", map[string]interface{}{
-		"backendNodeId": entry.BackendDOMNodeID,
-	}, sessionId)
+	objectID, err := resolveRefToObjectID(ctx, browser, sessionId, ref)
 	if err != nil {
-		return "", fmt.Errorf("resolving ref %d: %w", ref, err)
-	}
-
-	var resolved struct {
-		Object struct {
-			ObjectID string `json:"objectId"`
-		} `json:"object"`
-	}
-	if err := json.Unmarshal(resolveResult, &resolved); err != nil || resolved.Object.ObjectID == "" {
-		return "", fmt.Errorf("ref %d could not be resolved to a DOM node", ref)
+		return "", err
 	}
 
 	// Scroll into view and get clickable point.
-	centerX, centerY, err := getClickablePoint(ctx, browser, sessionId, resolved.Object.ObjectID)
+	centerX, centerY, err := getClickablePoint(ctx, browser, sessionId, objectID)
 	if err != nil {
 		// Fallback: use JavaScript click.
 		_, jsErr := browser.SendCDPCommand(ctx, "Runtime.callFunctionOn", map[string]interface{}{
-			"objectId":            resolved.Object.ObjectID,
+			"objectId":            objectID,
 			"functionDeclaration": `function() { this.scrollIntoView({block:"center"}); this.click(); }`,
 			"returnByValue":       true,
 		}, sessionId)
@@ -97,26 +112,14 @@ func executeTypeRef(ctx context.Context, browser browsers.Browser, connectionId 
 		return "", err
 	}
 
-	// Resolve the backend DOM node.
-	resolveResult, err := browser.SendCDPCommand(ctx, "DOM.resolveNode", map[string]interface{}{
-		"backendNodeId": entry.BackendDOMNodeID,
-	}, sessionId)
+	objectID, err := resolveRefToObjectID(ctx, browser, sessionId, ref)
 	if err != nil {
-		return "", fmt.Errorf("resolving ref %d: %w", ref, err)
-	}
-
-	var resolved struct {
-		Object struct {
-			ObjectID string `json:"objectId"`
-		} `json:"object"`
-	}
-	if err := json.Unmarshal(resolveResult, &resolved); err != nil || resolved.Object.ObjectID == "" {
-		return "", fmt.Errorf("ref %d could not be resolved to a DOM node", ref)
+		return "", err
 	}
 
 	// Focus the element.
 	_, err = browser.SendCDPCommand(ctx, "Runtime.callFunctionOn", map[string]interface{}{
-		"objectId":            resolved.Object.ObjectID,
+		"objectId":            objectID,
 		"functionDeclaration": `function() { this.scrollIntoView({block:"center"}); this.focus(); }`,
 		"returnByValue":       true,
 	}, sessionId)
@@ -127,7 +130,7 @@ func executeTypeRef(ctx context.Context, browser browsers.Browser, connectionId 
 	// Optionally clear the field first.
 	if clearFirst {
 		_, err = browser.SendCDPCommand(ctx, "Runtime.callFunctionOn", map[string]interface{}{
-			"objectId":            resolved.Object.ObjectID,
+			"objectId":            objectID,
 			"functionDeclaration": `function() { this.value = ''; this.dispatchEvent(new Event('input', {bubbles:true})); }`,
 			"returnByValue":       true,
 		}, sessionId)
@@ -166,23 +169,12 @@ func executeHoverRef(ctx context.Context, browser browsers.Browser, connectionId
 		return "", err
 	}
 
-	resolveResult, err := browser.SendCDPCommand(ctx, "DOM.resolveNode", map[string]interface{}{
-		"backendNodeId": entry.BackendDOMNodeID,
-	}, sessionId)
+	objectID, err := resolveRefToObjectID(ctx, browser, sessionId, ref)
 	if err != nil {
-		return "", fmt.Errorf("resolving ref %d: %w", ref, err)
+		return "", err
 	}
 
-	var resolved struct {
-		Object struct {
-			ObjectID string `json:"objectId"`
-		} `json:"object"`
-	}
-	if err := json.Unmarshal(resolveResult, &resolved); err != nil || resolved.Object.ObjectID == "" {
-		return "", fmt.Errorf("ref %d could not be resolved to a DOM node", ref)
-	}
-
-	centerX, centerY, err := getClickablePoint(ctx, browser, sessionId, resolved.Object.ObjectID)
+	centerX, centerY, err := getClickablePoint(ctx, browser, sessionId, objectID)
 	if err != nil {
 		return "", fmt.Errorf("getting position for ref %d: %w", ref, err)
 	}
@@ -219,20 +211,9 @@ func executeSelectOption(ctx context.Context, browser browsers.Browser, connecti
 		return "", err
 	}
 
-	resolveResult, err := browser.SendCDPCommand(ctx, "DOM.resolveNode", map[string]interface{}{
-		"backendNodeId": entry.BackendDOMNodeID,
-	}, sessionId)
+	objectID, err := resolveRefToObjectID(ctx, browser, sessionId, ref)
 	if err != nil {
-		return "", fmt.Errorf("resolving ref %d: %w", ref, err)
-	}
-
-	var resolved struct {
-		Object struct {
-			ObjectID string `json:"objectId"`
-		} `json:"object"`
-	}
-	if err := json.Unmarshal(resolveResult, &resolved); err != nil || resolved.Object.ObjectID == "" {
-		return "", fmt.Errorf("ref %d could not be resolved to a DOM node", ref)
+		return "", err
 	}
 
 	// Build the selection script.
@@ -252,7 +233,7 @@ func executeSelectOption(ctx context.Context, browser browsers.Browser, connecti
 	}
 
 	selectResult, err := browser.SendCDPCommand(ctx, "Runtime.callFunctionOn", map[string]interface{}{
-		"objectId":            resolved.Object.ObjectID,
+		"objectId":            objectID,
 		"functionDeclaration": script,
 		"returnByValue":       true,
 	}, sessionId)
