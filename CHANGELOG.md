@@ -6,6 +6,13 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-03-30
+
+### Fixed
+
+- Fixed Linux self-update apply across different filesystems by falling back from `rename(2)` to copy-into-target-directory plus atomic rename when the staged binary is on a different mount (for example `/tmp` on tmpfs).
+- Added Unix updater tests covering rename/copy fallback, backup restore, stale backup cleanup, directory writability, and permission preservation.
+
 ## [0.1.6] - 2026-03-30
 
 ### Fixed
