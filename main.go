@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -15,6 +16,16 @@ import (
 )
 
 func main() {
+	// Resolve the executable path once at startup, before any self-update can
+	// replace the binary. On Linux, os.Executable() reads /proc/self/exe which
+	// follows the inode — after the updater renames the old binary away and
+	// deletes it, /proc/self/exe points to a "(deleted)" path. Capturing the
+	// resolved path here ensures the restart target is always valid.
+	executablePath, _ := os.Executable()
+	if resolved, err := filepath.EvalSymlinks(executablePath); err == nil {
+		executablePath = resolved
+	}
+
 	app := &cli.Command{
 		Name:  "teanode",
 		Usage: "TeaNode — personal AI assistant node",
@@ -65,6 +76,7 @@ func main() {
 			cmd.NewRestartCommand(),
 			cmd.NewTerminalCommand(),
 			cmd.NewUpdateCommand(),
+			cmd.NewVersionCommand(),
 		},
 	}
 
@@ -73,11 +85,6 @@ func main() {
 
 	if err := app.Run(ctx, os.Args); err != nil {
 		if errors.Is(err, cmd.ErrRestart) {
-			executablePath, executableError := os.Executable()
-			if executableError != nil {
-				fmt.Fprintf(os.Stderr, "restart failed: %v\n", executableError)
-				os.Exit(1)
-			}
 			fmt.Fprintln(os.Stderr, "restarting...")
 			execError := syscall.Exec(executablePath, os.Args, os.Environ())
 			fmt.Fprintf(os.Stderr, "restart failed: %v\n", execError)

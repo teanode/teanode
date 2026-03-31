@@ -6,6 +6,16 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-03-30
+
+### Added
+
+- Added `teanode version` to print the current TeaNode version, commit, and platform.
+
+### Fixed
+
+- Fixed self-update restart on Linux by resolving and capturing the executable path at process startup instead of recomputing it from `/proc/self/exe` after the running binary has been replaced.
+
 ## [0.1.7] - 2026-03-30
 
 ### Fixed
