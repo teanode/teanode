@@ -4,6 +4,7 @@ import {
   disconnect,
   onVoiceMessage,
   reconnect,
+  sendRpc,
   setEventHandler,
   setStatusHandler,
 } from "./rpc";
@@ -130,5 +131,171 @@ describe("rpc voice message routing", () => {
     connect();
 
     expect(MockWebSocket.instances).toHaveLength(1);
+  });
+});
+
+describe("sendRpc waits for reconnection", () => {
+  afterEach(() => {
+    disconnect();
+    MockWebSocket.instances = [];
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("queues RPC until socket opens when reconnecting", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {
+      location: {
+        protocol: "http:",
+        host: "localhost:8833",
+        search: "",
+      },
+    });
+    vi.stubGlobal("document", { visibilityState: "visible" } as Document);
+    vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+
+    // Start connected, then simulate a disconnect + reconnect cycle.
+    connect();
+    const socket1 = MockWebSocket.instances[0];
+    socket1.onopen?.(new Event("open"));
+
+    // Simulate tab-background disconnect: socket closes.
+    socket1.readyState = MockWebSocket.CLOSED;
+    socket1.onclose?.({} as CloseEvent);
+
+    // Advance past reconnect delay so the new socket is created.
+    vi.advanceTimersByTime(1200);
+    const socket2 = MockWebSocket.instances[1];
+    expect(socket2).toBeDefined();
+    socket2.readyState = MockWebSocket.CONNECTING;
+
+    // Send an RPC while socket is CONNECTING — it should wait, not reject.
+    const sendSpy = vi.spyOn(socket2, "send");
+    const rpcPromise = sendRpc("approvals.resolve", { test: true });
+
+    // RPC hasn't been sent yet (socket not open).
+    expect(sendSpy).not.toHaveBeenCalled();
+
+    // Socket opens — queued RPC should now be sent.
+    socket2.readyState = MockWebSocket.OPEN;
+    socket2.onopen?.(new Event("open"));
+
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(sendSpy.mock.calls[0][0] as string);
+    expect(sent.method).toBe("approvals.resolve");
+
+    // Simulate server response so the promise resolves.
+    await socket2.onmessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "res",
+          id: sent.id,
+          ok: true,
+          payload: { success: true },
+        }),
+      }),
+    );
+
+    await expect(rpcPromise).resolves.toEqual({ success: true });
+    vi.useRealTimers();
+  });
+
+  it("rejects immediately when not reconnecting", async () => {
+    vi.stubGlobal("window", {
+      location: {
+        protocol: "http:",
+        host: "localhost:8833",
+        search: "",
+      },
+    });
+    vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+
+    // Never called connect(), so shouldReconnect is false.
+    await expect(sendRpc("test.method", {})).rejects.toMatchObject({
+      message: "not connected",
+    });
+  });
+
+  it("queues questions.answer RPC during reconnect", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {
+      location: {
+        protocol: "http:",
+        host: "localhost:8833",
+        search: "",
+      },
+    });
+    vi.stubGlobal("document", { visibilityState: "visible" } as Document);
+    vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+
+    connect();
+    const socket1 = MockWebSocket.instances[0];
+    socket1.onopen?.(new Event("open"));
+
+    // Socket closes mid-session (e.g. iOS background).
+    socket1.readyState = MockWebSocket.CLOSED;
+    socket1.onclose?.({} as CloseEvent);
+
+    // User submits an answer while disconnected — RPC should queue.
+    const rpcPromise = sendRpc("questions.answer", {
+      answers: [{ questionId: "q1", answer: "Yes" }],
+    });
+
+    // Advance past reconnect delay so the new socket is created.
+    vi.advanceTimersByTime(1200);
+    const socket2 = MockWebSocket.instances[1];
+    expect(socket2).toBeDefined();
+
+    const sendSpy = vi.spyOn(socket2, "send");
+    socket2.readyState = MockWebSocket.OPEN;
+    socket2.onopen?.(new Event("open"));
+
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(sendSpy.mock.calls[0][0] as string);
+    expect(sent.method).toBe("questions.answer");
+
+    await socket2.onmessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "res",
+          id: sent.id,
+          ok: true,
+          payload: {},
+        }),
+      }),
+    );
+
+    await expect(rpcPromise).resolves.toEqual({});
+    vi.useRealTimers();
+  });
+
+  it("rejects queued RPCs on disconnect", async () => {
+    vi.stubGlobal("window", {
+      location: {
+        protocol: "http:",
+        host: "localhost:8833",
+        search: "",
+      },
+    });
+    vi.stubGlobal("document", { visibilityState: "visible" } as Document);
+    vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+
+    connect();
+    const socket1 = MockWebSocket.instances[0];
+    socket1.onopen?.(new Event("open"));
+
+    // Simulate disconnect.
+    socket1.readyState = MockWebSocket.CLOSED;
+    socket1.onclose?.({} as CloseEvent);
+
+    // Queue an RPC while reconnecting.
+    const rpcPromise = sendRpc("test.method", {});
+
+    // Explicit disconnect should reject queued RPCs.
+    disconnect();
+
+    await expect(rpcPromise).rejects.toMatchObject({
+      message: "disconnected",
+    });
   });
 });

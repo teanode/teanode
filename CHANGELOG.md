@@ -6,6 +6,23 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-03-30
+
+### Added
+
+- `node.update` tool responses now include release notes when available.
+
+### Changed
+
+- `node.update` now schedules restart through the normal node lifecycle flow so the LLM can finish its turn before TeaNode restarts.
+- Settings → Updates now renders release notes as markdown instead of plain text.
+
+### Fixed
+
+- Fixed a web UI reconnect race where Approve actions could fail silently after tab switching and leave the approval controls stuck in a disabled state.
+- Fixed the same reconnect race for `ask_user_question` submissions so answer buttons recover correctly after RPC failures.
+- Disabled approval/question action buttons while the backend websocket is disconnected to avoid no-op clicks during reconnect windows.
+
 ## [0.1.8] - 2026-03-30
 
 ### Added

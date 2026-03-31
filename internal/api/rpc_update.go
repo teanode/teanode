@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/updater"
 )
 
@@ -55,6 +56,11 @@ func (self *webSocketConnection) handleUpdateApply(frame requestFrame) (interfac
 
 	if err := updateManager.Apply(self.ctx); err != nil {
 		return nil, rpcError(500, "update failed: "+err.Error())
+	}
+
+	// RPC apply has no coordinator defer, fire the scheduled restart immediately.
+	if lifecycleManager := lifecycle.LifecycleFromContext(self.ctx); lifecycleManager != nil {
+		lifecycleManager.FirePendingLifecycle()
 	}
 
 	return map[string]interface{}{

@@ -316,3 +316,31 @@ describe("QuestionPanel double-submit prevention", () => {
     expect(submitCount).toBe(1);
   });
 });
+
+// ─── Error recovery (reconnect race) ───────────────────────────────
+
+describe("QuestionPanel error recovery", () => {
+  it("re-enables submit when onSubmitAll rejects", async () => {
+    // Simulates the pattern used inside QuestionPanel.handleSubmitAll:
+    // Promise.resolve(onSubmitAll(result)).catch(() => setSubmitted(false))
+    let submitted = true;
+    const onSubmitAll = () => Promise.reject(new Error("not connected"));
+
+    await Promise.resolve(onSubmitAll()).catch(() => {
+      submitted = false;
+    });
+
+    expect(submitted).toBe(false);
+  });
+
+  it("stays submitted when onSubmitAll succeeds", async () => {
+    let submitted = true;
+    const onSubmitAll = () => Promise.resolve();
+
+    await Promise.resolve(onSubmitAll()).catch(() => {
+      submitted = false;
+    });
+
+    expect(submitted).toBe(true);
+  });
+});

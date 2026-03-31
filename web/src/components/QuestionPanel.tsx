@@ -49,12 +49,15 @@ interface QuestionPanelProps {
   /** Called once with all answers when the user submits. */
   onSubmitAll: (
     answers: { questionId: string; answer: string; other?: string }[],
-  ) => void;
+  ) => Promise<void> | void;
+  /** Externally disable all actions (e.g. when the backend is disconnected). */
+  disabled?: boolean;
 }
 
 export default function QuestionPanel({
   questions,
   onSubmitAll,
+  disabled: externalDisabled = false,
 }: QuestionPanelProps) {
   const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -62,6 +65,7 @@ export default function QuestionPanel({
     () => new Map(),
   );
   const [submitted, setSubmitted] = useState(false);
+  const disabled = submitted || externalDisabled;
   const otherInputRef = useRef<HTMLInputElement>(null);
 
   // Keep answers map in sync when questions change (new questions arrive,
@@ -123,17 +127,17 @@ export default function QuestionPanel({
   );
 
   function handleChoiceClick(choice: string) {
-    if (submitted) return;
+    if (disabled) return;
     setCurrentAnswer((a) => ({ ...a, selected: choice, showOther: false }));
   }
 
   function handleOtherClick() {
-    if (submitted) return;
+    if (disabled) return;
     setCurrentAnswer((a) => ({ ...a, selected: null, showOther: true }));
   }
 
   function handleBack() {
-    if (submitted) return;
+    if (disabled) return;
     // Preserve otherText so user can come back to it.
     setCurrentAnswer((a) => ({ ...a, showOther: false }));
   }
@@ -178,7 +182,7 @@ export default function QuestionPanel({
     }
   }
 
-  const canSubmitAll = !submitted && allAnswered(questions, answers);
+  const canSubmitAll = !disabled && allAnswered(questions, answers);
 
   function handleSubmitAll() {
     if (!canSubmitAll) return;
@@ -197,7 +201,10 @@ export default function QuestionPanel({
         result.push({ questionId: q.id, answer: a.selected! });
       }
     }
-    onSubmitAll(result);
+    Promise.resolve(onSubmitAll(result)).catch(() => {
+      // Re-enable the submit button so the user can retry.
+      setSubmitted(false);
+    });
   }
 
   if (questions.length === 0) return null;
@@ -285,7 +292,7 @@ export default function QuestionPanel({
                 key={choice}
                 variant={a.selected === choice ? "contained" : "outlined"}
                 size="small"
-                disabled={submitted}
+                disabled={disabled}
                 onClick={() => handleChoiceClick(choice)}
                 sx={{ textTransform: "none" }}
               >
@@ -296,7 +303,7 @@ export default function QuestionPanel({
               <Button
                 variant="outlined"
                 size="small"
-                disabled={submitted}
+                disabled={disabled}
                 onClick={handleOtherClick}
                 sx={{ textTransform: "none", fontStyle: "italic" }}
               >
@@ -313,7 +320,7 @@ export default function QuestionPanel({
               inputRef={otherInputRef}
               size="small"
               fullWidth
-              disabled={submitted}
+              disabled={disabled}
               placeholder={
                 currentQ.otherPlaceholder || t("tool.askUserOtherPlaceholder")
               }
@@ -325,7 +332,7 @@ export default function QuestionPanel({
             <Button
               variant="text"
               size="small"
-              disabled={submitted}
+              disabled={disabled}
               onClick={handleBack}
               sx={{ textTransform: "none", whiteSpace: "nowrap" }}
             >

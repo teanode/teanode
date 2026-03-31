@@ -17,6 +17,7 @@ import type {
   UpdateCheckResult,
   UpdateApplyResult,
 } from "../../types";
+import { renderMarkdown } from "../../markdown";
 
 function formatTimeAgo(
   t: (key: string, opts?: Record<string, unknown>) => string,
@@ -252,13 +253,13 @@ export default function SettingsUpdatesPage() {
               })}
             </Typography>
             {status.available.body && (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ whiteSpace: "pre-wrap", fontSize: "0.8rem" }}
-              >
-                {status.available.body}
-              </Typography>
+              <Box
+                className="markdown-content"
+                sx={{ fontSize: "0.8rem", color: "text.secondary" }}
+                dangerouslySetInnerHTML={{
+                  __html: renderMarkdown(status.available.body),
+                }}
+              />
             )}
           </Paper>
         )}

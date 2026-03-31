@@ -168,11 +168,18 @@ func (self *nodeTool) executeUpdate(ctx context.Context, forceCheck bool, applyI
 			return string(result), nil
 		}
 
-		result, _ := json.Marshal(map[string]interface{}{
+		response := map[string]interface{}{
 			"action":  "update",
 			"status":  "applied",
-			"message": "Update applied successfully. The node will restart momentarily. The full conversation history is preserved — you will have complete context when the conversation resumes.",
-		})
+			"message": "The node will restart after you finish your response. The full conversation history is preserved across restarts — you will have complete context when the conversation resumes.",
+		}
+		if status.Available != nil {
+			response["version"] = status.Available.Version()
+			if status.Available.Body != "" {
+				response["releaseNotes"] = status.Available.Body
+			}
+		}
+		result, _ := json.Marshal(response)
 		return string(result), nil
 	}
 
@@ -194,6 +201,9 @@ func (self *nodeTool) executeUpdate(ctx context.Context, forceCheck bool, applyI
 	}
 	if status.Error != "" {
 		response["error"] = status.Error
+	}
+	if status.Available != nil && status.Available.Body != "" {
+		response["releaseNotes"] = status.Available.Body
 	}
 
 	result, _ := json.Marshal(response)

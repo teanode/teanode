@@ -27,6 +27,25 @@ let connectOpenHandler: (() => void) | undefined;
 const binaryHandlers: BinaryHandler[] = [];
 const voiceMessageHandlers: VoiceMessageHandler[] = [];
 const RECONNECT_DELAY_MS = 1200;
+const WAIT_FOR_CONNECTION_MS = 5000;
+
+// Waiters resolved when the WebSocket reaches the OPEN state.
+let connectionWaiters: Array<{
+  resolve: () => void;
+  reject: (error: RPCError) => void;
+}> = [];
+
+function resolveConnectionWaiters(): void {
+  const waiters = connectionWaiters;
+  connectionWaiters = [];
+  for (const waiter of waiters) waiter.resolve();
+}
+
+function rejectConnectionWaiters(message: string): void {
+  const waiters = connectionWaiters;
+  connectionWaiters = [];
+  for (const waiter of waiters) waiter.reject({ code: -1, message });
+}
 
 function getToken(): string {
   const params = new URLSearchParams(window.location.search);
@@ -137,6 +156,7 @@ function openSocket(): void {
   socket.onopen = () => {
     console.debug("[voice][ws] open");
     setStatus("connected");
+    resolveConnectionWaiters();
     connectOpenHandler?.();
   };
 
@@ -216,7 +236,7 @@ export function reconnect(): void {
   openSocket();
 }
 
-export function sendRpc<T = unknown>(
+function sendRpcImmediate<T = unknown>(
   method: string,
   params: unknown,
 ): Promise<T> {
@@ -236,6 +256,46 @@ export function sendRpc<T = unknown>(
   });
 }
 
+export function sendRpc<T = unknown>(
+  method: string,
+  params: unknown,
+): Promise<T> {
+  // Fast path: socket is already open.
+  if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+    return sendRpcImmediate<T>(method, params);
+  }
+
+  // If we're reconnecting (or about to), wait for the socket to open rather
+  // than failing immediately.  This avoids silent failures when the user
+  // interacts right after switching back to the tab.
+  if (shouldReconnect) {
+    return new Promise<T>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        // Remove this waiter so it doesn't fire twice.
+        connectionWaiters = connectionWaiters.filter(
+          (w) => w.resolve !== onConnected,
+        );
+        reject({ code: -1, message: "not connected" });
+      }, WAIT_FOR_CONNECTION_MS);
+
+      const onConnected = () => {
+        clearTimeout(timeout);
+        sendRpcImmediate<T>(method, params).then(resolve, reject);
+      };
+
+      connectionWaiters.push({
+        resolve: onConnected,
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
+    });
+  }
+
+  return Promise.reject({ code: -1, message: "not connected" });
+}
+
 export function disconnect(): void {
   shouldReconnect = false;
   clearReconnectTimer();
@@ -245,6 +305,7 @@ export function disconnect(): void {
     webSocket = null;
   }
   rejectPendingCalls("disconnected");
+  rejectConnectionWaiters("disconnected");
 }
 
 export function sendBinary(data: ArrayBuffer | Uint8Array): void {

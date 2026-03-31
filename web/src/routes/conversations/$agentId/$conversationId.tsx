@@ -197,11 +197,13 @@ export default function ConversationsConversationPage() {
         <QuestionPanel
           questions={backend.pendingQuestions}
           onSubmitAll={backend.answerQuestion}
+          disabled={!backend.connected}
         />
       ) : backend.pendingApprovals.length > 0 ? (
         <ApprovalPanel
           approvals={backend.pendingApprovals}
           onResolve={backend.resolveApproval}
+          disabled={!backend.connected}
         />
       ) : (
         <InputArea

@@ -161,10 +161,10 @@ func (self *Updater) Apply(ctx context.Context) error {
 
 	log.Noticef("updater: update applied successfully, version %s → %s", version.Version(), available.Version())
 
-	// Request restart via lifecycle manager.
+	// Schedule restart — the coordinator fires the pending action after the
+	// current agent run completes, giving the LLM time to finish its turn.
 	if lifecycleManager := lifecycle.LifecycleFromContext(ctx); lifecycleManager != nil {
 		lifecycleManager.ScheduleLifecycle(lifecycle.Restart)
-		lifecycleManager.FirePendingLifecycle()
 	}
 
 	return nil
@@ -293,6 +293,9 @@ func (self *Updater) runCycle(ctx context.Context) {
 		if available != nil {
 			if err := self.Apply(ctx); err != nil {
 				log.Errorf("updater: auto-apply failed: %v", err)
+			} else if lifecycleManager := lifecycle.LifecycleFromContext(ctx); lifecycleManager != nil {
+				// Background apply has no coordinator defer, fire immediately.
+				lifecycleManager.FirePendingLifecycle()
 			}
 		}
 	}

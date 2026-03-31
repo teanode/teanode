@@ -12,7 +12,9 @@ interface ApprovalPanelProps {
   approvals: PendingApproval[];
   onResolve: (
     verdicts: { approvalId: string; verdict: string; reason?: string }[],
-  ) => void;
+  ) => Promise<void> | void;
+  /** Externally disable all actions (e.g. when the backend is disconnected). */
+  disabled?: boolean;
 }
 
 /** Try to pretty-print tool arguments; fall back to raw string. */
@@ -28,9 +30,11 @@ function formatArguments(raw: string): string {
 export default function ApprovalPanel({
   approvals,
   onResolve,
+  disabled: externalDisabled = false,
 }: ApprovalPanelProps) {
   const { t } = useTranslation();
   const [submitted, setSubmitted] = useState(false);
+  const disabled = submitted || externalDisabled;
 
   // Reset submitted state when the approvals list changes.
   React.useEffect(() => {
@@ -39,22 +43,29 @@ export default function ApprovalPanel({
 
   if (approvals.length === 0) return null;
 
-  function handleApprove(approval: PendingApproval) {
-    if (submitted) return;
+  function safeResolve(
+    verdicts: { approvalId: string; verdict: string; reason?: string }[],
+  ) {
     setSubmitted(true);
-    onResolve([{ approvalId: approval.id, verdict: "approved" }]);
+    Promise.resolve(onResolve(verdicts)).catch(() => {
+      // Re-enable buttons so the user can retry.
+      setSubmitted(false);
+    });
+  }
+
+  function handleApprove(approval: PendingApproval) {
+    if (disabled) return;
+    safeResolve([{ approvalId: approval.id, verdict: "approved" }]);
   }
 
   function handleReject(approval: PendingApproval) {
-    if (submitted) return;
-    setSubmitted(true);
-    onResolve([{ approvalId: approval.id, verdict: "rejected" }]);
+    if (disabled) return;
+    safeResolve([{ approvalId: approval.id, verdict: "rejected" }]);
   }
 
   function handleApproveAll() {
-    if (submitted) return;
-    setSubmitted(true);
-    onResolve(
+    if (disabled) return;
+    safeResolve(
       approvals.map((a) => ({ approvalId: a.id, verdict: "approved" })),
     );
   }
@@ -159,7 +170,7 @@ export default function ApprovalPanel({
                 variant="contained"
                 size="small"
                 color="success"
-                disabled={submitted}
+                disabled={disabled}
                 onClick={() => handleApprove(approval)}
                 sx={{ textTransform: "none" }}
               >
@@ -169,7 +180,7 @@ export default function ApprovalPanel({
                 variant="outlined"
                 size="small"
                 color="error"
-                disabled={submitted}
+                disabled={disabled}
                 onClick={() => handleReject(approval)}
                 sx={{ textTransform: "none" }}
               >
@@ -186,7 +197,7 @@ export default function ApprovalPanel({
               variant="contained"
               size="small"
               color="success"
-              disabled={submitted}
+              disabled={disabled}
               onClick={handleApproveAll}
               sx={{ textTransform: "none" }}
             >
