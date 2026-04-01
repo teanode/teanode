@@ -1,9 +1,69 @@
 const path = require("path");
+const crypto = require("crypto");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 
-module.exports = (env, argv) => {
+function shouldFingerprintAsset(name) {
+  return (
+    name !== "build-meta.json" &&
+    !name.endsWith(".map") &&
+    !name.endsWith(".LICENSE.txt")
+  );
+}
+
+function normalizeAssetSource(source) {
+  if (Buffer.isBuffer(source)) return source;
+  if (source instanceof Uint8Array) return Buffer.from(source);
+  return Buffer.from(String(source));
+}
+
+// Fingerprint the actual emitted asset contents, not just hashed filenames.
+// That keeps the handshake stable across restarts of the same build while still
+// changing for dirty local rebuilds or copied static asset updates.
+function deriveBuildId(assets) {
+  const hash = crypto.createHash("sha256");
+  const fingerprintedAssets = assets
+    .filter((asset) => shouldFingerprintAsset(asset.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  for (const asset of fingerprintedAssets) {
+    hash.update(`${asset.name}\0`);
+    hash.update(normalizeAssetSource(asset.source));
+    hash.update("\0");
+  }
+
+  return hash.digest("hex").slice(0, 16);
+}
+
+// Generates build-meta.json from the emitted webapp assets. The Go backend
+// reads this file from the embedded static FS and returns the buildId in the
+// connect handshake so the frontend can detect when a newer build is served.
+class BuildMetaPlugin {
+  apply(compiler) {
+    const { Compilation, sources } = compiler.webpack;
+    compiler.hooks.thisCompilation.tap("BuildMetaPlugin", (compilation) => {
+      compilation.hooks.processAssets.tap(
+        {
+          name: "BuildMetaPlugin",
+          stage: Compilation.PROCESS_ASSETS_STAGE_SUMMARIZE,
+        },
+        () => {
+          const buildId = deriveBuildId(
+            compilation.getAssets().map((asset) => ({
+              name: asset.name,
+              source: asset.source.source(),
+            })),
+          );
+          const meta = JSON.stringify({ buildId }) + "\n";
+          compilation.emitAsset("build-meta.json", new sources.RawSource(meta));
+        },
+      );
+    });
+  }
+}
+
+function createWebpackConfig(env, argv) {
   const isProd = argv.mode === "production";
 
   // ---- Config 1: Existing web app (unchanged) ----
@@ -72,7 +132,12 @@ module.exports = (env, argv) => {
         ],
       }),
       ...(isProd
-        ? [new MiniCssExtractPlugin({ filename: "bundle.[contenthash:8].css" })]
+        ? [
+            new MiniCssExtractPlugin({
+              filename: "bundle.[contenthash:8].css",
+            }),
+            new BuildMetaPlugin(),
+          ]
         : []),
     ],
     devServer: {
@@ -148,4 +213,8 @@ module.exports = (env, argv) => {
   };
 
   return [webAppConfig, extensionConfig];
-};
+}
+
+module.exports = createWebpackConfig;
+module.exports.deriveBuildId = deriveBuildId;
+module.exports.shouldFingerprintAsset = shouldFingerprintAsset;

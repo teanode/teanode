@@ -303,6 +303,8 @@ export function useBackend() {
     null,
   );
   const [audioCapability, setAudioCapability] = useState(false);
+  const [frontendBuildChanged, setFrontendBuildChanged] = useState(false);
+  const initialBuildIdRef = useRef<string | null>(null);
   const [lastActiveRunState, setLastActiveRunState] =
     useState<ActiveRunState | null>(null);
   const lastSentViaMicRef = useRef(false);
@@ -1027,6 +1029,13 @@ export function useBackend() {
     setCurrentUserId(result.userId || "");
     setAudioCapability(result.capabilities?.includes("audio") ?? false);
     setUpdateAvailable(result.updateAvailable);
+    if (result.frontendBuildId) {
+      if (initialBuildIdRef.current === null) {
+        initialBuildIdRef.current = result.frontendBuildId;
+      } else if (result.frontendBuildId !== initialBuildIdRef.current) {
+        setFrontendBuildChanged(true);
+      }
+    }
     if (result.defaultProviderModelName) {
       setDefaultProviderModelName(result.defaultProviderModelName);
     }
@@ -1967,6 +1976,7 @@ export function useBackend() {
     serverDefaultAgentId,
     audioCapability,
     updateAvailable,
+    frontendBuildChanged,
     lastSentViaMicRef,
     setCurrentAgentId,
     setDefaultAgent,

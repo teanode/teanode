@@ -3,6 +3,7 @@ package frontend
 
 import (
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -12,6 +13,30 @@ import (
 
 //go:embed static
 var staticFiles embed.FS
+
+// buildMeta holds the parsed contents of build-meta.json.
+type buildMeta struct {
+	BuildID string `json:"buildId"`
+}
+
+// cachedBuildID is resolved once at init from the embedded build-meta.json.
+var cachedBuildID string
+
+func init() {
+	data, err := staticFiles.ReadFile("static/build-meta.json")
+	if err != nil {
+		return // dev builds may not include build-meta.json
+	}
+	var meta buildMeta
+	if err := json.Unmarshal(data, &meta); err == nil {
+		cachedBuildID = meta.BuildID
+	}
+}
+
+// BuildID returns the frontend build fingerprint, or "" if unavailable.
+func BuildID() string {
+	return cachedBuildID
+}
 
 // frontendComponent serves the embedded SPA frontend.
 type frontendComponent struct{}
