@@ -1012,6 +1012,12 @@ export function useBackend() {
     }
   }, []);
 
+  const handleEventRef = useRef(handleEvent);
+
+  useEffect(() => {
+    handleEventRef.current = handleEvent;
+  }, [handleEvent]);
+
   // sendRpc is defined below but we need it in handleConnect — use a ref
   const sendRpcRef = useRef<
     <T = unknown>(method: string, params: unknown) => Promise<T>
@@ -1171,7 +1177,7 @@ export function useBackend() {
               pendingEventsRef.current.length > 0
             ) {
               for (const event of pendingEventsRef.current) {
-                handleEvent(event);
+                handleEventRef.current(event);
               }
             }
             pendingEventsRef.current = [];
