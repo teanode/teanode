@@ -12,7 +12,9 @@
     "default": "Default",
     "remove": "Remove",
     "connectionLost": "Connection lost. Reconnecting...",
-    "connectionRestored": "Connection restored."
+    "connectionRestored": "Connection restored.",
+    "staleBuild": "A newer version of the interface is available.",
+    "reload": "Reload"
   },
   "sidebar": {
     "openSidebar": "Open sidebar",

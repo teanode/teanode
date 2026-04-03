@@ -1,18 +1,57 @@
 import React, { useCallback } from "react";
 import { Outlet, useLocation } from "@tanstack/react-router";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
+import { useTranslation } from "react-i18next";
 import Sidebar from "../components/Sidebar";
 import { useAppContext } from "../context";
 import { useEdgeSwipe } from "../hooks/useEdgeSwipe";
+
+function StaleBuildBanner({ t }: { t: (key: string) => string }) {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 2,
+        px: 2,
+        py: 0.75,
+        bgcolor: "warning.main",
+        color: "warning.contrastText",
+        fontSize: "0.875rem",
+        flexShrink: 0,
+      }}
+    >
+      {t("common.staleBuild")}
+      <Button
+        size="small"
+        variant="outlined"
+        onClick={() => window.location.reload()}
+        sx={{
+          color: "inherit",
+          borderColor: "currentColor",
+          textTransform: "none",
+          py: 0,
+          minHeight: 28,
+          "&:hover": { borderColor: "inherit", bgcolor: "rgba(0,0,0,0.08)" },
+        }}
+      >
+        {t("common.reload")}
+      </Button>
+    </Box>
+  );
+}
 
 export default function RootLayout() {
   const location = useLocation();
   const { backend, mobileSidebarOpen, setMobileSidebarOpen } = useAppContext();
   const theme = useTheme();
   const isMobile = !useMediaQuery(theme.breakpoints.up("md"));
+  const { t } = useTranslation();
   const isAuthPage =
     location.pathname === "/login" || location.pathname === "/setup";
 
@@ -43,12 +82,20 @@ export default function RootLayout() {
   }
 
   return (
-    <Box sx={{ display: "flex", height: "100vh" }}>
-      <Sidebar />
-      <Box
-        sx={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
-      >
-        <Outlet />
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+      {backend.frontendBuildChanged && <StaleBuildBanner t={t} />}
+      <Box sx={{ display: "flex", flex: 1, minHeight: 0 }}>
+        <Sidebar />
+        <Box
+          sx={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            minWidth: 0,
+          }}
+        >
+          <Outlet />
+        </Box>
       </Box>
     </Box>
   );

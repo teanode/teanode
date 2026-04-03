@@ -10,7 +10,11 @@
     "saving": "保存中...",
     "unsavedChanges": "未保存の変更",
     "default": "デフォルト",
-    "remove": "削除"
+    "remove": "削除",
+    "connectionLost": "接続が切断されました。再接続中...",
+    "connectionRestored": "接続が復元されました。",
+    "staleBuild": "新しいバージョンのインターフェースが利用可能です。",
+    "reload": "再読み込み"
   },
   "sidebar": {
     "openSidebar": "サイドバーを開く",

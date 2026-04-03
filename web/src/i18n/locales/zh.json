@@ -10,7 +10,11 @@
     "saving": "保存中...",
     "unsavedChanges": "未保存更改",
     "default": "默认",
-    "remove": "移除"
+    "remove": "移除",
+    "connectionLost": "连接已断开，正在重连...",
+    "connectionRestored": "连接已恢复。",
+    "staleBuild": "界面有新版本可用。",
+    "reload": "刷新"
   },
   "sidebar": {
     "openSidebar": "打开侧边栏",

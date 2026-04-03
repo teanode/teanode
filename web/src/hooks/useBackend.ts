@@ -303,6 +303,8 @@ export function useBackend() {
     null,
   );
   const [audioCapability, setAudioCapability] = useState(false);
+  const [frontendBuildChanged, setFrontendBuildChanged] = useState(false);
+  const initialBuildIdRef = useRef<string | null>(null);
   const [lastActiveRunState, setLastActiveRunState] =
     useState<ActiveRunState | null>(null);
   const lastSentViaMicRef = useRef(false);
@@ -1010,6 +1012,12 @@ export function useBackend() {
     }
   }, []);
 
+  const handleEventRef = useRef(handleEvent);
+
+  useEffect(() => {
+    handleEventRef.current = handleEvent;
+  }, [handleEvent]);
+
   // sendRpc is defined below but we need it in handleConnect — use a ref
   const sendRpcRef = useRef<
     <T = unknown>(method: string, params: unknown) => Promise<T>
@@ -1027,6 +1035,13 @@ export function useBackend() {
     setCurrentUserId(result.userId || "");
     setAudioCapability(result.capabilities?.includes("audio") ?? false);
     setUpdateAvailable(result.updateAvailable);
+    if (result.buildId) {
+      if (initialBuildIdRef.current === null) {
+        initialBuildIdRef.current = result.buildId;
+      } else if (result.buildId !== initialBuildIdRef.current) {
+        setFrontendBuildChanged(true);
+      }
+    }
     if (result.defaultProviderModelName) {
       setDefaultProviderModelName(result.defaultProviderModelName);
     }
@@ -1162,7 +1177,7 @@ export function useBackend() {
               pendingEventsRef.current.length > 0
             ) {
               for (const event of pendingEventsRef.current) {
-                handleEvent(event);
+                handleEventRef.current(event);
               }
             }
             pendingEventsRef.current = [];
@@ -1967,6 +1982,7 @@ export function useBackend() {
     serverDefaultAgentId,
     audioCapability,
     updateAvailable,
+    frontendBuildChanged,
     lastSentViaMicRef,
     setCurrentAgentId,
     setDefaultAgent,

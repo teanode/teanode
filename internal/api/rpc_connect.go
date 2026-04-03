@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/teanode/teanode/internal/frontend"
 	"github.com/teanode/teanode/internal/updater"
 	"github.com/teanode/teanode/internal/version"
 )
@@ -50,6 +51,10 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) (interface{},
 		"defaultConversationId":    self.api.coordinator.EnsureDefaultConversation(self.userId(), defaultAgentId),
 		"isAdmin":                  self.isAdmin(),
 		"userId":                   self.userId(),
+	}
+
+	if buildId := frontend.BuildID(); buildId != "" {
+		result["buildId"] = buildId
 	}
 
 	// Include update status if available and user is admin.

@@ -3,6 +3,7 @@ package frontend
 
 import (
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -12,6 +13,30 @@ import (
 
 //go:embed static
 var staticFiles embed.FS
+
+// bundleMetadata holds the parsed contents of bundle.metadata.json.
+type bundleMetadata struct {
+	BuildID string `json:"buildId"`
+}
+
+// cachedBuildId is resolved once at init from the embedded bundle.metadata.json.
+var cachedBuildId string
+
+func init() {
+	data, err := staticFiles.ReadFile("static/bundle.metadata.json")
+	if err != nil {
+		return // dev builds may not include bundle.metadata.json
+	}
+	var meta bundleMetadata
+	if err := json.Unmarshal(data, &meta); err == nil {
+		cachedBuildId = meta.BuildID
+	}
+}
+
+// BuildID returns the frontend build fingerprint, or "" if unavailable.
+func BuildID() string {
+	return cachedBuildId
+}
 
 // frontendComponent serves the embedded SPA frontend.
 type frontendComponent struct{}
