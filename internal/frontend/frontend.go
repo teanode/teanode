@@ -14,28 +14,28 @@ import (
 //go:embed static
 var staticFiles embed.FS
 
-// buildMeta holds the parsed contents of build-meta.json.
-type buildMeta struct {
+// bundleMetadata holds the parsed contents of bundle.metadata.json.
+type bundleMetadata struct {
 	BuildID string `json:"buildId"`
 }
 
-// cachedBuildID is resolved once at init from the embedded build-meta.json.
-var cachedBuildID string
+// cachedBuildId is resolved once at init from the embedded bundle.metadata.json.
+var cachedBuildId string
 
 func init() {
-	data, err := staticFiles.ReadFile("static/build-meta.json")
+	data, err := staticFiles.ReadFile("static/bundle.metadata.json")
 	if err != nil {
-		return // dev builds may not include build-meta.json
+		return // dev builds may not include bundle.metadata.json
 	}
-	var meta buildMeta
+	var meta bundleMetadata
 	if err := json.Unmarshal(data, &meta); err == nil {
-		cachedBuildID = meta.BuildID
+		cachedBuildId = meta.BuildID
 	}
 }
 
 // BuildID returns the frontend build fingerprint, or "" if unavailable.
 func BuildID() string {
-	return cachedBuildID
+	return cachedBuildId
 }
 
 // frontendComponent serves the embedded SPA frontend.

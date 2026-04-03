@@ -53,8 +53,8 @@ func (self *webSocketConnection) handleConnect(frame requestFrame) (interface{},
 		"userId":                   self.userId(),
 	}
 
-	if buildID := frontend.BuildID(); buildID != "" {
-		result["frontendBuildId"] = buildID
+	if buildId := frontend.BuildID(); buildId != "" {
+		result["buildId"] = buildId
 	}
 
 	// Include update status if available and user is admin.

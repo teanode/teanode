@@ -6,7 +6,7 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 
 function shouldFingerprintAsset(name) {
   return (
-    name !== "build-meta.json" &&
+    name !== "bundle.metadata.json" &&
     !name.endsWith(".map") &&
     !name.endsWith(".LICENSE.txt")
   );
@@ -36,7 +36,7 @@ function deriveBuildId(assets) {
   return hash.digest("hex").slice(0, 16);
 }
 
-// Generates build-meta.json from the emitted webapp assets. The Go backend
+// Generates bundle.metadata.json from the emitted webapp assets. The Go backend
 // reads this file from the embedded static FS and returns the buildId in the
 // connect handshake so the frontend can detect when a newer build is served.
 class BuildMetaPlugin {
@@ -56,7 +56,10 @@ class BuildMetaPlugin {
             })),
           );
           const meta = JSON.stringify({ buildId }) + "\n";
-          compilation.emitAsset("build-meta.json", new sources.RawSource(meta));
+          compilation.emitAsset(
+            "bundle.metadata.json",
+            new sources.RawSource(meta),
+          );
         },
       );
     });

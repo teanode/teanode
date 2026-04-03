@@ -1035,10 +1035,10 @@ export function useBackend() {
     setCurrentUserId(result.userId || "");
     setAudioCapability(result.capabilities?.includes("audio") ?? false);
     setUpdateAvailable(result.updateAvailable);
-    if (result.frontendBuildId) {
+    if (result.buildId) {
       if (initialBuildIdRef.current === null) {
-        initialBuildIdRef.current = result.frontendBuildId;
-      } else if (result.frontendBuildId !== initialBuildIdRef.current) {
+        initialBuildIdRef.current = result.buildId;
+      } else if (result.buildId !== initialBuildIdRef.current) {
         setFrontendBuildChanged(true);
       }
     }

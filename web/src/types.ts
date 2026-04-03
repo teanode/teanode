@@ -53,7 +53,7 @@ export interface ConnectResult {
   isAdmin?: boolean;
   userId?: string;
   updateAvailable?: { version: string };
-  frontendBuildId?: string;
+  buildId?: string;
 }
 
 // Update types

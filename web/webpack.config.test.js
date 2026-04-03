@@ -31,8 +31,8 @@ describe("deriveBuildId", () => {
 });
 
 describe("shouldFingerprintAsset", () => {
-  it("excludes build-meta.json, source maps, and license sidecars", () => {
-    expect(shouldFingerprintAsset("build-meta.json")).toBe(false);
+  it("excludes bundle.metadata.json, source maps, and license sidecars", () => {
+    expect(shouldFingerprintAsset("bundle.metadata.json")).toBe(false);
     expect(shouldFingerprintAsset("bundle.js.map")).toBe(false);
     expect(shouldFingerprintAsset("bundle.js.LICENSE.txt")).toBe(false);
     expect(shouldFingerprintAsset("bundle.js")).toBe(true);
