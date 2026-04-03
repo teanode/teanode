@@ -6,6 +6,13 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-04-02
+
+### Added
+
+- Detect stale frontend builds on reconnect: the web UI now shows a notification with a reload button when a newer build is available after the backend restarts.
+- Added missing i18n strings (`connectionLost`, `connectionRestored`, `staleBuild`, `reload`) for zh and ja locales.
+
 ## [0.1.9] - 2026-03-30
 
 ### Added
