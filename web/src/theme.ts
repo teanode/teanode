@@ -40,7 +40,7 @@ const sharedSettings = {
   components: {
     MuiCssBaseline: {
       styleOverrides: {
-        "*::-webkit-scrollbar": { width: 6 },
+        "*::-webkit-scrollbar": { width: 6, height: 6 },
         "*::-webkit-scrollbar-track": { background: "transparent" },
         "*::-webkit-scrollbar-thumb": { background: "#555", borderRadius: 3 },
         // Prevent iOS Safari from zooming in when focusing inputs.

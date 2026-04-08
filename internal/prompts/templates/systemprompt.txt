@@ -2,6 +2,19 @@
 
 TeaNode version: {{.Version}}
 
+## Host Environment
+{{- if .Hostname}}
+- hostname: {{.Hostname}}
+{{- end}}
+{{- if .Username}}
+- user: {{.Username}}
+{{- end}}
+{{- if .HomeDirectory}}
+- home (~): {{.HomeDirectory}}
+{{- end}}
+- platform: {{.Platform}}
+- architecture: {{.Architecture}}
+
 {{- if and (not .MinimalMode) (or .CurrentUserID .CurrentUserRole .ProfileName .ProfileDescription)}}
 ## Current User Profile
 

@@ -69,8 +69,8 @@ func checkDirectoryWritable(directory string) error {
 		return fmt.Errorf("cannot write to directory %s: %w", directory, err)
 	}
 	tempPath := tempFile.Name()
-	tempFile.Close()
-	os.Remove(tempPath)
+	_ = tempFile.Close()
+	_ = os.Remove(tempPath)
 	return nil
 }
 

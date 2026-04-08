@@ -251,7 +251,7 @@ func TestCheckDirectoryWritable(t *testing.T) {
 
 	// File instead of directory.
 	filePath := filepath.Join(directory, "file")
-	os.WriteFile(filePath, nil, 0644)
+	_ = os.WriteFile(filePath, nil, 0644)
 	if err := checkDirectoryWritable(filePath); err == nil {
 		t.Error("expected error when path is a file")
 	}

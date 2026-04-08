@@ -212,34 +212,3 @@ func buildAXTreeWithRefs(nodes []accessibilityNodeExt) (string, map[int]refEntry
 	walk(nodes[0].NodeID, 0)
 	return strings.TrimRight(builder.String(), "\n"), refs
 }
-
-// getPageMetadata retrieves the current page URL and title via CDP.
-func getPageMetadata(ctx context.Context, browser browsers.Browser, sessionId string) (string, string) {
-	result, err := browser.SendCDPCommand(ctx, "Runtime.evaluate", map[string]interface{}{
-		"expression":    `JSON.stringify({url: location.href, title: document.title})`,
-		"returnByValue": true,
-	}, sessionId)
-	if err != nil {
-		return "", ""
-	}
-	var evalResponse struct {
-		Result struct {
-			Value json.RawMessage `json:"value"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(result, &evalResponse); err != nil {
-		return "", ""
-	}
-	var metadata struct {
-		URL   string `json:"url"`
-		Title string `json:"title"`
-	}
-	// The value may be a JSON string that needs double-unmarshal.
-	var raw string
-	if json.Unmarshal(evalResponse.Result.Value, &raw) == nil {
-		_ = json.Unmarshal([]byte(raw), &metadata)
-	} else {
-		_ = json.Unmarshal(evalResponse.Result.Value, &metadata)
-	}
-	return metadata.URL, metadata.Title
-}

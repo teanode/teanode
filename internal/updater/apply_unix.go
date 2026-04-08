@@ -65,7 +65,7 @@ func copyFile(source, destination string) error {
 	if err != nil {
 		return fmt.Errorf("opening staged binary: %w", err)
 	}
-	defer sourceFile.Close()
+	defer func() { _ = sourceFile.Close() }()
 
 	sourceInfo, err := sourceFile.Stat()
 	if err != nil {
@@ -81,23 +81,23 @@ func copyFile(source, destination string) error {
 	temporaryPath := temporaryFile.Name()
 
 	if _, err := io.Copy(temporaryFile, sourceFile); err != nil {
-		temporaryFile.Close()
-		os.Remove(temporaryPath)
+		_ = temporaryFile.Close()
+		_ = os.Remove(temporaryPath)
 		return fmt.Errorf("copying staged binary: %w", err)
 	}
 	if err := temporaryFile.Chmod(sourceInfo.Mode()); err != nil {
-		temporaryFile.Close()
-		os.Remove(temporaryPath)
+		_ = temporaryFile.Close()
+		_ = os.Remove(temporaryPath)
 		return fmt.Errorf("setting permissions: %w", err)
 	}
 	if err := temporaryFile.Close(); err != nil {
-		os.Remove(temporaryPath)
+		_ = os.Remove(temporaryPath)
 		return fmt.Errorf("closing temp file: %w", err)
 	}
 
 	// Same-device rename: atomic.
 	if err := os.Rename(temporaryPath, destination); err != nil {
-		os.Remove(temporaryPath)
+		_ = os.Remove(temporaryPath)
 		return fmt.Errorf("moving temp file into place: %w", err)
 	}
 

@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"os/user"
+	"runtime"
 	"sort"
 	"strings"
 	"text/template"
@@ -41,6 +44,11 @@ type systemPromptData struct {
 	ProjectList             string
 	ProjectLimit            int
 	OtherUsers              string
+	Hostname                string
+	Username                string
+	HomeDirectory           string
+	Platform                string
+	Architecture            string
 }
 
 type buildSystemPromptParameters struct {
@@ -65,13 +73,13 @@ func buildSystemPrompt(ctx context.Context, parameters buildSystemPromptParamete
 		return identityLine
 	}
 
-	user := models.UserFromContext(ctx)
-	if user == nil {
+	currentUser := models.UserFromContext(ctx)
+	if currentUser == nil {
 		return identityLine
 	}
-	userId := user.ID
+	userId := currentUser.ID
 	userRole := "user"
-	if user.GetAdmin() {
+	if currentUser.GetAdmin() {
 		userRole = "admin"
 	}
 
@@ -84,6 +92,15 @@ func buildSystemPrompt(ctx context.Context, parameters buildSystemPromptParamete
 		projectList = loadProjectList(ctx, 8)
 	}
 
+	hostname, _ := os.Hostname()
+	user, _ := user.Current()
+	homeDirectory := ""
+	username := ""
+	if user != nil {
+		username = user.Username
+		homeDirectory = user.HomeDir
+	}
+
 	data := systemPromptData{
 		IdentityLine:    identityLine,
 		MinimalMode:     mode == SystemPromptModeMinimal,
@@ -94,9 +111,14 @@ func buildSystemPrompt(ctx context.Context, parameters buildSystemPromptParamete
 		ProjectLimit:    8,
 		ProjectList:     projectList,
 		OtherUsers:      otherUsers,
+		Hostname:        hostname,
+		Username:        username,
+		HomeDirectory:   homeDirectory,
+		Platform:        runtime.GOOS,
+		Architecture:    runtime.GOARCH,
 	}
-	data.ProfileName = user.GetUsername()
-	data.ProfileDescription = user.GetDescription()
+	data.ProfileName = currentUser.GetUsername()
+	data.ProfileDescription = currentUser.GetDescription()
 	data.ProfileDescriptionBlock = formatPromptMultiline(data.ProfileDescription, "  ")
 	data.AgentContent = loadWorkspaceFileFromStore(ctx, models.ScopeAgent, parameters.AgentID, "AGENT.md", 8000)
 	data.SkillsContent = loadWorkspaceFileFromStore(ctx, models.ScopeAgent, parameters.AgentID, "SKILLS.md", 8000)
