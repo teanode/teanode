@@ -82,6 +82,22 @@ Fallback (Option B — flat with bold heading):
 - Detail two
 {{- end}}
 
+## Artifacts
+
+When producing long-form structured content — plans, documents, code files, analyses, or any output longer than ~30 lines — wrap it in an artifact fence so the user can view it in a dedicated panel:
+
+:::artifact{title="Short Descriptive Title"}
+content here (markdown)
+:::
+
+Guidelines:
+- Use a concise, descriptive title (shown as a clickable chip inline).
+- The content inside is rendered as markdown in a separate panel.
+- Multiple artifacts per message are supported.
+- Use artifacts for: implementation plans, code files, long analyses, drafted documents, step-by-step guides.
+- Do NOT use artifacts for: short answers, brief lists, inline code snippets, or conversational replies.
+- Text before and after the artifact fence renders normally in the message bubble.
+
 ## Workspace Tools
 
 Three persistent workspace tools. All support `action`: `write`, `read`, `list`, `append`, `search`, `delete`, `move`.

@@ -9,11 +9,18 @@ import InsertDriveFileRounded from "@mui/icons-material/InsertDriveFileRounded";
 import StopRounded from "@mui/icons-material/StopRounded";
 import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
 import { renderMarkdown } from "../markdown";
+import {
+  hasArtifacts,
+  parseArtifacts,
+  parseArtifactsStreaming,
+} from "../artifactParser";
 import type { Attachment } from "../types";
 import ConversationAvatar from "./ConversationAvatar";
+import ArtifactChip from "./ArtifactChip";
 
 interface MessageBubbleProps {
   role: "user" | "assistant";
+  messageId?: string;
   content: string;
   isStreaming?: boolean;
   streamText?: string;
@@ -102,6 +109,7 @@ function stripMarkdown(text: string): string {
 
 export default function MessageBubble({
   role,
+  messageId,
   content,
   isStreaming,
   streamText,
@@ -217,6 +225,54 @@ export default function MessageBubble({
       );
     } else if (!displayText) {
       return null;
+    } else if (messageId && hasArtifacts(displayText)) {
+      // Parse artifacts and render text segments as markdown, artifact
+      // segments as compact chips that open the artifact panel.
+      const parsed = isStreaming
+        ? parseArtifactsStreaming(displayText)
+        : { segments: parseArtifacts(displayText), pendingArtifact: null };
+
+      bubble = (
+        <Box
+          className="markdown-content"
+          sx={{
+            minWidth: 0,
+            maxWidth: { xs: "95%", md: "85%" },
+            px: 2,
+            py: 1.5,
+            lineHeight: 1.6,
+            wordBreak: "break-word",
+          }}
+        >
+          {parsed.segments.map((segment, index) =>
+            segment.kind === "text" ? (
+              <div
+                key={index}
+                dangerouslySetInnerHTML={{
+                  __html: renderMarkdown(segment.content),
+                }}
+              />
+            ) : (
+              <ArtifactChip
+                key={`artifact-${segment.index}`}
+                messageId={messageId}
+                artifactIndex={segment.index}
+                title={segment.title}
+                isStreaming={false}
+              />
+            ),
+          )}
+          {parsed.pendingArtifact && (
+            <ArtifactChip
+              key={`artifact-${parsed.pendingArtifact.index}`}
+              messageId={messageId}
+              artifactIndex={parsed.pendingArtifact.index}
+              title={parsed.pendingArtifact.title}
+              isStreaming={true}
+            />
+          )}
+        </Box>
+      );
     } else {
       bubble = (
         <Box

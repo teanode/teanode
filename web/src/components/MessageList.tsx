@@ -416,6 +416,7 @@ export default function MessageList({
           >
             <MessageBubble
               role="assistant"
+              messageId={message.id}
               content={message.content}
               isStreaming={isStreamingMessage}
               streamText={isStreamingMessage ? streamText : undefined}

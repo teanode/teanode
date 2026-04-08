@@ -2,7 +2,12 @@ import React, { createContext, useContext, useEffect, useMemo } from "react";
 import { Outlet, useParams } from "@tanstack/react-router";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
 import { useAppContext, useStreamingContext } from "../../../context";
+import ArtifactPanelProvider from "../../../components/ArtifactPanelProvider";
+import ArtifactSidePanel from "../../../components/ArtifactSidePanel";
+import ArtifactMobileOverlay from "../../../components/ArtifactMobileOverlay";
 import {
   useVoiceCall,
   type UseVoiceCallReturn,
@@ -65,9 +70,28 @@ export default function ConversationsAgentLayout() {
     chimeConfig,
   });
 
+  const theme = useTheme();
+  const isMobile = !useMediaQuery(theme.breakpoints.up("md"));
+
   return (
     <VoiceCallContext.Provider value={voiceCall}>
-      <Outlet />
+      <ArtifactPanelProvider>
+        <Box sx={{ display: "flex", flex: 1, minHeight: 0 }}>
+          <Box
+            sx={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0,
+              minHeight: 0,
+            }}
+          >
+            <Outlet />
+          </Box>
+          {!isMobile && <ArtifactSidePanel />}
+        </Box>
+        {isMobile && <ArtifactMobileOverlay />}
+      </ArtifactPanelProvider>
       {voiceCall.callError && (
         <Box
           sx={{
