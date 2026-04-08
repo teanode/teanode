@@ -6,6 +6,18 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-04-07
+
+### Added
+
+- Artifact panel: LLM agents can wrap long-form content (plans, documents, code) in `:::artifact{title="..."}` fences. Artifacts render as compact inline chips in message bubbles and open in a dedicated side panel on desktop (responsive 440–680px) or full-screen overlay on mobile. Content streams live into the panel as the LLM generates it, with auto-open on streaming and a copy button in the title bar.
+- System prompt now includes host environment details (hostname, username, home directory, platform, architecture) so agents are aware of the machine they run on.
+
+### Fixed
+
+- Fixed oversized horizontal scrollbar in code blocks by applying thin scrollbar styling to both axes.
+- Fixed all golangci-lint errcheck violations in the updater package and removed unused `getPageMetadata` function from browser snapshot.
+
 ## [0.1.10] - 2026-04-02
 
 ### Added
