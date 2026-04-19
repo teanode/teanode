@@ -4,6 +4,7 @@ import { useAppContext, useStreamingContext } from "../../../context";
 import MessageList from "../../../components/MessageList";
 import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
+import SuggestionChips from "../../../components/SuggestionChips";
 import QuestionPanel from "../../../components/QuestionPanel";
 import ApprovalPanel from "../../../components/ApprovalPanel";
 import VoiceCallBar from "../../../components/VoiceCallBar";
@@ -131,6 +132,14 @@ export default function ConversationsConversationPage() {
     [backend.sendMessage, backend.markTypedSend],
   );
 
+  const handleSuggestionSelect = useCallback(
+    (text: string) => {
+      backend.markTypedSend();
+      backend.sendMessage(text);
+    },
+    [backend.sendMessage, backend.markTypedSend],
+  );
+
   const handleVoiceMessage = useCallback(
     (text: string) => {
       backend.sendVoiceMessage(text);
@@ -206,23 +215,32 @@ export default function ConversationsConversationPage() {
           disabled={!backend.connected}
         />
       ) : (
-        <InputArea
-          isRunning={backend.isRunning}
-          connected={backend.connected && !backend.connecting}
-          agentName={agentName}
-          draftKey={conversationId}
-          model={backend.conversationModel}
-          voiceEnabled={backend.audioCapability}
-          voiceAutoSend={voiceAutoSend}
-          voiceCallActive={voiceCall.isCallActive}
-          voiceCallConnecting={voiceCall.isConnecting}
-          onStartVoiceCall={voiceCall.startCall}
-          onSend={handleSend}
-          onAbort={backend.abortRun}
-          onFocusChange={setInputFocused}
-          showAbortInCollapsedInput={false}
-          onVoiceMessage={handleVoiceMessage}
-        />
+        <>
+          {backend.suggestions.length > 0 && !backend.isRunning && (
+            <SuggestionChips
+              suggestions={backend.suggestions}
+              onSelect={handleSuggestionSelect}
+              disabled={!backend.connected}
+            />
+          )}
+          <InputArea
+            isRunning={backend.isRunning}
+            connected={backend.connected && !backend.connecting}
+            agentName={agentName}
+            draftKey={conversationId}
+            model={backend.conversationModel}
+            voiceEnabled={backend.audioCapability}
+            voiceAutoSend={voiceAutoSend}
+            voiceCallActive={voiceCall.isCallActive}
+            voiceCallConnecting={voiceCall.isConnecting}
+            onStartVoiceCall={voiceCall.startCall}
+            onSend={handleSend}
+            onAbort={backend.abortRun}
+            onFocusChange={setInputFocused}
+            showAbortInCollapsedInput={false}
+            onVoiceMessage={handleVoiceMessage}
+          />
+        </>
       )}
       {debugEnabled && (
         <DebugReadout
