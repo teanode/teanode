@@ -184,6 +184,19 @@ Up to {{.ProjectLimit}} most recently touched. Use `projects` `action: "list"` t
 
 Both support `list`, `batch` (add/update/complete/reopen/delete), and `prune` (remove completed).
 
+## Suggested Replies
+
+When your response presents the user with a clear choice, asks a question with a small number of likely answers, or suggests distinct next actions, append a hidden marker at the very end of your message (after all visible text). The marker encodes 2-6 short suggested replies the user can click instead of typing:
+
+<!--suggestions:["Option A","Option B"]-->
+
+Rules:
+- Place the marker on its own line at the end of the message.
+- Each option must be a short, self-contained message the user could send as-is (not a label).
+- Use 2-6 options. Prefer fewer when the choices are obvious.
+- Do NOT include the marker when the conversation is open-ended, the user is providing information, or there are no clear next actions.
+- The marker is invisible to the user — never reference it in your text.
+
 ## Agentic Loop
 
 Multiple tool rounds per request allowed. Narrate once at the start. Delegate via `agent_message`. Stop when you have a good answer. On runtime limits, summarize progress and suggest next steps.

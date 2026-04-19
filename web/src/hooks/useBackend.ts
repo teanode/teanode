@@ -36,6 +36,11 @@ import type {
 } from "../types";
 import { useWebSocket } from "./useWebSocket";
 import { normalizeContent, type ExtractedContent } from "../contentUtils";
+import {
+  parseSuggestionMarker,
+  hidePartialSuggestionMarker,
+  extractSuggestionsHeuristically,
+} from "../suggestions";
 
 let messageIdCounter = 0;
 function nextMessageId(): string {
@@ -202,12 +207,14 @@ export function convertHistory(
       });
     } else if (message.role === "assistant") {
       const toolCalls = parseToolCalls(message.toolCalls);
+      // Strip suggestion markers from assistant content for display.
+      const cleanContent = parseSuggestionMarker(content).displayText;
       if (toolCalls.length > 0) {
-        if (content?.trim()) {
+        if (cleanContent?.trim()) {
           displayMessages.push({
             id: nextMessageId(),
             type: "assistant",
-            content,
+            content: cleanContent,
             timestamp,
           });
         }
@@ -224,11 +231,11 @@ export function convertHistory(
             timestamp,
           });
         }
-      } else if (content?.trim()) {
+      } else if (cleanContent?.trim()) {
         displayMessages.push({
           id: nextMessageId(),
           type: "assistant",
-          content,
+          content: cleanContent,
           timestamp,
         });
         const usageNumbers = getUsageNumbers(message.usage);
@@ -277,6 +284,20 @@ export function convertHistory(
   return displayMessages;
 }
 
+/**
+ * Scan raw history messages for suggestion markers in the last assistant
+ * message. Used on history load / reconnect so suggestions survive reload.
+ */
+export function extractSuggestionsFromMessages(messages: Message[]): string[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      const content = extractContent(messages[i]);
+      return parseSuggestionMarker(content).suggestions;
+    }
+  }
+  return [];
+}
+
 export function useBackend() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -288,6 +309,7 @@ export function useBackend() {
   const [streamText, setStreamText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolActivity, setToolActivity] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [currentAgentId, setCurrentAgentId] = useState<string>("");
   const [serverDefaultAgentId, setServerDefaultAgentId] = useState<string>("");
@@ -782,7 +804,7 @@ export function useBackend() {
         afterToolCallsRef.current = false;
       }
       streamTextRef.current += conversationEvent.text || "";
-      setStreamText(streamTextRef.current);
+      setStreamText(hidePartialSuggestionMarker(streamTextRef.current));
       setIsStreaming(true);
     } else if (conversationEvent.state === "text_done") {
       // Text streaming ended; tool calls will follow. Commit streamed text
@@ -910,9 +932,12 @@ export function useBackend() {
             message.type === "assistant" &&
             message.runId === eventRunId,
         );
-        const finalText = hasToolSplits
+        const rawFinalText = hasToolSplits
           ? capturedStreamText
           : conversationEvent.text || capturedStreamText;
+        // Strip suggestion marker from displayed content; suggestions are
+        // extracted separately below (outside setMessages).
+        const finalText = parseSuggestionMarker(rawFinalText).displayText;
         if (
           assistantIndex >= 0 &&
           updated[assistantIndex].type === "assistant"
@@ -958,6 +983,9 @@ export function useBackend() {
         }
         return updated;
       });
+      // Derive suggestions from the final text (marker embedded by the LLM).
+      const rawFinal = capturedStreamText || conversationEvent.text || "";
+      setSuggestions(parseSuggestionMarker(rawFinal).suggestions);
       finishCurrentRun();
     } else if (conversationEvent.state === "error") {
       setToolActivity(null);
@@ -1168,6 +1196,11 @@ export function useBackend() {
               setIsStreaming(false);
               setToolActivity(null);
               setStatus("connected");
+              // Derive suggestions from the last assistant message so
+              // they survive page reload / reconnect.
+              setSuggestions(
+                extractSuggestionsFromMessages(res.messages || []),
+              );
             }
             setMessages(displayMessages);
             historyLoadedRef.current = true;
@@ -1304,6 +1337,7 @@ export function useBackend() {
       setStreamText("");
       setIsStreaming(false);
       setToolActivity(null);
+      setSuggestions([]);
 
       // Switch agent if a different one is specified.
       if (agentId && agentId !== currentAgentIdRef.current) {
@@ -1389,6 +1423,9 @@ export function useBackend() {
               content: "",
               runId: res.activeRunId,
             });
+          } else {
+            // No active run — derive suggestions from history.
+            setSuggestions(extractSuggestionsFromMessages(res.messages || []));
           }
 
           setMessages(displayMessages);
@@ -1510,6 +1547,7 @@ export function useBackend() {
     ) => {
       if (!text.trim() && (!attachments || attachments.length === 0)) return;
       // Allow sending while running — backend injects mid-run
+      setSuggestions([]);
 
       const now = Date.now();
       const isMidRun = isRunning;
@@ -2016,6 +2054,7 @@ export function useBackend() {
     pendingQuestions,
     answerQuestion,
     loadPendingQuestions,
+    suggestions,
     pendingApprovals,
     resolveApproval,
     loadPendingApprovals,
