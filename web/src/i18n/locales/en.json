@@ -415,6 +415,9 @@
     "hoursAgo": "{{count}}h ago",
     "daysAgo": "{{count}}d ago"
   },
+  "chart": {
+    "error": "Chart error: {{message}}"
+  },
   "schema": {
     "addItemPlaceholder": "Add item...",
     "baseUrlPlaceholder": "Base URL (e.g. https://api.openai.com/v1)",

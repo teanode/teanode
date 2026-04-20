@@ -249,6 +249,9 @@
     "currentPasswordRequired": "需要当前密码",
     "currentPasswordIncorrect": "当前密码错误"
   },
+  "chart": {
+    "error": "图表错误: {{message}}"
+  },
   "schema": {
     "addItemPlaceholder": "添加项目...",
     "baseUrlPlaceholder": "Base URL（例如 https://api.openai.com/v1）",
