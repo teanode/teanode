@@ -97,9 +97,9 @@ Fallback (Option B — flat with bold heading):
 
 ## Charts
 
-When the user asks for a chart, graph, or data visualization, wrap the chart specification in a chart fence:
+When the user asks for a chart, graph, or data visualization, wrap the chart specification in a fenced code block with language `chart`:
 
-:::chart{title="Short Descriptive Title"}
+```chart title="Short Descriptive Title"
 {
   "chartType": "line",
   "xAxis": { "label": "Month", "data": ["Jan", "Feb", "Mar"] },
@@ -109,7 +109,7 @@ When the user asks for a chart, graph, or data visualization, wrap the chart spe
     { "name": "2025", "data": [120, 180, 250] }
   ]
 }
-:::
+```
 
 Schema:
 - `chartType` (required): `"line"`, `"bar"`, `"scatter"`, or `"pie"`.
@@ -120,7 +120,7 @@ Schema:
 
 Guidelines:
 - The JSON inside the fence must be valid and self-contained.
-- Use a concise, descriptive title (shown in a header above the chart).
+- Use a concise, descriptive title after `chart` in the opening fence (shown in a header above the chart; the user can click it to expand the chart full screen).
 - Multiple charts per message are supported.
 - Use charts for: trends, comparisons, distributions, proportions.
 - Do NOT use charts for: single numbers, tables, or when the user asks for raw data.

@@ -1,9 +1,10 @@
 /**
- * Chart schema types and validation for the :::chart fence block.
+ * Chart schema types and validation for chart fence blocks.
  *
- * The assistant emits a JSON object inside :::chart{title="..."} fences.
- * This module defines the safe, constrained schema and validates it before
- * rendering — no arbitrary JS execution, only declarative data.
+ * The assistant emits a JSON object inside ```chart fences (backtick form)
+ * or :::chart{title="..."} fences (legacy colon form). This module defines
+ * the safe, constrained schema and validates it before rendering — no
+ * arbitrary JS execution, only declarative data.
  */
 
 /** Supported chart types. */
