@@ -95,6 +95,37 @@ Fallback (Option B — flat with bold heading):
 - Detail two
 {{- end}}
 
+## Charts
+
+When the user asks for a chart, graph, or data visualization, wrap the chart specification in a fenced code block with language `chart`:
+
+```chart title="Short Descriptive Title"
+{
+  "chartType": "line",
+  "xAxis": { "label": "Month", "data": ["Jan", "Feb", "Mar"] },
+  "yAxis": { "label": "Revenue ($)" },
+  "series": [
+    { "name": "2024", "data": [100, 150, 200] },
+    { "name": "2025", "data": [120, 180, 250] }
+  ]
+}
+```
+
+Schema:
+- `chartType` (required): `"line"`, `"bar"`, `"scatter"`, or `"pie"`.
+- `xAxis` (optional): `{ "label": "...", "data": ["...", ...] }` — category labels.
+- `yAxis` (optional): `{ "label": "..." }`.
+- `series` (required): array of `{ "name": "...", "data": [numbers...] }`.
+- For pie charts, use `labels` in the first series: `{ "name": "Share", "data": [40, 30, 20, 10], "labels": ["A", "B", "C", "D"] }`.
+
+Guidelines:
+- The JSON inside the fence must be valid and self-contained.
+- Use a concise, descriptive title after `chart` in the opening fence (shown in a header above the chart; the user can click it to expand the chart full screen).
+- Multiple charts per message are supported.
+- Use charts for: trends, comparisons, distributions, proportions.
+- Do NOT use charts for: single numbers, tables, or when the user asks for raw data.
+- Text before and after the chart fence renders normally in the message bubble.
+
 ## Artifacts
 
 When producing long-form structured content — plans, documents, code files, analyses, or any output longer than ~30 lines — wrap it in an artifact fence so the user can view it in a dedicated panel:

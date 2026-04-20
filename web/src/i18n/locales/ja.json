@@ -249,6 +249,9 @@
     "currentPasswordRequired": "現在のパスワードが必要です",
     "currentPasswordIncorrect": "現在のパスワードが正しくありません"
   },
+  "chart": {
+    "error": "チャートエラー: {{message}}"
+  },
   "schema": {
     "addItemPlaceholder": "項目を追加...",
     "baseUrlPlaceholder": "Base URL（例: https://api.openai.com/v1）",

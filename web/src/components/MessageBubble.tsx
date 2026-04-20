@@ -10,13 +10,14 @@ import StopRounded from "@mui/icons-material/StopRounded";
 import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
 import { renderMarkdown } from "../markdown";
 import {
-  hasArtifacts,
+  hasFencedBlocks,
   parseArtifacts,
   parseArtifactsStreaming,
 } from "../artifactParser";
 import type { Attachment } from "../types";
 import ConversationAvatar from "./ConversationAvatar";
 import ArtifactChip from "./ArtifactChip";
+import ChartRenderer from "./ChartRenderer";
 
 interface MessageBubbleProps {
   role: "user" | "assistant";
@@ -225,12 +226,16 @@ export default function MessageBubble({
       );
     } else if (!displayText) {
       return null;
-    } else if (messageId && hasArtifacts(displayText)) {
-      // Parse artifacts and render text segments as markdown, artifact
-      // segments as compact chips that open the artifact panel.
+    } else if (messageId && hasFencedBlocks(displayText)) {
+      // Parse artifacts/charts and render text segments as markdown,
+      // artifact segments as compact chips, chart segments inline.
       const parsed = isStreaming
         ? parseArtifactsStreaming(displayText)
-        : { segments: parseArtifacts(displayText), pendingArtifact: null };
+        : {
+            segments: parseArtifacts(displayText),
+            pendingArtifact: null,
+            pendingChart: null,
+          };
 
       bubble = (
         <Box
@@ -244,15 +249,27 @@ export default function MessageBubble({
             wordBreak: "break-word",
           }}
         >
-          {parsed.segments.map((segment, index) =>
-            segment.kind === "text" ? (
-              <div
-                key={index}
-                dangerouslySetInnerHTML={{
-                  __html: renderMarkdown(segment.content),
-                }}
-              />
-            ) : (
+          {parsed.segments.map((segment, index) => {
+            if (segment.kind === "text") {
+              return (
+                <div
+                  key={index}
+                  dangerouslySetInnerHTML={{
+                    __html: renderMarkdown(segment.content),
+                  }}
+                />
+              );
+            }
+            if (segment.kind === "chart") {
+              return (
+                <ChartRenderer
+                  key={`chart-${segment.index}`}
+                  title={segment.title}
+                  content={segment.content}
+                />
+              );
+            }
+            return (
               <ArtifactChip
                 key={`artifact-${segment.index}`}
                 messageId={messageId}
@@ -260,14 +277,22 @@ export default function MessageBubble({
                 title={segment.title}
                 isStreaming={false}
               />
-            ),
-          )}
+            );
+          })}
           {parsed.pendingArtifact && (
             <ArtifactChip
               key={`artifact-${parsed.pendingArtifact.index}`}
               messageId={messageId}
               artifactIndex={parsed.pendingArtifact.index}
               title={parsed.pendingArtifact.title}
+              isStreaming={true}
+            />
+          )}
+          {parsed.pendingChart && (
+            <ChartRenderer
+              key={`chart-pending-${parsed.pendingChart.index}`}
+              title={parsed.pendingChart.title}
+              content={parsed.pendingChart.content}
               isStreaming={true}
             />
           )}
