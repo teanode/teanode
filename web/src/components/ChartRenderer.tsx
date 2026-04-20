@@ -27,6 +27,7 @@ function buildEChartsOption(
   isDark: boolean,
 ): Record<string, unknown> {
   const textColor = isDark ? "#ccc" : "#333";
+  const showLegend = spec.series.length > 1;
 
   if (spec.chartType === "pie") {
     const firstSeries = spec.series[0];
@@ -39,11 +40,16 @@ function buildEChartsOption(
     }));
     return {
       tooltip: { trigger: "item" },
-      legend: { bottom: 0, textStyle: { color: textColor } },
+      legend: {
+        bottom: 0,
+        textStyle: { color: textColor, fontSize: 11 },
+        type: "scroll",
+      },
       series: [
         {
           type: "pie",
           radius: ["40%", "70%"],
+          center: ["50%", "45%"],
           data: pieData,
           emphasis: {
             itemStyle: {
@@ -57,21 +63,48 @@ function buildEChartsOption(
     };
   }
 
+  // Determine if x-axis labels are long enough to warrant rotation.
+  const categoryLabels = spec.xAxis?.data ?? [];
+  const maxLabelLength = categoryLabels.reduce<number>(
+    (max, label) => Math.max(max, String(label).length),
+    0,
+  );
+  const rotateLabels = maxLabelLength > 6 || categoryLabels.length > 8;
+
+  // Reserve space: rotated labels need more room, legend adds another row.
+  const labelBottomPadding = rotateLabels ? 60 : 30;
+  const legendHeight = showLegend ? 28 : 0;
+  const axisNameHeight = spec.xAxis?.label ? 20 : 0;
+  const gridBottom = labelBottomPadding + legendHeight + axisNameHeight;
+
   // line / bar / scatter
   return {
     tooltip: { trigger: "axis" },
-    legend: {
-      bottom: 0,
-      textStyle: { color: textColor },
+    ...(showLegend && {
+      legend: {
+        bottom: 0,
+        textStyle: { color: textColor, fontSize: 11 },
+        type: "scroll",
+      },
+    }),
+    grid: {
+      left: 60,
+      right: 20,
+      top: 20,
+      bottom: gridBottom,
+      containLabel: false,
     },
-    grid: { left: 60, right: 20, top: 20, bottom: 40 },
     xAxis: {
       type: "category",
-      data: spec.xAxis?.data ?? [],
+      data: categoryLabels,
       name: spec.xAxis?.label,
       nameLocation: "middle",
-      nameGap: 30,
-      axisLabel: { color: textColor },
+      nameGap: rotateLabels ? 50 : 25,
+      axisLabel: {
+        color: textColor,
+        fontSize: 11,
+        ...(rotateLabels && { rotate: 35, overflow: "truncate", width: 80 }),
+      },
       nameTextStyle: { color: textColor },
     },
     yAxis: {
@@ -245,13 +278,9 @@ export default function ChartRenderer({
       <Dialog
         open={fullscreen}
         onClose={closeFullscreen}
-        maxWidth={false}
+        fullScreen
         PaperProps={{
           sx: {
-            width: "90vw",
-            height: "85vh",
-            maxWidth: "90vw",
-            maxHeight: "85vh",
             display: "flex",
             flexDirection: "column",
             bgcolor: isDark ? "#1e1e1e" : "#fff",
