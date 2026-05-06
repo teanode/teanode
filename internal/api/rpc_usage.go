@@ -32,11 +32,11 @@ func (self *webSocketConnection) handleListUsages(frame requestFrame) (interface
 		return nil, rpcError(400, "intervalType must be 'hour', 'day', 'week', 'month', or 'year'")
 	}
 
-	startedAt, err := time.ParseInLocation("2006-01-02T15:04:05", parameters.StartedAt, time.Local)
+	startedAt, err := time.ParseInLocation("2006-01-02T15:04:05", parameters.StartedAt, timeutil.LocalLocation())
 	if err != nil {
 		return nil, rpcError(400, "startedAt must be in format 2006-01-02T15:04:05")
 	}
-	endedAt, err := time.ParseInLocation("2006-01-02T15:04:05", parameters.EndedAt, time.Local)
+	endedAt, err := time.ParseInLocation("2006-01-02T15:04:05", parameters.EndedAt, timeutil.LocalLocation())
 	if err != nil {
 		return nil, rpcError(400, "endedAt must be in format 2006-01-02T15:04:05")
 	}

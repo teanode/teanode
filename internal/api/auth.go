@@ -13,6 +13,7 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/ratelimit"
 	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/util/timeutil"
 	"github.com/teanode/teanode/internal/web"
 )
 
@@ -113,7 +114,7 @@ func (self *api) handleAuthSetup(writer http.ResponseWriter, request *http.Reque
 			return err
 		}
 
-		now := time.Now().In(time.Local)
+		now := time.Now().In(timeutil.LocalLocation())
 		expiresAt := now.Add(maxAge)
 
 		createdSession, err := transaction.CreateSession(ctx, &models.Session{
@@ -178,7 +179,7 @@ func (self *api) handleAuthLogin(writer http.ResponseWriter, request *http.Reque
 			return nil
 		}
 
-		now := time.Now().In(time.Local)
+		now := time.Now().In(timeutil.LocalLocation())
 		expiresAt := now.Add(maxAge)
 
 		createdSession, err := transaction.CreateSession(ctx, &models.Session{

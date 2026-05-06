@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 var log = logging.MustGetLogger("ptrto") //nolint:unused
@@ -15,7 +16,7 @@ func TimeNow() *time.Time {
 }
 
 func TimeNowInLocal() *time.Time {
-	now := time.Now().In(time.Local)
+	now := time.Now().In(timeutil.LocalLocation())
 	return &now
 }
 
