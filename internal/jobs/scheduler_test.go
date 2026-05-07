@@ -33,6 +33,7 @@ func TestCronMatchesAfterTimezoneChange(t *testing.T) {
 
 	// --- Phase 1: TZ = America/New_York ---
 	t.Setenv("TZ", "America/New_York")
+	timeutil.InvalidateLocationCache()
 	localTime := utcInstant.In(timeutil.LocalLocation())
 
 	if !cronAt10.Matches(localTime) {
@@ -44,6 +45,7 @@ func TestCronMatchesAfterTimezoneChange(t *testing.T) {
 
 	// --- Phase 2: change TZ to Asia/Tokyo ---
 	t.Setenv("TZ", "Asia/Tokyo")
+	timeutil.InvalidateLocationCache()
 	localTime = utcInstant.In(timeutil.LocalLocation())
 
 	if cronAt23.Matches(localTime) != true {
@@ -71,6 +73,7 @@ func TestTickConvertsBehavior(t *testing.T) {
 	}
 
 	t.Setenv("TZ", "America/New_York")
+	timeutil.InvalidateLocationCache()
 	converted := utcInstant.In(timeutil.LocalLocation())
 	if !expression.Matches(converted) {
 		t.Errorf("expected match at NY local time %s", converted.Format("15:04"))
@@ -78,6 +81,7 @@ func TestTickConvertsBehavior(t *testing.T) {
 
 	// After switching to UTC, the same instant is 14:30 — should NOT match.
 	t.Setenv("TZ", "UTC")
+	timeutil.InvalidateLocationCache()
 	converted = utcInstant.In(timeutil.LocalLocation())
 	if expression.Matches(converted) {
 		t.Errorf("should not match at UTC time %s", converted.Format("15:04"))

@@ -7,6 +7,7 @@ import (
 
 func TestLocalLocationReturnsTZEnvVar(t *testing.T) {
 	t.Setenv("TZ", "America/Chicago")
+	InvalidateLocationCache()
 	loc := LocalLocation()
 
 	// Verify the returned location matches the TZ env var.
@@ -28,18 +29,44 @@ func TestLocalLocationReturnsTZEnvVar(t *testing.T) {
 
 func TestLocalLocationUTC(t *testing.T) {
 	t.Setenv("TZ", "UTC")
+	InvalidateLocationCache()
 	loc := LocalLocation()
 	if loc != time.UTC {
 		t.Errorf("LocalLocation() = %v, want UTC", loc)
 	}
 }
 
-func TestLocalLocationFallsBackGracefully(t *testing.T) {
-	// With no TZ set and (possibly) no /etc/localtime, should not panic.
+func TestLocalLocationEmptyTZMeansUTC(t *testing.T) {
+	// Go runtime treats TZ="" as UTC (distinct from TZ unset).
 	t.Setenv("TZ", "")
+	InvalidateLocationCache()
+	loc := LocalLocation()
+	if loc != time.UTC {
+		t.Errorf("LocalLocation() with TZ=\"\" = %v, want UTC", loc)
+	}
+}
+
+func TestLocalLocationFallsBackGracefully(t *testing.T) {
+	// Unset TZ entirely so the function falls through to system checks.
+	t.Setenv("TZ", "INVALID/NONEXISTENT_ZONE_FOR_TEST")
+	InvalidateLocationCache()
 	loc := LocalLocation()
 	if loc == nil {
 		t.Fatal("LocalLocation() returned nil")
+	}
+}
+
+func TestLocalLocationCacheInvalidation(t *testing.T) {
+	t.Setenv("TZ", "America/New_York")
+	InvalidateLocationCache()
+	loc1 := LocalLocation()
+
+	t.Setenv("TZ", "Asia/Tokyo")
+	InvalidateLocationCache()
+	loc2 := LocalLocation()
+
+	if loc1.String() == loc2.String() {
+		t.Errorf("expected different locations after cache invalidation, both %q", loc1.String())
 	}
 }
 

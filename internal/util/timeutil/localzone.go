@@ -3,16 +3,60 @@ package timeutil
 import (
 	"os"
 	"strings"
+	"sync"
 	"time"
+)
+
+const cacheTTL = 5 * time.Second
+
+var (
+	cacheMutex     sync.Mutex
+	cachedLocation *time.Location
+	cachedAt       time.Time
 )
 
 // LocalLocation returns the current system timezone by re-reading system
 // configuration. Unlike time.Local, which is cached once at process startup,
 // this function detects timezone changes made while the process is running.
+//
+// Results are cached for 5 seconds to avoid repeated filesystem I/O in hot
+// paths (e.g. timestamp serialization). Timezone changes are still detected
+// within one cache TTL.
 func LocalLocation() *time.Location {
+	now := time.Now()
+
+	cacheMutex.Lock()
+	if cachedLocation != nil && now.Sub(cachedAt) < cacheTTL {
+		location := cachedLocation
+		cacheMutex.Unlock()
+		return location
+	}
+	cacheMutex.Unlock()
+
+	location := resolveLocalLocation()
+
+	cacheMutex.Lock()
+	cachedLocation = location
+	cachedAt = now
+	cacheMutex.Unlock()
+
+	return location
+}
+
+// InvalidateLocationCache forces the next call to LocalLocation to re-read the
+// system timezone. Intended for use in tests.
+func InvalidateLocationCache() {
+	cacheMutex.Lock()
+	cachedLocation = nil
+	cachedAt = time.Time{}
+	cacheMutex.Unlock()
+}
+
+func resolveLocalLocation() *time.Location {
 	// 1. Honour the TZ environment variable (same precedence as Go runtime).
-	if tz := os.Getenv("TZ"); tz != "" {
-		if tz == "UTC" || tz == "utc" {
+	// Go semantics: unset → system default, "" → UTC, value → LoadLocation.
+	if tz, ok := os.LookupEnv("TZ"); ok {
+		if tz == "" || tz == "UTC" || tz == "utc" {
 			return time.UTC
 		}
 		if loc, err := time.LoadLocation(tz); err == nil {

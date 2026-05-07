@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 // fixedClock returns a function that always returns the given time.
@@ -47,6 +48,7 @@ func TestDatetimeToolDefinition(t *testing.T) {
 
 func TestBuildOverlayFormat(t *testing.T) {
 	t.Setenv("TZ", "America/Los_Angeles")
+	timeutil.InvalidateLocationCache()
 
 	frozen := time.Date(2026, 3, 11, 14, 32, 7, 0, time.FixedZone("PDT", -7*3600))
 	original := clock
@@ -67,6 +69,7 @@ func TestBuildOverlayFormat(t *testing.T) {
 
 func TestBuildOverlayPositiveOffset(t *testing.T) {
 	t.Setenv("TZ", "Asia/Kolkata")
+	timeutil.InvalidateLocationCache()
 
 	frozen := time.Date(2026, 6, 15, 9, 0, 0, 0, time.FixedZone("IST", 5*3600+30*60))
 	original := clock
@@ -87,6 +90,7 @@ func TestBuildOverlayPositiveOffset(t *testing.T) {
 
 func TestBuildOverlayUTC(t *testing.T) {
 	t.Setenv("TZ", "UTC")
+	timeutil.InvalidateLocationCache()
 
 	frozen := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	original := clock
@@ -107,6 +111,7 @@ func TestBuildOverlayUTC(t *testing.T) {
 
 func TestBuildOverlayInRegistry(t *testing.T) {
 	t.Setenv("TZ", "America/New_York")
+	timeutil.InvalidateLocationCache()
 
 	// Verify overlay appears when collected through the registry.
 	loc := time.FixedZone("EST", -5*3600)
@@ -132,6 +137,7 @@ func TestBuildOverlayInRegistry(t *testing.T) {
 
 func TestFormatNowDetectsTimezoneChange(t *testing.T) {
 	t.Setenv("TZ", "America/New_York")
+	timeutil.InvalidateLocationCache()
 
 	// Use a fixed UTC time so conversion is deterministic.
 	frozen := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
@@ -147,6 +153,7 @@ func TestFormatNowDetectsTimezoneChange(t *testing.T) {
 
 	// Simulate timezone change to Tokyo (UTC+9).
 	t.Setenv("TZ", "Asia/Tokyo")
+	timeutil.InvalidateLocationCache()
 	result2 := formatNow()
 	if !strings.Contains(result2, "21:00:00 JST") {
 		t.Fatalf("expected JST time after timezone change, got %q", result2)
