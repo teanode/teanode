@@ -168,6 +168,41 @@ See `docs/agents-and-skills.md` for the schema.
 2. Use `MEMORY.md` for stable preferences
 3. Configure agents via `~/.teanode/agents/<agentId>/config.yaml`
 
+## Release Workflow
+
+TeaNode releases are published from Git tags via `.github/workflows/release.yml`.
+
+### Tag Format
+
+- Preferred release tags are `vMAJOR.MINOR.PATCH` (for example `v0.1.13`)
+- The workflow also accepts bare numeric tags for compatibility, but `v`-prefixed tags should be used going forward
+
+### Changelog Requirements
+
+- Add a matching section to `CHANGELOG.md` before creating a release tag
+- The section header must exactly match the tag version without the leading `v`, for example:
+
+```md
+## [0.1.13] - 2026-05-07
+```
+
+- Keep the newest released version near the top, directly under `## [Unreleased]`
+- Ensure release notes are filed under the correct version; do not place a newer release's notes under an older section
+
+### How Release Notes Are Generated
+
+- The GitHub release workflow extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` and uses it as the release body
+- If no matching section is found, the workflow falls back to a minimal `Release X.Y.Z` body
+- Because release notes are derived mechanically from the matching changelog section, verify the section header and contents before pushing the release tag
+
+### Recommended Release Steps
+
+1. Update `CHANGELOG.md` with the new version section
+2. Run formatters and linters (`make format` and `make lint`)
+3. Commit and merge the release-prep changes
+4. Create and push the release tag
+5. Verify the generated GitHub Release body matches the intended changelog section
+
 ## CI
 
 GitHub Actions runs on all pushes and pull requests:
