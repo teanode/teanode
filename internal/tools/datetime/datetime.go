@@ -9,6 +9,7 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 // clock returns the current time. Overridden in tests for determinism.
@@ -42,8 +43,10 @@ func (self *datetimeTool) Definition() providers.ToolDefinition {
 
 // formatNow returns the current datetime as a formatted string.
 // Both Execute and BuildOverlay share this code path to avoid drift.
+// It re-reads the system timezone so that host timezone changes are reflected
+// without restarting the process.
 func formatNow() string {
-	return clock().Format("2006-01-02 15:04:05 MST")
+	return clock().In(timeutil.LocalLocation()).Format("2006-01-02 15:04:05 MST")
 }
 
 func (self *datetimeTool) PolicyGroups() []tools.PolicyGroup {

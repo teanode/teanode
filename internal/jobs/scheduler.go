@@ -12,6 +12,7 @@ import (
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/security"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 // tickInterval is the scheduler's internal polling interval.
@@ -86,6 +87,11 @@ func (self *Scheduler) run() {
 }
 
 func (self *Scheduler) tick(when time.Time) {
+	// Re-read the system timezone on every tick so that cron expressions are
+	// evaluated against the current local time, even if the host timezone
+	// changed after the process started.
+	when = when.In(timeutil.LocalLocation())
+
 	jobModels := make([]*models.Job, 0)
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		listedJobs, listError := transaction.ListJobs(ctx, "", nil)

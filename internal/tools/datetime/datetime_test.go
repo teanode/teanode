@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
 // fixedClock returns a function that always returns the given time.
@@ -46,8 +47,10 @@ func TestDatetimeToolDefinition(t *testing.T) {
 }
 
 func TestBuildOverlayFormat(t *testing.T) {
-	loc := time.FixedZone("PDT", -7*3600)
-	frozen := time.Date(2026, 3, 11, 14, 32, 7, 0, loc)
+	t.Setenv("TZ", "America/Los_Angeles")
+	timeutil.InvalidateLocationCache()
+
+	frozen := time.Date(2026, 3, 11, 14, 32, 7, 0, time.FixedZone("PDT", -7*3600))
 	original := clock
 	clock = fixedClock(frozen)
 	defer func() { clock = original }()
@@ -65,8 +68,10 @@ func TestBuildOverlayFormat(t *testing.T) {
 }
 
 func TestBuildOverlayPositiveOffset(t *testing.T) {
-	loc := time.FixedZone("IST", 5*3600+30*60)
-	frozen := time.Date(2026, 6, 15, 9, 0, 0, 0, loc)
+	t.Setenv("TZ", "Asia/Kolkata")
+	timeutil.InvalidateLocationCache()
+
+	frozen := time.Date(2026, 6, 15, 9, 0, 0, 0, time.FixedZone("IST", 5*3600+30*60))
 	original := clock
 	clock = fixedClock(frozen)
 	defer func() { clock = original }()
@@ -84,6 +89,9 @@ func TestBuildOverlayPositiveOffset(t *testing.T) {
 }
 
 func TestBuildOverlayUTC(t *testing.T) {
+	t.Setenv("TZ", "UTC")
+	timeutil.InvalidateLocationCache()
+
 	frozen := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	original := clock
 	clock = fixedClock(frozen)
@@ -102,6 +110,9 @@ func TestBuildOverlayUTC(t *testing.T) {
 }
 
 func TestBuildOverlayInRegistry(t *testing.T) {
+	t.Setenv("TZ", "America/New_York")
+	timeutil.InvalidateLocationCache()
+
 	// Verify overlay appears when collected through the registry.
 	loc := time.FixedZone("EST", -5*3600)
 	frozen := time.Date(2026, 12, 25, 18, 30, 0, 0, loc)
@@ -121,5 +132,30 @@ func TestBuildOverlayInRegistry(t *testing.T) {
 	}
 	if !strings.Contains(overlays[0], "2026-12-25 18:30:00 EST") {
 		t.Errorf("overlay should contain formatted time, got %q", overlays[0])
+	}
+}
+
+func TestFormatNowDetectsTimezoneChange(t *testing.T) {
+	t.Setenv("TZ", "America/New_York")
+	timeutil.InvalidateLocationCache()
+
+	// Use a fixed UTC time so conversion is deterministic.
+	frozen := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	original := clock
+	clock = fixedClock(frozen)
+	defer func() { clock = original }()
+
+	// Start in New York (UTC-4 in June).
+	result1 := formatNow()
+	if !strings.Contains(result1, "08:00:00 EDT") {
+		t.Fatalf("expected EDT time, got %q", result1)
+	}
+
+	// Simulate timezone change to Tokyo (UTC+9).
+	t.Setenv("TZ", "Asia/Tokyo")
+	timeutil.InvalidateLocationCache()
+	result2 := formatNow()
+	if !strings.Contains(result2, "21:00:00 JST") {
+		t.Fatalf("expected JST time after timezone change, got %q", result2)
 	}
 }

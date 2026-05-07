@@ -23,7 +23,7 @@ func (self Timestamp) String() string {
 	if self.IsZero() {
 		return ""
 	}
-	return self.Time.In(time.Local).Format(localTimestampLayout)
+	return self.Time.In(LocalLocation()).Format(localTimestampLayout)
 }
 
 func (self Timestamp) MarshalJSON() ([]byte, error) {
@@ -87,7 +87,7 @@ func Parse(value string) (Timestamp, error) {
 	}
 	for _, layout := range layouts {
 		if parsed, err := time.Parse(layout, trimmed); err == nil {
-			return Timestamp{Time: parsed.In(time.Local)}, nil
+			return Timestamp{Time: parsed.In(LocalLocation())}, nil
 		}
 	}
 	return Timestamp{}, fmt.Errorf("invalid timestamp: %q", value)

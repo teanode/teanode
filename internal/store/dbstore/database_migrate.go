@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/store/dbstore/dbmigrations"
+	"github.com/teanode/teanode/internal/util/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -80,7 +81,7 @@ func (self *databaseStore) Migrate(ctx context.Context) error {
 			}
 			return transaction.Create(&databaseMigrationRecord{
 				ID:         migration.ID,
-				MigratedAt: time.Now().In(time.Local),
+				MigratedAt: time.Now().In(timeutil.LocalLocation()),
 				ReverseSQL: migration.ReverseSQL,
 			}).Error
 		}); err != nil {

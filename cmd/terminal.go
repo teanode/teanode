@@ -21,6 +21,7 @@ import (
 	"github.com/teanode/teanode/internal/integrations/terminals"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/screenbuffer"
+	"github.com/teanode/teanode/internal/util/timeutil"
 	"github.com/urfave/cli/v3"
 )
 
@@ -309,7 +310,7 @@ func sendMachineInfo(connection *websocket.Conn, shellCommand string) {
 		username = currentUser.Username
 	}
 	workingDirectory, _ := os.Getwd()
-	timezone := time.Now().Location().String()
+	timezone := timeutil.LocalLocation().String()
 
 	message := map[string]interface{}{
 		"method": "attach",
