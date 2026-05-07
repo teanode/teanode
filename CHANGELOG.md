@@ -6,6 +6,19 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-05-07
+
+### Added
+
+- Suggestion chips: assistant responses can include clickable suggestion chips in the chat UI, giving users quick follow-up actions without typing.
+- Native chart rendering: LLM agents can emit chart data using backtick-fenced chart blocks that render as interactive charts inline in messages, with fullscreen view support.
+
+### Fixed
+
+- Fixed chart label overlap and made fullscreen view use the full viewport.
+- Fixed scheduled jobs firing at the wrong timezone after the host timezone changes by detecting OS timezone updates without requiring a process restart.
+- Added a TTL cache to `LocalLocation` and corrected `TZ=""` semantics so empty-string timezone is handled correctly.
+
 ## [0.1.11] - 2026-04-07
 
 ### Added
