@@ -6,6 +6,13 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-05-07
+
+### Fixed
+
+- Fixed scheduled jobs firing at the wrong timezone after the host timezone changes by detecting OS timezone updates without requiring a process restart.
+- Added a TTL cache to `LocalLocation` and corrected `TZ=""` semantics so empty-string timezone is handled correctly.
+
 ## [0.1.12] - 2026-05-07
 
 ### Added
@@ -16,8 +23,6 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 ### Fixed
 
 - Fixed chart label overlap and made fullscreen view use the full viewport.
-- Fixed scheduled jobs firing at the wrong timezone after the host timezone changes by detecting OS timezone updates without requiring a process restart.
-- Added a TTL cache to `LocalLocation` and corrected `TZ=""` semantics so empty-string timezone is handled correctly.
 
 ## [0.1.11] - 2026-04-07
 
@@ -163,9 +168,3 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 - Improved project documentation and contribution guidance.
 - Fixed flaky concurrent access test behavior.
-
-## Unreleased
-
-### Planned
-
-- Continue summarizing notable user-facing and operator-facing changes for each tagged release.

@@ -166,15 +166,17 @@ jobs:
           awk -v sectionStart="$sectionStart" '
             BEGIN {
               found = 0
+              started = 0
             }
             index($0, sectionStart) == 1 {
               found = 1
             }
             found {
-              if ($0 ~ /^## / && index($0, sectionStart) != 1) {
+              if (started && $0 ~ /^## /) {
                 exit
               }
               print
+              started = 1
             }
           ' CHANGELOG.md > "$bodyFile"
 
