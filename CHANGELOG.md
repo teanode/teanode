@@ -6,6 +6,8 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-05-08
+
 ### Fixed
 
 - Smoke-test entry to verify the auto-release pipeline picks up patch bumps from `### Fixed`.
