@@ -171,11 +171,16 @@ export default function ToolResult({
           <Typography variant="caption">{t("tool.result")}</Typography>
           {copyButton}
         </Box>
-        <Box sx={{ borderRadius: 0.5, overflow: "hidden" }}>
+        <Box sx={{ borderRadius: 0.5, overflow: "hidden", minHeight: 100 }}>
           <img
             src={source}
             alt={t("tool.outputAlt", { toolName })}
-            style={{ maxWidth: "100%", maxHeight: 400, borderRadius: 4 }}
+            style={{
+              maxWidth: "100%",
+              maxHeight: 400,
+              borderRadius: 4,
+              display: "block",
+            }}
             loading="lazy"
           />
         </Box>
