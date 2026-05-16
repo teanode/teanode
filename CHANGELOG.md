@@ -6,6 +6,8 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-05-16
+
 ### Fixed
 
 - Stabilize mobile and desktop scroll by falling back to a simple (non-virtualized) list when the item count is below 200, eliminating visible jumps caused by react-virtuoso's height-estimation cycle during iOS momentum scrolling and mixed-height items on desktop.
