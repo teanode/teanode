@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/teanode/teanode/internal/channels"
 	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/models"
@@ -365,7 +366,8 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			return
 		}
 
-		finalText, _ := payloadMap["text"].(string)
+		rawText, _ := payloadMap["text"].(string)
+		finalText := channels.StripSuggestedReplies(rawText)
 
 		// Send collected media as file attachments.
 		for index, mediaContent := range subscribedRun.pendingMedia {
@@ -623,7 +625,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 
 	// Reuse the preview message as the final message by editing it.
 	if previewMessageId != "" {
-		finalText := result.Response
+		finalText := channels.StripSuggestedReplies(result.Response)
 		firstChunk := finalText
 		remaining := ""
 		if len(finalText) > maxDiscordMessageLength {
@@ -642,7 +644,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 	}
 
 	// No preview message was created -- send as new message(s).
-	self.sendChunked(channelId, result.Response)
+	self.sendChunked(channelId, channels.StripSuggestedReplies(result.Response))
 }
 
 func (self *Bot) handleCommand(user *models.User, discordSession *discordgo.Session, messageEvent *discordgo.MessageCreate, name, arguments string) {
