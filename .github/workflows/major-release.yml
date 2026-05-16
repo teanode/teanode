@@ -1,0 +1,50 @@
+name: Major Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "MAJOR" to confirm you want to bump the major version.'
+        required: true
+        default: ''
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag major release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate confirmation input
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "MAJOR" ]; then
+            echo "::error::Confirmation input must be the literal string MAJOR."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "teanode-release-bot"
+          git config user.email "teanode-release-bot@users.noreply.github.com"
+
+      - name: Run release script
+        id: release
+        run: bash .github/scripts/release.sh major
+
+      - name: Push commit and tag
+        if: steps.release.outputs.released == 'true'
+        run: |
+          git push origin HEAD:main
+          git push origin "${{ steps.release.outputs.version }}"

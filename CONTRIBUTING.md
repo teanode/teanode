@@ -170,38 +170,68 @@ See `docs/agents-and-skills.md` for the schema.
 
 ## Release Workflow
 
-TeaNode releases are published from Git tags via `.github/workflows/release.yml`.
+Releases are tagged automatically when pull requests merge to `main`. You only
+need to keep `CHANGELOG.md` accurate; the workflows do the rest.
+
+### What Each PR Must Do
+
+- Add at least one bullet under the `## [Unreleased]` section of `CHANGELOG.md`,
+  filed under the appropriate Keep-a-Changelog subsection:
+  - `### Added` — new behavior
+  - `### Changed` — observable behavior change
+  - `### Removed` — removed behavior
+  - `### Deprecated` — deprecation
+  - `### Fixed` — bug fix
+  - `### Security` — security fix
+- The `Changelog Guard` workflow enforces this on every PR.
+- For PRs that genuinely have no user-visible impact (CI-only edits, doc typos,
+  pure refactors), apply the `skip-changelog` label to bypass the guard.
+
+### How Auto-Release Decides the Bump
+
+When the PR merges to `main`, `Auto Release` parses `## [Unreleased]` and:
+
+- Bumps **minor** if any bullet exists under `Added`, `Changed`, `Removed`, or
+  `Deprecated`.
+- Bumps **patch** if only `Fixed` and/or `Security` bullets exist.
+- Does nothing if `## [Unreleased]` is empty.
+
+It then rewrites `CHANGELOG.md` (replacing `## [Unreleased]` with a new dated
+`## [X.Y.Z]` section above an empty Unreleased), commits as
+`chore(release): vX.Y.Z`, and pushes the `vX.Y.Z` tag. The existing
+`Release` workflow takes over from the tag push to build artifacts and publish
+the GitHub Release.
+
+### Major Releases (Manual Only)
+
+Major versions never bump automatically. To cut a `vX.0.0` release:
+
+1. Make sure `## [Unreleased]` contains the entries you want included.
+2. Go to **Actions → Major Release → Run workflow**.
+3. Type `MAJOR` in the confirmation input.
+
+The workflow follows the same commit-and-tag flow as auto-release.
+
+### Required Setup
+
+- Repository secret `RELEASE_TOKEN` — a fine-grained PAT with
+  `Contents: read & write` on this repo. The release workflows use it both to
+  push past the `main` branch restriction and to make the tag push trigger the
+  `Release` workflow (the default `GITHUB_TOKEN` cannot do either).
 
 ### Tag Format
 
-- Preferred release tags are `vMAJOR.MINOR.PATCH` (for example `v0.1.13`)
-- The workflow also accepts bare numeric tags for compatibility, but `v`-prefixed tags should be used going forward
-
-### Changelog Requirements
-
-- Add a matching section to `CHANGELOG.md` before creating a release tag
-- The section header must exactly match the tag version without the leading `v`, for example:
-
-```md
-## [0.1.13] - 2026-05-07
-```
-
-- Keep the newest released version near the top, directly under `## [Unreleased]`
-- Ensure release notes are filed under the correct version; do not place a newer release's notes under an older section
+- Release tags are `vMAJOR.MINOR.PATCH` (for example `v0.1.14`).
+- The publishing workflow also accepts bare numeric tags for compatibility,
+  but new releases always use the `v`-prefixed form.
 
 ### How Release Notes Are Generated
 
-- The GitHub release workflow extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` and uses it as the release body
-- If no matching section is found, the workflow falls back to a minimal `Release X.Y.Z` body
-- Because release notes are derived mechanically from the matching changelog section, verify the section header and contents before pushing the release tag
-
-### Recommended Release Steps
-
-1. Update `CHANGELOG.md` with the new version section
-2. Run formatters and linters (`make format` and `make lint`)
-3. Commit and merge the release-prep changes
-4. Create and push the release tag
-5. Verify the generated GitHub Release body matches the intended changelog section
+- The `Release` workflow extracts the matching `## [X.Y.Z]` section from
+  `CHANGELOG.md` and uses it as the GitHub Release body.
+- If no matching section is found, the workflow falls back to a minimal
+  `Release X.Y.Z` body — but this should never happen in normal flow because
+  the auto-release commit guarantees the section exists.
 
 ## CI
 

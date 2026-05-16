@@ -12,6 +12,18 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 - Isolate streaming re-renders to the active message bubble via `StreamTextStore`, preventing full-list re-measurement on every token.
 - Add `minHeight` and `display:block` on lazy-loaded images in `ToolResult` and `MessageBubble` to reduce layout shift.
 
+## [0.1.15] - 2026-05-16
+
+### Fixed
+
+- Strip hidden `<!--suggestions:[...]-->` markers from messages sent to Discord and Telegram channels.
+
+## [0.1.14] - 2026-05-08
+
+### Fixed
+
+- Smoke-test entry to verify the auto-release pipeline picks up patch bumps from `### Fixed`.
+
 ## [0.1.13] - 2026-05-07
 
 ### Fixed
