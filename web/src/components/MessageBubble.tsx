@@ -69,9 +69,11 @@ function AttachmentDisplay({
         sx={{
           maxWidth: 300,
           maxHeight: 200,
+          minHeight: 50,
           borderRadius: 1,
           objectFit: "contain",
           cursor: "pointer",
+          display: "block",
         }}
         onClick={() => window.open(mediaUrl, "_blank")}
       />

@@ -6,6 +6,12 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+### Fixed
+
+- Stabilize mobile and desktop scroll by falling back to a simple (non-virtualized) list when the item count is below 200, eliminating visible jumps caused by react-virtuoso's height-estimation cycle during iOS momentum scrolling and mixed-height items on desktop.
+- Isolate streaming re-renders to the active message bubble via `StreamTextStore`, preventing full-list re-measurement on every token.
+- Add `minHeight` and `display:block` on lazy-loaded images in `ToolResult` and `MessageBubble` to reduce layout shift.
+
 ## [0.1.15] - 2026-05-16
 
 ### Fixed
