@@ -15,6 +15,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/teanode/teanode/internal/channels"
 	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/models"
@@ -465,7 +466,8 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 			return
 		}
 
-		finalText, _ := payloadMap["text"].(string)
+		rawText, _ := payloadMap["text"].(string)
+		finalText := channels.StripSuggestedReplies(rawText)
 
 		// Send collected media as photo attachments.
 		for _, mediaContent := range subscribedRun.pendingMedia {
@@ -767,7 +769,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 
 	// Reuse the preview message as the final message by editing it.
 	if previewMessageId != 0 {
-		finalText := result.Response
+		finalText := channels.StripSuggestedReplies(result.Response)
 		firstChunk := finalText
 		remaining := ""
 		if len(finalText) > maxTelegramMessageLength {
@@ -791,7 +793,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 	}
 
 	// No preview message was created — send as new message(s).
-	self.sendChunked(chatId, replyTo, result.Response)
+	self.sendChunked(chatId, replyTo, channels.StripSuggestedReplies(result.Response))
 }
 
 func (self *Bot) handleCommand(user *models.User, message *tgbotapi.Message, chatIdString, name, arguments string) {

@@ -6,6 +6,10 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+### Fixed
+
+- Strip hidden `<!--suggestions:[...]-->` markers from messages sent to Discord and Telegram channels.
+
 ## [0.1.14] - 2026-05-08
 
 ### Fixed
