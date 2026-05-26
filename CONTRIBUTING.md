@@ -170,37 +170,42 @@ See `docs/agents-and-skills.md` for the schema.
 
 ## Release Workflow
 
-Releases are tagged automatically when pull requests merge to `main`. You only
-need to keep `CHANGELOG.md` accurate; the workflows do the rest.
+Releases are tagged automatically when pull requests merge to `main`. The
+changelog source is each PR's **description**, not `CHANGELOG.md`.
 
 ### What Each PR Must Do
 
-- Add at least one bullet under the `## [Unreleased]` section of `CHANGELOG.md`,
-  filed under the appropriate Keep-a-Changelog subsection:
+- Fill in the `## Changelog` block in the PR description. The PR template at
+  `.github/pull_request_template.md` provides the scaffold — pick exactly one
+  section heading and replace the placeholder bullet:
   - `### Added` — new behavior
   - `### Changed` — observable behavior change
   - `### Removed` — removed behavior
   - `### Deprecated` — deprecation
   - `### Fixed` — bug fix
   - `### Security` — security fix
-- The `Changelog Guard` workflow enforces this on every PR.
+- The `Changelog Guard` workflow rejects any PR whose `## Changelog` block is
+  still the template placeholder.
 - For PRs that genuinely have no user-visible impact (CI-only edits, doc typos,
   pure refactors), apply the `skip-changelog` label to bypass the guard.
 
 ### How Auto-Release Decides the Bump
 
-When the PR merges to `main`, `Auto Release` parses `## [Unreleased]` and:
+When the PR merges to `main`, `Auto Release`:
 
-- Bumps **minor** if any bullet exists under `Added`, `Changed`, `Removed`, or
-  `Deprecated`.
-- Bumps **patch** if only `Fixed` and/or `Security` bullets exist.
-- Does nothing if `## [Unreleased]` is empty.
-
-It then rewrites `CHANGELOG.md` (replacing `## [Unreleased]` with a new dated
-`## [X.Y.Z]` section above an empty Unreleased), commits as
-`chore(release): vX.Y.Z`, and pushes the `vX.Y.Z` tag. The existing
-`Release` workflow takes over from the tag push to build artifacts and publish
-the GitHub Release.
+1. Enumerates every PR merged since the last `vX.Y.Z` tag.
+2. Fetches each PR body and extracts its `## Changelog` block (PRs labeled
+   `skip-changelog` are skipped).
+3. Aggregates the bullets by section and decides the bump:
+   - **minor** if any bullet exists under `Added`, `Changed`, `Removed`, or
+     `Deprecated`.
+   - **patch** if only `Fixed` and/or `Security` bullets exist.
+   - No release if no entries.
+4. Writes a new dated `## [X.Y.Z]` section into `CHANGELOG.md` (with each
+   bullet annotated `(#NN)` linking back to its source PR), commits as
+   `chore(release): vX.Y.Z`, and pushes the `vX.Y.Z` tag. The existing
+   `Release` workflow takes over from the tag push to build artifacts and
+   publish the GitHub Release.
 
 ### Major Releases (Manual Only)
 

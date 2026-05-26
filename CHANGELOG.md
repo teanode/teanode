@@ -4,8 +4,6 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
-## [Unreleased]
-
 ## [0.1.16] - 2026-05-16
 
 ### Fixed

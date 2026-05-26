@@ -4,24 +4,21 @@ on:
   pull_request:
     branches:
       - main
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, edited, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
 
 jobs:
   check:
-    name: Verify Unreleased section updated
+    name: Verify PR description changelog block
     runs-on: ubuntu-latest
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Verify CHANGELOG.md Unreleased was updated
+      - name: Verify PR body has a filled-in ## Changelog block
         env:
-          GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: bash .github/scripts/check-pr-changelog.sh

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# PR guard: fails when a pull request does not update the CHANGELOG.md
-# "## [Unreleased]" section relative to its base ref.
+# PR guard: fails when a pull request's body does not contain a filled-in
+# ## Changelog block with at least one bullet under a canonical section
+# heading (Added / Changed / Removed / Deprecated / Fixed / Security).
 #
 # Required env vars:
-#   GITHUB_BASE_REF  — base branch of the PR (e.g. "main")
+#   PR_BODY  — the pull request body (multi-line string)
 
 set -euo pipefail
 
@@ -11,46 +12,36 @@ scriptDirectory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=changelog.sh
 source "$scriptDirectory/changelog.sh"
 
-baseRef="${GITHUB_BASE_REF:-main}"
-baseRevision="origin/$baseRef"
+bodyFile="$(mktemp)"
+printf '%s\n' "${PR_BODY:-}" > "$bodyFile"
 
-# Make sure the base ref is fetched.
-git fetch --no-tags --depth=1 origin "$baseRef" >/dev/null 2>&1 || true
-
-baseChangelog="$(mktemp)"
-headChangelog="CHANGELOG.md"
-
-if ! git show "$baseRevision:CHANGELOG.md" > "$baseChangelog" 2>/dev/null; then
-  echo "::warning::CHANGELOG.md does not exist on $baseRevision; skipping diff check."
-  : > "$baseChangelog"
-fi
-
-if [ ! -f "$headChangelog" ]; then
-  echo "::error::CHANGELOG.md is missing on the PR branch."
-  exit 1
-fi
-
-baseUnreleased="$(mktemp)"
-headUnreleased="$(mktemp)"
-extract_unreleased "$baseChangelog" > "$baseUnreleased" || true
-extract_unreleased "$headChangelog" > "$headUnreleased"
-
-if diff -q "$baseUnreleased" "$headUnreleased" >/dev/null; then
+block="$(extract_pr_changelog "$bodyFile")"
+if [ -z "$block" ]; then
   cat <<'MESSAGE' >&2
-::error::This pull request does not add an entry under `## [Unreleased]` in CHANGELOG.md.
+::error::PR body is missing the `## Changelog` section.
 
-Add a bullet under one of these subsections:
-  ### Added       (new behavior; bumps minor)
-  ### Changed     (behavior change; bumps minor)
-  ### Removed     (removal; bumps minor)
-  ### Deprecated  (deprecation; bumps minor)
-  ### Fixed       (bug fix; bumps patch)
-  ### Security    (security fix; bumps patch)
+Open the PR description, copy the template's Changelog block (see
+.github/pull_request_template.md), pick one section heading (Added /
+Changed / Removed / Deprecated / Fixed / Security), and replace the
+placeholder bullet.
 
-If this PR genuinely needs no release note (CI-only, docs typos, refactor with
-no observable change), apply the `skip-changelog` label to the PR.
+If this PR has no user-visible change, apply the `skip-changelog` label.
 MESSAGE
   exit 1
 fi
 
-echo "Unreleased section was updated relative to $baseRevision."
+if ! printf '%s' "$block" | changelog_is_filled_in; then
+  cat <<'MESSAGE' >&2
+::error::The PR's `## Changelog` block still contains the template placeholder.
+
+Replace the heading line `### Added | Changed | Removed | Deprecated | Fixed | Security`
+with exactly one of those section names (e.g. `### Fixed`), and replace the
+`TODO: ...` bullet with a one-line user-visible summary.
+
+If this PR has no user-visible change, apply the `skip-changelog` label.
+MESSAGE
+  exit 1
+fi
+
+echo "PR changelog block is filled in:"
+printf '%s' "$block" | parse_changelog_bullets | sed 's/^/  /'
