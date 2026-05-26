@@ -142,7 +142,12 @@ export async function sendRpc(
 ): Promise<unknown> {
   await ensureConnected();
   const id = `ext-${++idCounter}`;
-  const frame: RpcRequestFrame = { type: "req", id, method, params };
+  const frame: RpcRequestFrame = {
+    type: "request",
+    id,
+    method,
+    parameters: params,
+  };
 
   return new Promise((resolve, reject) => {
     pending.set(id, {
