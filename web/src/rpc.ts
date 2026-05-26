@@ -250,7 +250,12 @@ function sendRpcImmediate<T = unknown>(
       resolve: resolve as (payload: unknown) => void,
       reject,
     });
-    const frame: RequestFrame = { type: "req", id, method, params };
+    const frame: RequestFrame = {
+      type: "request",
+      id,
+      method,
+      parameters: params,
+    };
     console.debug("[voice][ws] send rpc", { method, id });
     webSocket.send(JSON.stringify(frame));
   });

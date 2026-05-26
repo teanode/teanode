@@ -1,10 +1,10 @@
 // WebSocket RPC frame types (mirrors Go internal/types/types.go)
 
 export interface RequestFrame {
-  type: "req";
+  type: "request";
   id: string;
   method: string;
-  params?: unknown;
+  parameters?: unknown;
 }
 
 export interface ResponseFrame {

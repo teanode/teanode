@@ -173,10 +173,10 @@ export interface PageStepsResponse {
 // ---- WebSocket RPC types (subset used by extension) ----
 
 export interface RpcRequestFrame {
-  type: "req";
+  type: "request";
   id: string;
   method: string;
-  params?: unknown;
+  parameters?: unknown;
 }
 
 export interface RpcResponseFrame {
