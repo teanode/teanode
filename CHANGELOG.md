@@ -4,6 +4,12 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.2.0] - 2026-05-26
+
+### Changed
+
+- Release automation now sources release notes from each merged PR's `## Changelog` block (template-scaffolded) instead of `## [Unreleased]` in `CHANGELOG.md`. The `Changelog Guard` workflow rejects PRs whose description block is still the placeholder (override with `skip-changelog`). Each release bullet is annotated `(#NN)` linking to its source PR. (#49)
+
 ## [0.1.16] - 2026-05-16
 
 ### Fixed
