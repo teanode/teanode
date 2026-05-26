@@ -62,44 +62,44 @@ func (self *actionsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *actionsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		RunID      string `json:"run_id"`
 		Limit      int    `json:"limit"`
 		Repository string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("github: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list_workflows":
-		commandArgs := []string{"workflow", "list",
+		commandArguments := []string{"workflow", "list",
 			"--json", "id,name,state"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	case "list_runs":
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 30
 		}
-		commandArgs := []string{"run", "list",
+		commandArguments := []string{"run", "list",
 			"--json", "databaseId,displayTitle,status,conclusion,headBranch,createdAt",
 			"--limit", strconv.Itoa(limit)}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	case "view_run":
-		if args.RunID == "" {
-			return "", fmt.Errorf("run_id is required for view_run action")
+		if arguments.RunID == "" {
+			return "", fmt.Errorf("github: run_id is required for view_run action")
 		}
-		commandArgs := []string{"run", "view", args.RunID,
+		commandArguments := []string{"run", "view", arguments.RunID,
 			"--json", "databaseId,displayTitle,status,conclusion,jobs"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	default:
-		return "", fmt.Errorf("unknown actions action: %s", args.Action)
+		return "", fmt.Errorf("github: unknown actions action: %s", arguments.Action)
 	}
 }

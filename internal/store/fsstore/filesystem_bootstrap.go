@@ -9,7 +9,7 @@ import (
 func (self *fileSystemTransaction) deleteAgentDirectories(agentId string) error {
 	agentDirectory := self.agentDirectory(agentId)
 	if _, statError := os.Stat(agentDirectory); os.IsNotExist(statError) {
-		return fmt.Errorf("agent not found: %s", agentId)
+		return fmt.Errorf("fsstore: agent not found: %s", agentId)
 	}
 	movePaths := []string{agentDirectory}
 	userEntries, readError := os.ReadDir(self.usersDirectory())

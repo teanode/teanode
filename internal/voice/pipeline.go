@@ -1,6 +1,9 @@
 package voice
 
-import "github.com/op/go-logging"
+import (
+	"github.com/op/go-logging"
+	"github.com/teanode/teanode/internal/util/deferutil"
+)
 
 var pipelineLog = logging.MustGetLogger("voice.pipeline")
 
@@ -8,25 +11,45 @@ var pipelineLog = logging.MustGetLogger("voice.pipeline")
 func (self *Session) Start() {
 	pipelineLog.Infof("voice session start: session=%s conv=%s agent=%s", self.ID, self.ConversationID, self.AgentID)
 	streamingEnabled := self.startStreamingTranscriber()
-	self.wg.Add(4)
+	self.waitGroup.Add(4)
 	if streamingEnabled {
-		self.wg.Add(1)
-		go func() { defer self.wg.Done(); self.streamingTranscribeLoop() }()
+		self.waitGroup.Add(1)
+		go func() {
+			defer deferutil.Recover()
+			defer self.waitGroup.Done()
+			self.streamingTranscribeLoop()
+		}()
 	}
-	go func() { defer self.wg.Done(); self.audioInputLoop() }()
-	go func() { defer self.wg.Done(); self.llmEventForwarder() }()
-	go func() { defer self.wg.Done(); self.ttsSynthLoop() }()
-	go func() { defer self.wg.Done(); self.audioOutputLoop() }()
+	go func() {
+		defer deferutil.Recover()
+		defer self.waitGroup.Done()
+		self.audioInputLoop()
+	}()
+	go func() {
+		defer deferutil.Recover()
+		defer self.waitGroup.Done()
+		self.llmEventForwarder()
+	}()
+	go func() {
+		defer deferutil.Recover()
+		defer self.waitGroup.Done()
+		self.ttsSynthLoop()
+	}()
+	go func() {
+		defer deferutil.Recover()
+		defer self.waitGroup.Done()
+		self.audioOutputLoop()
+	}()
 }
 
 func (self *Session) startNewTurn(turnId string) {
-	self.stateMu.Lock()
+	self.stateMutex.Lock()
 	self.currentTurnId = turnId
 	self.interimText = ""
 	self.interimBestText = ""
-	self.streamingFinalTurnID = ""
+	self.streamingFinalTurnId = ""
 	self.streamingFinalText = ""
-	self.stateMu.Unlock()
+	self.stateMutex.Unlock()
 	// Advance the generation counter. Set bargeInFired to newGen-1 so that the
 	// CAS(gen-1 → gen) in triggerBargeIn succeeds exactly once for this new
 	// generation, regardless of whether the previous generation ever fired.

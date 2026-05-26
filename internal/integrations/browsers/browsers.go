@@ -135,7 +135,7 @@ func (self *CompositeBrowser) DefaultTarget() (*ConnectedTarget, error) {
 			return target, nil
 		}
 	}
-	return nil, errors.New("no attached browser tab")
+	return nil, errors.New("browsers: no attached browser tab")
 }
 
 func (self *CompositeBrowser) TargetByConnectionID(connectionId string) (*ConnectedTarget, error) {
@@ -145,7 +145,7 @@ func (self *CompositeBrowser) TargetByConnectionID(connectionId string) (*Connec
 			return target, nil
 		}
 	}
-	return nil, fmt.Errorf("browser connection %q not found", connectionId)
+	return nil, fmt.Errorf("browsers: browser connection %q not found", connectionId)
 }
 
 func (self *CompositeBrowser) SendCDPCommand(ctx context.Context, method string, parameters interface{}, sessionId string) (json.RawMessage, error) {
@@ -155,7 +155,7 @@ func (self *CompositeBrowser) SendCDPCommand(ctx context.Context, method string,
 			return backend.SendCDPCommand(ctx, method, parameters, sessionId)
 		}
 	}
-	return nil, fmt.Errorf("no backend found for session %q", sessionId)
+	return nil, fmt.Errorf("browsers: no backend found for session %q", sessionId)
 }
 
 func (self *CompositeBrowser) TargetsForUser(userId string) []ConnectedTarget {
@@ -181,7 +181,7 @@ func (self *CompositeBrowser) DefaultTargetForUser(userId string) (*ConnectedTar
 			return target, nil
 		}
 	}
-	return nil, errors.New("no attached browser tab")
+	return nil, errors.New("browsers: no attached browser tab")
 }
 
 func (self *CompositeBrowser) TargetByConnectionIDForUser(userId, connectionId string) (*ConnectedTarget, error) {
@@ -195,7 +195,7 @@ func (self *CompositeBrowser) TargetByConnectionIDForUser(userId, connectionId s
 			return target, nil
 		}
 	}
-	return nil, fmt.Errorf("browser connection %q not found", connectionId)
+	return nil, fmt.Errorf("browsers: browser connection %q not found", connectionId)
 }
 
 func (self *CompositeBrowser) AssignTargetToUser(userId, targetId string) {

@@ -197,7 +197,7 @@ func (self *fileSystemTransaction) writeJobFile(job models.Job) error {
 func parseJobMarkdown(userId string, jobId string, data []byte) (models.Job, error) {
 	content := string(data)
 	if !strings.HasPrefix(content, "---\n") {
-		return models.Job{}, fmt.Errorf("missing frontmatter delimiter")
+		return models.Job{}, fmt.Errorf("fsstore: missing frontmatter delimiter")
 	}
 	rest := content[4:]
 	closingIndex := strings.Index(rest, "\n---\n")
@@ -205,18 +205,18 @@ func parseJobMarkdown(userId string, jobId string, data []byte) (models.Job, err
 		if strings.HasSuffix(rest, "\n---") {
 			closingIndex = len(rest) - 4
 		} else {
-			return models.Job{}, fmt.Errorf("missing closing frontmatter delimiter")
+			return models.Job{}, fmt.Errorf("fsstore: missing closing frontmatter delimiter")
 		}
 	}
-	frontmatterYAML := rest[:closingIndex]
+	frontmatterYaml := rest[:closingIndex]
 	prompt := ""
 	bodyStart := closingIndex + 5
 	if bodyStart <= len(rest) {
 		prompt = rest[bodyStart:]
 	}
 	var frontmatter filesystemJobFrontmatter
-	if unmarshalError := yaml.Unmarshal([]byte(frontmatterYAML), &frontmatter); unmarshalError != nil {
-		return models.Job{}, fmt.Errorf("parsing frontmatter: %w", unmarshalError)
+	if unmarshalError := yaml.Unmarshal([]byte(frontmatterYaml), &frontmatter); unmarshalError != nil {
+		return models.Job{}, fmt.Errorf("fsstore: parsing frontmatter: %w", unmarshalError)
 	}
 	return frontmatterToModelJob(userId, jobId, prompt, frontmatter), nil
 }

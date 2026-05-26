@@ -107,10 +107,10 @@ func (self *homeAssistantTool) PolicyGroups() []tools.PolicyGroup {
 func (self *homeAssistantTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	configuration := configurationFromContext(ctx)
 	if configuration.baseUrl == "" {
-		return "", fmt.Errorf("home assistant tool is not configured: baseUrl is missing")
+		return "", fmt.Errorf("homeassistant: home assistant tool is not configured: baseUrl is missing")
 	}
 	if configuration.token == "" {
-		return "", fmt.Errorf("home assistant tool is not configured: token is missing")
+		return "", fmt.Errorf("homeassistant: home assistant tool is not configured: token is missing")
 	}
 
 	execution := &homeAssistantExecution{
@@ -131,7 +131,7 @@ func (self *homeAssistantExecution) execute(ctx context.Context, rawArguments st
 		Hours      int                    `json:"hours"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("homeassistant: parsing arguments: %w", err)
 	}
 
 	switch arguments.Action {
@@ -148,14 +148,14 @@ func (self *homeAssistantExecution) execute(ctx context.Context, rawArguments st
 	case "get_history":
 		return self.executeGetHistory(ctx, arguments.EntityID, arguments.Hours)
 	default:
-		return "", fmt.Errorf("unknown home_assistant action: %s", arguments.Action)
+		return "", fmt.Errorf("homeassistant: unknown home_assistant action: %s", arguments.Action)
 	}
 }
 
 func (self *homeAssistantExecution) executeListEntities(ctx context.Context, domain string) (string, error) {
 	states, err := self.client.GetStates(ctx)
 	if err != nil {
-		return "", fmt.Errorf("listing entities: %w", err)
+		return "", fmt.Errorf("homeassistant: listing entities: %w", err)
 	}
 
 	type entitySummary struct {
@@ -195,15 +195,15 @@ func (self *homeAssistantExecution) executeListEntities(ctx context.Context, dom
 
 func (self *homeAssistantExecution) executeGetState(ctx context.Context, entityId string) (string, error) {
 	if entityId == "" {
-		return "", fmt.Errorf("entityId is required for get_state action")
+		return "", fmt.Errorf("homeassistant: entityId is required for get_state action")
 	}
 	if !self.checker.IsEntityAllowed(entityId) {
-		return "", fmt.Errorf("entity %q is not accessible (blocked by access rules)", entityId)
+		return "", fmt.Errorf("homeassistant: entity %q is not accessible (blocked by access rules)", entityId)
 	}
 
 	state, err := self.client.GetState(ctx, entityId)
 	if err != nil {
-		return "", fmt.Errorf("getting state: %w", err)
+		return "", fmt.Errorf("homeassistant: getting state: %w", err)
 	}
 
 	return marshalResult(map[string]interface{}{
@@ -214,13 +214,13 @@ func (self *homeAssistantExecution) executeGetState(ctx context.Context, entityI
 
 func (self *homeAssistantExecution) executeControl(ctx context.Context, entityId string, command string, attributes map[string]interface{}) (string, error) {
 	if !self.checker.IsWriteAllowed() {
-		return "", fmt.Errorf("control action is blocked: Home Assistant is configured in read-only mode")
+		return "", fmt.Errorf("homeassistant: control action is blocked: Home Assistant is configured in read-only mode")
 	}
 	if entityId == "" {
-		return "", fmt.Errorf("entityId is required for control action")
+		return "", fmt.Errorf("homeassistant: entityId is required for control action")
 	}
 	if command == "" {
-		return "", fmt.Errorf("command is required for control action")
+		return "", fmt.Errorf("homeassistant: command is required for control action")
 	}
 
 	// Restrict commands to the safe set.
@@ -228,11 +228,11 @@ func (self *homeAssistantExecution) executeControl(ctx context.Context, entityId
 	case "turn_on", "turn_off", "toggle":
 		// allowed
 	default:
-		return "", fmt.Errorf("command %q is not allowed; must be one of: turn_on, turn_off, toggle", command)
+		return "", fmt.Errorf("homeassistant: command %q is not allowed; must be one of: turn_on, turn_off, toggle", command)
 	}
 
 	if !self.checker.IsEntityAllowed(entityId) {
-		return "", fmt.Errorf("entity %q is not accessible (blocked by access rules)", entityId)
+		return "", fmt.Errorf("homeassistant: entity %q is not accessible (blocked by access rules)", entityId)
 	}
 
 	domain := DomainOf(entityId)
@@ -245,7 +245,7 @@ func (self *homeAssistantExecution) executeControl(ctx context.Context, entityId
 
 	result, err := self.client.CallService(ctx, domain, command, serviceData)
 	if err != nil {
-		return "", fmt.Errorf("calling service: %w", err)
+		return "", fmt.Errorf("homeassistant: calling service: %w", err)
 	}
 
 	return marshalResult(map[string]interface{}{
@@ -258,18 +258,18 @@ func (self *homeAssistantExecution) executeControl(ctx context.Context, entityId
 
 func (self *homeAssistantExecution) executeTriggerScene(ctx context.Context, entityId string) (string, error) {
 	if !self.checker.IsWriteAllowed() {
-		return "", fmt.Errorf("trigger_scene action is blocked: Home Assistant is configured in read-only mode")
+		return "", fmt.Errorf("homeassistant: trigger_scene action is blocked: Home Assistant is configured in read-only mode")
 	}
 	if entityId == "" {
-		return "", fmt.Errorf("entityId is required for trigger_scene action")
+		return "", fmt.Errorf("homeassistant: entityId is required for trigger_scene action")
 	}
 
 	if DomainOf(entityId) != "scene" {
-		return "", fmt.Errorf("trigger_scene requires a scene entity (e.g. scene.movie_night), got %q", entityId)
+		return "", fmt.Errorf("homeassistant: trigger_scene requires a scene entity (e.g. scene.movie_night), got %q", entityId)
 	}
 
 	if !self.checker.IsEntityAllowed(entityId) {
-		return "", fmt.Errorf("entity %q is not accessible (blocked by access rules)", entityId)
+		return "", fmt.Errorf("homeassistant: entity %q is not accessible (blocked by access rules)", entityId)
 	}
 
 	serviceData := map[string]interface{}{
@@ -278,7 +278,7 @@ func (self *homeAssistantExecution) executeTriggerScene(ctx context.Context, ent
 
 	result, err := self.client.CallService(ctx, "scene", "turn_on", serviceData)
 	if err != nil {
-		return "", fmt.Errorf("triggering scene: %w", err)
+		return "", fmt.Errorf("homeassistant: triggering scene: %w", err)
 	}
 
 	return marshalResult(map[string]interface{}{
@@ -301,10 +301,10 @@ func (self *homeAssistantExecution) executeListAreas(ctx context.Context) (strin
 
 func (self *homeAssistantExecution) executeGetHistory(ctx context.Context, entityId string, hours int) (string, error) {
 	if entityId == "" {
-		return "", fmt.Errorf("entityId is required for get_history action")
+		return "", fmt.Errorf("homeassistant: entityId is required for get_history action")
 	}
 	if !self.checker.IsEntityAllowed(entityId) {
-		return "", fmt.Errorf("entity %q is not accessible (blocked by access rules)", entityId)
+		return "", fmt.Errorf("homeassistant: entity %q is not accessible (blocked by access rules)", entityId)
 	}
 	if hours <= 0 {
 		hours = 1
@@ -312,7 +312,7 @@ func (self *homeAssistantExecution) executeGetHistory(ctx context.Context, entit
 
 	rawHistory, err := self.client.GetHistory(ctx, entityId, hours)
 	if err != nil {
-		return "", fmt.Errorf("getting history: %w", err)
+		return "", fmt.Errorf("homeassistant: getting history: %w", err)
 	}
 
 	// HA returns [[entries]] — an array of arrays. Parse and cap results.
@@ -363,7 +363,7 @@ func (self *homeAssistantExecution) executeGetHistory(ctx context.Context, entit
 func marshalResult(result map[string]interface{}) (string, error) {
 	data, err := json.Marshal(result)
 	if err != nil {
-		return "", fmt.Errorf("marshaling result: %w", err)
+		return "", fmt.Errorf("homeassistant: marshaling result: %w", err)
 	}
 	return string(data), nil
 }

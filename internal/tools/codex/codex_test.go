@@ -11,10 +11,10 @@ import (
 // mockRunner returns a commandRunner that records calls and returns canned output.
 func mockRunner(stdout string, stderr string, exitCode int, err error) (commandRunner, *[]mockCall) {
 	var calls []mockCall
-	runner := func(ctx context.Context, name string, args []string, directory string) ([]byte, []byte, int, error) {
+	runner := func(ctx context.Context, name string, arguments []string, directory string) ([]byte, []byte, int, error) {
 		calls = append(calls, mockCall{
 			Name:      name,
-			Arguments: args,
+			Arguments: arguments,
 			Directory: directory,
 		})
 		if err != nil {
@@ -240,13 +240,13 @@ func TestBuildArgumentsBasic(testing *testing.T) {
 		testing.Errorf("expected 'exec' at start, got: %v", arguments)
 	}
 	if arguments[len(arguments)-1] != "Do something" {
-		testing.Errorf("expected prompt as last arg, got: %v", arguments)
+		testing.Errorf("expected prompt as last argument, got: %v", arguments)
 	}
 
 	// Verify --output-format is NOT present (newer codex CLI does not support it).
 	for _, argument := range arguments {
 		if argument == "--output-format" {
-			testing.Errorf("did not expect '--output-format' in args: %v", arguments)
+			testing.Errorf("did not expect '--output-format' in arguments: %v", arguments)
 			break
 		}
 	}
@@ -260,13 +260,13 @@ func TestBuildArgumentsBasic(testing *testing.T) {
 		}
 	}
 	if !foundJSON {
-		testing.Errorf("expected '--json' in args: %v", arguments)
+		testing.Errorf("expected '--json' in arguments: %v", arguments)
 	}
 
 	// Verify resume subcommand is NOT present.
 	for _, argument := range arguments {
 		if argument == "resume" {
-			testing.Errorf("did not expect 'resume' in args: %v", arguments)
+			testing.Errorf("did not expect 'resume' in arguments: %v", arguments)
 			break
 		}
 	}
@@ -293,7 +293,7 @@ func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
 
 	combinedPrompt := arguments[len(arguments)-1]
 	if !strings.Contains(combinedPrompt, "Additional system instructions:\nYou are a helpful assistant") {
-		testing.Errorf("expected systemPrompt to be embedded in final prompt arg, got: %q", combinedPrompt)
+		testing.Errorf("expected systemPrompt to be embedded in final prompt argument, got: %q", combinedPrompt)
 	}
 }
 
@@ -304,7 +304,7 @@ func TestBuildArgumentsDoesNotEmitUnsupportedLegacyFlags(testing *testing.T) {
 
 	for _, argument := range arguments {
 		if argument == "--allowedTools" || argument == "--append-system-prompt" || argument == "--resume" {
-			testing.Errorf("did not expect legacy unsupported flag %q in args: %v", argument, arguments)
+			testing.Errorf("did not expect legacy unsupported flag %q in arguments: %v", argument, arguments)
 		}
 	}
 }

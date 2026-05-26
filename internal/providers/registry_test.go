@@ -195,7 +195,7 @@ func TestRegistryResolveUnknownProvider(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
-	expected := `unknown provider: "unknown"`
+	expected := `providers: unknown provider: "unknown"`
 	if err.Error() != expected {
 		t.Errorf("error = %q, want %q", err.Error(), expected)
 	}

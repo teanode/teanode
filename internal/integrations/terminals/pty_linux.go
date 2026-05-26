@@ -20,27 +20,27 @@ type TermState struct {
 func OpenPTY() (master, slave *os.File, err error) {
 	masterFile, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open /dev/ptmx: %w", err)
+		return nil, nil, fmt.Errorf("terminals: open /dev/ptmx: %w", err)
 	}
 
 	// Unlock the slave.
 	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, masterFile.Fd(), unix.TIOCSPTLCK, uintptr(unsafe.Pointer(new(int32)))); errno != 0 {
 		_ = masterFile.Close()
-		return nil, nil, fmt.Errorf("TIOCSPTLCK: %w", errno)
+		return nil, nil, fmt.Errorf("terminals: TIOCSPTLCK: %w", errno)
 	}
 
 	// Get slave number.
 	var slaveNumber uint32
 	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, masterFile.Fd(), unix.TIOCGPTN, uintptr(unsafe.Pointer(&slaveNumber))); errno != 0 {
 		_ = masterFile.Close()
-		return nil, nil, fmt.Errorf("TIOCGPTN: %w", errno)
+		return nil, nil, fmt.Errorf("terminals: TIOCGPTN: %w", errno)
 	}
 
 	slavePath := "/dev/pts/" + strconv.Itoa(int(slaveNumber))
 	slaveFile, err := os.OpenFile(slavePath, os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		_ = masterFile.Close()
-		return nil, nil, fmt.Errorf("open slave %s: %w", slavePath, err)
+		return nil, nil, fmt.Errorf("terminals: open slave %s: %w", slavePath, err)
 	}
 
 	return masterFile, slaveFile, nil

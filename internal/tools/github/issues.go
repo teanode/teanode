@@ -118,7 +118,7 @@ func (self *issuesTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *issuesTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		Number     int    `json:"number"`
 		Title      string `json:"title"`
@@ -136,172 +136,172 @@ func (self *issuesTool) Execute(ctx context.Context, rawArguments string) (strin
 		Limit      int    `json:"limit"`
 		Repository string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("github: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 30
 		}
-		commandArgs := []string{"issue", "list",
+		commandArguments := []string{"issue", "list",
 			"--json", "number,title,state,author,assignees,labels,createdAt",
 			"--limit", strconv.Itoa(limit)}
-		if args.State != "" {
-			commandArgs = append(commandArgs, "--state", args.State)
+		if arguments.State != "" {
+			commandArguments = append(commandArguments, "--state", arguments.State)
 		}
-		if args.Assignee != "" {
-			commandArgs = append(commandArgs, "--assignee", args.Assignee)
+		if arguments.Assignee != "" {
+			commandArguments = append(commandArguments, "--assignee", arguments.Assignee)
 		}
-		if args.Author != "" {
-			commandArgs = append(commandArgs, "--author", args.Author)
+		if arguments.Author != "" {
+			commandArguments = append(commandArguments, "--author", arguments.Author)
 		}
-		commandArgs = appendStringFlags(commandArgs, "--label", args.Label)
-		search := args.Search
+		commandArguments = appendStringFlags(commandArguments, "--label", arguments.Label)
+		search := arguments.Search
 		if search == "" {
 			search = "sort:updated-desc"
 		}
 		if search != "" {
-			commandArgs = append(commandArgs, "--search", search)
+			commandArguments = append(commandArguments, "--search", search)
 		}
-		if args.Mention != "" {
-			commandArgs = append(commandArgs, "--mention", args.Mention)
+		if arguments.Mention != "" {
+			commandArguments = append(commandArguments, "--mention", arguments.Mention)
 		}
-		if args.Milestone != "" {
-			commandArgs = append(commandArgs, "--milestone", args.Milestone)
+		if arguments.Milestone != "" {
+			commandArguments = append(commandArguments, "--milestone", arguments.Milestone)
 		}
-		if args.App != "" {
-			commandArgs = append(commandArgs, "--app", args.App)
+		if arguments.App != "" {
+			commandArguments = append(commandArguments, "--app", arguments.App)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	case "view":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for view action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for view action")
 		}
-		commandArgs := []string{"issue", "view", strconv.Itoa(args.Number),
+		commandArguments := []string{"issue", "view", strconv.Itoa(arguments.Number),
 			"--json", "number,title,state,body,author,assignees,labels,comments,createdAt"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create":
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for create action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("github: title is required for create action")
 		}
-		if args.Body == "" {
-			return "", fmt.Errorf("body is required for create action")
+		if arguments.Body == "" {
+			return "", fmt.Errorf("github: body is required for create action")
 		}
-		commandArgs := []string{"issue", "create", "--title", args.Title, "--body", args.Body}
-		if args.Labels != "" {
-			commandArgs = append(commandArgs, "--label", args.Labels)
+		commandArguments := []string{"issue", "create", "--title", arguments.Title, "--body", arguments.Body}
+		if arguments.Labels != "" {
+			commandArguments = append(commandArguments, "--label", arguments.Labels)
 		}
-		if args.Assignees != "" {
-			commandArgs = append(commandArgs, "--assignee", args.Assignees)
+		if arguments.Assignees != "" {
+			commandArguments = append(commandArguments, "--assignee", arguments.Assignees)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("created", output), nil
 
 	case "comment":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for comment action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for comment action")
 		}
-		if args.Body == "" {
-			return "", fmt.Errorf("body is required for comment action")
+		if arguments.Body == "" {
+			return "", fmt.Errorf("github: body is required for comment action")
 		}
-		commandArgs := []string{"issue", "comment", strconv.Itoa(args.Number), "--body", args.Body}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"issue", "comment", strconv.Itoa(arguments.Number), "--body", arguments.Body}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("commented", output), nil
 
 	case "close":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for close action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for close action")
 		}
-		commandArgs := []string{"issue", "close", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"issue", "close", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("closed", output), nil
 
 	case "reopen":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for reopen action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for reopen action")
 		}
-		commandArgs := []string{"issue", "reopen", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"issue", "reopen", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("reopened", output), nil
 
 	case "edit":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for edit action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for edit action")
 		}
-		commandArgs := []string{"issue", "edit", strconv.Itoa(args.Number)}
-		if args.Title != "" {
-			commandArgs = append(commandArgs, "--title", args.Title)
+		commandArguments := []string{"issue", "edit", strconv.Itoa(arguments.Number)}
+		if arguments.Title != "" {
+			commandArguments = append(commandArguments, "--title", arguments.Title)
 		}
-		if args.Body != "" {
-			commandArgs = append(commandArgs, "--body", args.Body)
+		if arguments.Body != "" {
+			commandArguments = append(commandArguments, "--body", arguments.Body)
 		}
-		if args.Labels != "" {
-			commandArgs = append(commandArgs, "--add-label", args.Labels)
+		if arguments.Labels != "" {
+			commandArguments = append(commandArguments, "--add-label", arguments.Labels)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("edited", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown issues action: %s", args.Action)
+		return "", fmt.Errorf("github: unknown issues action: %s", arguments.Action)
 	}
 }
 
 // appendRepository adds the -R flag if repository is non-empty.
-func appendRepository(commandArgs *[]string, repository string) {
+func appendRepository(commandArguments *[]string, repository string) {
 	if repository != "" {
-		*commandArgs = append(*commandArgs, "-R", repository)
+		*commandArguments = append(*commandArguments, "-R", repository)
 	}
 }
 
 // appendStringFlags appends repeated string flags from either a string or []string input.
-func appendStringFlags(commandArgs []string, flag string, value any) []string {
+func appendStringFlags(commandArguments []string, flag string, value any) []string {
 	switch typed := value.(type) {
 	case string:
 		if typed != "" {
-			commandArgs = append(commandArgs, flag, typed)
+			commandArguments = append(commandArguments, flag, typed)
 		}
 	case []any:
 		for _, raw := range typed {
 			text, ok := raw.(string)
 			if ok && text != "" {
-				commandArgs = append(commandArgs, flag, text)
+				commandArguments = append(commandArguments, flag, text)
 			}
 		}
 	case []string:
 		for _, text := range typed {
 			if text != "" {
-				commandArgs = append(commandArgs, flag, text)
+				commandArguments = append(commandArguments, flag, text)
 			}
 		}
 	}
-	return commandArgs
+	return commandArguments
 }
 
 // wrapPlainOutput wraps non-JSON command output in a JSON envelope.

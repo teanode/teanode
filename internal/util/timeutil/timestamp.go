@@ -51,7 +51,7 @@ func (self *Timestamp) UnmarshalJSON(data []byte) error {
 		self.Time = parsed.Time
 		return nil
 	}
-	return fmt.Errorf("invalid timestamp: %s", trimmed)
+	return fmt.Errorf("timeutil: invalid timestamp: %s", trimmed)
 }
 
 func (self Timestamp) MarshalYAML() (interface{}, error) {
@@ -90,5 +90,5 @@ func Parse(value string) (Timestamp, error) {
 			return Timestamp{Time: parsed.In(LocalLocation())}, nil
 		}
 	}
-	return Timestamp{}, fmt.Errorf("invalid timestamp: %q", value)
+	return Timestamp{}, fmt.Errorf("timeutil: invalid timestamp: %q", value)
 }

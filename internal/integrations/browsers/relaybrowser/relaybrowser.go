@@ -126,7 +126,7 @@ func (self *Relay) DefaultTarget() (*browsers.ConnectedTarget, error) {
 			return target, nil
 		}
 	}
-	return nil, errors.New("no attached browser tab")
+	return nil, errors.New("relaybrowser: no attached browser tab")
 }
 
 // DefaultTargetForUser returns the first connected target for userId.
@@ -141,7 +141,7 @@ func (self *Relay) DefaultTargetForUser(userId string) (*browsers.ConnectedTarge
 			return target, nil
 		}
 	}
-	return nil, errors.New("no attached browser tab")
+	return nil, errors.New("relaybrowser: no attached browser tab")
 }
 
 // TargetByConnectionID looks up a target by its session ID (used as connectionId).
@@ -153,7 +153,7 @@ func (self *Relay) TargetByConnectionID(connectionId string) (*browsers.Connecte
 			return target, nil
 		}
 	}
-	return nil, fmt.Errorf("browser connection %q not found", connectionId)
+	return nil, fmt.Errorf("relaybrowser: browser connection %q not found", connectionId)
 }
 
 // TargetByConnectionIDForUser looks up a target by session ID for a specific user.
@@ -168,7 +168,7 @@ func (self *Relay) TargetByConnectionIDForUser(userId, connectionId string) (*br
 			return target, nil
 		}
 	}
-	return nil, fmt.Errorf("browser connection %q not found", connectionId)
+	return nil, fmt.Errorf("relaybrowser: browser connection %q not found", connectionId)
 }
 
 // findConnectionForSession returns the relayConnection that owns the given sessionId.
@@ -188,7 +188,7 @@ func (self *Relay) SendCDPCommand(ctx context.Context, method string, parameters
 	relayConnection := self.findConnectionForSession(sessionId)
 	if relayConnection == nil {
 		self.mutex.Unlock()
-		return nil, errors.New("browser extension not connected")
+		return nil, errors.New("relaybrowser: browser extension not connected")
 	}
 	commandId, resultChannel := relayConnection.pending.Allocate()
 	connection := relayConnection.connection
@@ -197,21 +197,21 @@ func (self *Relay) SendCDPCommand(ctx context.Context, method string, parameters
 	message := map[string]interface{}{
 		"id":     commandId,
 		"method": "forwardCDPCommand",
-		"params": map[string]interface{}{
-			"method":    method,
-			"params":    parameters,
-			"sessionId": sessionId,
+		"parameters": map[string]interface{}{
+			"method":     method,
+			"parameters": parameters,
+			"sessionId":  sessionId,
 		},
 	}
 	data, err := json.Marshal(message)
 	if err != nil {
 		relayConnection.pending.Cancel(commandId)
-		return nil, fmt.Errorf("marshal: %w", err)
+		return nil, fmt.Errorf("relaybrowser: marshal: %w", err)
 	}
 
 	if err := connection.WriteMessage(websocket.TextMessage, data); err != nil {
 		relayConnection.pending.Cancel(commandId)
-		return nil, fmt.Errorf("write: %w", err)
+		return nil, fmt.Errorf("relaybrowser: write: %w", err)
 	}
 
 	select {
@@ -239,11 +239,11 @@ func (self *Relay) readLoop(connectionId string, connection *websocket.Conn, don
 		}
 
 		var frame struct {
-			ID     *int            `json:"id"`
-			Method string          `json:"method"`
-			Params json.RawMessage `json:"params"`
-			Result json.RawMessage `json:"result"`
-			Error  *string         `json:"error"`
+			ID         *int            `json:"id"`
+			Method     string          `json:"method"`
+			Parameters json.RawMessage `json:"parameters"`
+			Result     json.RawMessage `json:"result"`
+			Error      *string         `json:"error"`
 		}
 		if err := json.Unmarshal(data, &frame); err != nil {
 			continue
@@ -270,17 +270,17 @@ func (self *Relay) readLoop(connectionId string, connection *websocket.Conn, don
 		}
 
 		// CDP event from extension.
-		if frame.Method == "forwardCDPEvent" && frame.Params != nil {
-			self.handleCDPEvent(connectionId, frame.Params)
+		if frame.Method == "forwardCDPEvent" && frame.Parameters != nil {
+			self.handleCdpEvent(connectionId, frame.Parameters)
 			continue
 		}
 	}
 }
 
-func (self *Relay) handleCDPEvent(connectionId string, raw json.RawMessage) {
+func (self *Relay) handleCdpEvent(connectionId string, raw json.RawMessage) {
 	var event struct {
-		Method string          `json:"method"`
-		Params json.RawMessage `json:"params"`
+		Method     string          `json:"method"`
+		Parameters json.RawMessage `json:"parameters"`
 	}
 	if err := json.Unmarshal(raw, &event); err != nil {
 		return
@@ -296,7 +296,7 @@ func (self *Relay) handleCDPEvent(connectionId string, raw json.RawMessage) {
 				Title    string `json:"title"`
 			} `json:"targetInfo"`
 		}
-		if json.Unmarshal(event.Params, &payload) == nil && payload.SessionID != "" {
+		if json.Unmarshal(event.Parameters, &payload) == nil && payload.SessionID != "" {
 			self.mutex.Lock()
 			if relayConnection, ok := self.connections[connectionId]; ok {
 				relayConnection.targets[payload.SessionID] = &browsers.ConnectedTarget{
@@ -315,7 +315,7 @@ func (self *Relay) handleCDPEvent(connectionId string, raw json.RawMessage) {
 		var payload struct {
 			SessionID string `json:"sessionId"`
 		}
-		if json.Unmarshal(event.Params, &payload) == nil && payload.SessionID != "" {
+		if json.Unmarshal(event.Parameters, &payload) == nil && payload.SessionID != "" {
 			self.mutex.Lock()
 			if relayConnection, ok := self.connections[connectionId]; ok {
 				delete(relayConnection.targets, payload.SessionID)
@@ -333,7 +333,7 @@ func (self *Relay) handleCDPEvent(connectionId string, raw json.RawMessage) {
 				Title    string `json:"title"`
 			} `json:"targetInfo"`
 		}
-		if json.Unmarshal(event.Params, &payload) == nil {
+		if json.Unmarshal(event.Parameters, &payload) == nil {
 			sessionId := ""
 			shouldNotifyNavigation := false
 			self.mutex.Lock()

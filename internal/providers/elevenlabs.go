@@ -11,20 +11,21 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
 // ElevenLabsClient provides streaming TTS.
 type ElevenLabsClient struct {
 	BaseProvider
-	baseURL string
+	baseUrl string
 	apiKey  string
 	dialer  *websocket.Dialer
 }
 
 // NewElevenLabsClient creates an ElevenLabs provider.
-func NewElevenLabsClient(baseURL, apiKey string) *ElevenLabsClient {
+func NewElevenLabsClient(baseUrl, apiKey string) *ElevenLabsClient {
 	return &ElevenLabsClient{
-		baseURL: strings.TrimSpace(baseURL),
+		baseUrl: strings.TrimSpace(baseUrl),
 		apiKey:  strings.TrimSpace(apiKey),
 		dialer:  websocket.DefaultDialer,
 	}
@@ -32,24 +33,24 @@ func NewElevenLabsClient(baseURL, apiKey string) *ElevenLabsClient {
 
 // Synthesize is intentionally unsupported; voice path uses streaming synthesis.
 func (self *ElevenLabsClient) Synthesize(_ context.Context, _ SynthesizeRequest) (*SynthesizeResponse, error) {
-	return nil, fmt.Errorf("elevenlabs batch synthesis is unsupported in this integration")
+	return nil, fmt.Errorf("providers: elevenlabs batch synthesis is unsupported in this integration")
 }
 
 // SynthesizeStream opens an ElevenLabs websocket stream and emits PCM chunks.
 func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, request SynthesizeStreamRequest) (<-chan SynthesizeChunk, error) {
 	if strings.TrimSpace(self.apiKey) == "" {
-		return nil, fmt.Errorf("elevenlabs api key is required")
+		return nil, fmt.Errorf("providers: elevenlabs api key is required")
 	}
-	streamURL, err := elevenLabsStreamURL(self.baseURL, request.Voice, request.SampleRateHz)
+	streamUrl, err := elevenLabsStreamUrl(self.baseUrl, request.Voice, request.SampleRateHz)
 	if err != nil {
 		return nil, err
 	}
 
 	headers := http.Header{}
 	headers.Set("xi-api-key", self.apiKey)
-	conn, _, err := self.dialer.DialContext(ctx, streamURL, headers)
+	conn, _, err := self.dialer.DialContext(ctx, streamUrl, headers)
 	if err != nil {
-		return nil, fmt.Errorf("open elevenlabs stream: %w", err)
+		return nil, fmt.Errorf("providers: open elevenlabs stream: %w", err)
 	}
 
 	out := make(chan SynthesizeChunk, 32)
@@ -61,11 +62,13 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, request Synt
 	}
 
 	go func() {
+		defer deferutil.Recover()
 		<-ctx.Done()
 		closeConn()
 	}()
 
 	go func() {
+		defer deferutil.Recover()
 		defer close(out)
 		defer closeConn()
 
@@ -74,31 +77,31 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, request Synt
 		if err := conn.WriteJSON(map[string]any{
 			"text": " ",
 		}); err != nil {
-			out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs write init: %w", err)}
+			out <- SynthesizeChunk{Err: fmt.Errorf("providers: elevenlabs write init: %w", err)}
 			return
 		}
 		if err := conn.WriteJSON(map[string]any{
 			"text":                   request.Text,
 			"try_trigger_generation": true,
 		}); err != nil {
-			out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs write text: %w", err)}
+			out <- SynthesizeChunk{Err: fmt.Errorf("providers: elevenlabs write text: %w", err)}
 			return
 		}
 		if err := conn.WriteJSON(map[string]any{"text": ""}); err != nil {
-			out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs write end: %w", err)}
+			out <- SynthesizeChunk{Err: fmt.Errorf("providers: elevenlabs write end: %w", err)}
 			return
 		}
 
 		for {
-			msgType, payload, err := conn.ReadMessage()
+			messageType, payload, err := conn.ReadMessage()
 			if err != nil {
 				if ctx.Err() != nil {
 					return
 				}
-				out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs read: %w", err)}
+				out <- SynthesizeChunk{Err: fmt.Errorf("providers: elevenlabs read: %w", err)}
 				return
 			}
-			if msgType == websocket.BinaryMessage {
+			if messageType == websocket.BinaryMessage {
 				if len(payload) == 0 {
 					continue
 				}
@@ -109,7 +112,7 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, request Synt
 				}
 				continue
 			}
-			if msgType == websocket.TextMessage {
+			if messageType == websocket.TextMessage {
 				var envelope struct {
 					Audio   string `json:"audio"`
 					IsFinal bool   `json:"isFinal"`
@@ -118,7 +121,7 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, request Synt
 					if strings.TrimSpace(envelope.Audio) != "" {
 						audio, decodeErr := base64.StdEncoding.DecodeString(envelope.Audio)
 						if decodeErr != nil {
-							out <- SynthesizeChunk{Err: fmt.Errorf("elevenlabs decode audio: %w", decodeErr)}
+							out <- SynthesizeChunk{Err: fmt.Errorf("providers: elevenlabs decode audio: %w", decodeErr)}
 							return
 						}
 						if len(audio) > 0 {
@@ -140,14 +143,14 @@ func (self *ElevenLabsClient) SynthesizeStream(ctx context.Context, request Synt
 	return out, nil
 }
 
-func elevenLabsStreamURL(baseURL, voice string, sampleRateHz int) (string, error) {
-	base := strings.TrimSpace(baseURL)
+func elevenLabsStreamUrl(baseUrl, voice string, sampleRateHz int) (string, error) {
+	base := strings.TrimSpace(baseUrl)
 	if base == "" {
-		return "", fmt.Errorf("elevenlabs base url is required")
+		return "", fmt.Errorf("providers: elevenlabs base url is required")
 	}
 	parsed, err := url.Parse(base)
 	if err != nil {
-		return "", fmt.Errorf("parse elevenlabs base url: %w", err)
+		return "", fmt.Errorf("providers: parse elevenlabs base url: %w", err)
 	}
 	switch parsed.Scheme {
 	case "https":
@@ -156,11 +159,11 @@ func elevenLabsStreamURL(baseURL, voice string, sampleRateHz int) (string, error
 		parsed.Scheme = "ws"
 	case "wss", "ws":
 	default:
-		return "", fmt.Errorf("unsupported elevenlabs scheme: %s", parsed.Scheme)
+		return "", fmt.Errorf("providers: unsupported elevenlabs scheme: %s", parsed.Scheme)
 	}
 
-	voiceID := resolveElevenLabsVoiceID(voice)
-	parsed.Path = fmt.Sprintf("/v1/text-to-speech/%s/stream-input", voiceID)
+	voiceId := resolveElevenLabsVoiceId(voice)
+	parsed.Path = fmt.Sprintf("/v1/text-to-speech/%s/stream-input", voiceId)
 	query := parsed.Query()
 	query.Set("model_id", "eleven_flash_v2_5")
 	if sampleRateHz == 24000 || sampleRateHz == 0 {
@@ -172,7 +175,7 @@ func elevenLabsStreamURL(baseURL, voice string, sampleRateHz int) (string, error
 	return parsed.String(), nil
 }
 
-func resolveElevenLabsVoiceID(voice string) string {
+func resolveElevenLabsVoiceId(voice string) string {
 	switch strings.ToLower(strings.TrimSpace(voice)) {
 	case "", "alloy", "default":
 		return "EXAVITQu4vr4xnSDxMaL"

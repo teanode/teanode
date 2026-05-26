@@ -23,7 +23,7 @@ func (self *conversationTodoTool) BuildOverlay(ctx context.Context) (string, err
 
 // buildTodoOverlay returns a formatted TODO summary for the given conversation.
 // It is best-effort: errors return ("", err) and the caller should silently skip.
-func buildTodoOverlay(ctx context.Context, conversationID string) (string, error) {
+func buildTodoOverlay(ctx context.Context, conversationId string) (string, error) {
 	dataStore := store.StoreFromContextSafe(ctx)
 	if dataStore == nil {
 		return "", nil
@@ -32,7 +32,7 @@ func buildTodoOverlay(ctx context.Context, conversationID string) (string, error
 	var overlay string
 	err := dataStore.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		todos, listErr := tx.ListTodos(ctx, store.TodoListOptions{
-			ConversationID: &conversationID,
+			ConversationID: &conversationId,
 		}, nil)
 		if listErr != nil {
 			return listErr
@@ -86,10 +86,10 @@ func formatTodoOverlay(todos []*models.Todo) string {
 
 	if len(openTodos) > 0 {
 		builder.WriteString("\n# Open TODOs (top 10 by priority)\n")
-		for idx, todo := range openTodos {
+		for index, todo := range openTodos {
 			priority := priorityLabel(todo)
 			title := todo.GetTitle()
-			fmt.Fprintf(&builder, "%d. [%s] %s — %s\n", idx+1, priority, todo.ID, title)
+			fmt.Fprintf(&builder, "%d. [%s] %s — %s\n", index+1, priority, todo.ID, title)
 			if todo.Description != nil && *todo.Description != "" {
 				description := truncateDescription(*todo.Description, 120)
 				fmt.Fprintf(&builder, "   %s\n", description)

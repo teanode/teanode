@@ -34,7 +34,7 @@ func createTools() []tools.Tool {
 			resolveScope: func(ctx context.Context, _ string) (models.Scope, string, error) {
 				runner := runners.RunnerFromContext(ctx)
 				if runner == nil || runner.AgentID == "" {
-					return "", "", fmt.Errorf("missing runner context")
+					return "", "", fmt.Errorf("workspace: missing runner context")
 				}
 				return models.ScopeAgent, runner.AgentID, nil
 			},
@@ -55,7 +55,7 @@ func createTools() []tools.Tool {
 			resolveScope: func(ctx context.Context, _ string) (models.Scope, string, error) {
 				user := models.UserFromContext(ctx)
 				if user == nil || user.ID == "" {
-					return "", "", fmt.Errorf("missing user context")
+					return "", "", fmt.Errorf("workspace: missing user context")
 				}
 				return models.ScopeUser, user.ID, nil
 			},
@@ -77,7 +77,7 @@ func createTools() []tools.Tool {
 			scopeIdParameterDescription: "Project ID for project's workspace operations.",
 			resolveScope: func(_ context.Context, scopeId string) (models.Scope, string, error) {
 				if scopeId == "" {
-					return "", "", fmt.Errorf("projectId is required")
+					return "", "", fmt.Errorf("workspace: projectId is required")
 				}
 				return models.ScopeProject, scopeId, nil
 			},
@@ -222,7 +222,7 @@ func (self *workspaceTool) Execute(ctx context.Context, rawArguments string) (st
 		ScopeID string `json:"-"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("workspace: parsing arguments: %w", err)
 	}
 
 	// Extract scope ID from the named parameter if configured.
@@ -279,7 +279,7 @@ func (self *workspaceTool) Execute(ctx context.Context, rawArguments string) (st
 		self.callAfterMutate(ctx, scopeId)
 		return result, nil
 	default:
-		return "", fmt.Errorf("unknown workspace action: %s", arguments.Action)
+		return "", fmt.Errorf("workspace: unknown workspace action: %s", arguments.Action)
 	}
 }
 
@@ -312,7 +312,7 @@ func (self *workspaceTool) executeRead(
 		}
 		return nil
 	}); err != nil {
-		return "", fmt.Errorf("reading file: %w", err)
+		return "", fmt.Errorf("workspace: reading file: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":  "read",
@@ -352,7 +352,7 @@ func (self *workspaceTool) executeWrite(
 		}, nil)
 		return createError
 	}); err != nil {
-		return "", fmt.Errorf("writing file: %w", err)
+		return "", fmt.Errorf("workspace: writing file: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":  "write",
@@ -381,7 +381,7 @@ func (self *workspaceTool) executeList(
 		}
 		return nil
 	}); err != nil {
-		return "", fmt.Errorf("listing files: %w", err)
+		return "", fmt.Errorf("workspace: listing files: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action": "list",
@@ -427,7 +427,7 @@ func (self *workspaceTool) executeAppend(
 		}, nil)
 		return createError
 	}); err != nil {
-		return "", fmt.Errorf("appending to file: %w", err)
+		return "", fmt.Errorf("workspace: appending to file: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":  "append",
@@ -444,7 +444,7 @@ func (self *workspaceTool) executeSearch(
 	maxResults int,
 ) (string, error) {
 	if query == "" {
-		return "", fmt.Errorf("query is required")
+		return "", fmt.Errorf("workspace: query is required")
 	}
 	if maxResults <= 0 {
 		maxResults = 10
@@ -480,7 +480,7 @@ func (self *workspaceTool) executeSearch(
 		}
 		return nil
 	}); err != nil {
-		return "", fmt.Errorf("searching files: %w", err)
+		return "", fmt.Errorf("workspace: searching files: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":  "search",
@@ -502,7 +502,7 @@ func (self *workspaceTool) executeDelete(
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		return transaction.DeleteWorkspaceFileByPath(ctx, scope, scopeId, normalizedPath, nil)
 	}); err != nil {
-		return "", fmt.Errorf("deleting file: %w", err)
+		return "", fmt.Errorf("workspace: deleting file: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":  "delete",
@@ -560,7 +560,7 @@ func (self *workspaceTool) executeMove(
 		}
 		return transaction.DeleteWorkspaceFileByPath(ctx, scope, scopeId, normalizedFromPath, nil)
 	}); err != nil {
-		return "", fmt.Errorf("moving file: %w", err)
+		return "", fmt.Errorf("workspace: moving file: %w", err)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"action":  "move",
@@ -584,7 +584,7 @@ func isSearchableFile(path string) bool {
 func normalizeRelativePath(path string) (string, error) {
 	cleanedPath := filepath.Clean(path)
 	if cleanedPath == "." || cleanedPath == "" || filepath.IsAbs(cleanedPath) || cleanedPath == ".." || strings.HasPrefix(cleanedPath, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("invalid path: %s", path)
+		return "", fmt.Errorf("workspace: invalid path: %s", path)
 	}
 	return cleanedPath, nil
 }

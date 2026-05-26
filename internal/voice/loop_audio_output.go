@@ -3,11 +3,11 @@ package voice
 func (self *Session) audioOutputLoop() {
 	for {
 		select {
-		case <-self.doneCh:
+		case <-self.doneChannel:
 			return
-		case data := <-self.audioOutCh:
-			if self.sendBinaryFn != nil {
-				self.sendBinaryFn(data)
+		case data := <-self.audioOutChannel:
+			if self.sendBinaryFunction != nil {
+				self.sendBinaryFunction(data)
 			}
 		}
 	}

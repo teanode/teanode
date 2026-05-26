@@ -47,7 +47,7 @@ func (self *ShellTool) PolicyGroups() []tools.PolicyGroup {
 func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || !user.GetAdmin() {
-		return "", fmt.Errorf("admin access required for shell skill tool")
+		return "", fmt.Errorf("skills: admin access required for shell skill tool")
 	}
 	arguments := parseArguments(rawArguments)
 	if err := validateRequiredArguments(self.definition.Parameters, arguments); err != nil {
@@ -136,11 +136,11 @@ func (self *WorkflowTool) Execute(ctx context.Context, rawArguments string) (str
 		}
 		actionName := fmt.Sprintf("%v", contextData[actionField])
 		if actionName == "" {
-			return "", fmt.Errorf("missing required action selector: %s", actionField)
+			return "", fmt.Errorf("skills: missing required action selector: %s", actionField)
 		}
 		selectedSteps, ok := self.definition.Actions[actionName]
 		if !ok {
-			return "", fmt.Errorf("unknown action %q", actionName)
+			return "", fmt.Errorf("skills: unknown action %q", actionName)
 		}
 		mainSteps = selectedSteps
 	}
@@ -153,16 +153,16 @@ func (self *WorkflowTool) Execute(ctx context.Context, rawArguments string) (str
 
 	if mainError != nil {
 		if finallyError != nil {
-			return "", fmt.Errorf("workflow failed: %v (finally failed: %v)", mainError, finallyError)
+			return "", fmt.Errorf("skills: workflow failed: %v (finally failed: %v)", mainError, finallyError)
 		}
 		return "", mainError
 	}
 	if finallyError != nil {
-		return "", fmt.Errorf("workflow finally failed: %w", finallyError)
+		return "", fmt.Errorf("skills: workflow finally failed: %w", finallyError)
 	}
 
 	if err := validateOutputSchema(mainOutput, self.definition.OutputSchema); err != nil {
-		return "", fmt.Errorf("workflow output schema validation failed: %w", err)
+		return "", fmt.Errorf("skills: workflow output schema validation failed: %w", err)
 	}
 
 	response, _ := json.Marshal(map[string]interface{}{
@@ -222,7 +222,7 @@ func executeWorkflowStep(ctx context.Context, step *models.SkillAction, stepInde
 	case models.SkillActionTypeShell, models.SkillActionTypeHTTP:
 		return executeActionStep(ctx, step, fullName, contextData, results, authenticationProfiles)
 	default:
-		return nil, fmt.Errorf("unknown workflow step type %q", step.Type)
+		return nil, fmt.Errorf("skills: unknown workflow step type %q", step.Type)
 	}
 }
 
@@ -243,7 +243,7 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 		case models.SkillActionTypeShell:
 			user := models.UserFromContext(ctx)
 			if user == nil || !user.GetAdmin() {
-				return nil, fmt.Errorf("admin access required for shell skill actions")
+				return nil, fmt.Errorf("skills: admin access required for shell skill actions")
 			}
 			workflowInput, _ := json.Marshal(contextData)
 			rawOutput, err = executeShellAction(ctx, *step, contextData, string(workflowInput))
@@ -272,7 +272,7 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 			})
 			return nil, nil
 		}
-		return nil, fmt.Errorf("workflow step %s failed: %w", fullName, err)
+		return nil, fmt.Errorf("skills: workflow step %s failed: %w", fullName, err)
 	}
 
 	storedOutput, processErr := processActionOutput(*step, rawOutput, fullName)
@@ -295,11 +295,11 @@ func executeForEachStep(ctx context.Context, step *models.SkillAction, fullName 
 	startedAt := time.Now()
 	itemsRaw, ok := resolveTemplateValue(contextData, step.ForEach)
 	if !ok {
-		return nil, fmt.Errorf("workflow step %s forEach source not found: %s", fullName, step.ForEach)
+		return nil, fmt.Errorf("skills: workflow step %s forEach source not found: %s", fullName, step.ForEach)
 	}
 	items, ok := toInterfaceSlice(itemsRaw)
 	if !ok {
-		return nil, fmt.Errorf("workflow step %s forEach source is not an array", fullName)
+		return nil, fmt.Errorf("skills: workflow step %s forEach source is not an array", fullName)
 	}
 
 	alias := step.As
@@ -458,14 +458,14 @@ func executeShellAction(ctx context.Context, action models.SkillAction, argument
 		if stderrString != "" {
 			log.Debugf("shell stderr: %s", stderrString)
 		}
-		return "", fmt.Errorf("command failed: %v\n%s", err, stderrString)
+		return "", fmt.Errorf("skills: command failed: %v\n%s", err, stderrString)
 	}
 	if result.ExitCode != 0 {
 		stderrString := string(result.Stderr)
 		if stderrString != "" {
 			log.Debugf("shell stderr: %s", stderrString)
 		}
-		return "", fmt.Errorf("command failed with exit code %d\n%s", result.ExitCode, stderrString)
+		return "", fmt.Errorf("skills: command failed with exit code %d\n%s", result.ExitCode, stderrString)
 	}
 	if stderrString := string(result.Stderr); stderrString != "" {
 		log.Debugf("shell stderr: %s", stderrString)
@@ -496,7 +496,7 @@ func executeHttpAction(ctx context.Context, action models.SkillAction, arguments
 
 	request, err := http.NewRequestWithContext(runCtx, method, targetUrl, bodyReader)
 	if err != nil {
-		return "", fmt.Errorf("creating request: %w", err)
+		return "", fmt.Errorf("skills: creating request: %w", err)
 	}
 
 	for headerName, headerValue := range action.Headers {
@@ -508,7 +508,7 @@ func executeHttpAction(ctx context.Context, action models.SkillAction, arguments
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("executing request: %w", err)
+		return "", fmt.Errorf("skills: executing request: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
@@ -522,7 +522,7 @@ func executeHttpAction(ctx context.Context, action models.SkillAction, arguments
 
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
-		return "", fmt.Errorf("reading response: %w", err)
+		return "", fmt.Errorf("skills: reading response: %w", err)
 	}
 
 	result := truncate(string(responseBody), int(limit))
@@ -532,7 +532,7 @@ func executeHttpAction(ctx context.Context, action models.SkillAction, arguments
 		if len(snippet) > 500 {
 			snippet = snippet[:500]
 		}
-		return "", fmt.Errorf("HTTP %d: %s", response.StatusCode, snippet)
+		return "", fmt.Errorf("skills: HTTP %d: %s", response.StatusCode, snippet)
 	}
 
 	return result, nil
@@ -545,7 +545,7 @@ func applyAuthenticationProfiles(ctx context.Context, request *http.Request, act
 	}
 	profile, ok := authenticationProfiles[profileName]
 	if !ok {
-		return fmt.Errorf("http auth profile not found: %s", profileName)
+		return fmt.Errorf("skills: http auth profile not found: %s", profileName)
 	}
 	switch profile.Type {
 	case models.SkillAuthenticationTypeBearer:
@@ -573,7 +573,7 @@ func applyAuthenticationProfiles(ctx context.Context, request *http.Request, act
 			request.URL.RawQuery = query.Encode()
 		}
 	default:
-		return fmt.Errorf("unsupported http auth profile type: %s", profile.Type)
+		return fmt.Errorf("skills: unsupported http auth profile type: %s", profile.Type)
 	}
 	return nil
 }
@@ -583,13 +583,13 @@ func processActionOutput(action models.SkillAction, rawOutput string, name strin
 	if action.Result == models.SkillResultFormatJSON {
 		var parsed interface{}
 		if err := json.Unmarshal([]byte(rawOutput), &parsed); err != nil {
-			return nil, fmt.Errorf("%s invalid json output: %w", name, err)
+			return nil, fmt.Errorf("skills: %s invalid json output: %w", name, err)
 		}
 		storedOutput = parsed
 		if action.Extract != "" {
 			selected, ok := resolvePath(storedOutput, action.Extract)
 			if !ok {
-				return nil, fmt.Errorf("%s extract path not found: %s", name, action.Extract)
+				return nil, fmt.Errorf("skills: %s extract path not found: %s", name, action.Extract)
 			}
 			storedOutput = selected
 		}
@@ -598,7 +598,7 @@ func processActionOutput(action models.SkillAction, rawOutput string, name strin
 			for outputKey, outputPath := range action.Select {
 				selected, ok := resolvePath(storedOutput, outputPath)
 				if !ok {
-					return nil, fmt.Errorf("%s select path not found: %s", name, outputPath)
+					return nil, fmt.Errorf("skills: %s select path not found: %s", name, outputPath)
 				}
 				selectedMap[outputKey] = selected
 			}
@@ -606,7 +606,7 @@ func processActionOutput(action models.SkillAction, rawOutput string, name strin
 		}
 	}
 	if err := validateOutputSchema(storedOutput, action.OutputSchema); err != nil {
-		return nil, fmt.Errorf("%s output schema validation failed: %w", name, err)
+		return nil, fmt.Errorf("skills: %s output schema validation failed: %w", name, err)
 	}
 	return storedOutput, nil
 }
@@ -637,10 +637,10 @@ func parseArguments(arguments string) map[string]interface{} {
 	return parsed
 }
 
-// applyTemplate replaces {{path.to.value}} placeholders with values from args.
+// applyTemplate replaces {{path.to.value}} placeholders with values from arguments.
 // Supported filters: json, urlencode, base64, default:<text>, join:<separator>.
-func applyTemplate(ctx context.Context, template string, args map[string]interface{}) string {
-	if args == nil {
+func applyTemplate(ctx context.Context, template string, arguments map[string]interface{}) string {
+	if arguments == nil {
 		return template
 	}
 	return placeholderPattern.ReplaceAllStringFunc(template, func(match string) string {
@@ -648,7 +648,7 @@ func applyTemplate(ctx context.Context, template string, args map[string]interfa
 		if len(submatches) < 2 {
 			return match
 		}
-		value, ok := evaluateTemplateExpression(ctx, args, submatches[1])
+		value, ok := evaluateTemplateExpression(ctx, arguments, submatches[1])
 		if !ok {
 			return match
 		}
@@ -660,8 +660,8 @@ func applyTemplate(ctx context.Context, template string, args map[string]interfa
 // URL-encoding substituted values in the query string portion. Path and host
 // portions use plain substitution. If a placeholder already has an explicit
 // encoding filter (urlencode, base64), automatic encoding is skipped.
-func applyUrlTemplate(ctx context.Context, urlTemplate string, args map[string]interface{}) string {
-	if args == nil {
+func applyUrlTemplate(ctx context.Context, urlTemplate string, arguments map[string]interface{}) string {
+	if arguments == nil {
 		return urlTemplate
 	}
 
@@ -674,7 +674,7 @@ func applyUrlTemplate(ctx context.Context, urlTemplate string, args map[string]i
 	}
 
 	// Apply plain substitution to path+host portion (no auto-encoding).
-	expandedPath := applyTemplate(ctx, pathPart, args)
+	expandedPath := applyTemplate(ctx, pathPart, arguments)
 
 	if queryPart == "" {
 		return expandedPath
@@ -687,7 +687,7 @@ func applyUrlTemplate(ctx context.Context, urlTemplate string, args map[string]i
 			return match
 		}
 		expression := submatches[1]
-		value, ok := evaluateTemplateExpression(ctx, args, expression)
+		value, ok := evaluateTemplateExpression(ctx, arguments, expression)
 		if !ok {
 			return match
 		}
@@ -734,11 +734,11 @@ func evaluateTemplateExpression(ctx context.Context, values map[string]interface
 		value, ok = resolveTemplateValue(values, basePath)
 	}
 	for _, rawFilter := range parts[1:] {
-		name, arg := parseFilter(rawFilter)
+		name, argument := parseFilter(rawFilter)
 		switch name {
 		case "default":
 			if !ok || isEmptyValue(value) {
-				value = arg
+				value = argument
 				ok = true
 			}
 		case "json":
@@ -765,8 +765,8 @@ func evaluateTemplateExpression(ctx context.Context, values map[string]interface
 				return nil, false
 			}
 			separator := ","
-			if arg != "" {
-				separator = arg
+			if argument != "" {
+				separator = argument
 			}
 			value = joinValue(value, separator)
 		default:
@@ -800,11 +800,11 @@ func resolvePath(root interface{}, path string) (interface{}, bool) {
 			}
 			current = next
 			if segment.index >= 0 {
-				arr, ok := current.([]interface{})
-				if !ok || segment.index >= len(arr) {
+				array, ok := current.([]interface{})
+				if !ok || segment.index >= len(array) {
 					return nil, false
 				}
-				current = arr[segment.index]
+				current = array[segment.index]
 			}
 		case []interface{}:
 			index, err := strconv.Atoi(segment.key)
@@ -1088,7 +1088,7 @@ func validateRequiredArguments(parameters interface{}, arguments map[string]inte
 		}
 		value, exists := arguments[name]
 		if !exists || isEmptyValue(value) {
-			return fmt.Errorf("missing required parameter: %s", name)
+			return fmt.Errorf("skills: missing required parameter: %s", name)
 		}
 	}
 	return nil
@@ -1108,34 +1108,34 @@ func validateSchemaNode(value interface{}, schema map[string]interface{}) error 
 		return nil
 	case "string":
 		if _, ok := value.(string); !ok {
-			return fmt.Errorf("expected string")
+			return fmt.Errorf("skills: expected string")
 		}
 	case "number":
 		switch value.(type) {
 		case float64, float32, int, int32, int64:
 		default:
-			return fmt.Errorf("expected number")
+			return fmt.Errorf("skills: expected number")
 		}
 	case "boolean":
 		if _, ok := value.(bool); !ok {
-			return fmt.Errorf("expected boolean")
+			return fmt.Errorf("skills: expected boolean")
 		}
 	case "array":
 		arrayValue, ok := value.([]interface{})
 		if !ok {
-			return fmt.Errorf("expected array")
+			return fmt.Errorf("skills: expected array")
 		}
 		if itemSchema, ok := schema["items"].(map[string]interface{}); ok {
 			for index, item := range arrayValue {
 				if err := validateSchemaNode(item, itemSchema); err != nil {
-					return fmt.Errorf("items[%d]: %w", index, err)
+					return fmt.Errorf("skills: items[%d]: %w", index, err)
 				}
 			}
 		}
 	case "object":
 		objectValue, ok := value.(map[string]interface{})
 		if !ok {
-			return fmt.Errorf("expected object")
+			return fmt.Errorf("skills: expected object")
 		}
 		if required, ok := schema["required"].([]interface{}); ok {
 			for _, requiredKeyRaw := range required {
@@ -1144,7 +1144,7 @@ func validateSchemaNode(value interface{}, schema map[string]interface{}) error 
 					continue
 				}
 				if _, exists := objectValue[requiredKey]; !exists {
-					return fmt.Errorf("missing required field %q", requiredKey)
+					return fmt.Errorf("skills: missing required field %q", requiredKey)
 				}
 			}
 		}
@@ -1159,12 +1159,12 @@ func validateSchemaNode(value interface{}, schema map[string]interface{}) error 
 					continue
 				}
 				if err := validateSchemaNode(propertyValue, propertySchema); err != nil {
-					return fmt.Errorf("%s: %w", key, err)
+					return fmt.Errorf("skills: %s: %w", key, err)
 				}
 			}
 		}
 	default:
-		return fmt.Errorf("unsupported schema type %q", rawType)
+		return fmt.Errorf("skills: unsupported schema type %q", rawType)
 	}
 	return nil
 }

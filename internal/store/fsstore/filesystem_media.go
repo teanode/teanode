@@ -101,22 +101,22 @@ func (self *fileSystemTransaction) createMedia(content io.Reader, metadata *mode
 	mediaId := security.NewULID()
 	shardDirectory := self.mediaShardDirectory(mediaId)
 	if makeDirectoryError := os.MkdirAll(shardDirectory, 0755); makeDirectoryError != nil {
-		return nil, fmt.Errorf("creating media shard directory: %w", makeDirectoryError)
+		return nil, fmt.Errorf("fsstore: creating media shard directory: %w", makeDirectoryError)
 	}
 	mediaPath := filepath.Join(shardDirectory, fmt.Sprintf("%s.%s", mediaId, format))
 	mediaFile, createFileError := atomicfile.Create(mediaPath)
 	if createFileError != nil {
-		return nil, fmt.Errorf("creating media file: %w", createFileError)
+		return nil, fmt.Errorf("fsstore: creating media file: %w", createFileError)
 	}
 	defer func() {
 		_ = atomicfile.Discard(mediaFile)
 	}()
 	sizeBytes, copyError := io.Copy(mediaFile, content)
 	if copyError != nil {
-		return nil, fmt.Errorf("writing media file: %w", copyError)
+		return nil, fmt.Errorf("fsstore: writing media file: %w", copyError)
 	}
 	if commitError := atomicfile.Commit(mediaFile); commitError != nil {
-		return nil, fmt.Errorf("committing media file: %w", commitError)
+		return nil, fmt.Errorf("fsstore: committing media file: %w", commitError)
 	}
 	metadataRecord := storeMediaMetadata{
 		MediaID:        mediaId,
@@ -133,7 +133,7 @@ func (self *fileSystemTransaction) createMedia(content io.Reader, metadata *mode
 	}
 	if writeError := self.writeMediaMetadata(mediaId, metadataRecord); writeError != nil {
 		_ = os.Remove(mediaPath)
-		return nil, fmt.Errorf("writing media metadata: %w", writeError)
+		return nil, fmt.Errorf("fsstore: writing media metadata: %w", writeError)
 	}
 	result := mediaMetadataToModel(metadataRecord)
 	return &result, nil
@@ -196,7 +196,7 @@ func (self *fileSystemTransaction) modifyMedia(ctx context.Context, mediaId stri
 		OriginalName:   metadata.GetOriginalName(),
 	}
 	if writeError := self.writeMediaMetadata(mediaId, updatedRecord); writeError != nil {
-		return nil, fmt.Errorf("writing media metadata: %w", writeError)
+		return nil, fmt.Errorf("fsstore: writing media metadata: %w", writeError)
 	}
 	return metadata, nil
 }

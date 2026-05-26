@@ -131,7 +131,7 @@ func (self *Relay) DefaultConnectionForUser(userId string) (string, error) {
 			return terminalConnection.id, nil
 		}
 	}
-	return "", errors.New("terminal client not connected")
+	return "", errors.New("terminals: terminal client not connected")
 }
 
 // SendCommandForUser sends a command, enforcing that connectionId belongs to userId.
@@ -146,7 +146,7 @@ func (self *Relay) SendCommandForUser(ctx context.Context, userId, connectionId 
 	}
 	if terminal == nil {
 		self.mutex.Unlock()
-		return nil, fmt.Errorf("terminal connection %q not found", connectionId)
+		return nil, fmt.Errorf("terminals: terminal connection %q not found", connectionId)
 	}
 	commandId, resultChannel := terminal.pending.Allocate()
 	connection := terminal.connection
@@ -157,17 +157,17 @@ func (self *Relay) SendCommandForUser(ctx context.Context, userId, connectionId 
 		"method": method,
 	}
 	if parameters != nil {
-		message["params"] = parameters
+		message["parameters"] = parameters
 	}
 	data, err := json.Marshal(message)
 	if err != nil {
 		terminal.pending.Cancel(commandId)
-		return nil, fmt.Errorf("marshal: %w", err)
+		return nil, fmt.Errorf("terminals: marshal: %w", err)
 	}
 
 	if err := connection.WriteMessage(websocket.TextMessage, data); err != nil {
 		terminal.pending.Cancel(commandId)
-		return nil, fmt.Errorf("write: %w", err)
+		return nil, fmt.Errorf("terminals: write: %w", err)
 	}
 
 	select {
@@ -195,11 +195,11 @@ func (self *Relay) readLoop(connectionKey string, connection *websocket.Conn, do
 		}
 
 		var frame struct {
-			ID     *int            `json:"id"`
-			Method string          `json:"method"`
-			Params json.RawMessage `json:"params"`
-			Result json.RawMessage `json:"result"`
-			Error  *string         `json:"error"`
+			ID         *int            `json:"id"`
+			Method     string          `json:"method"`
+			Parameters json.RawMessage `json:"parameters"`
+			Result     json.RawMessage `json:"result"`
+			Error      *string         `json:"error"`
 		}
 		if err := json.Unmarshal(data, &frame); err != nil {
 			continue
@@ -210,9 +210,9 @@ func (self *Relay) readLoop(connectionKey string, connection *websocket.Conn, do
 		}
 
 		// Client sends machine info on connect.
-		if frame.Method == "attach" && frame.Params != nil {
+		if frame.Method == "attach" && frame.Parameters != nil {
 			var information MachineInformation
-			if json.Unmarshal(frame.Params, &information) == nil {
+			if json.Unmarshal(frame.Parameters, &information) == nil {
 				self.mutex.Lock()
 				if terminalConnection, ok := self.connections[connectionKey]; ok {
 					terminalConnection.machine = information

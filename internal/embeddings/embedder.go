@@ -12,7 +12,7 @@ import (
 
 // ErrEmbeddingDisabled is returned when no embedding provider model is
 // configured and no embedding-capable provider is registered.
-var ErrEmbeddingDisabled = errors.New("embedding is disabled (no embedding provider configured)")
+var ErrEmbeddingDisabled = errors.New("embeddings: embedding is disabled (no embedding provider configured)")
 
 // Embedder resolves an embedding provider and model from the provider registry
 // and computes vector embeddings.

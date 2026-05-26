@@ -54,7 +54,7 @@ func executeInterceptStart(ctx context.Context, browser browsers.Browser, connec
 		"maxResourceBufferSize": 5 * 1024 * 1024,
 	}, sessionId)
 	if err != nil {
-		return "", fmt.Errorf("enabling network interception: %w", err)
+		return "", fmt.Errorf("browser: enabling network interception: %w", err)
 	}
 
 	// Inject a PerformanceObserver to track resource loads with a URL filter.
@@ -65,7 +65,7 @@ func executeInterceptStart(ctx context.Context, browser browsers.Browser, connec
 		"returnByValue": true,
 	}, sessionId)
 	if err != nil {
-		return "", fmt.Errorf("injecting network observer: %w", err)
+		return "", fmt.Errorf("browser: injecting network observer: %w", err)
 	}
 
 	// Clear any previously captured entries.
@@ -146,7 +146,7 @@ func harvestInterceptedEntries(ctx context.Context, browser browsers.Browser, se
 		"returnByValue": true,
 	}, sessionId)
 	if err != nil {
-		return nil, fmt.Errorf("harvesting intercepted requests: %w", err)
+		return nil, fmt.Errorf("browser: harvesting intercepted requests: %w", err)
 	}
 
 	var evalResponse struct {

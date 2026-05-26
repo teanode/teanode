@@ -25,10 +25,10 @@ import (
 
 // mockProviderRegistry creates a single-provider registry for testing with
 // "mock" as the default provider.
-func mockProviderRegistry(baseURL string) *providers.ProviderRegistry {
+func mockProviderRegistry(baseUrl string) *providers.ProviderRegistry {
 	mockProviders := []*models.ProviderConfiguration{{
 		Name:    ptrto.Value("mock"),
-		BaseURL: ptrto.Value(baseURL),
+		BaseURL: ptrto.Value(baseUrl),
 		APIKey:  ptrto.Value("test-key"),
 	}}
 	return providers.NewProviderRegistry(&models.ModelsConfiguration{
@@ -271,10 +271,10 @@ func TestRunnerRun(t *testing.T) {
 		t.Fatalf("expected 2 messages, got %d", len(messages))
 	}
 	if conversationMessageRole(*messages[0]) != "user" || conversationMessageContentText(*messages[0]) != "hi" {
-		t.Errorf("msg[0] = %+v", messages[0])
+		t.Errorf("message[0] = %+v", messages[0])
 	}
 	if conversationMessageRole(*messages[1]) != "assistant" || conversationMessageContentText(*messages[1]) != mockResponse {
-		t.Errorf("msg[1] = %+v", messages[1])
+		t.Errorf("message[1] = %+v", messages[1])
 	}
 }
 
@@ -408,22 +408,22 @@ func TestRunnerToolCallLoop(t *testing.T) {
 		t.Fatalf("expected 4 messages, got %d", len(messages))
 	}
 	if conversationMessageRole(*messages[0]) != "user" {
-		t.Errorf("msg[0].role = %q, want user", conversationMessageRole(*messages[0]))
+		t.Errorf("message[0].role = %q, want user", conversationMessageRole(*messages[0]))
 	}
 	if conversationMessageRole(*messages[1]) != "assistant" {
-		t.Errorf("msg[1].role = %q, want assistant", conversationMessageRole(*messages[1]))
+		t.Errorf("message[1].role = %q, want assistant", conversationMessageRole(*messages[1]))
 	}
 	if len(conversationMessageToolCalls(*messages[1])) == 0 {
-		t.Error("msg[1] should have toolCalls")
+		t.Error("message[1] should have toolCalls")
 	}
 	if conversationMessageRole(*messages[2]) != "tool" {
-		t.Errorf("msg[2].role = %q, want tool", conversationMessageRole(*messages[2]))
+		t.Errorf("message[2].role = %q, want tool", conversationMessageRole(*messages[2]))
 	}
 	if messages[2].GetToolCallID() != "call-1" {
-		t.Errorf("msg[2].toolCallId = %q, want call-1", messages[2].GetToolCallID())
+		t.Errorf("message[2].toolCallId = %q, want call-1", messages[2].GetToolCallID())
 	}
 	if conversationMessageRole(*messages[3]) != "assistant" {
-		t.Errorf("msg[3].role = %q, want assistant", conversationMessageRole(*messages[3]))
+		t.Errorf("message[3].role = %q, want assistant", conversationMessageRole(*messages[3]))
 	}
 }
 
@@ -960,20 +960,20 @@ func TestRunnerApprovalNonWebOriginDeniedPersistsMessages(t *testing.T) {
 		t.Fatalf("expected 4 messages, got %d", len(messages))
 	}
 	if conversationMessageRole(*messages[0]) != "user" {
-		t.Errorf("msg[0].role = %q, want user", conversationMessageRole(*messages[0]))
+		t.Errorf("message[0].role = %q, want user", conversationMessageRole(*messages[0]))
 	}
 	if conversationMessageRole(*messages[1]) != "assistant" {
-		t.Errorf("msg[1].role = %q, want assistant", conversationMessageRole(*messages[1]))
+		t.Errorf("message[1].role = %q, want assistant", conversationMessageRole(*messages[1]))
 	}
 	if conversationMessageRole(*messages[2]) != "tool" {
-		t.Errorf("msg[2].role = %q, want tool", conversationMessageRole(*messages[2]))
+		t.Errorf("message[2].role = %q, want tool", conversationMessageRole(*messages[2]))
 	}
 	toolContent := conversationMessageContentText(*messages[2])
 	if !strings.Contains(toolContent, "requires approval via the web interface") {
-		t.Errorf("msg[2].content = %q, want approval denial error", toolContent)
+		t.Errorf("message[2].content = %q, want approval denial error", toolContent)
 	}
 	if conversationMessageRole(*messages[3]) != "assistant" {
-		t.Errorf("msg[3].role = %q, want assistant", conversationMessageRole(*messages[3]))
+		t.Errorf("message[3].role = %q, want assistant", conversationMessageRole(*messages[3]))
 	}
 }
 

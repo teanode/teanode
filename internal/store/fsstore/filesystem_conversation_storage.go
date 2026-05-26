@@ -61,7 +61,7 @@ func (self *fileSystemTransaction) loadConversationHeaderByPath(conversationPath
 		if scanError := scanner.Err(); scanError != nil {
 			return nil, scanError
 		}
-		return nil, fmt.Errorf("empty conversation file")
+		return nil, fmt.Errorf("fsstore: empty conversation file")
 	}
 	header := &conversationFileHeader{}
 	if unmarshalError := json.Unmarshal([]byte(scanner.Text()), header); unmarshalError != nil {
@@ -84,7 +84,7 @@ func (self *fileSystemTransaction) loadConversationData(userId string, agentId s
 		if scanError := scanner.Err(); scanError != nil {
 			return nil, nil, scanError
 		}
-		return nil, nil, fmt.Errorf("empty conversation file")
+		return nil, nil, fmt.Errorf("fsstore: empty conversation file")
 	}
 
 	header := &conversationFileHeader{}
@@ -122,7 +122,7 @@ func (self *fileSystemTransaction) loadConversationData(userId string, agentId s
 
 func (self *fileSystemTransaction) rewriteConversationFile(userId string, agentId string, conversationId string, header *conversationFileHeader, messages []conversationFileMessage) error {
 	if header == nil {
-		return fmt.Errorf("conversation header is required")
+		return fmt.Errorf("fsstore: conversation header is required")
 	}
 	conversationPath := self.conversationFilePath(userId, agentId, conversationId)
 	if makeDirectoryError := os.MkdirAll(filepath.Dir(conversationPath), 0755); makeDirectoryError != nil {
@@ -174,7 +174,7 @@ func (self *fileSystemTransaction) updateConversationHeader(userId string, agent
 	}
 	newLineIndex := bytes.IndexByte(data, '\n')
 	if newLineIndex < 0 {
-		return fmt.Errorf("invalid conversation file")
+		return fmt.Errorf("fsstore: invalid conversation file")
 	}
 
 	header := &conversationFileHeader{}

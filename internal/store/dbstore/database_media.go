@@ -266,7 +266,7 @@ type databaseLargeObjectReadCloser struct {
 	chunkSizeBytes int64
 	offsetBytes    int64
 	pendingChunk   []byte
-	reachedEOF     bool
+	reachedEof     bool
 	closed         bool
 }
 
@@ -274,18 +274,18 @@ func (self *databaseLargeObjectReadCloser) Read(content []byte) (int, error) {
 	if self.closed {
 		return 0, io.EOF
 	}
-	for len(self.pendingChunk) == 0 && !self.reachedEOF {
+	for len(self.pendingChunk) == 0 && !self.reachedEof {
 		chunk, readError := self.readNextChunk()
 		if readError != nil {
 			return 0, readError
 		}
 		if len(chunk) == 0 {
-			self.reachedEOF = true
+			self.reachedEof = true
 			break
 		}
 		self.pendingChunk = chunk
 	}
-	if len(self.pendingChunk) == 0 && self.reachedEOF {
+	if len(self.pendingChunk) == 0 && self.reachedEof {
 		return 0, io.EOF
 	}
 	readCount := copy(content, self.pendingChunk)

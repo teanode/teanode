@@ -82,7 +82,7 @@ type SkillTool struct {
 	Parameters  interface{}   `json:"parameters" yaml:"parameters"` // JSON schema for LLM
 
 	// Shell fields
-	Command          []string `json:"command,omitempty" yaml:"command,omitempty"`                   // command + args
+	Command          []string `json:"command,omitempty" yaml:"command,omitempty"`                   // command + arguments
 	WorkingDirectory string   `json:"workingDirectory,omitempty" yaml:"workingDirectory,omitempty"` // working directory
 
 	// HTTP fields

@@ -149,7 +149,7 @@ func (self *projectTodoTool) Execute(ctx context.Context, rawArguments string) (
 		Items       []projectBatchItem `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("projects: parsing arguments: %w", err)
 	}
 
 	action := arguments.Action
@@ -159,7 +159,7 @@ func (self *projectTodoTool) Execute(ctx context.Context, rawArguments string) (
 	case "batch", "prune":
 		user := models.UserFromContext(ctx)
 		if user == nil || !user.GetAdmin() {
-			return "", fmt.Errorf("admin access required to %s project todos", action)
+			return "", fmt.Errorf("projects: admin access required to %s project todos", action)
 		}
 	}
 
@@ -177,7 +177,7 @@ func (self *projectTodoTool) Execute(ctx context.Context, rawArguments string) (
 	case "prune":
 		return self.executePrune(ctx, projectId)
 	default:
-		return "", fmt.Errorf("unknown project_todo action: %s", action)
+		return "", fmt.Errorf("projects: unknown project_todo action: %s", action)
 	}
 }
 
@@ -209,10 +209,10 @@ func (self *projectTodoTool) executeList(ctx context.Context, projectId, statusF
 
 func (self *projectTodoTool) executeBatch(ctx context.Context, projectId string, items []projectBatchItem) (string, error) {
 	if len(items) == 0 {
-		return "", fmt.Errorf("items is required and must contain 1-50 entries")
+		return "", fmt.Errorf("projects: items is required and must contain 1-50 entries")
 	}
 	if len(items) > 50 {
-		return "", fmt.Errorf("items must contain at most 50 entries, got %d", len(items))
+		return "", fmt.Errorf("projects: items must contain at most 50 entries, got %d", len(items))
 	}
 
 	results := make([]projectBatchResult, len(items))
@@ -408,7 +408,7 @@ func resolveProjectId(ctx context.Context, projectId, projectName string) (strin
 		return projectId, nil
 	}
 	if projectName == "" {
-		return "", fmt.Errorf("projectId or projectName is required")
+		return "", fmt.Errorf("projects: projectId or projectName is required")
 	}
 	projects, err := listProjects(ctx)
 	if err != nil {
@@ -420,7 +420,7 @@ func resolveProjectId(ctx context.Context, projectId, projectName string) (strin
 			return p.ID, nil
 		}
 	}
-	return "", fmt.Errorf("project not found: %s", projectName)
+	return "", fmt.Errorf("projects: project not found: %s", projectName)
 }
 
 func afterMutateProject(ctx context.Context, projectId string) {

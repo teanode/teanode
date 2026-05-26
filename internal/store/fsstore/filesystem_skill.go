@@ -366,7 +366,7 @@ func parseSkillMarkdownFrontmatter(data []byte, frontmatter *fileSystemSkillFron
 	content := strings.ReplaceAll(string(data), "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
 	if !strings.HasPrefix(content, "---\n") {
-		return "", fmt.Errorf("missing frontmatter delimiter")
+		return "", fmt.Errorf("fsstore: missing frontmatter delimiter")
 	}
 	rest := content[4:]
 	closingIndex := strings.Index(rest, "\n---\n")
@@ -374,12 +374,12 @@ func parseSkillMarkdownFrontmatter(data []byte, frontmatter *fileSystemSkillFron
 		if strings.HasSuffix(rest, "\n---") {
 			closingIndex = len(rest) - 4
 		} else {
-			return "", fmt.Errorf("missing closing frontmatter delimiter")
+			return "", fmt.Errorf("fsstore: missing closing frontmatter delimiter")
 		}
 	}
-	frontmatterYAML := rest[:closingIndex]
-	if unmarshalError := yaml.Unmarshal([]byte(frontmatterYAML), frontmatter); unmarshalError != nil {
-		return "", fmt.Errorf("parsing frontmatter: %w", unmarshalError)
+	frontmatterYaml := rest[:closingIndex]
+	if unmarshalError := yaml.Unmarshal([]byte(frontmatterYaml), frontmatter); unmarshalError != nil {
+		return "", fmt.Errorf("fsstore: parsing frontmatter: %w", unmarshalError)
 	}
 	bodyStart := closingIndex + 5
 	if bodyStart > len(rest) {

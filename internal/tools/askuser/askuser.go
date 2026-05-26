@@ -83,48 +83,48 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 	}
 
 	// Parse arguments.
-	var args struct {
+	var arguments struct {
 		Question         string   `json:"question"`
 		Choices          []string `json:"choices"`
 		AllowOther       bool     `json:"allowOther"`
 		OtherLabel       string   `json:"otherLabel"`
 		OtherPlaceholder string   `json:"otherPlaceholder"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("askuser: parsing arguments: %w", err)
 	}
 	// When allowOther is enabled, strip any choice that duplicates the Other
 	// button label so the UI doesn't show "Other" twice.
-	if args.AllowOther {
-		label := args.OtherLabel
+	if arguments.AllowOther {
+		label := arguments.OtherLabel
 		if label == "" {
 			label = "Other"
 		}
-		filtered := args.Choices[:0]
-		for _, c := range args.Choices {
+		filtered := arguments.Choices[:0]
+		for _, c := range arguments.Choices {
 			if !strings.EqualFold(c, label) {
 				filtered = append(filtered, c)
 			}
 		}
-		args.Choices = filtered
+		arguments.Choices = filtered
 	}
 
-	if args.Question == "" || len(args.Choices) < 2 {
-		return "", fmt.Errorf("question and at least 2 choices are required")
+	if arguments.Question == "" || len(arguments.Choices) < 2 {
+		return "", fmt.Errorf("askuser: question and at least 2 choices are required")
 	}
 
 	// Get broker and runner metadata from context.
 	broker := questions.QuestionBrokerFromContext(ctx)
 	if broker == nil {
-		return "", fmt.Errorf("question broker not available")
+		return "", fmt.Errorf("askuser: question broker not available")
 	}
 	runner := runners.RunnerFromContext(ctx)
 	if runner == nil {
-		return "", fmt.Errorf("runner context not available")
+		return "", fmt.Errorf("askuser: runner context not available")
 	}
 	user := models.UserFromContext(ctx)
 	if user == nil {
-		return "", fmt.Errorf("authentication required")
+		return "", fmt.Errorf("askuser: authentication required")
 	}
 
 	// Register pending question (in-memory only).
@@ -134,11 +134,11 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 		AgentID:          runner.AgentID,
 		UserID:           user.ID,
 		RunID:            runner.ID,
-		Question:         args.Question,
-		Choices:          args.Choices,
-		AllowOther:       args.AllowOther,
-		OtherLabel:       args.OtherLabel,
-		OtherPlaceholder: args.OtherPlaceholder,
+		Question:         arguments.Question,
+		Choices:          arguments.Choices,
+		AllowOther:       arguments.AllowOther,
+		OtherLabel:       arguments.OtherLabel,
+		OtherPlaceholder: arguments.OtherPlaceholder,
 	}
 	pending.SetAnswerChan(questions.MakeAnswerChan())
 	broker.Register(pending)
@@ -172,7 +172,7 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 	select {
 	case payload, ok := <-pending.AnswerChan():
 		if !ok {
-			return "", fmt.Errorf("question cancelled")
+			return "", fmt.Errorf("askuser: question cancelled")
 		}
 		result := map[string]string{"answer": payload.Answer}
 		if payload.Other != "" {

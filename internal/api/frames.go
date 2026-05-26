@@ -8,10 +8,10 @@ import (
 
 // requestFrame is a client-to-server RPC request.
 type requestFrame struct {
-	Type   string          `json:"type"` // "req"
-	ID     string          `json:"id"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params,omitempty"`
+	Type       string          `json:"type"` // "request"
+	ID         string          `json:"id"`
+	Method     string          `json:"method"`
+	Parameters json.RawMessage `json:"parameters,omitempty"`
 }
 
 // responseFrame is a server-to-client RPC response.
@@ -96,16 +96,16 @@ func validateVoiceAudioFormats(audioIn, audioOut voiceAudioFormat) error {
 	}
 
 	if inCodec != "pcm_s16le" {
-		return fmt.Errorf("audio_in.codec must be pcm_s16le")
+		return fmt.Errorf("api: audio_in.codec must be pcm_s16le")
 	}
 	if outCodec != "pcm_s16le" {
-		return fmt.Errorf("audio_out.codec must be pcm_s16le")
+		return fmt.Errorf("api: audio_out.codec must be pcm_s16le")
 	}
 	if audioIn.Channels != 0 && audioIn.Channels != 1 {
-		return fmt.Errorf("audio_in.channels must be 1")
+		return fmt.Errorf("api: audio_in.channels must be 1")
 	}
 	if audioIn.SampleRateHz != 0 && audioIn.SampleRateHz != 8000 && audioIn.SampleRateHz != 16000 {
-		return fmt.Errorf("audio_in.sample_rate_hz must be 8000 or 16000")
+		return fmt.Errorf("api: audio_in.sample_rate_hz must be 8000 or 16000")
 	}
 	return nil
 }

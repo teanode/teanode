@@ -76,7 +76,7 @@ func buildShortTermMemoryOverlay(history []*models.ConversationMessage, options 
 // selectRecentMemoryRetrieveResults scans history backward, counting user
 // turns. For tool messages with a memory tool name and action=="retrieve"
 // within the TTL window, it keeps the most recent result per tool name.
-func selectRecentMemoryRetrieveResults(history []*models.ConversationMessage, turnTTL int) map[string]string {
+func selectRecentMemoryRetrieveResults(history []*models.ConversationMessage, turnTtl int) map[string]string {
 	results := make(map[string]string)
 	userTurnCount := 0
 
@@ -86,7 +86,7 @@ func selectRecentMemoryRetrieveResults(history []*models.ConversationMessage, tu
 
 		if role == "user" {
 			userTurnCount++
-			if userTurnCount > turnTTL {
+			if userTurnCount > turnTtl {
 				break
 			}
 			continue
@@ -151,16 +151,16 @@ func parseRetrieveResult(content string, maxItems, maxCharsPerItem int) []shortT
 		if len(snippets) >= maxItems {
 			break
 		}
-		obj, ok := item.(map[string]any)
+		object, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
 
-		title, _ := obj["title"].(string)
-		snippet, _ := obj["snippet"].(string)
+		title, _ := object["title"].(string)
+		snippet, _ := object["snippet"].(string)
 
 		var tags []string
-		if tagsRaw, ok := obj["tags"].([]any); ok {
+		if tagsRaw, ok := object["tags"].([]any); ok {
 			for _, tag := range tagsRaw {
 				if s, ok := tag.(string); ok {
 					tags = append(tags, s)
@@ -201,14 +201,14 @@ func formatShortTermMemoryOverlay(sections map[string][]shortTermMemorySnippet, 
 		}
 
 		header := fmt.Sprintf("\n%s.retrieve:\n", toolName)
-		headerLen := len(header)
+		headerLength := len(header)
 
-		if totalChars+headerLen >= options.MaxCharsTotal {
+		if totalChars+headerLength >= options.MaxCharsTotal {
 			break
 		}
 
 		builder.WriteString(header)
-		totalChars += headerLen
+		totalChars += headerLength
 
 		for _, s := range snippets {
 			var line string
@@ -232,12 +232,12 @@ func formatShortTermMemoryOverlay(sections map[string][]shortTermMemorySnippet, 
 	return builder.String()
 }
 
-// truncateString truncates s to maxLen characters, appending "…" if truncated.
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
+// truncateString truncates s to maxLength characters, appending "…" if truncated.
+func truncateString(s string, maxLength int) string {
+	if len(s) <= maxLength {
 		return s
 	}
-	return s[:maxLen] + "…"
+	return s[:maxLength] + "…"
 }
 
 // conversationMessageRole extracts the role string from a conversation message.

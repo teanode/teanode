@@ -15,46 +15,46 @@ const (
 )
 
 // commandRunner abstracts command execution for testing.
-type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
+type commandRunner func(ctx context.Context, name string, arguments ...string) ([]byte, error)
 
 // defaultRunner executes commands via cmdexec.Run with process-group isolation.
-func defaultRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	result, err := cmdexec.Run(ctx, name, args, cmdexec.Options{})
+func defaultRunner(ctx context.Context, name string, arguments ...string) ([]byte, error) {
+	result, err := cmdexec.Run(ctx, name, arguments, cmdexec.Options{})
 	if err != nil {
 		return nil, err
 	}
 	if result.ExitCode != 0 {
 		stderr := strings.TrimSpace(string(result.Stderr))
 		if stderr != "" {
-			return nil, fmt.Errorf("%s", stderr)
+			return nil, fmt.Errorf("google: %s", stderr)
 		}
-		return nil, fmt.Errorf("exit code %d", result.ExitCode)
+		return nil, fmt.Errorf("google: exit code %d", result.ExitCode)
 	}
 	return result.Stdout, nil
 }
 
 // execGog runs a gog subcommand with --json --no-input --results-only flags.
 // It enforces a timeout and truncates output exceeding maxOutputBytes.
-func execGog(ctx context.Context, runner commandRunner, binary string, account string, args ...string) (string, error) {
+func execGog(ctx context.Context, runner commandRunner, binary string, account string, arguments ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 
-	fullArgs := []string{"--json", "--no-input", "--results-only"}
+	fullArguments := []string{"--json", "--no-input", "--results-only"}
 	if account != "" {
-		fullArgs = append(fullArgs, "--account", account)
+		fullArguments = append(fullArguments, "--account", account)
 	}
-	fullArgs = append(fullArgs, args...)
+	fullArguments = append(fullArguments, arguments...)
 
-	log.Debugf("exec: %s %v", binary, fullArgs)
+	log.Debugf("exec: %s %v", binary, fullArguments)
 
-	output, err := runner(ctx, binary, fullArgs...)
+	output, err := runner(ctx, binary, fullArguments...)
 	if err != nil {
 		errorMessage := err.Error()
 		// Detect auth errors and return a clear message for the LLM.
 		if isAuthError(errorMessage) {
-			return "", fmt.Errorf("google authentication required; run 'gog auth login' to authenticate")
+			return "", fmt.Errorf("google: google authentication required; run 'gog auth login' to authenticate")
 		}
-		return "", fmt.Errorf("gog command failed: %s", errorMessage)
+		return "", fmt.Errorf("google: gog command failed: %s", errorMessage)
 	}
 
 	result := string(output)

@@ -63,74 +63,74 @@ func (self *threadsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *threadsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		ThreadID   string `json:"thread_id"`
 		UnreadOnly bool   `json:"unread_only"`
 		Limit      int    `json:"limit"`
 		Team       string `json:"team"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("mattermost: parsing arguments: %w", err)
 	}
 
-	exec := func(args2 ...string) (string, error) {
-		return execMattermostWithTeam(ctx, self.runner, self.binary, args.Team, args2...)
+	exec := func(arguments2 ...string) (string, error) {
+		return execMattermostWithTeam(ctx, self.runner, self.binary, arguments.Team, arguments2...)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		commandArgs := []string{"thread", "list"}
-		if args.UnreadOnly {
-			commandArgs = append(commandArgs, "--unread")
+		commandArguments := []string{"thread", "list"}
+		if arguments.UnreadOnly {
+			commandArguments = append(commandArguments, "--unread")
 		}
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit > 0 {
-			commandArgs = append(commandArgs, "-n", fmt.Sprintf("%d", limit))
+			commandArguments = append(commandArguments, "-n", fmt.Sprintf("%d", limit))
 		}
-		return exec(commandArgs...)
+		return exec(commandArguments...)
 
 	case "view":
-		if args.ThreadID == "" {
-			return "", fmt.Errorf("thread_id is required for view action")
+		if arguments.ThreadID == "" {
+			return "", fmt.Errorf("mattermost: thread_id is required for view action")
 		}
-		return exec("thread", "view", args.ThreadID)
+		return exec("thread", "view", arguments.ThreadID)
 
 	case "follow":
-		if args.ThreadID == "" {
-			return "", fmt.Errorf("thread_id is required for follow action")
+		if arguments.ThreadID == "" {
+			return "", fmt.Errorf("mattermost: thread_id is required for follow action")
 		}
-		output, err := exec("thread", "follow", args.ThreadID)
+		output, err := exec("thread", "follow", arguments.ThreadID)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("following", output), nil
 
 	case "unfollow":
-		if args.ThreadID == "" {
-			return "", fmt.Errorf("thread_id is required for unfollow action")
+		if arguments.ThreadID == "" {
+			return "", fmt.Errorf("mattermost: thread_id is required for unfollow action")
 		}
-		output, err := exec("thread", "unfollow", args.ThreadID)
+		output, err := exec("thread", "unfollow", arguments.ThreadID)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("unfollowed", output), nil
 
 	case "mark_read":
-		if args.ThreadID == "" {
-			return "", fmt.Errorf("thread_id is required for mark_read action")
+		if arguments.ThreadID == "" {
+			return "", fmt.Errorf("mattermost: thread_id is required for mark_read action")
 		}
-		output, err := exec("thread", "read", args.ThreadID)
+		output, err := exec("thread", "read", arguments.ThreadID)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("marked_read", output), nil
 
 	case "mark_unread":
-		if args.ThreadID == "" {
-			return "", fmt.Errorf("thread_id is required for mark_unread action")
+		if arguments.ThreadID == "" {
+			return "", fmt.Errorf("mattermost: thread_id is required for mark_unread action")
 		}
-		output, err := exec("thread", "unread", args.ThreadID)
+		output, err := exec("thread", "unread", arguments.ThreadID)
 		if err != nil {
 			return "", err
 		}
@@ -144,6 +144,6 @@ func (self *threadsTool) Execute(ctx context.Context, rawArguments string) (stri
 		return wrapPlainOutput("all_read", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown threads action: %s", args.Action)
+		return "", fmt.Errorf("mattermost: unknown threads action: %s", arguments.Action)
 	}
 }

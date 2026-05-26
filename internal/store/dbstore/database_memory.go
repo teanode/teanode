@@ -58,22 +58,22 @@ func (self *databaseTransaction) CreateMemoryItem(ctx context.Context, item *mod
 		record.ID = security.NewULID()
 	}
 	if item.Tags != nil {
-		tagsJSON, err := json.Marshal(*item.Tags)
+		tagsJson, err := json.Marshal(*item.Tags)
 		if err != nil {
 			return nil, err
 		}
-		tagsStr := string(tagsJSON)
+		tagsStr := string(tagsJson)
 		record.Tags = &tagsStr
 	}
 	if item.EmbeddingProviderModelName != nil {
 		record.EmbeddingProviderModelName = item.EmbeddingProviderModelName
 	}
 	if item.Embedding != nil {
-		embeddingJSON, err := json.Marshal(*item.Embedding)
+		embeddingJson, err := json.Marshal(*item.Embedding)
 		if err != nil {
 			return nil, err
 		}
-		embeddingStr := string(embeddingJSON)
+		embeddingStr := string(embeddingJson)
 		record.Embedding = &embeddingStr
 	}
 	if item.EmbeddedAt != nil {
@@ -118,22 +118,22 @@ func (self *databaseTransaction) ModifyMemoryItem(ctx context.Context, memoryIte
 		record.Content = *item.Content
 	}
 	if item.Tags != nil {
-		tagsJSON, err := json.Marshal(*item.Tags)
+		tagsJson, err := json.Marshal(*item.Tags)
 		if err != nil {
 			return nil, err
 		}
-		tagsStr := string(tagsJSON)
+		tagsStr := string(tagsJson)
 		record.Tags = &tagsStr
 	}
 	if item.EmbeddingProviderModelName != nil {
 		record.EmbeddingProviderModelName = item.EmbeddingProviderModelName
 	}
 	if item.Embedding != nil {
-		embeddingJSON, err := json.Marshal(*item.Embedding)
+		embeddingJson, err := json.Marshal(*item.Embedding)
 		if err != nil {
 			return nil, err
 		}
-		embeddingStr := string(embeddingJSON)
+		embeddingStr := string(embeddingJson)
 		record.Embedding = &embeddingStr
 	}
 	if item.EmbeddedAt != nil {
@@ -168,11 +168,11 @@ func (self *databaseTransaction) ListMemoryItems(ctx context.Context, scope mode
 	}
 
 	if listOptions.Tags != nil && len(*listOptions.Tags) > 0 {
-		tagsJSON, err := json.Marshal(*listOptions.Tags)
+		tagsJson, err := json.Marshal(*listOptions.Tags)
 		if err != nil {
 			return nil, err
 		}
-		query = query.Where("tags @> ?", string(tagsJSON))
+		query = query.Where("tags @> ?", string(tagsJson))
 	}
 
 	query = query.Order("modified_at DESC")

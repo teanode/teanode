@@ -50,37 +50,37 @@ func (self *teamsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *teamsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action string `json:"action"`
 		Team   string `json:"team"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("mattermost: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
 		return execMattermost(ctx, self.runner, self.binary, "team", "list")
 
 	case "switch":
-		if args.Team == "" {
-			return "", fmt.Errorf("team is required for switch action")
+		if arguments.Team == "" {
+			return "", fmt.Errorf("mattermost: team is required for switch action")
 		}
-		output, err := execMattermost(ctx, self.runner, self.binary, "team", "switch", args.Team)
+		output, err := execMattermost(ctx, self.runner, self.binary, "team", "switch", arguments.Team)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("switched", output), nil
 
 	case "info":
-		if args.Team != "" {
-			return execMattermost(ctx, self.runner, self.binary, "team", "info", args.Team)
+		if arguments.Team != "" {
+			return execMattermost(ctx, self.runner, self.binary, "team", "info", arguments.Team)
 		}
 		return execMattermost(ctx, self.runner, self.binary, "team", "info")
 
 	case "members":
-		if args.Team != "" {
-			return execMattermost(ctx, self.runner, self.binary, "team", "members", args.Team)
+		if arguments.Team != "" {
+			return execMattermost(ctx, self.runner, self.binary, "team", "members", arguments.Team)
 		}
 		return execMattermost(ctx, self.runner, self.binary, "team", "members")
 
@@ -88,6 +88,6 @@ func (self *teamsTool) Execute(ctx context.Context, rawArguments string) (string
 		return execMattermost(ctx, self.runner, self.binary, "server", "info")
 
 	default:
-		return "", fmt.Errorf("unknown teams action: %s", args.Action)
+		return "", fmt.Errorf("mattermost: unknown teams action: %s", arguments.Action)
 	}
 }

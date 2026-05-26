@@ -61,40 +61,40 @@ func (self *reposTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *reposTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		Owner      string `json:"owner"`
 		Limit      int    `json:"limit"`
 		Repository string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("github: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "view":
-		commandArgs := []string{"repo", "view"}
-		if args.Repository != "" {
-			commandArgs = append(commandArgs, args.Repository)
+		commandArguments := []string{"repo", "view"}
+		if arguments.Repository != "" {
+			commandArguments = append(commandArguments, arguments.Repository)
 		}
-		commandArgs = append(commandArgs,
+		commandArguments = append(commandArguments,
 			"--json", "name,description,url,defaultBranchRef,stargazerCount,isPrivate,forkCount")
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	case "list":
-		if args.Owner == "" {
-			return "", fmt.Errorf("owner is required for list action")
+		if arguments.Owner == "" {
+			return "", fmt.Errorf("github: owner is required for list action")
 		}
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 30
 		}
-		commandArgs := []string{"repo", "list", args.Owner,
+		commandArguments := []string{"repo", "list", arguments.Owner,
 			"--json", "name,description,isPrivate,updatedAt",
 			"--limit", strconv.Itoa(limit)}
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	default:
-		return "", fmt.Errorf("unknown repos action: %s", args.Action)
+		return "", fmt.Errorf("github: unknown repos action: %s", arguments.Action)
 	}
 }

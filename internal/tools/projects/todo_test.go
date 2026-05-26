@@ -90,15 +90,15 @@ func TestProjectTodoBatchAdd(t *testing.T) {
 		t.Fatalf("batch add failed: %v", err)
 	}
 
-	var resp projectBatchResponse
-	mustUnmarshalProjectJSON(t, result, &resp)
-	if resp.Action != "batch" {
-		t.Fatalf("action = %q, want batch", resp.Action)
+	var response projectBatchResponse
+	mustUnmarshalProjectJSON(t, result, &response)
+	if response.Action != "batch" {
+		t.Fatalf("action = %q, want batch", response.Action)
 	}
-	if len(resp.Results) != 2 {
-		t.Fatalf("results count = %d, want 2", len(resp.Results))
+	if len(response.Results) != 2 {
+		t.Fatalf("results count = %d, want 2", len(response.Results))
 	}
-	for i, r := range resp.Results {
+	for i, r := range response.Results {
 		if !r.Success {
 			t.Fatalf("result[%d] failed: %s", i, r.Error)
 		}
@@ -106,17 +106,17 @@ func TestProjectTodoBatchAdd(t *testing.T) {
 			t.Fatalf("result[%d] todo is nil", i)
 		}
 	}
-	if resp.Results[0].Todo.GetTitle() != "Implement auth" {
-		t.Fatalf("result[0] title = %q, want 'Implement auth'", resp.Results[0].Todo.GetTitle())
+	if response.Results[0].Todo.GetTitle() != "Implement auth" {
+		t.Fatalf("result[0] title = %q, want 'Implement auth'", response.Results[0].Todo.GetTitle())
 	}
-	if resp.Results[0].Todo.GetPriority() != models.TodoPriorityHigh {
-		t.Fatalf("result[0] priority = %q, want high", resp.Results[0].Todo.GetPriority())
+	if response.Results[0].Todo.GetPriority() != models.TodoPriorityHigh {
+		t.Fatalf("result[0] priority = %q, want high", response.Results[0].Todo.GetPriority())
 	}
-	if resp.Summary.Total != 2 || resp.Summary.Succeeded != 2 {
-		t.Fatalf("summary = %+v", resp.Summary)
+	if response.Summary.Total != 2 || response.Summary.Succeeded != 2 {
+		t.Fatalf("summary = %+v", response.Summary)
 	}
-	if resp.OpenCount != 2 {
-		t.Fatalf("openCount = %d, want 2", resp.OpenCount)
+	if response.OpenCount != 2 {
+		t.Fatalf("openCount = %d, want 2", response.OpenCount)
 	}
 }
 
@@ -153,24 +153,24 @@ func TestProjectTodoBatchMixedOps(t *testing.T) {
 		t.Fatalf("mixed batch failed: %v", err)
 	}
 
-	var resp projectBatchResponse
-	mustUnmarshalProjectJSON(t, result, &resp)
-	if len(resp.Results) != 4 {
-		t.Fatalf("results count = %d, want 4", len(resp.Results))
+	var response projectBatchResponse
+	mustUnmarshalProjectJSON(t, result, &response)
+	if len(response.Results) != 4 {
+		t.Fatalf("results count = %d, want 4", len(response.Results))
 	}
-	for i, r := range resp.Results {
+	for i, r := range response.Results {
 		if !r.Success {
 			t.Fatalf("result[%d] (%s) failed: %s", i, r.Op, r.Error)
 		}
 	}
-	if resp.Results[1].Todo.GetStatus() != models.TodoStatusDone {
-		t.Fatalf("complete result status = %q, want done", resp.Results[1].Todo.GetStatus())
+	if response.Results[1].Todo.GetStatus() != models.TodoStatusDone {
+		t.Fatalf("complete result status = %q, want done", response.Results[1].Todo.GetStatus())
 	}
-	if resp.Results[3].Todo.GetTitle() != "Updated" {
-		t.Fatalf("update result title = %q, want Updated", resp.Results[3].Todo.GetTitle())
+	if response.Results[3].Todo.GetTitle() != "Updated" {
+		t.Fatalf("update result title = %q, want Updated", response.Results[3].Todo.GetTitle())
 	}
-	if resp.Summary.Succeeded != 4 {
-		t.Fatalf("summary succeeded = %d, want 4", resp.Summary.Succeeded)
+	if response.Summary.Succeeded != 4 {
+		t.Fatalf("summary succeeded = %d, want 4", response.Summary.Succeeded)
 	}
 }
 
@@ -186,16 +186,16 @@ func TestProjectTodoBatchPartialFailure(t *testing.T) {
 		t.Fatalf("batch failed: %v", err)
 	}
 
-	var resp projectBatchResponse
-	mustUnmarshalProjectJSON(t, result, &resp)
-	if !resp.Results[0].Success {
+	var response projectBatchResponse
+	mustUnmarshalProjectJSON(t, result, &response)
+	if !response.Results[0].Success {
 		t.Fatal("result[0] should succeed")
 	}
-	if resp.Results[1].Success {
+	if response.Results[1].Success {
 		t.Fatal("result[1] should fail")
 	}
-	if resp.Summary.Succeeded != 1 || resp.Summary.Failed != 1 {
-		t.Fatalf("summary = %+v", resp.Summary)
+	if response.Summary.Succeeded != 1 || response.Summary.Failed != 1 {
+		t.Fatalf("summary = %+v", response.Summary)
 	}
 }
 
@@ -301,9 +301,9 @@ func TestProjectTodoProjectNameLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch by projectName failed: %v", err)
 	}
-	var resp projectBatchResponse
-	mustUnmarshalProjectJSON(t, result, &resp)
-	if !resp.Results[0].Success || resp.Results[0].Todo.GetTitle() != "By Name" {
-		t.Fatalf("unexpected result: %+v", resp.Results[0])
+	var response projectBatchResponse
+	mustUnmarshalProjectJSON(t, result, &response)
+	if !response.Results[0].Success || response.Results[0].Todo.GetTitle() != "By Name" {
+		t.Fatalf("unexpected result: %+v", response.Results[0])
 	}
 }

@@ -284,8 +284,8 @@ func TestToolDefinition(testing *testing.T) {
 	}
 
 	// Verify action enum.
-	params := definition.Function.Parameters.(map[string]interface{})
-	properties := params["properties"].(map[string]interface{})
+	parameters := definition.Function.Parameters.(map[string]interface{})
+	properties := parameters["properties"].(map[string]interface{})
 	action := properties["action"].(map[string]interface{})
 	actionEnum := action["enum"].([]string)
 	expectedActions := []string{"list_entities", "get_state", "control", "trigger_scene", "list_areas", "get_history"}

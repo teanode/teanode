@@ -30,7 +30,7 @@ func ResolveDataDirectory(commandValue string) (string, error) {
 	}
 	homeDirectory, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", err)
+		return "", fmt.Errorf("cmd: cannot determine home directory: %w", err)
 	}
 	return filepath.Join(homeDirectory, ".teanode"), nil
 }

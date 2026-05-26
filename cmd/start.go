@@ -27,30 +27,30 @@ func NewStartCommand() *cli.Command {
 
 			// Ensure data directory exists.
 			if err := os.MkdirAll(dataDirectory, 0755); err != nil {
-				return fmt.Errorf("create data directory: %w", err)
+				return fmt.Errorf("cmd: create data directory: %w", err)
 			}
 
 			devNull, err := os.Open(os.DevNull)
 			if err != nil {
-				return fmt.Errorf("open %s: %w", os.DevNull, err)
+				return fmt.Errorf("cmd: open %s: %w", os.DevNull, err)
 			}
 			defer func() { _ = devNull.Close() }()
 
 			executablePath, err := os.Executable()
 			if err != nil {
-				return fmt.Errorf("resolve executable path: %w", err)
+				return fmt.Errorf("cmd: resolve executable path: %w", err)
 			}
 
-			// Build the argument list: teanode --dir <dataDirectory> node --log-file <path> [extra args...]
+			// Build the argument list: teanode --dir <dataDirectory> node --log-file <path> [extra arguments...]
 			logPath := filepath.Join(dataDirectory, "node.log")
-			args := []string{executablePath, "--dir", dataDirectory}
+			arguments := []string{executablePath, "--dir", dataDirectory}
 			if logLevel := command.Root().String("log-level"); logLevel != "" {
-				args = append(args, "--log-level", logLevel)
+				arguments = append(arguments, "--log-level", logLevel)
 			}
-			args = append(args, "node", "--log-file", logPath)
-			args = append(args, command.Args().Slice()...)
+			arguments = append(arguments, "node", "--log-file", logPath)
+			arguments = append(arguments, command.Args().Slice()...)
 
-			process, err := os.StartProcess(executablePath, args, &os.ProcAttr{
+			process, err := os.StartProcess(executablePath, arguments, &os.ProcAttr{
 				Dir: "/",
 				Env: os.Environ(),
 				Files: []*os.File{
@@ -63,7 +63,7 @@ func NewStartCommand() *cli.Command {
 				},
 			})
 			if err != nil {
-				return fmt.Errorf("start node process: %w", err)
+				return fmt.Errorf("cmd: start node process: %w", err)
 			}
 
 			fmt.Printf("node started (pid %d), logging to %s\n", process.Pid, logPath)

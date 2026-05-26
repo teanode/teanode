@@ -185,14 +185,14 @@ func New(token string, ctx context.Context, coordinator *coordinators.Coordinato
 func (self *Bot) Start() error {
 	discordSession, err := discordgo.New("Bot " + self.token)
 	if err != nil {
-		return fmt.Errorf("creating discord session: %w", err)
+		return fmt.Errorf("discord: creating discord session: %w", err)
 	}
 
 	discordSession.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
 	discordSession.AddHandler(self.onMessageCreate)
 
 	if err := discordSession.Open(); err != nil {
-		return fmt.Errorf("opening discord connection: %w", err)
+		return fmt.Errorf("discord: opening discord connection: %w", err)
 	}
 
 	self.discord = discordSession
@@ -896,11 +896,11 @@ func downloadUrl(targetUrl string) ([]byte, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	response, err := client.Get(targetUrl)
 	if err != nil {
-		return nil, fmt.Errorf("downloading: %w", err)
+		return nil, fmt.Errorf("discord: downloading: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download returned status %d", response.StatusCode)
+		return nil, fmt.Errorf("discord: download returned status %d", response.StatusCode)
 	}
 	const maxFileSize = 100 * 1024 * 1024 // 100 MB
 	return io.ReadAll(io.LimitReader(response.Body, maxFileSize))

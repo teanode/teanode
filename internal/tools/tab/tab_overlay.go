@@ -22,7 +22,7 @@ func (self *tabTool) BuildOverlay(ctx context.Context) (string, error) {
 
 // buildTabOverlay returns a formatted reminder when a browser tab is attached
 // to the current conversation. Best-effort: returns "" if no tab is attached.
-func buildTabOverlay(ctx context.Context, agentID, conversationID string) string {
+func buildTabOverlay(ctx context.Context, agentId, conversationId string) string {
 	broker := tabs.TabBrokerFromContext(ctx)
 	if broker == nil {
 		return ""
@@ -33,7 +33,7 @@ func buildTabOverlay(ctx context.Context, agentID, conversationID string) string
 		return ""
 	}
 
-	attachment := broker.GetAttachment(user.ID, agentID, conversationID)
+	attachment := broker.GetAttachment(user.ID, agentId, conversationId)
 	if attachment == nil {
 		return ""
 	}

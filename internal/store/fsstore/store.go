@@ -67,18 +67,18 @@ func (self *fileSystemTransaction) workspaceDirectory(scope models.Scope, scopeI
 func (self *fileSystemTransaction) workspaceFilePath(scope models.Scope, scopeId string, relativePath string) (string, error) {
 	workspaceDirectory := self.workspaceDirectory(scope, scopeId)
 	if workspaceDirectory == "" {
-		return "", fmt.Errorf("unknown scope: %s", scope)
+		return "", fmt.Errorf("fsstore: unknown scope: %s", scope)
 	}
 	normalizedPath := normalizeRelativePath(relativePath)
 	if normalizedPath == "." || normalizedPath == "" {
-		return "", fmt.Errorf("relative path is required")
+		return "", fmt.Errorf("fsstore: relative path is required")
 	}
 	if strings.HasPrefix(normalizedPath, "../") || strings.Contains(normalizedPath, "/../") {
-		return "", fmt.Errorf("invalid path")
+		return "", fmt.Errorf("fsstore: invalid path")
 	}
 	absolutePath := filepath.Join(workspaceDirectory, normalizedPath)
 	if !strings.HasPrefix(filepath.Clean(absolutePath), filepath.Clean(workspaceDirectory)+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escape is not allowed")
+		return "", fmt.Errorf("fsstore: path escape is not allowed")
 	}
 	return absolutePath, nil
 }

@@ -70,7 +70,7 @@ func (self *reposTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *reposTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		Query      string `json:"query"`
 		Type       string `json:"type"`
@@ -78,52 +78,52 @@ func (self *reposTool) Execute(ctx context.Context, rawArguments string) (string
 		Limit      int    `json:"limit"`
 		Repository string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("gitea: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "view":
-		commandArgs := []string{"repos", "--output", "json"}
-		if args.Repository != "" {
-			commandArgs = append(commandArgs, args.Repository)
+		commandArguments := []string{"repos", "--output", "json"}
+		if arguments.Repository != "" {
+			commandArguments = append(commandArguments, arguments.Repository)
 		}
-		return execGitea(ctx, self.runner, self.binary, commandArgs...)
+		return execGitea(ctx, self.runner, self.binary, commandArguments...)
 
 	case "list":
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 30
 		}
-		commandArgs := []string{"repos", "list",
+		commandArguments := []string{"repos", "list",
 			"--output", "json",
 			"--limit", strconv.Itoa(limit)}
-		if args.Type != "" {
-			commandArgs = append(commandArgs, "--type", args.Type)
+		if arguments.Type != "" {
+			commandArguments = append(commandArguments, "--type", arguments.Type)
 		}
-		return execGitea(ctx, self.runner, self.binary, commandArgs...)
+		return execGitea(ctx, self.runner, self.binary, commandArguments...)
 
 	case "search":
-		if args.Query == "" {
-			return "", fmt.Errorf("query is required for search action")
+		if arguments.Query == "" {
+			return "", fmt.Errorf("gitea: query is required for search action")
 		}
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 30
 		}
-		commandArgs := []string{"repos", "search",
+		commandArguments := []string{"repos", "search",
 			"--output", "json",
 			"--limit", strconv.Itoa(limit),
-			args.Query}
-		if args.Type != "" {
-			commandArgs = append(commandArgs, "--type", args.Type)
+			arguments.Query}
+		if arguments.Type != "" {
+			commandArguments = append(commandArguments, "--type", arguments.Type)
 		}
-		if args.Owner != "" {
-			commandArgs = append(commandArgs, "--owner", args.Owner)
+		if arguments.Owner != "" {
+			commandArguments = append(commandArguments, "--owner", arguments.Owner)
 		}
-		return execGitea(ctx, self.runner, self.binary, commandArgs...)
+		return execGitea(ctx, self.runner, self.binary, commandArguments...)
 
 	default:
-		return "", fmt.Errorf("unknown repos action: %s", args.Action)
+		return "", fmt.Errorf("gitea: unknown repos action: %s", arguments.Action)
 	}
 }

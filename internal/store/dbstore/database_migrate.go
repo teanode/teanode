@@ -23,7 +23,7 @@ func (self databaseMigrationRecord) TableName() string {
 
 func (self *databaseStore) Migrate(ctx context.Context) error {
 	if self.database == nil {
-		return fmt.Errorf("database is not opened")
+		return fmt.Errorf("dbstore: database is not opened")
 	}
 	if err := self.database.AutoMigrate(&databaseMigrationRecord{}); err != nil {
 		return err
@@ -54,7 +54,7 @@ func (self *databaseStore) Migrate(ctx context.Context) error {
 	for _, migrationId := range unknownMigrationIds {
 		record := existingRecordById[migrationId]
 		if record.ReverseSQL == "" {
-			return fmt.Errorf("missing reverse sql for migration %s", migrationId)
+			return fmt.Errorf("dbstore: missing reverse sql for migration %s", migrationId)
 		}
 		if err := self.database.Transaction(func(transaction *gorm.DB) error {
 			if err := transaction.Exec(record.ReverseSQL).Error; err != nil {

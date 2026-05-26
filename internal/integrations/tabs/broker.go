@@ -166,7 +166,7 @@ func (self *TabBroker) Resolve(requestId string, result ToolCallResult) error {
 	}
 	self.mutex.Unlock()
 	if !ok {
-		return fmt.Errorf("pending tool call not found: %s", requestId)
+		return fmt.Errorf("tabs: pending tool call not found: %s", requestId)
 	}
 	pending.resultChan <- result
 	return nil

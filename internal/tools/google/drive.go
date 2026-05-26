@@ -58,19 +58,19 @@ func (self *driveTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action          string `json:"action"`
 		Query           string `json:"query"`
 		WorkspaceFileID string `json:"file_id"`
 		Limit           int    `json:"limit"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("google: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 10
 		}
@@ -78,23 +78,23 @@ func (self *driveTool) Execute(ctx context.Context, rawArguments string) (string
 			"drive", "ls", "--max", strconv.Itoa(limit))
 
 	case "search":
-		if args.Query == "" {
-			return "", fmt.Errorf("query is required for search action")
+		if arguments.Query == "" {
+			return "", fmt.Errorf("google: query is required for search action")
 		}
-		commandArguments := []string{"drive", "search", args.Query}
-		if args.Limit > 0 {
-			commandArguments = append(commandArguments, "--max", strconv.Itoa(args.Limit))
+		commandArguments := []string{"drive", "search", arguments.Query}
+		if arguments.Limit > 0 {
+			commandArguments = append(commandArguments, "--max", strconv.Itoa(arguments.Limit))
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account, commandArguments...)
 
 	case "info":
-		if args.WorkspaceFileID == "" {
-			return "", fmt.Errorf("file_id is required for info action")
+		if arguments.WorkspaceFileID == "" {
+			return "", fmt.Errorf("google: file_id is required for info action")
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"drive", "get", args.WorkspaceFileID)
+			"drive", "get", arguments.WorkspaceFileID)
 
 	default:
-		return "", fmt.Errorf("unknown drive action: %s", args.Action)
+		return "", fmt.Errorf("google: unknown drive action: %s", arguments.Action)
 	}
 }

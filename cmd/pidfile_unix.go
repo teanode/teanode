@@ -32,7 +32,7 @@ func restartProcess(ctx context.Context) error {
 				log.Warningf("failed to remove stale node pid file %s: %v", pidFilename, removeErr)
 			}
 		}
-		return fmt.Errorf("failed to signal node process %d: %w", pid, err)
+		return fmt.Errorf("cmd: failed to signal node process %d: %w", pid, err)
 	}
 
 	return nil

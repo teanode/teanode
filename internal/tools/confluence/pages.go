@@ -103,7 +103,7 @@ func (self *pagesTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *pagesTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action        string `json:"action"`
 		PageID        string `json:"page_id"`
 		Title         string `json:"title"`
@@ -119,174 +119,174 @@ func (self *pagesTool) Execute(ctx context.Context, rawArguments string) (string
 		Dest          string `json:"dest"`
 		DryRun        bool   `json:"dry_run"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("confluence: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "read":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for read action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for read action")
 		}
-		commandArgs := []string{"read", args.PageID}
-		if args.ReadFormat != "" {
-			commandArgs = append(commandArgs, "--format", args.ReadFormat)
+		commandArguments := []string{"read", arguments.PageID}
+		if arguments.ReadFormat != "" {
+			commandArguments = append(commandArguments, "--format", arguments.ReadFormat)
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "info":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for info action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for info action")
 		}
-		return execConfluence(ctx, self.runner, self.binary, "info", args.PageID)
+		return execConfluence(ctx, self.runner, self.binary, "info", arguments.PageID)
 
 	case "search":
-		if args.Query == "" {
-			return "", fmt.Errorf("query is required for search action")
+		if arguments.Query == "" {
+			return "", fmt.Errorf("confluence: query is required for search action")
 		}
-		commandArgs := []string{"search", args.Query}
-		if args.CQL {
-			commandArgs = append(commandArgs, "--cql")
+		commandArguments := []string{"search", arguments.Query}
+		if arguments.CQL {
+			commandArguments = append(commandArguments, "--cql")
 		}
-		if args.Limit > 0 {
-			commandArgs = append(commandArgs, "--limit", fmt.Sprintf("%d", args.Limit))
+		if arguments.Limit > 0 {
+			commandArguments = append(commandArguments, "--limit", fmt.Sprintf("%d", arguments.Limit))
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "find":
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for find action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("confluence: title is required for find action")
 		}
-		commandArgs := []string{"find", args.Title}
-		if args.SpaceKey != "" {
-			commandArgs = append(commandArgs, "--space", args.SpaceKey)
+		commandArguments := []string{"find", arguments.Title}
+		if arguments.SpaceKey != "" {
+			commandArguments = append(commandArguments, "--space", arguments.SpaceKey)
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create":
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for create action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("confluence: title is required for create action")
 		}
-		if args.SpaceKey == "" {
-			return "", fmt.Errorf("space_key is required for create action")
+		if arguments.SpaceKey == "" {
+			return "", fmt.Errorf("confluence: space_key is required for create action")
 		}
-		commandArgs := []string{"create", args.Title, args.SpaceKey}
-		if args.Content != "" {
-			commandArgs = append(commandArgs, "--content", args.Content)
+		commandArguments := []string{"create", arguments.Title, arguments.SpaceKey}
+		if arguments.Content != "" {
+			commandArguments = append(commandArguments, "--content", arguments.Content)
 		}
-		if args.ContentFormat != "" {
-			commandArgs = append(commandArgs, "--format", args.ContentFormat)
+		if arguments.ContentFormat != "" {
+			commandArguments = append(commandArguments, "--format", arguments.ContentFormat)
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create_child":
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for create_child action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("confluence: title is required for create_child action")
 		}
-		if args.ParentID == "" {
-			return "", fmt.Errorf("parent_id is required for create_child action")
+		if arguments.ParentID == "" {
+			return "", fmt.Errorf("confluence: parent_id is required for create_child action")
 		}
-		commandArgs := []string{"create-child", args.Title, args.ParentID}
-		if args.Content != "" {
-			commandArgs = append(commandArgs, "--content", args.Content)
+		commandArguments := []string{"create-child", arguments.Title, arguments.ParentID}
+		if arguments.Content != "" {
+			commandArguments = append(commandArguments, "--content", arguments.Content)
 		}
-		if args.ContentFormat != "" {
-			commandArgs = append(commandArgs, "--format", args.ContentFormat)
+		if arguments.ContentFormat != "" {
+			commandArguments = append(commandArguments, "--format", arguments.ContentFormat)
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "update":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for update action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for update action")
 		}
-		commandArgs := []string{"update", args.PageID}
-		if args.Title != "" {
-			commandArgs = append(commandArgs, "--title", args.Title)
+		commandArguments := []string{"update", arguments.PageID}
+		if arguments.Title != "" {
+			commandArguments = append(commandArguments, "--title", arguments.Title)
 		}
-		if args.Content != "" {
-			commandArgs = append(commandArgs, "--content", args.Content)
+		if arguments.Content != "" {
+			commandArguments = append(commandArguments, "--content", arguments.Content)
 		}
-		if args.ContentFormat != "" {
-			commandArgs = append(commandArgs, "--format", args.ContentFormat)
+		if arguments.ContentFormat != "" {
+			commandArguments = append(commandArguments, "--format", arguments.ContentFormat)
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "delete":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for delete action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for delete action")
 		}
-		output, err := execConfluence(ctx, self.runner, self.binary, "delete", args.PageID, "--yes")
+		output, err := execConfluence(ctx, self.runner, self.binary, "delete", arguments.PageID, "--yes")
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("deleted", output), nil
 
 	case "edit":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for edit action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for edit action")
 		}
-		return execConfluence(ctx, self.runner, self.binary, "edit", args.PageID)
+		return execConfluence(ctx, self.runner, self.binary, "edit", arguments.PageID)
 
 	case "move":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for move action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for move action")
 		}
-		if args.ParentID == "" {
-			return "", fmt.Errorf("parent_id is required for move action")
+		if arguments.ParentID == "" {
+			return "", fmt.Errorf("confluence: parent_id is required for move action")
 		}
-		commandArgs := []string{"move", args.PageID, args.ParentID}
-		if args.Title != "" {
-			commandArgs = append(commandArgs, "--title", args.Title)
+		commandArguments := []string{"move", arguments.PageID, arguments.ParentID}
+		if arguments.Title != "" {
+			commandArguments = append(commandArguments, "--title", arguments.Title)
 		}
-		output, err := execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		output, err := execConfluence(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("moved", output), nil
 
 	case "children":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for children action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for children action")
 		}
-		commandArgs := []string{"children", args.PageID, "--show-id"}
-		if args.Recursive {
-			commandArgs = append(commandArgs, "--recursive")
+		commandArguments := []string{"children", arguments.PageID, "--show-id"}
+		if arguments.Recursive {
+			commandArguments = append(commandArguments, "--recursive")
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "export":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for export action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for export action")
 		}
-		commandArgs := []string{"export", args.PageID, "--format", "markdown"}
-		if args.Dest != "" {
-			commandArgs = append(commandArgs, "--dest", args.Dest)
+		commandArguments := []string{"export", arguments.PageID, "--format", "markdown"}
+		if arguments.Dest != "" {
+			commandArguments = append(commandArguments, "--dest", arguments.Dest)
 		}
-		if args.Recursive {
-			commandArgs = append(commandArgs, "--recursive")
+		if arguments.Recursive {
+			commandArguments = append(commandArguments, "--recursive")
 		}
-		if args.DryRun {
-			commandArgs = append(commandArgs, "--dry-run")
+		if arguments.DryRun {
+			commandArguments = append(commandArguments, "--dry-run")
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "copy_tree":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for copy_tree action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for copy_tree action")
 		}
-		if args.ParentID == "" {
-			return "", fmt.Errorf("parent_id is required for copy_tree action")
+		if arguments.ParentID == "" {
+			return "", fmt.Errorf("confluence: parent_id is required for copy_tree action")
 		}
-		commandArgs := []string{"copy-tree", args.PageID, args.ParentID}
-		if args.Title != "" {
-			commandArgs = append(commandArgs, args.Title)
+		commandArguments := []string{"copy-tree", arguments.PageID, arguments.ParentID}
+		if arguments.Title != "" {
+			commandArguments = append(commandArguments, arguments.Title)
 		}
-		if args.DryRun {
-			commandArgs = append(commandArgs, "--dry-run")
+		if arguments.DryRun {
+			commandArguments = append(commandArguments, "--dry-run")
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	default:
-		return "", fmt.Errorf("unknown pages action: %s", args.Action)
+		return "", fmt.Errorf("confluence: unknown pages action: %s", arguments.Action)
 	}
 }

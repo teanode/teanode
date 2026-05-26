@@ -35,7 +35,7 @@ func createTools() []tools.Tool {
 			resolveScope: func(ctx context.Context, _ string) (models.Scope, string, error) {
 				runner := runners.RunnerFromContext(ctx)
 				if runner == nil || runner.AgentID == "" {
-					return "", "", fmt.Errorf("missing runner context")
+					return "", "", fmt.Errorf("memory: missing runner context")
 				}
 				return models.ScopeAgent, runner.AgentID, nil
 			},
@@ -56,7 +56,7 @@ func createTools() []tools.Tool {
 			resolveScope: func(ctx context.Context, _ string) (models.Scope, string, error) {
 				user := models.UserFromContext(ctx)
 				if user == nil || user.ID == "" {
-					return "", "", fmt.Errorf("missing user context")
+					return "", "", fmt.Errorf("memory: missing user context")
 				}
 				return models.ScopeUser, user.ID, nil
 			},
@@ -78,7 +78,7 @@ func createTools() []tools.Tool {
 			scopeIdParameterDescription: "Project ID for project memory operations.",
 			resolveScope: func(_ context.Context, scopeId string) (models.Scope, string, error) {
 				if scopeId == "" {
-					return "", "", fmt.Errorf("projectId is required")
+					return "", "", fmt.Errorf("memory: projectId is required")
 				}
 				return models.ScopeProject, scopeId, nil
 			},
@@ -307,7 +307,7 @@ func (self *memoryTool) PolicyGroups() []tools.PolicyGroup {
 func (self *memoryTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments executeArguments
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("memory: parsing arguments: %w", err)
 	}
 
 	if self.configuration.scopeIdParameterName != "" {
@@ -343,18 +343,18 @@ func (self *memoryTool) Execute(ctx context.Context, rawArguments string) (strin
 	case "filter":
 		return self.executeFilter(ctx, scope, scopeId, arguments)
 	default:
-		return "", fmt.Errorf("unknown action %q: must be get, list, search, batch, retrieve, summary, or filter", arguments.Action)
+		return "", fmt.Errorf("memory: unknown action %q: must be get, list, search, batch, retrieve, summary, or filter", arguments.Action)
 	}
 }
 
-func (self *memoryTool) executeGet(ctx context.Context, scope models.Scope, scopeId string, args executeArguments) (string, error) {
-	if args.ID == "" {
-		return "", fmt.Errorf("id is required for get")
+func (self *memoryTool) executeGet(ctx context.Context, scope models.Scope, scopeId string, arguments executeArguments) (string, error) {
+	if arguments.ID == "" {
+		return "", fmt.Errorf("memory: id is required for get")
 	}
 	var item *models.MemoryItem
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		var err error
-		item, err = tx.GetMemoryItem(ctx, args.ID, nil)
+		item, err = tx.GetMemoryItem(ctx, arguments.ID, nil)
 		return err
 	}); err != nil {
 		return "", err
@@ -366,8 +366,8 @@ func (self *memoryTool) executeGet(ctx context.Context, scope models.Scope, scop
 	return string(output), nil
 }
 
-func (self *memoryTool) executeList(ctx context.Context, scope models.Scope, scopeId string, args executeArguments) (string, error) {
-	maxResults := args.MaxResults
+func (self *memoryTool) executeList(ctx context.Context, scope models.Scope, scopeId string, arguments executeArguments) (string, error) {
+	maxResults := arguments.MaxResults
 	if maxResults <= 0 {
 		maxResults = 10
 	}
@@ -376,8 +376,8 @@ func (self *memoryTool) executeList(ctx context.Context, scope models.Scope, sco
 	listOptions := store.MemoryItemListOptions{
 		Limit: &limit,
 	}
-	if len(args.Tags) > 0 {
-		listOptions.Tags = &args.Tags
+	if len(arguments.Tags) > 0 {
+		listOptions.Tags = &arguments.Tags
 	}
 
 	var items []*models.MemoryItem
@@ -415,11 +415,11 @@ func (self *memoryTool) executeList(ctx context.Context, scope models.Scope, sco
 	return string(output), nil
 }
 
-func (self *memoryTool) executeSearch(ctx context.Context, scope models.Scope, scopeId string, args executeArguments) (string, error) {
-	if args.Query == "" {
-		return "", fmt.Errorf("query is required for search")
+func (self *memoryTool) executeSearch(ctx context.Context, scope models.Scope, scopeId string, arguments executeArguments) (string, error) {
+	if arguments.Query == "" {
+		return "", fmt.Errorf("memory: query is required for search")
 	}
-	maxResults := args.MaxResults
+	maxResults := arguments.MaxResults
 	if maxResults <= 0 {
 		maxResults = 10
 	}
@@ -435,7 +435,7 @@ func (self *memoryTool) executeSearch(ctx context.Context, scope models.Scope, s
 
 	var matches []matchEntry
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		results, err := tx.SearchMemoryItems(ctx, scope, scopeId, args.Query, store.MemoryItemSearchOptions{
+		results, err := tx.SearchMemoryItems(ctx, scope, scopeId, arguments.Query, store.MemoryItemSearchOptions{
 			Limit:          &limit,
 			IncludeContent: &includeContent,
 		}, nil)
@@ -476,10 +476,10 @@ func (self *memoryTool) executeSearch(ctx context.Context, scope models.Scope, s
 
 func (self *memoryTool) executeBatch(ctx context.Context, scope models.Scope, scopeId string, items []batchItem) (string, error) {
 	if len(items) == 0 {
-		return "", fmt.Errorf("items is required and must contain 1-%d entries", maxBatchItems)
+		return "", fmt.Errorf("memory: items is required and must contain 1-%d entries", maxBatchItems)
 	}
 	if len(items) > maxBatchItems {
-		return "", fmt.Errorf("items must contain at most %d entries, got %d", maxBatchItems, len(items))
+		return "", fmt.Errorf("memory: items must contain at most %d entries, got %d", maxBatchItems, len(items))
 	}
 
 	// Pre-compute embeddings in batch for add/update items.
@@ -651,7 +651,7 @@ func (self *memoryTool) batchAdd(ctx context.Context, tx store.Transaction, scop
 // exceeds the deduplication threshold.
 func checkDuplicates(newEmbedding []float64, providerModelName string, existingItems []*models.MemoryItem) string {
 	var maxSimilarity float64
-	var mostSimilarID string
+	var mostSimilarId string
 	var mostSimilarTitle string
 	for _, existing := range existingItems {
 		if existing.Embedding == nil || len(*existing.Embedding) == 0 {
@@ -663,7 +663,7 @@ func checkDuplicates(newEmbedding []float64, providerModelName string, existingI
 		similarity := embeddings.CosineSimilarity(newEmbedding, *existing.Embedding)
 		if similarity > maxSimilarity {
 			maxSimilarity = similarity
-			mostSimilarID = existing.ID
+			mostSimilarId = existing.ID
 			if existing.Title != nil {
 				mostSimilarTitle = *existing.Title
 			}
@@ -674,7 +674,7 @@ func checkDuplicates(newEmbedding []float64, providerModelName string, existingI
 		if mostSimilarTitle != "" {
 			titleHint = fmt.Sprintf(" (%s)", mostSimilarTitle)
 		}
-		return fmt.Sprintf("possible duplicate: %.0f%% similar to item %s%s", maxSimilarity*100, mostSimilarID, titleHint)
+		return fmt.Sprintf("possible duplicate: %.0f%% similar to item %s%s", maxSimilarity*100, mostSimilarId, titleHint)
 	}
 	return ""
 }

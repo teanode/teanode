@@ -75,7 +75,7 @@ func (self *configurationTool) PolicyGroups() []tools.PolicyGroup {
 func (self *configurationTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || !user.GetAdmin() {
-		return "", fmt.Errorf("admin access required to use the config tool")
+		return "", fmt.Errorf("configs: admin access required to use the config tool")
 	}
 
 	var arguments struct {
@@ -83,7 +83,7 @@ func (self *configurationTool) Execute(ctx context.Context, rawArguments string)
 		Config json.RawMessage `json:"config"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("configs: parsing arguments: %w", err)
 	}
 
 	switch arguments.Action {
@@ -94,7 +94,7 @@ func (self *configurationTool) Execute(ctx context.Context, rawArguments string)
 	case "schema":
 		return self.executeSchema()
 	default:
-		return "", fmt.Errorf("unknown config action: %s", arguments.Action)
+		return "", fmt.Errorf("configs: unknown config action: %s", arguments.Action)
 	}
 }
 
@@ -108,21 +108,21 @@ func (self *configurationTool) executeGet(ctx context.Context) (string, error) {
 		configuration = loadedConfiguration
 		return nil
 	}); transactionError != nil {
-		return "", fmt.Errorf("loading config: %w", transactionError)
+		return "", fmt.Errorf("configs: loading config: %w", transactionError)
 	}
 
 	configurationData, marshalError := json.Marshal(configuration)
 	if marshalError != nil {
-		return "", fmt.Errorf("marshalling config: %w", marshalError)
+		return "", fmt.Errorf("configs: marshalling config: %w", marshalError)
 	}
 	configurationMap := map[string]interface{}{}
 	if unmarshalError := json.Unmarshal(configurationData, &configurationMap); unmarshalError != nil {
-		return "", fmt.Errorf("parsing config: %w", unmarshalError)
+		return "", fmt.Errorf("configs: parsing config: %w", unmarshalError)
 	}
 
 	schema := map[string]interface{}{}
 	if unmarshalError := json.Unmarshal(schemas.ConfigSchema(), &schema); unmarshalError != nil {
-		return "", fmt.Errorf("parsing schema: %w", unmarshalError)
+		return "", fmt.Errorf("configs: parsing schema: %w", unmarshalError)
 	}
 	maskSecrets(configurationMap, schema)
 
@@ -131,42 +131,42 @@ func (self *configurationTool) executeGet(ctx context.Context) (string, error) {
 		"config": configurationMap,
 	})
 	if marshalError != nil {
-		return "", fmt.Errorf("marshalling config: %w", marshalError)
+		return "", fmt.Errorf("configs: marshalling config: %w", marshalError)
 	}
 	return string(output), nil
 }
 
 func (self *configurationTool) executeSet(ctx context.Context, partial json.RawMessage) (string, error) {
 	if len(partial) == 0 {
-		return "", fmt.Errorf("config is required for set action")
+		return "", fmt.Errorf("configs: config is required for set action")
 	}
 	partialMap := map[string]interface{}{}
 	if unmarshalError := json.Unmarshal(partial, &partialMap); unmarshalError != nil {
-		return "", fmt.Errorf("invalid config object: %w", unmarshalError)
+		return "", fmt.Errorf("configs: invalid config object: %w", unmarshalError)
 	}
 
 	if transactionError := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		_, modifyError := transaction.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
 			if configuration == nil {
-				return fmt.Errorf("configuration is required")
+				return fmt.Errorf("configs: configuration is required")
 			}
 			// Round-trip current config and partial to maps for sentinel stripping.
 			currentData, marshalError := json.Marshal(configuration)
 			if marshalError != nil {
-				return fmt.Errorf("marshalling config: %w", marshalError)
+				return fmt.Errorf("configs: marshalling config: %w", marshalError)
 			}
 			currentMap := map[string]interface{}{}
 			if unmarshalError := json.Unmarshal(currentData, &currentMap); unmarshalError != nil {
-				return fmt.Errorf("parsing config: %w", unmarshalError)
+				return fmt.Errorf("configs: parsing config: %w", unmarshalError)
 			}
 
 			partialCopyData, marshalPartialError := json.Marshal(partialMap)
 			if marshalPartialError != nil {
-				return fmt.Errorf("marshalling partial config: %w", marshalPartialError)
+				return fmt.Errorf("configs: marshalling partial config: %w", marshalPartialError)
 			}
 			partialCopy := map[string]interface{}{}
 			if unmarshalPartialError := json.Unmarshal(partialCopyData, &partialCopy); unmarshalPartialError != nil {
-				return fmt.Errorf("parsing partial config: %w", unmarshalPartialError)
+				return fmt.Errorf("configs: parsing partial config: %w", unmarshalPartialError)
 			}
 
 			// Restore masked sentinel values from the original config.
@@ -177,18 +177,18 @@ func (self *configurationTool) executeSet(ctx context.Context, partial json.RawM
 			// structs are recursively merged.
 			strippedData, marshalStrippedError := json.Marshal(partialCopy)
 			if marshalStrippedError != nil {
-				return fmt.Errorf("marshalling stripped config: %w", marshalStrippedError)
+				return fmt.Errorf("configs: marshalling stripped config: %w", marshalStrippedError)
 			}
 			var partialConfiguration models.Configuration
 			if unmarshalStrippedError := json.Unmarshal(strippedData, &partialConfiguration); unmarshalStrippedError != nil {
-				return fmt.Errorf("parsing stripped config: %w", unmarshalStrippedError)
+				return fmt.Errorf("configs: parsing stripped config: %w", unmarshalStrippedError)
 			}
 			configuration.Update(&partialConfiguration)
 			return nil
 		}, nil)
 		return modifyError
 	}); transactionError != nil {
-		return "", fmt.Errorf("saving config: %w", transactionError)
+		return "", fmt.Errorf("configs: saving config: %w", transactionError)
 	}
 
 	output, _ := json.Marshal(map[string]interface{}{

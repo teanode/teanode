@@ -45,6 +45,8 @@ format: ## Format Go code
 
 lint: ## Run backend lint checks
 	$(GOLANGCI_LINT) run ./...
+	@if command -v mulint >/dev/null 2>&1; then mulint ./... ; \
+	else echo "mulint not installed; skipping naming/error-prefix checks." ; fi
 
 clean: ## Remove build and coverage artifacts
 	rm -f $(BINARY)

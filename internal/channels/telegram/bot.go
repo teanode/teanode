@@ -269,7 +269,7 @@ func New(ctx context.Context, token string, coordinator *coordinators.Coordinato
 func (self *Bot) Start() error {
 	api, err := tgbotapi.NewBotAPI(self.token)
 	if err != nil {
-		return fmt.Errorf("creating telegram bot: %w", err)
+		return fmt.Errorf("telegram: creating telegram bot: %w", err)
 	}
 	self.api = api
 
@@ -1097,16 +1097,16 @@ func (self *Bot) extractAttachments(message *tgbotapi.Message) []map[string]stri
 func (self *Bot) downloadTelegramFile(fileId string) ([]byte, error) {
 	fileUrl, err := self.api.GetFileDirectURL(fileId)
 	if err != nil {
-		return nil, fmt.Errorf("getting file URL: %w", err)
+		return nil, fmt.Errorf("telegram: getting file URL: %w", err)
 	}
 	client := &http.Client{Timeout: 60 * time.Second}
 	response, err := client.Get(fileUrl)
 	if err != nil {
-		return nil, fmt.Errorf("downloading file: %w", err)
+		return nil, fmt.Errorf("telegram: downloading file: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download returned status %d", response.StatusCode)
+		return nil, fmt.Errorf("telegram: download returned status %d", response.StatusCode)
 	}
 	const maxFileSize = 100 * 1024 * 1024 // 100 MB
 	return io.ReadAll(io.LimitReader(response.Body, maxFileSize))

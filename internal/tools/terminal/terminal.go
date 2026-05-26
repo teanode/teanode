@@ -19,7 +19,7 @@ func init() {
 	})
 }
 
-// resolveConnectionId returns the connectionId from args or falls back to the user's default.
+// resolveConnectionId returns the connectionId from arguments or falls back to the user's default.
 func resolveConnectionId(relay *terminals.Relay, userId, connectionId string) (string, error) {
 	if connectionId != "" {
 		return connectionId, nil
@@ -79,7 +79,7 @@ func (self *terminalTool) PolicyGroups() []tools.PolicyGroup {
 func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	relay := terminals.TerminalFromContext(ctx)
 	if relay == nil {
-		return "", fmt.Errorf("no terminal relay available")
+		return "", fmt.Errorf("terminal: no terminal relay available")
 	}
 
 	var arguments struct {
@@ -89,7 +89,7 @@ func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (str
 		Key          string `json:"key"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("terminal: parsing arguments: %w", err)
 	}
 
 	switch arguments.Action {
@@ -102,14 +102,14 @@ func (self *terminalTool) Execute(ctx context.Context, rawArguments string) (str
 	case "press_key":
 		return executePressKey(ctx, relay, arguments.ConnectionID, arguments.Key)
 	default:
-		return "", fmt.Errorf("unknown terminal action: %s", arguments.Action)
+		return "", fmt.Errorf("terminal: unknown terminal action: %s", arguments.Action)
 	}
 }
 
 func executeList(ctx context.Context, relay *terminals.Relay) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("missing user context")
+		return "", fmt.Errorf("terminal: missing user context")
 	}
 	connections := relay.ConnectionsForUser(user.ID)
 	type entry struct {
@@ -142,7 +142,7 @@ func executeList(ctx context.Context, relay *terminals.Relay) (string, error) {
 func executeScreenshot(ctx context.Context, relay *terminals.Relay, connectionId string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("missing user context")
+		return "", fmt.Errorf("terminal: missing user context")
 	}
 	resolvedId, err := resolveConnectionId(relay, user.ID, connectionId)
 	if err != nil {
@@ -156,7 +156,7 @@ func executeScreenshot(ctx context.Context, relay *terminals.Relay, connectionId
 		Text string `json:"text"`
 	}
 	if err := json.Unmarshal(result, &response); err != nil {
-		return "", fmt.Errorf("parsing screenshot: %w", err)
+		return "", fmt.Errorf("terminal: parsing screenshot: %w", err)
 	}
 	output, _ := json.Marshal(map[string]string{"text": response.Text})
 	return string(output), nil
@@ -165,7 +165,7 @@ func executeScreenshot(ctx context.Context, relay *terminals.Relay, connectionId
 func executeTypeAction(ctx context.Context, relay *terminals.Relay, connectionId string, text string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("missing user context")
+		return "", fmt.Errorf("terminal: missing user context")
 	}
 	resolvedId, err := resolveConnectionId(relay, user.ID, connectionId)
 	if err != nil {
@@ -184,11 +184,11 @@ func executeTypeAction(ctx context.Context, relay *terminals.Relay, connectionId
 func executePressKey(ctx context.Context, relay *terminals.Relay, connectionId string, key string) (string, error) {
 	sequence, ok := termKeyMap[strings.ToLower(key)]
 	if !ok {
-		return "", fmt.Errorf("unknown key: %s", key)
+		return "", fmt.Errorf("terminal: unknown key: %s", key)
 	}
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("missing user context")
+		return "", fmt.Errorf("terminal: missing user context")
 	}
 	resolvedId, err := resolveConnectionId(relay, user.ID, connectionId)
 	if err != nil {

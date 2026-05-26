@@ -11,10 +11,10 @@ import (
 // mockRunner returns a commandRunner that records calls and returns canned output.
 func mockRunner(stdout string, stderr string, exitCode int, err error) (commandRunner, *[]mockCall) {
 	var calls []mockCall
-	runner := func(ctx context.Context, name string, args []string, directory string) ([]byte, []byte, int, error) {
+	runner := func(ctx context.Context, name string, arguments []string, directory string) ([]byte, []byte, int, error) {
 		calls = append(calls, mockCall{
 			Name:      name,
-			Arguments: args,
+			Arguments: arguments,
 			Directory: directory,
 		})
 		if err != nil {
@@ -249,7 +249,7 @@ func TestBuildArgumentsBasic(testing *testing.T) {
 		}
 	}
 	if !foundOutputFormat {
-		testing.Errorf("expected '--output-format json' in args: %v", arguments)
+		testing.Errorf("expected '--output-format json' in arguments: %v", arguments)
 	}
 
 	// Verify --allowedTools is always present.
@@ -261,13 +261,13 @@ func TestBuildArgumentsBasic(testing *testing.T) {
 		}
 	}
 	if !foundAllowedTools {
-		testing.Errorf("expected '--allowedTools' in args: %v", arguments)
+		testing.Errorf("expected '--allowedTools' in arguments: %v", arguments)
 	}
 
 	// Verify --resume is NOT present.
 	for _, argument := range arguments {
 		if argument == "--resume" {
-			testing.Errorf("did not expect '--resume' in args: %v", arguments)
+			testing.Errorf("did not expect '--resume' in arguments: %v", arguments)
 			break
 		}
 	}
@@ -300,7 +300,7 @@ func TestBuildArgumentsWithSystemPrompt(testing *testing.T) {
 		}
 	}
 	if !foundSystemPrompt {
-		testing.Errorf("expected '--append-system-prompt' in args: %v", arguments)
+		testing.Errorf("expected '--append-system-prompt' in arguments: %v", arguments)
 	}
 }
 
@@ -318,14 +318,14 @@ func TestBuildArgumentsDefaultAllowedToolsPresent(testing *testing.T) {
 		}
 	}
 	if allowedToolsIndex == -1 {
-		testing.Fatalf("--allowedTools not found in args: %v", arguments)
+		testing.Fatalf("--allowedTools not found in arguments: %v", arguments)
 	}
 	// The default tools should follow immediately after --allowedTools.
 	expectedTools := DefaultAllowedTools
 	for offset, expectedTool := range expectedTools {
 		position := allowedToolsIndex + 1 + offset
 		if position >= len(arguments) {
-			testing.Fatalf("not enough args after --allowedTools: %v", arguments)
+			testing.Fatalf("not enough arguments after --allowedTools: %v", arguments)
 		}
 		if arguments[position] != expectedTool {
 			testing.Errorf("expected %q at position %d after --allowedTools, got %q", expectedTool, offset, arguments[position])

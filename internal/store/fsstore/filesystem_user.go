@@ -65,7 +65,7 @@ func (self *fileSystemTransaction) listUsers(ctx context.Context, options *store
 
 func (self *fileSystemTransaction) createUser(ctx context.Context, user *models.User, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.User, error) {
 	if user == nil {
-		return nil, fmt.Errorf("user is required")
+		return nil, fmt.Errorf("fsstore: user is required")
 	}
 	userId := user.ID
 	if userId == "" {

@@ -110,10 +110,10 @@ func (self *shellTool) Execute(ctx context.Context, rawArguments string) (string
 		Environment map[string]string `json:"environment"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("shell: parsing arguments: %w", err)
 	}
 	if arguments.Command == "" {
-		return "", fmt.Errorf("command is required")
+		return "", fmt.Errorf("shell: command is required")
 	}
 
 	// Resolve timeout.
@@ -130,7 +130,7 @@ func (self *shellTool) Execute(ctx context.Context, rawArguments string) (string
 	if directory == "" {
 		homeDirectory, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("getting home directory: %w", err)
+			return "", fmt.Errorf("shell: getting home directory: %w", err)
 		}
 		directory = homeDirectory
 	}
@@ -162,7 +162,7 @@ func (self *shellTool) Execute(ctx context.Context, rawArguments string) (string
 		if timedOut {
 			exitCode = -1
 		} else {
-			return "", fmt.Errorf("executing command: %w", err)
+			return "", fmt.Errorf("shell: executing command: %w", err)
 		}
 	}
 
@@ -189,7 +189,7 @@ func (self *shellTool) Execute(ctx context.Context, rawArguments string) (string
 		"duration":        duration,
 	})
 	if marshalError != nil {
-		return "", fmt.Errorf("marshaling result: %w", marshalError)
+		return "", fmt.Errorf("shell: marshaling result: %w", marshalError)
 	}
 	return string(output), nil
 }

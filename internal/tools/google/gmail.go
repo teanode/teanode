@@ -71,7 +71,7 @@ func (self *gmailTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *gmailTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action    string `json:"action"`
 		Query     string `json:"query"`
 		MessageID string `json:"message_id"`
@@ -80,60 +80,60 @@ func (self *gmailTool) Execute(ctx context.Context, rawArguments string) (string
 		Body      string `json:"body"`
 		Limit     int    `json:"limit"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("google: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "search":
-		if args.Query == "" {
-			return "", fmt.Errorf("query is required for search action")
+		if arguments.Query == "" {
+			return "", fmt.Errorf("google: query is required for search action")
 		}
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 10
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"gmail", "search", args.Query, "--max", strconv.Itoa(limit))
+			"gmail", "search", arguments.Query, "--max", strconv.Itoa(limit))
 
 	case "read":
-		if args.MessageID == "" {
-			return "", fmt.Errorf("message_id is required for read action")
+		if arguments.MessageID == "" {
+			return "", fmt.Errorf("google: message_id is required for read action")
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"gmail", "get", args.MessageID)
+			"gmail", "get", arguments.MessageID)
 
 	case "send":
-		if args.To == "" {
-			return "", fmt.Errorf("to is required for send action")
+		if arguments.To == "" {
+			return "", fmt.Errorf("google: to is required for send action")
 		}
-		if args.Subject == "" {
-			return "", fmt.Errorf("subject is required for send action")
+		if arguments.Subject == "" {
+			return "", fmt.Errorf("google: subject is required for send action")
 		}
-		if args.Body == "" {
-			return "", fmt.Errorf("body is required for send action")
+		if arguments.Body == "" {
+			return "", fmt.Errorf("google: body is required for send action")
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"gmail", "send", "--to", args.To, "--subject", args.Subject, "--body", args.Body)
+			"gmail", "send", "--to", arguments.To, "--subject", arguments.Subject, "--body", arguments.Body)
 
 	case "reply":
-		if args.MessageID == "" {
-			return "", fmt.Errorf("message_id is required for reply action")
+		if arguments.MessageID == "" {
+			return "", fmt.Errorf("google: message_id is required for reply action")
 		}
-		if args.Body == "" {
-			return "", fmt.Errorf("body is required for reply action")
+		if arguments.Body == "" {
+			return "", fmt.Errorf("google: body is required for reply action")
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"gmail", "send", "--reply-to-message-id", args.MessageID, "--body", args.Body)
+			"gmail", "send", "--reply-to-message-id", arguments.MessageID, "--body", arguments.Body)
 
 	case "trash":
-		if args.MessageID == "" {
-			return "", fmt.Errorf("message_id is required for trash action")
+		if arguments.MessageID == "" {
+			return "", fmt.Errorf("google: message_id is required for trash action")
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"gmail", "thread", "modify", args.MessageID, "--add", "TRASH")
+			"gmail", "thread", "modify", arguments.MessageID, "--add", "TRASH")
 
 	default:
-		return "", fmt.Errorf("unknown gmail action: %s", args.Action)
+		return "", fmt.Errorf("google: unknown gmail action: %s", arguments.Action)
 	}
 }

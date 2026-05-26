@@ -44,7 +44,7 @@ func (self *ApprovalBroker) PendingForConversation(conversationId string) []*Pen
 
 func (self *ApprovalBroker) ResolveBatch(payloads map[string]ApprovalPayload, callerUserId string) error {
 	if len(payloads) == 0 {
-		return fmt.Errorf("payloads must not be empty")
+		return fmt.Errorf("approvals: payloads must not be empty")
 	}
 
 	self.mutex.Lock()
@@ -54,10 +54,10 @@ func (self *ApprovalBroker) ResolveBatch(payloads map[string]ApprovalPayload, ca
 	for approvalId := range payloads {
 		pending := self.pending[approvalId]
 		if pending == nil {
-			return fmt.Errorf("approval not found: %s", approvalId)
+			return fmt.Errorf("approvals: approval not found: %s", approvalId)
 		}
 		if pending.UserID != callerUserId {
-			return fmt.Errorf("approval does not belong to user")
+			return fmt.Errorf("approvals: approval does not belong to user")
 		}
 	}
 

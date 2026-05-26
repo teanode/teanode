@@ -66,7 +66,7 @@ func (self *tasksTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *tasksTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action   string `json:"action"`
 		TaskList string `json:"task_list"`
 		Title    string `json:"title"`
@@ -74,47 +74,47 @@ func (self *tasksTool) Execute(ctx context.Context, rawArguments string) (string
 		Due      string `json:"due"`
 		TaskID   string `json:"task_id"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("google: parsing arguments: %w", err)
 	}
 
-	if args.TaskList == "" {
-		return "", fmt.Errorf("task_list is required for all tasks actions")
+	if arguments.TaskList == "" {
+		return "", fmt.Errorf("google: task_list is required for all tasks actions")
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"tasks", "list", args.TaskList)
+			"tasks", "list", arguments.TaskList)
 
 	case "create":
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for create action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("google: title is required for create action")
 		}
-		commandArguments := []string{"tasks", "create", args.TaskList, "--title", args.Title}
-		if args.Notes != "" {
-			commandArguments = append(commandArguments, "--notes", args.Notes)
+		commandArguments := []string{"tasks", "create", arguments.TaskList, "--title", arguments.Title}
+		if arguments.Notes != "" {
+			commandArguments = append(commandArguments, "--notes", arguments.Notes)
 		}
-		if args.Due != "" {
-			commandArguments = append(commandArguments, "--due", args.Due)
+		if arguments.Due != "" {
+			commandArguments = append(commandArguments, "--due", arguments.Due)
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account, commandArguments...)
 
 	case "complete":
-		if args.TaskID == "" {
-			return "", fmt.Errorf("task_id is required for complete action")
+		if arguments.TaskID == "" {
+			return "", fmt.Errorf("google: task_id is required for complete action")
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"tasks", "complete", args.TaskList, args.TaskID)
+			"tasks", "complete", arguments.TaskList, arguments.TaskID)
 
 	case "delete":
-		if args.TaskID == "" {
-			return "", fmt.Errorf("task_id is required for delete action")
+		if arguments.TaskID == "" {
+			return "", fmt.Errorf("google: task_id is required for delete action")
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"tasks", "delete", args.TaskList, args.TaskID)
+			"tasks", "delete", arguments.TaskList, arguments.TaskID)
 
 	default:
-		return "", fmt.Errorf("unknown tasks action: %s", args.Action)
+		return "", fmt.Errorf("google: unknown tasks action: %s", arguments.Action)
 	}
 }

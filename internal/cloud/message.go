@@ -49,7 +49,7 @@ func readMessage(reader io.Reader) (*message, error) {
 	messageType := header[0]
 	length := binary.BigEndian.Uint32(header[1:5])
 	if length > maxMessageSize {
-		return nil, fmt.Errorf("message too large: %d bytes", length)
+		return nil, fmt.Errorf("cloud: message too large: %d bytes", length)
 	}
 	payload := make([]byte, length)
 	if length > 0 {

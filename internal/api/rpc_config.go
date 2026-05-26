@@ -96,7 +96,7 @@ func (self *webSocketConnection) handleConfigUpdate(frame requestFrame) (interfa
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[configUpdateParameters](frame)
+	parameters, err := unmarshalParameters[configUpdateParameters](frame)
 	if err != nil {
 		return nil, err
 	}

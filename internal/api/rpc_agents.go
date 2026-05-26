@@ -46,7 +46,7 @@ type agentsSetDefaultParameters struct {
 
 // handleAgentsSetDefault: set the default agent.
 func (self *webSocketConnection) handleAgentsSetDefault(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[agentsSetDefaultParameters](frame)
+	parameters, err := unmarshalParameters[agentsSetDefaultParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) (int
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[agentsConfigSaveParameters](frame)
+	parameters, err := unmarshalParameters[agentsConfigSaveParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -180,8 +180,8 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) (int
 	}
 	agentConfig := parameters.Agent
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		agentID := agentConfig.ID
-		existingAgent, err := transaction.GetAgent(ctx, agentID, nil)
+		agentId := agentConfig.ID
+		existingAgent, err := transaction.GetAgent(ctx, agentId, nil)
 		agentNotFound := false
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -198,7 +198,7 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) (int
 			if agentConfig.AvatarMediaID == "" {
 				agentConfig.AvatarMediaID = existingAgent.GetAvatarMediaID()
 			}
-			_, err = transaction.ModifyAgent(ctx, agentID, func(agent *models.Agent) error {
+			_, err = transaction.ModifyAgent(ctx, agentId, func(agent *models.Agent) error {
 				agent.Name = ptrto.TrimmedString(agentConfig.Name)
 				agent.ProviderModelName = ptrto.TrimmedString(agentConfig.ProviderModelName)
 				agent.Tools = ptrto.Value(agentConfig.Tools)
@@ -216,7 +216,7 @@ func (self *webSocketConnection) handleAgentsConfigSave(frame requestFrame) (int
 			{Path: ptrto.Value("SKILLS.md"), Content: ptrto.Value([]byte(prompts.DefaultSkillsMarkdown()))},
 		}
 		_, err = transaction.CreateAgent(ctx, &models.Agent{
-			ID:                agentID,
+			ID:                agentId,
 			Name:              ptrto.TrimmedString(agentConfig.Name),
 			ProviderModelName: ptrto.TrimmedString(agentConfig.ProviderModelName),
 			Tools:             ptrto.Value(agentConfig.Tools),
@@ -243,7 +243,7 @@ func (self *webSocketConnection) handleAgentsConfigDelete(frame requestFrame) (i
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[agentsConfigDeleteParameters](frame)
+	parameters, err := unmarshalParameters[agentsConfigDeleteParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (self *webSocketConnection) handleAgentsAvatarSet(frame requestFrame) (inte
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[agentsAvatarSetParameters](frame)
+	parameters, err := unmarshalParameters[agentsAvatarSetParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +318,7 @@ func (self *webSocketConnection) handleAgentsAvatarRemove(frame requestFrame) (i
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[agentsAvatarRemoveParameters](frame)
+	parameters, err := unmarshalParameters[agentsAvatarRemoveParameters](frame)
 	if err != nil {
 		return nil, err
 	}

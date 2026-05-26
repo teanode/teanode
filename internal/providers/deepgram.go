@@ -11,21 +11,22 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
 // DeepgramClient provides streaming STT.
 type DeepgramClient struct {
 	BaseProvider
-	baseURL           string
+	baseUrl           string
 	apiKey            string
 	dialer            *websocket.Dialer
 	keepAliveInterval time.Duration
 }
 
 // NewDeepgramClient creates a Deepgram provider.
-func NewDeepgramClient(baseURL, apiKey string) *DeepgramClient {
+func NewDeepgramClient(baseUrl, apiKey string) *DeepgramClient {
 	return &DeepgramClient{
-		baseURL:           strings.TrimSpace(baseURL),
+		baseUrl:           strings.TrimSpace(baseUrl),
 		apiKey:            strings.TrimSpace(apiKey),
 		dialer:            websocket.DefaultDialer,
 		keepAliveInterval: 8 * time.Second,
@@ -35,17 +36,17 @@ func NewDeepgramClient(baseURL, apiKey string) *DeepgramClient {
 // TranscribeStream creates a realtime transcription websocket session.
 func (self *DeepgramClient) TranscribeStream(ctx context.Context, request StreamTranscribeRequest) (TranscribeStream, error) {
 	if strings.TrimSpace(self.apiKey) == "" {
-		return nil, fmt.Errorf("deepgram api key is required")
+		return nil, fmt.Errorf("providers: deepgram api key is required")
 	}
-	listenURL, err := deepgramListenURL(self.baseURL, request)
+	listenUrl, err := deepgramListenUrl(self.baseUrl, request)
 	if err != nil {
 		return nil, err
 	}
 	headers := http.Header{}
 	headers.Set("Authorization", "Token "+self.apiKey)
-	connection, _, err := self.dialer.DialContext(ctx, listenURL, headers)
+	connection, _, err := self.dialer.DialContext(ctx, listenUrl, headers)
 	if err != nil {
-		return nil, fmt.Errorf("open deepgram stream: %w", err)
+		return nil, fmt.Errorf("providers: open deepgram stream: %w", err)
 	}
 	stream := &deepgramStream{
 		connection:        connection,
@@ -58,14 +59,14 @@ func (self *DeepgramClient) TranscribeStream(ctx context.Context, request Stream
 	return stream, nil
 }
 
-func deepgramListenURL(baseURL string, request StreamTranscribeRequest) (string, error) {
-	base := strings.TrimSpace(baseURL)
+func deepgramListenUrl(baseUrl string, request StreamTranscribeRequest) (string, error) {
+	base := strings.TrimSpace(baseUrl)
 	if base == "" {
-		return "", fmt.Errorf("deepgram base url is required")
+		return "", fmt.Errorf("providers: deepgram base url is required")
 	}
 	parsed, err := url.Parse(base)
 	if err != nil {
-		return "", fmt.Errorf("parse deepgram base url: %w", err)
+		return "", fmt.Errorf("providers: parse deepgram base url: %w", err)
 	}
 	switch parsed.Scheme {
 	case "https":
@@ -74,7 +75,7 @@ func deepgramListenURL(baseURL string, request StreamTranscribeRequest) (string,
 		parsed.Scheme = "ws"
 	case "wss", "ws":
 	default:
-		return "", fmt.Errorf("unsupported deepgram scheme: %s", parsed.Scheme)
+		return "", fmt.Errorf("providers: unsupported deepgram scheme: %s", parsed.Scheme)
 	}
 	parsed.Path = "/v1/listen"
 	query := parsed.Query()
@@ -106,7 +107,7 @@ func deepgramListenURL(baseURL string, request StreamTranscribeRequest) (string,
 
 type deepgramStream struct {
 	connection        *websocket.Conn
-	writeMu           sync.Mutex
+	writeMutex        sync.Mutex
 	events            chan TranscribeStreamEvent
 	done              chan struct{}
 	closeOnce         sync.Once
@@ -117,8 +118,8 @@ func (self *deepgramStream) SendAudio(pcm []byte) error {
 	if len(pcm) == 0 {
 		return nil
 	}
-	self.writeMu.Lock()
-	defer self.writeMu.Unlock()
+	self.writeMutex.Lock()
+	defer self.writeMutex.Unlock()
 	return self.connection.WriteMessage(websocket.BinaryMessage, pcm)
 }
 
@@ -130,21 +131,22 @@ func (self *deepgramStream) Close() error {
 	var closeErr error
 	self.closeOnce.Do(func() {
 		close(self.done)
-		self.writeMu.Lock()
+		self.writeMutex.Lock()
 		_ = self.connection.WriteJSON(map[string]string{"type": "CloseStream"})
-		self.writeMu.Unlock()
+		self.writeMutex.Unlock()
 		closeErr = self.connection.Close()
 	})
 	return closeErr
 }
 
 func (self *deepgramStream) readLoop() {
+	defer deferutil.Recover()
 	defer close(self.events)
 	for {
 		_, payload, err := self.connection.ReadMessage()
 		if err != nil {
 			select {
-			case self.events <- TranscribeStreamEvent{Err: fmt.Errorf("deepgram read: %w", err)}:
+			case self.events <- TranscribeStreamEvent{Err: fmt.Errorf("providers: deepgram read: %w", err)}:
 			case <-self.done:
 			}
 			_ = self.Close()
@@ -190,6 +192,7 @@ func (self *deepgramStream) readLoop() {
 }
 
 func (self *deepgramStream) keepAliveLoop() {
+	defer deferutil.Recover()
 	interval := self.keepAliveInterval
 	if interval <= 0 {
 		interval = 8 * time.Second
@@ -201,9 +204,9 @@ func (self *deepgramStream) keepAliveLoop() {
 		case <-self.done:
 			return
 		case <-ticker.C:
-			self.writeMu.Lock()
+			self.writeMutex.Lock()
 			err := self.connection.WriteJSON(map[string]string{"type": "KeepAlive"})
-			self.writeMu.Unlock()
+			self.writeMutex.Unlock()
 			if err != nil {
 				return
 			}

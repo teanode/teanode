@@ -17,7 +17,7 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-var log = logging.MustGetLogger("summarizer")
+var log = logging.MustGetLogger("summarizers")
 
 const summarizerRequestTimeout = 25 * time.Second
 const summarizerDescriptionMaxTokens = 120

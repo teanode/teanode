@@ -69,7 +69,7 @@ func (self *webSocketConnection) handleUsersCreate(frame requestFrame) (interfac
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[usersCreateParameters](frame)
+	parameters, err := unmarshalParameters[usersCreateParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (self *webSocketConnection) handleUsersDelete(frame requestFrame) (interfac
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[usersDeleteParameters](frame)
+	parameters, err := unmarshalParameters[usersDeleteParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func (self *webSocketConnection) handleUsersChangePassword(frame requestFrame) (
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[usersChangePasswordParameters](frame)
+	parameters, err := unmarshalParameters[usersChangePasswordParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (self *webSocketConnection) handleUsersUpdate(frame requestFrame) (interfac
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[usersUpdateParameters](frame)
+	parameters, err := unmarshalParameters[usersUpdateParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +280,7 @@ func (self *webSocketConnection) handleUsersSetRole(frame requestFrame) (interfa
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[usersSetRoleParameters](frame)
+	parameters, err := unmarshalParameters[usersSetRoleParameters](frame)
 	if err != nil {
 		return nil, err
 	}

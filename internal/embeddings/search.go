@@ -110,7 +110,7 @@ func SemanticSearchMemory(ctx context.Context, embedder *Embedder, items []*mode
 func KeywordSearchMemory(items []*models.MemoryItem, query string, maxResults int, contextLines int) ([]MemorySearchResult, int, error) {
 	tokens := tokeniseQuery(query)
 	if len(tokens) == 0 {
-		return nil, 0, fmt.Errorf("query contains no significant tokens (words must be 3+ characters)")
+		return nil, 0, fmt.Errorf("embeddings: query contains no significant tokens (words must be 3+ characters)")
 	}
 
 	type scoredLine struct {

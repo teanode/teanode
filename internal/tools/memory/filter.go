@@ -12,10 +12,10 @@ import (
 	"github.com/teanode/teanode/internal/store"
 )
 
-func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, scopeId string, args executeArguments) (string, error) {
+func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, scopeId string, arguments executeArguments) (string, error) {
 	runner := runners.RunnerFromContext(ctx)
 	if runner == nil || runner.ConversationID == "" {
-		return "", fmt.Errorf("no active conversation (conversationId not available)")
+		return "", fmt.Errorf("memory: no active conversation (conversationId not available)")
 	}
 	conversationId := runner.ConversationID
 
@@ -34,30 +34,30 @@ func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, s
 
 	// Roles filter.
 	roleSet := map[string]bool{}
-	if len(args.Roles) > 0 {
-		for _, role := range args.Roles {
+	if len(arguments.Roles) > 0 {
+		for _, role := range arguments.Roles {
 			roleSet[role] = true
 		}
 	}
 
 	// Time filters.
 	var afterTime, beforeTime *time.Time
-	if args.After != "" {
-		parsed, err := time.Parse(time.RFC3339, args.After)
+	if arguments.After != "" {
+		parsed, err := time.Parse(time.RFC3339, arguments.After)
 		if err != nil {
-			return "", fmt.Errorf("invalid 'after' time format: %w", err)
+			return "", fmt.Errorf("memory: invalid 'after' time format: %w", err)
 		}
 		afterTime = &parsed
 	}
-	if args.Before != "" {
-		parsed, err := time.Parse(time.RFC3339, args.Before)
+	if arguments.Before != "" {
+		parsed, err := time.Parse(time.RFC3339, arguments.Before)
 		if err != nil {
-			return "", fmt.Errorf("invalid 'before' time format: %w", err)
+			return "", fmt.Errorf("memory: invalid 'before' time format: %w", err)
 		}
 		beforeTime = &parsed
 	}
 
-	keywordLower := strings.ToLower(args.Keyword)
+	keywordLower := strings.ToLower(arguments.Keyword)
 
 	for _, message := range messages {
 		// Role filter.
@@ -85,7 +85,7 @@ func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, s
 	totalMatched := len(filtered)
 
 	// Truncate to maxResults (take most recent).
-	maxResults := args.MaxResults
+	maxResults := arguments.MaxResults
 	if maxResults <= 0 {
 		maxResults = 50
 	}
@@ -121,28 +121,28 @@ func (self *memoryTool) executeFilter(ctx context.Context, scope models.Scope, s
 	}
 
 	// Persist if requested.
-	if args.Persist != nil {
+	if arguments.Persist != nil {
 		title := "Filtered messages"
-		if args.Persist.Title != "" {
-			title = args.Persist.Title
+		if arguments.Persist.Title != "" {
+			title = arguments.Persist.Title
 		}
-		contentJSON, _ := json.MarshalIndent(outputMessages, "", "  ")
-		content := string(contentJSON)
+		contentJson, _ := json.MarshalIndent(outputMessages, "", "  ")
+		content := string(contentJson)
 		if len(content) > maxContentSize {
-			return "", fmt.Errorf("filtered content exceeds maximum size of %d bytes", maxContentSize)
+			return "", fmt.Errorf("memory: filtered content exceeds maximum size of %d bytes", maxContentSize)
 		}
 
 		persistItem := batchItem{
 			Op:      "add",
 			Title:   title,
 			Content: content,
-			Tags:    args.Persist.Tags,
+			Tags:    arguments.Persist.Tags,
 		}
 		var itemId string
 		if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 			addResult := self.batchAdd(ctx, tx, scope, scopeId, 0, persistItem, precomputedEmbedding{})
 			if !addResult.Success {
-				return fmt.Errorf("persist failed: %s", addResult.Error)
+				return fmt.Errorf("memory: persist failed: %s", addResult.Error)
 			}
 			if id, ok := addResult.Item["id"].(string); ok {
 				itemId = id

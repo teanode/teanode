@@ -283,7 +283,7 @@ func (self *Headless) DefaultTarget() (*browsers.ConnectedTarget, error) {
 	for _, target := range self.targets {
 		return target, nil
 	}
-	return nil, errors.New("no attached browser tab")
+	return nil, errors.New("headlessbrowser: no attached browser tab")
 }
 
 // TargetByConnectionID looks up a target by its session ID.
@@ -292,7 +292,7 @@ func (self *Headless) TargetByConnectionID(connectionId string) (*browsers.Conne
 	defer self.mutex.Unlock()
 	target, ok := self.targets[connectionId]
 	if !ok {
-		return nil, fmt.Errorf("browser connection %q not found", connectionId)
+		return nil, fmt.Errorf("headlessbrowser: browser connection %q not found", connectionId)
 	}
 	return target, nil
 }
@@ -332,7 +332,7 @@ func (self *Headless) DefaultTargetForUser(userId string) (*browsers.ConnectedTa
 	self.mutex.Unlock()
 
 	if !connected {
-		return nil, errors.New("headless browser not connected")
+		return nil, errors.New("headlessbrowser: headless browser not connected")
 	}
 
 	// No available tab for this user; create one and bind ownership.
@@ -342,13 +342,13 @@ func (self *Headless) DefaultTargetForUser(userId string) (*browsers.ConnectedTa
 		"url": "about:blank",
 	})
 	if err != nil {
-		return nil, fmt.Errorf("creating user tab: %w", err)
+		return nil, fmt.Errorf("headlessbrowser: creating user tab: %w", err)
 	}
 	var created struct {
 		TargetID string `json:"targetId"`
 	}
 	if err := json.Unmarshal(createResult, &created); err != nil || created.TargetID == "" {
-		return nil, errors.New("failed to create headless browser tab")
+		return nil, errors.New("headlessbrowser: failed to create headless browser tab")
 	}
 
 	self.AssignTargetToUser(userId, created.TargetID)
@@ -365,7 +365,7 @@ func (self *Headless) TargetByConnectionIDForUser(userId, connectionId string) (
 	defer self.mutex.Unlock()
 	target, ok := self.targets[connectionId]
 	if !ok || self.sessionOwners[connectionId] != userId {
-		return nil, fmt.Errorf("browser connection %q not found", connectionId)
+		return nil, fmt.Errorf("headlessbrowser: browser connection %q not found", connectionId)
 	}
 	copyTarget := *target
 	return &copyTarget, nil
@@ -391,7 +391,7 @@ func (self *Headless) defaultTargetForUserByTargetId(userId, targetId string) (*
 			return &copyTarget, nil
 		}
 	}
-	return nil, errors.New("no attached browser tab")
+	return nil, errors.New("headlessbrowser: no attached browser tab")
 }
 
 // SendCDPCommand sends a CDP command to a specific target session.
@@ -408,7 +408,7 @@ func (self *Headless) SendCDPCommand(ctx context.Context, method string, paramet
 	self.mutex.Lock()
 	if self.connection == nil {
 		self.mutex.Unlock()
-		return nil, errors.New("headless browser not connected")
+		return nil, errors.New("headlessbrowser: headless browser not connected")
 	}
 	commandId, resultChannel := self.pending.Allocate()
 	connection := self.connection
@@ -420,10 +420,10 @@ func (self *Headless) SendCDPCommand(ctx context.Context, method string, paramet
 		"sessionId": sessionId,
 	}
 	if parameters != nil {
-		message["params"] = parameters
+		message["parameters"] = parameters
 	}
 
-	if err := self.writeJSON(connection, message); err != nil {
+	if err := self.writeJson(connection, message); err != nil {
 		self.pending.Cancel(commandId)
 		return nil, err
 	}
@@ -445,7 +445,7 @@ func (self *Headless) sendBrowserCommand(ctx context.Context, method string, par
 	self.mutex.Lock()
 	if self.connection == nil {
 		self.mutex.Unlock()
-		return nil, errors.New("headless browser not connected")
+		return nil, errors.New("headlessbrowser: headless browser not connected")
 	}
 	commandId, resultChannel := self.pending.Allocate()
 	connection := self.connection
@@ -456,10 +456,10 @@ func (self *Headless) sendBrowserCommand(ctx context.Context, method string, par
 		"method": method,
 	}
 	if parameters != nil {
-		message["params"] = parameters
+		message["parameters"] = parameters
 	}
 
-	if err := self.writeJSON(connection, message); err != nil {
+	if err := self.writeJson(connection, message); err != nil {
 		self.pending.Cancel(commandId)
 		return nil, err
 	}
@@ -476,13 +476,13 @@ func (self *Headless) sendBrowserCommand(ctx context.Context, method string, par
 	}
 }
 
-// writeJSON serializes message as JSON and writes it to the WebSocket.
+// writeJson serializes message as JSON and writes it to the WebSocket.
 // All writes are serialized through writeMutex since gorilla/websocket
 // does not support concurrent writers.
-func (self *Headless) writeJSON(connection *websocket.Conn, message interface{}) error {
+func (self *Headless) writeJson(connection *websocket.Conn, message interface{}) error {
 	data, err := json.Marshal(message)
 	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
+		return fmt.Errorf("headlessbrowser: marshal: %w", err)
 	}
 
 	self.writeMutex.Lock()
@@ -490,7 +490,7 @@ func (self *Headless) writeJSON(connection *websocket.Conn, message interface{})
 	self.writeMutex.Unlock()
 
 	if err != nil {
-		return fmt.Errorf("write: %w", err)
+		return fmt.Errorf("headlessbrowser: write: %w", err)
 	}
 	return nil
 }
@@ -553,11 +553,11 @@ func (self *Headless) readLoop(connection *websocket.Conn, done chan struct{}) {
 		}
 
 		var frame struct {
-			ID     *int            `json:"id"`
-			Method string          `json:"method"`
-			Params json.RawMessage `json:"params"`
-			Result json.RawMessage `json:"result"`
-			Error  *struct {
+			ID         *int            `json:"id"`
+			Method     string          `json:"method"`
+			Parameters json.RawMessage `json:"parameters"`
+			Result     json.RawMessage `json:"result"`
+			Error      *struct {
 				Code    int    `json:"code"`
 				Message string `json:"message"`
 			} `json:"error"`
@@ -578,12 +578,12 @@ func (self *Headless) readLoop(connection *websocket.Conn, done chan struct{}) {
 
 		// CDP event — handle target lifecycle events.
 		if frame.Method != "" {
-			self.handleEvent(frame.Method, frame.Params)
+			self.handleEvent(frame.Method, frame.Parameters)
 		}
 	}
 }
 
-func (self *Headless) handleEvent(method string, params json.RawMessage) {
+func (self *Headless) handleEvent(method string, parameters json.RawMessage) {
 	switch method {
 	case "Target.attachedToTarget":
 		var payload struct {
@@ -595,7 +595,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 				Title    string `json:"title"`
 			} `json:"targetInfo"`
 		}
-		if json.Unmarshal(params, &payload) == nil && payload.SessionID != "" {
+		if json.Unmarshal(parameters, &payload) == nil && payload.SessionID != "" {
 			self.mutex.Lock()
 			// Only store if not already registered by attachTarget.
 			if _, exists := self.targets[payload.SessionID]; !exists {
@@ -616,7 +616,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 		var payload struct {
 			SessionID string `json:"sessionId"`
 		}
-		if json.Unmarshal(params, &payload) == nil && payload.SessionID != "" {
+		if json.Unmarshal(parameters, &payload) == nil && payload.SessionID != "" {
 			self.mutex.Lock()
 			if target, ok := self.targets[payload.SessionID]; ok {
 				delete(self.targetOwners, target.TargetID)
@@ -636,7 +636,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 				Title    string `json:"title"`
 			} `json:"targetInfo"`
 		}
-		if json.Unmarshal(params, &payload) == nil {
+		if json.Unmarshal(parameters, &payload) == nil {
 			sessionId := ""
 			shouldNotifyNavigation := false
 			self.mutex.Lock()
@@ -660,7 +660,7 @@ func (self *Headless) handleEvent(method string, params json.RawMessage) {
 		var payload struct {
 			TargetInfo targetInformation `json:"targetInfo"`
 		}
-		if json.Unmarshal(params, &payload) == nil && payload.TargetInfo.Type == "page" {
+		if json.Unmarshal(parameters, &payload) == nil && payload.TargetInfo.Type == "page" {
 			// Check if we already have this target.
 			self.mutex.Lock()
 			alreadyAttached := false

@@ -12,8 +12,8 @@ const (
 // TurnContext contains runtime cues for turn decisioning.
 type TurnContext struct {
 	VADScore          float64
-	SpeechDurationMs  int
-	SilenceDurationMs int
+	SpeechDurationMS  int
+	SilenceDurationMS int
 	RunActive         bool
 	ResponseActive    bool
 	InterimText       string

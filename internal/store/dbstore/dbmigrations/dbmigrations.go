@@ -27,7 +27,7 @@ func Migrations() []Migration {
 func mustLoadMigrations() []Migration {
 	entries, err := fs.ReadDir(migrationFiles, ".")
 	if err != nil {
-		panic(fmt.Errorf("failed to read migrations: %w", err))
+		panic(fmt.Errorf("dbmigrations: failed to read migrations: %w", err))
 	}
 
 	forward := make(map[string]string)
@@ -42,7 +42,7 @@ func mustLoadMigrations() []Migration {
 		}
 		content, err := migrationFiles.ReadFile(name)
 		if err != nil {
-			panic(fmt.Errorf("failed to read migration file %q: %w", name, err))
+			panic(fmt.Errorf("dbmigrations: failed to read migration file %q: %w", name, err))
 		}
 		text := string(content)
 		if strings.HasSuffix(name, ".reverse.sql") {
@@ -56,12 +56,12 @@ func mustLoadMigrations() []Migration {
 
 	for migrationId := range forward {
 		if _, ok := reverse[migrationId]; !ok {
-			panic(fmt.Sprintf("missing reverse migration for %s", migrationId))
+			panic(fmt.Sprintf("dbmigrations: missing reverse migration for %s", migrationId))
 		}
 	}
 	for migrationId := range reverse {
 		if _, ok := forward[migrationId]; !ok {
-			panic(fmt.Sprintf("missing forward migration for %s", migrationId))
+			panic(fmt.Sprintf("dbmigrations: missing forward migration for %s", migrationId))
 		}
 	}
 

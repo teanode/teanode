@@ -65,12 +65,12 @@ func updateCheck(ctx context.Context) error {
 
 	release, err := updater.CheckLatestRelease(ctx)
 	if err != nil {
-		return fmt.Errorf("check failed: %w", err)
+		return fmt.Errorf("cmd: check failed: %w", err)
 	}
 
 	newer, err := updater.IsNewer(release.Version(), version.Version())
 	if err != nil {
-		return fmt.Errorf("version comparison: %w", err)
+		return fmt.Errorf("cmd: version comparison: %w", err)
 	}
 
 	if !newer {
@@ -97,7 +97,7 @@ func updateApply(ctx context.Context, force bool) error {
 	fmt.Printf("TeaNode %s (%s/%s)\n", version.Version(), runtime.GOOS, runtime.GOARCH)
 
 	if updater.IsContainerEnvironment() && !force {
-		return fmt.Errorf("container environment detected; self-update is not supported here (use --force to override)")
+		return fmt.Errorf("cmd: container environment detected; self-update is not supported here (use --force to override)")
 	}
 	if err := updater.ValidateApplyEnvironment(); err != nil {
 		return err
@@ -107,12 +107,12 @@ func updateApply(ctx context.Context, force bool) error {
 
 	release, err := updater.CheckLatestRelease(ctx)
 	if err != nil {
-		return fmt.Errorf("check failed: %w", err)
+		return fmt.Errorf("cmd: check failed: %w", err)
 	}
 
 	newer, err := updater.IsNewer(release.Version(), version.Version())
 	if err != nil {
-		return fmt.Errorf("version comparison: %w", err)
+		return fmt.Errorf("cmd: version comparison: %w", err)
 	}
 
 	if !newer {
@@ -124,14 +124,14 @@ func updateApply(ctx context.Context, force bool) error {
 
 	result, err := updater.DownloadAndVerify(ctx, release)
 	if err != nil {
-		return fmt.Errorf("download/verify failed: %w", err)
+		return fmt.Errorf("cmd: download/verify failed: %w", err)
 	}
 
 	fmt.Printf("Verified (SHA256: %s)\n", result.Checksum)
 	fmt.Println("Applying update...")
 
 	if err := updater.Apply(result.StagedPath); err != nil {
-		return fmt.Errorf("apply failed: %w", err)
+		return fmt.Errorf("cmd: apply failed: %w", err)
 	}
 
 	fmt.Printf("Successfully updated to %s.\n", release.Version())

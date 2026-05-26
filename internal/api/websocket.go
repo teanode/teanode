@@ -243,7 +243,7 @@ func (self *webSocketConnection) serve() {
 			continue
 		}
 
-		if frame.Type != "req" {
+		if frame.Type != "request" {
 			continue
 		}
 
@@ -303,7 +303,7 @@ func (self *webSocketConnection) dispatch(frame requestFrame) {
 }
 
 func (self *webSocketConnection) sendResponse(id string, payload interface{}) {
-	self.writeJSON(responseFrame{
+	self.writeJson(responseFrame{
 		Type:    "res",
 		ID:      id,
 		OK:      true,
@@ -312,7 +312,7 @@ func (self *webSocketConnection) sendResponse(id string, payload interface{}) {
 }
 
 func (self *webSocketConnection) sendError(id string, code int, message string) {
-	self.writeJSON(responseFrame{
+	self.writeJson(responseFrame{
 		Type:  "res",
 		ID:    id,
 		OK:    false,
@@ -321,14 +321,14 @@ func (self *webSocketConnection) sendError(id string, code int, message string) 
 }
 
 func (self *webSocketConnection) sendEvent(eventType pubsub.EventType, payload interface{}) {
-	self.writeJSON(eventFrame{
+	self.writeJson(eventFrame{
 		Type:    "event",
 		Event:   string(eventType),
 		Payload: payload,
 	})
 }
 
-func (self *webSocketConnection) writeJSON(value interface{}) {
+func (self *webSocketConnection) writeJson(value interface{}) {
 	data, err := json.Marshal(value)
 	if err != nil {
 		log.Errorf("ws json marshal error: %v", err)

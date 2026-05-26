@@ -12,24 +12,24 @@ func newTestSession() *Session {
 
 func TestCloseIdempotent(t *testing.T) {
 	s := newTestSession()
-	var wg sync.WaitGroup
+	var waitGroup sync.WaitGroup
 	for i := 0; i < 10; i++ {
-		wg.Add(1)
+		waitGroup.Add(1)
 		go func() {
-			defer wg.Done()
+			defer waitGroup.Done()
 			s.Close()
 		}()
 	}
-	wg.Wait()
+	waitGroup.Wait()
 }
 
 func TestConcurrentStateAccess(t *testing.T) {
 	s := newTestSession()
-	var wg sync.WaitGroup
+	var waitGroup sync.WaitGroup
 	for g := 0; g < 50; g++ {
-		wg.Add(1)
+		waitGroup.Add(1)
 		go func(i int) {
-			defer wg.Done()
+			defer waitGroup.Done()
 			for j := 0; j < 100; j++ {
 				s.SetCurrentRunID("run")
 				_ = s.GetCurrentRunID()
@@ -42,13 +42,13 @@ func TestConcurrentStateAccess(t *testing.T) {
 			}
 		}(g)
 	}
-	wg.Wait()
+	waitGroup.Wait()
 }
 
 func TestNonBlockingEnqueue(t *testing.T) {
 	s := newTestSession()
-	for i := 0; i < cap(s.audioOutCh); i++ {
-		s.audioOutCh <- []byte{1}
+	for i := 0; i < cap(s.audioOutChannel); i++ {
+		s.audioOutChannel <- []byte{1}
 	}
 	start := time.Now()
 	ok := s.enqueueAudioOut([]byte{2})
@@ -63,8 +63,8 @@ func TestNonBlockingEnqueue(t *testing.T) {
 func TestTriggerBargeInNonBlocking(t *testing.T) {
 	s := newTestSession()
 	s.SetCurrentRunID("run-1")
-	for i := 0; i < cap(s.audioOutCh); i++ {
-		s.audioOutCh <- []byte{1}
+	for i := 0; i < cap(s.audioOutChannel); i++ {
+		s.audioOutChannel <- []byte{1}
 	}
 	start := time.Now()
 	s.triggerBargeIn()
@@ -76,23 +76,23 @@ func TestTriggerBargeInNonBlocking(t *testing.T) {
 func TestTriggerBargeInClearsQueuedSpeechAndQueuesFlush(t *testing.T) {
 	s := newTestSession()
 	s.SetCurrentRunID("run-1")
-	s.SetCurrentResponseID("resp-1")
+	s.SetCurrentResponseID("response-1")
 
-	s.ttsInCh <- "old sentence"
-	s.ttsInCh <- ""
-	s.audioOutCh <- []byte{1}
-	s.audioOutCh <- []byte{2}
+	s.ttsInChannel <- "old sentence"
+	s.ttsInChannel <- ""
+	s.audioOutChannel <- []byte{1}
+	s.audioOutChannel <- []byte{2}
 
 	s.triggerBargeIn()
 
-	if got := len(s.ttsInCh); got != 0 {
+	if got := len(s.ttsInChannel); got != 0 {
 		t.Fatalf("expected empty tts queue after barge-in, got %d", got)
 	}
-	if got := len(s.audioOutCh); got != 1 {
+	if got := len(s.audioOutChannel); got != 1 {
 		t.Fatalf("expected only flush frame queued after barge-in, got %d items", got)
 	}
 
-	frame := <-s.audioOutCh
+	frame := <-s.audioOutChannel
 	parsed, err := ParseBinaryAudioFrame(frame)
 	if err != nil {
 		t.Fatalf("expected valid binary frame, got error: %v", err)
@@ -148,17 +148,17 @@ func TestPendingTurnQueueConcurrentAccess(t *testing.T) {
 	s := newTestSession()
 	s.maxPendingTurns = 8
 
-	var wg sync.WaitGroup
+	var waitGroup sync.WaitGroup
 	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
 			s.EnqueuePendingTurn("turn", "text")
-			if idx%2 == 0 {
+			if index%2 == 0 {
 				s.DequeuePendingTurn()
 			}
 			s.HasPendingTurns()
 		}(i)
 	}
-	wg.Wait()
+	waitGroup.Wait()
 }

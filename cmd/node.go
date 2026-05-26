@@ -46,7 +46,7 @@ import (
 )
 
 // ErrRestart is returned from the node command when a restart was requested.
-var ErrRestart = errors.New("restart requested")
+var ErrRestart = errors.New("cmd: restart requested")
 
 func NewNodeCommand() *cli.Command {
 	return &cli.Command{
@@ -117,16 +117,16 @@ func NewNodeCommand() *cli.Command {
 			if logFilePath != "" {
 				logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 				if err != nil {
-					return fmt.Errorf("open log file: %w", err)
+					return fmt.Errorf("cmd: open log file: %w", err)
 				}
 				fd := int(logFile.Fd())
 				if err := dup2(fd, int(os.Stdout.Fd())); err != nil {
 					_ = logFile.Close()
-					return fmt.Errorf("redirect stdout to log file: %w", err)
+					return fmt.Errorf("cmd: redirect stdout to log file: %w", err)
 				}
 				if err := dup2(fd, int(os.Stderr.Fd())); err != nil {
 					_ = logFile.Close()
-					return fmt.Errorf("redirect stderr to log file: %w", err)
+					return fmt.Errorf("cmd: redirect stderr to log file: %w", err)
 				}
 				_ = logFile.Close()
 			}
@@ -175,11 +175,11 @@ func NewNodeCommand() *cli.Command {
 				openedStore, err = fsstore.Open(fsstore.Options{DataDirectory: DataDirectoryFromContext(ctx)})
 			case store.BackendPostgres:
 				if postgresSettings == nil {
-					return fmt.Errorf("postgres settings are required")
+					return fmt.Errorf("cmd: postgres settings are required")
 				}
 				openedStore, err = dbstore.Open(*postgresSettings)
 			default:
-				return fmt.Errorf("unsupported store backend: %s", storeBackend)
+				return fmt.Errorf("cmd: unsupported store backend: %s", storeBackend)
 			}
 			if err != nil {
 				return err
@@ -328,7 +328,7 @@ func NewNodeCommand() *cli.Command {
 						if transactionError != nil {
 							return transactionError
 						}
-						return fmt.Errorf("user not found: %s", userId)
+						return fmt.Errorf("cmd: user not found: %s", userId)
 					}
 				}
 

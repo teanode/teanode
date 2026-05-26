@@ -81,7 +81,7 @@ func (self *todosTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *todosTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		ID         int    `json:"id"`
 		State      string `json:"state"`
@@ -91,38 +91,38 @@ func (self *todosTool) Execute(ctx context.Context, rawArguments string) (string
 		GroupID    int    `json:"group_id"`
 		TargetType string `json:"target_type"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("gitlab: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		commandArgs := []string{"api", "todos", "--method", "GET", "--paginate"}
-		if args.State != "" {
-			commandArgs = append(commandArgs, "-F", "state="+args.State)
+		commandArguments := []string{"api", "todos", "--method", "GET", "--paginate"}
+		if arguments.State != "" {
+			commandArguments = append(commandArguments, "-F", "state="+arguments.State)
 		}
-		if args.ActionType != "" {
-			commandArgs = append(commandArgs, "-F", "action="+args.ActionType)
+		if arguments.ActionType != "" {
+			commandArguments = append(commandArguments, "-F", "action="+arguments.ActionType)
 		}
-		if args.AuthorID > 0 {
-			commandArgs = append(commandArgs, "-F", "author_id="+strconv.Itoa(args.AuthorID))
+		if arguments.AuthorID > 0 {
+			commandArguments = append(commandArguments, "-F", "author_id="+strconv.Itoa(arguments.AuthorID))
 		}
-		if args.ProjectID > 0 {
-			commandArgs = append(commandArgs, "-F", "project_id="+strconv.Itoa(args.ProjectID))
+		if arguments.ProjectID > 0 {
+			commandArguments = append(commandArguments, "-F", "project_id="+strconv.Itoa(arguments.ProjectID))
 		}
-		if args.GroupID > 0 {
-			commandArgs = append(commandArgs, "-F", "group_id="+strconv.Itoa(args.GroupID))
+		if arguments.GroupID > 0 {
+			commandArguments = append(commandArguments, "-F", "group_id="+strconv.Itoa(arguments.GroupID))
 		}
-		if args.TargetType != "" {
-			commandArgs = append(commandArgs, "-F", "type="+args.TargetType)
+		if arguments.TargetType != "" {
+			commandArguments = append(commandArguments, "-F", "type="+arguments.TargetType)
 		}
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	case "mark_done":
-		if args.ID == 0 {
-			return "", fmt.Errorf("id is required for mark_done action")
+		if arguments.ID == 0 {
+			return "", fmt.Errorf("gitlab: id is required for mark_done action")
 		}
-		output, err := execGitLab(ctx, self.runner, self.binary, "api", "todos/"+strconv.Itoa(args.ID)+"/mark_as_done", "--method", "POST")
+		output, err := execGitLab(ctx, self.runner, self.binary, "api", "todos/"+strconv.Itoa(arguments.ID)+"/mark_as_done", "--method", "POST")
 		if err != nil {
 			return "", err
 		}
@@ -136,6 +136,6 @@ func (self *todosTool) Execute(ctx context.Context, rawArguments string) (string
 		return wrapPlainOutput("marked_all_done", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown todos action: %s", args.Action)
+		return "", fmt.Errorf("gitlab: unknown todos action: %s", arguments.Action)
 	}
 }

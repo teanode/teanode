@@ -17,13 +17,13 @@ import (
 // and an onboarding seed message, all within the caller-provided transaction.
 func CreateUser(ctx context.Context, transaction store.Transaction, user *models.User) (*models.User, error) {
 	if user == nil {
-		return nil, fmt.Errorf("user is required")
+		return nil, fmt.Errorf("onboarding: user is required")
 	}
 
 	// Resolve default agent ID: prefer "main", otherwise earliest CreatedAt.
 	agents, err := transaction.ListAgents(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("listing agents: %w", err)
+		return nil, fmt.Errorf("onboarding: listing agents: %w", err)
 	}
 	defaultAgentId := ""
 	if len(agents) > 0 {
@@ -57,7 +57,7 @@ func CreateUser(ctx context.Context, transaction store.Transaction, user *models
 	// Create the user with seed workspace files.
 	createdUser, createUserError := transaction.CreateUser(ctx, user, seedWorkspaceFiles, nil)
 	if createUserError != nil {
-		return nil, fmt.Errorf("creating user: %w", createUserError)
+		return nil, fmt.Errorf("onboarding: creating user: %w", createUserError)
 	}
 
 	// Create default conversation.
@@ -70,7 +70,7 @@ func CreateUser(ctx context.Context, transaction store.Transaction, user *models
 	}
 	createdConversation, err := transaction.CreateConversation(ctx, conversation, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating default conversation: %w", err)
+		return nil, fmt.Errorf("onboarding: creating default conversation: %w", err)
 	}
 
 	// Create seed onboarding message.
@@ -82,7 +82,7 @@ func CreateUser(ctx context.Context, transaction store.Transaction, user *models
 		Content:        content,
 	}
 	if _, err := transaction.CreateConversationMessage(ctx, message, nil); err != nil {
-		return nil, fmt.Errorf("creating seed message: %w", err)
+		return nil, fmt.Errorf("onboarding: creating seed message: %w", err)
 	}
 
 	return createdUser, nil

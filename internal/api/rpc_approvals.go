@@ -13,8 +13,8 @@ func (self *webSocketConnection) handleApprovalsList(frame requestFrame) (interf
 	var parameters struct {
 		ConversationID string `json:"conversationId"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &parameters)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
 	if parameters.ConversationID == "" {
 		return nil, rpcError(400, "conversationId is required")
@@ -55,8 +55,8 @@ func (self *webSocketConnection) handleApprovalsResolve(frame requestFrame) (int
 	var parameters struct {
 		Verdicts []verdictEntry `json:"verdicts"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &parameters)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
 
 	verdicts := parameters.Verdicts

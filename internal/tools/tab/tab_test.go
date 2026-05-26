@@ -716,7 +716,7 @@ func TestTabTool_Eval_ErrorResult(t *testing.T) {
 	}
 }
 
-// ---- ref-based action tests ----
+// ---- reference-based action tests ----
 
 func TestTabTool_ClickRef_RefRequired(t *testing.T) {
 	broker := attachedBroker()
@@ -728,8 +728,8 @@ func TestTabTool_ClickRef_RefRequired(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(parseError(result), "ref is required") {
-		t.Errorf("expected 'ref is required' error, got: %s", result)
+	if !strings.Contains(parseError(result), "reference is required") {
+		t.Errorf("expected 'reference is required' error, got: %s", result)
 	}
 }
 
@@ -738,9 +738,9 @@ func TestTabTool_ClickRef_HappyPath(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, tabs.ToolCallResult{Result: `{"ref":1,"role":"button","name":"Submit","clicked":true}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"reference":1,"role":"button","name":"Submit","clicked":true}`})
 
-	result, err := tool.Execute(ctx, `{"action":"clickRef","ref":1}`)
+	result, err := tool.Execute(ctx, `{"action":"clickRef","reference":1}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -759,8 +759,8 @@ func TestTabTool_TypeRef_RefRequired(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(parseError(result), "ref is required") {
-		t.Errorf("expected 'ref is required' error, got: %s", result)
+	if !strings.Contains(parseError(result), "reference is required") {
+		t.Errorf("expected 'reference is required' error, got: %s", result)
 	}
 }
 
@@ -769,7 +769,7 @@ func TestTabTool_TypeRef_TextRequired(t *testing.T) {
 	ctx := testContext(broker)
 
 	tool := &tabTool{}
-	result, err := tool.Execute(ctx, `{"action":"typeRef","ref":1}`)
+	result, err := tool.Execute(ctx, `{"action":"typeRef","reference":1}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -784,9 +784,9 @@ func TestTabTool_TypeRef_HappyPath(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, tabs.ToolCallResult{Result: `{"ref":2,"role":"textbox","text":"hello","clearFirst":false}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"reference":2,"role":"textbox","text":"hello","clearFirst":false}`})
 
-	result, err := tool.Execute(ctx, `{"action":"typeRef","ref":2,"text":"hello"}`)
+	result, err := tool.Execute(ctx, `{"action":"typeRef","reference":2,"text":"hello"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -805,8 +805,8 @@ func TestTabTool_HoverRef_RefRequired(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(parseError(result), "ref is required") {
-		t.Errorf("expected 'ref is required' error, got: %s", result)
+	if !strings.Contains(parseError(result), "reference is required") {
+		t.Errorf("expected 'reference is required' error, got: %s", result)
 	}
 }
 
@@ -820,8 +820,8 @@ func TestTabTool_SelectOption_RefRequired(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(parseError(result), "ref is required") {
-		t.Errorf("expected 'ref is required' error, got: %s", result)
+	if !strings.Contains(parseError(result), "reference is required") {
+		t.Errorf("expected 'reference is required' error, got: %s", result)
 	}
 }
 
@@ -830,7 +830,7 @@ func TestTabTool_SelectOption_OptionRequired(t *testing.T) {
 	ctx := testContext(broker)
 
 	tool := &tabTool{}
-	result, err := tool.Execute(ctx, `{"action":"selectOption","ref":1}`)
+	result, err := tool.Execute(ctx, `{"action":"selectOption","reference":1}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -845,9 +845,9 @@ func TestTabTool_SelectOption_HappyPath(t *testing.T) {
 	ctx := testContext(broker)
 	tool := &tabTool{}
 
-	resolvePending(broker, tabs.ToolCallResult{Result: `{"ref":3,"selectedValue":"bar","selectedIndex":1,"selectedText":"Bar"}`})
+	resolvePending(broker, tabs.ToolCallResult{Result: `{"reference":3,"selectedValue":"bar","selectedIndex":1,"selectedText":"Bar"}`})
 
-	result, err := tool.Execute(ctx, `{"action":"selectOption","ref":3,"optionValue":"bar"}`)
+	result, err := tool.Execute(ctx, `{"action":"selectOption","reference":3,"optionValue":"bar"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -965,7 +965,7 @@ func TestTabTool_ExecuteSteps_HappyPath(t *testing.T) {
 		Result: `{"stepsExecuted":2,"totalSteps":2,"results":[{"step":1,"action":"snapshot"},{"step":2,"action":"clickRef"}]}`,
 	})
 
-	result, err := tool.Execute(ctx, `{"action":"executeSteps","steps":[{"action":"snapshot","mode":"interactive"},{"action":"clickRef","ref":1}]}`)
+	result, err := tool.Execute(ctx, `{"action":"executeSteps","steps":[{"action":"snapshot","mode":"interactive"},{"action":"clickRef","reference":1}]}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -982,15 +982,15 @@ func TestTabTool_Snapshot_InteractiveMode(t *testing.T) {
 	tool := &tabTool{}
 
 	resolvePending(broker, tabs.ToolCallResult{
-		Result: `{"tree":"page: Test\n  [ref=1] button \"Click\"","refCount":1,"pageUrl":"https://example.com","title":"Test","truncated":false}`,
+		Result: `{"tree":"page: Test\n  [reference=1] button \"Click\"","refCount":1,"pageUrl":"https://example.com","title":"Test","truncated":false}`,
 	})
 
 	result, err := tool.Execute(ctx, `{"action":"snapshot","mode":"interactive"}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result, "ref=1") {
-		t.Errorf("expected ref marker in result, got: %s", result)
+	if !strings.Contains(result, "reference=1") {
+		t.Errorf("expected reference marker in result, got: %s", result)
 	}
 	if !strings.Contains(result, `"refCount":1`) {
 		t.Errorf("expected refCount in result, got: %s", result)
@@ -1034,8 +1034,8 @@ func TestTabTool_Definition_ContainsAllActions(t *testing.T) {
 	tool := &tabTool{}
 	def := tool.Definition()
 
-	params := def.Function.Parameters.(map[string]interface{})
-	props := params["properties"].(map[string]interface{})
+	parameters := def.Function.Parameters.(map[string]interface{})
+	props := parameters["properties"].(map[string]interface{})
 	actionProp := props["action"].(map[string]interface{})
 	actions := actionProp["enum"].([]string)
 
@@ -1062,7 +1062,7 @@ func TestTabTool_Definition_ContainsAllActions(t *testing.T) {
 	for _, param := range []string{
 		"key", "value", "selector", "mode", "all", "code",
 		"path", "secure", "httpOnly", "sameSite", "expirationDate",
-		"ref", "text", "clearFirst", "optionValue", "optionIndex",
+		"reference", "text", "clearFirst", "optionValue", "optionIndex",
 		"waitMode", "steps",
 	} {
 		if _, ok := props[param]; !ok {

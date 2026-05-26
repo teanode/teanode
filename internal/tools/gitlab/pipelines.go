@@ -66,64 +66,64 @@ func (self *pipelinesTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *pipelinesTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		PipelineID string `json:"pipeline_id"`
 		Branch     string `json:"branch"`
 		PerPage    int    `json:"per_page"`
 		Repository string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("gitlab: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		perPage := args.PerPage
+		perPage := arguments.PerPage
 		if perPage <= 0 {
 			perPage = 30
 		}
-		commandArgs := []string{"ci", "list",
+		commandArguments := []string{"ci", "list",
 			"--output", "json",
 			"--per-page", strconv.Itoa(perPage)}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	case "view":
-		if args.PipelineID == "" {
-			return "", fmt.Errorf("pipeline_id is required for view action")
+		if arguments.PipelineID == "" {
+			return "", fmt.Errorf("gitlab: pipeline_id is required for view action")
 		}
-		commandArgs := []string{"ci", "get",
-			"--pipeline-id", args.PipelineID,
+		commandArguments := []string{"ci", "get",
+			"--pipeline-id", arguments.PipelineID,
 			"--output", "json"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	case "run":
-		commandArgs := []string{"ci", "run"}
-		if args.Branch != "" {
-			commandArgs = append(commandArgs, "--branch", args.Branch)
+		commandArguments := []string{"ci", "run"}
+		if arguments.Branch != "" {
+			commandArguments = append(commandArguments, "--branch", arguments.Branch)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("triggered", output), nil
 
 	case "retry":
-		if args.PipelineID == "" {
-			return "", fmt.Errorf("pipeline_id is required for retry action")
+		if arguments.PipelineID == "" {
+			return "", fmt.Errorf("gitlab: pipeline_id is required for retry action")
 		}
-		commandArgs := []string{"ci", "retry", args.PipelineID}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"ci", "retry", arguments.PipelineID}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("retried", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown pipelines action: %s", args.Action)
+		return "", fmt.Errorf("gitlab: unknown pipelines action: %s", arguments.Action)
 	}
 }

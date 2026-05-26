@@ -28,8 +28,8 @@ func (self *webSocketConnection) handleSkillsLibrarySearch(frame requestFrame) (
 	var parameters struct {
 		Query string `json:"query"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &parameters)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
 	results, err := skills.Search(self.ctx, parameters.Query)
 	if err != nil {
@@ -49,8 +49,8 @@ func (self *webSocketConnection) handleSkillsInstall(frame requestFrame) (interf
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &parameters)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
 	if parameters.Name == "" {
 		return nil, rpcError(400, "name is required")
@@ -121,8 +121,8 @@ func (self *webSocketConnection) handleSkillsUninstall(frame requestFrame) (inte
 	var parameters struct {
 		Name string `json:"name"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &parameters)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
 	if parameters.Name == "" {
 		return nil, rpcError(400, "name is required")
@@ -145,8 +145,8 @@ func (self *webSocketConnection) handleSkillsUpdate(frame requestFrame) (interfa
 	var parameters struct {
 		Name string `json:"name"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &parameters)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
 	updated, err := skills.Update(self.ctx, parameters.Name)
 	if err != nil {
@@ -166,8 +166,8 @@ func (self *webSocketConnection) handleSkillsSetEnabled(frame requestFrame) (int
 		Name    string `json:"name"`
 		Enabled *bool  `json:"enabled"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &parameters)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
 	if parameters.Name == "" {
 		return nil, rpcError(400, "name is required")
@@ -268,8 +268,8 @@ func (self *webSocketConnection) handleSecretsSet(frame requestFrame) (interface
 		Key   string `json:"key"`
 		Value string `json:"value"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &parameters)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
 	if parameters.Key == "" {
 		return nil, rpcError(400, "key is required")

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const cacheTTL = 5 * time.Second
+const cacheTtl = 5 * time.Second
 
 var (
 	cacheMutex     sync.Mutex
@@ -26,7 +26,7 @@ func LocalLocation() *time.Location {
 	now := time.Now()
 
 	cacheMutex.Lock()
-	if cachedLocation != nil && now.Sub(cachedAt) < cacheTTL {
+	if cachedLocation != nil && now.Sub(cachedAt) < cacheTtl {
 		location := cachedLocation
 		cacheMutex.Unlock()
 		return location
@@ -91,8 +91,8 @@ func resolveLocalLocation() *time.Location {
 // Example: "/usr/share/zoneinfo/America/New_York" -> "America/New_York"
 func zoneNameFromPath(path string) string {
 	const marker = "zoneinfo/"
-	if idx := strings.Index(path, marker); idx != -1 {
-		return path[idx+len(marker):]
+	if index := strings.Index(path, marker); index != -1 {
+		return path[index+len(marker):]
 	}
 	return ""
 }

@@ -22,7 +22,7 @@ type accessibilityProperty struct {
 }
 
 // accessibilityNodeExt is an accessibility tree node with the backendDOMNodeId
-// field needed for ref-based interactions (used by the AX fallback path).
+// field needed for reference-based interactions (used by the AX fallback path).
 type accessibilityNodeExt struct {
 	NodeID           string                  `json:"nodeId"`
 	ParentID         string                  `json:"parentId"`
@@ -45,15 +45,15 @@ type snapshotResult struct {
 
 // domSnapshotResponse is the structure returned by the DOM walker JavaScript.
 type domSnapshotResponse struct {
-	Tree     string           `json:"tree"`
-	RefCount int              `json:"refCount"`
-	Refs     []domRefMetadata `json:"refs"`
-	PageURL  string           `json:"pageUrl"`
-	Title    string           `json:"title"`
+	Tree     string                 `json:"tree"`
+	RefCount int                    `json:"refCount"`
+	Refs     []domReferenceMetadata `json:"refs"`
+	PageURL  string                 `json:"pageUrl"`
+	Title    string                 `json:"title"`
 }
 
-// domRefMetadata holds the role and name for a single DOM-based ref.
-type domRefMetadata struct {
+// domReferenceMetadata holds the role and name for a single DOM-based reference.
+type domReferenceMetadata struct {
 	Role string `json:"role"`
 	Name string `json:"name"`
 }
@@ -61,7 +61,7 @@ type domRefMetadata struct {
 // executeEnhancedSnapshot performs a DOM-based snapshot that assigns stable
 // integer refs to interactive elements. The refs are stored both in the
 // browser's window.__teanodeRefs array (for DOM resolution) and in
-// globalRefStore (for metadata like role and name).
+// globalReferenceStore (for metadata like role and name).
 func executeEnhancedSnapshot(ctx context.Context, browser browsers.Browser, connectionId string) (string, error) {
 	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
@@ -73,7 +73,7 @@ func executeEnhancedSnapshot(ctx context.Context, browser browsers.Browser, conn
 		"returnByValue": true,
 	}, sessionId)
 	if err != nil {
-		return "", fmt.Errorf("DOM snapshot evaluation: %w", err)
+		return "", fmt.Errorf("browser: DOM snapshot evaluation: %w", err)
 	}
 
 	var evalResponse struct {
@@ -85,27 +85,27 @@ func executeEnhancedSnapshot(ctx context.Context, browser browsers.Browser, conn
 		} `json:"exceptionDetails"`
 	}
 	if err := json.Unmarshal(result, &evalResponse); err != nil {
-		return "", fmt.Errorf("parsing DOM snapshot response: %w", err)
+		return "", fmt.Errorf("browser: parsing DOM snapshot response: %w", err)
 	}
 	if evalResponse.ExceptionDetails != nil {
-		return "", fmt.Errorf("DOM snapshot error: %s", evalResponse.ExceptionDetails.Text)
+		return "", fmt.Errorf("browser: DOM snapshot error: %s", evalResponse.ExceptionDetails.Text)
 	}
 
 	var snapshot domSnapshotResponse
 	if err := json.Unmarshal(evalResponse.Result.Value, &snapshot); err != nil {
-		return "", fmt.Errorf("parsing DOM snapshot value: %w", err)
+		return "", fmt.Errorf("browser: parsing DOM snapshot value: %w", err)
 	}
 
-	// Populate the server-side ref store with metadata from the DOM walker.
+	// Populate the server-side reference store with metadata from the DOM walker.
 	// The actual element references live in window.__teanodeRefs in the browser.
-	refs := make(map[int]refEntry, len(snapshot.Refs))
+	refs := make(map[int]referenceEntry, len(snapshot.Refs))
 	for index, metadata := range snapshot.Refs {
-		refs[index+1] = refEntry{
+		refs[index+1] = referenceEntry{
 			Role: metadata.Role,
 			Name: metadata.Name,
 		}
 	}
-	globalRefStore.store(sessionId, refs)
+	globalReferenceStore.store(sessionId, refs)
 
 	output := snapshotResult{
 		Tree:     snapshot.Tree,
@@ -117,28 +117,28 @@ func executeEnhancedSnapshot(ctx context.Context, browser browsers.Browser, conn
 	return string(data), nil
 }
 
-// buildAXTreeWithRefs builds a text accessibility tree with [ref=N] markers on
+// buildAxTreeWithRefs builds a text accessibility tree with [reference=N] markers on
 // interactive elements from CDP Accessibility.getFullAXTree nodes. This is the
 // AX-based tree builder, kept as a tested utility. The primary snapshot path
 // now uses the DOM-based approach (executeEnhancedSnapshot) which is more
 // reliable in headless Chrome environments.
-func buildAXTreeWithRefs(nodes []accessibilityNodeExt) (string, map[int]refEntry) {
+func buildAxTreeWithRefs(nodes []accessibilityNodeExt) (string, map[int]referenceEntry) {
 	if len(nodes) == 0 {
 		return "(empty accessibility tree)", nil
 	}
 
-	nodesByID := make(map[string]*accessibilityNodeExt, len(nodes))
+	nodesById := make(map[string]*accessibilityNodeExt, len(nodes))
 	for index := range nodes {
-		nodesByID[nodes[index].NodeID] = &nodes[index]
+		nodesById[nodes[index].NodeID] = &nodes[index]
 	}
 
-	refs := make(map[int]refEntry)
-	nextRef := 1
+	refs := make(map[int]referenceEntry)
+	nextReference := 1
 
 	var builder strings.Builder
 	var walk func(id string, depth int)
 	walk = func(id string, depth int) {
-		node, ok := nodesByID[id]
+		node, ok := nodesById[id]
 		if !ok || node.Ignored {
 			return
 		}
@@ -156,20 +156,20 @@ func buildAXTreeWithRefs(nodes []accessibilityNodeExt) (string, map[int]refEntry
 
 		indent := strings.Repeat("  ", depth)
 
-		// Assign a ref to interactive elements that have a backendDOMNodeId.
-		var refMarker string
+		// Assign a reference to interactive elements that have a backendDOMNodeId.
+		var referenceMarker string
 		if isInteractiveRole(role) && node.BackendDOMNodeID != 0 {
-			ref := nextRef
-			nextRef++
-			refs[ref] = refEntry{
+			reference := nextReference
+			nextReference++
+			refs[reference] = referenceEntry{
 				BackendDOMNodeID: node.BackendDOMNodeID,
 				Role:             role,
 				Name:             name,
 			}
-			refMarker = fmt.Sprintf("[ref=%d] ", ref)
+			referenceMarker = fmt.Sprintf("[reference=%d] ", reference)
 		}
 
-		line := indent + refMarker + role
+		line := indent + referenceMarker + role
 		if name != "" {
 			line += fmt.Sprintf(" %q", name)
 		}

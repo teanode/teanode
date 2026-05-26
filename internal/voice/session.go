@@ -10,6 +10,7 @@ import (
 
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/pubsub"
+	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/security"
 )
 
@@ -53,28 +54,28 @@ type Session struct {
 	AudioOut       AudioFormat
 	Features       Features
 
-	dispatcher   Dispatcher
-	events       *pubsub.PubSub
-	sendJsonFn   func(any)
-	sendBinaryFn func([]byte)
+	dispatcher         Dispatcher
+	events             *pubsub.PubSub
+	sendJsonFunction   func(any)
+	sendBinaryFunction func([]byte)
 
-	closeOnce       sync.Once
-	wg              sync.WaitGroup
-	transcriptionWg sync.WaitGroup // tracks goroutines spawned by commitCapturedTurn / InputCommit
+	closeOnce              sync.Once
+	waitGroup              sync.WaitGroup
+	transcriptionWaitGroup sync.WaitGroup // tracks goroutines spawned by commitCapturedTurn / InputCommit
 
 	// Barge-in generation: bargeInGen is incremented by startNewTurn each time
 	// a new turn begins. bargeInFired is set to newGen-1 by startNewTurn,
 	// establishing the precondition for triggerBargeIn's CAS(gen-1 → gen).
 	// That CAS succeeds exactly once per generation even under concurrent
 	// callers, eliminating the sync.Once reset race that existed when
-	// startNewTurn wrote bargeInOnce = sync.Once{} under stateMu.
+	// startNewTurn wrote bargeInOnce = sync.Once{} under stateMutex.
 	// Invariant: bargeInFired == bargeInGen-1 means "not yet fired this turn".
 	// bargeInGen starts at 1; bargeInFired starts at 0, so the first turn's
 	// CAS(0 → 1) works without an explicit startNewTurn call.
 	bargeInGen   atomic.Uint64
 	bargeInFired atomic.Uint64
 
-	stateMu sync.RWMutex // guards all fields below
+	stateMutex sync.RWMutex // guards all fields below
 
 	// Turn lifecycle: identity and commit tracking.
 	currentTurnId      string
@@ -94,19 +95,19 @@ type Session struct {
 	runTurn               map[string]string
 
 	// Speech boundary: VAD and barge-in state.
-	speechReady     bool
-	speechStartedAt time.Time
-	userSpeaking    bool
-	userSpeakingCh  chan struct{} // open while speaking; closed/nil when silent
-	lastBargeInAt   time.Time
-	strategy        TurnStrategy
+	speechReady         bool
+	speechStartedAt     time.Time
+	userSpeaking        bool
+	userSpeakingChannel chan struct{} // open while speaking; closed/nil when silent
+	lastBargeInAt       time.Time
+	strategy            TurnStrategy
 
 	// Streaming STT: live transcription stream and interim results.
-	explicitAudioBuf     []byte
-	streamingSTTStream   providers.TranscribeStream
+	explicitAudioBuffer  []byte
+	streamingSttStream   providers.TranscribeStream
 	interimText          string
 	interimBestText      string
-	streamingFinalTurnID string
+	streamingFinalTurnId string
 	streamingFinalText   string
 
 	// Observers: registered turn lifecycle listeners.
@@ -115,10 +116,10 @@ type Session struct {
 	outSeq atomic.Uint64
 	inSeq  atomic.Uint64
 
-	audioInCh  chan []byte
-	ttsInCh    chan string
-	audioOutCh chan []byte
-	doneCh     chan struct{}
+	audioInChannel  chan []byte
+	ttsInChannel    chan string
+	audioOutChannel chan []byte
+	doneChannel     chan struct{}
 }
 
 const (
@@ -139,17 +140,17 @@ func NewSession(id, conversationId, agentId string, in, out AudioFormat, feature
 		Features:           features,
 		dispatcher:         dispatcher,
 		events:             events,
-		sendJsonFn:         sendJson,
-		sendBinaryFn:       sendBinary,
+		sendJsonFunction:   sendJson,
+		sendBinaryFunction: sendBinary,
 		transcribeInFlight: make(map[string]struct{}),
 		committedTurns:     make(map[string]struct{}),
 		canceledRuns:       make(map[string]struct{}),
 		runTurn:            make(map[string]string),
 		maxPendingTurns:    defaultMaxPendingTurns,
-		audioInCh:          make(chan []byte, defaultAudioInBufferFrames),
-		ttsInCh:            make(chan string, defaultTtsSentenceBuffer),
-		audioOutCh:         make(chan []byte, defaultAudioOutBufferFrames),
-		doneCh:             make(chan struct{}),
+		audioInChannel:     make(chan []byte, defaultAudioInBufferFrames),
+		ttsInChannel:       make(chan string, defaultTtsSentenceBuffer),
+		audioOutChannel:    make(chan []byte, defaultAudioOutBufferFrames),
+		doneChannel:        make(chan struct{}),
 		strategy:           LegacyStrategy{},
 	}
 	if strings.EqualFold(features.TurnStrategy, "balanced") {
@@ -180,9 +181,9 @@ func (self *Session) Close() {
 		if stream := self.getStreamingTranscribeStream(); stream != nil {
 			_ = stream.Close()
 		}
-		close(self.doneCh)
-		self.wg.Wait()
-		self.transcriptionWg.Wait()
+		close(self.doneChannel)
+		self.waitGroup.Wait()
+		self.transcriptionWaitGroup.Wait()
 	})
 }
 
@@ -192,7 +193,7 @@ func (self *Session) NextOutSeq() uint64 {
 
 func (self *Session) enqueueAudioOut(data []byte) bool {
 	select {
-	case self.audioOutCh <- data:
+	case self.audioOutChannel <- data:
 		return true
 	default:
 		pipelineLog.Warningf("voice audioOut queue full: session=%s dropped_bytes=%d", self.ID, len(data))
@@ -202,7 +203,7 @@ func (self *Session) enqueueAudioOut(data []byte) bool {
 
 func (self *Session) enqueueAudioIn(data []byte) bool {
 	select {
-	case self.audioInCh <- data:
+	case self.audioInChannel <- data:
 		return true
 	default:
 		pipelineLog.Warningf("voice audioIn queue full: session=%s dropped_bytes=%d", self.ID, len(data))
@@ -217,14 +218,14 @@ func (self *Session) HandleInputBinaryFrame(raw []byte) error {
 		return err
 	}
 	if frame.FrameType != FrameTypeAudioIn {
-		return errors.New("expected audio_in frame")
+		return errors.New("voice: expected audio_in frame")
 	}
 	self.inSeq.Store(frame.Seq)
 	if frame.Seq%100 == 0 {
 		pipelineLog.Debugf("voice input frame: session=%s seq=%d payload_bytes=%d", self.ID, frame.Seq, len(frame.Data))
 	}
 	if !self.enqueueAudioIn(frame.Data) {
-		return errors.New("audio input queue full")
+		return errors.New("voice: audio input queue full")
 	}
 	return nil
 }
@@ -269,9 +270,10 @@ func (self *Session) InputCommit(reason string) {
 	if !self.TryStartTurnTranscription(turnId) {
 		return
 	}
-	self.transcriptionWg.Add(1)
+	self.transcriptionWaitGroup.Add(1)
 	go func(tid string, captured []byte) {
-		defer self.transcriptionWg.Done()
+		defer deferutil.Recover()
+		defer self.transcriptionWaitGroup.Done()
 		defer self.FinishTurnTranscription(tid)
 		self.transcribeAndSend(tid, captured)
 	}(turnId, audio)
@@ -284,10 +286,10 @@ func (self *Session) CancelResponse() {
 }
 
 func (self *Session) sendVoiceEvent(eventType string, payload interface{}) {
-	if self.sendJsonFn == nil {
+	if self.sendJsonFunction == nil {
 		return
 	}
-	self.sendJsonFn(map[string]interface{}{
+	self.sendJsonFunction(map[string]interface{}{
 		"v":         1,
 		"type":      eventType,
 		"sessionId": self.ID,
@@ -298,26 +300,26 @@ func (self *Session) sendVoiceEvent(eventType string, payload interface{}) {
 }
 
 func (self *Session) GetCurrentTurnID() string {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return self.currentTurnId
 }
 
 func (self *Session) SetCurrentTurnID(id string) {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	self.currentTurnId = id
 }
 
 func (self *Session) GetCurrentRunID() string {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return self.currentRunId
 }
 
 func (self *Session) SetCurrentRunID(id string) {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	self.currentRunId = id
 }
 
@@ -329,17 +331,17 @@ func (self *Session) MapRunToTurn(runId, turnId string) {
 	if runId == "" || turnId == "" {
 		return
 	}
-	self.stateMu.Lock()
+	self.stateMutex.Lock()
 	self.runTurn[runId] = turnId
-	self.stateMu.Unlock()
+	self.stateMutex.Unlock()
 }
 
 func (self *Session) TurnIDForRun(runId string) string {
 	if runId == "" {
 		return ""
 	}
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return self.runTurn[runId]
 }
 
@@ -347,20 +349,20 @@ func (self *Session) ClearRunTurn(runId string) {
 	if runId == "" {
 		return
 	}
-	self.stateMu.Lock()
+	self.stateMutex.Lock()
 	delete(self.runTurn, runId)
-	self.stateMu.Unlock()
+	self.stateMutex.Unlock()
 }
 
 func (self *Session) GetCurrentResponseID() string {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return self.currentResponseId
 }
 
 func (self *Session) SetCurrentResponseID(id string) {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	self.currentResponseId = id
 	if id == "" {
 		self.currentResponseTurnId = ""
@@ -372,42 +374,42 @@ func (self *Session) ClearCurrentResponse() {
 }
 
 func (self *Session) GetCurrentResponseTurnID() string {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return self.currentResponseTurnId
 }
 
 func (self *Session) SetCurrentResponseTurnID(turnId string) {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	self.currentResponseTurnId = turnId
 }
 
 func (self *Session) GetLastCommittedTranscript() string {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return self.lastCommittedText
 }
 
 func (self *Session) SetLastCommittedTranscript(text string) {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	self.lastCommittedText = text
 }
 
-func (self *Session) SwapRunCancel(cancelFn func()) (prev func()) {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+func (self *Session) SwapRunCancel(cancelFunction func()) (prev func()) {
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	prev = self.runCancel
-	self.runCancel = cancelFn
+	self.runCancel = cancelFunction
 	return prev
 }
 
-func (self *Session) SwapTTSCancel(cancelFn func()) (prev func()) {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+func (self *Session) SwapTTSCancel(cancelFunction func()) (prev func()) {
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	prev = self.ttsCancel
-	self.ttsCancel = cancelFn
+	self.ttsCancel = cancelFunction
 	return prev
 }
 
@@ -419,8 +421,8 @@ func (self *Session) TryStartTurnTranscription(turnId string) bool {
 	if turnId == "" {
 		return false
 	}
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	if _, exists := self.committedTurns[turnId]; exists {
 		return false
 	}
@@ -435,14 +437,14 @@ func (self *Session) FinishTurnTranscription(turnId string) {
 	if turnId == "" {
 		return
 	}
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	delete(self.transcribeInFlight, turnId)
 }
 
 func (self *Session) HasTranscriptionInFlight() bool {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return len(self.transcribeInFlight) > 0
 }
 
@@ -450,8 +452,8 @@ func (self *Session) IsTurnCommitted(turnId string) bool {
 	if turnId == "" {
 		return false
 	}
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	_, exists := self.committedTurns[turnId]
 	return exists
 }
@@ -460,8 +462,8 @@ func (self *Session) MarkTurnCommitted(turnId string) {
 	if turnId == "" {
 		return
 	}
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	self.committedTurns[turnId] = struct{}{}
 }
 
@@ -469,8 +471,8 @@ func (self *Session) MarkRunCanceled(runId string) {
 	if runId == "" {
 		return
 	}
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	self.canceledRuns[runId] = struct{}{}
 }
 
@@ -478,8 +480,8 @@ func (self *Session) IsRunCanceled(runId string) bool {
 	if runId == "" {
 		return false
 	}
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	_, exists := self.canceledRuns[runId]
 	return exists
 }
@@ -488,8 +490,8 @@ func (self *Session) ClearCanceledRun(runId string) {
 	if runId == "" {
 		return
 	}
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	delete(self.canceledRuns, runId)
 }
 
@@ -497,8 +499,8 @@ func (self *Session) EnqueuePendingTurn(turnId, text string) (dropped *PendingTu
 	if turnId == "" || text == "" {
 		return nil, 0
 	}
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 
 	maxPending := self.maxPendingTurns
 	if maxPending <= 0 {
@@ -518,8 +520,8 @@ func (self *Session) EnqueuePendingTurn(turnId, text string) (dropped *PendingTu
 }
 
 func (self *Session) DequeuePendingTurn() (PendingTurn, bool) {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	if len(self.pendingTurns) == 0 {
 		return PendingTurn{}, false
 	}
@@ -529,14 +531,14 @@ func (self *Session) DequeuePendingTurn() (PendingTurn, bool) {
 }
 
 func (self *Session) HasPendingTurns() bool {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return len(self.pendingTurns) > 0
 }
 
 func (self *Session) DropOldestPendingTurn() (PendingTurn, bool) {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
 	if len(self.pendingTurns) == 0 {
 		return PendingTurn{}, false
 	}
@@ -549,37 +551,37 @@ func (self *Session) accumulateExplicitAudio(frame []byte) {
 	if len(frame) == 0 {
 		return
 	}
-	self.stateMu.Lock()
-	self.explicitAudioBuf = append(self.explicitAudioBuf, frame...)
-	self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	self.explicitAudioBuffer = append(self.explicitAudioBuffer, frame...)
+	self.stateMutex.Unlock()
 }
 
 func (self *Session) setSpeechReady(ready bool) {
-	self.stateMu.Lock()
+	self.stateMutex.Lock()
 	self.speechReady = ready
-	self.stateMu.Unlock()
+	self.stateMutex.Unlock()
 }
 
 func (self *Session) IsSpeechReady() bool {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return self.speechReady
 }
 
 func (self *Session) ExplicitAudioLength() int {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
-	return len(self.explicitAudioBuf)
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
+	return len(self.explicitAudioBuffer)
 }
 
 func (self *Session) takeExplicitAudio() []byte {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
-	if len(self.explicitAudioBuf) == 0 {
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
+	if len(self.explicitAudioBuffer) == 0 {
 		return nil
 	}
-	captured := append([]byte(nil), self.explicitAudioBuf...)
-	self.explicitAudioBuf = self.explicitAudioBuf[:0]
+	captured := append([]byte(nil), self.explicitAudioBuffer...)
+	self.explicitAudioBuffer = self.explicitAudioBuffer[:0]
 	return captured
 }
 
@@ -600,74 +602,74 @@ func (self *Session) startStreamingTranscriber() bool {
 		pipelineLog.Warningf("voice streaming stt open failed, falling back to batch: provider=%s err=%v", provider, err)
 		return false
 	}
-	self.stateMu.Lock()
-	self.streamingSTTStream = stream
-	self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	self.streamingSttStream = stream
+	self.stateMutex.Unlock()
 	pipelineLog.Infof("voice streaming stt enabled: session=%s provider=%s model=%s", self.ID, provider, voiceProviderModelHint("streaming_transcriber", provider))
 	return true
 }
 
 func (self *Session) getStreamingTranscribeStream() providers.TranscribeStream {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
-	return self.streamingSTTStream
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
+	return self.streamingSttStream
 }
 
 func (self *Session) setStreamingTranscribeStream(stream providers.TranscribeStream) {
-	self.stateMu.Lock()
-	self.streamingSTTStream = stream
-	self.stateMu.Unlock()
+	self.stateMutex.Lock()
+	self.streamingSttStream = stream
+	self.stateMutex.Unlock()
 }
 
 func (self *Session) setInterimText(text string) {
-	self.stateMu.Lock()
+	self.stateMutex.Lock()
 	self.interimText = text
 	if len([]rune(strings.TrimSpace(text))) >= len([]rune(strings.TrimSpace(self.interimBestText))) {
 		self.interimBestText = text
 	}
-	self.stateMu.Unlock()
+	self.stateMutex.Unlock()
 }
 
 func (self *Session) getInterimText() string {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return self.interimText
 }
 
 func (self *Session) setStreamingFinalText(turnId, text string) {
-	self.stateMu.Lock()
-	self.streamingFinalTurnID = turnId
+	self.stateMutex.Lock()
+	self.streamingFinalTurnId = turnId
 	self.streamingFinalText = text
-	self.stateMu.Unlock()
+	self.stateMutex.Unlock()
 }
 
 func (self *Session) takeStreamingFinalText(turnId string) string {
-	self.stateMu.Lock()
-	defer self.stateMu.Unlock()
-	if self.streamingFinalTurnID != turnId {
+	self.stateMutex.Lock()
+	defer self.stateMutex.Unlock()
+	if self.streamingFinalTurnId != turnId {
 		return ""
 	}
 	text := self.streamingFinalText
-	self.streamingFinalTurnID = ""
+	self.streamingFinalTurnId = ""
 	self.streamingFinalText = ""
 	return text
 }
 
 func (self *Session) setSpeechStartedAt(ts time.Time) {
-	self.stateMu.Lock()
+	self.stateMutex.Lock()
 	self.speechStartedAt = ts
-	self.stateMu.Unlock()
+	self.stateMutex.Unlock()
 }
 
 func (self *Session) setLastBargeInAt(ts time.Time) {
-	self.stateMu.Lock()
+	self.stateMutex.Lock()
 	self.lastBargeInAt = ts
-	self.stateMu.Unlock()
+	self.stateMutex.Unlock()
 }
 
 func (self *Session) speechDurationMs(now time.Time) int {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	if self.speechStartedAt.IsZero() {
 		return 0
 	}
@@ -675,32 +677,32 @@ func (self *Session) speechDurationMs(now time.Time) int {
 }
 
 func (self *Session) setUserSpeaking(speaking bool) {
-	self.stateMu.Lock()
+	self.stateMutex.Lock()
 	self.userSpeaking = speaking
 	if speaking {
 		// Create a new open channel; ttsSynthLoop blocks on it.
-		self.userSpeakingCh = make(chan struct{})
-	} else if self.userSpeakingCh != nil {
+		self.userSpeakingChannel = make(chan struct{})
+	} else if self.userSpeakingChannel != nil {
 		// Close the channel to unblock any waiter; ttsSynthLoop select wakes up.
-		close(self.userSpeakingCh)
-		self.userSpeakingCh = nil
+		close(self.userSpeakingChannel)
+		self.userSpeakingChannel = nil
 	}
-	self.stateMu.Unlock()
+	self.stateMutex.Unlock()
 }
 
 func (self *Session) IsUserSpeaking() bool {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
 	return self.userSpeaking
 }
 
-// getUserSpeakingCh returns the current speaking channel under the read lock.
+// getUserSpeakingChannel returns the current speaking channel under the read lock.
 // An open channel means the user is speaking (caller should wait); a nil channel
 // means the user is silent (caller can proceed).
-func (self *Session) getUserSpeakingCh() chan struct{} {
-	self.stateMu.RLock()
-	defer self.stateMu.RUnlock()
-	return self.userSpeakingCh
+func (self *Session) getUserSpeakingChannel() chan struct{} {
+	self.stateMutex.RLock()
+	defer self.stateMutex.RUnlock()
+	return self.userSpeakingChannel
 }
 
 // RunIsActive reports whether an LLM run is currently in progress.
@@ -721,7 +723,7 @@ func (self *Session) BargeInIsArmed() bool {
 	return self.RunIsActive() || self.ResponseIsActive()
 }
 
-func (self *Session) notifyObservers(fn func(observer TurnObserver)) {
+func (self *Session) notifyObservers(function func(observer TurnObserver)) {
 	if len(self.observers) == 0 {
 		return
 	}
@@ -729,6 +731,6 @@ func (self *Session) notifyObservers(fn func(observer TurnObserver)) {
 		if observer == nil {
 			continue
 		}
-		fn(observer)
+		function(observer)
 	}
 }

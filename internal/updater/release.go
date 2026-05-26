@@ -23,8 +23,8 @@ const (
 	gitHubOwner = "teanode"
 	// gitHubRepo is the GitHub repository name.
 	gitHubRepo = "teanode"
-	// latestReleaseURL is the GitHub API endpoint for the latest release.
-	latestReleaseURL = "https://api.github.com/repos/" + gitHubOwner + "/" + gitHubRepo + "/releases/latest"
+	// latestReleaseUrl is the GitHub API endpoint for the latest release.
+	latestReleaseUrl = "https://api.github.com/repos/" + gitHubOwner + "/" + gitHubRepo + "/releases/latest"
 	// httpTimeout is the timeout for HTTP requests.
 	httpTimeout = 30 * time.Second
 )
@@ -81,27 +81,27 @@ func CheckLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	requestContext, cancel := context.WithTimeout(ctx, httpTimeout)
 	defer cancel()
 
-	request, err := http.NewRequestWithContext(requestContext, http.MethodGet, latestReleaseURL, nil)
+	request, err := http.NewRequestWithContext(requestContext, http.MethodGet, latestReleaseUrl, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("updater: creating request: %w", err)
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("User-Agent", version.ServerName())
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("fetching latest release: %w", err)
+		return nil, fmt.Errorf("updater: fetching latest release: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
-		return nil, fmt.Errorf("GitHub API returned %d: %s", response.StatusCode, string(body))
+		return nil, fmt.Errorf("updater: GitHub API returned %d: %s", response.StatusCode, string(body))
 	}
 
 	var release ReleaseInfo
 	if err := json.NewDecoder(response.Body).Decode(&release); err != nil {
-		return nil, fmt.Errorf("decoding release: %w", err)
+		return nil, fmt.Errorf("updater: decoding release: %w", err)
 	}
 	return &release, nil
 }

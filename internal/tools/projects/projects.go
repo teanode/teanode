@@ -49,7 +49,7 @@ func createProject(ctx context.Context, name, description, purpose string) (*mod
 	trimmedDescription := description
 	trimmedPurpose := purpose
 	if trimmedName == "" {
-		return nil, fmt.Errorf("name is required")
+		return nil, fmt.Errorf("projects: name is required")
 	}
 
 	var createdProject *models.Project
@@ -84,7 +84,7 @@ func createProject(ctx context.Context, name, description, purpose string) (*mod
 func renameProject(ctx context.Context, projectId, name string) (*models.Project, error) {
 	trimmedName := name
 	if trimmedName == "" {
-		return nil, fmt.Errorf("name is required")
+		return nil, fmt.Errorf("projects: name is required")
 	}
 
 	var updatedProject *models.Project

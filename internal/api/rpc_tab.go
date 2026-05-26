@@ -10,20 +10,20 @@ import (
 // --- tab.attach ---
 
 func (self *webSocketConnection) handleTabAttach(frame requestFrame) (interface{}, error) {
-	var params struct {
+	var parameters struct {
 		AgentID        string `json:"agentId"`
 		ConversationID string `json:"conversationId"`
 		TabURL         string `json:"tabUrl"`
 		TabTitle       string `json:"tabTitle"`
 		TabID          int    `json:"tabId"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &params)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
-	if params.AgentID == "" || params.ConversationID == "" {
+	if parameters.AgentID == "" || parameters.ConversationID == "" {
 		return nil, rpcError(400, "agentId and conversationId are required")
 	}
-	if params.TabURL == "" {
+	if parameters.TabURL == "" {
 		return nil, rpcError(400, "tabUrl is required")
 	}
 
@@ -36,22 +36,22 @@ func (self *webSocketConnection) handleTabAttach(frame requestFrame) (interface{
 	connectionId := self.connectionId()
 	displaced := broker.Attach(tabs.Attachment{
 		UserID:         userId,
-		AgentID:        params.AgentID,
-		ConversationID: params.ConversationID,
-		TabURL:         params.TabURL,
-		TabTitle:       params.TabTitle,
-		TabID:          params.TabID,
+		AgentID:        parameters.AgentID,
+		ConversationID: parameters.ConversationID,
+		TabURL:         parameters.TabURL,
+		TabTitle:       parameters.TabTitle,
+		TabID:          parameters.TabID,
 	}, connectionId)
 
 	// If a different tab/connection was displaced, cancel its pending calls
 	// and notify it before broadcasting the new attachment.
 	if displaced != nil {
-		broker.CancelPendingForAttachment(userId, params.AgentID, params.ConversationID)
+		broker.CancelPendingForAttachment(userId, parameters.AgentID, parameters.ConversationID)
 		self.api.pubsub.Broadcast(pubsub.EventTypeTabAttachment, map[string]interface{}{
 			"action":         "detached",
 			"userId":         userId,
-			"agentId":        params.AgentID,
-			"conversationId": params.ConversationID,
+			"agentId":        parameters.AgentID,
+			"conversationId": parameters.ConversationID,
 			"displaced":      true,
 			"tabId":          displaced.TabID,
 		})
@@ -60,11 +60,11 @@ func (self *webSocketConnection) handleTabAttach(frame requestFrame) (interface{
 	self.api.pubsub.Broadcast(pubsub.EventTypeTabAttachment, map[string]interface{}{
 		"action":         "attached",
 		"userId":         userId,
-		"agentId":        params.AgentID,
-		"conversationId": params.ConversationID,
-		"tabUrl":         params.TabURL,
-		"tabTitle":       params.TabTitle,
-		"tabId":          params.TabID,
+		"agentId":        parameters.AgentID,
+		"conversationId": parameters.ConversationID,
+		"tabUrl":         parameters.TabURL,
+		"tabTitle":       parameters.TabTitle,
+		"tabId":          parameters.TabID,
 	})
 
 	return nil, nil
@@ -73,14 +73,14 @@ func (self *webSocketConnection) handleTabAttach(frame requestFrame) (interface{
 // --- tab.detach ---
 
 func (self *webSocketConnection) handleTabDetach(frame requestFrame) (interface{}, error) {
-	var params struct {
+	var parameters struct {
 		AgentID        string `json:"agentId"`
 		ConversationID string `json:"conversationId"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &params)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
-	if params.AgentID == "" || params.ConversationID == "" {
+	if parameters.AgentID == "" || parameters.ConversationID == "" {
 		return nil, rpcError(400, "agentId and conversationId are required")
 	}
 
@@ -91,14 +91,14 @@ func (self *webSocketConnection) handleTabDetach(frame requestFrame) (interface{
 	// Only cancel pending calls and broadcast if this connection actually
 	// owned the attachment. This prevents a stale connection's cleanup from
 	// disrupting a newer attachment owned by a different connection.
-	if broker.Detach(userId, params.AgentID, params.ConversationID, connectionId) {
-		broker.CancelPendingForAttachment(userId, params.AgentID, params.ConversationID)
+	if broker.Detach(userId, parameters.AgentID, parameters.ConversationID, connectionId) {
+		broker.CancelPendingForAttachment(userId, parameters.AgentID, parameters.ConversationID)
 
 		self.api.pubsub.Broadcast(pubsub.EventTypeTabAttachment, map[string]interface{}{
 			"action":         "detached",
 			"userId":         userId,
-			"agentId":        params.AgentID,
-			"conversationId": params.ConversationID,
+			"agentId":        parameters.AgentID,
+			"conversationId": parameters.ConversationID,
 		})
 	}
 
@@ -108,22 +108,22 @@ func (self *webSocketConnection) handleTabDetach(frame requestFrame) (interface{
 // --- tab.commandResult ---
 
 func (self *webSocketConnection) handleTabCommandResult(frame requestFrame) (interface{}, error) {
-	var params struct {
+	var parameters struct {
 		RequestID string `json:"requestId"`
 		Result    string `json:"result"`
 		Error     string `json:"error"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &params)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
-	if params.RequestID == "" {
+	if parameters.RequestID == "" {
 		return nil, rpcError(400, "requestId is required")
 	}
 
 	broker := self.api.coordinator.TabBroker()
-	if err := broker.Resolve(params.RequestID, tabs.ToolCallResult{
-		Result: params.Result,
-		Error:  params.Error,
+	if err := broker.Resolve(parameters.RequestID, tabs.ToolCallResult{
+		Result: parameters.Result,
+		Error:  parameters.Error,
 	}); err != nil {
 		return nil, rpcError(404, err.Error())
 	}

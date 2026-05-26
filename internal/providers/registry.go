@@ -13,7 +13,7 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
-const modelsCacheTTL = 5 * time.Minute
+const modelsCacheTtl = 5 * time.Minute
 
 // cachedModelList holds cached model results for a single provider.
 type cachedModelList struct {
@@ -187,12 +187,12 @@ func (self *ProviderRegistry) ResolveProviderAndModel(providerModelName string) 
 		providerModelName = self.defaultProviderModelName
 	}
 	if providerModelName == "" {
-		return nil, "", "", fmt.Errorf("no model configured")
+		return nil, "", "", fmt.Errorf("providers: no model configured")
 	}
 	providerName, modelName := ParseProviderModelName(providerModelName, self.defaultProvider)
 	client, ok := self.clients[providerName]
 	if !ok {
-		return nil, "", "", fmt.Errorf("unknown provider: %q", providerName)
+		return nil, "", "", fmt.Errorf("providers: unknown provider: %q", providerName)
 	}
 	return client, providerName, modelName, nil
 }
@@ -315,7 +315,7 @@ func (self *ProviderRegistry) cachedModelsForProvider(ctx context.Context, provi
 	self.modelsCacheMutex.Lock()
 	self.modelsCache[providerName] = &cachedModelList{
 		models:    fetched,
-		expiresAt: now.Add(modelsCacheTTL),
+		expiresAt: now.Add(modelsCacheTtl),
 	}
 	self.modelsCacheMutex.Unlock()
 

@@ -82,7 +82,7 @@ func (self *releasesTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *releasesTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		Tag        string `json:"tag"`
 		Title      string `json:"title"`
@@ -93,51 +93,51 @@ func (self *releasesTool) Execute(ctx context.Context, rawArguments string) (str
 		Limit      int    `json:"limit"`
 		Repository string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("gitea: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 30
 		}
-		commandArgs := []string{"releases", "list",
+		commandArguments := []string{"releases", "list",
 			"--output", "json",
 			"--limit", strconv.Itoa(limit)}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitea(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitea(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create":
-		if args.Tag == "" {
-			return "", fmt.Errorf("tag is required for create action")
+		if arguments.Tag == "" {
+			return "", fmt.Errorf("gitea: tag is required for create action")
 		}
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for create action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("gitea: title is required for create action")
 		}
-		commandArgs := []string{"releases", "create",
-			"--tag", args.Tag, "--title", args.Title}
-		if args.Note != "" {
-			commandArgs = append(commandArgs, "--note", args.Note)
+		commandArguments := []string{"releases", "create",
+			"--tag", arguments.Tag, "--title", arguments.Title}
+		if arguments.Note != "" {
+			commandArguments = append(commandArguments, "--note", arguments.Note)
 		}
-		if args.Target != "" {
-			commandArgs = append(commandArgs, "--target", args.Target)
+		if arguments.Target != "" {
+			commandArguments = append(commandArguments, "--target", arguments.Target)
 		}
-		if args.Draft {
-			commandArgs = append(commandArgs, "--draft")
+		if arguments.Draft {
+			commandArguments = append(commandArguments, "--draft")
 		}
-		if args.Prerelease {
-			commandArgs = append(commandArgs, "--prerelease")
+		if arguments.Prerelease {
+			commandArguments = append(commandArguments, "--prerelease")
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitea(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitea(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("created", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown releases action: %s", args.Action)
+		return "", fmt.Errorf("gitea: unknown releases action: %s", arguments.Action)
 	}
 }

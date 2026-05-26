@@ -119,7 +119,7 @@ func (self *pullsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action      string `json:"action"`
 		Number      int    `json:"number"`
 		Title       string `json:"title"`
@@ -137,143 +137,143 @@ func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string
 		Limit       int    `json:"limit"`
 		Repository  string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("github: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 30
 		}
-		commandArgs := []string{"pr", "list",
+		commandArguments := []string{"pr", "list",
 			"--json", "number,title,state,author,headRefName,baseRefName,isDraft,createdAt",
 			"--limit", strconv.Itoa(limit)}
-		if args.State != "" {
-			commandArgs = append(commandArgs, "--state", args.State)
+		if arguments.State != "" {
+			commandArguments = append(commandArguments, "--state", arguments.State)
 		}
-		if args.Assignee != "" {
-			commandArgs = append(commandArgs, "--assignee", args.Assignee)
+		if arguments.Assignee != "" {
+			commandArguments = append(commandArguments, "--assignee", arguments.Assignee)
 		}
-		if args.Author != "" {
-			commandArgs = append(commandArgs, "--author", args.Author)
+		if arguments.Author != "" {
+			commandArguments = append(commandArguments, "--author", arguments.Author)
 		}
-		if args.Base != "" {
-			commandArgs = append(commandArgs, "--base", args.Base)
+		if arguments.Base != "" {
+			commandArguments = append(commandArguments, "--base", arguments.Base)
 		}
-		if args.Head != "" {
-			commandArgs = append(commandArgs, "--head", args.Head)
+		if arguments.Head != "" {
+			commandArguments = append(commandArguments, "--head", arguments.Head)
 		}
-		if args.App != "" {
-			commandArgs = append(commandArgs, "--app", args.App)
+		if arguments.App != "" {
+			commandArguments = append(commandArguments, "--app", arguments.App)
 		}
-		commandArgs = appendStringFlags(commandArgs, "--label", args.Label)
-		search := args.Search
+		commandArguments = appendStringFlags(commandArguments, "--label", arguments.Label)
+		search := arguments.Search
 		if search == "" {
 			search = "sort:updated-desc"
 		}
 		if search != "" {
-			commandArgs = append(commandArgs, "--search", search)
+			commandArguments = append(commandArguments, "--search", search)
 		}
-		if args.Draft {
-			commandArgs = append(commandArgs, "--draft")
+		if arguments.Draft {
+			commandArguments = append(commandArguments, "--draft")
 		}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	case "view":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for view action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for view action")
 		}
-		commandArgs := []string{"pr", "view", strconv.Itoa(args.Number),
+		commandArguments := []string{"pr", "view", strconv.Itoa(arguments.Number),
 			"--json", "number,title,state,body,author,headRefName,baseRefName,reviews,comments,mergeable,additions,deletions"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create":
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for create action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("github: title is required for create action")
 		}
-		if args.Body == "" {
-			return "", fmt.Errorf("body is required for create action")
+		if arguments.Body == "" {
+			return "", fmt.Errorf("github: body is required for create action")
 		}
-		if args.Head == "" {
-			return "", fmt.Errorf("head is required for create action")
+		if arguments.Head == "" {
+			return "", fmt.Errorf("github: head is required for create action")
 		}
-		commandArgs := []string{"pr", "create", "--title", args.Title, "--body", args.Body, "--head", args.Head}
-		if args.Base != "" {
-			commandArgs = append(commandArgs, "--base", args.Base)
+		commandArguments := []string{"pr", "create", "--title", arguments.Title, "--body", arguments.Body, "--head", arguments.Head}
+		if arguments.Base != "" {
+			commandArguments = append(commandArguments, "--base", arguments.Base)
 		}
-		if args.Draft {
-			commandArgs = append(commandArgs, "--draft")
+		if arguments.Draft {
+			commandArguments = append(commandArguments, "--draft")
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("created", output), nil
 
 	case "edit":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for edit action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for edit action")
 		}
-		commandArgs := []string{"pr", "edit", strconv.Itoa(args.Number)}
-		if args.Title != "" {
-			commandArgs = append(commandArgs, "--title", args.Title)
+		commandArguments := []string{"pr", "edit", strconv.Itoa(arguments.Number)}
+		if arguments.Title != "" {
+			commandArguments = append(commandArguments, "--title", arguments.Title)
 		}
-		if args.Body != "" {
-			commandArgs = append(commandArgs, "--body", args.Body)
+		if arguments.Body != "" {
+			commandArguments = append(commandArguments, "--body", arguments.Body)
 		}
-		if args.Base != "" {
-			commandArgs = append(commandArgs, "--base", args.Base)
+		if arguments.Base != "" {
+			commandArguments = append(commandArguments, "--base", arguments.Base)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("edited", output), nil
 
 	case "comment":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for comment action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for comment action")
 		}
-		if args.Body == "" {
-			return "", fmt.Errorf("body is required for comment action")
+		if arguments.Body == "" {
+			return "", fmt.Errorf("github: body is required for comment action")
 		}
-		commandArgs := []string{"pr", "comment", strconv.Itoa(args.Number), "--body", args.Body}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"pr", "comment", strconv.Itoa(arguments.Number), "--body", arguments.Body}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("commented", output), nil
 
 	case "merge":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for merge action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for merge action")
 		}
-		mergeMethod := args.MergeMethod
+		mergeMethod := arguments.MergeMethod
 		if mergeMethod == "" {
 			mergeMethod = "merge"
 		}
-		commandArgs := []string{"pr", "merge", strconv.Itoa(args.Number), "--" + mergeMethod}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"pr", "merge", strconv.Itoa(arguments.Number), "--" + mergeMethod}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("merged", output), nil
 
 	case "diff":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for diff action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for diff action")
 		}
-		commandArgs := []string{"pr", "diff", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"pr", "diff", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
@@ -282,15 +282,15 @@ func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string
 		return string(data), nil
 
 	case "checks":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for checks action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("github: number is required for checks action")
 		}
-		commandArgs := []string{"pr", "checks", strconv.Itoa(args.Number),
+		commandArguments := []string{"pr", "checks", strconv.Itoa(arguments.Number),
 			"--json", "name,state,description"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	default:
-		return "", fmt.Errorf("unknown pulls action: %s", args.Action)
+		return "", fmt.Errorf("github: unknown pulls action: %s", arguments.Action)
 	}
 }

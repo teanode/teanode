@@ -187,11 +187,11 @@ func (self *codexTool) Execute(ctx context.Context, rawArguments string) (string
 		TimeoutSeconds   int    `json:"timeoutSeconds"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("codex: parsing arguments: %w", err)
 	}
 
 	if arguments.Prompt == "" {
-		return "", fmt.Errorf("prompt is required")
+		return "", fmt.Errorf("codex: prompt is required")
 	}
 
 	commandArguments := self.buildArguments(ctx, arguments.Prompt, arguments.SystemPrompt)
@@ -230,7 +230,7 @@ func (self *codexTool) executeCommand(ctx context.Context, commandArguments []st
 	if workingDirectory == "" {
 		homeDirectory, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("getting home directory: %w", err)
+			return "", fmt.Errorf("codex: getting home directory: %w", err)
 		}
 		workingDirectory = homeDirectory
 	}
@@ -246,7 +246,7 @@ func (self *codexTool) executeCommand(ctx context.Context, commandArguments []st
 	timedOut := commandContext.Err() == context.DeadlineExceeded
 
 	if err != nil && !timedOut {
-		return "", fmt.Errorf("executing codex: %w (stderr: %s)", err, string(stderr))
+		return "", fmt.Errorf("codex: executing codex: %w (stderr: %s)", err, string(stderr))
 	}
 
 	if len(stdout) > maxOutputBytes {
@@ -284,7 +284,7 @@ func (self *codexTool) parseOutput(stdout, stderr []byte, exitCode int, duration
 			"workingDirectory": workingDirectory,
 		})
 		if marshalError != nil {
-			return "", fmt.Errorf("marshaling fallback result: %w", marshalError)
+			return "", fmt.Errorf("codex: marshaling fallback result: %w", marshalError)
 		}
 		return string(result), nil
 	}
@@ -303,7 +303,7 @@ func (self *codexTool) parseOutput(stdout, stderr []byte, exitCode int, duration
 
 	result, err := json.Marshal(response)
 	if err != nil {
-		return "", fmt.Errorf("marshaling result: %w", err)
+		return "", fmt.Errorf("codex: marshaling result: %w", err)
 	}
 	return string(result), nil
 }

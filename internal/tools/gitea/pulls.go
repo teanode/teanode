@@ -105,7 +105,7 @@ func (self *pullsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action       string `json:"action"`
 		Number       int    `json:"number"`
 		Title        string `json:"title"`
@@ -121,147 +121,147 @@ func (self *pullsTool) Execute(ctx context.Context, rawArguments string) (string
 		Limit        int    `json:"limit"`
 		Repository   string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("gitea: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 30
 		}
-		commandArgs := []string{"pulls", "list",
+		commandArguments := []string{"pulls", "list",
 			"--output", "json",
 			"--limit", strconv.Itoa(limit)}
-		if args.State != "" {
-			commandArgs = append(commandArgs, "--state", args.State)
+		if arguments.State != "" {
+			commandArguments = append(commandArguments, "--state", arguments.State)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitea(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitea(ctx, self.runner, self.binary, commandArguments...)
 
 	case "view":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for view action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitea: number is required for view action")
 		}
-		commandArgs := []string{"pulls", strconv.Itoa(args.Number),
+		commandArguments := []string{"pulls", strconv.Itoa(arguments.Number),
 			"--output", "json", "--comments"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitea(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitea(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create":
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for create action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("gitea: title is required for create action")
 		}
-		if args.Description == "" {
-			return "", fmt.Errorf("description is required for create action")
+		if arguments.Description == "" {
+			return "", fmt.Errorf("gitea: description is required for create action")
 		}
-		commandArgs := []string{"pulls", "create",
-			"--title", args.Title, "--description", args.Description}
-		if args.Head != "" {
-			commandArgs = append(commandArgs, "--head", args.Head)
+		commandArguments := []string{"pulls", "create",
+			"--title", arguments.Title, "--description", arguments.Description}
+		if arguments.Head != "" {
+			commandArguments = append(commandArguments, "--head", arguments.Head)
 		}
-		if args.Base != "" {
-			commandArgs = append(commandArgs, "--base", args.Base)
+		if arguments.Base != "" {
+			commandArguments = append(commandArguments, "--base", arguments.Base)
 		}
-		if args.Labels != "" {
-			commandArgs = append(commandArgs, "--labels", args.Labels)
+		if arguments.Labels != "" {
+			commandArguments = append(commandArguments, "--labels", arguments.Labels)
 		}
-		if args.Assignees != "" {
-			commandArgs = append(commandArgs, "--assignees", args.Assignees)
+		if arguments.Assignees != "" {
+			commandArguments = append(commandArguments, "--assignees", arguments.Assignees)
 		}
-		if args.Milestone != "" {
-			commandArgs = append(commandArgs, "--milestone", args.Milestone)
+		if arguments.Milestone != "" {
+			commandArguments = append(commandArguments, "--milestone", arguments.Milestone)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitea(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitea(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("created", output), nil
 
 	case "comment":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for comment action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitea: number is required for comment action")
 		}
-		if args.Description == "" {
-			return "", fmt.Errorf("description is required for comment action")
+		if arguments.Description == "" {
+			return "", fmt.Errorf("gitea: description is required for comment action")
 		}
-		commandArgs := []string{"comment", strconv.Itoa(args.Number), args.Description}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitea(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"comment", strconv.Itoa(arguments.Number), arguments.Description}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitea(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("commented", output), nil
 
 	case "close":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for close action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitea: number is required for close action")
 		}
-		commandArgs := []string{"pulls", "close", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitea(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"pulls", "close", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitea(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("closed", output), nil
 
 	case "reopen":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for reopen action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitea: number is required for reopen action")
 		}
-		commandArgs := []string{"pulls", "reopen", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitea(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"pulls", "reopen", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitea(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("reopened", output), nil
 
 	case "merge":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for merge action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitea: number is required for merge action")
 		}
-		commandArgs := []string{"pulls", "merge", strconv.Itoa(args.Number)}
-		if args.MergeStyle != "" {
-			commandArgs = append(commandArgs, "--style", args.MergeStyle)
+		commandArguments := []string{"pulls", "merge", strconv.Itoa(arguments.Number)}
+		if arguments.MergeStyle != "" {
+			commandArguments = append(commandArguments, "--style", arguments.MergeStyle)
 		}
-		if args.MergeMessage != "" {
-			commandArgs = append(commandArgs, "--message", args.MergeMessage)
+		if arguments.MergeMessage != "" {
+			commandArguments = append(commandArguments, "--message", arguments.MergeMessage)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitea(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitea(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("merged", output), nil
 
 	case "approve":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for approve action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitea: number is required for approve action")
 		}
-		commandArgs := []string{"pulls", "approve", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitea(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"pulls", "approve", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitea(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("approved", output), nil
 
 	case "reject":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for reject action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitea: number is required for reject action")
 		}
-		commandArgs := []string{"pulls", "reject", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitea(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"pulls", "reject", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitea(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("rejected", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown pulls action: %s", args.Action)
+		return "", fmt.Errorf("gitea: unknown pulls action: %s", arguments.Action)
 	}
 }

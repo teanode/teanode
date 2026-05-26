@@ -19,7 +19,7 @@ func (self *Session) triggerBargeIn() {
 	if prev := self.SwapTTSCancel(nil); prev != nil {
 		prev()
 	}
-	self.drainTTSQueue()
+	self.drainTtsQueue()
 	self.drainAudioOutQueue()
 	self.trySendFlushFrame()
 	if runId != "" && self.dispatcher != nil {
@@ -30,10 +30,10 @@ func (self *Session) triggerBargeIn() {
 	self.sendVoiceEvent("turn.event", turnEventPayload{Event: "bargeInTriggered"})
 }
 
-func (self *Session) drainTTSQueue() {
+func (self *Session) drainTtsQueue() {
 	for {
 		select {
-		case <-self.ttsInCh:
+		case <-self.ttsInChannel:
 		default:
 			return
 		}
@@ -43,7 +43,7 @@ func (self *Session) drainTTSQueue() {
 func (self *Session) drainAudioOutQueue() {
 	for {
 		select {
-		case <-self.audioOutCh:
+		case <-self.audioOutChannel:
 		default:
 			return
 		}
@@ -53,10 +53,10 @@ func (self *Session) drainAudioOutQueue() {
 func (self *Session) trySendFlushFrame() {
 	pipelineLog.Debugf("voice flush frame queued: session=%s", self.ID)
 	payload := EncodeBinaryAudioFrame(BinaryAudioFrame{
-		FrameType:   FrameTypeFlush,
-		Seq:         self.NextOutSeq(),
-		CaptureTSMs: time.Now().UnixMilli(),
-		DurationMS:  0,
+		FrameType:          FrameTypeFlush,
+		Seq:                self.NextOutSeq(),
+		CaptureTimestampMS: time.Now().UnixMilli(),
+		DurationMS:         0,
 	})
 	self.enqueueAudioOut(payload)
 }

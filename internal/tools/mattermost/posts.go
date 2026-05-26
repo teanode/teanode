@@ -92,7 +92,7 @@ func (self *postsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action    string   `json:"action"`
 		Channel   string   `json:"channel"`
 		Message   string   `json:"message"`
@@ -105,187 +105,187 @@ func (self *postsTool) Execute(ctx context.Context, rawArguments string) (string
 		ORSearch  bool     `json:"or_search"`
 		Team      string   `json:"team"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("mattermost: parsing arguments: %w", err)
 	}
 
-	exec := func(args2 ...string) (string, error) {
-		return execMattermostWithTeam(ctx, self.runner, self.binary, args.Team, args2...)
+	exec := func(arguments2 ...string) (string, error) {
+		return execMattermostWithTeam(ctx, self.runner, self.binary, arguments.Team, arguments2...)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "create":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for create action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for create action")
 		}
-		if args.Message == "" {
-			return "", fmt.Errorf("message is required for create action")
+		if arguments.Message == "" {
+			return "", fmt.Errorf("mattermost: message is required for create action")
 		}
-		return exec("post", "create", args.Channel, args.Message)
+		return exec("post", "create", arguments.Channel, arguments.Message)
 
 	case "reply":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for reply action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for reply action")
 		}
-		if args.Message == "" {
-			return "", fmt.Errorf("message is required for reply action")
+		if arguments.Message == "" {
+			return "", fmt.Errorf("mattermost: message is required for reply action")
 		}
-		return exec("post", "reply", args.PostID, args.Message)
+		return exec("post", "reply", arguments.PostID, arguments.Message)
 
 	case "edit":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for edit action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for edit action")
 		}
-		if args.Message == "" {
-			return "", fmt.Errorf("message is required for edit action")
+		if arguments.Message == "" {
+			return "", fmt.Errorf("mattermost: message is required for edit action")
 		}
-		return exec("post", "edit", args.PostID, args.Message)
+		return exec("post", "edit", arguments.PostID, arguments.Message)
 
 	case "delete":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for delete action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for delete action")
 		}
-		output, err := exec("post", "delete", args.PostID)
+		output, err := exec("post", "delete", arguments.PostID)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("deleted", output), nil
 
 	case "thread":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for thread action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for thread action")
 		}
-		return exec("post", "thread", args.PostID)
+		return exec("post", "thread", arguments.PostID)
 
 	case "search":
-		if args.Query == "" {
-			return "", fmt.Errorf("query is required for search action")
+		if arguments.Query == "" {
+			return "", fmt.Errorf("mattermost: query is required for search action")
 		}
-		if args.ORSearch {
-			return exec("post", "search", args.Query, "--or")
+		if arguments.ORSearch {
+			return exec("post", "search", arguments.Query, "--or")
 		}
-		return exec("post", "search", args.Query)
+		return exec("post", "search", arguments.Query)
 
 	case "pinned":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for pinned action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for pinned action")
 		}
-		return exec("post", "pinned", args.Channel)
+		return exec("post", "pinned", arguments.Channel)
 
 	case "react":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for react action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for react action")
 		}
-		if args.Emoji == "" {
-			return "", fmt.Errorf("emoji is required for react action")
+		if arguments.Emoji == "" {
+			return "", fmt.Errorf("mattermost: emoji is required for react action")
 		}
-		output, err := exec("post", "react", args.PostID, args.Emoji)
+		output, err := exec("post", "react", arguments.PostID, arguments.Emoji)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("reacted", output), nil
 
 	case "unreact":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for unreact action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for unreact action")
 		}
-		if args.Emoji == "" {
-			return "", fmt.Errorf("emoji is required for unreact action")
+		if arguments.Emoji == "" {
+			return "", fmt.Errorf("mattermost: emoji is required for unreact action")
 		}
-		output, err := exec("post", "unreact", args.PostID, args.Emoji)
+		output, err := exec("post", "unreact", arguments.PostID, arguments.Emoji)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("unreacted", output), nil
 
 	case "pin":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for pin action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for pin action")
 		}
-		output, err := exec("post", "pin", args.PostID)
+		output, err := exec("post", "pin", arguments.PostID)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("pinned", output), nil
 
 	case "unpin":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for unpin action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for unpin action")
 		}
-		output, err := exec("post", "unpin", args.PostID)
+		output, err := exec("post", "unpin", arguments.PostID)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("unpinned", output), nil
 
 	case "history":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for history action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for history action")
 		}
-		return exec("post", "history", args.PostID)
+		return exec("post", "history", arguments.PostID)
 
 	case "saved_list":
-		commandArgs := []string{"saved", "list"}
-		if args.Channel != "" {
-			commandArgs = append(commandArgs, "--channel", args.Channel)
+		commandArguments := []string{"saved", "list"}
+		if arguments.Channel != "" {
+			commandArguments = append(commandArguments, "--channel", arguments.Channel)
 		}
-		if args.Limit > 0 {
-			commandArgs = append(commandArgs, "-n", fmt.Sprintf("%d", args.Limit))
+		if arguments.Limit > 0 {
+			commandArguments = append(commandArguments, "-n", fmt.Sprintf("%d", arguments.Limit))
 		}
-		return exec(commandArgs...)
+		return exec(commandArguments...)
 
 	case "saved_add":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for saved_add action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for saved_add action")
 		}
-		output, err := exec("saved", "add", args.PostID)
+		output, err := exec("saved", "add", arguments.PostID)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("saved", output), nil
 
 	case "saved_remove":
-		if args.PostID == "" {
-			return "", fmt.Errorf("post_id is required for saved_remove action")
+		if arguments.PostID == "" {
+			return "", fmt.Errorf("mattermost: post_id is required for saved_remove action")
 		}
-		output, err := exec("saved", "remove", args.PostID)
+		output, err := exec("saved", "remove", arguments.PostID)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("unsaved", output), nil
 
 	case "dm":
-		if args.Username == "" {
-			return "", fmt.Errorf("username is required for dm action")
+		if arguments.Username == "" {
+			return "", fmt.Errorf("mattermost: username is required for dm action")
 		}
-		if args.Message == "" {
-			return "", fmt.Errorf("message is required for dm action")
+		if arguments.Message == "" {
+			return "", fmt.Errorf("mattermost: message is required for dm action")
 		}
-		return exec("dm", "send", args.Username, args.Message)
+		return exec("dm", "send", arguments.Username, arguments.Message)
 
 	case "dm_read":
-		if args.Username == "" {
-			return "", fmt.Errorf("username is required for dm_read action")
+		if arguments.Username == "" {
+			return "", fmt.Errorf("mattermost: username is required for dm_read action")
 		}
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 20
 		}
-		return exec("dm", "read", args.Username, "-n", fmt.Sprintf("%d", limit))
+		return exec("dm", "read", arguments.Username, "-n", fmt.Sprintf("%d", limit))
 
 	case "dm_list":
 		return exec("dm", "list")
 
 	case "dm_group":
-		if len(args.Usernames) == 0 {
-			return "", fmt.Errorf("usernames is required for dm_group action")
+		if len(arguments.Usernames) == 0 {
+			return "", fmt.Errorf("mattermost: usernames is required for dm_group action")
 		}
-		if args.Message == "" {
-			return "", fmt.Errorf("message is required for dm_group action")
+		if arguments.Message == "" {
+			return "", fmt.Errorf("mattermost: message is required for dm_group action")
 		}
-		return exec("dm", "group", strings.Join(args.Usernames, ","), args.Message)
+		return exec("dm", "group", strings.Join(arguments.Usernames, ","), arguments.Message)
 
 	default:
-		return "", fmt.Errorf("unknown posts action: %s", args.Action)
+		return "", fmt.Errorf("mattermost: unknown posts action: %s", arguments.Action)
 	}
 }

@@ -4,11 +4,11 @@ import "time"
 
 func (self *Session) audioInputLoop() {
 	vad := VADAnalyzer(&EnergyVAD{})
-	var speechBuf []byte
+	var speechBuffer []byte
 	preSpeech := make([][]byte, 0, vadPreRollFrames)
 	speaking := false
 	candidateActive := false
-	pendingCommitTurnID := ""
+	pendingCommitTurnId := ""
 	var pendingCommitAudio []byte
 	pendingSilenceMs := 0
 	frameDurationMs := self.AudioIn.FrameMS
@@ -18,23 +18,23 @@ func (self *Session) audioInputLoop() {
 
 	for {
 		select {
-		case <-self.doneCh:
+		case <-self.doneChannel:
 			return
-		case frame := <-self.audioInCh:
+		case frame := <-self.audioInChannel:
 			var preRollFrames [][]byte
 			if !self.Features.ServerVAD {
 				self.accumulateExplicitAudio(frame)
 				continue
 			}
-			if pendingCommitTurnID != "" {
+			if pendingCommitTurnId != "" {
 				pendingSilenceMs += frameDurationMs
 				if self.strategy.ShouldCommitTurn(TurnContext{
-					SilenceDurationMs: pendingSilenceMs,
+					SilenceDurationMS: pendingSilenceMs,
 					InterimText:       self.getInterimText(),
 				}) {
-					turnId := pendingCommitTurnID
+					turnId := pendingCommitTurnId
 					captured := append([]byte(nil), pendingCommitAudio...)
-					pendingCommitTurnID = ""
+					pendingCommitTurnId = ""
 					pendingCommitAudio = nil
 					pendingSilenceMs = 0
 					self.commitCapturedTurn(turnId, captured)
@@ -60,9 +60,9 @@ func (self *Session) audioInputLoop() {
 				self.setSpeechStartedAt(time.Now())
 				candidateActive = false
 				nowMs := time.Now().UnixMilli()
-				speechBuf = speechBuf[:0]
+				speechBuffer = speechBuffer[:0]
 				for _, buffered := range preSpeech {
-					speechBuf = append(speechBuf, buffered...)
+					speechBuffer = append(speechBuffer, buffered...)
 				}
 				preRollFrames = append(preRollFrames, preSpeech...)
 				preSpeech = preSpeech[:0]
@@ -86,7 +86,7 @@ func (self *Session) audioInputLoop() {
 
 				// Current frame is already included when speech just started via pre-roll.
 				if !started {
-					speechBuf = append(speechBuf, frame...)
+					speechBuffer = append(speechBuffer, frame...)
 				}
 				if stream := self.getStreamingTranscribeStream(); stream != nil {
 					sendStreamFrame := func(data []byte) bool {
@@ -111,7 +111,7 @@ func (self *Session) audioInputLoop() {
 				if self.Features.BargeIn && (runActive || responseActive) {
 					decision := self.strategy.EvaluateBargeIn(TurnContext{
 						VADScore:         score,
-						SpeechDurationMs: self.speechDurationMs(time.Now()),
+						SpeechDurationMS: self.speechDurationMs(time.Now()),
 						RunActive:        runActive,
 						ResponseActive:   responseActive,
 						InterimText:      self.getInterimText(),
@@ -147,7 +147,7 @@ func (self *Session) audioInputLoop() {
 				self.setUserSpeaking(false)
 				turnId := self.GetCurrentTurnID()
 				nowMs := time.Now().UnixMilli()
-				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnID(), len(speechBuf), self.inSeq.Load(), score)
+				pipelineLog.Infof("voice speech_ended: session=%s turn=%s bytes=%d seq_ref=%d score=%.4f", self.ID, self.GetCurrentTurnID(), len(speechBuffer), self.inSeq.Load(), score)
 				self.sendVoiceEvent("turn.event", turnEventPayload{
 					TurnID:      turnId,
 					Event:       "speechEnded",
@@ -161,8 +161,8 @@ func (self *Session) audioInputLoop() {
 					self.setSpeechReady(true)
 					continue
 				}
-				captured := append([]byte(nil), speechBuf...)
-				speechBuf = speechBuf[:0]
+				captured := append([]byte(nil), speechBuffer...)
+				speechBuffer = speechBuffer[:0]
 				candidateActive = false
 				if len(captured) < minCommittedTurnBytes {
 					pipelineLog.Infof("voice turn ignored (too short): session=%s turn=%s bytes=%d", self.ID, turnId, len(captured))
@@ -177,13 +177,13 @@ func (self *Session) audioInputLoop() {
 					continue
 				}
 				if self.strategy.ShouldCommitTurn(TurnContext{
-					SilenceDurationMs: 0,
+					SilenceDurationMS: 0,
 					InterimText:       self.getInterimText(),
 				}) {
 					self.commitCapturedTurn(turnId, captured)
 					continue
 				}
-				pendingCommitTurnID = turnId
+				pendingCommitTurnId = turnId
 				pendingCommitAudio = captured
 				pendingSilenceMs = 0
 			}

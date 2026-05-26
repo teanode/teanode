@@ -69,8 +69,8 @@ func TestApplyTemplate(t *testing.T) {
 	})
 
 	t.Run("multiple substitutions", func(t *testing.T) {
-		args := map[string]interface{}{"host": "localhost", "port": float64(8080)}
-		result := applyTemplate(context.Background(), "{{host}}:{{port}}", args)
+		arguments := map[string]interface{}{"host": "localhost", "port": float64(8080)}
+		result := applyTemplate(context.Background(), "{{host}}:{{port}}", arguments)
 		if result != "localhost:8080" {
 			t.Errorf("got %q, want %q", result, "localhost:8080")
 		}
@@ -90,7 +90,7 @@ func TestApplyTemplate(t *testing.T) {
 		}
 	})
 
-	t.Run("nil args", func(t *testing.T) {
+	t.Run("nil arguments", func(t *testing.T) {
 		result := applyTemplate(context.Background(), "hello {{name}}", nil)
 		if result != "hello {{name}}" {
 			t.Errorf("got %q, want template unchanged", result)
@@ -116,11 +116,11 @@ func TestApplyTemplate(t *testing.T) {
 	})
 
 	t.Run("filters", func(t *testing.T) {
-		args := map[string]interface{}{
+		arguments := map[string]interface{}{
 			"query": "hello world",
 			"tags":  []interface{}{"a", "b"},
 		}
-		got := applyTemplate(context.Background(), "{{query|urlencode}}|{{tags|join:;}}|{{missing|default:na}}", args)
+		got := applyTemplate(context.Background(), "{{query|urlencode}}|{{tags|join:;}}|{{missing|default:na}}", arguments)
 		want := "hello+world|a;b|na"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -144,8 +144,8 @@ func TestApplyUrlTemplate(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("query values are URL-encoded", func(t *testing.T) {
-		args := map[string]interface{}{"query": "hello world", "limit": float64(10)}
-		got := applyUrlTemplate(ctx, "https://api.example.com/v2/search?q={{query}}&limit={{limit}}", args)
+		arguments := map[string]interface{}{"query": "hello world", "limit": float64(10)}
+		got := applyUrlTemplate(ctx, "https://api.example.com/v2/search?q={{query}}&limit={{limit}}", arguments)
 		want := "https://api.example.com/v2/search?q=hello+world&limit=10"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -153,8 +153,8 @@ func TestApplyUrlTemplate(t *testing.T) {
 	})
 
 	t.Run("special characters in query are encoded", func(t *testing.T) {
-		args := map[string]interface{}{"q": "a&b=c"}
-		got := applyUrlTemplate(ctx, "https://example.com/search?q={{q}}", args)
+		arguments := map[string]interface{}{"q": "a&b=c"}
+		got := applyUrlTemplate(ctx, "https://example.com/search?q={{q}}", arguments)
 		want := "https://example.com/search?q=a%26b%3Dc"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -162,8 +162,8 @@ func TestApplyUrlTemplate(t *testing.T) {
 	})
 
 	t.Run("path values are not encoded", func(t *testing.T) {
-		args := map[string]interface{}{"host": "nvr.local", "id": "cam-001"}
-		got := applyUrlTemplate(ctx, "https://{{host}}/api/cameras/{{id}}", args)
+		arguments := map[string]interface{}{"host": "nvr.local", "id": "cam-001"}
+		got := applyUrlTemplate(ctx, "https://{{host}}/api/cameras/{{id}}", arguments)
 		want := "https://nvr.local/api/cameras/cam-001"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -171,8 +171,8 @@ func TestApplyUrlTemplate(t *testing.T) {
 	})
 
 	t.Run("no query string passes through", func(t *testing.T) {
-		args := map[string]interface{}{"host": "example.com"}
-		got := applyUrlTemplate(ctx, "https://{{host}}/api/data", args)
+		arguments := map[string]interface{}{"host": "example.com"}
+		got := applyUrlTemplate(ctx, "https://{{host}}/api/data", arguments)
 		want := "https://example.com/api/data"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -180,15 +180,15 @@ func TestApplyUrlTemplate(t *testing.T) {
 	})
 
 	t.Run("explicit urlencode filter skips double-encoding", func(t *testing.T) {
-		args := map[string]interface{}{"query": "hello world"}
-		got := applyUrlTemplate(ctx, "https://example.com/search?q={{query|urlencode}}", args)
+		arguments := map[string]interface{}{"query": "hello world"}
+		got := applyUrlTemplate(ctx, "https://example.com/search?q={{query|urlencode}}", arguments)
 		want := "https://example.com/search?q=hello+world"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 
-	t.Run("nil args returns template unchanged", func(t *testing.T) {
+	t.Run("nil arguments returns template unchanged", func(t *testing.T) {
 		got := applyUrlTemplate(ctx, "https://example.com?q={{query}}", nil)
 		want := "https://example.com?q={{query}}"
 		if got != want {
@@ -197,8 +197,8 @@ func TestApplyUrlTemplate(t *testing.T) {
 	})
 
 	t.Run("missing key left as-is in query", func(t *testing.T) {
-		args := map[string]interface{}{"known": "yes"}
-		got := applyUrlTemplate(ctx, "https://example.com?a={{known}}&b={{unknown}}", args)
+		arguments := map[string]interface{}{"known": "yes"}
+		got := applyUrlTemplate(ctx, "https://example.com?a={{known}}&b={{unknown}}", arguments)
 		want := "https://example.com?a=yes&b={{unknown}}"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)

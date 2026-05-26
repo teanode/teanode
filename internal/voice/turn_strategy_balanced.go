@@ -24,27 +24,27 @@ func (BalancedStrategy) EvaluateBargeIn(ctx TurnContext) TurnDecision {
 	if ctx.VADScore < balancedBargeInMinScore {
 		return TurnDecisionIgnore
 	}
-	if ctx.SpeechDurationMs < balancedBargeInMinSpeechMs {
+	if ctx.SpeechDurationMS < balancedBargeInMinSpeechMs {
 		return TurnDecisionCandidate
 	}
 	return TurnDecisionTrigger
 }
 
 func (BalancedStrategy) ShouldCommitTurn(ctx TurnContext) bool {
-	if ctx.SilenceDurationMs >= balancedCommitMaxSilenceMs {
+	if ctx.SilenceDurationMS >= balancedCommitMaxSilenceMs {
 		return true
 	}
 	text := strings.TrimSpace(ctx.InterimText)
 	if text == "" {
 		return false
 	}
-	if endsWithSentenceTerminator(text) && ctx.SilenceDurationMs >= balancedCommitMinSilenceMs {
+	if endsWithSentenceTerminator(text) && ctx.SilenceDurationMS >= balancedCommitMinSilenceMs {
 		return true
 	}
 	if endsWithDanglingConjunction(text) {
 		return false
 	}
-	return ctx.SilenceDurationMs >= balancedCommitMidSilenceMs
+	return ctx.SilenceDurationMS >= balancedCommitMidSilenceMs
 }
 
 func endsWithSentenceTerminator(text string) bool {

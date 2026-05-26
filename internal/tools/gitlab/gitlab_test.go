@@ -13,8 +13,8 @@ import (
 // mockRunner returns a commandRunner that records calls and returns canned output.
 func mockRunner(output string, err error) (commandRunner, *[][]string) {
 	var calls [][]string
-	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		call := append([]string{name}, args...)
+	runner := func(ctx context.Context, name string, arguments ...string) ([]byte, error) {
+		call := append([]string{name}, arguments...)
 		calls = append(calls, call)
 		if err != nil {
 			return nil, err
@@ -43,11 +43,11 @@ func TestExecGitLab_ArgsAssembly(t *testing.T) {
 	arguments := (*calls)[0]
 	expected := []string{"/usr/bin/glab", "issue", "list", "--output", "json"}
 	if len(arguments) != len(expected) {
-		t.Fatalf("expected %d args, got %d: %v", len(expected), len(arguments), arguments)
+		t.Fatalf("expected %d arguments, got %d: %v", len(expected), len(arguments), arguments)
 	}
 	for index, want := range expected {
 		if arguments[index] != want {
-			t.Errorf("arg[%d] = %q, want %q", index, arguments[index], want)
+			t.Errorf("argument[%d] = %q, want %q", index, arguments[index], want)
 		}
 	}
 }
@@ -138,39 +138,39 @@ func TestIssuesTool_ListAction(t *testing.T) {
 		t.Error("expected non-empty result")
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundIssueList := false
 	foundOutputJSON := false
 	foundOrder := false
 	foundSort := false
-	for index, argument := range commandArgs {
-		if argument == "issue" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "issue" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundIssueList = true
 		}
-		if argument == "--output" && index+1 < len(commandArgs) && commandArgs[index+1] == "json" {
+		if argument == "--output" && index+1 < len(commandArguments) && commandArguments[index+1] == "json" {
 			foundOutputJSON = true
 		}
-		if argument == "--order" && index+1 < len(commandArgs) && commandArgs[index+1] == "updated_at" {
+		if argument == "--order" && index+1 < len(commandArguments) && commandArguments[index+1] == "updated_at" {
 			foundOrder = true
 		}
-		if argument == "--sort" && index+1 < len(commandArgs) && commandArgs[index+1] == "desc" {
+		if argument == "--sort" && index+1 < len(commandArguments) && commandArguments[index+1] == "desc" {
 			foundSort = true
 		}
 		if argument == "--state" {
-			t.Errorf("unexpected --state flag in args (glab uses boolean flags): %v", commandArgs)
+			t.Errorf("unexpected --state flag in arguments (glab uses boolean flags): %v", commandArguments)
 		}
 	}
 	if !foundIssueList {
-		t.Errorf("expected 'issue list' in args: %v", commandArgs)
+		t.Errorf("expected 'issue list' in arguments: %v", commandArguments)
 	}
 	if !foundOutputJSON {
-		t.Errorf("expected '--output json' in args: %v", commandArgs)
+		t.Errorf("expected '--output json' in arguments: %v", commandArguments)
 	}
 	if !foundOrder {
-		t.Errorf("expected default '--order updated_at' in args: %v", commandArgs)
+		t.Errorf("expected default '--order updated_at' in arguments: %v", commandArguments)
 	}
 	if !foundSort {
-		t.Errorf("expected default '--sort desc' in args: %v", commandArgs)
+		t.Errorf("expected default '--sort desc' in arguments: %v", commandArguments)
 	}
 }
 
@@ -187,15 +187,15 @@ func TestIssuesTool_ListClosedState(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundClosed := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--closed" {
 			foundClosed = true
 		}
 	}
 	if !foundClosed {
-		t.Errorf("expected '--closed' in args: %v", commandArgs)
+		t.Errorf("expected '--closed' in arguments: %v", commandArguments)
 	}
 }
 
@@ -212,15 +212,15 @@ func TestIssuesTool_ListAllState(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAll := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--all" {
 			foundAll = true
 		}
 	}
 	if !foundAll {
-		t.Errorf("expected '--all' in args: %v", commandArgs)
+		t.Errorf("expected '--all' in arguments: %v", commandArguments)
 	}
 }
 
@@ -237,10 +237,10 @@ func TestIssuesTool_ViewAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundNumber := false
 	foundComments := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "42" {
 			foundNumber = true
 		}
@@ -249,10 +249,10 @@ func TestIssuesTool_ViewAction(t *testing.T) {
 		}
 	}
 	if !foundNumber {
-		t.Errorf("expected issue number in args: %v", commandArgs)
+		t.Errorf("expected issue number in arguments: %v", commandArguments)
 	}
 	if !foundComments {
-		t.Errorf("expected --comments in args: %v", commandArgs)
+		t.Errorf("expected --comments in arguments: %v", commandArguments)
 	}
 }
 
@@ -274,29 +274,29 @@ func TestIssuesTool_CreateAction(t *testing.T) {
 		t.Errorf("expected created status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	hasTitle := false
 	hasDescription := false
 	hasLabel := false
-	for index, argument := range commandArgs {
-		if argument == "--title" && index+1 < len(commandArgs) && commandArgs[index+1] == "New Bug" {
+	for index, argument := range commandArguments {
+		if argument == "--title" && index+1 < len(commandArguments) && commandArguments[index+1] == "New Bug" {
 			hasTitle = true
 		}
-		if argument == "--description" && index+1 < len(commandArgs) && commandArgs[index+1] == "Bug description" {
+		if argument == "--description" && index+1 < len(commandArguments) && commandArguments[index+1] == "Bug description" {
 			hasDescription = true
 		}
-		if argument == "--label" && index+1 < len(commandArgs) && commandArgs[index+1] == "bug" {
+		if argument == "--label" && index+1 < len(commandArguments) && commandArguments[index+1] == "bug" {
 			hasLabel = true
 		}
 	}
 	if !hasTitle {
-		t.Error("expected --title in args")
+		t.Error("expected --title in arguments")
 	}
 	if !hasDescription {
-		t.Error("expected --description in args")
+		t.Error("expected --description in arguments")
 	}
 	if !hasLabel {
-		t.Error("expected --label in args")
+		t.Error("expected --label in arguments")
 	}
 }
 
@@ -332,22 +332,22 @@ func TestIssuesTool_CommentAction(t *testing.T) {
 		t.Errorf("expected commented status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundNote := false
 	foundMessage := false
-	for index, argument := range commandArgs {
+	for index, argument := range commandArguments {
 		if argument == "note" {
 			foundNote = true
 		}
-		if argument == "--message" && index+1 < len(commandArgs) && commandArgs[index+1] == "This is a comment" {
+		if argument == "--message" && index+1 < len(commandArguments) && commandArguments[index+1] == "This is a comment" {
 			foundMessage = true
 		}
 	}
 	if !foundNote {
-		t.Errorf("expected 'note' in args: %v", commandArgs)
+		t.Errorf("expected 'note' in arguments: %v", commandArguments)
 	}
 	if !foundMessage {
-		t.Errorf("expected '--message' in args: %v", commandArgs)
+		t.Errorf("expected '--message' in arguments: %v", commandArguments)
 	}
 }
 
@@ -367,16 +367,16 @@ func TestIssuesTool_CloseAction(t *testing.T) {
 		t.Errorf("expected closed status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundClose := false
-	for index, argument := range commandArgs {
-		if argument == "issue" && index+1 < len(commandArgs) && commandArgs[index+1] == "close" {
+	for index, argument := range commandArguments {
+		if argument == "issue" && index+1 < len(commandArguments) && commandArguments[index+1] == "close" {
 			foundClose = true
 			break
 		}
 	}
 	if !foundClose {
-		t.Errorf("expected 'issue close' in args: %v", commandArgs)
+		t.Errorf("expected 'issue close' in arguments: %v", commandArguments)
 	}
 }
 
@@ -398,22 +398,22 @@ func TestIssuesTool_EditAction(t *testing.T) {
 		t.Errorf("expected edited status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundUpdate := false
 	foundLabel := false
-	for index, argument := range commandArgs {
-		if argument == "issue" && index+1 < len(commandArgs) && commandArgs[index+1] == "update" {
+	for index, argument := range commandArguments {
+		if argument == "issue" && index+1 < len(commandArguments) && commandArguments[index+1] == "update" {
 			foundUpdate = true
 		}
-		if argument == "--label" && index+1 < len(commandArgs) && commandArgs[index+1] == "enhancement" {
+		if argument == "--label" && index+1 < len(commandArguments) && commandArguments[index+1] == "enhancement" {
 			foundLabel = true
 		}
 	}
 	if !foundUpdate {
-		t.Errorf("expected 'issue update' in args: %v", commandArgs)
+		t.Errorf("expected 'issue update' in arguments: %v", commandArguments)
 	}
 	if !foundLabel {
-		t.Errorf("expected '--label' in args: %v", commandArgs)
+		t.Errorf("expected '--label' in arguments: %v", commandArguments)
 	}
 }
 
@@ -436,29 +436,29 @@ func TestIssuesTool_EditAssigneesAndUnlabel(t *testing.T) {
 		t.Errorf("expected edited status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAssignee := false
 	foundUnlabel := false
 	foundMilestone := false
-	for index, argument := range commandArgs {
-		if argument == "--assignee" && index+1 < len(commandArgs) && commandArgs[index+1] == "alice,bob" {
+	for index, argument := range commandArguments {
+		if argument == "--assignee" && index+1 < len(commandArguments) && commandArguments[index+1] == "alice,bob" {
 			foundAssignee = true
 		}
-		if argument == "--unlabel" && index+1 < len(commandArgs) && commandArgs[index+1] == "wontfix" {
+		if argument == "--unlabel" && index+1 < len(commandArguments) && commandArguments[index+1] == "wontfix" {
 			foundUnlabel = true
 		}
-		if argument == "--milestone" && index+1 < len(commandArgs) && commandArgs[index+1] == "v2.0" {
+		if argument == "--milestone" && index+1 < len(commandArguments) && commandArguments[index+1] == "v2.0" {
 			foundMilestone = true
 		}
 	}
 	if !foundAssignee {
-		t.Errorf("expected '--assignee' in args: %v", commandArgs)
+		t.Errorf("expected '--assignee' in arguments: %v", commandArguments)
 	}
 	if !foundUnlabel {
-		t.Errorf("expected '--unlabel' in args: %v", commandArgs)
+		t.Errorf("expected '--unlabel' in arguments: %v", commandArguments)
 	}
 	if !foundMilestone {
-		t.Errorf("expected '--milestone' in args: %v", commandArgs)
+		t.Errorf("expected '--milestone' in arguments: %v", commandArguments)
 	}
 }
 
@@ -479,15 +479,15 @@ func TestIssuesTool_EditUnassignAll(t *testing.T) {
 		t.Errorf("expected edited status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundUnassign := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--unassign" {
 			foundUnassign = true
 		}
 	}
 	if !foundUnassign {
-		t.Errorf("expected '--unassign' in args: %v", commandArgs)
+		t.Errorf("expected '--unassign' in arguments: %v", commandArguments)
 	}
 }
 
@@ -506,15 +506,15 @@ func TestIssuesTool_EditReassign(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAssignee := false
-	for index, argument := range commandArgs {
-		if argument == "--assignee" && index+1 < len(commandArgs) && commandArgs[index+1] == "bob" {
+	for index, argument := range commandArguments {
+		if argument == "--assignee" && index+1 < len(commandArguments) && commandArguments[index+1] == "bob" {
 			foundAssignee = true
 		}
 	}
 	if !foundAssignee {
-		t.Errorf("expected '--assignee bob' in args: %v", commandArgs)
+		t.Errorf("expected '--assignee bob' in arguments: %v", commandArguments)
 	}
 }
 
@@ -533,11 +533,11 @@ func TestIssuesTool_EditDueDateAndConfidential(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundDueDate := false
 	foundConfidential := false
-	for index, argument := range commandArgs {
-		if argument == "--due-date" && index+1 < len(commandArgs) && commandArgs[index+1] == "2026-03-01" {
+	for index, argument := range commandArguments {
+		if argument == "--due-date" && index+1 < len(commandArguments) && commandArguments[index+1] == "2026-03-01" {
 			foundDueDate = true
 		}
 		if argument == "--confidential" {
@@ -545,10 +545,10 @@ func TestIssuesTool_EditDueDateAndConfidential(t *testing.T) {
 		}
 	}
 	if !foundDueDate {
-		t.Errorf("expected '--due-date' in args: %v", commandArgs)
+		t.Errorf("expected '--due-date' in arguments: %v", commandArguments)
 	}
 	if !foundConfidential {
-		t.Errorf("expected '--confidential' in args: %v", commandArgs)
+		t.Errorf("expected '--confidential' in arguments: %v", commandArguments)
 	}
 }
 
@@ -567,15 +567,15 @@ func TestIssuesTool_EditMakePublic(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundPublic := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--public" {
 			foundPublic = true
 		}
 	}
 	if !foundPublic {
-		t.Errorf("expected '--public' in args: %v", commandArgs)
+		t.Errorf("expected '--public' in arguments: %v", commandArguments)
 	}
 }
 
@@ -606,15 +606,15 @@ func TestIssuesTool_ListAssigneeMe(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAssignee := false
-	for index, argument := range commandArgs {
-		if argument == "--assignee" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+	for index, argument := range commandArguments {
+		if argument == "--assignee" && index+1 < len(commandArguments) && commandArguments[index+1] == "@me" {
 			foundAssignee = true
 		}
 	}
 	if !foundAssignee {
-		t.Errorf("expected '--assignee @me' in args: %v", commandArgs)
+		t.Errorf("expected '--assignee @me' in arguments: %v", commandArguments)
 	}
 }
 
@@ -631,15 +631,15 @@ func TestIssuesTool_ListAuthor(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAuthor := false
-	for index, argument := range commandArgs {
-		if argument == "--author" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+	for index, argument := range commandArguments {
+		if argument == "--author" && index+1 < len(commandArguments) && commandArguments[index+1] == "@me" {
 			foundAuthor = true
 		}
 	}
 	if !foundAuthor {
-		t.Errorf("expected '--author @me' in args: %v", commandArgs)
+		t.Errorf("expected '--author @me' in arguments: %v", commandArguments)
 	}
 }
 
@@ -656,16 +656,16 @@ func TestIssuesTool_RepositoryOverride(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundRepo := false
-	for index, argument := range commandArgs {
-		if argument == "-R" && index+1 < len(commandArgs) && commandArgs[index+1] == "mygroup/myproject" {
+	for index, argument := range commandArguments {
+		if argument == "-R" && index+1 < len(commandArguments) && commandArguments[index+1] == "mygroup/myproject" {
 			foundRepo = true
 			break
 		}
 	}
 	if !foundRepo {
-		t.Errorf("expected '-R mygroup/myproject' in args: %v", commandArgs)
+		t.Errorf("expected '-R mygroup/myproject' in arguments: %v", commandArguments)
 	}
 }
 
@@ -700,16 +700,16 @@ func TestMergeRequestsTool_ListAction(t *testing.T) {
 		t.Error("expected non-empty result")
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundMRList := false
-	for index, argument := range commandArgs {
-		if argument == "mr" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "mr" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundMRList = true
 			break
 		}
 	}
 	if !foundMRList {
-		t.Errorf("expected 'mr list' in args: %v", commandArgs)
+		t.Errorf("expected 'mr list' in arguments: %v", commandArguments)
 	}
 }
 
@@ -726,15 +726,15 @@ func TestMergeRequestsTool_ListClosedState(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundClosed := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--closed" {
 			foundClosed = true
 		}
 	}
 	if !foundClosed {
-		t.Errorf("expected '--closed' in args: %v", commandArgs)
+		t.Errorf("expected '--closed' in arguments: %v", commandArguments)
 	}
 }
 
@@ -751,15 +751,15 @@ func TestMergeRequestsTool_ListMergedState(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundMerged := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--merged" {
 			foundMerged = true
 		}
 	}
 	if !foundMerged {
-		t.Errorf("expected '--merged' in args: %v", commandArgs)
+		t.Errorf("expected '--merged' in arguments: %v", commandArguments)
 	}
 }
 
@@ -776,29 +776,29 @@ func TestMergeRequestsTool_ListMergedDefaultsToRecentOrdering(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundPage := false
 	foundOrder := false
 	foundSort := false
-	for index, argument := range commandArgs {
-		if argument == "--page" && index+1 < len(commandArgs) && commandArgs[index+1] == "1" {
+	for index, argument := range commandArguments {
+		if argument == "--page" && index+1 < len(commandArguments) && commandArguments[index+1] == "1" {
 			foundPage = true
 		}
-		if argument == "--order" && index+1 < len(commandArgs) && commandArgs[index+1] == "merged_at" {
+		if argument == "--order" && index+1 < len(commandArguments) && commandArguments[index+1] == "merged_at" {
 			foundOrder = true
 		}
-		if argument == "--sort" && index+1 < len(commandArgs) && commandArgs[index+1] == "desc" {
+		if argument == "--sort" && index+1 < len(commandArguments) && commandArguments[index+1] == "desc" {
 			foundSort = true
 		}
 	}
 	if !foundPage {
-		t.Errorf("expected default '--page 1' in args: %v", commandArgs)
+		t.Errorf("expected default '--page 1' in arguments: %v", commandArguments)
 	}
 	if !foundOrder {
-		t.Errorf("expected default '--order merged_at' in args: %v", commandArgs)
+		t.Errorf("expected default '--order merged_at' in arguments: %v", commandArguments)
 	}
 	if !foundSort {
-		t.Errorf("expected default '--sort desc' in args: %v", commandArgs)
+		t.Errorf("expected default '--sort desc' in arguments: %v", commandArguments)
 	}
 }
 
@@ -814,22 +814,22 @@ func TestMergeRequestsTool_ListDefaultsToRecentOrdering(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundOrder := false
 	foundSort := false
-	for index, argument := range commandArgs {
-		if argument == "--order" && index+1 < len(commandArgs) && commandArgs[index+1] == "updated_at" {
+	for index, argument := range commandArguments {
+		if argument == "--order" && index+1 < len(commandArguments) && commandArguments[index+1] == "updated_at" {
 			foundOrder = true
 		}
-		if argument == "--sort" && index+1 < len(commandArgs) && commandArgs[index+1] == "desc" {
+		if argument == "--sort" && index+1 < len(commandArguments) && commandArguments[index+1] == "desc" {
 			foundSort = true
 		}
 	}
 	if !foundOrder {
-		t.Errorf("expected default '--order updated_at' in args: %v", commandArgs)
+		t.Errorf("expected default '--order updated_at' in arguments: %v", commandArguments)
 	}
 	if !foundSort {
-		t.Errorf("expected default '--sort desc' in args: %v", commandArgs)
+		t.Errorf("expected default '--sort desc' in arguments: %v", commandArguments)
 	}
 }
 
@@ -846,15 +846,15 @@ func TestMergeRequestsTool_ListAllState(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAll := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--all" {
 			foundAll = true
 		}
 	}
 	if !foundAll {
-		t.Errorf("expected '--all' in args: %v", commandArgs)
+		t.Errorf("expected '--all' in arguments: %v", commandArguments)
 	}
 }
 
@@ -871,15 +871,15 @@ func TestMergeRequestsTool_ListAssigneeMe(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAssignee := false
-	for index, argument := range commandArgs {
-		if argument == "--assignee" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+	for index, argument := range commandArguments {
+		if argument == "--assignee" && index+1 < len(commandArguments) && commandArguments[index+1] == "@me" {
 			foundAssignee = true
 		}
 	}
 	if !foundAssignee {
-		t.Errorf("expected '--assignee @me' in args: %v", commandArgs)
+		t.Errorf("expected '--assignee @me' in arguments: %v", commandArguments)
 	}
 }
 
@@ -896,15 +896,15 @@ func TestMergeRequestsTool_ListReviewerMe(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundReviewer := false
-	for index, argument := range commandArgs {
-		if argument == "--reviewer" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+	for index, argument := range commandArguments {
+		if argument == "--reviewer" && index+1 < len(commandArguments) && commandArguments[index+1] == "@me" {
 			foundReviewer = true
 		}
 	}
 	if !foundReviewer {
-		t.Errorf("expected '--reviewer @me' in args: %v", commandArgs)
+		t.Errorf("expected '--reviewer @me' in arguments: %v", commandArguments)
 	}
 }
 
@@ -921,15 +921,15 @@ func TestMergeRequestsTool_ListAuthor(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAuthor := false
-	for index, argument := range commandArgs {
-		if argument == "--author" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+	for index, argument := range commandArguments {
+		if argument == "--author" && index+1 < len(commandArguments) && commandArguments[index+1] == "@me" {
 			foundAuthor = true
 		}
 	}
 	if !foundAuthor {
-		t.Errorf("expected '--author @me' in args: %v", commandArgs)
+		t.Errorf("expected '--author @me' in arguments: %v", commandArguments)
 	}
 }
 
@@ -959,7 +959,7 @@ func TestMergeRequestsTool_ListAdditionalFilters(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := strings.Join((*calls)[0], " ")
+	commandArguments := strings.Join((*calls)[0], " ")
 	expectedSnippets := []string{
 		"--group my-group/platform",
 		"--page 2",
@@ -978,8 +978,8 @@ func TestMergeRequestsTool_ListAdditionalFilters(t *testing.T) {
 		"--created-before 2026-02-01T00:00:00Z",
 	}
 	for _, snippet := range expectedSnippets {
-		if !strings.Contains(commandArgs, snippet) {
-			t.Errorf("expected %q in args: %v", snippet, (*calls)[0])
+		if !strings.Contains(commandArguments, snippet) {
+			t.Errorf("expected %q in arguments: %v", snippet, (*calls)[0])
 		}
 	}
 }
@@ -998,12 +998,12 @@ func TestMergeRequestsTool_ListRepositoryOverridesGroup(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := strings.Join((*calls)[0], " ")
-	if strings.Contains(commandArgs, "--group my-group/platform") {
+	commandArguments := strings.Join((*calls)[0], " ")
+	if strings.Contains(commandArguments, "--group my-group/platform") {
 		t.Errorf("expected repository to suppress --group: %v", (*calls)[0])
 	}
-	if !strings.Contains(commandArgs, "-R my-group/platform/repo") {
-		t.Errorf("expected repository flag in args: %v", (*calls)[0])
+	if !strings.Contains(commandArguments, "-R my-group/platform/repo") {
+		t.Errorf("expected repository flag in arguments: %v", (*calls)[0])
 	}
 }
 
@@ -1020,15 +1020,15 @@ func TestMergeRequestsTool_ViewAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundComments := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--comments" {
 			foundComments = true
 		}
 	}
 	if !foundComments {
-		t.Errorf("expected --comments in args: %v", commandArgs)
+		t.Errorf("expected --comments in arguments: %v", commandArguments)
 	}
 }
 
@@ -1051,22 +1051,22 @@ func TestMergeRequestsTool_CreateAction(t *testing.T) {
 		t.Errorf("expected created status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	hasSourceBranch := false
 	hasTargetBranch := false
-	for index, argument := range commandArgs {
-		if argument == "--source-branch" && index+1 < len(commandArgs) && commandArgs[index+1] == "feature-branch" {
+	for index, argument := range commandArguments {
+		if argument == "--source-branch" && index+1 < len(commandArguments) && commandArguments[index+1] == "feature-branch" {
 			hasSourceBranch = true
 		}
-		if argument == "--target-branch" && index+1 < len(commandArgs) && commandArgs[index+1] == "main" {
+		if argument == "--target-branch" && index+1 < len(commandArguments) && commandArguments[index+1] == "main" {
 			hasTargetBranch = true
 		}
 	}
 	if !hasSourceBranch {
-		t.Error("expected --source-branch in args")
+		t.Error("expected --source-branch in arguments")
 	}
 	if !hasTargetBranch {
-		t.Error("expected --target-branch in args")
+		t.Error("expected --target-branch in arguments")
 	}
 }
 
@@ -1102,16 +1102,16 @@ func TestMergeRequestsTool_MergeAction(t *testing.T) {
 		t.Errorf("expected merged status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundSquash := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--squash" {
 			foundSquash = true
 			break
 		}
 	}
 	if !foundSquash {
-		t.Errorf("expected '--squash' in args: %v", commandArgs)
+		t.Errorf("expected '--squash' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1148,16 +1148,16 @@ func TestMergeRequestsTool_ApproveAction(t *testing.T) {
 		t.Errorf("expected approved status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundApprove := false
-	for index, argument := range commandArgs {
-		if argument == "mr" && index+1 < len(commandArgs) && commandArgs[index+1] == "approve" {
+	for index, argument := range commandArguments {
+		if argument == "mr" && index+1 < len(commandArguments) && commandArguments[index+1] == "approve" {
 			foundApprove = true
 			break
 		}
 	}
 	if !foundApprove {
-		t.Errorf("expected 'mr approve' in args: %v", commandArgs)
+		t.Errorf("expected 'mr approve' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1175,22 +1175,22 @@ func TestMergeRequestsTool_CommentAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundNote := false
 	foundMessage := false
-	for index, argument := range commandArgs {
+	for index, argument := range commandArguments {
 		if argument == "note" {
 			foundNote = true
 		}
-		if argument == "--message" && index+1 < len(commandArgs) && commandArgs[index+1] == "LGTM" {
+		if argument == "--message" && index+1 < len(commandArguments) && commandArguments[index+1] == "LGTM" {
 			foundMessage = true
 		}
 	}
 	if !foundNote {
-		t.Errorf("expected 'note' in args: %v", commandArgs)
+		t.Errorf("expected 'note' in arguments: %v", commandArguments)
 	}
 	if !foundMessage {
-		t.Errorf("expected '--message' in args: %v", commandArgs)
+		t.Errorf("expected '--message' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1229,7 +1229,7 @@ func TestTodosTool_ListAction(t *testing.T) {
 		t.Error("expected non-empty result")
 	}
 
-	commandArgs := strings.Join((*calls)[0], " ")
+	commandArguments := strings.Join((*calls)[0], " ")
 	expectedSnippets := []string{
 		"api todos",
 		"--method GET",
@@ -1241,8 +1241,8 @@ func TestTodosTool_ListAction(t *testing.T) {
 		"-F type=MergeRequest",
 	}
 	for _, snippet := range expectedSnippets {
-		if !strings.Contains(commandArgs, snippet) {
-			t.Errorf("expected %q in args: %v", snippet, (*calls)[0])
+		if !strings.Contains(commandArguments, snippet) {
+			t.Errorf("expected %q in arguments: %v", snippet, (*calls)[0])
 		}
 	}
 }
@@ -1263,9 +1263,9 @@ func TestTodosTool_MarkDoneAction(t *testing.T) {
 		t.Errorf("expected marked_done status in result: %s", result)
 	}
 
-	commandArgs := strings.Join((*calls)[0], " ")
-	if !strings.Contains(commandArgs, "api todos/1/mark_as_done --method POST") {
-		t.Errorf("expected mark_as_done POST call in args: %v", (*calls)[0])
+	commandArguments := strings.Join((*calls)[0], " ")
+	if !strings.Contains(commandArguments, "api todos/1/mark_as_done --method POST") {
+		t.Errorf("expected mark_as_done POST call in arguments: %v", (*calls)[0])
 	}
 }
 
@@ -1284,9 +1284,9 @@ func TestTodosTool_MarkAllDoneAction(t *testing.T) {
 		t.Errorf("expected marked_all_done status in result: %s", result)
 	}
 
-	commandArgs := strings.Join((*calls)[0], " ")
-	if !strings.Contains(commandArgs, "api todos/mark_as_done --method POST") {
-		t.Errorf("expected bulk mark_as_done POST call in args: %v", (*calls)[0])
+	commandArguments := strings.Join((*calls)[0], " ")
+	if !strings.Contains(commandArguments, "api todos/mark_as_done --method POST") {
+		t.Errorf("expected bulk mark_as_done POST call in arguments: %v", (*calls)[0])
 	}
 }
 
@@ -1331,16 +1331,16 @@ func TestProjectsTool_ViewAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundRepoView := false
-	for index, argument := range commandArgs {
-		if argument == "repo" && index+1 < len(commandArgs) && commandArgs[index+1] == "view" {
+	for index, argument := range commandArguments {
+		if argument == "repo" && index+1 < len(commandArguments) && commandArguments[index+1] == "view" {
 			foundRepoView = true
 			break
 		}
 	}
 	if !foundRepoView {
-		t.Errorf("expected 'repo view' in args: %v", commandArgs)
+		t.Errorf("expected 'repo view' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1357,16 +1357,16 @@ func TestProjectsTool_ListAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundRepoList := false
-	for index, argument := range commandArgs {
-		if argument == "repo" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "repo" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundRepoList = true
 			break
 		}
 	}
 	if !foundRepoList {
-		t.Errorf("expected 'repo list' in args: %v", commandArgs)
+		t.Errorf("expected 'repo list' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1383,22 +1383,22 @@ func TestProjectsTool_SearchAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundRepoSearch := false
 	foundSearchFlag := false
-	for index, argument := range commandArgs {
-		if argument == "repo" && index+1 < len(commandArgs) && commandArgs[index+1] == "search" {
+	for index, argument := range commandArguments {
+		if argument == "repo" && index+1 < len(commandArguments) && commandArguments[index+1] == "search" {
 			foundRepoSearch = true
 		}
-		if argument == "--search" && index+1 < len(commandArgs) && commandArgs[index+1] == "kubernetes" {
+		if argument == "--search" && index+1 < len(commandArguments) && commandArguments[index+1] == "kubernetes" {
 			foundSearchFlag = true
 		}
 	}
 	if !foundRepoSearch {
-		t.Errorf("expected 'repo search' in args: %v", commandArgs)
+		t.Errorf("expected 'repo search' in arguments: %v", commandArguments)
 	}
 	if !foundSearchFlag {
-		t.Errorf("expected '--search kubernetes' in args: %v", commandArgs)
+		t.Errorf("expected '--search kubernetes' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1443,16 +1443,16 @@ func TestPipelinesTool_ListAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundCIList := false
-	for index, argument := range commandArgs {
-		if argument == "ci" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "ci" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundCIList = true
 			break
 		}
 	}
 	if !foundCIList {
-		t.Errorf("expected 'ci list' in args: %v", commandArgs)
+		t.Errorf("expected 'ci list' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1469,22 +1469,22 @@ func TestPipelinesTool_ViewAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundCIGet := false
 	foundPipelineId := false
-	for index, argument := range commandArgs {
-		if argument == "ci" && index+1 < len(commandArgs) && commandArgs[index+1] == "get" {
+	for index, argument := range commandArguments {
+		if argument == "ci" && index+1 < len(commandArguments) && commandArguments[index+1] == "get" {
 			foundCIGet = true
 		}
-		if argument == "--pipeline-id" && index+1 < len(commandArgs) && commandArgs[index+1] == "123" {
+		if argument == "--pipeline-id" && index+1 < len(commandArguments) && commandArguments[index+1] == "123" {
 			foundPipelineId = true
 		}
 	}
 	if !foundCIGet {
-		t.Errorf("expected 'ci get' in args: %v", commandArgs)
+		t.Errorf("expected 'ci get' in arguments: %v", commandArguments)
 	}
 	if !foundPipelineId {
-		t.Errorf("expected '--pipeline-id 123' in args: %v", commandArgs)
+		t.Errorf("expected '--pipeline-id 123' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1504,16 +1504,16 @@ func TestPipelinesTool_RunAction(t *testing.T) {
 		t.Errorf("expected triggered status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundBranch := false
-	for index, argument := range commandArgs {
-		if argument == "--branch" && index+1 < len(commandArgs) && commandArgs[index+1] == "main" {
+	for index, argument := range commandArguments {
+		if argument == "--branch" && index+1 < len(commandArguments) && commandArguments[index+1] == "main" {
 			foundBranch = true
 			break
 		}
 	}
 	if !foundBranch {
-		t.Errorf("expected '--branch main' in args: %v", commandArgs)
+		t.Errorf("expected '--branch main' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1557,16 +1557,16 @@ func TestReleasesTool_ListAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundReleaseList := false
-	for index, argument := range commandArgs {
-		if argument == "release" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "release" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundReleaseList = true
 			break
 		}
 	}
 	if !foundReleaseList {
-		t.Errorf("expected 'release list' in args: %v", commandArgs)
+		t.Errorf("expected 'release list' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1588,22 +1588,22 @@ func TestReleasesTool_CreateAction(t *testing.T) {
 		t.Errorf("expected created status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	hasName := false
 	hasNotes := false
-	for index, argument := range commandArgs {
-		if argument == "--name" && index+1 < len(commandArgs) && commandArgs[index+1] == "Release 1.0.0" {
+	for index, argument := range commandArguments {
+		if argument == "--name" && index+1 < len(commandArguments) && commandArguments[index+1] == "Release 1.0.0" {
 			hasName = true
 		}
-		if argument == "--notes" && index+1 < len(commandArgs) && commandArgs[index+1] == "First release" {
+		if argument == "--notes" && index+1 < len(commandArguments) && commandArguments[index+1] == "First release" {
 			hasNotes = true
 		}
 	}
 	if !hasName {
-		t.Error("expected --name in args")
+		t.Error("expected --name in arguments")
 	}
 	if !hasNotes {
-		t.Error("expected --notes in args")
+		t.Error("expected --notes in arguments")
 	}
 }
 
@@ -1684,11 +1684,11 @@ func TestToolDefinitions(t *testing.T) {
 			}
 
 			// Verify action enum exists in parameters.
-			params, ok := definition.Function.Parameters.(map[string]interface{})
+			parameters, ok := definition.Function.Parameters.(map[string]interface{})
 			if !ok {
 				t.Fatal("parameters should be a map")
 			}
-			properties, ok := params["properties"].(map[string]interface{})
+			properties, ok := parameters["properties"].(map[string]interface{})
 			if !ok {
 				t.Fatal("properties should be a map")
 			}

@@ -1,5 +1,5 @@
 // Package browser — refstore manages the mapping between stable snapshot refs
-// and DOM backend node IDs, enabling ref-based browser interactions.
+// and DOM backend node IDs, enabling reference-based browser interactions.
 package browser
 
 import (
@@ -7,55 +7,55 @@ import (
 	"sync"
 )
 
-// refEntry holds the mapping from a snapshot ref to its backend DOM node.
-type refEntry struct {
+// referenceEntry holds the mapping from a snapshot reference to its backend DOM node.
+type referenceEntry struct {
 	BackendDOMNodeID int    // CDP backendDOMNodeId for DOM.resolveNode
 	Role             string // accessibility role (e.g. "button", "link")
 	Name             string // accessibility name
 }
 
-// refStore is a per-session store of ref→DOM node mappings. Each snapshot
+// referenceStore is a per-session store of reference→DOM node mappings. Each snapshot
 // overwrites the previous mapping for that session.
-type refStore struct {
-	// sessions maps sessionId → (ref → refEntry).
-	sessions map[string]map[int]refEntry
+type referenceStore struct {
+	// sessions maps sessionId → (reference → referenceEntry).
+	sessions map[string]map[int]referenceEntry
 	mutex    sync.Mutex
 }
 
-var globalRefStore = &refStore{
-	sessions: make(map[string]map[int]refEntry),
+var globalReferenceStore = &referenceStore{
+	sessions: make(map[string]map[int]referenceEntry),
 }
 
-// store replaces the ref mapping for the given session.
-func (self *refStore) store(sessionId string, refs map[int]refEntry) {
+// store replaces the reference mapping for the given session.
+func (self *referenceStore) store(sessionId string, refs map[int]referenceEntry) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.sessions[sessionId] = refs
 }
 
-// lookup returns the refEntry for a given session and ref number.
-func (self *refStore) lookup(sessionId string, ref int) (refEntry, error) {
+// lookup returns the referenceEntry for a given session and reference number.
+func (self *referenceStore) lookup(sessionId string, reference int) (referenceEntry, error) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	refs, ok := self.sessions[sessionId]
 	if !ok {
-		return refEntry{}, fmt.Errorf("no snapshot refs for this session — run a snapshot first")
+		return referenceEntry{}, fmt.Errorf("browser: no snapshot refs for this session — run a snapshot first")
 	}
-	entry, ok := refs[ref]
+	entry, ok := refs[reference]
 	if !ok {
-		return refEntry{}, fmt.Errorf("ref %d not found in last snapshot — run a new snapshot to refresh refs", ref)
+		return referenceEntry{}, fmt.Errorf("browser: reference %d not found in last snapshot — run a new snapshot to refresh refs", reference)
 	}
 	return entry, nil
 }
 
-// clear removes the ref mapping for a session (e.g. on navigation).
-func (self *refStore) clear(sessionId string) {
+// clear removes the reference mapping for a session (e.g. on navigation).
+func (self *referenceStore) clear(sessionId string) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	delete(self.sessions, sessionId)
 }
 
-// interactiveRoles is the set of accessibility roles that receive a ref
+// interactiveRoles is the set of accessibility roles that receive a reference
 // in the snapshot output. These are elements the LLM is likely to interact with.
 var interactiveRoles = map[string]bool{
 	"button":           true,
@@ -82,7 +82,7 @@ var interactiveRoles = map[string]bool{
 	"rowheader":        true,
 }
 
-// isInteractiveRole returns true if the role should receive a stable ref.
+// isInteractiveRole returns true if the role should receive a stable reference.
 func isInteractiveRole(role string) bool {
 	return interactiveRoles[role]
 }

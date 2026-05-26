@@ -150,8 +150,8 @@ func TestConcurrentAllocateResolve(t *testing.T) {
 
 	pending := NewRequests()
 	const count = 100
-	var wg sync.WaitGroup
-	wg.Add(count)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(count)
 
 	type pair struct {
 		id      int
@@ -168,12 +168,12 @@ func TestConcurrentAllocateResolve(t *testing.T) {
 	// Resolve concurrently.
 	for index := 0; index < count; index++ {
 		go func(result pair) {
-			defer wg.Done()
+			defer waitGroup.Done()
 			pending.Resolve(result.id, Result{Data: json.RawMessage(`"ok"`)})
 		}(pairs[index])
 	}
 
-	wg.Wait()
+	waitGroup.Wait()
 
 	for index, result := range pairs {
 		select {

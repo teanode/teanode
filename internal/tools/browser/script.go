@@ -12,7 +12,7 @@ import (
 type scriptStep struct {
 	Action      string   `json:"action"`
 	URL         string   `json:"url,omitempty"`
-	Ref         *int     `json:"ref,omitempty"`
+	Ref         *int     `json:"reference,omitempty"`
 	Selector    string   `json:"selector,omitempty"`
 	Text        string   `json:"text,omitempty"`
 	Key         string   `json:"key,omitempty"`
@@ -20,7 +20,7 @@ type scriptStep struct {
 	X           *float64 `json:"x,omitempty"`
 	Y           *float64 `json:"y,omitempty"`
 	WaitMode    string   `json:"waitMode,omitempty"`
-	TimeoutMs   *int     `json:"timeoutMs,omitempty"`
+	TimeoutMS   *int     `json:"timeoutMs,omitempty"`
 	ClearFirst  bool     `json:"clearFirst,omitempty"`
 	OptionValue string   `json:"optionValue,omitempty"`
 	OptionIndex *int     `json:"optionIndex,omitempty"`
@@ -39,10 +39,10 @@ type scriptStepResult struct {
 // executed steps.
 func executeScript(ctx context.Context, browser browsers.Browser, connectionId string, steps []scriptStep) (string, error) {
 	if len(steps) == 0 {
-		return "", fmt.Errorf("script requires at least one step")
+		return "", fmt.Errorf("browser: script requires at least one step")
 	}
 	if len(steps) > 50 {
-		return "", fmt.Errorf("script exceeds maximum of 50 steps")
+		return "", fmt.Errorf("browser: script exceeds maximum of 50 steps")
 	}
 
 	results := make([]scriptStepResult, 0, len(steps))
@@ -94,24 +94,24 @@ func executeSingleStep(ctx context.Context, browser browsers.Browser, connection
 		return executeClick(ctx, browser, connectionId, step.X, step.Y, step.Selector)
 	case "click_ref":
 		if step.Ref == nil {
-			return "", fmt.Errorf("ref is required for click_ref")
+			return "", fmt.Errorf("browser: reference is required for click_ref")
 		}
-		return executeClickRef(ctx, browser, connectionId, *step.Ref)
+		return executeClickReference(ctx, browser, connectionId, *step.Ref)
 	case "type":
 		return executeType(ctx, browser, connectionId, step.Text, step.Selector)
 	case "type_ref":
 		if step.Ref == nil {
-			return "", fmt.Errorf("ref is required for type_ref")
+			return "", fmt.Errorf("browser: reference is required for type_ref")
 		}
-		return executeTypeRef(ctx, browser, connectionId, *step.Ref, step.Text, step.ClearFirst)
+		return executeTypeReference(ctx, browser, connectionId, *step.Ref, step.Text, step.ClearFirst)
 	case "hover_ref":
 		if step.Ref == nil {
-			return "", fmt.Errorf("ref is required for hover_ref")
+			return "", fmt.Errorf("browser: reference is required for hover_ref")
 		}
-		return executeHoverRef(ctx, browser, connectionId, *step.Ref)
+		return executeHoverReference(ctx, browser, connectionId, *step.Ref)
 	case "select_option":
 		if step.Ref == nil {
-			return "", fmt.Errorf("ref is required for select_option")
+			return "", fmt.Errorf("browser: reference is required for select_option")
 		}
 		return executeSelectOption(ctx, browser, connectionId, *step.Ref, step.OptionValue, step.OptionIndex)
 	case "press_key":
@@ -123,8 +123,8 @@ func executeSingleStep(ctx context.Context, browser browsers.Browser, connection
 		if mode == "" {
 			mode = "navigation"
 		}
-		return executeWait(ctx, browser, connectionId, mode, step.Selector, step.TimeoutMs)
+		return executeWait(ctx, browser, connectionId, mode, step.Selector, step.TimeoutMS)
 	default:
-		return "", fmt.Errorf("unknown script action: %s", step.Action)
+		return "", fmt.Errorf("browser: unknown script action: %s", step.Action)
 	}
 }

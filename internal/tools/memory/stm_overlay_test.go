@@ -20,10 +20,10 @@ func makeMessage(role models.Role, content string) *models.ConversationMessage {
 }
 
 func makeToolMessage(toolName, content string) *models.ConversationMessage {
-	msg := makeMessage(models.RoleTool, content)
-	msg.ToolName = ptrString(toolName)
-	msg.ToolCallID = ptrString("call_" + toolName)
-	return msg
+	message := makeMessage(models.RoleTool, content)
+	message.ToolName = ptrString(toolName)
+	message.ToolCallID = ptrString("call_" + toolName)
+	return message
 }
 
 func retrieveResult(snippets ...map[string]any) string {
