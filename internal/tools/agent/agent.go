@@ -83,20 +83,20 @@ func (self *agentCreateTool) Execute(ctx context.Context, rawArguments string) (
 		Name    string `json:"name"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("agent: parsing arguments: %w", err)
 	}
 	if arguments.AgentID == "" || arguments.Name == "" {
-		return "", fmt.Errorf("agentId and name are required")
+		return "", fmt.Errorf("agent: agentId and name are required")
 	}
 	if !validAgentIdPattern.MatchString(arguments.AgentID) {
-		return "", fmt.Errorf("invalid agentId %q: use lowercase letters, numbers, hyphens, and underscores", arguments.AgentID)
+		return "", fmt.Errorf("agent: invalid agentId %q: use lowercase letters, numbers, hyphens, and underscores", arguments.AgentID)
 	}
 
 	// Check existence and create atomically in a single transaction.
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		_, err := transaction.GetAgent(ctx, arguments.AgentID, nil)
 		if err == nil {
-			return fmt.Errorf("agent %q already exists", arguments.AgentID)
+			return fmt.Errorf("agent: agent %q already exists", arguments.AgentID)
 		}
 		if err != store.ErrNotFound {
 			return err
@@ -267,10 +267,10 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 		ConversationID string `json:"conversationId"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("agent: parsing arguments: %w", err)
 	}
 	if arguments.AgentID == "" || arguments.Message == "" {
-		return "", fmt.Errorf("agentId and message are required")
+		return "", fmt.Errorf("agent: agentId and message are required")
 	}
 
 	// Verify target agent exists in store.
@@ -283,16 +283,16 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 		targetAgent = foundAgent
 		return nil
 	}); err != nil {
-		return "", fmt.Errorf("looking up agent: %w", err)
+		return "", fmt.Errorf("agent: looking up agent: %w", err)
 	}
 	if targetAgent == nil {
-		return "", fmt.Errorf("agent %q not found", arguments.AgentID)
+		return "", fmt.Errorf("agent: agent %q not found", arguments.AgentID)
 	}
 
 	// Get coordinator from context.
 	coordinator := coordinators.CoordinatorFromContext(ctx)
 	if coordinator == nil {
-		return "", fmt.Errorf("coordinator not available")
+		return "", fmt.Errorf("agent: coordinator not available")
 	}
 
 	// Generate conversation id if not provided.
@@ -312,11 +312,11 @@ func (self *agentMessageTool) Execute(ctx context.Context, rawArguments string) 
 		SystemPromptMode: runners.SystemPromptModeMinimal,
 	}, nil)
 	if sendError != nil {
-		return "", fmt.Errorf("agent %q send failed: %w", arguments.AgentID, sendError)
+		return "", fmt.Errorf("agent: agent %q send failed: %w", arguments.AgentID, sendError)
 	}
 	result, err := handle.Wait()
 	if err != nil {
-		return "", fmt.Errorf("agent %q run failed: %w", arguments.AgentID, err)
+		return "", fmt.Errorf("agent: agent %q run failed: %w", arguments.AgentID, err)
 	}
 
 	response, _ := json.Marshal(map[string]interface{}{
@@ -383,10 +383,10 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 		ProviderModelName string `json:"model"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("agent: parsing arguments: %w", err)
 	}
 	if arguments.Task == "" {
-		return "", fmt.Errorf("task is required")
+		return "", fmt.Errorf("agent: task is required")
 	}
 
 	// Default to self-spawn.
@@ -398,7 +398,7 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 	// Depth check.
 	currentDepth := runners.SpawnDepthFromContext(ctx)
 	if currentDepth >= runners.DefaultMaxSpawnDepth {
-		return "", fmt.Errorf("subagent spawn depth limit reached (%d)", runners.DefaultMaxSpawnDepth)
+		return "", fmt.Errorf("agent: subagent spawn depth limit reached (%d)", runners.DefaultMaxSpawnDepth)
 	}
 
 	// Verify target agent exists in store.
@@ -411,16 +411,16 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 		targetAgent = foundAgent
 		return nil
 	}); err != nil {
-		return "", fmt.Errorf("looking up agent: %w", err)
+		return "", fmt.Errorf("agent: looking up agent: %w", err)
 	}
 	if targetAgent == nil {
-		return "", fmt.Errorf("agent %q not found", targetAgentId)
+		return "", fmt.Errorf("agent: agent %q not found", targetAgentId)
 	}
 
 	// Get coordinator from context.
 	coordinator := coordinators.CoordinatorFromContext(ctx)
 	if coordinator == nil {
-		return "", fmt.Errorf("coordinator not available")
+		return "", fmt.Errorf("agent: coordinator not available")
 	}
 
 	// Generate ephemeral conversation id.
@@ -445,11 +445,11 @@ func (self *subagentSpawnTool) Execute(ctx context.Context, rawArguments string)
 
 	handle, sendError := coordinator.Run(childContext, sendParameters, nil)
 	if sendError != nil {
-		return "", fmt.Errorf("subagent %q send failed: %w", targetAgentId, sendError)
+		return "", fmt.Errorf("agent: subagent %q send failed: %w", targetAgentId, sendError)
 	}
 	result, err := handle.Wait()
 	if err != nil {
-		return "", fmt.Errorf("subagent %q run failed: %w", targetAgentId, err)
+		return "", fmt.Errorf("agent: subagent %q run failed: %w", targetAgentId, err)
 	}
 
 	response, _ := json.Marshal(map[string]interface{}{

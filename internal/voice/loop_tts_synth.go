@@ -7,14 +7,15 @@ import (
 	"time"
 
 	"github.com/teanode/teanode/internal/providers"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
 func (self *Session) ttsSynthLoop() {
 	for {
 		select {
-		case <-self.doneCh:
+		case <-self.doneChannel:
 			return
-		case sentence := <-self.ttsInCh:
+		case sentence := <-self.ttsInChannel:
 			if sentence == "" {
 				nowMs := time.Now().UnixMilli()
 				pipelineLog.Infof("voice response completed: session=%s response=%s", self.ID, self.GetCurrentResponseID())
@@ -43,12 +44,12 @@ func (self *Session) ttsSynthLoop() {
 				continue
 			}
 			// Wait without polling until the user stops speaking.
-			// getUserSpeakingCh returns an open channel while speaking and nil
+			// getUserSpeakingChannel returns an open channel while speaking and nil
 			// when silent; select on a nil channel blocks forever, so we only
 			// enter the select when there is actually something to wait on.
-			if speakingChannel := self.getUserSpeakingCh(); speakingChannel != nil {
+			if speakingChannel := self.getUserSpeakingChannel(); speakingChannel != nil {
 				select {
-				case <-self.doneCh:
+				case <-self.doneChannel:
 					return
 				case <-speakingChannel:
 					// channel closed by setUserSpeaking(false) - user stopped speaking
@@ -101,7 +102,7 @@ func (self *Session) ttsSynthLoop() {
 						start := time.Now()
 						for self.HasTranscriptionInFlight() && time.Since(start) < maxResponseStartDelay {
 							select {
-							case <-self.doneCh:
+							case <-self.doneChannel:
 								return
 							case <-time.After(50 * time.Millisecond):
 							}
@@ -130,11 +131,11 @@ func (self *Session) ttsSynthLoop() {
 				}
 				pipelineLog.Debugf("voice tts bytes: session=%s response=%s sentence_len=%d bytes=%d", self.ID, self.GetCurrentResponseID(), len(sentence), len(audio))
 				payload := EncodeBinaryAudioFrame(BinaryAudioFrame{
-					FrameType:   FrameTypeAudioOut,
-					Seq:         self.NextOutSeq(),
-					CaptureTSMs: time.Now().UnixMilli(),
-					DurationMS:  0,
-					Data:        audio,
+					FrameType:          FrameTypeAudioOut,
+					Seq:                self.NextOutSeq(),
+					CaptureTimestampMS: time.Now().UnixMilli(),
+					DurationMS:         0,
+					Data:               audio,
 				})
 				self.enqueueAudioOut(payload)
 			}
@@ -157,6 +158,7 @@ func synthesizeToChunks(ctx context.Context, synth providers.SynthesizeProvider,
 		if err == nil {
 			out := make(chan []byte, 32)
 			go func() {
+				defer deferutil.Recover()
 				defer close(out)
 				for chunk := range chunks {
 					if chunk.Err != nil {
@@ -186,9 +188,9 @@ func synthesizeToChunks(ctx context.Context, synth providers.SynthesizeProvider,
 	}
 	defer func() { _ = response.Audio.Close() }()
 	wavData, _ := io.ReadAll(response.Audio)
-	pcm, err := wavToPCM16LE(wavData)
+	pcm, err := wavToPcm16Le(wavData)
 	if err != nil {
-		return nil, fmt.Errorf("batch tts wav decode: %w", err)
+		return nil, fmt.Errorf("voice: batch tts wav decode: %w", err)
 	}
 	out := make(chan []byte, 1)
 	if len(pcm) > 0 {

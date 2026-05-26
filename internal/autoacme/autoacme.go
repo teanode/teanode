@@ -212,8 +212,8 @@ func (self *Manager) EnsureCertificate(ctx context.Context) error {
 	}
 
 	// Process authorizations.
-	for _, authorizationURL := range order.AuthzURLs {
-		authorization, err := client.GetAuthorization(ctx, authorizationURL)
+	for _, authorizationUrl := range order.AuthzURLs {
+		authorization, err := client.GetAuthorization(ctx, authorizationUrl)
 		if err != nil {
 			return err
 		}
@@ -250,7 +250,7 @@ func (self *Manager) EnsureCertificate(ctx context.Context) error {
 		}
 
 		// Wait for authorization.
-		if _, err := client.WaitAuthorization(ctx, authorizationURL); err != nil {
+		if _, err := client.WaitAuthorization(ctx, authorizationUrl); err != nil {
 			self.clearChallenge()
 			return err
 		}

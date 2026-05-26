@@ -12,7 +12,7 @@ import (
 
 func (self *fileSystemTransaction) loadConfigurationRecord() (*storeConfigurationRecord, error) {
 	configurationRecord := &storeConfigurationRecord{}
-	if readError := readYAMLFileOrDefault(self.configurationFilename(), configurationRecord); readError != nil {
+	if readError := readYamlFileOrDefault(self.configurationFilename(), configurationRecord); readError != nil {
 		return nil, readError
 	}
 	if configurationRecord.Secrets == nil {
@@ -28,13 +28,13 @@ func (self *fileSystemTransaction) saveConfigurationRecord(configurationRecord *
 	if configurationRecord.Secrets == nil {
 		configurationRecord.Secrets = map[string]string{}
 	}
-	return writeYAMLFile(self.configurationFilename(), configurationRecord)
+	return writeYamlFile(self.configurationFilename(), configurationRecord)
 }
 
 func (self *fileSystemTransaction) loadAgentRecord(agentId string) (*storeAgentRecord, error) {
 	agentRecord := &storeAgentRecord{ID: agentId}
 	filename := self.agentConfigurationFilename(agentId)
-	if readError := readYAMLFileOrDefault(filename, agentRecord); readError != nil {
+	if readError := readYamlFileOrDefault(filename, agentRecord); readError != nil {
 		return nil, readError
 	}
 	agentRecord.ID = agentId
@@ -46,7 +46,7 @@ func (self *fileSystemTransaction) saveAgentRecord(agentId string, agentRecord *
 		agentRecord = &storeAgentRecord{}
 	}
 	agentRecord.ID = agentId
-	return writeYAMLFile(self.agentConfigurationFilename(agentId), agentRecord)
+	return writeYamlFile(self.agentConfigurationFilename(agentId), agentRecord)
 }
 
 func (self *fileSystemTransaction) listAgentRecords() ([]storeAgentRecord, error) {
@@ -78,7 +78,7 @@ func (self *fileSystemTransaction) listAgentRecords() ([]storeAgentRecord, error
 func (self *fileSystemTransaction) loadUserRecord(userId string) (*storeUserRecord, error) {
 	userRecord := &storeUserRecord{ID: userId, Name: processUsername()}
 	filename := self.userConfigurationFilename(userId)
-	if readError := readYAMLFileOrDefault(filename, userRecord); readError != nil {
+	if readError := readYamlFileOrDefault(filename, userRecord); readError != nil {
 		return nil, readError
 	}
 	userRecord.ID = userId
@@ -100,7 +100,7 @@ func (self *fileSystemTransaction) saveUserRecord(userId string, userRecord *sto
 		userRecord.Name = processUsername()
 	}
 	userRecord.Description = strings.TrimSpace(userRecord.Description)
-	return writeYAMLFileMode(self.userConfigurationFilename(userId), userRecord, 0600)
+	return writeYamlFileMode(self.userConfigurationFilename(userId), userRecord, 0600)
 }
 
 func (self *fileSystemTransaction) listUserRecords() ([]storeUserRecord, error) {
@@ -150,12 +150,12 @@ func (self *fileSystemTransaction) saveProjectRecord(projectId string, projectRe
 	projectRecord.ID = projectId
 	projectRecord.Name = strings.TrimSpace(projectRecord.Name)
 	if projectRecord.Name == "" {
-		return fmt.Errorf("name is required")
+		return fmt.Errorf("fsstore: name is required")
 	}
 	if projectRecord.UpdatedAt.IsZero() {
 		projectRecord.UpdatedAt = timeutil.Now()
 	}
-	return writeYAMLFile(self.projectConfigurationFilename(projectId), projectRecord)
+	return writeYamlFile(self.projectConfigurationFilename(projectId), projectRecord)
 }
 
 func (self *fileSystemTransaction) listProjectRecords() ([]storeProjectRecord, error) {

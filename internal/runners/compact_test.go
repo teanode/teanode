@@ -217,7 +217,7 @@ func TestFindKeepBoundary(t *testing.T) {
 		messages := make([]providers.ChatMessage, 20)
 		for index := range messages {
 			if index%2 == 0 {
-				messages[index] = providers.ChatMessage{Role: "user", Content: "msg"}
+				messages[index] = providers.ChatMessage{Role: "user", Content: "message"}
 			} else {
 				messages[index] = providers.ChatMessage{Role: "assistant", Content: "reply"}
 			}

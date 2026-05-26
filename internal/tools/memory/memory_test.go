@@ -94,8 +94,8 @@ func TestMemoryToolDefinition(t *testing.T) {
 	}
 
 	// Verify action enum includes get, list, search, batch.
-	params := def.Function.Parameters.(map[string]interface{})
-	props := params["properties"].(map[string]interface{})
+	parameters := def.Function.Parameters.(map[string]interface{})
+	props := parameters["properties"].(map[string]interface{})
 	actionProp := props["action"].(map[string]interface{})
 	actionEnum := actionProp["enum"].([]string)
 	expectedActions := []string{"get", "list", "search", "batch", "retrieve", "summary", "filter"}
@@ -132,7 +132,7 @@ func TestMemoryToolDefinition(t *testing.T) {
 	}
 
 	// Verify required includes action.
-	required := params["required"].([]string)
+	required := parameters["required"].([]string)
 	hasAction := false
 	for _, field := range required {
 		if field == "action" {
@@ -1061,9 +1061,9 @@ func TestFilterMaxResults(t *testing.T) {
 	}
 
 	createTestMessages(t, ctx, conversationId, []testMessage{
-		{role: "user", content: "msg one"},
-		{role: "user", content: "msg two"},
-		{role: "user", content: "msg three"},
+		{role: "user", content: "message one"},
+		{role: "user", content: "message two"},
+		{role: "user", content: "message three"},
 	})
 
 	tool := registry.Get("agent_memory")
@@ -1155,12 +1155,12 @@ func createTestMessages(t *testing.T, ctx context.Context, conversationId string
 	err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		for _, message := range msgs {
 			role := models.Role(message.role)
-			contentJSON, _ := json.Marshal(message.content)
+			contentJson, _ := json.Marshal(message.content)
 			now := time.Now()
 			_, err := tx.CreateConversationMessage(ctx, &models.ConversationMessage{
 				ConversationID: &conversationId,
 				Role:           &role,
-				Content:        json.RawMessage(contentJSON),
+				Content:        json.RawMessage(contentJson),
 				CreatedAt:      &now,
 			}, nil)
 			if err != nil {

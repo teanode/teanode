@@ -118,13 +118,13 @@ func setupFSMemoryStore(t *testing.T, providerRegistry *providers.ProviderRegist
 
 func addMemoryItem(t *testing.T, ctx context.Context, tool tools.Tool, title, content string) string {
 	t.Helper()
-	args, _ := json.Marshal(map[string]interface{}{
+	arguments, _ := json.Marshal(map[string]interface{}{
 		"action": "batch",
 		"items": []map[string]interface{}{
 			{"op": "add", "title": title, "content": content},
 		},
 	})
-	result, err := tool.Execute(ctx, string(args))
+	result, err := tool.Execute(ctx, string(arguments))
 	if err != nil {
 		t.Fatalf("batch add: %v", err)
 	}
@@ -326,13 +326,13 @@ func TestDedupeWarningOnSimilarAdd(t *testing.T) {
 	addMemoryItem(t, ctx, tool, "Cat pref", "cat preference noted")
 
 	// Add a near-duplicate (same keywords → identical embedding → similarity 1.0).
-	args, _ := json.Marshal(map[string]interface{}{
+	arguments, _ := json.Marshal(map[string]interface{}{
 		"action": "batch",
 		"items": []map[string]interface{}{
 			{"op": "add", "title": "Cat update", "content": "cat preference updated"},
 		},
 	})
-	result, err := tool.Execute(ctx, string(args))
+	result, err := tool.Execute(ctx, string(arguments))
 	if err != nil {
 		t.Fatalf("batch add: %v", err)
 	}
@@ -363,13 +363,13 @@ func TestNoDedupeWarningForDifferentItems(t *testing.T) {
 	addMemoryItem(t, ctx, tool, "Cat info", "cat is great")
 
 	// Add item about dogs (different embedding).
-	args, _ := json.Marshal(map[string]interface{}{
+	arguments, _ := json.Marshal(map[string]interface{}{
 		"action": "batch",
 		"items": []map[string]interface{}{
 			{"op": "add", "title": "Dog info", "content": "dog is friendly"},
 		},
 	})
-	result, err := tool.Execute(ctx, string(args))
+	result, err := tool.Execute(ctx, string(arguments))
 	if err != nil {
 		t.Fatalf("batch add: %v", err)
 	}
@@ -394,13 +394,13 @@ func TestAddWithoutEmbeddingsProvider(t *testing.T) {
 	tool := registry.Get("agent_memory")
 
 	// Should work without embeddings, no warning.
-	args, _ := json.Marshal(map[string]interface{}{
+	arguments, _ := json.Marshal(map[string]interface{}{
 		"action": "batch",
 		"items": []map[string]interface{}{
 			{"op": "add", "title": "Plain item", "content": "no embeddings here"},
 		},
 	})
-	result, err := tool.Execute(ctx, string(args))
+	result, err := tool.Execute(ctx, string(arguments))
 	if err != nil {
 		t.Fatalf("batch add: %v", err)
 	}

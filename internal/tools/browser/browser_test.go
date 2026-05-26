@@ -145,32 +145,32 @@ func TestBuildAXTreeWithRefs(t *testing.T) {
 		{NodeID: "heading", ParentID: "root", Role: accessibilityValue{Value: "heading"}, Name: accessibilityValue{Value: "Welcome"}, Properties: []accessibilityProperty{{Name: "level", Value: accessibilityValue{Value: float64(1)}}}},
 	}
 
-	tree, refs := buildAXTreeWithRefs(nodes)
+	tree, refs := buildAxTreeWithRefs(nodes)
 
 	// Should have 2 refs (button + textbox), heading is not interactive.
 	if len(refs) != 2 {
 		t.Errorf("expected 2 refs, got %d", len(refs))
 	}
 
-	// Verify ref 1 is the button.
+	// Verify reference 1 is the button.
 	if refs[1].Role != "button" || refs[1].Name != "Submit" {
-		t.Errorf("ref 1 should be button Submit, got %+v", refs[1])
+		t.Errorf("reference 1 should be button Submit, got %+v", refs[1])
 	}
 
-	// Verify ref 2 is the textbox.
+	// Verify reference 2 is the textbox.
 	if refs[2].Role != "textbox" || refs[2].Name != "Email" {
-		t.Errorf("ref 2 should be textbox Email, got %+v", refs[2])
+		t.Errorf("reference 2 should be textbox Email, got %+v", refs[2])
 	}
 
-	// Verify tree output contains ref markers.
-	if !containsString(tree, "[ref=1]") {
-		t.Error("tree should contain [ref=1]")
+	// Verify tree output contains reference markers.
+	if !containsString(tree, "[reference=1]") {
+		t.Error("tree should contain [reference=1]")
 	}
-	if !containsString(tree, "[ref=2]") {
-		t.Error("tree should contain [ref=2]")
+	if !containsString(tree, "[reference=2]") {
+		t.Error("tree should contain [reference=2]")
 	}
-	if containsString(tree, "[ref=3]") {
-		t.Error("tree should NOT contain [ref=3] (heading is not interactive)")
+	if containsString(tree, "[reference=3]") {
+		t.Error("tree should NOT contain [reference=3] (heading is not interactive)")
 	}
 
 	// Verify heading has level property.
@@ -180,7 +180,7 @@ func TestBuildAXTreeWithRefs(t *testing.T) {
 }
 
 func TestBuildAXTreeWithRefsEmpty(t *testing.T) {
-	tree, refs := buildAXTreeWithRefs(nil)
+	tree, refs := buildAxTreeWithRefs(nil)
 	if tree != "(empty accessibility tree)" {
 		t.Errorf("expected empty tree message, got %q", tree)
 	}
@@ -195,7 +195,7 @@ func TestBuildAXTreeWithRefsIgnored(t *testing.T) {
 		{NodeID: "btn", ParentID: "root", Role: accessibilityValue{Value: "button"}, Name: accessibilityValue{Value: "Hidden"}, BackendDOMNodeID: 10, Ignored: true},
 	}
 
-	_, refs := buildAXTreeWithRefs(nodes)
+	_, refs := buildAxTreeWithRefs(nodes)
 	if len(refs) != 0 {
 		t.Errorf("ignored nodes should not get refs, got %d", len(refs))
 	}
@@ -209,19 +209,19 @@ func TestBuildAXTreeWithRefsGenericSkip(t *testing.T) {
 		{NodeID: "btn", ParentID: "generic", Role: accessibilityValue{Value: "button"}, Name: accessibilityValue{Value: "OK"}, BackendDOMNodeID: 5},
 	}
 
-	tree, refs := buildAXTreeWithRefs(nodes)
+	tree, refs := buildAxTreeWithRefs(nodes)
 	if len(refs) != 1 {
-		t.Errorf("expected 1 ref, got %d", len(refs))
+		t.Errorf("expected 1 reference, got %d", len(refs))
 	}
 	// The button should appear at the root level (depth 1, not 2)
 	// because the generic wrapper is skipped.
-	if !containsString(tree, "  [ref=1] button") {
+	if !containsString(tree, "  [reference=1] button") {
 		t.Errorf("button should be at depth 1 after generic skip, got:\n%s", tree)
 	}
 }
 
 func TestRefStoreLookup(t *testing.T) {
-	store := &refStore{sessions: make(map[string]map[int]refEntry)}
+	store := &referenceStore{sessions: make(map[string]map[int]referenceEntry)}
 
 	// Lookup on empty store.
 	_, err := store.lookup("session-1", 1)
@@ -230,7 +230,7 @@ func TestRefStoreLookup(t *testing.T) {
 	}
 
 	// Store and lookup.
-	store.store("session-1", map[int]refEntry{
+	store.store("session-1", map[int]referenceEntry{
 		1: {BackendDOMNodeID: 10, Role: "button", Name: "OK"},
 	})
 	entry, err := store.lookup("session-1", 1)
@@ -241,10 +241,10 @@ func TestRefStoreLookup(t *testing.T) {
 		t.Errorf("expected BackendDOMNodeID 10, got %d", entry.BackendDOMNodeID)
 	}
 
-	// Missing ref.
+	// Missing reference.
 	_, err = store.lookup("session-1", 99)
 	if err == nil {
-		t.Error("expected error for missing ref")
+		t.Error("expected error for missing reference")
 	}
 
 	// Clear.
@@ -370,7 +370,7 @@ func TestBrowserToolDefinition(t *testing.T) {
 	}
 
 	// Verify new properties exist.
-	expectedProperties := []string{"ref", "clearFirst", "waitMode", "timeoutMs", "steps", "optionValue", "optionIndex", "urlPattern"}
+	expectedProperties := []string{"reference", "clearFirst", "waitMode", "timeoutMs", "steps", "optionValue", "optionIndex", "urlPattern"}
 	for _, prop := range expectedProperties {
 		if _, ok := properties[prop]; !ok {
 			t.Errorf("property %q missing from browser tool definition", prop)
@@ -420,7 +420,7 @@ func TestBrowserToolExecuteSnapshot(t *testing.T) {
 	// Set up the Runtime.evaluate response for the DOM snapshot script.
 	// The DOM walker returns an object with tree, refCount, refs, pageUrl, title.
 	snapshotValue := map[string]interface{}{
-		"tree":     "RootWebArea \"Test Page\"\n  [ref=1] button \"Click Me\"\n  [ref=2] textbox \"Email\" value=\"\"",
+		"tree":     "RootWebArea \"Test Page\"\n  [reference=1] button \"Click Me\"\n  [reference=2] textbox \"Email\" value=\"\"",
 		"refCount": 2,
 		"refs": []map[string]interface{}{
 			{"role": "button", "name": "Click Me"},
@@ -453,11 +453,11 @@ func TestBrowserToolExecuteSnapshot(t *testing.T) {
 	if snapshot.RefCount != 2 {
 		t.Errorf("expected 2 refs, got %d", snapshot.RefCount)
 	}
-	if !containsString(snapshot.Tree, "[ref=1] button") {
-		t.Errorf("tree should contain ref marker for button, got:\n%s", snapshot.Tree)
+	if !containsString(snapshot.Tree, "[reference=1] button") {
+		t.Errorf("tree should contain reference marker for button, got:\n%s", snapshot.Tree)
 	}
-	if !containsString(snapshot.Tree, "[ref=2] textbox") {
-		t.Errorf("tree should contain ref marker for textbox, got:\n%s", snapshot.Tree)
+	if !containsString(snapshot.Tree, "[reference=2] textbox") {
+		t.Errorf("tree should contain reference marker for textbox, got:\n%s", snapshot.Tree)
 	}
 	if snapshot.PageURL != "https://example.com" {
 		t.Errorf("expected pageUrl 'https://example.com', got %q", snapshot.PageURL)
@@ -482,28 +482,28 @@ func TestBrowserToolExecuteRefMissing(t *testing.T) {
 	ctx := contextWithUserAndBrowser(mock)
 	tool := &browserTool{}
 
-	// click_ref without ref.
+	// click_ref without reference.
 	_, err := tool.Execute(ctx, `{"action":"click_ref"}`)
 	if err == nil {
-		t.Error("expected error when ref is missing for click_ref")
+		t.Error("expected error when reference is missing for click_ref")
 	}
 
-	// type_ref without ref.
+	// type_ref without reference.
 	_, err = tool.Execute(ctx, `{"action":"type_ref","text":"hello"}`)
 	if err == nil {
-		t.Error("expected error when ref is missing for type_ref")
+		t.Error("expected error when reference is missing for type_ref")
 	}
 
-	// hover_ref without ref.
+	// hover_ref without reference.
 	_, err = tool.Execute(ctx, `{"action":"hover_ref"}`)
 	if err == nil {
-		t.Error("expected error when ref is missing for hover_ref")
+		t.Error("expected error when reference is missing for hover_ref")
 	}
 
-	// select_option without ref.
+	// select_option without reference.
 	_, err = tool.Execute(ctx, `{"action":"select_option","optionValue":"a"}`)
 	if err == nil {
-		t.Error("expected error when ref is missing for select_option")
+		t.Error("expected error when reference is missing for select_option")
 	}
 }
 
@@ -731,11 +731,11 @@ func TestDOMSnapshotUsesRuntimeEvaluate(t *testing.T) {
 }
 
 func TestDOMSnapshotRefStorePopulation(t *testing.T) {
-	// Verify that the DOM snapshot populates globalRefStore with metadata.
+	// Verify that the DOM snapshot populates globalReferenceStore with metadata.
 	mock := newMockBrowser()
 
 	snapshotValue := map[string]interface{}{
-		"tree":     "RootWebArea \"Test\"\n  [ref=1] button \"Submit\"\n  [ref=2] textbox \"Name\" value=\"\"",
+		"tree":     "RootWebArea \"Test\"\n  [reference=1] button \"Submit\"\n  [reference=2] textbox \"Name\" value=\"\"",
 		"refCount": 2,
 		"refs": []map[string]interface{}{
 			{"role": "button", "name": "Submit"},
@@ -760,31 +760,31 @@ func TestDOMSnapshotRefStorePopulation(t *testing.T) {
 		t.Fatalf("snapshot error: %v", err)
 	}
 
-	// Verify ref store was populated.
-	entry1, err := globalRefStore.lookup("session-1", 1)
+	// Verify reference store was populated.
+	entry1, err := globalReferenceStore.lookup("session-1", 1)
 	if err != nil {
-		t.Fatalf("ref 1 not in store: %v", err)
+		t.Fatalf("reference 1 not in store: %v", err)
 	}
 	if entry1.Role != "button" || entry1.Name != "Submit" {
-		t.Errorf("ref 1: expected button/Submit, got %s/%s", entry1.Role, entry1.Name)
+		t.Errorf("reference 1: expected button/Submit, got %s/%s", entry1.Role, entry1.Name)
 	}
 
-	entry2, err := globalRefStore.lookup("session-1", 2)
+	entry2, err := globalReferenceStore.lookup("session-1", 2)
 	if err != nil {
-		t.Fatalf("ref 2 not in store: %v", err)
+		t.Fatalf("reference 2 not in store: %v", err)
 	}
 	if entry2.Role != "textbox" || entry2.Name != "Name" {
-		t.Errorf("ref 2: expected textbox/Name, got %s/%s", entry2.Role, entry2.Name)
+		t.Errorf("reference 2: expected textbox/Name, got %s/%s", entry2.Role, entry2.Name)
 	}
 
 	// Ref 3 should not exist.
-	_, err = globalRefStore.lookup("session-1", 3)
+	_, err = globalReferenceStore.lookup("session-1", 3)
 	if err == nil {
-		t.Error("ref 3 should not exist")
+		t.Error("reference 3 should not exist")
 	}
 
 	// Cleanup.
-	globalRefStore.clear("session-1")
+	globalReferenceStore.clear("session-1")
 }
 
 func TestDOMSnapshotWithSelectOptions(t *testing.T) {
@@ -792,7 +792,7 @@ func TestDOMSnapshotWithSelectOptions(t *testing.T) {
 	mock := newMockBrowser()
 
 	snapshotValue := map[string]interface{}{
-		"tree":     "RootWebArea \"Test\"\n  [ref=1] combobox \"Color\"\n    [ref=2] option \"Red\" selected\n    [ref=3] option \"Blue\"",
+		"tree":     "RootWebArea \"Test\"\n  [reference=1] combobox \"Color\"\n    [reference=2] option \"Red\" selected\n    [reference=3] option \"Blue\"",
 		"refCount": 3,
 		"refs": []map[string]interface{}{
 			{"role": "combobox", "name": "Color"},
@@ -826,18 +826,18 @@ func TestDOMSnapshotWithSelectOptions(t *testing.T) {
 	if snapshot.RefCount != 3 {
 		t.Errorf("expected 3 refs (combobox + 2 options), got %d", snapshot.RefCount)
 	}
-	if !containsString(snapshot.Tree, "[ref=1] combobox") {
-		t.Error("tree should contain combobox ref")
+	if !containsString(snapshot.Tree, "[reference=1] combobox") {
+		t.Error("tree should contain combobox reference")
 	}
-	if !containsString(snapshot.Tree, "[ref=2] option") {
-		t.Error("tree should contain first option ref")
+	if !containsString(snapshot.Tree, "[reference=2] option") {
+		t.Error("tree should contain first option reference")
 	}
-	if !containsString(snapshot.Tree, "[ref=3] option") {
-		t.Error("tree should contain second option ref")
+	if !containsString(snapshot.Tree, "[reference=3] option") {
+		t.Error("tree should contain second option reference")
 	}
 
 	// Cleanup.
-	globalRefStore.clear("session-1")
+	globalReferenceStore.clear("session-1")
 }
 
 func TestResolveRefToObjectID(t *testing.T) {
@@ -848,30 +848,30 @@ func TestResolveRefToObjectID(t *testing.T) {
 		"result": map[string]interface{}{
 			"type":     "object",
 			"subtype":  "node",
-			"objectId": "node-obj-42",
+			"objectId": "node-object-42",
 		},
 	}
 	resolveData, _ := json.Marshal(resolveResponse)
 	mock.responses["Runtime.evaluate"] = resolveData
 
 	ctx := contextWithUserAndBrowser(mock)
-	objectID, err := resolveRefToObjectID(ctx, mock, "session-1", 1)
+	objectId, err := resolveReferenceToObjectId(ctx, mock, "session-1", 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if objectID != "node-obj-42" {
-		t.Errorf("expected objectId 'node-obj-42', got %q", objectID)
+	if objectId != "node-object-42" {
+		t.Errorf("expected objectId 'node-object-42', got %q", objectId)
 	}
 }
 
 func TestResolveRefToObjectIDUndefined(t *testing.T) {
 	mock := newMockBrowser()
-	globalRefStore.store("session-1", map[int]refEntry{
+	globalReferenceStore.store("session-1", map[int]referenceEntry{
 		99: {Role: "button", Name: "Missing"},
 	})
-	defer globalRefStore.clear("session-1")
+	defer globalReferenceStore.clear("session-1")
 
-	// Response when the ref doesn't exist (page navigated, etc).
+	// Response when the reference doesn't exist (page navigated, etc).
 	undefinedResponse := map[string]interface{}{
 		"result": map[string]interface{}{
 			"type": "undefined",
@@ -881,11 +881,11 @@ func TestResolveRefToObjectIDUndefined(t *testing.T) {
 	mock.responses["Runtime.evaluate"] = undefinedData
 
 	ctx := contextWithUserAndBrowser(mock)
-	_, err := resolveRefToObjectID(ctx, mock, "session-1", 99)
+	_, err := resolveReferenceToObjectId(ctx, mock, "session-1", 99)
 	if err == nil {
-		t.Error("expected error when ref resolves to undefined")
+		t.Error("expected error when reference resolves to undefined")
 	}
-	if _, err := globalRefStore.lookup("session-1", 99); err == nil {
+	if _, err := globalReferenceStore.lookup("session-1", 99); err == nil {
 		t.Error("expected stale session refs to be cleared")
 	}
 }
@@ -961,14 +961,14 @@ func TestCompositeBrowserAssignTargetToUser(t *testing.T) {
 
 func TestSessionLifecycleCleanup(t *testing.T) {
 	globalInstanceStore.assign("user-1", "dashboard", "session-1")
-	globalRefStore.store("session-1", map[int]refEntry{
+	globalReferenceStore.store("session-1", map[int]referenceEntry{
 		1: {Role: "button", Name: "Submit"},
 	})
 	defer globalInstanceStore.remove("user-1", "dashboard")
-	defer globalRefStore.clear("session-1")
+	defer globalReferenceStore.clear("session-1")
 
 	browsers.NotifySessionNavigated("session-1", "target-1", "https://example.com/next")
-	if _, err := globalRefStore.lookup("session-1", 1); err == nil {
+	if _, err := globalReferenceStore.lookup("session-1", 1); err == nil {
 		t.Fatal("expected navigation to clear refs")
 	}
 	if _, err := globalInstanceStore.resolve("user-1", "dashboard"); err != nil {

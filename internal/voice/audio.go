@@ -6,13 +6,13 @@ import (
 	"fmt"
 )
 
-// wavToPCM16LE extracts raw PCM16LE samples from a WAV file.
-func wavToPCM16LE(wavData []byte) ([]byte, error) {
+// wavToPcm16Le extracts raw PCM16LE samples from a WAV file.
+func wavToPcm16Le(wavData []byte) ([]byte, error) {
 	if len(wavData) < 44 {
-		return nil, fmt.Errorf("wav payload too short")
+		return nil, fmt.Errorf("voice: wav payload too short")
 	}
 	if string(wavData[0:4]) != "RIFF" || string(wavData[8:12]) != "WAVE" {
-		return nil, fmt.Errorf("invalid wav header")
+		return nil, fmt.Errorf("voice: invalid wav header")
 	}
 	var (
 		audioFormat   uint16
@@ -34,13 +34,13 @@ func wavToPCM16LE(wavData []byte) ([]byte, error) {
 		}
 		if chunkId == "data" {
 			if audioFormat != 1 {
-				return nil, fmt.Errorf("unsupported wav format: %d", audioFormat)
+				return nil, fmt.Errorf("voice: unsupported wav format: %d", audioFormat)
 			}
 			if channels != 1 {
-				return nil, fmt.Errorf("unsupported wav channels: %d", channels)
+				return nil, fmt.Errorf("voice: unsupported wav channels: %d", channels)
 			}
 			if bitsPerSample != 16 {
-				return nil, fmt.Errorf("unsupported wav bits per sample: %d", bitsPerSample)
+				return nil, fmt.Errorf("voice: unsupported wav bits per sample: %d", bitsPerSample)
 			}
 			return append([]byte(nil), wavData[chunkStart:chunkEnd]...), nil
 		}
@@ -53,11 +53,11 @@ func wavToPCM16LE(wavData []byte) ([]byte, error) {
 	// Fallback parser: some providers return non-standard RIFF chunk sizes.
 	dataOffset := 12
 	for dataOffset+8 <= len(wavData) {
-		idx := bytes.Index(wavData[dataOffset:], []byte("data"))
-		if idx < 0 {
+		index := bytes.Index(wavData[dataOffset:], []byte("data"))
+		if index < 0 {
 			break
 		}
-		header := dataOffset + idx
+		header := dataOffset + index
 		if header+8 > len(wavData) {
 			break
 		}
@@ -80,11 +80,11 @@ func wavToPCM16LE(wavData []byte) ([]byte, error) {
 		dataOffset = chunkStart
 	}
 
-	return nil, fmt.Errorf("wav data chunk not found")
+	return nil, fmt.Errorf("voice: wav data chunk not found")
 }
 
-// PCMToWAV wraps mono s16le PCM bytes in a minimal WAV container.
-func PCMToWAV(pcm []byte, sampleRate, channels int) []byte {
+// pcmToWav wraps mono s16le PCM bytes in a minimal WAV container.
+func pcmToWav(pcm []byte, sampleRate, channels int) []byte {
 	if channels <= 0 {
 		channels = 1
 	}

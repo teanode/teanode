@@ -21,7 +21,7 @@ import (
 	"github.com/teanode/teanode/internal/util/security"
 )
 
-var log = logging.MustGetLogger("coordinator")
+var log = logging.MustGetLogger("coordinators")
 
 // Coordinator owns runner creation, the active runner map, message routing,
 // default conversation management, and event broadcasting via pubsub.
@@ -115,7 +115,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 		userId = user.ID
 	}
 	if userId == "" {
-		return nil, fmt.Errorf("userId is required")
+		return nil, fmt.Errorf("coordinators: userId is required")
 	}
 
 	// Resolve agent.
@@ -125,7 +125,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 			resolvedAgentId = user.GetDefaultAgentID()
 		}
 		if resolvedAgentId == "" {
-			return nil, fmt.Errorf("cannot determine default agent")
+			return nil, fmt.Errorf("coordinators: cannot determine default agent")
 		}
 	}
 
@@ -139,7 +139,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 		return nil
 	})
 	if !agentExists {
-		return nil, fmt.Errorf("agent not found: %s", resolvedAgentId)
+		return nil, fmt.Errorf("coordinators: agent not found: %s", resolvedAgentId)
 	}
 
 	// Resolve or create conversation.
@@ -200,7 +200,7 @@ func (self *Coordinator) Run(ctx context.Context, parameters RunParameters, call
 			// goroutine panics before reaching the normal Resolve calls.
 			// RunHandle.Resolve is sync.Once-protected so this is a no-op
 			// when the handle was already resolved normally.
-			handle.Resolve(nil, fmt.Errorf("run terminated unexpectedly"))
+			handle.Resolve(nil, fmt.Errorf("coordinators: run terminated unexpectedly"))
 		}()
 		var dispatched dispatchResult
 		defer func() {
@@ -602,7 +602,7 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 				result = messageResult{runResult: runResult, err: err}
 			}
 		} else {
-			result = messageResult{err: fmt.Errorf("cannot create runner")}
+			result = messageResult{err: fmt.Errorf("coordinators: cannot create runner")}
 		}
 
 		cancel()

@@ -15,7 +15,7 @@ func StoreFromContext(ctx context.Context) Store {
 	value := ctx.Value(contextKeyStore{})
 	dataStore, ok := value.(Store)
 	if !ok || dataStore == nil {
-		panic(fmt.Sprintf("store is missing from context: %T", value))
+		panic(fmt.Sprintf("store: store is missing from context: %T", value))
 	}
 	return dataStore
 }

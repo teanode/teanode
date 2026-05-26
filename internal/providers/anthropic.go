@@ -151,13 +151,13 @@ func (self *AnthropicClient) ChatCompletion(ctx context.Context, request ChatReq
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/messages", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("providers: creating request: %w", err)
 	}
 	self.setHeaders(httpRequest)
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("sending request: %w", err)
+		return nil, fmt.Errorf("providers: sending request: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
@@ -165,12 +165,12 @@ func (self *AnthropicClient) ChatCompletion(ctx context.Context, request ChatReq
 
 	if response.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("API error %d: %s", response.StatusCode, string(responseBody))
+		return nil, fmt.Errorf("providers: API error %d: %s", response.StatusCode, string(responseBody))
 	}
 
 	var anthropicResponse anthropicResponse
 	if err := json.NewDecoder(response.Body).Decode(&anthropicResponse); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
+		return nil, fmt.Errorf("providers: decoding response: %w", err)
 	}
 
 	chatResponse := self.translateResponse(anthropicResponse)
@@ -191,13 +191,13 @@ func (self *AnthropicClient) ChatCompletionStream(ctx context.Context, request C
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/messages", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("providers: creating request: %w", err)
 	}
 	self.setHeaders(httpRequest)
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("sending request: %w", err)
+		return nil, fmt.Errorf("providers: sending request: %w", err)
 	}
 
 	log.Debugf("POST %s/messages status=%d (stream opened)", self.baseUrl, response.StatusCode)
@@ -205,7 +205,7 @@ func (self *AnthropicClient) ChatCompletionStream(ctx context.Context, request C
 	if response.StatusCode != http.StatusOK {
 		defer func() { _ = response.Body.Close() }()
 		responseBody, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("API error %d: %s", response.StatusCode, string(responseBody))
+		return nil, fmt.Errorf("providers: API error %d: %s", response.StatusCode, string(responseBody))
 	}
 
 	events := make(chan StreamEvent, 32)
@@ -582,7 +582,7 @@ func (self *AnthropicClient) readSse(ctx context.Context, reader io.Reader, even
 		case "message_start":
 			var event anthropicSseMessageStart
 			if err := json.Unmarshal([]byte(data), &event); err != nil {
-				events <- StreamEvent{Err: fmt.Errorf("parsing message_start: %w", err)}
+				events <- StreamEvent{Err: fmt.Errorf("providers: parsing message_start: %w", err)}
 				return
 			}
 			messageId = event.Message.ID
@@ -606,7 +606,7 @@ func (self *AnthropicClient) readSse(ctx context.Context, reader io.Reader, even
 		case "content_block_start":
 			var event anthropicSseContentBlockStart
 			if err := json.Unmarshal([]byte(data), &event); err != nil {
-				events <- StreamEvent{Err: fmt.Errorf("parsing content_block_start: %w", err)}
+				events <- StreamEvent{Err: fmt.Errorf("providers: parsing content_block_start: %w", err)}
 				return
 			}
 			blocks[event.Index] = blockInformation{
@@ -640,7 +640,7 @@ func (self *AnthropicClient) readSse(ctx context.Context, reader io.Reader, even
 		case "content_block_delta":
 			var event anthropicSseContentBlockDelta
 			if err := json.Unmarshal([]byte(data), &event); err != nil {
-				events <- StreamEvent{Err: fmt.Errorf("parsing content_block_delta: %w", err)}
+				events <- StreamEvent{Err: fmt.Errorf("providers: parsing content_block_delta: %w", err)}
 				return
 			}
 
@@ -682,7 +682,7 @@ func (self *AnthropicClient) readSse(ctx context.Context, reader io.Reader, even
 		case "message_delta":
 			var event anthropicSseMessageDelta
 			if err := json.Unmarshal([]byte(data), &event); err != nil {
-				events <- StreamEvent{Err: fmt.Errorf("parsing message_delta: %w", err)}
+				events <- StreamEvent{Err: fmt.Errorf("providers: parsing message_delta: %w", err)}
 				return
 			}
 			finishReason := translateStopReason(event.Delta.StopReason)
@@ -709,7 +709,7 @@ func (self *AnthropicClient) readSse(ctx context.Context, reader io.Reader, even
 	}
 
 	if err := scanner.Err(); err != nil {
-		events <- StreamEvent{Err: fmt.Errorf("reading stream: %w", err)}
+		events <- StreamEvent{Err: fmt.Errorf("providers: reading stream: %w", err)}
 	}
 }
 

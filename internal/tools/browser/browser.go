@@ -20,12 +20,12 @@ func init() {
 	browsers.RegisterSessionLifecycleHandlers(browsers.SessionLifecycleHandlers{
 		SessionClosed: func(sessionId string) {
 			globalInstanceStore.removeByConnectionId(sessionId)
-			globalRefStore.clear(sessionId)
+			globalReferenceStore.clear(sessionId)
 			globalInterceptStore.clear(sessionId)
 			globalNavigationStore.clear(sessionId)
 		},
 		SessionNavigated: func(sessionId string, _ string, url string) {
-			globalRefStore.clear(sessionId)
+			globalReferenceStore.clear(sessionId)
 			globalNavigationStore.markNavigated(sessionId, url)
 		},
 	})
@@ -36,11 +36,11 @@ func init() {
 func resolveSessionId(ctx context.Context, browser browsers.Browser, connectionId string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("missing user context")
+		return "", fmt.Errorf("browser: missing user context")
 	}
 	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
 	if !ok {
-		return "", fmt.Errorf("browser backend does not support user scoping")
+		return "", fmt.Errorf("browser: browser backend does not support user scoping")
 	}
 	if connectionId != "" {
 		target, err := scopedBrowser.TargetByConnectionIDForUser(user.ID, connectionId)
@@ -75,10 +75,10 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 		Function: providers.FunctionSpec{
 			Name: "browser",
 			Description: "Interact with the browser page. Actions: navigate (go to URL), screenshot (capture page image), " +
-				"snapshot (get accessibility tree with stable [ref=N] markers on interactive elements), " +
-				"click (click by selector or coordinates), click_ref (click element by snapshot ref), " +
-				"type (type text into focused/selected element), type_ref (type into element by ref), " +
-				"hover_ref (hover over element by ref), select_option (select dropdown option by ref), " +
+				"snapshot (get accessibility tree with stable [reference=N] markers on interactive elements), " +
+				"click (click by selector or coordinates), click_ref (click element by snapshot reference), " +
+				"type (type text into focused/selected element), type_ref (type into element by reference), " +
+				"hover_ref (hover over element by reference), select_option (select dropdown option by reference), " +
 				"press_key (press keyboard key), evaluate (run JavaScript), " +
 				"wait (wait for condition: selector, navigation, network_idle, timeout), " +
 				"execute_script (run multiple browser actions in sequence), " +
@@ -107,9 +107,9 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 						"type":        "string",
 						"description": "The URL to navigate to (for navigate action).",
 					},
-					"ref": map[string]interface{}{
+					"reference": map[string]interface{}{
 						"type":        "integer",
-						"description": "Element ref number from the last snapshot (for click_ref, type_ref, hover_ref, select_option).",
+						"description": "Element reference number from the last snapshot (for click_ref, type_ref, hover_ref, select_option).",
 					},
 					"x": map[string]interface{}{
 						"type":        "number",
@@ -150,7 +150,7 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 					},
 					"steps": map[string]interface{}{
 						"type":        "array",
-						"description": "Array of action steps to execute in sequence (for execute_script). Each step is an object with the same fields as a regular browser action (action, ref, selector, text, etc.). Max 50 steps.",
+						"description": "Array of action steps to execute in sequence (for execute_script). Each step is an object with the same fields as a regular browser action (action, reference, selector, text, etc.). Max 50 steps.",
 						"items": map[string]interface{}{
 							"type": "object",
 						},
@@ -172,8 +172,8 @@ func (self *browserTool) Definition() providers.ToolDefinition {
 			},
 			Returns: map[string]interface{}{
 				"type": "object",
-				"description": "Action-dependent result. snapshot: {tree, refCount, pageUrl, title} with [ref=N] markers. " +
-					"click_ref/type_ref/hover_ref: {ref, role, name, ...}. wait: {mode, elapsed}. " +
+				"description": "Action-dependent result. snapshot: {tree, refCount, pageUrl, title} with [reference=N] markers. " +
+					"click_ref/type_ref/hover_ref: {reference, role, name, ...}. wait: {mode, elapsed}. " +
 					"execute_script: {stepsExecuted, completedSteps, totalSteps, results}. intercept_stop: {status, requests, count}. get_intercepted: {requests, count}.",
 			},
 		},
@@ -190,14 +190,14 @@ func (self *browserTool) PolicyGroups() []tools.PolicyGroup {
 func (self *browserTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	browser := browsers.BrowserFromContext(ctx)
 	if browser == nil {
-		return "", fmt.Errorf("no browser available")
+		return "", fmt.Errorf("browser: no browser available")
 	}
 
 	var arguments struct {
 		Action       string       `json:"action"`
 		ConnectionID string       `json:"connectionId"`
 		URL          string       `json:"url"`
-		Ref          *int         `json:"ref"`
+		Ref          *int         `json:"reference"`
 		X            *float64     `json:"x"`
 		Y            *float64     `json:"y"`
 		Selector     string       `json:"selector"`
@@ -206,14 +206,14 @@ func (self *browserTool) Execute(ctx context.Context, rawArguments string) (stri
 		Key          string       `json:"key"`
 		Expression   string       `json:"expression"`
 		WaitMode     string       `json:"waitMode"`
-		TimeoutMs    *int         `json:"timeoutMs"`
+		TimeoutMS    *int         `json:"timeoutMs"`
 		Steps        []scriptStep `json:"steps"`
 		OptionValue  string       `json:"optionValue"`
 		OptionIndex  *int         `json:"optionIndex"`
 		URLPattern   string       `json:"urlPattern"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("browser: parsing arguments: %w", err)
 	}
 
 	switch arguments.Action {
@@ -227,24 +227,24 @@ func (self *browserTool) Execute(ctx context.Context, rawArguments string) (stri
 		return executeClick(ctx, browser, arguments.ConnectionID, arguments.X, arguments.Y, arguments.Selector)
 	case "click_ref":
 		if arguments.Ref == nil {
-			return "", fmt.Errorf("ref is required for click_ref action")
+			return "", fmt.Errorf("browser: reference is required for click_ref action")
 		}
-		return executeClickRef(ctx, browser, arguments.ConnectionID, *arguments.Ref)
+		return executeClickReference(ctx, browser, arguments.ConnectionID, *arguments.Ref)
 	case "type":
 		return executeType(ctx, browser, arguments.ConnectionID, arguments.Text, arguments.Selector)
 	case "type_ref":
 		if arguments.Ref == nil {
-			return "", fmt.Errorf("ref is required for type_ref action")
+			return "", fmt.Errorf("browser: reference is required for type_ref action")
 		}
-		return executeTypeRef(ctx, browser, arguments.ConnectionID, *arguments.Ref, arguments.Text, arguments.ClearFirst)
+		return executeTypeReference(ctx, browser, arguments.ConnectionID, *arguments.Ref, arguments.Text, arguments.ClearFirst)
 	case "hover_ref":
 		if arguments.Ref == nil {
-			return "", fmt.Errorf("ref is required for hover_ref action")
+			return "", fmt.Errorf("browser: reference is required for hover_ref action")
 		}
-		return executeHoverRef(ctx, browser, arguments.ConnectionID, *arguments.Ref)
+		return executeHoverReference(ctx, browser, arguments.ConnectionID, *arguments.Ref)
 	case "select_option":
 		if arguments.Ref == nil {
-			return "", fmt.Errorf("ref is required for select_option action")
+			return "", fmt.Errorf("browser: reference is required for select_option action")
 		}
 		return executeSelectOption(ctx, browser, arguments.ConnectionID, *arguments.Ref, arguments.OptionValue, arguments.OptionIndex)
 	case "press_key":
@@ -252,7 +252,7 @@ func (self *browserTool) Execute(ctx context.Context, rawArguments string) (stri
 	case "evaluate":
 		return executeEvaluate(ctx, browser, arguments.ConnectionID, arguments.Expression)
 	case "wait":
-		return executeWait(ctx, browser, arguments.ConnectionID, arguments.WaitMode, arguments.Selector, arguments.TimeoutMs)
+		return executeWait(ctx, browser, arguments.ConnectionID, arguments.WaitMode, arguments.Selector, arguments.TimeoutMS)
 	case "execute_script":
 		return executeScript(ctx, browser, arguments.ConnectionID, arguments.Steps)
 	case "intercept_start":
@@ -262,7 +262,7 @@ func (self *browserTool) Execute(ctx context.Context, rawArguments string) (stri
 	case "get_intercepted":
 		return executeGetIntercepted(ctx, browser, arguments.ConnectionID)
 	default:
-		return "", fmt.Errorf("unknown browser action: %s", arguments.Action)
+		return "", fmt.Errorf("browser: unknown browser action: %s", arguments.Action)
 	}
 }
 
@@ -277,7 +277,7 @@ func executeNavigate(ctx context.Context, browser browsers.Browser, connectionId
 	if err != nil {
 		return "", err
 	}
-	globalRefStore.clear(sessionId)
+	globalReferenceStore.clear(sessionId)
 	output, _ := json.Marshal(map[string]string{"url": url})
 	return string(output), nil
 }
@@ -297,7 +297,7 @@ func executeScreenshot(ctx context.Context, browser browsers.Browser, connection
 		Data string `json:"data"`
 	}
 	if err := json.Unmarshal(result, &response); err != nil {
-		return "", fmt.Errorf("parsing screenshot: %w", err)
+		return "", fmt.Errorf("browser: parsing screenshot: %w", err)
 	}
 	output, _ := json.Marshal(map[string]string{
 		"base64": response.Data,
@@ -308,7 +308,7 @@ func executeScreenshot(ctx context.Context, browser browsers.Browser, connection
 
 // executeSnapshot is the legacy snapshot handler (kept for reference).
 // The main "snapshot" action now routes to executeEnhancedSnapshot in
-// snapshot.go which adds [ref=N] markers to interactive elements.
+// snapshot.go which adds [reference=N] markers to interactive elements.
 
 func executeClick(ctx context.Context, browser browsers.Browser, connectionId string, x *float64, y *float64, selector string) (string, error) {
 	sessionId, err := resolveSessionId(ctx, browser, connectionId)
@@ -330,7 +330,7 @@ func executeClick(ctx context.Context, browser browsers.Browser, connectionId st
 	}
 
 	if x == nil || y == nil {
-		return "", fmt.Errorf("provide either (x, y) coordinates or a selector")
+		return "", fmt.Errorf("browser: provide either (x, y) coordinates or a selector")
 	}
 	xValue, yValue := *x, *y
 	for _, eventType := range []string{"mousePressed", "mouseReleased"} {
@@ -433,7 +433,7 @@ func executeEvaluate(ctx context.Context, browser browsers.Browser, connectionId
 		return string(result), nil
 	}
 	if response.ExceptionDetails != nil {
-		return "", fmt.Errorf("evaluation error: %s", response.ExceptionDetails.Text)
+		return "", fmt.Errorf("browser: evaluation error: %s", response.ExceptionDetails.Text)
 	}
 	output, _ := json.Marshal(map[string]interface{}{
 		"type":  response.Result.Type,
@@ -502,7 +502,7 @@ func (self *browserTabsTool) PolicyGroups() []tools.PolicyGroup {
 func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	browser := browsers.BrowserFromContext(ctx)
 	if browser == nil {
-		return "", fmt.Errorf("no browser available")
+		return "", fmt.Errorf("browser: no browser available")
 	}
 
 	var arguments struct {
@@ -513,14 +513,14 @@ func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (
 		ConnectionID string `json:"connectionId"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("browser: parsing arguments: %w", err)
 	}
 
 	switch arguments.Action {
 	case "list":
 		user := models.UserFromContext(ctx)
 		if user == nil || user.ID == "" {
-			return "", fmt.Errorf("missing user context")
+			return "", fmt.Errorf("browser: missing user context")
 		}
 		return executeTabsList(browser, user.ID)
 	case "open":
@@ -534,14 +534,14 @@ func (self *browserTabsTool) Execute(ctx context.Context, rawArguments string) (
 	case "resolve":
 		return executeTabsResolve(ctx, browser, arguments.Name)
 	default:
-		return "", fmt.Errorf("unknown browser_tabs action: %s", arguments.Action)
+		return "", fmt.Errorf("browser: unknown browser_tabs action: %s", arguments.Action)
 	}
 }
 
 func executeTabsList(browser browsers.Browser, userId string) (string, error) {
 	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
 	if !ok {
-		return "", fmt.Errorf("browser backend does not support user scoping")
+		return "", fmt.Errorf("browser: browser backend does not support user scoping")
 	}
 	targets, activeConnectionIds := activeConnectionsForUser(scopedBrowser, userId)
 	globalInstanceStore.pruneForUser(userId, activeConnectionIds)
@@ -595,7 +595,7 @@ func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string, 
 		TargetID string `json:"targetId"`
 	}
 	if err := json.Unmarshal(result, &response); err != nil {
-		return "", fmt.Errorf("unmarshal createTarget response: %w", err)
+		return "", fmt.Errorf("browser: unmarshal createTarget response: %w", err)
 	}
 	user := models.UserFromContext(ctx)
 	if assigner, ok := browser.(browsers.TargetOwnerAssigner); ok && user != nil && user.ID != "" && response.TargetID != "" {
@@ -648,26 +648,26 @@ func executeTabsOpen(ctx context.Context, browser browsers.Browser, url string, 
 
 func executeTabsName(ctx context.Context, name string, connectionId string) (string, error) {
 	if name == "" {
-		return "", fmt.Errorf("name is required for name action")
+		return "", fmt.Errorf("browser: name is required for name action")
 	}
 	if connectionId == "" {
-		return "", fmt.Errorf("connectionId is required for name action")
+		return "", fmt.Errorf("browser: connectionId is required for name action")
 	}
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("missing user context")
+		return "", fmt.Errorf("browser: missing user context")
 	}
 	browser := browsers.BrowserFromContext(ctx)
 	if browser == nil {
-		return "", fmt.Errorf("no browser available")
+		return "", fmt.Errorf("browser: no browser available")
 	}
 	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
 	if !ok {
-		return "", fmt.Errorf("browser backend does not support user scoping")
+		return "", fmt.Errorf("browser: browser backend does not support user scoping")
 	}
 	if _, err := scopedBrowser.TargetByConnectionIDForUser(user.ID, connectionId); err != nil {
 		globalInstanceStore.removeByConnectionId(connectionId)
-		return "", fmt.Errorf("connectionId %q not found", connectionId)
+		return "", fmt.Errorf("browser: connectionId %q not found", connectionId)
 	}
 	globalInstanceStore.assign(user.ID, name, connectionId)
 	output, _ := json.Marshal(map[string]string{
@@ -679,15 +679,15 @@ func executeTabsName(ctx context.Context, name string, connectionId string) (str
 
 func executeTabsResolve(ctx context.Context, browser browsers.Browser, name string) (string, error) {
 	if name == "" {
-		return "", fmt.Errorf("name is required for resolve action")
+		return "", fmt.Errorf("browser: name is required for resolve action")
 	}
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("missing user context")
+		return "", fmt.Errorf("browser: missing user context")
 	}
 	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
 	if !ok {
-		return "", fmt.Errorf("browser backend does not support user scoping")
+		return "", fmt.Errorf("browser: browser backend does not support user scoping")
 	}
 	_, activeConnectionIds := activeConnectionsForUser(scopedBrowser, user.ID)
 	globalInstanceStore.pruneForUser(user.ID, activeConnectionIds)
@@ -705,11 +705,11 @@ func executeTabsResolve(ctx context.Context, browser browsers.Browser, name stri
 func executeTabsClose(ctx context.Context, browser browsers.Browser, targetId string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("missing user context")
+		return "", fmt.Errorf("browser: missing user context")
 	}
 	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
 	if !ok {
-		return "", fmt.Errorf("browser backend does not support user scoping")
+		return "", fmt.Errorf("browser: browser backend does not support user scoping")
 	}
 	if targetId == "" {
 		target, err := scopedBrowser.DefaultTargetForUser(user.ID)
@@ -728,7 +728,7 @@ func executeTabsClose(ctx context.Context, browser browsers.Browser, targetId st
 		}
 	}
 	if !allowed {
-		return "", fmt.Errorf("targetId %q not found", targetId)
+		return "", fmt.Errorf("browser: targetId %q not found", targetId)
 	}
 	sessionId, err := resolveSessionId(ctx, browser, "")
 	if err != nil {
@@ -744,7 +744,7 @@ func executeTabsClose(ctx context.Context, browser browsers.Browser, targetId st
 	}
 	if targetSessionId != "" {
 		globalInstanceStore.removeByConnectionId(targetSessionId)
-		globalRefStore.clear(targetSessionId)
+		globalReferenceStore.clear(targetSessionId)
 		globalInterceptStore.clear(targetSessionId)
 	}
 	output, _ := json.Marshal(map[string]string{"targetId": targetId})
@@ -753,15 +753,15 @@ func executeTabsClose(ctx context.Context, browser browsers.Browser, targetId st
 
 func executeTabsActivate(ctx context.Context, browser browsers.Browser, targetId string) (string, error) {
 	if targetId == "" {
-		return "", fmt.Errorf("targetId is required for activate action")
+		return "", fmt.Errorf("browser: targetId is required for activate action")
 	}
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("missing user context")
+		return "", fmt.Errorf("browser: missing user context")
 	}
 	scopedBrowser, ok := browser.(browsers.UserScopedBrowser)
 	if !ok {
-		return "", fmt.Errorf("browser backend does not support user scoping")
+		return "", fmt.Errorf("browser: browser backend does not support user scoping")
 	}
 	allowed := false
 	for _, target := range scopedBrowser.TargetsForUser(user.ID) {
@@ -771,7 +771,7 @@ func executeTabsActivate(ctx context.Context, browser browsers.Browser, targetId
 		}
 	}
 	if !allowed {
-		return "", fmt.Errorf("targetId %q not found", targetId)
+		return "", fmt.Errorf("browser: targetId %q not found", targetId)
 	}
 
 	sessionId, err := resolveSessionId(ctx, browser, "")
@@ -791,9 +791,9 @@ func executeTabsActivate(ctx context.Context, browser browsers.Browser, targetId
 // --- Accessibility tree types ---
 //
 // The shared types (accessibilityValue, accessibilityProperty) and the
-// ref-enhanced tree builder live in snapshot.go. The old non-ref
+// reference-enhanced tree builder live in snapshot.go. The old non-reference
 // accessibilityNode type was replaced by accessibilityNodeExt which adds
-// backendDOMNodeId for ref-based interactions.
+// backendDOMNodeId for reference-based interactions.
 
 // --- Key mapping helpers ---
 

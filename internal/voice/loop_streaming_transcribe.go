@@ -7,7 +7,7 @@ func (self *Session) streamingTranscribeLoop() {
 	}
 	for {
 		select {
-		case <-self.doneCh:
+		case <-self.doneChannel:
 			return
 		case event, ok := <-stream.Events():
 			if !ok {

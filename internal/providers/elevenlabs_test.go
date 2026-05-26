@@ -105,10 +105,10 @@ func TestElevenLabsClient_ContextCancel(t *testing.T) {
 		t.Fatalf("SynthesizeStream: %v", err)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(1)
 	go func() {
-		defer wg.Done()
+		defer waitGroup.Done()
 		for range chunks {
 		}
 	}()
@@ -116,7 +116,7 @@ func TestElevenLabsClient_ContextCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
+		waitGroup.Wait()
 		close(done)
 	}()
 	select {

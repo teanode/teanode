@@ -167,9 +167,9 @@ func modelToTodoRecord(todo *models.Todo) *databaseTodoRecord {
 		record.ModifiedAt = *todo.ModifiedAt
 	}
 	if todo.Tags != nil {
-		tagsJSON, err := json.Marshal(*todo.Tags)
+		tagsJson, err := json.Marshal(*todo.Tags)
 		if err == nil {
-			record.Tags = tagsJSON
+			record.Tags = tagsJson
 		}
 	}
 	if record.Tags == nil {

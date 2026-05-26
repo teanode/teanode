@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/teanode/teanode/internal/util/deferutil"
 	"io"
 	"os"
 	"time"
@@ -26,10 +27,10 @@ func rotateLogFile(logPath string) error {
 
 	// Shift compressed logs (.2.gz and above) up by one.
 	for i := maxRotatedLogs - 1; i >= 2; i-- {
-		src := fmt.Sprintf("%s.%d.gz", logPath, i)
-		dst := fmt.Sprintf("%s.%d.gz", logPath, i+1)
-		if err := os.Rename(src, dst); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("rotate log %s -> %s: %w", src, dst, err)
+		source := fmt.Sprintf("%s.%d.gz", logPath, i)
+		destination := fmt.Sprintf("%s.%d.gz", logPath, i+1)
+		if err := os.Rename(source, destination); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("cmd: rotate log %s -> %s: %w", source, destination, err)
 		}
 	}
 
@@ -37,17 +38,17 @@ func rotateLogFile(logPath string) error {
 	log1 := logPath + ".1"
 	if _, err := os.Stat(log1); err == nil {
 		if err := compressFile(log1, logPath+".2.gz"); err != nil {
-			return fmt.Errorf("compress rotated log: %w", err)
+			return fmt.Errorf("cmd: compress rotated log: %w", err)
 		}
 		if err := os.Remove(log1); err != nil {
-			return fmt.Errorf("remove compressed source: %w", err)
+			return fmt.Errorf("cmd: remove compressed source: %w", err)
 		}
 	}
 
 	// Move current log to .1 (uncompressed, most recent rotated).
 	if _, err := os.Stat(logPath); err == nil {
 		if err := os.Rename(logPath, log1); err != nil {
-			return fmt.Errorf("rotate current log: %w", err)
+			return fmt.Errorf("cmd: rotate current log: %w", err)
 		}
 	}
 
@@ -60,6 +61,7 @@ func rotateLogFile(logPath string) error {
 func startLogRotation(ctx context.Context, logPath string) {
 	ticker := time.NewTicker(1 * time.Minute)
 	go func() {
+		defer deferutil.Recover()
 		defer ticker.Stop()
 		for {
 			select {
@@ -90,15 +92,15 @@ func startLogRotation(ctx context.Context, logPath string) {
 	}()
 }
 
-// compressFile gzip-compresses src into dst.
-func compressFile(src, dst string) error {
-	in, err := os.Open(src)
+// compressFile gzip-compresses source into destination.
+func compressFile(source, destination string) error {
+	in, err := os.Open(source)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
 
-	out, err := os.Create(dst)
+	out, err := os.Create(destination)
 	if err != nil {
 		return err
 	}
@@ -108,18 +110,18 @@ func compressFile(src, dst string) error {
 	if _, err := io.Copy(gz, in); err != nil {
 		_ = gz.Close()
 		_ = out.Close()
-		_ = os.Remove(dst)
+		_ = os.Remove(destination)
 		return err
 	}
 
 	if err := gz.Close(); err != nil {
 		_ = out.Close()
-		_ = os.Remove(dst)
+		_ = os.Remove(destination)
 		return err
 	}
 
 	if err := out.Close(); err != nil {
-		_ = os.Remove(dst)
+		_ = os.Remove(destination)
 		return err
 	}
 

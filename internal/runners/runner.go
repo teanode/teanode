@@ -30,12 +30,12 @@ import (
 const maxContextRetries = 2
 
 func isContextLengthError(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "context_length_exceeded") ||
-		strings.Contains(msg, "maximum context length") ||
-		strings.Contains(msg, "tokens exceed") ||
-		strings.Contains(msg, "too many tokens") ||
-		strings.Contains(msg, "input too long")
+	message := err.Error()
+	return strings.Contains(message, "context_length_exceeded") ||
+		strings.Contains(message, "maximum context length") ||
+		strings.Contains(message, "tokens exceed") ||
+		strings.Contains(message, "too many tokens") ||
+		strings.Contains(message, "input too long")
 }
 
 // Runner orchestrates: load conversation -> build prompt -> call LLM -> save response.
@@ -111,8 +111,8 @@ type RunCallbacks struct {
 }
 
 // Run directly executes a run for this runner's conversation.
-func (self *Runner) Run(ctx context.Context, params RunParameters, callbacks *RunCallbacks) (*RunResult, error) {
-	return self.executeRun(ctx, params, callbacks)
+func (self *Runner) Run(ctx context.Context, parameters RunParameters, callbacks *RunCallbacks) (*RunResult, error) {
+	return self.executeRun(ctx, parameters, callbacks)
 }
 
 // SignalMidRunMessage appends a user message for injection between rounds.
@@ -171,22 +171,22 @@ func (self *Runner) PendingMidRunMessages() []*MidRunMessage {
 
 // executeRun performs the actual chat turn: appends the user message, calls the LLM
 // (streaming), and appends the assistant response. Loops when the LLM requests tool calls.
-func (self *Runner) executeRun(ctx context.Context, params RunParameters, callbacks *RunCallbacks) (*RunResult, error) {
+func (self *Runner) executeRun(ctx context.Context, parameters RunParameters, callbacks *RunCallbacks) (*RunResult, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return nil, fmt.Errorf("userId is required")
+		return nil, fmt.Errorf("runners: userId is required")
 	}
 	userId := user.ID
 
-	log.Debugf("run %q start agent %q conversation %q model %q", self.ID, self.AgentID, self.ConversationID, params.ProviderModelName)
+	log.Debugf("run %q start agent %q conversation %q model %q", self.ID, self.AgentID, self.ConversationID, parameters.ProviderModelName)
 
 	// Enrich context with conversation id and runner for tools.
 	ctx = ContextWithRunner(ctx, self)
 
 	// 1. Choose model and resolve provider (before appending, so we can stamp the header).
 	providerModelName, _ := self.resolveAgentProviderModelAndName(ctx)
-	if params.ProviderModelName != "" {
-		providerModelName = params.ProviderModelName
+	if parameters.ProviderModelName != "" {
+		providerModelName = parameters.ProviderModelName
 	}
 
 	// Validate provider/model alignment with existing conversation.
@@ -201,9 +201,9 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		}
 		if existingProviderModelName != "" {
 			// Existing conversation with a locked model.
-			if params.ProviderModelName != "" && params.ProviderModelName != existingProviderModelName {
-				return nil, fmt.Errorf("model mismatch: conversation %s is locked to %q but request specified %q",
-					self.ConversationID, existingProviderModelName, params.ProviderModelName)
+			if parameters.ProviderModelName != "" && parameters.ProviderModelName != existingProviderModelName {
+				return nil, fmt.Errorf("runners: model mismatch: conversation %s is locked to %q but request specified %q",
+					self.ConversationID, existingProviderModelName, parameters.ProviderModelName)
 			}
 			providerModelName = existingProviderModelName
 		}
@@ -211,33 +211,33 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 
 	resolved, providerName, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
 	if err != nil {
-		return nil, fmt.Errorf("resolving model %q: %w", providerModelName, err)
+		return nil, fmt.Errorf("runners: resolving model %q: %w", providerModelName, err)
 	}
 	provider, ok := resolved.(providers.ChatProvider)
 	if !ok {
-		return nil, fmt.Errorf("provider %q does not support chat", providerName)
+		return nil, fmt.Errorf("runners: provider %q does not support chat", providerName)
 	}
 
 	// 2. Append user message to conversation (sets provider/model on new or backfills existing).
 	// In continuation mode the user message was already persisted externally.
-	if !params.Continuation {
+	if !parameters.Continuation {
 		var userMessage models.ConversationMessage
-		if len(params.Attachments) > 0 {
-			userMessage = NewMessageWithAttachments("user", params.Message, params.Attachments)
+		if len(parameters.Attachments) > 0 {
+			userMessage = NewMessageWithAttachments("user", parameters.Message, parameters.Attachments)
 		} else {
-			userMessage = NewTextMessage("user", params.Message)
+			userMessage = NewTextMessage("user", parameters.Message)
 		}
 		userMessage.ProviderName = ptrto.Value(providerName)
 		userMessage.ProviderModelName = ptrto.Value(providers.FormatProviderModelName(providerName, modelName))
 		if err := self.appendConversationMessage(ctx, userMessage); err != nil {
-			return nil, fmt.Errorf("saving user message: %w", err)
+			return nil, fmt.Errorf("runners: saving user message: %w", err)
 		}
 	}
 
 	// 3. Load full conversation history.
 	history, err := listConversationMessages(ctx, self.ConversationID)
 	if err != nil {
-		return nil, fmt.Errorf("loading conversation: %w", err)
+		return nil, fmt.Errorf("runners: loading conversation: %w", err)
 	}
 
 	// 4. Tool-call loop.
@@ -264,7 +264,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 				userMessage = NewTextMessage("user", midRunMessage.Message)
 			}
 			if err := self.appendConversationMessage(ctx, userMessage); err != nil {
-				return nil, fmt.Errorf("saving mid-run user message: %w", err)
+				return nil, fmt.Errorf("runners: saving mid-run user message: %w", err)
 			}
 			history = append(history, &userMessage)
 		}
@@ -272,7 +272,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 		log.Debugf("run id %q round %d history %d", self.ID, round, len(history))
 
 		// Build messages for the LLM.
-		llmMessages := self.buildMessages(ctx, history, params.SystemPromptMode, self.skillPrompts)
+		llmMessages := self.buildMessages(ctx, history, parameters.SystemPromptMode, self.skillPrompts)
 
 		// Tier 1: truncate old tool results.
 		llmMessages = truncateOldToolResults(llmMessages, 10, 8000)
@@ -319,13 +319,13 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 					MinKeepRecentTokens:  4000,
 				})
 				if compactErr != nil {
-					return nil, fmt.Errorf("calling LLM: %w (auto-compact also failed: %v)", err, compactErr)
+					return nil, fmt.Errorf("runners: calling LLM: %w (auto-compact also failed: %v)", err, compactErr)
 				}
 				llmMessages = truncateAllToolResults(llmMessages, 2000)
 				request.Messages = llmMessages
 				continue
 			}
-			return nil, fmt.Errorf("calling LLM: %w", err)
+			return nil, fmt.Errorf("runners: calling LLM: %w", err)
 		}
 		contextRetries = 0
 
@@ -341,7 +341,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 				break
 			}
 			if event.Err != nil {
-				streamError = fmt.Errorf("stream error: %w", event.Err)
+				streamError = fmt.Errorf("runners: stream error: %w", event.Err)
 				break
 			}
 			if event.Done {
@@ -476,7 +476,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 
 		assistantMessage.ID = security.NewULID()
 		if err := self.appendConversationMessage(ctx, assistantMessage); err != nil {
-			return nil, fmt.Errorf("saving assistant message: %w", err)
+			return nil, fmt.Errorf("runners: saving assistant message: %w", err)
 		}
 		history = append(history, &assistantMessage)
 
@@ -500,7 +500,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 					userMessage = NewTextMessage("user", midRunMessage.Message)
 				}
 				if err := self.appendConversationMessage(ctx, userMessage); err != nil {
-					return nil, fmt.Errorf("saving mid-run user message: %w", err)
+					return nil, fmt.Errorf("runners: saving mid-run user message: %w", err)
 				}
 				history = append(history, &userMessage)
 			}
@@ -547,7 +547,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 				}
 				toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result)
 				if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
-					return nil, fmt.Errorf("saving tool denial: %w", err)
+					return nil, fmt.Errorf("runners: saving tool denial: %w", err)
 				}
 				history = append(history, &toolMessage)
 				deniedCount++
@@ -563,7 +563,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 					}
 					toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result)
 					if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
-						return nil, fmt.Errorf("saving tool approval denial: %w", err)
+						return nil, fmt.Errorf("runners: saving tool approval denial: %w", err)
 					}
 					history = append(history, &toolMessage)
 					deniedCount++
@@ -595,7 +595,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 					}
 					toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result)
 					if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
-						return nil, fmt.Errorf("saving approval rejection: %w", err)
+						return nil, fmt.Errorf("runners: saving approval rejection: %w", err)
 					}
 					history = append(history, &toolMessage)
 					deniedCount++
@@ -697,12 +697,12 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 						return saveError
 					})
 					if createError == nil {
-						ref, _ := json.Marshal(map[string]interface{}{
+						reference, _ := json.Marshal(map[string]interface{}{
 							"mediaId":   createdMedia.ID,
 							"format":    detected.Format,
 							"displayed": true,
 						})
-						storedResult = string(ref)
+						storedResult = string(reference)
 					}
 				}
 			}
@@ -713,7 +713,7 @@ func (self *Runner) executeRun(ctx context.Context, params RunParameters, callba
 
 			toolMessage := newToolMessage(item.toolCall.ID, item.toolCall.Function.Name, storedResult)
 			if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
-				return nil, fmt.Errorf("saving tool result: %w", err)
+				return nil, fmt.Errorf("runners: saving tool result: %w", err)
 			}
 			history = append(history, &toolMessage)
 		}
@@ -749,11 +749,11 @@ func repairToolArguments(input string) string {
 func (self *Runner) waitForApproval(ctx context.Context, toolCall providers.ToolCall, arguments string, decision tools.PolicyDecision) (approvals.ApprovalPayload, error) {
 	broker := approvals.ApprovalBrokerFromContext(ctx)
 	if broker == nil {
-		return approvals.ApprovalPayload{}, fmt.Errorf("approval broker not available")
+		return approvals.ApprovalPayload{}, fmt.Errorf("runners: approval broker not available")
 	}
 	user := models.UserFromContext(ctx)
 	if user == nil {
-		return approvals.ApprovalPayload{}, fmt.Errorf("authentication required")
+		return approvals.ApprovalPayload{}, fmt.Errorf("runners: authentication required")
 	}
 
 	pending := &approvals.PendingApproval{
@@ -792,7 +792,7 @@ func (self *Runner) waitForApproval(ctx context.Context, toolCall providers.Tool
 	select {
 	case payload, ok := <-pending.ApprovalChan():
 		if !ok {
-			return approvals.ApprovalPayload{}, fmt.Errorf("approval cancelled")
+			return approvals.ApprovalPayload{}, fmt.Errorf("runners: approval cancelled")
 		}
 		return payload, nil
 	case <-ctx.Done():
@@ -1050,7 +1050,7 @@ func listConversationMessages(ctx context.Context, conversationId string) ([]*mo
 func (self *Runner) appendConversationMessage(ctx context.Context, message models.ConversationMessage) error {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return fmt.Errorf("userId is required")
+		return fmt.Errorf("runners: userId is required")
 	}
 	return store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		if _, err := transaction.GetConversation(ctx, self.ConversationID, nil); err != nil {

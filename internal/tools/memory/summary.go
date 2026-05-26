@@ -28,11 +28,11 @@ type defaultSynthesizer struct{}
 func (self *defaultSynthesizer) Synthesize(ctx context.Context, systemPrompt string, userPrompt string) (string, error) {
 	summarizer := summarizers.SummarizerFromContext(ctx)
 	if summarizer == nil {
-		return "", fmt.Errorf("no summarizer available in context")
+		return "", fmt.Errorf("memory: no summarizer available in context")
 	}
 	result, ok := summarizer.RunSynthesis(ctx, systemPrompt, userPrompt)
 	if !ok {
-		return "", fmt.Errorf("synthesis request failed")
+		return "", fmt.Errorf("memory: synthesis request failed")
 	}
 	return result, nil
 }
@@ -55,10 +55,10 @@ type criticalFacts struct {
 	OpenQuestions   []string `json:"openQuestions"`
 }
 
-func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, scopeId string, args executeArguments) (string, error) {
+func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, scopeId string, arguments executeArguments) (string, error) {
 	runner := runners.RunnerFromContext(ctx)
 	if runner == nil || runner.ConversationID == "" {
-		return "", fmt.Errorf("no active conversation (conversationId not available)")
+		return "", fmt.Errorf("memory: no active conversation (conversationId not available)")
 	}
 	conversationId := runner.ConversationID
 
@@ -73,9 +73,9 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 	}
 
 	// Apply roles filter.
-	if len(args.Roles) > 0 {
-		roleSet := make(map[string]bool, len(args.Roles))
-		for _, role := range args.Roles {
+	if len(arguments.Roles) > 0 {
+		roleSet := make(map[string]bool, len(arguments.Roles))
+		for _, role := range arguments.Roles {
 			roleSet[role] = true
 		}
 		var filtered []*models.ConversationMessage
@@ -88,8 +88,8 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 	}
 
 	// Apply maxMessages (take last N).
-	if args.MaxMessages > 0 && len(messages) > args.MaxMessages {
-		messages = messages[len(messages)-args.MaxMessages:]
+	if arguments.MaxMessages > 0 && len(messages) > arguments.MaxMessages {
+		messages = messages[len(messages)-arguments.MaxMessages:]
 	}
 
 	messageCount := len(messages)
@@ -101,13 +101,13 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 	userPrompt := prompts.BuildStructuredSummaryUserPrompt("", "", chunkText)
 	responseText, err := synthesizer.Synthesize(ctx, prompts.StructuredSummarySystemPrompt, userPrompt)
 	if err != nil {
-		return "", fmt.Errorf("summary synthesis failed: %w", err)
+		return "", fmt.Errorf("memory: summary synthesis failed: %w", err)
 	}
 
 	// Parse the structured JSON response.
 	var structured structuredSummaryResult
 	if err := json.Unmarshal([]byte(responseText), &structured); err != nil {
-		return "", fmt.Errorf("failed to parse summary response: %w", err)
+		return "", fmt.Errorf("memory: failed to parse summary response: %w", err)
 	}
 
 	result := map[string]interface{}{
@@ -119,28 +119,28 @@ func (self *memoryTool) executeSummary(ctx context.Context, scope models.Scope, 
 	}
 
 	// Persist if requested.
-	if args.Persist != nil {
+	if arguments.Persist != nil {
 		title := "Conversation summary"
-		if args.Persist.Title != "" {
-			title = args.Persist.Title
+		if arguments.Persist.Title != "" {
+			title = arguments.Persist.Title
 		}
 
 		content := buildCompactSummaryContent(structured)
 		if len(content) > maxContentSize {
-			return "", fmt.Errorf("summary content exceeds maximum size of %d bytes", maxContentSize)
+			return "", fmt.Errorf("memory: summary content exceeds maximum size of %d bytes", maxContentSize)
 		}
 
 		persistItem := batchItem{
 			Op:      "add",
 			Title:   title,
 			Content: content,
-			Tags:    args.Persist.Tags,
+			Tags:    arguments.Persist.Tags,
 		}
 		var itemId string
 		if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 			addResult := self.batchAdd(ctx, tx, scope, scopeId, 0, persistItem, precomputedEmbedding{})
 			if !addResult.Success {
-				return fmt.Errorf("persist failed: %s", addResult.Error)
+				return fmt.Errorf("memory: persist failed: %s", addResult.Error)
 			}
 			if id, ok := addResult.Item["id"].(string); ok {
 				itemId = id

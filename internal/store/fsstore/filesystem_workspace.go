@@ -43,7 +43,7 @@ func (self *fileSystemTransaction) SearchWorkspaceFiles(ctx context.Context, sco
 }
 func (self *fileSystemTransaction) createWorkspaceFile(file *models.WorkspaceFile, options *store.Option) (*models.WorkspaceFile, error) {
 	if file == nil || file.Scope == nil || file.ScopeID == nil || file.Path == nil {
-		return nil, fmt.Errorf("scope, scopeId and path are required")
+		return nil, fmt.Errorf("fsstore: scope, scopeId and path are required")
 	}
 	absolutePath, err := self.workspaceFilePath(*file.Scope, *file.ScopeID, *file.Path)
 	if err != nil {

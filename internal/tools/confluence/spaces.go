@@ -43,18 +43,18 @@ func (self *spacesTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *spacesTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action string `json:"action"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("confluence: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
 		return execConfluence(ctx, self.runner, self.binary, "spaces")
 
 	default:
-		return "", fmt.Errorf("unknown spaces action: %s", args.Action)
+		return "", fmt.Errorf("confluence: unknown spaces action: %s", arguments.Action)
 	}
 }

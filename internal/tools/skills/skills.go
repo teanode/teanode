@@ -70,7 +70,7 @@ func (self *skillsTool) Execute(ctx context.Context, rawArguments string) (strin
 		Version string `json:"version"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("skills: parsing arguments: %w", err)
 	}
 
 	switch arguments.Action {
@@ -89,7 +89,7 @@ func (self *skillsTool) Execute(ctx context.Context, rawArguments string) (strin
 	case "disable":
 		return self.executeSetEnabled(ctx, arguments.Name, false)
 	default:
-		return "", fmt.Errorf("unknown skills action: %s", arguments.Action)
+		return "", fmt.Errorf("skills: unknown skills action: %s", arguments.Action)
 	}
 }
 
@@ -108,7 +108,7 @@ func (self *skillsTool) executeSearch(ctx context.Context, query string) (string
 
 func (self *skillsTool) executeInstall(ctx context.Context, name, version string) (string, error) {
 	if name == "" {
-		return "", fmt.Errorf("name is required for install")
+		return "", fmt.Errorf("skills: name is required for install")
 	}
 	info, err := skills.Install(ctx, name, version)
 	if err != nil {
@@ -171,7 +171,7 @@ func (self *skillsTool) executeListInstalled(ctx context.Context) (string, error
 
 func (self *skillsTool) executeUninstall(ctx context.Context, name string) (string, error) {
 	if name == "" {
-		return "", fmt.Errorf("name is required for uninstall")
+		return "", fmt.Errorf("skills: name is required for uninstall")
 	}
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		return tx.DeleteSkill(ctx, name, nil)
@@ -188,7 +188,7 @@ func (self *skillsTool) executeUninstall(ctx context.Context, name string) (stri
 
 func (self *skillsTool) executeSetEnabled(ctx context.Context, name string, enabled bool) (string, error) {
 	if name == "" {
-		return "", fmt.Errorf("name is required for enable/disable")
+		return "", fmt.Errorf("skills: name is required for enable/disable")
 	}
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		_, err := tx.ModifySkill(ctx, name, func(skill *models.Skill) error {

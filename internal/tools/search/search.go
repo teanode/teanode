@@ -100,7 +100,7 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 		apiKey = os.Getenv("BRAVE_API_KEY")
 	}
 	if apiKey == "" {
-		return "", fmt.Errorf("brave search API key not configured")
+		return "", fmt.Errorf("search: brave search API key not configured")
 	}
 
 	var arguments struct {
@@ -108,10 +108,10 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 		Count int    `json:"count"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("search: parsing arguments: %w", err)
 	}
 	if arguments.Query == "" {
-		return "", fmt.Errorf("query is required")
+		return "", fmt.Errorf("search: query is required")
 	}
 	if arguments.Count <= 0 {
 		arguments.Count = 5
@@ -127,14 +127,14 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, searchUrl, nil)
 	if err != nil {
-		return "", fmt.Errorf("creating request: %w", err)
+		return "", fmt.Errorf("search: creating request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("X-Subscription-Token", apiKey)
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("executing search: %w", err)
+		return "", fmt.Errorf("search: executing search: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
@@ -142,11 +142,11 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return "", fmt.Errorf("reading response: %w", err)
+		return "", fmt.Errorf("search: reading response: %w", err)
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("search API returned %d: %s", response.StatusCode, string(body))
+		return "", fmt.Errorf("search: search API returned %d: %s", response.StatusCode, string(body))
 	}
 
 	var apiResult struct {
@@ -159,7 +159,7 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 		} `json:"web"`
 	}
 	if err := json.Unmarshal(body, &apiResult); err != nil {
-		return "", fmt.Errorf("parsing search results: %w", err)
+		return "", fmt.Errorf("search: parsing search results: %w", err)
 	}
 
 	log.Debugf("brave search returned %d results for query=%q", len(apiResult.Web.Results), arguments.Query)

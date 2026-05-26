@@ -61,47 +61,47 @@ func (self *projectsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		Query      string `json:"query"`
 		PerPage    int    `json:"per_page"`
 		Repository string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("gitlab: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "view":
-		commandArgs := []string{"repo", "view", "--output", "json"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"repo", "view", "--output", "json"}
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	case "list":
-		perPage := args.PerPage
+		perPage := arguments.PerPage
 		if perPage <= 0 {
 			perPage = 30
 		}
-		commandArgs := []string{"repo", "list",
+		commandArguments := []string{"repo", "list",
 			"--output", "json",
 			"--per-page", strconv.Itoa(perPage)}
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	case "search":
-		if args.Query == "" {
-			return "", fmt.Errorf("query is required for search action")
+		if arguments.Query == "" {
+			return "", fmt.Errorf("gitlab: query is required for search action")
 		}
-		perPage := args.PerPage
+		perPage := arguments.PerPage
 		if perPage <= 0 {
 			perPage = 30
 		}
-		commandArgs := []string{"repo", "search",
-			"--search", args.Query,
+		commandArguments := []string{"repo", "search",
+			"--search", arguments.Query,
 			"--output", "json",
 			"--per-page", strconv.Itoa(perPage)}
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	default:
-		return "", fmt.Errorf("unknown projects action: %s", args.Action)
+		return "", fmt.Errorf("gitlab: unknown projects action: %s", arguments.Action)
 	}
 }

@@ -16,8 +16,8 @@ const (
 const (
 	stateNormal = iota
 	stateEsc
-	stateCSI
-	stateOSC
+	stateCsi
+	stateOsc
 	stateEscString
 	stateEscCharset
 )
@@ -126,11 +126,11 @@ func (self *Buffer) Write(input []byte) {
 		case stateEsc:
 			self.consumeEsc(byteValue)
 			continue
-		case stateCSI:
-			self.consumeCSI(byteValue)
+		case stateCsi:
+			self.consumeCsi(byteValue)
 			continue
-		case stateOSC:
-			self.consumeOSC(byteValue)
+		case stateOsc:
+			self.consumeOsc(byteValue)
 			continue
 		case stateEscString:
 			self.consumeEscString(byteValue)
@@ -144,7 +144,7 @@ func (self *Buffer) Write(input []byte) {
 		case 0x1b:
 			self.state = stateEsc
 		case 0x9b: // 8-bit CSI
-			self.state = stateCSI
+			self.state = stateCsi
 			self.csiBuffer = self.csiBuffer[:0]
 		case '\n':
 			self.lineFeed()
@@ -197,10 +197,10 @@ func (self *Buffer) Screenshot(maxLines int) string {
 func (self *Buffer) consumeEsc(byteValue byte) {
 	switch byteValue {
 	case '[':
-		self.state = stateCSI
+		self.state = stateCsi
 		self.csiBuffer = self.csiBuffer[:0]
 	case ']':
-		self.state = stateOSC
+		self.state = stateOsc
 		self.oscEsc = false
 	case 'P', '^', '_':
 		// DCS/PM/APC strings terminated by ST (ESC \)
@@ -235,9 +235,9 @@ func (self *Buffer) consumeEsc(byteValue byte) {
 	}
 }
 
-func (self *Buffer) consumeCSI(byteValue byte) {
+func (self *Buffer) consumeCsi(byteValue byte) {
 	if byteValue >= 0x40 && byteValue <= 0x7e {
-		self.handleCSI(byteValue, string(self.csiBuffer))
+		self.handleCsi(byteValue, string(self.csiBuffer))
 		self.csiBuffer = self.csiBuffer[:0]
 		self.state = stateNormal
 		return
@@ -245,7 +245,7 @@ func (self *Buffer) consumeCSI(byteValue byte) {
 	self.csiBuffer = append(self.csiBuffer, byteValue)
 }
 
-func (self *Buffer) consumeOSC(byteValue byte) {
+func (self *Buffer) consumeOsc(byteValue byte) {
 	if byteValue == 0x07 { // BEL terminator
 		self.state = stateNormal
 		self.oscEsc = false
@@ -272,7 +272,7 @@ func (self *Buffer) consumeEscString(byteValue byte) {
 	self.oscEsc = (byteValue == 0x1b)
 }
 
-func (self *Buffer) handleCSI(final byte, raw string) {
+func (self *Buffer) handleCsi(final byte, raw string) {
 	privatePrefix := ""
 	if len(raw) > 0 {
 		prefix := raw[0]
@@ -282,50 +282,50 @@ func (self *Buffer) handleCSI(final byte, raw string) {
 		}
 	}
 
-	paramsPart := raw
+	parametersPart := raw
 	for index, byteVal := range raw {
 		if byteVal >= 0x20 && byteVal <= 0x2f {
-			paramsPart = raw[:index]
+			parametersPart = raw[:index]
 			break
 		}
 	}
-	params := parseCSIParams(paramsPart)
+	parameters := parseCsiParameters(parametersPart)
 
 	switch final {
 	case 'A':
-		self.cursorRow -= max(1, getParam(params, 0, 1))
+		self.cursorRow -= max(1, getParameter(parameters, 0, 1))
 	case 'B':
-		self.cursorRow += max(1, getParam(params, 0, 1))
+		self.cursorRow += max(1, getParameter(parameters, 0, 1))
 	case 'C':
-		self.cursorCol += max(1, getParam(params, 0, 1))
+		self.cursorCol += max(1, getParameter(parameters, 0, 1))
 	case 'D':
-		self.cursorCol -= max(1, getParam(params, 0, 1))
+		self.cursorCol -= max(1, getParameter(parameters, 0, 1))
 	case 'E':
-		self.cursorRow += max(1, getParam(params, 0, 1))
+		self.cursorRow += max(1, getParameter(parameters, 0, 1))
 		self.cursorCol = 0
 	case 'F':
-		self.cursorRow -= max(1, getParam(params, 0, 1))
+		self.cursorRow -= max(1, getParameter(parameters, 0, 1))
 		self.cursorCol = 0
 	case 'G':
-		self.cursorCol = max(1, getParam(params, 0, 1)) - 1
+		self.cursorCol = max(1, getParameter(parameters, 0, 1)) - 1
 	case 'd':
-		self.cursorRow = max(1, getParam(params, 0, 1)) - 1
+		self.cursorRow = max(1, getParameter(parameters, 0, 1)) - 1
 	case 'H', 'f':
-		row := max(1, getParam(params, 0, 1))
-		col := max(1, getParam(params, 1, 1))
+		row := max(1, getParameter(parameters, 0, 1))
+		col := max(1, getParameter(parameters, 1, 1))
 		self.cursorRow = row - 1
 		self.cursorCol = col - 1
 	case 'J':
-		self.eraseDisplay(getParam(params, 0, 0))
+		self.eraseDisplay(getParameter(parameters, 0, 0))
 	case 'K':
-		self.eraseLine(getParam(params, 0, 0))
+		self.eraseLine(getParameter(parameters, 0, 0))
 	case 's':
 		self.savedRow, self.savedCol = self.cursorRow, self.cursorCol
 	case 'u':
 		self.cursorRow, self.cursorCol = self.savedRow, self.savedCol
 	case 'h', 'l':
 		if privatePrefix == "?" {
-			self.handlePrivateMode(final == 'h', params)
+			self.handlePrivateMode(final == 'h', parameters)
 		}
 	case 'm', 'r', 't', 'n', 'q':
 		// Style/status/scroll-region requests ignored for plain-text snapshot.
@@ -334,8 +334,8 @@ func (self *Buffer) handleCSI(final byte, raw string) {
 	self.clampCursor()
 }
 
-func (self *Buffer) handlePrivateMode(enable bool, params []int) {
-	for _, parameter := range params {
+func (self *Buffer) handlePrivateMode(enable bool, parameters []int) {
+	for _, parameter := range parameters {
 		switch parameter {
 		case 47, 1047, 1049:
 			if enable {
@@ -499,7 +499,7 @@ func (self *Buffer) appendScrollback(line string) {
 	}
 }
 
-func parseCSIParams(value string) []int {
+func parseCsiParameters(value string) []int {
 	if value == "" {
 		return []int{0}
 	}
@@ -522,11 +522,11 @@ func parseCSIParams(value string) []int {
 	return out
 }
 
-func getParam(params []int, index, fallback int) int {
-	if index < 0 || index >= len(params) {
+func getParameter(parameters []int, index, fallback int) int {
+	if index < 0 || index >= len(parameters) {
 		return fallback
 	}
-	return params[index]
+	return parameters[index]
 }
 
 func sanitizeSize(rows, cols int) (int, int) {

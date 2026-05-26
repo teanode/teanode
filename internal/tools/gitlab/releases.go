@@ -65,43 +65,43 @@ func (self *releasesTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *releasesTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		Tag        string `json:"tag"`
 		Name       string `json:"name"`
 		Notes      string `json:"notes"`
 		Repository string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("gitlab: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		commandArgs := []string{"release", "list"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"release", "list"}
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create":
-		if args.Tag == "" {
-			return "", fmt.Errorf("tag is required for create action")
+		if arguments.Tag == "" {
+			return "", fmt.Errorf("gitlab: tag is required for create action")
 		}
-		if args.Name == "" {
-			return "", fmt.Errorf("name is required for create action")
+		if arguments.Name == "" {
+			return "", fmt.Errorf("gitlab: name is required for create action")
 		}
-		commandArgs := []string{"release", "create", args.Tag,
-			"--name", args.Name}
-		if args.Notes != "" {
-			commandArgs = append(commandArgs, "--notes", args.Notes)
+		commandArguments := []string{"release", "create", arguments.Tag,
+			"--name", arguments.Name}
+		if arguments.Notes != "" {
+			commandArguments = append(commandArguments, "--notes", arguments.Notes)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("created", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown releases action: %s", args.Action)
+		return "", fmt.Errorf("gitlab: unknown releases action: %s", arguments.Action)
 	}
 }

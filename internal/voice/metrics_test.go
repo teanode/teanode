@@ -16,12 +16,12 @@ func TestMetricsObserver_AllFieldsSet(t *testing.T) {
 	observer.OnTranscriptFinal("turn-1", 1320)
 	observer.OnTurnCommitted("turn-1", 1330)
 	observer.OnTTSRequested("turn-1", 1470)
-	observer.OnResponseStarted("turn-1", "resp-1", 1500)
+	observer.OnResponseStarted("turn-1", "response-1", 1500)
 
 	if captured.TurnID != "turn-1" {
 		t.Fatalf("unexpected turn id %q", captured.TurnID)
 	}
-	if captured.ResponseID != "resp-1" {
+	if captured.ResponseID != "response-1" {
 		t.Fatalf("unexpected response id %q", captured.ResponseID)
 	}
 	if captured.SpeechStartedMS == 0 || captured.SpeechEndedMS == 0 || captured.TranscriptFinalMS == 0 || captured.TurnCommittedMS == 0 || captured.ResponseStartedMS == 0 {
@@ -50,33 +50,33 @@ func TestNotifyObservers_EmptyList(t *testing.T) {
 
 func TestMetricsObserver_ThreadSafe(t *testing.T) {
 	observer := NewMetricsObserver(nil)
-	var wg sync.WaitGroup
-	wg.Add(4)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(4)
 
 	go func() {
-		defer wg.Done()
+		defer waitGroup.Done()
 		for i := int64(0); i < 500; i++ {
 			observer.OnSpeechStarted("turn-1", i)
 		}
 	}()
 	go func() {
-		defer wg.Done()
+		defer waitGroup.Done()
 		for i := int64(0); i < 500; i++ {
 			observer.OnSpeechEnded("turn-1", i)
 		}
 	}()
 	go func() {
-		defer wg.Done()
+		defer waitGroup.Done()
 		for i := int64(0); i < 500; i++ {
 			observer.OnTranscriptFinal("turn-1", i)
 		}
 	}()
 	go func() {
-		defer wg.Done()
+		defer waitGroup.Done()
 		for i := int64(0); i < 500; i++ {
 			observer.OnTurnCommitted("turn-1", i)
 		}
 	}()
 
-	wg.Wait()
+	waitGroup.Wait()
 }

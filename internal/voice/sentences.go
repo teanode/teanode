@@ -84,13 +84,13 @@ func splitSentences(text string) ([]string, int) {
 	return out, byteOffsetForRuneIndex(string(runes), lastConsumedRune)
 }
 
-func byteOffsetForRuneIndex(text string, runeIdx int) int {
-	if runeIdx <= 0 {
+func byteOffsetForRuneIndex(text string, runeIndex int) int {
+	if runeIndex <= 0 {
 		return 0
 	}
 	index := 0
 	for pos := range text {
-		if index == runeIdx {
+		if index == runeIndex {
 			return pos
 		}
 		index++

@@ -135,18 +135,18 @@ func modelToAgentRecord(agent *models.Agent) (*databaseAgentRecord, error) {
 		SummarizedAt:      agent.SummarizedAt,
 	}
 	if agent.Skills != nil {
-		skillsJSON, marshalError := json.Marshal(*agent.Skills)
+		skillsJson, marshalError := json.Marshal(*agent.Skills)
 		if marshalError != nil {
 			return nil, marshalError
 		}
-		record.Skills = skillsJSON
+		record.Skills = skillsJson
 	}
 	if agent.Tools != nil {
-		toolsJSON, marshalError := json.Marshal(*agent.Tools)
+		toolsJson, marshalError := json.Marshal(*agent.Tools)
 		if marshalError != nil {
 			return nil, marshalError
 		}
-		record.Tools = toolsJSON
+		record.Tools = toolsJson
 	}
 	return record, nil
 }

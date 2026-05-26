@@ -90,7 +90,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		Purpose     string `json:"purpose"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("projects: parsing arguments: %w", err)
 	}
 
 	// Mutating project actions require admin access.
@@ -99,7 +99,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 	case "create", "rename", "delete":
 		user := models.UserFromContext(ctx)
 		if user == nil || !user.GetAdmin() {
-			return "", fmt.Errorf("admin access required to %s projects", action)
+			return "", fmt.Errorf("projects: admin access required to %s projects", action)
 		}
 	}
 
@@ -113,7 +113,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		return string(output), nil
 	case "info":
 		if arguments.ProjectID == "" {
-			return "", fmt.Errorf("projectId is required")
+			return "", fmt.Errorf("projects: projectId is required")
 		}
 		item, err := getProject(ctx, arguments.ProjectID)
 		if err != nil {
@@ -124,11 +124,11 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 	case "create":
 		name := arguments.Name
 		if name == "" {
-			return "", fmt.Errorf("name is required")
+			return "", fmt.Errorf("projects: name is required")
 		}
 		description := arguments.Description
 		if description == "" {
-			return "", fmt.Errorf("description is required for create")
+			return "", fmt.Errorf("projects: description is required for create")
 		}
 		item, err := createProject(ctx, name, description, arguments.Purpose)
 		if err != nil {
@@ -138,7 +138,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		return string(output), nil
 	case "rename":
 		if arguments.ProjectID == "" {
-			return "", fmt.Errorf("projectId is required")
+			return "", fmt.Errorf("projects: projectId is required")
 		}
 		item, err := renameProject(ctx, arguments.ProjectID, arguments.Name)
 		if err != nil {
@@ -148,7 +148,7 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		return string(output), nil
 	case "delete":
 		if arguments.ProjectID == "" {
-			return "", fmt.Errorf("projectId is required")
+			return "", fmt.Errorf("projects: projectId is required")
 		}
 		if err := deleteProject(ctx, arguments.ProjectID); err != nil {
 			return "", err
@@ -156,6 +156,6 @@ func (self *projectsTool) Execute(ctx context.Context, rawArguments string) (str
 		output, _ := json.Marshal(projectsToolResponse{Action: "delete", Success: true})
 		return string(output), nil
 	default:
-		return "", fmt.Errorf("unknown projects action: %s", arguments.Action)
+		return "", fmt.Errorf("projects: unknown projects action: %s", arguments.Action)
 	}
 }

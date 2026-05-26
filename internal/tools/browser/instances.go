@@ -34,11 +34,11 @@ func (self *instanceStore) resolve(userId string, name string) (string, error) {
 	defer self.mutex.Unlock()
 	userNames := self.names[userId]
 	if userNames == nil {
-		return "", fmt.Errorf("no named browser instance %q", name)
+		return "", fmt.Errorf("browser: no named browser instance %q", name)
 	}
 	connectionId, ok := userNames[name]
 	if !ok {
-		return "", fmt.Errorf("no named browser instance %q", name)
+		return "", fmt.Errorf("browser: no named browser instance %q", name)
 	}
 	return connectionId, nil
 }

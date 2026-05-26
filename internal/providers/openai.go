@@ -93,8 +93,8 @@ func (self *ChatMessage) ContentText() string {
 	return fmt.Sprintf("%v", self.Content)
 }
 
-// chatMessageJSON is the wire format for ChatMessage.
-type chatMessageJSON struct {
+// chatMessageJson is the wire format for ChatMessage.
+type chatMessageJson struct {
 	Role       string          `json:"role"`
 	Content    json.RawMessage `json:"content,omitempty"`
 	ToolCalls  []ToolCall      `json:"tool_calls,omitempty"`
@@ -105,7 +105,7 @@ type chatMessageJSON struct {
 // MarshalJSON implements custom JSON marshaling for ChatMessage.
 // Emits Content as a string when text-only, or as an array when multimodal.
 func (self ChatMessage) MarshalJSON() ([]byte, error) {
-	wire := chatMessageJSON{
+	wire := chatMessageJson{
 		Role:       self.Role,
 		ToolCalls:  self.ToolCalls,
 		ToolCallID: self.ToolCallID,
@@ -126,7 +126,7 @@ func (self ChatMessage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements custom JSON unmarshaling for ChatMessage.
 func (self *ChatMessage) UnmarshalJSON(data []byte) error {
-	var wire chatMessageJSON
+	var wire chatMessageJson
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
@@ -242,7 +242,7 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 	ctx, cancel := context.WithTimeout(ctx, defaultNonStreamingRequestTimeout)
 	defer cancel()
 
-	request.normalizeMaxTokensParam()
+	request.normalizeMaxTokensParameter()
 	request.Stream = false
 	body, _ := json.Marshal(request)
 
@@ -250,7 +250,7 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("providers: creating request: %w", err)
 	}
 	if err := self.setHeaders(httpRequest); err != nil {
 		return nil, err
@@ -258,7 +258,7 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("sending request: %w", err)
+		return nil, fmt.Errorf("providers: sending request: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
@@ -266,12 +266,12 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 
 	if response.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("API error %d: %s", response.StatusCode, string(responseBody))
+		return nil, fmt.Errorf("providers: API error %d: %s", response.StatusCode, string(responseBody))
 	}
 
 	var chatResponse ChatResponse
 	if err := json.NewDecoder(response.Body).Decode(&chatResponse); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
+		return nil, fmt.Errorf("providers: decoding response: %w", err)
 	}
 
 	if chatResponse.Usage != nil {
@@ -286,7 +286,7 @@ func (self *Client) ChatCompletion(ctx context.Context, request ChatRequest) (*C
 // when the stream ends or an error occurs. Errors are sent as a chunk
 // with a nil Choices field and the error in a special format.
 func (self *Client) ChatCompletionStream(ctx context.Context, request ChatRequest) (<-chan StreamEvent, error) {
-	request.normalizeMaxTokensParam()
+	request.normalizeMaxTokensParameter()
 	request.Stream = true
 	body, _ := json.Marshal(request)
 
@@ -294,7 +294,7 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("providers: creating request: %w", err)
 	}
 	if err := self.setHeaders(httpRequest); err != nil {
 		return nil, err
@@ -302,7 +302,7 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("sending request: %w", err)
+		return nil, fmt.Errorf("providers: sending request: %w", err)
 	}
 
 	log.Debugf("POST %s/chat/completions status=%d (stream opened)", self.baseUrl, response.StatusCode)
@@ -310,7 +310,7 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 	if response.StatusCode != http.StatusOK {
 		defer func() { _ = response.Body.Close() }()
 		responseBody, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("API error %d: %s", response.StatusCode, string(responseBody))
+		return nil, fmt.Errorf("providers: API error %d: %s", response.StatusCode, string(responseBody))
 	}
 
 	events := make(chan StreamEvent, 32)
@@ -324,7 +324,7 @@ func (self *Client) ChatCompletionStream(ctx context.Context, request ChatReques
 	return events, nil
 }
 
-func (self *ChatRequest) normalizeMaxTokensParam() {
+func (self *ChatRequest) normalizeMaxTokensParameter() {
 	if self.MaxCompletionTokens > 0 || self.MaxTokens <= 0 {
 		return
 	}
@@ -368,14 +368,14 @@ func (self *Client) readSse(ctx context.Context, reader io.Reader, events chan<-
 
 		var chunk StreamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			events <- StreamEvent{Err: fmt.Errorf("parsing stream chunk: %w", err)}
+			events <- StreamEvent{Err: fmt.Errorf("providers: parsing stream chunk: %w", err)}
 			return
 		}
 		events <- StreamEvent{Chunk: &chunk}
 	}
 
 	if err := scanner.Err(); err != nil {
-		events <- StreamEvent{Err: fmt.Errorf("reading stream: %w", err)}
+		events <- StreamEvent{Err: fmt.Errorf("providers: reading stream: %w", err)}
 	}
 }
 
@@ -386,7 +386,7 @@ func (self *Client) ListModels(ctx context.Context) ([]ModelInformation, error) 
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "GET", self.baseUrl+"/models", nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("providers: creating request: %w", err)
 	}
 	if err := self.setHeaders(httpRequest); err != nil {
 		return nil, err
@@ -394,20 +394,20 @@ func (self *Client) ListModels(ctx context.Context) ([]ModelInformation, error) 
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("fetching models: %w", err)
+		return nil, fmt.Errorf("providers: fetching models: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("models API error %d: %s", response.StatusCode, string(body))
+		return nil, fmt.Errorf("providers: models API error %d: %s", response.StatusCode, string(body))
 	}
 
 	var result struct {
 		Data []ModelInformation `json:"data"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decoding models response: %w", err)
+		return nil, fmt.Errorf("providers: decoding models response: %w", err)
 	}
 
 	// Sort by ID for stable ordering.
@@ -446,10 +446,10 @@ func (self *Client) Transcribe(ctx context.Context, request TranscribeRequest) (
 	}
 	part, err := writer.CreateFormFile("file", "audio."+extension)
 	if err != nil {
-		return nil, fmt.Errorf("creating form file: %w", err)
+		return nil, fmt.Errorf("providers: creating form file: %w", err)
 	}
 	if _, err := io.Copy(part, request.Audio); err != nil {
-		return nil, fmt.Errorf("copying audio data: %w", err)
+		return nil, fmt.Errorf("providers: copying audio data: %w", err)
 	}
 
 	_ = writer.WriteField("model", "whisper-1")
@@ -461,14 +461,14 @@ func (self *Client) Transcribe(ctx context.Context, request TranscribeRequest) (
 		_ = writer.WriteField("prompt", request.Prompt)
 	}
 	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("closing multipart writer: %w", err)
+		return nil, fmt.Errorf("providers: closing multipart writer: %w", err)
 	}
 
 	log.Debugf("POST %s/audio/transcriptions format=%s", self.baseUrl, extension)
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/audio/transcriptions", &body)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("providers: creating request: %w", err)
 	}
 	httpRequest.Header.Set("Content-Type", writer.FormDataContentType())
 	if err := self.setAuthorizationHeader(httpRequest); err != nil {
@@ -477,20 +477,20 @@ func (self *Client) Transcribe(ctx context.Context, request TranscribeRequest) (
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("sending request: %w", err)
+		return nil, fmt.Errorf("providers: sending request: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("transcription API error %d: %s", response.StatusCode, string(responseBody))
+		return nil, fmt.Errorf("providers: transcription API error %d: %s", response.StatusCode, string(responseBody))
 	}
 
 	var result struct {
 		Text string `json:"text"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decoding transcription response: %w", err)
+		return nil, fmt.Errorf("providers: decoding transcription response: %w", err)
 	}
 
 	return &TranscribeResponse{Text: result.Text}, nil
@@ -524,7 +524,7 @@ func (self *Client) Synthesize(ctx context.Context, request SynthesizeRequest) (
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", self.baseUrl+"/audio/speech", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("providers: creating request: %w", err)
 	}
 	if err := self.setHeaders(httpRequest); err != nil {
 		return nil, err
@@ -532,13 +532,13 @@ func (self *Client) Synthesize(ctx context.Context, request SynthesizeRequest) (
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("sending request: %w", err)
+		return nil, fmt.Errorf("providers: sending request: %w", err)
 	}
 
 	if response.StatusCode != http.StatusOK {
 		defer func() { _ = response.Body.Close() }()
 		responseBody, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("TTS API error %d: %s", response.StatusCode, string(responseBody))
+		return nil, fmt.Errorf("providers: TTS API error %d: %s", response.StatusCode, string(responseBody))
 	}
 
 	contentType := "audio/mpeg"
@@ -581,7 +581,7 @@ type embeddingResponse struct {
 // Embed calls the OpenAI-compatible /embeddings API and returns the resulting vector.
 func (self *Client) Embed(ctx context.Context, model string, inputText string) ([]float64, *UsageInformation, error) {
 	if self.apiKey == "" {
-		return nil, nil, fmt.Errorf("embeddings: API key not configured")
+		return nil, nil, fmt.Errorf("providers: embeddings: API key not configured")
 	}
 
 	requestBody := embeddingRequest{
@@ -590,12 +590,12 @@ func (self *Client) Embed(ctx context.Context, model string, inputText string) (
 	}
 	encoded, marshalError := json.Marshal(requestBody)
 	if marshalError != nil {
-		return nil, nil, fmt.Errorf("embeddings: marshal request: %w", marshalError)
+		return nil, nil, fmt.Errorf("providers: embeddings: marshal request: %w", marshalError)
 	}
 
 	httpRequest, requestError := http.NewRequestWithContext(ctx, http.MethodPost, self.baseUrl+"/embeddings", bytes.NewReader(encoded))
 	if requestError != nil {
-		return nil, nil, fmt.Errorf("embeddings: create request: %w", requestError)
+		return nil, nil, fmt.Errorf("providers: embeddings: create request: %w", requestError)
 	}
 	if err := self.setHeaders(httpRequest); err != nil {
 		return nil, nil, err
@@ -603,30 +603,30 @@ func (self *Client) Embed(ctx context.Context, model string, inputText string) (
 
 	response, doError := self.httpClient.Do(httpRequest)
 	if doError != nil {
-		return nil, nil, fmt.Errorf("embeddings: request failed: %w", doError)
+		return nil, nil, fmt.Errorf("providers: embeddings: request failed: %w", doError)
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	body, readError := io.ReadAll(response.Body)
 	if readError != nil {
-		return nil, nil, fmt.Errorf("embeddings: read response: %w", readError)
+		return nil, nil, fmt.Errorf("providers: embeddings: read response: %w", readError)
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("embeddings: HTTP %d: %s", response.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("providers: embeddings: HTTP %d: %s", response.StatusCode, string(body))
 	}
 
 	var result embeddingResponse
 	if unmarshalError := json.Unmarshal(body, &result); unmarshalError != nil {
-		return nil, nil, fmt.Errorf("embeddings: parse response: %w", unmarshalError)
+		return nil, nil, fmt.Errorf("providers: embeddings: parse response: %w", unmarshalError)
 	}
 
 	if result.Error != nil {
-		return nil, nil, fmt.Errorf("embeddings: API error: %s", result.Error.Message)
+		return nil, nil, fmt.Errorf("providers: embeddings: API error: %s", result.Error.Message)
 	}
 
 	if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
-		return nil, nil, fmt.Errorf("embeddings: empty response")
+		return nil, nil, fmt.Errorf("providers: embeddings: empty response")
 	}
 
 	return result.Data[0].Embedding, result.Usage, nil
@@ -636,7 +636,7 @@ func (self *Client) Embed(ctx context.Context, model string, inputText string) (
 // and returns the resulting vectors in the same order as the inputs.
 func (self *Client) EmbedMany(ctx context.Context, model string, inputTexts []string) ([][]float64, *UsageInformation, error) {
 	if self.apiKey == "" {
-		return nil, nil, fmt.Errorf("embeddings: API key not configured")
+		return nil, nil, fmt.Errorf("providers: embeddings: API key not configured")
 	}
 	if len(inputTexts) == 0 {
 		return nil, nil, nil
@@ -648,12 +648,12 @@ func (self *Client) EmbedMany(ctx context.Context, model string, inputTexts []st
 	}
 	encoded, marshalError := json.Marshal(requestBody)
 	if marshalError != nil {
-		return nil, nil, fmt.Errorf("embeddings: marshal request: %w", marshalError)
+		return nil, nil, fmt.Errorf("providers: embeddings: marshal request: %w", marshalError)
 	}
 
 	httpRequest, requestError := http.NewRequestWithContext(ctx, http.MethodPost, self.baseUrl+"/embeddings", bytes.NewReader(encoded))
 	if requestError != nil {
-		return nil, nil, fmt.Errorf("embeddings: create request: %w", requestError)
+		return nil, nil, fmt.Errorf("providers: embeddings: create request: %w", requestError)
 	}
 	if err := self.setHeaders(httpRequest); err != nil {
 		return nil, nil, err
@@ -661,30 +661,30 @@ func (self *Client) EmbedMany(ctx context.Context, model string, inputTexts []st
 
 	response, doError := self.httpClient.Do(httpRequest)
 	if doError != nil {
-		return nil, nil, fmt.Errorf("embeddings: request failed: %w", doError)
+		return nil, nil, fmt.Errorf("providers: embeddings: request failed: %w", doError)
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	body, readError := io.ReadAll(response.Body)
 	if readError != nil {
-		return nil, nil, fmt.Errorf("embeddings: read response: %w", readError)
+		return nil, nil, fmt.Errorf("providers: embeddings: read response: %w", readError)
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("embeddings: HTTP %d: %s", response.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("providers: embeddings: HTTP %d: %s", response.StatusCode, string(body))
 	}
 
 	var result embeddingResponse
 	if unmarshalError := json.Unmarshal(body, &result); unmarshalError != nil {
-		return nil, nil, fmt.Errorf("embeddings: parse response: %w", unmarshalError)
+		return nil, nil, fmt.Errorf("providers: embeddings: parse response: %w", unmarshalError)
 	}
 
 	if result.Error != nil {
-		return nil, nil, fmt.Errorf("embeddings: API error: %s", result.Error.Message)
+		return nil, nil, fmt.Errorf("providers: embeddings: API error: %s", result.Error.Message)
 	}
 
 	if len(result.Data) != len(inputTexts) {
-		return nil, nil, fmt.Errorf("embeddings: expected %d results, got %d", len(inputTexts), len(result.Data))
+		return nil, nil, fmt.Errorf("providers: embeddings: expected %d results, got %d", len(inputTexts), len(result.Data))
 	}
 
 	// The API may return data entries in arbitrary order via the index field;

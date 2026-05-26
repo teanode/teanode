@@ -13,8 +13,8 @@ import (
 // mockRunner returns a commandRunner that records calls and returns canned output.
 func mockRunner(output string, err error) (commandRunner, *[][]string) {
 	var calls [][]string
-	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		call := append([]string{name}, args...)
+	runner := func(ctx context.Context, name string, arguments ...string) ([]byte, error) {
+		call := append([]string{name}, arguments...)
 		calls = append(calls, call)
 		if err != nil {
 			return nil, err
@@ -43,11 +43,11 @@ func TestExecGitea_ArgsAssembly(t *testing.T) {
 	arguments := (*calls)[0]
 	expected := []string{"/usr/bin/tea", "issues", "list", "--output", "json"}
 	if len(arguments) != len(expected) {
-		t.Fatalf("expected %d args, got %d: %v", len(expected), len(arguments), arguments)
+		t.Fatalf("expected %d arguments, got %d: %v", len(expected), len(arguments), arguments)
 	}
 	for index, want := range expected {
 		if arguments[index] != want {
-			t.Errorf("arg[%d] = %q, want %q", index, arguments[index], want)
+			t.Errorf("argument[%d] = %q, want %q", index, arguments[index], want)
 		}
 	}
 }
@@ -148,29 +148,29 @@ func TestIssuesTool_ListAction(t *testing.T) {
 		t.Error("expected non-empty result")
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundIssuesList := false
 	foundOutputJSON := false
 	foundState := false
-	for index, argument := range commandArgs {
-		if argument == "issues" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "issues" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundIssuesList = true
 		}
-		if argument == "--output" && index+1 < len(commandArgs) && commandArgs[index+1] == "json" {
+		if argument == "--output" && index+1 < len(commandArguments) && commandArguments[index+1] == "json" {
 			foundOutputJSON = true
 		}
-		if argument == "--state" && index+1 < len(commandArgs) && commandArgs[index+1] == "open" {
+		if argument == "--state" && index+1 < len(commandArguments) && commandArguments[index+1] == "open" {
 			foundState = true
 		}
 	}
 	if !foundIssuesList {
-		t.Errorf("expected 'issues list' in args: %v", commandArgs)
+		t.Errorf("expected 'issues list' in arguments: %v", commandArguments)
 	}
 	if !foundOutputJSON {
-		t.Errorf("expected '--output json' in args: %v", commandArgs)
+		t.Errorf("expected '--output json' in arguments: %v", commandArguments)
 	}
 	if !foundState {
-		t.Errorf("expected '--state open' in args: %v", commandArgs)
+		t.Errorf("expected '--state open' in arguments: %v", commandArguments)
 	}
 }
 
@@ -186,15 +186,15 @@ func TestIssuesTool_ListDefaultLimit(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundLimit := false
-	for index, argument := range commandArgs {
-		if argument == "--limit" && index+1 < len(commandArgs) && commandArgs[index+1] == "30" {
+	for index, argument := range commandArguments {
+		if argument == "--limit" && index+1 < len(commandArguments) && commandArguments[index+1] == "30" {
 			foundLimit = true
 		}
 	}
 	if !foundLimit {
-		t.Errorf("expected default '--limit 30' in args: %v", commandArgs)
+		t.Errorf("expected default '--limit 30' in arguments: %v", commandArguments)
 	}
 }
 
@@ -214,11 +214,11 @@ func TestIssuesTool_ListWithFilters(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsFlag(t, commandArgs, "--labels", "bug,critical")
-	assertContainsFlag(t, commandArgs, "--assignee", "alice")
-	assertContainsFlag(t, commandArgs, "--author", "bob")
-	assertContainsFlag(t, commandArgs, "--keyword", "crash")
+	commandArguments := (*calls)[0]
+	assertContainsFlag(t, commandArguments, "--labels", "bug,critical")
+	assertContainsFlag(t, commandArguments, "--assignee", "alice")
+	assertContainsFlag(t, commandArguments, "--author", "bob")
+	assertContainsFlag(t, commandArguments, "--keyword", "crash")
 }
 
 func TestIssuesTool_ListWithRepository(t *testing.T) {
@@ -234,8 +234,8 @@ func TestIssuesTool_ListWithRepository(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsFlag(t, commandArgs, "--repo", "owner/repo")
+	commandArguments := (*calls)[0]
+	assertContainsFlag(t, commandArguments, "--repo", "owner/repo")
 }
 
 func TestIssuesTool_ViewAction(t *testing.T) {
@@ -251,9 +251,9 @@ func TestIssuesTool_ViewAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "5")
-	assertContainsArg(t, commandArgs, "--comments")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "5")
+	assertContainsArg(t, commandArguments, "--comments")
 }
 
 func TestIssuesTool_ViewRequiresNumber(t *testing.T) {
@@ -292,12 +292,12 @@ func TestIssuesTool_CreateAction(t *testing.T) {
 		t.Errorf("expected 'created' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsFlag(t, commandArgs, "--title", "New Bug")
-	assertContainsFlag(t, commandArgs, "--description", "Something broke")
-	assertContainsFlag(t, commandArgs, "--labels", "bug")
-	assertContainsFlag(t, commandArgs, "--assignees", "alice")
-	assertContainsFlag(t, commandArgs, "--milestone", "v1.0")
+	commandArguments := (*calls)[0]
+	assertContainsFlag(t, commandArguments, "--title", "New Bug")
+	assertContainsFlag(t, commandArguments, "--description", "Something broke")
+	assertContainsFlag(t, commandArguments, "--labels", "bug")
+	assertContainsFlag(t, commandArguments, "--assignees", "alice")
+	assertContainsFlag(t, commandArguments, "--milestone", "v1.0")
 }
 
 func TestIssuesTool_CreateRequiresTitle(t *testing.T) {
@@ -345,10 +345,10 @@ func TestIssuesTool_CommentAction(t *testing.T) {
 		t.Errorf("expected 'commented' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "comment")
-	assertContainsArg(t, commandArgs, "3")
-	assertContainsArg(t, commandArgs, "This is a comment")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "comment")
+	assertContainsArg(t, commandArguments, "3")
+	assertContainsArg(t, commandArguments, "This is a comment")
 }
 
 func TestIssuesTool_CloseAction(t *testing.T) {
@@ -367,9 +367,9 @@ func TestIssuesTool_CloseAction(t *testing.T) {
 		t.Errorf("expected 'closed' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "close")
-	assertContainsArg(t, commandArgs, "7")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "close")
+	assertContainsArg(t, commandArguments, "7")
 }
 
 func TestIssuesTool_ReopenAction(t *testing.T) {
@@ -388,9 +388,9 @@ func TestIssuesTool_ReopenAction(t *testing.T) {
 		t.Errorf("expected 'reopened' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "reopen")
-	assertContainsArg(t, commandArgs, "7")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "reopen")
+	assertContainsArg(t, commandArguments, "7")
 }
 
 func TestIssuesTool_EditAction(t *testing.T) {
@@ -412,10 +412,10 @@ func TestIssuesTool_EditAction(t *testing.T) {
 		t.Errorf("expected 'edited' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsFlag(t, commandArgs, "--title", "Updated Title")
-	assertContainsFlag(t, commandArgs, "--description", "Updated description")
-	assertContainsFlag(t, commandArgs, "--add-labels", "enhancement")
+	commandArguments := (*calls)[0]
+	assertContainsFlag(t, commandArguments, "--title", "Updated Title")
+	assertContainsFlag(t, commandArguments, "--description", "Updated description")
+	assertContainsFlag(t, commandArguments, "--add-labels", "enhancement")
 }
 
 func TestIssuesTool_EditRequiresUpdate(t *testing.T) {
@@ -475,22 +475,22 @@ func TestPullsTool_ListAction(t *testing.T) {
 		t.Error("expected non-empty result")
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundPullsList := false
 	foundOutputJSON := false
-	for index, argument := range commandArgs {
-		if argument == "pulls" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "pulls" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundPullsList = true
 		}
-		if argument == "--output" && index+1 < len(commandArgs) && commandArgs[index+1] == "json" {
+		if argument == "--output" && index+1 < len(commandArguments) && commandArguments[index+1] == "json" {
 			foundOutputJSON = true
 		}
 	}
 	if !foundPullsList {
-		t.Errorf("expected 'pulls list' in args: %v", commandArgs)
+		t.Errorf("expected 'pulls list' in arguments: %v", commandArguments)
 	}
 	if !foundOutputJSON {
-		t.Errorf("expected '--output json' in args: %v", commandArgs)
+		t.Errorf("expected '--output json' in arguments: %v", commandArguments)
 	}
 }
 
@@ -507,9 +507,9 @@ func TestPullsTool_ViewAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "3")
-	assertContainsArg(t, commandArgs, "--comments")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "3")
+	assertContainsArg(t, commandArguments, "--comments")
 }
 
 func TestPullsTool_ViewRequiresNumber(t *testing.T) {
@@ -544,11 +544,11 @@ func TestPullsTool_CreateAction(t *testing.T) {
 		t.Errorf("expected 'created' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsFlag(t, commandArgs, "--title", "New Feature")
-	assertContainsFlag(t, commandArgs, "--description", "Adds new feature")
-	assertContainsFlag(t, commandArgs, "--head", "feature-branch")
-	assertContainsFlag(t, commandArgs, "--base", "main")
+	commandArguments := (*calls)[0]
+	assertContainsFlag(t, commandArguments, "--title", "New Feature")
+	assertContainsFlag(t, commandArguments, "--description", "Adds new feature")
+	assertContainsFlag(t, commandArguments, "--head", "feature-branch")
+	assertContainsFlag(t, commandArguments, "--base", "main")
 }
 
 func TestPullsTool_CreateRequiresTitle(t *testing.T) {
@@ -582,10 +582,10 @@ func TestPullsTool_CommentAction(t *testing.T) {
 		t.Errorf("expected 'commented' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "comment")
-	assertContainsArg(t, commandArgs, "5")
-	assertContainsArg(t, commandArgs, "LGTM")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "comment")
+	assertContainsArg(t, commandArguments, "5")
+	assertContainsArg(t, commandArguments, "LGTM")
 }
 
 func TestPullsTool_CloseAction(t *testing.T) {
@@ -604,9 +604,9 @@ func TestPullsTool_CloseAction(t *testing.T) {
 		t.Errorf("expected 'closed' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "close")
-	assertContainsArg(t, commandArgs, "2")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "close")
+	assertContainsArg(t, commandArguments, "2")
 }
 
 func TestPullsTool_MergeAction(t *testing.T) {
@@ -626,8 +626,8 @@ func TestPullsTool_MergeAction(t *testing.T) {
 		t.Errorf("expected 'merged' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsFlag(t, commandArgs, "--style", "squash")
+	commandArguments := (*calls)[0]
+	assertContainsFlag(t, commandArguments, "--style", "squash")
 }
 
 func TestPullsTool_MergeWithMessage(t *testing.T) {
@@ -644,8 +644,8 @@ func TestPullsTool_MergeWithMessage(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsFlag(t, commandArgs, "--message", "Merge feature")
+	commandArguments := (*calls)[0]
+	assertContainsFlag(t, commandArguments, "--message", "Merge feature")
 }
 
 func TestPullsTool_ApproveAction(t *testing.T) {
@@ -664,9 +664,9 @@ func TestPullsTool_ApproveAction(t *testing.T) {
 		t.Errorf("expected 'approved' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "approve")
-	assertContainsArg(t, commandArgs, "8")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "approve")
+	assertContainsArg(t, commandArguments, "8")
 }
 
 func TestPullsTool_RejectAction(t *testing.T) {
@@ -685,9 +685,9 @@ func TestPullsTool_RejectAction(t *testing.T) {
 		t.Errorf("expected 'rejected' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "reject")
-	assertContainsArg(t, commandArgs, "9")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "reject")
+	assertContainsArg(t, commandArguments, "9")
 }
 
 func TestPullsTool_UnknownAction(t *testing.T) {
@@ -725,9 +725,9 @@ func TestReposTool_ViewAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "repos")
-	assertContainsFlag(t, commandArgs, "--output", "json")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "repos")
+	assertContainsFlag(t, commandArguments, "--output", "json")
 }
 
 func TestReposTool_ViewWithRepository(t *testing.T) {
@@ -743,8 +743,8 @@ func TestReposTool_ViewWithRepository(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "alice/myrepo")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "alice/myrepo")
 }
 
 func TestReposTool_ListAction(t *testing.T) {
@@ -760,10 +760,10 @@ func TestReposTool_ListAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "list")
-	assertContainsFlag(t, commandArgs, "--type", "source")
-	assertContainsFlag(t, commandArgs, "--limit", "30")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "list")
+	assertContainsFlag(t, commandArguments, "--type", "source")
+	assertContainsFlag(t, commandArguments, "--limit", "30")
 }
 
 func TestReposTool_SearchAction(t *testing.T) {
@@ -781,11 +781,11 @@ func TestReposTool_SearchAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "search")
-	assertContainsArg(t, commandArgs, "myproject")
-	assertContainsFlag(t, commandArgs, "--owner", "alice")
-	assertContainsFlag(t, commandArgs, "--limit", "5")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "search")
+	assertContainsArg(t, commandArguments, "myproject")
+	assertContainsFlag(t, commandArguments, "--owner", "alice")
+	assertContainsFlag(t, commandArguments, "--limit", "5")
 }
 
 func TestReposTool_SearchRequiresQuery(t *testing.T) {
@@ -836,10 +836,10 @@ func TestReleasesTool_ListAction(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsArg(t, commandArgs, "releases")
-	assertContainsArg(t, commandArgs, "list")
-	assertContainsFlag(t, commandArgs, "--output", "json")
+	commandArguments := (*calls)[0]
+	assertContainsArg(t, commandArguments, "releases")
+	assertContainsArg(t, commandArguments, "list")
+	assertContainsFlag(t, commandArguments, "--output", "json")
 }
 
 func TestReleasesTool_CreateAction(t *testing.T) {
@@ -863,13 +863,13 @@ func TestReleasesTool_CreateAction(t *testing.T) {
 		t.Errorf("expected 'created' in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
-	assertContainsFlag(t, commandArgs, "--tag", "v2.0")
-	assertContainsFlag(t, commandArgs, "--title", "Version 2.0")
-	assertContainsFlag(t, commandArgs, "--note", "Major release")
-	assertContainsFlag(t, commandArgs, "--target", "main")
-	assertContainsArg(t, commandArgs, "--draft")
-	assertContainsArg(t, commandArgs, "--prerelease")
+	commandArguments := (*calls)[0]
+	assertContainsFlag(t, commandArguments, "--tag", "v2.0")
+	assertContainsFlag(t, commandArguments, "--title", "Version 2.0")
+	assertContainsFlag(t, commandArguments, "--note", "Major release")
+	assertContainsFlag(t, commandArguments, "--target", "main")
+	assertContainsArg(t, commandArguments, "--draft")
+	assertContainsArg(t, commandArguments, "--prerelease")
 }
 
 func TestReleasesTool_CreateRequiresTag(t *testing.T) {
@@ -932,15 +932,15 @@ func TestWrapPlainOutput(t *testing.T) {
 // --- appendRepository test ---
 
 func TestAppendRepository(t *testing.T) {
-	commandArgs := []string{"issues", "list"}
-	appendRepository(&commandArgs, "owner/repo")
-	assertContainsFlag(t, commandArgs, "--repo", "owner/repo")
+	commandArguments := []string{"issues", "list"}
+	appendRepository(&commandArguments, "owner/repo")
+	assertContainsFlag(t, commandArguments, "--repo", "owner/repo")
 }
 
 func TestAppendRepository_Empty(t *testing.T) {
-	commandArgs := []string{"issues", "list"}
-	appendRepository(&commandArgs, "")
-	for _, argument := range commandArgs {
+	commandArguments := []string{"issues", "list"}
+	appendRepository(&commandArguments, "")
+	for _, argument := range commandArguments {
 		if argument == "--repo" {
 			t.Error("should not add --repo for empty repository")
 		}
@@ -968,22 +968,22 @@ func TestToolsImplementInterface(t *testing.T) {
 
 // --- helpers ---
 
-func assertContainsArg(t *testing.T, commandArgs []string, want string) {
+func assertContainsArg(t *testing.T, commandArguments []string, want string) {
 	t.Helper()
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == want {
 			return
 		}
 	}
-	t.Errorf("expected %q in args: %v", want, commandArgs)
+	t.Errorf("expected %q in arguments: %v", want, commandArguments)
 }
 
-func assertContainsFlag(t *testing.T, commandArgs []string, flag string, value string) {
+func assertContainsFlag(t *testing.T, commandArguments []string, flag string, value string) {
 	t.Helper()
-	for index, argument := range commandArgs {
-		if argument == flag && index+1 < len(commandArgs) && commandArgs[index+1] == value {
+	for index, argument := range commandArguments {
+		if argument == flag && index+1 < len(commandArguments) && commandArguments[index+1] == value {
 			return
 		}
 	}
-	t.Errorf("expected '%s %s' in args: %v", flag, value, commandArgs)
+	t.Errorf("expected '%s %s' in arguments: %v", flag, value, commandArguments)
 }

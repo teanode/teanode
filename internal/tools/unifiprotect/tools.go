@@ -106,10 +106,10 @@ func (self *unifiProtectTool) PolicyGroups() []tools.PolicyGroup {
 func (self *unifiProtectTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	configuration := configurationFromContext(ctx)
 	if configuration.baseUrl == "" {
-		return "", fmt.Errorf("UniFi Protect tool is not configured: baseUrl is missing")
+		return "", fmt.Errorf("unifiprotect: UniFi Protect tool is not configured: baseUrl is missing")
 	}
 	if configuration.apiKey == "" && (configuration.username == "" || configuration.password == "") {
-		return "", fmt.Errorf("UniFi Protect tool is not configured: credentials are missing (need apiKey or username+password)")
+		return "", fmt.Errorf("unifiprotect: UniFi Protect tool is not configured: credentials are missing (need apiKey or username+password)")
 	}
 
 	execution := &unifiProtectExecution{
@@ -129,7 +129,7 @@ func (self *unifiProtectExecution) execute(ctx context.Context, rawArguments str
 		RecordingMode string `json:"recordingMode"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("unifiprotect: parsing arguments: %w", err)
 	}
 
 	switch arguments.Action {
@@ -146,14 +146,14 @@ func (self *unifiProtectExecution) execute(ctx context.Context, rawArguments str
 	case "set_privacy_mode":
 		return self.executeSetPrivacyMode(ctx, arguments.CameraID, arguments.Enabled)
 	default:
-		return "", fmt.Errorf("unknown unifi_protect action: %s", arguments.Action)
+		return "", fmt.Errorf("unifiprotect: unknown unifi_protect action: %s", arguments.Action)
 	}
 }
 
 func (self *unifiProtectExecution) executeListCameras(ctx context.Context, isDoorbellFilter *bool) (string, error) {
 	cameras, err := self.client.GetCameras(ctx)
 	if err != nil {
-		return "", fmt.Errorf("listing cameras: %w", err)
+		return "", fmt.Errorf("unifiprotect: listing cameras: %w", err)
 	}
 
 	type cameraSummary struct {
@@ -194,7 +194,7 @@ func (self *unifiProtectExecution) executeListCameras(ctx context.Context, isDoo
 
 func (self *unifiProtectExecution) executeGetCamera(ctx context.Context, cameraId string) (string, error) {
 	if cameraId == "" {
-		return "", fmt.Errorf("cameraId is required for get_camera action")
+		return "", fmt.Errorf("unifiprotect: cameraId is required for get_camera action")
 	}
 
 	camera, err := self.resolveCamera(ctx, cameraId)
@@ -210,7 +210,7 @@ func (self *unifiProtectExecution) executeGetCamera(ctx context.Context, cameraI
 
 func (self *unifiProtectExecution) executeGetSnapshot(ctx context.Context, cameraId string) (string, error) {
 	if cameraId == "" {
-		return "", fmt.Errorf("cameraId is required for get_snapshot action")
+		return "", fmt.Errorf("unifiprotect: cameraId is required for get_snapshot action")
 	}
 
 	camera, err := self.resolveCamera(ctx, cameraId)
@@ -220,7 +220,7 @@ func (self *unifiProtectExecution) executeGetSnapshot(ctx context.Context, camer
 
 	snapshotData, err := self.client.GetSnapshot(ctx, camera.ID)
 	if err != nil {
-		return "", fmt.Errorf("getting snapshot: %w", err)
+		return "", fmt.Errorf("unifiprotect: getting snapshot: %w", err)
 	}
 
 	encoded := base64.StdEncoding.EncodeToString(snapshotData)
@@ -236,10 +236,10 @@ func (self *unifiProtectExecution) executeSetStatusLight(ctx context.Context, ca
 		return "", err
 	}
 	if cameraId == "" {
-		return "", fmt.Errorf("cameraId is required for set_status_light action")
+		return "", fmt.Errorf("unifiprotect: cameraId is required for set_status_light action")
 	}
 	if enabled == nil {
-		return "", fmt.Errorf("enabled is required for set_status_light action")
+		return "", fmt.Errorf("unifiprotect: enabled is required for set_status_light action")
 	}
 
 	camera, err := self.resolveCamera(ctx, cameraId)
@@ -253,7 +253,7 @@ func (self *unifiProtectExecution) executeSetStatusLight(ctx context.Context, ca
 		},
 	}
 	if err := self.client.PatchCamera(ctx, camera.ID, payload); err != nil {
-		return "", fmt.Errorf("setting status light: %w", err)
+		return "", fmt.Errorf("unifiprotect: setting status light: %w", err)
 	}
 
 	return marshalResult(map[string]interface{}{
@@ -270,17 +270,17 @@ func (self *unifiProtectExecution) executeSetRecordingMode(ctx context.Context, 
 		return "", err
 	}
 	if cameraId == "" {
-		return "", fmt.Errorf("cameraId is required for set_recording_mode action")
+		return "", fmt.Errorf("unifiprotect: cameraId is required for set_recording_mode action")
 	}
 	if recordingMode == "" {
-		return "", fmt.Errorf("recordingMode is required for set_recording_mode action")
+		return "", fmt.Errorf("unifiprotect: recordingMode is required for set_recording_mode action")
 	}
 
 	switch recordingMode {
 	case "always", "never", "detections":
 		// valid
 	default:
-		return "", fmt.Errorf("recordingMode must be one of: always, never, detections; got %q", recordingMode)
+		return "", fmt.Errorf("unifiprotect: recordingMode must be one of: always, never, detections; got %q", recordingMode)
 	}
 
 	camera, err := self.resolveCamera(ctx, cameraId)
@@ -294,7 +294,7 @@ func (self *unifiProtectExecution) executeSetRecordingMode(ctx context.Context, 
 		},
 	}
 	if err := self.client.PatchCamera(ctx, camera.ID, payload); err != nil {
-		return "", fmt.Errorf("setting recording mode: %w", err)
+		return "", fmt.Errorf("unifiprotect: setting recording mode: %w", err)
 	}
 
 	return marshalResult(map[string]interface{}{
@@ -311,10 +311,10 @@ func (self *unifiProtectExecution) executeSetPrivacyMode(ctx context.Context, ca
 		return "", err
 	}
 	if cameraId == "" {
-		return "", fmt.Errorf("cameraId is required for set_privacy_mode action")
+		return "", fmt.Errorf("unifiprotect: cameraId is required for set_privacy_mode action")
 	}
 	if enabled == nil {
-		return "", fmt.Errorf("enabled is required for set_privacy_mode action")
+		return "", fmt.Errorf("unifiprotect: enabled is required for set_privacy_mode action")
 	}
 
 	camera, err := self.resolveCamera(ctx, cameraId)
@@ -345,7 +345,7 @@ func (self *unifiProtectExecution) executeSetPrivacyMode(ctx context.Context, ca
 		"privacyZones": privacyZones,
 	}
 	if err := self.client.PatchCamera(ctx, camera.ID, payload); err != nil {
-		return "", fmt.Errorf("setting privacy mode: %w", err)
+		return "", fmt.Errorf("unifiprotect: setting privacy mode: %w", err)
 	}
 
 	return marshalResult(map[string]interface{}{
@@ -362,7 +362,7 @@ func (self *unifiProtectExecution) executeSetPrivacyMode(ctx context.Context, ca
 func (self *unifiProtectExecution) resolveCamera(ctx context.Context, cameraIdOrName string) (*Camera, error) {
 	cameras, err := self.client.GetCameras(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("fetching cameras: %w", err)
+		return nil, fmt.Errorf("unifiprotect: fetching cameras: %w", err)
 	}
 
 	normalizedQuery := strings.ToLower(cameraIdOrName)
@@ -370,23 +370,23 @@ func (self *unifiProtectExecution) resolveCamera(ctx context.Context, cameraIdOr
 	for _, camera := range cameras {
 		if camera.ID == cameraIdOrName || strings.ToLower(camera.Name) == normalizedQuery {
 			if !self.checker.IsCameraAllowed(camera.ID, camera.Name) {
-				return nil, fmt.Errorf("camera %q is not accessible (blocked by access rules)", cameraIdOrName)
+				return nil, fmt.Errorf("unifiprotect: camera %q is not accessible (blocked by access rules)", cameraIdOrName)
 			}
 			return &camera, nil
 		}
 	}
 
-	return nil, fmt.Errorf("camera %q not found", cameraIdOrName)
+	return nil, fmt.Errorf("unifiprotect: camera %q not found", cameraIdOrName)
 }
 
 // checkWriteAction verifies that write operations are allowed and the specific
 // action is in the dangerous actions allowlist.
 func (self *unifiProtectExecution) checkWriteAction(action string) error {
 	if !self.checker.IsWriteAllowed() {
-		return fmt.Errorf("%s is blocked: UniFi Protect is configured in read-only mode", action)
+		return fmt.Errorf("unifiprotect: %s is blocked: UniFi Protect is configured in read-only mode", action)
 	}
 	if !self.checker.IsActionAllowed(action) {
-		return fmt.Errorf("%s is not in allowDangerousActions list; add %q to the UniFi Protect config to enable it", action, action)
+		return fmt.Errorf("unifiprotect: %s is not in allowDangerousActions list; add %q to the UniFi Protect config to enable it", action, action)
 	}
 	return nil
 }
@@ -395,7 +395,7 @@ func (self *unifiProtectExecution) checkWriteAction(action string) error {
 func marshalResult(result map[string]interface{}) (string, error) {
 	data, err := json.Marshal(result)
 	if err != nil {
-		return "", fmt.Errorf("marshaling result: %w", err)
+		return "", fmt.Errorf("unifiprotect: marshaling result: %w", err)
 	}
 	return string(data), nil
 }

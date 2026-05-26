@@ -15,39 +15,39 @@ const (
 )
 
 // commandRunner abstracts command execution for testing.
-type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
+type commandRunner func(ctx context.Context, name string, arguments ...string) ([]byte, error)
 
 // defaultRunner executes commands via cmdexec.Run with process-group isolation.
-func defaultRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	result, err := cmdexec.Run(ctx, name, args, cmdexec.Options{})
+func defaultRunner(ctx context.Context, name string, arguments ...string) ([]byte, error) {
+	result, err := cmdexec.Run(ctx, name, arguments, cmdexec.Options{})
 	if err != nil {
 		return nil, err
 	}
 	if result.ExitCode != 0 {
 		stderr := strings.TrimSpace(string(result.Stderr))
 		if stderr != "" {
-			return nil, fmt.Errorf("%s", stderr)
+			return nil, fmt.Errorf("confluence: %s", stderr)
 		}
-		return nil, fmt.Errorf("exit code %d", result.ExitCode)
+		return nil, fmt.Errorf("confluence: exit code %d", result.ExitCode)
 	}
 	return result.Stdout, nil
 }
 
 // execConfluence runs a confluence subcommand.
 // It enforces a timeout and truncates output exceeding maxOutputBytes.
-func execConfluence(ctx context.Context, runner commandRunner, binary string, args ...string) (string, error) {
+func execConfluence(ctx context.Context, runner commandRunner, binary string, arguments ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 
-	log.Debugf("exec: %s %v", binary, args)
+	log.Debugf("exec: %s %v", binary, arguments)
 
-	output, err := runner(ctx, binary, args...)
+	output, err := runner(ctx, binary, arguments...)
 	if err != nil {
 		errorMessage := err.Error()
 		if isAuthError(errorMessage) {
-			return "", fmt.Errorf("confluence authentication required. please run 'confluence init' to configure")
+			return "", fmt.Errorf("confluence: confluence authentication required. please run 'confluence init' to configure")
 		}
-		return "", fmt.Errorf("confluence command failed: %s", errorMessage)
+		return "", fmt.Errorf("confluence: confluence command failed: %s", errorMessage)
 	}
 
 	result := string(output)

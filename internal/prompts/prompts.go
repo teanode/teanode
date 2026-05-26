@@ -36,7 +36,7 @@ const OnboardingSeedMessage = "Welcome to TeaNode, shall we start with onboardin
 func mustReadTemplateFile(name string) string {
 	data, err := templateFiles.ReadFile("templates/" + name)
 	if err != nil {
-		panic(fmt.Sprintf("missing prompt template %q: %v", name, err))
+		panic(fmt.Sprintf("prompts: missing prompt template %q: %v", name, err))
 	}
 	return string(data)
 }

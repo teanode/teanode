@@ -1,0 +1,50 @@
+# TeaNode coding-standard enforcement via mulint. All analyzers are on;
+# the per-project compounds list lets domain words survive DP segmentation
+# as a single piece.
+
+linters:
+  mulint_camelcase:    true
+  mulint_naming:       true
+  mulint_abbreviation: true
+  mulint_singleletter: true
+  mulint_errorprefix:  true
+  mulint_log:          true
+  mulint_recover:      true
+  mulint_structtag:    true
+
+reports:
+  maximumReportsPerLinter: 25
+
+extra:
+  compounds:
+    # Standard domain words and brand names that mulint's default
+    # segmentation splits but that should survive as one piece.
+    - builtin
+    - charset
+    - datastruct
+    - deepgram
+    - frontmatter
+    - loopback
+    - mattermost
+    - openai
+    - scrollback
+    - thumbprint
+    - webhook
+
+  acronyms:
+    # Project-specific domain acronyms beyond the defaults mulint ships.
+    - AX    # ANSI escape code attribute (terminal screen buffer)
+    - CDP   # Chrome DevTools Protocol (browser integration)
+    - CSI   # Control Sequence Introducer (terminal escape codes)
+    - DOM   # Document Object Model (browser tools)
+    - EOF   # End Of File
+    - LAN   # Local Area Network (bind mode)
+    - LE    # Little Endian (PCM16LE audio format)
+    - OSC   # Operating System Command (terminal escape codes)
+    - PCM   # Pulse Code Modulation (audio)
+    - PTY   # Pseudo-Terminal (terminal integration)
+    - STT   # Speech-To-Text (voice pipeline)
+    - TS    # Timestamp (voice frame timing)
+    - TTS   # Text-To-Speech (voice pipeline)
+    - VAD   # Voice Activity Detection (voice pipeline)
+    - WAV   # Waveform Audio (audio encoding)

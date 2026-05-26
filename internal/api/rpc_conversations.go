@@ -22,7 +22,7 @@ type conversationsSetDefaultParameters struct {
 
 // handleConversationsSetDefault: set the default conversation for an agent.
 func (self *webSocketConnection) handleConversationsSetDefault(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[conversationsSetDefaultParameters](frame)
+	parameters, err := unmarshalParameters[conversationsSetDefaultParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ type conversationSendParameters struct {
 
 // handleConversationsSend: send user message, trigger agent run via node.
 func (self *webSocketConnection) handleConversationsSend(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[conversationSendParameters](frame)
+	parameters, err := unmarshalParameters[conversationSendParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ type conversationStateParameters struct {
 
 // handleConversationsState: return live execution state for a conversation.
 func (self *webSocketConnection) handleConversationsState(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[conversationStateParameters](frame)
+	parameters, err := unmarshalParameters[conversationStateParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ type conversationHistoryParameters struct {
 
 // handleConversationsHistory: return conversation transcript.
 func (self *webSocketConnection) handleConversationsHistory(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[conversationHistoryParameters](frame)
+	parameters, err := unmarshalParameters[conversationHistoryParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +202,7 @@ type conversationAbortParameters struct {
 
 // handleConversationsAbort: cancel a running agent. Works cross-tab and cross-channel.
 func (self *webSocketConnection) handleConversationsAbort(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[conversationAbortParameters](frame)
+	parameters, err := unmarshalParameters[conversationAbortParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +240,7 @@ type conversationsDeleteParameters struct {
 
 // handleConversationsDelete: delete a conversation.
 func (self *webSocketConnection) handleConversationsDelete(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[conversationsDeleteParameters](frame)
+	parameters, err := unmarshalParameters[conversationsDeleteParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -289,8 +289,8 @@ type conversationsListParameters struct {
 // handleConversationsList: list available conversations.
 func (self *webSocketConnection) handleConversationsList(frame requestFrame) (interface{}, error) {
 	var parameters conversationsListParameters
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &parameters)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
 
 	if parameters.AgentID != "" {

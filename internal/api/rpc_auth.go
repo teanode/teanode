@@ -46,7 +46,7 @@ type sessionsRevokeParameters struct {
 
 // handleSessionsRevoke: revoke (delete) a session.
 func (self *webSocketConnection) handleSessionsRevoke(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[sessionsRevokeParameters](frame)
+	parameters, err := unmarshalParameters[sessionsRevokeParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ type authTokensDeleteParameters struct {
 }
 
 func (self *webSocketConnection) handleAuthTokensDelete(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[authTokensDeleteParameters](frame)
+	parameters, err := unmarshalParameters[authTokensDeleteParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +208,7 @@ type authChangePasswordParameters struct {
 
 // handleAuthChangePassword changes the login password given the current password.
 func (self *webSocketConnection) handleAuthChangePassword(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[authChangePasswordParameters](frame)
+	parameters, err := unmarshalParameters[authChangePasswordParameters](frame)
 	if err != nil {
 		return nil, err
 	}

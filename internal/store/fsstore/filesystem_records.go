@@ -207,7 +207,7 @@ type storeMemoryItemRecord struct {
 	EmbeddedAt                 timeutil.Timestamp `msgpack:"embeddedAt,omitempty"`
 }
 
-func readYAMLFileOrDefault[T any](filename string, result *T) error {
+func readYamlFileOrDefault[T any](filename string, result *T) error {
 	fileContent, readError := os.ReadFile(filename)
 	if readError != nil {
 		if os.IsNotExist(readError) {
@@ -218,7 +218,7 @@ func readYAMLFileOrDefault[T any](filename string, result *T) error {
 	return yaml.Unmarshal(fileContent, result)
 }
 
-func writeYAMLFile(filename string, value any) error {
+func writeYamlFile(filename string, value any) error {
 	directory := filepath.Dir(filename)
 	if makeDirectoryError := os.MkdirAll(directory, 0755); makeDirectoryError != nil {
 		return makeDirectoryError
@@ -230,7 +230,7 @@ func writeYAMLFile(filename string, value any) error {
 	return atomicfile.WriteFile(filename, encoded)
 }
 
-func writeYAMLFileMode(filename string, value any, mode os.FileMode) error {
+func writeYamlFileMode(filename string, value any, mode os.FileMode) error {
 	directory := filepath.Dir(filename)
 	if makeDirectoryError := os.MkdirAll(directory, 0755); makeDirectoryError != nil {
 		return makeDirectoryError

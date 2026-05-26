@@ -64,8 +64,8 @@ type geminiFileData struct {
 }
 
 type geminiFunctionCall struct {
-	Name string          `json:"name"`
-	Args json.RawMessage `json:"args,omitempty"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
 type geminiFuncResponse struct {
@@ -74,10 +74,10 @@ type geminiFuncResponse struct {
 }
 
 type geminiToolDeclaration struct {
-	FunctionDeclarations []geminiFunctionDecl `json:"functionDeclarations,omitempty"`
+	FunctionDeclarations []geminiFunctionDeclaration `json:"functionDeclarations,omitempty"`
 }
 
-type geminiFunctionDecl struct {
+type geminiFunctionDeclaration struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description,omitempty"`
 	Parameters  interface{} `json:"parameters,omitempty"`
@@ -125,21 +125,21 @@ func (self *GeminiClient) ChatCompletion(ctx context.Context, request ChatReques
 	ctx, cancel := context.WithTimeout(ctx, defaultNonStreamingRequestTimeout)
 	defer cancel()
 
-	geminiReq := self.translateRequest(request)
-	body, _ := json.Marshal(geminiReq)
+	geminiRequest := self.translateRequest(request)
+	body, _ := json.Marshal(geminiRequest)
 
 	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", self.baseUrl, request.ModelName, self.apiKey)
 	log.Debugf("POST %s/v1beta/models/%s:generateContent messages=%d stream=false", self.baseUrl, request.ModelName, len(request.Messages))
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("providers: creating request: %w", err)
 	}
 	self.setHeaders(httpRequest)
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("sending request: %w", err)
+		return nil, fmt.Errorf("providers: sending request: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
@@ -147,15 +147,15 @@ func (self *GeminiClient) ChatCompletion(ctx context.Context, request ChatReques
 
 	if response.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("API error %d: %s", response.StatusCode, string(responseBody))
+		return nil, fmt.Errorf("providers: API error %d: %s", response.StatusCode, string(responseBody))
 	}
 
-	var geminiResp geminiResponse
-	if err := json.NewDecoder(response.Body).Decode(&geminiResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
+	var geminiResponse geminiResponse
+	if err := json.NewDecoder(response.Body).Decode(&geminiResponse); err != nil {
+		return nil, fmt.Errorf("providers: decoding response: %w", err)
 	}
 
-	chatResponse := self.translateResponse(request.ModelName, geminiResp)
+	chatResponse := self.translateResponse(request.ModelName, geminiResponse)
 
 	if chatResponse.Usage != nil {
 		log.Debugf("chat completion done model=%s prompt_tokens=%d completion_tokens=%d", chatResponse.ModelName, chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens)
@@ -166,21 +166,21 @@ func (self *GeminiClient) ChatCompletion(ctx context.Context, request ChatReques
 
 // ChatCompletionStream sends a streaming chat completion request.
 func (self *GeminiClient) ChatCompletionStream(ctx context.Context, request ChatRequest) (<-chan StreamEvent, error) {
-	geminiReq := self.translateRequest(request)
-	body, _ := json.Marshal(geminiReq)
+	geminiRequest := self.translateRequest(request)
+	body, _ := json.Marshal(geminiRequest)
 
 	url := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s", self.baseUrl, request.ModelName, self.apiKey)
 	log.Debugf("POST %s/v1beta/models/%s:streamGenerateContent messages=%d stream=true", self.baseUrl, request.ModelName, len(request.Messages))
 
 	httpRequest, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("providers: creating request: %w", err)
 	}
 	self.setHeaders(httpRequest)
 
 	response, err := self.httpClient.Do(httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf("sending request: %w", err)
+		return nil, fmt.Errorf("providers: sending request: %w", err)
 	}
 
 	log.Debugf("POST %s/v1beta/models/%s:streamGenerateContent status=%d (stream opened)", self.baseUrl, request.ModelName, response.StatusCode)
@@ -188,7 +188,7 @@ func (self *GeminiClient) ChatCompletionStream(ctx context.Context, request Chat
 	if response.StatusCode != http.StatusOK {
 		defer func() { _ = response.Body.Close() }()
 		responseBody, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("API error %d: %s", response.StatusCode, string(responseBody))
+		return nil, fmt.Errorf("providers: API error %d: %s", response.StatusCode, string(responseBody))
 	}
 
 	events := make(chan StreamEvent, 32)
@@ -312,7 +312,7 @@ func (self *GeminiClient) translateMessages(messages []ChatMessage) (*geminiCont
 			part := geminiPart{
 				FunctionResponse: &geminiFuncResponse{
 					Name:     message.Name,
-					Response: self.toolResultJSON(message.ContentText()),
+					Response: self.toolResultJson(message.ContentText()),
 				},
 			}
 			// Tool results go in a user turn for Gemini (or merge into existing user turn).
@@ -383,16 +383,16 @@ func (self *GeminiClient) translateAssistantParts(message ChatMessage) []geminiP
 	}
 
 	for _, toolCall := range message.ToolCalls {
-		var args json.RawMessage
+		var arguments json.RawMessage
 		if toolCall.Function.Arguments != "" {
-			args = json.RawMessage(toolCall.Function.Arguments)
+			arguments = json.RawMessage(toolCall.Function.Arguments)
 		} else {
-			args = json.RawMessage("{}")
+			arguments = json.RawMessage("{}")
 		}
 		parts = append(parts, geminiPart{
 			FunctionCall: &geminiFunctionCall{
-				Name: toolCall.Function.Name,
-				Args: args,
+				Name:      toolCall.Function.Name,
+				Arguments: arguments,
 			},
 		})
 	}
@@ -404,16 +404,16 @@ func (self *GeminiClient) translateAssistantParts(message ChatMessage) []geminiP
 	return parts
 }
 
-func (self *GeminiClient) toolResultJSON(text string) json.RawMessage {
+func (self *GeminiClient) toolResultJson(text string) json.RawMessage {
 	result := map[string]string{"result": text}
 	encoded, _ := json.Marshal(result)
 	return encoded
 }
 
 func (self *GeminiClient) translateTools(tools []ToolDefinition) []geminiToolDeclaration {
-	declarations := make([]geminiFunctionDecl, len(tools))
+	declarations := make([]geminiFunctionDeclaration, len(tools))
 	for index, tool := range tools {
-		declarations[index] = geminiFunctionDecl{
+		declarations[index] = geminiFunctionDeclaration{
 			Name:        tool.Function.Name,
 			Description: tool.Function.Description,
 			Parameters:  tool.Function.Parameters,
@@ -440,7 +440,7 @@ func (self *GeminiClient) translateResponse(modelName string, response geminiRes
 				textParts = append(textParts, part.Text)
 			}
 			if part.FunctionCall != nil {
-				arguments, _ := json.Marshal(part.FunctionCall.Args)
+				arguments, _ := json.Marshal(part.FunctionCall.Arguments)
 				toolCalls = append(toolCalls, ToolCall{
 					ID:   fmt.Sprintf("call_%s", part.FunctionCall.Name),
 					Type: "function",
@@ -514,22 +514,22 @@ func (self *GeminiClient) readSse(ctx context.Context, modelName string, reader 
 		}
 		data := strings.TrimPrefix(line, "data: ")
 
-		var geminiResp geminiResponse
-		if err := json.Unmarshal([]byte(data), &geminiResp); err != nil {
-			events <- StreamEvent{Err: fmt.Errorf("parsing stream chunk: %w", err)}
+		var geminiResponse geminiResponse
+		if err := json.Unmarshal([]byte(data), &geminiResponse); err != nil {
+			events <- StreamEvent{Err: fmt.Errorf("providers: parsing stream chunk: %w", err)}
 			return
 		}
 
 		// Always capture the latest cumulative usage.
-		if geminiResp.UsageMetadata != nil {
-			finalUsage = geminiResp.UsageMetadata
+		if geminiResponse.UsageMetadata != nil {
+			finalUsage = geminiResponse.UsageMetadata
 		}
 
-		if len(geminiResp.Candidates) == 0 {
+		if len(geminiResponse.Candidates) == 0 {
 			continue
 		}
 
-		candidate := geminiResp.Candidates[0]
+		candidate := geminiResponse.Candidates[0]
 
 		for _, part := range candidate.Content.Parts {
 			if part.Text != "" {
@@ -547,7 +547,7 @@ func (self *GeminiClient) readSse(ctx context.Context, modelName string, reader 
 			}
 
 			if part.FunctionCall != nil {
-				arguments, _ := json.Marshal(part.FunctionCall.Args)
+				arguments, _ := json.Marshal(part.FunctionCall.Arguments)
 				events <- StreamEvent{
 					Chunk: &StreamChunk{
 						ModelName: modelName,
@@ -602,7 +602,7 @@ func (self *GeminiClient) readSse(ctx context.Context, modelName string, reader 
 	events <- StreamEvent{Done: true}
 
 	if err := scanner.Err(); err != nil {
-		events <- StreamEvent{Err: fmt.Errorf("reading stream: %w", err)}
+		events <- StreamEvent{Err: fmt.Errorf("providers: reading stream: %w", err)}
 	}
 }
 

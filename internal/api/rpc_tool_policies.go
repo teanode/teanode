@@ -142,8 +142,8 @@ func (self *webSocketConnection) handleToolPoliciesUpdate(frame requestFrame) (i
 	var parameters struct {
 		Policies []*models.ToolPolicyConfiguration `json:"policies"`
 	}
-	if frame.Params != nil {
-		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+	if frame.Parameters != nil {
+		if err := json.Unmarshal(frame.Parameters, &parameters); err != nil {
 			return nil, rpcError(400, "invalid parameters: "+err.Error())
 		}
 	}

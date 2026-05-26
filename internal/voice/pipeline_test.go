@@ -18,18 +18,18 @@ import (
 // pipelineMockTranscriberProvider implements Provider + TranscribeProvider.
 type pipelineMockTranscriberProvider struct {
 	providers.BaseProvider
-	mu    sync.Mutex
+	mutex sync.Mutex
 	text  string
 	delay time.Duration
 	calls int
 }
 
 func (self *pipelineMockTranscriberProvider) Transcribe(_ context.Context, request providers.TranscribeRequest) (*providers.TranscribeResponse, error) {
-	self.mu.Lock()
+	self.mutex.Lock()
 	self.calls++
 	delay := self.delay
 	text := self.text
-	self.mu.Unlock()
+	self.mutex.Unlock()
 	// Drain audio reader to satisfy interface contract.
 	if request.Audio != nil {
 		_, _ = io.ReadAll(request.Audio)
@@ -41,8 +41,8 @@ func (self *pipelineMockTranscriberProvider) Transcribe(_ context.Context, reque
 }
 
 func (self *pipelineMockTranscriberProvider) callCount() int {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	return self.calls
 }
 
@@ -95,14 +95,14 @@ func (self *pipelineMockTranscribeStream) Close() error {
 }
 
 type scriptedTurnStrategy struct {
-	mu            sync.Mutex
+	mutex         sync.Mutex
 	decisions     []TurnDecision
 	commitAllowed bool
 }
 
 func (self *scriptedTurnStrategy) EvaluateBargeIn(TurnContext) TurnDecision {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	if len(self.decisions) == 0 {
 		return TurnDecisionIgnore
 	}
@@ -117,7 +117,7 @@ func (self *scriptedTurnStrategy) ShouldCommitTurn(TurnContext) bool {
 
 // pipelineMockDispatcher satisfies the Dispatcher interface for tests.
 type pipelineMockDispatcher struct {
-	mu               sync.Mutex
+	mutex            sync.Mutex
 	runCounter       int
 	sendCalls        []coordinators.RunParameters
 	abortCalls       []string
@@ -125,7 +125,7 @@ type pipelineMockDispatcher struct {
 }
 
 type eventRecorder struct {
-	mu     sync.Mutex
+	mutex  sync.Mutex
 	events []map[string]interface{}
 }
 
@@ -134,14 +134,14 @@ func (self *eventRecorder) append(value any) {
 	if !ok {
 		return
 	}
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	self.events = append(self.events, m)
 }
 
 func (self *eventRecorder) findTurnEvent(event string) map[string]interface{} {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	for i := len(self.events) - 1; i >= 0; i-- {
 		entry := self.events[i]
 		if entry["type"] != "turn.event" {
@@ -164,8 +164,8 @@ func (self *eventRecorder) findTurnEvent(event string) map[string]interface{} {
 }
 
 func (self *pipelineMockDispatcher) Run(_ context.Context, parameters coordinators.RunParameters, _ *runners.RunCallbacks) (*coordinators.RunHandle, error) {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	self.runCounter++
 	self.sendCalls = append(self.sendCalls, parameters)
 	handle := coordinators.NewRunHandle(fmt.Sprintf("run-%d", self.runCounter), parameters.ConversationID)
@@ -174,8 +174,8 @@ func (self *pipelineMockDispatcher) Run(_ context.Context, parameters coordinato
 }
 
 func (self *pipelineMockDispatcher) AbortRun(runId string) bool {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	self.abortCalls = append(self.abortCalls, runId)
 	return true
 }
@@ -185,20 +185,20 @@ func (self *pipelineMockDispatcher) ProviderRegistry() *providers.ProviderRegist
 }
 
 func (self *pipelineMockDispatcher) sendCount() int {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	return len(self.sendCalls)
 }
 
 func (self *pipelineMockDispatcher) lastSend() coordinators.RunParameters {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	return self.sendCalls[len(self.sendCalls)-1]
 }
 
 func (self *pipelineMockDispatcher) abortCount() int {
-	self.mu.Lock()
-	defer self.mu.Unlock()
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	return len(self.abortCalls)
 }
 
@@ -383,14 +383,14 @@ func TestAudioInputLoopTriggersBargeInWhenRunActive(t *testing.T) {
 
 	loud := makePCMFrame(12000, 320)
 	for i := 0; i < 10; i++ {
-		s.audioInCh <- loud
+		s.audioInChannel <- loud
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool {
 		return dispatcher.abortCount() > 0 && s.GetCurrentRunID() == ""
 	})
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-finished:
 	case <-time.After(200 * time.Millisecond):
@@ -449,14 +449,14 @@ func TestAudioInputLoopTriggersBargeInWhenResponseActive(t *testing.T) {
 
 	loud := makePCMFrame(12000, 320)
 	for i := 0; i < 10; i++ {
-		s.audioInCh <- loud
+		s.audioInChannel <- loud
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool {
 		return dispatcher.abortCount() == 0 && s.GetCurrentResponseID() == ""
 	})
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-finished:
 	case <-time.After(200 * time.Millisecond):
@@ -483,7 +483,7 @@ func TestBargeInCandidate_EventEmitted(t *testing.T) {
 	}()
 
 	for i := 0; i < 20; i++ {
-		s.audioInCh <- makePCMFrame(12000, 320)
+		s.audioInChannel <- makePCMFrame(12000, 320)
 	}
 
 	deadline := time.Now().Add(500 * time.Millisecond)
@@ -494,12 +494,12 @@ func TestBargeInCandidate_EventEmitted(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if rec.findTurnEvent("bargeInCandidate") == nil {
-		rec.mu.Lock()
-		defer rec.mu.Unlock()
+		rec.mutex.Lock()
+		defer rec.mutex.Unlock()
 		t.Fatalf("expected barge_in_candidate event, got events: %#v", rec.events)
 	}
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-finished:
 	case <-time.After(200 * time.Millisecond):
@@ -526,7 +526,7 @@ func TestBargeInSuppressed_EventEmitted(t *testing.T) {
 	}()
 
 	for i := 0; i < 20; i++ {
-		s.audioInCh <- makePCMFrame(12000, 320)
+		s.audioInChannel <- makePCMFrame(12000, 320)
 	}
 
 	deadline := time.Now().Add(500 * time.Millisecond)
@@ -537,12 +537,12 @@ func TestBargeInSuppressed_EventEmitted(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if rec.findTurnEvent("bargeInSuppressed") == nil {
-		rec.mu.Lock()
-		defer rec.mu.Unlock()
+		rec.mutex.Lock()
+		defer rec.mutex.Unlock()
 		t.Fatalf("expected barge_in_suppressed event, got events: %#v", rec.events)
 	}
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-finished:
 	case <-time.After(200 * time.Millisecond):
@@ -565,7 +565,7 @@ func TestAudioInputLoop_ServerVADFalse(t *testing.T) {
 
 	loud := makePCMFrame(12000, 320)
 	for i := 0; i < 100; i++ {
-		s.audioInCh <- loud
+		s.audioInChannel <- loud
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -579,7 +579,7 @@ func TestAudioInputLoop_ServerVADFalse(t *testing.T) {
 		t.Fatal("expected explicit audio buffer to accumulate when ServerVAD=false")
 	}
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-finished:
 	case <-time.After(200 * time.Millisecond):
@@ -603,10 +603,10 @@ func TestAudioInputLoop_ServerTurnFalse(t *testing.T) {
 	loud := makePCMFrame(12000, 320)
 	quiet := makePCMFrame(0, 320)
 	for i := 0; i < 12; i++ {
-		s.audioInCh <- loud
+		s.audioInChannel <- loud
 	}
 	for i := 0; i < vadRedemptionFrames+5; i++ {
-		s.audioInCh <- quiet
+		s.audioInChannel <- quiet
 	}
 
 	waitFor(t, 500*time.Millisecond, func() bool { return s.IsSpeechReady() })
@@ -617,7 +617,7 @@ func TestAudioInputLoop_ServerTurnFalse(t *testing.T) {
 		t.Fatal("turn_committed should not be emitted when ServerTurn=false")
 	}
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-finished:
 	case <-time.After(200 * time.Millisecond):
@@ -699,17 +699,17 @@ func TestInputCommit_RaceCondition(t *testing.T) {
 	})
 	s.accumulateExplicitAudio(makePCMFrame(12000, 8000))
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(2)
 	go func() {
-		defer wg.Done()
+		defer waitGroup.Done()
 		s.InputCommit("push_to_talk")
 	}()
 	go func() {
-		defer wg.Done()
+		defer waitGroup.Done()
 		s.InputCommit("push_to_talk")
 	}()
-	wg.Wait()
+	waitGroup.Wait()
 
 	waitFor(t, 500*time.Millisecond, func() bool { return dispatcher.sendCount() >= 1 || s.HasPendingTurns() })
 	if dispatcher.sendCount() > 1 {
@@ -779,11 +779,11 @@ func TestStreamingTranscribeLoop_FallbackOnError(t *testing.T) {
 	loud := makePCMFrame(12000, 320)
 	silence := makePCMFrame(0, 320)
 	for i := 0; i < 12; i++ {
-		s.audioInCh <- loud
+		s.audioInChannel <- loud
 	}
 	stream.events <- providers.TranscribeStreamEvent{Err: context.DeadlineExceeded}
 	for i := 0; i < 40; i++ {
-		s.audioInCh <- silence
+		s.audioInChannel <- silence
 	}
 
 	waitFor(t, 2*time.Second, func() bool { return dispatcher.sendCount() == 1 })
@@ -791,7 +791,7 @@ func TestStreamingTranscribeLoop_FallbackOnError(t *testing.T) {
 		t.Fatalf("unexpected fallback transcript: %q", dispatcher.lastSend().Message)
 	}
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-audioDone:
 	case <-time.After(200 * time.Millisecond):
@@ -826,11 +826,11 @@ func TestTTSSynthLoop_StreamingPath(t *testing.T) {
 		close(done)
 	}()
 
-	s.ttsInCh <- "hello"
-	waitFor(t, time.Second, func() bool { return len(s.audioOutCh) >= 2 })
+	s.ttsInChannel <- "hello"
+	waitFor(t, time.Second, func() bool { return len(s.audioOutChannel) >= 2 })
 
-	frame1 := <-s.audioOutCh
-	frame2 := <-s.audioOutCh
+	frame1 := <-s.audioOutChannel
+	frame2 := <-s.audioOutChannel
 	parsed1, err := ParseBinaryAudioFrame(frame1)
 	if err != nil || len(parsed1.Data) != 2 {
 		t.Fatalf("unexpected first audio frame: err=%v len=%d", err, len(parsed1.Data))
@@ -840,7 +840,7 @@ func TestTTSSynthLoop_StreamingPath(t *testing.T) {
 		t.Fatalf("unexpected second audio frame: err=%v len=%d", err, len(parsed2.Data))
 	}
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-done:
 	case <-time.After(200 * time.Millisecond):
@@ -855,7 +855,7 @@ func TestTTSSynthLoop_BatchFallback(t *testing.T) {
 		BargeIn:    true,
 	})
 	pcmData := []byte{9, 8, 7, 6}
-	wavData := PCMToWAV(pcmData, 24000, 1)
+	wavData := pcmToWav(pcmData, 24000, 1)
 	registerSynthesizer(dispatcher, &pipelineMockSynthesizerProvider{
 		synthesizeFn: func(_ context.Context, _ providers.SynthesizeRequest) (*providers.SynthesizeResponse, error) {
 			return &providers.SynthesizeResponse{
@@ -870,9 +870,9 @@ func TestTTSSynthLoop_BatchFallback(t *testing.T) {
 		close(done)
 	}()
 
-	s.ttsInCh <- "hello"
-	waitFor(t, time.Second, func() bool { return len(s.audioOutCh) >= 1 })
-	frame := <-s.audioOutCh
+	s.ttsInChannel <- "hello"
+	waitFor(t, time.Second, func() bool { return len(s.audioOutChannel) >= 1 })
+	frame := <-s.audioOutChannel
 	parsed, err := ParseBinaryAudioFrame(frame)
 	if err != nil {
 		t.Fatalf("parse frame: %v", err)
@@ -881,7 +881,7 @@ func TestTTSSynthLoop_BatchFallback(t *testing.T) {
 		t.Fatalf("expected %d batch fallback bytes, got %d", len(pcmData), len(parsed.Data))
 	}
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-done:
 	case <-time.After(200 * time.Millisecond):
@@ -911,16 +911,16 @@ func TestTTSSynthLoop_WaitsWhileUserSpeaking(t *testing.T) {
 	}()
 
 	s.setUserSpeaking(true)
-	s.ttsInCh <- "wait until speech ended"
+	s.ttsInChannel <- "wait until speech ended"
 	time.Sleep(100 * time.Millisecond)
-	if len(s.audioOutCh) != 0 {
+	if len(s.audioOutChannel) != 0 {
 		t.Fatal("expected no TTS audio while user is speaking")
 	}
 
 	s.setUserSpeaking(false)
-	waitFor(t, time.Second, func() bool { return len(s.audioOutCh) > 0 })
+	waitFor(t, time.Second, func() bool { return len(s.audioOutChannel) > 0 })
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-done:
 	case <-time.After(200 * time.Millisecond):
@@ -956,8 +956,8 @@ func TestBargeIn_CancelsTTSStream(t *testing.T) {
 		close(loopDone)
 	}()
 
-	s.SetCurrentResponseID("resp-active")
-	s.ttsInCh <- "streaming sentence"
+	s.SetCurrentResponseID("response-active")
+	s.ttsInChannel <- "streaming sentence"
 	select {
 	case <-started:
 	case <-time.After(time.Second):
@@ -970,7 +970,7 @@ func TestBargeIn_CancelsTTSStream(t *testing.T) {
 		t.Fatal("stream goroutine did not exit after barge-in")
 	}
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-loopDone:
 	case <-time.After(200 * time.Millisecond):
@@ -999,10 +999,10 @@ func TestAudioInputLoop_StreamingNoInterimFallsBackToBatch(t *testing.T) {
 	loud := makePCMFrame(12000, 320)
 	silence := makePCMFrame(0, 320)
 	for i := 0; i < 12; i++ {
-		s.audioInCh <- loud
+		s.audioInChannel <- loud
 	}
 	for i := 0; i < vadRedemptionFrames+5; i++ {
-		s.audioInCh <- silence
+		s.audioInChannel <- silence
 	}
 
 	waitFor(t, 2*time.Second, func() bool { return dispatcher.sendCount() == 1 })
@@ -1010,7 +1010,7 @@ func TestAudioInputLoop_StreamingNoInterimFallsBackToBatch(t *testing.T) {
 		t.Fatalf("unexpected fallback transcript: %q", dispatcher.lastSend().Message)
 	}
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-audioDone:
 	case <-time.After(200 * time.Millisecond):
@@ -1033,7 +1033,7 @@ func TestAudioInputLoop_StreamingFallbackTranscriptionIsNonBlocking(t *testing.T
 	}
 
 	// Shrink the input queue so blocking behavior is easy to detect.
-	s.audioInCh = make(chan []byte, 1)
+	s.audioInChannel = make(chan []byte, 1)
 
 	audioDone := make(chan struct{})
 	go func() {
@@ -1045,10 +1045,10 @@ func TestAudioInputLoop_StreamingFallbackTranscriptionIsNonBlocking(t *testing.T
 	loud := makePCMFrame(12000, 320)
 	silence := makePCMFrame(0, 320)
 	for i := 0; i < 12; i++ {
-		s.audioInCh <- loud
+		s.audioInChannel <- loud
 	}
 	for i := 0; i < vadRedemptionFrames+5; i++ {
-		s.audioInCh <- silence
+		s.audioInChannel <- silence
 	}
 
 	// Wait until fallback transcription has started, then ensure the audio loop
@@ -1058,7 +1058,7 @@ func TestAudioInputLoop_StreamingFallbackTranscriptionIsNonBlocking(t *testing.T
 	deadline := time.Now().Add(120 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		select {
-		case s.audioInCh <- loud:
+		case s.audioInChannel <- loud:
 		case <-time.After(20 * time.Millisecond):
 			blockedSends++
 		}
@@ -1070,7 +1070,7 @@ func TestAudioInputLoop_StreamingFallbackTranscriptionIsNonBlocking(t *testing.T
 
 	waitFor(t, 2*time.Second, func() bool { return dispatcher.sendCount() == 1 })
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-audioDone:
 	case <-time.After(200 * time.Millisecond):
@@ -1105,7 +1105,7 @@ func TestAudioInputLoop_StreamingInterimFallsBackToBatch(t *testing.T) {
 	loud := makePCMFrame(12000, 320)
 	silence := makePCMFrame(0, 320)
 	for i := 0; i < 12; i++ {
-		s.audioInCh <- loud
+		s.audioInChannel <- loud
 	}
 	stream.events <- providers.TranscribeStreamEvent{
 		Type:       "interim",
@@ -1113,7 +1113,7 @@ func TestAudioInputLoop_StreamingInterimFallsBackToBatch(t *testing.T) {
 		Confidence: 0.95,
 	}
 	for i := 0; i < vadRedemptionFrames+5; i++ {
-		s.audioInCh <- silence
+		s.audioInChannel <- silence
 	}
 
 	waitFor(t, 2*time.Second, func() bool { return dispatcher.sendCount() == 1 })
@@ -1121,7 +1121,7 @@ func TestAudioInputLoop_StreamingInterimFallsBackToBatch(t *testing.T) {
 		t.Fatalf("unexpected transcript source: %q", dispatcher.lastSend().Message)
 	}
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-audioDone:
 	case <-time.After(200 * time.Millisecond):
@@ -1160,7 +1160,7 @@ func TestStreamingTranscribeLoop_TracksSpeechFinalAndUtteranceEnd(t *testing.T) 
 		return session.takeStreamingFinalText(turnId) != "" || session.getInterimText() == "this is complete"
 	})
 
-	close(session.doneCh)
+	close(session.doneChannel)
 	_ = stream.Close()
 	select {
 	case <-done:
@@ -1185,13 +1185,13 @@ func TestBalancedStrategy_TriggersBargeInOnSpeechStart(t *testing.T) {
 	}()
 
 	for i := 0; i < 12; i++ {
-		s.audioInCh <- makePCMFrame(12000, 320)
+		s.audioInChannel <- makePCMFrame(12000, 320)
 	}
 	waitFor(t, 500*time.Millisecond, func() bool {
 		return dispatcher.abortCount() > 0 && s.GetCurrentRunID() == ""
 	})
 
-	close(s.doneCh)
+	close(s.doneChannel)
 	select {
 	case <-finished:
 	case <-time.After(200 * time.Millisecond):

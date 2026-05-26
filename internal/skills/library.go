@@ -62,19 +62,19 @@ type InstalledSkillInfo struct {
 func FetchIndex(ctx context.Context) (*Index, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, officialIndexUrl, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating index request: %w", err)
+		return nil, fmt.Errorf("skills: creating index request: %w", err)
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("fetching index: %w", err)
+		return nil, fmt.Errorf("skills: fetching index: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("index returned status %d", response.StatusCode)
+		return nil, fmt.Errorf("skills: index returned status %d", response.StatusCode)
 	}
 	var index Index
 	if err := json.NewDecoder(response.Body).Decode(&index); err != nil {
-		return nil, fmt.Errorf("parsing index: %w", err)
+		return nil, fmt.Errorf("skills: parsing index: %w", err)
 	}
 	return &index, nil
 }
@@ -83,23 +83,23 @@ func FetchIndex(ctx context.Context) (*Index, error) {
 func verifyEntrySignature(entry SkillEntry) error {
 	publicKeyBytes, err := base64.StdEncoding.DecodeString(officialPublicKey)
 	if err != nil {
-		return fmt.Errorf("decoding public key: %w", err)
+		return fmt.Errorf("skills: decoding public key: %w", err)
 	}
 	if len(publicKeyBytes) != ed25519.PublicKeySize {
-		return fmt.Errorf("invalid public key length: %d", len(publicKeyBytes))
+		return fmt.Errorf("skills: invalid public key length: %d", len(publicKeyBytes))
 	}
 	publicKey := ed25519.PublicKey(publicKeyBytes)
 
 	signatureBytes, err := base64.StdEncoding.DecodeString(entry.Signature)
 	if err != nil {
-		return fmt.Errorf("decoding signature: %w", err)
+		return fmt.Errorf("skills: decoding signature: %w", err)
 	}
 
 	// Message format matches sign-index.sh: "name\nversion\nurl\nlowercase(sha256)"
 	message := entry.Name + "\n" + entry.Version + "\n" + entry.URL + "\n" + strings.ToLower(entry.SHA256)
 
 	if !ed25519.Verify(publicKey, []byte(message), signatureBytes) {
-		return fmt.Errorf("signature verification failed for %s", entry.Name)
+		return fmt.Errorf("skills: signature verification failed for %s", entry.Name)
 	}
 	return nil
 }
@@ -143,7 +143,7 @@ func Install(ctx context.Context, name, version string) (*InstalledSkillInfo, er
 		}
 	}
 	if entry == nil {
-		return nil, fmt.Errorf("skill %q not found in library", name)
+		return nil, fmt.Errorf("skills: skill %q not found in library", name)
 	}
 
 	// Verify signature.
@@ -161,13 +161,13 @@ func Install(ctx context.Context, name, version string) (*InstalledSkillInfo, er
 	hash := sha256.Sum256(body)
 	actualHash := hex.EncodeToString(hash[:])
 	if !strings.EqualFold(actualHash, entry.SHA256) {
-		return nil, fmt.Errorf("sha256 mismatch for %s: expected %s, got %s", name, entry.SHA256, actualHash)
+		return nil, fmt.Errorf("skills: sha256 mismatch for %s: expected %s, got %s", name, entry.SHA256, actualHash)
 	}
 
 	// Parse frontmatter to extract tools and prompt.
 	frontmatter, prompt, err := parseFrontmatter(body)
 	if err != nil {
-		return nil, fmt.Errorf("parsing skill %s: %w", name, err)
+		return nil, fmt.Errorf("skills: parsing skill %s: %w", name, err)
 	}
 
 	// Build skill model.
@@ -219,7 +219,7 @@ func Install(ctx context.Context, name, version string) (*InstalledSkillInfo, er
 		}, nil)
 		return err
 	}); err != nil {
-		return nil, fmt.Errorf("storing skill %s: %w", name, err)
+		return nil, fmt.Errorf("skills: storing skill %s: %w", name, err)
 	}
 
 	return &InstalledSkillInfo{
@@ -252,7 +252,7 @@ func Update(ctx context.Context, name string) ([]InstalledSkillInfo, error) {
 		installed, err = tx.ListSkills(ctx, nil)
 		return err
 	}); err != nil {
-		return nil, fmt.Errorf("listing installed skills: %w", err)
+		return nil, fmt.Errorf("skills: listing installed skills: %w", err)
 	}
 
 	var updated []InstalledSkillInfo
@@ -283,11 +283,11 @@ func Update(ctx context.Context, name string) ([]InstalledSkillInfo, error) {
 func compareVersions(left, right string) int {
 	leftParts := strings.Split(left, ".")
 	rightParts := strings.Split(right, ".")
-	maxLen := len(leftParts)
-	if len(rightParts) > maxLen {
-		maxLen = len(rightParts)
+	maxLength := len(leftParts)
+	if len(rightParts) > maxLength {
+		maxLength = len(rightParts)
 	}
-	for index := 0; index < maxLen; index++ {
+	for index := 0; index < maxLength; index++ {
 		leftValue, rightValue := 0, 0
 		if index < len(leftParts) {
 			leftValue, _ = strconv.Atoi(leftParts[index])
@@ -308,19 +308,19 @@ func compareVersions(left, right string) int {
 func downloadSkill(ctx context.Context, url string) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("skills: creating request: %w", err)
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("downloading skill: %w", err)
+		return nil, fmt.Errorf("skills: downloading skill: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download returned status %d", response.StatusCode)
+		return nil, fmt.Errorf("skills: download returned status %d", response.StatusCode)
 	}
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading skill body: %w", err)
+		return nil, fmt.Errorf("skills: reading skill body: %w", err)
 	}
 	return body, nil
 }
@@ -357,7 +357,7 @@ func parseFrontmatter(data []byte) (*libraryFrontmatter, string, error) {
 	content := strings.ReplaceAll(string(data), "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
 	if !strings.HasPrefix(content, "---\n") {
-		return nil, "", fmt.Errorf("missing frontmatter delimiter")
+		return nil, "", fmt.Errorf("skills: missing frontmatter delimiter")
 	}
 	rest := content[4:]
 	closingIndex := strings.Index(rest, "\n---\n")
@@ -365,13 +365,13 @@ func parseFrontmatter(data []byte) (*libraryFrontmatter, string, error) {
 		if strings.HasSuffix(rest, "\n---") {
 			closingIndex = len(rest) - 4
 		} else {
-			return nil, "", fmt.Errorf("missing closing frontmatter delimiter")
+			return nil, "", fmt.Errorf("skills: missing closing frontmatter delimiter")
 		}
 	}
-	frontmatterYAML := rest[:closingIndex]
+	frontmatterYaml := rest[:closingIndex]
 	var parsed libraryFrontmatter
-	if err := yaml.Unmarshal([]byte(frontmatterYAML), &parsed); err != nil {
-		return nil, "", fmt.Errorf("parsing frontmatter: %w", err)
+	if err := yaml.Unmarshal([]byte(frontmatterYaml), &parsed); err != nil {
+		return nil, "", fmt.Errorf("skills: parsing frontmatter: %w", err)
 	}
 	bodyStart := closingIndex + 5
 	prompt := ""

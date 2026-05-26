@@ -71,7 +71,7 @@ func (self *Generator) GenerateUpdate(value interface{}) {
 		typ = typ.Elem()
 	}
 	if typ.Kind() != reflect.Struct {
-		panic(fmt.Sprintf("GenerateUpdate: expected struct, got %s", typ.Kind()))
+		panic(fmt.Sprintf("datastruct: GenerateUpdate: expected struct, got %s", typ.Kind()))
 	}
 
 	entry := generatorEntry{
@@ -120,7 +120,7 @@ func (self *Generator) GenerateGetters(value interface{}) {
 		typ = typ.Elem()
 	}
 	if typ.Kind() != reflect.Struct {
-		panic(fmt.Sprintf("GenerateGetters: expected struct, got %s", typ.Kind()))
+		panic(fmt.Sprintf("datastruct: GenerateGetters: expected struct, got %s", typ.Kind()))
 	}
 
 	localPkgPath := typ.PkgPath()
@@ -207,11 +207,11 @@ func (self *Generator) MustWriteFile(filename string) {
 	formatted, formatError := format.Source(buffer.Bytes())
 	if formatError != nil {
 		fmt.Fprintf(os.Stderr, "generated code:\n%s\n", buffer.String())
-		panic(fmt.Sprintf("failed to format generated code: %v", formatError))
+		panic(fmt.Sprintf("datastruct: failed to format generated code: %v", formatError))
 	}
 
 	if writeError := os.WriteFile(filename, formatted, 0644); writeError != nil {
-		panic(fmt.Sprintf("failed to write file %s: %v", filename, writeError))
+		panic(fmt.Sprintf("datastruct: failed to write file %s: %v", filename, writeError))
 	}
 }
 

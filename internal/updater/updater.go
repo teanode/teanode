@@ -12,6 +12,7 @@ import (
 	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/version"
 )
 
@@ -122,7 +123,7 @@ func (self *Updater) Check(ctx context.Context) Status {
 // After a successful apply, it requests a lifecycle restart.
 func (self *Updater) Apply(ctx context.Context) error {
 	if self.isContainer {
-		return fmt.Errorf("self-update is not supported in container environments")
+		return fmt.Errorf("updater: self-update is not supported in container environments")
 	}
 	if err := ValidateApplyEnvironment(); err != nil {
 		return err
@@ -141,13 +142,13 @@ func (self *Updater) Apply(ctx context.Context) error {
 	}
 
 	if available == nil {
-		return fmt.Errorf("no update available")
+		return fmt.Errorf("updater: no update available")
 	}
 
 	log.Infof("updater: downloading and verifying %s", available.Version())
 	result, err := DownloadAndVerify(ctx, available)
 	if err != nil {
-		return fmt.Errorf("download/verify failed: %w", err)
+		return fmt.Errorf("updater: download/verify failed: %w", err)
 	}
 
 	// Clean up staging directory on failure.
@@ -156,7 +157,7 @@ func (self *Updater) Apply(ctx context.Context) error {
 
 	log.Infof("updater: applying update (checksum=%s)", result.Checksum)
 	if err := Apply(result.StagedPath); err != nil {
-		return fmt.Errorf("apply failed: %w", err)
+		return fmt.Errorf("updater: apply failed: %w", err)
 	}
 
 	log.Noticef("updater: update applied successfully, version %s → %s", version.Version(), available.Version())
@@ -245,6 +246,7 @@ func (self *Updater) shouldCheck(checkInterval time.Duration) bool {
 // run is the periodic check loop. On each cycle it reads the current config
 // from the store, so policy and interval changes take effect at runtime.
 func (self *Updater) run(ctx context.Context) {
+	defer deferutil.Recover()
 	// Initial check shortly after startup.
 	initialDelay := 30 * time.Second
 	select {

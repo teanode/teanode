@@ -221,8 +221,8 @@ func TestToolDefinition(testing *testing.T) {
 	}
 
 	// Verify action enum.
-	params := definition.Function.Parameters.(map[string]interface{})
-	properties := params["properties"].(map[string]interface{})
+	parameters := definition.Function.Parameters.(map[string]interface{})
+	properties := parameters["properties"].(map[string]interface{})
 	action := properties["action"].(map[string]interface{})
 	actionEnum := action["enum"].([]string)
 	expectedActions := []string{"list_cameras", "get_camera", "get_snapshot", "set_status_light", "set_recording_mode", "set_privacy_mode"}

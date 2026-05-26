@@ -75,7 +75,7 @@ func (self *fileSystemTransaction) listTokens(userId string, options *store.Opti
 
 func (self *fileSystemTransaction) createToken(token *models.Token, options *store.Option) (*models.Token, error) {
 	if token == nil || token.UserID == nil {
-		return nil, fmt.Errorf("token userId is required")
+		return nil, fmt.Errorf("fsstore: token userId is required")
 	}
 	userId := *token.UserID
 	tokenId := token.ID
@@ -199,13 +199,13 @@ func (self *fileSystemTransaction) readTokenRecord(userId, tokenId string) (file
 
 func (self *fileSystemTransaction) writeTokenRecord(userId string, record fileSystemTokenRecord) error {
 	if record.ID == "" {
-		return fmt.Errorf("token ID is required")
+		return fmt.Errorf("fsstore: token ID is required")
 	}
 	directory := self.userTokensDirectory(userId)
 	if makeDirectoryError := os.MkdirAll(directory, 0755); makeDirectoryError != nil {
 		return makeDirectoryError
 	}
-	return writeYAMLFile(self.userTokenFilename(userId, record.ID), record)
+	return writeYamlFile(self.userTokenFilename(userId, record.ID), record)
 }
 
 func (self *fileSystemTransaction) moveTokenToTrash(userId, tokenId string) error {

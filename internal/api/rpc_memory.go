@@ -21,7 +21,7 @@ type memoryListParameters struct {
 }
 
 func (self *webSocketConnection) handleMemoryList(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[memoryListParameters](frame)
+	parameters, err := unmarshalParameters[memoryListParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ type memorySearchParameters struct {
 }
 
 func (self *webSocketConnection) handleMemorySearch(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[memorySearchParameters](frame)
+	parameters, err := unmarshalParameters[memorySearchParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ type memoryDeleteParameters struct {
 }
 
 func (self *webSocketConnection) handleMemoryDelete(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[memoryDeleteParameters](frame)
+	parameters, err := unmarshalParameters[memoryDeleteParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -210,10 +210,10 @@ func (self *webSocketConnection) handleMemoryDelete(frame requestFrame) (interfa
 		// Access control: non-admin can only delete user scope with own userId.
 		if !self.isAdmin() {
 			if item.Scope == nil || *item.Scope != models.ScopeUser {
-				return fmt.Errorf("access denied: can only delete user-scope items")
+				return fmt.Errorf("api: access denied: can only delete user-scope items")
 			}
 			if item.ScopeID == nil || *item.ScopeID != self.userId() {
-				return fmt.Errorf("access denied: item belongs to another user")
+				return fmt.Errorf("api: access denied: item belongs to another user")
 			}
 		}
 

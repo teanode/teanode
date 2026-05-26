@@ -22,7 +22,7 @@ func NewStopCommand() *cli.Command {
 			}
 
 			if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-				return fmt.Errorf("failed to signal node process %d: %w", pid, err)
+				return fmt.Errorf("cmd: failed to signal node process %d: %w", pid, err)
 			}
 
 			fmt.Printf("stop signal sent to node process %d\n", pid)
@@ -35,7 +35,7 @@ func NewStopCommand() *cli.Command {
 			for {
 				select {
 				case <-deadline:
-					return fmt.Errorf("node process %d did not exit within 30 seconds", pid)
+					return fmt.Errorf("cmd: node process %d did not exit within 30 seconds", pid)
 				case <-ticker.C:
 					if !processExists(pid) {
 						fmt.Println("node stopped")

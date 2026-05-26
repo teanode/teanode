@@ -9,6 +9,7 @@ import (
 	"github.com/teanode/teanode/internal/coordinators"
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/runners"
+	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
 func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
@@ -17,9 +18,10 @@ func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
 			pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
 			return
 		}
-		self.transcriptionWg.Add(1)
+		self.transcriptionWaitGroup.Add(1)
 		go func(tid string, audio []byte) {
-			defer self.transcriptionWg.Done()
+			defer deferutil.Recover()
+			defer self.transcriptionWaitGroup.Done()
 			defer self.FinishTurnTranscription(tid)
 			deadline := time.Now().Add(streamingFinalGracePeriod)
 			for time.Now().Before(deadline) {
@@ -27,7 +29,7 @@ func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
 					return
 				}
 				select {
-				case <-self.doneCh:
+				case <-self.doneChannel:
 					return
 				case <-time.After(25 * time.Millisecond):
 				}
@@ -48,9 +50,10 @@ func (self *Session) commitCapturedTurn(turnId string, captured []byte) {
 		pipelineLog.Infof("voice turn transcription skipped (duplicate): session=%s turn=%s", self.ID, turnId)
 		return
 	}
-	self.transcriptionWg.Add(1)
+	self.transcriptionWaitGroup.Add(1)
 	go func(tid string, audio []byte) {
-		defer self.transcriptionWg.Done()
+		defer deferutil.Recover()
+		defer self.transcriptionWaitGroup.Done()
 		defer self.FinishTurnTranscription(tid)
 		self.transcribeAndSend(tid, audio)
 	}(turnId, captured)
@@ -75,7 +78,7 @@ func (self *Session) transcribeAndSend(turnId string, captured []byte) {
 	}
 	pipelineLog.Infof("voice transcribe start: session=%s turn=%s bytes=%d provider=%s model=%s", self.ID, turnId, len(captured), transcriberProvider, voiceProviderModelHint("transcriber", transcriberProvider))
 
-	wav := PCMToWAV(captured, self.AudioIn.SampleRateHz, self.AudioIn.Channels)
+	wav := pcmToWav(captured, self.AudioIn.SampleRateHz, self.AudioIn.Channels)
 	result, err := transcriber.Transcribe(context.Background(), providers.TranscribeRequest{
 		Audio:    bytes.NewReader(wav),
 		Format:   "wav",

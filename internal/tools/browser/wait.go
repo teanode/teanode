@@ -43,7 +43,7 @@ func executeWait(ctx context.Context, browser browsers.Browser, connectionId str
 	case "timeout":
 		return waitForTimeout(waitContext, timeout)
 	default:
-		return "", fmt.Errorf("unknown wait mode: %s (supported: selector, navigation, network_idle, timeout)", mode)
+		return "", fmt.Errorf("browser: unknown wait mode: %s (supported: selector, navigation, network_idle, timeout)", mode)
 	}
 }
 
@@ -59,12 +59,12 @@ type networkIdleState struct {
 	LastActivityAt  float64 `json:"lastActivityAt"`
 	CurrentTime     float64 `json:"currentTime"`
 	ReadyState      string  `json:"readyState"`
-	IdleThresholdMs int     `json:"idleThresholdMs"`
+	IdleThresholdMS int     `json:"idleThresholdMs"`
 }
 
 func waitForSelector(ctx context.Context, browser browsers.Browser, sessionId string, selector string) (string, error) {
 	if selector == "" {
-		return "", fmt.Errorf("selector is required for wait mode 'selector'")
+		return "", fmt.Errorf("browser: selector is required for wait mode 'selector'")
 	}
 
 	expression := fmt.Sprintf(`document.querySelector(%q) !== null`, selector)
@@ -76,7 +76,7 @@ func waitForSelector(ctx context.Context, browser browsers.Browser, sessionId st
 			"returnByValue": true,
 		}, sessionId)
 		if err != nil {
-			return "", fmt.Errorf("wait selector: %w", err)
+			return "", fmt.Errorf("browser: wait selector: %w", err)
 		}
 
 		var response struct {
@@ -96,7 +96,7 @@ func waitForSelector(ctx context.Context, browser browsers.Browser, sessionId st
 
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("wait for selector %q timed out", selector)
+			return "", fmt.Errorf("browser: wait for selector %q timed out", selector)
 		case <-time.After(pollInterval):
 		}
 	}
@@ -107,7 +107,7 @@ func waitForNavigation(ctx context.Context, browser browsers.Browser, sessionId 
 	initialGeneration, _ := globalNavigationStore.snapshot(sessionId)
 	initialState, err := readNavigationWaitState(ctx, browser, sessionId)
 	if err != nil {
-		return "", fmt.Errorf("wait navigation: %w", err)
+		return "", fmt.Errorf("browser: wait navigation: %w", err)
 	}
 
 	sawNavigation := initialState.ReadyState != "complete"
@@ -115,14 +115,14 @@ func waitForNavigation(ctx context.Context, browser browsers.Browser, sessionId 
 	for {
 		currentState, err := readNavigationWaitState(ctx, browser, sessionId)
 		if err != nil {
-			return "", fmt.Errorf("wait navigation: %w", err)
+			return "", fmt.Errorf("browser: wait navigation: %w", err)
 		}
-		currentGeneration, lastKnownURL := globalNavigationStore.snapshot(sessionId)
+		currentGeneration, lastKnownUrl := globalNavigationStore.snapshot(sessionId)
 
 		if !sawNavigation {
 			sawNavigation =
 				currentGeneration != initialGeneration ||
-					(lastKnownURL != "" && lastKnownURL != initialState.URL) ||
+					(lastKnownUrl != "" && lastKnownUrl != initialState.URL) ||
 					currentState.URL != initialState.URL ||
 					currentState.TimeOrigin != initialState.TimeOrigin ||
 					currentState.NavigationCount != initialState.NavigationCount ||
@@ -142,7 +142,7 @@ func waitForNavigation(ctx context.Context, browser browsers.Browser, sessionId 
 
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("wait for navigation timed out")
+			return "", fmt.Errorf("browser: wait for navigation timed out")
 		case <-time.After(pollInterval):
 		}
 	}
@@ -152,23 +152,23 @@ func waitForNetworkIdle(ctx context.Context, browser browsers.Browser, sessionId
 	startTime := time.Now()
 
 	if _, err := ensureNetworkIdleTracker(ctx, browser, sessionId); err != nil {
-		return "", fmt.Errorf("wait network idle: %w", err)
+		return "", fmt.Errorf("browser: wait network idle: %w", err)
 	}
 
 	for {
 		state, err := ensureNetworkIdleTracker(ctx, browser, sessionId)
 		if err != nil {
-			return "", fmt.Errorf("wait network idle: %w", err)
+			return "", fmt.Errorf("browser: wait network idle: %w", err)
 		}
 
 		idleForMilliseconds := state.CurrentTime - state.LastActivityAt
-		if state.ActiveRequests == 0 && idleForMilliseconds >= float64(state.IdleThresholdMs) {
+		if state.ActiveRequests == 0 && idleForMilliseconds >= float64(state.IdleThresholdMS) {
 			output, _ := json.Marshal(map[string]interface{}{
 				"mode":            "network_idle",
 				"elapsed":         time.Since(startTime).Milliseconds(),
 				"activeRequests":  state.ActiveRequests,
 				"idleForMs":       int64(idleForMilliseconds),
-				"idleThresholdMs": state.IdleThresholdMs,
+				"idleThresholdMs": state.IdleThresholdMS,
 				"tracker":         "fetch_xhr",
 				"readyState":      state.ReadyState,
 			})
@@ -177,7 +177,7 @@ func waitForNetworkIdle(ctx context.Context, browser browsers.Browser, sessionId
 
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("wait for network idle timed out")
+			return "", fmt.Errorf("browser: wait for network idle timed out")
 		case <-time.After(pollInterval):
 		}
 	}
@@ -220,8 +220,8 @@ func ensureNetworkIdleTracker(ctx context.Context, browser browsers.Browser, ses
 	if err := json.Unmarshal(result, &response); err != nil {
 		return nil, err
 	}
-	if response.Result.Value.IdleThresholdMs == 0 {
-		response.Result.Value.IdleThresholdMs = 500
+	if response.Result.Value.IdleThresholdMS == 0 {
+		response.Result.Value.IdleThresholdMS = 500
 	}
 	return &response.Result.Value, nil
 }

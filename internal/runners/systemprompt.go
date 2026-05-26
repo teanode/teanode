@@ -142,7 +142,7 @@ func normalizeSystemPromptMode(mode SystemPromptMode) SystemPromptMode {
 	}
 }
 
-func loadOtherUsers(ctx context.Context, currentUserID string) string {
+func loadOtherUsers(ctx context.Context, currentUserId string) string {
 	if ctx == nil {
 		return ""
 	}
@@ -160,7 +160,7 @@ func loadOtherUsers(ctx context.Context, currentUserID string) string {
 
 	filteredUsers := make([]*models.User, 0, len(users))
 	for _, user := range users {
-		if user.ID == currentUserID {
+		if user.ID == currentUserId {
 			continue
 		}
 		filteredUsers = append(filteredUsers, user)

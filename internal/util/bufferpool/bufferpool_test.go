@@ -55,12 +55,12 @@ func TestAcquireBufferConcurrent(t *testing.T) {
 	t.Parallel()
 
 	const count = 100
-	var wg sync.WaitGroup
-	wg.Add(count)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(count)
 
 	for index := 0; index < count; index++ {
 		go func() {
-			defer wg.Done()
+			defer waitGroup.Done()
 			buffer, release := AcquireBuffer()
 			defer release()
 
@@ -71,5 +71,5 @@ func TestAcquireBufferConcurrent(t *testing.T) {
 		}()
 	}
 
-	wg.Wait()
+	waitGroup.Wait()
 }

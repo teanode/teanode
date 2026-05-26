@@ -64,8 +64,10 @@ Or with make:
 
 ```sh
 make format
-make lint
+make lint               # runs golangci-lint and, if installed, mulint
 ```
+
+`mulint` enforces the project naming/error-prefix conventions. Configuration is in `mulint.yaml`; install the binary separately. `make lint` skips it with a warning if not present, so CI doesn't require it.
 
 ### Frontend
 

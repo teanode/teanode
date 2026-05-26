@@ -111,15 +111,15 @@ func TestConvTodoBatchAdd(t *testing.T) {
 		t.Fatalf("batch add failed: %v", err)
 	}
 
-	var resp batchResponse
-	mustUnmarshalConversationJSON(t, result, &resp)
-	if resp.Action != "batch" {
-		t.Fatalf("action = %q, want batch", resp.Action)
+	var response batchResponse
+	mustUnmarshalConversationJSON(t, result, &response)
+	if response.Action != "batch" {
+		t.Fatalf("action = %q, want batch", response.Action)
 	}
-	if len(resp.Results) != 2 {
-		t.Fatalf("results count = %d, want 2", len(resp.Results))
+	if len(response.Results) != 2 {
+		t.Fatalf("results count = %d, want 2", len(response.Results))
 	}
-	for i, r := range resp.Results {
+	for i, r := range response.Results {
 		if !r.Success {
 			t.Fatalf("result[%d] failed: %s", i, r.Error)
 		}
@@ -127,20 +127,20 @@ func TestConvTodoBatchAdd(t *testing.T) {
 			t.Fatalf("result[%d] todo is nil", i)
 		}
 	}
-	if resp.Results[0].Todo.GetTitle() != "Task A" {
-		t.Fatalf("result[0] title = %q, want Task A", resp.Results[0].Todo.GetTitle())
+	if response.Results[0].Todo.GetTitle() != "Task A" {
+		t.Fatalf("result[0] title = %q, want Task A", response.Results[0].Todo.GetTitle())
 	}
-	if resp.Results[0].Todo.GetPriority() != models.TodoPriorityHigh {
-		t.Fatalf("result[0] priority = %q, want high", resp.Results[0].Todo.GetPriority())
+	if response.Results[0].Todo.GetPriority() != models.TodoPriorityHigh {
+		t.Fatalf("result[0] priority = %q, want high", response.Results[0].Todo.GetPriority())
 	}
-	if resp.Results[1].Todo.GetTitle() != "Task B" {
-		t.Fatalf("result[1] title = %q, want Task B", resp.Results[1].Todo.GetTitle())
+	if response.Results[1].Todo.GetTitle() != "Task B" {
+		t.Fatalf("result[1] title = %q, want Task B", response.Results[1].Todo.GetTitle())
 	}
-	if resp.Summary.Total != 2 || resp.Summary.Succeeded != 2 || resp.Summary.Failed != 0 {
-		t.Fatalf("summary = %+v, want 2/2/0", resp.Summary)
+	if response.Summary.Total != 2 || response.Summary.Succeeded != 2 || response.Summary.Failed != 0 {
+		t.Fatalf("summary = %+v, want 2/2/0", response.Summary)
 	}
-	if resp.OpenCount != 2 {
-		t.Fatalf("openCount = %d, want 2", resp.OpenCount)
+	if response.OpenCount != 2 {
+		t.Fatalf("openCount = %d, want 2", response.OpenCount)
 	}
 }
 
@@ -179,31 +179,31 @@ func TestConvTodoBatchMixedOps(t *testing.T) {
 		t.Fatalf("mixed batch failed: %v", err)
 	}
 
-	var resp batchResponse
-	mustUnmarshalConversationJSON(t, result, &resp)
-	if len(resp.Results) != 4 {
-		t.Fatalf("results count = %d, want 4", len(resp.Results))
+	var response batchResponse
+	mustUnmarshalConversationJSON(t, result, &response)
+	if len(response.Results) != 4 {
+		t.Fatalf("results count = %d, want 4", len(response.Results))
 	}
-	for i, r := range resp.Results {
+	for i, r := range response.Results {
 		if !r.Success {
 			t.Fatalf("result[%d] failed: %s", i, r.Error)
 		}
 	}
 	// Verify ops
-	if resp.Results[0].Op != "add" || resp.Results[0].Todo.GetTitle() != "New Item" {
-		t.Fatalf("result[0] unexpected: op=%s", resp.Results[0].Op)
+	if response.Results[0].Op != "add" || response.Results[0].Todo.GetTitle() != "New Item" {
+		t.Fatalf("result[0] unexpected: op=%s", response.Results[0].Op)
 	}
-	if resp.Results[1].Op != "complete" || resp.Results[1].Todo.GetStatus() != models.TodoStatusDone {
-		t.Fatalf("result[1] unexpected: status=%s", resp.Results[1].Todo.GetStatus())
+	if response.Results[1].Op != "complete" || response.Results[1].Todo.GetStatus() != models.TodoStatusDone {
+		t.Fatalf("result[1] unexpected: status=%s", response.Results[1].Todo.GetStatus())
 	}
-	if resp.Results[2].Op != "delete" || resp.Results[2].TodoID != deleteId {
-		t.Fatalf("result[2] unexpected: todoId=%s", resp.Results[2].TodoID)
+	if response.Results[2].Op != "delete" || response.Results[2].TodoID != deleteId {
+		t.Fatalf("result[2] unexpected: todoId=%s", response.Results[2].TodoID)
 	}
-	if resp.Results[3].Op != "update" || resp.Results[3].Todo.GetTitle() != "Updated Title" {
-		t.Fatalf("result[3] unexpected: title=%s", resp.Results[3].Todo.GetTitle())
+	if response.Results[3].Op != "update" || response.Results[3].Todo.GetTitle() != "Updated Title" {
+		t.Fatalf("result[3] unexpected: title=%s", response.Results[3].Todo.GetTitle())
 	}
-	if resp.Summary.Total != 4 || resp.Summary.Succeeded != 4 {
-		t.Fatalf("summary = %+v", resp.Summary)
+	if response.Summary.Total != 4 || response.Summary.Succeeded != 4 {
+		t.Fatalf("summary = %+v", response.Summary)
 	}
 }
 
@@ -220,22 +220,22 @@ func TestConvTodoBatchPartialFailure(t *testing.T) {
 		t.Fatalf("batch failed: %v", err)
 	}
 
-	var resp batchResponse
-	mustUnmarshalConversationJSON(t, result, &resp)
-	if len(resp.Results) != 2 {
-		t.Fatalf("results count = %d, want 2", len(resp.Results))
+	var response batchResponse
+	mustUnmarshalConversationJSON(t, result, &response)
+	if len(response.Results) != 2 {
+		t.Fatalf("results count = %d, want 2", len(response.Results))
 	}
-	if !resp.Results[0].Success {
+	if !response.Results[0].Success {
 		t.Fatalf("result[0] should succeed")
 	}
-	if resp.Results[1].Success {
+	if response.Results[1].Success {
 		t.Fatalf("result[1] should fail")
 	}
-	if resp.Results[1].Error == "" {
+	if response.Results[1].Error == "" {
 		t.Fatalf("result[1] error should be non-empty")
 	}
-	if resp.Summary.Succeeded != 1 || resp.Summary.Failed != 1 {
-		t.Fatalf("summary = %+v, want 1/1", resp.Summary)
+	if response.Summary.Succeeded != 1 || response.Summary.Failed != 1 {
+		t.Fatalf("summary = %+v, want 1/1", response.Summary)
 	}
 }
 
@@ -257,9 +257,9 @@ func TestConvTodoBatchValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch failed: %v", err)
 	}
-	var resp batchResponse
-	mustUnmarshalConversationJSON(t, result, &resp)
-	if resp.Results[0].Success {
+	var response batchResponse
+	mustUnmarshalConversationJSON(t, result, &response)
+	if response.Results[0].Success {
 		t.Fatal("add without title should fail")
 	}
 
@@ -287,13 +287,13 @@ func TestConvTodoBatchSingleItem(t *testing.T) {
 		t.Fatalf("batch failed: %v", err)
 	}
 
-	var resp batchResponse
-	mustUnmarshalConversationJSON(t, result, &resp)
-	if len(resp.Results) != 1 {
-		t.Fatalf("results count = %d, want 1", len(resp.Results))
+	var response batchResponse
+	mustUnmarshalConversationJSON(t, result, &response)
+	if len(response.Results) != 1 {
+		t.Fatalf("results count = %d, want 1", len(response.Results))
 	}
-	if !resp.Results[0].Success || resp.Results[0].Todo.GetTitle() != "Single" {
-		t.Fatalf("unexpected result: %+v", resp.Results[0])
+	if !response.Results[0].Success || response.Results[0].Todo.GetTitle() != "Single" {
+		t.Fatalf("unexpected result: %+v", response.Results[0])
 	}
 }
 

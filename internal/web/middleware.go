@@ -48,15 +48,15 @@ type accessLog struct {
 // LoggingMiddleware writes structured JSON access logs to stdout.
 func LoggingMiddleware(handler http.Handler) http.Handler {
 	timestampFormat := "2006-01-02T15:04:05.000000-07:00,"
-	return handlers.CustomLoggingHandler(os.Stdout, handler, func(writer io.Writer, params handlers.LogFormatterParams) {
+	return handlers.CustomLoggingHandler(os.Stdout, handler, func(writer io.Writer, parameters handlers.LogFormatterParams) {
 		scheme := "http"
-		if params.Request.TLS != nil {
+		if parameters.Request.TLS != nil {
 			scheme = "https"
 		}
 
 		user := ""
-		if params.URL.User != nil {
-			user = params.URL.User.Username()
+		if parameters.URL.User != nil {
+			user = parameters.URL.User.Username()
 		}
 
 		buffer, releaseBuffer := bufferpool.AcquireBuffer()
@@ -68,19 +68,19 @@ func LoggingMiddleware(handler http.Handler) http.Handler {
 		}
 
 		if err := json.NewEncoder(buffer).Encode(&accessLog{
-			Timestamp:  params.TimeStamp,
-			IP:         params.Request.RemoteAddr,
+			Timestamp:  parameters.TimeStamp,
+			IP:         parameters.Request.RemoteAddr,
 			Scheme:     scheme,
-			Host:       params.Request.Host,
+			Host:       parameters.Request.Host,
 			User:       user,
-			Method:     params.Request.Method,
-			URI:        params.Request.RequestURI,
-			Protocol:   params.Request.Proto,
-			StatusCode: params.StatusCode,
-			Size:       params.Size,
-			Referer:    params.Request.Referer(),
-			UserAgent:  params.Request.UserAgent(),
-			Elapsed:    time.Since(params.TimeStamp).Seconds(),
+			Method:     parameters.Request.Method,
+			URI:        parameters.Request.RequestURI,
+			Protocol:   parameters.Request.Proto,
+			StatusCode: parameters.StatusCode,
+			Size:       parameters.Size,
+			Referer:    parameters.Request.Referer(),
+			UserAgent:  parameters.Request.UserAgent(),
+			Elapsed:    time.Since(parameters.TimeStamp).Seconds(),
 		}); err != nil {
 			log.Errorf("failed to encode access log: %s", err)
 			return

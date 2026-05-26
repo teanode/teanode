@@ -8,7 +8,7 @@ import (
 
 type definition struct {
 	Name        string
-	Args        string
+	Arguments   string
 	Description string
 }
 
@@ -17,8 +17,8 @@ var commands = []definition{
 	{Name: "reset", Description: "Clear current conversation history"},
 	{Name: "clear", Description: "Clear current conversation and start new"},
 	{Name: "stop", Description: "Cancel the current run"},
-	{Name: "agent", Args: "[name]", Description: "Show or switch the default agent"},
-	{Name: "model", Args: "[name]", Description: "Show or switch the model"},
+	{Name: "agent", Arguments: "[name]", Description: "Show or switch the default agent"},
+	{Name: "model", Arguments: "[name]", Description: "Show or switch the model"},
 	{Name: "status", Description: "Show bot status"},
 	{Name: "compact", Description: "Compact current conversation history"},
 	{Name: "restart", Description: "Restart the node"},
@@ -27,13 +27,13 @@ var commands = []definition{
 }
 
 // Parse checks if a message is a slash command.
-// Returns (name, args, true) or ("", "", false).
+// Returns (name, arguments, true) or ("", "", false).
 func Parse(message string) (name, arguments string, ok bool) {
 	if !strings.HasPrefix(message, "/") {
 		return "", "", false
 	}
 
-	// Split into command and args.
+	// Split into command and arguments.
 	parts := strings.SplitN(message[1:], " ", 2)
 	if len(parts) == 0 || parts[0] == "" {
 		return "", "", false
@@ -62,8 +62,8 @@ func HelpText() string {
 	var builder strings.Builder
 	builder.WriteString("Available commands:\n")
 	for _, commandDef := range commands {
-		if commandDef.Args != "" {
-			fmt.Fprintf(&builder, "  /%s %s — %s\n", commandDef.Name, commandDef.Args, commandDef.Description)
+		if commandDef.Arguments != "" {
+			fmt.Fprintf(&builder, "  /%s %s — %s\n", commandDef.Name, commandDef.Arguments, commandDef.Description)
 		} else {
 			fmt.Fprintf(&builder, "  /%s — %s\n", commandDef.Name, commandDef.Description)
 		}

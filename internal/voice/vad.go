@@ -34,7 +34,7 @@ func (self *EnergyVAD) Reset() {
 
 // ProcessFrame processes one s16le frame and returns (started, ended, rms).
 func (self *EnergyVAD) ProcessFrame(pcm []byte) (bool, bool, float64) {
-	rms := rmsS16LE(pcm)
+	rms := rmsS16Le(pcm)
 
 	started := false
 	ended := false
@@ -68,7 +68,7 @@ func (self *EnergyVAD) ProcessFrame(pcm []byte) (bool, bool, float64) {
 	return started, ended, rms
 }
 
-func rmsS16LE(pcm []byte) float64 {
+func rmsS16Le(pcm []byte) float64 {
 	if len(pcm) < 2 {
 		return 0
 	}

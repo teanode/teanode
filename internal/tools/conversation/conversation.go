@@ -77,7 +77,7 @@ func (self *listConversationsTool) Execute(ctx context.Context, rawArguments str
 	}
 	if rawArguments != "" {
 		if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-			return "", fmt.Errorf("invalid arguments: %w", err)
+			return "", fmt.Errorf("conversation: invalid arguments: %w", err)
 		}
 	}
 	if arguments.Limit <= 0 {
@@ -86,12 +86,12 @@ func (self *listConversationsTool) Execute(ctx context.Context, rawArguments str
 
 	runner := runners.RunnerFromContext(ctx)
 	if runner == nil {
-		return "", fmt.Errorf("runner context missing")
+		return "", fmt.Errorf("conversation: runner context missing")
 	}
 	currentConversationId := runner.ConversationID
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("userId is required")
+		return "", fmt.Errorf("conversation: userId is required")
 	}
 
 	allConversations := make([]*models.Conversation, 0)
@@ -106,7 +106,7 @@ func (self *listConversationsTool) Execute(ctx context.Context, rawArguments str
 		allConversations = append(allConversations, conversations...)
 		return nil
 	}); err != nil {
-		return "", fmt.Errorf("listing conversations: %w", err)
+		return "", fmt.Errorf("conversation: listing conversations: %w", err)
 	}
 
 	// Filter out the current conversation.
@@ -189,7 +189,7 @@ func (self *compactConversationTool) PolicyGroups() []tools.PolicyGroup {
 func (self *compactConversationTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	runner := runners.RunnerFromContext(ctx)
 	if runner == nil {
-		return "", fmt.Errorf("runner context missing")
+		return "", fmt.Errorf("conversation: runner context missing")
 	}
 	compactResult, err := runner.CompactConversation(ctx)
 	if err != nil {

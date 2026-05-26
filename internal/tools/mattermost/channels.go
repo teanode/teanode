@@ -76,7 +76,7 @@ func (self *channelsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *channelsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action       string `json:"action"`
 		Channel      string `json:"channel"`
 		Limit        int    `json:"limit"`
@@ -86,109 +86,109 @@ func (self *channelsTool) Execute(ctx context.Context, rawArguments string) (str
 		MentionsOnly bool   `json:"mentions_only"`
 		Team         string `json:"team"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("mattermost: parsing arguments: %w", err)
 	}
 
-	exec := func(args2 ...string) (string, error) {
-		return execMattermostWithTeam(ctx, self.runner, self.binary, args.Team, args2...)
+	exec := func(arguments2 ...string) (string, error) {
+		return execMattermostWithTeam(ctx, self.runner, self.binary, arguments.Team, arguments2...)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		if args.IncludeAll {
+		if arguments.IncludeAll {
 			return exec("channel", "list", "--all")
 		}
 		return exec("channel", "list")
 
 	case "info":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for info action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for info action")
 		}
-		return exec("channel", "info", args.Channel)
+		return exec("channel", "info", arguments.Channel)
 
 	case "members":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for members action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for members action")
 		}
-		return exec("channel", "members", args.Channel)
+		return exec("channel", "members", arguments.Channel)
 
 	case "unread":
-		if args.MentionsOnly {
+		if arguments.MentionsOnly {
 			return exec("channel", "unread", "--mentions")
 		}
 		return exec("channel", "unread")
 
 	case "messages":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for messages action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for messages action")
 		}
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 20
 		}
-		return exec("post", "list", args.Channel, "-n", fmt.Sprintf("%d", limit))
+		return exec("post", "list", arguments.Channel, "-n", fmt.Sprintf("%d", limit))
 
 	case "unread_messages":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for unread_messages action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for unread_messages action")
 		}
-		return exec("post", "unread", args.Channel)
+		return exec("post", "unread", arguments.Channel)
 
 	case "join":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for join action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for join action")
 		}
-		output, err := exec("channel", "join", args.Channel)
+		output, err := exec("channel", "join", arguments.Channel)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("joined", output), nil
 
 	case "leave":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for leave action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for leave action")
 		}
-		output, err := exec("channel", "leave", args.Channel)
+		output, err := exec("channel", "leave", arguments.Channel)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("left", output), nil
 
 	case "create":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for create action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for create action")
 		}
-		commandArgs := []string{"channel", "create", args.Channel}
-		if args.DisplayName != "" {
-			commandArgs = append(commandArgs, "--display-name", args.DisplayName)
+		commandArguments := []string{"channel", "create", arguments.Channel}
+		if arguments.DisplayName != "" {
+			commandArguments = append(commandArguments, "--display-name", arguments.DisplayName)
 		}
-		if args.Private {
-			commandArgs = append(commandArgs, "--private")
+		if arguments.Private {
+			commandArguments = append(commandArguments, "--private")
 		}
-		return exec(commandArgs...)
+		return exec(commandArguments...)
 
 	case "archive":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for archive action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for archive action")
 		}
-		output, err := exec("channel", "archive", args.Channel)
+		output, err := exec("channel", "archive", arguments.Channel)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("archived", output), nil
 
 	case "mark_read":
-		if args.Channel == "" {
-			return "", fmt.Errorf("channel is required for mark_read action")
+		if arguments.Channel == "" {
+			return "", fmt.Errorf("mattermost: channel is required for mark_read action")
 		}
-		output, err := exec("channel", "read", args.Channel)
+		output, err := exec("channel", "read", arguments.Channel)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("marked_read", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown channels action: %s", args.Action)
+		return "", fmt.Errorf("mattermost: unknown channels action: %s", arguments.Action)
 	}
 }

@@ -12,7 +12,7 @@ import (
 
 func (self *webSocketConnection) handleVoiceStart(frame requestFrame) (interface{}, error) {
 	var parameters voiceStartParameters
-	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+	if err := json.Unmarshal(frame.Parameters, &parameters); err != nil {
 		log.Warningf("voice.start invalid parameters: %v", err)
 		return nil, rpcError(400, "invalid parameters: "+err.Error())
 	}
@@ -81,7 +81,7 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) (interface
 		features,
 		self.api.coordinator,
 		self.api.pubsub,
-		func(payload interface{}) { self.writeJSON(payload) },
+		func(payload interface{}) { self.writeJson(payload) },
 		func(data []byte) { self.writeBinary(data) },
 	)
 	if !self.setActiveVoiceSession(session) {
@@ -106,8 +106,8 @@ func (self *webSocketConnection) handleVoiceStart(frame requestFrame) (interface
 
 func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) (interface{}, error) {
 	var parameters voiceEndParameters
-	if len(frame.Params) > 0 {
-		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+	if len(frame.Parameters) > 0 {
+		if err := json.Unmarshal(frame.Parameters, &parameters); err != nil {
 			log.Warningf("voice.end invalid parameters: %v", err)
 			return nil, rpcError(400, "invalid parameters: "+err.Error())
 		}
@@ -129,7 +129,7 @@ func (self *webSocketConnection) handleVoiceEnd(frame requestFrame) (interface{}
 
 func (self *webSocketConnection) handleVoiceResponseCancel(frame requestFrame) (interface{}, error) {
 	var parameters voiceResponseCancelParameters
-	if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+	if err := json.Unmarshal(frame.Parameters, &parameters); err != nil {
 		log.Warningf("voice.response.cancel invalid parameters: %v", err)
 		return nil, rpcError(400, "invalid parameters: "+err.Error())
 	}
@@ -145,8 +145,8 @@ func (self *webSocketConnection) handleVoiceResponseCancel(frame requestFrame) (
 
 func (self *webSocketConnection) handleVoiceInputCommit(frame requestFrame) (interface{}, error) {
 	var parameters voiceInputCommitParameters
-	if len(frame.Params) > 0 {
-		if err := json.Unmarshal(frame.Params, &parameters); err != nil {
+	if len(frame.Parameters) > 0 {
+		if err := json.Unmarshal(frame.Parameters, &parameters); err != nil {
 			log.Warningf("voice.input.commit invalid parameters: %v", err)
 			return nil, rpcError(400, "invalid parameters: "+err.Error())
 		}

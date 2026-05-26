@@ -46,7 +46,7 @@ func (self *fileSystemTransaction) listAgents(options *store.Option) ([]*models.
 
 func (self *fileSystemTransaction) createAgent(ctx context.Context, agent *models.Agent, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Agent, error) {
 	if agent == nil {
-		return nil, fmt.Errorf("agent is required")
+		return nil, fmt.Errorf("fsstore: agent is required")
 	}
 	agentId := agent.ID
 	if agentId == "" {

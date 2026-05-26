@@ -15,41 +15,41 @@ const (
 )
 
 // commandRunner abstracts command execution for testing.
-type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
+type commandRunner func(ctx context.Context, name string, arguments ...string) ([]byte, error)
 
 // defaultRunner executes commands via cmdexec.Run with process-group isolation.
-func defaultRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	result, err := cmdexec.Run(ctx, name, args, cmdexec.Options{})
+func defaultRunner(ctx context.Context, name string, arguments ...string) ([]byte, error) {
+	result, err := cmdexec.Run(ctx, name, arguments, cmdexec.Options{})
 	if err != nil {
 		return nil, err
 	}
 	if result.ExitCode != 0 {
 		stderr := strings.TrimSpace(string(result.Stderr))
 		if stderr != "" {
-			return nil, fmt.Errorf("%s", stderr)
+			return nil, fmt.Errorf("gitea: %s", stderr)
 		}
-		return nil, fmt.Errorf("exit code %d", result.ExitCode)
+		return nil, fmt.Errorf("gitea: exit code %d", result.ExitCode)
 	}
 	return result.Stdout, nil
 }
 
 // execGitea runs a tea subcommand with the given arguments.
-// Each tool builds its own complete args including --output json.
+// Each tool builds its own complete arguments including --output json.
 // It enforces a timeout and truncates output exceeding maxOutputBytes.
-func execGitea(ctx context.Context, runner commandRunner, binary string, args ...string) (string, error) {
+func execGitea(ctx context.Context, runner commandRunner, binary string, arguments ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 
-	log.Debugf("exec: %s %v", binary, args)
+	log.Debugf("exec: %s %v", binary, arguments)
 
-	output, err := runner(ctx, binary, args...)
+	output, err := runner(ctx, binary, arguments...)
 	if err != nil {
 		errorMessage := err.Error()
 		// Detect auth errors and return a clear message for the LLM.
 		if isAuthError(errorMessage) {
-			return "", fmt.Errorf("gitea authentication required: please run 'tea login add' to authenticate")
+			return "", fmt.Errorf("gitea: gitea authentication required: please run 'tea login add' to authenticate")
 		}
-		return "", fmt.Errorf("tea command failed: %s", errorMessage)
+		return "", fmt.Errorf("gitea: tea command failed: %s", errorMessage)
 	}
 
 	result := string(output)

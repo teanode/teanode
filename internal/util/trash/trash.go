@@ -19,10 +19,10 @@ import (
 //	YYYY-MM-DD-HH-MM-SS.mmm-original-path-and-filename
 func Move(path string, trashDirectory string) error {
 	if path == "" {
-		return fmt.Errorf("path is required")
+		return fmt.Errorf("trash: path is required")
 	}
 	if trashDirectory == "" {
-		return fmt.Errorf("trash directory is required")
+		return fmt.Errorf("trash: trash directory is required")
 	}
 
 	info, err := os.Lstat(path)
@@ -30,7 +30,7 @@ func Move(path string, trashDirectory string) error {
 		return err
 	}
 	if err := os.MkdirAll(trashDirectory, 0755); err != nil {
-		return fmt.Errorf("creating trash directory: %w", err)
+		return fmt.Errorf("trash: creating trash directory: %w", err)
 	}
 
 	absolutePath := path
@@ -60,14 +60,14 @@ func Move(path string, trashDirectory string) error {
 	if err := os.Rename(path, destination); err == nil {
 		return nil
 	} else if !isCrossDeviceRename(err) {
-		return fmt.Errorf("moving to trash: %w", err)
+		return fmt.Errorf("trash: moving to trash: %w", err)
 	}
 
 	if err := copyPath(path, destination, info); err != nil {
-		return fmt.Errorf("copying to trash: %w", err)
+		return fmt.Errorf("trash: copying to trash: %w", err)
 	}
 	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("removing original after trash copy: %w", err)
+		return fmt.Errorf("trash: removing original after trash copy: %w", err)
 	}
 	return nil
 }
@@ -111,7 +111,7 @@ func uniquePath(directory string, baseName string) (string, error) {
 			return candidate, nil
 		}
 		if index >= 1_000_000 {
-			return "", fmt.Errorf("unable to allocate unique trash name for %q", baseName)
+			return "", fmt.Errorf("trash: unable to allocate unique trash name for %q", baseName)
 		}
 	}
 }

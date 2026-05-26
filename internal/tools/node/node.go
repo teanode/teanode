@@ -78,7 +78,7 @@ func (self *nodeTool) PolicyGroups() []tools.PolicyGroup {
 func (self *nodeTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || !user.GetAdmin() {
-		return "", fmt.Errorf("admin access required to manage the node")
+		return "", fmt.Errorf("node: admin access required to manage the node")
 	}
 
 	var arguments struct {
@@ -87,7 +87,7 @@ func (self *nodeTool) Execute(ctx context.Context, rawArguments string) (string,
 		ApplyIfAvailable bool   `json:"applyIfAvailable"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("node: parsing arguments: %w", err)
 	}
 
 	switch arguments.Action {
@@ -101,7 +101,7 @@ func (self *nodeTool) Execute(ctx context.Context, rawArguments string) (string,
 func (self *nodeTool) executeLifecycle(ctx context.Context, actionName string) (string, error) {
 	lifecycleManager := lifecycle.LifecycleFromContext(ctx)
 	if lifecycleManager == nil {
-		return "", fmt.Errorf("missing lifecycle context")
+		return "", fmt.Errorf("node: missing lifecycle context")
 	}
 
 	var action lifecycle.Action
@@ -115,7 +115,7 @@ func (self *nodeTool) executeLifecycle(ctx context.Context, actionName string) (
 		action = lifecycle.Shutdown
 		status = "scheduled_shutdown"
 	default:
-		return "", fmt.Errorf("unknown node action: %s", actionName)
+		return "", fmt.Errorf("node: unknown node action: %s", actionName)
 	}
 
 	lifecycleManager.ScheduleLifecycle(action)
@@ -131,7 +131,7 @@ func (self *nodeTool) executeLifecycle(ctx context.Context, actionName string) (
 func (self *nodeTool) executeUpdate(ctx context.Context, forceCheck bool, applyIfAvailable bool) (string, error) {
 	updateManager := updater.UpdaterFromContext(ctx)
 	if updateManager == nil {
-		return "", fmt.Errorf("updater is not available")
+		return "", fmt.Errorf("node: updater is not available")
 	}
 
 	// Resolve update status: force a fresh remote check, use cache, or

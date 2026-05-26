@@ -142,11 +142,11 @@ func modelToSkillRecord(skill *models.Skill) (*databaseSkillRecord, error) {
 		metadata["publisher"] = value
 	}
 	if len(metadata) > 0 {
-		metadataJSON, marshalError := json.Marshal(metadata)
+		metadataJson, marshalError := json.Marshal(metadata)
 		if marshalError != nil {
 			return nil, marshalError
 		}
-		record.Metadata = metadataJSON
+		record.Metadata = metadataJson
 	}
 	return record, nil
 }

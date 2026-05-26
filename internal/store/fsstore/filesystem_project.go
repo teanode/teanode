@@ -49,7 +49,7 @@ func (self *fileSystemTransaction) listProjects(options *store.Option) ([]*model
 
 func (self *fileSystemTransaction) createProject(ctx context.Context, project *models.Project, seedWorkspaceFiles []models.WorkspaceFile, options *store.Option) (*models.Project, error) {
 	if project == nil {
-		return nil, fmt.Errorf("project is required")
+		return nil, fmt.Errorf("fsstore: project is required")
 	}
 	projectId := project.ID
 	if projectId == "" {

@@ -21,8 +21,8 @@ func TestParse(test *testing.T) {
 		{label: "help command", message: "/help", wantName: "help", wantOk: true},
 
 		// Command with arguments.
-		{label: "model without args", message: "/model", wantName: "model", wantOk: true},
-		{label: "model with args", message: "/model gpt-4", wantName: "model", wantArguments: "gpt-4", wantOk: true},
+		{label: "model without arguments", message: "/model", wantName: "model", wantOk: true},
+		{label: "model with arguments", message: "/model gpt-4", wantName: "model", wantArguments: "gpt-4", wantOk: true},
 		{label: "model with extra spaces", message: "/model   claude-3  ", wantName: "model", wantArguments: "claude-3", wantOk: true},
 
 		// Case insensitivity.
@@ -31,14 +31,14 @@ func TestParse(test *testing.T) {
 
 		// Telegram @botname suffix.
 		{label: "command with bot suffix", message: "/help@mybot", wantName: "help", wantOk: true},
-		{label: "command with bot suffix and args", message: "/model@mybot gpt-4", wantName: "model", wantArguments: "gpt-4", wantOk: true},
+		{label: "command with bot suffix and arguments", message: "/model@mybot gpt-4", wantName: "model", wantArguments: "gpt-4", wantOk: true},
 
 		// Not a command.
 		{label: "plain text", message: "hello", wantOk: false},
 		{label: "empty string", message: "", wantOk: false},
 		{label: "slash only", message: "/", wantOk: false},
 		{label: "unknown command", message: "/unknown", wantOk: false},
-		{label: "text starting with slash-like", message: "/notacommand arg", wantOk: false},
+		{label: "text starting with slash-like", message: "/notacommand argument", wantOk: false},
 	}
 
 	for _, testCase := range cases {
@@ -73,8 +73,8 @@ func TestHelpText(test *testing.T) {
 		}
 	}
 
-	// Model command should show its args placeholder.
+	// Model command should show its arguments placeholder.
 	if !strings.Contains(helpText, "/model [name]") {
-		test.Error("HelpText() should show args for /model command")
+		test.Error("HelpText() should show arguments for /model command")
 	}
 }

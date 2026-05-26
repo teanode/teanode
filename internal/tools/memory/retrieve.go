@@ -11,12 +11,12 @@ import (
 	"github.com/teanode/teanode/internal/store"
 )
 
-func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope, scopeId string, args executeArguments) (string, error) {
-	if args.Query == "" {
-		return "", fmt.Errorf("query is required for retrieve")
+func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope, scopeId string, arguments executeArguments) (string, error) {
+	if arguments.Query == "" {
+		return "", fmt.Errorf("memory: query is required for retrieve")
 	}
 
-	maxResults := args.MaxResults
+	maxResults := arguments.MaxResults
 	if maxResults <= 0 {
 		maxResults = 10
 	}
@@ -26,8 +26,8 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		var err error
 		listOptions := store.MemoryItemListOptions{}
-		if len(args.Tags) > 0 {
-			listOptions.Tags = &args.Tags
+		if len(arguments.Tags) > 0 {
+			listOptions.Tags = &arguments.Tags
 		}
 		items, err = transaction.ListMemoryItems(ctx, scope, scopeId, listOptions, nil)
 		return err
@@ -41,7 +41,7 @@ func (self *memoryTool) executeRetrieve(ctx context.Context, scope models.Scope,
 		embedder = runner.Embedder
 	}
 
-	results, totalMatches, method, err := embeddings.SearchMemory(ctx, embedder, items, args.Query, maxResults)
+	results, totalMatches, method, err := embeddings.SearchMemory(ctx, embedder, items, arguments.Query, maxResults)
 	if err != nil {
 		return "", err
 	}

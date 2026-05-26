@@ -71,7 +71,7 @@ func (self *commentsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *commentsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action        string `json:"action"`
 		PageID        string `json:"page_id"`
 		CommentID     string `json:"comment_id"`
@@ -80,67 +80,67 @@ func (self *commentsTool) Execute(ctx context.Context, rawArguments string) (str
 		Location      string `json:"location"`
 		Limit         int    `json:"limit"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("confluence: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for list action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for list action")
 		}
-		commandArgs := []string{"comments", args.PageID}
-		if args.Location != "" {
-			commandArgs = append(commandArgs, "--location", args.Location)
+		commandArguments := []string{"comments", arguments.PageID}
+		if arguments.Location != "" {
+			commandArguments = append(commandArguments, "--location", arguments.Location)
 		}
-		if args.Limit > 0 {
-			commandArgs = append(commandArgs, "--limit", fmt.Sprintf("%d", args.Limit))
+		if arguments.Limit > 0 {
+			commandArguments = append(commandArguments, "--limit", fmt.Sprintf("%d", arguments.Limit))
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for create action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for create action")
 		}
-		if args.Content == "" {
-			return "", fmt.Errorf("content is required for create action")
+		if arguments.Content == "" {
+			return "", fmt.Errorf("confluence: content is required for create action")
 		}
-		commandArgs := []string{"comment", args.PageID, "--content", args.Content}
-		if args.ContentFormat != "" {
-			commandArgs = append(commandArgs, "--format", args.ContentFormat)
+		commandArguments := []string{"comment", arguments.PageID, "--content", arguments.Content}
+		if arguments.ContentFormat != "" {
+			commandArguments = append(commandArguments, "--format", arguments.ContentFormat)
 		}
-		if args.Location != "" {
-			commandArgs = append(commandArgs, "--location", args.Location)
+		if arguments.Location != "" {
+			commandArguments = append(commandArguments, "--location", arguments.Location)
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "reply":
-		if args.PageID == "" {
-			return "", fmt.Errorf("page_id is required for reply action")
+		if arguments.PageID == "" {
+			return "", fmt.Errorf("confluence: page_id is required for reply action")
 		}
-		if args.CommentID == "" {
-			return "", fmt.Errorf("comment_id is required for reply action")
+		if arguments.CommentID == "" {
+			return "", fmt.Errorf("confluence: comment_id is required for reply action")
 		}
-		if args.Content == "" {
-			return "", fmt.Errorf("content is required for reply action")
+		if arguments.Content == "" {
+			return "", fmt.Errorf("confluence: content is required for reply action")
 		}
-		commandArgs := []string{"comment", args.PageID, "--content", args.Content, "--parent", args.CommentID}
-		if args.ContentFormat != "" {
-			commandArgs = append(commandArgs, "--format", args.ContentFormat)
+		commandArguments := []string{"comment", arguments.PageID, "--content", arguments.Content, "--parent", arguments.CommentID}
+		if arguments.ContentFormat != "" {
+			commandArguments = append(commandArguments, "--format", arguments.ContentFormat)
 		}
-		return execConfluence(ctx, self.runner, self.binary, commandArgs...)
+		return execConfluence(ctx, self.runner, self.binary, commandArguments...)
 
 	case "delete":
-		if args.CommentID == "" {
-			return "", fmt.Errorf("comment_id is required for delete action")
+		if arguments.CommentID == "" {
+			return "", fmt.Errorf("confluence: comment_id is required for delete action")
 		}
-		output, err := execConfluence(ctx, self.runner, self.binary, "comment-delete", args.CommentID, "--yes")
+		output, err := execConfluence(ctx, self.runner, self.binary, "comment-delete", arguments.CommentID, "--yes")
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("deleted", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown comments action: %s", args.Action)
+		return "", fmt.Errorf("confluence: unknown comments action: %s", arguments.Action)
 	}
 }

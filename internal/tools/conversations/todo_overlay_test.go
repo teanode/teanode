@@ -26,13 +26,13 @@ func setupOverlayStore(t *testing.T) (context.Context, store.Store) {
 }
 
 // createTestConversation creates a user, agent, and conversation, returning the conversation ID.
-func createTestConversation(t *testing.T, ctx context.Context, dataStore store.Store, userID, agentID string) string {
+func createTestConversation(t *testing.T, ctx context.Context, dataStore store.Store, userID, agentId string) string {
 	t.Helper()
 	if err := dataStore.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		if _, err := tx.CreateUser(ctx, &models.User{ID: userID, Username: ptrto.Value(userID), Admin: ptrto.Value(true)}, nil, nil); err != nil {
 			return err
 		}
-		if _, err := tx.CreateAgent(ctx, &models.Agent{ID: agentID, Name: ptrto.Value("Agent")}, nil, nil); err != nil {
+		if _, err := tx.CreateAgent(ctx, &models.Agent{ID: agentId, Name: ptrto.Value("Agent")}, nil, nil); err != nil {
 			return err
 		}
 		return nil
@@ -43,7 +43,7 @@ func createTestConversation(t *testing.T, ctx context.Context, dataStore store.S
 	err := dataStore.Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
 		conv, createErr := tx.CreateConversation(ctx, &models.Conversation{
 			UserID:  ptrto.Value(userID),
-			AgentID: ptrto.Value(agentID),
+			AgentID: ptrto.Value(agentId),
 		}, nil)
 		if createErr != nil {
 			return createErr
@@ -105,7 +105,7 @@ func TestBuildTodoOverlay_OnlyDoneTodos(t *testing.T) {
 	ctx, dataStore := setupOverlayStore(t)
 	convID := createTestConversation(t, ctx, dataStore, "user1", "agent1")
 
-	for idx := 0; idx < 3; idx++ {
+	for index := 0; index < 3; index++ {
 		createTodo(t, ctx, dataStore, convID, "Done task", models.TodoStatusDone, models.TodoPriorityMedium)
 	}
 
@@ -128,10 +128,10 @@ func TestBuildTodoOverlay_MixedOpenDone(t *testing.T) {
 	ctx, dataStore := setupOverlayStore(t)
 	convID := createTestConversation(t, ctx, dataStore, "user2", "agent2")
 
-	for idx := 0; idx < 5; idx++ {
+	for index := 0; index < 5; index++ {
 		createTodo(t, ctx, dataStore, convID, "Open task", models.TodoStatusOpen, models.TodoPriorityMedium)
 	}
-	for idx := 0; idx < 2; idx++ {
+	for index := 0; index < 2; index++ {
 		createTodo(t, ctx, dataStore, convID, "Done task", models.TodoStatusDone, models.TodoPriorityMedium)
 	}
 
@@ -151,7 +151,7 @@ func TestBuildTodoOverlay_MoreThan10Open(t *testing.T) {
 	ctx, dataStore := setupOverlayStore(t)
 	convID := createTestConversation(t, ctx, dataStore, "user3", "agent3")
 
-	for idx := 0; idx < 15; idx++ {
+	for index := 0; index < 15; index++ {
 		createTodo(t, ctx, dataStore, convID, "Open task", models.TodoStatusOpen, models.TodoPriorityMedium)
 	}
 
@@ -180,13 +180,13 @@ func TestBuildTodoOverlay_OldestFirstOrdering(t *testing.T) {
 	convID := createTestConversation(t, ctx, dataStore, "user4", "agent4")
 
 	// Create in reverse priority order; overlay should show oldest-first regardless of priority
-	for idx := 0; idx < 3; idx++ {
+	for index := 0; index < 3; index++ {
 		createTodo(t, ctx, dataStore, convID, "Low task", models.TodoStatusOpen, models.TodoPriorityLow)
 	}
-	for idx := 0; idx < 3; idx++ {
+	for index := 0; index < 3; index++ {
 		createTodo(t, ctx, dataStore, convID, "High task", models.TodoStatusOpen, models.TodoPriorityHigh)
 	}
-	for idx := 0; idx < 3; idx++ {
+	for index := 0; index < 3; index++ {
 		createTodo(t, ctx, dataStore, convID, "Medium task", models.TodoStatusOpen, models.TodoPriorityMedium)
 	}
 
@@ -247,9 +247,9 @@ func TestBuildTodoOverlay_NilDescription(t *testing.T) {
 	}
 	// Verify no indented description line follows the todo entry
 	lines := strings.Split(result, "\n")
-	for idx, line := range lines {
-		if strings.Contains(line, "No description") && idx+1 < len(lines) {
-			nextLine := lines[idx+1]
+	for index, line := range lines {
+		if strings.Contains(line, "No description") && index+1 < len(lines) {
+			nextLine := lines[index+1]
 			if strings.HasPrefix(nextLine, "   ") {
 				trimmed := strings.TrimSpace(nextLine)
 				// Only fail if it looks like a description line
@@ -330,10 +330,10 @@ func TestFormatTodoOverlay_ReminderAlwaysPresent(t *testing.T) {
 
 func TestTruncateDescription(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		maxLen   int
-		expected string
+		name      string
+		input     string
+		maxLength int
+		expected  string
 	}{
 		{"short", "hello", 120, "hello"},
 		{"exact", strings.Repeat("x", 120), 120, strings.Repeat("x", 120)},
@@ -341,9 +341,9 @@ func TestTruncateDescription(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := truncateDescription(tc.input, tc.maxLen)
+			got := truncateDescription(tc.input, tc.maxLength)
 			if got != tc.expected {
-				t.Errorf("truncateDescription(%d chars, %d) = %d chars, want %d chars", len(tc.input), tc.maxLen, len(got), len(tc.expected))
+				t.Errorf("truncateDescription(%d chars, %d) = %d chars, want %d chars", len(tc.input), tc.maxLength, len(got), len(tc.expected))
 			}
 		})
 	}

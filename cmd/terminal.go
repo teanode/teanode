@@ -58,7 +58,7 @@ func NewTerminalCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, command *cli.Command) error {
-			// Determine child command: --command flag, positional args, $SHELL, or bash.
+			// Determine child command: --command flag, positional arguments, $SHELL, or bash.
 			var shellArguments []string
 			if commandFlag := command.String("command"); commandFlag != "" {
 				shellArguments = strings.Fields(commandFlag)
@@ -76,7 +76,7 @@ func NewTerminalCommand() *cli.Command {
 			// Open PTY.
 			master, slave, err := terminals.OpenPTY()
 			if err != nil {
-				return fmt.Errorf("open pty: %w", err)
+				return fmt.Errorf("cmd: open pty: %w", err)
 			}
 			defer func() { _ = master.Close() }()
 
@@ -97,14 +97,14 @@ func NewTerminalCommand() *cli.Command {
 			}
 			if err := child.Start(); err != nil {
 				_ = slave.Close()
-				return fmt.Errorf("start command: %w", err)
+				return fmt.Errorf("cmd: start command: %w", err)
 			}
 			_ = slave.Close()
 
 			// Put user terminal in raw mode.
 			originalTermios, err := terminals.MakeRaw(int(os.Stdin.Fd()))
 			if err != nil {
-				return fmt.Errorf("raw mode: %w", err)
+				return fmt.Errorf("cmd: raw mode: %w", err)
 			}
 			defer terminals.RestoreTermios(int(os.Stdin.Fd()), originalTermios)
 
@@ -134,12 +134,12 @@ func NewTerminalCommand() *cli.Command {
 			}()
 
 			// Handle SIGWINCH.
-			sigwinch := make(chan os.Signal, 1)
-			signal.Notify(sigwinch, syscall.SIGWINCH)
-			defer signal.Stop(sigwinch)
+			signalWindowChange := make(chan os.Signal, 1)
+			signal.Notify(signalWindowChange, syscall.SIGWINCH)
+			defer signal.Stop(signalWindowChange)
 			go func() {
 				defer deferutil.Recover()
-				for range sigwinch {
+				for range signalWindowChange {
 					rows, cols := currentTerminalSize()
 					_ = terminals.SetWinSize(int(master.Fd()), rows, cols)
 					buffer.Resize(rows, cols)
@@ -238,9 +238,9 @@ func serveNodeConnection(ctx context.Context, url string, shellCommand string, m
 		}
 
 		var message struct {
-			ID     *int            `json:"id"`
-			Method string          `json:"method"`
-			Params json.RawMessage `json:"params"`
+			ID         *int            `json:"id"`
+			Method     string          `json:"method"`
+			Parameters json.RawMessage `json:"parameters"`
 		}
 		if err := json.Unmarshal(data, &message); err != nil {
 			continue
@@ -264,8 +264,8 @@ func serveNodeConnection(ctx context.Context, url string, shellCommand string, m
 			var parameters struct {
 				Data string `json:"data"`
 			}
-			if message.Params != nil {
-				_ = json.Unmarshal(message.Params, &parameters)
+			if message.Parameters != nil {
+				_ = json.Unmarshal(message.Parameters, &parameters)
 			}
 			_, writeErr := master.Write([]byte(parameters.Data))
 			if writeErr != nil {
@@ -288,8 +288,8 @@ func serveNodeConnection(ctx context.Context, url string, shellCommand string, m
 				Cols uint16 `json:"cols"`
 				Rows uint16 `json:"rows"`
 			}
-			if message.Params != nil {
-				_ = json.Unmarshal(message.Params, &parameters)
+			if message.Parameters != nil {
+				_ = json.Unmarshal(message.Parameters, &parameters)
 			}
 			if parameters.Rows > 0 && parameters.Cols > 0 {
 				_ = terminals.SetWinSize(int(master.Fd()), parameters.Rows, parameters.Cols)
@@ -314,7 +314,7 @@ func sendMachineInfo(connection *websocket.Conn, shellCommand string) {
 
 	message := map[string]interface{}{
 		"method": "attach",
-		"params": map[string]string{
+		"parameters": map[string]string{
 			"hostname":         hostname,
 			"username":         username,
 			"os":               runtime.GOOS,

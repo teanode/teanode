@@ -12,7 +12,7 @@ func (self *Session) llmEventForwarder() {
 	}
 	sub := &conversationEventSubscriber{
 		conversationId: self.ConversationID,
-		eventCh:        make(chan map[string]interface{}, 128),
+		eventChannel:   make(chan map[string]interface{}, 128),
 	}
 	self.events.Subscribe(sub)
 	defer self.events.Unsubscribe(sub)
@@ -23,9 +23,9 @@ func (self *Session) llmEventForwarder() {
 
 	for {
 		select {
-		case <-self.doneCh:
+		case <-self.doneChannel:
 			return
-		case event := <-sub.eventCh:
+		case event := <-sub.eventChannel:
 			state, _ := event["state"].(string)
 			text, _ := event["text"].(string)
 			runId, _ := event["runId"].(string)
@@ -53,8 +53,8 @@ func (self *Session) llmEventForwarder() {
 				}
 				for _, sentence := range newSentences {
 					select {
-					case self.ttsInCh <- sentence:
-					case <-self.doneCh:
+					case self.ttsInChannel <- sentence:
+					case <-self.doneChannel:
 						return
 					}
 				}
@@ -69,14 +69,14 @@ func (self *Session) llmEventForwarder() {
 				remaining := strings.TrimSpace(FlushRemaining(streamForFlush, sentencesEnqueued))
 				if remaining != "" {
 					select {
-					case self.ttsInCh <- remaining:
-					case <-self.doneCh:
+					case self.ttsInChannel <- remaining:
+					case <-self.doneChannel:
 						return
 					}
 				}
 				select {
-				case self.ttsInCh <- "":
-				case <-self.doneCh:
+				case self.ttsInChannel <- "":
+				case <-self.doneChannel:
 					return
 				}
 				// Response stream is complete; allow next transcript to commit a new run.
@@ -94,7 +94,7 @@ func (self *Session) llmEventForwarder() {
 
 type conversationEventSubscriber struct {
 	conversationId string
-	eventCh        chan map[string]interface{}
+	eventChannel   chan map[string]interface{}
 }
 
 func (self *conversationEventSubscriber) OnEvent(eventType pubsub.EventType, payload interface{}) {
@@ -113,22 +113,22 @@ func (self *conversationEventSubscriber) OnEvent(eventType pubsub.EventType, pay
 	critical := state == "final" || state == "error" || state == "aborted" || state == "queued"
 	if !critical {
 		select {
-		case self.eventCh <- eventMap:
+		case self.eventChannel <- eventMap:
 		default:
 		}
 		return
 	}
 
 	select {
-	case self.eventCh <- eventMap:
+	case self.eventChannel <- eventMap:
 	default:
 		// Preserve terminal lifecycle events by making room if queue is saturated by deltas.
 		select {
-		case <-self.eventCh:
+		case <-self.eventChannel:
 		default:
 		}
 		select {
-		case self.eventCh <- eventMap:
+		case self.eventChannel <- eventMap:
 		default:
 		}
 	}

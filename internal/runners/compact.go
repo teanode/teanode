@@ -437,11 +437,11 @@ func summarizeChunk(
 		return structuredSummary{}, err
 	}
 	if len(response.Choices) == 0 {
-		return structuredSummary{}, fmt.Errorf("empty summary response")
+		return structuredSummary{}, fmt.Errorf("runners: empty summary response")
 	}
 	content := response.Choices[0].Message.ContentText()
 	if content == "" {
-		return structuredSummary{}, fmt.Errorf("empty summary content")
+		return structuredSummary{}, fmt.Errorf("runners: empty summary content")
 	}
 	return parseStructuredSummaryResponse(content), nil
 }
@@ -584,7 +584,7 @@ func (self *Runner) summarizeAndPersist(
 		return nil
 	}); err != nil {
 		log.Debugf("runner: failed to load configuration from store: %v", err)
-		return "", fmt.Errorf("failed to load configuration from store: %w", err)
+		return "", fmt.Errorf("runners: failed to load configuration from store: %w", err)
 	}
 	providerModelName := ""
 	if configuration != nil && configuration.Models != nil {
@@ -594,11 +594,11 @@ func (self *Runner) summarizeAndPersist(
 	}
 	resolved, _, modelName, err := self.providerRegistry.ResolveProviderAndModel(providerModelName)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve summary model %q: %w", providerModelName, err)
+		return "", fmt.Errorf("runners: failed to resolve summary model %q: %w", providerModelName, err)
 	}
 	provider, ok := resolved.(providers.ChatProvider)
 	if !ok {
-		return "", fmt.Errorf("provider does not support chat for summarization")
+		return "", fmt.Errorf("runners: provider does not support chat for summarization")
 	}
 
 	summaryText := formatStructuredSummary(
@@ -616,7 +616,7 @@ func (self *Runner) summarizeAndPersist(
 	stopReason := models.StopReason("context_summary")
 	summaryMessage.StopReason = &stopReason
 	if appendError := self.appendConversationMessage(ctx, summaryMessage); appendError != nil {
-		return "", fmt.Errorf("saving summary: %w", appendError)
+		return "", fmt.Errorf("runners: saving summary: %w", appendError)
 	}
 
 	return summaryText, nil
@@ -629,16 +629,16 @@ func (self *Runner) summarizeAndPersist(
 func (self *Runner) CompactConversation(ctx context.Context) (*CompactResult, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return nil, fmt.Errorf("userId is required")
+		return nil, fmt.Errorf("runners: userId is required")
 	}
 
 	// Load conversation history.
 	history, err := listConversationMessages(ctx, self.ConversationID)
 	if err != nil {
-		return nil, fmt.Errorf("loading conversation: %w", err)
+		return nil, fmt.Errorf("runners: loading conversation: %w", err)
 	}
 	if len(history) == 0 {
-		return nil, fmt.Errorf("conversation is empty")
+		return nil, fmt.Errorf("runners: conversation is empty")
 	}
 
 	// Build messages via the same pipeline used for normal runs.

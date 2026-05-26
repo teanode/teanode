@@ -20,7 +20,7 @@ var (
 func mustReadSchemaFile(path string) []byte {
 	data, err := schemaFiles.ReadFile(path)
 	if err != nil {
-		panic(fmt.Sprintf("loading embedded schema %s: %v", path, err))
+		panic(fmt.Sprintf("schemas: loading embedded schema %s: %v", path, err))
 	}
 	return data
 }

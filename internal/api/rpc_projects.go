@@ -64,7 +64,7 @@ func (self *webSocketConnection) handleProjectsCreate(frame requestFrame) (inter
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[projectsCreateParameters](frame)
+	parameters, err := unmarshalParameters[projectsCreateParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func (self *webSocketConnection) handleProjectsRename(frame requestFrame) (inter
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[projectsRenameParameters](frame)
+	parameters, err := unmarshalParameters[projectsRenameParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (self *webSocketConnection) handleProjectsDelete(frame requestFrame) (inter
 	if err := self.requireAdmin(); err != nil {
 		return nil, err
 	}
-	parameters, err := unmarshalParams[projectsDeleteParameters](frame)
+	parameters, err := unmarshalParameters[projectsDeleteParameters](frame)
 	if err != nil {
 		return nil, err
 	}

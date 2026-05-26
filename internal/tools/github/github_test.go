@@ -13,8 +13,8 @@ import (
 // mockRunner returns a commandRunner that records calls and returns canned output.
 func mockRunner(output string, err error) (commandRunner, *[][]string) {
 	var calls [][]string
-	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		call := append([]string{name}, args...)
+	runner := func(ctx context.Context, name string, arguments ...string) ([]byte, error) {
+		call := append([]string{name}, arguments...)
 		calls = append(calls, call)
 		if err != nil {
 			return nil, err
@@ -43,11 +43,11 @@ func TestExecGitHub_ArgsAssembly(testing *testing.T) {
 	arguments := (*calls)[0]
 	expected := []string{"/usr/bin/gh", "issue", "list", "--json", "number,title"}
 	if len(arguments) != len(expected) {
-		testing.Fatalf("expected %d args, got %d: %v", len(expected), len(arguments), arguments)
+		testing.Fatalf("expected %d arguments, got %d: %v", len(expected), len(arguments), arguments)
 	}
 	for index, want := range expected {
 		if arguments[index] != want {
-			testing.Errorf("arg[%d] = %q, want %q", index, arguments[index], want)
+			testing.Errorf("argument[%d] = %q, want %q", index, arguments[index], want)
 		}
 	}
 }
@@ -138,36 +138,36 @@ func TestIssuesTool_ListAction(testing *testing.T) {
 		testing.Error("expected non-empty result")
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundIssueList := false
 	foundJSON := false
 	foundState := false
 	foundSearch := false
-	for index, argument := range commandArgs {
-		if argument == "issue" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "issue" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundIssueList = true
 		}
 		if argument == "--json" {
 			foundJSON = true
 		}
-		if argument == "--state" && index+1 < len(commandArgs) && commandArgs[index+1] == "open" {
+		if argument == "--state" && index+1 < len(commandArguments) && commandArguments[index+1] == "open" {
 			foundState = true
 		}
-		if argument == "--search" && index+1 < len(commandArgs) && commandArgs[index+1] == "sort:updated-desc" {
+		if argument == "--search" && index+1 < len(commandArguments) && commandArguments[index+1] == "sort:updated-desc" {
 			foundSearch = true
 		}
 	}
 	if !foundIssueList {
-		testing.Errorf("expected 'issue list' in args: %v", commandArgs)
+		testing.Errorf("expected 'issue list' in arguments: %v", commandArguments)
 	}
 	if !foundJSON {
-		testing.Errorf("expected '--json' in args: %v", commandArgs)
+		testing.Errorf("expected '--json' in arguments: %v", commandArguments)
 	}
 	if !foundState {
-		testing.Errorf("expected '--state open' in args: %v", commandArgs)
+		testing.Errorf("expected '--state open' in arguments: %v", commandArguments)
 	}
 	if !foundSearch {
-		testing.Errorf("expected default '--search sort:updated-desc' in args: %v", commandArgs)
+		testing.Errorf("expected default '--search sort:updated-desc' in arguments: %v", commandArguments)
 	}
 }
 
@@ -184,16 +184,16 @@ func TestIssuesTool_ViewAction(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	found := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "42" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		testing.Errorf("expected issue number in args: %v", commandArgs)
+		testing.Errorf("expected issue number in arguments: %v", commandArguments)
 	}
 }
 
@@ -215,22 +215,22 @@ func TestIssuesTool_CreateAction(testing *testing.T) {
 		testing.Errorf("expected created status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	hasTitle := false
 	hasLabel := false
-	for index, argument := range commandArgs {
-		if argument == "--title" && index+1 < len(commandArgs) && commandArgs[index+1] == "New Bug" {
+	for index, argument := range commandArguments {
+		if argument == "--title" && index+1 < len(commandArguments) && commandArguments[index+1] == "New Bug" {
 			hasTitle = true
 		}
-		if argument == "--label" && index+1 < len(commandArgs) && commandArgs[index+1] == "bug" {
+		if argument == "--label" && index+1 < len(commandArguments) && commandArguments[index+1] == "bug" {
 			hasLabel = true
 		}
 	}
 	if !hasTitle {
-		testing.Error("expected --title in args")
+		testing.Error("expected --title in arguments")
 	}
 	if !hasLabel {
-		testing.Error("expected --label in args")
+		testing.Error("expected --label in arguments")
 	}
 }
 
@@ -265,16 +265,16 @@ func TestIssuesTool_CloseAction(testing *testing.T) {
 		testing.Errorf("expected closed status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundClose := false
-	for index, argument := range commandArgs {
-		if argument == "issue" && index+1 < len(commandArgs) && commandArgs[index+1] == "close" {
+	for index, argument := range commandArguments {
+		if argument == "issue" && index+1 < len(commandArguments) && commandArguments[index+1] == "close" {
 			foundClose = true
 			break
 		}
 	}
 	if !foundClose {
-		testing.Errorf("expected 'issue close' in args: %v", commandArgs)
+		testing.Errorf("expected 'issue close' in arguments: %v", commandArguments)
 	}
 }
 
@@ -291,15 +291,15 @@ func TestIssuesTool_ListAssigneeMe(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAssignee := false
-	for index, argument := range commandArgs {
-		if argument == "--assignee" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+	for index, argument := range commandArguments {
+		if argument == "--assignee" && index+1 < len(commandArguments) && commandArguments[index+1] == "@me" {
 			foundAssignee = true
 		}
 	}
 	if !foundAssignee {
-		testing.Errorf("expected '--assignee @me' in args: %v", commandArgs)
+		testing.Errorf("expected '--assignee @me' in arguments: %v", commandArguments)
 	}
 }
 
@@ -316,15 +316,15 @@ func TestIssuesTool_ListAuthor(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAuthor := false
-	for index, argument := range commandArgs {
-		if argument == "--author" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+	for index, argument := range commandArguments {
+		if argument == "--author" && index+1 < len(commandArguments) && commandArguments[index+1] == "@me" {
 			foundAuthor = true
 		}
 	}
 	if !foundAuthor {
-		testing.Errorf("expected '--author @me' in args: %v", commandArgs)
+		testing.Errorf("expected '--author @me' in arguments: %v", commandArguments)
 	}
 }
 
@@ -345,7 +345,7 @@ func TestIssuesTool_ListAdditionalFilters(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := strings.Join((*calls)[0], " ")
+	commandArguments := strings.Join((*calls)[0], " ")
 	expectedSnippets := []string{
 		"--label bug",
 		"--label help wanted",
@@ -355,8 +355,8 @@ func TestIssuesTool_ListAdditionalFilters(testing *testing.T) {
 		"--app renovate",
 	}
 	for _, snippet := range expectedSnippets {
-		if !strings.Contains(commandArgs, snippet) {
-			testing.Errorf("expected %q in args: %v", snippet, (*calls)[0])
+		if !strings.Contains(commandArguments, snippet) {
+			testing.Errorf("expected %q in arguments: %v", snippet, (*calls)[0])
 		}
 	}
 }
@@ -374,16 +374,16 @@ func TestIssuesTool_RepositoryOverride(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundRepo := false
-	for index, argument := range commandArgs {
-		if argument == "-R" && index+1 < len(commandArgs) && commandArgs[index+1] == "owner/repo" {
+	for index, argument := range commandArguments {
+		if argument == "-R" && index+1 < len(commandArguments) && commandArguments[index+1] == "owner/repo" {
 			foundRepo = true
 			break
 		}
 	}
 	if !foundRepo {
-		testing.Errorf("expected '-R owner/repo' in args: %v", commandArgs)
+		testing.Errorf("expected '-R owner/repo' in arguments: %v", commandArguments)
 	}
 }
 
@@ -418,16 +418,16 @@ func TestPullsTool_ListAction(testing *testing.T) {
 		testing.Error("expected non-empty result")
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundPRList := false
-	for index, argument := range commandArgs {
-		if argument == "pr" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "pr" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundPRList = true
 			break
 		}
 	}
 	if !foundPRList {
-		testing.Errorf("expected 'pr list' in args: %v", commandArgs)
+		testing.Errorf("expected 'pr list' in arguments: %v", commandArguments)
 	}
 }
 
@@ -444,15 +444,15 @@ func TestPullsTool_ListAssigneeMe(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAssignee := false
-	for index, argument := range commandArgs {
-		if argument == "--assignee" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+	for index, argument := range commandArguments {
+		if argument == "--assignee" && index+1 < len(commandArguments) && commandArguments[index+1] == "@me" {
 			foundAssignee = true
 		}
 	}
 	if !foundAssignee {
-		testing.Errorf("expected '--assignee @me' in args: %v", commandArgs)
+		testing.Errorf("expected '--assignee @me' in arguments: %v", commandArguments)
 	}
 }
 
@@ -469,15 +469,15 @@ func TestPullsTool_ListAuthor(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundAuthor := false
-	for index, argument := range commandArgs {
-		if argument == "--author" && index+1 < len(commandArgs) && commandArgs[index+1] == "@me" {
+	for index, argument := range commandArguments {
+		if argument == "--author" && index+1 < len(commandArguments) && commandArguments[index+1] == "@me" {
 			foundAuthor = true
 		}
 	}
 	if !foundAuthor {
-		testing.Errorf("expected '--author @me' in args: %v", commandArgs)
+		testing.Errorf("expected '--author @me' in arguments: %v", commandArguments)
 	}
 }
 
@@ -499,7 +499,7 @@ func TestPullsTool_ListAdditionalFilters(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := strings.Join((*calls)[0], " ")
+	commandArguments := strings.Join((*calls)[0], " ")
 	expectedSnippets := []string{
 		"--base main",
 		"--head feature-x",
@@ -510,8 +510,8 @@ func TestPullsTool_ListAdditionalFilters(testing *testing.T) {
 		"--draft",
 	}
 	for _, snippet := range expectedSnippets {
-		if !strings.Contains(commandArgs, snippet) {
-			testing.Errorf("expected %q in args: %v", snippet, (*calls)[0])
+		if !strings.Contains(commandArguments, snippet) {
+			testing.Errorf("expected %q in arguments: %v", snippet, (*calls)[0])
 		}
 	}
 }
@@ -528,15 +528,15 @@ func TestPullsTool_ListDefaultsToRecentSearch(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundSearch := false
-	for index, argument := range commandArgs {
-		if argument == "--search" && index+1 < len(commandArgs) && commandArgs[index+1] == "sort:updated-desc" {
+	for index, argument := range commandArguments {
+		if argument == "--search" && index+1 < len(commandArguments) && commandArguments[index+1] == "sort:updated-desc" {
 			foundSearch = true
 		}
 	}
 	if !foundSearch {
-		testing.Errorf("expected PR queries to default to '--search sort:updated-desc': %v", commandArgs)
+		testing.Errorf("expected PR queries to default to '--search sort:updated-desc': %v", commandArguments)
 	}
 }
 
@@ -556,15 +556,15 @@ func TestPullsTool_CreateDraft(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundDraft := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--draft" {
 			foundDraft = true
 		}
 	}
 	if !foundDraft {
-		testing.Errorf("expected '--draft' in args: %v", commandArgs)
+		testing.Errorf("expected '--draft' in arguments: %v", commandArguments)
 	}
 }
 
@@ -622,29 +622,29 @@ func TestPullsTool_EditAction(testing *testing.T) {
 		testing.Errorf("expected edited status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundTitle := false
 	foundBody := false
 	foundBase := false
-	for index, argument := range commandArgs {
-		if argument == "--title" && index+1 < len(commandArgs) && commandArgs[index+1] == "Updated Title" {
+	for index, argument := range commandArguments {
+		if argument == "--title" && index+1 < len(commandArguments) && commandArguments[index+1] == "Updated Title" {
 			foundTitle = true
 		}
-		if argument == "--body" && index+1 < len(commandArgs) && commandArgs[index+1] == "Updated body" {
+		if argument == "--body" && index+1 < len(commandArguments) && commandArguments[index+1] == "Updated body" {
 			foundBody = true
 		}
-		if argument == "--base" && index+1 < len(commandArgs) && commandArgs[index+1] == "develop" {
+		if argument == "--base" && index+1 < len(commandArguments) && commandArguments[index+1] == "develop" {
 			foundBase = true
 		}
 	}
 	if !foundTitle {
-		testing.Errorf("expected '--title Updated Title' in args: %v", commandArgs)
+		testing.Errorf("expected '--title Updated Title' in arguments: %v", commandArguments)
 	}
 	if !foundBody {
-		testing.Errorf("expected '--body Updated body' in args: %v", commandArgs)
+		testing.Errorf("expected '--body Updated body' in arguments: %v", commandArguments)
 	}
 	if !foundBase {
-		testing.Errorf("expected '--base develop' in args: %v", commandArgs)
+		testing.Errorf("expected '--base develop' in arguments: %v", commandArguments)
 	}
 }
 
@@ -679,16 +679,16 @@ func TestPullsTool_MergeAction(testing *testing.T) {
 		testing.Errorf("expected merged status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundSquash := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "--squash" {
 			foundSquash = true
 			break
 		}
 	}
 	if !foundSquash {
-		testing.Errorf("expected '--squash' in args: %v", commandArgs)
+		testing.Errorf("expected '--squash' in arguments: %v", commandArguments)
 	}
 }
 
@@ -722,16 +722,16 @@ func TestPullsTool_ChecksAction(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundChecks := false
-	for index, argument := range commandArgs {
-		if argument == "pr" && index+1 < len(commandArgs) && commandArgs[index+1] == "checks" {
+	for index, argument := range commandArguments {
+		if argument == "pr" && index+1 < len(commandArguments) && commandArguments[index+1] == "checks" {
 			foundChecks = true
 			break
 		}
 	}
 	if !foundChecks {
-		testing.Errorf("expected 'pr checks' in args: %v", commandArgs)
+		testing.Errorf("expected 'pr checks' in arguments: %v", commandArguments)
 	}
 }
 
@@ -763,25 +763,25 @@ func TestReposTool_ViewAction(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundRepoView := false
 	foundPositionalRepo := false
-	for index, argument := range commandArgs {
-		if argument == "repo" && index+1 < len(commandArgs) && commandArgs[index+1] == "view" {
+	for index, argument := range commandArguments {
+		if argument == "repo" && index+1 < len(commandArguments) && commandArguments[index+1] == "view" {
 			foundRepoView = true
 		}
-		if argument == "view" && index+1 < len(commandArgs) && commandArgs[index+1] == "owner/repo" {
+		if argument == "view" && index+1 < len(commandArguments) && commandArguments[index+1] == "owner/repo" {
 			foundPositionalRepo = true
 		}
 		if argument == "-R" {
-			testing.Errorf("repo view should not use -R flag: %v", commandArgs)
+			testing.Errorf("repo view should not use -R flag: %v", commandArguments)
 		}
 	}
 	if !foundRepoView {
-		testing.Errorf("expected 'repo view' in args: %v", commandArgs)
+		testing.Errorf("expected 'repo view' in arguments: %v", commandArguments)
 	}
 	if !foundPositionalRepo {
-		testing.Errorf("expected 'owner/repo' as positional argument after 'view': %v", commandArgs)
+		testing.Errorf("expected 'owner/repo' as positional argument after 'view': %v", commandArguments)
 	}
 }
 
@@ -799,16 +799,16 @@ func TestReposTool_ListAction(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundOwner := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "testorg" {
 			foundOwner = true
 			break
 		}
 	}
 	if !foundOwner {
-		testing.Errorf("expected owner in args: %v", commandArgs)
+		testing.Errorf("expected owner in arguments: %v", commandArguments)
 	}
 }
 
@@ -854,16 +854,16 @@ func TestSearchTool_IssuesAction(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundSearchIssues := false
-	for index, argument := range commandArgs {
-		if argument == "search" && index+1 < len(commandArgs) && commandArgs[index+1] == "issues" {
+	for index, argument := range commandArguments {
+		if argument == "search" && index+1 < len(commandArguments) && commandArguments[index+1] == "issues" {
 			foundSearchIssues = true
 			break
 		}
 	}
 	if !foundSearchIssues {
-		testing.Errorf("expected 'search issues' in args: %v", commandArgs)
+		testing.Errorf("expected 'search issues' in arguments: %v", commandArguments)
 	}
 }
 
@@ -880,16 +880,16 @@ func TestSearchTool_CodeAction(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundSearchCode := false
-	for index, argument := range commandArgs {
-		if argument == "search" && index+1 < len(commandArgs) && commandArgs[index+1] == "code" {
+	for index, argument := range commandArguments {
+		if argument == "search" && index+1 < len(commandArguments) && commandArguments[index+1] == "code" {
 			foundSearchCode = true
 			break
 		}
 	}
 	if !foundSearchCode {
-		testing.Errorf("expected 'search code' in args: %v", commandArgs)
+		testing.Errorf("expected 'search code' in arguments: %v", commandArguments)
 	}
 }
 
@@ -934,16 +934,16 @@ func TestActionsTool_ListWorkflows(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundWorkflowList := false
-	for index, argument := range commandArgs {
-		if argument == "workflow" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "workflow" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundWorkflowList = true
 			break
 		}
 	}
 	if !foundWorkflowList {
-		testing.Errorf("expected 'workflow list' in args: %v", commandArgs)
+		testing.Errorf("expected 'workflow list' in arguments: %v", commandArguments)
 	}
 }
 
@@ -960,16 +960,16 @@ func TestActionsTool_ViewRun(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundRunId := false
-	for _, argument := range commandArgs {
+	for _, argument := range commandArguments {
 		if argument == "123" {
 			foundRunId = true
 			break
 		}
 	}
 	if !foundRunId {
-		testing.Errorf("expected run ID in args: %v", commandArgs)
+		testing.Errorf("expected run ID in arguments: %v", commandArguments)
 	}
 }
 
@@ -1014,16 +1014,16 @@ func TestReleasesTool_ListAction(testing *testing.T) {
 		testing.Fatalf("unexpected error: %v", err)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	foundReleaseList := false
-	for index, argument := range commandArgs {
-		if argument == "release" && index+1 < len(commandArgs) && commandArgs[index+1] == "list" {
+	for index, argument := range commandArguments {
+		if argument == "release" && index+1 < len(commandArguments) && commandArguments[index+1] == "list" {
 			foundReleaseList = true
 			break
 		}
 	}
 	if !foundReleaseList {
-		testing.Errorf("expected 'release list' in args: %v", commandArgs)
+		testing.Errorf("expected 'release list' in arguments: %v", commandArguments)
 	}
 }
 
@@ -1047,29 +1047,29 @@ func TestReleasesTool_CreateAction(testing *testing.T) {
 		testing.Errorf("expected created status in result: %s", result)
 	}
 
-	commandArgs := (*calls)[0]
+	commandArguments := (*calls)[0]
 	hasDraft := false
 	hasPrerelease := false
 	hasNotes := false
-	for index, argument := range commandArgs {
+	for index, argument := range commandArguments {
 		if argument == "--draft" {
 			hasDraft = true
 		}
 		if argument == "--prerelease" {
 			hasPrerelease = true
 		}
-		if argument == "--notes" && index+1 < len(commandArgs) && commandArgs[index+1] == "First release" {
+		if argument == "--notes" && index+1 < len(commandArguments) && commandArguments[index+1] == "First release" {
 			hasNotes = true
 		}
 	}
 	if !hasDraft {
-		testing.Error("expected --draft in args")
+		testing.Error("expected --draft in arguments")
 	}
 	if !hasPrerelease {
-		testing.Error("expected --prerelease in args")
+		testing.Error("expected --prerelease in arguments")
 	}
 	if !hasNotes {
-		testing.Error("expected --notes in args")
+		testing.Error("expected --notes in arguments")
 	}
 }
 
@@ -1137,11 +1137,11 @@ func TestToolDefinitions(t *testing.T) {
 			}
 
 			// Verify action enum exists in parameters.
-			params, ok := definition.Function.Parameters.(map[string]interface{})
+			parameters, ok := definition.Function.Parameters.(map[string]interface{})
 			if !ok {
 				t.Fatal("parameters should be a map")
 			}
-			properties, ok := params["properties"].(map[string]interface{})
+			properties, ok := parameters["properties"].(map[string]interface{})
 			if !ok {
 				t.Fatal("properties should be a map")
 			}

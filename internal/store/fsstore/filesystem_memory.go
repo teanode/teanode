@@ -122,7 +122,7 @@ func (self *fileSystemTransaction) CreateMemoryItem(ctx context.Context, item *m
 	if err := self.writeMemoryItems(scope, scopeId, records); err != nil {
 		return nil, err
 	}
-	return fsMemoryRecordToModel(record), nil
+	return fileSystemMemoryRecordToModel(record), nil
 }
 
 func (self *fileSystemTransaction) GetMemoryItem(ctx context.Context, memoryItemId string, options *store.Option) (*models.MemoryItem, error) {
@@ -134,7 +134,7 @@ func (self *fileSystemTransaction) GetMemoryItem(ctx context.Context, memoryItem
 	if !record.ArchivedAt.IsZero() {
 		return nil, store.ErrNotFound
 	}
-	return fsMemoryRecordToModel(record), nil
+	return fileSystemMemoryRecordToModel(record), nil
 }
 
 func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryItemId string, modifier func(*models.MemoryItem) error, options *store.Option) (*models.MemoryItem, error) {
@@ -146,7 +146,7 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 		return nil, store.ErrNotFound
 	}
 
-	item := fsMemoryRecordToModel(record)
+	item := fileSystemMemoryRecordToModel(record)
 	if modifierError := modifier(item); modifierError != nil {
 		return nil, modifierError
 	}
@@ -185,7 +185,7 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 	if err := self.writeMemoryItems(scope, scopeId, records); err != nil {
 		return nil, err
 	}
-	return fsMemoryRecordToModel(record), nil
+	return fileSystemMemoryRecordToModel(record), nil
 }
 
 func (self *fileSystemTransaction) DeleteMemoryItem(ctx context.Context, memoryItemId string, options *store.Option) error {
@@ -231,7 +231,7 @@ func (self *fileSystemTransaction) ListMemoryItems(ctx context.Context, scope mo
 		if len(filterTags) > 0 && !containsAllTags(record.Tags, filterTags) {
 			continue
 		}
-		items = append(items, fsMemoryRecordToModel(record))
+		items = append(items, fileSystemMemoryRecordToModel(record))
 	}
 
 	// Sort by ModifiedAt DESC (newest first).
@@ -352,7 +352,7 @@ func (self *fileSystemTransaction) findMemoryItemRecord(itemId string) (models.S
 	return "", "", nil, store.ErrNotFound
 }
 
-func fsMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {
+func fileSystemMemoryRecordToModel(record *storeMemoryItemRecord) *models.MemoryItem {
 	scope := models.Scope(record.Scope)
 	scopeId := record.ScopeID
 	content := record.Content

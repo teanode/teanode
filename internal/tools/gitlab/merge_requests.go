@@ -165,7 +165,7 @@ func (self *mergeRequestsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *mergeRequestsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action        string `json:"action"`
 		Number        int    `json:"number"`
 		Title         string `json:"title"`
@@ -193,53 +193,53 @@ func (self *mergeRequestsTool) Execute(ctx context.Context, rawArguments string)
 		CreatedBefore string `json:"created_before"`
 		Repository    string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("gitlab: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		perPage := args.PerPage
+		perPage := arguments.PerPage
 		if perPage <= 0 {
 			perPage = 30
 		}
-		page := args.Page
+		page := arguments.Page
 		if page <= 0 {
 			page = 1
 		}
-		commandArgs := []string{"mr", "list",
+		commandArguments := []string{"mr", "list",
 			"--output", "json",
 			"--page", strconv.Itoa(page),
 			"--per-page", strconv.Itoa(perPage)}
-		switch args.State {
+		switch arguments.State {
 		case "closed":
-			commandArgs = append(commandArgs, "--closed")
+			commandArguments = append(commandArguments, "--closed")
 		case "merged":
-			commandArgs = append(commandArgs, "--merged")
+			commandArguments = append(commandArguments, "--merged")
 		case "all":
-			commandArgs = append(commandArgs, "--all")
+			commandArguments = append(commandArguments, "--all")
 		case "opened", "":
 			// Default behavior: glab lists opened MRs without any flag.
 		}
-		if args.Assignee != "" {
-			commandArgs = append(commandArgs, "--assignee", args.Assignee)
+		if arguments.Assignee != "" {
+			commandArguments = append(commandArguments, "--assignee", arguments.Assignee)
 		}
-		if args.Reviewer != "" {
-			commandArgs = append(commandArgs, "--reviewer", args.Reviewer)
+		if arguments.Reviewer != "" {
+			commandArguments = append(commandArguments, "--reviewer", arguments.Reviewer)
 		}
-		if args.Author != "" {
-			commandArgs = append(commandArgs, "--author", args.Author)
+		if arguments.Author != "" {
+			commandArguments = append(commandArguments, "--author", arguments.Author)
 		}
-		if args.Group != "" && args.Repository == "" {
-			commandArgs = append(commandArgs, "--group", args.Group)
+		if arguments.Group != "" && arguments.Repository == "" {
+			commandArguments = append(commandArguments, "--group", arguments.Group)
 		}
-		if args.Search != "" {
-			commandArgs = append(commandArgs, "--search", args.Search)
+		if arguments.Search != "" {
+			commandArguments = append(commandArguments, "--search", arguments.Search)
 		}
-		order := args.Order
-		sort := args.Sort
+		order := arguments.Order
+		sort := arguments.Sort
 		if order == "" {
-			if args.State == "merged" {
+			if arguments.State == "merged" {
 				order = "merged_at"
 			} else {
 				order = "updated_at"
@@ -249,110 +249,110 @@ func (self *mergeRequestsTool) Execute(ctx context.Context, rawArguments string)
 			sort = "desc"
 		}
 		if order != "" {
-			commandArgs = append(commandArgs, "--order", order)
+			commandArguments = append(commandArguments, "--order", order)
 		}
 		if sort != "" {
-			commandArgs = append(commandArgs, "--sort", sort)
+			commandArguments = append(commandArguments, "--sort", sort)
 		}
-		if args.SourceBranch != "" {
-			commandArgs = append(commandArgs, "--source-branch", args.SourceBranch)
+		if arguments.SourceBranch != "" {
+			commandArguments = append(commandArguments, "--source-branch", arguments.SourceBranch)
 		}
-		if args.TargetBranch != "" {
-			commandArgs = append(commandArgs, "--target-branch", args.TargetBranch)
+		if arguments.TargetBranch != "" {
+			commandArguments = append(commandArguments, "--target-branch", arguments.TargetBranch)
 		}
-		commandArgs = appendStringFlags(commandArgs, "--label", args.Label)
-		commandArgs = appendStringFlags(commandArgs, "--not-label", args.NotLabel)
-		if args.Milestone != "" {
-			commandArgs = append(commandArgs, "--milestone", args.Milestone)
+		commandArguments = appendStringFlags(commandArguments, "--label", arguments.Label)
+		commandArguments = appendStringFlags(commandArguments, "--not-label", arguments.NotLabel)
+		if arguments.Milestone != "" {
+			commandArguments = append(commandArguments, "--milestone", arguments.Milestone)
 		}
-		if args.Draft {
-			commandArgs = append(commandArgs, "--draft")
+		if arguments.Draft {
+			commandArguments = append(commandArguments, "--draft")
 		}
-		if args.NotDraft {
-			commandArgs = append(commandArgs, "--not-draft")
+		if arguments.NotDraft {
+			commandArguments = append(commandArguments, "--not-draft")
 		}
-		if args.CreatedAfter != "" {
-			commandArgs = append(commandArgs, "--created-after", args.CreatedAfter)
+		if arguments.CreatedAfter != "" {
+			commandArguments = append(commandArguments, "--created-after", arguments.CreatedAfter)
 		}
-		if args.CreatedBefore != "" {
-			commandArgs = append(commandArgs, "--created-before", args.CreatedBefore)
+		if arguments.CreatedBefore != "" {
+			commandArguments = append(commandArguments, "--created-before", arguments.CreatedBefore)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	case "view":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for view action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitlab: number is required for view action")
 		}
-		commandArgs := []string{"mr", "view", strconv.Itoa(args.Number),
+		commandArguments := []string{"mr", "view", strconv.Itoa(arguments.Number),
 			"--output", "json", "--comments"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create":
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for create action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("gitlab: title is required for create action")
 		}
-		if args.Description == "" {
-			return "", fmt.Errorf("description is required for create action")
+		if arguments.Description == "" {
+			return "", fmt.Errorf("gitlab: description is required for create action")
 		}
-		if args.SourceBranch == "" {
-			return "", fmt.Errorf("source_branch is required for create action")
+		if arguments.SourceBranch == "" {
+			return "", fmt.Errorf("gitlab: source_branch is required for create action")
 		}
-		commandArgs := []string{"mr", "create",
-			"--title", args.Title, "--description", args.Description,
-			"--source-branch", args.SourceBranch}
-		if args.TargetBranch != "" {
-			commandArgs = append(commandArgs, "--target-branch", args.TargetBranch)
+		commandArguments := []string{"mr", "create",
+			"--title", arguments.Title, "--description", arguments.Description,
+			"--source-branch", arguments.SourceBranch}
+		if arguments.TargetBranch != "" {
+			commandArguments = append(commandArguments, "--target-branch", arguments.TargetBranch)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("created", output), nil
 
 	case "comment":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for comment action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitlab: number is required for comment action")
 		}
-		if args.Description == "" {
-			return "", fmt.Errorf("description is required for comment action")
+		if arguments.Description == "" {
+			return "", fmt.Errorf("gitlab: description is required for comment action")
 		}
-		commandArgs := []string{"mr", "note", strconv.Itoa(args.Number),
-			"--message", args.Description}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"mr", "note", strconv.Itoa(arguments.Number),
+			"--message", arguments.Description}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("commented", output), nil
 
 	case "merge":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for merge action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitlab: number is required for merge action")
 		}
-		commandArgs := []string{"mr", "merge", strconv.Itoa(args.Number)}
-		if args.Squash {
-			commandArgs = append(commandArgs, "--squash")
+		commandArguments := []string{"mr", "merge", strconv.Itoa(arguments.Number)}
+		if arguments.Squash {
+			commandArguments = append(commandArguments, "--squash")
 		}
-		if args.Rebase {
-			commandArgs = append(commandArgs, "--rebase")
+		if arguments.Rebase {
+			commandArguments = append(commandArguments, "--rebase")
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("merged", output), nil
 
 	case "diff":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for diff action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitlab: number is required for diff action")
 		}
-		commandArgs := []string{"mr", "diff", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"mr", "diff", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
@@ -361,18 +361,18 @@ func (self *mergeRequestsTool) Execute(ctx context.Context, rawArguments string)
 		return string(data), nil
 
 	case "approve":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for approve action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitlab: number is required for approve action")
 		}
-		commandArgs := []string{"mr", "approve", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"mr", "approve", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("approved", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown merge_requests action: %s", args.Action)
+		return "", fmt.Errorf("gitlab: unknown merge_requests action: %s", arguments.Action)
 	}
 }

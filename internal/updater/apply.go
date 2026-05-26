@@ -10,7 +10,7 @@ import (
 // ValidateApplyEnvironment reports whether in-place self-update is supported.
 func ValidateApplyEnvironment() error {
 	if runtime.GOOS == "windows" {
-		return fmt.Errorf("self-update apply is not supported on Windows yet")
+		return fmt.Errorf("updater: self-update apply is not supported on Windows yet")
 	}
 	return nil
 }
@@ -26,25 +26,25 @@ func Apply(stagedPath string) error {
 	}
 	currentPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolving current executable: %w", err)
+		return fmt.Errorf("updater: resolving current executable: %w", err)
 	}
 	currentPath, err = filepath.EvalSymlinks(currentPath)
 	if err != nil {
-		return fmt.Errorf("resolving symlinks: %w", err)
+		return fmt.Errorf("updater: resolving symlinks: %w", err)
 	}
 
 	// Safety: refuse to overwrite if the staged binary is suspiciously small.
 	stagedInfo, err := os.Stat(stagedPath)
 	if err != nil {
-		return fmt.Errorf("stat staged binary: %w", err)
+		return fmt.Errorf("updater: stat staged binary: %w", err)
 	}
 	if stagedInfo.Size() < 1<<20 { // < 1 MB is suspicious
-		return fmt.Errorf("staged binary too small (%d bytes), refusing to apply", stagedInfo.Size())
+		return fmt.Errorf("updater: staged binary too small (%d bytes), refusing to apply", stagedInfo.Size())
 	}
 
 	// Safety: verify we can rename files in the executable's directory.
 	if err := checkDirectoryWritable(filepath.Dir(currentPath)); err != nil {
-		return fmt.Errorf("executable directory not writable: %w", err)
+		return fmt.Errorf("updater: executable directory not writable: %w", err)
 	}
 
 	return platformApply(currentPath, stagedPath)
@@ -60,13 +60,13 @@ func checkDirectoryWritable(directory string) error {
 		return err
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory", directory)
+		return fmt.Errorf("updater: %s is not a directory", directory)
 	}
 
 	// Create and immediately remove a temporary file to verify write access.
 	tempFile, err := os.CreateTemp(directory, ".teanode-update-check-*")
 	if err != nil {
-		return fmt.Errorf("cannot write to directory %s: %w", directory, err)
+		return fmt.Errorf("updater: cannot write to directory %s: %w", directory, err)
 	}
 	tempPath := tempFile.Name()
 	_ = tempFile.Close()

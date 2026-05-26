@@ -57,7 +57,7 @@ func (self *Scheduler) TriggerJob(ctx context.Context, id string) error {
 		existingJob, getError := transaction.GetJob(ctx, id, nil)
 		if getError != nil {
 			if getError == store.ErrNotFound {
-				return fmt.Errorf("job not found: %s", id)
+				return fmt.Errorf("jobs: job not found: %s", id)
 			}
 			return getError
 		}
@@ -174,7 +174,7 @@ func (self *Scheduler) executeJob(job *models.Job) {
 				}
 				agentId = existingUser.GetDefaultAgentID()
 				if agentId == "" {
-					return fmt.Errorf("user %s has no default agent", existingUser.ID)
+					return fmt.Errorf("jobs: user %s has no default agent", existingUser.ID)
 				}
 			}
 			if conversationId == "" {

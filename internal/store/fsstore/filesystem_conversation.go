@@ -111,7 +111,7 @@ func (self *fileSystemTransaction) listConversations(listOptions store.Conversat
 
 func (self *fileSystemTransaction) createConversation(conversation *models.Conversation, options *store.Option) (*models.Conversation, error) {
 	if conversation == nil || conversation.UserID == nil || conversation.AgentID == nil {
-		return nil, fmt.Errorf("conversation userId and agentId are required")
+		return nil, fmt.Errorf("fsstore: conversation userId and agentId are required")
 	}
 
 	conversationId := conversation.ID

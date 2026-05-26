@@ -44,7 +44,7 @@ type profileUpdateParameters struct {
 }
 
 func (self *webSocketConnection) handleProfileUpdate(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[profileUpdateParameters](frame)
+	parameters, err := unmarshalParameters[profileUpdateParameters](frame)
 	if err != nil {
 		return nil, err
 	}

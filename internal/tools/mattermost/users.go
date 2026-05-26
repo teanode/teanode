@@ -71,7 +71,7 @@ func (self *usersTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *usersTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action        string `json:"action"`
 		Username      string `json:"username"`
 		Query         string `json:"query"`
@@ -80,41 +80,41 @@ func (self *usersTool) Execute(ctx context.Context, rawArguments string) (string
 		StatusEmoji   string `json:"status_emoji"`
 		Limit         int    `json:"limit"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("mattermost: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "me":
 		return execMattermost(ctx, self.runner, self.binary, "user", "me")
 
 	case "info":
-		if args.Username == "" {
-			return "", fmt.Errorf("username is required for info action")
+		if arguments.Username == "" {
+			return "", fmt.Errorf("mattermost: username is required for info action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "user", "info", args.Username)
+		return execMattermost(ctx, self.runner, self.binary, "user", "info", arguments.Username)
 
 	case "status":
-		commandArgs := []string{"user", "status"}
-		if args.StatusValue != "" {
-			commandArgs = append(commandArgs, args.StatusValue)
+		commandArguments := []string{"user", "status"}
+		if arguments.StatusValue != "" {
+			commandArguments = append(commandArguments, arguments.StatusValue)
 		}
-		if args.StatusMessage != "" {
-			commandArgs = append(commandArgs, "--message", args.StatusMessage)
+		if arguments.StatusMessage != "" {
+			commandArguments = append(commandArguments, "--message", arguments.StatusMessage)
 		}
-		if args.StatusEmoji != "" {
-			commandArgs = append(commandArgs, "--emoji", args.StatusEmoji)
+		if arguments.StatusEmoji != "" {
+			commandArguments = append(commandArguments, "--emoji", arguments.StatusEmoji)
 		}
-		return execMattermost(ctx, self.runner, self.binary, commandArgs...)
+		return execMattermost(ctx, self.runner, self.binary, commandArguments...)
 
 	case "search":
-		if args.Query == "" {
-			return "", fmt.Errorf("query is required for search action")
+		if arguments.Query == "" {
+			return "", fmt.Errorf("mattermost: query is required for search action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "user", "search", args.Query)
+		return execMattermost(ctx, self.runner, self.binary, "user", "search", arguments.Query)
 
 	case "list":
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 50
 		}
@@ -122,12 +122,12 @@ func (self *usersTool) Execute(ctx context.Context, rawArguments string) (string
 			"-n", fmt.Sprintf("%d", limit))
 
 	case "autocomplete":
-		if args.Query == "" {
-			return "", fmt.Errorf("query is required for autocomplete action")
+		if arguments.Query == "" {
+			return "", fmt.Errorf("mattermost: query is required for autocomplete action")
 		}
-		return execMattermost(ctx, self.runner, self.binary, "user", "autocomplete", args.Query)
+		return execMattermost(ctx, self.runner, self.binary, "user", "autocomplete", arguments.Query)
 
 	default:
-		return "", fmt.Errorf("unknown users action: %s", args.Action)
+		return "", fmt.Errorf("mattermost: unknown users action: %s", arguments.Action)
 	}
 }

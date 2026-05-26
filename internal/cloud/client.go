@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/yamux"
 
 	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/version"
 )
 
@@ -83,6 +84,7 @@ func (self *Client) Session() *yamux.Session {
 }
 
 func (self *Client) connectLoop(ctx context.Context) {
+	defer deferutil.Recover()
 	backoff := time.Second
 
 	for {
@@ -127,19 +129,19 @@ func (self *Client) connect(ctx context.Context) error {
 
 	connection, _, err := websocket.DefaultDialer.DialContext(ctx, websocketUrl, nil)
 	if err != nil {
-		return fmt.Errorf("websocket dial: %w", err)
+		return fmt.Errorf("cloud: websocket dial: %w", err)
 	}
 
 	// Perform handshake over raw websocket before starting yamux.
 	if err := self.sendHandshake(connection); err != nil {
 		_ = connection.Close()
-		return fmt.Errorf("handshake send: %w", err)
+		return fmt.Errorf("cloud: handshake send: %w", err)
 	}
 
 	replyPayload, err := receiveHandshake(connection)
 	if err != nil {
 		_ = connection.Close()
-		return fmt.Errorf("handshake reply: %w", err)
+		return fmt.Errorf("cloud: handshake reply: %w", err)
 	}
 
 	// Wrap websocket as net.Conn for yamux.
@@ -150,7 +152,7 @@ func (self *Client) connect(ctx context.Context) error {
 	session, err := yamux.Client(wrappedConnection, yamuxConfig)
 	if err != nil {
 		_ = wrappedConnection.Close()
-		return fmt.Errorf("yamux client: %w", err)
+		return fmt.Errorf("cloud: yamux client: %w", err)
 	}
 
 	self.mutex.Lock()
@@ -197,7 +199,7 @@ func (self *Client) sendHandshake(connection *websocket.Conn) error {
 
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal handshake: %w", err)
+		return fmt.Errorf("cloud: marshal handshake: %w", err)
 	}
 	return connection.WriteMessage(websocket.TextMessage, data)
 }
@@ -206,15 +208,16 @@ func (self *Client) sendHandshake(connection *websocket.Conn) error {
 func receiveHandshake(connection *websocket.Conn) ([]byte, error) {
 	messageType, data, err := connection.ReadMessage()
 	if err != nil {
-		return nil, fmt.Errorf("receive handshake: %w", err)
+		return nil, fmt.Errorf("cloud: receive handshake: %w", err)
 	}
 	if messageType != websocket.TextMessage {
-		return nil, fmt.Errorf("expected text handshake reply, got type %d", messageType)
+		return nil, fmt.Errorf("cloud: expected text handshake reply, got type %d", messageType)
 	}
 	return data, nil
 }
 
 func (self *Client) handleStream(stream io.ReadWriteCloser) {
+	defer deferutil.Recover()
 	// read the metadata prefix: [4-byte big-endian length][metadata bytes]
 	header := make([]byte, 4)
 	if _, err := io.ReadFull(stream, header); err != nil {
@@ -252,18 +255,18 @@ func (self *Client) buildUrl() (string, error) {
 	cloudUrl := self.config.GetURL()
 
 	if cloudUrl == "" {
-		return "", fmt.Errorf("cloud URL is not configured")
+		return "", fmt.Errorf("cloud: cloud URL is not configured")
 	}
 	if self.config.GetNodeID() == "" {
-		return "", fmt.Errorf("cloud node ID is not configured")
+		return "", fmt.Errorf("cloud: cloud node ID is not configured")
 	}
 	if self.config.GetNodeSecret() == "" {
-		return "", fmt.Errorf("cloud node secret is not configured")
+		return "", fmt.Errorf("cloud: cloud node secret is not configured")
 	}
 
 	parsed, err := url.Parse(cloudUrl)
 	if err != nil {
-		return "", fmt.Errorf("invalid cloud URL: %w", err)
+		return "", fmt.Errorf("cloud: invalid cloud URL: %w", err)
 	}
 
 	// convert http(s) to ws(s)
@@ -275,7 +278,7 @@ func (self *Client) buildUrl() (string, error) {
 	case "ws", "wss":
 		// already correct
 	default:
-		return "", fmt.Errorf("unsupported cloud URL scheme: %s", parsed.Scheme)
+		return "", fmt.Errorf("cloud: unsupported cloud URL scheme: %s", parsed.Scheme)
 	}
 
 	parsed.Path = "/api/node/websocket"

@@ -289,13 +289,13 @@ func TestCancelPendingForAttachment(t *testing.T) {
 
 func TestConcurrentAccess(t *testing.T) {
 	broker := NewTabBroker()
-	var wg sync.WaitGroup
+	var waitGroup sync.WaitGroup
 
 	// Concurrent attach/detach.
 	for index := 0; index < 50; index++ {
-		wg.Add(1)
+		waitGroup.Add(1)
 		go func(index int) {
-			defer wg.Done()
+			defer waitGroup.Done()
 			connectionId := "conn"
 			broker.Attach(Attachment{
 				UserID: "u1", AgentID: "a1", ConversationID: "c1",
@@ -309,9 +309,9 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Concurrent pending register/resolve.
 	for index := 0; index < 50; index++ {
-		wg.Add(1)
+		waitGroup.Add(1)
 		go func(index int) {
-			defer wg.Done()
+			defer waitGroup.Done()
 			id := fmt.Sprintf("pending-%d", index)
 			pending := &PendingToolCall{
 				ID:         id,
@@ -325,5 +325,5 @@ func TestConcurrentAccess(t *testing.T) {
 		}(index)
 	}
 
-	wg.Wait()
+	waitGroup.Wait()
 }

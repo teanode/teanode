@@ -35,7 +35,7 @@ type jobCreateParameters struct {
 
 // handleJobsCreate: create a new job.
 func (self *webSocketConnection) handleJobsCreate(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[jobCreateParameters](frame)
+	parameters, err := unmarshalParameters[jobCreateParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ type jobUpdateParameters struct {
 
 // handleJobsUpdate: update an existing job.
 func (self *webSocketConnection) handleJobsUpdate(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[jobUpdateParameters](frame)
+	parameters, err := unmarshalParameters[jobUpdateParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ type jobDeleteParameters struct {
 
 // handleJobsDelete: delete a job.
 func (self *webSocketConnection) handleJobsDelete(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[jobDeleteParameters](frame)
+	parameters, err := unmarshalParameters[jobDeleteParameters](frame)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ type jobTriggerParameters struct {
 
 // handleJobsTrigger: manually trigger a job.
 func (self *webSocketConnection) handleJobsTrigger(frame requestFrame) (interface{}, error) {
-	parameters, err := unmarshalParams[jobTriggerParameters](frame)
+	parameters, err := unmarshalParameters[jobTriggerParameters](frame)
 	if err != nil {
 		return nil, err
 	}

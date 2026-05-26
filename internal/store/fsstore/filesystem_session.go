@@ -177,13 +177,13 @@ func (self *fileSystemTransaction) readSessionRecord(userId, sessionId string) (
 
 func (self *fileSystemTransaction) writeSessionRecord(userId string, record fileSystemSessionRecord) error {
 	if record.ID == "" {
-		return fmt.Errorf("session ID is required")
+		return fmt.Errorf("fsstore: session ID is required")
 	}
 	directory := self.userSessionsDirectory(userId)
 	if makeDirectoryError := os.MkdirAll(directory, 0755); makeDirectoryError != nil {
 		return makeDirectoryError
 	}
-	return writeYAMLFile(self.userSessionFilename(userId, record.ID), record)
+	return writeYamlFile(self.userSessionFilename(userId, record.ID), record)
 }
 
 func (self *fileSystemTransaction) moveSessionToTrash(userId, sessionId string) error {

@@ -69,7 +69,7 @@ func (self *httpClient) doRequest(ctx context.Context, method string, path strin
 
 	request, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("homeassistant: creating request: %w", err)
 	}
 
 	request.Header.Set("Authorization", "Bearer "+self.token)
@@ -77,18 +77,18 @@ func (self *httpClient) doRequest(ctx context.Context, method string, path strin
 
 	response, err := self.httpClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("homeassistant: request failed: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
+		return nil, fmt.Errorf("homeassistant: reading response: %w", err)
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		// Do not leak raw HA error bodies — extract a safe message.
-		return nil, fmt.Errorf("home assistant returned HTTP %d for %s %s", response.StatusCode, method, path)
+		return nil, fmt.Errorf("homeassistant: home assistant returned HTTP %d for %s %s", response.StatusCode, method, path)
 	}
 
 	return responseBody, nil
@@ -101,7 +101,7 @@ func (self *httpClient) GetStates(ctx context.Context) ([]EntityState, error) {
 	}
 	var states []EntityState
 	if err := json.Unmarshal(data, &states); err != nil {
-		return nil, fmt.Errorf("parsing states response: %w", err)
+		return nil, fmt.Errorf("homeassistant: parsing states response: %w", err)
 	}
 	return states, nil
 }
@@ -113,7 +113,7 @@ func (self *httpClient) GetState(ctx context.Context, entityId string) (*EntityS
 	}
 	var state EntityState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("parsing state response: %w", err)
+		return nil, fmt.Errorf("homeassistant: parsing state response: %w", err)
 	}
 	return &state, nil
 }
@@ -121,7 +121,7 @@ func (self *httpClient) GetState(ctx context.Context, entityId string) (*EntityS
 func (self *httpClient) CallService(ctx context.Context, domain string, service string, data map[string]interface{}) (json.RawMessage, error) {
 	payload, err := json.Marshal(data)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling service data: %w", err)
+		return nil, fmt.Errorf("homeassistant: marshaling service data: %w", err)
 	}
 
 	path := fmt.Sprintf("/api/services/%s/%s", domain, service)

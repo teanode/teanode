@@ -49,30 +49,30 @@ func DownloadAndVerify(ctx context.Context, release *ReleaseInfo) (*DownloadResu
 	archiveName := PlatformAssetName(releaseVersion)
 	archiveAsset := release.FindAsset(archiveName)
 	if archiveAsset == nil {
-		return nil, fmt.Errorf("release %s has no asset for %s/%s (%s)", releaseVersion, runtime.GOOS, runtime.GOARCH, archiveName)
+		return nil, fmt.Errorf("updater: release %s has no asset for %s/%s (%s)", releaseVersion, runtime.GOOS, runtime.GOARCH, archiveName)
 	}
 
 	checksumName := ChecksumAssetName(releaseVersion)
 	checksumAsset := release.FindAsset(checksumName)
 	if checksumAsset == nil {
-		return nil, fmt.Errorf("release %s has no checksum file (%s)", releaseVersion, checksumName)
+		return nil, fmt.Errorf("updater: release %s has no checksum file (%s)", releaseVersion, checksumName)
 	}
 
 	// Download checksum file.
 	checksumData, err := downloadToMemory(ctx, checksumAsset.BrowserDownloadURL, maxChecksumSize)
 	if err != nil {
-		return nil, fmt.Errorf("downloading checksum file: %w", err)
+		return nil, fmt.Errorf("updater: downloading checksum file: %w", err)
 	}
 
 	expectedChecksum, err := parseChecksumForFile(checksumData, archiveName)
 	if err != nil {
-		return nil, fmt.Errorf("parsing checksum: %w", err)
+		return nil, fmt.Errorf("updater: parsing checksum: %w", err)
 	}
 
 	// Download archive to a temporary file.
 	archiveFile, err := os.CreateTemp("", "teanode-update-*.archive")
 	if err != nil {
-		return nil, fmt.Errorf("creating temp file: %w", err)
+		return nil, fmt.Errorf("updater: creating temp file: %w", err)
 	}
 	archivePath := archiveFile.Name()
 	defer func() {
@@ -81,25 +81,25 @@ func DownloadAndVerify(ctx context.Context, release *ReleaseInfo) (*DownloadResu
 	}()
 
 	if err := downloadToFile(ctx, archiveAsset.BrowserDownloadURL, archiveFile, maxArchiveSize); err != nil {
-		return nil, fmt.Errorf("downloading archive: %w", err)
+		return nil, fmt.Errorf("updater: downloading archive: %w", err)
 	}
 	if err := archiveFile.Close(); err != nil {
-		return nil, fmt.Errorf("closing archive: %w", err)
+		return nil, fmt.Errorf("updater: closing archive: %w", err)
 	}
 
 	// Verify checksum.
 	actualChecksum, err := sha256File(archivePath)
 	if err != nil {
-		return nil, fmt.Errorf("computing checksum: %w", err)
+		return nil, fmt.Errorf("updater: computing checksum: %w", err)
 	}
 	if actualChecksum != expectedChecksum {
-		return nil, fmt.Errorf("checksum mismatch: expected %s, got %s", expectedChecksum, actualChecksum)
+		return nil, fmt.Errorf("updater: checksum mismatch: expected %s, got %s", expectedChecksum, actualChecksum)
 	}
 
 	// Extract binary to a staging directory.
 	stageDirectory, err := os.MkdirTemp("", "teanode-stage-*")
 	if err != nil {
-		return nil, fmt.Errorf("creating staging directory: %w", err)
+		return nil, fmt.Errorf("updater: creating staging directory: %w", err)
 	}
 
 	targetBinaryName := binaryName
@@ -115,14 +115,14 @@ func DownloadAndVerify(ctx context.Context, release *ReleaseInfo) (*DownloadResu
 	}
 	if err != nil {
 		_ = os.RemoveAll(stageDirectory)
-		return nil, fmt.Errorf("extracting binary: %w", err)
+		return nil, fmt.Errorf("updater: extracting binary: %w", err)
 	}
 
 	// Make binary executable on Unix.
 	if runtime.GOOS != "windows" {
 		if err := os.Chmod(stagedPath, 0755); err != nil {
 			_ = os.RemoveAll(stageDirectory)
-			return nil, fmt.Errorf("setting permissions: %w", err)
+			return nil, fmt.Errorf("updater: setting permissions: %w", err)
 		}
 	}
 
@@ -150,7 +150,7 @@ func downloadToMemory(ctx context.Context, url string, maxSize int64) ([]byte, e
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("updater: HTTP %d", response.StatusCode)
 	}
 
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxSize+1))
@@ -158,7 +158,7 @@ func downloadToMemory(ctx context.Context, url string, maxSize int64) ([]byte, e
 		return nil, err
 	}
 	if int64(len(data)) > maxSize {
-		return nil, fmt.Errorf("response exceeds %d bytes", maxSize)
+		return nil, fmt.Errorf("updater: response exceeds %d bytes", maxSize)
 	}
 	return data, nil
 }
@@ -181,7 +181,7 @@ func downloadToFile(ctx context.Context, url string, file *os.File, maxSize int6
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", response.StatusCode)
+		return fmt.Errorf("updater: HTTP %d", response.StatusCode)
 	}
 
 	written, err := io.Copy(file, io.LimitReader(response.Body, maxSize+1))
@@ -189,7 +189,7 @@ func downloadToFile(ctx context.Context, url string, file *os.File, maxSize int6
 		return err
 	}
 	if written > maxSize {
-		return fmt.Errorf("response exceeds %d bytes", maxSize)
+		return fmt.Errorf("updater: response exceeds %d bytes", maxSize)
 	}
 	return nil
 }
@@ -228,7 +228,7 @@ func parseChecksumForFile(data []byte, fileName string) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("no checksum found for %s", fileName)
+	return "", fmt.Errorf("updater: no checksum found for %s", fileName)
 }
 
 // extractFromTarGz extracts a named file from a .tar.gz archive.
@@ -269,7 +269,7 @@ func extractFromTarGz(archivePath, targetName, destinationPath string) error {
 			return output.Close()
 		}
 	}
-	return fmt.Errorf("binary %q not found in archive", targetName)
+	return fmt.Errorf("updater: binary %q not found in archive", targetName)
 }
 
 // extractFromZip extracts a named file from a .zip archive.
@@ -301,5 +301,5 @@ func extractFromZip(archivePath, targetName, destinationPath string) error {
 			return output.Close()
 		}
 	}
-	return fmt.Errorf("binary %q not found in archive", targetName)
+	return fmt.Errorf("updater: binary %q not found in archive", targetName)
 }

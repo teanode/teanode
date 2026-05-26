@@ -112,7 +112,7 @@ func (self *issuesTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *issuesTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action       string `json:"action"`
 		Number       int    `json:"number"`
 		Title        string `json:"title"`
@@ -130,192 +130,192 @@ func (self *issuesTool) Execute(ctx context.Context, rawArguments string) (strin
 		PerPage      int    `json:"per_page"`
 		Repository   string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("gitlab: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		perPage := args.PerPage
+		perPage := arguments.PerPage
 		if perPage <= 0 {
 			perPage = 30
 		}
-		commandArgs := []string{"issue", "list",
+		commandArguments := []string{"issue", "list",
 			"--output", "json",
 			"--order", "updated_at",
 			"--sort", "desc",
 			"--per-page", strconv.Itoa(perPage)}
-		switch args.State {
+		switch arguments.State {
 		case "closed":
-			commandArgs = append(commandArgs, "--closed")
+			commandArguments = append(commandArguments, "--closed")
 		case "all":
-			commandArgs = append(commandArgs, "--all")
+			commandArguments = append(commandArguments, "--all")
 		case "opened", "":
 			// Default behavior: glab lists opened issues without any flag.
 		}
-		if args.Assignee != "" {
-			commandArgs = append(commandArgs, "--assignee", args.Assignee)
+		if arguments.Assignee != "" {
+			commandArguments = append(commandArguments, "--assignee", arguments.Assignee)
 		}
-		if args.Author != "" {
-			commandArgs = append(commandArgs, "--author", args.Author)
+		if arguments.Author != "" {
+			commandArguments = append(commandArguments, "--author", arguments.Author)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	case "view":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for view action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitlab: number is required for view action")
 		}
-		commandArgs := []string{"issue", "view", strconv.Itoa(args.Number),
+		commandArguments := []string{"issue", "view", strconv.Itoa(arguments.Number),
 			"--output", "json", "--comments"}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitLab(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create":
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for create action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("gitlab: title is required for create action")
 		}
-		if args.Description == "" {
-			return "", fmt.Errorf("description is required for create action")
+		if arguments.Description == "" {
+			return "", fmt.Errorf("gitlab: description is required for create action")
 		}
-		commandArgs := []string{"issue", "create",
-			"--title", args.Title, "--description", args.Description}
-		if args.Labels != "" {
-			commandArgs = append(commandArgs, "--label", args.Labels)
+		commandArguments := []string{"issue", "create",
+			"--title", arguments.Title, "--description", arguments.Description}
+		if arguments.Labels != "" {
+			commandArguments = append(commandArguments, "--label", arguments.Labels)
 		}
-		if args.Assignees != "" {
-			commandArgs = append(commandArgs, "--assignee", args.Assignees)
+		if arguments.Assignees != "" {
+			commandArguments = append(commandArguments, "--assignee", arguments.Assignees)
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("created", output), nil
 
 	case "comment":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for comment action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitlab: number is required for comment action")
 		}
-		if args.Description == "" {
-			return "", fmt.Errorf("description is required for comment action")
+		if arguments.Description == "" {
+			return "", fmt.Errorf("gitlab: description is required for comment action")
 		}
-		commandArgs := []string{"issue", "note", strconv.Itoa(args.Number),
-			"--message", args.Description}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"issue", "note", strconv.Itoa(arguments.Number),
+			"--message", arguments.Description}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("commented", output), nil
 
 	case "close":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for close action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitlab: number is required for close action")
 		}
-		commandArgs := []string{"issue", "close", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"issue", "close", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("closed", output), nil
 
 	case "reopen":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for reopen action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitlab: number is required for reopen action")
 		}
-		commandArgs := []string{"issue", "reopen", strconv.Itoa(args.Number)}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		commandArguments := []string{"issue", "reopen", strconv.Itoa(arguments.Number)}
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("reopened", output), nil
 
 	case "edit":
-		if args.Number == 0 {
-			return "", fmt.Errorf("number is required for edit action")
+		if arguments.Number == 0 {
+			return "", fmt.Errorf("gitlab: number is required for edit action")
 		}
-		hasUpdate := args.Title != "" || args.Description != "" || args.Labels != "" ||
-			args.Unlabel != "" || args.Assignees != "" || args.Unassign ||
-			args.Milestone != "" || args.DueDate != "" || args.Confidential != nil
+		hasUpdate := arguments.Title != "" || arguments.Description != "" || arguments.Labels != "" ||
+			arguments.Unlabel != "" || arguments.Assignees != "" || arguments.Unassign ||
+			arguments.Milestone != "" || arguments.DueDate != "" || arguments.Confidential != nil
 		if !hasUpdate {
-			return "", fmt.Errorf("at least one field to update is required (title, description, labels, unlabel, assignees, unassign, milestone, due_date, confidential)")
+			return "", fmt.Errorf("gitlab: at least one field to update is required (title, description, labels, unlabel, assignees, unassign, milestone, due_date, confidential)")
 		}
-		commandArgs := []string{"issue", "update", strconv.Itoa(args.Number)}
-		if args.Title != "" {
-			commandArgs = append(commandArgs, "--title", args.Title)
+		commandArguments := []string{"issue", "update", strconv.Itoa(arguments.Number)}
+		if arguments.Title != "" {
+			commandArguments = append(commandArguments, "--title", arguments.Title)
 		}
-		if args.Description != "" {
-			commandArgs = append(commandArgs, "--description", args.Description)
+		if arguments.Description != "" {
+			commandArguments = append(commandArguments, "--description", arguments.Description)
 		}
-		if args.Labels != "" {
-			commandArgs = append(commandArgs, "--label", args.Labels)
+		if arguments.Labels != "" {
+			commandArguments = append(commandArguments, "--label", arguments.Labels)
 		}
-		if args.Unlabel != "" {
-			commandArgs = append(commandArgs, "--unlabel", args.Unlabel)
+		if arguments.Unlabel != "" {
+			commandArguments = append(commandArguments, "--unlabel", arguments.Unlabel)
 		}
-		if args.Assignees != "" {
-			commandArgs = append(commandArgs, "--assignee", args.Assignees)
+		if arguments.Assignees != "" {
+			commandArguments = append(commandArguments, "--assignee", arguments.Assignees)
 		}
-		if args.Unassign {
-			commandArgs = append(commandArgs, "--unassign")
+		if arguments.Unassign {
+			commandArguments = append(commandArguments, "--unassign")
 		}
-		if args.Milestone != "" {
-			commandArgs = append(commandArgs, "--milestone", args.Milestone)
+		if arguments.Milestone != "" {
+			commandArguments = append(commandArguments, "--milestone", arguments.Milestone)
 		}
-		if args.DueDate != "" {
-			commandArgs = append(commandArgs, "--due-date", args.DueDate)
+		if arguments.DueDate != "" {
+			commandArguments = append(commandArguments, "--due-date", arguments.DueDate)
 		}
-		if args.Confidential != nil {
-			if *args.Confidential {
-				commandArgs = append(commandArgs, "--confidential")
+		if arguments.Confidential != nil {
+			if *arguments.Confidential {
+				commandArguments = append(commandArguments, "--confidential")
 			} else {
-				commandArgs = append(commandArgs, "--public")
+				commandArguments = append(commandArguments, "--public")
 			}
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitLab(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitLab(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("edited", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown issues action: %s", args.Action)
+		return "", fmt.Errorf("gitlab: unknown issues action: %s", arguments.Action)
 	}
 }
 
 // appendRepository adds the -R flag if repository is non-empty.
-func appendRepository(commandArgs *[]string, repository string) {
+func appendRepository(commandArguments *[]string, repository string) {
 	if repository != "" {
-		*commandArgs = append(*commandArgs, "-R", repository)
+		*commandArguments = append(*commandArguments, "-R", repository)
 	}
 }
 
 // appendStringFlags appends repeated string flags from either a string or []string input.
-func appendStringFlags(commandArgs []string, flag string, value any) []string {
+func appendStringFlags(commandArguments []string, flag string, value any) []string {
 	switch typed := value.(type) {
 	case string:
 		if typed != "" {
-			commandArgs = append(commandArgs, flag, typed)
+			commandArguments = append(commandArguments, flag, typed)
 		}
 	case []any:
 		for _, raw := range typed {
 			text, ok := raw.(string)
 			if ok && text != "" {
-				commandArgs = append(commandArgs, flag, text)
+				commandArguments = append(commandArguments, flag, text)
 			}
 		}
 	case []string:
 		for _, text := range typed {
 			if text != "" {
-				commandArgs = append(commandArgs, flag, text)
+				commandArguments = append(commandArguments, flag, text)
 			}
 		}
 	}
-	return commandArgs
+	return commandArguments
 }
 
 // wrapPlainOutput wraps non-JSON command output in a JSON envelope.

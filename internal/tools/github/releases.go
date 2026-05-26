@@ -78,7 +78,7 @@ func (self *releasesTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *releasesTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action     string `json:"action"`
 		Tag        string `json:"tag"`
 		Title      string `json:"title"`
@@ -88,47 +88,47 @@ func (self *releasesTool) Execute(ctx context.Context, rawArguments string) (str
 		Limit      int    `json:"limit"`
 		Repository string `json:"repository"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("github: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		limit := args.Limit
+		limit := arguments.Limit
 		if limit <= 0 {
 			limit = 30
 		}
-		commandArgs := []string{"release", "list",
+		commandArguments := []string{"release", "list",
 			"--json", "tagName,name,isDraft,isPrerelease,publishedAt",
 			"--limit", strconv.Itoa(limit)}
-		appendRepository(&commandArgs, args.Repository)
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	case "create":
-		if args.Tag == "" {
-			return "", fmt.Errorf("tag is required for create action")
+		if arguments.Tag == "" {
+			return "", fmt.Errorf("github: tag is required for create action")
 		}
-		if args.Title == "" {
-			return "", fmt.Errorf("title is required for create action")
+		if arguments.Title == "" {
+			return "", fmt.Errorf("github: title is required for create action")
 		}
-		commandArgs := []string{"release", "create", args.Tag, "--title", args.Title}
-		if args.Notes != "" {
-			commandArgs = append(commandArgs, "--notes", args.Notes)
+		commandArguments := []string{"release", "create", arguments.Tag, "--title", arguments.Title}
+		if arguments.Notes != "" {
+			commandArguments = append(commandArguments, "--notes", arguments.Notes)
 		}
-		if args.Draft {
-			commandArgs = append(commandArgs, "--draft")
+		if arguments.Draft {
+			commandArguments = append(commandArguments, "--draft")
 		}
-		if args.Prerelease {
-			commandArgs = append(commandArgs, "--prerelease")
+		if arguments.Prerelease {
+			commandArguments = append(commandArguments, "--prerelease")
 		}
-		appendRepository(&commandArgs, args.Repository)
-		output, err := execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		appendRepository(&commandArguments, arguments.Repository)
+		output, err := execGitHub(ctx, self.runner, self.binary, commandArguments...)
 		if err != nil {
 			return "", err
 		}
 		return wrapPlainOutput("created", output), nil
 
 	default:
-		return "", fmt.Errorf("unknown releases action: %s", args.Action)
+		return "", fmt.Errorf("github: unknown releases action: %s", arguments.Action)
 	}
 }

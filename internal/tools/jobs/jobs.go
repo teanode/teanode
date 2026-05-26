@@ -116,12 +116,12 @@ func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string,
 		Enabled           *bool  `json:"enabled"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("jobs: parsing arguments: %w", err)
 	}
 
 	user := models.UserFromContext(ctx)
 	if user == nil || user.ID == "" {
-		return "", fmt.Errorf("authenticated user context is required")
+		return "", fmt.Errorf("jobs: authenticated user context is required")
 	}
 	userId := user.ID
 
@@ -137,7 +137,7 @@ func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string,
 	case "trigger":
 		return self.executeTrigger(ctx, userId, arguments.ID)
 	default:
-		return "", fmt.Errorf("unknown jobs action: %s", arguments.Action)
+		return "", fmt.Errorf("jobs: unknown jobs action: %s", arguments.Action)
 	}
 }
 
@@ -162,13 +162,13 @@ func (self *jobsTool) executeList(ctx context.Context, userId string) (string, e
 
 func (self *jobsTool) executeCreate(ctx context.Context, userId string, name string, schedule string, message string, providerModelName string, agentId string, delay string, oneShot *bool) (string, error) {
 	if name == "" || message == "" {
-		return "", fmt.Errorf("name and message are required")
+		return "", fmt.Errorf("jobs: name and message are required")
 	}
 	if delay != "" && schedule != "" {
-		return "", fmt.Errorf("provide either 'schedule' or 'delay', not both")
+		return "", fmt.Errorf("jobs: provide either 'schedule' or 'delay', not both")
 	}
 	if delay == "" && schedule == "" {
-		return "", fmt.Errorf("either 'schedule' or 'delay' is required")
+		return "", fmt.Errorf("jobs: either 'schedule' or 'delay' is required")
 	}
 
 	isOneShot := false
@@ -178,10 +178,10 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 	if delay != "" {
 		duration, parseError := time.ParseDuration(delay)
 		if parseError != nil {
-			return "", fmt.Errorf("invalid delay %q: %w (use Go duration format: '30m', '1h', '2h30m')", delay, parseError)
+			return "", fmt.Errorf("jobs: invalid delay %q: %w (use Go duration format: '30m', '1h', '2h30m')", delay, parseError)
 		}
 		if duration < time.Minute {
-			return "", fmt.Errorf("delay must be at least 1 minute, got %s", duration)
+			return "", fmt.Errorf("jobs: delay must be at least 1 minute, got %s", duration)
 		}
 		runAtValue := time.Now().Add(duration)
 		runAt = &runAtValue
@@ -190,7 +190,7 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 		conversationId = runners.RunnerFromContext(ctx).ConversationID
 	} else {
 		if _, parseError := cronexpr.Parse(schedule); parseError != nil {
-			return "", fmt.Errorf("invalid schedule expression: %w", parseError)
+			return "", fmt.Errorf("jobs: invalid schedule expression: %w", parseError)
 		}
 	}
 
@@ -215,7 +215,7 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 		_, createError := transaction.CreateJob(ctx, &job, nil)
 		return createError
 	}); err != nil {
-		return "", fmt.Errorf("creating job: %w", err)
+		return "", fmt.Errorf("jobs: creating job: %w", err)
 	}
 
 	response := map[string]interface{}{
@@ -236,7 +236,7 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 
 func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name string, schedule string, message string, providerModelName string, enabled *bool) (string, error) {
 	if id == "" {
-		return "", fmt.Errorf("id is required")
+		return "", fmt.Errorf("jobs: id is required")
 	}
 
 	var job *models.Job
@@ -251,7 +251,7 @@ func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name
 		job = existingJob
 		return nil
 	}); err != nil {
-		return "", fmt.Errorf("job not found: %s", id)
+		return "", fmt.Errorf("jobs: job not found: %s", id)
 	}
 
 	if name != "" {
@@ -259,7 +259,7 @@ func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name
 	}
 	if schedule != "" {
 		if _, err := cronexpr.Parse(schedule); err != nil {
-			return "", fmt.Errorf("invalid schedule expression: %w", err)
+			return "", fmt.Errorf("jobs: invalid schedule expression: %w", err)
 		}
 		job.Schedule = ptrto.Value(schedule)
 	}
@@ -281,7 +281,7 @@ func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name
 		}, nil)
 		return modifyError
 	}); err != nil {
-		return "", fmt.Errorf("updating job: %w", err)
+		return "", fmt.Errorf("jobs: updating job: %w", err)
 	}
 
 	result, _ := json.Marshal(map[string]interface{}{
@@ -295,7 +295,7 @@ func (self *jobsTool) executeUpdate(ctx context.Context, userId, id string, name
 
 func (self *jobsTool) executeDelete(ctx context.Context, userId, id string) (string, error) {
 	if id == "" {
-		return "", fmt.Errorf("id is required")
+		return "", fmt.Errorf("jobs: id is required")
 	}
 
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
@@ -308,7 +308,7 @@ func (self *jobsTool) executeDelete(ctx context.Context, userId, id string) (str
 		}
 		return transaction.DeleteJob(ctx, id, nil)
 	}); err != nil {
-		return "", fmt.Errorf("deleting job: %w", err)
+		return "", fmt.Errorf("jobs: deleting job: %w", err)
 	}
 
 	result, _ := json.Marshal(map[string]interface{}{
@@ -321,7 +321,7 @@ func (self *jobsTool) executeDelete(ctx context.Context, userId, id string) (str
 
 func (self *jobsTool) executeTrigger(ctx context.Context, userId string, id string) (string, error) {
 	if id == "" {
-		return "", fmt.Errorf("id is required")
+		return "", fmt.Errorf("jobs: id is required")
 	}
 
 	// Verify ownership before triggering.
@@ -335,7 +335,7 @@ func (self *jobsTool) executeTrigger(ctx context.Context, userId string, id stri
 		}
 		return nil
 	}); err != nil {
-		return "", fmt.Errorf("job not found: %s", id)
+		return "", fmt.Errorf("jobs: job not found: %s", id)
 	}
 
 	if err := jobscore.SchedulerFromContext(ctx).TriggerJob(ctx, id); err != nil {

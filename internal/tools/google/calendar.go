@@ -79,7 +79,7 @@ func (self *calendarTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *calendarTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action      string `json:"action"`
 		Days        int    `json:"days"`
 		Query       string `json:"query"`
@@ -90,13 +90,13 @@ func (self *calendarTool) Execute(ctx context.Context, rawArguments string) (str
 		Attendees   string `json:"attendees"`
 		EventID     string `json:"event_id"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("google: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "list":
-		days := args.Days
+		days := arguments.Days
 		if days <= 0 {
 			days = 7
 		}
@@ -104,40 +104,40 @@ func (self *calendarTool) Execute(ctx context.Context, rawArguments string) (str
 			"calendar", "events", "primary", "--days", strconv.Itoa(days))
 
 	case "search":
-		if args.Query == "" {
-			return "", fmt.Errorf("query is required for search action")
+		if arguments.Query == "" {
+			return "", fmt.Errorf("google: query is required for search action")
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"calendar", "search", args.Query)
+			"calendar", "search", arguments.Query)
 
 	case "create":
-		if args.Summary == "" {
-			return "", fmt.Errorf("summary is required for create action")
+		if arguments.Summary == "" {
+			return "", fmt.Errorf("google: summary is required for create action")
 		}
-		if args.From == "" {
-			return "", fmt.Errorf("from is required for create action")
+		if arguments.From == "" {
+			return "", fmt.Errorf("google: from is required for create action")
 		}
-		if args.To == "" {
-			return "", fmt.Errorf("to is required for create action")
+		if arguments.To == "" {
+			return "", fmt.Errorf("google: to is required for create action")
 		}
 		commandArguments := []string{"calendar", "create", "primary",
-			"--summary", args.Summary, "--from", args.From, "--to", args.To}
-		if args.Description != "" {
-			commandArguments = append(commandArguments, "--description", args.Description)
+			"--summary", arguments.Summary, "--from", arguments.From, "--to", arguments.To}
+		if arguments.Description != "" {
+			commandArguments = append(commandArguments, "--description", arguments.Description)
 		}
-		if args.Attendees != "" {
-			commandArguments = append(commandArguments, "--attendees", args.Attendees)
+		if arguments.Attendees != "" {
+			commandArguments = append(commandArguments, "--attendees", arguments.Attendees)
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account, commandArguments...)
 
 	case "delete":
-		if args.EventID == "" {
-			return "", fmt.Errorf("event_id is required for delete action")
+		if arguments.EventID == "" {
+			return "", fmt.Errorf("google: event_id is required for delete action")
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account,
-			"calendar", "delete", "primary", args.EventID)
+			"calendar", "delete", "primary", arguments.EventID)
 
 	default:
-		return "", fmt.Errorf("unknown calendar action: %s", args.Action)
+		return "", fmt.Errorf("google: unknown calendar action: %s", arguments.Action)
 	}
 }

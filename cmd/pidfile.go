@@ -12,7 +12,7 @@ import (
 	"github.com/teanode/teanode/internal/util/atomicfile"
 )
 
-var errInvalidPidFile = errors.New("invalid pid file")
+var errInvalidPidFile = errors.New("cmd: invalid pid file")
 
 type pidGuard struct {
 	path string
@@ -26,26 +26,26 @@ func acquirePidGuard(ctx context.Context) (*pidGuard, error) {
 	switch {
 	case err == nil:
 		if processExists(existingPid) {
-			return nil, fmt.Errorf("node already running (pid %d)", existingPid)
+			return nil, fmt.Errorf("cmd: node already running (pid %d)", existingPid)
 		}
 		log.Warningf("removing stale node pid file at %s (pid %d not running)", pidFilename, existingPid)
 		if err := os.Remove(pidFilename); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("remove stale node pid file: %w", err)
+			return nil, fmt.Errorf("cmd: remove stale node pid file: %w", err)
 		}
 	case errors.Is(err, os.ErrNotExist):
 		// No existing pid file.
 	case errors.Is(err, errInvalidPidFile):
 		log.Warningf("removing invalid node pid file at %s: %v", pidFilename, err)
 		if err := os.Remove(pidFilename); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("remove invalid node pid file: %w", err)
+			return nil, fmt.Errorf("cmd: remove invalid node pid file: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("read node pid file: %w", err)
+		return nil, fmt.Errorf("cmd: read node pid file: %w", err)
 	}
 
 	currentPid := os.Getpid()
 	if err := atomicfile.WriteFile(pidFilename, []byte(strconv.Itoa(currentPid)+"\n")); err != nil {
-		return nil, fmt.Errorf("write node pid file: %w", err)
+		return nil, fmt.Errorf("cmd: write node pid file: %w", err)
 	}
 	return &pidGuard{path: pidFilename, pid: currentPid}, nil
 }
@@ -79,18 +79,18 @@ func findNodeProcess(ctx context.Context) (int, error) {
 	switch {
 	case err == nil:
 	case errors.Is(err, os.ErrNotExist):
-		return 0, fmt.Errorf("node is not running (pid file not found: %s)", pidFilename)
+		return 0, fmt.Errorf("cmd: node is not running (pid file not found: %s)", pidFilename)
 	case errors.Is(err, errInvalidPidFile):
-		return 0, fmt.Errorf("node pid file is invalid: %s", pidFilename)
+		return 0, fmt.Errorf("cmd: node pid file is invalid: %s", pidFilename)
 	default:
-		return 0, fmt.Errorf("read node pid file: %w", err)
+		return 0, fmt.Errorf("cmd: read node pid file: %w", err)
 	}
 
 	if !processExists(pid) {
 		if removeErr := os.Remove(pidFilename); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			log.Warningf("failed to remove stale node pid file %s: %v", pidFilename, removeErr)
 		}
-		return 0, fmt.Errorf("node is not running (stale pid file removed: %s)", pidFilename)
+		return 0, fmt.Errorf("cmd: node is not running (stale pid file removed: %s)", pidFilename)
 	}
 
 	return pid, nil
@@ -104,7 +104,7 @@ func readPidFile(path string) (int, error) {
 	value := strings.TrimSpace(string(data))
 	pid, err := strconv.Atoi(value)
 	if err != nil || pid <= 0 {
-		return 0, fmt.Errorf("%w: %q", errInvalidPidFile, value)
+		return 0, fmt.Errorf("cmd: %w: %q", errInvalidPidFile, value)
 	}
 	return pid, nil
 }

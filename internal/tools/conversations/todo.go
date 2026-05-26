@@ -146,7 +146,7 @@ func (self *conversationTodoTool) Execute(ctx context.Context, rawArguments stri
 		Items          []batchItem `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("conversations: parsing arguments: %w", err)
 	}
 
 	// Resolve conversation ID from arguments or runner context.
@@ -158,13 +158,13 @@ func (self *conversationTodoTool) Execute(ctx context.Context, rawArguments stri
 		}
 	}
 	if conversationId == "" {
-		return "", fmt.Errorf("conversationId is required")
+		return "", fmt.Errorf("conversations: conversationId is required")
 	}
 
 	// Verify ownership: the requesting user must own the conversation or be admin.
 	user := models.UserFromContext(ctx)
 	if user == nil {
-		return "", fmt.Errorf("authentication required")
+		return "", fmt.Errorf("conversations: authentication required")
 	}
 
 	var conversation *models.Conversation
@@ -176,11 +176,11 @@ func (self *conversationTodoTool) Execute(ctx context.Context, rawArguments stri
 		conversation = conv
 		return nil
 	}); err != nil {
-		return "", fmt.Errorf("conversation not found: %s", conversationId)
+		return "", fmt.Errorf("conversations: conversation not found: %s", conversationId)
 	}
 
 	if conversation.GetUserID() != user.ID && !user.GetAdmin() {
-		return "", fmt.Errorf("access denied: conversation belongs to another user")
+		return "", fmt.Errorf("conversations: access denied: conversation belongs to another user")
 	}
 
 	switch arguments.Action {
@@ -191,7 +191,7 @@ func (self *conversationTodoTool) Execute(ctx context.Context, rawArguments stri
 	case "prune":
 		return self.executePrune(ctx, conversationId, user.ID)
 	default:
-		return "", fmt.Errorf("unknown conversation_todo action: %s", arguments.Action)
+		return "", fmt.Errorf("conversations: unknown conversation_todo action: %s", arguments.Action)
 	}
 }
 
@@ -223,10 +223,10 @@ func (self *conversationTodoTool) executeList(ctx context.Context, conversationI
 
 func (self *conversationTodoTool) executeBatch(ctx context.Context, conversationId, userId string, items []batchItem) (string, error) {
 	if len(items) == 0 {
-		return "", fmt.Errorf("items is required and must contain 1-50 entries")
+		return "", fmt.Errorf("conversations: items is required and must contain 1-50 entries")
 	}
 	if len(items) > 50 {
-		return "", fmt.Errorf("items must contain at most 50 entries, got %d", len(items))
+		return "", fmt.Errorf("conversations: items must contain at most 50 entries, got %d", len(items))
 	}
 
 	results := make([]batchResult, len(items))

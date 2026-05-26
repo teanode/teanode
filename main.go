@@ -54,7 +54,7 @@ func main() {
 			if value := command.String("log-level"); value != "" {
 				parsed, err := logging.LogLevel(strings.ToUpper(value))
 				if err != nil {
-					return ctx, fmt.Errorf("invalid log level %q: %w", value, err)
+					return ctx, fmt.Errorf("main: invalid log level %q: %w", value, err)
 				}
 				level = parsed
 			}

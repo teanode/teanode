@@ -49,20 +49,20 @@ func parseSemver(version string) (semver, error) {
 
 	parts := strings.SplitN(version, ".", 3)
 	if len(parts) != 3 {
-		return semver{}, fmt.Errorf("invalid semver: %q", version)
+		return semver{}, fmt.Errorf("updater: invalid semver: %q", version)
 	}
 
 	major, err := strconv.Atoi(parts[0])
 	if err != nil {
-		return semver{}, fmt.Errorf("invalid major version: %w", err)
+		return semver{}, fmt.Errorf("updater: invalid major version: %w", err)
 	}
 	minor, err := strconv.Atoi(parts[1])
 	if err != nil {
-		return semver{}, fmt.Errorf("invalid minor version: %w", err)
+		return semver{}, fmt.Errorf("updater: invalid minor version: %w", err)
 	}
 	patch, err := strconv.Atoi(parts[2])
 	if err != nil {
-		return semver{}, fmt.Errorf("invalid patch version: %w", err)
+		return semver{}, fmt.Errorf("updater: invalid patch version: %w", err)
 	}
 
 	return semver{
@@ -78,11 +78,11 @@ func parseSemver(version string) (semver, error) {
 func IsNewer(remoteVersion, localVersion string) (bool, error) {
 	remote, err := parseSemver(remoteVersion)
 	if err != nil {
-		return false, fmt.Errorf("parsing remote version: %w", err)
+		return false, fmt.Errorf("updater: parsing remote version: %w", err)
 	}
 	local, err := parseSemver(localVersion)
 	if err != nil {
-		return false, fmt.Errorf("parsing local version: %w", err)
+		return false, fmt.Errorf("updater: parsing local version: %w", err)
 	}
 
 	if remote.Major != local.Major {

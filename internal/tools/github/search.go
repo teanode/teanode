@@ -57,44 +57,44 @@ func (self *searchTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *searchTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action string `json:"action"`
 		Query  string `json:"query"`
 		Limit  int    `json:"limit"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("github: parsing arguments: %w", err)
 	}
 
-	if args.Query == "" {
-		return "", fmt.Errorf("query is required for search action")
+	if arguments.Query == "" {
+		return "", fmt.Errorf("github: query is required for search action")
 	}
 
-	limit := args.Limit
+	limit := arguments.Limit
 	if limit <= 0 {
 		limit = 30
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "issues":
-		commandArgs := []string{"search", "issues", args.Query,
+		commandArguments := []string{"search", "issues", arguments.Query,
 			"--json", "number,title,state,repository",
 			"--limit", strconv.Itoa(limit)}
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	case "pulls":
-		commandArgs := []string{"search", "prs", args.Query,
+		commandArguments := []string{"search", "prs", arguments.Query,
 			"--json", "number,title,state,repository",
 			"--limit", strconv.Itoa(limit)}
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	case "code":
-		commandArgs := []string{"search", "code", args.Query,
+		commandArguments := []string{"search", "code", arguments.Query,
 			"--json", "path,repository,textMatches",
 			"--limit", strconv.Itoa(limit)}
-		return execGitHub(ctx, self.runner, self.binary, commandArgs...)
+		return execGitHub(ctx, self.runner, self.binary, commandArguments...)
 
 	default:
-		return "", fmt.Errorf("unknown search action: %s", args.Action)
+		return "", fmt.Errorf("github: unknown search action: %s", arguments.Action)
 	}
 }

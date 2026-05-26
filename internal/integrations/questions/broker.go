@@ -69,7 +69,7 @@ func (self *QuestionBroker) Answer(questionId string, payload AnswerPayload) err
 	}
 	self.mutex.Unlock()
 	if !ok {
-		return fmt.Errorf("question not found or already answered: %s", questionId)
+		return fmt.Errorf("questions: question not found or already answered: %s", questionId)
 	}
 	q.answerChan <- payload
 	return nil
@@ -107,10 +107,10 @@ func (self *QuestionBroker) VerifyOwnership(questionId, callerUserId string) err
 	q, ok := self.pending[questionId]
 	self.mutex.Unlock()
 	if !ok {
-		return fmt.Errorf("question not found: %s", questionId)
+		return fmt.Errorf("questions: question not found: %s", questionId)
 	}
 	if q.UserID != callerUserId {
-		return fmt.Errorf("not authorized to answer this question")
+		return fmt.Errorf("questions: not authorized to answer this question")
 	}
 	return nil
 }
@@ -127,10 +127,10 @@ func (self *QuestionBroker) AnswerBatch(answers map[string]AnswerPayload, caller
 	for qid := range answers {
 		q, ok := self.pending[qid]
 		if !ok {
-			return fmt.Errorf("question not found or already answered: %s", qid)
+			return fmt.Errorf("questions: question not found or already answered: %s", qid)
 		}
 		if q.UserID != callerUserId {
-			return fmt.Errorf("not authorized to answer question: %s", qid)
+			return fmt.Errorf("questions: not authorized to answer question: %s", qid)
 		}
 		questions[qid] = q
 	}

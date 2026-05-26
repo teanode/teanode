@@ -271,10 +271,10 @@ func (self *webSocketConnection) loadConfiguration() (*models.Configuration, err
 }
 
 // agentAvatarMediaId returns the avatar media ID for the given agent.
-func (self *webSocketConnection) agentAvatarMediaId(agentID string) string {
+func (self *webSocketConnection) agentAvatarMediaId(agentId string) string {
 	avatarMediaId := ""
 	_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		agent, err := transaction.GetAgent(ctx, agentID, nil)
+		agent, err := transaction.GetAgent(ctx, agentId, nil)
 		if err != nil {
 			return nil
 		}
@@ -318,11 +318,11 @@ func (self *webSocketConnection) verifyConversationAccess(conversationId string)
 	return nil
 }
 
-// unmarshalParams unmarshals the request frame params into the given pointer.
-func unmarshalParams[T any](frame requestFrame) (T, error) {
-	var params T
-	if err := json.Unmarshal(frame.Params, &params); err != nil {
-		return params, rpcError(400, "invalid parameters: "+err.Error())
+// unmarshalParameters unmarshals the request frame parameters into the given pointer.
+func unmarshalParameters[T any](frame requestFrame) (T, error) {
+	var parameters T
+	if err := json.Unmarshal(frame.Parameters, &parameters); err != nil {
+		return parameters, rpcError(400, "invalid parameters: "+err.Error())
 	}
-	return params, nil
+	return parameters, nil
 }

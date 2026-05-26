@@ -54,34 +54,34 @@ func (self *contactsTool) PolicyGroups() []tools.PolicyGroup {
 }
 
 func (self *contactsTool) Execute(ctx context.Context, rawArguments string) (string, error) {
-	var args struct {
+	var arguments struct {
 		Action string `json:"action"`
 		Query  string `json:"query"`
 		Limit  int    `json:"limit"`
 	}
-	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return "", fmt.Errorf("google: parsing arguments: %w", err)
 	}
 
-	switch args.Action {
+	switch arguments.Action {
 	case "search":
-		if args.Query == "" {
-			return "", fmt.Errorf("query is required for search action")
+		if arguments.Query == "" {
+			return "", fmt.Errorf("google: query is required for search action")
 		}
-		commandArguments := []string{"contacts", "search", args.Query}
-		if args.Limit > 0 {
-			commandArguments = append(commandArguments, "--max", strconv.Itoa(args.Limit))
+		commandArguments := []string{"contacts", "search", arguments.Query}
+		if arguments.Limit > 0 {
+			commandArguments = append(commandArguments, "--max", strconv.Itoa(arguments.Limit))
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account, commandArguments...)
 
 	case "list":
 		commandArguments := []string{"contacts", "list"}
-		if args.Limit > 0 {
-			commandArguments = append(commandArguments, "--max", strconv.Itoa(args.Limit))
+		if arguments.Limit > 0 {
+			commandArguments = append(commandArguments, "--max", strconv.Itoa(arguments.Limit))
 		}
 		return execGog(ctx, self.runner, self.binary, configurationFromContext(ctx).account, commandArguments...)
 
 	default:
-		return "", fmt.Errorf("unknown contacts action: %s", args.Action)
+		return "", fmt.Errorf("google: unknown contacts action: %s", arguments.Action)
 	}
 }

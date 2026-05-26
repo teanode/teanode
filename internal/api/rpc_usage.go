@@ -21,8 +21,8 @@ func (self *webSocketConnection) handleListUsages(frame requestFrame) (interface
 		ModelName    *string `json:"modelName"`
 		UserID       *string `json:"userId"`
 	}
-	if frame.Params != nil {
-		_ = json.Unmarshal(frame.Params, &parameters)
+	if frame.Parameters != nil {
+		_ = json.Unmarshal(frame.Parameters, &parameters)
 	}
 
 	intervalType := timeutil.IntervalType(parameters.IntervalType)

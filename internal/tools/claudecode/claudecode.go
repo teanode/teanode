@@ -195,11 +195,11 @@ func (self *claudeCodeTool) Execute(ctx context.Context, rawArguments string) (s
 		TimeoutSeconds   int    `json:"timeoutSeconds"`
 	}
 	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
-		return "", fmt.Errorf("parsing arguments: %w", err)
+		return "", fmt.Errorf("claudecode: parsing arguments: %w", err)
 	}
 
 	if arguments.Prompt == "" {
-		return "", fmt.Errorf("prompt is required")
+		return "", fmt.Errorf("claudecode: prompt is required")
 	}
 
 	commandArguments := self.buildArguments(ctx, arguments.Prompt, arguments.SystemPrompt)
@@ -241,7 +241,7 @@ func (self *claudeCodeTool) executeCommand(ctx context.Context, commandArguments
 	if workingDirectory == "" {
 		homeDirectory, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("getting home directory: %w", err)
+			return "", fmt.Errorf("claudecode: getting home directory: %w", err)
 		}
 		workingDirectory = homeDirectory
 	}
@@ -258,7 +258,7 @@ func (self *claudeCodeTool) executeCommand(ctx context.Context, commandArguments
 	timedOut := commandContext.Err() == context.DeadlineExceeded
 
 	if err != nil && !timedOut {
-		return "", fmt.Errorf("executing claude: %w (stderr: %s)", err, string(stderr))
+		return "", fmt.Errorf("claudecode: executing claude: %w (stderr: %s)", err, string(stderr))
 	}
 
 	// Truncate output if needed.
@@ -299,7 +299,7 @@ func (self *claudeCodeTool) parseOutput(stdout, stderr []byte, exitCode int, dur
 			"workingDirectory": workingDirectory,
 		})
 		if marshalError != nil {
-			return "", fmt.Errorf("marshaling fallback result: %w", marshalError)
+			return "", fmt.Errorf("claudecode: marshaling fallback result: %w", marshalError)
 		}
 		return string(result), nil
 	}
@@ -318,7 +318,7 @@ func (self *claudeCodeTool) parseOutput(stdout, stderr []byte, exitCode int, dur
 
 	result, err := json.Marshal(response)
 	if err != nil {
-		return "", fmt.Errorf("marshaling result: %w", err)
+		return "", fmt.Errorf("claudecode: marshaling result: %w", err)
 	}
 	return string(result), nil
 }
