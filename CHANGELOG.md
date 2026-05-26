@@ -4,6 +4,12 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.3.0] - 2026-05-26
+
+### Changed
+
+- All internal error messages now start with their originating package name (`providers: …`, `store: …`, etc.) and internal Go identifiers follow stricter naming rules — full English words instead of abbreviations and consistent acronym casing — enforced by the new `mulint.yaml` configuration. User-facing CLI output, JSON keys, and HTTP routes are unchanged. (#50)
+
 ## [0.2.0] - 2026-05-26
 
 ### Changed
