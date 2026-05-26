@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Release driver. Reads ## [Unreleased] from CHANGELOG.md, decides the bump,
-# rewrites CHANGELOG.md with a dated version section, then commits and tags.
+# Release driver. Enumerates PRs merged since the last tag, extracts the
+# ## Changelog block from each PR body, decides the bump, rewrites
+# CHANGELOG.md with a dated version section, commits, and tags.
 #
 # Usage:
-#   release.sh auto    # decides minor vs patch from Unreleased contents
-#   release.sh major   # forces a major bump (still requires non-empty Unreleased)
+#   release.sh auto    # decides minor vs patch from merged-PR changelog blocks
+#   release.sh major   # forces a major bump (still requires non-empty entries)
 #
-# Required env:
-#   GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL — already set by the workflow
+# Required env in CI:
+#   GITHUB_REPOSITORY  — owner/repo, set by Actions
+#   GH_TOKEN or GITHUB_TOKEN — for `gh pr view`
 #
 # Outputs (when run inside GitHub Actions, written to $GITHUB_OUTPUT):
 #   released=true|false
@@ -37,11 +39,17 @@ emit_output() {
   printf '%s=%s\n' "$key" "$value"
 }
 
-unreleasedBody="$(mktemp)"
-extract_unreleased CHANGELOG.md > "$unreleasedBody"
+if [ -z "${GITHUB_REPOSITORY:-}" ]; then
+  echo "::error::GITHUB_REPOSITORY env var is required (e.g. owner/repo)."
+  exit 1
+fi
 
-if ! grep -qE '^[[:space:]]*[-*][[:space:]]+' "$unreleasedBody"; then
-  echo "No bullets under ## [Unreleased] — nothing to release."
+currentTag="$(latest_version_tag)"
+entriesFile="$(mktemp)"
+collect_entries_from_prs "$currentTag" > "$entriesFile"
+
+if [ ! -s "$entriesFile" ]; then
+  echo "No changelog entries collected from merged PRs since $currentTag — nothing to release."
   emit_output released false
   exit 0
 fi
@@ -49,31 +57,34 @@ fi
 if [ "$mode" = "major" ]; then
   bumpType="major"
 else
-  bumpType="$(decide_bump < "$unreleasedBody")"
+  bumpType="$(decide_bump < "$entriesFile")"
 fi
 
 if [ "$bumpType" = "none" ]; then
-  echo "Unreleased section has no recognized entries — nothing to release."
+  echo "Collected entries have no recognized sections — nothing to release."
   emit_output released false
   exit 0
 fi
 
-currentTag="$(latest_version_tag)"
 nextTag="$(bump_version "$currentTag" "$bumpType")"
-nextVersion="${nextTag#v}"
 releaseDate="$(date -u +%Y-%m-%d)"
 
 echo "Current tag : $currentTag"
 echo "Bump        : $bumpType"
 echo "Next tag    : $nextTag"
 echo "Release date: $releaseDate"
+echo "Entries     :"
+sed 's/^/  /' "$entriesFile"
 
 if git rev-parse -q --verify "refs/tags/$nextTag" >/dev/null; then
   echo "::error::Tag $nextTag already exists; refusing to overwrite."
   exit 1
 fi
 
-insert_release_section CHANGELOG.md "$nextVersion" "$releaseDate"
+sectionFile="$(mktemp)"
+render_release_section "$nextTag" "$releaseDate" < "$entriesFile" > "$sectionFile"
+
+insert_release_section CHANGELOG.md "$sectionFile"
 
 git add CHANGELOG.md
 git commit -m "chore(release): $nextTag"
