@@ -4,6 +4,12 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.3.1] - 2026-05-26
+
+### Fixed
+
+- Restore the web UI's WebSocket connection against v0.3.0 backends — v0.3.0 silently renamed the RPC request-frame JSON fields (`type: "req"` → `"request"`, `params` → `parameters`), causing the frontend to send frames the server dropped and the UI to load no conversations. (#51)
+
 ## [0.3.0] - 2026-05-26
 
 ### Changed
