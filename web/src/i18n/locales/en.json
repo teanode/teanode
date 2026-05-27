@@ -108,7 +108,20 @@
     "jobTriggerFailed": "Failed to trigger job",
     "jobToggleFailed": "Failed to update job",
     "jobEnabled": "Job enabled",
-    "jobDisabled": "Job disabled"
+    "jobDisabled": "Job disabled",
+    "runHistory": "Run history",
+    "runHistoryTooltip": "View run history",
+    "hideRunHistory": "Hide run history",
+    "refreshRunHistory": "Refresh run history",
+    "noJobRuns": "No runs recorded yet",
+    "jobRunsLoadFailed": "Failed to load job runs",
+    "triggerManual": "Manual",
+    "triggerScheduled": "Scheduled",
+    "triggerWebhook": "Webhook",
+    "runDuration": "Duration",
+    "runId": "Run ID",
+    "runRequest": "Request",
+    "runError": "Error"
   },
   "settings": {
     "preferences": "Preferences",
