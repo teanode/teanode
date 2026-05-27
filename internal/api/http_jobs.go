@@ -19,15 +19,15 @@ func (self *api) handleJobWebhook(writer http.ResponseWriter, request *http.Requ
 		return web.Error(405, "method not allowed")
 	}
 
-	jobID := mux.Vars(request)["id"]
-	if jobID == "" {
+	jobId := mux.Vars(request)["id"]
+	if jobId == "" {
 		return web.Error(400, "missing job id")
 	}
 
 	var jobModel *models.Job
 	if err := store.StoreFromContext(request.Context()).Transaction(request.Context(), func(ctx context.Context, transaction store.Transaction) error {
 		var getError error
-		jobModel, getError = transaction.GetJob(ctx, jobID, nil)
+		jobModel, getError = transaction.GetJob(ctx, jobId, nil)
 		return getError
 	}); err != nil {
 		if err == store.ErrNotFound {
@@ -51,7 +51,7 @@ func (self *api) handleJobWebhook(writer http.ResponseWriter, request *http.Requ
 		return web.ErrUnauthorized
 	}
 
-	jobRun, err := jobs.SchedulerFromContext(request.Context()).TriggerJobWithMetadata(request.Context(), jobID, jobs.TriggerMetadata{
+	jobRun, err := jobs.SchedulerFromContext(request.Context()).TriggerJobWithMetadata(request.Context(), jobId, jobs.TriggerMetadata{
 		Trigger:       models.JobTriggerKindWebhook,
 		RequestMethod: request.Method,
 		RequestPath:   request.URL.Path,

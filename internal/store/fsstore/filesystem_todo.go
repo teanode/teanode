@@ -199,25 +199,25 @@ func writeTodoFile(filePath string, todo *models.Todo) error {
 var priorityOrder = map[models.TodoPriority]int{models.TodoPriorityHigh: 0, models.TodoPriorityMedium: 1, models.TodoPriorityLow: 2}
 
 func sortTodos(todos []*models.Todo) {
-	sort.Slice(todos, func(i, j int) bool {
-		a, b := todos[i], todos[j]
+	sort.Slice(todos, func(leftIndex, rightIndex int) bool {
+		leftTodo, rightTodo := todos[leftIndex], todos[rightIndex]
 		// Open items first
-		aStatus := a.GetStatus()
-		bStatus := b.GetStatus()
-		if aStatus != bStatus {
-			return aStatus == models.TodoStatusOpen
+		leftStatus := leftTodo.GetStatus()
+		rightStatus := rightTodo.GetStatus()
+		if leftStatus != rightStatus {
+			return leftStatus == models.TodoStatusOpen
 		}
 		// Then by priority (high > medium > low)
-		aPri := priorityOrder[a.GetPriority()]
-		bPri := priorityOrder[b.GetPriority()]
-		if aPri != bPri {
-			return aPri < bPri
+		leftPriority := priorityOrder[leftTodo.GetPriority()]
+		rightPriority := priorityOrder[rightTodo.GetPriority()]
+		if leftPriority != rightPriority {
+			return leftPriority < rightPriority
 		}
 		// Then by createdAt (newest first)
-		if a.CreatedAt != nil && b.CreatedAt != nil {
-			return a.CreatedAt.After(*b.CreatedAt)
+		if leftTodo.CreatedAt != nil && rightTodo.CreatedAt != nil {
+			return leftTodo.CreatedAt.After(*rightTodo.CreatedAt)
 		}
-		return a.ID > b.ID
+		return leftTodo.ID > rightTodo.ID
 	})
 }
 

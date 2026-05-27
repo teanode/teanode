@@ -88,13 +88,13 @@ func normalizeRelativePath(relativePath string) string {
 	return strings.TrimPrefix(normalizedPath, "/")
 }
 
-func applyOffsetLimit[T any](values []T, options *store.Option) []T {
+func applyOffsetLimit[ValueType any](values []ValueType, options *store.Option) []ValueType {
 	if options == nil {
 		return values
 	}
 	offset := int(uint64Value(options.Offset))
 	if offset >= len(values) {
-		return []T{}
+		return []ValueType{}
 	}
 	values = values[offset:]
 	limit := int(uint64Value(options.Limit))

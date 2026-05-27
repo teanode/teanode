@@ -284,11 +284,11 @@ func (self *webSocketConnection) handleSecretsSet(frame requestFrame) (interface
 
 			// Remove existing entry for this key.
 			filtered := make([]*models.SecretConfiguration, 0, len(secrets))
-			for _, s := range secrets {
-				if s.Key != nil && *s.Key == parameters.Key {
+			for _, secret := range secrets {
+				if secret.Key != nil && *secret.Key == parameters.Key {
 					continue
 				}
-				filtered = append(filtered, s)
+				filtered = append(filtered, secret)
 			}
 
 			// If value is non-empty, add new entry.

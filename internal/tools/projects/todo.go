@@ -220,9 +220,9 @@ func (self *projectTodoTool) executeBatch(ctx context.Context, projectId string,
 	anySuccess := false
 
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		for i, item := range items {
-			results[i] = self.executeBatchItem(ctx, tx, projectId, i, item)
-			if results[i].Success {
+		for itemIndex, item := range items {
+			results[itemIndex] = self.executeBatchItem(ctx, tx, projectId, itemIndex, item)
+			if results[itemIndex].Success {
 				succeeded++
 				anySuccess = true
 			}
@@ -415,9 +415,9 @@ func resolveProjectId(ctx context.Context, projectId, projectName string) (strin
 		return "", err
 	}
 	lowerName := strings.ToLower(projectName)
-	for _, p := range projects {
-		if p.Name != nil && strings.ToLower(*p.Name) == lowerName {
-			return p.ID, nil
+	for _, project := range projects {
+		if project.Name != nil && strings.ToLower(*project.Name) == lowerName {
+			return project.ID, nil
 		}
 	}
 	return "", fmt.Errorf("projects: project not found: %s", projectName)
@@ -425,9 +425,9 @@ func resolveProjectId(ctx context.Context, projectId, projectName string) (strin
 
 func afterMutateProject(ctx context.Context, projectId string) {
 	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		_, err := tx.ModifyProject(ctx, projectId, func(p *models.Project) error {
+		_, err := tx.ModifyProject(ctx, projectId, func(project *models.Project) error {
 			now := time.Now()
-			p.ModifiedAt = &now
+			project.ModifiedAt = &now
 			return nil
 		}, nil)
 		return err
@@ -456,8 +456,8 @@ func filterTodos(todos []*models.Todo, status, priority, tag string) []*models.T
 
 func containsTag(tags []string, tag string) bool {
 	lowerTag := strings.ToLower(tag)
-	for _, t := range tags {
-		if strings.ToLower(t) == lowerTag {
+	for _, todoTag := range tags {
+		if strings.ToLower(todoTag) == lowerTag {
 			return true
 		}
 	}

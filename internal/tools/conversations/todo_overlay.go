@@ -65,12 +65,12 @@ func formatTodoOverlay(todos []*models.Todo) string {
 	}
 
 	// Sort open items oldest-first (ascending creation time).
-	sort.Slice(openTodos, func(i, j int) bool {
-		a, b := openTodos[i], openTodos[j]
-		if a.CreatedAt != nil && b.CreatedAt != nil {
-			return a.CreatedAt.Before(*b.CreatedAt)
+	sort.Slice(openTodos, func(leftIndex, rightIndex int) bool {
+		leftTodo, rightTodo := openTodos[leftIndex], openTodos[rightIndex]
+		if leftTodo.CreatedAt != nil && rightTodo.CreatedAt != nil {
+			return leftTodo.CreatedAt.Before(*rightTodo.CreatedAt)
 		}
-		return a.ID < b.ID
+		return leftTodo.ID < rightTodo.ID
 	})
 	if len(openTodos) > 10 {
 		openTodos = openTodos[:10]

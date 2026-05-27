@@ -101,9 +101,9 @@ func (self *askUserQuestionTool) Execute(ctx context.Context, rawArguments strin
 			label = "Other"
 		}
 		filtered := arguments.Choices[:0]
-		for _, c := range arguments.Choices {
-			if !strings.EqualFold(c, label) {
-				filtered = append(filtered, c)
+		for _, choice := range arguments.Choices {
+			if !strings.EqualFold(choice, label) {
+				filtered = append(filtered, choice)
 			}
 		}
 		arguments.Choices = filtered

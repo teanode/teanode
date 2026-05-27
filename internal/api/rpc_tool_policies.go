@@ -88,8 +88,8 @@ func (self *webSocketConnection) loadAllToolActionGroups() ([]toolPolicyEntry, m
 	}
 
 	// Sort skill entries by name and append.
-	sort.Slice(skillEntries, func(i, j int) bool {
-		return skillEntries[i].Name < skillEntries[j].Name
+	sort.Slice(skillEntries, func(leftIndex, rightIndex int) bool {
+		return skillEntries[leftIndex].Name < skillEntries[rightIndex].Name
 	})
 	entries = append(entries, skillEntries...)
 

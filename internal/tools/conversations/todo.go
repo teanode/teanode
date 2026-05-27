@@ -234,9 +234,9 @@ func (self *conversationTodoTool) executeBatch(ctx context.Context, conversation
 	anySuccess := false
 
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		for i, item := range items {
-			results[i] = self.executeBatchItem(ctx, tx, conversationId, i, item)
-			if results[i].Success {
+		for itemIndex, item := range items {
+			results[itemIndex] = self.executeBatchItem(ctx, tx, conversationId, itemIndex, item)
+			if results[itemIndex].Success {
 				succeeded++
 				anySuccess = true
 			}
@@ -423,9 +423,9 @@ func (self *conversationTodoTool) executePrune(ctx context.Context, conversation
 
 func afterMutateConversation(ctx context.Context, conversationId string) {
 	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, tx store.Transaction) error {
-		_, err := tx.ModifyConversation(ctx, conversationId, func(c *models.Conversation) error {
+		_, err := tx.ModifyConversation(ctx, conversationId, func(conversation *models.Conversation) error {
 			now := time.Now()
-			c.ModifiedAt = &now
+			conversation.ModifiedAt = &now
 			return nil
 		}, nil)
 		return err
@@ -479,8 +479,8 @@ func filterTodos(todos []*models.Todo, status, priority, tag string) []*models.T
 
 func containsTag(tags []string, tag string) bool {
 	lowerTag := strings.ToLower(tag)
-	for _, t := range tags {
-		if strings.ToLower(t) == lowerTag {
+	for _, todoTag := range tags {
+		if strings.ToLower(todoTag) == lowerTag {
 			return true
 		}
 	}

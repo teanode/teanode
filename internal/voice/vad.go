@@ -74,10 +74,10 @@ func rmsS16Le(pcm []byte) float64 {
 	}
 	samples := len(pcm) / 2
 	var sum float64
-	for i := 0; i < samples; i++ {
-		raw := int16(binary.LittleEndian.Uint16(pcm[i*2 : i*2+2]))
-		n := float64(raw) / 32768.0
-		sum += n * n
+	for sampleIndex := 0; sampleIndex < samples; sampleIndex++ {
+		raw := int16(binary.LittleEndian.Uint16(pcm[sampleIndex*2 : sampleIndex*2+2]))
+		normalizedSample := float64(raw) / 32768.0
+		sum += normalizedSample * normalizedSample
 	}
 	return math.Sqrt(sum / float64(samples))
 }

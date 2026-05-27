@@ -80,8 +80,8 @@ func selectRecentMemoryRetrieveResults(history []*models.ConversationMessage, tu
 	results := make(map[string]string)
 	userTurnCount := 0
 
-	for i := len(history) - 1; i >= 0; i-- {
-		message := history[i]
+	for messageIndex := len(history) - 1; messageIndex >= 0; messageIndex-- {
+		message := history[messageIndex]
 		role := conversationMessageRole(*message)
 
 		if role == "user" {
@@ -162,8 +162,8 @@ func parseRetrieveResult(content string, maxItems, maxCharsPerItem int) []shortT
 		var tags []string
 		if tagsRaw, ok := object["tags"].([]any); ok {
 			for _, tag := range tagsRaw {
-				if s, ok := tag.(string); ok {
-					tags = append(tags, s)
+				if tagString, ok := tag.(string); ok {
+					tags = append(tags, tagString)
 				}
 			}
 		}
@@ -210,12 +210,12 @@ func formatShortTermMemoryOverlay(sections map[string][]shortTermMemorySnippet, 
 		builder.WriteString(header)
 		totalChars += headerLength
 
-		for _, s := range snippets {
+		for _, snippet := range snippets {
 			var line string
-			if s.Title != "" {
-				line = fmt.Sprintf("- %s: %s\n", s.Title, s.Snippet)
+			if snippet.Title != "" {
+				line = fmt.Sprintf("- %s: %s\n", snippet.Title, snippet.Snippet)
 			} else {
-				line = fmt.Sprintf("- %s\n", s.Snippet)
+				line = fmt.Sprintf("- %s\n", snippet.Snippet)
 			}
 
 			if totalChars+len(line) > options.MaxCharsTotal {
@@ -232,12 +232,12 @@ func formatShortTermMemoryOverlay(sections map[string][]shortTermMemorySnippet, 
 	return builder.String()
 }
 
-// truncateString truncates s to maxLength characters, appending "…" if truncated.
-func truncateString(s string, maxLength int) string {
-	if len(s) <= maxLength {
-		return s
+// truncateString truncates text to maxLength characters, appending "…" if truncated.
+func truncateString(text string, maxLength int) string {
+	if len(text) <= maxLength {
+		return text
 	}
-	return s[:maxLength] + "…"
+	return text[:maxLength] + "…"
 }
 
 // conversationMessageRole extracts the role string from a conversation message.

@@ -176,9 +176,9 @@ func (self *fileSystemTransaction) ModifyMemoryItem(ctx context.Context, memoryI
 	if readErr != nil {
 		return nil, readErr
 	}
-	for i, r := range records {
-		if r.ID == memoryItemId {
-			records[i] = record
+	for recordIndex, existingRecord := range records {
+		if existingRecord.ID == memoryItemId {
+			records[recordIndex] = record
 			break
 		}
 	}
@@ -202,9 +202,9 @@ func (self *fileSystemTransaction) DeleteMemoryItem(ctx context.Context, memoryI
 	if readErr != nil {
 		return readErr
 	}
-	for i, r := range records {
-		if r.ID == memoryItemId {
-			records[i] = record
+	for recordIndex, existingRecord := range records {
+		if existingRecord.ID == memoryItemId {
+			records[recordIndex] = record
 			break
 		}
 	}
@@ -235,11 +235,11 @@ func (self *fileSystemTransaction) ListMemoryItems(ctx context.Context, scope mo
 	}
 
 	// Sort by ModifiedAt DESC (newest first).
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].ModifiedAt == nil || items[j].ModifiedAt == nil {
+	sort.Slice(items, func(leftIndex, rightIndex int) bool {
+		if items[leftIndex].ModifiedAt == nil || items[rightIndex].ModifiedAt == nil {
 			return false
 		}
-		return items[i].ModifiedAt.After(*items[j].ModifiedAt)
+		return items[leftIndex].ModifiedAt.After(*items[rightIndex].ModifiedAt)
 	})
 
 	if listOptions.Limit != nil && uint64(len(items)) > *listOptions.Limit {

@@ -17,8 +17,8 @@ type scriptStep struct {
 	Text        string   `json:"text,omitempty"`
 	Key         string   `json:"key,omitempty"`
 	Expression  string   `json:"expression,omitempty"`
-	X           *float64 `json:"x,omitempty"`
-	Y           *float64 `json:"y,omitempty"`
+	CoordinateX *float64 `json:"x,omitempty"`
+	CoordinateY *float64 `json:"y,omitempty"`
 	WaitMode    string   `json:"waitMode,omitempty"`
 	TimeoutMS   *int     `json:"timeoutMs,omitempty"`
 	ClearFirst  bool     `json:"clearFirst,omitempty"`
@@ -91,7 +91,7 @@ func executeSingleStep(ctx context.Context, browser browsers.Browser, connection
 	case "snapshot":
 		return executeEnhancedSnapshot(ctx, browser, connectionId)
 	case "click":
-		return executeClick(ctx, browser, connectionId, step.X, step.Y, step.Selector)
+		return executeClick(ctx, browser, connectionId, step.CoordinateX, step.CoordinateY, step.Selector)
 	case "click_ref":
 		if step.Ref == nil {
 			return "", fmt.Errorf("browser: reference is required for click_ref")

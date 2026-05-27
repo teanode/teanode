@@ -38,7 +38,7 @@ func (self *ApprovalBroker) PendingForConversation(conversationId string) []*Pen
 			result = append(result, approval)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	sort.Slice(result, func(leftIndex, rightIndex int) bool { return result[leftIndex].ID < result[rightIndex].ID })
 	return result
 }
 

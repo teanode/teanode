@@ -198,8 +198,8 @@ func (self *browserTool) Execute(ctx context.Context, rawArguments string) (stri
 		ConnectionID string       `json:"connectionId"`
 		URL          string       `json:"url"`
 		Ref          *int         `json:"reference"`
-		X            *float64     `json:"x"`
-		Y            *float64     `json:"y"`
+		CoordinateX  *float64     `json:"x"`
+		CoordinateY  *float64     `json:"y"`
 		Selector     string       `json:"selector"`
 		Text         string       `json:"text"`
 		ClearFirst   bool         `json:"clearFirst"`
@@ -224,7 +224,7 @@ func (self *browserTool) Execute(ctx context.Context, rawArguments string) (stri
 	case "snapshot":
 		return executeEnhancedSnapshot(ctx, browser, arguments.ConnectionID)
 	case "click":
-		return executeClick(ctx, browser, arguments.ConnectionID, arguments.X, arguments.Y, arguments.Selector)
+		return executeClick(ctx, browser, arguments.ConnectionID, arguments.CoordinateX, arguments.CoordinateY, arguments.Selector)
 	case "click_ref":
 		if arguments.Ref == nil {
 			return "", fmt.Errorf("browser: reference is required for click_ref action")
@@ -310,7 +310,7 @@ func executeScreenshot(ctx context.Context, browser browsers.Browser, connection
 // The main "snapshot" action now routes to executeEnhancedSnapshot in
 // snapshot.go which adds [reference=N] markers to interactive elements.
 
-func executeClick(ctx context.Context, browser browsers.Browser, connectionId string, x *float64, y *float64, selector string) (string, error) {
+func executeClick(ctx context.Context, browser browsers.Browser, connectionId string, coordinateX *float64, coordinateY *float64, selector string) (string, error) {
 	sessionId, err := resolveSessionId(ctx, browser, connectionId)
 	if err != nil {
 		return "", err
@@ -329,10 +329,10 @@ func executeClick(ctx context.Context, browser browsers.Browser, connectionId st
 		return string(output), nil
 	}
 
-	if x == nil || y == nil {
+	if coordinateX == nil || coordinateY == nil {
 		return "", fmt.Errorf("browser: provide either (x, y) coordinates or a selector")
 	}
-	xValue, yValue := *x, *y
+	xValue, yValue := *coordinateX, *coordinateY
 	for _, eventType := range []string{"mousePressed", "mouseReleased"} {
 		_, err := browser.SendCDPCommand(ctx, "Input.dispatchMouseEvent", map[string]interface{}{
 			"type":       eventType,

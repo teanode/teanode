@@ -391,6 +391,6 @@ func sanitizeJobsForTool(jobModels []*models.Job) []*models.Job {
 	return sanitizedJobs
 }
 
-func webhookPath(jobID string) string {
-	return "/api/jobs/" + jobID + "/webhook"
+func webhookPath(jobId string) string {
+	return "/api/jobs/" + jobId + "/webhook"
 }

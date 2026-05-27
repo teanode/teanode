@@ -321,8 +321,8 @@ func (self *webSocketConnection) verifyConversationAccess(conversationId string)
 }
 
 // unmarshalParameters unmarshals the request frame parameters into the given pointer.
-func unmarshalParameters[T any](frame requestFrame) (T, error) {
-	var parameters T
+func unmarshalParameters[ParameterType any](frame requestFrame) (ParameterType, error) {
+	var parameters ParameterType
 	if err := json.Unmarshal(frame.Parameters, &parameters); err != nil {
 		return parameters, rpcError(400, "invalid parameters: "+err.Error())
 	}
