@@ -1,10 +1,15 @@
 package jobs
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/teanode/teanode/internal/models"
+	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/util/cronexpr"
+	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/timeutil"
 )
 
@@ -86,4 +91,71 @@ func TestTickConvertsBehavior(t *testing.T) {
 	if expression.Matches(converted) {
 		t.Errorf("should not match at UTC time %s", converted.Format("15:04"))
 	}
+}
+
+func TestTriggerJobWithMetadataCreatesJobRunHistory(t *testing.T) {
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("Open: %v", openError)
+	}
+	defer func() { _ = openedStore.Close() }()
+
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	scheduler := NewScheduler(ctx)
+	scheduler.RunMessage = func(ctx context.Context, userID, agentID, conversationID, message, providerModelName string) (string, <-chan struct{}, func() error) {
+		done := make(chan struct{})
+		close(done)
+		return "run-1", done, func() error { return nil }
+	}
+
+	jobModel := &models.Job{
+		UserID:         ptrto.Value("user-1"),
+		AgentID:        ptrto.Value("agent-1"),
+		ConversationID: ptrto.Value("conversation-1"),
+		Name:           ptrto.Value("Webhook"),
+		Trigger:        ptrto.Value(models.JobTriggerKindWebhook),
+		WebhookSecret:  ptrto.Value("secret"),
+		Prompt:         ptrto.Value("Run"),
+		Enabled:        ptrto.Value(true),
+	}
+	if err := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		createdJob, createError := transaction.CreateJob(ctx, jobModel, nil)
+		if createError == nil && createdJob != nil {
+			jobModel = createdJob
+		}
+		return createError
+	}); err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	jobRun, triggerError := scheduler.TriggerJobWithMetadata(ctx, jobModel.ID, TriggerMetadata{
+		Trigger:       models.JobTriggerKindWebhook,
+		RequestMethod: "POST",
+		RequestPath:   "/api/jobs/" + jobModel.ID + "/webhook",
+		RemoteAddress: "127.0.0.1",
+	})
+	if triggerError != nil {
+		t.Fatalf("TriggerJobWithMetadata: %v", triggerError)
+	}
+	if jobRun == nil || jobRun.ID == "" {
+		t.Fatalf("expected created job run")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var listedJobRuns []*models.JobRun
+		if err := openedStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+			var listError error
+			listedJobRuns, listError = transaction.ListJobRuns(ctx, jobModel.ID, nil)
+			return listError
+		}); err != nil {
+			t.Fatalf("ListJobRuns: %v", err)
+		}
+		if len(listedJobRuns) == 1 && listedJobRuns[0].GetStatus() == models.JobRunStatusSuccess && listedJobRuns[0].GetRunID() == "run-1" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("job run was not completed successfully before timeout")
 }

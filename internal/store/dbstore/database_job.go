@@ -18,7 +18,9 @@ type databaseJobRecord struct {
 	AgentID           *string    `gorm:"column:agent_id;type:varchar(32)"`
 	ConversationID    *string    `gorm:"column:conversation_id;type:varchar(32)"`
 	Name              *string    `gorm:"column:name;type:varchar(256)"`
+	Trigger           *string    `gorm:"column:trigger;type:varchar(32)"`
 	Schedule          *string    `gorm:"column:schedule;type:varchar(128)"`
+	WebhookSecret     *string    `gorm:"column:webhook_secret;type:varchar(128)"`
 	Prompt            *string    `gorm:"column:prompt"`
 	Enabled           *bool      `gorm:"column:enabled"`
 	OneShot           *bool      `gorm:"column:one_shot"`
@@ -96,7 +98,9 @@ func (self *databaseTransaction) ModifyJob(ctx context.Context, jobId string, mo
 		"agent_id":        record.AgentID,
 		"conversation_id": record.ConversationID,
 		"name":            record.Name,
+		"trigger":         record.Trigger,
 		"schedule":        record.Schedule,
+		"webhook_secret":  record.WebhookSecret,
 		"prompt":          record.Prompt,
 		"enabled":         record.Enabled,
 		"one_shot":        record.OneShot,
@@ -131,7 +135,9 @@ func modelToJobRecord(job *models.Job) *databaseJobRecord {
 		AgentID:           ptrto.TrimmedString(job.GetAgentID()),
 		ConversationID:    ptrto.TrimmedString(job.GetConversationID()),
 		Name:              ptrto.TrimmedString(job.GetName()),
+		Trigger:           ptrto.TrimmedString(string(job.GetTrigger())),
 		Schedule:          ptrto.TrimmedString(job.GetSchedule()),
+		WebhookSecret:     ptrto.TrimmedString(job.GetWebhookSecret()),
 		Prompt:            ptrto.TrimmedString(job.GetPrompt()),
 		Enabled:           job.Enabled,
 		OneShot:           job.OneShot,
@@ -150,7 +156,9 @@ func jobRecordToModel(record *databaseJobRecord) *models.Job {
 		AgentID:           ptrto.TrimmedString(valueor.Zero(record.AgentID)),
 		ConversationID:    ptrto.TrimmedString(valueor.Zero(record.ConversationID)),
 		Name:              ptrto.TrimmedString(valueor.Zero(record.Name)),
+		Trigger:           ptrto.Trimmed[models.JobTriggerKind](valueor.Zero(record.Trigger)),
 		Schedule:          ptrto.TrimmedString(valueor.Zero(record.Schedule)),
+		WebhookSecret:     ptrto.TrimmedString(valueor.Zero(record.WebhookSecret)),
 		Prompt:            ptrto.TrimmedString(valueor.Zero(record.Prompt)),
 		Enabled:           record.Enabled,
 		OneShot:           record.OneShot,

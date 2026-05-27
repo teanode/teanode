@@ -21,6 +21,8 @@ import type {
   Usage,
   Job,
   JobCreateParams,
+  JobRun,
+  JobRunsListResult,
   JobUpdateParams,
   JobsListResult,
   Todo,
@@ -1787,6 +1789,7 @@ export function useBackend() {
   // ── Jobs ────────────────────────────────────────────────────────────
 
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobRuns, setJobRuns] = useState<JobRun[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
 
   const loadJobs = useCallback(() => {
@@ -1846,6 +1849,21 @@ export function useBackend() {
         .then(() => {})
         .catch((error) => {
           console.error("jobs.trigger:", error);
+          throw error;
+        });
+    },
+    [sendRpc],
+  );
+
+  const loadJobRuns = useCallback(
+    (jobId: string) => {
+      return sendRpc<JobRunsListResult>("jobs.runs.list", { jobId })
+        .then((result) => {
+          setJobRuns(result.jobRuns || []);
+          return result.jobRuns || [];
+        })
+        .catch((error) => {
+          console.error("jobs.runs.list:", error);
           throw error;
         });
     },
@@ -2043,8 +2061,10 @@ export function useBackend() {
     loadingOlderMessages,
     loadOlderMessages,
     jobs,
+    jobRuns,
     jobsLoading,
     loadJobs,
+    loadJobRuns,
     createJob,
     updateJob,
     deleteJob,

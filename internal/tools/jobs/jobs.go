@@ -15,6 +15,7 @@ import (
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/cronexpr"
 	"github.com/teanode/teanode/internal/util/ptrto"
+	"github.com/teanode/teanode/internal/util/security"
 )
 
 func init() {
@@ -53,6 +54,11 @@ func (self *jobsTool) Definition() providers.ToolDefinition {
 					"schedule": map[string]interface{}{
 						"type":        "string",
 						"description": "Cron expression, 5-field: minute hour day-of-month month day-of-week. Example: '0 9 * * 1-5' for 9am weekdays. Mutually exclusive with 'delay' (for create, update actions).",
+					},
+					"trigger": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"scheduled", "webhook"},
+						"description": "Job trigger type. Defaults to 'scheduled'. Webhook jobs ignore schedule and delay.",
 					},
 					"message": map[string]interface{}{
 						"type":        "string",
@@ -109,6 +115,7 @@ func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string,
 		Name              string `json:"name"`
 		Schedule          string `json:"schedule"`
 		Message           string `json:"message"`
+		Trigger           string `json:"trigger"`
 		ProviderModelName string `json:"model"`
 		AgentID           string `json:"agentId"`
 		Delay             string `json:"delay"`
@@ -129,7 +136,7 @@ func (self *jobsTool) Execute(ctx context.Context, rawArguments string) (string,
 	case "list":
 		return self.executeList(ctx, userId)
 	case "create":
-		return self.executeCreate(ctx, userId, arguments.Name, arguments.Schedule, arguments.Message, arguments.ProviderModelName, arguments.AgentID, arguments.Delay, arguments.OneShot)
+		return self.executeCreate(ctx, userId, arguments.Name, arguments.Trigger, arguments.Schedule, arguments.Message, arguments.ProviderModelName, arguments.AgentID, arguments.Delay, arguments.OneShot)
 	case "update":
 		return self.executeUpdate(ctx, userId, arguments.ID, arguments.Name, arguments.Schedule, arguments.Message, arguments.ProviderModelName, arguments.Enabled)
 	case "delete":
@@ -155,27 +162,37 @@ func (self *jobsTool) executeList(ctx context.Context, userId string) (string, e
 	}
 	result, _ := json.Marshal(map[string]interface{}{
 		"action": "list",
-		"jobs":   jobModels,
+		"jobs":   sanitizeJobsForTool(jobModels),
 	})
 	return string(result), nil
 }
 
-func (self *jobsTool) executeCreate(ctx context.Context, userId string, name string, schedule string, message string, providerModelName string, agentId string, delay string, oneShot *bool) (string, error) {
+func (self *jobsTool) executeCreate(ctx context.Context, userId string, name string, trigger string, schedule string, message string, providerModelName string, agentId string, delay string, oneShot *bool) (string, error) {
 	if name == "" || message == "" {
 		return "", fmt.Errorf("jobs: name and message are required")
+	}
+	triggerKind := models.JobTriggerKindScheduled
+	if trigger != "" {
+		triggerKind = models.JobTriggerKind(trigger)
+	}
+	if triggerKind != models.JobTriggerKindScheduled && triggerKind != models.JobTriggerKindWebhook {
+		return "", fmt.Errorf("jobs: unsupported trigger %q", trigger)
 	}
 	if delay != "" && schedule != "" {
 		return "", fmt.Errorf("jobs: provide either 'schedule' or 'delay', not both")
 	}
-	if delay == "" && schedule == "" {
+	if triggerKind == models.JobTriggerKindScheduled && delay == "" && schedule == "" {
 		return "", fmt.Errorf("jobs: either 'schedule' or 'delay' is required")
 	}
 
 	isOneShot := false
 	conversationId := "" // recurring jobs resolve conversation at execution time
 	var runAt *time.Time
+	webhookSecret := ""
 
-	if delay != "" {
+	if triggerKind == models.JobTriggerKindWebhook {
+		webhookSecret = security.GenerateRandomString(32, security.LowerAlphaNumeric)
+	} else if delay != "" {
 		duration, parseError := time.ParseDuration(delay)
 		if parseError != nil {
 			return "", fmt.Errorf("jobs: invalid delay %q: %w (use Go duration format: '30m', '1h', '2h30m')", delay, parseError)
@@ -200,7 +217,9 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 
 	job := models.Job{
 		Name:              ptrto.Value(name),
+		Trigger:           ptrto.Value(triggerKind),
 		Schedule:          ptrto.TrimmedString(schedule),
+		WebhookSecret:     ptrto.TrimmedString(webhookSecret),
 		Prompt:            ptrto.Value(message),
 		ProviderModelName: ptrto.TrimmedString(providerModelName),
 		AgentID:           ptrto.TrimmedString(agentId),
@@ -212,7 +231,10 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 	job.UserID = ptrto.Value(userId)
 
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		_, createError := transaction.CreateJob(ctx, &job, nil)
+		createdJob, createError := transaction.CreateJob(ctx, &job, nil)
+		if createError == nil && createdJob != nil {
+			job = *createdJob
+		}
 		return createError
 	}); err != nil {
 		return "", fmt.Errorf("jobs: creating job: %w", err)
@@ -223,12 +245,17 @@ func (self *jobsTool) executeCreate(ctx context.Context, userId string, name str
 		"id":      job.ID,
 		"name":    job.GetName(),
 		"agentId": job.GetAgentID(),
+		"trigger": job.GetTrigger(),
 	}
 	if job.GetSchedule() != "" {
 		response["schedule"] = job.GetSchedule()
 	}
 	if job.RunAt != nil {
 		response["firesAt"] = job.RunAt.Format(time.RFC3339)
+	}
+	if job.GetTrigger() == models.JobTriggerKindWebhook {
+		response["webhookPath"] = webhookPath(job.ID)
+		response["webhookSecret"] = job.GetWebhookSecret()
 	}
 	result, _ := json.Marshal(response)
 	return string(result), nil
@@ -345,7 +372,25 @@ func (self *jobsTool) executeTrigger(ctx context.Context, userId string, id stri
 	result, _ := json.Marshal(map[string]interface{}{
 		"action":  "trigger",
 		"id":      id,
+		"trigger": models.JobTriggerKindManual,
 		"success": true,
 	})
 	return string(result), nil
+}
+
+func sanitizeJobsForTool(jobModels []*models.Job) []*models.Job {
+	sanitizedJobs := make([]*models.Job, 0, len(jobModels))
+	for _, jobModel := range jobModels {
+		if jobModel == nil {
+			continue
+		}
+		jobCopy := *jobModel
+		jobCopy.WebhookSecret = nil
+		sanitizedJobs = append(sanitizedJobs, &jobCopy)
+	}
+	return sanitizedJobs
+}
+
+func webhookPath(jobID string) string {
+	return "/api/jobs/" + jobID + "/webhook"
 }

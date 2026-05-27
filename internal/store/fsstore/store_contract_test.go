@@ -178,6 +178,34 @@ func TestFileSystemStoreSessionJobAndSkillOperations(t *testing.T) {
 		if loadedJob.Name == nil || *loadedJob.Name != "Daily" {
 			t.Fatalf("loaded job name mismatch")
 		}
+		createdJobRun, createJobRunError := transaction.CreateJobRun(context.Background(), &models.JobRun{
+			JobID:     ptrto.Value(createdJob.ID),
+			UserID:    ptrto.Value(userId),
+			Trigger:   ptrto.Value(models.JobTriggerKindManual),
+			Status:    ptrto.Value(models.JobRunStatusRunning),
+			StartedAt: ptrto.TimeNowInLocal(),
+		}, nil)
+		if createJobRunError != nil {
+			return createJobRunError
+		}
+		updatedJobRun, modifyJobRunError := transaction.ModifyJobRun(context.Background(), createdJobRun.ID, func(jobRun *models.JobRun) error {
+			jobRun.Status = ptrto.Value(models.JobRunStatusSuccess)
+			jobRun.RunID = ptrto.Value("run-1")
+			return nil
+		}, nil)
+		if modifyJobRunError != nil {
+			return modifyJobRunError
+		}
+		if updatedJobRun.GetRunID() != "run-1" {
+			t.Fatalf("updated job run run ID mismatch")
+		}
+		listedJobRuns, listJobRunsError := transaction.ListJobRuns(context.Background(), createdJob.ID, nil)
+		if listJobRunsError != nil {
+			return listJobRunsError
+		}
+		if len(listedJobRuns) != 1 || listedJobRuns[0].GetStatus() != models.JobRunStatusSuccess {
+			t.Fatalf("listed job runs mismatch")
+		}
 
 		createdSkill, createSkillError := transaction.CreateSkill(context.Background(), &models.Skill{
 			Name:        &skillName,

@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS job_runs;
+
+ALTER TABLE jobs
+	DROP COLUMN IF EXISTS trigger,
+	DROP COLUMN IF EXISTS webhook_secret;

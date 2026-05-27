@@ -102,6 +102,9 @@ type JobOperation interface {
 	GetJob(ctx context.Context, jobId string, options *Option) (*models.Job, error)
 	ModifyJob(ctx context.Context, jobId string, modifier func(*models.Job) error, options *Option) (*models.Job, error)
 	DeleteJob(ctx context.Context, jobId string, options *Option) error
+	CreateJobRun(ctx context.Context, jobRun *models.JobRun, options *Option) (*models.JobRun, error)
+	ListJobRuns(ctx context.Context, jobId string, options *Option) ([]*models.JobRun, error)
+	ModifyJobRun(ctx context.Context, jobRunId string, modifier func(*models.JobRun) error, options *Option) (*models.JobRun, error)
 }
 
 type SessionOperation interface {

@@ -18,6 +18,13 @@ import (
 // tickInterval is the scheduler's internal polling interval.
 const tickInterval = 5 * time.Second
 
+type TriggerMetadata struct {
+	Trigger       models.JobTriggerKind
+	RequestMethod string
+	RequestPath   string
+	RemoteAddress string
+}
+
 // Scheduler runs scheduled jobs on a periodic tick.
 type Scheduler struct {
 	ctx          context.Context
@@ -52,7 +59,16 @@ func (self *Scheduler) Stop() {
 
 // TriggerJob manually runs a job immediately.
 func (self *Scheduler) TriggerJob(ctx context.Context, id string) error {
+	_, err := self.TriggerJobWithMetadata(ctx, id, TriggerMetadata{Trigger: models.JobTriggerKindManual})
+	return err
+}
+
+func (self *Scheduler) TriggerJobWithMetadata(ctx context.Context, id string, metadata TriggerMetadata) (*models.JobRun, error) {
+	if metadata.Trigger == "" {
+		metadata.Trigger = models.JobTriggerKindManual
+	}
 	var job *models.Job
+	var jobRun *models.JobRun
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		existingJob, getError := transaction.GetJob(ctx, id, nil)
 		if getError != nil {
@@ -62,12 +78,27 @@ func (self *Scheduler) TriggerJob(ctx context.Context, id string) error {
 			return getError
 		}
 		job = existingJob
+		startedAt := ptrto.TimeNowInLocal()
+		var createError error
+		jobRun, createError = transaction.CreateJobRun(ctx, &models.JobRun{
+			JobID:         ptrto.Value(job.ID),
+			UserID:        ptrto.Value(job.GetUserID()),
+			Trigger:       ptrto.Value(metadata.Trigger),
+			Status:        ptrto.Value(models.JobRunStatusRunning),
+			StartedAt:     startedAt,
+			RequestMethod: ptrto.TrimmedString(metadata.RequestMethod),
+			RequestPath:   ptrto.TrimmedString(metadata.RequestPath),
+			RemoteAddress: ptrto.TrimmedString(metadata.RemoteAddress),
+		}, nil)
+		if createError != nil {
+			return createError
+		}
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
-	go self.executeJob(job)
-	return nil
+	go self.executeJob(job, jobRun)
+	return jobRun, nil
 }
 
 func (self *Scheduler) run() {
@@ -114,6 +145,9 @@ func (self *Scheduler) tick(when time.Time) {
 		if jobModel.GetUserID() == "" {
 			continue
 		}
+		if jobModel.GetTrigger() == models.JobTriggerKindWebhook {
+			continue
+		}
 		if jobModel.RunAt != nil {
 			if nowMilliseconds >= jobModel.RunAt.UnixMilli() {
 				// Disable before launching goroutine to prevent duplicate firing on the next tick.
@@ -129,7 +163,11 @@ func (self *Scheduler) tick(when time.Time) {
 					log.Errorf("disabling one-shot job %s before execution: %v", jobModel.ID, disableError)
 					continue
 				}
-				go self.executeJob(jobModel)
+				if _, triggerError := self.TriggerJobWithMetadata(self.ctx, jobModel.ID, TriggerMetadata{
+					Trigger: models.JobTriggerKindScheduled,
+				}); triggerError != nil {
+					log.Errorf("triggering scheduled one-shot job %s: %v", jobModel.ID, triggerError)
+				}
 			}
 			continue
 		}
@@ -148,17 +186,22 @@ func (self *Scheduler) tick(when time.Time) {
 			}
 			self.mutex.Unlock()
 			if !alreadyFired {
-				go self.executeJob(jobModel)
+				if _, triggerError := self.TriggerJobWithMetadata(self.ctx, jobModel.ID, TriggerMetadata{
+					Trigger: models.JobTriggerKindScheduled,
+				}); triggerError != nil {
+					log.Errorf("triggering scheduled job %s: %v", jobModel.ID, triggerError)
+				}
 			}
 		}
 	}
 }
 
-func (self *Scheduler) executeJob(job *models.Job) {
+func (self *Scheduler) executeJob(job *models.Job, jobRun *models.JobRun) {
 	defer deferutil.Recover()
 
 	if self.RunMessage == nil {
 		log.Errorf("job %s: RunMessage callback not configured", job.ID)
+		self.completeJobRun(job, jobRun, "", fmt.Errorf("jobs: RunMessage callback not configured"))
 		return
 	}
 
@@ -201,6 +244,7 @@ func (self *Scheduler) executeJob(job *models.Job) {
 			return nil
 		}); err != nil {
 			log.Errorf("job %s: resolving agent/conversation failed: %v", job.ID, err)
+			self.completeJobRun(job, jobRun, "", err)
 			return
 		}
 	}
@@ -220,6 +264,25 @@ func (self *Scheduler) executeJob(job *models.Job) {
 		log.Errorf("job %s failed: %v", job.ID, runError)
 	}
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		if jobRun != nil {
+			completedAt := ptrto.TimeNowInLocal()
+			durationMilliseconds := completedAt.UnixMilli() - jobRun.GetStartedAt().UnixMilli()
+			_, updateError := transaction.ModifyJobRun(ctx, jobRun.ID, func(existingJobRun *models.JobRun) error {
+				existingJobRun.Status = ptrto.Value(models.JobRunStatusSuccess)
+				existingJobRun.Error = nil
+				if runError != nil {
+					existingJobRun.Status = ptrto.Value(models.JobRunStatusError)
+					existingJobRun.Error = ptrto.Value(runError.Error())
+				}
+				existingJobRun.RunID = ptrto.TrimmedString(runId)
+				existingJobRun.CompletedAt = completedAt
+				existingJobRun.DurationMilliseconds = ptrto.Value(durationMilliseconds)
+				return nil
+			}, nil)
+			if updateError != nil {
+				return updateError
+			}
+		}
 		if job.GetOneShot() {
 			return transaction.DeleteJob(ctx, job.ID, nil)
 		}
@@ -241,5 +304,30 @@ func (self *Scheduler) executeJob(job *models.Job) {
 
 	if job.GetOneShot() && self.Broadcast != nil {
 		self.Broadcast("jobs", nil)
+	}
+}
+
+func (self *Scheduler) completeJobRun(job *models.Job, jobRun *models.JobRun, runId string, runError error) {
+	if jobRun == nil {
+		return
+	}
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		completedAt := ptrto.TimeNowInLocal()
+		durationMilliseconds := completedAt.UnixMilli() - jobRun.GetStartedAt().UnixMilli()
+		_, updateError := transaction.ModifyJobRun(ctx, jobRun.ID, func(existingJobRun *models.JobRun) error {
+			existingJobRun.RunID = ptrto.TrimmedString(runId)
+			existingJobRun.CompletedAt = completedAt
+			existingJobRun.DurationMilliseconds = ptrto.Value(durationMilliseconds)
+			existingJobRun.Status = ptrto.Value(models.JobRunStatusSuccess)
+			existingJobRun.Error = nil
+			if runError != nil {
+				existingJobRun.Status = ptrto.Value(models.JobRunStatusError)
+				existingJobRun.Error = ptrto.Value(runError.Error())
+			}
+			return nil
+		}, nil)
+		return updateError
+	}); err != nil {
+		log.Errorf("updating job run %s after failure for job %s: %v", jobRun.ID, job.ID, err)
 	}
 }

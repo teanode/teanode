@@ -44,6 +44,10 @@ func (self *fileSystemTransaction) userJobsDirectory(userId string) string {
 	return filepath.Join(self.userDirectory(userId), "jobs")
 }
 
+func (self *fileSystemTransaction) userJobRunsDirectory(userId, jobId string) string {
+	return filepath.Join(self.userJobsDirectory(userId), jobId+".runs")
+}
+
 func (self *fileSystemTransaction) agentsDirectory() string {
 	return filepath.Join(self.dataDirectory(), "agents")
 }

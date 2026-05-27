@@ -24,7 +24,7 @@ func (self *webSocketConnection) handleJobsList(frame requestFrame) (interface{}
 		return nil, rpcError(500, "listing jobs: "+err.Error())
 	}
 	return map[string]interface{}{
-		"jobs": jobsList,
+		"jobs": sanitizeJobs(jobsList),
 	}, nil
 }
 
@@ -42,7 +42,14 @@ func (self *webSocketConnection) handleJobsCreate(frame requestFrame) (interface
 	if parameters.Job.GetName() == "" {
 		return nil, rpcError(400, "job.name is required")
 	}
-	if parameters.Job.GetSchedule() == "" && parameters.Job.RunAt == nil {
+	if parameters.Job.GetTrigger() == models.JobTriggerKindWebhook {
+		parameters.Job.Schedule = nil
+		parameters.Job.RunAt = nil
+		parameters.Job.OneShot = nil
+		if parameters.Job.GetWebhookSecret() == "" {
+			parameters.Job.WebhookSecret = ptrto.Value(generateWebhookSecret())
+		}
+	} else if parameters.Job.GetSchedule() == "" && parameters.Job.RunAt == nil {
 		return nil, rpcError(400, "job.schedule or job.runAt is required")
 	}
 	if parameters.Job.GetConversationID() == "" {
@@ -50,15 +57,17 @@ func (self *webSocketConnection) handleJobsCreate(frame requestFrame) (interface
 		parameters.Job.ConversationID = ptrto.Value(defaultConversationId)
 	}
 	parameters.Job.UserID = ptrto.Value(self.userId())
+	var createdJob *models.Job
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
-		_, createError := transaction.CreateJob(ctx, &parameters.Job, nil)
+		var createError error
+		createdJob, createError = transaction.CreateJob(ctx, &parameters.Job, nil)
 		return createError
 	}); err != nil {
 		return nil, rpcError(500, "creating job: "+err.Error())
 	}
 	self.api.pubsub.Broadcast(pubsub.EventTypeJobs, nil)
 	return map[string]interface{}{
-		"job": parameters.Job,
+		"job": createdJob,
 	}, nil
 }
 
@@ -105,8 +114,14 @@ func mergeJobUpdate(job *models.Job, patch *models.Job) {
 	if patch.Name != nil {
 		job.Name = patch.Name
 	}
+	if patch.Trigger != nil {
+		job.Trigger = patch.Trigger
+	}
 	if patch.Schedule != nil {
 		job.Schedule = patch.Schedule
+	}
+	if patch.WebhookSecret != nil {
+		job.WebhookSecret = patch.WebhookSecret
 	}
 	if patch.RunAt != nil {
 		job.RunAt = patch.RunAt
@@ -200,4 +215,59 @@ func (self *webSocketConnection) handleJobsTrigger(frame requestFrame) (interfac
 	return map[string]interface{}{
 		"triggered": true,
 	}, nil
+}
+
+type jobRunsListParameters struct {
+	JobID string `json:"jobId"`
+}
+
+func (self *webSocketConnection) handleJobRunsList(frame requestFrame) (interface{}, error) {
+	parameters, err := unmarshalParameters[jobRunsListParameters](frame)
+	if err != nil {
+		return nil, err
+	}
+	if parameters.JobID == "" {
+		return nil, rpcError(400, "jobId is required")
+	}
+
+	jobRuns := make([]*models.JobRun, 0)
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		job, getError := transaction.GetJob(ctx, parameters.JobID, nil)
+		if getError != nil && getError != store.ErrNotFound {
+			return getError
+		}
+		if job != nil && job.GetUserID() != self.userId() {
+			return store.ErrNotFound
+		}
+		listedJobRuns, listError := transaction.ListJobRuns(ctx, parameters.JobID, nil)
+		if listError != nil {
+			return listError
+		}
+		for _, jobRun := range listedJobRuns {
+			if jobRun.GetUserID() != self.userId() {
+				continue
+			}
+			jobRuns = append(jobRuns, jobRun)
+		}
+		return nil
+	}); err != nil {
+		return nil, rpcError(500, "listing job runs: "+err.Error())
+	}
+
+	return map[string]interface{}{
+		"jobRuns": jobRuns,
+	}, nil
+}
+
+func sanitizeJobs(jobModels []*models.Job) []*models.Job {
+	sanitizedJobs := make([]*models.Job, 0, len(jobModels))
+	for _, jobModel := range jobModels {
+		if jobModel == nil {
+			continue
+		}
+		jobCopy := *jobModel
+		jobCopy.WebhookSecret = nil
+		sanitizedJobs = append(sanitizedJobs, &jobCopy)
+	}
+	return sanitizedJobs
 }

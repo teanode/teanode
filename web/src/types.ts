@@ -253,12 +253,14 @@ export interface ModelsListResult {
 export interface Job {
   id: string;
   name: string;
+  trigger?: "manual" | "scheduled" | "webhook";
   schedule: string;
   prompt: string;
   providerModelName?: string;
   agentId?: string;
   enabled: boolean;
   conversationId: string;
+  webhookSecret?: string;
   runAt?: number;
   oneShot?: boolean;
   lastRun?: number;
@@ -269,24 +271,52 @@ export interface Job {
 
 export interface JobCreateParams {
   name: string;
-  schedule: string;
+  trigger?: "scheduled" | "webhook";
+  schedule?: string;
   prompt: string;
   providerModelName?: string;
   agentId?: string;
+  webhookSecret?: string;
 }
 
 export interface JobUpdateParams {
   id: string;
   name?: string;
+  trigger?: "scheduled" | "webhook";
   schedule?: string;
   prompt?: string;
   providerModelName?: string;
   agentId?: string;
   enabled?: boolean;
+  webhookSecret?: string;
 }
 
 export interface JobsListResult {
   jobs: Job[];
+}
+
+export interface JobRun {
+  id: string;
+  jobId?: string;
+  userId?: string;
+  trigger?: "manual" | "scheduled" | "webhook";
+  status?: "running" | "success" | "error";
+  runId?: string;
+  error?: string;
+  startedAt?: number;
+  completedAt?: number;
+  durationMilliseconds?: number;
+  requestMethod?: string;
+  requestPath?: string;
+  remoteAddress?: string;
+}
+
+export interface JobRunsListParams {
+  jobId: string;
+}
+
+export interface JobRunsListResult {
+  jobRuns: JobRun[];
 }
 
 // Config schema types (JSON Schema with x-sections extension)

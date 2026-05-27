@@ -88,6 +88,8 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 		return self.handleJobsDelete(frame)
 	case "jobs.trigger":
 		return self.handleJobsTrigger(frame)
+	case "jobs.runs.list":
+		return self.handleJobRunsList(frame)
 
 	// Sessions.
 	case "sessions.list":
