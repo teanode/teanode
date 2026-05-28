@@ -232,6 +232,7 @@ export function AppProvider({
       backend.updateAvailable,
       backend.frontendBuildChanged,
       backend.jobs,
+      backend.jobRuns,
       backend.jobsLoading,
       backend.hasMoreHistory,
       backend.loadingOlderMessages,

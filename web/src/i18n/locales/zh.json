@@ -97,7 +97,20 @@
     "oneShotAt": "单次，{{time}}",
     "recurringSchedule": "周期 · {{schedule}}",
     "onceLabel": "单次",
-    "recurringLabel": "周期"
+    "recurringLabel": "周期",
+    "runHistory": "运行历史",
+    "runHistoryTooltip": "查看运行历史",
+    "hideRunHistory": "隐藏运行历史",
+    "refreshRunHistory": "刷新运行历史",
+    "noJobRuns": "尚无运行记录",
+    "jobRunsLoadFailed": "加载任务运行记录失败",
+    "triggerManual": "手动",
+    "triggerScheduled": "定时",
+    "triggerWebhook": "Webhook",
+    "runDuration": "耗时",
+    "runId": "运行 ID",
+    "runRequest": "请求",
+    "runError": "错误"
   },
   "settings": {
     "preferences": "偏好设置",

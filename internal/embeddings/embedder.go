@@ -90,8 +90,8 @@ func (self *Embedder) EmbedMany(ctx context.Context, inputTexts []string) ([][]f
 
 // recordUsage accumulates embedding usage into the store.
 func (self *Embedder) recordUsage(ctx context.Context, providerName, modelName string, usage *providers.UsageInformation) {
-	s := store.StoreFromContextSafe(ctx)
-	if s == nil {
+	dataStore := store.StoreFromContextSafe(ctx)
+	if dataStore == nil {
 		return
 	}
 	user := models.UserFromContext(ctx)
@@ -99,7 +99,7 @@ func (self *Embedder) recordUsage(ctx context.Context, providerName, modelName s
 	if user != nil {
 		userId = user.ID
 	}
-	err := s.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+	err := dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		return transaction.AccumulateUsage(ctx, &models.Usage{
 			UserID:       ptrto.Value(userId),
 			ProviderName: ptrto.Value(providerName),

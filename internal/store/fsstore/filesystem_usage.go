@@ -96,8 +96,8 @@ func evictUsages(usages []*models.Usage) []*models.Usage {
 			maxEntries = defaultMaxDayEntries
 		}
 		if len(entries) > maxEntries {
-			sort.Slice(entries, func(i, j int) bool {
-				return valueor.Zero(entries[i].StartedAt).Before(valueor.Zero(entries[j].StartedAt))
+			sort.Slice(entries, func(leftIndex, rightIndex int) bool {
+				return valueor.Zero(entries[leftIndex].StartedAt).Before(valueor.Zero(entries[rightIndex].StartedAt))
 			})
 			entries = entries[len(entries)-maxEntries:]
 		}
@@ -178,8 +178,8 @@ func (self *fileSystemTransaction) ListUsages(ctx context.Context, listOptions s
 		}
 		result = append(result, entry)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return valueor.Zero(result[i].StartedAt).Before(valueor.Zero(result[j].StartedAt))
+	sort.Slice(result, func(leftIndex, rightIndex int) bool {
+		return valueor.Zero(result[leftIndex].StartedAt).Before(valueor.Zero(result[rightIndex].StartedAt))
 	})
 	return result, nil
 }

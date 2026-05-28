@@ -265,6 +265,11 @@ func MakeAuthenticationMiddleware() Middleware {
 				return
 			}
 
+			if strings.HasPrefix(path, "/api/jobs/") && strings.HasSuffix(path, "/webhook") {
+				next.ServeHTTP(writer, request)
+				return
+			}
+
 			// 4. Media GET endpoints: always allow (LLM providers fetch images).
 			if strings.HasPrefix(path, "/api/media/") && request.Method == "GET" {
 				next.ServeHTTP(writer, request)

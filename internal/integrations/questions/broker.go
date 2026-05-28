@@ -53,17 +53,17 @@ func NewQuestionBroker() *QuestionBroker {
 }
 
 // Register adds a pending question to the broker.
-func (self *QuestionBroker) Register(q *PendingQuestion) {
+func (self *QuestionBroker) Register(question *PendingQuestion) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	self.pending[q.ID] = q
+	self.pending[question.ID] = question
 }
 
 // Answer delivers an answer to a pending question and removes it from the broker.
 // Returns an error if the question is not found (already answered or cancelled).
 func (self *QuestionBroker) Answer(questionId string, payload AnswerPayload) error {
 	self.mutex.Lock()
-	q, ok := self.pending[questionId]
+	question, ok := self.pending[questionId]
 	if ok {
 		delete(self.pending, questionId)
 	}
@@ -71,20 +71,20 @@ func (self *QuestionBroker) Answer(questionId string, payload AnswerPayload) err
 	if !ok {
 		return fmt.Errorf("questions: question not found or already answered: %s", questionId)
 	}
-	q.answerChan <- payload
+	question.answerChan <- payload
 	return nil
 }
 
 // Cancel removes a pending question and closes its channel.
 func (self *QuestionBroker) Cancel(questionId string) {
 	self.mutex.Lock()
-	q, ok := self.pending[questionId]
+	question, ok := self.pending[questionId]
 	if ok {
 		delete(self.pending, questionId)
 	}
 	self.mutex.Unlock()
 	if ok {
-		close(q.answerChan)
+		close(question.answerChan)
 	}
 }
 
@@ -93,9 +93,9 @@ func (self *QuestionBroker) PendingForConversation(conversationId string) []*Pen
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	var result []*PendingQuestion
-	for _, q := range self.pending {
-		if q.ConversationID == conversationId {
-			result = append(result, q)
+	for _, question := range self.pending {
+		if question.ConversationID == conversationId {
+			result = append(result, question)
 		}
 	}
 	return result
@@ -104,12 +104,12 @@ func (self *QuestionBroker) PendingForConversation(conversationId string) []*Pen
 // VerifyOwnership checks that the caller is the owner of the question.
 func (self *QuestionBroker) VerifyOwnership(questionId, callerUserId string) error {
 	self.mutex.Lock()
-	q, ok := self.pending[questionId]
+	question, ok := self.pending[questionId]
 	self.mutex.Unlock()
 	if !ok {
 		return fmt.Errorf("questions: question not found: %s", questionId)
 	}
-	if q.UserID != callerUserId {
+	if question.UserID != callerUserId {
 		return fmt.Errorf("questions: not authorized to answer this question")
 	}
 	return nil
@@ -124,21 +124,21 @@ func (self *QuestionBroker) AnswerBatch(answers map[string]AnswerPayload, caller
 
 	// Phase 1: validate all questions exist and belong to the caller.
 	questions := make(map[string]*PendingQuestion, len(answers))
-	for qid := range answers {
-		q, ok := self.pending[qid]
+	for questionId := range answers {
+		question, ok := self.pending[questionId]
 		if !ok {
-			return fmt.Errorf("questions: question not found or already answered: %s", qid)
+			return fmt.Errorf("questions: question not found or already answered: %s", questionId)
 		}
-		if q.UserID != callerUserId {
-			return fmt.Errorf("questions: not authorized to answer question: %s", qid)
+		if question.UserID != callerUserId {
+			return fmt.Errorf("questions: not authorized to answer question: %s", questionId)
 		}
-		questions[qid] = q
+		questions[questionId] = question
 	}
 
 	// Phase 2: all valid — remove from pending and deliver.
-	for qid, q := range questions {
-		delete(self.pending, qid)
-		q.answerChan <- answers[qid]
+	for questionId, question := range questions {
+		delete(self.pending, questionId)
+		question.answerChan <- answers[questionId]
 	}
 	return nil
 }

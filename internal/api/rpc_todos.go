@@ -106,9 +106,9 @@ func (self *webSocketConnection) handleConversationsTodosBatch(frame requestFram
 	anySuccess := false
 
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-		for i, item := range parameters.Items {
-			results[i] = self.executeRpcBatchItem(ctx, tx, parameters.ConversationID, i, item)
-			if results[i].Success {
+		for itemIndex, item := range parameters.Items {
+			results[itemIndex] = self.executeRpcBatchItem(ctx, tx, parameters.ConversationID, itemIndex, item)
+			if results[itemIndex].Success {
 				succeeded++
 				anySuccess = true
 			}
@@ -121,9 +121,9 @@ func (self *webSocketConnection) handleConversationsTodosBatch(frame requestFram
 	if anySuccess {
 		// Update conversation modified timestamp.
 		_ = store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, tx store.Transaction) error {
-			_, err := tx.ModifyConversation(ctx, parameters.ConversationID, func(c *models.Conversation) error {
+			_, err := tx.ModifyConversation(ctx, parameters.ConversationID, func(conversation *models.Conversation) error {
 				now := time.Now()
-				c.ModifiedAt = &now
+				conversation.ModifiedAt = &now
 				return nil
 			}, nil)
 			return err

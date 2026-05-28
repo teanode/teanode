@@ -207,7 +207,7 @@ type storeMemoryItemRecord struct {
 	EmbeddedAt                 timeutil.Timestamp `msgpack:"embeddedAt,omitempty"`
 }
 
-func readYamlFileOrDefault[T any](filename string, result *T) error {
+func readYamlFileOrDefault[RecordType any](filename string, result *RecordType) error {
 	fileContent, readError := os.ReadFile(filename)
 	if readError != nil {
 		if os.IsNotExist(readError) {

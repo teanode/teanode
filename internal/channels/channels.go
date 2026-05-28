@@ -1,3 +1,4 @@
+// Package channels contains helpers for external channel integrations.
 package channels
 
 import (

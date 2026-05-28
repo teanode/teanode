@@ -30,9 +30,9 @@ func (self *webSocketConnection) handleQuestionsList(frame requestFrame) (interf
 
 	// Filter to only questions belonging to this user.
 	var result []*questions.PendingQuestion
-	for _, q := range pending {
-		if q.UserID == self.userId() {
-			result = append(result, q)
+	for _, question := range pending {
+		if question.UserID == self.userId() {
+			result = append(result, question)
 		}
 	}
 	if result == nil {

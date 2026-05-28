@@ -26,9 +26,9 @@ func rotateLogFile(logPath string) error {
 	_ = os.Remove(fmt.Sprintf("%s.%d.gz", logPath, maxRotatedLogs))
 
 	// Shift compressed logs (.2.gz and above) up by one.
-	for i := maxRotatedLogs - 1; i >= 2; i-- {
-		source := fmt.Sprintf("%s.%d.gz", logPath, i)
-		destination := fmt.Sprintf("%s.%d.gz", logPath, i+1)
+	for rotationIndex := maxRotatedLogs - 1; rotationIndex >= 2; rotationIndex-- {
+		source := fmt.Sprintf("%s.%d.gz", logPath, rotationIndex)
+		destination := fmt.Sprintf("%s.%d.gz", logPath, rotationIndex+1)
 		if err := os.Rename(source, destination); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("cmd: rotate log %s -> %s: %w", source, destination, err)
 		}

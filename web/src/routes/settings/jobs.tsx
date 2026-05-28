@@ -4,6 +4,8 @@ import { useNavigate } from "@tanstack/react-router";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
 import Paper from "@mui/material/Paper";
+import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -16,11 +18,18 @@ import ToggleOffIcon from "@mui/icons-material/ToggleOff";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { useAlert } from "../../components/AlertProvider";
 import JobForm, { type JobFormHandle } from "../../components/JobForm";
 import { useAppContext } from "../../context";
-import type { Job, JobCreateParams, JobUpdateParams } from "../../types";
+import type {
+  Job,
+  JobCreateParams,
+  JobRun,
+  JobUpdateParams,
+} from "../../types";
 
 function sortJobs(jobs: Job[]): Job[] {
   return [...jobs].sort((a, b) => {
@@ -44,6 +53,45 @@ function formatJobSchedule(
   return t("jobs.recurringSchedule", { schedule: job.schedule });
 }
 
+function formatRunTime(timestamp?: number): string {
+  if (!timestamp) return "—";
+  return new Date(timestamp).toLocaleString();
+}
+
+function formatRunDuration(run: JobRun): string {
+  if (typeof run.durationMilliseconds === "number") {
+    if (run.durationMilliseconds < 1000) {
+      return `${run.durationMilliseconds}ms`;
+    }
+    return `${(run.durationMilliseconds / 1000).toFixed(1)}s`;
+  }
+  if (run.startedAt && run.completedAt) {
+    const durationMilliseconds = Math.max(0, run.completedAt - run.startedAt);
+    if (durationMilliseconds < 1000) return `${durationMilliseconds}ms`;
+    return `${(durationMilliseconds / 1000).toFixed(1)}s`;
+  }
+  return "—";
+}
+
+function runStatusColor(
+  status?: JobRun["status"],
+): "default" | "success" | "error" | "warning" {
+  if (status === "success") return "success";
+  if (status === "error") return "error";
+  if (status === "running") return "warning";
+  return "default";
+}
+
+function runTriggerLabel(
+  trigger: JobRun["trigger"],
+  t: (key: string) => string,
+): string {
+  if (trigger === "manual") return t("jobs.triggerManual");
+  if (trigger === "scheduled") return t("jobs.triggerScheduled");
+  if (trigger === "webhook") return t("jobs.triggerWebhook");
+  return "—";
+}
+
 export default function SettingsJobsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -61,6 +109,13 @@ export default function SettingsJobsPage() {
     Record<string, string>
   >({});
   const [periodicDirtyByJob, setPeriodicDirtyByJob] = useState<
+    Record<string, boolean>
+  >({});
+  const [expandedRunHistoryByJob, setExpandedRunHistoryByJob] = useState<
+    Record<string, boolean>
+  >({});
+  const [runsByJob, setRunsByJob] = useState<Record<string, JobRun[]>>({});
+  const [runsLoadingByJob, setRunsLoadingByJob] = useState<
     Record<string, boolean>
   >({});
   const [createCanSave, setCreateCanSave] = useState(false);
@@ -159,6 +214,40 @@ export default function SettingsJobsPage() {
     [backend.createJob, showAlert, t],
   );
 
+  const loadRunsForJob = useCallback(
+    (jobId: string) => {
+      setRunsLoadingByJob((previous) => ({ ...previous, [jobId]: true }));
+      return backend
+        .loadJobRuns(jobId)
+        .then((runs) => {
+          setRunsByJob((previous) => ({ ...previous, [jobId]: runs }));
+        })
+        .catch((err: unknown) =>
+          showAlert(
+            err instanceof Error ? err.message : t("jobs.jobRunsLoadFailed"),
+            "error",
+          ),
+        )
+        .finally(() =>
+          setRunsLoadingByJob((previous) => ({ ...previous, [jobId]: false })),
+        );
+    },
+    [backend, showAlert, t],
+  );
+
+  const toggleRunHistory = useCallback(
+    (jobId: string) => {
+      setExpandedRunHistoryByJob((previous) => {
+        const nextExpanded = !previous[jobId];
+        if (nextExpanded && runsByJob[jobId] === undefined) {
+          void loadRunsForJob(jobId);
+        }
+        return { ...previous, [jobId]: nextExpanded };
+      });
+    },
+    [loadRunsForJob, runsByJob],
+  );
+
   const saveOneShotJob = useCallback(
     (job: Job) => {
       const message = (oneShotMessageByJob[job.id] ?? job.prompt).trim();
@@ -224,6 +313,9 @@ export default function SettingsJobsPage() {
             const saveDisabled = job.oneShot
               ? !currentMessage.trim() || !oneShotDirty
               : !periodicDirty;
+            const runHistoryExpanded = !!expandedRunHistoryByJob[job.id];
+            const jobRuns = runsByJob[job.id] || [];
+            const runsLoading = !!runsLoadingByJob[job.id];
 
             return (
               <Paper key={job.id} variant="outlined" sx={{ p: 2 }}>
@@ -292,6 +384,21 @@ export default function SettingsJobsPage() {
                         onClick={() => viewConversation(job)}
                       >
                         <HistoryIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip
+                      title={
+                        runHistoryExpanded
+                          ? t("jobs.hideRunHistory")
+                          : t("jobs.runHistoryTooltip")
+                      }
+                    >
+                      <IconButton
+                        size="small"
+                        color={runHistoryExpanded ? "primary" : "default"}
+                        onClick={() => toggleRunHistory(job.id)}
+                      >
+                        <ReceiptLongIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
                     <Tooltip
@@ -463,6 +570,154 @@ export default function SettingsJobsPage() {
                       });
                     }}
                   />
+                )}
+                {runHistoryExpanded && (
+                  <Box
+                    sx={{
+                      mt: 1.5,
+                      pt: 1.5,
+                      borderTop: 1,
+                      borderColor: "divider",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 1,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 1,
+                      }}
+                    >
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                        {t("jobs.runHistory")}
+                      </Typography>
+                      <Tooltip title={t("jobs.refreshRunHistory")}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={runsLoading}
+                            onClick={() => loadRunsForJob(job.id)}
+                          >
+                            <RefreshIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Box>
+                    {runsLoading && jobRuns.length === 0 ? (
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1,
+                          color: "text.secondary",
+                        }}
+                      >
+                        <CircularProgress size={16} />
+                        <Typography variant="caption">
+                          {t("common.loading")}
+                        </Typography>
+                      </Box>
+                    ) : jobRuns.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        {t("jobs.noJobRuns")}
+                      </Typography>
+                    ) : (
+                      <Box
+                        sx={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 1,
+                        }}
+                      >
+                        {jobRuns.map((run) => (
+                          <Box
+                            key={run.id}
+                            sx={{
+                              p: 1,
+                              border: 1,
+                              borderColor: "divider",
+                              borderRadius: 1,
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 0.5,
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 1,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 0.75,
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <Chip
+                                  label={run.status || "unknown"}
+                                  size="small"
+                                  color={runStatusColor(run.status)}
+                                  sx={{ height: 22 }}
+                                />
+                                <Chip
+                                  label={runTriggerLabel(run.trigger, t)}
+                                  size="small"
+                                  variant="outlined"
+                                  sx={{ height: 22 }}
+                                />
+                              </Box>
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                {formatRunTime(run.startedAt)}
+                              </Typography>
+                            </Box>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              {t("jobs.runDuration")}: {formatRunDuration(run)}
+                              {run.runId
+                                ? ` · ${t("jobs.runId")}: ${run.runId}`
+                                : ""}
+                            </Typography>
+                            {(run.requestMethod ||
+                              run.requestPath ||
+                              run.remoteAddress) && (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                {t("jobs.runRequest")}:{" "}
+                                {[
+                                  run.requestMethod,
+                                  run.requestPath,
+                                  run.remoteAddress,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ")}
+                              </Typography>
+                            )}
+                            {run.error && (
+                              <Typography variant="caption" color="error.main">
+                                {t("jobs.runError")}: {run.error}
+                              </Typography>
+                            )}
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
+                  </Box>
                 )}
               </Paper>
             );

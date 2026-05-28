@@ -148,3 +148,60 @@ func TestDatabaseStoreTransactionRollback(t *testing.T) {
 		t.Fatalf("verification transaction error: %v", verifyError)
 	}
 }
+
+func TestDatabaseStoreJobRunOperations(t *testing.T) {
+	openedStore := openDatabaseStore(t)
+
+	userId := security.NewULID()
+	username := "job-run-" + security.NewULID()
+
+	transactionError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		if _, createUserError := transaction.CreateUser(ctx, &models.User{
+			ID:       userId,
+			Username: &username,
+		}, nil, nil); createUserError != nil {
+			return createUserError
+		}
+
+		createdJob, createJobError := transaction.CreateJob(ctx, &models.Job{
+			UserID:  ptrto.Value(userId),
+			Name:    ptrto.Value("Webhook Job"),
+			Prompt:  ptrto.Value("Run report"),
+			Enabled: ptrto.Value(true),
+		}, nil)
+		if createJobError != nil {
+			return createJobError
+		}
+
+		createdJobRun, createJobRunError := transaction.CreateJobRun(ctx, &models.JobRun{
+			JobID:     ptrto.Value(createdJob.ID),
+			UserID:    ptrto.Value(userId),
+			Trigger:   ptrto.Value(models.JobTriggerKindWebhook),
+			Status:    ptrto.Value(models.JobRunStatusRunning),
+			StartedAt: ptrto.TimeNowInLocal(),
+		}, nil)
+		if createJobRunError != nil {
+			return createJobRunError
+		}
+
+		if _, modifyJobRunError := transaction.ModifyJobRun(ctx, createdJobRun.ID, func(jobRun *models.JobRun) error {
+			jobRun.Status = ptrto.Value(models.JobRunStatusSuccess)
+			jobRun.RunID = ptrto.Value("run-1")
+			return nil
+		}, nil); modifyJobRunError != nil {
+			return modifyJobRunError
+		}
+
+		listedJobRuns, listJobRunsError := transaction.ListJobRuns(ctx, createdJob.ID, nil)
+		if listJobRunsError != nil {
+			return listJobRunsError
+		}
+		if len(listedJobRuns) != 1 || listedJobRuns[0].GetRunID() != "run-1" {
+			t.Fatalf("unexpected job runs result")
+		}
+		return nil
+	})
+	if transactionError != nil {
+		t.Fatalf("transaction error: %v", transactionError)
+	}
+}

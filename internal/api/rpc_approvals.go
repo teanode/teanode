@@ -29,9 +29,9 @@ func (self *webSocketConnection) handleApprovalsList(frame requestFrame) (interf
 
 	// Filter to only approvals belonging to this user.
 	var result []*approvals.PendingApproval
-	for _, a := range pending {
-		if a.UserID == self.userId() {
-			result = append(result, a)
+	for _, approval := range pending {
+		if approval.UserID == self.userId() {
+			result = append(result, approval)
 		}
 	}
 	if result == nil {

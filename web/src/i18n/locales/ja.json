@@ -97,7 +97,20 @@
     "oneShotAt": "単発 {{time}}",
     "recurringSchedule": "定期 · {{schedule}}",
     "onceLabel": "単発",
-    "recurringLabel": "定期"
+    "recurringLabel": "定期",
+    "runHistory": "実行履歴",
+    "runHistoryTooltip": "実行履歴を表示",
+    "hideRunHistory": "実行履歴を隠す",
+    "refreshRunHistory": "実行履歴を更新",
+    "noJobRuns": "記録された実行はまだありません",
+    "jobRunsLoadFailed": "ジョブ実行履歴の読み込みに失敗しました",
+    "triggerManual": "手動",
+    "triggerScheduled": "スケジュール",
+    "triggerWebhook": "Webhook",
+    "runDuration": "所要時間",
+    "runId": "Run ID",
+    "runRequest": "リクエスト",
+    "runError": "エラー"
   },
   "settings": {
     "preferences": "環境設定",

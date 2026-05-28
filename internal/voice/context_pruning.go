@@ -7,10 +7,10 @@ func pruneVoiceContext(messages []providers.ChatMessage, maxTokens int) []provid
 		return messages
 	}
 
-	estimateTokens := func(m providers.ChatMessage) int {
-		switch c := m.Content.(type) {
+	estimateTokens := func(message providers.ChatMessage) int {
+		switch content := message.Content.(type) {
 		case string:
-			return len(c)/4 + 1
+			return len(content)/4 + 1
 		default:
 			return 1
 		}
@@ -19,18 +19,18 @@ func pruneVoiceContext(messages []providers.ChatMessage, maxTokens int) []provid
 	// Separate the system prompt from conversation messages.
 	systemMessages := make([]providers.ChatMessage, 0, 2)
 	convMessages := make([]providers.ChatMessage, 0, len(messages))
-	for _, m := range messages {
-		if m.Role == "system" {
-			systemMessages = append(systemMessages, m)
+	for _, message := range messages {
+		if message.Role == "system" {
+			systemMessages = append(systemMessages, message)
 		} else {
-			convMessages = append(convMessages, m)
+			convMessages = append(convMessages, message)
 		}
 	}
 
 	// Compute tokens consumed by system messages (always kept).
 	systemTokens := 0
-	for _, m := range systemMessages {
-		systemTokens += estimateTokens(m)
+	for _, message := range systemMessages {
+		systemTokens += estimateTokens(message)
 	}
 
 	remaining := maxTokens - systemTokens
@@ -49,19 +49,19 @@ func pruneVoiceContext(messages []providers.ChatMessage, maxTokens int) []provid
 	candidates := convMessages[:len(convMessages)-minKeep]
 
 	// Count tokens in guaranteed messages.
-	for _, m := range guaranteed {
-		remaining -= estimateTokens(m)
+	for _, message := range guaranteed {
+		remaining -= estimateTokens(message)
 	}
 
 	// Walk candidates newest-first and include as many as fit.
 	kept := make([]providers.ChatMessage, 0, len(candidates))
-	for i := len(candidates) - 1; i >= 0; i-- {
-		t := estimateTokens(candidates[i])
-		if remaining-t < 0 {
+	for candidateIndex := len(candidates) - 1; candidateIndex >= 0; candidateIndex-- {
+		tokens := estimateTokens(candidates[candidateIndex])
+		if remaining-tokens < 0 {
 			break
 		}
-		remaining -= t
-		kept = append(kept, candidates[i])
+		remaining -= tokens
+		kept = append(kept, candidates[candidateIndex])
 	}
 
 	dropped := len(candidates) - len(kept)
@@ -70,8 +70,8 @@ func pruneVoiceContext(messages []providers.ChatMessage, maxTokens int) []provid
 	}
 
 	// Reverse kept (we built it newest-first).
-	for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
-		kept[i], kept[j] = kept[j], kept[i]
+	for leftIndex, rightIndex := 0, len(kept)-1; leftIndex < rightIndex; leftIndex, rightIndex = leftIndex+1, rightIndex-1 {
+		kept[leftIndex], kept[rightIndex] = kept[rightIndex], kept[leftIndex]
 	}
 
 	keptTotal := len(systemMessages) + len(kept) + len(guaranteed)

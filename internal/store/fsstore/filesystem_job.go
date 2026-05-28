@@ -20,17 +20,35 @@ import (
 
 type filesystemJobFrontmatter struct {
 	Name              string `yaml:"name"`
+	Trigger           string `yaml:"trigger,omitempty"`
 	Schedule          string `yaml:"schedule,omitempty"`
 	ProviderModelName string `yaml:"model,omitempty"`
 	AgentID           string `yaml:"agentId,omitempty"`
 	Enabled           bool   `yaml:"enabled"`
 	ConversationID    string `yaml:"conversationId,omitempty"`
+	WebhookSecret     string `yaml:"webhookSecret,omitempty"`
 	RunAt             int64  `yaml:"runAt,omitempty"`
 	OneShot           bool   `yaml:"oneShot,omitempty"`
 	LastRun           int64  `yaml:"lastRun,omitempty"`
 	LastStatus        string `yaml:"lastStatus,omitempty"`
 	LastError         string `yaml:"lastError,omitempty"`
 	CreatedAt         int64  `yaml:"createdAt"`
+}
+
+type filesystemJobRunRecord struct {
+	ID                   string `yaml:"id"`
+	JobID                string `yaml:"jobId"`
+	UserID               string `yaml:"userId"`
+	Trigger              string `yaml:"trigger,omitempty"`
+	Status               string `yaml:"status,omitempty"`
+	RunID                string `yaml:"runId,omitempty"`
+	Error                string `yaml:"error,omitempty"`
+	StartedAt            int64  `yaml:"startedAt,omitempty"`
+	CompletedAt          int64  `yaml:"completedAt,omitempty"`
+	DurationMilliseconds int64  `yaml:"durationMilliseconds,omitempty"`
+	RequestMethod        string `yaml:"requestMethod,omitempty"`
+	RequestPath          string `yaml:"requestPath,omitempty"`
+	RemoteAddress        string `yaml:"remoteAddress,omitempty"`
 }
 
 func (self *fileSystemTransaction) ListJobs(ctx context.Context, userId string, options *store.Option) ([]*models.Job, error) {
@@ -51,6 +69,18 @@ func (self *fileSystemTransaction) ModifyJob(ctx context.Context, jobId string, 
 
 func (self *fileSystemTransaction) DeleteJob(ctx context.Context, jobId string, options *store.Option) error {
 	return self.deleteJob(ctx, jobId, options)
+}
+
+func (self *fileSystemTransaction) CreateJobRun(ctx context.Context, jobRun *models.JobRun, options *store.Option) (*models.JobRun, error) {
+	return self.createJobRun(jobRun, options)
+}
+
+func (self *fileSystemTransaction) ListJobRuns(ctx context.Context, jobId string, options *store.Option) ([]*models.JobRun, error) {
+	return self.listJobRuns(jobId, options)
+}
+
+func (self *fileSystemTransaction) ModifyJobRun(ctx context.Context, jobRunId string, modifier func(*models.JobRun) error, options *store.Option) (*models.JobRun, error) {
+	return self.modifyJobRun(jobRunId, modifier, options)
 }
 
 func (self *fileSystemTransaction) listJobs(userId string, options *store.Option) ([]*models.Job, error) {
@@ -84,6 +114,30 @@ func (self *fileSystemTransaction) listJobs(userId string, options *store.Option
 	return applyOffsetLimit(results, options), nil
 }
 
+func (self *fileSystemTransaction) listJobRuns(jobId string, options *store.Option) ([]*models.JobRun, error) {
+	if jobId == "" {
+		return []*models.JobRun{}, nil
+	}
+	pattern := filepath.Join(self.usersDirectory(), "*", "jobs", jobId+".runs", "*.yaml")
+	matches, globError := filepath.Glob(pattern)
+	if globError != nil {
+		return nil, globError
+	}
+	jobRuns := make([]*models.JobRun, 0, len(matches))
+	for _, match := range matches {
+		data, readError := os.ReadFile(match)
+		if readError != nil {
+			continue
+		}
+		record := &filesystemJobRunRecord{}
+		if unmarshalError := yaml.Unmarshal(data, record); unmarshalError != nil {
+			continue
+		}
+		jobRuns = append(jobRuns, filesystemJobRunRecordToModel(record))
+	}
+	return applyOffsetLimit(jobRuns, options), nil
+}
+
 func (self *fileSystemTransaction) createJob(job *models.Job, options *store.Option) (*models.Job, error) {
 	if job == nil || job.UserID == nil || *job.UserID == "" {
 		return nil, store.ErrInvalidOptions
@@ -115,6 +169,46 @@ func (self *fileSystemTransaction) getJob(jobId string, options *store.Option) (
 		return nil, store.ErrNotFound
 	}
 	return &job, nil
+}
+
+func (self *fileSystemTransaction) createJobRun(jobRun *models.JobRun, options *store.Option) (*models.JobRun, error) {
+	if jobRun == nil || jobRun.JobID == nil || *jobRun.JobID == "" || jobRun.UserID == nil || *jobRun.UserID == "" {
+		return nil, store.ErrInvalidOptions
+	}
+	createdJobRun := *jobRun
+	if createdJobRun.ID == "" {
+		createdJobRun.ID = security.NewULID()
+	}
+	jobRunsDirectory := self.userJobRunsDirectory(*createdJobRun.UserID, *createdJobRun.JobID)
+	if makeDirectoryError := os.MkdirAll(jobRunsDirectory, 0755); makeDirectoryError != nil {
+		return nil, makeDirectoryError
+	}
+	data, marshalError := yaml.Marshal(modelToFilesystemJobRunRecord(&createdJobRun))
+	if marshalError != nil {
+		return nil, marshalError
+	}
+	if writeError := atomicfile.WriteFile(filepath.Join(jobRunsDirectory, createdJobRun.ID+".yaml"), data); writeError != nil {
+		return nil, writeError
+	}
+	return &createdJobRun, nil
+}
+
+func (self *fileSystemTransaction) modifyJobRun(jobRunId string, modifier func(*models.JobRun) error, options *store.Option) (*models.JobRun, error) {
+	jobRun, jobRunPath, err := self.getJobRun(jobRunId)
+	if err != nil {
+		return nil, err
+	}
+	if err := modifier(jobRun); err != nil {
+		return nil, err
+	}
+	data, marshalError := yaml.Marshal(modelToFilesystemJobRunRecord(jobRun))
+	if marshalError != nil {
+		return nil, marshalError
+	}
+	if writeError := atomicfile.WriteFile(jobRunPath, data); writeError != nil {
+		return nil, writeError
+	}
+	return jobRun, nil
 }
 
 func (self *fileSystemTransaction) modifyJob(ctx context.Context, jobId string, modifier func(*models.Job) error, options *store.Option) (*models.Job, error) {
@@ -253,7 +347,9 @@ func frontmatterToModelJob(userId string, jobId string, prompt string, frontmatt
 		AgentID:           ptrto.TrimmedString(frontmatter.AgentID),
 		ConversationID:    ptrto.TrimmedString(frontmatter.ConversationID),
 		Name:              ptrto.TrimmedString(frontmatter.Name),
+		Trigger:           ptrto.Trimmed[models.JobTriggerKind](frontmatter.Trigger),
 		Schedule:          ptrto.TrimmedString(frontmatter.Schedule),
+		WebhookSecret:     ptrto.TrimmedString(frontmatter.WebhookSecret),
 		Prompt:            ptrto.TrimmedString(prompt),
 		Enabled:           ptrto.Value(frontmatter.Enabled),
 		OneShot:           ptrto.Value(frontmatter.OneShot),
@@ -269,6 +365,7 @@ func frontmatterToModelJob(userId string, jobId string, prompt string, frontmatt
 func modelJobToFrontmatter(job models.Job) filesystemJobFrontmatter {
 	frontmatter := filesystemJobFrontmatter{
 		Name:              job.GetName(),
+		Trigger:           string(job.GetTrigger()),
 		Schedule:          job.GetSchedule(),
 		ProviderModelName: job.GetProviderModelName(),
 		AgentID:           job.GetAgentID(),
@@ -277,6 +374,7 @@ func modelJobToFrontmatter(job models.Job) filesystemJobFrontmatter {
 		LastStatus:        string(job.GetLastStatus()),
 		LastError:         job.GetLastError(),
 		ConversationID:    job.GetConversationID(),
+		WebhookSecret:     job.GetWebhookSecret(),
 	}
 	if job.RunAt != nil {
 		frontmatter.RunAt = job.RunAt.UnixMilli()
@@ -290,4 +388,73 @@ func modelJobToFrontmatter(job models.Job) filesystemJobFrontmatter {
 		frontmatter.CreatedAt = time.Now().UnixMilli()
 	}
 	return frontmatter
+}
+
+func modelToFilesystemJobRunRecord(jobRun *models.JobRun) *filesystemJobRunRecord {
+	record := &filesystemJobRunRecord{
+		ID:            jobRun.ID,
+		JobID:         jobRun.GetJobID(),
+		UserID:        jobRun.GetUserID(),
+		Trigger:       string(jobRun.GetTrigger()),
+		Status:        string(jobRun.GetStatus()),
+		RunID:         jobRun.GetRunID(),
+		Error:         jobRun.GetError(),
+		RequestMethod: jobRun.GetRequestMethod(),
+		RequestPath:   jobRun.GetRequestPath(),
+		RemoteAddress: jobRun.GetRemoteAddress(),
+	}
+	if jobRun.StartedAt != nil {
+		record.StartedAt = jobRun.StartedAt.UnixMilli()
+	}
+	if jobRun.CompletedAt != nil {
+		record.CompletedAt = jobRun.CompletedAt.UnixMilli()
+	}
+	if jobRun.DurationMilliseconds != nil {
+		record.DurationMilliseconds = *jobRun.DurationMilliseconds
+	}
+	return record
+}
+
+func (self *fileSystemTransaction) getJobRun(jobRunId string) (*models.JobRun, string, error) {
+	pattern := filepath.Join(self.usersDirectory(), "*", "jobs", "*.runs", jobRunId+".yaml")
+	matches, globError := filepath.Glob(pattern)
+	if globError != nil || len(matches) == 0 {
+		return nil, "", store.ErrNotFound
+	}
+	data, readError := os.ReadFile(matches[0])
+	if readError != nil {
+		return nil, "", readError
+	}
+	record := &filesystemJobRunRecord{}
+	if unmarshalError := yaml.Unmarshal(data, record); unmarshalError != nil {
+		return nil, "", unmarshalError
+	}
+	return filesystemJobRunRecordToModel(record), matches[0], nil
+}
+
+func filesystemJobRunRecordToModel(record *filesystemJobRunRecord) *models.JobRun {
+	jobRun := &models.JobRun{
+		ID:            record.ID,
+		JobID:         ptrto.TrimmedString(record.JobID),
+		UserID:        ptrto.TrimmedString(record.UserID),
+		Trigger:       ptrto.Trimmed[models.JobTriggerKind](record.Trigger),
+		Status:        ptrto.Trimmed[models.JobRunStatus](record.Status),
+		RunID:         ptrto.TrimmedString(record.RunID),
+		Error:         ptrto.TrimmedString(record.Error),
+		RequestMethod: ptrto.TrimmedString(record.RequestMethod),
+		RequestPath:   ptrto.TrimmedString(record.RequestPath),
+		RemoteAddress: ptrto.TrimmedString(record.RemoteAddress),
+	}
+	if record.StartedAt > 0 {
+		startedAt := time.UnixMilli(record.StartedAt)
+		jobRun.StartedAt = &startedAt
+	}
+	if record.CompletedAt > 0 {
+		completedAt := time.UnixMilli(record.CompletedAt)
+		jobRun.CompletedAt = &completedAt
+	}
+	if record.DurationMilliseconds > 0 {
+		jobRun.DurationMilliseconds = ptrto.Value(record.DurationMilliseconds)
+	}
+	return jobRun
 }

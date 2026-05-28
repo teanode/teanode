@@ -11,12 +11,12 @@ func TrimmedString(value string) *string {
 }
 
 // Trimmed is a generic version of TrimmedString for string-based enum types.
-func Trimmed[T ~string](value string) *T {
+func Trimmed[StringType ~string](value string) *StringType {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
 		return nil
 	}
-	result := T(trimmedValue)
+	result := StringType(trimmedValue)
 	return &result
 }
 
