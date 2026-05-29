@@ -13,6 +13,7 @@ import (
 	"github.com/teanode/teanode/internal/providers"
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/cmdexec"
+	"github.com/teanode/teanode/internal/util/commandpolicy"
 )
 
 var log = logging.MustGetLogger("shell")
@@ -102,6 +103,36 @@ func (self *shellTool) PolicyGroups() []tools.PolicyGroup {
 	}
 }
 
+func (self *shellTool) ArgumentPolicy(ctx context.Context, rawArguments string) tools.PolicyDecision {
+	var arguments struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+		return tools.AllowPolicy()
+	}
+	return shellCommandPolicyDecision(arguments.Command)
+}
+
+func shellCommandPolicyDecision(command string) tools.PolicyDecision {
+	decision := commandpolicy.Evaluate(command)
+	switch decision.Action {
+	case commandpolicy.ActionDeny:
+		return tools.DenyPolicy(decision.Reason)
+	case commandpolicy.ActionRequireApproval:
+		return tools.ApprovalPolicy(decision.Reason, decision.Risk)
+	default:
+		return tools.AllowPolicy()
+	}
+}
+
+func enforceShellCommandBlocklist(command string) error {
+	decision := commandpolicy.Evaluate(command)
+	if decision.Action == commandpolicy.ActionDeny {
+		return fmt.Errorf("shell: command blocked: %s", decision.Reason)
+	}
+	return nil
+}
+
 func (self *shellTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	var arguments struct {
 		Command     string            `json:"command"`
@@ -114,6 +145,9 @@ func (self *shellTool) Execute(ctx context.Context, rawArguments string) (string
 	}
 	if arguments.Command == "" {
 		return "", fmt.Errorf("shell: command is required")
+	}
+	if err := enforceShellCommandBlocklist(arguments.Command); err != nil {
+		return "", err
 	}
 
 	// Resolve timeout.

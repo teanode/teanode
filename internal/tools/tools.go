@@ -65,6 +65,14 @@ type Tool interface {
 	PolicyGroups() []PolicyGroup
 }
 
+// ArgumentPolicyProvider is implemented by tools that need argument-specific
+// policy decisions in addition to their configured/default tool policy.
+// Deny decisions are non-bypassable. Approval decisions escalate an otherwise
+// allowed tool call to explicit user approval.
+type ArgumentPolicyProvider interface {
+	ArgumentPolicy(ctx context.Context, arguments string) PolicyDecision
+}
+
 // OverlayBuilder is an optional interface that tools can implement to
 // inject late system messages into the LLM prompt. The runner calls
 // BuildOverlay after constructing the conversation history. Return "" to
@@ -110,13 +118,28 @@ func ToolPoliciesFromContext(ctx context.Context) []*models.ToolPolicyConfigurat
 //  3. Checking for a configured override in the context
 //  4. Falling back to the group's declared default level
 func ResolveToolPolicy(ctx context.Context, tool Tool, toolName string, arguments string) PolicyDecision {
+	argumentDecision := AllowPolicy()
+	if provider, ok := tool.(ArgumentPolicyProvider); ok {
+		argumentDecision = provider.ArgumentPolicy(ctx, arguments)
+		if argumentDecision.Action == PolicyDeny {
+			return argumentDecision
+		}
+	}
+
 	groups := tool.PolicyGroups()
 	action := ParseAction(arguments)
 	group := findGroupForAction(groups, action)
+	baseDecision := applyPolicyLevel(ctx, group.Default, toolName, string(group.Group))
 	if decision, ok := resolveConfiguredPolicy(ctx, toolName, group.Group); ok {
-		return decision
+		baseDecision = decision
 	}
-	return applyPolicyLevel(ctx, group.Default, toolName, string(group.Group))
+	if baseDecision.Action != PolicyAllow {
+		return baseDecision
+	}
+	if argumentDecision.Action == PolicyRequireApproval {
+		return argumentDecision
+	}
+	return baseDecision
 }
 
 // findGroupForAction returns the PolicyGroup matching the given action.
