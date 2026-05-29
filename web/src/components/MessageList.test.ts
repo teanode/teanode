@@ -308,10 +308,10 @@ describe("buildItems — artifact chips present vs not present", () => {
     const items1 = buildItems(messagesWithArtifacts, mockT, false, false);
     const items2 = buildItems(messagesWithArtifacts, mockT, false, false);
     const keys1 = items1.map((i) =>
-      i.kind === "separator" ? i.key : i.message.id,
+      i.kind === "message" ? i.message.id : i.key,
     );
     const keys2 = items2.map((i) =>
-      i.kind === "separator" ? i.key : i.message.id,
+      i.kind === "message" ? i.message.id : i.key,
     );
     expect(keys1).toEqual(keys2);
   });
@@ -661,7 +661,7 @@ describe("buildItems — mixed content permutations for scroll stability", () =>
     ];
     const items = buildItems(messages, mockT, true, true);
     const keys = items.map((i) =>
-      i.kind === "separator" ? i.key : i.message.id,
+      i.kind === "message" ? i.message.id : i.key,
     );
     const uniqueKeys = new Set(keys);
     expect(uniqueKeys.size).toBe(keys.length);
@@ -975,7 +975,7 @@ describe("buildItems — large static conversation stability", () => {
     const messages = makeConversation(100, true);
     const items = buildItems(messages, mockT, true, true);
     const keys = items.map((i) =>
-      i.kind === "separator" ? i.key : i.message.id,
+      i.kind === "message" ? i.message.id : i.key,
     );
     expect(new Set(keys).size).toBe(keys.length);
   });
@@ -1214,7 +1214,7 @@ describe("mobile simple list — all items rendered", () => {
     const messages = makeConversation(100, true);
     const items = buildItems(messages, mockT, true, true);
     const keys = items.map((i) =>
-      i.kind === "separator" ? i.key : i.message.id,
+      i.kind === "message" ? i.message.id : i.key,
     );
     const uniqueKeys = new Set(keys);
     expect(uniqueKeys.size).toBe(keys.length);

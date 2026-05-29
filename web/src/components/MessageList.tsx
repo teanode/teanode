@@ -27,6 +27,7 @@ import ToolInvoke from "./ToolInvoke";
 import ToolResult, { detectMedia } from "./ToolResult";
 import UsageIndicator from "./UsageIndicator";
 import ConversationAvatar from "./ConversationAvatar";
+import SuggestionChips from "./SuggestionChips";
 
 interface MessageListProps {
   messages: DisplayMessage[];
@@ -57,6 +58,9 @@ interface MessageListProps {
   onStopSpeaking?: () => void;
   showAbortOnStatusLine?: boolean;
   onAbort?: () => void;
+  suggestions?: string[];
+  onSuggestionSelect?: (text: string) => void;
+  suggestionsDisabled?: boolean;
 }
 
 const VIRTUAL_START = 1_000_000;
@@ -70,6 +74,7 @@ const VIRTUAL_START = 1_000_000;
 // 200 items ≈ 50–100 user/assistant turns (depending on tool-call visibility),
 // well within comfortable DOM-node budgets on desktop browsers.
 export const SIMPLE_LIST_THRESHOLD = 200;
+const MESSAGE_LIST_BOTTOM_PADDING = 32;
 
 // ---------------------------------------------------------------------------
 // StreamTextStore — allows only the actively-streaming message to re-render
@@ -156,7 +161,8 @@ function StreamingBubble({
 
 export type ListItem =
   | { kind: "separator"; label: string; key: string }
-  | { kind: "message"; message: DisplayMessage };
+  | { kind: "message"; message: DisplayMessage }
+  | { kind: "suggestions"; key: string; suggestions: string[] };
 
 export function buildItems(
   messages: DisplayMessage[],
@@ -226,6 +232,9 @@ export default function MessageList({
   onStopSpeaking,
   showAbortOnStatusLine,
   onAbort,
+  suggestions = [],
+  onSuggestionSelect,
+  suggestionsDisabled,
 }: MessageListProps) {
   const { t } = useTranslation();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -280,8 +289,15 @@ export default function MessageList({
       filteredItems = buildItems(messages, t, true, true);
     }
 
+    if (suggestions.length > 0 && !isRunning) {
+      filteredItems = [
+        ...filteredItems,
+        { kind: "suggestions", key: "suggestions", suggestions },
+      ];
+    }
+
     return filteredItems;
-  }, [messages, t, showToolCalls, showTokenUsage]);
+  }, [messages, t, showToolCalls, showTokenUsage, suggestions, isRunning]);
 
   // Use the non-virtualized simple scroll container when on mobile OR when the
   // visible item count is below the threshold.  Mobile always uses simple list;
@@ -524,6 +540,16 @@ export default function MessageList({
         );
       }
 
+      if (item.kind === "suggestions") {
+        return (
+          <SuggestionChips
+            suggestions={item.suggestions}
+            onSelect={onSuggestionSelect || (() => {})}
+            disabled={suggestionsDisabled || !onSuggestionSelect}
+          />
+        );
+      }
+
       const message = item.message;
       const isActiveRun = message.runId === activeRunId;
       const isStreamingMessage = message.id === lastStreamingAssistantId;
@@ -722,6 +748,8 @@ export default function MessageList({
       toolActivity,
       showAbortOnStatusLine,
       onAbort,
+      onSuggestionSelect,
+      suggestionsDisabled,
       userAvatarMediaId,
       userAvatarSrc,
       voiceEnabled,
@@ -730,6 +758,7 @@ export default function MessageList({
 
   const computeItemKey = useCallback((_index: number, item: ListItem) => {
     if (item.kind === "separator") return item.key;
+    if (item.kind === "suggestions") return item.key;
     return item.message.id;
   }, []);
 
@@ -874,6 +903,11 @@ export default function MessageList({
     );
   }, [loadingOlderMessages]);
 
+  const footerComponent = useCallback(
+    () => <Box sx={{ height: MESSAGE_LIST_BOTTOM_PADDING }} />,
+    [],
+  );
+
   return (
     <Box
       onClick={handleClick}
@@ -900,6 +934,7 @@ export default function MessageList({
               {renderItem(index, item)}
             </div>
           ))}
+          <Box sx={{ height: MESSAGE_LIST_BOTTOM_PADDING }} />
         </Box>
       ) : (
         <Virtuoso
@@ -933,6 +968,7 @@ export default function MessageList({
           itemContent={renderItem}
           components={{
             Header: headerComponent,
+            Footer: footerComponent,
           }}
         />
       )}

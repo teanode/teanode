@@ -4,7 +4,6 @@ import { useAppContext, useStreamingContext } from "../../../context";
 import MessageList from "../../../components/MessageList";
 import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
-import SuggestionChips from "../../../components/SuggestionChips";
 import QuestionPanel from "../../../components/QuestionPanel";
 import ApprovalPanel from "../../../components/ApprovalPanel";
 import VoiceCallBar from "../../../components/VoiceCallBar";
@@ -185,6 +184,15 @@ export default function ConversationsConversationPage() {
         onStopSpeaking={handleStopSpeaking}
         showAbortOnStatusLine={backend.isRunning && !inputFocused}
         onAbort={backend.abortRun}
+        suggestions={
+          voiceCall.isCallActive ||
+          backend.pendingQuestions.length > 0 ||
+          backend.pendingApprovals.length > 0
+            ? []
+            : backend.suggestions
+        }
+        onSuggestionSelect={handleSuggestionSelect}
+        suggestionsDisabled={!backend.connected}
       />
       <TodoPanel
         todos={backend.todos}
@@ -216,13 +224,6 @@ export default function ConversationsConversationPage() {
         />
       ) : (
         <>
-          {backend.suggestions.length > 0 && !backend.isRunning && (
-            <SuggestionChips
-              suggestions={backend.suggestions}
-              onSelect={handleSuggestionSelect}
-              disabled={!backend.connected}
-            />
-          )}
           <InputArea
             isRunning={backend.isRunning}
             connected={backend.connected && !backend.connecting}

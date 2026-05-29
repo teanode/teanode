@@ -9,7 +9,7 @@ interface SuggestionChipsProps {
   disabled?: boolean;
 }
 
-/** Renders a row of clickable suggestion chips above the input area. */
+/** Renders a row of clickable suggestion chips in the message timeline. */
 export default function SuggestionChips({
   suggestions,
   onSelect,
@@ -18,12 +18,13 @@ export default function SuggestionChips({
   if (suggestions.length === 0) return null;
 
   return (
-    <Container maxWidth="md" sx={{ px: 2, pt: 0.5, pb: 0 }}>
+    <Container maxWidth="md" sx={{ px: 2, pt: 1, pb: 1.5 }}>
       <Box
         sx={{
           display: "flex",
           flexWrap: "wrap",
-          gap: 0.75,
+          columnGap: 0.75,
+          rowGap: 1.25,
           justifyContent: "flex-end",
         }}
       >
@@ -38,9 +39,10 @@ export default function SuggestionChips({
               textTransform: "none",
               borderRadius: 4,
               fontSize: "0.8125rem",
-              lineHeight: 1.4,
+              lineHeight: 1.6,
+              minHeight: 34,
               px: 1.5,
-              py: 0.25,
+              py: 0.5,
               minWidth: 0,
               borderColor: "divider",
               color: "text.primary",
