@@ -4,6 +4,12 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.4.0] - 2026-05-29
+
+### Changed
+
+- Suggested replies now appear at the end of the scrollable message timeline with improved spacing instead of being pinned above the reply box. (#53)
+
 ## [0.3.1] - 2026-05-26
 
 ### Fixed
