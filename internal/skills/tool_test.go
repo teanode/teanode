@@ -11,6 +11,7 @@ import (
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
 )
 
 func mustWriteSkillResponse(t testing.TB, writer io.Writer, value string) {
@@ -1103,6 +1104,76 @@ func TestWorkflowShellStepsDeniedForNonAdmin(t *testing.T) {
 	_, err := tool.Execute(nonAdminContext, "{}")
 	if err == nil || !strings.Contains(err.Error(), "admin access required") {
 		t.Fatalf("expected admin access required error, got: %v", err)
+	}
+}
+
+func TestShellSkillArgumentPolicyDeniesNeverRunCommands(t *testing.T) {
+	tool := &ShellTool{definition: models.SkillTool{
+		Name:    "dangerous_shell",
+		Type:    models.SkillToolTypeShell,
+		Command: []string{"sh", "-c", "rm -rf /"},
+	}}
+	decision := tools.ResolveToolPolicy(adminContext(), tool, "skill.dangerous_shell", `{}`)
+	if decision.Action != tools.PolicyDeny {
+		t.Fatalf("action = %q, want %q", decision.Action, tools.PolicyDeny)
+	}
+	if !strings.Contains(decision.Reason, "root filesystem") {
+		t.Fatalf("reason = %q, want root filesystem", decision.Reason)
+	}
+}
+
+func TestShellSkillArgumentPolicyRequiresApprovalForDangerousCommands(t *testing.T) {
+	tool := &ShellTool{definition: models.SkillTool{
+		Name:    "dangerous_shell",
+		Type:    models.SkillToolTypeShell,
+		Command: []string{"rm", "-rf", "./build"},
+	}}
+	decision := tools.ResolveToolPolicy(adminContext(), tool, "skill.dangerous_shell", `{}`)
+	if decision.Action != tools.PolicyRequireApproval {
+		t.Fatalf("action = %q, want %q", decision.Action, tools.PolicyRequireApproval)
+	}
+	if decision.Risk != "high" {
+		t.Fatalf("risk = %q, want high", decision.Risk)
+	}
+}
+
+func TestShellSkillExecuteBlocksNeverRunCommandEvenIfCalledDirectly(t *testing.T) {
+	tool := &ShellTool{definition: models.SkillTool{
+		Name:    "dangerous_shell",
+		Type:    models.SkillToolTypeShell,
+		Command: []string{"sh", "-c", "rm -rf /"},
+	}}
+	_, err := tool.Execute(adminContext(), `{}`)
+	if err == nil || !strings.Contains(err.Error(), "command blocked") {
+		t.Fatalf("expected command blocked error, got %v", err)
+	}
+}
+
+func TestWorkflowShellStepBlocksApprovalRequiredCommand(t *testing.T) {
+	tool := &WorkflowTool{definition: models.SkillTool{
+		Name: "workflow_shell_policy",
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
+			{Name: "dangerous", Type: models.SkillActionTypeShell, Command: []string{"rm", "-rf", "./build"}},
+		},
+	}}
+	_, err := tool.Execute(adminContext(), `{}`)
+	if err == nil || !strings.Contains(err.Error(), "requires approval") {
+		t.Fatalf("expected requires approval error, got %v", err)
+	}
+}
+
+func TestWorkflowShellStepBlocksNeverRunCommand(t *testing.T) {
+	tool := &WorkflowTool{definition: models.SkillTool{
+		Name: "workflow_shell_policy",
+		Type: models.SkillToolTypeWorkflow,
+		Steps: []*models.SkillAction{
+			{Name: "dangerous", Type: models.SkillActionTypeShell, Command: []string{"sh", "-c", "rm -rf /"}},
+		},
+	}}
+	_, err := tool.Execute(adminContext(), `{}`)
+	if err == nil || !strings.Contains(err.Error(), "command blocked") {
+		t.Fatalf("expected command blocked error, got %v", err)
 	}
 }
 

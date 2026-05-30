@@ -19,6 +19,7 @@ import (
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/cmdexec"
+	"github.com/teanode/teanode/internal/util/commandpolicy"
 )
 
 const (
@@ -44,6 +45,23 @@ func (self *ShellTool) PolicyGroups() []tools.PolicyGroup {
 	}
 }
 
+func (self *ShellTool) ArgumentPolicy(ctx context.Context, rawArguments string) tools.PolicyDecision {
+	if !tools.IsAdmin(ctx) {
+		return tools.DenyPolicy("admin access required for shell skill tool")
+	}
+	arguments := parseArguments(rawArguments)
+	action := actionFromTool(self.definition)
+	decision := evaluateSkillShellAction(action, arguments)
+	switch decision.Action {
+	case commandpolicy.ActionDeny:
+		return tools.DenyPolicy(decision.Reason)
+	case commandpolicy.ActionRequireApproval:
+		return tools.ApprovalPolicy(decision.Reason, decision.Risk)
+	default:
+		return tools.AllowPolicy()
+	}
+}
+
 func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string, error) {
 	user := models.UserFromContext(ctx)
 	if user == nil || !user.GetAdmin() {
@@ -54,6 +72,9 @@ func (self *ShellTool) Execute(ctx context.Context, rawArguments string) (string
 		return "", err
 	}
 	action := actionFromTool(self.definition)
+	if err := enforceSkillShellActionBlocklist(action, arguments); err != nil {
+		return "", err
+	}
 	output, err := executeShellAction(ctx, action, arguments, rawArguments)
 	if err != nil {
 		return "", err
@@ -245,6 +266,9 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 			if user == nil || !user.GetAdmin() {
 				return nil, fmt.Errorf("skills: admin access required for shell skill actions")
 			}
+			if err := enforceWorkflowSkillShellActionPolicy(*step, contextData); err != nil {
+				return nil, err
+			}
 			workflowInput, _ := json.Marshal(contextData)
 			rawOutput, err = executeShellAction(ctx, *step, contextData, string(workflowInput))
 		case models.SkillActionTypeHTTP:
@@ -433,6 +457,34 @@ func actionFromTool(definition models.SkillTool) models.SkillAction {
 		Select:           definition.Select,
 		OutputSchema:     definition.OutputSchema,
 		Auth:             definition.Auth,
+	}
+}
+
+func evaluateSkillShellAction(action models.SkillAction, arguments map[string]interface{}) commandpolicy.Decision {
+	commandParts := make([]string, 0, len(action.Command))
+	for _, commandPart := range action.Command {
+		commandParts = append(commandParts, applyTemplate(context.Background(), commandPart, arguments))
+	}
+	return commandpolicy.EvaluateCommandParts(commandParts)
+}
+
+func enforceSkillShellActionBlocklist(action models.SkillAction, arguments map[string]interface{}) error {
+	decision := evaluateSkillShellAction(action, arguments)
+	if decision.Action == commandpolicy.ActionDeny {
+		return fmt.Errorf("skills: shell command blocked: %s", decision.Reason)
+	}
+	return nil
+}
+
+func enforceWorkflowSkillShellActionPolicy(action models.SkillAction, arguments map[string]interface{}) error {
+	decision := evaluateSkillShellAction(action, arguments)
+	switch decision.Action {
+	case commandpolicy.ActionDeny:
+		return fmt.Errorf("skills: shell command blocked: %s", decision.Reason)
+	case commandpolicy.ActionRequireApproval:
+		return fmt.Errorf("skills: shell command requires approval: %s", decision.Reason)
+	default:
+		return nil
 	}
 }
 
