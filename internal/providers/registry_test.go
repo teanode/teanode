@@ -128,6 +128,35 @@ func TestNewRegistryNilConfigNoKeys(t *testing.T) {
 	}
 }
 
+func TestNewRegistryNilConfigXaiKey(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("DEEPGRAM_API_KEY", "")
+	t.Setenv("ELEVENLABS_API_KEY", "")
+	t.Setenv("XAI_API_KEY", "test-xai-key")
+
+	providerRegistry := NewProviderRegistry(nil)
+	if providerRegistry.DefaultProvider() != "xai" {
+		t.Errorf("DefaultProvider() = %q, want %q", providerRegistry.DefaultProvider(), "xai")
+	}
+	if providerRegistry.DefaultProviderModelName() != "xai:grok-4" {
+		t.Errorf("DefaultProviderModelName() = %q, want %q", providerRegistry.DefaultProviderModelName(), "xai:grok-4")
+	}
+	if len(providerRegistry.ProviderNames()) != 1 {
+		t.Errorf("expected 1 provider, got %v", providerRegistry.ProviderNames())
+	}
+	// xAI is OpenAI-compatible, so its client should be a chat-capable Client.
+	client, ok := providerRegistry.ClientByName("xai")
+	if !ok {
+		t.Fatalf("expected xai provider to be registered")
+	}
+	if _, ok := client.(ChatProvider); !ok {
+		t.Errorf("expected xai client to implement ChatProvider")
+	}
+}
+
 func TestNewRegistryWithConfig(t *testing.T) {
 	defaultProviderModelName := "anthropic:claude-sonnet-4-20250514"
 	providerName := "anthropic"

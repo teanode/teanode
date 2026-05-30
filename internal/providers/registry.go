@@ -69,6 +69,13 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 				APIKey:  ptrto.Value(apiKey),
 			})
 		}
+		if apiKey := os.Getenv("XAI_API_KEY"); apiKey != "" {
+			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
+				Name:    ptrto.Value("xai"),
+				BaseURL: ptrto.Value("https://api.x.ai/v1"),
+				APIKey:  ptrto.Value(apiKey),
+			})
+		}
 		if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
 			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
 				Name:    ptrto.Value("gemini"),
@@ -142,7 +149,7 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 		}
 	}
 	if !hasKey {
-		log.Warning("no API key configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, or models.apiKey in config)")
+		log.Warning("no API key configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, XAI_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, or models.apiKey in config)")
 	}
 
 	return providerRegistry
@@ -257,6 +264,9 @@ func defaultProviderModelName(configuration *models.ModelsConfiguration) string 
 	}
 	if providerNames["openrouter"] {
 		return "openrouter:anthropic/claude-sonnet-4-20250514"
+	}
+	if providerNames["xai"] {
+		return "xai:grok-4"
 	}
 	return "openai:gpt-5.2"
 }

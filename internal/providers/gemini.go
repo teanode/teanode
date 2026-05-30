@@ -84,8 +84,22 @@ type geminiFunctionDeclaration struct {
 }
 
 type geminiGenerationConfig struct {
-	Temperature     *float64 `json:"temperature,omitempty"`
-	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
+	Temperature        *float64            `json:"temperature,omitempty"`
+	MaxOutputTokens    int                 `json:"maxOutputTokens,omitempty"`
+	ResponseModalities []string            `json:"responseModalities,omitempty"`
+	SpeechConfig       *geminiSpeechConfig `json:"speechConfig,omitempty"`
+}
+
+type geminiSpeechConfig struct {
+	VoiceConfig *geminiVoiceConfig `json:"voiceConfig,omitempty"`
+}
+
+type geminiVoiceConfig struct {
+	PrebuiltVoiceConfig *geminiPrebuiltVoiceConfig `json:"prebuiltVoiceConfig,omitempty"`
+}
+
+type geminiPrebuiltVoiceConfig struct {
+	VoiceName string `json:"voiceName,omitempty"`
 }
 
 // --- Response types ---
