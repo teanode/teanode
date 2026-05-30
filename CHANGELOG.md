@@ -4,6 +4,12 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.4.1] - 2026-05-30
+
+### Security
+
+- Shell commands now block catastrophic patterns and require approval for dangerous operations before execution. (#54)
+
 ## [0.4.0] - 2026-05-29
 
 ### Changed
