@@ -40,65 +40,35 @@ type ProviderRegistry struct {
 }
 
 // NewProviderRegistry creates a provider registry from the given models configuration.
-// If modelsConfiguration is nil, sensible defaults are applied (openai:gpt-5.2
-// with the OPENAI_API_KEY environment variable).
+//
+// Providers are sourced from two places and merged: every provider whose API-key
+// environment variable is set is registered automatically, and any providers
+// defined in modelsConfiguration are added for names the environment does not
+// already supply. Environment-derived providers take precedence on name
+// conflicts, so a key set in the environment (e.g. XAI_API_KEY) is always picked
+// up, even when other providers are pinned in config. If modelsConfiguration is
+// nil and no env keys are set, a keyless openai default is applied.
 func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *ProviderRegistry {
 	if modelsConfiguration == nil {
 		modelsConfiguration = &models.ModelsConfiguration{}
 	}
-	if modelsConfiguration.Providers == nil || len(*modelsConfiguration.Providers) == 0 {
-		var defaultProviders []*models.ProviderConfiguration
-		if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
-				Name:    ptrto.Value("openai"),
-				BaseURL: ptrto.Value("https://api.openai.com/v1"),
-				APIKey:  ptrto.Value(apiKey),
-			})
-		}
-		if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
-				Name:    ptrto.Value("anthropic"),
-				BaseURL: ptrto.Value("https://api.anthropic.com"),
-				APIKey:  ptrto.Value(apiKey),
-			})
-		}
-		if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
-			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
-				Name:    ptrto.Value("openrouter"),
-				BaseURL: ptrto.Value("https://openrouter.ai/api/v1"),
-				APIKey:  ptrto.Value(apiKey),
-			})
-		}
-		if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
-			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
-				Name:    ptrto.Value("gemini"),
-				BaseURL: ptrto.Value("https://generativelanguage.googleapis.com"),
-				APIKey:  ptrto.Value(apiKey),
-			})
-		}
-		if apiKey := os.Getenv("DEEPGRAM_API_KEY"); apiKey != "" {
-			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
-				Name:    ptrto.Value("deepgram"),
-				BaseURL: ptrto.Value("https://api.deepgram.com"),
-				APIKey:  ptrto.Value(apiKey),
-			})
-		}
-		if apiKey := os.Getenv("ELEVENLABS_API_KEY"); apiKey != "" {
-			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
-				Name:    ptrto.Value("elevenlabs"),
-				BaseURL: ptrto.Value("https://api.elevenlabs.io"),
-				APIKey:  ptrto.Value(apiKey),
-			})
-		}
-		if len(defaultProviders) == 0 {
-			defaultProviders = append(defaultProviders, &models.ProviderConfiguration{
-				Name:    ptrto.Value("openai"),
-				BaseURL: ptrto.Value("https://api.openai.com/v1"),
-				APIKey:  ptrto.Value(""),
-			})
-		}
-		modelsConfiguration.Providers = &defaultProviders
+
+	var configProviders []*models.ProviderConfiguration
+	if modelsConfiguration.Providers != nil {
+		configProviders = *modelsConfiguration.Providers
 	}
+	mergedProviders := mergeProviderConfigurations(defaultProvidersFromEnvironment(), configProviders)
+	if len(mergedProviders) == 0 {
+		// Nothing configured anywhere: fall back to a keyless openai provider so
+		// the node still starts and surfaces the "no API key" warning below.
+		mergedProviders = append(mergedProviders, &models.ProviderConfiguration{
+			Name:    ptrto.Value("openai"),
+			BaseURL: ptrto.Value("https://api.openai.com/v1"),
+			APIKey:  ptrto.Value(""),
+		})
+	}
+	modelsConfiguration.Providers = &mergedProviders
+
 	if modelsConfiguration.GetDefault() == "" {
 		modelsConfiguration.Default = ptrto.Value(defaultProviderModelName(modelsConfiguration))
 	}
@@ -142,7 +112,7 @@ func NewProviderRegistry(modelsConfiguration *models.ModelsConfiguration) *Provi
 		}
 	}
 	if !hasKey {
-		log.Warning("no API key configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, or models.apiKey in config)")
+		log.Warning("no API key configured (set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, XAI_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, or models.apiKey in config)")
 	}
 
 	return providerRegistry
@@ -237,6 +207,72 @@ func FormatProviderModelName(providerName, modelName string) string {
 	return providerName + ":" + modelName
 }
 
+// environmentProviderDefault maps a provider name to the environment variable
+// holding its API key and the default base URL used when sourced from the
+// environment.
+type environmentProviderDefault struct {
+	name    string
+	envVar  string
+	baseUrl string
+}
+
+// environmentProviderDefaults lists the providers that are auto-registered from
+// the environment, in registration order. Order matters: it determines the
+// default-provider preference and the order capability lookups (FindTranscriber,
+// etc.) consider providers when no name is specified.
+var environmentProviderDefaults = []environmentProviderDefault{
+	{name: "openai", envVar: "OPENAI_API_KEY", baseUrl: "https://api.openai.com/v1"},
+	{name: "anthropic", envVar: "ANTHROPIC_API_KEY", baseUrl: "https://api.anthropic.com"},
+	{name: "openrouter", envVar: "OPENROUTER_API_KEY", baseUrl: "https://openrouter.ai/api/v1"},
+	{name: "xai", envVar: "XAI_API_KEY", baseUrl: "https://api.x.ai/v1"},
+	{name: "gemini", envVar: "GEMINI_API_KEY", baseUrl: "https://generativelanguage.googleapis.com"},
+	{name: "deepgram", envVar: "DEEPGRAM_API_KEY", baseUrl: "https://api.deepgram.com"},
+	{name: "elevenlabs", envVar: "ELEVENLABS_API_KEY", baseUrl: "https://api.elevenlabs.io"},
+}
+
+// defaultProvidersFromEnvironment returns a provider configuration for each
+// known provider whose API-key environment variable is set.
+func defaultProvidersFromEnvironment() []*models.ProviderConfiguration {
+	var providers []*models.ProviderConfiguration
+	for _, entry := range environmentProviderDefaults {
+		if apiKey := os.Getenv(entry.envVar); apiKey != "" {
+			providers = append(providers, &models.ProviderConfiguration{
+				Name:    ptrto.Value(entry.name),
+				BaseURL: ptrto.Value(entry.baseUrl),
+				APIKey:  ptrto.Value(apiKey),
+			})
+		}
+	}
+	return providers
+}
+
+// mergeProviderConfigurations combines environment-derived providers with the
+// providers defined in the models configuration. Providers are matched by name:
+// environment-derived providers take precedence, so a key set in the
+// environment is always honoured; config providers contribute only names not
+// already supplied by the environment. Environment defaults keep their declared
+// order; config-only providers are appended in config order.
+func mergeProviderConfigurations(environmentProviders, configProviders []*models.ProviderConfiguration) []*models.ProviderConfiguration {
+	merged := make([]*models.ProviderConfiguration, 0, len(environmentProviders)+len(configProviders))
+	seenName := make(map[string]bool)
+	for _, provider := range environmentProviders {
+		seenName[provider.GetName()] = true
+		merged = append(merged, provider)
+	}
+	for _, provider := range configProviders {
+		name := provider.GetName()
+		if name != "" && seenName[name] {
+			// Environment-derived provider takes precedence on name conflict.
+			continue
+		}
+		if name != "" {
+			seenName[name] = true
+		}
+		merged = append(merged, provider)
+	}
+	return merged
+}
+
 // defaultProviderModelName picks a sensible default model from the configured providers.
 func defaultProviderModelName(configuration *models.ModelsConfiguration) string {
 	if configuration.Providers == nil {
@@ -257,6 +293,9 @@ func defaultProviderModelName(configuration *models.ModelsConfiguration) string 
 	}
 	if providerNames["openrouter"] {
 		return "openrouter:anthropic/claude-sonnet-4-20250514"
+	}
+	if providerNames["xai"] {
+		return "xai:grok-4"
 	}
 	return "openai:gpt-5.2"
 }

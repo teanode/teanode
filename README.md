@@ -78,6 +78,8 @@ See `Dockerfile` and `docker-compose.yml` for the full setup, which includes a h
 
 TeaNode reads configuration from `~/.teanode/config.yaml`, with environment variables taking precedence.
 
+Providers are auto-registered from the API-key environment variables below. You can also pin providers explicitly under `models.providers` in `config.yaml` (each with `name`, `baseUrl`, `apiKey`) — those are merged with the environment-derived ones, so a provider pinned in config survives restarts even when its key isn't in the launching shell's environment. On a name conflict the environment-derived provider wins.
+
 ### Common Environment Variables
 
 | Variable | Description |
@@ -86,6 +88,7 @@ TeaNode reads configuration from `~/.teanode/config.yaml`, with environment vari
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `GEMINI_API_KEY` | Google Gemini API key |
 | `OPENROUTER_API_KEY` | OpenRouter API key |
+| `XAI_API_KEY` | xAI (Grok) API key |
 | `DEEPGRAM_API_KEY` | Deepgram API key (audio transcription) |
 | `ELEVENLABS_API_KEY` | ElevenLabs API key (text-to-speech) |
 | `TEANODE_NODE_PORT` | Listen port (default: 8833) |
