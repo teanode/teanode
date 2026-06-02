@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -92,18 +93,25 @@ func TestGeminiSynthesize(t *testing.T) {
 	}
 	defer func() { _ = response.Audio.Close() }()
 
-	if response.Format != "pcm" {
-		t.Errorf("Format = %q, want %q", response.Format, "pcm")
+	// Raw PCM is wrapped in a WAV container so browser <audio> can play it.
+	if response.Format != "wav" {
+		t.Errorf("Format = %q, want %q", response.Format, "wav")
 	}
-	if response.ContentType != "audio/L16;rate=24000" {
-		t.Errorf("ContentType = %q, want %q", response.ContentType, "audio/L16;rate=24000")
+	if response.ContentType != "audio/wav" {
+		t.Errorf("ContentType = %q, want %q", response.ContentType, "audio/wav")
 	}
 	audio, err := io.ReadAll(response.Audio)
 	if err != nil {
 		t.Fatalf("read audio: %v", err)
 	}
-	if string(audio) != string(pcm) {
-		t.Errorf("audio = %v, want %v", audio, pcm)
+	if len(audio) != 44+len(pcm) {
+		t.Fatalf("audio length = %d, want %d (44-byte WAV header + %d PCM bytes)", len(audio), 44+len(pcm), len(pcm))
+	}
+	if string(audio[0:4]) != "RIFF" || string(audio[8:12]) != "WAVE" {
+		t.Errorf("audio is not a WAV container: %q", string(audio[0:12]))
+	}
+	if !bytes.Equal(audio[44:], pcm) {
+		t.Errorf("WAV payload = %v, want %v", audio[44:], pcm)
 	}
 
 	// "alloy" is an OpenAI voice name; it should fall back to the default Gemini voice.

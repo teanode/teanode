@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +19,11 @@ const (
 	geminiTranscriptionModel = "gemini-2.5-flash"
 	geminiSpeechModel        = "gemini-2.5-flash-preview-tts"
 	geminiDefaultVoice       = "Kore"
+
+	// Gemini TTS produces mono 16-bit PCM at 24kHz.
+	geminiSpeechSampleRate    = 24000
+	geminiSpeechChannels      = 1
+	geminiSpeechBitsPerSample = 16
 )
 
 // Transcribe performs batch speech-to-text using the Gemini generateContent
@@ -114,20 +121,21 @@ func (self *GeminiClient) Synthesize(ctx context.Context, request SynthesizeRequ
 		return nil, fmt.Errorf("providers: gemini synthesis returned no audio")
 	}
 
-	audio, err := base64.StdEncoding.DecodeString(inlineData.Data)
+	pcm, err := base64.StdEncoding.DecodeString(inlineData.Data)
 	if err != nil {
 		return nil, fmt.Errorf("providers: decoding synthesized audio: %w", err)
 	}
 
-	contentType := inlineData.MimeType
-	if contentType == "" {
-		contentType = "audio/L16;rate=24000"
-	}
+	// Gemini returns headerless 16-bit PCM (e.g. "audio/L16;rate=24000"). Wrap
+	// it in a WAV container so it is playable by browser <audio> elements, which
+	// cannot decode raw PCM.
+	sampleRate := geminiPcmSampleRate(inlineData.MimeType)
+	audio := wrapPcmAsWav(pcm, sampleRate, geminiSpeechChannels, geminiSpeechBitsPerSample)
 
 	return &SynthesizeResponse{
 		Audio:       io.NopCloser(bytes.NewReader(audio)),
-		Format:      "pcm",
-		ContentType: contentType,
+		Format:      "wav",
+		ContentType: "audio/wav",
 	}, nil
 }
 
@@ -186,6 +194,49 @@ func geminiAudioMimeType(format string) string {
 	default:
 		return "audio/mp3"
 	}
+}
+
+// geminiPcmSampleRate extracts the sample rate (Hz) from a PCM MIME type such as
+// "audio/L16;rate=24000", falling back to the Gemini default when absent.
+func geminiPcmSampleRate(mimeType string) int {
+	for _, segment := range strings.Split(mimeType, ";") {
+		segment = strings.TrimSpace(segment)
+		if rate, ok := strings.CutPrefix(strings.ToLower(segment), "rate="); ok {
+			if parsed, err := strconv.Atoi(strings.TrimSpace(rate)); err == nil && parsed > 0 {
+				return parsed
+			}
+		}
+	}
+	return geminiSpeechSampleRate
+}
+
+// wrapPcmAsWav prepends a 44-byte canonical RIFF/WAVE header to raw little-endian
+// PCM samples, producing a self-contained WAV file.
+func wrapPcmAsWav(pcm []byte, sampleRate, channels, bitsPerSample int) []byte {
+	byteRate := sampleRate * channels * bitsPerSample / 8
+	blockAlign := channels * bitsPerSample / 8
+
+	var buffer bytes.Buffer
+	buffer.Grow(44 + len(pcm))
+
+	buffer.WriteString("RIFF")
+	_ = binary.Write(&buffer, binary.LittleEndian, uint32(36+len(pcm)))
+	buffer.WriteString("WAVE")
+
+	buffer.WriteString("fmt ")
+	_ = binary.Write(&buffer, binary.LittleEndian, uint32(16)) // PCM fmt chunk size
+	_ = binary.Write(&buffer, binary.LittleEndian, uint16(1))  // audio format: PCM
+	_ = binary.Write(&buffer, binary.LittleEndian, uint16(channels))
+	_ = binary.Write(&buffer, binary.LittleEndian, uint32(sampleRate))
+	_ = binary.Write(&buffer, binary.LittleEndian, uint32(byteRate))
+	_ = binary.Write(&buffer, binary.LittleEndian, uint16(blockAlign))
+	_ = binary.Write(&buffer, binary.LittleEndian, uint16(bitsPerSample))
+
+	buffer.WriteString("data")
+	_ = binary.Write(&buffer, binary.LittleEndian, uint32(len(pcm)))
+	buffer.Write(pcm)
+
+	return buffer.Bytes()
 }
 
 // geminiVoiceName resolves a requested voice to a Gemini prebuilt voice name.

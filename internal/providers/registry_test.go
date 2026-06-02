@@ -45,10 +45,26 @@ func (self *mockStreamingTranscriberProvider) TranscribeStream(ctx context.Conte
 	return nil, nil
 }
 
+// clearProviderEnv unsets every provider API key environment variable read by
+// NewProviderRegistry so tests are isolated from the host environment. Each test
+// then sets only the keys it needs.
+func clearProviderEnv(t *testing.T) {
+	for _, name := range []string{
+		"OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY",
+		"OPENROUTER_API_KEY",
+		"XAI_API_KEY",
+		"GEMINI_API_KEY",
+		"DEEPGRAM_API_KEY",
+		"ELEVENLABS_API_KEY",
+	} {
+		t.Setenv(name, "")
+	}
+}
+
 func TestNewRegistryNilConfig(t *testing.T) {
+	clearProviderEnv(t)
 	t.Setenv("OPENAI_API_KEY", "test-openai-key")
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("OPENROUTER_API_KEY", "")
 
 	providerRegistry := NewProviderRegistry(nil)
 	if providerRegistry.DefaultProvider() != "openai" {
@@ -64,9 +80,8 @@ func TestNewRegistryNilConfig(t *testing.T) {
 }
 
 func TestNewRegistryNilConfigAnthropicKey(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
+	clearProviderEnv(t)
 	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
-	t.Setenv("OPENROUTER_API_KEY", "")
 
 	providerRegistry := NewProviderRegistry(nil)
 	if providerRegistry.DefaultProvider() != "anthropic" {
@@ -81,8 +96,7 @@ func TestNewRegistryNilConfigAnthropicKey(t *testing.T) {
 }
 
 func TestNewRegistryNilConfigOpenRouterKey(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("ANTHROPIC_API_KEY", "")
+	clearProviderEnv(t)
 	t.Setenv("OPENROUTER_API_KEY", "test-openrouter-key")
 
 	providerRegistry := NewProviderRegistry(nil)
@@ -98,6 +112,7 @@ func TestNewRegistryNilConfigOpenRouterKey(t *testing.T) {
 }
 
 func TestNewRegistryNilConfigMultipleKeys(t *testing.T) {
+	clearProviderEnv(t)
 	t.Setenv("OPENAI_API_KEY", "test-openai-key")
 	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
 	t.Setenv("OPENROUTER_API_KEY", "test-openrouter-key")
@@ -114,9 +129,7 @@ func TestNewRegistryNilConfigMultipleKeys(t *testing.T) {
 }
 
 func TestNewRegistryNilConfigNoKeys(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("OPENROUTER_API_KEY", "")
+	clearProviderEnv(t)
 
 	providerRegistry := NewProviderRegistry(nil)
 	// Falls back to openai with empty key.
@@ -129,12 +142,7 @@ func TestNewRegistryNilConfigNoKeys(t *testing.T) {
 }
 
 func TestNewRegistryNilConfigXaiKey(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("OPENROUTER_API_KEY", "")
-	t.Setenv("GEMINI_API_KEY", "")
-	t.Setenv("DEEPGRAM_API_KEY", "")
-	t.Setenv("ELEVENLABS_API_KEY", "")
+	clearProviderEnv(t)
 	t.Setenv("XAI_API_KEY", "test-xai-key")
 
 	providerRegistry := NewProviderRegistry(nil)
@@ -157,7 +165,85 @@ func TestNewRegistryNilConfigXaiKey(t *testing.T) {
 	}
 }
 
+func TestNewRegistryMergesEnvAndConfig(t *testing.T) {
+	clearProviderEnv(t)
+	t.Setenv("OPENAI_API_KEY", "env-openai-key")
+	t.Setenv("XAI_API_KEY", "env-xai-key")
+
+	// Config pins a brand-new provider and also redeclares openai (which the
+	// environment already supplies). The new provider must be added; the
+	// env-derived openai must take precedence over the config redeclaration; and
+	// the env-only xai provider must survive.
+	customName := "custom"
+	customBaseURL := "https://example.com/v1"
+	customKey := "custom-key"
+	openaiName := "openai"
+	openaiBaseURL := "https://proxy.internal/v1"
+	openaiKey := "config-openai-key"
+	providerRegistry := NewProviderRegistry(&models.ModelsConfiguration{
+		Providers: &[]*models.ProviderConfiguration{
+			{Name: &customName, BaseURL: &customBaseURL, APIKey: &customKey},
+			{Name: &openaiName, BaseURL: &openaiBaseURL, APIKey: &openaiKey},
+		},
+	})
+
+	names := providerRegistry.ProviderNames()
+	want := map[string]bool{"openai": true, "xai": true, "custom": true}
+	if len(names) != len(want) {
+		t.Fatalf("ProviderNames() = %v, want keys %v", names, want)
+	}
+	for _, name := range names {
+		if !want[name] {
+			t.Errorf("unexpected provider %q in %v", name, names)
+		}
+	}
+
+	// The env-only provider (xai) must remain registered alongside config ones.
+	if _, ok := providerRegistry.ClientByName("xai"); !ok {
+		t.Errorf("env-derived xai provider was dropped when config providers were present")
+	}
+	// The env-derived openai must take precedence: the config redeclaration's
+	// base URL must NOT override the env default.
+	client, ok := providerRegistry.ClientByName("openai")
+	if !ok {
+		t.Fatalf("openai provider missing")
+	}
+	if openaiClient, ok := client.(*Client); ok && openaiClient.baseUrl != "https://api.openai.com/v1" {
+		t.Errorf("openai baseUrl = %q, want env default %q (env precedence)", openaiClient.baseUrl, "https://api.openai.com/v1")
+	}
+}
+
+func TestMergeProviderConfigurations(t *testing.T) {
+	name := func(value string) *string { return &value }
+	environmentProviders := []*models.ProviderConfiguration{
+		{Name: name("openai"), BaseURL: name("https://env/openai")},
+		{Name: name("xai"), BaseURL: name("https://env/xai")},
+	}
+	configProviders := []*models.ProviderConfiguration{
+		{Name: name("openai"), BaseURL: name("https://config/openai")}, // conflict: env wins
+		{Name: name("custom"), BaseURL: name("https://config/custom")}, // appended
+	}
+
+	merged := mergeProviderConfigurations(environmentProviders, configProviders)
+
+	// Order: env entries keep their positions; new config entries appended.
+	wantOrder := []string{"openai", "xai", "custom"}
+	if len(merged) != len(wantOrder) {
+		t.Fatalf("merged len = %d (%v), want %d", len(merged), merged, len(wantOrder))
+	}
+	for index, wantName := range wantOrder {
+		if merged[index].GetName() != wantName {
+			t.Errorf("merged[%d].Name = %q, want %q", index, merged[index].GetName(), wantName)
+		}
+	}
+	// On conflict the env-derived openai is kept (env precedence), not the config one.
+	if merged[0].GetBaseURL() != "https://env/openai" {
+		t.Errorf("openai baseURL = %q, want env value (env precedence)", merged[0].GetBaseURL())
+	}
+}
+
 func TestNewRegistryWithConfig(t *testing.T) {
+	clearProviderEnv(t)
 	defaultProviderModelName := "anthropic:claude-sonnet-4-20250514"
 	providerName := "anthropic"
 	providerBaseURL := "https://api.anthropic.com"
