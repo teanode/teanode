@@ -4,6 +4,12 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.5.0] - 2026-06-02
+
+### Added
+
+- Add xAI provider registration and Gemini batch audio transcription/synthesis support. (#55)
+
 ## [0.4.1] - 2026-05-30
 
 ### Security
