@@ -21,7 +21,7 @@ the initial MCP client work (branch `feat/mcp-client`, PR #56).
 | base | feat/mcp-client | main | 64349e9 | #56 | exists |
 | 1 | feat/mcp-connections | feat/mcp-client | 30f421b | [#57](https://github.com/teanode/teanode/pull/57) | PR open |
 | 2 | feat/mcp-oauth | feat/mcp-connections | f8c8fff | [#58](https://github.com/teanode/teanode/pull/58) | PR open |
-| 3 | feat/mcp-user-runner | feat/mcp-oauth | — | — | pending |
+| 3 | feat/mcp-user-runner | feat/mcp-oauth | 107a755 | [#59](https://github.com/teanode/teanode/pull/59) | PR open |
 | 4 | feat/mcp-frontend | feat/mcp-user-runner | — | — | pending |
 | 5 | feat/mcp-hardening | feat/mcp-frontend | — | — | pending |
 | 6 | feat/mcp-prompts-resources | feat/mcp-hardening | — | — | optional |
@@ -125,6 +125,70 @@ Intentionally deferred:
   user (and refresh-on-expiry using `oauth.Client.Refresh`) lands in PR3
   (user-aware runner registration), where per-user tools are actually wired up.
 - Frontend "Authorize"/status UX is PR4.
+
+## PR3 — User-aware runner registration + token consumption (feat/mcp-user-runner)
+
+Wires the per-user connection model and OAuth tokens from PR1/PR2 into the actual
+run: MCP tool availability is now resolved against the authenticated user's
+connections, and stored OAuth access tokens are consumed (with refresh-on-expiry)
+for per-user tool discovery and invocation.
+
+Contents:
+- New `internal/mcp/servers.go` (extracted the server-resolution logic out of
+  `manager.go`):
+  - `RegisterConfiguredTools` is now user-aware. It loads the configuration and,
+    when the node has a user-scoped server and the context carries a user, that
+    user's MCP connections, then resolves the request's available servers.
+  - `ServersFromConfiguration` now returns only the shared (`none`/`static`)
+    servers — the node-level set available to everyone. `static` copies the
+    node Authorization; `none` sends no header.
+  - `resolveUserServers` resolves the per-user (`user`/`oauth`) servers: a server
+    is registered only when the user has a non-disconnected connection with a
+    usable credential. Without a connection (or without an authenticated user),
+    the server is skipped — so unauthenticated/static servers keep working
+    unchanged while user-scoped servers are gated per user.
+  - `user` mode uses the connection's stored Authorization header verbatim.
+  - `oauth` mode builds a `Bearer <accessToken>` header from the stored token.
+    When the access token is within 60s of expiry (or already expired) and a
+    refresh token is present, it refreshes via `oauth.Client.Refresh` outside the
+    store transaction, persists the new token (`ApplyOAuthToken`), and uses it.
+    A still-valid token whose refresh failed is used as-is for the run; a
+    hard-expired token that cannot be refreshed causes the server to be skipped
+    (and the connection marked `error`) rather than called with a dead token.
+- Deduplication of OAuth helpers: `mcp.ServerOAuthConfig` and
+  `mcp.ApplyOAuthToken` are now the single home for the config→OAuth mapping and
+  token-application; `internal/api` (`serverOAuthConfig`, `applyOAuthToken`)
+  delegates to them so the authorize/callback flow and the runner refresh path
+  cannot drift.
+- The discovery cache key already includes the resolved Authorization, so each
+  user's (and each refreshed token's) discovery is isolated and a credential
+  change invalidates the cache.
+
+Tests:
+- `internal/mcp` (`servers_test.go`): `ServersFromConfiguration` auth-mode
+  partitioning; user-auth resolution (connected user gets their credential, users
+  without a connection and unauthenticated requests are skipped while shared
+  servers remain); disconnected connections excluded; OAuth valid-token bearer
+  (no network); OAuth refresh-on-expiry against an httptest token endpoint with
+  persistence assertion; OAuth expired-without-refresh and no-access-token skips;
+  and an end-to-end `RegisterConfiguredTools` test where the user's stored
+  credential must reach a `requireAuth` test MCP server for its tools to register.
+- `internal/runners` (`runner_mcp_test.go`): a user-scoped server registers
+  through `NewRunner` only for the connected user, exercising the
+  authenticated-user path end to end.
+
+Validation:
+- `go build ./...` clean; `go test ./...` all pass (Postgres-gated dbstore tests
+  skip without `TEANODE_TEST_POSTGRES=1`).
+- `gofmt -l internal/` clean; `golangci-lint run` 0 issues on changed packages;
+  `mulint` clean on changed packages.
+
+Intentionally deferred:
+- Discovery-time connection status updates (marking a connection connected/error
+  based on whether discovery succeeded) are left to the hardening pass (PR5) to
+  keep run startup free of extra writes; only OAuth refresh outcomes update the
+  connection here.
+- Frontend connect/disconnect/status UX is PR4.
 
 ## Validation log
 
