@@ -106,11 +106,27 @@ type MCPConfiguration struct {
 	Servers *[]*MCPServerConfiguration `json:"servers,omitempty" yaml:"servers,omitempty"`
 }
 
+// MCPServerAuthMode selects how a remote MCP server is authenticated.
+type MCPServerAuthMode string
+
+const (
+	// MCPServerAuthNone sends no Authorization header.
+	MCPServerAuthNone MCPServerAuthMode = "none"
+	// MCPServerAuthStatic sends a single node-level Authorization value shared by
+	// every user (the original v1 behavior).
+	MCPServerAuthStatic MCPServerAuthMode = "static"
+	// MCPServerAuthUser requires each user to supply their own credential via a
+	// per-user MCPConnection. The server is only available to users who have
+	// connected.
+	MCPServerAuthUser MCPServerAuthMode = "user"
+)
+
 // MCPServerConfiguration describes a single remote MCP server.
 //
-// Limitations (v1): only the streamable HTTP transport is supported, only the
-// tools capability is consumed (prompts and resources are out of scope), and
-// authentication is limited to a static Authorization header value (no OAuth).
+// Limitations: only the streamable HTTP transport is supported and only the
+// tools capability is consumed (prompts and resources are out of scope).
+// Authentication supports a shared static Authorization header value and, for
+// user-scoped servers, a per-user MCPConnection credential.
 type MCPServerConfiguration struct {
 	// Name identifies the server and namespaces its tools as
 	// "mcp__<name>__<tool>". It must be unique across configured servers.
@@ -120,11 +136,31 @@ type MCPServerConfiguration struct {
 	// Enabled gates the server. A nil value is treated as enabled so that a
 	// configured server is active by default; set false to keep it but skip it.
 	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	// Auth selects the authentication mode. When empty it is inferred: "static"
+	// if Authorization is set, otherwise "none". Set to "user" to require each
+	// user to supply their own credential via a per-user MCPConnection.
+	Auth *MCPServerAuthMode `json:"auth,omitempty" yaml:"auth,omitempty"`
 	// Authorization is the verbatim value sent in the HTTP Authorization
-	// header (for example "Bearer <token>"). Empty means no auth header.
+	// header (for example "Bearer <token>") for the "static" auth mode. Empty
+	// means no auth header. Ignored for the "user" auth mode.
 	Authorization *string `json:"authorization,omitempty" yaml:"authorization,omitempty"`
 	// TimeoutSeconds bounds each HTTP request to the server. Defaults to 30.
 	TimeoutSeconds *int `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
+}
+
+// ResolvedAuthMode returns the effective auth mode, inferring it from the
+// presence of a static Authorization value when Auth is unset.
+func (self *MCPServerConfiguration) ResolvedAuthMode() MCPServerAuthMode {
+	if self == nil {
+		return MCPServerAuthNone
+	}
+	if self.Auth != nil && *self.Auth != "" {
+		return *self.Auth
+	}
+	if self.Authorization != nil && *self.Authorization != "" {
+		return MCPServerAuthStatic
+	}
+	return MCPServerAuthNone
 }
 
 type GoogleConfiguration struct {

@@ -40,6 +40,7 @@ extra:
     - EOF   # End Of File
     - LAN   # Local Area Network (bind mode)
     - LE    # Little Endian (PCM16LE audio format)
+    - MCP   # Model Context Protocol (remote tool servers)
     - OSC   # Operating System Command (terminal escape codes)
     - PCM   # Pulse Code Modulation (audio)
     - PTY   # Pseudo-Terminal (terminal integration)

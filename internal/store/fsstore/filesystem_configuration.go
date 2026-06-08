@@ -162,6 +162,7 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 				Name:           ptrto.TrimmedString(server.Name),
 				URL:            ptrto.TrimmedString(server.URL),
 				Enabled:        server.Enabled,
+				Auth:           ptrto.Trimmed[models.MCPServerAuthMode](server.Auth),
 				Authorization:  ptrto.TrimmedString(server.Authorization),
 				TimeoutSeconds: ptrto.Value(server.TimeoutSeconds),
 			})
@@ -310,12 +311,13 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 			}
 		}
 		if configuration.Tools.MCP != nil {
-			record := &storeMCPRecord{}
+			record := &storeMcpRecord{}
 			for _, server := range configuration.Tools.MCP.GetServers() {
-				record.Servers = append(record.Servers, storeMCPServerRecord{
+				record.Servers = append(record.Servers, storeMcpServerRecord{
 					Name:           server.GetName(),
 					URL:            server.GetURL(),
 					Enabled:        server.Enabled,
+					Auth:           string(server.GetAuth()),
 					Authorization:  server.GetAuthorization(),
 					TimeoutSeconds: server.GetTimeoutSeconds(),
 				})

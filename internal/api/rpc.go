@@ -219,6 +219,16 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 	case "toolPolicies.update":
 		return self.handleToolPoliciesUpdate(frame)
 
+	// MCP connections.
+	case "mcp.servers.list":
+		return self.handleMcpServersList(frame)
+	case "mcp.connections.list":
+		return self.handleMcpConnectionsList(frame)
+	case "mcp.connections.create":
+		return self.handleMcpConnectionsCreate(frame)
+	case "mcp.connections.delete":
+		return self.handleMcpConnectionsDelete(frame)
+
 	// Update.
 	case "update.status":
 		return self.handleUpdateStatus(frame)

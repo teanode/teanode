@@ -438,10 +438,22 @@
                     "description": "Whether to connect to this server. Defaults to true.",
                     "default": true
                   },
+                  "auth": {
+                    "type": "string",
+                    "title": "Authentication",
+                    "description": "How this server is authenticated. 'none' sends no credential; 'static' shares the Authorization value below across all users; 'user' requires each user to connect with their own credential. Leave empty to infer from the Authorization value.",
+                    "enum": ["", "none", "static", "user"],
+                    "x-enumLabels": {
+                      "": "Infer",
+                      "none": "None",
+                      "static": "Static (shared)",
+                      "user": "Per-user"
+                    }
+                  },
                   "authorization": {
                     "type": "string",
                     "title": "Authorization",
-                    "description": "Verbatim Authorization header value (e.g. 'Bearer <token>'). Leave empty for no auth.",
+                    "description": "Verbatim Authorization header value (e.g. 'Bearer <token>') for the 'static' auth mode. Leave empty for no auth or per-user auth.",
                     "format": "password"
                   },
                   "timeoutSeconds": {
