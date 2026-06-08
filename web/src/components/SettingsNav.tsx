@@ -197,6 +197,32 @@ export default function SettingsNav({
             />
           </ListItemButton>
 
+          <ListItemButton
+            dense
+            onClick={() => onNavigate("/settings/connections")}
+            sx={{
+              borderRadius: 1,
+              mb: 0.25,
+              ...(activeSectionId === "connections"
+                ? {
+                    bgcolor: "accentDim",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "accentDim" },
+                  }
+                : {}),
+            }}
+          >
+            <ListItemText
+              primary={t("mcp.title")}
+              primaryTypographyProps={{
+                variant: "caption",
+                fontSize: "13px",
+                color:
+                  activeSectionId === "connections" ? "#fff" : "text.secondary",
+              }}
+            />
+          </ListItemButton>
+
           {backend.isAdmin && (
             <ListItemButton
               dense

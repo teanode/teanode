@@ -437,5 +437,45 @@
     "apiKeyPlaceholder": "API Key",
     "providerNamePlaceholder": "Provider",
     "addProvider": "Add"
+  },
+  "mcp": {
+    "title": "Connections",
+    "description": "Connect to remote MCP servers your administrator has configured. Tools from connected servers become available to the agent.",
+    "noServers": "No MCP servers have been configured.",
+    "loadFailed": "Failed to load MCP servers",
+    "connect": "Connect",
+    "authorize": "Authorize",
+    "reauthorize": "Reauthorize",
+    "disconnect": "Disconnect",
+    "disabled": "Disabled",
+    "noConnectionRequired": "No connection required.",
+    "lastConnected": "Last connected",
+    "connectTitle": "Connect to {{server}}",
+    "connectHelp": "Enter the Authorization header value to send to this server, for example \"Bearer <token>\". It is stored securely and never shown again.",
+    "authorizationLabel": "Authorization",
+    "authorizationPlaceholder": "Bearer ...",
+    "connected": "Connected to {{server}}",
+    "connectFailed": "Failed to connect",
+    "disconnectTitle": "Disconnect server",
+    "disconnectMessage": "Remove your connection to {{server}}? Its tools will no longer be available.",
+    "disconnected": "Disconnected from {{server}}",
+    "disconnectFailed": "Failed to disconnect",
+    "authorizeStartFailed": "Failed to start authorization",
+    "authorizeSucceeded": "Connected to {{server}}",
+    "authorizeSucceededGeneric": "Authorization completed",
+    "authorizeFailed": "Authorization failed: {{error}}",
+    "authorizeFailedGeneric": "Authorization failed",
+    "authMode": {
+      "none": "No auth",
+      "static": "Shared",
+      "user": "Per-user token",
+      "oauth": "OAuth"
+    },
+    "status": {
+      "pending": "Pending",
+      "connected": "Connected",
+      "error": "Error",
+      "disconnected": "Not connected"
+    }
   }
 }
