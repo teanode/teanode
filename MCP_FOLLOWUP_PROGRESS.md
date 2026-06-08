@@ -20,7 +20,7 @@ the initial MCP client work (branch `feat/mcp-client`, PR #56).
 |---|--------|------|-----------|----|--------|
 | base | feat/mcp-client | main | 64349e9 | #56 | exists |
 | 1 | feat/mcp-connections | feat/mcp-client | 30f421b | [#57](https://github.com/teanode/teanode/pull/57) | PR open |
-| 2 | feat/mcp-oauth | feat/mcp-connections | — | — | in progress |
+| 2 | feat/mcp-oauth | feat/mcp-connections | PR2COMMIT | PR2URL | PR open |
 | 3 | feat/mcp-user-runner | feat/mcp-oauth | — | — | pending |
 | 4 | feat/mcp-frontend | feat/mcp-user-runner | — | — | pending |
 | 5 | feat/mcp-hardening | feat/mcp-frontend | — | — | pending |
@@ -65,6 +65,66 @@ Validation:
   without `TEANODE_TEST_POSTGRES=1`).
 - `gofmt` clean; `golangci-lint run ./internal/...` 0 issues; `mulint` clean on
   changed packages.
+
+## PR2 — OAuth / PKCE remote MCP auth flow (feat/mcp-oauth)
+
+Adds the OAuth 2.1 authorization-code + PKCE flow used to authenticate against
+protected remote MCP servers, on top of the per-user connection foundations from
+PR1.
+
+Contents:
+- New `internal/mcp/oauth` package: a focused OAuth client implementing
+  - PKCE (S256) verifier/challenge generation and opaque CSRF state generation;
+  - endpoint resolution — explicit authorization/token endpoints take precedence,
+    otherwise discovery via RFC 9728 protected-resource metadata → RFC 8414
+    authorization-server metadata (OpenID configuration fallback);
+  - authorization-URL construction (with RFC 8707 `resource` indicator and
+    scopes), authorization-code exchange, and refresh-token exchange;
+  - public clients (PKCE only) and confidential clients (`client_secret_post`).
+- Config (`MCPServerConfiguration`): new `oauth` auth mode plus
+  `OAuthClientID`/`OAuthClientSecret`/`OAuthScopes`/`OAuthAuthorizationURL`/
+  `OAuthTokenURL`. Mirrored in the fsstore server record and `config.schema.json`
+  (new `oauth` enum value + field definitions). `ResolvedAuthMode` already returns
+  the explicit mode, so `oauth` flows through unchanged.
+- Model (`MCPConnection`): token material (`AccessToken`, `RefreshToken`,
+  `TokenType`, `TokenExpiresAt`, `Scope`) and transient flow state (`OAuthState`,
+  `CodeVerifier`). All are secrets and are excluded from the secret-free DTOs.
+- Store: both fsstore and dbstore persist the new fields; dbstore migration
+  `0007_mcp_oauth` adds the columns plus an index on `oauth_state`.
+- API:
+  - RPC `mcp.connections.authorize` (`handleMcpConnectionsAuthorize`) resolves the
+    server's OAuth config, generates PKCE+state, upserts a pending connection
+    holding the transient secrets, and returns the provider authorization URL.
+    Discovery happens outside the store transaction.
+  - HTTP `GET /api/mcp/oauth/callback` (`handleMcpOAuthCallback` /
+    `completeMcpOAuth`) matches the CSRF state to the authenticated user's pending
+    connection, exchanges the code for tokens, stores them, clears the one-time
+    PKCE/state, and redirects the browser back to the connections page with the
+    outcome. Failures are recorded on the connection's `LastError`.
+  - `handleMcpServersList` now reports `requiresConnection` for `oauth` servers
+    too (previously only `user`).
+- mulint.yaml: registered the `PKCE` acronym.
+
+Tests:
+- `internal/mcp/oauth`: PKCE generation, authorization-URL parameters, metadata
+  discovery, explicit-endpoint bypass, code exchange + refresh, and error-response
+  rejection (against an httptest stub authorization server).
+- `internal/api`: authorize RPC happy path (authorization URL + persisted pending
+  connection + secret omission), rejection for non-oauth servers, full callback
+  exchange via `completeMcpOAuth` (tokens stored, transient state cleared), and
+  unknown-state rejection.
+
+Validation:
+- `go build ./...` clean; `go test ./...` all pass (Postgres-gated dbstore tests
+  skip without `TEANODE_TEST_POSTGRES=1`).
+- `gofmt -l internal/` clean; `golangci-lint run ./internal/...` 0 issues;
+  `mulint` clean on changed packages.
+
+Intentionally deferred:
+- Consuming the stored OAuth access token when registering the MCP client for a
+  user (and refresh-on-expiry using `oauth.Client.Refresh`) lands in PR3
+  (user-aware runner registration), where per-user tools are actually wired up.
+- Frontend "Authorize"/status UX is PR4.
 
 ## Validation log
 

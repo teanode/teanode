@@ -19,6 +19,13 @@ type databaseMcpConnectionRecord struct {
 	Authorization   *string    `gorm:"column:auth_value;type:text"`
 	LastError       *string    `gorm:"column:last_error;type:text"`
 	LastConnectedAt *time.Time `gorm:"column:last_connected_at"`
+	AccessToken     *string    `gorm:"column:access_token;type:text"`
+	RefreshToken    *string    `gorm:"column:refresh_token;type:text"`
+	TokenType       *string    `gorm:"column:token_type;type:varchar(32)"`
+	TokenExpiresAt  *time.Time `gorm:"column:token_expires_at"`
+	Scope           *string    `gorm:"column:scope;type:text"`
+	OAuthState      *string    `gorm:"column:oauth_state;type:varchar(128)"`
+	CodeVerifier    *string    `gorm:"column:code_verifier;type:varchar(256)"`
 	CreatedAt       time.Time  `gorm:"column:created_at;not null"`
 	ModifiedAt      time.Time  `gorm:"column:modified_at;not null"`
 }
@@ -102,6 +109,13 @@ func (self *databaseTransaction) ModifyMCPConnection(ctx context.Context, connec
 		"auth_value":        record.Authorization,
 		"last_error":        record.LastError,
 		"last_connected_at": record.LastConnectedAt,
+		"access_token":      record.AccessToken,
+		"refresh_token":     record.RefreshToken,
+		"token_type":        record.TokenType,
+		"token_expires_at":  record.TokenExpiresAt,
+		"scope":             record.Scope,
+		"oauth_state":       record.OAuthState,
+		"code_verifier":     record.CodeVerifier,
 		"modified_at":       record.ModifiedAt,
 	}).Error
 	if updateError != nil {
@@ -131,6 +145,11 @@ func modelToMcpConnectionRecord(connection *models.MCPConnection) *databaseMcpCo
 	if connection.Status != nil && *connection.Status != "" {
 		status = ptrto.Value(string(*connection.Status))
 	}
+	var tokenExpiresAt *time.Time
+	if connection.TokenExpiresAt != nil {
+		tokenExpiresAtValue := connection.TokenExpiresAt.UTC()
+		tokenExpiresAt = &tokenExpiresAtValue
+	}
 	return &databaseMcpConnectionRecord{
 		ID:              connection.ID,
 		UserID:          ptrto.TrimmedString(connection.GetUserID()),
@@ -139,6 +158,13 @@ func modelToMcpConnectionRecord(connection *models.MCPConnection) *databaseMcpCo
 		Authorization:   ptrto.TrimmedString(connection.GetAuthorization()),
 		LastError:       ptrto.TrimmedString(connection.GetLastError()),
 		LastConnectedAt: lastConnectedAt,
+		AccessToken:     ptrto.TrimmedString(connection.GetAccessToken()),
+		RefreshToken:    ptrto.TrimmedString(connection.GetRefreshToken()),
+		TokenType:       ptrto.TrimmedString(connection.GetTokenType()),
+		TokenExpiresAt:  tokenExpiresAt,
+		Scope:           ptrto.TrimmedString(connection.GetScope()),
+		OAuthState:      ptrto.TrimmedString(connection.GetOAuthState()),
+		CodeVerifier:    ptrto.TrimmedString(connection.GetCodeVerifier()),
 	}
 }
 
@@ -156,6 +182,13 @@ func mcpConnectionRecordToModel(record *databaseMcpConnectionRecord) *models.MCP
 		Authorization:   ptrto.TrimmedString(valueor.Zero(record.Authorization)),
 		LastError:       ptrto.TrimmedString(valueor.Zero(record.LastError)),
 		LastConnectedAt: record.LastConnectedAt,
+		AccessToken:     ptrto.TrimmedString(valueor.Zero(record.AccessToken)),
+		RefreshToken:    ptrto.TrimmedString(valueor.Zero(record.RefreshToken)),
+		TokenType:       ptrto.TrimmedString(valueor.Zero(record.TokenType)),
+		TokenExpiresAt:  record.TokenExpiresAt,
+		Scope:           ptrto.TrimmedString(valueor.Zero(record.Scope)),
+		OAuthState:      ptrto.TrimmedString(valueor.Zero(record.OAuthState)),
+		CodeVerifier:    ptrto.TrimmedString(valueor.Zero(record.CodeVerifier)),
 		CreatedAt:       &record.CreatedAt,
 		ModifiedAt:      &record.ModifiedAt,
 	}

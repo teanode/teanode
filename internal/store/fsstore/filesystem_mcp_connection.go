@@ -25,6 +25,13 @@ type fileSystemMcpConnectionRecord struct {
 	CreatedAt       time.Time  `yaml:"createdAt"`
 	ModifiedAt      time.Time  `yaml:"modifiedAt"`
 	LastConnectedAt *time.Time `yaml:"lastConnectedAt,omitempty"`
+	AccessToken     string     `yaml:"accessToken,omitempty"`
+	RefreshToken    string     `yaml:"refreshToken,omitempty"`
+	TokenType       string     `yaml:"tokenType,omitempty"`
+	TokenExpiresAt  *time.Time `yaml:"tokenExpiresAt,omitempty"`
+	Scope           string     `yaml:"scope,omitempty"`
+	OAuthState      string     `yaml:"oauthState,omitempty"`
+	CodeVerifier    string     `yaml:"codeVerifier,omitempty"`
 }
 
 func (self *fileSystemTransaction) ListMCPConnections(ctx context.Context, userId string, options *store.Option) ([]*models.MCPConnection, error) {
@@ -102,6 +109,13 @@ func (self *fileSystemTransaction) createMcpConnection(connection *models.MCPCon
 		CreatedAt:       now,
 		ModifiedAt:      now,
 		LastConnectedAt: connection.LastConnectedAt,
+		AccessToken:     connection.GetAccessToken(),
+		RefreshToken:    connection.GetRefreshToken(),
+		TokenType:       connection.GetTokenType(),
+		TokenExpiresAt:  connection.TokenExpiresAt,
+		Scope:           connection.GetScope(),
+		OAuthState:      connection.GetOAuthState(),
+		CodeVerifier:    connection.GetCodeVerifier(),
 	}
 	if err := self.writeMcpConnectionRecord(userId, record); err != nil {
 		return nil, err
@@ -157,6 +171,13 @@ func (self *fileSystemTransaction) modifyMcpConnection(ctx context.Context, conn
 	record.Authorization = connection.GetAuthorization()
 	record.LastError = connection.GetLastError()
 	record.LastConnectedAt = connection.LastConnectedAt
+	record.AccessToken = connection.GetAccessToken()
+	record.RefreshToken = connection.GetRefreshToken()
+	record.TokenType = connection.GetTokenType()
+	record.TokenExpiresAt = connection.TokenExpiresAt
+	record.Scope = connection.GetScope()
+	record.OAuthState = connection.GetOAuthState()
+	record.CodeVerifier = connection.GetCodeVerifier()
 	record.ModifiedAt = time.Now()
 	if err := self.writeMcpConnectionRecord(userId, record); err != nil {
 		return nil, err
@@ -218,6 +239,13 @@ func mcpConnectionRecordToModel(record fileSystemMcpConnectionRecord) models.MCP
 		CreatedAt:       &createdAt,
 		ModifiedAt:      &modifiedAt,
 		LastConnectedAt: record.LastConnectedAt,
+		AccessToken:     ptrto.TrimmedString(record.AccessToken),
+		RefreshToken:    ptrto.TrimmedString(record.RefreshToken),
+		TokenType:       ptrto.TrimmedString(record.TokenType),
+		TokenExpiresAt:  record.TokenExpiresAt,
+		Scope:           ptrto.TrimmedString(record.Scope),
+		OAuthState:      ptrto.TrimmedString(record.OAuthState),
+		CodeVerifier:    ptrto.TrimmedString(record.CodeVerifier),
 	}
 }
 
