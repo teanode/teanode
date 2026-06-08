@@ -408,6 +408,95 @@
               "default": 15
             }
           }
+        },
+        "mcp": {
+          "type": "object",
+          "title": "MCP Servers",
+          "description": "Remote Model Context Protocol servers. Their tools are discovered and exposed as 'mcp__<name>__<tool>'. Streamable HTTP transport only; tools capability only.",
+          "properties": {
+            "servers": {
+              "type": "array",
+              "title": "Servers",
+              "description": "Configured remote MCP servers.",
+              "x-widget": "objectArray",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "title": "Name",
+                    "description": "Unique server name used to namespace its tools."
+                  },
+                  "url": {
+                    "type": "string",
+                    "title": "URL",
+                    "description": "Streamable HTTP endpoint of the MCP server.",
+                    "x-placeholder": "https://example.com/mcp"
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "title": "Enabled",
+                    "description": "Whether to connect to this server. Defaults to true.",
+                    "default": true
+                  },
+                  "auth": {
+                    "type": "string",
+                    "title": "Authentication",
+                    "description": "How this server is authenticated. 'none' sends no credential; 'static' shares the Authorization value below across all users; 'user' requires each user to connect with their own token; 'oauth' requires each user to authorize via OAuth 2.1 + PKCE. Leave empty to infer from the Authorization value.",
+                    "enum": ["", "none", "static", "user", "oauth"],
+                    "x-enumLabels": {
+                      "": "Infer",
+                      "none": "None",
+                      "static": "Static (shared)",
+                      "user": "Per-user token",
+                      "oauth": "Per-user OAuth"
+                    }
+                  },
+                  "authorization": {
+                    "type": "string",
+                    "title": "Authorization",
+                    "description": "Verbatim Authorization header value (e.g. 'Bearer <token>') for the 'static' auth mode. Leave empty for no auth or per-user auth.",
+                    "format": "password"
+                  },
+                  "timeoutSeconds": {
+                    "type": "number",
+                    "title": "Timeout (seconds)",
+                    "description": "Per-request timeout for calls to this server.",
+                    "default": 30
+                  },
+                  "oauthClientId": {
+                    "type": "string",
+                    "title": "OAuth Client ID",
+                    "description": "Registered OAuth client identifier (required for the 'oauth' auth mode)."
+                  },
+                  "oauthClientSecret": {
+                    "type": "string",
+                    "title": "OAuth Client Secret",
+                    "description": "OAuth client secret for confidential clients. Leave empty for public (PKCE-only) clients.",
+                    "format": "password"
+                  },
+                  "oauthScopes": {
+                    "type": "array",
+                    "title": "OAuth Scopes",
+                    "description": "Scopes requested during authorization.",
+                    "items": { "type": "string" }
+                  },
+                  "oauthAuthorizationUrl": {
+                    "type": "string",
+                    "title": "OAuth Authorization URL",
+                    "description": "Explicit authorization endpoint. Leave empty to discover it from the server's well-known metadata.",
+                    "x-placeholder": "https://auth.example.com/authorize"
+                  },
+                  "oauthTokenUrl": {
+                    "type": "string",
+                    "title": "OAuth Token URL",
+                    "description": "Explicit token endpoint. Leave empty to discover it from the server's well-known metadata.",
+                    "x-placeholder": "https://auth.example.com/token"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

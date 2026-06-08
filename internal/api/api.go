@@ -93,6 +93,7 @@ func (self *api) AddRoutes(router *mux.Router) error {
 	subrouter.Handle("/media/upload", web.HandlerFunc(self.handleMediaUpload))
 	subrouter.Handle("/media/{id}", web.HandlerFunc(self.handleMedia))
 	subrouter.Handle("/jobs/{id}/webhook", web.HandlerFunc(self.handleJobWebhook))
+	subrouter.Handle("/mcp/oauth/callback", web.HandlerFunc(self.handleMcpOAuthCallback))
 
 	subrouter.Handle("/audio/transcribe", web.HandlerFunc(self.handleAudioTranscribe))
 	subrouter.Handle("/audio/synthesize", web.HandlerFunc(self.handleAudioSynthesize))

@@ -1,0 +1,10 @@
+ALTER TABLE mcp_connections
+	ADD COLUMN IF NOT EXISTS access_token TEXT NULL,
+	ADD COLUMN IF NOT EXISTS refresh_token TEXT NULL,
+	ADD COLUMN IF NOT EXISTS token_type VARCHAR(32) NULL,
+	ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMPTZ NULL,
+	ADD COLUMN IF NOT EXISTS scope TEXT NULL,
+	ADD COLUMN IF NOT EXISTS oauth_state VARCHAR(128) NULL,
+	ADD COLUMN IF NOT EXISTS code_verifier VARCHAR(256) NULL;
+
+CREATE INDEX IF NOT EXISTS mcp_connections_oauth_state_index ON mcp_connections (oauth_state);

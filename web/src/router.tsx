@@ -21,6 +21,7 @@ import SettingsSectionPage from "./routes/settings/$sectionId";
 import SettingsPreferencesPage from "./routes/settings/preferences";
 import SettingsProfilePage from "./routes/settings/profile";
 import SettingsTokensPage from "./routes/settings/tokens";
+import SettingsConnectionsPage from "./routes/settings/connections";
 import SettingsPasswordPage from "./routes/settings/password";
 import SettingsSessionsPage from "./routes/settings/sessions";
 import SettingsAgentsPage from "./routes/settings/agents";
@@ -164,6 +165,13 @@ const settingsTokensRoute = createRoute({
   component: SettingsTokensPage,
 });
 
+// /settings/connections → per-user MCP server connections (also the OAuth landing)
+const settingsConnectionsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "connections",
+  component: SettingsConnectionsPage,
+});
+
 // /settings/password → password management
 const settingsPasswordRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -289,6 +297,7 @@ const routeTree = rootRoute.addChildren([
     settingsProfileRoute,
     settingsPreferencesRoute,
     settingsTokensRoute,
+    settingsConnectionsRoute,
     settingsPasswordRoute,
     settingsSessionsRoute,
     settingsAgentsRoute,

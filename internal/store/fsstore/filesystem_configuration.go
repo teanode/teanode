@@ -155,6 +155,25 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 			TimeoutSeconds:        ptrto.Value(configuration.Tools.UniFiProtect.TimeoutSeconds),
 		}
 	}
+	if configuration.Tools.MCP != nil {
+		servers := make([]*models.MCPServerConfiguration, 0, len(configuration.Tools.MCP.Servers))
+		for _, server := range configuration.Tools.MCP.Servers {
+			servers = append(servers, &models.MCPServerConfiguration{
+				Name:                  ptrto.TrimmedString(server.Name),
+				URL:                   ptrto.TrimmedString(server.URL),
+				Enabled:               server.Enabled,
+				Auth:                  ptrto.Trimmed[models.MCPServerAuthMode](server.Auth),
+				Authorization:         ptrto.TrimmedString(server.Authorization),
+				TimeoutSeconds:        ptrto.Value(server.TimeoutSeconds),
+				OAuthClientID:         ptrto.TrimmedString(server.OAuthClientID),
+				OAuthClientSecret:     ptrto.TrimmedString(server.OAuthClientSecret),
+				OAuthScopes:           ptrto.TrimmedStrings(server.OAuthScopes),
+				OAuthAuthorizationURL: ptrto.TrimmedString(server.OAuthAuthorizationURL),
+				OAuthTokenURL:         ptrto.TrimmedString(server.OAuthTokenURL),
+			})
+		}
+		toolsConfiguration.MCP = &models.MCPConfiguration{Servers: &servers}
+	}
 	result.Tools = toolsConfiguration
 	result.Integrations = &models.IntegrationsConfiguration{}
 	if configuration.Integrations.Browser != nil {
@@ -295,6 +314,25 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 				AllowedEntities: sliceValue(configuration.Tools.HomeAssistant.AllowedEntities),
 				TimeoutSeconds:  configuration.Tools.HomeAssistant.GetTimeoutSeconds(),
 			}
+		}
+		if configuration.Tools.MCP != nil {
+			record := &storeMcpRecord{}
+			for _, server := range configuration.Tools.MCP.GetServers() {
+				record.Servers = append(record.Servers, storeMcpServerRecord{
+					Name:                  server.GetName(),
+					URL:                   server.GetURL(),
+					Enabled:               server.Enabled,
+					Auth:                  string(server.GetAuth()),
+					Authorization:         server.GetAuthorization(),
+					TimeoutSeconds:        server.GetTimeoutSeconds(),
+					OAuthClientID:         server.GetOAuthClientID(),
+					OAuthClientSecret:     server.GetOAuthClientSecret(),
+					OAuthScopes:           sliceValue(server.OAuthScopes),
+					OAuthAuthorizationURL: server.GetOAuthAuthorizationURL(),
+					OAuthTokenURL:         server.GetOAuthTokenURL(),
+				})
+			}
+			result.Tools.MCP = record
 		}
 		if configuration.Tools.UniFiProtect != nil {
 			result.Tools.UniFiProtect = &storeUniFiProtectRecord{

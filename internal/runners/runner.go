@@ -14,6 +14,7 @@ import (
 	"github.com/kaptinlin/jsonrepair"
 	"github.com/teanode/teanode/internal/embeddings"
 	"github.com/teanode/teanode/internal/integrations/approvals"
+	"github.com/teanode/teanode/internal/mcp"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/providers"
@@ -68,6 +69,9 @@ type MidRunMessage struct {
 func NewRunner(ctx context.Context, agentId, conversationId string, providerRegistry *providers.ProviderRegistry, agent models.Agent) *Runner {
 	toolRegistry := tools.NewToolRegistry()
 	skillPrompts := skills.RegisterSkills(ctx, toolRegistry, agent.GetSkills())
+	// Discover and register remote MCP server tools before applying the agent's
+	// allow-list so they are governed by the same filtering as builtin tools.
+	mcp.RegisterConfiguredTools(ctx, toolRegistry)
 	toolRegistry.ApplyFilter(agent.GetTools())
 	embedder := embeddings.NewEmbedder(providerRegistry)
 	return &Runner{

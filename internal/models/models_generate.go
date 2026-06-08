@@ -26,6 +26,7 @@ func main() {
 	generator.GenerateUpdate(new(models.Usage))
 	generator.GenerateUpdate(new(models.User))
 	generator.GenerateUpdate(new(models.WorkspaceFile))
+	generator.GenerateUpdate(new(models.MCPConnection))
 
 	// Configuration types
 	generator.GenerateUpdate(new(models.Configuration))
@@ -43,6 +44,8 @@ func main() {
 	generator.GenerateUpdate(new(models.CodexConfiguration))
 	generator.GenerateUpdate(new(models.HomeAssistantConfiguration))
 	generator.GenerateUpdate(new(models.UniFiProtectConfiguration))
+	generator.GenerateUpdate(new(models.MCPConfiguration))
+	generator.GenerateUpdate(new(models.MCPServerConfiguration))
 	generator.GenerateUpdate(new(models.IntegrationsConfiguration))
 	generator.GenerateUpdate(new(models.BrowserConfiguration))
 	generator.GenerateUpdate(new(models.TerminalConfiguration))
@@ -70,6 +73,7 @@ func main() {
 	generator.GenerateGetters(new(models.Usage))
 	generator.GenerateGetters(new(models.User))
 	generator.GenerateGetters(new(models.WorkspaceFile))
+	generator.GenerateGetters(new(models.MCPConnection))
 
 	// Getter methods for configuration types
 	generator.GenerateGetters(new(models.Configuration))
@@ -87,6 +91,8 @@ func main() {
 	generator.GenerateGetters(new(models.CodexConfiguration))
 	generator.GenerateGetters(new(models.HomeAssistantConfiguration))
 	generator.GenerateGetters(new(models.UniFiProtectConfiguration))
+	generator.GenerateGetters(new(models.MCPConfiguration))
+	generator.GenerateGetters(new(models.MCPServerConfiguration))
 	generator.GenerateGetters(new(models.IntegrationsConfiguration))
 	generator.GenerateGetters(new(models.BrowserConfiguration))
 	generator.GenerateGetters(new(models.TerminalConfiguration))
