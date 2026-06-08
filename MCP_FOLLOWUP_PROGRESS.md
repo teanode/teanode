@@ -20,7 +20,7 @@ the initial MCP client work (branch `feat/mcp-client`, PR #56).
 |---|--------|------|-----------|----|--------|
 | base | feat/mcp-client | main | 64349e9 | #56 | exists |
 | 1 | feat/mcp-connections | feat/mcp-client | 30f421b | [#57](https://github.com/teanode/teanode/pull/57) | PR open |
-| 2 | feat/mcp-oauth | feat/mcp-connections | PR2COMMIT | PR2URL | PR open |
+| 2 | feat/mcp-oauth | feat/mcp-connections | f8c8fff | [#58](https://github.com/teanode/teanode/pull/58) | PR open |
 | 3 | feat/mcp-user-runner | feat/mcp-oauth | — | — | pending |
 | 4 | feat/mcp-frontend | feat/mcp-user-runner | — | — | pending |
 | 5 | feat/mcp-hardening | feat/mcp-frontend | — | — | pending |
