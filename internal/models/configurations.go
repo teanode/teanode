@@ -96,6 +96,35 @@ type ToolsConfiguration struct {
 	Codex         *CodexConfiguration         `json:"codex,omitempty" yaml:"codex,omitempty"`
 	HomeAssistant *HomeAssistantConfiguration `json:"homeAssistant,omitempty" yaml:"homeAssistant,omitempty"`
 	UniFiProtect  *UniFiProtectConfiguration  `json:"unifiProtect,omitempty" yaml:"unifiProtect,omitempty"`
+	MCP           *MCPConfiguration           `json:"mcp,omitempty" yaml:"mcp,omitempty"`
+}
+
+// MCPConfiguration configures Model Context Protocol (MCP) client support.
+// TeaNode connects to the configured remote MCP servers, discovers their
+// tools, and exposes them as namespaced TeaNode tools during runs.
+type MCPConfiguration struct {
+	Servers *[]*MCPServerConfiguration `json:"servers,omitempty" yaml:"servers,omitempty"`
+}
+
+// MCPServerConfiguration describes a single remote MCP server.
+//
+// Limitations (v1): only the streamable HTTP transport is supported, only the
+// tools capability is consumed (prompts and resources are out of scope), and
+// authentication is limited to a static Authorization header value (no OAuth).
+type MCPServerConfiguration struct {
+	// Name identifies the server and namespaces its tools as
+	// "mcp__<name>__<tool>". It must be unique across configured servers.
+	Name *string `json:"name,omitempty" yaml:"name,omitempty"`
+	// URL is the streamable HTTP endpoint of the MCP server.
+	URL *string `json:"url,omitempty" yaml:"url,omitempty"`
+	// Enabled gates the server. A nil value is treated as enabled so that a
+	// configured server is active by default; set false to keep it but skip it.
+	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	// Authorization is the verbatim value sent in the HTTP Authorization
+	// header (for example "Bearer <token>"). Empty means no auth header.
+	Authorization *string `json:"authorization,omitempty" yaml:"authorization,omitempty"`
+	// TimeoutSeconds bounds each HTTP request to the server. Defaults to 30.
+	TimeoutSeconds *int `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
 }
 
 type GoogleConfiguration struct {

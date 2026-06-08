@@ -408,6 +408,52 @@
               "default": 15
             }
           }
+        },
+        "mcp": {
+          "type": "object",
+          "title": "MCP Servers",
+          "description": "Remote Model Context Protocol servers. Their tools are discovered and exposed as 'mcp__<name>__<tool>'. Streamable HTTP transport only; tools capability only.",
+          "properties": {
+            "servers": {
+              "type": "array",
+              "title": "Servers",
+              "description": "Configured remote MCP servers.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "title": "Name",
+                    "description": "Unique server name used to namespace its tools."
+                  },
+                  "url": {
+                    "type": "string",
+                    "title": "URL",
+                    "description": "Streamable HTTP endpoint of the MCP server.",
+                    "x-placeholder": "https://example.com/mcp"
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "title": "Enabled",
+                    "description": "Whether to connect to this server. Defaults to true.",
+                    "default": true
+                  },
+                  "authorization": {
+                    "type": "string",
+                    "title": "Authorization",
+                    "description": "Verbatim Authorization header value (e.g. 'Bearer <token>'). Leave empty for no auth.",
+                    "format": "password"
+                  },
+                  "timeoutSeconds": {
+                    "type": "number",
+                    "title": "Timeout (seconds)",
+                    "description": "Per-request timeout for calls to this server.",
+                    "default": 30
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

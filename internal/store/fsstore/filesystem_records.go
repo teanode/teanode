@@ -73,6 +73,21 @@ type storeToolsRecord struct {
 	Codex         *storeCodexToolRecord      `json:"codex,omitempty" yaml:"codex,omitempty"`
 	HomeAssistant *storeHomeAssistantRecord  `json:"homeAssistant,omitempty" yaml:"homeAssistant,omitempty"`
 	UniFiProtect  *storeUniFiProtectRecord   `json:"unifiProtect,omitempty" yaml:"unifiProtect,omitempty"`
+	MCP           *storeMCPRecord            `json:"mcp,omitempty" yaml:"mcp,omitempty"`
+}
+
+type storeMCPRecord struct {
+	Servers []storeMCPServerRecord `json:"servers,omitempty" yaml:"servers,omitempty"`
+}
+
+type storeMCPServerRecord struct {
+	Name string `json:"name,omitempty" yaml:"name,omitempty"`
+	URL  string `json:"url,omitempty" yaml:"url,omitempty"`
+	// Enabled is a pointer so a missing value preserves the "enabled by
+	// default" semantics rather than collapsing to false on round-trip.
+	Enabled        *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Authorization  string `json:"authorization,omitempty" yaml:"authorization,omitempty"`
+	TimeoutSeconds int    `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
 }
 
 type storeGoogleToolRecord struct {
