@@ -15,17 +15,21 @@ type testMCPServer struct {
 	server *httptest.Server
 
 	mutex           sync.Mutex
+	requestCount    int
 	initializeCount int
 	listCount       int
 	callCount       int
 
 	// configuration knobs
-	tools       []map[string]interface{}
-	useSSE      bool
-	sessionID   string
-	requireAuth string // when set, requests must carry this Authorization value
-	paginate    bool   // when true, tools/list returns one tool per page
-	callHandler func(name string, arguments json.RawMessage) (content []map[string]interface{}, isError bool)
+	tools          []map[string]interface{}
+	useSSE         bool
+	sessionID      string
+	requireAuth    string // when set, requests must carry this Authorization value
+	paginate       bool   // when true, tools/list returns one tool per page
+	failTimes      int    // when >0, the first N requests fail with failStatus
+	failStatus     int    // HTTP status returned while failTimes is not exhausted (default 503)
+	failuresServed int
+	callHandler    func(name string, arguments json.RawMessage) (content []map[string]interface{}, isError bool)
 }
 
 func newTestMCPServer(t *testing.T) *testMCPServer {
@@ -44,6 +48,20 @@ func newTestMCPServer(t *testing.T) *testMCPServer {
 func (self *testMCPServer) url() string { return self.server.URL }
 
 func (self *testMCPServer) handle(writer http.ResponseWriter, request *http.Request) {
+	self.mutex.Lock()
+	self.requestCount++
+	if self.failuresServed < self.failTimes {
+		self.failuresServed++
+		self.mutex.Unlock()
+		status := self.failStatus
+		if status == 0 {
+			status = http.StatusServiceUnavailable
+		}
+		http.Error(writer, "transient failure", status)
+		return
+	}
+	self.mutex.Unlock()
+
 	if self.requireAuth != "" && request.Header.Get("Authorization") != self.requireAuth {
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return

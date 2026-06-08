@@ -85,10 +85,15 @@ type storeMcpServerRecord struct {
 	URL  string `json:"url,omitempty" yaml:"url,omitempty"`
 	// Enabled is a pointer so a missing value preserves the "enabled by
 	// default" semantics rather than collapsing to false on round-trip.
-	Enabled        *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Auth           string `json:"auth,omitempty" yaml:"auth,omitempty"`
-	Authorization  string `json:"authorization,omitempty" yaml:"authorization,omitempty"`
-	TimeoutSeconds int    `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
+	Enabled               *bool    `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Auth                  string   `json:"auth,omitempty" yaml:"auth,omitempty"`
+	Authorization         string   `json:"authorization,omitempty" yaml:"authorization,omitempty"`
+	TimeoutSeconds        int      `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
+	OAuthClientID         string   `json:"oauthClientId,omitempty" yaml:"oauthClientId,omitempty"`
+	OAuthClientSecret     string   `json:"oauthClientSecret,omitempty" yaml:"oauthClientSecret,omitempty"`
+	OAuthScopes           []string `json:"oauthScopes,omitempty" yaml:"oauthScopes,omitempty"`
+	OAuthAuthorizationURL string   `json:"oauthAuthorizationUrl,omitempty" yaml:"oauthAuthorizationUrl,omitempty"`
+	OAuthTokenURL         string   `json:"oauthTokenUrl,omitempty" yaml:"oauthTokenUrl,omitempty"`
 }
 
 type storeGoogleToolRecord struct {

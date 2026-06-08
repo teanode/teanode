@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teanode/teanode/internal/mcp"
+	"github.com/teanode/teanode/internal/mcp/oauth"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -18,6 +20,15 @@ import (
 // configured and manage their own per-user connection credentials. Server
 // credentials (the static node-level Authorization value and any per-user
 // connection secret) are never returned to clients.
+
+// maxAuthorizationLength bounds the per-user credential value accepted for a
+// user-scoped MCP connection. HTTP Authorization header values are far smaller
+// than this; the cap simply rejects clearly-invalid input.
+const maxAuthorizationLength = 8192
+
+// mcpOAuthClientName is the client_name sent during RFC 7591 dynamic client
+// registration so the authorization server can identify TeaNode-issued clients.
+const mcpOAuthClientName = "TeaNode"
 
 // mcpServerListItem is the user-facing view of an admin-configured MCP server,
 // combined with the current user's connection state for that server.
@@ -91,7 +102,7 @@ func (self *webSocketConnection) handleMcpServersList(frame requestFrame) (inter
 				URL:                server.GetURL(),
 				AuthMode:           string(authMode),
 				Enabled:            server.Enabled == nil || *server.Enabled,
-				RequiresConnection: authMode == models.MCPServerAuthUser,
+				RequiresConnection: authMode == models.MCPServerAuthUser || authMode == models.MCPServerAuthOAuth,
 			}
 			if connection := connectionsByServer[name]; connection != nil {
 				item.Connected = connection.GetStatus() == models.MCPConnectionStatusConnected
@@ -153,6 +164,11 @@ func (self *webSocketConnection) handleMcpConnectionsCreate(frame requestFrame) 
 	}
 	if authorization == "" {
 		return nil, rpcError(400, "authorization is required")
+	}
+	// Bound the credential size so a malformed or pasted-document value cannot be
+	// stored as an Authorization header (real header values are well under this).
+	if len(authorization) > maxAuthorizationLength {
+		return nil, rpcError(400, "authorization is too long")
 	}
 
 	var created *models.MCPConnection
@@ -224,6 +240,170 @@ func (self *webSocketConnection) handleMcpConnectionsDelete(frame requestFrame) 
 		return nil, rpcError(500, "failed to delete MCP connection")
 	}
 	return map[string]interface{}{"deleted": true, "connectionId": connectionId}, nil
+}
+
+type mcpConnectionsAuthorizeParameters struct {
+	ServerName string `json:"serverName"`
+}
+
+// handleMcpConnectionsAuthorize starts the OAuth authorization-code flow for an
+// oauth-mode server and returns the authorization URL the user must visit. A
+// pending connection holding the PKCE verifier and CSRF state is persisted so
+// the callback can complete the exchange.
+func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFrame) (interface{}, error) {
+	parameters, err := unmarshalParameters[mcpConnectionsAuthorizeParameters](frame)
+	if err != nil {
+		return nil, err
+	}
+	serverName := strings.TrimSpace(parameters.ServerName)
+	if serverName == "" {
+		return nil, rpcError(400, "serverName is required")
+	}
+
+	// Resolve the server configuration and redirect URI in a read-only step so
+	// the (potentially slow) discovery and registration network calls happen
+	// outside the store transaction. Any client already registered on the user's
+	// existing connection is overlaid so a re-authorization reuses it.
+	var oauthConfig oauth.ServerConfig
+	var redirectUri string
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		configuration, configError := transaction.GetConfiguration(ctx, nil)
+		if configError != nil {
+			return configError
+		}
+		server := findConfiguredMcpServer(configuration, serverName)
+		if server == nil {
+			return web400("unknown MCP server")
+		}
+		if server.ResolvedAuthMode() != models.MCPServerAuthOAuth {
+			return web400("server is not configured for OAuth")
+		}
+		redirectUri = mcpOAuthRedirectUri(configuration)
+		if redirectUri == "" {
+			return web400("node public URL must be configured for OAuth connections")
+		}
+		existing, getError := transaction.GetMCPConnectionByServer(ctx, self.userId(), serverName, nil)
+		if getError != nil && !errors.Is(getError, store.ErrNotFound) {
+			return getError
+		}
+		oauthConfig = serverOAuthConfigForConnection(server, existing)
+		return nil
+	}); err != nil {
+		return nil, mcpBadRequestOrInternal(err, "failed to start authorization")
+	}
+
+	oauthClient := oauth.NewClient(oauthConfig)
+
+	// When neither the operator nor a prior registration supplied a client id,
+	// dynamically register a public client if the authorization server advertises
+	// a registration endpoint. The issued client id is persisted on the user's
+	// connection below so subsequent authorizations and refreshes reuse it.
+	var registeredClientID, registeredClientSecret string
+	if strings.TrimSpace(oauthConfig.ClientID) == "" {
+		metadata, metadataError := oauthClient.DiscoverMetadata(self.ctx)
+		if metadataError != nil {
+			return nil, rpcError(502, "failed to discover OAuth metadata: "+metadataError.Error())
+		}
+		registrationEndpoint := strings.TrimSpace(metadata.RegistrationEndpoint)
+		if registrationEndpoint == "" {
+			return nil, rpcError(400, "server is missing an OAuth client id and does not support dynamic registration")
+		}
+		registration, registerError := oauthClient.Register(self.ctx, registrationEndpoint, oauthClient.PublicClientRegistrationRequest(mcpOAuthClientName, redirectUri))
+		if registerError != nil {
+			return nil, rpcError(502, "dynamic client registration failed: "+registerError.Error())
+		}
+		registeredClientID = registration.ClientID
+		registeredClientSecret = registration.ClientSecret
+		oauthConfig.ClientID = registeredClientID
+		oauthConfig.ClientSecret = registeredClientSecret
+		oauthClient = oauth.NewClient(oauthConfig)
+	}
+
+	authorizationEndpoint, _, endpointsError := oauthClient.Endpoints(self.ctx)
+	if endpointsError != nil {
+		return nil, rpcError(502, "failed to resolve OAuth endpoints: "+endpointsError.Error())
+	}
+	pkce, pkceError := oauth.GeneratePKCE()
+	if pkceError != nil {
+		return nil, rpcError(500, "failed to prepare authorization")
+	}
+	state, stateError := oauth.GenerateState()
+	if stateError != nil {
+		return nil, rpcError(500, "failed to prepare authorization")
+	}
+	authorizationUrl, urlError := oauthClient.AuthorizationURL(authorizationEndpoint, pkce.Challenge, state, redirectUri)
+	if urlError != nil {
+		return nil, rpcError(500, "failed to build authorization URL")
+	}
+
+	// Upsert a pending connection holding the transient PKCE/state values.
+	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		existing, getError := transaction.GetMCPConnectionByServer(ctx, self.userId(), serverName, nil)
+		if getError == nil {
+			_, modifyError := transaction.ModifyMCPConnection(ctx, existing.ID, func(connection *models.MCPConnection) error {
+				connection.Status = ptrto.Value(models.MCPConnectionStatusPending)
+				connection.OAuthState = ptrto.Value(state)
+				connection.CodeVerifier = ptrto.Value(pkce.Verifier)
+				connection.LastError = ptrto.Value("")
+				if registeredClientID != "" {
+					connection.OAuthClientID = ptrto.Value(registeredClientID)
+					connection.OAuthClientSecret = ptrto.Value(registeredClientSecret)
+				}
+				return nil
+			}, nil)
+			return modifyError
+		}
+		if !errors.Is(getError, store.ErrNotFound) {
+			return getError
+		}
+		created := &models.MCPConnection{
+			UserID:       ptrto.Value(self.userId()),
+			ServerName:   ptrto.Value(serverName),
+			Status:       ptrto.Value(models.MCPConnectionStatusPending),
+			OAuthState:   ptrto.Value(state),
+			CodeVerifier: ptrto.Value(pkce.Verifier),
+		}
+		if registeredClientID != "" {
+			created.OAuthClientID = ptrto.Value(registeredClientID)
+			created.OAuthClientSecret = ptrto.Value(registeredClientSecret)
+		}
+		_, createError := transaction.CreateMCPConnection(ctx, created, nil)
+		return createError
+	}); err != nil {
+		return nil, rpcError(500, "failed to persist authorization state")
+	}
+
+	return map[string]interface{}{"authorizationUrl": authorizationUrl}, nil
+}
+
+// serverOAuthConfigForConnection builds the OAuth client configuration for a
+// server, overlaying any dynamically-registered client stored on the user's
+// connection. It delegates to the mcp package so every OAuth flow resolves
+// settings identically.
+func serverOAuthConfigForConnection(server *models.MCPServerConfiguration, connection *models.MCPConnection) oauth.ServerConfig {
+	return mcp.ServerOAuthConfigForConnection(server, connection)
+}
+
+// mcpOAuthRedirectUri derives the OAuth callback URL from the node public URL.
+func mcpOAuthRedirectUri(configuration *models.Configuration) string {
+	if configuration == nil || configuration.Node == nil {
+		return ""
+	}
+	publicUrl := strings.TrimSpace(configuration.Node.GetPublicURL())
+	if publicUrl == "" {
+		return ""
+	}
+	return strings.TrimRight(publicUrl, "/") + mcpOAuthCallbackPath
+}
+
+// mcpBadRequestOrInternal maps a transaction error to a 400 when it is a
+// badRequestError and a 500 otherwise.
+func mcpBadRequestOrInternal(err error, internalMessage string) *rpcHandlerError {
+	var badRequest *badRequestError
+	if errors.As(err, &badRequest) {
+		return rpcError(400, badRequest.message)
+	}
+	return rpcError(500, internalMessage)
 }
 
 // findConfiguredMcpServer returns the configured server with the given name, or

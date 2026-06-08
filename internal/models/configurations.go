@@ -119,6 +119,9 @@ const (
 	// per-user MCPConnection. The server is only available to users who have
 	// connected.
 	MCPServerAuthUser MCPServerAuthMode = "user"
+	// MCPServerAuthOAuth requires each user to authorize via the OAuth 2.1
+	// authorization-code flow with PKCE. Tokens are stored per user.
+	MCPServerAuthOAuth MCPServerAuthMode = "oauth"
 )
 
 // MCPServerConfiguration describes a single remote MCP server.
@@ -146,6 +149,19 @@ type MCPServerConfiguration struct {
 	Authorization *string `json:"authorization,omitempty" yaml:"authorization,omitempty"`
 	// TimeoutSeconds bounds each HTTP request to the server. Defaults to 30.
 	TimeoutSeconds *int `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
+
+	// OAuth client settings for the "oauth" auth mode.
+
+	// OAuthClientID is the registered OAuth client identifier.
+	OAuthClientID *string `json:"oauthClientId,omitempty" yaml:"oauthClientId,omitempty"`
+	// OAuthClientSecret authenticates a confidential client (optional; public
+	// clients rely on PKCE alone).
+	OAuthClientSecret *string `json:"oauthClientSecret,omitempty" yaml:"oauthClientSecret,omitempty"`
+	// OAuthScopes are requested during authorization.
+	OAuthScopes *[]string `json:"oauthScopes,omitempty" yaml:"oauthScopes,omitempty"`
+	// OAuthAuthorizationURL and OAuthTokenURL override discovery when set.
+	OAuthAuthorizationURL *string `json:"oauthAuthorizationUrl,omitempty" yaml:"oauthAuthorizationUrl,omitempty"`
+	OAuthTokenURL         *string `json:"oauthTokenUrl,omitempty" yaml:"oauthTokenUrl,omitempty"`
 }
 
 // ResolvedAuthMode returns the effective auth mode, inferring it from the

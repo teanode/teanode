@@ -622,6 +622,61 @@ export interface ToolPoliciesListResult {
   policies: ToolPolicyConfiguration[];
 }
 
+// MCP (Model Context Protocol) types
+
+/** Authentication mode of a configured MCP server. */
+export type MCPServerAuthMode = "none" | "static" | "user" | "oauth";
+
+/** Last known state of a per-user MCP connection. */
+export type MCPConnectionStatus =
+  | "pending"
+  | "connected"
+  | "error"
+  | "disconnected";
+
+/**
+ * User-facing view of an admin-configured MCP server, combined with the current
+ * user's connection state. Never carries any credential.
+ */
+export interface MCPServerListItem {
+  name: string;
+  url: string;
+  authMode: MCPServerAuthMode;
+  enabled: boolean;
+  requiresConnection: boolean;
+  connected: boolean;
+  connectionId?: string;
+  status?: MCPConnectionStatus;
+  lastError?: string;
+  lastConnectedAt?: string;
+}
+
+/** Secret-free view of a per-user MCP connection. */
+export interface MCPConnectionListItem {
+  id: string;
+  serverName: string;
+  status: MCPConnectionStatus;
+  lastError?: string;
+  createdAt?: string;
+  lastConnectedAt?: string;
+}
+
+export interface MCPServersListResult {
+  servers: MCPServerListItem[];
+}
+
+export interface MCPConnectionsListResult {
+  connections: MCPConnectionListItem[];
+}
+
+export interface MCPConnectionCreateResult {
+  connection: MCPConnectionListItem;
+}
+
+export interface MCPConnectionAuthorizeResult {
+  authorizationUrl: string;
+}
+
 // Memory types
 
 export interface MemoryItem {

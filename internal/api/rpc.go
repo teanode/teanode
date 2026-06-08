@@ -226,6 +226,8 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 		return self.handleMcpConnectionsList(frame)
 	case "mcp.connections.create":
 		return self.handleMcpConnectionsCreate(frame)
+	case "mcp.connections.authorize":
+		return self.handleMcpConnectionsAuthorize(frame)
 	case "mcp.connections.delete":
 		return self.handleMcpConnectionsDelete(frame)
 
