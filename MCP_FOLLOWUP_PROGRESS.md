@@ -19,8 +19,8 @@ the initial MCP client work (branch `feat/mcp-client`, PR #56).
 | # | Branch | Base | Commit(s) | PR | Status |
 |---|--------|------|-----------|----|--------|
 | base | feat/mcp-client | main | 64349e9 | #56 | exists |
-| 1 | feat/mcp-connections | feat/mcp-client | (this commit) | — | committed |
-| 2 | feat/mcp-oauth | feat/mcp-connections | — | — | pending |
+| 1 | feat/mcp-connections | feat/mcp-client | 30f421b | [#57](https://github.com/teanode/teanode/pull/57) | PR open |
+| 2 | feat/mcp-oauth | feat/mcp-connections | — | — | in progress |
 | 3 | feat/mcp-user-runner | feat/mcp-oauth | — | — | pending |
 | 4 | feat/mcp-frontend | feat/mcp-user-runner | — | — | pending |
 | 5 | feat/mcp-hardening | feat/mcp-frontend | — | — | pending |
