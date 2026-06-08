@@ -359,6 +359,16 @@ func TestMCPConnectionsCreateRejectsUnknownServer(t *testing.T) {
 	}
 }
 
+func TestMCPConnectionsCreateRejectsOversizedAuthorization(t *testing.T) {
+	connection, _ := newMCPTestConnection(t, models.MCPServerAuthUser)
+	if _, err := connection.handleMcpConnectionsCreate(frameWith(t, mcpConnectionsCreateParameters{
+		ServerName:    "robinhood",
+		Authorization: strings.Repeat("x", maxAuthorizationLength+1),
+	})); err == nil {
+		t.Error("expected create to be rejected for an oversized authorization value")
+	}
+}
+
 // TestMCPResponsesOmitSecrets asserts the stored Authorization credential never
 // appears in any list response payload.
 func TestMCPResponsesOmitSecrets(t *testing.T) {

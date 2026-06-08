@@ -333,7 +333,9 @@
     "approvalsPending": "pending",
     "approve": "Approve",
     "reject": "Reject",
-    "approveAll": "Approve all"
+    "approveAll": "Approve all",
+    "remoteMcp": "External",
+    "remoteMcpWarning": "Runs on remote MCP server \"{{server}}\". The arguments above are sent to an external service."
   },
   "auth": {
     "loginTitle": "Welcome back",

@@ -50,6 +50,11 @@ type ServerConfiguration struct {
 	URL           string
 	Authorization string
 	Timeout       time.Duration
+	// ConnectionID, when set, is the per-user models.MCPConnection backing this
+	// server. It lets discovery outcomes be reflected back onto the user's
+	// connection status. It is empty for shared (none/static) servers and is
+	// deliberately excluded from the discovery cache signature.
+	ConnectionID string
 }
 
 // RemoteTool is a tool advertised by a remote MCP server via tools/list.
@@ -142,6 +147,21 @@ type jsonrpcError struct {
 
 func (self *jsonrpcError) Error() string {
 	return fmt.Sprintf("mcp: server error %d: %s", self.Code, self.Message)
+}
+
+// httpStatusError is returned when a server responds with a non-2xx HTTP status.
+// It carries the status code so callers (notably discovery retry) can decide
+// whether the failure is worth retrying.
+type httpStatusError struct {
+	StatusCode int
+	Body       string
+}
+
+func (self *httpStatusError) Error() string {
+	if self.Body == "" {
+		return fmt.Sprintf("mcp: unexpected status %d", self.StatusCode)
+	}
+	return fmt.Sprintf("mcp: unexpected status %d: %s", self.StatusCode, self.Body)
 }
 
 // Connect performs the MCP initialization handshake: it sends the initialize
@@ -287,7 +307,7 @@ func (self *Client) post(ctx context.Context, body []byte) (*jsonrpcResponse, er
 
 	if httpResponse.StatusCode >= 400 {
 		snippet, _ := io.ReadAll(io.LimitReader(httpResponse.Body, 2048))
-		return nil, fmt.Errorf("mcp: unexpected status %d: %s", httpResponse.StatusCode, strings.TrimSpace(string(snippet)))
+		return nil, &httpStatusError{StatusCode: httpResponse.StatusCode, Body: strings.TrimSpace(string(snippet))}
 	}
 
 	contentType := httpResponse.Header.Get("Content-Type")

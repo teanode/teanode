@@ -21,6 +21,11 @@ import (
 // credentials (the static node-level Authorization value and any per-user
 // connection secret) are never returned to clients.
 
+// maxAuthorizationLength bounds the per-user credential value accepted for a
+// user-scoped MCP connection. HTTP Authorization header values are far smaller
+// than this; the cap simply rejects clearly-invalid input.
+const maxAuthorizationLength = 8192
+
 // mcpServerListItem is the user-facing view of an admin-configured MCP server,
 // combined with the current user's connection state for that server.
 type mcpServerListItem struct {
@@ -155,6 +160,11 @@ func (self *webSocketConnection) handleMcpConnectionsCreate(frame requestFrame) 
 	}
 	if authorization == "" {
 		return nil, rpcError(400, "authorization is required")
+	}
+	// Bound the credential size so a malformed or pasted-document value cannot be
+	// stored as an Authorization header (real header values are well under this).
+	if len(authorization) > maxAuthorizationLength {
+		return nil, rpcError(400, "authorization is too long")
 	}
 
 	var created *models.MCPConnection
