@@ -467,6 +467,11 @@
     "authorizeSucceededGeneric": "Authorization completed",
     "authorizeFailed": "Authorization failed: {{error}}",
     "authorizeFailedGeneric": "Authorization failed",
+    "authorizeTitle": "Authorize {{server}}",
+    "redirectHelp": "Choose where the provider sends you back after you approve access. Some providers only accept the address you are browsing from (for example a localhost URL).",
+    "redirectBrowser": "This browser's address",
+    "redirectNode": "Node public URL",
+    "redirectNodeHelp": "Use the public address configured for this node.",
     "authMode": {
       "none": "No auth",
       "static": "Shared",

@@ -34,14 +34,24 @@ export function createMcpConnection(
   });
 }
 
-/** Start the OAuth flow and resolve to the provider authorization URL. */
+/** The OAuth callback path the backend serves; appended to a chosen origin. */
+export const MCP_OAUTH_CALLBACK_PATH = "/api/mcp/oauth/callback";
+
+/**
+ * Start the OAuth flow and resolve to the provider authorization URL. When
+ * `redirectUri` is given it overrides the node public URL callback — used to
+ * point the authorization server back at the address the user is browsing from
+ * (which may be a loopback URL the server requires).
+ */
 export function authorizeMcpConnection(
   backend: ConnectionsRpcClient,
   serverName: string,
+  redirectUri?: string,
 ): Promise<string> {
   return backend
     .sendRpc<MCPConnectionAuthorizeResult>("mcp.connections.authorize", {
       serverName,
+      ...(redirectUri ? { redirectUri } : {}),
     })
     .then((result) => result.authorizationUrl);
 }

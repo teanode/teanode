@@ -300,8 +300,8 @@ func TestMCPConnectionsAuthorizeDynamicallyRegistersClient(t *testing.T) {
 		t.Errorf("unexpected authorization endpoint: %s", authorizationURL)
 	}
 
-	// The registered client id is persisted on the connection so a subsequent
-	// authorization reuses it rather than registering again.
+	// The registered client id is persisted on the connection so the callback and
+	// refresh paths can reuse it for token exchange.
 	var pending *models.MCPConnection
 	if err := store.StoreFromContext(connection.ctx).Transaction(connection.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		got, getError := transaction.GetMCPConnectionByServer(ctx, userId, "robinhood", nil)
@@ -314,12 +314,16 @@ func TestMCPConnectionsAuthorizeDynamicallyRegistersClient(t *testing.T) {
 		t.Errorf("persisted client id = %q, want dynamic-client-1", pending.GetOAuthClientID())
 	}
 
-	// A second authorization reuses the stored client and does not re-register.
+	// A second authorization registers a fresh client rather than reusing the
+	// stored one. The authorization server binds the redirect_uri to the specific
+	// client it issues, so re-registering keeps the redirect_uri we present in the
+	// authorization request aligned with the client even if the node public URL
+	// changed since the previous attempt.
 	if _, err := connection.handleMcpConnectionsAuthorize(frameWith(t, mcpConnectionsAuthorizeParameters{ServerName: "robinhood"})); err != nil {
 		t.Fatalf("second authorize error: %v", err)
 	}
-	if *registrations != 1 {
-		t.Errorf("expected registration to be reused, got %d registrations", *registrations)
+	if *registrations != 2 {
+		t.Errorf("expected re-registration on re-authorize, got %d registrations", *registrations)
 	}
 
 	// The registered client id must never appear in a list response.
@@ -337,6 +341,53 @@ func TestMCPConnectionsAuthorizeDynamicallyRegistersClient(t *testing.T) {
 		}
 		if strings.Contains(string(raw), "dynamic-client-1") {
 			t.Errorf("response leaked registered client id: %s", raw)
+		}
+	}
+}
+
+func TestMCPConnectionsAuthorizeUsesProvidedRedirectURI(t *testing.T) {
+	stub, _ := newRegistrationStubServer(t)
+	connection, userId := newOAuthMCPTestConnectionForRegistration(t, stub.URL+"/mcp")
+
+	customRedirect := "http://localhost:9876/api/mcp/oauth/callback"
+	result, err := connection.handleMcpConnectionsAuthorize(frameWith(t, mcpConnectionsAuthorizeParameters{ServerName: "robinhood", RedirectURI: customRedirect}))
+	if err != nil {
+		t.Fatalf("handleMcpConnectionsAuthorize error: %v", err)
+	}
+	authorizationURL := result.(map[string]interface{})["authorizationUrl"].(string)
+	parsed, parseError := url.Parse(authorizationURL)
+	if parseError != nil {
+		t.Fatalf("parse authorization url: %v", parseError)
+	}
+	if got := parsed.Query().Get("redirect_uri"); got != customRedirect {
+		t.Errorf("redirect_uri = %q, want %q", got, customRedirect)
+	}
+
+	// The chosen redirect URI is persisted so the callback can present the same
+	// value in the token exchange.
+	var pending *models.MCPConnection
+	if err := store.StoreFromContext(connection.ctx).Transaction(connection.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		got, getError := transaction.GetMCPConnectionByServer(ctx, userId, "robinhood", nil)
+		pending = got
+		return getError
+	}); err != nil {
+		t.Fatalf("loading pending connection: %v", err)
+	}
+	if pending.GetOAuthRedirectURI() != customRedirect {
+		t.Errorf("persisted redirect uri = %q, want %q", pending.GetOAuthRedirectURI(), customRedirect)
+	}
+}
+
+func TestMCPConnectionsAuthorizeRejectsInvalidRedirectURI(t *testing.T) {
+	stub, _ := newRegistrationStubServer(t)
+	connection, _ := newOAuthMCPTestConnectionForRegistration(t, stub.URL+"/mcp")
+	for _, bad := range []string{
+		"ftp://localhost/api/mcp/oauth/callback", // wrong scheme
+		"http://localhost/wrong/path",            // wrong path
+		"/api/mcp/oauth/callback",                // missing host
+	} {
+		if _, err := connection.handleMcpConnectionsAuthorize(frameWith(t, mcpConnectionsAuthorizeParameters{ServerName: "robinhood", RedirectURI: bad})); err == nil {
+			t.Errorf("expected rejection for redirect uri %q", bad)
 		}
 	}
 }

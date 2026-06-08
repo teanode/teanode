@@ -202,6 +202,103 @@ func TestDiscoverMetadataIncludesRegistrationEndpoint(t *testing.T) {
 	}
 }
 
+// TestDiscoverMetadataPathAwareWellKnown reproduces servers (e.g. Robinhood's
+// MCP at /mcp/trading) that publish RFC 9728 protected-resource metadata at the
+// path-aware well-known location rather than the host root.
+func TestDiscoverMetadataPathAwareWellKnown(t *testing.T) {
+	var serverURL string
+	mux := http.NewServeMux()
+	// Only the path-aware location is served; the host-root form 404s.
+	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp/trading", func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(protectedResourceMetadata{
+			Resource:             serverURL + "/mcp/trading",
+			AuthorizationServers: []string{serverURL},
+		})
+	})
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(Metadata{
+			Issuer:                serverURL,
+			AuthorizationEndpoint: serverURL + "/authorize",
+			TokenEndpoint:         serverURL + "/token",
+		})
+	})
+	server := httptest.NewServer(mux)
+	serverURL = server.URL
+	t.Cleanup(server.Close)
+
+	client := NewClient(ServerConfig{ResourceURL: server.URL + "/mcp/trading"})
+	metadata, err := client.DiscoverMetadata(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoverMetadata error: %v", err)
+	}
+	if metadata.TokenEndpoint != server.URL+"/token" {
+		t.Errorf("token endpoint = %q", metadata.TokenEndpoint)
+	}
+}
+
+// TestDiscoverMetadataSurfacesScopes verifies that scopes_supported advertised
+// by the resource (RFC 9728) is surfaced even when the authorization-server
+// metadata omits its own list. Robinhood's trading MCP requires the "internal"
+// scope advertised this way.
+func TestDiscoverMetadataSurfacesScopes(t *testing.T) {
+	var serverURL string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp/trading", func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(protectedResourceMetadata{
+			Resource:             serverURL + "/mcp/trading",
+			AuthorizationServers: []string{serverURL},
+			ScopesSupported:      []string{"internal"},
+		})
+	})
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(writer http.ResponseWriter, request *http.Request) {
+		// No scopes_supported here; it must fall back to the resource metadata.
+		_ = json.NewEncoder(writer).Encode(Metadata{
+			Issuer:                serverURL,
+			AuthorizationEndpoint: serverURL + "/authorize",
+			TokenEndpoint:         serverURL + "/token",
+		})
+	})
+	server := httptest.NewServer(mux)
+	serverURL = server.URL
+	t.Cleanup(server.Close)
+
+	client := NewClient(ServerConfig{ResourceURL: server.URL + "/mcp/trading"})
+	metadata, err := client.DiscoverMetadata(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoverMetadata error: %v", err)
+	}
+	if len(metadata.ScopesSupported) != 1 || metadata.ScopesSupported[0] != "internal" {
+		t.Errorf("scopes_supported = %v, want [internal]", metadata.ScopesSupported)
+	}
+}
+
+// TestDiscoverMetadataPathAwareAuthorizationServer covers servers that publish
+// the authorization-server metadata itself under the resource path with no
+// protected-resource metadata redirect.
+func TestDiscoverMetadataPathAwareAuthorizationServer(t *testing.T) {
+	var serverURL string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/oauth-authorization-server/mcp/trading", func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(Metadata{
+			Issuer:                serverURL + "/mcp/trading",
+			AuthorizationEndpoint: serverURL + "/authorize",
+			TokenEndpoint:         serverURL + "/token",
+		})
+	})
+	server := httptest.NewServer(mux)
+	serverURL = server.URL
+	t.Cleanup(server.Close)
+
+	client := NewClient(ServerConfig{ResourceURL: server.URL + "/mcp/trading"})
+	metadata, err := client.DiscoverMetadata(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoverMetadata error: %v", err)
+	}
+	if metadata.TokenEndpoint != server.URL+"/token" {
+		t.Errorf("token endpoint = %q", metadata.TokenEndpoint)
+	}
+}
+
 func TestPublicClientRegistrationRequest(t *testing.T) {
 	client := NewClient(ServerConfig{Scopes: []string{"read", "trade"}})
 	request := client.PublicClientRegistrationRequest("TeaNode", "https://node.example.com/api/mcp/oauth/callback")

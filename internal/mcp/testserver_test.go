@@ -71,7 +71,7 @@ func (self *testMCPServer) handle(writer http.ResponseWriter, request *http.Requ
 	var message struct {
 		ID         *int64          `json:"id"`
 		Method     string          `json:"method"`
-		Parameters json.RawMessage `json:"parameters"`
+		Parameters json.RawMessage `json:"params"`
 	}
 	if unmarshalError := json.Unmarshal(body, &message); unmarshalError != nil {
 		http.Error(writer, "bad request", http.StatusBadRequest)

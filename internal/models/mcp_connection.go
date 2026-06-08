@@ -80,4 +80,9 @@ type MCPConnection struct {
 	OAuthState *string `json:"oauthState,omitempty" yaml:"oauthState,omitempty"`
 	// CodeVerifier is the PKCE verifier awaiting the token exchange.
 	CodeVerifier *string `json:"codeVerifier,omitempty" yaml:"codeVerifier,omitempty"`
+	// OAuthRedirectURI is the redirect URI chosen for the in-flight authorization.
+	// It is registered with the authorization server and presented in the
+	// authorization request, so the callback must reuse the identical value when
+	// exchanging the code. Empty falls back to the node public URL callback.
+	OAuthRedirectURI *string `json:"oauthRedirectUri,omitempty" yaml:"oauthRedirectUri,omitempty"`
 }

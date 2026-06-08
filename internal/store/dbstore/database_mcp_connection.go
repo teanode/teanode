@@ -28,6 +28,7 @@ type databaseMcpConnectionRecord struct {
 	OAuthClientSecret *string    `gorm:"column:oauth_client_secret;type:text"`
 	OAuthState        *string    `gorm:"column:oauth_state;type:varchar(128)"`
 	CodeVerifier      *string    `gorm:"column:code_verifier;type:varchar(256)"`
+	OAuthRedirectURI  *string    `gorm:"column:oauth_redirect_uri;type:text"`
 	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
 	ModifiedAt        time.Time  `gorm:"column:modified_at;not null"`
 }
@@ -120,6 +121,7 @@ func (self *databaseTransaction) ModifyMCPConnection(ctx context.Context, connec
 		"oauth_client_secret": record.OAuthClientSecret,
 		"oauth_state":         record.OAuthState,
 		"code_verifier":       record.CodeVerifier,
+		"oauth_redirect_uri":  record.OAuthRedirectURI,
 		"modified_at":         record.ModifiedAt,
 	}).Error
 	if updateError != nil {
@@ -171,6 +173,7 @@ func modelToMcpConnectionRecord(connection *models.MCPConnection) *databaseMcpCo
 		OAuthClientSecret: ptrto.TrimmedString(connection.GetOAuthClientSecret()),
 		OAuthState:        ptrto.TrimmedString(connection.GetOAuthState()),
 		CodeVerifier:      ptrto.TrimmedString(connection.GetCodeVerifier()),
+		OAuthRedirectURI:  ptrto.TrimmedString(connection.GetOAuthRedirectURI()),
 	}
 }
 
@@ -197,6 +200,7 @@ func mcpConnectionRecordToModel(record *databaseMcpConnectionRecord) *models.MCP
 		OAuthClientSecret: ptrto.TrimmedString(valueor.Zero(record.OAuthClientSecret)),
 		OAuthState:        ptrto.TrimmedString(valueor.Zero(record.OAuthState)),
 		CodeVerifier:      ptrto.TrimmedString(valueor.Zero(record.CodeVerifier)),
+		OAuthRedirectURI:  ptrto.TrimmedString(valueor.Zero(record.OAuthRedirectURI)),
 		CreatedAt:         &record.CreatedAt,
 		ModifiedAt:        &record.ModifiedAt,
 	}

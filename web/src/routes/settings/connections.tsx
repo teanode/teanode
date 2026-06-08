@@ -10,9 +10,13 @@ import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
+import FormControl from "@mui/material/FormControl";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
+import Radio from "@mui/material/Radio";
+import RadioGroup from "@mui/material/RadioGroup";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -29,9 +33,12 @@ import {
   createMcpConnection,
   deleteMcpConnection,
   listMcpServers,
+  MCP_OAUTH_CALLBACK_PATH,
   parseOAuthCallback,
   serverAction,
 } from "./connections.helpers";
+
+type RedirectChoice = "browser" | "node";
 
 dayjs.extend(relativeTime);
 
@@ -220,6 +227,15 @@ export default function SettingsConnectionsPage() {
   const [saving, setSaving] = useState(false);
   const [disconnectTarget, setDisconnectTarget] =
     useState<MCPServerListItem | null>(null);
+  const [authorizeTarget, setAuthorizeTarget] =
+    useState<MCPServerListItem | null>(null);
+  const [redirectChoice, setRedirectChoice] =
+    useState<RedirectChoice>("browser");
+
+  // The callback URL pointing at the address the user is currently browsing
+  // from. For a locally-run node this is a loopback URL, which some providers
+  // require for the OAuth redirect.
+  const browserRedirectUri = window.location.origin + MCP_OAUTH_CALLBACK_PATH;
 
   const loadServers = useCallback(() => {
     listMcpServers(backend)
@@ -290,25 +306,42 @@ export default function SettingsConnectionsPage() {
     }
   }, [backend, connectTarget, credential, loadServers, showAlert, t]);
 
-  const startAuthorize = useCallback(
-    async (server: MCPServerListItem) => {
-      try {
-        const authorizationUrl = await authorizeMcpConnection(
-          backend,
-          server.name,
-        );
-        // Full-page navigation so the provider can redirect back to the
-        // callback with the user's session cookie attached.
-        window.location.href = authorizationUrl;
-      } catch (err) {
-        showAlert(
-          err instanceof Error ? err.message : t("mcp.authorizeStartFailed"),
-          "error",
-        );
-      }
-    },
-    [backend, showAlert, t],
-  );
+  const openAuthorize = useCallback((server: MCPServerListItem) => {
+    setRedirectChoice("browser");
+    setAuthorizeTarget(server);
+  }, []);
+
+  const confirmAuthorize = useCallback(async () => {
+    if (!authorizeTarget) return;
+    const server = authorizeTarget;
+    // "browser" pins the redirect to the current address; "node" omits the
+    // override so the backend uses the configured node public URL.
+    const redirectUri =
+      redirectChoice === "browser" ? browserRedirectUri : undefined;
+    setAuthorizeTarget(null);
+    try {
+      const authorizationUrl = await authorizeMcpConnection(
+        backend,
+        server.name,
+        redirectUri,
+      );
+      // Full-page navigation so the provider can redirect back to the
+      // callback with the user's session cookie attached.
+      window.location.href = authorizationUrl;
+    } catch (err) {
+      showAlert(
+        err instanceof Error ? err.message : t("mcp.authorizeStartFailed"),
+        "error",
+      );
+    }
+  }, [
+    authorizeTarget,
+    redirectChoice,
+    browserRedirectUri,
+    backend,
+    showAlert,
+    t,
+  ]);
 
   const confirmDisconnect = useCallback(async () => {
     if (!disconnectTarget?.connectionId) {
@@ -351,7 +384,7 @@ export default function SettingsConnectionsPage() {
                 key={server.name}
                 server={server}
                 onConnect={openConnect}
-                onAuthorize={startAuthorize}
+                onAuthorize={openAuthorize}
                 onDisconnect={setDisconnectTarget}
               />
             ))}
@@ -402,6 +435,73 @@ export default function SettingsConnectionsPage() {
             onClick={submitConnect}
           >
             {saving ? t("common.saving") : t("mcp.connect")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={!!authorizeTarget}
+        onClose={() => setAuthorizeTarget(null)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontSize: "0.875rem", fontWeight: 600 }}>
+          {authorizeTarget
+            ? t("mcp.authorizeTitle", { server: authorizeTarget.name })
+            : ""}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="caption" color="text.secondary">
+            {t("mcp.redirectHelp")}
+          </Typography>
+          <FormControl sx={{ mt: 1, display: "block" }}>
+            <RadioGroup
+              value={redirectChoice}
+              onChange={(event) =>
+                setRedirectChoice(event.target.value as RedirectChoice)
+              }
+            >
+              <FormControlLabel
+                value="browser"
+                control={<Radio size="small" />}
+                label={
+                  <Box>
+                    <Typography variant="body2">
+                      {t("mcp.redirectBrowser")}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ wordBreak: "break-all" }}
+                    >
+                      {browserRedirectUri}
+                    </Typography>
+                  </Box>
+                }
+              />
+              <FormControlLabel
+                value="node"
+                control={<Radio size="small" />}
+                label={
+                  <Box>
+                    <Typography variant="body2">
+                      {t("mcp.redirectNode")}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {t("mcp.redirectNodeHelp")}
+                    </Typography>
+                  </Box>
+                }
+              />
+            </RadioGroup>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAuthorizeTarget(null)}>
+            {t("common.cancel")}
+          </Button>
+          <Button variant="contained" onClick={confirmAuthorize}>
+            {t("mcp.authorize")}
           </Button>
         </DialogActions>
       </Dialog>

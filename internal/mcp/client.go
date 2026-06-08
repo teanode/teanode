@@ -121,14 +121,14 @@ type jsonrpcRequest struct {
 	JSONRPC string      `json:"jsonrpc"`
 	ID      int64       `json:"id"`
 	Method  string      `json:"method"`
-	Params  interface{} `json:"parameters,omitempty"`
+	Params  interface{} `json:"params,omitempty"`
 }
 
 // jsonrpcNotification is an outbound JSON-RPC 2.0 notification (no id, no reply).
 type jsonrpcNotification struct {
 	JSONRPC string      `json:"jsonrpc"`
 	Method  string      `json:"method"`
-	Params  interface{} `json:"parameters,omitempty"`
+	Params  interface{} `json:"params,omitempty"`
 }
 
 // jsonrpcResponse is an inbound JSON-RPC 2.0 response.

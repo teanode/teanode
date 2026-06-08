@@ -88,7 +88,14 @@ func (self *api) completeMcpOAuth(ctx context.Context, userId, code, state strin
 		// connection so the token exchange uses the same client id the
 		// authorization request was issued with.
 		oauthConfig = serverOAuthConfigForConnection(server, pending)
-		redirectUri = mcpOAuthRedirectUri(configuration)
+		// The token exchange must echo the exact redirect URI used in the
+		// authorization request (RFC 6749 §4.1.3). Reuse the value persisted at
+		// authorize time, falling back to the node public URL for older pending
+		// connections created before the redirect URI was recorded.
+		redirectUri = strings.TrimSpace(pending.GetOAuthRedirectURI())
+		if redirectUri == "" {
+			redirectUri = mcpOAuthRedirectUri(configuration)
+		}
 		return nil
 	}); err != nil {
 		serverName := ""
@@ -128,9 +135,11 @@ func (self *api) completeMcpOAuth(ctx context.Context, userId, code, state strin
 // mcp.ApplyOAuthToken so the callback and the runner refresh path stay in sync.
 func applyOAuthToken(connection *models.MCPConnection, token *oauth.Token) {
 	mcp.ApplyOAuthToken(connection, token)
-	// Clear the one-time PKCE/state values now that the exchange succeeded.
+	// Clear the one-time PKCE/state/redirect values now that the exchange
+	// succeeded.
 	connection.OAuthState = ptrto.Value("")
 	connection.CodeVerifier = ptrto.Value("")
+	connection.OAuthRedirectURI = ptrto.Value("")
 }
 
 // markMcpConnectionError records a failure on the pending connection so the user
@@ -142,6 +151,7 @@ func (self *api) markMcpConnectionError(ctx context.Context, connectionId, messa
 			connection.LastError = ptrto.Value(message)
 			connection.OAuthState = ptrto.Value("")
 			connection.CodeVerifier = ptrto.Value("")
+			connection.OAuthRedirectURI = ptrto.Value("")
 			return nil
 		}, nil)
 		return modifyError

@@ -113,6 +113,9 @@ type Metadata struct {
 	// endpoint, advertised by RFC 8414 metadata. Empty when the server does not
 	// support dynamic registration.
 	RegistrationEndpoint string `json:"registration_endpoint"`
+	// ScopesSupported lists the OAuth scopes the server advertises. Callers use
+	// it to request the scopes a resource requires when none are pre-configured.
+	ScopesSupported []string `json:"scopes_supported"`
 }
 
 // protectedResourceMetadata is the subset of RFC 9728 metadata used to locate
@@ -120,6 +123,7 @@ type Metadata struct {
 type protectedResourceMetadata struct {
 	Resource             string   `json:"resource"`
 	AuthorizationServers []string `json:"authorization_servers"`
+	ScopesSupported      []string `json:"scopes_supported"`
 }
 
 // Endpoints resolves the authorization and token endpoints for the server,
@@ -157,10 +161,16 @@ func (self *Client) DiscoverMetadata(ctx context.Context) (Metadata, error) {
 // discover locates the authorization server for the configured resource and
 // returns its metadata.
 func (self *Client) discover(ctx context.Context) (Metadata, error) {
-	issuer := self.resourceOrigin()
+	// Default the issuer to the resource URL itself (path included) so that a
+	// server which advertises authorization metadata under its MCP path is still
+	// reachable when it omits RFC 9728 protected-resource metadata.
+	issuer := strings.TrimRight(self.config.ResourceURL, "/")
 	// Best-effort RFC 9728 protected-resource metadata to redirect us to the
-	// authorization server when it differs from the resource origin.
+	// authorization server when it differs from the resource origin, and to learn
+	// the scopes the resource advertises.
+	var resourceScopes []string
 	if resourceMetadata, resourceError := self.fetchProtectedResourceMetadata(ctx); resourceError == nil {
+		resourceScopes = resourceMetadata.ScopesSupported
 		for _, server := range resourceMetadata.AuthorizationServers {
 			if strings.TrimSpace(server) != "" {
 				issuer = strings.TrimRight(strings.TrimSpace(server), "/")
@@ -171,6 +181,11 @@ func (self *Client) discover(ctx context.Context) (Metadata, error) {
 	for _, candidate := range authorizationServerMetadataURLs(issuer) {
 		metadata, fetchError := self.fetchMetadata(ctx, candidate)
 		if fetchError == nil && metadata.TokenEndpoint != "" {
+			// Fall back to the protected-resource scopes when the authorization
+			// server metadata omits its own list.
+			if len(metadata.ScopesSupported) == 0 {
+				metadata.ScopesSupported = resourceScopes
+			}
 			return metadata, nil
 		}
 	}
@@ -178,16 +193,24 @@ func (self *Client) discover(ctx context.Context) (Metadata, error) {
 }
 
 func (self *Client) fetchProtectedResourceMetadata(ctx context.Context) (protectedResourceMetadata, error) {
-	metadataUrl := self.resourceOrigin() + "/.well-known/oauth-protected-resource"
-	body, err := self.fetch(ctx, metadataUrl)
-	if err != nil {
-		return protectedResourceMetadata{}, err
+	var lastError error
+	for _, metadataUrl := range protectedResourceMetadataURLs(self.config.ResourceURL) {
+		body, err := self.fetch(ctx, metadataUrl)
+		if err != nil {
+			lastError = err
+			continue
+		}
+		var metadata protectedResourceMetadata
+		if unmarshalError := json.Unmarshal(body, &metadata); unmarshalError != nil {
+			lastError = unmarshalError
+			continue
+		}
+		return metadata, nil
 	}
-	var metadata protectedResourceMetadata
-	if unmarshalError := json.Unmarshal(body, &metadata); unmarshalError != nil {
-		return protectedResourceMetadata{}, unmarshalError
+	if lastError == nil {
+		lastError = fmt.Errorf("oauth: no protected-resource metadata for %q", self.config.ResourceURL)
 	}
-	return metadata, nil
+	return protectedResourceMetadata{}, lastError
 }
 
 func (self *Client) fetchMetadata(ctx context.Context, metadataUrl string) (Metadata, error) {
@@ -219,23 +242,64 @@ func (self *Client) fetch(ctx context.Context, fetchUrl string) ([]byte, error) 
 	return io.ReadAll(io.LimitReader(response.Body, 1<<20))
 }
 
-// resourceOrigin returns the scheme://host[:port] of the resource URL.
-func (self *Client) resourceOrigin() string {
-	parsed, err := url.Parse(self.config.ResourceURL)
-	if err != nil || parsed.Host == "" {
-		return strings.TrimRight(self.config.ResourceURL, "/")
-	}
-	return parsed.Scheme + "://" + parsed.Host
+// protectedResourceMetadataURLs returns the candidate RFC 9728 protected-resource
+// metadata URLs for a resource, in priority order. Per RFC 9728 §3.1 the
+// well-known segment is inserted between the host and the resource path
+// (e.g. https://host/.well-known/oauth-protected-resource/mcp/trading); the
+// host-root form is offered as a fallback for servers that ignore the path.
+func protectedResourceMetadataURLs(resourceURL string) []string {
+	return wellKnownURLs(resourceURL, "oauth-protected-resource")
 }
 
 // authorizationServerMetadataURLs returns the candidate metadata document URLs
-// for an issuer, in priority order.
+// for an issuer, in priority order. When the issuer carries a path component
+// the path-aware RFC 8414 / OpenID Connect forms are tried before the host-root
+// forms.
 func authorizationServerMetadataURLs(issuer string) []string {
-	issuer = strings.TrimRight(issuer, "/")
-	return []string{
-		issuer + "/.well-known/oauth-authorization-server",
-		issuer + "/.well-known/openid-configuration",
+	candidates := wellKnownURLs(issuer, "oauth-authorization-server")
+	candidates = append(candidates, wellKnownURLs(issuer, "openid-configuration")...)
+	// OpenID Connect discovery also appends the well-known segment after the
+	// issuer path; include it for issuers that publish there.
+	parsed, err := url.Parse(strings.TrimRight(issuer, "/"))
+	if err == nil && parsed.Host != "" && strings.Trim(parsed.Path, "/") != "" {
+		candidates = append(candidates, strings.TrimRight(issuer, "/")+"/.well-known/openid-configuration")
 	}
+	return dedupeStrings(candidates)
+}
+
+// wellKnownURLs builds the candidate discovery URLs for a well-known suffix from
+// a base URL. Following RFC 8414 §3.1 and RFC 9728 §3.1, the well-known segment
+// is inserted between the host and any path component; the host-root form is
+// always included as a fallback.
+func wellKnownURLs(baseURL, suffix string) []string {
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Host == "" {
+		trimmed := strings.TrimRight(baseURL, "/")
+		return []string{trimmed + "/.well-known/" + suffix}
+	}
+	origin := parsed.Scheme + "://" + parsed.Host
+	path := strings.Trim(parsed.Path, "/")
+	candidates := []string{}
+	if path != "" {
+		candidates = append(candidates, origin+"/.well-known/"+suffix+"/"+path)
+	}
+	candidates = append(candidates, origin+"/.well-known/"+suffix)
+	return candidates
+}
+
+// dedupeStrings returns values with duplicates removed, preserving first-seen
+// order.
+func dedupeStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 // AuthorizationURL builds the authorization request URL the user is redirected

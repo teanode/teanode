@@ -34,6 +34,7 @@ type fileSystemMcpConnectionRecord struct {
 	OAuthClientSecret string     `yaml:"oauthClientSecret,omitempty"`
 	OAuthState        string     `yaml:"oauthState,omitempty"`
 	CodeVerifier      string     `yaml:"codeVerifier,omitempty"`
+	OAuthRedirectURI  string     `yaml:"oauthRedirectUri,omitempty"`
 }
 
 func (self *fileSystemTransaction) ListMCPConnections(ctx context.Context, userId string, options *store.Option) ([]*models.MCPConnection, error) {
@@ -120,6 +121,7 @@ func (self *fileSystemTransaction) createMcpConnection(connection *models.MCPCon
 		OAuthClientSecret: connection.GetOAuthClientSecret(),
 		OAuthState:        connection.GetOAuthState(),
 		CodeVerifier:      connection.GetCodeVerifier(),
+		OAuthRedirectURI:  connection.GetOAuthRedirectURI(),
 	}
 	if err := self.writeMcpConnectionRecord(userId, record); err != nil {
 		return nil, err
@@ -184,6 +186,7 @@ func (self *fileSystemTransaction) modifyMcpConnection(ctx context.Context, conn
 	record.OAuthClientSecret = connection.GetOAuthClientSecret()
 	record.OAuthState = connection.GetOAuthState()
 	record.CodeVerifier = connection.GetCodeVerifier()
+	record.OAuthRedirectURI = connection.GetOAuthRedirectURI()
 	record.ModifiedAt = time.Now()
 	if err := self.writeMcpConnectionRecord(userId, record); err != nil {
 		return nil, err
@@ -254,6 +257,7 @@ func mcpConnectionRecordToModel(record fileSystemMcpConnectionRecord) models.MCP
 		OAuthClientSecret: ptrto.TrimmedString(record.OAuthClientSecret),
 		OAuthState:        ptrto.TrimmedString(record.OAuthState),
 		CodeVerifier:      ptrto.TrimmedString(record.CodeVerifier),
+		OAuthRedirectURI:  ptrto.TrimmedString(record.OAuthRedirectURI),
 	}
 }
 

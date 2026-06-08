@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -244,6 +245,11 @@ func (self *webSocketConnection) handleMcpConnectionsDelete(frame requestFrame) 
 
 type mcpConnectionsAuthorizeParameters struct {
 	ServerName string `json:"serverName"`
+	// RedirectURI optionally overrides the OAuth callback URL. The frontend sends
+	// the address the user is browsing from (which may be a loopback URL) when the
+	// authorization server only accepts that callback; empty uses the node public
+	// URL.
+	RedirectURI string `json:"redirectUri,omitempty"`
 }
 
 // handleMcpConnectionsAuthorize starts the OAuth authorization-code flow for an
@@ -259,11 +265,21 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 	if serverName == "" {
 		return nil, rpcError(400, "serverName is required")
 	}
+	overrideRedirectUri := strings.TrimSpace(parameters.RedirectURI)
+	if overrideRedirectUri != "" {
+		if validationError := validateMcpRedirectUri(overrideRedirectUri); validationError != nil {
+			return nil, validationError
+		}
+	}
 
 	// Resolve the server configuration and redirect URI in a read-only step so
 	// the (potentially slow) discovery and registration network calls happen
-	// outside the store transaction. Any client already registered on the user's
-	// existing connection is overlaid so a re-authorization reuses it.
+	// outside the store transaction. Only the operator-managed client id is used:
+	// a client dynamically registered on a prior attempt is intentionally not
+	// reused for authorization, because the authorization server binds the
+	// redirect_uri to that specific client. Re-registering below guarantees the
+	// redirect_uri we present matches the one bound to the client even if the
+	// node public URL changed since the last attempt.
 	var oauthConfig oauth.ServerConfig
 	var redirectUri string
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
@@ -278,15 +294,17 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 		if server.ResolvedAuthMode() != models.MCPServerAuthOAuth {
 			return web400("server is not configured for OAuth")
 		}
-		redirectUri = mcpOAuthRedirectUri(configuration)
+		// Prefer the caller-supplied callback (e.g. the browser's loopback address)
+		// over the node public URL when provided.
+		if overrideRedirectUri != "" {
+			redirectUri = overrideRedirectUri
+		} else {
+			redirectUri = mcpOAuthRedirectUri(configuration)
+		}
 		if redirectUri == "" {
-			return web400("node public URL must be configured for OAuth connections")
+			return web400("a redirect URI is required: configure the node public URL or supply one")
 		}
-		existing, getError := transaction.GetMCPConnectionByServer(ctx, self.userId(), serverName, nil)
-		if getError != nil && !errors.Is(getError, store.ErrNotFound) {
-			return getError
-		}
-		oauthConfig = serverOAuthConfigForConnection(server, existing)
+		oauthConfig = mcp.ServerOAuthConfig(server)
 		return nil
 	}); err != nil {
 		return nil, mcpBadRequestOrInternal(err, "failed to start authorization")
@@ -303,6 +321,13 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 		metadata, metadataError := oauthClient.DiscoverMetadata(self.ctx)
 		if metadataError != nil {
 			return nil, rpcError(502, "failed to discover OAuth metadata: "+metadataError.Error())
+		}
+		// When the operator did not pin explicit scopes, request the scopes the
+		// server advertises. Some authorization servers (e.g. Robinhood, which
+		// requires the "internal" scope) refuse to complete the grant otherwise.
+		if len(oauthConfig.Scopes) == 0 && len(metadata.ScopesSupported) > 0 {
+			oauthConfig.Scopes = metadata.ScopesSupported
+			oauthClient = oauth.NewClient(oauthConfig)
 		}
 		registrationEndpoint := strings.TrimSpace(metadata.RegistrationEndpoint)
 		if registrationEndpoint == "" {
@@ -344,6 +369,7 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 				connection.Status = ptrto.Value(models.MCPConnectionStatusPending)
 				connection.OAuthState = ptrto.Value(state)
 				connection.CodeVerifier = ptrto.Value(pkce.Verifier)
+				connection.OAuthRedirectURI = ptrto.Value(redirectUri)
 				connection.LastError = ptrto.Value("")
 				if registeredClientID != "" {
 					connection.OAuthClientID = ptrto.Value(registeredClientID)
@@ -357,11 +383,12 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 			return getError
 		}
 		created := &models.MCPConnection{
-			UserID:       ptrto.Value(self.userId()),
-			ServerName:   ptrto.Value(serverName),
-			Status:       ptrto.Value(models.MCPConnectionStatusPending),
-			OAuthState:   ptrto.Value(state),
-			CodeVerifier: ptrto.Value(pkce.Verifier),
+			UserID:           ptrto.Value(self.userId()),
+			ServerName:       ptrto.Value(serverName),
+			Status:           ptrto.Value(models.MCPConnectionStatusPending),
+			OAuthState:       ptrto.Value(state),
+			CodeVerifier:     ptrto.Value(pkce.Verifier),
+			OAuthRedirectURI: ptrto.Value(redirectUri),
 		}
 		if registeredClientID != "" {
 			created.OAuthClientID = ptrto.Value(registeredClientID)
@@ -394,6 +421,26 @@ func mcpOAuthRedirectUri(configuration *models.Configuration) string {
 		return ""
 	}
 	return strings.TrimRight(publicUrl, "/") + mcpOAuthCallbackPath
+}
+
+// validateMcpRedirectUri rejects a caller-supplied OAuth redirect URI unless it
+// is an absolute http(s) URL whose path is exactly the callback path, so the
+// authorization server can only be pointed back at this node's callback handler.
+func validateMcpRedirectUri(redirectUri string) *rpcHandlerError {
+	parsed, parseError := url.Parse(redirectUri)
+	if parseError != nil {
+		return rpcError(400, "invalid redirect URI")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return rpcError(400, "redirect URI must use http or https")
+	}
+	if parsed.Host == "" {
+		return rpcError(400, "redirect URI must include a host")
+	}
+	if parsed.Path != mcpOAuthCallbackPath {
+		return rpcError(400, "redirect URI path must be "+mcpOAuthCallbackPath)
+	}
+	return nil
 }
 
 // mcpBadRequestOrInternal maps a transaction error to a 400 when it is a
