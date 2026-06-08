@@ -29,6 +29,7 @@ type Transaction interface {
 	SkillOperation
 	TodoOperation
 	UsageOperation
+	MCPConnectionOperation
 }
 
 type ConfigurationOperation interface {
@@ -143,6 +144,15 @@ type SkillOperation interface {
 type UsageOperation interface {
 	AccumulateUsage(ctx context.Context, usage *models.Usage, options *Option) error
 	ListUsages(ctx context.Context, listOptions UsageListOptions, options *Option) ([]*models.Usage, error)
+}
+
+type MCPConnectionOperation interface {
+	ListMCPConnections(ctx context.Context, userId string, options *Option) ([]*models.MCPConnection, error)
+	CreateMCPConnection(ctx context.Context, connection *models.MCPConnection, options *Option) (*models.MCPConnection, error)
+	GetMCPConnection(ctx context.Context, connectionId string, options *Option) (*models.MCPConnection, error)
+	GetMCPConnectionByServer(ctx context.Context, userId string, serverName string, options *Option) (*models.MCPConnection, error)
+	ModifyMCPConnection(ctx context.Context, connectionId string, modifier func(*models.MCPConnection) error, options *Option) (*models.MCPConnection, error)
+	DeleteMCPConnection(ctx context.Context, connectionId string, options *Option) error
 }
 
 type MemoryItemOperation interface {

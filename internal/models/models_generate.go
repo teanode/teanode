@@ -26,6 +26,7 @@ func main() {
 	generator.GenerateUpdate(new(models.Usage))
 	generator.GenerateUpdate(new(models.User))
 	generator.GenerateUpdate(new(models.WorkspaceFile))
+	generator.GenerateUpdate(new(models.MCPConnection))
 
 	// Configuration types
 	generator.GenerateUpdate(new(models.Configuration))
@@ -72,6 +73,7 @@ func main() {
 	generator.GenerateGetters(new(models.Usage))
 	generator.GenerateGetters(new(models.User))
 	generator.GenerateGetters(new(models.WorkspaceFile))
+	generator.GenerateGetters(new(models.MCPConnection))
 
 	// Getter methods for configuration types
 	generator.GenerateGetters(new(models.Configuration))

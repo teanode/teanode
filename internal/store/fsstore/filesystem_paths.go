@@ -96,6 +96,14 @@ func (self *fileSystemTransaction) userTokenFilename(userId, tokenId string) str
 	return filepath.Join(self.userTokensDirectory(userId), tokenId+".yaml")
 }
 
+func (self *fileSystemTransaction) userMcpConnectionsDirectory(userId string) string {
+	return filepath.Join(self.userDirectory(userId), "mcp_connections")
+}
+
+func (self *fileSystemTransaction) userMcpConnectionFilename(userId, connectionId string) string {
+	return filepath.Join(self.userMcpConnectionsDirectory(userId), connectionId+".yaml")
+}
+
 func (self *fileSystemTransaction) mediaDirectory() string {
 	return filepath.Join(self.dataDirectory(), "media")
 }

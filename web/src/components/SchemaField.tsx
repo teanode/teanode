@@ -60,7 +60,14 @@ function getWidgetType(property: JSONSchemaProperty): string {
   if (property.enum) return "select";
   if (property.type === "number") return "number";
   if (property.type === "boolean") return "boolean";
-  if (property.type === "array") return "stringArray";
+  if (property.type === "array") {
+    // Arrays of objects get a generic record editor; arrays of scalars get the
+    // tag-style string editor.
+    if (property.items?.type === "object" && property.items.properties) {
+      return "objectArray";
+    }
+    return "stringArray";
+  }
   return "string";
 }
 
@@ -264,9 +271,131 @@ export default function SchemaField({
         />
       );
 
+    case "objectArray":
+      return (
+        <ObjectArrayField
+          property={property}
+          propertyKey={propertyKey}
+          value={value}
+          onChange={onChange}
+        />
+      );
+
     default:
       return null;
   }
+}
+
+/**
+ * Generic editor for an array of objects (`type: "array"` with object items). It
+ * renders one card per entry and delegates each item field to SchemaField, so it
+ * supports nested strings, numbers, booleans, selects, passwords and scalar
+ * arrays without bespoke widgets. Used for, e.g., MCP servers.
+ */
+function ObjectArrayField({
+  property,
+  propertyKey,
+  value,
+  onChange,
+}: {
+  property: JSONSchemaProperty;
+  propertyKey: string;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const { t } = useTranslation();
+  const entries: Record<string, unknown>[] = Array.isArray(value)
+    ? (value as Record<string, unknown>[])
+    : [];
+  const itemProperties = property.items?.properties ?? {};
+  const label = getPropertyTitle(t, property, propertyKey);
+  const description = getPropertyDescription(t, property);
+  // Use the first string field as the card heading when present (e.g. "name").
+  const headingKey = Object.entries(itemProperties).find(
+    ([, childProperty]) =>
+      (childProperty.type ?? "string") === "string" && !childProperty.enum,
+  )?.[0];
+
+  function updateEntry(index: number, key: string, fieldValue: unknown) {
+    const updated = entries.map((entry, entryIndex) =>
+      entryIndex === index ? { ...entry, [key]: fieldValue } : entry,
+    );
+    onChange(updated);
+  }
+
+  function removeEntry(index: number) {
+    onChange(entries.filter((_, entryIndex) => entryIndex !== index));
+  }
+
+  function addEntry() {
+    onChange([...entries, {}]);
+  }
+
+  return (
+    <Box>
+      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+        {label}
+      </Typography>
+      {description && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", mb: 1 }}
+        >
+          {description}
+        </Typography>
+      )}
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+        {entries.map((entry, index) => {
+          const heading =
+            headingKey && typeof entry[headingKey] === "string"
+              ? (entry[headingKey] as string)
+              : "";
+          return (
+            <Paper key={`entry-${index}`} variant="outlined" sx={{ p: 1.5 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  mb: 1,
+                }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {heading || `${label} ${index + 1}`}
+                </Typography>
+                <Button
+                  size="small"
+                  color="error"
+                  onClick={() => removeEntry(index)}
+                >
+                  {t("common.delete")}
+                </Button>
+              </Box>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                {Object.entries(itemProperties).map(([key, childProperty]) => (
+                  <SchemaField
+                    key={key}
+                    property={childProperty}
+                    propertyKey={key}
+                    value={entry[key]}
+                    onChange={(fieldValue) =>
+                      updateEntry(index, key, fieldValue)
+                    }
+                  />
+                ))}
+              </Box>
+            </Paper>
+          );
+        })}
+      </Box>
+      <Box sx={{ mt: 1.5 }}>
+        <Button variant="contained" size="small" onClick={addEntry}>
+          {t("common.add")}
+        </Button>
+      </Box>
+    </Box>
+  );
 }
 
 function StringArrayField({
