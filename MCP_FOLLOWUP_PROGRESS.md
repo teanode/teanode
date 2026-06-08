@@ -22,8 +22,8 @@ the initial MCP client work (branch `feat/mcp-client`, PR #56).
 | 1 | feat/mcp-connections | feat/mcp-client | 30f421b | [#57](https://github.com/teanode/teanode/pull/57) | PR open |
 | 2 | feat/mcp-oauth | feat/mcp-connections | f8c8fff | [#58](https://github.com/teanode/teanode/pull/58) | PR open |
 | 3 | feat/mcp-user-runner | feat/mcp-oauth | 107a755 | [#59](https://github.com/teanode/teanode/pull/59) | PR open |
-| 4 | feat/mcp-frontend | feat/mcp-user-runner | — | — | pending |
-| 5 | feat/mcp-hardening | feat/mcp-frontend | — | — | pending |
+| 4 | feat/mcp-frontend | feat/mcp-user-runner | 0338284 | [#60](https://github.com/teanode/teanode/pull/60) | PR open |
+| 5 | feat/mcp-hardening | feat/mcp-frontend | c2494b0 | [#61](https://github.com/teanode/teanode/pull/61) | PR open |
 | 6 | feat/mcp-prompts-resources | feat/mcp-hardening | — | — | optional |
 
 ## Notes / decisions
@@ -189,6 +189,130 @@ Intentionally deferred:
   keep run startup free of extra writes; only OAuth refresh outcomes update the
   connection here.
 - Frontend connect/disconnect/status UX is PR4.
+
+## PR4 — Frontend completeness (feat/mcp-frontend)
+
+Frontend management and connection UX for the MCP stack, plus the one schema
+hint needed to make the admin server editor work. PR [#60](https://github.com/teanode/teanode/pull/60),
+commit `0338284`.
+
+User connect/disconnect/status UX:
+- New `web/src/routes/settings/connections.tsx` — `/settings/connections`, a
+  page visible to every authenticated user that lists the operator-configured
+  MCP servers with the current user's per-server connection state (auth-mode
+  chip, status chip, last-connected time, last error).
+  - `user` auth servers: a dialog collects the `Authorization` header value and
+    calls `mcp.connections.create`.
+  - `oauth` auth servers: `mcp.connections.authorize` returns the provider
+    authorization URL and the browser is navigated to it (full-page so the
+    session cookie reaches the callback). Pending/errored connections show
+    Reauthorize + Disconnect.
+  - `none`/`static` servers render as shared with no action.
+  - This page is also the **OAuth callback landing**: the backend redirects to
+    `/settings/connections?server=…&mcpConnected=1` (or `&mcpError=…`); the page
+    parses those markers, alerts the outcome, and strips them from the URL.
+- `web/src/routes/settings/connections.helpers.ts` — pure, unit-tested helpers:
+  the four RPC wrappers, the `serverAction` decision (shared/connect/authorize/
+  reauthorize/connected), and `parseOAuthCallback`.
+
+Admin MCP server management:
+- `web/src/components/SchemaField.tsx` — new generic `objectArray` widget that
+  renders an array-of-objects by delegating each item field back to
+  `SchemaField`. The admin **Tools** config section can now add/edit/remove MCP
+  servers (name, URL, auth mode, static/OAuth secrets as password fields,
+  scopes, timeout); previously `mcp.servers` fell through to the scalar
+  string-tag editor and could not be edited. `config.schema.json` tags
+  `tools.mcp.servers` with `x-widget: "objectArray"`.
+
+Plumbing:
+- `web/src/types.ts` — MCP DTO types mirroring the backend secret-free views.
+- `web/src/components/SettingsNav.tsx` — "Connections" nav entry (all users).
+- `web/src/router.tsx` — `/settings/connections` route.
+- `web/src/i18n/locales/en.json` — `mcp.*` strings (zh/ja fall back to en).
+
+Backend: no RPC/endpoint changes were needed. `mcp.servers.list` already returns
+per-server connection state, so it is the single source for the page (no
+separate `connections.list` call). The only backend file touched is the embedded
+`config.schema.json` (the `x-widget` hint).
+
+Tests:
+- `web/src/routes/settings/connections.helpers.test.ts` (14 cases): RPC helper
+  call shapes, the full `serverAction` matrix, and `parseOAuthCallback`
+  success/error/missing-marker cases.
+
+Validation:
+- Frontend: `tsc --noEmit` clean; `eslint` clean (one pre-existing
+  exhaustive-deps warning in `SettingsNav` unrelated to this change);
+  `prettier --check` clean; full `vitest` suite passes (304 tests, 18 files).
+- Backend: `go build ./...` clean; `go test ./internal/api/...` passes;
+  `gofmt -l internal/` clean; `config.schema.json` parses.
+
+Intentionally deferred:
+- Approval UX for high-risk remote tools, retry/timeout/error surfacing in the
+  run UI, and discovery-time connection status refresh remain in PR5
+  (hardening). The connections page reflects status as recorded by the OAuth
+  flow / refresh path, not a live probe.
+- zh/ja translations for the new `mcp.*` strings (English fallback applies).
+
+## PR5 — Hardening (feat/mcp-hardening)
+
+Hardening of the remote MCP integration on top of the frontend stack. PR
+[#61](https://github.com/teanode/teanode/pull/61), commit `c2494b0`. No new
+feature surface — the changes make remote-tool risk and connection health
+visible and make discovery resilient.
+
+Contents:
+- Discovery resilience (`internal/mcp/manager.go`, `client.go`): tool discovery
+  (`initialize` + `tools/list`, idempotent) is retried with bounded exponential
+  backoff (3 attempts, 250ms base). Only transient failures retry — transport
+  errors and HTTP `408/425/429/5xx`; auth rejections (`401/403`) and JSON-RPC
+  application errors do not (the credential will not change between attempts).
+  Tool *invocation* is never retried (not idempotent). A typed `httpStatusError`
+  carries the status code so retry classification is precise, not string-based.
+  Discovery logs distinguish `discovered` vs `cached`.
+- Discovery-time connection status: `Manager.RegisterTools` returns a per-server
+  `ServerDiscovery` outcome; `RegisterConfiguredTools` reflects **fresh**
+  outcomes onto the backing per-user connection — reachable → `connected`
+  (stamps `LastConnectedAt`, clears `LastError`); failed → `error` with reason.
+  Cached results and shared (`none`/`static`) servers are skipped, so run
+  startup performs no extra writes when nothing was probed. This closes the
+  status-refresh item deferred from PR3/PR4: the connections page now reflects
+  live discovery health.
+- Validation tightening (`internal/mcp/servers.go`, `internal/api/rpc_mcp.go`):
+  servers whose URL is not an absolute `http(s)` URL with a host are skipped and
+  logged; a credentialed server on plaintext `http` to a non-loopback host is
+  warned about (loopback http stays allowed for local dev); the per-user
+  `Authorization` credential length is bounded in `mcp.connections.create`.
+- Approval UX (`web/src/components/ApprovalPanel.tsx`, `mcpTool.ts`): the
+  approval panel detects remote MCP tool calls (`mcp__server__tool`) and renders
+  an **External** chip plus a warning that the arguments are sent to an external
+  server, so high-risk remote calls are visibly distinct from local tools. New
+  `mcp.remoteMcp*` i18n strings (zh/ja fall back to en).
+
+Tests:
+- `internal/mcp`: retry recovery after transient 503s; give-up after max
+  attempts; no-retry on auth failure; cached-outcome reporting; an
+  `isRetryableError` matrix; discovery-time `connected`/`error` status writes
+  against a real fsstore; invalid-URL skipping.
+- `internal/api`: oversized-authorization rejection.
+- `web`: `parseMcpToolName` unit tests (4 cases).
+
+Validation:
+- `go build ./...` clean; `go test ./...` all pass (Postgres-gated dbstore tests
+  skip without `TEANODE_TEST_POSTGRES=1`).
+- `gofmt -l` clean; `golangci-lint run` 0 issues on changed packages; `mulint`
+  clean on changed files.
+- Frontend: `tsc --noEmit` clean; `eslint` clean; `prettier --check` clean;
+  `vitest` 308 tests pass (19 files).
+
+Intentionally deferred:
+- Live (non-cached) connection probing on demand from the connections page: the
+  page still reflects status as recorded by the OAuth flow, refresh path, and
+  now discovery, but does not trigger an out-of-band probe on open.
+- Reusing a connected MCP session across tool calls (each call still opens a
+  fresh session — see the TODO in `adapter.go`).
+- zh/ja translations for the new `tool.remoteMcp*` strings (English fallback).
+- PR6 (prompts/resources support) not started.
 
 ## Validation log
 

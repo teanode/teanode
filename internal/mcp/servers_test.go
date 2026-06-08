@@ -282,6 +282,98 @@ func TestRegisterConfiguredToolsUserAuthEndToEnd(t *testing.T) {
 	}
 }
 
+// TestRegisterConfiguredToolsMarksConnectionConnected verifies that a successful
+// discovery against a user-scoped server flips the backing connection to
+// connected, stamps LastConnectedAt, and clears any prior error.
+func TestRegisterConfiguredToolsMarksConnectionConnected(t *testing.T) {
+	remote := newTestMCPServer(t)
+	remote.tools = sampleTools()
+	remote.requireAuth = "Bearer user-1-secret"
+
+	openedStore := newMCPTestStore(t)
+	userAuth := models.MCPServerAuthUser
+	seedMCPConfiguration(t, openedStore, []*models.MCPServerConfiguration{
+		{Name: ptrto.Value("broker"), URL: ptrto.Value(remote.url()), Auth: &userAuth},
+	})
+	connectionId := createConnection(t, openedStore, &models.MCPConnection{
+		UserID:        ptrto.Value("user-1"),
+		ServerName:    ptrto.Value("broker"),
+		Status:        ptrto.Value(models.MCPConnectionStatusPending),
+		LastError:     ptrto.Value("an earlier failure"),
+		Authorization: ptrto.Value("Bearer user-1-secret"),
+	})
+
+	RegisterConfiguredTools(contextWithUser(openedStore, "user-1"), tools.NewEmptyToolRegistry())
+
+	reloaded := getConnection(t, openedStore, connectionId)
+	if reloaded.GetStatus() != models.MCPConnectionStatusConnected {
+		t.Errorf("status = %q, want connected", reloaded.GetStatus())
+	}
+	if reloaded.GetLastError() != "" {
+		t.Errorf("lastError = %q, want cleared", reloaded.GetLastError())
+	}
+	if reloaded.LastConnectedAt == nil {
+		t.Errorf("LastConnectedAt should be stamped on a successful discovery")
+	}
+}
+
+// TestRegisterConfiguredToolsMarksConnectionError verifies that a discovery that
+// fails because the server rejects the credential flips the connection to error
+// with a recorded reason, so the user can see why their tools are missing.
+func TestRegisterConfiguredToolsMarksConnectionError(t *testing.T) {
+	remote := newTestMCPServer(t)
+	remote.tools = sampleTools()
+	remote.requireAuth = "Bearer correct-secret"
+
+	openedStore := newMCPTestStore(t)
+	userAuth := models.MCPServerAuthUser
+	seedMCPConfiguration(t, openedStore, []*models.MCPServerConfiguration{
+		{Name: ptrto.Value("broker"), URL: ptrto.Value(remote.url()), Auth: &userAuth},
+	})
+	connectionId := createConnection(t, openedStore, &models.MCPConnection{
+		UserID:        ptrto.Value("user-1"),
+		ServerName:    ptrto.Value("broker"),
+		Status:        ptrto.Value(models.MCPConnectionStatusConnected),
+		Authorization: ptrto.Value("Bearer wrong-secret"),
+	})
+
+	registry := tools.NewEmptyToolRegistry()
+	RegisterConfiguredTools(contextWithUser(openedStore, "user-1"), registry)
+	if len(registry.Names()) != 0 {
+		t.Errorf("expected no tools registered on auth failure, got %v", registry.Names())
+	}
+
+	reloaded := getConnection(t, openedStore, connectionId)
+	if reloaded.GetStatus() != models.MCPConnectionStatusError {
+		t.Errorf("status = %q, want error", reloaded.GetStatus())
+	}
+	if reloaded.GetLastError() == "" {
+		t.Errorf("lastError should record the discovery failure")
+	}
+}
+
+// TestServersFromConfigurationSkipsInvalidURL verifies that servers with a
+// missing or non-http(s) URL are dropped rather than handed to the client.
+func TestServersFromConfigurationSkipsInvalidURL(t *testing.T) {
+	configuration := &models.Configuration{
+		Tools: &models.ToolsConfiguration{
+			MCP: &models.MCPConfiguration{
+				Servers: &[]*models.MCPServerConfiguration{
+					{Name: ptrto.Value("good"), URL: ptrto.Value("https://good.example/mcp")},
+					{Name: ptrto.Value("ftp"), URL: ptrto.Value("ftp://bad.example/mcp")},
+					{Name: ptrto.Value("scheme-less"), URL: ptrto.Value("bad.example/mcp")},
+					{Name: ptrto.Value("hostless"), URL: ptrto.Value("https://")},
+				},
+			},
+		},
+	}
+
+	servers := ServersFromConfiguration(configuration)
+	if len(servers) != 1 || servers[0].Name != "good" {
+		t.Errorf("servers = %+v, want only the https server", servers)
+	}
+}
+
 // --- helpers ---
 
 func newMCPTestStore(t *testing.T) store.Store {

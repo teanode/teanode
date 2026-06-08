@@ -418,6 +418,7 @@
               "type": "array",
               "title": "Servers",
               "description": "Configured remote MCP servers.",
+              "x-widget": "objectArray",
               "items": {
                 "type": "object",
                 "properties": {
