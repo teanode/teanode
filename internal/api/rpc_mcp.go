@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teanode/teanode/internal/mcp"
 	"github.com/teanode/teanode/internal/mcp/oauth"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
@@ -324,20 +325,11 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 	return map[string]interface{}{"authorizationUrl": authorizationUrl}, nil
 }
 
-// serverOAuthConfig builds the OAuth client configuration for a server.
+// serverOAuthConfig builds the OAuth client configuration for a server. It
+// delegates to the mcp package so the authorize flow and the per-user runner
+// registration resolve OAuth settings identically.
 func serverOAuthConfig(server *models.MCPServerConfiguration) oauth.ServerConfig {
-	var scopes []string
-	if server.OAuthScopes != nil {
-		scopes = *server.OAuthScopes
-	}
-	return oauth.ServerConfig{
-		ClientID:         server.GetOAuthClientID(),
-		ClientSecret:     server.GetOAuthClientSecret(),
-		Scopes:           scopes,
-		AuthorizationURL: server.GetOAuthAuthorizationURL(),
-		TokenURL:         server.GetOAuthTokenURL(),
-		ResourceURL:      server.GetURL(),
-	}
+	return mcp.ServerOAuthConfig(server)
 }
 
 // mcpOAuthRedirectUri derives the OAuth callback URL from the node public URL.

@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/teanode/teanode/internal/models"
-	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
 )
 
@@ -106,81 +104,4 @@ func (self *Manager) discover(ctx context.Context, server ServerConfiguration) (
 // includes the auth value so a credential change invalidates the cache.
 func serverSignature(server ServerConfiguration) string {
 	return fmt.Sprintf("%s\x00%s\x00%s\x00%d", server.Name, server.URL, server.Authorization, server.Timeout)
-}
-
-// RegisterConfiguredTools reads MCP servers from the configuration in the store
-// (via the context) and registers their tools into the registry using the
-// shared default manager. It is a no-op when no servers are configured.
-func RegisterConfiguredTools(ctx context.Context, registry *tools.ToolRegistry) {
-	servers := serversFromContext(ctx)
-	if len(servers) == 0 {
-		return
-	}
-	defaultManager.RegisterTools(ctx, registry, servers)
-}
-
-// serversFromContext loads the configured MCP servers from the store.
-func serversFromContext(ctx context.Context) []ServerConfiguration {
-	dataStore := store.StoreFromContextSafe(ctx)
-	if dataStore == nil {
-		return nil
-	}
-	var configuration *models.Configuration
-	transactionError := dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
-		loaded, err := transaction.GetConfiguration(ctx, nil)
-		if err != nil {
-			return err
-		}
-		configuration = loaded
-		return nil
-	})
-	if transactionError != nil {
-		log.Warningf("mcp: loading configuration: %v", transactionError)
-		return nil
-	}
-	return ServersFromConfiguration(configuration)
-}
-
-// ServersFromConfiguration resolves the enabled MCP servers from a
-// configuration into client-ready ServerConfiguration values. Disabled,
-// duplicate, and incomplete entries are dropped (and logged) so callers receive
-// only usable servers.
-func ServersFromConfiguration(configuration *models.Configuration) []ServerConfiguration {
-	if configuration == nil || configuration.Tools == nil || configuration.Tools.MCP == nil {
-		return nil
-	}
-	var servers []ServerConfiguration
-	seen := make(map[string]bool)
-	for _, server := range configuration.Tools.MCP.GetServers() {
-		if server == nil {
-			continue
-		}
-		// Enabled defaults to true: a configured server is active unless the
-		// operator explicitly disables it.
-		if server.Enabled != nil && !*server.Enabled {
-			continue
-		}
-		name := strings.TrimSpace(server.GetName())
-		serverUrl := strings.TrimSpace(server.GetURL())
-		if name == "" || serverUrl == "" {
-			log.Warningf("mcp: skipping server with empty name or url")
-			continue
-		}
-		if seen[name] {
-			log.Warningf("mcp: skipping duplicate server name %q", name)
-			continue
-		}
-		seen[name] = true
-		timeout := defaultTimeout
-		if seconds := server.GetTimeoutSeconds(); seconds > 0 {
-			timeout = time.Duration(seconds) * time.Second
-		}
-		servers = append(servers, ServerConfiguration{
-			Name:          name,
-			URL:           serverUrl,
-			Authorization: strings.TrimSpace(server.GetAuthorization()),
-			Timeout:       timeout,
-		})
-	}
-	return servers
 }

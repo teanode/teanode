@@ -102,3 +102,60 @@ func TestNewRunnerRegistersMCPTools(t *testing.T) {
 		t.Errorf("MCP tool should be filtered out by the agent allow-list")
 	}
 }
+
+// TestNewRunnerRegistersUserScopedMCPTools verifies that a user-scoped MCP
+// server is only registered for a user who has connected to it, exercising the
+// authenticated-user path through NewRunner.
+func TestNewRunnerRegistersUserScopedMCPTools(t *testing.T) {
+	serverURL := startInlineMCPServer(t)
+
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store: %v", openError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
+		t.Fatalf("migrating store: %v", migrateError)
+	}
+
+	userAuth := models.MCPServerAuthUser
+	if transactionError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		if _, modifyError := transaction.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
+			configuration.Tools = &models.ToolsConfiguration{
+				MCP: &models.MCPConfiguration{
+					Servers: &[]*models.MCPServerConfiguration{
+						{Name: ptrto.Value("inline"), URL: ptrto.Value(serverURL), Auth: &userAuth},
+					},
+				},
+			}
+			return nil
+		}, nil); modifyError != nil {
+			return modifyError
+		}
+		_, createError := transaction.CreateMCPConnection(ctx, &models.MCPConnection{
+			UserID:        ptrto.Value("user-1"),
+			ServerName:    ptrto.Value("inline"),
+			Status:        ptrto.Value(models.MCPConnectionStatusConnected),
+			Authorization: ptrto.Value("Bearer user-1-secret"),
+		}, nil)
+		return createError
+	}); transactionError != nil {
+		t.Fatalf("seeding MCP configuration: %v", transactionError)
+	}
+
+	storeContext := store.ContextWithStore(context.Background(), openedStore)
+
+	// The connected user sees the user-scoped tool.
+	connectedContext := models.ContextWithUserSessionToken(storeContext, &models.User{ID: "user-1"}, nil, nil)
+	runner := NewRunner(connectedContext, "agent-1", "conversation-1", providers.NewProviderRegistry(nil), models.Agent{ID: "agent-1"})
+	if runner.toolRegistry.Get("mcp__inline__echo") == nil {
+		t.Errorf("expected mcp__inline__echo for the connected user; names = %v", runner.toolRegistry.Names())
+	}
+
+	// A different user without a connection does not.
+	otherContext := models.ContextWithUserSessionToken(storeContext, &models.User{ID: "user-2"}, nil, nil)
+	otherRunner := NewRunner(otherContext, "agent-1", "conversation-1", providers.NewProviderRegistry(nil), models.Agent{ID: "agent-1"})
+	if otherRunner.toolRegistry.Get("mcp__inline__echo") != nil {
+		t.Errorf("user-scoped MCP tool should not register for a user without a connection")
+	}
+}
