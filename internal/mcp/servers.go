@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -30,7 +32,31 @@ func RegisterConfiguredTools(ctx context.Context, registry *tools.ToolRegistry) 
 	if len(servers) == 0 {
 		return
 	}
-	defaultManager.RegisterTools(ctx, registry, servers)
+	outcomes := defaultManager.RegisterTools(ctx, registry, servers)
+	recordDiscoveryOutcomes(ctx, outcomes)
+}
+
+// recordDiscoveryOutcomes reflects fresh discovery results onto the per-user
+// connection status: a server reachable with the user's credential is marked
+// connected, and one that fails (bad credential, unreachable) is marked error so
+// the user can see why their tools are missing. Cached results and shared
+// (non-connection) servers are skipped so run startup stays cheap.
+func recordDiscoveryOutcomes(ctx context.Context, outcomes []ServerDiscovery) {
+	dataStore := store.StoreFromContextSafe(ctx)
+	if dataStore == nil {
+		return
+	}
+	for _, outcome := range outcomes {
+		connectionId := outcome.Server.ConnectionID
+		if connectionId == "" || outcome.Cached {
+			continue
+		}
+		if outcome.Err != nil {
+			markConnectionError(ctx, dataStore, connectionId, "discovery: "+outcome.Err.Error())
+			continue
+		}
+		markConnectionConnected(ctx, dataStore, connectionId)
+	}
 }
 
 // resolveServers loads the configuration and the current user's MCP connections
@@ -128,6 +154,7 @@ func resolveUserServers(ctx context.Context, dataStore store.Store, configuratio
 			return
 		}
 		base.Authorization = authorization
+		base.ConnectionID = connection.ID
 		servers = append(servers, base)
 	})
 	return servers
@@ -197,7 +224,7 @@ func oauthAuthorization(ctx context.Context, dataStore store.Store, server *mode
 // token and persists it. A persistence failure is logged but does not fail the
 // refresh, since the returned token is still usable for the current run.
 func refreshOAuthToken(ctx context.Context, dataStore store.Store, server *models.MCPServerConfiguration, connection *models.MCPConnection) (*oauth.Token, error) {
-	client := oauth.NewClient(ServerOAuthConfig(server))
+	client := oauth.NewClient(ServerOAuthConfigForConnection(server, connection))
 	_, tokenEndpoint, endpointsError := client.Endpoints(ctx)
 	if endpointsError != nil {
 		return nil, fmt.Errorf("mcp: resolving token endpoint: %w", endpointsError)
@@ -225,6 +252,23 @@ func markConnectionError(ctx context.Context, dataStore store.Store, connectionI
 		_, modifyError := transaction.ModifyMCPConnection(ctx, connectionId, func(connection *models.MCPConnection) error {
 			connection.Status = ptrto.Value(models.MCPConnectionStatusError)
 			connection.LastError = ptrto.Value(message)
+			return nil
+		}, nil)
+		return modifyError
+	})
+}
+
+// markConnectionConnected records a successful discovery against a connection:
+// it clears any prior error and stamps the last-connected time. It is
+// best-effort and ignores write errors. A deliberately disconnected connection
+// is never resurrected here because such connections are not offered to
+// discovery in the first place.
+func markConnectionConnected(ctx context.Context, dataStore store.Store, connectionId string) {
+	_ = dataStore.Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		_, modifyError := transaction.ModifyMCPConnection(ctx, connectionId, func(connection *models.MCPConnection) error {
+			connection.Status = ptrto.Value(models.MCPConnectionStatusConnected)
+			connection.LastError = ptrto.Value("")
+			connection.LastConnectedAt = ptrto.TimeNow()
 			return nil
 		}, nil)
 		return modifyError
@@ -268,12 +312,65 @@ func ServerOAuthConfig(server *models.MCPServerConfiguration) oauth.ServerConfig
 	}
 }
 
+// ServerOAuthConfigForConnection builds the OAuth client configuration for a
+// server, overlaying any client credentials a user obtained via dynamic client
+// registration (RFC 7591) and stored on their per-user connection. The admin
+// server configuration always wins; the connection only supplies a client when
+// the operator did not configure one.
+func ServerOAuthConfigForConnection(server *models.MCPServerConfiguration, connection *models.MCPConnection) oauth.ServerConfig {
+	config := ServerOAuthConfig(server)
+	if connection == nil {
+		return config
+	}
+	if strings.TrimSpace(config.ClientID) == "" {
+		if clientId := strings.TrimSpace(connection.GetOAuthClientID()); clientId != "" {
+			config.ClientID = clientId
+			// Only adopt a connection-scoped secret when the connection also
+			// supplied the client id, so a dynamically-registered confidential
+			// client authenticates with its matching secret.
+			config.ClientSecret = strings.TrimSpace(connection.GetOAuthClientSecret())
+		}
+	}
+	return config
+}
+
 // tokenTypeOrBearer returns the token type, defaulting to "Bearer" when empty.
 func tokenTypeOrBearer(tokenType string) string {
 	if trimmed := strings.TrimSpace(tokenType); trimmed != "" {
 		return trimmed
 	}
 	return "Bearer"
+}
+
+// validateServerUrl parses and sanity-checks a configured MCP server URL,
+// requiring an absolute http(s) URL with a host. It returns the parsed URL so
+// callers can inspect the scheme and host without re-parsing.
+func validateServerUrl(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("mcp: parsing server url: %w", err)
+	}
+	switch parsed.Scheme {
+	case "http", "https":
+	default:
+		return nil, fmt.Errorf("mcp: server url has unsupported scheme %q (want http or https)", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("mcp: server url is missing a host")
+	}
+	return parsed, nil
+}
+
+// isLoopbackHost reports whether host names the local machine, for which
+// plaintext HTTP carries no network exposure.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 // configurationHasUserScopedServer reports whether any configured server uses an
@@ -325,11 +422,23 @@ func forEachConfiguredServer(configuration *models.Configuration, register func(
 			log.Warningf("mcp: skipping duplicate server name %q", name)
 			continue
 		}
+		parsedUrl, urlError := validateServerUrl(serverUrl)
+		if urlError != nil {
+			log.Warningf("mcp: skipping server %q: %v", name, urlError)
+			continue
+		}
 		seen[name] = true
+		mode := server.ResolvedAuthMode()
+		// A credential travelling over plaintext HTTP to a non-loopback host is a
+		// real exposure: warn so the operator notices, but still register the
+		// server (loopback HTTP is a normal local-development setup).
+		if mode != models.MCPServerAuthNone && parsedUrl.Scheme == "http" && !isLoopbackHost(parsedUrl.Hostname()) {
+			log.Warningf("mcp: server %q sends credentials over plaintext http to %q; use https", name, parsedUrl.Host)
+		}
 		timeout := defaultTimeout
 		if seconds := server.GetTimeoutSeconds(); seconds > 0 {
 			timeout = time.Duration(seconds) * time.Second
 		}
-		register(ServerConfiguration{Name: name, URL: serverUrl, Timeout: timeout}, server.ResolvedAuthMode(), server)
+		register(ServerConfiguration{Name: name, URL: serverUrl, Timeout: timeout}, mode, server)
 	}
 }

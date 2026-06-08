@@ -106,6 +106,64 @@ func TestMCPConnectionCRUD(t *testing.T) {
 	})
 }
 
+// TestMCPConnectionOAuthClientRoundTrip verifies the dynamically-registered
+// OAuth client id and secret survive the create -> reload and modify -> reload
+// round trips.
+func TestMCPConnectionOAuthClientRoundTrip(t *testing.T) {
+	openedStore := openFileSystemStore(t)
+
+	var connectionId string
+	mustTransaction(t, openedStore, func(ctx context.Context, transaction store.Transaction) error {
+		created, createError := transaction.CreateMCPConnection(ctx, &models.MCPConnection{
+			UserID:        ptrto.Value("user-1"),
+			ServerName:    ptrto.Value("robinhood"),
+			Status:        ptrto.Value(models.MCPConnectionStatusPending),
+			OAuthClientID: ptrto.Value("dynamic-client-1"),
+		}, nil)
+		if createError != nil {
+			return createError
+		}
+		connectionId = created.ID
+		if created.GetOAuthClientID() != "dynamic-client-1" {
+			t.Errorf("client id not stored on create, got %q", created.GetOAuthClientID())
+		}
+		return nil
+	})
+
+	mustTransaction(t, openedStore, func(ctx context.Context, transaction store.Transaction) error {
+		reloaded, err := transaction.GetMCPConnection(ctx, connectionId, nil)
+		if err != nil {
+			return err
+		}
+		if reloaded.GetOAuthClientID() != "dynamic-client-1" {
+			t.Errorf("client id round-trip failed: %q", reloaded.GetOAuthClientID())
+		}
+		return nil
+	})
+
+	// Modify can attach a confidential client secret which also round-trips.
+	mustTransaction(t, openedStore, func(ctx context.Context, transaction store.Transaction) error {
+		_, err := transaction.ModifyMCPConnection(ctx, connectionId, func(connection *models.MCPConnection) error {
+			connection.OAuthClientSecret = ptrto.Value("dynamic-secret-1")
+			return nil
+		}, nil)
+		return err
+	})
+	mustTransaction(t, openedStore, func(ctx context.Context, transaction store.Transaction) error {
+		reloaded, err := transaction.GetMCPConnection(ctx, connectionId, nil)
+		if err != nil {
+			return err
+		}
+		if reloaded.GetOAuthClientSecret() != "dynamic-secret-1" {
+			t.Errorf("client secret round-trip failed: %q", reloaded.GetOAuthClientSecret())
+		}
+		if reloaded.GetOAuthClientID() != "dynamic-client-1" {
+			t.Errorf("client id lost after modify: %q", reloaded.GetOAuthClientID())
+		}
+		return nil
+	})
+}
+
 // mustTransaction runs a store transaction and fails the test if it returns an
 // error, keeping the lifecycle test readable.
 func mustTransaction(t *testing.T, openedStore store.Store, body func(context.Context, store.Transaction) error) {

@@ -198,6 +198,171 @@ func TestMCPConnectionsAuthorize(t *testing.T) {
 	}
 }
 
+// newOAuthMCPTestConnectionForRegistration seeds a store with a user and a
+// single oauth-mode MCP server that has NO pre-configured client id and relies
+// on endpoint discovery against the given resource URL. It is used to exercise
+// dynamic client registration.
+func newOAuthMCPTestConnectionForRegistration(t *testing.T, resourceURL string) (*webSocketConnection, string) {
+	t.Helper()
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store: %v", openError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
+		t.Fatalf("migrating store: %v", migrateError)
+	}
+
+	var userId string
+	if err := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		user, createError := transaction.CreateUser(ctx, &models.User{
+			Username: ptrto.Value("alice"),
+			Admin:    ptrto.Value(false),
+		}, nil, nil)
+		if createError != nil {
+			return createError
+		}
+		userId = user.ID
+		_, modifyError := transaction.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
+			configuration.Node = &models.NodeConfiguration{PublicURL: ptrto.Value("https://node.example.com")}
+			configuration.Tools = &models.ToolsConfiguration{
+				MCP: &models.MCPConfiguration{
+					Servers: &[]*models.MCPServerConfiguration{
+						{
+							Name:        ptrto.Value("robinhood"),
+							URL:         ptrto.Value(resourceURL),
+							Auth:        ptrto.Value(models.MCPServerAuthOAuth),
+							OAuthScopes: ptrto.Value([]string{"read", "trade"}),
+						},
+					},
+				},
+			}
+			return nil
+		}, nil)
+		return modifyError
+	}); err != nil {
+		t.Fatalf("seeding store: %v", err)
+	}
+
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: userId, Username: ptrto.Value("alice")}, nil, nil)
+	return &webSocketConnection{ctx: ctx}, userId
+}
+
+// newRegistrationStubServer serves authorization-server metadata advertising a
+// registration endpoint and a registration endpoint that issues a public client
+// id. It records how many registration requests it received.
+func newRegistrationStubServer(t *testing.T) (*httptest.Server, *int) {
+	t.Helper()
+	registrations := 0
+	var serverURL string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(map[string]string{
+			"issuer":                 serverURL,
+			"authorization_endpoint": serverURL + "/authorize",
+			"token_endpoint":         serverURL + "/token",
+			"registration_endpoint":  serverURL + "/register",
+		})
+	})
+	mux.HandleFunc("/register", func(writer http.ResponseWriter, request *http.Request) {
+		registrations++
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"client_id":"dynamic-client-1"}`))
+	})
+	server := httptest.NewServer(mux)
+	serverURL = server.URL
+	t.Cleanup(server.Close)
+	return server, &registrations
+}
+
+func TestMCPConnectionsAuthorizeDynamicallyRegistersClient(t *testing.T) {
+	stub, registrations := newRegistrationStubServer(t)
+	connection, userId := newOAuthMCPTestConnectionForRegistration(t, stub.URL+"/mcp")
+
+	result, err := connection.handleMcpConnectionsAuthorize(frameWith(t, mcpConnectionsAuthorizeParameters{ServerName: "robinhood"}))
+	if err != nil {
+		t.Fatalf("handleMcpConnectionsAuthorize error: %v", err)
+	}
+	if *registrations != 1 {
+		t.Errorf("expected 1 registration request, got %d", *registrations)
+	}
+	authorizationURL := result.(map[string]interface{})["authorizationUrl"].(string)
+	parsed, parseError := url.Parse(authorizationURL)
+	if parseError != nil {
+		t.Fatalf("parse authorization url: %v", parseError)
+	}
+	if got := parsed.Query().Get("client_id"); got != "dynamic-client-1" {
+		t.Errorf("client_id = %q, want dynamic-client-1", got)
+	}
+	if parsed.Scheme+"://"+parsed.Host+parsed.Path != stub.URL+"/authorize" {
+		t.Errorf("unexpected authorization endpoint: %s", authorizationURL)
+	}
+
+	// The registered client id is persisted on the connection so a subsequent
+	// authorization reuses it rather than registering again.
+	var pending *models.MCPConnection
+	if err := store.StoreFromContext(connection.ctx).Transaction(connection.ctx, func(ctx context.Context, transaction store.Transaction) error {
+		got, getError := transaction.GetMCPConnectionByServer(ctx, userId, "robinhood", nil)
+		pending = got
+		return getError
+	}); err != nil {
+		t.Fatalf("loading pending connection: %v", err)
+	}
+	if pending.GetOAuthClientID() != "dynamic-client-1" {
+		t.Errorf("persisted client id = %q, want dynamic-client-1", pending.GetOAuthClientID())
+	}
+
+	// A second authorization reuses the stored client and does not re-register.
+	if _, err := connection.handleMcpConnectionsAuthorize(frameWith(t, mcpConnectionsAuthorizeParameters{ServerName: "robinhood"})); err != nil {
+		t.Fatalf("second authorize error: %v", err)
+	}
+	if *registrations != 1 {
+		t.Errorf("expected registration to be reused, got %d registrations", *registrations)
+	}
+
+	// The registered client id must never appear in a list response.
+	for _, handler := range []func(requestFrame) (interface{}, error){
+		connection.handleMcpServersList,
+		connection.handleMcpConnectionsList,
+	} {
+		listResult, listError := handler(requestFrame{})
+		if listError != nil {
+			t.Fatalf("handler error: %v", listError)
+		}
+		raw, marshalError := json.Marshal(listResult)
+		if marshalError != nil {
+			t.Fatalf("marshal error: %v", marshalError)
+		}
+		if strings.Contains(string(raw), "dynamic-client-1") {
+			t.Errorf("response leaked registered client id: %s", raw)
+		}
+	}
+}
+
+func TestMCPConnectionsAuthorizeWithoutClientOrRegistrationFails(t *testing.T) {
+	// A server advertising metadata without a registration endpoint and with no
+	// configured client id cannot start authorization.
+	var serverURL string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(map[string]string{
+			"issuer":                 serverURL,
+			"authorization_endpoint": serverURL + "/authorize",
+			"token_endpoint":         serverURL + "/token",
+		})
+	})
+	stub := httptest.NewServer(mux)
+	serverURL = stub.URL
+	t.Cleanup(stub.Close)
+
+	connection, _ := newOAuthMCPTestConnectionForRegistration(t, stub.URL+"/mcp")
+	if _, err := connection.handleMcpConnectionsAuthorize(frameWith(t, mcpConnectionsAuthorizeParameters{ServerName: "robinhood"})); err == nil {
+		t.Error("expected authorize to fail when no client id and no registration endpoint")
+	}
+}
+
 func TestMCPConnectionsAuthorizeRejectsNonOAuthServer(t *testing.T) {
 	connection, _ := newMCPTestConnection(t, models.MCPServerAuthUser)
 	if _, err := connection.handleMcpConnectionsAuthorize(frameWith(t, mcpConnectionsAuthorizeParameters{ServerName: "robinhood"})); err == nil {
@@ -356,6 +521,16 @@ func TestMCPConnectionsCreateRejectsUnknownServer(t *testing.T) {
 		Authorization: "Bearer x",
 	})); err == nil {
 		t.Error("expected create to be rejected for unknown server")
+	}
+}
+
+func TestMCPConnectionsCreateRejectsOversizedAuthorization(t *testing.T) {
+	connection, _ := newMCPTestConnection(t, models.MCPServerAuthUser)
+	if _, err := connection.handleMcpConnectionsCreate(frameWith(t, mcpConnectionsCreateParameters{
+		ServerName:    "robinhood",
+		Authorization: strings.Repeat("x", maxAuthorizationLength+1),
+	})); err == nil {
+		t.Error("expected create to be rejected for an oversized authorization value")
 	}
 }
 

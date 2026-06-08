@@ -63,6 +63,16 @@ type MCPConnection struct {
 	// Scope is the granted OAuth scope.
 	Scope *string `json:"scope,omitempty" yaml:"scope,omitempty"`
 
+	// OAuthClientID is the OAuth client identifier obtained via dynamic client
+	// registration (RFC 7591) when the admin server configuration does not supply
+	// one. It is per-user so each user registers their own client. Never returned
+	// to clients.
+	OAuthClientID *string `json:"oauthClientId,omitempty" yaml:"oauthClientId,omitempty"`
+	// OAuthClientSecret is the client secret issued alongside a dynamically
+	// registered client when the server insists on a confidential client. Empty
+	// for public (PKCE-only) clients. Secret; never returned to clients.
+	OAuthClientSecret *string `json:"oauthClientSecret,omitempty" yaml:"oauthClientSecret,omitempty"`
+
 	// Transient authorization-code-flow state, set while an authorization is in
 	// flight and cleared once tokens are obtained. Secrets.
 

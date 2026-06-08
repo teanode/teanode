@@ -174,6 +174,122 @@ func TestExchangeCodeAndRefresh(t *testing.T) {
 	}
 }
 
+func TestDiscoverMetadataIncludesRegistrationEndpoint(t *testing.T) {
+	var serverURL string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(Metadata{
+			Issuer:                serverURL,
+			AuthorizationEndpoint: serverURL + "/authorize",
+			TokenEndpoint:         serverURL + "/token",
+			RegistrationEndpoint:  serverURL + "/register",
+		})
+	})
+	server := httptest.NewServer(mux)
+	serverURL = server.URL
+	t.Cleanup(server.Close)
+
+	client := NewClient(ServerConfig{ResourceURL: server.URL + "/mcp"})
+	metadata, err := client.DiscoverMetadata(context.Background())
+	if err != nil {
+		t.Fatalf("DiscoverMetadata error: %v", err)
+	}
+	if metadata.RegistrationEndpoint != server.URL+"/register" {
+		t.Errorf("registration endpoint = %q", metadata.RegistrationEndpoint)
+	}
+	if metadata.TokenEndpoint != server.URL+"/token" {
+		t.Errorf("token endpoint = %q", metadata.TokenEndpoint)
+	}
+}
+
+func TestPublicClientRegistrationRequest(t *testing.T) {
+	client := NewClient(ServerConfig{Scopes: []string{"read", "trade"}})
+	request := client.PublicClientRegistrationRequest("TeaNode", "https://node.example.com/api/mcp/oauth/callback")
+	if request.ClientName != "TeaNode" {
+		t.Errorf("client name = %q", request.ClientName)
+	}
+	if request.TokenEndpointAuthMethod != "none" {
+		t.Errorf("token endpoint auth method = %q, want none (public client)", request.TokenEndpointAuthMethod)
+	}
+	if len(request.RedirectURIs) != 1 || request.RedirectURIs[0] != "https://node.example.com/api/mcp/oauth/callback" {
+		t.Errorf("redirect uris = %v", request.RedirectURIs)
+	}
+	if request.Scope != "read trade" {
+		t.Errorf("scope = %q", request.Scope)
+	}
+	wantGrants := map[string]bool{"authorization_code": true, "refresh_token": true}
+	for _, grant := range request.GrantTypes {
+		if !wantGrants[grant] {
+			t.Errorf("unexpected grant type %q", grant)
+		}
+		delete(wantGrants, grant)
+	}
+	if len(wantGrants) != 0 {
+		t.Errorf("missing grant types: %v", wantGrants)
+	}
+}
+
+func TestRegisterPublicClient(t *testing.T) {
+	var captured ClientRegistrationRequest
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			http.Error(writer, "want POST", http.StatusMethodNotAllowed)
+			return
+		}
+		if decodeError := json.NewDecoder(request.Body).Decode(&captured); decodeError != nil {
+			http.Error(writer, "bad body", http.StatusBadRequest)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"client_id":"registered-abc","client_id_issued_at":1700000000}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(ServerConfig{Scopes: []string{"read"}, ResourceURL: "https://mcp.example.com/mcp"})
+	registration, err := client.Register(context.Background(), server.URL, client.PublicClientRegistrationRequest("TeaNode", "https://node/callback"))
+	if err != nil {
+		t.Fatalf("Register error: %v", err)
+	}
+	if registration.ClientID != "registered-abc" {
+		t.Errorf("client id = %q", registration.ClientID)
+	}
+	if registration.ClientSecret != "" {
+		t.Errorf("expected no client secret for public client, got %q", registration.ClientSecret)
+	}
+	if captured.TokenEndpointAuthMethod != "none" {
+		t.Errorf("server received token_endpoint_auth_method = %q", captured.TokenEndpointAuthMethod)
+	}
+	if len(captured.RedirectURIs) != 1 || captured.RedirectURIs[0] != "https://node/callback" {
+		t.Errorf("server received redirect uris = %v", captured.RedirectURIs)
+	}
+}
+
+func TestRegisterRejectsErrorResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusBadRequest)
+		_, _ = writer.Write([]byte(`{"error":"invalid_redirect_uri","error_description":"bad uri"}`))
+	}))
+	t.Cleanup(server.Close)
+	client := NewClient(ServerConfig{})
+	if _, err := client.Register(context.Background(), server.URL, ClientRegistrationRequest{}); err == nil || !strings.Contains(err.Error(), "invalid_redirect_uri") {
+		t.Errorf("expected invalid_redirect_uri error, got %v", err)
+	}
+}
+
+func TestRegisterMissingClientIDFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"client_name":"TeaNode"}`))
+	}))
+	t.Cleanup(server.Close)
+	client := NewClient(ServerConfig{})
+	if _, err := client.Register(context.Background(), server.URL, ClientRegistrationRequest{}); err == nil || !strings.Contains(err.Error(), "missing client_id") {
+		t.Errorf("expected missing client_id error, got %v", err)
+	}
+}
+
 func TestExchangeCodeRejectsErrorResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
