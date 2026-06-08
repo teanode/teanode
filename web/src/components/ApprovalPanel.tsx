@@ -6,7 +6,9 @@ import Typography from "@mui/material/Typography";
 import Container from "@mui/material/Container";
 import Chip from "@mui/material/Chip";
 import GppMaybeRounded from "@mui/icons-material/GppMaybeRounded";
+import PublicRounded from "@mui/icons-material/PublicRounded";
 import type { PendingApproval } from "../types";
+import { parseMcpToolName } from "./mcpTool";
 
 interface ApprovalPanelProps {
   approvals: PendingApproval[];
@@ -111,84 +113,106 @@ export default function ApprovalPanel({
         </Box>
 
         {/* Approval cards */}
-        {approvals.map((approval) => (
-          <Box
-            key={approval.id}
-            sx={{
-              mb: 1.5,
-              p: 1.5,
-              bgcolor: "background.default",
-              borderRadius: 1,
-              border: 1,
-              borderColor: "divider",
-            }}
-          >
+        {approvals.map((approval) => {
+          const mcp = parseMcpToolName(approval.toolName);
+          return (
             <Box
+              key={approval.id}
               sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-                mb: 0.5,
+                mb: 1.5,
+                p: 1.5,
+                bgcolor: "background.default",
+                borderRadius: 1,
+                border: 1,
+                borderColor: "divider",
               }}
             >
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                {approval.toolName}
-              </Typography>
-              {approval.risk && (
-                <Chip
-                  label={approval.risk}
-                  size="small"
-                  color={approval.risk === "high" ? "error" : "warning"}
-                  variant="outlined"
-                  sx={{ height: 20, fontSize: "0.7rem" }}
-                />
-              )}
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              {approval.policyReason}
-            </Typography>
-            {approval.arguments && approval.arguments !== "{}" && (
               <Box
-                component="pre"
                 sx={{
-                  fontSize: "0.75rem",
-                  bgcolor: "surface1",
-                  p: 1,
-                  borderRadius: 0.5,
-                  overflow: "auto",
-                  maxHeight: 120,
-                  mb: 1,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  mb: 0.5,
                 }}
               >
-                {formatArguments(approval.arguments)}
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {approval.toolName}
+                </Typography>
+                {mcp && (
+                  <Chip
+                    icon={<PublicRounded sx={{ fontSize: 14 }} />}
+                    label={t("tool.remoteMcp")}
+                    size="small"
+                    color="warning"
+                    variant="outlined"
+                    sx={{ height: 20, fontSize: "0.7rem" }}
+                  />
+                )}
+                {approval.risk && (
+                  <Chip
+                    label={approval.risk}
+                    size="small"
+                    color={approval.risk === "high" ? "error" : "warning"}
+                    variant="outlined"
+                    sx={{ height: 20, fontSize: "0.7rem" }}
+                  />
+                )}
               </Box>
-            )}
-            <Box sx={{ display: "flex", gap: 1 }}>
-              <Button
-                variant="contained"
-                size="small"
-                color="success"
-                disabled={disabled}
-                onClick={() => handleApprove(approval)}
-                sx={{ textTransform: "none" }}
-              >
-                {t("tool.approve")}
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                color="error"
-                disabled={disabled}
-                onClick={() => handleReject(approval)}
-                sx={{ textTransform: "none" }}
-              >
-                {t("tool.reject")}
-              </Button>
+              {mcp && (
+                <Typography
+                  variant="caption"
+                  color="warning.main"
+                  sx={{ display: "block", mb: 0.5 }}
+                >
+                  {t("tool.remoteMcpWarning", { server: mcp.server })}
+                </Typography>
+              )}
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                {approval.policyReason}
+              </Typography>
+              {approval.arguments && approval.arguments !== "{}" && (
+                <Box
+                  component="pre"
+                  sx={{
+                    fontSize: "0.75rem",
+                    bgcolor: "surface1",
+                    p: 1,
+                    borderRadius: 0.5,
+                    overflow: "auto",
+                    maxHeight: 120,
+                    mb: 1,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {formatArguments(approval.arguments)}
+                </Box>
+              )}
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  color="success"
+                  disabled={disabled}
+                  onClick={() => handleApprove(approval)}
+                  sx={{ textTransform: "none" }}
+                >
+                  {t("tool.approve")}
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  color="error"
+                  disabled={disabled}
+                  onClick={() => handleReject(approval)}
+                  sx={{ textTransform: "none" }}
+                >
+                  {t("tool.reject")}
+                </Button>
+              </Box>
             </Box>
-          </Box>
-        ))}
+          );
+        })}
 
         {/* Approve all (when multiple) */}
         {approvals.length > 1 && (

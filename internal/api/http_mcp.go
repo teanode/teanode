@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/teanode/teanode/internal/mcp"
 	"github.com/teanode/teanode/internal/mcp/oauth"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
@@ -83,7 +84,10 @@ func (self *api) completeMcpOAuth(ctx context.Context, userId, code, state strin
 		if server == nil {
 			return web.Error(400, "the server for this authorization no longer exists")
 		}
-		oauthConfig = serverOAuthConfig(server)
+		// Overlay any dynamically-registered client stored on the pending
+		// connection so the token exchange uses the same client id the
+		// authorization request was issued with.
+		oauthConfig = serverOAuthConfigForConnection(server, pending)
 		redirectUri = mcpOAuthRedirectUri(configuration)
 		return nil
 	}); err != nil {
@@ -120,22 +124,10 @@ func (self *api) completeMcpOAuth(ctx context.Context, userId, code, state strin
 }
 
 // applyOAuthToken stores token material on a connection and clears the transient
-// authorization state.
+// authorization state. The token material is applied via the shared
+// mcp.ApplyOAuthToken so the callback and the runner refresh path stay in sync.
 func applyOAuthToken(connection *models.MCPConnection, token *oauth.Token) {
-	connection.Status = ptrto.Value(models.MCPConnectionStatusConnected)
-	connection.AccessToken = ptrto.Value(token.AccessToken)
-	connection.TokenType = ptrto.Value(token.TokenType)
-	connection.LastError = ptrto.Value("")
-	connection.LastConnectedAt = ptrto.TimeNow()
-	if token.RefreshToken != "" {
-		connection.RefreshToken = ptrto.Value(token.RefreshToken)
-	}
-	if token.Scope != "" {
-		connection.Scope = ptrto.Value(token.Scope)
-	}
-	if !token.ExpiresAt.IsZero() {
-		connection.TokenExpiresAt = ptrto.Value(token.ExpiresAt)
-	}
+	mcp.ApplyOAuthToken(connection, token)
 	// Clear the one-time PKCE/state values now that the exchange succeeded.
 	connection.OAuthState = ptrto.Value("")
 	connection.CodeVerifier = ptrto.Value("")
