@@ -12,6 +12,9 @@
 //     fallback).
 //   - Client authentication: public clients (PKCE, no secret) and confidential
 //     clients (client_secret_post) are supported.
+//   - Dynamic client registration: when the authorization server advertises a
+//     registration endpoint (RFC 8414 registration_endpoint) and no client is
+//     pre-configured, a public client can be registered on the fly (RFC 7591).
 //
 // Tokens and PKCE verifiers handled here are secrets; callers must never expose
 // them to API clients.
@@ -106,6 +109,10 @@ type Metadata struct {
 	Issuer                string `json:"issuer"`
 	AuthorizationEndpoint string `json:"authorization_endpoint"`
 	TokenEndpoint         string `json:"token_endpoint"`
+	// RegistrationEndpoint is the optional RFC 7591 dynamic client registration
+	// endpoint, advertised by RFC 8414 metadata. Empty when the server does not
+	// support dynamic registration.
+	RegistrationEndpoint string `json:"registration_endpoint"`
 }
 
 // protectedResourceMetadata is the subset of RFC 9728 metadata used to locate
@@ -137,6 +144,14 @@ func (self *Client) Endpoints(ctx context.Context) (authorizationEndpoint string
 		return "", "", fmt.Errorf("oauth: could not resolve authorization/token endpoints for %q", self.config.ResourceURL)
 	}
 	return authorizationEndpoint, tokenEndpoint, nil
+}
+
+// DiscoverMetadata resolves and returns the authorization-server metadata for
+// the configured resource, including the optional dynamic client registration
+// endpoint. It always performs discovery (explicit endpoint configuration does
+// not advertise a registration endpoint).
+func (self *Client) DiscoverMetadata(ctx context.Context) (Metadata, error) {
+	return self.discover(ctx)
 }
 
 // discover locates the authorization server for the configured resource and
@@ -342,4 +357,87 @@ func (self *Client) postToken(ctx context.Context, tokenEndpoint string, form ur
 		token.ExpiresAt = time.Now().Add(time.Duration(parsed.ExpiresIn) * time.Second)
 	}
 	return token, nil
+}
+
+// ClientRegistrationRequest is the subset of RFC 7591 client metadata TeaNode
+// sends when dynamically registering an OAuth client.
+type ClientRegistrationRequest struct {
+	ClientName              string   `json:"client_name,omitempty"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	GrantTypes              []string `json:"grant_types,omitempty"`
+	ResponseTypes           []string `json:"response_types,omitempty"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method,omitempty"`
+	Scope                   string   `json:"scope,omitempty"`
+}
+
+// ClientRegistration is the subset of an RFC 7591 registration response that
+// TeaNode persists. ClientSecret is empty for public clients.
+type ClientRegistration struct {
+	ClientID     string
+	ClientSecret string
+}
+
+// PublicClientRegistrationRequest builds an RFC 7591 registration request for a
+// public client (PKCE, no client secret) that supports the authorization-code
+// and refresh-token grants. The configured scopes are requested at registration
+// time so the issued client is allowed to ask for them.
+func (self *Client) PublicClientRegistrationRequest(clientName, redirectUri string) ClientRegistrationRequest {
+	return ClientRegistrationRequest{
+		ClientName:              clientName,
+		RedirectURIs:            []string{redirectUri},
+		GrantTypes:              []string{"authorization_code", "refresh_token"},
+		ResponseTypes:           []string{"code"},
+		TokenEndpointAuthMethod: "none",
+		Scope:                   strings.Join(self.config.Scopes, " "),
+	}
+}
+
+// clientRegistrationResponse mirrors the JSON registration endpoint response.
+type clientRegistrationResponse struct {
+	ClientID         string `json:"client_id"`
+	ClientSecret     string `json:"client_secret"`
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
+}
+
+// Register performs RFC 7591 dynamic client registration against the given
+// registration endpoint and returns the issued client identifier (and secret,
+// when the server insists on a confidential client).
+func (self *Client) Register(ctx context.Context, registrationEndpoint string, registration ClientRegistrationRequest) (*ClientRegistration, error) {
+	payload, marshalError := json.Marshal(registration)
+	if marshalError != nil {
+		return nil, fmt.Errorf("oauth: encoding registration request: %w", marshalError)
+	}
+	request, requestError := http.NewRequestWithContext(ctx, http.MethodPost, registrationEndpoint, strings.NewReader(string(payload)))
+	if requestError != nil {
+		return nil, fmt.Errorf("oauth: building registration request: %w", requestError)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response, err := self.httpClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, readError := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if readError != nil {
+		return nil, readError
+	}
+	var parsed clientRegistrationResponse
+	if unmarshalError := json.Unmarshal(body, &parsed); unmarshalError != nil {
+		return nil, fmt.Errorf("oauth: decoding registration response (status %d): %w", response.StatusCode, unmarshalError)
+	}
+	if parsed.Error != "" {
+		if parsed.ErrorDescription != "" {
+			return nil, fmt.Errorf("oauth: registration endpoint error %q: %s", parsed.Error, parsed.ErrorDescription)
+		}
+		return nil, fmt.Errorf("oauth: registration endpoint error %q", parsed.Error)
+	}
+	if response.StatusCode >= 400 {
+		return nil, fmt.Errorf("oauth: registration endpoint returned status %d", response.StatusCode)
+	}
+	if parsed.ClientID == "" {
+		return nil, fmt.Errorf("oauth: registration response missing client_id")
+	}
+	return &ClientRegistration{ClientID: parsed.ClientID, ClientSecret: parsed.ClientSecret}, nil
 }

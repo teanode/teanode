@@ -224,7 +224,7 @@ func oauthAuthorization(ctx context.Context, dataStore store.Store, server *mode
 // token and persists it. A persistence failure is logged but does not fail the
 // refresh, since the returned token is still usable for the current run.
 func refreshOAuthToken(ctx context.Context, dataStore store.Store, server *models.MCPServerConfiguration, connection *models.MCPConnection) (*oauth.Token, error) {
-	client := oauth.NewClient(ServerOAuthConfig(server))
+	client := oauth.NewClient(ServerOAuthConfigForConnection(server, connection))
 	_, tokenEndpoint, endpointsError := client.Endpoints(ctx)
 	if endpointsError != nil {
 		return nil, fmt.Errorf("mcp: resolving token endpoint: %w", endpointsError)
@@ -310,6 +310,28 @@ func ServerOAuthConfig(server *models.MCPServerConfiguration) oauth.ServerConfig
 		TokenURL:         server.GetOAuthTokenURL(),
 		ResourceURL:      server.GetURL(),
 	}
+}
+
+// ServerOAuthConfigForConnection builds the OAuth client configuration for a
+// server, overlaying any client credentials a user obtained via dynamic client
+// registration (RFC 7591) and stored on their per-user connection. The admin
+// server configuration always wins; the connection only supplies a client when
+// the operator did not configure one.
+func ServerOAuthConfigForConnection(server *models.MCPServerConfiguration, connection *models.MCPConnection) oauth.ServerConfig {
+	config := ServerOAuthConfig(server)
+	if connection == nil {
+		return config
+	}
+	if strings.TrimSpace(config.ClientID) == "" {
+		if clientId := strings.TrimSpace(connection.GetOAuthClientID()); clientId != "" {
+			config.ClientID = clientId
+			// Only adopt a connection-scoped secret when the connection also
+			// supplied the client id, so a dynamically-registered confidential
+			// client authenticates with its matching secret.
+			config.ClientSecret = strings.TrimSpace(connection.GetOAuthClientSecret())
+		}
+	}
+	return config
 }
 
 // tokenTypeOrBearer returns the token type, defaulting to "Bearer" when empty.

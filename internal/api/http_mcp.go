@@ -84,7 +84,10 @@ func (self *api) completeMcpOAuth(ctx context.Context, userId, code, state strin
 		if server == nil {
 			return web.Error(400, "the server for this authorization no longer exists")
 		}
-		oauthConfig = serverOAuthConfig(server)
+		// Overlay any dynamically-registered client stored on the pending
+		// connection so the token exchange uses the same client id the
+		// authorization request was issued with.
+		oauthConfig = serverOAuthConfigForConnection(server, pending)
 		redirectUri = mcpOAuthRedirectUri(configuration)
 		return nil
 	}); err != nil {
