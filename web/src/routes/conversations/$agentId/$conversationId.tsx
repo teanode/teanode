@@ -1,11 +1,13 @@
 import React, { useEffect, useCallback, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useAppContext, useStreamingContext } from "../../../context";
+import Container from "@mui/material/Container";
+import Box from "@mui/material/Box";
 import MessageList from "../../../components/MessageList";
 import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
-import QuestionPanel from "../../../components/QuestionPanel";
-import ApprovalPanel from "../../../components/ApprovalPanel";
+import InterruptRenderer from "../../../components/InterruptRenderer";
+import SurfaceRenderer from "../../../components/SurfaceRenderer";
 import VoiceCallBar from "../../../components/VoiceCallBar";
 import DebugReadout, {
   useDebugEnabled,
@@ -123,6 +125,10 @@ export default function ConversationsConversationPage() {
     }
   }, [backend.isRunning, backend.messages, tts.speak, voiceCall.isCallActive]);
 
+  const inlineSurfaces = backend.surfaces.filter(
+    (surface) => surface.location === "inline",
+  );
+
   const handleSend = useCallback(
     (text: string, attachments?: Attachment[]) => {
       backend.markTypedSend();
@@ -185,9 +191,7 @@ export default function ConversationsConversationPage() {
         showAbortOnStatusLine={backend.isRunning && !inputFocused}
         onAbort={backend.abortRun}
         suggestions={
-          voiceCall.isCallActive ||
-          backend.pendingQuestions.length > 0 ||
-          backend.pendingApprovals.length > 0
+          voiceCall.isCallActive || backend.interrupts.length > 0
             ? []
             : backend.suggestions
         }
@@ -199,6 +203,20 @@ export default function ConversationsConversationPage() {
         collapsed={todosPanelCollapsed}
         onToggleCollapsed={setTodosPanelCollapsed}
       />
+      {inlineSurfaces.length > 0 && (
+        <Container maxWidth="md" sx={{ py: 1 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+            {inlineSurfaces.map((surface) => (
+              <SurfaceRenderer
+                key={surface.surfaceId}
+                surface={surface}
+                onAction={backend.submitSurfaceAction}
+                disabled={!backend.connected}
+              />
+            ))}
+          </Box>
+        </Container>
+      )}
       {voiceCall.isCallActive ? (
         <VoiceCallBar
           callDuration={voiceCall.callDuration}
@@ -210,16 +228,12 @@ export default function ConversationsConversationPage() {
           onEndCall={voiceCall.endCall}
           onInterrupt={voiceCall.interruptAgent}
         />
-      ) : backend.pendingQuestions.length > 0 ? (
-        <QuestionPanel
-          questions={backend.pendingQuestions}
-          onSubmitAll={backend.answerQuestion}
-          disabled={!backend.connected}
-        />
-      ) : backend.pendingApprovals.length > 0 ? (
-        <ApprovalPanel
-          approvals={backend.pendingApprovals}
-          onResolve={backend.resolveApproval}
+      ) : backend.interrupts.length > 0 ? (
+        <InterruptRenderer
+          interrupts={backend.interrupts}
+          onAnswerQuestion={backend.answerQuestion}
+          onResolveApproval={backend.resolveApproval}
+          onSurfaceAction={backend.submitSurfaceAction}
           disabled={!backend.connected}
         />
       ) : (

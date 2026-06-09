@@ -8,6 +8,7 @@ import { useAppContext, useStreamingContext } from "../../../context";
 import ArtifactPanelProvider from "../../../components/ArtifactPanelProvider";
 import ArtifactSidePanel from "../../../components/ArtifactSidePanel";
 import ArtifactMobileOverlay from "../../../components/ArtifactMobileOverlay";
+import SurfaceSidePanel from "../../../components/SurfaceSidePanel";
 import {
   useVoiceCall,
   type UseVoiceCallReturn,
@@ -89,6 +90,13 @@ export default function ConversationsAgentLayout() {
             <Outlet />
           </Box>
           {!isMobile && <ArtifactSidePanel />}
+          {!isMobile && (
+            <SurfaceSidePanel
+              surfaces={backend.surfaces}
+              onAction={backend.submitSurfaceAction}
+              disabled={!backend.connected}
+            />
+          )}
         </Box>
         {isMobile && <ArtifactMobileOverlay />}
       </ArtifactPanelProvider>

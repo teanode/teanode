@@ -36,6 +36,10 @@ const (
 	// EventTypeConversationApprovals signals that a tool approval has been requested or resolved.
 	EventTypeConversationApprovals EventType = "conversationApprovals"
 
+	// EventTypeConversationSurfaces signals that a generative-UI surface or
+	// interrupt has been emitted or removed for a conversation.
+	EventTypeConversationSurfaces EventType = "conversationSurfaces"
+
 	// EventTypeTabCommand signals a pending tab command for the extension to execute.
 	EventTypeTabCommand EventType = "tabCommand"
 

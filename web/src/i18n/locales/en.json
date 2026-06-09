@@ -337,6 +337,12 @@
     "remoteMcp": "External",
     "remoteMcpWarning": "Runs on remote MCP server \"{{server}}\". The arguments above are sent to an external service."
   },
+  "surface": {
+    "panel": "Panel",
+    "submit": "Submit",
+    "approve": "Approve",
+    "reject": "Reject"
+  },
   "auth": {
     "loginTitle": "Welcome back",
     "loginDescription": "Enter your username and password to continue.",

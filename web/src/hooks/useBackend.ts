@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type {
   ActiveRunState,
   Attachment,
@@ -35,6 +35,11 @@ import type {
   PendingApprovalsListResult,
   ConversationApprovalsEvent,
   UpdateStatusResult,
+  Surface,
+  Interrupt,
+  SurfaceActionPayload,
+  ConversationSurfacesEvent,
+  SurfacesListResult,
 } from "../types";
 import { useWebSocket } from "./useWebSocket";
 import { normalizeContent, type ExtractedContent } from "../contentUtils";
@@ -547,6 +552,47 @@ export function useBackend() {
           setPendingApprovals((prev) =>
             prev.filter((a) => a.id !== payload.approvalId),
           );
+        }
+      }
+      return;
+    }
+
+    if (frame.event === "conversationSurfaces") {
+      const payload = frame.payload as ConversationSurfacesEvent | undefined;
+      if (payload) {
+        if (payload.action === "emitted") {
+          if (payload.conversationId !== conversationIdRef.current) return;
+          if (payload.surface) {
+            const surface = payload.surface;
+            setSurfaces((prev) => {
+              const without = prev.filter(
+                (existing) => existing.surfaceId !== surface.surfaceId,
+              );
+              return [...without, surface];
+            });
+          }
+          if (payload.interrupt) {
+            const interrupt = payload.interrupt;
+            setSurfaceInterrupts((prev) => {
+              const without = prev.filter(
+                (existing) => existing.interruptId !== interrupt.interruptId,
+              );
+              return [...without, interrupt];
+            });
+          }
+        } else if (payload.action === "removed") {
+          if (payload.surfaceId) {
+            setSurfaces((prev) =>
+              prev.filter((surface) => surface.surfaceId !== payload.surfaceId),
+            );
+          }
+          if (payload.interruptId) {
+            setSurfaceInterrupts((prev) =>
+              prev.filter(
+                (interrupt) => interrupt.interruptId !== payload.interruptId,
+              ),
+            );
+          }
         }
       }
       return;
@@ -2015,6 +2061,88 @@ export function useBackend() {
     }
   }, [connected, conversationId, loadPendingApprovals]);
 
+  // ── Generative-UI surfaces & unified interrupts ───────────────────
+
+  const [surfaces, setSurfaces] = useState<Surface[]>([]);
+  const [surfaceInterrupts, setSurfaceInterrupts] = useState<Interrupt[]>([]);
+
+  const loadSurfaces = useCallback(
+    (targetConversationId?: string) => {
+      const convId = targetConversationId || conversationIdRef.current;
+      if (!convId) {
+        setSurfaces([]);
+        setSurfaceInterrupts([]);
+        return;
+      }
+      sendRpc<SurfacesListResult>("surfaces.list", { conversationId: convId })
+        .then((result) => {
+          if (conversationIdRef.current !== convId) return;
+          setSurfaces(result?.surfaces ?? []);
+          setSurfaceInterrupts(result?.interrupts ?? []);
+        })
+        .catch((error) => console.error("surfaces.list:", error));
+    },
+    [sendRpc],
+  );
+
+  const submitSurfaceAction = useCallback(
+    async (action: SurfaceActionPayload, interruptId?: string) => {
+      const convId = conversationIdRef.current;
+      if (!convId) return;
+      // Optimistically clear the resolved interrupt so the UI updates promptly.
+      if (interruptId) {
+        setSurfaceInterrupts((prev) =>
+          prev.filter((interrupt) => interrupt.interruptId !== interruptId),
+        );
+      } else if (action.surfaceId) {
+        setSurfaceInterrupts((prev) =>
+          prev.filter((interrupt) => interrupt.surfaceId !== action.surfaceId),
+        );
+      }
+      await sendRpc("surfaces.action", { conversationId: convId, action });
+    },
+    [sendRpc],
+  );
+
+  useEffect(() => {
+    if (connected && conversationId) {
+      loadSurfaces(conversationId);
+    }
+  }, [connected, conversationId, loadSurfaces]);
+
+  // Clear surface state when switching conversations.
+  useEffect(() => {
+    setSurfaces([]);
+    setSurfaceInterrupts([]);
+  }, [conversationId]);
+
+  // Unified interrupt model: questions and approvals are adapted into the same
+  // shape as choice/form/review interrupts so they all flow through one
+  // rendering path.
+  const interrupts = useMemo<Interrupt[]>(() => {
+    const questionInterrupts: Interrupt[] = pendingQuestions.map(
+      (question) => ({
+        interruptId: question.id,
+        kind: "question",
+        title: question.question,
+        conversationId: question.conversationId,
+        runId: question.runId,
+        question,
+      }),
+    );
+    const approvalInterrupts: Interrupt[] = pendingApprovals.map(
+      (approval) => ({
+        interruptId: approval.id,
+        kind: "approval",
+        title: approval.toolName,
+        conversationId: approval.conversationId,
+        runId: approval.runId,
+        approval,
+      }),
+    );
+    return [...questionInterrupts, ...approvalInterrupts, ...surfaceInterrupts];
+  }, [pendingQuestions, pendingApprovals, surfaceInterrupts]);
+
   return {
     conversations,
     conversationId,
@@ -2078,6 +2206,10 @@ export function useBackend() {
     pendingApprovals,
     resolveApproval,
     loadPendingApprovals,
+    surfaces,
+    interrupts,
+    submitSurfaceAction,
+    loadSurfaces,
     lastActiveRunState,
   };
 }
