@@ -4,6 +4,12 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.6.1] - 2026-06-09
+
+### Fixed
+
+- Headless browser CDP commands now send parameters under the JSON-RPC `params` key, so parameterized DevTools commands work correctly. (#64)
+
 ## [0.6.0] - 2026-06-09
 
 ### Added
