@@ -4,6 +4,12 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.7.0] - 2026-06-09
+
+### Added
+
+- Local stdio (subprocess) MCP servers, and a unified MCP settings page to connect to servers and (for admins) add, edit, enable/disable, and remove them. (#65)
+
 ## [0.6.1] - 2026-06-09
 
 ### Fixed
