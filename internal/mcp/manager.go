@@ -189,6 +189,7 @@ func (self *Manager) probeOnce(ctx context.Context, server ServerConfiguration) 
 	defer cancel()
 
 	client := NewClient(server)
+	defer func() { _ = client.Close() }()
 	if connectError := client.Connect(discoveryContext); connectError != nil {
 		return nil, connectError
 	}
@@ -234,9 +235,20 @@ func isRetryableError(err error) bool {
 }
 
 // serverSignature identifies a server configuration for cache keying. It
-// includes the auth value so a credential change invalidates the cache. The
-// per-user ConnectionID is intentionally excluded: it does not affect the tool
-// list a server returns.
+// includes the auth value (so a credential change invalidates the cache) and
+// the stdio command/args/env (so a launch change is reflected). The per-user
+// ConnectionID is intentionally excluded: it does not affect the tool list a
+// server returns.
 func serverSignature(server ServerConfiguration) string {
-	return fmt.Sprintf("%s\x00%s\x00%s\x00%d", server.Name, server.URL, server.Authorization, server.Timeout)
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%d\x00%s\x00%s\x00%s\x00%s",
+		server.Name,
+		server.Transport,
+		server.URL,
+		server.Authorization,
+		server.Timeout,
+		server.Command,
+		strings.Join(server.Arguments, "\x1f"),
+		strings.Join(server.Environment, "\x1f"),
+		server.WorkingDir,
+	)
 }

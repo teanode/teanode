@@ -1,29 +1,28 @@
-// Package mcp implements a minimal Model Context Protocol (MCP) client for
-// remote servers and adapts the tools they expose into TeaNode tools.
+// Package mcp implements a minimal Model Context Protocol (MCP) client and
+// adapts the tools that MCP servers expose into TeaNode tools.
 //
 // Scope and limitations (v1):
 //
-//   - Transport: only the streamable HTTP transport is implemented. Each
-//     logical operation opens a session (initialize + notifications/initialized),
-//     performs the request, and relies on the server's response. The optional
-//     standalone GET event stream for server-initiated messages is not used.
+//   - Transport: the streamable HTTP transport (remote servers) and the stdio
+//     transport (a local subprocess speaking newline-delimited JSON-RPC over its
+//     stdin/stdout) are implemented. Each logical operation opens a session
+//     (initialize + notifications/initialized), performs the request, and relies
+//     on the server's response. The optional standalone GET event stream for
+//     server-initiated messages is not used.
 //   - Capabilities: only the tools capability is consumed. Prompts, resources,
 //     sampling, roots, and completion are intentionally out of scope.
-//   - Auth: a single static Authorization header value is supported. OAuth and
-//     other interactive auth flows are not implemented.
+//   - Auth: HTTP servers support a single static Authorization header value (and,
+//     for user-scoped servers, a per-user credential or OAuth token); stdio
+//     servers run locally and use no HTTP auth.
 //
 // These boundaries are deliberate so the client stays small and reviewable
 // while leaving clean seams for richer transport/auth support later.
 package mcp
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -39,25 +38,37 @@ var log = logging.MustGetLogger("mcp")
 // negotiated value is echoed back on subsequent requests.
 const protocolVersion = "2025-06-18"
 
-// defaultTimeout bounds a single HTTP request when a server does not configure
-// its own TimeoutSeconds.
+// defaultTimeout bounds a single operation when a server does not configure its
+// own TimeoutSeconds.
 const defaultTimeout = 30 * time.Second
 
 // ServerConfiguration is the resolved, non-pointer configuration for a single
-// remote MCP server. It is derived from models.MCPServerConfiguration.
+// MCP server. It is derived from models.MCPServerConfiguration.
 type ServerConfiguration struct {
-	Name          string
-	URL           string
+	Name string
+	// Transport selects the wire transport. The empty value is treated as
+	// TransportHTTP so existing HTTP callers need not set it.
+	Transport TransportType
+	// URL is the streamable HTTP endpoint (TransportHTTP).
+	URL string
+	// Authorization is the verbatim HTTP Authorization header value (TransportHTTP).
 	Authorization string
-	Timeout       time.Duration
+	// Command, Arguments, Environment, and WorkingDir configure the subprocess
+	// (TransportStdio). Environment entries are "KEY=VALUE" pairs merged over
+	// TeaNode's own environment.
+	Command     string
+	Arguments   []string
+	Environment []string
+	WorkingDir  string
+	Timeout     time.Duration
 	// ConnectionID, when set, is the per-user models.MCPConnection backing this
 	// server. It lets discovery outcomes be reflected back onto the user's
-	// connection status. It is empty for shared (none/static) servers and is
-	// deliberately excluded from the discovery cache signature.
+	// connection status. It is empty for shared servers and is deliberately
+	// excluded from the discovery cache signature.
 	ConnectionID string
 }
 
-// RemoteTool is a tool advertised by a remote MCP server via tools/list.
+// RemoteTool is a tool advertised by an MCP server via tools/list.
 type RemoteTool struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
@@ -92,28 +103,33 @@ func (self *CallResult) Text() string {
 	return strings.Join(parts, "\n")
 }
 
-// Client is a session-scoped connection to one remote MCP server. A Client is
-// not safe for concurrent use; create one per logical operation.
+// Client is a session-scoped connection to one MCP server over a transport. A
+// Client is not safe for concurrent use; create one per logical operation and
+// Close it when done.
 type Client struct {
-	server            ServerConfiguration
-	httpClient        *http.Client
-	sessionId         string
-	negotiatedVersion string
-	nextId            atomic.Int64
-	initialized       bool
+	server      ServerConfiguration
+	transport   transport
+	nextId      atomic.Int64
+	initialized bool
 }
 
-// NewClient creates a client for the given server. It does not perform any
-// network I/O until Connect is called.
+// NewClient creates a client for the given server. It does not perform any I/O
+// (no network connection, no subprocess launch) until Connect is called.
 func NewClient(server ServerConfiguration) *Client {
-	timeout := server.Timeout
-	if timeout <= 0 {
-		timeout = defaultTimeout
-	}
 	return &Client{
-		server:     server,
-		httpClient: &http.Client{Timeout: timeout},
+		server:    server,
+		transport: newTransport(server),
 	}
+}
+
+// Close releases the client's transport resources (terminating the subprocess
+// for a stdio server). It is safe to call more than once and on a client that
+// was never connected.
+func (self *Client) Close() error {
+	if self.transport == nil {
+		return nil
+	}
+	return self.transport.close()
 }
 
 // jsonrpcRequest is an outbound JSON-RPC 2.0 request.
@@ -149,24 +165,9 @@ func (self *jsonrpcError) Error() string {
 	return fmt.Sprintf("mcp: server error %d: %s", self.Code, self.Message)
 }
 
-// httpStatusError is returned when a server responds with a non-2xx HTTP status.
-// It carries the status code so callers (notably discovery retry) can decide
-// whether the failure is worth retrying.
-type httpStatusError struct {
-	StatusCode int
-	Body       string
-}
-
-func (self *httpStatusError) Error() string {
-	if self.Body == "" {
-		return fmt.Sprintf("mcp: unexpected status %d", self.StatusCode)
-	}
-	return fmt.Sprintf("mcp: unexpected status %d: %s", self.StatusCode, self.Body)
-}
-
 // Connect performs the MCP initialization handshake: it sends the initialize
-// request, captures any session id, and sends notifications/initialized. It is
-// idempotent.
+// request, records the negotiated protocol version, and sends
+// notifications/initialized. It is idempotent.
 func (self *Client) Connect(ctx context.Context) error {
 	if self.initialized {
 		return nil
@@ -186,8 +187,8 @@ func (self *Client) Connect(ctx context.Context) error {
 	var initializeResult struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
-	if unmarshalError := json.Unmarshal(result, &initializeResult); unmarshalError == nil {
-		self.negotiatedVersion = initializeResult.ProtocolVersion
+	if unmarshalError := json.Unmarshal(result, &initializeResult); unmarshalError == nil && initializeResult.ProtocolVersion != "" {
+		self.transport.observeProtocolVersion(initializeResult.ProtocolVersion)
 	}
 	// Per the spec the client confirms readiness before issuing other requests.
 	if notifyError := self.notify(ctx, "notifications/initialized", nil); notifyError != nil {
@@ -226,7 +227,7 @@ func (self *Client) ListTools(ctx context.Context) ([]RemoteTool, error) {
 	}
 }
 
-// CallTool invokes a remote tool by name with the given JSON arguments.
+// CallTool invokes a tool by name with the given JSON arguments.
 func (self *Client) CallTool(ctx context.Context, name string, arguments json.RawMessage) (*CallResult, error) {
 	if len(arguments) == 0 {
 		arguments = json.RawMessage("{}")
@@ -246,7 +247,8 @@ func (self *Client) CallTool(ctx context.Context, name string, arguments json.Ra
 	return callResult, nil
 }
 
-// call sends a JSON-RPC request and returns the raw result payload.
+// call sends a JSON-RPC request over the transport and returns the raw result
+// payload.
 func (self *Client) call(ctx context.Context, method string, parameters interface{}) (json.RawMessage, error) {
 	id := self.nextId.Add(1)
 	requestBody, marshalError := json.Marshal(jsonrpcRequest{
@@ -258,7 +260,7 @@ func (self *Client) call(ctx context.Context, method string, parameters interfac
 	if marshalError != nil {
 		return nil, fmt.Errorf("mcp: marshaling request: %w", marshalError)
 	}
-	response, err := self.post(ctx, requestBody)
+	response, err := self.transport.roundTrip(ctx, requestBody)
 	if err != nil {
 		return nil, err
 	}
@@ -268,8 +270,7 @@ func (self *Client) call(ctx context.Context, method string, parameters interfac
 	return response.Result, nil
 }
 
-// notify sends a JSON-RPC notification. The server is expected to acknowledge
-// with 202 Accepted and no body.
+// notify sends a JSON-RPC notification over the transport.
 func (self *Client) notify(ctx context.Context, method string, parameters interface{}) error {
 	requestBody, marshalError := json.Marshal(jsonrpcNotification{
 		JSONRPC: "2.0",
@@ -279,122 +280,5 @@ func (self *Client) notify(ctx context.Context, method string, parameters interf
 	if marshalError != nil {
 		return fmt.Errorf("mcp: marshaling notification: %w", marshalError)
 	}
-	httpResponse, err := self.send(ctx, requestBody)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = httpResponse.Body.Close() }()
-	if httpResponse.StatusCode >= 400 {
-		return fmt.Errorf("mcp: notification %q: unexpected status %d", method, httpResponse.StatusCode)
-	}
-	_, _ = io.Copy(io.Discard, httpResponse.Body)
-	return nil
-}
-
-// post sends a request body and decodes the single matching JSON-RPC response,
-// transparently handling both application/json and text/event-stream replies.
-func (self *Client) post(ctx context.Context, body []byte) (*jsonrpcResponse, error) {
-	httpResponse, err := self.send(ctx, body)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = httpResponse.Body.Close() }()
-
-	// Capture a session id assigned by the server (typically on initialize).
-	if sessionId := httpResponse.Header.Get("Mcp-Session-Id"); sessionId != "" {
-		self.sessionId = sessionId
-	}
-
-	if httpResponse.StatusCode >= 400 {
-		snippet, _ := io.ReadAll(io.LimitReader(httpResponse.Body, 2048))
-		return nil, &httpStatusError{StatusCode: httpResponse.StatusCode, Body: strings.TrimSpace(string(snippet))}
-	}
-
-	contentType := httpResponse.Header.Get("Content-Type")
-	if strings.HasPrefix(contentType, "text/event-stream") {
-		return self.readEventStream(httpResponse.Body)
-	}
-	return decodeJsonResponse(httpResponse.Body)
-}
-
-// send issues the HTTP POST with the headers required by the streamable HTTP
-// transport. The caller is responsible for closing the response body.
-func (self *Client) send(ctx context.Context, body []byte) (*http.Response, error) {
-	httpRequest, requestError := http.NewRequestWithContext(ctx, http.MethodPost, self.server.URL, bytes.NewReader(body))
-	if requestError != nil {
-		return nil, fmt.Errorf("mcp: building request: %w", requestError)
-	}
-	httpRequest.Header.Set("Content-Type", "application/json")
-	httpRequest.Header.Set("Accept", "application/json, text/event-stream")
-	if self.server.Authorization != "" {
-		httpRequest.Header.Set("Authorization", self.server.Authorization)
-	}
-	if self.sessionId != "" {
-		httpRequest.Header.Set("Mcp-Session-Id", self.sessionId)
-	}
-	negotiated := self.negotiatedVersion
-	if negotiated == "" {
-		negotiated = protocolVersion
-	}
-	httpRequest.Header.Set("MCP-Protocol-Version", negotiated)
-	return self.httpClient.Do(httpRequest)
-}
-
-// decodeJsonResponse decodes a single JSON-RPC response document.
-func decodeJsonResponse(reader io.Reader) (*jsonrpcResponse, error) {
-	response := &jsonrpcResponse{}
-	if decodeError := json.NewDecoder(reader).Decode(response); decodeError != nil {
-		return nil, fmt.Errorf("mcp: decoding response: %w", decodeError)
-	}
-	return response, nil
-}
-
-// readEventStream parses a text/event-stream body and returns the first
-// JSON-RPC response message it contains. Server-initiated requests and
-// notifications interleaved on the stream are ignored: TeaNode does not expose
-// sampling or roots, so it has nothing to answer them with. This is a
-// deliberate v1 simplification (TODO: handle server-initiated messages).
-func (self *Client) readEventStream(reader io.Reader) (*jsonrpcResponse, error) {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	var dataLines []string
-	flush := func() (*jsonrpcResponse, bool) {
-		if len(dataLines) == 0 {
-			return nil, false
-		}
-		payload := strings.Join(dataLines, "\n")
-		dataLines = dataLines[:0]
-		response := &jsonrpcResponse{}
-		if json.Unmarshal([]byte(payload), response) != nil {
-			return nil, false
-		}
-		// Only messages carrying a result or error are responses to our request.
-		if response.Result == nil && response.Error == nil {
-			return nil, false
-		}
-		return response, true
-	}
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			if response, ok := flush(); ok {
-				return response, nil
-			}
-			continue
-		}
-		if strings.HasPrefix(line, ":") {
-			continue // SSE comment
-		}
-		if value, found := strings.CutPrefix(line, "data:"); found {
-			dataLines = append(dataLines, strings.TrimPrefix(value, " "))
-		}
-		// Other SSE fields (event:, id:, retry:) are not needed here.
-	}
-	if scanError := scanner.Err(); scanError != nil {
-		return nil, fmt.Errorf("mcp: reading event stream: %w", scanError)
-	}
-	if response, ok := flush(); ok {
-		return response, nil
-	}
-	return nil, fmt.Errorf("mcp: event stream closed without a response")
+	return self.transport.notify(ctx, requestBody)
 }

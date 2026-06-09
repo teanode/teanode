@@ -30,3 +30,35 @@ func TestResolvedAuthMode(t *testing.T) {
 		})
 	}
 }
+
+func TestResolvedTransport(t *testing.T) {
+	http := MCPServerTransportHTTP
+	stdio := MCPServerTransportStdio
+	empty := MCPServerTransport("")
+	command := "my-server"
+	url := "https://example.com/mcp"
+	emptyString := ""
+
+	cases := []struct {
+		name   string
+		server *MCPServerConfiguration
+		want   MCPServerTransport
+	}{
+		{"nil server", nil, MCPServerTransportHTTP},
+		{"empty defaults to http", &MCPServerConfiguration{}, MCPServerTransportHTTP},
+		{"url only is http", &MCPServerConfiguration{URL: &url}, MCPServerTransportHTTP},
+		{"explicit http", &MCPServerConfiguration{Transport: &http, Command: &command}, MCPServerTransportHTTP},
+		{"explicit stdio", &MCPServerConfiguration{Transport: &stdio, URL: &url}, MCPServerTransportStdio},
+		{"infer stdio from command", &MCPServerConfiguration{Command: &command}, MCPServerTransportStdio},
+		{"command and url stays http", &MCPServerConfiguration{Command: &command, URL: &url}, MCPServerTransportHTTP},
+		{"empty command is not stdio", &MCPServerConfiguration{Command: &emptyString}, MCPServerTransportHTTP},
+		{"empty transport falls through to inference", &MCPServerConfiguration{Transport: &empty, Command: &command}, MCPServerTransportStdio},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := testCase.server.ResolvedTransport(); got != testCase.want {
+				t.Errorf("ResolvedTransport() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}

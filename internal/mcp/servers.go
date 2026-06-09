@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -34,6 +35,46 @@ func RegisterConfiguredTools(ctx context.Context, registry *tools.ToolRegistry) 
 	}
 	outcomes := defaultManager.RegisterTools(ctx, registry, servers)
 	recordDiscoveryOutcomes(ctx, outcomes)
+}
+
+// ToolPolicyEntry describes a discovered remote MCP tool for tool-policy
+// management: the namespaced registry name plus the server and bare tool name
+// (for hierarchical display), and the policy groups the tool exposes.
+type ToolPolicyEntry struct {
+	Name       string
+	ServerName string
+	ToolName   string
+	Groups     []tools.PolicyGroup
+}
+
+// ConfiguredToolPolicyEntries discovers the tools of every MCP server available
+// in ctx (shared servers plus the authenticated user's connected user/oauth
+// servers) and returns one entry per tool. Discovery uses the shared manager's
+// cache, so repeated calls are cheap; servers that fail discovery are skipped so
+// one unreachable server does not hide the rest.
+func ConfiguredToolPolicyEntries(ctx context.Context) []ToolPolicyEntry {
+	servers := resolveServers(ctx)
+	var entries []ToolPolicyEntry
+	for _, server := range servers {
+		remoteTools, _, err := defaultManager.discover(ctx, server)
+		if err != nil {
+			log.Warningf("mcp: policy discovery for %q: %v", server.Name, err)
+			continue
+		}
+		for _, remote := range remoteTools {
+			if strings.TrimSpace(remote.Name) == "" {
+				continue
+			}
+			adapter := newToolAdapter(server, remote)
+			entries = append(entries, ToolPolicyEntry{
+				Name:       adapter.displayName,
+				ServerName: server.Name,
+				ToolName:   remote.Name,
+				Groups:     adapter.PolicyGroups(),
+			})
+		}
+	}
+	return entries
 }
 
 // recordDiscoveryOutcomes reflects fresh discovery results onto the per-user
@@ -394,10 +435,11 @@ func configurationHasUserScopedServer(configuration *models.Configuration) bool 
 	return false
 }
 
-// forEachConfiguredServer invokes register for each enabled, uniquely-named, URL-bearing
-// MCP server in the configuration, passing a base ServerConfiguration (with the
-// Authorization left unset) and the server's resolved auth mode. Disabled,
-// duplicate, and incomplete entries are dropped (and logged).
+// forEachConfiguredServer invokes register for each enabled, uniquely-named MCP
+// server in the configuration, passing a base ServerConfiguration (with the
+// Authorization left unset) and the server's resolved auth mode. HTTP servers
+// require a valid URL; stdio servers require a command. Disabled, duplicate, and
+// incomplete entries are dropped (and logged).
 func forEachConfiguredServer(configuration *models.Configuration, register func(base ServerConfiguration, mode models.MCPServerAuthMode, server *models.MCPServerConfiguration)) {
 	if configuration == nil || configuration.Tools == nil || configuration.Tools.MCP == nil {
 		return
@@ -413,13 +455,43 @@ func forEachConfiguredServer(configuration *models.Configuration, register func(
 			continue
 		}
 		name := strings.TrimSpace(server.GetName())
-		serverUrl := strings.TrimSpace(server.GetURL())
-		if name == "" || serverUrl == "" {
-			log.Warningf("mcp: skipping server with empty name or url")
+		if name == "" {
+			log.Warningf("mcp: skipping server with empty name")
 			continue
 		}
 		if seen[name] {
 			log.Warningf("mcp: skipping duplicate server name %q", name)
+			continue
+		}
+		timeout := defaultTimeout
+		if seconds := server.GetTimeoutSeconds(); seconds > 0 {
+			timeout = time.Duration(seconds) * time.Second
+		}
+
+		if server.ResolvedTransport() == models.MCPServerTransportStdio {
+			command := strings.TrimSpace(server.GetCommand())
+			if command == "" {
+				log.Warningf("mcp: skipping stdio server %q: no command", name)
+				continue
+			}
+			seen[name] = true
+			// Stdio servers run as a local subprocess and use no HTTP auth; they
+			// are shared across users like a "none"-auth server.
+			register(ServerConfiguration{
+				Name:        name,
+				Transport:   TransportStdio,
+				Command:     command,
+				Arguments:   append([]string(nil), server.GetArgs()...),
+				Environment: stdioEnvEntries(server.GetEnv()),
+				WorkingDir:  strings.TrimSpace(server.GetWorkingDir()),
+				Timeout:     timeout,
+			}, models.MCPServerAuthNone, server)
+			continue
+		}
+
+		serverUrl := strings.TrimSpace(server.GetURL())
+		if serverUrl == "" {
+			log.Warningf("mcp: skipping server %q with empty url", name)
 			continue
 		}
 		parsedUrl, urlError := validateServerUrl(serverUrl)
@@ -435,10 +507,21 @@ func forEachConfiguredServer(configuration *models.Configuration, register func(
 		if mode != models.MCPServerAuthNone && parsedUrl.Scheme == "http" && !isLoopbackHost(parsedUrl.Hostname()) {
 			log.Warningf("mcp: server %q sends credentials over plaintext http to %q; use https", name, parsedUrl.Host)
 		}
-		timeout := defaultTimeout
-		if seconds := server.GetTimeoutSeconds(); seconds > 0 {
-			timeout = time.Duration(seconds) * time.Second
-		}
-		register(ServerConfiguration{Name: name, URL: serverUrl, Timeout: timeout}, mode, server)
+		register(ServerConfiguration{Name: name, Transport: TransportHTTP, URL: serverUrl, Timeout: timeout}, mode, server)
 	}
+}
+
+// stdioEnvEntries flattens a server's environment map into the sorted
+// "KEY=VALUE" entries the subprocess transport expects. Sorting keeps the
+// discovery cache signature stable across runs (map iteration order is random).
+func stdioEnvEntries(environment map[string]string) []string {
+	if len(environment) == 0 {
+		return nil
+	}
+	entries := make([]string, 0, len(environment))
+	for key, value := range environment {
+		entries = append(entries, key+"="+value)
+	}
+	sort.Strings(entries)
+	return entries
 }

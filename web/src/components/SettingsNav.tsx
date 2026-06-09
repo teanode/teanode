@@ -199,11 +199,11 @@ export default function SettingsNav({
 
           <ListItemButton
             dense
-            onClick={() => onNavigate("/settings/connections")}
+            onClick={() => onNavigate("/settings/mcp")}
             sx={{
               borderRadius: 1,
               mb: 0.25,
-              ...(activeSectionId === "connections"
+              ...(activeSectionId === "mcp"
                 ? {
                     bgcolor: "accentDim",
                     color: "#fff",
@@ -213,12 +213,11 @@ export default function SettingsNav({
             }}
           >
             <ListItemText
-              primary={t("mcp.title")}
+              primary={t("mcpServers.title")}
               primaryTypographyProps={{
                 variant: "caption",
                 fontSize: "13px",
-                color:
-                  activeSectionId === "connections" ? "#fff" : "text.secondary",
+                color: activeSectionId === "mcp" ? "#fff" : "text.secondary",
               }}
             />
           </ListItemButton>

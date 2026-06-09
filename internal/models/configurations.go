@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // ToolPolicyLevel controls access and approval requirements for a tool action group.
 type ToolPolicyLevel string
@@ -100,11 +103,26 @@ type ToolsConfiguration struct {
 }
 
 // MCPConfiguration configures Model Context Protocol (MCP) client support.
-// TeaNode connects to the configured remote MCP servers, discovers their
-// tools, and exposes them as namespaced TeaNode tools during runs.
+// TeaNode connects to the configured MCP servers, discovers their tools, and
+// exposes them as namespaced TeaNode tools during runs. Both the remote
+// streamable HTTP transport and the local stdio (subprocess) transport are
+// supported.
 type MCPConfiguration struct {
 	Servers *[]*MCPServerConfiguration `json:"servers,omitempty" yaml:"servers,omitempty"`
 }
+
+// MCPServerTransport selects how TeaNode connects to an MCP server.
+type MCPServerTransport string
+
+const (
+	// MCPServerTransportHTTP is the streamable HTTP transport: TeaNode connects to
+	// a remote URL. This is the default.
+	MCPServerTransportHTTP MCPServerTransport = "http"
+	// MCPServerTransportStdio launches a local subprocess and speaks
+	// newline-delimited JSON-RPC over its stdin/stdout (the transport used by
+	// tools such as `claude mcp`-style stdio servers).
+	MCPServerTransportStdio MCPServerTransport = "stdio"
+)
 
 // MCPServerAuthMode selects how a remote MCP server is authenticated.
 type MCPServerAuthMode string
@@ -124,18 +142,34 @@ const (
 	MCPServerAuthOAuth MCPServerAuthMode = "oauth"
 )
 
-// MCPServerConfiguration describes a single remote MCP server.
+// MCPServerConfiguration describes a single MCP server reached over either the
+// streamable HTTP transport (URL) or the local stdio transport (Command).
 //
-// Limitations: only the streamable HTTP transport is supported and only the
-// tools capability is consumed (prompts and resources are out of scope).
-// Authentication supports a shared static Authorization header value and, for
-// user-scoped servers, a per-user MCPConnection credential.
+// Limitations: only the tools capability is consumed (prompts and resources are
+// out of scope). HTTP authentication supports a shared static Authorization
+// header value and, for user-scoped servers, a per-user MCPConnection
+// credential. Stdio servers run locally and use no HTTP auth.
 type MCPServerConfiguration struct {
 	// Name identifies the server and namespaces its tools as
 	// "mcp__<name>__<tool>". It must be unique across configured servers.
 	Name *string `json:"name,omitempty" yaml:"name,omitempty"`
-	// URL is the streamable HTTP endpoint of the MCP server.
+	// Transport selects how TeaNode connects: "http" (streamable HTTP, the
+	// default) or "stdio" (a local subprocess). When empty it is inferred:
+	// "stdio" if Command is set and URL is empty, otherwise "http".
+	Transport *MCPServerTransport `json:"transport,omitempty" yaml:"transport,omitempty"`
+	// URL is the streamable HTTP endpoint of the MCP server (http transport).
 	URL *string `json:"url,omitempty" yaml:"url,omitempty"`
+	// Command is the executable launched for a stdio-transport server.
+	Command *string `json:"command,omitempty" yaml:"command,omitempty"`
+	// Args are the command-line arguments passed to Command (stdio transport).
+	Args *[]string `json:"args,omitempty" yaml:"args,omitempty"`
+	// Env are extra environment variables set for the subprocess, merged over
+	// TeaNode's own environment. Used to pass a stdio server its secrets (for
+	// example an API key).
+	Env *map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	// WorkingDir is the working directory for the subprocess. Empty uses
+	// TeaNode's working directory.
+	WorkingDir *string `json:"workingDir,omitempty" yaml:"workingDir,omitempty"`
 	// Enabled gates the server. A nil value is treated as enabled so that a
 	// configured server is active by default; set false to keep it but skip it.
 	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
@@ -177,6 +211,28 @@ func (self *MCPServerConfiguration) ResolvedAuthMode() MCPServerAuthMode {
 		return MCPServerAuthStatic
 	}
 	return MCPServerAuthNone
+}
+
+// ResolvedTransport returns the effective transport, inferring "stdio" from a
+// server that has a Command but no URL when Transport is unset.
+func (self *MCPServerConfiguration) ResolvedTransport() MCPServerTransport {
+	if self == nil {
+		return MCPServerTransportHTTP
+	}
+	if self.Transport != nil {
+		switch *self.Transport {
+		case MCPServerTransportStdio:
+			return MCPServerTransportStdio
+		case MCPServerTransportHTTP:
+			return MCPServerTransportHTTP
+		}
+	}
+	hasCommand := self.Command != nil && strings.TrimSpace(*self.Command) != ""
+	hasUrl := self.URL != nil && strings.TrimSpace(*self.URL) != ""
+	if hasCommand && !hasUrl {
+		return MCPServerTransportStdio
+	}
+	return MCPServerTransportHTTP
 }
 
 type GoogleConfiguration struct {

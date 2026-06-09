@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sort"
 
+	"github.com/teanode/teanode/internal/mcp"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
@@ -20,8 +21,13 @@ type toolPolicyGroupEntry struct {
 type toolPolicyEntry struct {
 	Name   string                 `json:"name"`
 	Groups []toolPolicyGroupEntry `json:"groups"`
-	Source string                 `json:"source"` // "builtin" or "skill"
+	Source string                 `json:"source"` // "builtin", "skill", or "mcp"
 	Skill  string                 `json:"skill,omitempty"`
+	// Server and ToolName are set for MCP tools (source "mcp") so the UI can
+	// present them hierarchically (server > bare tool name) instead of the long
+	// namespaced "mcp__server__tool" name.
+	Server   string `json:"server,omitempty"`
+	ToolName string `json:"toolName,omitempty"`
 }
 
 // loadAllToolActionGroups returns the action groups for all tools: builtin + skill-contributed.
@@ -92,6 +98,39 @@ func (self *webSocketConnection) loadAllToolActionGroups() ([]toolPolicyEntry, m
 		return skillEntries[leftIndex].Name < skillEntries[rightIndex].Name
 	})
 	entries = append(entries, skillEntries...)
+
+	// 3. Remote MCP server tools (discovered for the servers available to this
+	// admin). Grouped by server then tool name so the UI can render a hierarchy.
+	mcpEntries := mcp.ConfiguredToolPolicyEntries(self.ctx)
+	sort.Slice(mcpEntries, func(leftIndex, rightIndex int) bool {
+		if mcpEntries[leftIndex].ServerName != mcpEntries[rightIndex].ServerName {
+			return mcpEntries[leftIndex].ServerName < mcpEntries[rightIndex].ServerName
+		}
+		return mcpEntries[leftIndex].ToolName < mcpEntries[rightIndex].ToolName
+	})
+	for _, mcpEntry := range mcpEntries {
+		// Skip if a builtin or skill tool already claims this name.
+		if _, exists := validGroups[mcpEntry.Name]; exists {
+			continue
+		}
+		groupEntries := make([]toolPolicyGroupEntry, 0, len(mcpEntry.Groups))
+		groupStrings := make([]string, 0, len(mcpEntry.Groups))
+		for _, group := range mcpEntry.Groups {
+			groupEntries = append(groupEntries, toolPolicyGroupEntry{
+				Group:         group.Group,
+				DefaultPolicy: group.Default,
+			})
+			groupStrings = append(groupStrings, string(group.Group))
+		}
+		entries = append(entries, toolPolicyEntry{
+			Name:     mcpEntry.Name,
+			Groups:   groupEntries,
+			Source:   "mcp",
+			Server:   mcpEntry.ServerName,
+			ToolName: mcpEntry.ToolName,
+		})
+		validGroups[mcpEntry.Name] = groupStrings
+	}
 
 	return entries, validGroups, nil
 }
@@ -172,7 +211,14 @@ func (self *webSocketConnection) handleToolPoliciesUpdate(frame requestFrame) (i
 		}
 		groups, exists := validGroups[toolName]
 		if !exists {
-			return nil, rpcError(400, "unknown tool: "+toolName)
+			// An MCP server may be temporarily undiscoverable (e.g. offline) at
+			// save time; still accept its namespaced tool policy with its only
+			// group so a transient outage does not drop the setting.
+			if mcp.IsToolName(toolName) {
+				groups = []string{string(models.ToolPolicyGroupAll)}
+			} else {
+				return nil, rpcError(400, "unknown tool: "+toolName)
+			}
 		}
 		groupString := string(group)
 		validGroup := groupString == "*"

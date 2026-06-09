@@ -105,9 +105,9 @@ export interface OAuthCallbackOutcome {
 
 /**
  * Parse the OAuth callback query string the backend redirects to
- * (`/settings/connections?server=...&mcpConnected=1` on success, or
- * `...&mcpError=...` on failure). Returns null when the URL carries no MCP
- * callback markers so callers can ignore ordinary navigations.
+ * (`/settings/mcp?server=...&mcpConnected=1` on success, or `...&mcpError=...`
+ * on failure). Returns null when the URL carries no MCP callback markers so
+ * callers can ignore ordinary navigations.
  */
 export function parseOAuthCallback(
   search: string,

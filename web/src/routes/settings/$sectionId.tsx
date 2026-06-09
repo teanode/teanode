@@ -66,6 +66,12 @@ function resolveSectionEntries(
   }
 
   for (const [key, property, prefix] of collected) {
+    // Properties flagged hidden are managed by a dedicated page (e.g. MCP
+    // servers) and are intentionally omitted from the generic config form.
+    if (property["x-widget"] === "hidden") {
+      continue;
+    }
+
     const dotPath = prefix ? `${prefix}.${key}` : key;
 
     // Objects without a custom widget are rendered as sub-groups.

@@ -4,6 +4,24 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.7.0] - 2026-06-09
+
+### Added
+
+- Local stdio (subprocess) MCP servers, and a unified MCP settings page to connect to servers and (for admins) add, edit, enable/disable, and remove them. (#65)
+
+## [0.6.1] - 2026-06-09
+
+### Fixed
+
+- Headless browser CDP commands now send parameters under the JSON-RPC `params` key, so parameterized DevTools commands work correctly. (#64)
+
+## [0.6.0] - 2026-06-09
+
+### Added
+
+- Manage approval policies for remote MCP server tools from the Tool Policies settings page, grouped by server. (#63)
+
 ## [0.5.0] - 2026-06-02
 
 ### Added
