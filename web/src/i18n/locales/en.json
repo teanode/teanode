@@ -488,7 +488,7 @@
   },
   "mcpServers": {
     "title": "MCP",
-    "description": "MCP servers configured on this node and your connections to them. Their tools are exposed to agents as mcp__<name>__<tool>. Administrators can add and manage servers.",
+    "description": "MCP servers configured on this node and your connections to them. Administrators can add and manage servers.",
     "adminOnly": "Only administrators can manage MCP servers.",
     "add": "Add server",
     "addTitle": "Add MCP server",
