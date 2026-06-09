@@ -644,7 +644,7 @@ function ServerRow({
               {summary}
             </Typography>
           )}
-          {server.requiresConnection && !server.connectionId && (
+          {!server.requiresConnection && (
             <Typography variant="caption" color="text.secondary">
               {t("mcp.noConnectionRequired")}
             </Typography>

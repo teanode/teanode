@@ -75,6 +75,7 @@ func toMcpConnectionListItem(connection *models.MCPConnection) mcpConnectionList
 // current user has connected to each user-scoped server.
 func (self *webSocketConnection) handleMcpServersList(frame requestFrame) (interface{}, error) {
 	items := make([]mcpServerListItem, 0)
+	admin := self.isAdmin()
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		configuration, err := transaction.GetConfiguration(ctx, nil)
 		if err != nil {
@@ -115,7 +116,12 @@ func (self *webSocketConnection) handleMcpServersList(frame requestFrame) (inter
 				RequiresConnection: authMode == models.MCPServerAuthUser || authMode == models.MCPServerAuthOAuth,
 			}
 			if transport == models.MCPServerTransportStdio {
-				item.Command = mcpServerCommandDisplay(server)
+				// The launch command and its arguments may carry secrets (for
+				// example an --api-key flag), so only expose them to admins; other
+				// users have no action to take on a shared stdio server anyway.
+				if admin {
+					item.Command = mcpServerCommandDisplay(server)
+				}
 			} else {
 				item.URL = server.GetURL()
 			}

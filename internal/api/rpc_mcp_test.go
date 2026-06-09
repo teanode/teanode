@@ -613,6 +613,68 @@ func TestMCPConnectionsCreateRejectsStdioServer(t *testing.T) {
 	}
 }
 
+// TestMCPServersListRedactsStdioCommandForNonAdmins verifies that the stdio
+// launch command (which may carry secrets in its arguments) is returned only to
+// admins.
+func TestMCPServersListRedactsStdioCommandForNonAdmins(t *testing.T) {
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store: %v", openError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
+		t.Fatalf("migrating store: %v", migrateError)
+	}
+
+	stdio := models.MCPServerTransportStdio
+	if err := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		_, modifyError := transaction.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
+			configuration.Tools = &models.ToolsConfiguration{
+				MCP: &models.MCPConfiguration{
+					Servers: &[]*models.MCPServerConfiguration{
+						{
+							Name:      ptrto.Value("local"),
+							Transport: &stdio,
+							Command:   ptrto.Value("my-server"),
+							Args:      ptrto.Value([]string{"--api-key", "secret"}),
+						},
+					},
+				},
+			}
+			return nil
+		}, nil)
+		return modifyError
+	}); err != nil {
+		t.Fatalf("seeding store: %v", err)
+	}
+
+	storeContext := store.ContextWithStore(context.Background(), openedStore)
+	listCommand := func(admin bool) string {
+		ctx := models.ContextWithUserSessionToken(storeContext, &models.User{
+			ID:       "user",
+			Username: ptrto.Value("user"),
+			Admin:    ptrto.Value(admin),
+		}, nil, nil)
+		connection := &webSocketConnection{ctx: ctx}
+		result, err := connection.handleMcpServersList(requestFrame{})
+		if err != nil {
+			t.Fatalf("handleMcpServersList error: %v", err)
+		}
+		servers := result.(map[string]interface{})["servers"].([]mcpServerListItem)
+		if len(servers) != 1 {
+			t.Fatalf("expected 1 server, got %d", len(servers))
+		}
+		return servers[0].Command
+	}
+
+	if command := listCommand(false); command != "" {
+		t.Errorf("non-admin must not see the stdio command, got %q", command)
+	}
+	if command := listCommand(true); command != "my-server --api-key secret" {
+		t.Errorf("admin should see the full command, got %q", command)
+	}
+}
+
 func TestMCPConnectionsCreateRejectsUnknownServer(t *testing.T) {
 	connection, _ := newMCPTestConnection(t, models.MCPServerAuthUser)
 	if _, err := connection.handleMcpConnectionsCreate(frameWith(t, mcpConnectionsCreateParameters{
