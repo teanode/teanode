@@ -192,6 +192,7 @@
     "toolPolicySaved": "Policies saved.",
     "toolPolicySaveFailed": "Failed to save policies.",
     "toolPolicyCustomized": "Customized",
+    "toolPolicyMcp": "MCP",
     "noProjects": "No projects found",
     "projectUpdated": "Updated: {{updated}}",
     "projectRenamed": "{{name}} renamed",

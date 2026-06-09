@@ -19,6 +19,7 @@ import AdminPanelSettingsRounded from "@mui/icons-material/AdminPanelSettingsRou
 import GppMaybeRounded from "@mui/icons-material/GppMaybeRounded";
 import VerifiedUserRounded from "@mui/icons-material/VerifiedUserRounded";
 import LockOpenRounded from "@mui/icons-material/LockOpenRounded";
+import HubRounded from "@mui/icons-material/HubRounded";
 import { useAppContext } from "../../context";
 import { useAlert } from "../../components/AlertProvider";
 import type {
@@ -176,27 +177,63 @@ export default function SettingsToolPoliciesPage() {
     }
   };
 
-  // Build rows: one row per tool+group combination.
-  type Row = {
-    tool: string;
+  // Build rows. Non-MCP tools (builtin + skill) render flat; MCP tools are
+  // grouped under a per-server section header and shown by their short tool
+  // name instead of the long "mcp__server__tool" namespaced name.
+  type ToolRow = {
+    kind: "tool";
+    tool: string; // namespaced name — the key the backend stores/matches
+    displayName: string; // what the user sees (short name for MCP)
+    fullName?: string; // namespaced name, shown in a tooltip for MCP tools
     groupEntry: ToolActionGroupEntry;
     isFirstOfTool: boolean;
     toolRowSpan: number;
-    source: "builtin" | "skill";
+    source: "builtin" | "skill" | "mcp";
     skill?: string;
   };
-  const rows: Row[] = [];
-  for (const toolEntry of tools) {
+  type SectionRow = { kind: "section"; label: string };
+  type Row = ToolRow | SectionRow;
+
+  const pushToolRows = (
+    list: Row[],
+    toolEntry: ToolActionEntry,
+    displayName: string,
+  ) => {
     const groups = toolEntry.groups;
     for (let index = 0; index < groups.length; index++) {
-      rows.push({
+      list.push({
+        kind: "tool",
         tool: toolEntry.name,
+        displayName,
+        fullName: toolEntry.source === "mcp" ? toolEntry.name : undefined,
         groupEntry: groups[index],
         isFirstOfTool: index === 0,
         toolRowSpan: groups.length,
         source: toolEntry.source,
         skill: toolEntry.skill,
       });
+    }
+  };
+
+  const rows: Row[] = [];
+  // Builtin + skill tools first, in the order the backend returned them.
+  for (const toolEntry of tools) {
+    if (toolEntry.source === "mcp") continue;
+    pushToolRows(rows, toolEntry, toolEntry.name);
+  }
+  // MCP tools, grouped by server with a section header per server.
+  const mcpByServer = new Map<string, ToolActionEntry[]>();
+  for (const toolEntry of tools) {
+    if (toolEntry.source !== "mcp") continue;
+    const server = toolEntry.server ?? "";
+    const existing = mcpByServer.get(server) ?? [];
+    existing.push(toolEntry);
+    mcpByServer.set(server, existing);
+  }
+  for (const server of [...mcpByServer.keys()].sort()) {
+    rows.push({ kind: "section", label: server });
+    for (const toolEntry of mcpByServer.get(server) ?? []) {
+      pushToolRows(rows, toolEntry, toolEntry.toolName ?? toolEntry.name);
     }
   }
 
@@ -227,12 +264,54 @@ export default function SettingsToolPoliciesPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {rows.map((row) => {
+                {rows.map((row, index) => {
+                  if (row.kind === "section") {
+                    return (
+                      <TableRow key={`section-${row.label}-${index}`}>
+                        <TableCell
+                          colSpan={3}
+                          sx={{ bgcolor: "action.hover", py: 0.75 }}
+                        >
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 0.75,
+                            }}
+                          >
+                            <HubRounded
+                              sx={{ fontSize: 15, color: "text.secondary" }}
+                            />
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 600 }}
+                            >
+                              {row.label}
+                            </Typography>
+                            <Chip
+                              label={t("settings.toolPolicyMcp")}
+                              size="small"
+                              variant="outlined"
+                              sx={{ fontSize: "10px", height: 18 }}
+                            />
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
                   const key = policyKey(row.tool, row.groupEntry.group);
                   const defaultLevel = row.groupEntry.defaultPolicy;
                   const overrideLevel = policies[key];
                   const effectiveLevel = overrideLevel ?? defaultLevel;
                   const isCustomized = overrideLevel !== undefined;
+                  const nameTypography = (
+                    <Typography
+                      variant="body2"
+                      sx={{ fontFamily: "monospace", fontSize: "12px" }}
+                    >
+                      {row.displayName}
+                    </Typography>
+                  );
                   return (
                     <TableRow key={key}>
                       {row.isFirstOfTool && (
@@ -242,6 +321,7 @@ export default function SettingsToolPoliciesPage() {
                             verticalAlign: "top",
                             borderRight: "1px solid",
                             borderRightColor: "divider",
+                            ...(row.source === "mcp" ? { pl: 3 } : {}),
                           }}
                         >
                           <Box
@@ -251,15 +331,13 @@ export default function SettingsToolPoliciesPage() {
                               gap: 0.75,
                             }}
                           >
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontFamily: "monospace",
-                                fontSize: "12px",
-                              }}
-                            >
-                              {row.tool}
-                            </Typography>
+                            {row.fullName ? (
+                              <Tooltip title={row.fullName} arrow>
+                                {nameTypography}
+                              </Tooltip>
+                            ) : (
+                              nameTypography
+                            )}
                             {row.source === "skill" && row.skill && (
                               <Chip
                                 label={row.skill}

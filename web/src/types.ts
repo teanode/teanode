@@ -613,8 +613,12 @@ export interface ToolActionGroupEntry {
 export interface ToolActionEntry {
   name: string;
   groups: ToolActionGroupEntry[];
-  source: "builtin" | "skill";
+  source: "builtin" | "skill" | "mcp";
   skill?: string;
+  // Set for MCP tools (source "mcp") so the UI can show a server > tool
+  // hierarchy instead of the long "mcp__server__tool" name.
+  server?: string;
+  toolName?: string;
 }
 
 export interface ToolPoliciesListResult {
