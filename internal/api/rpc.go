@@ -193,6 +193,16 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 	case "approvals.resolve":
 		return self.handleApprovalsResolve(frame)
 
+	// Generative-UI surfaces & interrupts.
+	case "surfaces.list":
+		return self.handleSurfacesList(frame)
+	case "surfaces.emit":
+		return self.handleSurfacesEmit(frame)
+	case "surfaces.action":
+		return self.handleSurfacesAction(frame)
+	case "surfaces.close":
+		return self.handleSurfacesClose(frame)
+
 	// Tab integration.
 	case "tab.attach":
 		return self.handleTabAttach(frame)

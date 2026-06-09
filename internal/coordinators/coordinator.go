@@ -9,6 +9,7 @@ import (
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/integrations/approvals"
 	"github.com/teanode/teanode/internal/integrations/questions"
+	"github.com/teanode/teanode/internal/integrations/surfaces"
 	"github.com/teanode/teanode/internal/integrations/tabs"
 	"github.com/teanode/teanode/internal/lifecycle"
 	"github.com/teanode/teanode/internal/models"
@@ -34,6 +35,7 @@ type Coordinator struct {
 	pubsub                     *pubsub.PubSub
 	questionBroker             *questions.QuestionBroker
 	approvalBroker             *approvals.ApprovalBroker
+	surfaceBroker              *surfaces.SurfaceBroker
 	tabBroker                  *tabs.TabBroker
 	activeRunners              sync.Map // conversationId -> *conversationRunner
 	activeRunIdConversationIds sync.Map // runId -> conversationId
@@ -82,6 +84,7 @@ func New(
 		pubsub:           events,
 		questionBroker:   questions.NewQuestionBroker(),
 		approvalBroker:   approvals.NewApprovalBroker(),
+		surfaceBroker:    surfaces.NewSurfaceBroker(),
 		tabBroker:        tabs.NewTabBroker(),
 	}
 }
@@ -99,6 +102,11 @@ func (self *Coordinator) QuestionBroker() *questions.QuestionBroker {
 // ApprovalBroker returns the in-memory approval broker.
 func (self *Coordinator) ApprovalBroker() *approvals.ApprovalBroker {
 	return self.approvalBroker
+}
+
+// SurfaceBroker returns the in-memory generative-UI surface broker.
+func (self *Coordinator) SurfaceBroker() *surfaces.SurfaceBroker {
+	return self.surfaceBroker
 }
 
 // TabBroker returns the in-memory tab tool broker.
@@ -564,23 +572,26 @@ func (self *Coordinator) processQueue(conversationId string, conversationRunnerI
 			// Ensure coordinator is on the context.
 			ctx, cancel = context.WithCancel(
 				runners.ContextWithVoiceMode(
-					tabs.ContextWithTabBroker(
-						approvals.ContextWithApprovalBroker(
-							questions.ContextWithQuestionBroker(
-								runners.ContextWithOrigin(
-									ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
-										self.ctx,
-										models.UserFromContext(message.ctx),
-										models.SessionFromContext(message.ctx),
-										models.TokenFromContext(message.ctx),
-									), self.pubsub), self),
-									message.parameters.Origin,
+					surfaces.ContextWithSurfaceBroker(
+						tabs.ContextWithTabBroker(
+							approvals.ContextWithApprovalBroker(
+								questions.ContextWithQuestionBroker(
+									runners.ContextWithOrigin(
+										ContextWithCoordinator(pubsub.ContextWithPubSub(models.ContextWithUserSessionToken(
+											self.ctx,
+											models.UserFromContext(message.ctx),
+											models.SessionFromContext(message.ctx),
+											models.TokenFromContext(message.ctx),
+										), self.pubsub), self),
+										message.parameters.Origin,
+									),
+									self.questionBroker,
 								),
-								self.questionBroker,
+								self.approvalBroker,
 							),
-							self.approvalBroker,
+							self.tabBroker,
 						),
-						self.tabBroker,
+						self.surfaceBroker,
 					),
 					message.parameters.VoiceMode,
 				))

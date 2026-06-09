@@ -61,11 +61,18 @@ export default function ToolInvoke({ toolName, args }: ToolInvokeProps) {
                 {t("tool.askUserQuestion")}
               </Typography>
             </Box>
-            <Typography variant="body2" sx={{ mb: 0.5 }}>
+            <Typography
+              variant="body2"
+              sx={{ mb: 0.5, overflowWrap: "anywhere" }}
+            >
               {parsed.question}
             </Typography>
             {parsed.choices && (
-              <Typography variant="caption" color="text.secondary">
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", overflowWrap: "anywhere" }}
+              >
                 {t("tool.askUserChoices")}: {parsed.choices.join(", ")}
                 {parsed.allowOther &&
                   `, ${parsed.otherLabel || t("tool.askUserOther")}`}

@@ -567,6 +567,142 @@ export interface ConversationApprovalsEvent {
   reason?: string;
 }
 
+// Generative-UI surface & unified interrupt types (schemaVersion 1)
+
+export type SurfaceLocation = "inline" | "right_panel";
+
+export type SurfaceComponentType =
+  | "Section"
+  | "Markdown"
+  | "KeyValueList"
+  | "Table"
+  | "StatusBadge"
+  | "ButtonRow"
+  | "Form"
+  | "CodeBlock"
+  | "Timeline";
+
+export type FormFieldType = "TextInput" | "Textarea" | "Select" | "Checkbox";
+
+export interface KeyValueItem {
+  key: string;
+  value: string;
+}
+
+export interface SurfaceButton {
+  label: string;
+  actionId: string;
+  style?: "primary" | "secondary" | "danger";
+  value?: string;
+}
+
+export interface FormField {
+  type: FormFieldType;
+  name: string;
+  label?: string;
+  placeholder?: string;
+  options?: string[];
+  required?: boolean;
+  defaultValue?: string;
+}
+
+export interface TimelineEvent {
+  title: string;
+  timestamp?: string;
+  description?: string;
+  status?: string;
+}
+
+export interface SurfaceComponent {
+  type: SurfaceComponentType;
+  // Section
+  title?: string;
+  children?: SurfaceComponent[];
+  // Markdown / CodeBlock
+  text?: string;
+  language?: string;
+  // KeyValueList
+  items?: KeyValueItem[];
+  // Table
+  columns?: string[];
+  rows?: string[][];
+  // StatusBadge
+  status?: string;
+  label?: string;
+  // ButtonRow
+  buttons?: SurfaceButton[];
+  // Form
+  fields?: FormField[];
+  submitLabel?: string;
+  submitActionId?: string;
+  // Timeline
+  events?: TimelineEvent[];
+}
+
+export interface Surface {
+  surfaceId: string;
+  schemaVersion: number;
+  location: SurfaceLocation;
+  title?: string;
+  components: SurfaceComponent[];
+  conversationId?: string;
+  agentId?: string;
+  runId?: string;
+}
+
+export type InterruptKind =
+  | "question"
+  | "approval"
+  | "choice"
+  | "form"
+  | "review";
+
+/**
+ * Unified interrupt model. Questions and approvals are adapted into this shape
+ * (carrying their source objects) so all pending user input flows through a
+ * single rendering path. choice/form/review interrupts are emitted by the
+ * backend and resolved via the surfaces.action RPC.
+ */
+export interface Interrupt {
+  interruptId: string;
+  kind: InterruptKind;
+  title?: string;
+  prompt?: string;
+  choices?: string[];
+  fields?: FormField[];
+  surface?: Surface;
+  surfaceId?: string;
+  conversationId?: string;
+  agentId?: string;
+  runId?: string;
+  // Adapters for reusing existing panels under the hood.
+  question?: PendingQuestion;
+  approval?: PendingApproval;
+}
+
+export interface SurfaceActionPayload {
+  surfaceId: string;
+  actionId: string;
+  value?: string;
+  formData?: Record<string, string>;
+}
+
+export interface ConversationSurfacesEvent {
+  action: "emitted" | "removed";
+  conversationId?: string;
+  agentId?: string;
+  runId?: string;
+  surface?: Surface;
+  interrupt?: Interrupt;
+  surfaceId?: string;
+  interruptId?: string;
+}
+
+export interface SurfacesListResult {
+  surfaces: Surface[];
+  interrupts: Interrupt[];
+}
+
 // Display message types for the UI
 
 export type DisplayMessageType =

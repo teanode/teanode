@@ -27,6 +27,7 @@ import (
 	_ "github.com/teanode/teanode/internal/tools/search"
 	_ "github.com/teanode/teanode/internal/tools/shell"
 	_ "github.com/teanode/teanode/internal/tools/skills"
+	_ "github.com/teanode/teanode/internal/tools/surface"
 	_ "github.com/teanode/teanode/internal/tools/tab"
 	_ "github.com/teanode/teanode/internal/tools/terminal"
 	_ "github.com/teanode/teanode/internal/tools/unifiprotect"

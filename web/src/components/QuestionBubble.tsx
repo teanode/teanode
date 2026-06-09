@@ -102,7 +102,7 @@ export default function QuestionBubble({
       </Box>
 
       {/* Question text */}
-      <Typography variant="body2" sx={{ mb: 1.5 }}>
+      <Typography variant="body2" sx={{ mb: 1.5, overflowWrap: "anywhere" }}>
         {question.question}
       </Typography>
 

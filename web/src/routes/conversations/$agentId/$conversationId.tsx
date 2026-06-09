@@ -1,11 +1,19 @@
 import React, { useEffect, useCallback, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { useAppContext, useStreamingContext } from "../../../context";
+import Container from "@mui/material/Container";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
+import ExpandLessRounded from "@mui/icons-material/ExpandLessRounded";
 import MessageList from "../../../components/MessageList";
 import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
-import QuestionPanel from "../../../components/QuestionPanel";
-import ApprovalPanel from "../../../components/ApprovalPanel";
+import InterruptRenderer from "../../../components/InterruptRenderer";
+import SurfaceRenderer from "../../../components/SurfaceRenderer";
 import VoiceCallBar from "../../../components/VoiceCallBar";
 import DebugReadout, {
   useDebugEnabled,
@@ -22,6 +30,7 @@ export default function ConversationsConversationPage() {
     conversationId: string;
   };
   useStreamingContext();
+  const { t } = useTranslation();
   const {
     backend,
     voiceAutoSend,
@@ -31,6 +40,7 @@ export default function ConversationsConversationPage() {
     showToolCalls,
     showTokenUsage,
   } = useAppContext();
+  const [surfacesCollapsed, setSurfacesCollapsed] = useState(false);
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;
   const [profile, setProfile] = useState<Profile>({
@@ -123,6 +133,16 @@ export default function ConversationsConversationPage() {
     }
   }, [backend.isRunning, backend.messages, tts.speak, voiceCall.isCallActive]);
 
+  const inlineSurfaces = backend.surfaces.filter(
+    (surface) => surface.location === "inline",
+  );
+
+  // Reset the collapse state when switching conversations so a panel collapsed
+  // in one conversation does not hide freshly-arrived surfaces in another.
+  useEffect(() => {
+    setSurfacesCollapsed(false);
+  }, [conversationId]);
+
   const handleSend = useCallback(
     (text: string, attachments?: Attachment[]) => {
       backend.markTypedSend();
@@ -185,9 +205,7 @@ export default function ConversationsConversationPage() {
         showAbortOnStatusLine={backend.isRunning && !inputFocused}
         onAbort={backend.abortRun}
         suggestions={
-          voiceCall.isCallActive ||
-          backend.pendingQuestions.length > 0 ||
-          backend.pendingApprovals.length > 0
+          voiceCall.isCallActive || backend.interrupts.length > 0
             ? []
             : backend.suggestions
         }
@@ -199,6 +217,84 @@ export default function ConversationsConversationPage() {
         collapsed={todosPanelCollapsed}
         onToggleCollapsed={setTodosPanelCollapsed}
       />
+      {inlineSurfaces.length > 0 && (
+        <Box
+          sx={{
+            flexShrink: 0,
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+            // Cap the panel so a tall surface can never push the conversation
+            // off-screen; it scrolls internally instead.
+            maxHeight: "45vh",
+            borderTop: 1,
+            borderColor: "divider",
+            bgcolor: "background.default",
+          }}
+        >
+          <Box
+            sx={{
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              px: 2,
+              py: 0.5,
+            }}
+          >
+            <IconButton
+              size="small"
+              onClick={() => setSurfacesCollapsed((value) => !value)}
+              aria-label={t(
+                surfacesCollapsed ? "surface.expand" : "surface.collapse",
+              )}
+              sx={{ m: -0.5 }}
+            >
+              {surfacesCollapsed ? (
+                <ExpandLessRounded fontSize="small" />
+              ) : (
+                <ExpandMoreRounded fontSize="small" />
+              )}
+            </IconButton>
+            <Typography
+              variant="caption"
+              sx={{ fontWeight: 600, flex: 1, minWidth: 0 }}
+            >
+              {t("surface.panelTitle")} ({inlineSurfaces.length})
+            </Typography>
+            <Button
+              size="small"
+              onClick={() =>
+                inlineSurfaces.forEach((surface) =>
+                  backend.dismissSurface(surface.surfaceId),
+                )
+              }
+              sx={{ textTransform: "none", flexShrink: 0 }}
+            >
+              {t("surface.closeAll")}
+            </Button>
+          </Box>
+          {!surfacesCollapsed && (
+            <Box sx={{ overflowY: "auto", minHeight: 0, py: 1 }}>
+              <Container maxWidth="md">
+                <Box
+                  sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}
+                >
+                  {inlineSurfaces.map((surface) => (
+                    <SurfaceRenderer
+                      key={surface.surfaceId}
+                      surface={surface}
+                      onAction={backend.submitSurfaceAction}
+                      onClose={() => backend.dismissSurface(surface.surfaceId)}
+                      disabled={!backend.connected}
+                    />
+                  ))}
+                </Box>
+              </Container>
+            </Box>
+          )}
+        </Box>
+      )}
       {voiceCall.isCallActive ? (
         <VoiceCallBar
           callDuration={voiceCall.callDuration}
@@ -210,16 +306,12 @@ export default function ConversationsConversationPage() {
           onEndCall={voiceCall.endCall}
           onInterrupt={voiceCall.interruptAgent}
         />
-      ) : backend.pendingQuestions.length > 0 ? (
-        <QuestionPanel
-          questions={backend.pendingQuestions}
-          onSubmitAll={backend.answerQuestion}
-          disabled={!backend.connected}
-        />
-      ) : backend.pendingApprovals.length > 0 ? (
-        <ApprovalPanel
-          approvals={backend.pendingApprovals}
-          onResolve={backend.resolveApproval}
+      ) : backend.interrupts.length > 0 ? (
+        <InterruptRenderer
+          interrupts={backend.interrupts}
+          onAnswerQuestion={backend.answerQuestion}
+          onResolveApproval={backend.resolveApproval}
+          onSurfaceAction={backend.submitSurfaceAction}
           disabled={!backend.connected}
         />
       ) : (

@@ -280,7 +280,7 @@ export default function QuestionPanel({
         </Box>
 
         {/* Question text */}
-        <Typography variant="body2" sx={{ mb: 1.5 }}>
+        <Typography variant="body2" sx={{ mb: 1.5, overflowWrap: "anywhere" }}>
           {currentQ.question}
         </Typography>
 
@@ -346,7 +346,7 @@ export default function QuestionPanel({
           <Typography
             variant="caption"
             color="success.main"
-            sx={{ mt: 0.5, display: "block" }}
+            sx={{ mt: 0.5, display: "block", overflowWrap: "anywhere" }}
           >
             {a.selected}
           </Typography>

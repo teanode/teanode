@@ -42,6 +42,8 @@ function markdownStyles(theme: Theme) {
     ".markdown-content a": {
       color: palette.primary.main,
       textDecoration: "none",
+      // Break long unbroken URLs used as link text instead of overflowing.
+      overflowWrap: "anywhere" as const,
       "&:hover": { textDecoration: "underline" },
     },
     ".markdown-content code": {
@@ -50,6 +52,10 @@ function markdownStyles(theme: Theme) {
       fontSize: "13px",
       padding: "2px 5px",
       borderRadius: "3px",
+      // Break long inline tokens (paths, hashes) rather than overflow. Code in
+      // <pre> keeps white-space: pre, so block code still scrolls instead.
+      overflowWrap: "anywhere" as const,
+      wordBreak: "break-word" as const,
     },
     ".markdown-content .code-block": {
       position: "relative" as const,
@@ -125,7 +131,13 @@ function markdownStyles(theme: Theme) {
     ".markdown-content table": {
       borderCollapse: "collapse" as const,
       margin: "8px 0",
-      width: "100%",
+      // Size to content (narrow tables stay narrow) but cap at the container
+      // width and scroll horizontally when wider, so a wide table never pushes
+      // the bubble/chat column off-screen.
+      display: "block",
+      width: "max-content",
+      maxWidth: "100%",
+      overflowX: "auto" as const,
     },
     ".markdown-content th, .markdown-content td": {
       border: `1px solid ${palette.divider}`,
