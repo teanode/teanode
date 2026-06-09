@@ -4,6 +4,12 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.6.0] - 2026-06-09
+
+### Added
+
+- Manage approval policies for remote MCP server tools from the Tool Policies settings page, grouped by server. (#63)
+
 ## [0.5.0] - 2026-06-02
 
 ### Added
