@@ -216,6 +216,13 @@ func (self *webSocketConnection) handleSurfacesAction(frame requestFrame) (inter
 		})
 	}
 
+	// Auto-close the acted-on surface: an action resumes the conversation loop,
+	// so the surface has served its purpose. This also bounds broker growth.
+	if surface != nil {
+		broker.RemoveSurface(surface.SurfaceID)
+		self.broadcastSurfaceRemoved(parameters.ConversationID, surface.SurfaceID)
+	}
+
 	handle, runError := self.api.coordinator.Run(self.ctx, coordinators.RunParameters{
 		AgentID:         agentId,
 		ConversationID:  parameters.ConversationID,
@@ -232,6 +239,65 @@ func (self *webSocketConnection) handleSurfacesAction(frame requestFrame) (inter
 		"runId":          handle.RunID,
 		"conversationId": handle.ConversationID,
 	}, nil
+}
+
+// --- surfaces.close ---
+//
+// Dismisses a surface (or all surfaces in a conversation) at the user's
+// request, removing it from the broker so it does not rehydrate on reconnect
+// and notifying every client to drop it.
+
+func (self *webSocketConnection) handleSurfacesClose(frame requestFrame) (interface{}, error) {
+	var parameters struct {
+		ConversationID string `json:"conversationId"`
+		SurfaceID      string `json:"surfaceId,omitempty"`
+	}
+	if frame.Parameters != nil {
+		if err := json.Unmarshal(frame.Parameters, &parameters); err != nil {
+			return nil, rpcError(400, "invalid parameters: "+err.Error())
+		}
+	}
+	if parameters.ConversationID == "" {
+		return nil, rpcError(400, "conversationId is required")
+	}
+	if err := self.verifyConversationAccess(parameters.ConversationID); err != nil {
+		return nil, rpcError(403, err.Error())
+	}
+
+	broker := self.api.coordinator.SurfaceBroker()
+
+	// Close a single surface (validated against the conversation) or, when no id
+	// is given, every surface in the conversation.
+	var targets []*surfaces.Surface
+	if parameters.SurfaceID != "" {
+		surface := broker.LookupSurface(parameters.SurfaceID)
+		if surface != nil {
+			if surface.ConversationID != "" && surface.ConversationID != parameters.ConversationID {
+				return nil, rpcError(403, "surface does not belong to this conversation")
+			}
+			targets = append(targets, surface)
+		}
+	} else {
+		targets = broker.SurfacesForConversation(parameters.ConversationID)
+	}
+
+	for _, surface := range targets {
+		broker.RemoveSurface(surface.SurfaceID)
+		self.broadcastSurfaceRemoved(parameters.ConversationID, surface.SurfaceID)
+	}
+
+	return map[string]interface{}{"ok": true, "closed": len(targets)}, nil
+}
+
+// broadcastSurfaceRemoved notifies all of the owning user's clients that a
+// surface has been removed so they drop it from their rendered state.
+func (self *webSocketConnection) broadcastSurfaceRemoved(conversationId, surfaceId string) {
+	self.api.pubsub.Broadcast(pubsub.EventTypeConversationSurfaces, map[string]interface{}{
+		"action":         "removed",
+		"conversationId": conversationId,
+		"surfaceId":      surfaceId,
+		"userId":         self.userId(),
+	})
 }
 
 // buildSurfaceActionMessage turns a surface action into a concise, user-visible

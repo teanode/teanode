@@ -73,7 +73,7 @@ export default function QuestionCard({
           {t("tool.askUserQuestion")}
         </Typography>
       </Box>
-      <Typography variant="body2" sx={{ mb: 1.5 }}>
+      <Typography variant="body2" sx={{ mb: 1.5, overflowWrap: "anywhere" }}>
         {question.question}
       </Typography>
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>

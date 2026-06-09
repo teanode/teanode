@@ -2109,6 +2109,25 @@ export function useBackend() {
     [sendRpc],
   );
 
+  // Dismiss a surface (or all surfaces when no id is given) at the user's
+  // request. Removes it locally right away and asks the backend to drop it so
+  // it does not rehydrate on reconnect.
+  const dismissSurface = useCallback(
+    async (surfaceId?: string) => {
+      const convId = conversationIdRef.current;
+      if (!convId) return;
+      setSurfaces((prev) =>
+        surfaceId ? prev.filter((surface) => surface.surfaceId !== surfaceId) : [],
+      );
+      try {
+        await sendRpc("surfaces.close", { conversationId: convId, surfaceId });
+      } catch (error) {
+        console.error("surfaces.close:", error);
+      }
+    },
+    [sendRpc],
+  );
+
   useEffect(() => {
     if (connected && conversationId) {
       loadSurfaces(conversationId);
@@ -2214,6 +2233,7 @@ export function useBackend() {
     surfaces,
     interrupts,
     submitSurfaceAction,
+    dismissSurface,
     loadSurfaces,
     lastActiveRunState,
   };

@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import IconButton from "@mui/material/IconButton";
+import CloseRounded from "@mui/icons-material/CloseRounded";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -26,6 +28,8 @@ interface SurfaceRendererProps {
   surface: Surface;
   onAction: (action: SurfaceActionPayload) => void;
   disabled?: boolean;
+  /** When provided, renders a close button in the surface header. */
+  onClose?: () => void;
 }
 
 const STATUS_COLOR: Record<
@@ -49,7 +53,9 @@ export default function SurfaceRenderer({
   surface,
   onAction,
   disabled = false,
+  onClose,
 }: SurfaceRendererProps) {
+  const { t } = useTranslation();
   return (
     <Box
       sx={{
@@ -60,10 +66,33 @@ export default function SurfaceRenderer({
         p: 1.5,
       }}
     >
-      {surface.title && (
-        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-          {surface.title}
-        </Typography>
+      {(surface.title || onClose) && (
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            mb: 1,
+          }}
+        >
+          <Typography
+            variant="subtitle2"
+            sx={{ fontWeight: 600, flex: 1, minWidth: 0, overflowWrap: "anywhere" }}
+          >
+            {surface.title}
+          </Typography>
+          {onClose && (
+            <IconButton
+              size="small"
+              onClick={onClose}
+              aria-label={t("surface.close")}
+              title={t("surface.close")}
+              sx={{ flexShrink: 0, m: -0.5 }}
+            >
+              <CloseRounded fontSize="small" />
+            </IconButton>
+          )}
+        </Box>
       )}
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
         {surface.components.map((component, index) => (
@@ -134,7 +163,8 @@ function ComponentRenderer({
     case "Markdown":
       return (
         <Box
-          sx={{ fontSize: "0.9rem", "& p": { my: 0.5 } }}
+          className="markdown-content"
+          sx={{ fontSize: "0.9rem", minWidth: 0, "& p": { my: 0.5 } }}
           dangerouslySetInnerHTML={{
             __html: renderMarkdown(component.text ?? ""),
           }}
@@ -165,15 +195,20 @@ function ComponentRenderer({
       return (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
           {(component.items ?? []).map((item, index) => (
-            <Box key={index} sx={{ display: "flex", gap: 1 }}>
+            <Box key={index} sx={{ display: "flex", gap: 1, minWidth: 0 }}>
               <Typography
                 variant="body2"
                 color="text.secondary"
-                sx={{ minWidth: 120, fontWeight: 500 }}
+                sx={{ minWidth: 120, flexShrink: 0, fontWeight: 500 }}
               >
                 {item.key}
               </Typography>
-              <Typography variant="body2">{item.value}</Typography>
+              <Typography
+                variant="body2"
+                sx={{ minWidth: 0, overflowWrap: "anywhere" }}
+              >
+                {item.value}
+              </Typography>
             </Box>
           ))}
         </Box>
@@ -196,7 +231,12 @@ function ComponentRenderer({
               {(component.rows ?? []).map((row, rowIndex) => (
                 <TableRow key={rowIndex}>
                   {row.map((cell, cellIndex) => (
-                    <TableCell key={cellIndex}>{cell}</TableCell>
+                    <TableCell
+                      key={cellIndex}
+                      sx={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+                    >
+                      {cell}
+                    </TableCell>
                   ))}
                 </TableRow>
               ))}
@@ -207,12 +247,21 @@ function ComponentRenderer({
 
     case "StatusBadge":
       return (
-        <Box>
+        <Box sx={{ minWidth: 0 }}>
           <Chip
             label={component.label ?? component.status ?? ""}
             size="small"
             color={badgeColor(component.status)}
             variant="outlined"
+            sx={{
+              maxWidth: "100%",
+              height: "auto",
+              "& .MuiChip-label": {
+                whiteSpace: "normal",
+                overflowWrap: "anywhere",
+                py: 0.25,
+              },
+            }}
           />
         </Box>
       );

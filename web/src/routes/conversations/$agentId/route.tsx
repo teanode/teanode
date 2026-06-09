@@ -94,6 +94,7 @@ export default function ConversationsAgentLayout() {
             <SurfaceSidePanel
               surfaces={backend.surfaces}
               onAction={backend.submitSurfaceAction}
+              onClose={backend.dismissSurface}
               disabled={!backend.connected}
             />
           )}

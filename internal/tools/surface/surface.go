@@ -18,7 +18,7 @@ import (
 
 func init() {
 	tools.RegisterBuiltinTool(func() []tools.Tool {
-		return []tools.Tool{&renderSurfaceTool{}}
+		return []tools.Tool{&renderSurfaceTool{}, &closeSurfaceTool{}}
 	})
 }
 
@@ -29,20 +29,35 @@ func (self *renderSurfaceTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name: "render_surface",
-			Description: "Render a schema-driven generative UI surface in the web app. " +
-				"A surface is a declarative, non-executable fragment built from a small " +
-				"component catalog. Only works on the web UI channel. " +
-				"Component types: Section{title,children}, Markdown{text}, " +
+			Description: "Render an interactive, schema-driven UI surface directly in the web " +
+				"chat — forms, choices, confirmations, buttons, tables, status, and dashboards. " +
+				"Use this whenever the user asks for an interactive UI, or whenever a form, a set " +
+				"of choices, a confirmation, or a structured/tabular view would serve the user " +
+				"better than plain text. " +
+				"IMPORTANT: displaying a surface REQUIRES calling this tool. Do NOT write a " +
+				"```surface code block, and do NOT paste surface/component JSON into your reply — " +
+				"that only shows raw text and renders nothing. Call this tool instead. " +
+				"A surface is declarative and non-executable, built from this component catalog: " +
+				"Section{title,children}, Markdown{text}, " +
 				"KeyValueList{items:[{key,value}]}, Table{columns:[],rows:[[]]}, " +
 				"StatusBadge{status,label} (status: success|warning|error|info|neutral), " +
 				"ButtonRow{buttons:[{label,actionId,style,value}]}, " +
 				"Form{fields:[{type,name,label,placeholder,options,required,defaultValue}],submitLabel,submitActionId} " +
 				"(field type: TextInput|Textarea|Select|Checkbox), " +
 				"CodeBlock{text,language}, Timeline{events:[{title,timestamp,description,status}]}. " +
-				"Button and form submissions are sent back to you as a user message.",
+				"Button clicks and form submissions are sent back to you as a user message, so you " +
+				"can react to them. After a user acts on a surface it is closed automatically; to " +
+				"update or replace a surface you already rendered, call this again with its " +
+				"surfaceId. To dismiss a surface without replacing it, use close_surface. " +
+				"Available only on the web UI channel; on other channels this tool returns an error, " +
+				"so fall back to plain text there.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"surfaceId": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional id of a surface you previously rendered, to replace/update it in place. Omit to create a new surface.",
+					},
 					"title": map[string]interface{}{
 						"type":        "string",
 						"description": "Optional surface title shown in its header.",
@@ -85,6 +100,7 @@ func (self *renderSurfaceTool) Execute(ctx context.Context, rawArguments string)
 	}
 
 	var arguments struct {
+		SurfaceID  string                      `json:"surfaceId"`
 		Title      string                      `json:"title"`
 		Location   string                      `json:"location"`
 		Components []surfaces.SurfaceComponent `json:"components"`
@@ -98,6 +114,13 @@ func (self *renderSurfaceTool) Execute(ctx context.Context, rawArguments string)
 		location = surfaces.SurfaceLocationInline
 	}
 
+	// Reuse the caller-supplied id to replace an existing surface in place;
+	// otherwise mint a new one.
+	surfaceId := arguments.SurfaceID
+	if surfaceId == "" {
+		surfaceId = security.NewULID()
+	}
+
 	broker := surfaces.SurfaceBrokerFromContext(ctx)
 	if broker == nil {
 		return "", fmt.Errorf("surface: surface broker not available")
@@ -108,7 +131,7 @@ func (self *renderSurfaceTool) Execute(ctx context.Context, rawArguments string)
 	}
 
 	surface := &surfaces.Surface{
-		SurfaceID:      security.NewULID(),
+		SurfaceID:      surfaceId,
 		SchemaVersion:  surfaces.SchemaVersion,
 		Location:       location,
 		Title:          arguments.Title,
@@ -142,6 +165,111 @@ func (self *renderSurfaceTool) Execute(ctx context.Context, rawArguments string)
 	result, _ := json.Marshal(map[string]string{
 		"status":    "rendered",
 		"surfaceId": surface.SurfaceID,
+	})
+	return string(result), nil
+}
+
+// broadcastSurfaceRemoved notifies the owning user's clients to drop a surface.
+func broadcastSurfaceRemoved(ctx context.Context, conversationId, surfaceId string) {
+	publisher := pubsub.PubSubFromContext(ctx)
+	if publisher == nil {
+		return
+	}
+	event := map[string]interface{}{
+		"action":         "removed",
+		"conversationId": conversationId,
+		"surfaceId":      surfaceId,
+	}
+	if user := models.UserFromContext(ctx); user != nil {
+		event["userId"] = user.ID
+	}
+	publisher.Broadcast(pubsub.EventTypeConversationSurfaces, event)
+}
+
+type closeSurfaceTool struct{}
+
+func (self *closeSurfaceTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
+		Type: "function",
+		Function: providers.FunctionSpec{
+			Name: "close_surface",
+			Description: "Close (dismiss) a generative UI surface you previously rendered with " +
+				"render_surface, removing it from the web chat. Pass the surfaceId returned by " +
+				"render_surface to close one, or omit surfaceId to close all surfaces in this " +
+				"conversation. Use this when a surface is no longer relevant. To update a surface " +
+				"instead of closing it, call render_surface again with the same surfaceId. " +
+				"Available only on the web UI channel.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"surfaceId": map[string]interface{}{
+						"type":        "string",
+						"description": "Id of the surface to close. Omit to close every surface in the conversation.",
+					},
+				},
+			},
+		},
+	}
+}
+
+func (self *closeSurfaceTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
+}
+
+func (self *closeSurfaceTool) Execute(ctx context.Context, rawArguments string) (string, error) {
+	origin := runners.OriginFromContext(ctx)
+	if origin != runners.OriginWeb {
+		channel := string(origin)
+		if channel == "" {
+			channel = "automated"
+		}
+		result, _ := json.Marshal(map[string]string{
+			"error": fmt.Sprintf("close_surface is not supported on the %s channel", channel),
+		})
+		return string(result), nil
+	}
+
+	var arguments struct {
+		SurfaceID string `json:"surfaceId"`
+	}
+	if rawArguments != "" {
+		if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
+			return "", fmt.Errorf("surface: parsing arguments: %w", err)
+		}
+	}
+
+	broker := surfaces.SurfaceBrokerFromContext(ctx)
+	if broker == nil {
+		return "", fmt.Errorf("surface: surface broker not available")
+	}
+	runner := runners.RunnerFromContext(ctx)
+	if runner == nil {
+		return "", fmt.Errorf("surface: runner context not available")
+	}
+	conversationId := runner.ConversationID
+
+	// Close a single surface (validated against this conversation) or all of the
+	// conversation's surfaces when no id is supplied.
+	var targets []*surfaces.Surface
+	if arguments.SurfaceID != "" {
+		surface := broker.LookupSurface(arguments.SurfaceID)
+		if surface != nil && (surface.ConversationID == "" || surface.ConversationID == conversationId) {
+			targets = append(targets, surface)
+		}
+	} else {
+		targets = broker.SurfacesForConversation(conversationId)
+	}
+
+	for _, surface := range targets {
+		broker.RemoveSurface(surface.SurfaceID)
+		broadcastSurfaceRemoved(ctx, conversationId, surface.SurfaceID)
+	}
+
+	result, _ := json.Marshal(map[string]interface{}{
+		"status": "closed",
+		"closed": len(targets),
 	})
 	return string(result), nil
 }

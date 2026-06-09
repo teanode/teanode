@@ -200,6 +200,8 @@ func (self *webSocketConnection) handleRpc(frame requestFrame) (interface{}, err
 		return self.handleSurfacesEmit(frame)
 	case "surfaces.action":
 		return self.handleSurfacesAction(frame)
+	case "surfaces.close":
+		return self.handleSurfacesClose(frame)
 
 	// Tab integration.
 	case "tab.attach":

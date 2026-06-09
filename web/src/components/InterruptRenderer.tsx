@@ -114,7 +114,10 @@ function RichInterruptCard({
         }}
       >
         {interrupt.prompt && (
-          <Typography variant="body2" sx={{ px: 1.5, pt: 1 }}>
+          <Typography
+            variant="body2"
+            sx={{ px: 1.5, pt: 1, overflowWrap: "anywhere" }}
+          >
             {interrupt.prompt}
           </Typography>
         )}

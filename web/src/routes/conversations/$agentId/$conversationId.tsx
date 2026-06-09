@@ -1,8 +1,14 @@
 import React, { useEffect, useCallback, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { useAppContext, useStreamingContext } from "../../../context";
 import Container from "@mui/material/Container";
 import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
+import ExpandLessRounded from "@mui/icons-material/ExpandLessRounded";
 import MessageList from "../../../components/MessageList";
 import TodoPanel from "../../../components/TodoPanel";
 import InputArea from "../../../components/InputArea";
@@ -24,6 +30,7 @@ export default function ConversationsConversationPage() {
     conversationId: string;
   };
   useStreamingContext();
+  const { t } = useTranslation();
   const {
     backend,
     voiceAutoSend,
@@ -33,6 +40,7 @@ export default function ConversationsConversationPage() {
     showToolCalls,
     showTokenUsage,
   } = useAppContext();
+  const [surfacesCollapsed, setSurfacesCollapsed] = useState(false);
   const agent = backend.agents.find((agent) => agent.id === agentId);
   const agentName = agent?.name || agentId;
   const [profile, setProfile] = useState<Profile>({
@@ -204,18 +212,79 @@ export default function ConversationsConversationPage() {
         onToggleCollapsed={setTodosPanelCollapsed}
       />
       {inlineSurfaces.length > 0 && (
-        <Container maxWidth="md" sx={{ py: 1 }}>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-            {inlineSurfaces.map((surface) => (
-              <SurfaceRenderer
-                key={surface.surfaceId}
-                surface={surface}
-                onAction={backend.submitSurfaceAction}
-                disabled={!backend.connected}
-              />
-            ))}
+        <Box
+          sx={{
+            flexShrink: 0,
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+            // Cap the panel so a tall surface can never push the conversation
+            // off-screen; it scrolls internally instead.
+            maxHeight: "45vh",
+            borderTop: 1,
+            borderColor: "divider",
+            bgcolor: "background.default",
+          }}
+        >
+          <Box
+            sx={{
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              px: 2,
+              py: 0.5,
+            }}
+          >
+            <IconButton
+              size="small"
+              onClick={() => setSurfacesCollapsed((value) => !value)}
+              aria-label={t(
+                surfacesCollapsed ? "surface.expand" : "surface.collapse",
+              )}
+              sx={{ m: -0.5 }}
+            >
+              {surfacesCollapsed ? (
+                <ExpandLessRounded fontSize="small" />
+              ) : (
+                <ExpandMoreRounded fontSize="small" />
+              )}
+            </IconButton>
+            <Typography
+              variant="caption"
+              sx={{ fontWeight: 600, flex: 1, minWidth: 0 }}
+            >
+              {t("surface.panelTitle")}
+              {inlineSurfaces.length > 1 ? ` (${inlineSurfaces.length})` : ""}
+            </Typography>
+            <Button
+              size="small"
+              onClick={() => backend.dismissSurface()}
+              sx={{ textTransform: "none", flexShrink: 0 }}
+            >
+              {t("surface.closeAll")}
+            </Button>
           </Box>
-        </Container>
+          {!surfacesCollapsed && (
+            <Box sx={{ overflowY: "auto", minHeight: 0, py: 1 }}>
+              <Container maxWidth="md">
+                <Box
+                  sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}
+                >
+                  {inlineSurfaces.map((surface) => (
+                    <SurfaceRenderer
+                      key={surface.surfaceId}
+                      surface={surface}
+                      onAction={backend.submitSurfaceAction}
+                      onClose={() => backend.dismissSurface(surface.surfaceId)}
+                      disabled={!backend.connected}
+                    />
+                  ))}
+                </Box>
+              </Container>
+            </Box>
+          )}
+        </Box>
       )}
       {voiceCall.isCallActive ? (
         <VoiceCallBar

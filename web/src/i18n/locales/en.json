@@ -343,7 +343,12 @@
     "panel": "Panel",
     "submit": "Submit",
     "approve": "Approve",
-    "reject": "Reject"
+    "reject": "Reject",
+    "close": "Close",
+    "panelTitle": "Interactive UI",
+    "closeAll": "Close all",
+    "collapse": "Collapse",
+    "expand": "Expand"
   },
   "auth": {
     "loginTitle": "Welcome back",

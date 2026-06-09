@@ -9,6 +9,8 @@ import type { Surface, SurfaceActionPayload } from "../types";
 interface SurfaceSidePanelProps {
   surfaces: Surface[];
   onAction: (action: SurfaceActionPayload) => Promise<void> | void;
+  /** Dismiss a single right-panel surface. */
+  onClose?: (surfaceId: string) => void;
   disabled?: boolean;
 }
 
@@ -19,6 +21,7 @@ interface SurfaceSidePanelProps {
 export default function SurfaceSidePanel({
   surfaces,
   onAction,
+  onClose,
   disabled = false,
 }: SurfaceSidePanelProps) {
   const { t } = useTranslation();
@@ -60,6 +63,7 @@ export default function SurfaceSidePanel({
       <Box
         sx={{
           flex: 1,
+          minWidth: 0,
           overflowY: "auto",
           px: 2,
           py: 2,
@@ -73,6 +77,7 @@ export default function SurfaceSidePanel({
             key={surface.surfaceId}
             surface={surface}
             onAction={onAction}
+            onClose={() => onClose?.(surface.surfaceId)}
             disabled={disabled}
           />
         ))}
