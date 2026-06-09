@@ -165,15 +165,6 @@ const settingsTokensRoute = createRoute({
   component: SettingsTokensPage,
 });
 
-// /settings/connections → merged into /settings/mcp; redirect for old links.
-const settingsConnectionsRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "connections",
-  beforeLoad: () => {
-    throw redirect({ to: "/settings/mcp" });
-  },
-});
-
 // /settings/mcp → MCP server definition management (admin only)
 const settingsMcpServersRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -306,7 +297,6 @@ const routeTree = rootRoute.addChildren([
     settingsProfileRoute,
     settingsPreferencesRoute,
     settingsTokensRoute,
-    settingsConnectionsRoute,
     settingsMcpServersRoute,
     settingsPasswordRoute,
     settingsSessionsRoute,
