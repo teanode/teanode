@@ -21,7 +21,6 @@ import SettingsSectionPage from "./routes/settings/$sectionId";
 import SettingsPreferencesPage from "./routes/settings/preferences";
 import SettingsProfilePage from "./routes/settings/profile";
 import SettingsTokensPage from "./routes/settings/tokens";
-import SettingsConnectionsPage from "./routes/settings/connections";
 import SettingsMcpServersPage from "./routes/settings/mcpServers";
 import SettingsPasswordPage from "./routes/settings/password";
 import SettingsSessionsPage from "./routes/settings/sessions";
@@ -166,11 +165,13 @@ const settingsTokensRoute = createRoute({
   component: SettingsTokensPage,
 });
 
-// /settings/connections → per-user MCP server connections (also the OAuth landing)
+// /settings/connections → merged into /settings/mcp; redirect for old links.
 const settingsConnectionsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "connections",
-  component: SettingsConnectionsPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/mcp" });
+  },
 });
 
 // /settings/mcp → MCP server definition management (admin only)

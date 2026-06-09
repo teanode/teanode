@@ -19,7 +19,7 @@ const mcpOAuthCallbackPath = "/api/mcp/oauth/callback"
 
 // frontendConnectionsPath is where the browser is sent after the callback
 // completes so the user sees the outcome.
-const frontendConnectionsPath = "/settings/connections"
+const frontendConnectionsPath = "/settings/mcp"
 
 // handleMcpOAuthCallback completes the OAuth authorization-code flow. The OAuth
 // provider redirects the user's browser here with a code and the CSRF state
