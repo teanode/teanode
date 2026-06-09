@@ -71,6 +71,13 @@ func sanitizeNameComponent(value string) string {
 	return unsafeNameCharacters.ReplaceAllString(value, "_")
 }
 
+// IsToolName reports whether name is a namespaced remote MCP tool name
+// ("mcp__server__tool"), as produced by namespacedName. Callers use it to
+// recognize MCP tool policies without re-discovering the server.
+func IsToolName(name string) bool {
+	return strings.HasPrefix(name, namePrefix+nameSeparator)
+}
+
 // Definition implements tools.Tool.
 func (self *toolAdapter) Definition() providers.ToolDefinition {
 	parameters := interface{}(self.inputSchema)

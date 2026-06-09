@@ -36,6 +36,46 @@ func RegisterConfiguredTools(ctx context.Context, registry *tools.ToolRegistry) 
 	recordDiscoveryOutcomes(ctx, outcomes)
 }
 
+// ToolPolicyEntry describes a discovered remote MCP tool for tool-policy
+// management: the namespaced registry name plus the server and bare tool name
+// (for hierarchical display), and the policy groups the tool exposes.
+type ToolPolicyEntry struct {
+	Name       string
+	ServerName string
+	ToolName   string
+	Groups     []tools.PolicyGroup
+}
+
+// ConfiguredToolPolicyEntries discovers the tools of every MCP server available
+// in ctx (shared servers plus the authenticated user's connected user/oauth
+// servers) and returns one entry per tool. Discovery uses the shared manager's
+// cache, so repeated calls are cheap; servers that fail discovery are skipped so
+// one unreachable server does not hide the rest.
+func ConfiguredToolPolicyEntries(ctx context.Context) []ToolPolicyEntry {
+	servers := resolveServers(ctx)
+	var entries []ToolPolicyEntry
+	for _, server := range servers {
+		remoteTools, _, err := defaultManager.discover(ctx, server)
+		if err != nil {
+			log.Warningf("mcp: policy discovery for %q: %v", server.Name, err)
+			continue
+		}
+		for _, remote := range remoteTools {
+			if strings.TrimSpace(remote.Name) == "" {
+				continue
+			}
+			adapter := newToolAdapter(server, remote)
+			entries = append(entries, ToolPolicyEntry{
+				Name:       adapter.displayName,
+				ServerName: server.Name,
+				ToolName:   remote.Name,
+				Groups:     adapter.PolicyGroups(),
+			})
+		}
+	}
+	return entries
+}
+
 // recordDiscoveryOutcomes reflects fresh discovery results onto the per-user
 // connection status: a server reachable with the user's credential is marked
 // connected, and one that fails (bad credential, unreachable) is marked error so
