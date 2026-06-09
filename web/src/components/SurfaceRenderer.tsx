@@ -77,7 +77,12 @@ export default function SurfaceRenderer({
         >
           <Typography
             variant="subtitle2"
-            sx={{ fontWeight: 600, flex: 1, minWidth: 0, overflowWrap: "anywhere" }}
+            sx={{
+              fontWeight: 600,
+              flex: 1,
+              minWidth: 0,
+              overflowWrap: "anywhere",
+            }}
           >
             {surface.title}
           </Typography>

@@ -2117,7 +2117,9 @@ export function useBackend() {
       const convId = conversationIdRef.current;
       if (!convId) return;
       setSurfaces((prev) =>
-        surfaceId ? prev.filter((surface) => surface.surfaceId !== surfaceId) : [],
+        surfaceId
+          ? prev.filter((surface) => surface.surfaceId !== surfaceId)
+          : [],
       );
       // Drop any interrupt routed through the dismissed surface so it does not
       // linger as a pending card with no surface behind it.
