@@ -125,3 +125,27 @@ func sliceValue(value *[]string) []string {
 	}
 	return valuesCopy
 }
+
+// stringSlicePointer returns a pointer to a verbatim copy of values, or nil when
+// empty. Unlike sliceValue it preserves entries as-is (no trimming) because
+// command arguments may be meaningfully whitespace-bearing.
+func stringSlicePointer(values []string) *[]string {
+	if len(values) == 0 {
+		return nil
+	}
+	valuesCopy := make([]string, len(values))
+	copy(valuesCopy, values)
+	return &valuesCopy
+}
+
+// stringMapPointer returns a pointer to a copy of values, or nil when empty.
+func stringMapPointer(values map[string]string) *map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	valuesCopy := make(map[string]string, len(values))
+	for key, value := range values {
+		valuesCopy[key] = value
+	}
+	return &valuesCopy
+}

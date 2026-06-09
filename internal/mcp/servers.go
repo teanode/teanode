@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -434,10 +435,11 @@ func configurationHasUserScopedServer(configuration *models.Configuration) bool 
 	return false
 }
 
-// forEachConfiguredServer invokes register for each enabled, uniquely-named, URL-bearing
-// MCP server in the configuration, passing a base ServerConfiguration (with the
-// Authorization left unset) and the server's resolved auth mode. Disabled,
-// duplicate, and incomplete entries are dropped (and logged).
+// forEachConfiguredServer invokes register for each enabled, uniquely-named MCP
+// server in the configuration, passing a base ServerConfiguration (with the
+// Authorization left unset) and the server's resolved auth mode. HTTP servers
+// require a valid URL; stdio servers require a command. Disabled, duplicate, and
+// incomplete entries are dropped (and logged).
 func forEachConfiguredServer(configuration *models.Configuration, register func(base ServerConfiguration, mode models.MCPServerAuthMode, server *models.MCPServerConfiguration)) {
 	if configuration == nil || configuration.Tools == nil || configuration.Tools.MCP == nil {
 		return
@@ -453,13 +455,43 @@ func forEachConfiguredServer(configuration *models.Configuration, register func(
 			continue
 		}
 		name := strings.TrimSpace(server.GetName())
-		serverUrl := strings.TrimSpace(server.GetURL())
-		if name == "" || serverUrl == "" {
-			log.Warningf("mcp: skipping server with empty name or url")
+		if name == "" {
+			log.Warningf("mcp: skipping server with empty name")
 			continue
 		}
 		if seen[name] {
 			log.Warningf("mcp: skipping duplicate server name %q", name)
+			continue
+		}
+		timeout := defaultTimeout
+		if seconds := server.GetTimeoutSeconds(); seconds > 0 {
+			timeout = time.Duration(seconds) * time.Second
+		}
+
+		if server.ResolvedTransport() == models.MCPServerTransportStdio {
+			command := strings.TrimSpace(server.GetCommand())
+			if command == "" {
+				log.Warningf("mcp: skipping stdio server %q: no command", name)
+				continue
+			}
+			seen[name] = true
+			// Stdio servers run as a local subprocess and use no HTTP auth; they
+			// are shared across users like a "none"-auth server.
+			register(ServerConfiguration{
+				Name:        name,
+				Transport:   TransportStdio,
+				Command:     command,
+				Arguments:   append([]string(nil), server.GetArgs()...),
+				Environment: stdioEnvEntries(server.GetEnv()),
+				WorkingDir:  strings.TrimSpace(server.GetWorkingDir()),
+				Timeout:     timeout,
+			}, models.MCPServerAuthNone, server)
+			continue
+		}
+
+		serverUrl := strings.TrimSpace(server.GetURL())
+		if serverUrl == "" {
+			log.Warningf("mcp: skipping server %q with empty url", name)
 			continue
 		}
 		parsedUrl, urlError := validateServerUrl(serverUrl)
@@ -475,10 +507,21 @@ func forEachConfiguredServer(configuration *models.Configuration, register func(
 		if mode != models.MCPServerAuthNone && parsedUrl.Scheme == "http" && !isLoopbackHost(parsedUrl.Hostname()) {
 			log.Warningf("mcp: server %q sends credentials over plaintext http to %q; use https", name, parsedUrl.Host)
 		}
-		timeout := defaultTimeout
-		if seconds := server.GetTimeoutSeconds(); seconds > 0 {
-			timeout = time.Duration(seconds) * time.Second
-		}
-		register(ServerConfiguration{Name: name, URL: serverUrl, Timeout: timeout}, mode, server)
+		register(ServerConfiguration{Name: name, Transport: TransportHTTP, URL: serverUrl, Timeout: timeout}, mode, server)
 	}
+}
+
+// stdioEnvEntries flattens a server's environment map into the sorted
+// "KEY=VALUE" entries the subprocess transport expects. Sorting keeps the
+// discovery cache signature stable across runs (map iteration order is random).
+func stdioEnvEntries(environment map[string]string) []string {
+	if len(environment) == 0 {
+		return nil
+	}
+	entries := make([]string, 0, len(environment))
+	for key, value := range environment {
+		entries = append(entries, key+"="+value)
+	}
+	sort.Strings(entries)
+	return entries
 }

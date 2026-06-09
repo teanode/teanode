@@ -193,6 +193,7 @@
     "toolPolicySaveFailed": "Failed to save policies.",
     "toolPolicyCustomized": "Customized",
     "toolPolicyMcp": "MCP",
+    "toolPolicyServerAll": "All tools",
     "noProjects": "No projects found",
     "projectUpdated": "Updated: {{updated}}",
     "projectRenamed": "{{name}} renamed",
@@ -484,6 +485,57 @@
       "connected": "Connected",
       "error": "Error",
       "disconnected": "Not connected"
+    }
+  },
+  "mcpServers": {
+    "title": "MCP",
+    "description": "MCP servers configured on this node and your connections to them. Administrators can add and manage servers.",
+    "adminOnly": "Only administrators can manage MCP servers.",
+    "add": "Add server",
+    "addTitle": "Add MCP server",
+    "editTitle": "Edit {{server}}",
+    "empty": "No MCP servers configured yet.",
+    "unnamed": "(unnamed)",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "enable": "Enable",
+    "disable": "Disable",
+    "delete": "Delete",
+    "deleteTitle": "Delete server",
+    "deleteMessage": "Delete the MCP server \"{{server}}\"? Its tools will no longer be available.",
+    "deleted": "Deleted {{server}}",
+    "loadFailed": "Failed to load MCP servers",
+    "saveFailed": "Failed to save MCP servers",
+    "transport": {
+      "http": "HTTP (remote)",
+      "stdio": "Stdio (local)"
+    },
+    "fields": {
+      "name": "Name",
+      "transport": "Transport",
+      "url": "URL",
+      "command": "Command",
+      "args": "Arguments",
+      "argsHelp": "One argument per line.",
+      "env": "Environment",
+      "envHelp": "One KEY=VALUE per line.",
+      "workingDir": "Working directory",
+      "authMode": "Authentication",
+      "authorization": "Authorization header",
+      "oauthClientId": "OAuth client ID",
+      "oauthClientSecret": "OAuth client secret",
+      "oauthScopes": "OAuth scopes",
+      "oauthAuthorizationUrl": "OAuth authorization URL",
+      "oauthTokenUrl": "OAuth token URL",
+      "timeoutSeconds": "Timeout (seconds)"
+    },
+    "errors": {
+      "nameRequired": "Name is required",
+      "nameDuplicate": "A server with this name already exists",
+      "urlRequired": "URL is required",
+      "urlInvalid": "URL must start with http:// or https://",
+      "commandRequired": "Command is required",
+      "timeoutInvalid": "Timeout must be a positive whole number"
     }
   }
 }

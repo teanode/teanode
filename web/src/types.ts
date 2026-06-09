@@ -642,9 +642,16 @@ export type MCPConnectionStatus =
  * User-facing view of an admin-configured MCP server, combined with the current
  * user's connection state. Never carries any credential.
  */
+export type MCPServerTransport = "http" | "stdio";
+
 export interface MCPServerListItem {
   name: string;
-  url: string;
+  /** "http" for a remote URL server, "stdio" for a local subprocess server. */
+  transport: MCPServerTransport;
+  /** Set for http-transport servers. */
+  url?: string;
+  /** Launch command (with arguments) for stdio-transport servers. */
+  command?: string;
   authMode: MCPServerAuthMode;
   enabled: boolean;
   requiresConnection: boolean;

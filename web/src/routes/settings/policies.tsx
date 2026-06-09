@@ -95,6 +95,74 @@ function mapToPolicies(policyMap: PolicyMap): ToolPolicyConfiguration[] {
   });
 }
 
+/**
+ * The five-way policy selector. `value` is the currently selected level, or null
+ * to show nothing selected (used for an MCP server whose tools have mixed
+ * policies). `defaultLevel` underlines the default option.
+ */
+function LevelToggleGroup({
+  value,
+  defaultLevel,
+  onChange,
+}: {
+  value: ToolPolicyLevel | null;
+  defaultLevel: ToolPolicyLevel | null;
+  onChange: (level: ToolPolicyLevel) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <ToggleButtonGroup
+      size="small"
+      exclusive
+      value={value}
+      onChange={(_, next: ToolPolicyLevel | null) => {
+        if (next !== null) onChange(next);
+      }}
+      sx={{ flexWrap: "nowrap" }}
+    >
+      {POLICY_LEVELS.map((option) => {
+        const isDefault = option.value === defaultLevel;
+        return (
+          <ToggleButton
+            key={option.value}
+            value={option.value}
+            sx={{
+              px: 0.75,
+              py: 0.25,
+              fontSize: "11px",
+              textTransform: "none",
+              whiteSpace: "nowrap",
+              gap: 0.5,
+              ...(isDefault && value !== option.value
+                ? {
+                    borderBottomWidth: 2,
+                    borderBottomColor: "primary.main",
+                    borderBottomStyle: "solid",
+                  }
+                : {}),
+            }}
+          >
+            <Tooltip
+              title={
+                t(option.labelKey) +
+                (isDefault ? ` (${t("common.default")})` : "")
+              }
+              arrow
+            >
+              <Box
+                component="span"
+                sx={{ display: "flex", alignItems: "center" }}
+              >
+                {option.icon}
+              </Box>
+            </Tooltip>
+          </ToggleButton>
+        );
+      })}
+    </ToggleButtonGroup>
+  );
+}
+
 export default function SettingsToolPoliciesPage() {
   const { t } = useTranslation();
   const { backend } = useAppContext();
@@ -172,6 +240,66 @@ export default function SettingsToolPoliciesPage() {
     } catch (error) {
       console.error("toolPolicies.update:", error);
       // Revert optimistic update on failure.
+      setPolicies(previous);
+      showAlert(t("settings.toolPolicySaveFailed"), "error");
+    }
+  };
+
+  // Every (tool, group) pair belonging to one MCP server, with each pair's
+  // default level — the targets of a server-wide batch change.
+  const serverGroups = (
+    server: string,
+  ): { key: string; defaultLevel: ToolPolicyLevel }[] => {
+    const result: { key: string; defaultLevel: ToolPolicyLevel }[] = [];
+    for (const toolEntry of tools) {
+      if (toolEntry.source !== "mcp" || (toolEntry.server ?? "") !== server) {
+        continue;
+      }
+      for (const groupEntry of toolEntry.groups) {
+        result.push({
+          key: policyKey(toolEntry.name, groupEntry.group),
+          defaultLevel: groupEntry.defaultPolicy,
+        });
+      }
+    }
+    return result;
+  };
+
+  // The level shared by every tool of a server, or null when they differ (or
+  // the server has no discovered tools) — drives the batch selector's value.
+  const sharedLevel = (
+    targets: { key: string; defaultLevel: ToolPolicyLevel }[],
+    pick: (target: {
+      key: string;
+      defaultLevel: ToolPolicyLevel;
+    }) => ToolPolicyLevel,
+  ): ToolPolicyLevel | null => {
+    let common: ToolPolicyLevel | null = null;
+    for (const target of targets) {
+      const level = pick(target);
+      if (common === null) common = level;
+      else if (common !== level) return null;
+    }
+    return common;
+  };
+
+  // Apply one level to every tool of a server in a single save.
+  const handleServerChange = async (server: string, level: ToolPolicyLevel) => {
+    const previous = { ...policies };
+    const next = { ...policies };
+    for (const { key, defaultLevel } of serverGroups(server)) {
+      // Selecting the default clears the override, matching per-tool behavior.
+      if (level === defaultLevel) delete next[key];
+      else next[key] = level;
+    }
+    setPolicies(next);
+    try {
+      await backend.sendRpc("toolPolicies.update", {
+        policies: mapToPolicies(next),
+      });
+      showAlert(t("settings.toolPolicySaved"));
+    } catch (error) {
+      console.error("toolPolicies.update:", error);
       setPolicies(previous);
       showAlert(t("settings.toolPolicySaveFailed"), "error");
     }
@@ -266,6 +394,15 @@ export default function SettingsToolPoliciesPage() {
               <TableBody>
                 {rows.map((row, index) => {
                   if (row.kind === "section") {
+                    const targets = serverGroups(row.label);
+                    const batchValue = sharedLevel(
+                      targets,
+                      (target) => policies[target.key] ?? target.defaultLevel,
+                    );
+                    const batchDefault = sharedLevel(
+                      targets,
+                      (target) => target.defaultLevel,
+                    );
                     return (
                       <TableRow key={`section-${row.label}-${index}`}>
                         <TableCell
@@ -276,24 +413,59 @@ export default function SettingsToolPoliciesPage() {
                             sx={{
                               display: "flex",
                               alignItems: "center",
-                              gap: 0.75,
+                              justifyContent: "space-between",
+                              flexWrap: "wrap",
+                              gap: 1,
                             }}
                           >
-                            <HubRounded
-                              sx={{ fontSize: 15, color: "text.secondary" }}
-                            />
-                            <Typography
-                              variant="body2"
-                              sx={{ fontWeight: 600 }}
+                            <Box
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 0.75,
+                                minWidth: 0,
+                              }}
                             >
-                              {row.label}
-                            </Typography>
-                            <Chip
-                              label={t("settings.toolPolicyMcp")}
-                              size="small"
-                              variant="outlined"
-                              sx={{ fontSize: "10px", height: 18 }}
-                            />
+                              <HubRounded
+                                sx={{ fontSize: 15, color: "text.secondary" }}
+                              />
+                              <Typography
+                                variant="body2"
+                                sx={{ fontWeight: 600 }}
+                              >
+                                {row.label}
+                              </Typography>
+                              <Chip
+                                label={t("settings.toolPolicyMcp")}
+                                size="small"
+                                variant="outlined"
+                                sx={{ fontSize: "10px", height: 18 }}
+                              />
+                            </Box>
+                            {targets.length > 0 && (
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 0.75,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
+                                  {t("settings.toolPolicyServerAll")}
+                                </Typography>
+                                <LevelToggleGroup
+                                  value={batchValue}
+                                  defaultLevel={batchDefault}
+                                  onChange={(level) =>
+                                    void handleServerChange(row.label, level)
+                                  }
+                                />
+                              </Box>
+                            )}
                           </Box>
                         </TableCell>
                       </TableRow>
@@ -362,67 +534,17 @@ export default function SettingsToolPoliciesPage() {
                             gap: 0.75,
                           }}
                         >
-                          <ToggleButtonGroup
-                            size="small"
-                            exclusive
+                          <LevelToggleGroup
                             value={effectiveLevel}
-                            onChange={(_, value: ToolPolicyLevel | null) => {
-                              if (value !== null) {
-                                void handleChange(
-                                  row.tool,
-                                  row.groupEntry.group,
-                                  value,
-                                );
-                              }
-                            }}
-                            sx={{ flexWrap: "nowrap" }}
-                          >
-                            {POLICY_LEVELS.map((option) => {
-                              const isDefault = option.value === defaultLevel;
-                              return (
-                                <ToggleButton
-                                  key={option.value}
-                                  value={option.value}
-                                  sx={{
-                                    px: 0.75,
-                                    py: 0.25,
-                                    fontSize: "11px",
-                                    textTransform: "none",
-                                    whiteSpace: "nowrap",
-                                    gap: 0.5,
-                                    ...(isDefault &&
-                                    effectiveLevel !== option.value
-                                      ? {
-                                          borderBottomWidth: 2,
-                                          borderBottomColor: "primary.main",
-                                          borderBottomStyle: "solid",
-                                        }
-                                      : {}),
-                                  }}
-                                >
-                                  <Tooltip
-                                    title={
-                                      t(option.labelKey) +
-                                      (isDefault
-                                        ? ` (${t("common.default")})`
-                                        : "")
-                                    }
-                                    arrow
-                                  >
-                                    <Box
-                                      component="span"
-                                      sx={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                      }}
-                                    >
-                                      {option.icon}
-                                    </Box>
-                                  </Tooltip>
-                                </ToggleButton>
-                              );
-                            })}
-                          </ToggleButtonGroup>
+                            defaultLevel={defaultLevel}
+                            onChange={(level) =>
+                              void handleChange(
+                                row.tool,
+                                row.groupEntry.group,
+                                level,
+                              )
+                            }
+                          />
                           {isCustomized && (
                             <Tooltip
                               title={t("settings.toolPolicyCustomized")}

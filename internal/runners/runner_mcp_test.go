@@ -1,11 +1,14 @@
 package runners
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/teanode/teanode/internal/models"
@@ -14,6 +17,45 @@ import (
 	"github.com/teanode/teanode/internal/store/fsstore"
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
+
+// runnersStdioServerEnv makes the test binary act as a stdio MCP server (see
+// TestMain) so the stdio runner test can launch it as a subprocess.
+const runnersStdioServerEnv = "TEANODE_RUNNERS_MCP_STDIO_SERVER"
+
+// runRunnersStdioMcpServer speaks just enough of the stdio MCP protocol to
+// advertise a single "echo" tool, mirroring startInlineMCPServer over stdio.
+func runRunnersStdioMcpServer() {
+	reader := bufio.NewScanner(os.Stdin)
+	reader.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	writer := bufio.NewWriter(os.Stdout)
+	defer func() { _ = writer.Flush() }()
+	for reader.Scan() {
+		line := strings.TrimSpace(reader.Text())
+		if line == "" {
+			continue
+		}
+		var message struct {
+			ID     *int64 `json:"id"`
+			Method string `json:"method"`
+		}
+		if json.Unmarshal([]byte(line), &message) != nil || message.ID == nil {
+			continue
+		}
+		var result interface{}
+		switch message.Method {
+		case "initialize":
+			result = map[string]interface{}{"protocolVersion": "2025-06-18", "capabilities": map[string]interface{}{"tools": map[string]interface{}{}}}
+		case "tools/list":
+			result = map[string]interface{}{"tools": []map[string]interface{}{{"name": "echo", "description": "echo back"}}}
+		default:
+			continue
+		}
+		payload, _ := json.Marshal(map[string]interface{}{"jsonrpc": "2.0", "id": *message.ID, "result": result})
+		_, _ = writer.Write(payload)
+		_, _ = writer.Write([]byte("\n"))
+		_ = writer.Flush()
+	}
+}
 
 // startInlineMCPServer starts a minimal MCP streamable HTTP server that
 // advertises a single tool. It is intentionally tiny (JSON responses only) so
@@ -100,6 +142,48 @@ func TestNewRunnerRegistersMCPTools(t *testing.T) {
 	})
 	if filteredRunner.toolRegistry.Get("mcp__inline__echo") != nil {
 		t.Errorf("MCP tool should be filtered out by the agent allow-list")
+	}
+}
+
+// TestNewRunnerRegistersStdioMCPTools verifies that NewRunner launches a
+// configured stdio MCP server as a subprocess, discovers its tools, and
+// registers them namespaced alongside builtin tools.
+func TestNewRunnerRegistersStdioMCPTools(t *testing.T) {
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store: %v", openError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
+		t.Fatalf("migrating store: %v", migrateError)
+	}
+
+	stdio := models.MCPServerTransportStdio
+	if transactionError := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		_, modifyError := transaction.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
+			configuration.Tools = &models.ToolsConfiguration{
+				MCP: &models.MCPConfiguration{
+					Servers: &[]*models.MCPServerConfiguration{
+						{
+							Name:      ptrto.Value("local"),
+							Transport: &stdio,
+							Command:   ptrto.Value(os.Args[0]),
+							Env:       ptrto.Value(map[string]string{runnersStdioServerEnv: "1"}),
+						},
+					},
+				},
+			}
+			return nil
+		}, nil)
+		return modifyError
+	}); transactionError != nil {
+		t.Fatalf("seeding MCP configuration: %v", transactionError)
+	}
+
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	runner := NewRunner(ctx, "agent-1", "conversation-1", providers.NewProviderRegistry(nil), models.Agent{ID: "agent-1"})
+	if runner.toolRegistry.Get("mcp__local__echo") == nil {
+		t.Errorf("expected mcp__local__echo to be registered; names = %v", runner.toolRegistry.Names())
 	}
 }
 

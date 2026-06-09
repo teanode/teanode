@@ -34,8 +34,12 @@ const mcpOAuthClientName = "TeaNode"
 // mcpServerListItem is the user-facing view of an admin-configured MCP server,
 // combined with the current user's connection state for that server.
 type mcpServerListItem struct {
-	Name               string     `json:"name"`
-	URL                string     `json:"url"`
+	Name string `json:"name"`
+	// Transport is "http" or "stdio". URL is set for http servers; Command (the
+	// launch command with its arguments) is set for stdio servers.
+	Transport          string     `json:"transport"`
+	URL                string     `json:"url,omitempty"`
+	Command            string     `json:"command,omitempty"`
 	AuthMode           string     `json:"authMode"`
 	Enabled            bool       `json:"enabled"`
 	RequiresConnection bool       `json:"requiresConnection"`
@@ -71,6 +75,7 @@ func toMcpConnectionListItem(connection *models.MCPConnection) mcpConnectionList
 // current user has connected to each user-scoped server.
 func (self *webSocketConnection) handleMcpServersList(frame requestFrame) (interface{}, error) {
 	items := make([]mcpServerListItem, 0)
+	admin := self.isAdmin()
 	if err := store.StoreFromContext(self.ctx).Transaction(self.ctx, func(ctx context.Context, transaction store.Transaction) error {
 		configuration, err := transaction.GetConfiguration(ctx, nil)
 		if err != nil {
@@ -97,13 +102,28 @@ func (self *webSocketConnection) handleMcpServersList(frame requestFrame) (inter
 				continue
 			}
 			seen[name] = true
-			authMode := server.ResolvedAuthMode()
+			transport := server.ResolvedTransport()
+			// Stdio servers run as a local subprocess and use no HTTP auth.
+			authMode := models.MCPServerAuthNone
+			if transport != models.MCPServerTransportStdio {
+				authMode = server.ResolvedAuthMode()
+			}
 			item := mcpServerListItem{
 				Name:               name,
-				URL:                server.GetURL(),
+				Transport:          string(transport),
 				AuthMode:           string(authMode),
 				Enabled:            server.Enabled == nil || *server.Enabled,
 				RequiresConnection: authMode == models.MCPServerAuthUser || authMode == models.MCPServerAuthOAuth,
+			}
+			if transport == models.MCPServerTransportStdio {
+				// The launch command and its arguments may carry secrets (for
+				// example an --api-key flag), so only expose them to admins; other
+				// users have no action to take on a shared stdio server anyway.
+				if admin {
+					item.Command = mcpServerCommandDisplay(server)
+				}
+			} else {
+				item.URL = server.GetURL()
 			}
 			if connection := connectionsByServer[name]; connection != nil {
 				item.Connected = connection.GetStatus() == models.MCPConnectionStatusConnected
@@ -182,7 +202,10 @@ func (self *webSocketConnection) handleMcpConnectionsCreate(frame requestFrame) 
 		if server == nil {
 			return web400("unknown MCP server")
 		}
-		if server.ResolvedAuthMode() != models.MCPServerAuthUser {
+		// Stdio servers run locally with no HTTP auth; reject per-user credentials
+		// even if the entry was misconfigured with auth: user, so no dead
+		// connection record is stored for a server the runtime ignores it on.
+		if server.ResolvedTransport() == models.MCPServerTransportStdio || server.ResolvedAuthMode() != models.MCPServerAuthUser {
 			return web400("server does not accept per-user connections")
 		}
 		if _, existingError := transaction.GetMCPConnectionByServer(ctx, self.userId(), serverName, nil); existingError == nil {
@@ -291,7 +314,9 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 		if server == nil {
 			return web400("unknown MCP server")
 		}
-		if server.ResolvedAuthMode() != models.MCPServerAuthOAuth {
+		// Stdio servers never use OAuth; reject the flow even if misconfigured
+		// with auth: oauth so no pending connection is left behind.
+		if server.ResolvedTransport() == models.MCPServerTransportStdio || server.ResolvedAuthMode() != models.MCPServerAuthOAuth {
 			return web400("server is not configured for OAuth")
 		}
 		// Prefer the caller-supplied callback (e.g. the browser's loopback address)
@@ -451,6 +476,17 @@ func mcpBadRequestOrInternal(err error, internalMessage string) *rpcHandlerError
 		return rpcError(400, badRequest.message)
 	}
 	return rpcError(500, internalMessage)
+}
+
+// mcpServerCommandDisplay renders a stdio server's launch command and arguments
+// as a single human-readable string for the connections UI.
+func mcpServerCommandDisplay(server *models.MCPServerConfiguration) string {
+	command := strings.TrimSpace(server.GetCommand())
+	if command == "" {
+		return ""
+	}
+	parts := append([]string{command}, server.GetArgs()...)
+	return strings.Join(parts, " ")
 }
 
 // findConfiguredMcpServer returns the configured server with the given name, or

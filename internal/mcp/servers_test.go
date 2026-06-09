@@ -52,6 +52,79 @@ func TestServersFromConfigurationAuthModes(t *testing.T) {
 	}
 }
 
+// TestServersFromConfigurationStdio verifies that a stdio-transport server is
+// resolved into a shared ServerConfiguration carrying its command, args, sorted
+// environment entries, and working directory.
+func TestServersFromConfigurationStdio(t *testing.T) {
+	stdio := models.MCPServerTransportStdio
+	configuration := &models.Configuration{
+		Tools: &models.ToolsConfiguration{
+			MCP: &models.MCPConfiguration{
+				Servers: &[]*models.MCPServerConfiguration{
+					{
+						Name:       ptrto.Value("local"),
+						Transport:  &stdio,
+						Command:    ptrto.Value("my-mcp-server"),
+						Args:       ptrto.Value([]string{"--flag", "value"}),
+						Env:        ptrto.Value(map[string]string{"B_KEY": "2", "A_KEY": "1"}),
+						WorkingDir: ptrto.Value("/tmp/work"),
+					},
+					// A stdio server inferred from a bare command (no transport, no url).
+					{Name: ptrto.Value("inferred"), Command: ptrto.Value("other-server")},
+				},
+			},
+		},
+	}
+
+	servers := ServersFromConfiguration(configuration)
+	if len(servers) != 2 {
+		t.Fatalf("len(servers) = %d, want 2; got %+v", len(servers), servers)
+	}
+
+	local := findServer(servers, "local")
+	if local == nil {
+		t.Fatalf("local stdio server not resolved: %+v", servers)
+	}
+	if local.Transport != TransportStdio {
+		t.Errorf("local.Transport = %q, want %q", local.Transport, TransportStdio)
+	}
+	if local.Command != "my-mcp-server" {
+		t.Errorf("local.Command = %q, want my-mcp-server", local.Command)
+	}
+	if len(local.Arguments) != 2 || local.Arguments[0] != "--flag" || local.Arguments[1] != "value" {
+		t.Errorf("local.Arguments = %+v, want [--flag value]", local.Arguments)
+	}
+	if len(local.Environment) != 2 || local.Environment[0] != "A_KEY=1" || local.Environment[1] != "B_KEY=2" {
+		t.Errorf("local.Environment = %+v, want sorted [A_KEY=1 B_KEY=2]", local.Environment)
+	}
+	if local.WorkingDir != "/tmp/work" {
+		t.Errorf("local.WorkingDir = %q, want /tmp/work", local.WorkingDir)
+	}
+
+	inferred := findServer(servers, "inferred")
+	if inferred == nil || inferred.Transport != TransportStdio || inferred.Command != "other-server" {
+		t.Errorf("inferred stdio server = %+v, want stdio transport with command", inferred)
+	}
+}
+
+// TestServersFromConfigurationStdioWithoutCommand verifies that a stdio server
+// missing its command is skipped rather than registered.
+func TestServersFromConfigurationStdioWithoutCommand(t *testing.T) {
+	stdio := models.MCPServerTransportStdio
+	configuration := &models.Configuration{
+		Tools: &models.ToolsConfiguration{
+			MCP: &models.MCPConfiguration{
+				Servers: &[]*models.MCPServerConfiguration{
+					{Name: ptrto.Value("broken"), Transport: &stdio},
+				},
+			},
+		},
+	}
+	if servers := ServersFromConfiguration(configuration); len(servers) != 0 {
+		t.Fatalf("expected stdio server without a command to be skipped, got %+v", servers)
+	}
+}
+
 // TestResolveServersUserAuth verifies that a "user" auth server is resolved with
 // the connecting user's own credential, skipped for users without a connection,
 // and skipped entirely when there is no authenticated user.

@@ -160,7 +160,12 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 		for _, server := range configuration.Tools.MCP.Servers {
 			servers = append(servers, &models.MCPServerConfiguration{
 				Name:                  ptrto.TrimmedString(server.Name),
+				Transport:             ptrto.Trimmed[models.MCPServerTransport](server.Transport),
 				URL:                   ptrto.TrimmedString(server.URL),
+				Command:               ptrto.TrimmedString(server.Command),
+				Args:                  stringSlicePointer(server.Args),
+				Env:                   stringMapPointer(server.Env),
+				WorkingDir:            ptrto.TrimmedString(server.WorkingDir),
 				Enabled:               server.Enabled,
 				Auth:                  ptrto.Trimmed[models.MCPServerAuthMode](server.Auth),
 				Authorization:         ptrto.TrimmedString(server.Authorization),
@@ -320,7 +325,12 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 			for _, server := range configuration.Tools.MCP.GetServers() {
 				record.Servers = append(record.Servers, storeMcpServerRecord{
 					Name:                  server.GetName(),
+					Transport:             string(server.GetTransport()),
 					URL:                   server.GetURL(),
+					Command:               server.GetCommand(),
+					Args:                  server.GetArgs(),
+					Env:                   server.GetEnv(),
+					WorkingDir:            server.GetWorkingDir(),
 					Enabled:               server.Enabled,
 					Auth:                  string(server.GetAuth()),
 					Authorization:         server.GetAuthorization(),

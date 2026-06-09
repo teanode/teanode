@@ -314,6 +314,64 @@ Intentionally deferred:
 - zh/ja translations for the new `tool.remoteMcp*` strings (English fallback).
 - PR6 (prompts/resources support) not started.
 
+## PR — Stdio (local subprocess) transport (feat/mcp-stdio)
+
+Adds the MCP **stdio transport**: TeaNode can now launch a local subprocess that
+speaks newline-delimited JSON-RPC over stdin/stdout (the transport used by
+`claude mcp`-style stdio servers) alongside the existing remote streamable HTTP
+transport. Configured under the same `tools.mcp.servers` list.
+
+Contents:
+- Transport abstraction (`internal/mcp/transport.go`): the session-level `Client`
+  now drives the MCP handshake over a `transport` interface
+  (`roundTrip`/`notify`/`observeProtocolVersion`/`close`). The existing HTTP code
+  moved verbatim into `httpTransport` (`transport_http.go`); `client.go` is now
+  transport-agnostic. `Client.Close()` releases transport resources and is
+  deferred by the discovery probe and the tool adapter.
+- Stdio transport (`internal/mcp/transport_stdio.go`): lazily starts the
+  subprocess on first use, frames each JSON-RPC message as one line on stdin, and
+  a reader goroutine forwards response-shaped messages (dropping server-initiated
+  requests/notifications, matching the HTTP transport's v1 limitation). `close`
+  shuts stdin, waits for the reader to drain stdout, and kills the process after a
+  2s grace. Subprocess stderr is forwarded to the package logger line by line.
+  Env is merged over TeaNode's own environment.
+- Config (`models.MCPServerConfiguration`): new `transport` (`http`/`stdio`),
+  `command`, `args`, `env`, `workingDir` fields plus `ResolvedTransport()` (infers
+  `stdio` from a bare command with no URL). `models_gen.go` regenerated. Mirrored
+  in the fsstore server record (round-trip) and `config.schema.json`. dbstore
+  stores config as a JSON blob, so it needs no change.
+- Resolution (`internal/mcp/servers.go`): stdio servers register as shared
+  `none`-auth servers carrying the command/args/sorted-env/working-dir; HTTP
+  servers keep their URL validation. The discovery cache signature includes the
+  stdio launch fields.
+- Frontend: `mcp.servers.list` now reports `transport` and (for stdio) the
+  `command` display string; the connections page renders the command in monospace
+  for stdio servers instead of a URL. Stdio servers show as shared (no per-user
+  connection).
+
+Tests:
+- `internal/mcp`: stdio client list/call/empty-tools, missing-command and
+  process-exit error paths, and context cancellation, against the test binary
+  re-exec'd as a stdio server (hermetic). Stdio config resolution
+  (command/args/sorted-env/working-dir, command-required) in `servers_test.go`.
+- `internal/models`: `ResolvedTransport` table test.
+- `internal/store/fsstore`: stdio fields added to the config round-trip test.
+- `internal/runners`: end-to-end `NewRunner` launches a configured stdio server
+  (the re-exec'd test binary) and registers its `mcp__local__echo` tool.
+
+Validation:
+- `go build ./...` clean; `go test ./...` all pass (Postgres-gated dbstore tests
+  skip without `TEANODE_TEST_POSTGRES=1`); `-race` clean on the stdio tests.
+- `gofmt -l internal/` clean; `golangci-lint run` 0 issues on changed packages;
+  `mulint` clean on changed files.
+- Frontend: `tsc --noEmit` clean; `eslint`/`prettier` clean; `vitest` 308 tests
+  pass.
+
+Intentionally deferred:
+- Reusing a connected stdio session across tool calls (each call still spawns a
+  fresh subprocess — same TODO as the HTTP adapter).
+- Server-initiated requests (sampling/roots) over stdio remain out of scope.
+
 ## Validation log
 
 (per-PR formatter / linter / test results recorded above per PR)

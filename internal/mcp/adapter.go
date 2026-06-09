@@ -110,6 +110,7 @@ func (self *toolAdapter) PolicyGroups() []tools.PolicyGroup {
 // Execute implements tools.Tool by forwarding the call to the remote server.
 func (self *toolAdapter) Execute(ctx context.Context, arguments string) (string, error) {
 	client := NewClient(self.server)
+	defer func() { _ = client.Close() }()
 	if connectError := client.Connect(ctx); connectError != nil {
 		return "", connectError
 	}
