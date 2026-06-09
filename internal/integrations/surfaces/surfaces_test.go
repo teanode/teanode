@@ -83,6 +83,19 @@ func TestSurfaceBroker(t *testing.T) {
 	if interruptList := broker.InterruptsForSurface("s1"); len(interruptList) != 1 {
 		t.Fatalf("expected 1 interrupt for surface s1, got %d", len(interruptList))
 	}
+	if got := broker.LookupInterrupt("i1"); got == nil {
+		t.Fatal("expected to find interrupt i1")
+	}
+	if got := broker.LookupInterrupt("missing"); got != nil {
+		t.Fatal("expected nil for unknown interrupt")
+	}
+
+	// For*Conversation must return copies, not the live stored pointers, so a
+	// caller marshaling the result cannot race with a concurrent re-register.
+	listed := broker.SurfacesForConversation("c1")
+	if len(listed) != 1 || listed[0] == surface {
+		t.Fatal("expected SurfacesForConversation to return a copy, not the stored pointer")
+	}
 
 	broker.RemoveInterrupt("i1")
 	if interruptList := broker.InterruptsForConversation("c1"); len(interruptList) != 0 {

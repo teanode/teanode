@@ -88,6 +88,7 @@ func (self *webSocketConnection) handleSurfacesEmit(frame requestFrame) (interfa
 		"action":         "emitted",
 		"conversationId": parameters.ConversationID,
 		"agentId":        agentId,
+		"userId":         self.userId(),
 	}
 
 	if parameters.Surface != nil {
@@ -135,6 +136,7 @@ func (self *webSocketConnection) handleSurfacesEmit(frame requestFrame) (interfa
 func (self *webSocketConnection) handleSurfacesAction(frame requestFrame) (interface{}, error) {
 	var parameters struct {
 		ConversationID string                        `json:"conversationId"`
+		InterruptID    string                        `json:"interruptId,omitempty"`
 		Action         surfaces.SurfaceActionPayload `json:"action"`
 	}
 	if frame.Parameters != nil {
@@ -154,27 +156,64 @@ func (self *webSocketConnection) handleSurfacesAction(frame requestFrame) (inter
 
 	broker := self.api.coordinator.SurfaceBroker()
 
+	// Resolve the surface (if any) and validate it belongs to this
+	// conversation — the broker is keyed by id across all conversations, so a
+	// surfaceId from another conversation must not be actionable here.
 	agentId := self.defaultAgentId()
 	var surface *surfaces.Surface
 	if parameters.Action.SurfaceID != "" {
 		surface = broker.LookupSurface(parameters.Action.SurfaceID)
-		if surface != nil && surface.AgentID != "" {
-			agentId = surface.AgentID
+		if surface != nil {
+			if surface.ConversationID != "" && surface.ConversationID != parameters.ConversationID {
+				return nil, rpcError(403, "surface does not belong to this conversation")
+			}
+			if surface.AgentID != "" {
+				agentId = surface.AgentID
+			}
+		}
+	}
+
+	// An interrupt may be resolved directly by id (choice/form interrupts carry
+	// no surface). Validate ownership and fall back to its agent when no surface
+	// supplied one.
+	var explicitInterrupt *surfaces.Interrupt
+	if parameters.InterruptID != "" {
+		explicitInterrupt = broker.LookupInterrupt(parameters.InterruptID)
+		if explicitInterrupt != nil {
+			if explicitInterrupt.ConversationID != "" && explicitInterrupt.ConversationID != parameters.ConversationID {
+				return nil, rpcError(403, "interrupt does not belong to this conversation")
+			}
+			if surface == nil && explicitInterrupt.AgentID != "" {
+				agentId = explicitInterrupt.AgentID
+			}
 		}
 	}
 
 	message := buildSurfaceActionMessage(surface, parameters.Action)
 
-	// Clear interrupts routed through this surface and notify clients.
+	// Clear interrupts resolved by this action — the one referenced by id and
+	// any routed through the surface — then notify clients. Deduplicate by id so
+	// a single interrupt is removed and broadcast once.
+	interruptsToClear := map[string]struct{}{}
+	if explicitInterrupt != nil {
+		interruptsToClear[explicitInterrupt.InterruptID] = struct{}{}
+	}
 	if parameters.Action.SurfaceID != "" {
 		for _, interrupt := range broker.InterruptsForSurface(parameters.Action.SurfaceID) {
-			broker.RemoveInterrupt(interrupt.InterruptID)
-			self.api.pubsub.Broadcast(pubsub.EventTypeConversationSurfaces, map[string]interface{}{
-				"action":         "removed",
-				"conversationId": parameters.ConversationID,
-				"interruptId":    interrupt.InterruptID,
-			})
+			if interrupt.ConversationID != "" && interrupt.ConversationID != parameters.ConversationID {
+				continue
+			}
+			interruptsToClear[interrupt.InterruptID] = struct{}{}
 		}
+	}
+	for interruptId := range interruptsToClear {
+		broker.RemoveInterrupt(interruptId)
+		self.api.pubsub.Broadcast(pubsub.EventTypeConversationSurfaces, map[string]interface{}{
+			"action":         "removed",
+			"conversationId": parameters.ConversationID,
+			"interruptId":    interruptId,
+			"userId":         self.userId(),
+		})
 	}
 
 	handle, runError := self.api.coordinator.Run(self.ctx, coordinators.RunParameters{

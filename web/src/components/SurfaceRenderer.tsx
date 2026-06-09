@@ -348,11 +348,15 @@ function SurfaceForm({
   function handleSubmit() {
     if (disabled || submitted) return;
     setSubmitted(true);
-    onAction({
-      surfaceId,
-      actionId: component.submitActionId || "submit",
-      formData: values,
-    });
+    // onAction may be async (the surfaces.action round-trip); re-enable the
+    // form if it rejects so the user can retry instead of being stuck.
+    Promise.resolve(
+      onAction({
+        surfaceId,
+        actionId: component.submitActionId || "submit",
+        formData: values,
+      }),
+    ).catch(() => setSubmitted(false));
   }
 
   const missingRequired = fields.some(

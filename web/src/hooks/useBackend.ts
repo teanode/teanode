@@ -581,6 +581,7 @@ export function useBackend() {
             });
           }
         } else if (payload.action === "removed") {
+          if (payload.conversationId !== conversationIdRef.current) return;
           if (payload.surfaceId) {
             setSurfaces((prev) =>
               prev.filter((surface) => surface.surfaceId !== payload.surfaceId),
@@ -2099,7 +2100,11 @@ export function useBackend() {
           prev.filter((interrupt) => interrupt.surfaceId !== action.surfaceId),
         );
       }
-      await sendRpc("surfaces.action", { conversationId: convId, action });
+      await sendRpc("surfaces.action", {
+        conversationId: convId,
+        interruptId,
+        action,
+      });
     },
     [sendRpc],
   );

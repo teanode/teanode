@@ -48,6 +48,13 @@ func (self *SurfaceBroker) LookupSurface(surfaceId string) *Surface {
 	return self.surfaces[surfaceId]
 }
 
+// LookupInterrupt returns the interrupt with the given id, or nil.
+func (self *SurfaceBroker) LookupInterrupt(interruptId string) *Interrupt {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.interrupts[interruptId]
+}
+
 // RemoveSurface deletes a surface from the registry.
 func (self *SurfaceBroker) RemoveSurface(surfaceId string) {
 	self.mutex.Lock()
@@ -62,27 +69,33 @@ func (self *SurfaceBroker) RemoveInterrupt(interruptId string) {
 	self.mutex.Unlock()
 }
 
-// SurfacesForConversation returns all active surfaces for a conversation.
+// SurfacesForConversation returns all active surfaces for a conversation. Each
+// result is a shallow copy so callers (e.g. the RPC layer marshaling the
+// response outside the broker lock) cannot observe a torn read while another
+// goroutine re-registers a surface.
 func (self *SurfaceBroker) SurfacesForConversation(conversationId string) []*Surface {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	result := make([]*Surface, 0)
 	for _, surface := range self.surfaces {
 		if surface.ConversationID == conversationId {
-			result = append(result, surface)
+			clone := *surface
+			result = append(result, &clone)
 		}
 	}
 	return result
 }
 
 // InterruptsForConversation returns all active interrupts for a conversation.
+// Each result is a shallow copy for the same reason as SurfacesForConversation.
 func (self *SurfaceBroker) InterruptsForConversation(conversationId string) []*Interrupt {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	result := make([]*Interrupt, 0)
 	for _, interrupt := range self.interrupts {
 		if interrupt.ConversationID == conversationId {
-			result = append(result, interrupt)
+			clone := *interrupt
+			result = append(result, &clone)
 		}
 	}
 	return result

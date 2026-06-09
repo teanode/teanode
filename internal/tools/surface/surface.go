@@ -124,13 +124,19 @@ func (self *renderSurfaceTool) Execute(ctx context.Context, rawArguments string)
 	broker.RegisterSurface(surface)
 
 	if publisher := pubsub.PubSubFromContext(ctx); publisher != nil {
-		publisher.Broadcast(pubsub.EventTypeConversationSurfaces, map[string]interface{}{
+		event := map[string]interface{}{
 			"action":         "emitted",
 			"conversationId": surface.ConversationID,
 			"agentId":        surface.AgentID,
 			"runId":          surface.RunID,
 			"surface":        surface,
-		})
+		}
+		// Scope the event to the owning user so it is not delivered to other
+		// connected clients (shouldDeliverEvent filters on userId).
+		if user := models.UserFromContext(ctx); user != nil {
+			event["userId"] = user.ID
+		}
+		publisher.Broadcast(pubsub.EventTypeConversationSurfaces, event)
 	}
 
 	result, _ := json.Marshal(map[string]string{
