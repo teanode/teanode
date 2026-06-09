@@ -2119,6 +2119,13 @@ export function useBackend() {
       setSurfaces((prev) =>
         surfaceId ? prev.filter((surface) => surface.surfaceId !== surfaceId) : [],
       );
+      // Drop any interrupt routed through the dismissed surface so it does not
+      // linger as a pending card with no surface behind it.
+      if (surfaceId) {
+        setSurfaceInterrupts((prev) =>
+          prev.filter((interrupt) => interrupt.surfaceId !== surfaceId),
+        );
+      }
       try {
         await sendRpc("surfaces.close", { conversationId: convId, surfaceId });
       } catch (error) {

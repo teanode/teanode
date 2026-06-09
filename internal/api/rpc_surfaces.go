@@ -216,13 +216,6 @@ func (self *webSocketConnection) handleSurfacesAction(frame requestFrame) (inter
 		})
 	}
 
-	// Auto-close the acted-on surface: an action resumes the conversation loop,
-	// so the surface has served its purpose. This also bounds broker growth.
-	if surface != nil {
-		broker.RemoveSurface(surface.SurfaceID)
-		self.broadcastSurfaceRemoved(parameters.ConversationID, surface.SurfaceID)
-	}
-
 	handle, runError := self.api.coordinator.Run(self.ctx, coordinators.RunParameters{
 		AgentID:         agentId,
 		ConversationID:  parameters.ConversationID,
@@ -232,6 +225,14 @@ func (self *webSocketConnection) handleSurfacesAction(frame requestFrame) (inter
 	}, nil)
 	if runError != nil {
 		return nil, rpcError(500, runError.Error())
+	}
+
+	// Auto-close the acted-on surface only after the run is accepted: an action
+	// resumes the conversation loop, so the surface has served its purpose. This
+	// also bounds broker growth. (Done after Run so a failed action leaves the
+	// surface in place for the user to retry.)
+	if surface != nil {
+		self.closeSurface(parameters.ConversationID, surface.SurfaceID)
 	}
 
 	return map[string]interface{}{
@@ -282,11 +283,29 @@ func (self *webSocketConnection) handleSurfacesClose(frame requestFrame) (interf
 	}
 
 	for _, surface := range targets {
-		broker.RemoveSurface(surface.SurfaceID)
-		self.broadcastSurfaceRemoved(parameters.ConversationID, surface.SurfaceID)
+		self.closeSurface(parameters.ConversationID, surface.SurfaceID)
 	}
 
 	return map[string]interface{}{"ok": true, "closed": len(targets)}, nil
+}
+
+// closeSurface removes a surface and any interrupts routed through it from the
+// broker, notifying the owning user's clients to drop them. Removal is
+// idempotent, so it is safe to call after an action has already cleared the
+// surface's interrupts.
+func (self *webSocketConnection) closeSurface(conversationId, surfaceId string) {
+	broker := self.api.coordinator.SurfaceBroker()
+	broker.RemoveSurface(surfaceId)
+	self.broadcastSurfaceRemoved(conversationId, surfaceId)
+	for _, interrupt := range broker.InterruptsForSurface(surfaceId) {
+		broker.RemoveInterrupt(interrupt.InterruptID)
+		self.api.pubsub.Broadcast(pubsub.EventTypeConversationSurfaces, map[string]interface{}{
+			"action":         "removed",
+			"conversationId": conversationId,
+			"interruptId":    interrupt.InterruptID,
+			"userId":         self.userId(),
+		})
+	}
 }
 
 // broadcastSurfaceRemoved notifies all of the owning user's clients that a

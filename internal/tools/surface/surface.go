@@ -114,13 +114,6 @@ func (self *renderSurfaceTool) Execute(ctx context.Context, rawArguments string)
 		location = surfaces.SurfaceLocationInline
 	}
 
-	// Reuse the caller-supplied id to replace an existing surface in place;
-	// otherwise mint a new one.
-	surfaceId := arguments.SurfaceID
-	if surfaceId == "" {
-		surfaceId = security.NewULID()
-	}
-
 	broker := surfaces.SurfaceBrokerFromContext(ctx)
 	if broker == nil {
 		return "", fmt.Errorf("surface: surface broker not available")
@@ -128,6 +121,17 @@ func (self *renderSurfaceTool) Execute(ctx context.Context, rawArguments string)
 	runner := runners.RunnerFromContext(ctx)
 	if runner == nil {
 		return "", fmt.Errorf("surface: runner context not available")
+	}
+
+	// Reuse the caller-supplied id to replace an existing surface in place, but
+	// only if that surface belongs to this conversation — never overwrite a
+	// surface registered for another conversation. Otherwise mint a new id.
+	surfaceId := arguments.SurfaceID
+	if surfaceId == "" {
+		surfaceId = security.NewULID()
+	} else if existing := broker.LookupSurface(surfaceId); existing != nil &&
+		existing.ConversationID != "" && existing.ConversationID != runner.ConversationID {
+		surfaceId = security.NewULID()
 	}
 
 	surface := &surfaces.Surface{

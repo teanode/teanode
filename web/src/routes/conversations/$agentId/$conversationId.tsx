@@ -137,6 +137,12 @@ export default function ConversationsConversationPage() {
     (surface) => surface.location === "inline",
   );
 
+  // Reset the collapse state when switching conversations so a panel collapsed
+  // in one conversation does not hide freshly-arrived surfaces in another.
+  useEffect(() => {
+    setSurfacesCollapsed(false);
+  }, [conversationId]);
+
   const handleSend = useCallback(
     (text: string, attachments?: Attachment[]) => {
       backend.markTypedSend();
@@ -254,12 +260,15 @@ export default function ConversationsConversationPage() {
               variant="caption"
               sx={{ fontWeight: 600, flex: 1, minWidth: 0 }}
             >
-              {t("surface.panelTitle")}
-              {inlineSurfaces.length > 1 ? ` (${inlineSurfaces.length})` : ""}
+              {t("surface.panelTitle")} ({inlineSurfaces.length})
             </Typography>
             <Button
               size="small"
-              onClick={() => backend.dismissSurface()}
+              onClick={() =>
+                inlineSurfaces.forEach((surface) =>
+                  backend.dismissSurface(surface.surfaceId),
+                )
+              }
               sx={{ textTransform: "none", flexShrink: 0 }}
             >
               {t("surface.closeAll")}
