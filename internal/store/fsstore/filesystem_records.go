@@ -82,7 +82,14 @@ type storeMcpRecord struct {
 
 type storeMcpServerRecord struct {
 	Name string `json:"name,omitempty" yaml:"name,omitempty"`
-	URL  string `json:"url,omitempty" yaml:"url,omitempty"`
+	// Transport is "http" or "stdio" (empty is inferred). URL is used by the
+	// http transport; Command/Args/Env/WorkingDir by the stdio transport.
+	Transport  string            `json:"transport,omitempty" yaml:"transport,omitempty"`
+	URL        string            `json:"url,omitempty" yaml:"url,omitempty"`
+	Command    string            `json:"command,omitempty" yaml:"command,omitempty"`
+	Args       []string          `json:"args,omitempty" yaml:"args,omitempty"`
+	Env        map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	WorkingDir string            `json:"workingDir,omitempty" yaml:"workingDir,omitempty"`
 	// Enabled is a pointer so a missing value preserves the "enabled by
 	// default" semantics rather than collapsing to false on round-trip.
 	Enabled               *bool    `json:"enabled,omitempty" yaml:"enabled,omitempty"`

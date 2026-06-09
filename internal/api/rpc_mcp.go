@@ -34,8 +34,12 @@ const mcpOAuthClientName = "TeaNode"
 // mcpServerListItem is the user-facing view of an admin-configured MCP server,
 // combined with the current user's connection state for that server.
 type mcpServerListItem struct {
-	Name               string     `json:"name"`
-	URL                string     `json:"url"`
+	Name string `json:"name"`
+	// Transport is "http" or "stdio". URL is set for http servers; Command (the
+	// launch command with its arguments) is set for stdio servers.
+	Transport          string     `json:"transport"`
+	URL                string     `json:"url,omitempty"`
+	Command            string     `json:"command,omitempty"`
 	AuthMode           string     `json:"authMode"`
 	Enabled            bool       `json:"enabled"`
 	RequiresConnection bool       `json:"requiresConnection"`
@@ -97,13 +101,23 @@ func (self *webSocketConnection) handleMcpServersList(frame requestFrame) (inter
 				continue
 			}
 			seen[name] = true
-			authMode := server.ResolvedAuthMode()
+			transport := server.ResolvedTransport()
+			// Stdio servers run as a local subprocess and use no HTTP auth.
+			authMode := models.MCPServerAuthNone
+			if transport != models.MCPServerTransportStdio {
+				authMode = server.ResolvedAuthMode()
+			}
 			item := mcpServerListItem{
 				Name:               name,
-				URL:                server.GetURL(),
+				Transport:          string(transport),
 				AuthMode:           string(authMode),
 				Enabled:            server.Enabled == nil || *server.Enabled,
 				RequiresConnection: authMode == models.MCPServerAuthUser || authMode == models.MCPServerAuthOAuth,
+			}
+			if transport == models.MCPServerTransportStdio {
+				item.Command = mcpServerCommandDisplay(server)
+			} else {
+				item.URL = server.GetURL()
 			}
 			if connection := connectionsByServer[name]; connection != nil {
 				item.Connected = connection.GetStatus() == models.MCPConnectionStatusConnected
@@ -451,6 +465,17 @@ func mcpBadRequestOrInternal(err error, internalMessage string) *rpcHandlerError
 		return rpcError(400, badRequest.message)
 	}
 	return rpcError(500, internalMessage)
+}
+
+// mcpServerCommandDisplay renders a stdio server's launch command and arguments
+// as a single human-readable string for the connections UI.
+func mcpServerCommandDisplay(server *models.MCPServerConfiguration) string {
+	command := strings.TrimSpace(server.GetCommand())
+	if command == "" {
+		return ""
+	}
+	parts := append([]string{command}, server.GetArgs()...)
+	return strings.Join(parts, " ")
 }
 
 // findConfiguredMcpServer returns the configured server with the given name, or

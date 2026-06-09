@@ -178,9 +178,14 @@ function ServerRow({
             <Typography
               variant="caption"
               color="text.secondary"
-              sx={{ display: "block", wordBreak: "break-all" }}
+              sx={{
+                display: "block",
+                wordBreak: "break-all",
+                fontFamily:
+                  server.transport === "stdio" ? "monospace" : undefined,
+              }}
             >
-              {server.url}
+              {server.transport === "stdio" ? server.command : server.url}
             </Typography>
             {!server.requiresConnection && (
               <Typography variant="caption" color="text.secondary">

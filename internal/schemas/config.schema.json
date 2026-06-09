@@ -412,12 +412,12 @@
         "mcp": {
           "type": "object",
           "title": "MCP Servers",
-          "description": "Remote Model Context Protocol servers. Their tools are discovered and exposed as 'mcp__<name>__<tool>'. Streamable HTTP transport only; tools capability only.",
+          "description": "Model Context Protocol servers. Their tools are discovered and exposed as 'mcp__<name>__<tool>'. Supports the remote streamable HTTP transport and the local stdio (subprocess) transport; tools capability only.",
           "properties": {
             "servers": {
               "type": "array",
               "title": "Servers",
-              "description": "Configured remote MCP servers.",
+              "description": "Configured MCP servers.",
               "x-widget": "objectArray",
               "items": {
                 "type": "object",
@@ -427,11 +427,45 @@
                     "title": "Name",
                     "description": "Unique server name used to namespace its tools."
                   },
+                  "transport": {
+                    "type": "string",
+                    "title": "Transport",
+                    "description": "How TeaNode connects: 'http' (streamable HTTP at the URL below) or 'stdio' (launch the Command below as a local subprocess). Leave empty to infer: 'stdio' when a Command is set and no URL, otherwise 'http'.",
+                    "enum": ["", "http", "stdio"],
+                    "x-enumLabels": {
+                      "": "Infer",
+                      "http": "HTTP (remote)",
+                      "stdio": "Stdio (local subprocess)"
+                    }
+                  },
                   "url": {
                     "type": "string",
                     "title": "URL",
-                    "description": "Streamable HTTP endpoint of the MCP server.",
+                    "description": "Streamable HTTP endpoint of the MCP server (http transport).",
                     "x-placeholder": "https://example.com/mcp"
+                  },
+                  "command": {
+                    "type": "string",
+                    "title": "Command",
+                    "description": "Executable to launch for a stdio-transport server.",
+                    "x-placeholder": "npx"
+                  },
+                  "args": {
+                    "type": "array",
+                    "title": "Arguments",
+                    "description": "Command-line arguments passed to the command (stdio transport).",
+                    "items": { "type": "string" }
+                  },
+                  "env": {
+                    "type": "object",
+                    "title": "Environment",
+                    "description": "Extra environment variables set for the subprocess (stdio transport), merged over TeaNode's own environment. Used to pass secrets such as API keys.",
+                    "additionalProperties": { "type": "string" }
+                  },
+                  "workingDir": {
+                    "type": "string",
+                    "title": "Working Directory",
+                    "description": "Working directory for the subprocess (stdio transport). Empty uses TeaNode's working directory."
                   },
                   "enabled": {
                     "type": "boolean",

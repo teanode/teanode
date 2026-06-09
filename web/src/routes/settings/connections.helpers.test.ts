@@ -12,6 +12,7 @@ import type { MCPServerListItem } from "../../types";
 function server(overrides: Partial<MCPServerListItem>): MCPServerListItem {
   return {
     name: "srv",
+    transport: "http",
     url: "https://example.com/mcp",
     authMode: "none",
     enabled: true,
