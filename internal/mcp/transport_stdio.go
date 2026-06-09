@@ -16,13 +16,11 @@ import (
 	"github.com/teanode/teanode/internal/util/deferutil"
 )
 
-// stdioShutdownGrace bounds how long close waits for a subprocess to drain and
-// exit after its stdin is closed before the process is killed.
-const stdioShutdownGrace = 2 * time.Second
-
-// maxStdioLineBytes bounds a single JSON-RPC message line read from a server's
-// stdout, mirroring the HTTP event-stream buffer cap.
-const maxStdioLineBytes = 4 * 1024 * 1024
+// stdioShutdownGrace bounds how long close waits for a subprocess to exit after
+// its stdin is closed before the process is killed. It is kept short so tearing
+// down a hung server does not add much beyond the request that already failed: a
+// well-behaved server exits near-instantly on stdin EOF.
+const stdioShutdownGrace = 500 * time.Millisecond
 
 // stdioTransport speaks the MCP stdio transport: newline-delimited JSON-RPC
 // messages over a child process's stdin/stdout. The process is started lazily on
@@ -168,42 +166,43 @@ func (self *stdioTransport) write(payload []byte) error {
 	return nil
 }
 
-// readLoop scans stdout for newline-delimited JSON-RPC messages and forwards
-// response-shaped ones, dropping server-initiated requests and notifications.
+// readLoop reads newline-delimited JSON-RPC messages from stdout and forwards
+// response-shaped ones, dropping server-initiated requests and notifications. It
+// uses a bufio.Reader rather than a bufio.Scanner so a large response line (for
+// example a big tools/list schema or tool result) is not rejected by a fixed
+// token-size cap — matching the unbounded HTTP JSON path.
 func (self *stdioTransport) readLoop(stdout io.ReadCloser) {
 	defer deferutil.Recover()
 	defer close(self.readDone)
 	defer func() { _ = stdout.Close() }()
 
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), maxStdioLineBytes)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
+	reader := bufio.NewReaderSize(stdout, 64*1024)
+	for {
+		// ReadBytes returns a freshly allocated slice each call, so a decoded
+		// json.RawMessage may safely reference it without an extra copy.
+		line, readError := reader.ReadBytes('\n')
+		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
+			response := &jsonrpcResponse{}
+			// Only replies to our requests (carrying a result or error) are
+			// forwarded; server-initiated requests and notifications are dropped.
+			if json.Unmarshal(trimmed, response) == nil && (response.Result != nil || response.Error != nil) {
+				select {
+				case self.responses <- response:
+				case <-self.done:
+					return
+				}
+			}
 		}
-		// Copy the line: json.RawMessage fields alias the scanner's buffer, which
-		// is overwritten on the next Scan.
-		message := make([]byte, len(line))
-		copy(message, line)
-		response := &jsonrpcResponse{}
-		if json.Unmarshal(message, response) != nil {
-			continue
-		}
-		// Only replies to our requests carry a result or error.
-		if response.Result == nil && response.Error == nil {
-			continue
-		}
-		select {
-		case self.responses <- response:
-		case <-self.done:
+		if readError != nil {
+			self.readMutex.Lock()
+			if readError != io.EOF {
+				self.readErr = readError
+			}
+			self.readMutex.Unlock()
+			close(self.responses)
 			return
 		}
 	}
-	self.readMutex.Lock()
-	self.readErr = scanner.Err()
-	self.readMutex.Unlock()
-	close(self.responses)
 }
 
 // exitError describes why the response channel closed without delivering a

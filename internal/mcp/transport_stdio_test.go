@@ -28,6 +28,9 @@ func TestMain(m *testing.M) {
 	case "no-tools":
 		runStdioTestServer(true)
 		return
+	case "big":
+		runStdioBigToolServer()
+		return
 	case "hang":
 		// Read input but never reply, so the client must rely on its timeout.
 		reader := bufio.NewScanner(os.Stdin)
@@ -105,6 +108,48 @@ func runStdioTestServer(emptyTools bool) {
 		}
 		response := map[string]interface{}{"jsonrpc": "2.0", "id": *message.ID, "result": result}
 		payload, _ := json.Marshal(response)
+		_, _ = writer.Write(payload)
+		_, _ = writer.Write([]byte("\n"))
+		_ = writer.Flush()
+	}
+}
+
+// bigToolDescriptionSize is the size of the description advertised by the "big"
+// test server, chosen to exceed the old 4MB scanner token cap so the test fails
+// if a fixed line limit is reintroduced.
+const bigToolDescriptionSize = 5 * 1024 * 1024
+
+// runStdioBigToolServer advertises a single tool whose description exceeds the
+// old line-size cap, exercising the reader's handling of large response lines.
+func runStdioBigToolServer() {
+	reader := bufio.NewScanner(os.Stdin)
+	reader.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	writer := bufio.NewWriter(os.Stdout)
+	defer func() { _ = writer.Flush() }()
+	for reader.Scan() {
+		line := strings.TrimSpace(reader.Text())
+		if line == "" {
+			continue
+		}
+		var message struct {
+			ID     *int64 `json:"id"`
+			Method string `json:"method"`
+		}
+		if json.Unmarshal([]byte(line), &message) != nil || message.ID == nil {
+			continue
+		}
+		var result interface{}
+		switch message.Method {
+		case "initialize":
+			result = map[string]interface{}{"protocolVersion": "2025-06-18", "capabilities": map[string]interface{}{"tools": map[string]interface{}{}}}
+		case "tools/list":
+			result = map[string]interface{}{"tools": []map[string]interface{}{
+				{"name": "big", "description": strings.Repeat("x", bigToolDescriptionSize)},
+			}}
+		default:
+			continue
+		}
+		payload, _ := json.Marshal(map[string]interface{}{"jsonrpc": "2.0", "id": *message.ID, "result": result})
 		_, _ = writer.Write(payload)
 		_, _ = writer.Write([]byte("\n"))
 		_ = writer.Flush()
@@ -194,6 +239,22 @@ func TestStdioClientProcessExitsBeforeResponse(t *testing.T) {
 
 	if err := client.Connect(context.Background()); err == nil {
 		t.Fatalf("expected connect to fail when the server exits without replying")
+	}
+}
+
+func TestStdioClientLargeResponse(t *testing.T) {
+	client := NewClient(stdioServerConfiguration("big"))
+	defer func() { _ = client.Close() }()
+
+	if err := client.Connect(context.Background()); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	tools, err := client.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	if len(tools) != 1 || len(tools[0].Description) != bigToolDescriptionSize {
+		t.Fatalf("expected one tool with a %d-byte description, got %d tools (description %d bytes)", bigToolDescriptionSize, len(tools), len(tools[0].Description))
 	}
 }
 
