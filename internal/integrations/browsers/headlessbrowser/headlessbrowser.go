@@ -420,7 +420,7 @@ func (self *Headless) SendCDPCommand(ctx context.Context, method string, paramet
 		"sessionId": sessionId,
 	}
 	if parameters != nil {
-		message["parameters"] = parameters
+		message["params"] = parameters
 	}
 
 	if err := self.writeJson(connection, message); err != nil {
@@ -456,7 +456,7 @@ func (self *Headless) sendBrowserCommand(ctx context.Context, method string, par
 		"method": method,
 	}
 	if parameters != nil {
-		message["parameters"] = parameters
+		message["params"] = parameters
 	}
 
 	if err := self.writeJson(connection, message); err != nil {
@@ -555,7 +555,7 @@ func (self *Headless) readLoop(connection *websocket.Conn, done chan struct{}) {
 		var frame struct {
 			ID         *int            `json:"id"`
 			Method     string          `json:"method"`
-			Parameters json.RawMessage `json:"parameters"`
+			Parameters json.RawMessage `json:"params"`
 			Result     json.RawMessage `json:"result"`
 			Error      *struct {
 				Code    int    `json:"code"`
