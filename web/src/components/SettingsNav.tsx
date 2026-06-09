@@ -226,6 +226,33 @@ export default function SettingsNav({
           {backend.isAdmin && (
             <ListItemButton
               dense
+              onClick={() => onNavigate("/settings/mcp")}
+              sx={{
+                borderRadius: 1,
+                mb: 0.25,
+                ...(activeSectionId === "mcp"
+                  ? {
+                      bgcolor: "accentDim",
+                      color: "#fff",
+                      "&:hover": { bgcolor: "accentDim" },
+                    }
+                  : {}),
+              }}
+            >
+              <ListItemText
+                primary={t("mcpServers.title")}
+                primaryTypographyProps={{
+                  variant: "caption",
+                  fontSize: "13px",
+                  color: activeSectionId === "mcp" ? "#fff" : "text.secondary",
+                }}
+              />
+            </ListItemButton>
+          )}
+
+          {backend.isAdmin && (
+            <ListItemButton
+              dense
               onClick={() => onNavigate("/settings/skills")}
               sx={{
                 borderRadius: 1,

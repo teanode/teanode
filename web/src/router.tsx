@@ -22,6 +22,7 @@ import SettingsPreferencesPage from "./routes/settings/preferences";
 import SettingsProfilePage from "./routes/settings/profile";
 import SettingsTokensPage from "./routes/settings/tokens";
 import SettingsConnectionsPage from "./routes/settings/connections";
+import SettingsMcpServersPage from "./routes/settings/mcpServers";
 import SettingsPasswordPage from "./routes/settings/password";
 import SettingsSessionsPage from "./routes/settings/sessions";
 import SettingsAgentsPage from "./routes/settings/agents";
@@ -172,6 +173,13 @@ const settingsConnectionsRoute = createRoute({
   component: SettingsConnectionsPage,
 });
 
+// /settings/mcp → MCP server definition management (admin only)
+const settingsMcpServersRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "mcp",
+  component: SettingsMcpServersPage,
+});
+
 // /settings/password → password management
 const settingsPasswordRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -298,6 +306,7 @@ const routeTree = rootRoute.addChildren([
     settingsPreferencesRoute,
     settingsTokensRoute,
     settingsConnectionsRoute,
+    settingsMcpServersRoute,
     settingsPasswordRoute,
     settingsSessionsRoute,
     settingsAgentsRoute,

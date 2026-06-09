@@ -413,6 +413,7 @@
           "type": "object",
           "title": "MCP Servers",
           "description": "Model Context Protocol servers. Their tools are discovered and exposed as 'mcp__<name>__<tool>'. Supports the remote streamable HTTP transport and the local stdio (subprocess) transport; tools capability only.",
+          "x-widget": "hidden",
           "properties": {
             "servers": {
               "type": "array",
