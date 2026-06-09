@@ -28,6 +28,12 @@ func TestMain(m *testing.M) {
 	case "no-tools":
 		runStdioTestServer(true)
 		return
+	case "hang":
+		// Read input but never reply, so the client must rely on its timeout.
+		reader := bufio.NewScanner(os.Stdin)
+		for reader.Scan() {
+		}
+		select {}
 	}
 	os.Exit(m.Run())
 }
@@ -188,6 +194,19 @@ func TestStdioClientProcessExitsBeforeResponse(t *testing.T) {
 
 	if err := client.Connect(context.Background()); err == nil {
 		t.Fatalf("expected connect to fail when the server exits without replying")
+	}
+}
+
+func TestStdioClientTimeout(t *testing.T) {
+	configuration := stdioServerConfiguration("hang")
+	configuration.Timeout = 200 * time.Millisecond
+	client := NewClient(configuration)
+	defer func() { _ = client.Close() }()
+
+	// The server never replies; the per-request timeout must abort the call even
+	// though the caller passes a deadline-free context.
+	if err := client.Connect(context.Background()); err == nil {
+		t.Fatalf("expected connect to time out against a non-responsive server")
 	}
 }
 

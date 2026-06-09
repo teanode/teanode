@@ -70,6 +70,14 @@ func (self *stdioTransport) roundTrip(ctx context.Context, payload []byte) (*jso
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	// Bound each request by the server's configured timeout even when the caller
+	// passes a deadline-free context, matching the per-request timeout the HTTP
+	// transport gets from http.Client so a hung subprocess cannot block forever.
+	if self.server.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, self.server.Timeout)
+		defer cancel()
+	}
 	if err := self.ensureStarted(); err != nil {
 		return nil, err
 	}
@@ -232,15 +240,28 @@ func (self *stdioTransport) close() error {
 	if stdin != nil {
 		_ = stdin.Close()
 	}
-	// Wait for the reader to drain stdout before reaping, so command.Wait does
-	// not close the pipe out from under an in-progress read.
+	// First wait for the reader to drain stdout, so command.Wait does not close
+	// the pipe out from under an in-progress read. Kill if it overstays.
 	select {
 	case <-self.readDone:
 	case <-time.After(stdioShutdownGrace):
 		_ = command.Process.Kill()
 		<-self.readDone
 	}
-	_ = command.Wait()
+	// Then reap the process, killing it if it stopped producing output but has
+	// not actually exited (a misbehaving server that closes stdout yet lingers),
+	// so Close never blocks indefinitely.
+	waited := make(chan error, 1)
+	go func() {
+		defer deferutil.Recover()
+		waited <- command.Wait()
+	}()
+	select {
+	case <-waited:
+	case <-time.After(stdioShutdownGrace):
+		_ = command.Process.Kill()
+		<-waited
+	}
 	return nil
 }
 

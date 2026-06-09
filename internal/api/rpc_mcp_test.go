@@ -565,6 +565,54 @@ func TestMCPConnectionsCreateRejectsNonUserServer(t *testing.T) {
 	}
 }
 
+// TestMCPConnectionsCreateRejectsStdioServer verifies that a stdio server — even
+// one misconfigured with auth: user — never accepts a per-user connection, so no
+// dead connection record is stored for a server the runtime treats as shared.
+func TestMCPConnectionsCreateRejectsStdioServer(t *testing.T) {
+	openedStore, openError := fsstore.Open(fsstore.Options{DataDirectory: t.TempDir()})
+	if openError != nil {
+		t.Fatalf("opening store: %v", openError)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	if migrateError := openedStore.Migrate(context.Background()); migrateError != nil {
+		t.Fatalf("migrating store: %v", migrateError)
+	}
+
+	var userId string
+	userMode := models.MCPServerAuthUser
+	stdio := models.MCPServerTransportStdio
+	if err := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		user, createError := transaction.CreateUser(ctx, &models.User{Username: ptrto.Value("alice")}, nil, nil)
+		if createError != nil {
+			return createError
+		}
+		userId = user.ID
+		_, modifyError := transaction.ModifyConfiguration(ctx, func(configuration *models.Configuration) error {
+			configuration.Tools = &models.ToolsConfiguration{
+				MCP: &models.MCPConfiguration{
+					Servers: &[]*models.MCPServerConfiguration{
+						{Name: ptrto.Value("local"), Transport: &stdio, Command: ptrto.Value("my-server"), Auth: &userMode},
+					},
+				},
+			}
+			return nil
+		}, nil)
+		return modifyError
+	}); err != nil {
+		t.Fatalf("seeding store: %v", err)
+	}
+
+	ctx := store.ContextWithStore(context.Background(), openedStore)
+	ctx = models.ContextWithUserSessionToken(ctx, &models.User{ID: userId, Username: ptrto.Value("alice")}, nil, nil)
+	connection := &webSocketConnection{ctx: ctx}
+	if _, err := connection.handleMcpConnectionsCreate(frameWith(t, mcpConnectionsCreateParameters{
+		ServerName:    "local",
+		Authorization: "Bearer x",
+	})); err == nil {
+		t.Error("expected create to be rejected for a stdio server")
+	}
+}
+
 func TestMCPConnectionsCreateRejectsUnknownServer(t *testing.T) {
 	connection, _ := newMCPTestConnection(t, models.MCPServerAuthUser)
 	if _, err := connection.handleMcpConnectionsCreate(frameWith(t, mcpConnectionsCreateParameters{

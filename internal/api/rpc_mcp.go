@@ -196,7 +196,10 @@ func (self *webSocketConnection) handleMcpConnectionsCreate(frame requestFrame) 
 		if server == nil {
 			return web400("unknown MCP server")
 		}
-		if server.ResolvedAuthMode() != models.MCPServerAuthUser {
+		// Stdio servers run locally with no HTTP auth; reject per-user credentials
+		// even if the entry was misconfigured with auth: user, so no dead
+		// connection record is stored for a server the runtime ignores it on.
+		if server.ResolvedTransport() == models.MCPServerTransportStdio || server.ResolvedAuthMode() != models.MCPServerAuthUser {
 			return web400("server does not accept per-user connections")
 		}
 		if _, existingError := transaction.GetMCPConnectionByServer(ctx, self.userId(), serverName, nil); existingError == nil {
@@ -305,7 +308,9 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 		if server == nil {
 			return web400("unknown MCP server")
 		}
-		if server.ResolvedAuthMode() != models.MCPServerAuthOAuth {
+		// Stdio servers never use OAuth; reject the flow even if misconfigured
+		// with auth: oauth so no pending connection is left behind.
+		if server.ResolvedTransport() == models.MCPServerTransportStdio || server.ResolvedAuthMode() != models.MCPServerAuthOAuth {
 			return web400("server is not configured for OAuth")
 		}
 		// Prefer the caller-supplied callback (e.g. the browser's loopback address)
