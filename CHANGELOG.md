@@ -4,6 +4,22 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.7.1] - 2026-06-10
+
+### Fixed
+
+- Telegram and Discord no longer split messages mid-character, which could send invalid UTF-8 to the platform APIs (#66)
+- A stalled WebSocket client can no longer block event delivery to other connected sessions (#66)
+- web_fetch, web search, and skill library downloads now time out instead of hanging on stalled servers (#66)
+- Skill workflow steps no longer silently ignore JSON marshaling and audio read errors (#66)
+
+### Security
+
+- Generate session and API token identifiers from a cryptographically secure source (previously predictable time-seeded entropy) (#66)
+- Prevent username enumeration via login response timing (#66)
+- Limit auth and audio-synthesis request body sizes (#66)
+- Escape entity/camera identifiers in Home Assistant and UniFi Protect API URLs (#66)
+
 ## [0.7.0] - 2026-06-09
 
 ### Added
