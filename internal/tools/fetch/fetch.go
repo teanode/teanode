@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/models"
@@ -19,6 +20,10 @@ import (
 var log = logging.MustGetLogger("fetch")
 
 const maxFetchBodyBytes = 128 * 1024 // 128 KB
+
+// fetchClient bounds the total request time so a stalled remote server cannot
+// hang the tool indefinitely; the context can still cancel it sooner.
+var fetchClient = &http.Client{Timeout: 60 * time.Second}
 
 func init() {
 	tools.RegisterBuiltinTool(func() []tools.Tool {
@@ -108,7 +113,7 @@ func (self *fetchTool) Execute(ctx context.Context, rawArguments string) (string
 		request.Header.Set(key, value)
 	}
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := fetchClient.Do(request)
 	if err != nil {
 		return "", fmt.Errorf("fetch: fetching url: %w", err)
 	}

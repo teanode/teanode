@@ -447,7 +447,7 @@ function StringArrayField({
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 1 }}>
         {items.map((item, index) => (
           <Chip
-            key={index}
+            key={item}
             label={item}
             size="small"
             onDelete={() => removeItem(index)}

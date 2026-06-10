@@ -247,8 +247,8 @@ func (self *Client) fetch(ctx context.Context, fetchUrl string) ([]byte, error) 
 // well-known segment is inserted between the host and the resource path
 // (e.g. https://host/.well-known/oauth-protected-resource/mcp/trading); the
 // host-root form is offered as a fallback for servers that ignore the path.
-func protectedResourceMetadataURLs(resourceURL string) []string {
-	return wellKnownURLs(resourceURL, "oauth-protected-resource")
+func protectedResourceMetadataURLs(resourceUrl string) []string {
+	return wellKnownURLs(resourceUrl, "oauth-protected-resource")
 }
 
 // authorizationServerMetadataURLs returns the candidate metadata document URLs
@@ -271,10 +271,10 @@ func authorizationServerMetadataURLs(issuer string) []string {
 // a base URL. Following RFC 8414 §3.1 and RFC 9728 §3.1, the well-known segment
 // is inserted between the host and any path component; the host-root form is
 // always included as a fallback.
-func wellKnownURLs(baseURL, suffix string) []string {
-	parsed, err := url.Parse(baseURL)
+func wellKnownURLs(baseUrl, suffix string) []string {
+	parsed, err := url.Parse(baseUrl)
 	if err != nil || parsed.Host == "" {
-		trimmed := strings.TrimRight(baseURL, "/")
+		trimmed := strings.TrimRight(baseUrl, "/")
 		return []string{trimmed + "/.well-known/" + suffix}
 	}
 	origin := parsed.Scheme + "://" + parsed.Host

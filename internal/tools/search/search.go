@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/models"
@@ -19,6 +20,10 @@ import (
 )
 
 var log = logging.MustGetLogger("search")
+
+// braveClient bounds the total request time so a stalled search API cannot
+// hang the tool indefinitely; the context can still cancel it sooner.
+var braveClient = &http.Client{Timeout: 30 * time.Second}
 
 func init() {
 	tools.RegisterBuiltinTool(func() []tools.Tool {
@@ -132,7 +137,7 @@ func (self *searchTool) Execute(ctx context.Context, rawArguments string) (strin
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("X-Subscription-Token", apiKey)
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := braveClient.Do(request)
 	if err != nil {
 		return "", fmt.Errorf("search: executing search: %w", err)
 	}

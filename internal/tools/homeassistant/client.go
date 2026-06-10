@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -107,7 +108,7 @@ func (self *httpClient) GetStates(ctx context.Context) ([]EntityState, error) {
 }
 
 func (self *httpClient) GetState(ctx context.Context, entityId string) (*EntityState, error) {
-	data, err := self.doRequest(ctx, http.MethodGet, "/api/states/"+entityId, nil)
+	data, err := self.doRequest(ctx, http.MethodGet, "/api/states/"+url.PathEscape(entityId), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +125,7 @@ func (self *httpClient) CallService(ctx context.Context, domain string, service 
 		return nil, fmt.Errorf("homeassistant: marshaling service data: %w", err)
 	}
 
-	path := fmt.Sprintf("/api/services/%s/%s", domain, service)
+	path := fmt.Sprintf("/api/services/%s/%s", url.PathEscape(domain), url.PathEscape(service))
 	responseData, err := self.doRequest(ctx, http.MethodPost, path, strings.NewReader(string(payload)))
 	if err != nil {
 		return nil, err
@@ -137,7 +138,7 @@ func (self *httpClient) GetHistory(ctx context.Context, entityId string, hours i
 		hours = 1
 	}
 	start := time.Now().Add(-time.Duration(hours) * time.Hour).UTC().Format(time.RFC3339)
-	path := fmt.Sprintf("/api/history/period/%s?filter_entity_id=%s&minimal_response", start, entityId)
+	path := fmt.Sprintf("/api/history/period/%s?filter_entity_id=%s&minimal_response", url.PathEscape(start), url.QueryEscape(entityId))
 
 	data, err := self.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {

@@ -341,7 +341,7 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 	// dynamically register a public client if the authorization server advertises
 	// a registration endpoint. The issued client id is persisted on the user's
 	// connection below so subsequent authorizations and refreshes reuse it.
-	var registeredClientID, registeredClientSecret string
+	var registeredClientId, registeredClientSecret string
 	if strings.TrimSpace(oauthConfig.ClientID) == "" {
 		metadata, metadataError := oauthClient.DiscoverMetadata(self.ctx)
 		if metadataError != nil {
@@ -362,9 +362,9 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 		if registerError != nil {
 			return nil, rpcError(502, "dynamic client registration failed: "+registerError.Error())
 		}
-		registeredClientID = registration.ClientID
+		registeredClientId = registration.ClientID
 		registeredClientSecret = registration.ClientSecret
-		oauthConfig.ClientID = registeredClientID
+		oauthConfig.ClientID = registeredClientId
 		oauthConfig.ClientSecret = registeredClientSecret
 		oauthClient = oauth.NewClient(oauthConfig)
 	}
@@ -396,8 +396,8 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 				connection.CodeVerifier = ptrto.Value(pkce.Verifier)
 				connection.OAuthRedirectURI = ptrto.Value(redirectUri)
 				connection.LastError = ptrto.Value("")
-				if registeredClientID != "" {
-					connection.OAuthClientID = ptrto.Value(registeredClientID)
+				if registeredClientId != "" {
+					connection.OAuthClientID = ptrto.Value(registeredClientId)
 					connection.OAuthClientSecret = ptrto.Value(registeredClientSecret)
 				}
 				return nil
@@ -415,8 +415,8 @@ func (self *webSocketConnection) handleMcpConnectionsAuthorize(frame requestFram
 			CodeVerifier:     ptrto.Value(pkce.Verifier),
 			OAuthRedirectURI: ptrto.Value(redirectUri),
 		}
-		if registeredClientID != "" {
-			created.OAuthClientID = ptrto.Value(registeredClientID)
+		if registeredClientId != "" {
+			created.OAuthClientID = ptrto.Value(registeredClientId)
 			created.OAuthClientSecret = ptrto.Value(registeredClientSecret)
 		}
 		_, createError := transaction.CreateMCPConnection(ctx, created, nil)

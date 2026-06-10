@@ -17,6 +17,21 @@ import (
 	"github.com/teanode/teanode/internal/web"
 )
 
+// maxAuthRequestBodyBytes caps auth request bodies; credentials payloads are
+// tiny, so anything larger is rejected before JSON decoding.
+const maxAuthRequestBodyBytes = 4 * 1024
+
+// dummyPasswordHash is a valid bcrypt hash used to equalize login timing when
+// the username does not exist, so attackers cannot enumerate usernames by
+// measuring response time.
+var dummyPasswordHash = func() []byte {
+	hash, err := security.HashPassword("dummy-timing-equalization-password")
+	if err != nil {
+		panic(err)
+	}
+	return hash
+}()
+
 // handleAuthStatus returns the current auth state for the frontend.
 func (self *api) handleAuthStatus(writer http.ResponseWriter, request *http.Request) error {
 	if request.Method != http.MethodGet {
@@ -82,7 +97,7 @@ func (self *api) handleAuthSetup(writer http.ResponseWriter, request *http.Reque
 		Password string `json:"password"`
 		Name     string `json:"name"`
 	}
-	if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, maxAuthRequestBodyBytes)).Decode(&body); err != nil {
 		return web.Error(400, "invalid request body")
 	}
 	if len(body.Password) < 8 {
@@ -157,7 +172,7 @@ func (self *api) handleAuthLogin(writer http.ResponseWriter, request *http.Reque
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, maxAuthRequestBodyBytes)).Decode(&body); err != nil {
 		return web.Error(400, "invalid request body")
 	}
 	username := body.Username
@@ -172,6 +187,9 @@ func (self *api) handleAuthLogin(writer http.ResponseWriter, request *http.Reque
 			return err
 		}
 		if existingUser == nil {
+			// Burn the same bcrypt cost as a real verification so response
+			// timing does not reveal whether the username exists.
+			_, _ = security.VerifyPassword(dummyPasswordHash, body.Password)
 			return nil
 		}
 

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/store"
@@ -23,6 +24,10 @@ const (
 	officialIndexUrl  = "https://raw.githubusercontent.com/teanode/teanode-skills/main/index.json"
 	officialPublicKey = "lPFKUpWbq3G1EykDv6SvsAACW0W/FZUaPiRyFlmEfj4="
 )
+
+// libraryClient bounds the total request time so a stalled registry or
+// download server cannot hang skill operations indefinitely.
+var libraryClient = &http.Client{Timeout: 60 * time.Second}
 
 // Index is the remote skill registry manifest.
 type Index struct {
@@ -64,7 +69,7 @@ func FetchIndex(ctx context.Context) (*Index, error) {
 	if err != nil {
 		return nil, fmt.Errorf("skills: creating index request: %w", err)
 	}
-	response, err := http.DefaultClient.Do(request)
+	response, err := libraryClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("skills: fetching index: %w", err)
 	}
@@ -310,7 +315,7 @@ func downloadSkill(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("skills: creating request: %w", err)
 	}
-	response, err := http.DefaultClient.Do(request)
+	response, err := libraryClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("skills: downloading skill: %w", err)
 	}
